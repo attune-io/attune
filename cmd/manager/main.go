@@ -41,6 +41,9 @@ import (
 )
 
 var (
+	version  = "dev"
+	commit   = "none"
+	date     = "unknown"
 	scheme   = runtime.NewScheme()
 	setupLog = ctrl.Log.WithName("setup")
 )
@@ -138,7 +141,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	setupLog.Info("starting manager")
+	setupLog.Info("starting manager", "version", version, "commit", commit, "date", date)
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)

@@ -49,8 +49,9 @@ kubectl apply -f \
 ```
 
 !!! warning
-    The static manifest uses the default Prometheus address. Edit the
-    Deployment to change the `--prometheus-address` flag if yours differs.
+    The Prometheus address is configured per-policy in
+    `RightSizePolicy.spec.metricsSource.prometheus.address` or globally
+    via the `RightSizeDefaults` CRD.
 
 ## Verify the installation
 

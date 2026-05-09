@@ -71,7 +71,7 @@ spec:
   metricsSource:
     prometheus:
       address: http://prometheus.monitoring:9090
-    historyWindow: 7d
+    historyWindow: 168h
   cpu:
     percentile: 95
     safetyMargin: "1.2"

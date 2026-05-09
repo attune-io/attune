@@ -68,9 +68,8 @@ affinity: {}
 leaderElection:
   enabled: true
 
-# -- Default Prometheus address for metrics collection
-prometheus:
-  address: http://prometheus-server.monitoring:9090
+# -- Prometheus address is configured per-policy in RightSizePolicy.spec.metricsSource.prometheus.address
+# -- or globally via the RightSizeDefaults CRD. It is NOT a chart value.
 
 # -- Metrics endpoint
 metrics:

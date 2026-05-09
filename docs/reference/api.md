@@ -128,7 +128,7 @@ spec:
   metricsSource:    # same structure as RightSizePolicy.spec.metricsSource
     prometheus:
       address: http://prometheus.monitoring:9090
-    historyWindow: 7d
+    historyWindow: 168h
     minimumDataPoints: 168
   cpu:              # same structure as RightSizePolicy.spec.cpu
     percentile: 95

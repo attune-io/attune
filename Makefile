@@ -116,11 +116,12 @@ uninstall: ## Uninstall CRDs from the cluster
 
 .PHONY: deploy
 deploy: manifests ## Deploy operator to the cluster
-	kubectl apply -k config/manager/
+	cd config/manager && kustomize edit set image controller=$(IMG)
+	kubectl apply -k config/default/
 
 .PHONY: undeploy
 undeploy: ## Undeploy operator from the cluster
-	kubectl delete -k config/manager/ --ignore-not-found
+	kubectl delete -k config/default/ --ignore-not-found
 
 ##@ Local Development
 

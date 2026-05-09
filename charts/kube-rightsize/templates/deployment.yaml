@@ -44,6 +44,14 @@ spec:
             - --enable-webhooks=false
             {{- end }}
             {{- end }}
+            {{- with .Values.logging }}
+            {{- if .level }}
+            - --zap-log-level={{ .level }}
+            {{- end }}
+            {{- if eq .format "text" }}
+            - --zap-devel=true
+            {{- end }}
+            {{- end }}
           ports:
             {{- if .Values.metrics.enabled }}
             - name: metrics

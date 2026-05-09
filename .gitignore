@@ -1,6 +1,7 @@
 # Binaries
 bin/
 dist/
+/manager
 
 # Go
 vendor/

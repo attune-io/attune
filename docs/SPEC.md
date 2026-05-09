@@ -177,7 +177,7 @@ spec:
       # bearerTokenSecretRef:
       #   name: prometheus-token
     # How far back to look for usage patterns
-    historyWindow: 7d         # default: 7d, min: 1d, max: 30d
+    historyWindow: 168h       # default: 168h (7d), min: 24h, max: 720h
     # Minimum data points before making recommendations
     minimumDataPoints: 168    # default: 168 (7 days * 24 hours)
 
@@ -348,7 +348,7 @@ spec:
   metricsSource:
     prometheus:
       address: http://prometheus.monitoring:9090
-    historyWindow: 7d
+    historyWindow: 168h
     minimumDataPoints: 168
   cpu:
     percentile: 95

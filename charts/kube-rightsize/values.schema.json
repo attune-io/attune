@@ -234,19 +234,6 @@
       },
       "additionalProperties": false
     },
-    "prometheus": {
-      "type": "object",
-      "description": "Default Prometheus address for metrics collection",
-      "properties": {
-        "address": {
-          "type": "string",
-          "description": "Prometheus server address",
-          "default": "http://prometheus-server.monitoring:9090",
-          "format": "uri"
-        }
-      },
-      "additionalProperties": false
-    },
     "metrics": {
       "type": "object",
       "description": "Metrics endpoint configuration",
