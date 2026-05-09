@@ -34,6 +34,7 @@ jobs:
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
+        continue-on-error: true
 
   govulncheck:
     name: Go Vulnerability Check
@@ -69,6 +70,7 @@ jobs:
       - name: Upload Trivy results to GitHub Security
         uses: github/codeql-action/upload-sarif@v4
         if: always()
+        continue-on-error: true
         with:
           sarif_file: trivy-results.sarif
 

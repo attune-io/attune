@@ -60,7 +60,8 @@ lint-fix: golangci-lint ## Run golangci-lint with auto-fix
 
 .PHONY: test
 test: manifests generate ## Run unit tests
-	go test ./api/... ./internal/... -race -count=1 -coverprofile=coverage.out -covermode=atomic
+	go test ./api/... -race -count=1
+	go test ./internal/... -race -count=1 -coverprofile=coverage.out -covermode=atomic
 	@echo ""
 	@go tool cover -func=coverage.out | grep total:
 
