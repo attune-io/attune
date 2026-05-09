@@ -23,6 +23,7 @@ spec:
           image: controller:latest
           args:
             - --leader-elect
+            - --enable-webhooks=false
             - --health-probe-bind-address=:8081
           ports:
             - containerPort: 8080
