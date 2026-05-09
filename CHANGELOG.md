@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Core operator with RightSizePolicy and RightSizeDefaults CRDs
 - Composable recommendation engine: percentile, margin, confidence, bounds, change filter
-- In-place pod resize via `/resize` subresource (K8s 1.35+ In-Place Pod Resize)
+- In-place pod resize via `/resize` subresource (K8s 1.33+ In-Place Pod Resize)
 - 5-mode graduated rollout: Observe, Recommend, OneShot, Canary, Auto
 - Safety monitor with OOM detection, restart tracking, and auto-revert
 - Canary pod selection (percentage-based subset resizing)

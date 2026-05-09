@@ -5,7 +5,7 @@
 # policy's status. No pods are modified.
 #
 # Prerequisites:
-#   - Kubernetes 1.35+ with In-Place Pod Resize enabled
+#   - Kubernetes 1.33+ with In-Place Pod Resize enabled
 #   - Prometheus reachable at the address below
 #   - kube-rightsize operator installed (helm install kube-rightsize ...)
 #

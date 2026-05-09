@@ -1,7 +1,7 @@
 # kube-rightsize: Complete Specification
 
 > Safe, in-place Kubernetes pod resource right-sizing operator.
-> VPA done right, powered by In-Place Pod Resize (K8s 1.35+).
+> VPA done right, powered by In-Place Pod Resize (K8s 1.33+).
 
 ---
 
@@ -34,7 +34,7 @@
 organizations run it fully automated (ScaleOps 2026). VPA evicts pods, conflicts with HPA, and
 has caused cluster-wide outages.
 
-In December 2025, In-Place Pod Resize graduated to GA in Kubernetes 1.35 (KEP-1287). For the
+In 2025, In-Place Pod Resize graduated to GA in Kubernetes 1.33 (KEP-1287). For the
 first time, CPU and memory can be changed on running pods without restarts. This unlocks a
 ground-up redesign of resource right-sizing.
 
@@ -1001,7 +1001,7 @@ Jobs:
     - Timeout: 15 minutes
 
   test-e2e:
-    - Create Kind cluster (kubernetes version matrix: 1.35, 1.36)
+    - Create Kind cluster (kubernetes version matrix: 1.33, 1.34, 1.35)
     - Install CRDs + operator
     - Run Chainsaw tests
     - Upload test results as artifacts

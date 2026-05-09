@@ -131,7 +131,7 @@ undeploy: ## Undeploy operator from the cluster
 
 .PHONY: kind-create
 kind-create: ## Create a Kind cluster for local dev
-	kind create cluster --name kube-rightsize --image kindest/node:v1.35.0 || true
+	kind create cluster --name kube-rightsize --image kindest/node:v1.33.7 || true
 
 .PHONY: kind-delete
 kind-delete: ## Delete the Kind cluster

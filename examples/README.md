@@ -31,6 +31,6 @@ real-world deployments:
 
 All examples assume:
 
-- Kubernetes 1.35+ (in-place pod resize GA)
+- Kubernetes 1.33+ (in-place pod resize GA)
 - Prometheus reachable inside the cluster
 - kube-rightsize operator installed (`helm install kube-rightsize oci://ghcr.io/sebtardif/charts/kube-rightsize`)

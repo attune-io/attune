@@ -20,4 +20,4 @@ keywords:
   - cost-optimization
   - finops
   - in-place-resize
-kubeVersion: ">= 1.35.0-0"
+kubeVersion: ">= 1.33.0-0"

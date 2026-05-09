@@ -26,13 +26,13 @@ The binary is written to `bin/manager`.
 
 ## Local Kind cluster
 
-Create a Kind cluster running Kubernetes 1.35:
+Create a Kind cluster running Kubernetes 1.33+:
 
 ```bash
 make kind-create
 ```
 
-This runs `kind create cluster --name kube-rightsize --image kindest/node:v1.35.0`.
+This runs `kind create cluster --name kube-rightsize --image kindest/node:v1.33.7`.
 
 Install CRDs into the cluster:
 

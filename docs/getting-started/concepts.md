@@ -51,7 +51,7 @@ See [Algorithm](../architecture/algorithm.md) for formulas and details.
 
 ## In-Place Pod Resize
 
-Kubernetes 1.35 introduced GA support for in-place pod resize via the
+Kubernetes 1.33 introduced GA support for in-place pod resize via the
 `/resize` subresource. The kubelet adjusts cgroup limits without restarting
 the container. kube-rightsize calls `UpdateResize` on each pod, then polls
 the container status until the new resources are reported or an `Infeasible`

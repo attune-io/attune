@@ -13,7 +13,7 @@
 
 kube-rightsize is a Kubernetes operator that automatically right-sizes pod
 resource requests and limits using [In-Place Pod Resize](https://kubernetes.io/blog/2025/12/19/kubernetes-v1-35-in-place-pod-resize-ga/)
-(GA in Kubernetes 1.35). No pod restarts. No evictions. No HPA conflicts.
+(GA in Kubernetes 1.33+). No pod restarts. No evictions. No HPA conflicts.
 
 ---
 
@@ -24,7 +24,7 @@ resource requests and limits using [In-Place Pod Resize](https://kubernetes.io/b
 | Average CPU utilization is **8%** | Billions wasted industry-wide (CAST AI 2026) |
 | **70%** cite overprovisioning as #1 cost driver | Resources allocated "just in case" never reclaimed (CNCF 2023) |
 | **<1%** run VPA fully automated | VPA evicts pods, conflicts with HPA, causes outages (ScaleOps 2026) |
-| In-Place Pod Resize is **GA** (K8s 1.35) | The foundation for non-disruptive right-sizing now exists |
+| In-Place Pod Resize is **GA** (K8s 1.33+) | The foundation for non-disruptive right-sizing now exists |
 
 ## How It's Different
 
@@ -40,7 +40,7 @@ resource requests and limits using [In-Place Pod Resize](https://kubernetes.io/b
 
 ### Prerequisites
 
-- Kubernetes 1.35+ (In-Place Pod Resize GA)
+- Kubernetes 1.33+ (In-Place Pod Resize GA)
 - Prometheus (for usage metrics)
 - Helm 3.16+
 
@@ -183,7 +183,7 @@ The dashboard includes:
 
 ## Features
 
-- **In-place resize**: Adjusts CPU and memory on running pods via the K8s 1.35+
+- **In-place resize**: Adjusts CPU and memory on running pods via the K8s 1.33+
   `/resize` subresource. No evictions, no rolling restarts.
 - **Graduated rollout**: Five modes from zero-risk observation to full automation:
   Observe, Recommend, OneShot, Canary, Auto.

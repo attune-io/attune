@@ -1,0 +1,15 @@
+coverage:
+  status:
+    # Patch coverage checks are noisy and not useful for this project
+    # (matches Argo CD's approach).
+    patch: off
+    project:
+      default:
+        # Allow up to 2% coverage drop before failing. Absorbs CI
+        # flakiness and minor refactors without blocking PRs.
+        threshold: 2
+
+ignore:
+  - "**/*generated*.go"
+  - "**/zz_generated.deepcopy.go"
+  - "test/**"

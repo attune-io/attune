@@ -4,7 +4,7 @@ Safe, in-place Kubernetes pod resource right-sizing operator.
 
 ## Prerequisites
 
-- Kubernetes 1.35+ (In-Place Pod Resize GA)
+- Kubernetes 1.33+ (In-Place Pod Resize GA)
 - Prometheus (for usage metrics)
 - Helm 3.16+
 
