@@ -97,7 +97,7 @@ spec:
                 namespace: e2e-canary-rollout
               status:
                 readyReplicas: 3
-    - name: verify-policy-ready
+    - name: verify-policy-status
       try:
         - assert:
             resource:
@@ -109,7 +109,8 @@ spec:
               status:
                 conditions:
                   - type: Ready
-                    status: "True"
+                    status: "False"
+                    reason: InsufficientData
   catch:
     - describe:
         apiVersion: rightsize.io/v1alpha1

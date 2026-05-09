@@ -94,7 +94,7 @@ spec:
                 namespace: e2e-oneshot-resize
               status:
                 readyReplicas: 1
-    - name: verify-policy-ready
+    - name: verify-policy-status
       try:
         - assert:
             resource:
@@ -106,9 +106,8 @@ spec:
               status:
                 conditions:
                   - type: Ready
-                    status: "True"
-                workloads:
-                  (discovered >= `1`): true
+                    status: "False"
+                    reason: InsufficientData
   catch:
     - describe:
         apiVersion: rightsize.io/v1alpha1

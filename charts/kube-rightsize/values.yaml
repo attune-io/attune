@@ -85,8 +85,11 @@ metrics:
 
 # -- Webhook configuration
 webhooks:
-  # -- Enable admission webhooks (requires cert-manager or manual TLS cert provisioning)
-  enabled: true
+  # -- Enable admission webhooks (requires cert-manager or manual TLS cert provisioning).
+  # -- Disabled by default because the chart does not include webhook infrastructure
+  # -- (ValidatingWebhookConfiguration, cert-manager Certificate/Issuer templates).
+  # -- Enable only if you provision TLS certs externally.
+  enabled: false
 
 # -- Logging configuration
 logging:

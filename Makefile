@@ -143,6 +143,7 @@ kind-deploy: docker-build ## Build, load, and deploy to Kind
 .PHONY: build-installer
 build-installer: manifests ## Generate install manifest for release
 	mkdir -p dist
+	cd config/manager && kustomize edit set image controller=$(IMG)
 	kubectl kustomize config/default > dist/install.yaml
 
 ##@ Tools
