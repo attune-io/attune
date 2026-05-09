@@ -11,16 +11,46 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Cancel in-progress PR runs but never cancel main (prevents cache corruption).
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   GO_VERSION: "1.26"
   GOLANGCI_LINT_VERSION: "v2.12.2"
 
 jobs:
+  # Detect which files changed so downstream jobs can skip irrelevant work.
+  # Docs-only or YAML-only PRs skip all Go CI (lint, test, build).
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      go: ${{ steps.filter.outputs.go }}
+      helm: ${{ steps.filter.outputs.helm }}
+      yaml: ${{ steps.filter.outputs.yaml }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            go:
+              - '**/*.go'
+              - 'go.mod'
+              - 'go.sum'
+              - 'Makefile'
+              - 'Dockerfile'
+            helm:
+              - 'charts/**'
+            yaml:
+              - 'config/**'
+              - '.github/workflows/**'
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
     steps:
       - uses: actions/checkout@v6
 
@@ -52,20 +82,28 @@ jobs:
   test-unit:
     name: Unit Tests
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
     steps:
       - uses: actions/checkout@v6
 
       - uses: actions/setup-go@v6
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install gotestsum
+        shell: bash -Eeuo pipefail {0}
+        run: go install gotest.tools/gotestsum@latest
 
       - name: Run unit tests
         shell: bash -Eeuo pipefail -x {0}
         run: |
-          go test ./api/... -race -count=1 -timeout=10m
-          go test ./cmd/... -race -count=1 -timeout=10m
-          go test ./internal/... \
-            -race -count=1 -timeout=10m \
+          gotestsum --format pkgname \
+            --junitfile test-results/unit.xml \
+            --rerun-fails --rerun-fails-max-failures=5 \
+            -- ./api/... ./cmd/... ./internal/... \
+            -race -timeout=10m \
             -coverprofile=coverage.out \
             -covermode=atomic
 
@@ -79,6 +117,14 @@ jobs:
             exit 1
           fi
 
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-results
+          path: test-results/
+          retention-days: 7
+
       - name: Upload coverage
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: codecov/codecov-action@v4
@@ -89,12 +135,19 @@ jobs:
   test-integration:
     name: Integration Tests
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
     steps:
       - uses: actions/checkout@v6
 
       - uses: actions/setup-go@v6
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install gotestsum
+        shell: bash -Eeuo pipefail {0}
+        run: go install gotest.tools/gotestsum@latest
 
       - name: Setup envtest
         shell: bash -Eeuo pipefail -x {0}
@@ -105,15 +158,27 @@ jobs:
       - name: Run integration tests
         shell: bash -Eeuo pipefail -x {0}
         run: |
-          go test ./test/integration/... \
-            -race -count=1 -timeout=15m \
+          gotestsum --format pkgname \
+            --junitfile test-results/integration.xml \
+            --rerun-fails --rerun-fails-max-failures=3 \
+            -- ./test/integration/... \
+            -race -timeout=15m \
             -tags=integration
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-results
+          path: test-results/
+          retention-days: 7
 
   test-e2e:
     name: E2E Tests
     runs-on: ubuntu-latest
     continue-on-error: true
-    needs: [lint, test-unit]
+    needs: [changes, lint, test-unit]
+    if: needs.changes.outputs.go == 'true'
     strategy:
       matrix:
         k8s-version: ["v1.35.0"]
@@ -124,6 +189,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: true
 
       - name: Create Kind cluster
         uses: helm/kind-action@v1
@@ -168,12 +234,15 @@ jobs:
   crd-freshness:
     name: CRD Freshness Check
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
     steps:
       - uses: actions/checkout@v6
 
       - uses: actions/setup-go@v6
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: true
 
       - name: Regenerate manifests
         shell: bash -Eeuo pipefail -x {0}
@@ -190,6 +259,8 @@ jobs:
   helm-lint:
     name: Helm Lint
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.helm == 'true' || needs.changes.outputs.go == 'true'
     steps:
       - uses: actions/checkout@v6
 
@@ -222,12 +293,15 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
     steps:
       - uses: actions/checkout@v6
 
       - uses: actions/setup-go@v6
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: true
 
       - name: Build binaries
         shell: bash -Eeuo pipefail -x {0}

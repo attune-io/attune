@@ -19,6 +19,7 @@ Thumbs.db
 
 # Test
 coverage.out
+test-results/
 *.test
 
 # Build
