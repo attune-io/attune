@@ -336,3 +336,74 @@ func TestPreservesQoS(t *testing.T) {
 		})
 	}
 }
+
+func TestResizePod_ContainerNotFound(t *testing.T) {
+	pod := newTestPod("web-0", "default", "app", "100m", "128Mi", "200m", "256Mi")
+	fakeClient := fake.NewSimpleClientset(pod)
+
+	resizer := NewPodResizer(fakeClient, testr.New(t))
+
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("250m"),
+			corev1.ResourceMemory: resource.MustParse("512Mi"),
+		},
+	}
+
+	results, err := resizer.ResizePod(context.Background(), pod, "nonexistent", target)
+	assert.Error(t, err)
+	assert.Nil(t, results)
+	assert.Contains(t, err.Error(), "not found")
+}
+
+func TestWaitForResize_ImmediateSuccess(t *testing.T) {
+	targetCPU := resource.MustParse("250m")
+	targetMem := resource.MustParse("512Mi")
+
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "web-0",
+			Namespace: "default",
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "app",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    targetCPU.DeepCopy(),
+							corev1.ResourceMemory: targetMem.DeepCopy(),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{
+					Name: "app",
+					Resources: &corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    targetCPU.DeepCopy(),
+							corev1.ResourceMemory: targetMem.DeepCopy(),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	fakeClient := fake.NewSimpleClientset(pod)
+	resizer := NewPodResizer(fakeClient, testr.New(t))
+
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    targetCPU.DeepCopy(),
+			corev1.ResourceMemory: targetMem.DeepCopy(),
+		},
+	}
+
+	err := resizer.WaitForResize(context.Background(), "default", "web-0", "app", target, 10*time.Second)
+	assert.NoError(t, err)
+}

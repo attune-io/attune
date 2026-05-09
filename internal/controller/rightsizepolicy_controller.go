@@ -30,6 +30,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -38,11 +39,16 @@ import (
 	"github.com/SebTardif/kube-rightsize/internal/conflict"
 	rsmetrics "github.com/SebTardif/kube-rightsize/internal/metrics"
 	"github.com/SebTardif/kube-rightsize/internal/recommendation"
+	"github.com/SebTardif/kube-rightsize/internal/resize"
+	"github.com/SebTardif/kube-rightsize/internal/safety"
 )
 
 const (
 	// optOutAnnotation is the annotation key used to skip a workload.
 	optOutAnnotation = "rightsize.io/skip"
+
+	// lastResizeAnnotation is the annotation key for tracking last resize time.
+	lastResizeAnnotation = "rightsize.io/last-resize-time"
 
 	// defaultHistoryWindow is the default history window if not specified.
 	defaultHistoryWindow = 7 * 24 * time.Hour
@@ -74,6 +80,7 @@ type RightSizePolicyReconciler struct {
 	client.Client
 	Scheme         *runtime.Scheme
 	MetricsFactory MetricsCollectorFactory
+	Clientset      kubernetes.Interface // for resize subresource calls
 }
 
 // MetricsCollectorFactory creates MetricsCollector instances from a Prometheus address.
@@ -93,6 +100,9 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 		return ctrl.Result{}, fmt.Errorf("fetching RightSizePolicy: %w", err)
 	}
+
+	// Merge cluster-scoped defaults into the policy.
+	r.mergeDefaults(ctx, &policy)
 
 	// Step 2: Resolve Prometheus address from spec or RightSizeDefaults.
 	prometheusAddr, err := r.resolvePrometheusAddress(ctx, &policy)
@@ -200,7 +210,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 	}
 
-	// Step 8: Update status.
+	// Step 8: Update status fields.
 	policy.Status.Workloads = rightsizev1alpha1.WorkloadStatus{
 		Discovered:          int32(len(workloads)),
 		WithRecommendations: workloadsWithRecs,
@@ -209,6 +219,25 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	// Compute savings estimate.
 	policy.Status.Savings = r.computeSavings(recommendations)
+
+	// Step 9: Execute resizes if mode allows.
+	mode := policy.Spec.UpdateStrategy.Mode
+	if (mode == "OneShot" || mode == "Canary" || mode == "Auto") && !r.isCooldownActive(&policy) {
+		resizedCount, history := r.executeResizes(ctx, &policy, workloads, recommendations)
+		if resizedCount > 0 {
+			policy.Status.Workloads.Resized = int32(resizedCount)
+			policy.Status.ResizeHistory = appendHistory(policy.Status.ResizeHistory, history, 20)
+			if err := r.markResizeTime(ctx, &policy); err != nil {
+				logger.Error(err, "Failed to mark resize time")
+			}
+			// Re-update status with resize results
+			if statusErr := r.Status().Update(ctx, &policy); statusErr != nil {
+				logger.Error(statusErr, "Failed to update status after resize")
+			}
+		}
+	} else if mode == "OneShot" || mode == "Canary" || mode == "Auto" {
+		logger.Info("Cooldown active, skipping resize")
+	}
 
 	// Set Ready condition.
 	if workloadsWithRecs > 0 {
@@ -231,12 +260,6 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	if statusErr := r.Status().Update(ctx, &policy); statusErr != nil {
 		return ctrl.Result{}, fmt.Errorf("updating status: %w", statusErr)
-	}
-
-	// Step 9: Handle resize modes (placeholder).
-	mode := policy.Spec.UpdateStrategy.Mode
-	if mode == "OneShot" || mode == "Canary" || mode == "Auto" {
-		logger.Info("Resize would happen here", "mode", mode, "workloads", workloadsWithRecs)
 	}
 
 	// Step 10: Requeue after cooldown.
@@ -666,6 +689,253 @@ func parseFloat64(s string, fallback float64) float64 {
 		return fallback
 	}
 	return v
+}
+
+// isCooldownActive checks if the policy is within the cooldown window since last resize.
+func (r *RightSizePolicyReconciler) isCooldownActive(policy *rightsizev1alpha1.RightSizePolicy) bool {
+	ann := policy.Annotations
+	if ann == nil {
+		return false
+	}
+	lastStr, ok := ann[lastResizeAnnotation]
+	if !ok {
+		return false
+	}
+	last, err := time.Parse(time.RFC3339, lastStr)
+	if err != nil {
+		return false
+	}
+	cooldown := r.parseCooldown(policy)
+	return time.Since(last) < cooldown
+}
+
+// markResizeTime sets the last-resize-time annotation on the policy.
+func (r *RightSizePolicyReconciler) markResizeTime(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy) error {
+	if policy.Annotations == nil {
+		policy.Annotations = make(map[string]string)
+	}
+	policy.Annotations[lastResizeAnnotation] = time.Now().UTC().Format(time.RFC3339)
+	return r.Update(ctx, policy)
+}
+
+// selectPodsForResize selects pods eligible for resize based on the update mode.
+func selectPodsForResize(pods []corev1.Pod, mode string, canaryPercentage int32) []corev1.Pod {
+	var eligible []corev1.Pod
+	for _, p := range pods {
+		if resize.CanResizeInPlace(&p) {
+			eligible = append(eligible, p)
+		}
+	}
+	if len(eligible) == 0 {
+		return nil
+	}
+
+	switch mode {
+	case "OneShot":
+		return eligible[:1]
+	case "Canary":
+		count := int(canaryPercentage) * len(eligible) / 100
+		if count < 1 {
+			count = 1
+		}
+		if count > len(eligible) {
+			count = len(eligible)
+		}
+		return eligible[:count]
+	case "Auto":
+		return eligible // resize all in Auto mode
+	default:
+		return nil
+	}
+}
+
+// executeResizes performs the actual pod resizes for all workloads with recommendations.
+func (r *RightSizePolicyReconciler) executeResizes(
+	ctx context.Context,
+	policy *rightsizev1alpha1.RightSizePolicy,
+	workloads []client.Object,
+	recommendations []rightsizev1alpha1.WorkloadRecommendation,
+) (int, []rightsizev1alpha1.ResizeHistoryEntry) {
+	logger := log.FromContext(ctx)
+	if r.Clientset == nil {
+		logger.Info("No clientset configured, skipping resize execution")
+		return 0, nil
+	}
+
+	mode := policy.Spec.UpdateStrategy.Mode
+	canaryPct := int32(10)
+	if policy.Spec.UpdateStrategy.Canary != nil {
+		canaryPct = policy.Spec.UpdateStrategy.Canary.Percentage
+	}
+
+	resizer := resize.NewPodResizer(r.Clientset, logger)
+	monitor := safety.NewMonitor(r.Clientset, logger)
+
+	var totalResized int
+	var history []rightsizev1alpha1.ResizeHistoryEntry
+	now := metav1.Now()
+
+	for _, rec := range recommendations {
+		// Find the matching workload
+		var matchedWorkload client.Object
+		for _, w := range workloads {
+			if w.GetName() == rec.Workload {
+				matchedWorkload = w
+				break
+			}
+		}
+		if matchedWorkload == nil {
+			continue
+		}
+
+		// Get pods for this workload
+		pods, err := r.getPodsForWorkload(ctx, matchedWorkload)
+		if err != nil {
+			logger.Error(err, "Failed to get pods for resize", "workload", rec.Workload)
+			continue
+		}
+
+		selectedPods := selectPodsForResize(pods, mode, canaryPct)
+		if len(selectedPods) == 0 {
+			continue
+		}
+
+		for _, pod := range selectedPods {
+			for _, containerRec := range rec.Containers {
+				target := corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    containerRec.Recommended.CPURequest.DeepCopy(),
+						corev1.ResourceMemory: containerRec.Recommended.MemoryRequest.DeepCopy(),
+					},
+					Limits: corev1.ResourceList{
+						corev1.ResourceCPU:    containerRec.Recommended.CPULimit.DeepCopy(),
+						corev1.ResourceMemory: containerRec.Recommended.MemoryLimit.DeepCopy(),
+					},
+				}
+
+				// Pre-check: QoS preservation
+				if !resize.PreservesQoS(&pod, containerRec.Name, target) {
+					logger.Info("Skipping resize: would change QoS class",
+						"pod", pod.Name, "container", containerRec.Name)
+					continue
+				}
+
+				// Execute resize
+				results, err := resizer.ResizePod(ctx, &pod, containerRec.Name, target)
+				if err != nil {
+					logger.Error(err, "Failed to resize pod",
+						"pod", pod.Name, "container", containerRec.Name)
+					for _, res := range results {
+						history = append(history, rightsizev1alpha1.ResizeHistoryEntry{
+							Timestamp: now,
+							Workload:  rec.Workload,
+							Container: containerRec.Name,
+							Resource:  res.Resource,
+							From:      res.From.String(),
+							To:        res.To.String(),
+							Method:    "InPlace",
+							Result:    "Failed",
+						})
+					}
+					continue
+				}
+
+				totalResized++
+				for _, res := range results {
+					result := "Success"
+					if !res.Success {
+						result = "Failed"
+					}
+					history = append(history, rightsizev1alpha1.ResizeHistoryEntry{
+						Timestamp: now,
+						Workload:  rec.Workload,
+						Container: containerRec.Name,
+						Resource:  res.Resource,
+						From:      res.From.String(),
+						To:        res.To.String(),
+						Method:    "InPlace",
+						Result:    result,
+					})
+				}
+
+				// Safety check (if autoRevert is enabled)
+				if policy.Spec.UpdateStrategy.AutoRevert {
+					observationEnd := time.Now().Add(30 * time.Second)
+					record := safety.ResizeRecord{
+						PodName:           pod.Name,
+						Namespace:         pod.Namespace,
+						Container:         containerRec.Name,
+						OriginalResources: pod.Spec.Containers[0].Resources,
+						NewResources:      target,
+						ResizedAt:         time.Now(),
+						ObservationEnd:    observationEnd,
+					}
+
+					verdict, err := monitor.CheckPod(ctx, record)
+					if err != nil {
+						logger.Error(err, "Safety check failed", "pod", pod.Name)
+					}
+					if !verdict.Safe {
+						logger.Info("Safety violation detected, reverting",
+							"pod", pod.Name, "reason", verdict.Reason)
+						if revertErr := monitor.RevertPod(ctx, record); revertErr != nil {
+							logger.Error(revertErr, "Failed to revert pod", "pod", pod.Name)
+						}
+						// Update history entry to Reverted
+						for i := len(history) - 1; i >= 0; i-- {
+							if history[i].Workload == rec.Workload && history[i].Container == containerRec.Name {
+								history[i].Result = "Reverted"
+							}
+						}
+						totalResized--
+					}
+				}
+			}
+		}
+	}
+
+	return totalResized, history
+}
+
+// appendHistory appends new entries to existing history, capping at maxEntries.
+func appendHistory(existing []rightsizev1alpha1.ResizeHistoryEntry,
+	newEntries []rightsizev1alpha1.ResizeHistoryEntry, maxEntries int) []rightsizev1alpha1.ResizeHistoryEntry {
+	result := append(existing, newEntries...)
+	if len(result) > maxEntries {
+		result = result[len(result)-maxEntries:]
+	}
+	return result
+}
+
+// mergeDefaults reads the cluster-scoped RightSizeDefaults and merges values
+// into the policy where the policy has not specified its own values.
+func (r *RightSizePolicyReconciler) mergeDefaults(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy) {
+	var defaultsList rightsizev1alpha1.RightSizeDefaultsList
+	if err := r.List(ctx, &defaultsList); err != nil || len(defaultsList.Items) == 0 {
+		return
+	}
+	defaults := defaultsList.Items[0].Spec
+
+	// Merge CPU config
+	if policy.Spec.CPU.Percentile == 0 && defaults.CPU != nil {
+		policy.Spec.CPU.Percentile = defaults.CPU.Percentile
+	}
+	if policy.Spec.CPU.SafetyMargin == "" && defaults.CPU != nil {
+		policy.Spec.CPU.SafetyMargin = defaults.CPU.SafetyMargin
+	}
+
+	// Merge Memory config
+	if policy.Spec.Memory.Percentile == 0 && defaults.Memory != nil {
+		policy.Spec.Memory.Percentile = defaults.Memory.Percentile
+	}
+	if policy.Spec.Memory.SafetyMargin == "" && defaults.Memory != nil {
+		policy.Spec.Memory.SafetyMargin = defaults.Memory.SafetyMargin
+	}
+
+	// Merge UpdateStrategy mode
+	if policy.Spec.UpdateStrategy.Mode == "" && defaults.UpdateStrategy != nil {
+		policy.Spec.UpdateStrategy.Mode = defaults.UpdateStrategy.Mode
+	}
 }
 
 // SetupWithManager sets up the controller with the Manager.

@@ -1,0 +1,207 @@
+/*
+Copyright 2026.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package controller
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"k8s.io/apimachinery/pkg/api/resource"
+
+	rightsizev1alpha1 "github.com/SebTardif/kube-rightsize/api/v1alpha1"
+)
+
+func TestComputeSavings_Empty(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	savings := r.computeSavings(nil)
+	assert.Empty(t, savings.CPURequestReduction)
+	assert.Empty(t, savings.MemoryRequestReduction)
+	assert.Empty(t, savings.EstimatedMonthlySavings)
+}
+
+func TestComputeSavings_CPUReduction(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "api-server",
+			Kind:     "Deployment",
+			Containers: []rightsizev1alpha1.ContainerRecommendation{
+				{
+					Name: "main",
+					Current: rightsizev1alpha1.ResourceValues{
+						CPURequest:    resource.MustParse("500m"),
+						MemoryRequest: resource.MustParse("512Mi"),
+					},
+					Recommended: rightsizev1alpha1.ResourceValues{
+						CPURequest:    resource.MustParse("150m"),
+						MemoryRequest: resource.MustParse("512Mi"),
+					},
+				},
+			},
+		},
+	}
+
+	savings := r.computeSavings(recommendations)
+	// 500m - 150m = 350m saved.
+	assert.Equal(t, "350m", savings.CPURequestReduction)
+	// Memory unchanged.
+	assert.Empty(t, savings.MemoryRequestReduction)
+}
+
+func TestComputeSavings_MemoryReduction(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "api-server",
+			Kind:     "Deployment",
+			Containers: []rightsizev1alpha1.ContainerRecommendation{
+				{
+					Name: "main",
+					Current: rightsizev1alpha1.ResourceValues{
+						CPURequest:    resource.MustParse("500m"),
+						MemoryRequest: resource.MustParse("512Mi"),
+					},
+					Recommended: rightsizev1alpha1.ResourceValues{
+						CPURequest:    resource.MustParse("500m"),
+						MemoryRequest: resource.MustParse("280Mi"),
+					},
+				},
+			},
+		},
+	}
+
+	savings := r.computeSavings(recommendations)
+	// CPU unchanged.
+	assert.Empty(t, savings.CPURequestReduction)
+	// 512Mi - 280Mi = 232Mi saved.
+	assert.Equal(t, "232Mi", savings.MemoryRequestReduction)
+}
+
+func TestComputeSavings_MultipleWorkloads(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "api-server",
+			Kind:     "Deployment",
+			Containers: []rightsizev1alpha1.ContainerRecommendation{
+				{
+					Name: "main",
+					Current: rightsizev1alpha1.ResourceValues{
+						CPURequest:    resource.MustParse("500m"),
+						MemoryRequest: resource.MustParse("512Mi"),
+					},
+					Recommended: rightsizev1alpha1.ResourceValues{
+						CPURequest:    resource.MustParse("300m"),
+						MemoryRequest: resource.MustParse("384Mi"),
+					},
+				},
+			},
+		},
+		{
+			Workload: "worker",
+			Kind:     "Deployment",
+			Containers: []rightsizev1alpha1.ContainerRecommendation{
+				{
+					Name: "main",
+					Current: rightsizev1alpha1.ResourceValues{
+						CPURequest:    resource.MustParse("1000m"),
+						MemoryRequest: resource.MustParse("1Gi"),
+					},
+					Recommended: rightsizev1alpha1.ResourceValues{
+						CPURequest:    resource.MustParse("900m"),
+						MemoryRequest: resource.MustParse("768Mi"),
+					},
+				},
+			},
+		},
+	}
+
+	savings := r.computeSavings(recommendations)
+	// CPU: (500-300) + (1000-900) = 200 + 100 = 300m.
+	assert.Equal(t, "300m", savings.CPURequestReduction)
+	// Memory: (512-384)Mi + (1024-768)Mi = 128Mi + 256Mi = 384Mi.
+	assert.Equal(t, "384Mi", savings.MemoryRequestReduction)
+}
+
+func TestComputeSavings_NoReduction(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "api-server",
+			Kind:     "Deployment",
+			Containers: []rightsizev1alpha1.ContainerRecommendation{
+				{
+					Name: "main",
+					Current: rightsizev1alpha1.ResourceValues{
+						CPURequest:    resource.MustParse("200m"),
+						MemoryRequest: resource.MustParse("256Mi"),
+					},
+					Recommended: rightsizev1alpha1.ResourceValues{
+						CPURequest:    resource.MustParse("300m"),
+						MemoryRequest: resource.MustParse("512Mi"),
+					},
+				},
+			},
+		},
+	}
+
+	savings := r.computeSavings(recommendations)
+	// Recommended >= current for both resources: no savings.
+	assert.Empty(t, savings.CPURequestReduction)
+	assert.Empty(t, savings.MemoryRequestReduction)
+}
+
+func TestComputeSavings_Mixed(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "api-server",
+			Kind:     "Deployment",
+			Containers: []rightsizev1alpha1.ContainerRecommendation{
+				{
+					Name: "reduce-cpu",
+					Current: rightsizev1alpha1.ResourceValues{
+						CPURequest:    resource.MustParse("500m"),
+						MemoryRequest: resource.MustParse("256Mi"),
+					},
+					Recommended: rightsizev1alpha1.ResourceValues{
+						CPURequest:    resource.MustParse("150m"),
+						MemoryRequest: resource.MustParse("256Mi"),
+					},
+				},
+				{
+					Name: "increase-cpu",
+					Current: rightsizev1alpha1.ResourceValues{
+						CPURequest:    resource.MustParse("100m"),
+						MemoryRequest: resource.MustParse("128Mi"),
+					},
+					Recommended: rightsizev1alpha1.ResourceValues{
+						CPURequest:    resource.MustParse("300m"),
+						MemoryRequest: resource.MustParse("128Mi"),
+					},
+				},
+			},
+		},
+	}
+
+	savings := r.computeSavings(recommendations)
+	// Only the first container saves CPU: 500m - 150m = 350m.
+	// The second container increases CPU, which is not counted.
+	assert.Equal(t, "350m", savings.CPURequestReduction)
+	// No memory savings.
+	assert.Empty(t, savings.MemoryRequestReduction)
+}
