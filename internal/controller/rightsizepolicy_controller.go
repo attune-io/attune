@@ -19,18 +19,14 @@ package controller
 import (
 	"context"
 	"fmt"
-	"math"
-	"strconv"
 	"time"
 
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -117,32 +113,16 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	prometheusAddr, err := r.resolvePrometheusAddress(ctx, &policy)
 	if err != nil {
 		logger.Error(err, "Failed to resolve Prometheus address")
-		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
-			Type:               conditionTypeReady,
-			Status:             metav1.ConditionFalse,
-			Reason:             "PrometheusUnavailable",
-			Message:            fmt.Sprintf("Cannot resolve Prometheus address: %v", err),
-			ObservedGeneration: policy.Generation,
-		})
-		if statusErr := r.Status().Update(ctx, &policy); statusErr != nil {
-			logger.Error(statusErr, "Failed to update status")
-		}
+		r.setFailedCondition(ctx, &policy, "PrometheusUnavailable",
+			fmt.Sprintf("Cannot resolve Prometheus address: %v", err))
 		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 	}
 
 	collector, err := r.MetricsFactory(prometheusAddr)
 	if err != nil {
 		logger.Error(err, "Failed to create metrics collector", "address", prometheusAddr)
-		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
-			Type:               conditionTypeReady,
-			Status:             metav1.ConditionFalse,
-			Reason:             "PrometheusUnavailable",
-			Message:            fmt.Sprintf("Cannot create metrics collector: %v", err),
-			ObservedGeneration: policy.Generation,
-		})
-		if statusErr := r.Status().Update(ctx, &policy); statusErr != nil {
-			logger.Error(statusErr, "Failed to update status")
-		}
+		r.setFailedCondition(ctx, &policy, "PrometheusUnavailable",
+			fmt.Sprintf("Cannot create metrics collector: %v", err))
 		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 	}
 
@@ -156,17 +136,8 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	logger.Info("Discovered workloads", "count", len(workloads))
 
 	if len(workloads) == 0 {
-		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
-			Type:               conditionTypeReady,
-			Status:             metav1.ConditionFalse,
-			Reason:             "InsufficientData",
-			Message:            "No matching workloads found",
-			ObservedGeneration: policy.Generation,
-		})
+		r.setFailedCondition(ctx, &policy, "InsufficientData", "No matching workloads found")
 		policy.Status.Workloads = rightsizev1alpha1.WorkloadStatus{}
-		if statusErr := r.Status().Update(ctx, &policy); statusErr != nil {
-			logger.Error(statusErr, "Failed to update status")
-		}
 		return ctrl.Result{RequeueAfter: r.parseCooldown(&policy)}, nil
 	}
 
@@ -281,180 +252,6 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	return ctrl.Result{RequeueAfter: cooldown}, nil
 }
 
-// discoverWorkloads finds workloads matching the policy's targetRef.
-func (r *RightSizePolicyReconciler) discoverWorkloads(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy) ([]client.Object, error) {
-	targetRef := policy.Spec.TargetRef
-	namespace := policy.Namespace
-
-	// If a specific name is set, get that workload directly.
-	if targetRef.Name != nil && *targetRef.Name != "" {
-		workload, err := r.getWorkloadByName(ctx, namespace, targetRef.Kind, *targetRef.Name)
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				return nil, nil
-			}
-			return nil, err
-		}
-		return []client.Object{workload}, nil
-	}
-
-	// Otherwise, list workloads matching the label selector.
-	if targetRef.Selector != nil {
-		return r.listWorkloadsBySelector(ctx, namespace, targetRef.Kind, targetRef.Selector)
-	}
-
-	return nil, fmt.Errorf("targetRef must specify either name or selector")
-}
-
-// getWorkloadByName fetches a specific workload by kind and name.
-func (r *RightSizePolicyReconciler) getWorkloadByName(ctx context.Context, namespace, kind, name string) (client.Object, error) {
-	key := types.NamespacedName{Namespace: namespace, Name: name}
-
-	switch kind {
-	case "Deployment":
-		obj := &appsv1.Deployment{}
-		if err := r.Get(ctx, key, obj); err != nil {
-			return nil, err
-		}
-		return obj, nil
-	case "StatefulSet":
-		obj := &appsv1.StatefulSet{}
-		if err := r.Get(ctx, key, obj); err != nil {
-			return nil, err
-		}
-		return obj, nil
-	case "DaemonSet":
-		obj := &appsv1.DaemonSet{}
-		if err := r.Get(ctx, key, obj); err != nil {
-			return nil, err
-		}
-		return obj, nil
-	default:
-		return nil, fmt.Errorf("unsupported workload kind: %s", kind)
-	}
-}
-
-// listWorkloadsBySelector lists workloads matching a label selector.
-func (r *RightSizePolicyReconciler) listWorkloadsBySelector(ctx context.Context, namespace, kind string, selector *metav1.LabelSelector) ([]client.Object, error) {
-	labelSelector, err := metav1.LabelSelectorAsSelector(selector)
-	if err != nil {
-		return nil, fmt.Errorf("parsing label selector: %w", err)
-	}
-
-	listOpts := []client.ListOption{
-		client.InNamespace(namespace),
-		client.MatchingLabelsSelector{Selector: labelSelector},
-	}
-
-	var result []client.Object
-
-	switch kind {
-	case "Deployment":
-		var list appsv1.DeploymentList
-		if err := r.List(ctx, &list, listOpts...); err != nil {
-			return nil, err
-		}
-		for i := range list.Items {
-			result = append(result, &list.Items[i])
-		}
-	case "StatefulSet":
-		var list appsv1.StatefulSetList
-		if err := r.List(ctx, &list, listOpts...); err != nil {
-			return nil, err
-		}
-		for i := range list.Items {
-			result = append(result, &list.Items[i])
-		}
-	case "DaemonSet":
-		var list appsv1.DaemonSetList
-		if err := r.List(ctx, &list, listOpts...); err != nil {
-			return nil, err
-		}
-		for i := range list.Items {
-			result = append(result, &list.Items[i])
-		}
-	default:
-		return nil, fmt.Errorf("unsupported workload kind: %s", kind)
-	}
-
-	return result, nil
-}
-
-// getPodsForWorkload returns the pods managed by a workload by matching
-// the workload's pod template selector labels.
-func (r *RightSizePolicyReconciler) getPodsForWorkload(ctx context.Context, workload client.Object) ([]corev1.Pod, error) {
-	selectorLabels := r.getPodSelectorLabels(workload)
-	if len(selectorLabels) == 0 {
-		return nil, fmt.Errorf("workload %s/%s has no pod selector labels", workload.GetNamespace(), workload.GetName())
-	}
-
-	var podList corev1.PodList
-	if err := r.List(ctx, &podList,
-		client.InNamespace(workload.GetNamespace()),
-		client.MatchingLabels(selectorLabels),
-	); err != nil {
-		return nil, fmt.Errorf("listing pods for workload %s: %w", workload.GetName(), err)
-	}
-
-	return podList.Items, nil
-}
-
-// getPodSelectorLabels extracts the pod selector labels from a workload.
-func (r *RightSizePolicyReconciler) getPodSelectorLabels(workload client.Object) map[string]string {
-	switch w := workload.(type) {
-	case *appsv1.Deployment:
-		if w.Spec.Selector != nil {
-			return w.Spec.Selector.MatchLabels
-		}
-	case *appsv1.StatefulSet:
-		if w.Spec.Selector != nil {
-			return w.Spec.Selector.MatchLabels
-		}
-	case *appsv1.DaemonSet:
-		if w.Spec.Selector != nil {
-			return w.Spec.Selector.MatchLabels
-		}
-	}
-	return nil
-}
-
-// getContainers returns the container specs from a workload's pod template.
-func (r *RightSizePolicyReconciler) getContainers(workload client.Object) []corev1.Container {
-	switch w := workload.(type) {
-	case *appsv1.Deployment:
-		return w.Spec.Template.Spec.Containers
-	case *appsv1.StatefulSet:
-		return w.Spec.Template.Spec.Containers
-	case *appsv1.DaemonSet:
-		return w.Spec.Template.Spec.Containers
-	}
-	return nil
-}
-
-// buildPrometheusQuery generates a PromQL query for the given metric type.
-// If container is empty, the query matches pod-level metrics (no container filter).
-func buildPrometheusQuery(namespace, podPrefix, container, metric string) string {
-	containerFilter := ""
-	if container != "" {
-		containerFilter = fmt.Sprintf(`,container="%s"`, container)
-	}
-
-	switch metric {
-	case "cpu":
-		return fmt.Sprintf(
-			`rate(container_cpu_usage_seconds_total{namespace="%s",pod=~"%s.*"%s}[5m])`,
-			namespace, podPrefix, containerFilter,
-		)
-	case "memory":
-		return fmt.Sprintf(
-			`container_memory_working_set_bytes{namespace="%s",pod=~"%s.*"%s}`,
-			namespace, podPrefix, containerFilter,
-		)
-	default:
-		return ""
-	}
-}
-
 // computeRecommendations generates resource recommendations for all containers
 // in a workload based on Prometheus metrics.
 //
@@ -481,11 +278,11 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 
 	cpuPercentile := int(policy.Spec.CPU.Percentile)
 	if cpuPercentile == 0 {
-		cpuPercentile = 95
+		cpuPercentile = int(rightsizev1alpha1.DefaultCPUPercentile)
 	}
 	memPercentile := int(policy.Spec.Memory.Percentile)
 	if memPercentile == 0 {
-		memPercentile = 99
+		memPercentile = int(rightsizev1alpha1.DefaultMemoryPercentile)
 	}
 
 	cpuSafetyMargin := parseFloat64(policy.Spec.CPU.SafetyMargin, 1.2)
@@ -651,145 +448,6 @@ func (r *RightSizePolicyReconciler) resolvePrometheusAddress(ctx context.Context
 	}
 
 	return "", fmt.Errorf("no Prometheus address configured in policy or cluster defaults")
-}
-
-// isRollingOut checks if a workload is currently in the middle of a rollout.
-func (r *RightSizePolicyReconciler) isRollingOut(workload client.Object) bool {
-	switch w := workload.(type) {
-	case *appsv1.Deployment:
-		if w.Spec.Replicas != nil && w.Status.UpdatedReplicas < *w.Spec.Replicas {
-			return true
-		}
-		if w.Spec.Replicas != nil && w.Status.AvailableReplicas < *w.Spec.Replicas {
-			return true
-		}
-	case *appsv1.StatefulSet:
-		if w.Spec.Replicas != nil && w.Status.UpdatedReplicas < *w.Spec.Replicas {
-			return true
-		}
-	case *appsv1.DaemonSet:
-		if w.Status.UpdatedNumberScheduled < w.Status.DesiredNumberScheduled {
-			return true
-		}
-	}
-	return false
-}
-
-// getPodPrefix derives the pod name prefix from a workload.
-func (r *RightSizePolicyReconciler) getPodPrefix(workload client.Object) string {
-	return workload.GetName()
-}
-
-// parseHistoryWindow parses the history window duration from the policy.
-func (r *RightSizePolicyReconciler) parseHistoryWindow(policy *rightsizev1alpha1.RightSizePolicy) time.Duration {
-	if policy.Spec.MetricsSource.HistoryWindow != nil {
-		return policy.Spec.MetricsSource.HistoryWindow.Duration
-	}
-	return defaultHistoryWindow
-}
-
-// getMinimumDataPoints returns the minimum data points threshold from the policy.
-func (r *RightSizePolicyReconciler) getMinimumDataPoints(policy *rightsizev1alpha1.RightSizePolicy) int32 {
-	if policy.Spec.MetricsSource.MinimumDataPoints > 0 {
-		return policy.Spec.MetricsSource.MinimumDataPoints
-	}
-	return defaultMinimumDataPoints
-}
-
-// parseCooldown returns the cooldown duration from the policy's update strategy.
-func (r *RightSizePolicyReconciler) parseCooldown(policy *rightsizev1alpha1.RightSizePolicy) time.Duration {
-	if policy.Spec.UpdateStrategy.Cooldown != nil {
-		return policy.Spec.UpdateStrategy.Cooldown.Duration
-	}
-	return defaultCooldown
-}
-
-// computeSavings calculates the aggregate resource savings across all recommendations.
-func (r *RightSizePolicyReconciler) computeSavings(namespace string, recommendations []rightsizev1alpha1.WorkloadRecommendation) rightsizev1alpha1.SavingsStatus {
-	var totalCPUSaved, totalMemSaved int64
-
-	for _, rec := range recommendations {
-		for _, c := range rec.Containers {
-			cpuDiff := c.Current.CPURequest.MilliValue() - c.Recommended.CPURequest.MilliValue()
-			if cpuDiff > 0 {
-				totalCPUSaved += cpuDiff
-			}
-
-			memDiff := c.Current.MemoryRequest.Value() - c.Recommended.MemoryRequest.Value()
-			if memDiff > 0 {
-				totalMemSaved += memDiff
-			}
-		}
-	}
-
-	savings := rightsizev1alpha1.SavingsStatus{}
-	if totalCPUSaved > 0 {
-		savings.CPURequestReduction = resource.NewMilliQuantity(totalCPUSaved, resource.DecimalSI).String()
-		operatormetrics.SavingsCPU.WithLabelValues(namespace).Set(float64(totalCPUSaved) / 1000.0)
-	}
-	if totalMemSaved > 0 {
-		savings.MemoryRequestReduction = resource.NewQuantity(totalMemSaved, resource.BinarySI).String()
-		operatormetrics.SavingsMemory.WithLabelValues(namespace).Set(float64(totalMemSaved))
-	}
-	return savings
-}
-
-// scaleLimits scales a resource limit proportionally to maintain the same
-// request:limit ratio when the request changes.
-func scaleLimits(currentReq, currentLim, newReq resource.Quantity) resource.Quantity {
-	if currentReq.IsZero() || currentLim.IsZero() {
-		return newReq.DeepCopy()
-	}
-	ratio := float64(currentLim.MilliValue()) / float64(currentReq.MilliValue())
-	newLimMilli := int64(float64(newReq.MilliValue()) * ratio)
-	return *resource.NewMilliQuantity(newLimMilli, currentLim.Format)
-}
-
-// parseFloat64 parses a string as a float64, returning the fallback on error.
-func parseFloat64(s string, fallback float64) float64 {
-	if s == "" {
-		return fallback
-	}
-	v, err := strconv.ParseFloat(s, 64)
-	if err != nil {
-		return fallback
-	}
-	return v
-}
-
-// safeInt32 converts an int to int32, clamping to math.MaxInt32 on overflow.
-func safeInt32(v int) int32 {
-	if v > math.MaxInt32 {
-		return math.MaxInt32
-	}
-	return int32(v) // #nosec G115 -- overflow guarded by check above
-}
-
-// isCooldownActive checks if the policy is within the cooldown window since last resize.
-func (r *RightSizePolicyReconciler) isCooldownActive(policy *rightsizev1alpha1.RightSizePolicy) bool {
-	ann := policy.Annotations
-	if ann == nil {
-		return false
-	}
-	lastStr, ok := ann[lastResizeAnnotation]
-	if !ok {
-		return false
-	}
-	last, err := time.Parse(time.RFC3339, lastStr)
-	if err != nil {
-		return false
-	}
-	cooldown := r.parseCooldown(policy)
-	return time.Since(last) < cooldown
-}
-
-// markResizeTime sets the last-resize-time annotation on the policy.
-func (r *RightSizePolicyReconciler) markResizeTime(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy) error {
-	if policy.Annotations == nil {
-		policy.Annotations = make(map[string]string)
-	}
-	policy.Annotations[lastResizeAnnotation] = time.Now().UTC().Format(time.RFC3339)
-	return r.Update(ctx, policy)
 }
 
 // selectPodsForResize selects pods eligible for resize based on the update mode.
@@ -1114,72 +772,6 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 			logger.Error(updateErr, "Failed to remove resize tracking annotations", "pod", pod.Name)
 		}
 	}
-}
-
-// appendHistory appends new entries to existing history, capping at maxEntries.
-//
-//nolint:unparam // maxEntries is a parameter for configurability
-func appendHistory(existing []rightsizev1alpha1.ResizeHistoryEntry,
-	newEntries []rightsizev1alpha1.ResizeHistoryEntry, maxEntries int) []rightsizev1alpha1.ResizeHistoryEntry {
-	result := append(existing, newEntries...)
-	if len(result) > maxEntries {
-		result = result[len(result)-maxEntries:]
-	}
-	return result
-}
-
-// mergeDefaults reads the cluster-scoped RightSizeDefaults and merges values
-// into the policy where the policy has not specified its own values.
-func (r *RightSizePolicyReconciler) mergeDefaults(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy) {
-	var defaultsList rightsizev1alpha1.RightSizeDefaultsList
-	if err := r.List(ctx, &defaultsList); err != nil || len(defaultsList.Items) == 0 {
-		return
-	}
-	defaults := defaultsList.Items[0].Spec
-
-	// Merge CPU config
-	if policy.Spec.CPU.Percentile == 0 && defaults.CPU != nil {
-		policy.Spec.CPU.Percentile = defaults.CPU.Percentile
-	}
-	if policy.Spec.CPU.SafetyMargin == "" && defaults.CPU != nil {
-		policy.Spec.CPU.SafetyMargin = defaults.CPU.SafetyMargin
-	}
-
-	// Merge Memory config
-	if policy.Spec.Memory.Percentile == 0 && defaults.Memory != nil {
-		policy.Spec.Memory.Percentile = defaults.Memory.Percentile
-	}
-	if policy.Spec.Memory.SafetyMargin == "" && defaults.Memory != nil {
-		policy.Spec.Memory.SafetyMargin = defaults.Memory.SafetyMargin
-	}
-
-	// Merge UpdateStrategy mode
-	if policy.Spec.UpdateStrategy.Mode == "" && defaults.UpdateStrategy != nil {
-		policy.Spec.UpdateStrategy.Mode = defaults.UpdateStrategy.Mode
-	}
-}
-
-// updateStatusWithRetry performs a status update with a retry on conflict.
-// If the first attempt fails with a conflict, it re-fetches the policy,
-// re-applies the status fields, and retries once.
-func (r *RightSizePolicyReconciler) updateStatusWithRetry(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy, key types.NamespacedName) error {
-	err := r.Status().Update(ctx, policy)
-	if err == nil {
-		return nil
-	}
-	if !apierrors.IsConflict(err) {
-		return err
-	}
-
-	// Conflict: re-fetch and retry.
-	logger := log.FromContext(ctx)
-	logger.Info("Status update conflict, retrying")
-	savedStatus := policy.Status.DeepCopy()
-	if fetchErr := r.Get(ctx, key, policy); fetchErr != nil {
-		return fetchErr
-	}
-	policy.Status = *savedStatus
-	return r.Status().Update(ctx, policy)
 }
 
 // SetupWithManager sets up the controller with the Manager.

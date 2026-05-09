@@ -28,28 +28,28 @@ type RightSizePolicyDefaulter struct{}
 // Default sets default values on a RightSizePolicy.
 func (d *RightSizePolicyDefaulter) Default(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy) error {
 	if policy.Spec.CPU.Percentile == 0 {
-		policy.Spec.CPU.Percentile = 95
+		policy.Spec.CPU.Percentile = rightsizev1alpha1.DefaultCPUPercentile
 	}
 	if policy.Spec.CPU.SafetyMargin == "" {
-		policy.Spec.CPU.SafetyMargin = "1.2"
+		policy.Spec.CPU.SafetyMargin = rightsizev1alpha1.DefaultCPUSafetyMargin
 	}
 	if policy.Spec.Memory.Percentile == 0 {
-		policy.Spec.Memory.Percentile = 99
+		policy.Spec.Memory.Percentile = rightsizev1alpha1.DefaultMemoryPercentile
 	}
 	if policy.Spec.Memory.SafetyMargin == "" {
-		policy.Spec.Memory.SafetyMargin = "1.3"
+		policy.Spec.Memory.SafetyMargin = rightsizev1alpha1.DefaultMemorySafetyMargin
 	}
 	if policy.Spec.UpdateStrategy.Mode == "" {
-		policy.Spec.UpdateStrategy.Mode = "Recommend"
+		policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.DefaultUpdateMode
 	}
 	if policy.Spec.UpdateStrategy.MaxCPUChangePercent == 0 {
-		policy.Spec.UpdateStrategy.MaxCPUChangePercent = 50
+		policy.Spec.UpdateStrategy.MaxCPUChangePercent = rightsizev1alpha1.DefaultMaxCPUChangePercent
 	}
 	if policy.Spec.UpdateStrategy.MaxMemoryChangePercent == 0 {
-		policy.Spec.UpdateStrategy.MaxMemoryChangePercent = 30
+		policy.Spec.UpdateStrategy.MaxMemoryChangePercent = rightsizev1alpha1.DefaultMaxMemoryChangePercent
 	}
 	if policy.Spec.Weight == 0 {
-		policy.Spec.Weight = 100
+		policy.Spec.Weight = rightsizev1alpha1.DefaultWeight
 	}
 	return nil
 }
