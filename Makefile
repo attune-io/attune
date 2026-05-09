@@ -119,6 +119,7 @@ uninstall: ## Uninstall CRDs from the cluster
 .PHONY: deploy
 deploy: manifests kustomize ## Deploy operator to the cluster
 	cd config/manager && $(KUSTOMIZE) edit set image controller=$(IMG)
+	kubectl create namespace kube-rightsize-system --dry-run=client -o yaml | kubectl apply -f -
 	kubectl apply -k config/default/
 
 .PHONY: undeploy
