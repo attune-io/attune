@@ -198,19 +198,110 @@ func (m *mockCollector) Query(ctx context.Context, query string, ts time.Time) (
 	return 0, nil
 }
 
-func TestDiscoverWorkloads_FindsDeploymentByName(t *testing.T) {
+// newResizePod creates a running Pod with specified resources, matching
+// a deployment named deployName. Reduces the 20+ line inline Pod construction
+// that repeats across executeResizes tests.
+func newResizePod(deployName string, cpuReq, memReq, cpuLim, memLim string) *corev1.Pod {
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      deployName + "-abc-1",
+			Namespace: "default",
+			Labels:    map[string]string{"app": deployName},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  "main",
+					Image: "nginx",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse(cpuReq),
+							corev1.ResourceMemory: resource.MustParse(memReq),
+						},
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse(cpuLim),
+							corev1.ResourceMemory: resource.MustParse(memLim),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+	}
+}
+
+// newResizeRecommendation creates a WorkloadRecommendation for the given
+// workload with a single container. Replaces the 15+ line struct construction
+// that repeats across executeResizes tests.
+func newResizeRecommendation(workload, curCPU, curMem, curCPULim, curMemLim, recCPU, recMem, recCPULim, recMemLim string) rightsizev1alpha1.WorkloadRecommendation {
+	return rightsizev1alpha1.WorkloadRecommendation{
+		Workload: workload,
+		Kind:     "Deployment",
+		Containers: []rightsizev1alpha1.ContainerRecommendation{
+			{
+				Name: "main",
+				Current: rightsizev1alpha1.ResourceValues{
+					CPURequest:    resource.MustParse(curCPU),
+					CPULimit:      resource.MustParse(curCPULim),
+					MemoryRequest: resource.MustParse(curMem),
+					MemoryLimit:   resource.MustParse(curMemLim),
+				},
+				Recommended: rightsizev1alpha1.ResourceValues{
+					CPURequest:    resource.MustParse(recCPU),
+					CPULimit:      resource.MustParse(recCPULim),
+					MemoryRequest: resource.MustParse(recMem),
+					MemoryLimit:   resource.MustParse(recMemLim),
+				},
+			},
+		},
+	}
+}
+
+// newReconcilerWithClient creates a RightSizePolicyReconciler with the given
+// objects pre-loaded. Reduces the 5-line scheme+client+reconciler setup
+// that repeats in nearly every test.
+func newReconcilerWithClient(objects ...client.Object) *RightSizePolicyReconciler {
 	scheme := testScheme()
-	deploy := newTestDeployment("api-server", "default", map[string]string{"tier": "api"})
-
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(deploy).
-		Build()
-
-	reconciler := &RightSizePolicyReconciler{
-		Client: client,
+	builder := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...)
+	return &RightSizePolicyReconciler{
+		Client: builder.Build(),
 		Scheme: scheme,
 	}
+}
+
+// newReconcilerForReconcile creates a reconciler with status subresource
+// support and a mock metrics factory, ready for Reconcile tests.
+func newReconcilerForReconcile(mc rsmetrics.MetricsCollector, objects ...client.Object) (*RightSizePolicyReconciler, client.Client) {
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(objects...).
+		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
+		Build()
+	return &RightSizePolicyReconciler{
+		Client:         fakeClient,
+		Scheme:         scheme,
+		MetricsFactory: mockMetricsFactory(mc),
+	}, fakeClient
+}
+
+// newResizeReconciler creates a reconciler with both a controller-runtime
+// fake client and a typed clientset for resize tests.
+func newResizeReconciler(pod *corev1.Pod, objects ...client.Object) *RightSizePolicyReconciler {
+	scheme := testScheme()
+	allObjects := append(objects, pod)
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(allObjects...).Build()
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+	return &RightSizePolicyReconciler{
+		Client:    fakeClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+	}
+}
+
+func TestDiscoverWorkloads_FindsDeploymentByName(t *testing.T) {
+	deploy := newTestDeployment("api-server", "default", map[string]string{"tier": "api"})
+	reconciler := newReconcilerWithClient(deploy)
 
 	policy := newTestPolicy("test-policy", "default")
 
@@ -221,20 +312,10 @@ func TestDiscoverWorkloads_FindsDeploymentByName(t *testing.T) {
 }
 
 func TestDiscoverWorkloads_FindsDeploymentsByLabelSelector(t *testing.T) {
-	scheme := testScheme()
 	deploy1 := newTestDeployment("api-server-1", "default", map[string]string{"tier": "api"})
 	deploy2 := newTestDeployment("api-server-2", "default", map[string]string{"tier": "api"})
 	deploy3 := newTestDeployment("worker", "default", map[string]string{"tier": "worker"})
-
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(deploy1, deploy2, deploy3).
-		Build()
-
-	reconciler := &RightSizePolicyReconciler{
-		Client: client,
-		Scheme: scheme,
-	}
+	reconciler := newReconcilerWithClient(deploy1, deploy2, deploy3)
 
 	policy := &rightsizev1alpha1.RightSizePolicy{
 		ObjectMeta: metav1.ObjectMeta{
@@ -265,18 +346,8 @@ func TestDiscoverWorkloads_FindsDeploymentsByLabelSelector(t *testing.T) {
 }
 
 func TestDiscoverWorkloads_ReturnsEmptyForNonMatchingSelector(t *testing.T) {
-	scheme := testScheme()
 	deploy := newTestDeployment("api-server", "default", map[string]string{"tier": "api"})
-
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(deploy).
-		Build()
-
-	reconciler := &RightSizePolicyReconciler{
-		Client: client,
-		Scheme: scheme,
-	}
+	reconciler := newReconcilerWithClient(deploy)
 
 	policy := &rightsizev1alpha1.RightSizePolicy{
 		ObjectMeta: metav1.ObjectMeta{
@@ -299,22 +370,11 @@ func TestDiscoverWorkloads_ReturnsEmptyForNonMatchingSelector(t *testing.T) {
 }
 
 func TestGetPodsForWorkload_ReturnsMatchingPods(t *testing.T) {
-	scheme := testScheme()
 	deploy := newTestDeployment("api-server", "default", nil)
-
 	pod1 := newTestPod("api-server-abc-123", "default", map[string]string{"app": "api-server"})
 	pod2 := newTestPod("api-server-abc-456", "default", map[string]string{"app": "api-server"})
 	pod3 := newTestPod("worker-def-789", "default", map[string]string{"app": "worker"})
-
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(deploy, pod1, pod2, pod3).
-		Build()
-
-	reconciler := &RightSizePolicyReconciler{
-		Client: client,
-		Scheme: scheme,
-	}
+	reconciler := newReconcilerWithClient(deploy, pod1, pod2, pod3)
 
 	pods, err := reconciler.getPodsForWorkload(context.Background(), deploy)
 	require.NoError(t, err)
@@ -342,15 +402,7 @@ func TestBuildPrometheusQuery_Memory(t *testing.T) {
 }
 
 func TestReconcile_MissingPolicyReturnsNoError(t *testing.T) {
-	scheme := testScheme()
-	client := fake.NewClientBuilder().
-		WithScheme(scheme).
-		Build()
-
-	reconciler := &RightSizePolicyReconciler{
-		Client: client,
-		Scheme: scheme,
-	}
+	reconciler := newReconcilerWithClient()
 
 	req := ctrl.Request{
 		NamespacedName: types.NamespacedName{
@@ -1222,71 +1274,15 @@ func TestExecuteResizes_NoClientset(t *testing.T) {
 }
 
 func TestExecuteResizes_SuccessfulResize(t *testing.T) {
-	scheme := testScheme()
-
-	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "api-server-abc-1",
-			Namespace: "default",
-			Labels:    map[string]string{"app": "api-server"},
-		},
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{
-				{
-					Name:  "main",
-					Image: "nginx",
-					Resources: corev1.ResourceRequirements{
-						Requests: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("500m"),
-							corev1.ResourceMemory: resource.MustParse("512Mi"),
-						},
-						Limits: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("1000m"),
-							corev1.ResourceMemory: resource.MustParse("1Gi"),
-						},
-					},
-				},
-			},
-		},
-		Status: corev1.PodStatus{Phase: corev1.PodRunning},
-	}
-
+	pod := newResizePod("api-server", "500m", "512Mi", "1000m", "1Gi")
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
-
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod).Build()
-	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
-
-	reconciler := &RightSizePolicyReconciler{
-		Client:    fakeClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	reconciler := newResizeReconciler(pod, deploy)
 
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.Mode = "OneShot"
 
 	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
-		{
-			Workload: "api-server",
-			Kind:     "Deployment",
-			Containers: []rightsizev1alpha1.ContainerRecommendation{
-				{
-					Name: "main",
-					Current: rightsizev1alpha1.ResourceValues{
-						CPURequest:    resource.MustParse("500m"),
-						CPULimit:      resource.MustParse("1000m"),
-						MemoryRequest: resource.MustParse("512Mi"),
-						MemoryLimit:   resource.MustParse("1Gi"),
-					},
-					Recommended: rightsizev1alpha1.ResourceValues{
-						CPURequest:    resource.MustParse("750m"),
-						CPULimit:      resource.MustParse("1500m"),
-						MemoryRequest: resource.MustParse("384Mi"),
-						MemoryLimit:   resource.MustParse("768Mi"),
-					},
-				},
-			},
-		},
+		newResizeRecommendation("api-server", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),
 	}
 
 	workloads := []client.Object{deploy}
@@ -1299,70 +1295,16 @@ func TestExecuteResizes_SuccessfulResize(t *testing.T) {
 }
 
 func TestExecuteResizes_SkipsMatchingResources(t *testing.T) {
-	scheme := testScheme()
-
 	// Pod already at the recommended values.
-	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "api-server-abc-1",
-			Namespace: "default",
-			Labels:    map[string]string{"app": "api-server"},
-		},
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{
-				{
-					Name:  "main",
-					Image: "nginx",
-					Resources: corev1.ResourceRequirements{
-						Requests: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("750m"),
-							corev1.ResourceMemory: resource.MustParse("384Mi"),
-						},
-						Limits: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("1500m"),
-							corev1.ResourceMemory: resource.MustParse("768Mi"),
-						},
-					},
-				},
-			},
-		},
-		Status: corev1.PodStatus{Phase: corev1.PodRunning},
-	}
-
+	pod := newResizePod("api-server", "750m", "384Mi", "1500m", "768Mi")
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
-
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod).Build()
-	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
-
-	reconciler := &RightSizePolicyReconciler{
-		Client:    fakeClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	reconciler := newResizeReconciler(pod, deploy)
 
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.Mode = "OneShot"
 
 	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
-		{
-			Workload: "api-server",
-			Kind:     "Deployment",
-			Containers: []rightsizev1alpha1.ContainerRecommendation{
-				{
-					Name: "main",
-					Current: rightsizev1alpha1.ResourceValues{
-						CPURequest:    resource.MustParse("500m"),
-						MemoryRequest: resource.MustParse("512Mi"),
-					},
-					Recommended: rightsizev1alpha1.ResourceValues{
-						CPURequest:    resource.MustParse("750m"),
-						CPULimit:      resource.MustParse("1500m"),
-						MemoryRequest: resource.MustParse("384Mi"),
-						MemoryLimit:   resource.MustParse("768Mi"),
-					},
-				},
-			},
-		},
+		newResizeRecommendation("api-server", "500m", "512Mi", "0", "0", "750m", "384Mi", "1500m", "768Mi"),
 	}
 
 	workloads := []client.Object{deploy}
@@ -1372,17 +1314,9 @@ func TestExecuteResizes_SkipsMatchingResources(t *testing.T) {
 }
 
 func TestExecuteResizes_NoMatchingWorkload(t *testing.T) {
-	scheme := testScheme()
-
 	deploy := newTestDeployment("other-app", "default", nil)
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy).Build()
-	clientset := kubefake.NewSimpleClientset()
-
-	reconciler := &RightSizePolicyReconciler{
-		Client:    fakeClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	reconciler := newReconcilerWithClient(deploy)
+	reconciler.Clientset = kubefake.NewSimpleClientset()
 
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.Mode = "OneShot"
@@ -1789,76 +1723,17 @@ func TestSafeInt32_Overflow(t *testing.T) {
 }
 
 func TestExecuteResizes_SkipsQoSChange(t *testing.T) {
-	scheme := testScheme()
-
 	// Pod is Guaranteed class (requests == limits).
-	// Recommendation sets different requests vs limits, which would
-	// change the QoS class to Burstable.
-	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "api-server-abc-1",
-			Namespace: "default",
-			Labels:    map[string]string{"app": "api-server"},
-		},
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{
-				{
-					Name:  "main",
-					Image: "nginx",
-					Resources: corev1.ResourceRequirements{
-						Requests: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("500m"),
-							corev1.ResourceMemory: resource.MustParse("512Mi"),
-						},
-						Limits: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("500m"),
-							corev1.ResourceMemory: resource.MustParse("512Mi"),
-						},
-					},
-				},
-			},
-		},
-		Status: corev1.PodStatus{
-			Phase:    corev1.PodRunning,
-			QOSClass: corev1.PodQOSGuaranteed,
-		},
-	}
-
+	pod := newResizePod("api-server", "500m", "512Mi", "500m", "512Mi")
+	pod.Status.QOSClass = corev1.PodQOSGuaranteed
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod).Build()
-	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
-
-	reconciler := &RightSizePolicyReconciler{
-		Client:    fakeClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	reconciler := newResizeReconciler(pod, deploy)
 
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.Mode = "OneShot"
 
 	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
-		{
-			Workload: "api-server",
-			Kind:     "Deployment",
-			Containers: []rightsizev1alpha1.ContainerRecommendation{
-				{
-					Name: "main",
-					Current: rightsizev1alpha1.ResourceValues{
-						CPURequest:    resource.MustParse("500m"),
-						CPULimit:      resource.MustParse("500m"),
-						MemoryRequest: resource.MustParse("512Mi"),
-						MemoryLimit:   resource.MustParse("512Mi"),
-					},
-					Recommended: rightsizev1alpha1.ResourceValues{
-						CPURequest:    resource.MustParse("750m"),
-						CPULimit:      resource.MustParse("1500m"),
-						MemoryRequest: resource.MustParse("384Mi"),
-						MemoryLimit:   resource.MustParse("768Mi"),
-					},
-				},
-			},
-		},
+		newResizeRecommendation("api-server", "500m", "512Mi", "500m", "512Mi", "750m", "384Mi", "1500m", "768Mi"),
 	}
 
 	workloads := []client.Object{deploy}
@@ -1868,78 +1743,23 @@ func TestExecuteResizes_SkipsQoSChange(t *testing.T) {
 }
 
 func TestExecuteResizes_ResizeError(t *testing.T) {
-	scheme := testScheme()
-
-	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "api-server-abc-1",
-			Namespace: "default",
-			Labels:    map[string]string{"app": "api-server"},
-		},
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{
-				{
-					Name:  "main",
-					Image: "nginx",
-					Resources: corev1.ResourceRequirements{
-						Requests: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("500m"),
-							corev1.ResourceMemory: resource.MustParse("512Mi"),
-						},
-						Limits: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("1000m"),
-							corev1.ResourceMemory: resource.MustParse("1Gi"),
-						},
-					},
-				},
-			},
-		},
-		Status: corev1.PodStatus{Phase: corev1.PodRunning},
-	}
-
+	pod := newResizePod("api-server", "500m", "512Mi", "1000m", "1Gi")
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod).Build()
-	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+	reconciler := newResizeReconciler(pod, deploy)
 
 	// Inject an error on UpdateResize calls.
-	clientset.PrependReactor("update", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+	reconciler.Clientset.(*kubefake.Clientset).PrependReactor("update", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
 		if action.GetSubresource() == "resize" {
 			return true, nil, fmt.Errorf("node has insufficient resources")
 		}
 		return false, nil, nil
 	})
 
-	reconciler := &RightSizePolicyReconciler{
-		Client:    fakeClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
-
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.Mode = "OneShot"
 
 	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
-		{
-			Workload: "api-server",
-			Kind:     "Deployment",
-			Containers: []rightsizev1alpha1.ContainerRecommendation{
-				{
-					Name: "main",
-					Current: rightsizev1alpha1.ResourceValues{
-						CPURequest:    resource.MustParse("500m"),
-						CPULimit:      resource.MustParse("1000m"),
-						MemoryRequest: resource.MustParse("512Mi"),
-						MemoryLimit:   resource.MustParse("1Gi"),
-					},
-					Recommended: rightsizev1alpha1.ResourceValues{
-						CPURequest:    resource.MustParse("750m"),
-						CPULimit:      resource.MustParse("1500m"),
-						MemoryRequest: resource.MustParse("384Mi"),
-						MemoryLimit:   resource.MustParse("768Mi"),
-					},
-				},
-			},
-		},
+		newResizeRecommendation("api-server", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),
 	}
 
 	workloads := []client.Object{deploy}
@@ -1950,71 +1770,16 @@ func TestExecuteResizes_ResizeError(t *testing.T) {
 }
 
 func TestExecuteResizes_AutoRevertOnSafetyViolation(t *testing.T) {
-	scheme := testScheme()
-
-	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "api-server-abc-1",
-			Namespace: "default",
-			Labels:    map[string]string{"app": "api-server"},
-		},
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{
-				{
-					Name:  "main",
-					Image: "nginx",
-					Resources: corev1.ResourceRequirements{
-						Requests: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("500m"),
-							corev1.ResourceMemory: resource.MustParse("512Mi"),
-						},
-						Limits: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("1000m"),
-							corev1.ResourceMemory: resource.MustParse("1Gi"),
-						},
-					},
-				},
-			},
-		},
-		Status: corev1.PodStatus{Phase: corev1.PodRunning},
-	}
-
+	pod := newResizePod("api-server", "500m", "512Mi", "1000m", "1Gi")
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod).Build()
-	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
-
-	reconciler := &RightSizePolicyReconciler{
-		Client:    fakeClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	reconciler := newResizeReconciler(pod, deploy)
 
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.Mode = "Auto"
 	policy.Spec.UpdateStrategy.AutoRevert = true
 
 	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
-		{
-			Workload: "api-server",
-			Kind:     "Deployment",
-			Containers: []rightsizev1alpha1.ContainerRecommendation{
-				{
-					Name: "main",
-					Current: rightsizev1alpha1.ResourceValues{
-						CPURequest:    resource.MustParse("500m"),
-						CPULimit:      resource.MustParse("1000m"),
-						MemoryRequest: resource.MustParse("512Mi"),
-						MemoryLimit:   resource.MustParse("1Gi"),
-					},
-					Recommended: rightsizev1alpha1.ResourceValues{
-						CPURequest:    resource.MustParse("750m"),
-						CPULimit:      resource.MustParse("1500m"),
-						MemoryRequest: resource.MustParse("384Mi"),
-						MemoryLimit:   resource.MustParse("768Mi"),
-					},
-				},
-			},
-		},
+		newResizeRecommendation("api-server", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),
 	}
 
 	workloads := []client.Object{deploy}
