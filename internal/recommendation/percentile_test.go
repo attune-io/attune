@@ -81,6 +81,33 @@ func TestPercentileEstimator(t *testing.T) {
 			wantMillis: 300, // hour 14 has P95=0.300
 		},
 		{
+			name:       "P50 selection",
+			percentile: 50,
+			profile: makeProfile(metrics.PercentileSet{
+				P50: 0.050, P90: 0.080, P95: 0.100, P99: 0.150, Max: 0.200,
+			}, nil),
+			current:    resource.MustParse("500m"),
+			wantMillis: 50,
+		},
+		{
+			name:       "P90 selection",
+			percentile: 90,
+			profile: makeProfile(metrics.PercentileSet{
+				P50: 0.050, P90: 0.080, P95: 0.100, P99: 0.150, Max: 0.200,
+			}, nil),
+			current:    resource.MustParse("500m"),
+			wantMillis: 80,
+		},
+		{
+			name:       "unknown percentile defaults to P95",
+			percentile: 75,
+			profile: makeProfile(metrics.PercentileSet{
+				P50: 0.050, P90: 0.080, P95: 0.100, P99: 0.150, Max: 0.200,
+			}, nil),
+			current:    resource.MustParse("500m"),
+			wantMillis: 100,
+		},
+		{
 			name:       "zero profile returns current",
 			percentile: 95,
 			profile:    metrics.UsageProfile{},

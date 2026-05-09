@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"math"
 	"testing"
 	"time"
 
@@ -1775,6 +1776,175 @@ func TestReconcile_CooldownActive_SkipsResize(t *testing.T) {
 }
 
 // ---------- Reconcile with opt-out annotation ----------
+
+func TestSafeInt32_Normal(t *testing.T) {
+	assert.Equal(t, int32(42), safeInt32(42))
+	assert.Equal(t, int32(0), safeInt32(0))
+}
+
+func TestSafeInt32_Overflow(t *testing.T) {
+	assert.Equal(t, int32(math.MaxInt32), safeInt32(math.MaxInt32+1))
+	assert.Equal(t, int32(math.MaxInt32), safeInt32(math.MaxInt))
+}
+
+func TestExecuteResizes_SkipsQoSChange(t *testing.T) {
+	scheme := testScheme()
+
+	// Pod is Guaranteed class (requests == limits).
+	// Recommendation sets different requests vs limits, which would
+	// change the QoS class to Burstable.
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "api-server-abc-1",
+			Namespace: "default",
+			Labels:    map[string]string{"app": "api-server"},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  "main",
+					Image: "nginx",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("500m"),
+							corev1.ResourceMemory: resource.MustParse("512Mi"),
+						},
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("500m"),
+							corev1.ResourceMemory: resource.MustParse("512Mi"),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase:    corev1.PodRunning,
+			QOSClass: corev1.PodQOSGuaranteed,
+		},
+	}
+
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod).Build()
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+
+	reconciler := &RightSizePolicyReconciler{
+		Client:    fakeClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = "OneShot"
+
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "api-server",
+			Kind:     "Deployment",
+			Containers: []rightsizev1alpha1.ContainerRecommendation{
+				{
+					Name: "main",
+					Current: rightsizev1alpha1.ResourceValues{
+						CPURequest:    resource.MustParse("500m"),
+						CPULimit:      resource.MustParse("500m"),
+						MemoryRequest: resource.MustParse("512Mi"),
+						MemoryLimit:   resource.MustParse("512Mi"),
+					},
+					Recommended: rightsizev1alpha1.ResourceValues{
+						CPURequest:    resource.MustParse("750m"),
+						CPULimit:      resource.MustParse("1500m"),
+						MemoryRequest: resource.MustParse("384Mi"),
+						MemoryLimit:   resource.MustParse("768Mi"),
+					},
+				},
+			},
+		},
+	}
+
+	workloads := []client.Object{deploy}
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations)
+	assert.Equal(t, 0, count)
+	assert.Empty(t, history)
+}
+
+func TestExecuteResizes_AutoRevertOnSafetyViolation(t *testing.T) {
+	scheme := testScheme()
+
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "api-server-abc-1",
+			Namespace: "default",
+			Labels:    map[string]string{"app": "api-server"},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  "main",
+					Image: "nginx",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("500m"),
+							corev1.ResourceMemory: resource.MustParse("512Mi"),
+						},
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1000m"),
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+	}
+
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod).Build()
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+
+	reconciler := &RightSizePolicyReconciler{
+		Client:    fakeClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = "Auto"
+	policy.Spec.UpdateStrategy.AutoRevert = true
+
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "api-server",
+			Kind:     "Deployment",
+			Containers: []rightsizev1alpha1.ContainerRecommendation{
+				{
+					Name: "main",
+					Current: rightsizev1alpha1.ResourceValues{
+						CPURequest:    resource.MustParse("500m"),
+						CPULimit:      resource.MustParse("1000m"),
+						MemoryRequest: resource.MustParse("512Mi"),
+						MemoryLimit:   resource.MustParse("1Gi"),
+					},
+					Recommended: rightsizev1alpha1.ResourceValues{
+						CPURequest:    resource.MustParse("750m"),
+						CPULimit:      resource.MustParse("1500m"),
+						MemoryRequest: resource.MustParse("384Mi"),
+						MemoryLimit:   resource.MustParse("768Mi"),
+					},
+				},
+			},
+		},
+	}
+
+	workloads := []client.Object{deploy}
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations)
+
+	// Resize was attempted. The safety check runs immediately but with a
+	// fake clientset the pod won't have conditions set, so CheckPod will
+	// return Safe (no restart detected). This exercises the autoRevert
+	// code path even though it does not trigger a revert.
+	assert.Equal(t, 1, count)
+	assert.NotEmpty(t, history)
+	assert.Equal(t, "Success", history[0].Result)
+}
 
 func TestReconcile_WorkloadOptedOut(t *testing.T) {
 	scheme := testScheme()

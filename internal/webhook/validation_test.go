@@ -131,6 +131,33 @@ func TestValidate_MemoryDecreaseWarning(t *testing.T) {
 	assert.Contains(t, warnings[0], "OOMKill risk")
 }
 
+func TestValidateUpdate_ValidPolicy(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	old := validPolicy()
+	updated := validPolicy()
+	updated.Spec.CPU.Percentile = 90
+
+	warnings, err := validator.ValidateUpdate(context.Background(), old, updated)
+
+	assert.NoError(t, err)
+	assert.Empty(t, warnings)
+}
+
+func TestValidateUpdate_InvalidBounds(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	old := validPolicy()
+	updated := validPolicy()
+	updated.Spec.CPU.Bounds = &rightsizev1alpha1.ResourceBounds{
+		Min: resource.MustParse("2"),
+		Max: resource.MustParse("1"),
+	}
+
+	_, err := validator.ValidateUpdate(context.Background(), old, updated)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "cpu.bounds.min")
+}
+
 func TestValidateDelete_AlwaysSucceeds(t *testing.T) {
 	validator := &RightSizePolicyValidator{}
 	policy := validPolicy()
