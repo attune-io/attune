@@ -181,7 +181,7 @@ jobs:
       - name: Check for drift
         shell: bash -Eeuo pipefail {0}
         run: |
-          if ! git diff --exit-code config/crd/; then
+          if ! git diff --exit-code config/crd/ charts/kube-rightsize/crds/; then
             echo "::error::CRD manifests are stale. Run 'make manifests' and commit."
             exit 1
           fi

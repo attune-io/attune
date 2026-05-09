@@ -33,6 +33,7 @@ help: ## Display this help
 .PHONY: manifests
 manifests: controller-gen ## Generate CRD manifests, RBAC, and webhook configs
 	$(CONTROLLER_GEN) rbac:roleName=manager-role crd:allowDangerousTypes=true webhook paths="./..." output:crd:artifacts:config=config/crd/bases output:rbac:artifacts:config=config/rbac
+	cp config/crd/bases/*.yaml charts/kube-rightsize/crds/
 
 .PHONY: generate
 generate: controller-gen ## Generate deepcopy methods
