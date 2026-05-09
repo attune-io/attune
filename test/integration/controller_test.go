@@ -20,6 +20,7 @@ package integration
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -59,10 +60,8 @@ var (
 	cancel    context.CancelFunc
 )
 
-func setupEnvtest(t *testing.T) {
-	t.Helper()
-
-	ctx, cancel = context.WithTimeout(context.Background(), 2*time.Minute)
+func TestMain(m *testing.M) {
+	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Minute)
 
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths: []string{
@@ -72,19 +71,26 @@ func setupEnvtest(t *testing.T) {
 	}
 
 	cfg, err := testEnv.Start()
-	require.NoError(t, err, "failed to start envtest")
-	require.NotNil(t, cfg)
+	if err != nil {
+		panic("failed to start envtest: " + err.Error())
+	}
 
 	err = rightsizev1alpha1.AddToScheme(scheme.Scheme)
-	require.NoError(t, err, "failed to add scheme")
+	if err != nil {
+		panic("failed to add scheme: " + err.Error())
+	}
 
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
-	require.NoError(t, err, "failed to create client")
+	if err != nil {
+		panic("failed to create client: " + err.Error())
+	}
 
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme: scheme.Scheme,
 	})
-	require.NoError(t, err, "failed to create manager")
+	if err != nil {
+		panic("failed to create manager: " + err.Error())
+	}
 
 	reconciler := &controller.RightSizePolicyReconciler{
 		Client: mgr.GetClient(),
@@ -94,13 +100,12 @@ func setupEnvtest(t *testing.T) {
 		},
 	}
 	err = reconciler.SetupWithManager(mgr)
-	require.NoError(t, err, "failed to setup controller")
+	if err != nil {
+		panic("failed to setup controller: " + err.Error())
+	}
 
 	go func() {
-		err := mgr.Start(ctx)
-		if err != nil {
-			t.Logf("manager stopped: %v", err)
-		}
+		_ = mgr.Start(ctx)
 	}()
 
 	// Create the test namespace.
@@ -109,15 +114,15 @@ func setupEnvtest(t *testing.T) {
 			Name: "integration-test",
 		},
 	}
-	err = k8sClient.Create(ctx, ns)
-	require.NoError(t, err, "failed to create test namespace")
-}
+	if err := k8sClient.Create(ctx, ns); err != nil {
+		panic("failed to create test namespace: " + err.Error())
+	}
 
-func teardownEnvtest(t *testing.T) {
-	t.Helper()
+	code := m.Run()
+
 	cancel()
-	err := testEnv.Stop()
-	assert.NoError(t, err, "failed to stop envtest")
+	_ = testEnv.Stop()
+	os.Exit(code)
 }
 
 func int32Ptr(i int32) *int32 { return &i }
@@ -204,8 +209,6 @@ func newTestPolicy(name, namespace, deploymentName string) *rightsizev1alpha1.Ri
 }
 
 func TestReconcile_CreatesPolicy_BecomesReady(t *testing.T) {
-	setupEnvtest(t)
-	defer teardownEnvtest(t)
 
 	namespace := "integration-test"
 
@@ -233,8 +236,6 @@ func TestReconcile_CreatesPolicy_BecomesReady(t *testing.T) {
 }
 
 func TestReconcile_PolicyWithNoWorkloads_SetsInsufficientData(t *testing.T) {
-	setupEnvtest(t)
-	defer teardownEnvtest(t)
 
 	namespace := "integration-test"
 
@@ -262,8 +263,6 @@ func TestReconcile_PolicyWithNoWorkloads_SetsInsufficientData(t *testing.T) {
 }
 
 func TestReconcile_DeletedPolicy_NoError(t *testing.T) {
-	setupEnvtest(t)
-	defer teardownEnvtest(t)
 
 	namespace := "integration-test"
 

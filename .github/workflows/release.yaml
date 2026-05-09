@@ -73,7 +73,7 @@ jobs:
           output-file: sbom.spdx.json
 
       - name: Trivy scan released image
-        uses: aquasecurity/trivy-action@0.31.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
           severity: HIGH,CRITICAL

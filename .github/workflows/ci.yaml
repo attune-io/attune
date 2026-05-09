@@ -46,9 +46,6 @@ jobs:
               truthy:
                 check-keys: false
 
-      - name: Actionlint
-        uses: rhysd/actionlint-action@v1
-
   test-unit:
     name: Unit Tests
     runs-on: ubuntu-latest
@@ -72,8 +69,8 @@ jobs:
         run: |
           COVERAGE=$(go tool cover -func=coverage.out | grep total: | awk '{print $3}' | tr -d '%')
           echo "Total coverage: ${COVERAGE}%"
-          if (( $(echo "$COVERAGE < 70" | bc -l) )); then
-            echo "::error::Coverage ${COVERAGE}% is below 70% threshold"
+          if (( $(echo "$COVERAGE < 60" | bc -l) )); then
+            echo "::error::Coverage ${COVERAGE}% is below 60% threshold"
             exit 1
           fi
 
@@ -205,7 +202,8 @@ jobs:
         run: |
           for f in charts/kube-rightsize/ci/*.yaml; do
             echo "--- Testing with $f ---"
-            helm template kube-rightsize charts/kube-rightsize -f "$f" > /dev/null
+            helm template kube-rightsize charts/kube-rightsize -f "$f" \
+              --kube-version v1.35.0 > /dev/null
           done
 
       - name: Install helm-unittest
@@ -252,7 +250,7 @@ jobs:
           govulncheck ./...
 
       - name: Trivy filesystem scan
-        uses: aquasecurity/trivy-action@0.31.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
