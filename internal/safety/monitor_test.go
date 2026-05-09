@@ -259,3 +259,130 @@ func TestRevertPod(t *testing.T) {
 	err := monitor.RevertPod(context.Background(), record)
 	assert.NoError(t, err)
 }
+
+func TestRevertPod_PodNotFound(t *testing.T) {
+	clientset := fake.NewSimpleClientset()
+	logger := testr.New(t)
+	monitor := NewMonitor(clientset, logger)
+
+	record := ResizeRecord{
+		PodName:   "nonexistent-pod",
+		Namespace: "default",
+		Container: "app",
+		OriginalResources: corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("500m"),
+				corev1.ResourceMemory: resource.MustParse("256Mi"),
+			},
+		},
+		ResizedAt: time.Now().Add(-1 * time.Minute),
+	}
+
+	err := monitor.RevertPod(context.Background(), record)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "getting pod for revert")
+}
+
+func TestRevertPod_ContainerNotInPod(t *testing.T) {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-pod",
+			Namespace: "default",
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "other-container",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("750m"),
+							corev1.ResourceMemory: resource.MustParse("512Mi"),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+		},
+	}
+
+	clientset := fake.NewSimpleClientset(pod)
+	logger := testr.New(t)
+	monitor := NewMonitor(clientset, logger)
+
+	record := ResizeRecord{
+		PodName:   "test-pod",
+		Namespace: "default",
+		Container: "nonexistent-container",
+		OriginalResources: corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("500m"),
+				corev1.ResourceMemory: resource.MustParse("256Mi"),
+			},
+		},
+		ResizedAt: time.Now().Add(-1 * time.Minute),
+	}
+
+	// The container won't be found but the method still issues the UpdateResize
+	// call. It should not error because the API call itself succeeds.
+	err := monitor.RevertPod(context.Background(), record)
+	assert.NoError(t, err)
+}
+
+func TestCheckPod_ContainerNotMatched(t *testing.T) {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "web-0", Namespace: "default"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "sidecar", RestartCount: 0},
+			},
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+
+	clientset := fake.NewSimpleClientset(pod)
+	monitor := NewMonitor(clientset, testr.New(t))
+
+	record := ResizeRecord{
+		PodName:   "web-0",
+		Namespace: "default",
+		Container: "app",
+		ResizedAt: time.Now().Add(-1 * time.Hour),
+	}
+
+	verdict, err := monitor.CheckPod(context.Background(), record)
+	require.NoError(t, err)
+	assert.True(t, verdict.Safe, "pod with unmatched container should be considered safe")
+}
+
+func TestCheckPod_NoPodReadyCondition(t *testing.T) {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "web-0", Namespace: "default"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "app", RestartCount: 0},
+			},
+			// No conditions at all.
+		},
+	}
+
+	clientset := fake.NewSimpleClientset(pod)
+	monitor := NewMonitor(clientset, testr.New(t))
+
+	record := ResizeRecord{
+		PodName:      "web-0",
+		Namespace:    "default",
+		Container:    "app",
+		ResizedAt:    time.Now().Add(-1 * time.Hour),
+		RestartCount: 0,
+	}
+
+	verdict, err := monitor.CheckPod(context.Background(), record)
+	require.NoError(t, err)
+	assert.True(t, verdict.Safe, "pod with no Ready condition should be considered safe")
+}

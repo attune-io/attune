@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	kubefake "k8s.io/client-go/kubernetes/fake"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	k8stesting "k8s.io/client-go/testing"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -1866,6 +1867,88 @@ func TestExecuteResizes_SkipsQoSChange(t *testing.T) {
 	assert.Empty(t, history)
 }
 
+func TestExecuteResizes_ResizeError(t *testing.T) {
+	scheme := testScheme()
+
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "api-server-abc-1",
+			Namespace: "default",
+			Labels:    map[string]string{"app": "api-server"},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  "main",
+					Image: "nginx",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("500m"),
+							corev1.ResourceMemory: resource.MustParse("512Mi"),
+						},
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1000m"),
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+	}
+
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod).Build()
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+
+	// Inject an error on UpdateResize calls.
+	clientset.PrependReactor("update", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if action.GetSubresource() == "resize" {
+			return true, nil, fmt.Errorf("node has insufficient resources")
+		}
+		return false, nil, nil
+	})
+
+	reconciler := &RightSizePolicyReconciler{
+		Client:    fakeClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = "OneShot"
+
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "api-server",
+			Kind:     "Deployment",
+			Containers: []rightsizev1alpha1.ContainerRecommendation{
+				{
+					Name: "main",
+					Current: rightsizev1alpha1.ResourceValues{
+						CPURequest:    resource.MustParse("500m"),
+						CPULimit:      resource.MustParse("1000m"),
+						MemoryRequest: resource.MustParse("512Mi"),
+						MemoryLimit:   resource.MustParse("1Gi"),
+					},
+					Recommended: rightsizev1alpha1.ResourceValues{
+						CPURequest:    resource.MustParse("750m"),
+						CPULimit:      resource.MustParse("1500m"),
+						MemoryRequest: resource.MustParse("384Mi"),
+						MemoryLimit:   resource.MustParse("768Mi"),
+					},
+				},
+			},
+		},
+	}
+
+	workloads := []client.Object{deploy}
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations)
+	assert.Equal(t, 0, count)
+	assert.NotEmpty(t, history)
+	assert.Equal(t, "Failed", history[0].Result)
+}
+
 func TestExecuteResizes_AutoRevertOnSafetyViolation(t *testing.T) {
 	scheme := testScheme()
 
@@ -1981,5 +2064,462 @@ func TestReconcile_WorkloadOptedOut(t *testing.T) {
 		Name: "test-policy", Namespace: "default",
 	}, &updated))
 	// Workload was discovered but skipped, so no recommendations.
+	assert.Equal(t, int32(0), updated.Status.Workloads.WithRecommendations)
+}
+
+// ---------- checkPendingSafetyObservations additional paths ----------
+
+func TestCheckPendingSafetyObservations_MalformedTimestamp(t *testing.T) {
+	scheme := testScheme()
+
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "bad-ts-pod",
+			Namespace: "default",
+			Annotations: map[string]string{
+				"rightsize.io/resized-at":              "not-a-timestamp",
+				"rightsize.io/resized-container":       "main",
+				"rightsize.io/original-cpu-request":    "500m",
+				"rightsize.io/original-memory-request": "512Mi",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{Name: "main", Image: "nginx"},
+			},
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(pod).
+		Build()
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+
+	reconciler := &RightSizePolicyReconciler{
+		Client:    fakeClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+	}
+
+	assert.NotPanics(t, func() {
+		reconciler.checkPendingSafetyObservations(context.Background(), policy)
+	})
+
+	// Annotations should remain since the pod was skipped due to timestamp parse error.
+	var updated corev1.Pod
+	err := fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "bad-ts-pod", Namespace: "default",
+	}, &updated)
+	require.NoError(t, err)
+	_, has := updated.Annotations["rightsize.io/resized-at"]
+	assert.True(t, has, "annotations should remain after timestamp parse error")
+}
+
+func TestCheckPendingSafetyObservations_MalformedMemoryAnnotation(t *testing.T) {
+	scheme := testScheme()
+
+	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "bad-mem-pod",
+			Namespace: "default",
+			Annotations: map[string]string{
+				"rightsize.io/resized-at":              resizedAt,
+				"rightsize.io/resized-container":       "main",
+				"rightsize.io/original-cpu-request":    "500m",
+				"rightsize.io/original-memory-request": "not-a-quantity",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{Name: "main", Image: "nginx"},
+			},
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(pod).
+		Build()
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+
+	reconciler := &RightSizePolicyReconciler{
+		Client:    fakeClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+	}
+
+	assert.NotPanics(t, func() {
+		reconciler.checkPendingSafetyObservations(context.Background(), policy)
+	})
+
+	var updated corev1.Pod
+	err := fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "bad-mem-pod", Namespace: "default",
+	}, &updated)
+	require.NoError(t, err)
+	_, has := updated.Annotations["rightsize.io/resized-at"]
+	assert.True(t, has, "annotations should remain after memory parse error")
+}
+
+func TestCheckPendingSafetyObservations_CustomObservationPeriod(t *testing.T) {
+	scheme := testScheme()
+
+	// Resized 2 minutes ago. With a custom observation period of 1 minute,
+	// the period has elapsed and the pod should be checked.
+	resizedAt := time.Now().Add(-2 * time.Minute).UTC().Format(time.RFC3339)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "custom-period-pod",
+			Namespace: "default",
+			Annotations: map[string]string{
+				"rightsize.io/resized-at":              resizedAt,
+				"rightsize.io/resized-container":       "main",
+				"rightsize.io/original-cpu-request":    "500m",
+				"rightsize.io/original-memory-request": "512Mi",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  "main",
+					Image: "nginx",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("250m"),
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "main", RestartCount: 0},
+			},
+		},
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Canary = &rightsizev1alpha1.CanaryConfig{
+		Percentage:        33,
+		ObservationPeriod: metav1.Duration{Duration: 1 * time.Minute},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(pod).
+		Build()
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+
+	reconciler := &RightSizePolicyReconciler{
+		Client:    fakeClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+	}
+
+	reconciler.checkPendingSafetyObservations(context.Background(), policy)
+
+	var updated corev1.Pod
+	err := fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "custom-period-pod", Namespace: "default",
+	}, &updated)
+	require.NoError(t, err)
+	_, has := updated.Annotations["rightsize.io/resized-at"]
+	assert.False(t, has, "annotations should be removed after observation completes")
+}
+
+func TestCheckPendingSafetyObservations_NilClientset(t *testing.T) {
+	reconciler := &RightSizePolicyReconciler{}
+	policy := newTestPolicy("test-policy", "default")
+
+	assert.NotPanics(t, func() {
+		reconciler.checkPendingSafetyObservations(context.Background(), policy)
+	})
+}
+
+func TestCheckPendingSafetyObservations_UnsafeVerdictReverts(t *testing.T) {
+	scheme := testScheme()
+
+	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "unsafe-pod",
+			Namespace: "default",
+			Labels:    map[string]string{"app": "test"},
+			Annotations: map[string]string{
+				"rightsize.io/resized-at":              resizedAt,
+				"rightsize.io/resized-container":       "main",
+				"rightsize.io/original-cpu-request":    "500m",
+				"rightsize.io/original-memory-request": "512Mi",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  "main",
+					Image: "nginx",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("250m"),
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionFalse},
+			},
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "main", RestartCount: 0},
+			},
+		},
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(pod).
+		Build()
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+
+	reconciler := &RightSizePolicyReconciler{
+		Client:    fakeClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+	}
+
+	reconciler.checkPendingSafetyObservations(context.Background(), policy)
+
+	var updated corev1.Pod
+	err := fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "unsafe-pod", Namespace: "default",
+	}, &updated)
+	require.NoError(t, err)
+	_, has := updated.Annotations["rightsize.io/resized-at"]
+	assert.False(t, has, "tracking annotations should be removed after observation completes")
+}
+
+// ---------- getPodsForWorkload error path ----------
+
+func TestGetPodsForWorkload_EmptySelectorLabels(t *testing.T) {
+	scheme := testScheme()
+
+	// Deployment with nil Selector to trigger the empty-labels error path.
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "no-selector", Namespace: "default"},
+		Spec:       appsv1.DeploymentSpec{},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy).Build()
+	reconciler := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+
+	_, err := reconciler.getPodsForWorkload(context.Background(), deploy)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "no pod selector labels")
+}
+
+// ---------- buildPrometheusQuery unknown metric ----------
+
+func TestBuildPrometheusQuery_UnknownMetric(t *testing.T) {
+	query := buildPrometheusQuery("default", "api-server", "main", "disk")
+	assert.Empty(t, query)
+}
+
+// ---------- listWorkloadsBySelector invalid selector ----------
+
+func TestListWorkloadsBySelector_InvalidSelector(t *testing.T) {
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+
+	// matchExpressions with invalid operator to trigger parse error.
+	invalidSelector := &metav1.LabelSelector{
+		MatchExpressions: []metav1.LabelSelectorRequirement{
+			{Key: "tier", Operator: "BadOperator", Values: []string{"api"}},
+		},
+	}
+	_, err := r.listWorkloadsBySelector(context.Background(), "default", "Deployment", invalidSelector)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "parsing label selector")
+}
+
+// ---------- discoverWorkloads with missing name ----------
+
+func TestDiscoverWorkloads_NoNameOrSelector(t *testing.T) {
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			TargetRef: rightsizev1alpha1.TargetRef{
+				Kind: "Deployment",
+			},
+		},
+	}
+
+	_, err := r.discoverWorkloads(context.Background(), policy)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "must specify either name or selector")
+}
+
+// ---------- Reconcile with MetricsFactory error ----------
+
+func TestReconcile_MetricsFactoryError(t *testing.T) {
+	scheme := testScheme()
+	policy := newTestPolicy("test-policy", "default")
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(policy).
+		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
+		Build()
+
+	reconciler := &RightSizePolicyReconciler{
+		Client: fakeClient,
+		Scheme: scheme,
+		MetricsFactory: func(_ string) (rsmetrics.MetricsCollector, error) {
+			return nil, fmt.Errorf("TLS handshake timeout")
+		},
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
+	}
+
+	result, err := reconciler.Reconcile(context.Background(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, 1*time.Minute, result.RequeueAfter)
+
+	var updated rightsizev1alpha1.RightSizePolicy
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "test-policy", Namespace: "default",
+	}, &updated))
+	require.Len(t, updated.Status.Conditions, 1)
+	assert.Equal(t, "PrometheusUnavailable", updated.Status.Conditions[0].Reason)
+	assert.Contains(t, updated.Status.Conditions[0].Message, "TLS handshake timeout")
+}
+
+// ---------- Reconcile with workload discovery error ----------
+
+func TestReconcile_DiscoverWorkloadsError(t *testing.T) {
+	scheme := testScheme()
+
+	policy := newTestPolicy("test-policy", "default")
+	// Set kind to unsupported to trigger discoverWorkloads error.
+	policy.Spec.TargetRef.Kind = "CronJob"
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(policy).
+		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
+		Build()
+
+	mc := &mockCollector{}
+	reconciler := &RightSizePolicyReconciler{
+		Client:         fakeClient,
+		Scheme:         scheme,
+		MetricsFactory: mockMetricsFactory(mc),
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
+	}
+
+	_, err := reconciler.Reconcile(context.Background(), req)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "discovering workloads")
+}
+
+// ---------- Reconcile with AutoRevert checking safety observations ----------
+
+func TestReconcile_AutoRevertCallsSafetyObservations(t *testing.T) {
+	scheme := testScheme()
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.AutoRevert = true
+
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	pod := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(policy, deploy, pod).
+		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
+		Build()
+
+	mc := &mockCollector{
+		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return generateSamples(200, 0.1), nil
+		},
+	}
+
+	reconciler := &RightSizePolicyReconciler{
+		Client:         fakeClient,
+		Scheme:         scheme,
+		MetricsFactory: mockMetricsFactory(mc),
+		Clientset:      kubefake.NewSimpleClientset(),
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
+	}
+
+	result, err := reconciler.Reconcile(context.Background(), req)
+	assert.NoError(t, err)
+	assert.NotZero(t, result.RequeueAfter)
+}
+
+// ---------- Reconcile mid-rollout skip ----------
+
+func TestReconcile_SkipsMidRolloutWorkload(t *testing.T) {
+	scheme := testScheme()
+	policy := newTestPolicy("test-policy", "default")
+
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	deploy.Status.UpdatedReplicas = 1 // Only 1 of 2 updated (mid-rollout).
+	pod := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(policy, deploy, pod).
+		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
+		Build()
+
+	mc := &mockCollector{}
+	reconciler := &RightSizePolicyReconciler{
+		Client:         fakeClient,
+		Scheme:         scheme,
+		MetricsFactory: mockMetricsFactory(mc),
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
+	}
+
+	result, err := reconciler.Reconcile(context.Background(), req)
+	assert.NoError(t, err)
+	assert.NotZero(t, result.RequeueAfter)
+
+	var updated rightsizev1alpha1.RightSizePolicy
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "test-policy", Namespace: "default",
+	}, &updated))
 	assert.Equal(t, int32(0), updated.Status.Workloads.WithRecommendations)
 }

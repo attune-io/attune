@@ -168,6 +168,49 @@ func TestQuery_ConnectionRefused(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestQuery_ScalarResult(t *testing.T) {
+	scalarResp := `{
+		"status": "success",
+		"data": {
+			"resultType": "scalar",
+			"result": [1700000000, "42.5"]
+		}
+	}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(scalarResp))
+	}))
+	defer server.Close()
+
+	collector, err := NewPrometheusCollector(server.URL)
+	require.NoError(t, err)
+
+	val, err := collector.Query(context.Background(), "scalar_metric", time.Unix(1700000000, 0))
+	require.NoError(t, err)
+	assert.InDelta(t, 42.5, val, 0.001)
+}
+
+func TestQuery_PrometheusError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write([]byte(cannedErrorResponse()))
+	}))
+	defer server.Close()
+
+	collector, err := NewPrometheusCollector(server.URL)
+	require.NoError(t, err)
+
+	_, err = collector.Query(context.Background(), "bad{query", time.Now())
+	assert.Error(t, err)
+}
+
+func TestNewPrometheusCollector_InvalidAddress(t *testing.T) {
+	_, err := NewPrometheusCollector("://bad-url")
+	assert.Error(t, err)
+}
+
 func TestQueryRange_EmptyMatrix(t *testing.T) {
 	emptyMatrix := `{
 		"status": "success",
