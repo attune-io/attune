@@ -1,0 +1,81 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kube-rightsize.fullname" . }}
+  labels:
+    {{- include "kube-rightsize.labels" . | nindent 4 }}
+rules:
+  # RightSizePolicy CRDs: read + status update
+  - apiGroups:
+      - rightsize.io
+    resources:
+      - rightsizepolicies
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - rightsize.io
+    resources:
+      - rightsizepolicies/status
+    verbs:
+      - get
+      - update
+      - patch
+  # RightSizeDefaults: read-only
+  - apiGroups:
+      - rightsize.io
+    resources:
+      - rightsizedefaults
+    verbs:
+      - get
+      - list
+      - watch
+  # Workload controllers: read-only
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+      - statefulsets
+      - daemonsets
+      - replicasets
+    verbs:
+      - get
+      - list
+      - watch
+  # Pods: read + resize subresource
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - pods/resize
+    verbs:
+      - update
+      - patch
+  # Events: read (OOMKill detection) + create (operator events)
+  - apiGroups:
+      - events.k8s.io
+    resources:
+      - events
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - patch
+  # HPA: read-only (conflict detection)
+  - apiGroups:
+      - autoscaling
+    resources:
+      - horizontalpodautoscalers
+    verbs:
+      - get
+      - list
+      - watch

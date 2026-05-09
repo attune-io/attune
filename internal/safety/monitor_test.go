@@ -1,0 +1,214 @@
+/*
+Copyright 2026.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package safety
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/go-logr/logr/testr"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes/fake"
+)
+
+func TestCheckPod(t *testing.T) {
+	now := time.Now()
+	oneHourAgo := now.Add(-1 * time.Hour)
+	twoHoursAgo := now.Add(-2 * time.Hour)
+
+	tests := []struct {
+		name       string
+		pod        *corev1.Pod // nil means pod does not exist in the cluster
+		record     ResizeRecord
+		wantSafe   bool
+		wantReason string
+	}{
+		{
+			name: "healthy pod is safe",
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{Name: "web-0", Namespace: "default"},
+				Status: corev1.PodStatus{
+					Phase: corev1.PodRunning,
+					ContainerStatuses: []corev1.ContainerStatus{
+						{
+							Name:         "app",
+							RestartCount: 0,
+						},
+					},
+					Conditions: []corev1.PodCondition{
+						{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+					},
+				},
+			},
+			record: ResizeRecord{
+				PodName:      "web-0",
+				Namespace:    "default",
+				Container:    "app",
+				ResizedAt:    oneHourAgo,
+				RestartCount: 0,
+			},
+			wantSafe:   true,
+			wantReason: "",
+		},
+		{
+			name: "OOMKill after resize is unsafe",
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{Name: "web-1", Namespace: "default"},
+				Status: corev1.PodStatus{
+					ContainerStatuses: []corev1.ContainerStatus{
+						{
+							Name: "app",
+							LastTerminationState: corev1.ContainerState{
+								Terminated: &corev1.ContainerStateTerminated{
+									Reason:     "OOMKilled",
+									FinishedAt: metav1.NewTime(now),
+								},
+							},
+						},
+					},
+					Conditions: []corev1.PodCondition{
+						{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+					},
+				},
+			},
+			record: ResizeRecord{
+				PodName:   "web-1",
+				Namespace: "default",
+				Container: "app",
+				ResizedAt: oneHourAgo,
+			},
+			wantSafe:   false,
+			wantReason: "oomkill",
+		},
+		{
+			name: "OOMKill before resize is safe",
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{Name: "web-2", Namespace: "default"},
+				Status: corev1.PodStatus{
+					ContainerStatuses: []corev1.ContainerStatus{
+						{
+							Name: "app",
+							LastTerminationState: corev1.ContainerState{
+								Terminated: &corev1.ContainerStateTerminated{
+									Reason:     "OOMKilled",
+									FinishedAt: metav1.NewTime(twoHoursAgo),
+								},
+							},
+						},
+					},
+					Conditions: []corev1.PodCondition{
+						{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+					},
+				},
+			},
+			record: ResizeRecord{
+				PodName:   "web-2",
+				Namespace: "default",
+				Container: "app",
+				ResizedAt: oneHourAgo,
+			},
+			wantSafe:   true,
+			wantReason: "",
+		},
+		{
+			name: "excessive restarts is unsafe",
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{Name: "web-3", Namespace: "default"},
+				Status: corev1.PodStatus{
+					ContainerStatuses: []corev1.ContainerStatus{
+						{
+							Name:         "app",
+							RestartCount: 5,
+						},
+					},
+					Conditions: []corev1.PodCondition{
+						{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+					},
+				},
+			},
+			record: ResizeRecord{
+				PodName:      "web-3",
+				Namespace:    "default",
+				Container:    "app",
+				ResizedAt:    oneHourAgo,
+				RestartCount: 3,
+			},
+			wantSafe:   false,
+			wantReason: "restart",
+		},
+		{
+			name: "pod not ready is unsafe",
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{Name: "web-4", Namespace: "default"},
+				Status: corev1.PodStatus{
+					ContainerStatuses: []corev1.ContainerStatus{
+						{
+							Name:         "app",
+							RestartCount: 0,
+						},
+					},
+					Conditions: []corev1.PodCondition{
+						{Type: corev1.PodReady, Status: corev1.ConditionFalse},
+					},
+				},
+			},
+			record: ResizeRecord{
+				PodName:      "web-4",
+				Namespace:    "default",
+				Container:    "app",
+				ResizedAt:    oneHourAgo,
+				RestartCount: 0,
+			},
+			wantSafe:   false,
+			wantReason: "notready",
+		},
+		{
+			name: "pod not found is safe",
+			pod:  nil,
+			record: ResizeRecord{
+				PodName:   "gone-pod",
+				Namespace: "default",
+				Container: "app",
+				ResizedAt: oneHourAgo,
+			},
+			wantSafe:   true,
+			wantReason: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var fakeClient *fake.Clientset
+			if tt.pod != nil {
+				fakeClient = fake.NewSimpleClientset(tt.pod)
+			} else {
+				fakeClient = fake.NewSimpleClientset()
+			}
+
+			monitor := NewMonitor(fakeClient, testr.New(t))
+			verdict, err := monitor.CheckPod(context.Background(), tt.record)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.wantSafe, verdict.Safe, "safe mismatch")
+			assert.Equal(t, tt.wantReason, verdict.Reason, "reason mismatch")
+		})
+	}
+}

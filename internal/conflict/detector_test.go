@@ -1,0 +1,141 @@
+/*
+Copyright 2026.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package conflict
+
+import (
+	"testing"
+
+	"github.com/go-logr/logr/testr"
+	"github.com/stretchr/testify/assert"
+	appsv1 "k8s.io/api/apps/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+func TestCheckAnnotationOptOut(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+
+	tests := []struct {
+		name string
+		obj  metav1.ObjectMeta
+		want bool
+	}{
+		{
+			name: "annotation present with value true",
+			obj: metav1.ObjectMeta{
+				Annotations: map[string]string{
+					"rightsize.io/skip": "true",
+				},
+			},
+			want: true,
+		},
+		{
+			name: "annotation absent",
+			obj:  metav1.ObjectMeta{},
+			want: false,
+		},
+		{
+			name: "annotation present with value false",
+			obj: metav1.ObjectMeta{
+				Annotations: map[string]string{
+					"rightsize.io/skip": "false",
+				},
+			},
+			want: false,
+		},
+		{
+			name: "different annotation key",
+			obj: metav1.ObjectMeta{
+				Annotations: map[string]string{
+					"rightsize.io/enabled": "true",
+				},
+			},
+			want: false,
+		},
+		{
+			name: "empty annotations map",
+			obj: metav1.ObjectMeta{
+				Annotations: map[string]string{},
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := detector.CheckAnnotationOptOut(tt.obj)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestCheckActiveRollout(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+
+	tests := []struct {
+		name       string
+		deployment *appsv1.Deployment
+		want       bool
+	}{
+		{
+			name: "rollout in progress",
+			deployment: &appsv1.Deployment{
+				Status: appsv1.DeploymentStatus{
+					Replicas:        3,
+					UpdatedReplicas: 1,
+				},
+			},
+			want: true,
+		},
+		{
+			name: "rollout complete",
+			deployment: &appsv1.Deployment{
+				Status: appsv1.DeploymentStatus{
+					Replicas:        3,
+					UpdatedReplicas: 3,
+				},
+			},
+			want: false,
+		},
+		{
+			name: "zero replicas",
+			deployment: &appsv1.Deployment{
+				Status: appsv1.DeploymentStatus{
+					Replicas:        0,
+					UpdatedReplicas: 0,
+				},
+			},
+			want: false,
+		},
+		{
+			name: "scaling up from zero",
+			deployment: &appsv1.Deployment{
+				Status: appsv1.DeploymentStatus{
+					Replicas:        2,
+					UpdatedReplicas: 0,
+				},
+			},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := detector.CheckActiveRollout(tt.deployment)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}

@@ -1,0 +1,237 @@
+/*
+Copyright 2026.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+// Package resize implements in-place pod resizing via the Kubernetes /resize subresource.
+package resize
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/kubernetes"
+)
+
+// ResizeResult represents the outcome of a resize operation.
+type ResizeResult struct {
+	PodName   string
+	Container string
+	Resource  string // "cpu" or "memory"
+	From      resource.Quantity
+	To        resource.Quantity
+	Method    string // "InPlace"
+	Success   bool
+	Error     error
+}
+
+// Resizer performs in-place pod resizes.
+type Resizer interface {
+	ResizePod(ctx context.Context, pod *corev1.Pod, container string,
+		target corev1.ResourceRequirements) ([]ResizeResult, error)
+	WaitForResize(ctx context.Context, namespace, podName, container string,
+		target corev1.ResourceRequirements, timeout time.Duration) error
+}
+
+// PodResizer implements Resizer using the Kubernetes /resize subresource.
+type PodResizer struct {
+	client kubernetes.Interface
+	logger logr.Logger
+}
+
+// NewPodResizer creates a new PodResizer backed by the given Kubernetes client.
+func NewPodResizer(client kubernetes.Interface, logger logr.Logger) *PodResizer {
+	return &PodResizer{
+		client: client,
+		logger: logger,
+	}
+}
+
+// ResizePod performs an in-place resize of the specified container in a pod.
+// It deep-copies the pod, updates the target container's resources, and calls
+// the /resize subresource. It returns a ResizeResult for each resource type
+// (cpu and memory) describing the change.
+func (r *PodResizer) ResizePod(ctx context.Context, pod *corev1.Pod, container string,
+	target corev1.ResourceRequirements) ([]ResizeResult, error) {
+
+	idx := -1
+	for i, c := range pod.Spec.Containers {
+		if c.Name == container {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		return nil, fmt.Errorf("container %q not found in pod %s/%s", container, pod.Namespace, pod.Name)
+	}
+
+	current := pod.Spec.Containers[idx].Resources
+
+	updated := pod.DeepCopy()
+	updated.Spec.Containers[idx].Resources = target
+
+	r.logger.V(1).Info("resizing pod", "pod", pod.Name, "namespace", pod.Namespace,
+		"container", container, "method", "InPlace")
+
+	_, err := r.client.CoreV1().Pods(pod.Namespace).UpdateResize(ctx, pod.Name, updated, metav1.UpdateOptions{})
+	if err != nil {
+		return []ResizeResult{
+			{PodName: pod.Name, Container: container, Resource: "cpu", Method: "InPlace", Success: false, Error: err},
+			{PodName: pod.Name, Container: container, Resource: "memory", Method: "InPlace", Success: false, Error: err},
+		}, fmt.Errorf("calling UpdateResize for pod %s/%s: %w", pod.Namespace, pod.Name, err)
+	}
+
+	fromCPU := current.Requests[corev1.ResourceCPU]
+	toCPU := target.Requests[corev1.ResourceCPU]
+	fromMem := current.Requests[corev1.ResourceMemory]
+	toMem := target.Requests[corev1.ResourceMemory]
+
+	results := []ResizeResult{
+		{
+			PodName:   pod.Name,
+			Container: container,
+			Resource:  "cpu",
+			From:      fromCPU,
+			To:        toCPU,
+			Method:    "InPlace",
+			Success:   true,
+		},
+		{
+			PodName:   pod.Name,
+			Container: container,
+			Resource:  "memory",
+			From:      fromMem,
+			To:        toMem,
+			Method:    "InPlace",
+			Success:   true,
+		},
+	}
+
+	r.logger.Info("resize submitted", "pod", pod.Name, "namespace", pod.Namespace,
+		"container", container, "cpuFrom", fromCPU.String(), "cpuTo", toCPU.String(),
+		"memFrom", fromMem.String(), "memTo", toMem.String())
+
+	return results, nil
+}
+
+// WaitForResize polls the pod status until the container reports resources
+// matching the target, an infeasible condition is detected, or the timeout
+// is reached.
+func (r *PodResizer) WaitForResize(ctx context.Context, namespace, podName, container string,
+	target corev1.ResourceRequirements, timeout time.Duration) error {
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	return wait.PollUntilContextCancel(ctx, 3*time.Second, true, func(ctx context.Context) (bool, error) {
+		pod, err := r.client.CoreV1().Pods(namespace).Get(ctx, podName, metav1.GetOptions{})
+		if err != nil {
+			return false, fmt.Errorf("getting pod %s/%s: %w", namespace, podName, err)
+		}
+
+		// Check for infeasible resize.
+		for _, condition := range pod.Status.Conditions {
+			if condition.Type == corev1.PodConditionType("PodResizePending") && condition.Reason == "Infeasible" {
+				return false, fmt.Errorf("resize infeasible for pod %s/%s: %s", namespace, podName, condition.Message)
+			}
+		}
+
+		// Check whether the container status reports resources matching the target.
+		for _, cs := range pod.Status.ContainerStatuses {
+			if cs.Name != container {
+				continue
+			}
+			if cs.Resources == nil {
+				return false, nil
+			}
+
+			if targetCPU, ok := target.Requests[corev1.ResourceCPU]; ok {
+				if actualCPU, ok := cs.Resources.Requests[corev1.ResourceCPU]; ok {
+					if !actualCPU.Equal(targetCPU) {
+						return false, nil
+					}
+				} else {
+					return false, nil
+				}
+			}
+			if targetMem, ok := target.Requests[corev1.ResourceMemory]; ok {
+				if actualMem, ok := cs.Resources.Requests[corev1.ResourceMemory]; ok {
+					if !actualMem.Equal(targetMem) {
+						return false, nil
+					}
+				} else {
+					return false, nil
+				}
+			}
+
+			return true, nil
+		}
+
+		return false, nil
+	})
+}
+
+// CanResizeInPlace returns true if the pod is eligible for an in-place resize.
+// The pod must be Running, must not be marked for deletion, and must not have
+// an active resize already in progress.
+func CanResizeInPlace(pod *corev1.Pod) bool {
+	if pod.Status.Phase != corev1.PodRunning {
+		return false
+	}
+	if pod.DeletionTimestamp != nil {
+		return false
+	}
+	// Check pod conditions for active resize (preferred over deprecated Status.Resize)
+	for _, cond := range pod.Status.Conditions {
+		if cond.Status != corev1.ConditionTrue {
+			continue
+		}
+		condType := string(cond.Type)
+		if condType == "PodResizeInProgress" {
+			return false
+		}
+		if condType == "PodResizePending" && cond.Reason != "Infeasible" {
+			return false
+		}
+	}
+	return true
+}
+
+// PreservesQoS returns true if applying the target resources to the named
+// container would preserve the pod's current QoS class. For Guaranteed pods
+// this means requests must equal limits for both CPU and memory. Burstable
+// and BestEffort pods always return true because changing resource values
+// within those classes does not alter the QoS category.
+func PreservesQoS(pod *corev1.Pod, container string, target corev1.ResourceRequirements) bool {
+	if pod.Status.QOSClass != corev1.PodQOSGuaranteed {
+		return true
+	}
+
+	cpuReq, hasCPUReq := target.Requests[corev1.ResourceCPU]
+	cpuLim, hasCPULim := target.Limits[corev1.ResourceCPU]
+	memReq, hasMemReq := target.Requests[corev1.ResourceMemory]
+	memLim, hasMemLim := target.Limits[corev1.ResourceMemory]
+
+	if !hasCPUReq || !hasCPULim || !hasMemReq || !hasMemLim {
+		return false
+	}
+
+	return cpuReq.Equal(cpuLim) && memReq.Equal(memLim)
+}
