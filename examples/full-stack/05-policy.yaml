@@ -1,0 +1,18 @@
+apiVersion: rightsize.io/v1alpha1
+kind: RightSizePolicy
+metadata:
+  name: api-server
+  namespace: myapp
+spec:
+  targetRef:
+    kind: Deployment
+    name: api-server
+  updateStrategy:
+    mode: Canary
+    cooldown: 1h
+    maxCpuChangePercent: 50
+    maxMemoryChangePercent: 30
+    autoRevert: true
+    canary:
+      percentage: 10
+      observationPeriod: 30m

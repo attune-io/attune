@@ -1,0 +1,20 @@
+# Staging: moderate settings, 25% canary
+apiVersion: rightsize.io/v1alpha1
+kind: RightSizePolicy
+metadata:
+  name: api-servers
+spec:
+  cpu:
+    percentile: 95
+    safetyMargin: "1.2"
+  memory:
+    percentile: 99
+    safetyMargin: "1.2"
+  updateStrategy:
+    mode: Canary
+    cooldown: 1h
+    maxCpuChangePercent: 50
+    maxMemoryChangePercent: 50
+    canary:
+      percentage: 25
+      observationPeriod: 15m

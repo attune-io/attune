@@ -1,0 +1,20 @@
+apiVersion: rightsize.io/v1alpha1
+kind: RightSizePolicy
+metadata:
+  name: api-servers
+spec:
+  targetRef:
+    kind: Deployment
+    selector:
+      matchLabels:
+        tier: api
+  cpu:
+    percentile: 95
+    safetyMargin: "1.2"
+  memory:
+    percentile: 99
+    safetyMargin: "1.3"
+  updateStrategy:
+    mode: Recommend
+    cooldown: 1h
+    autoRevert: true

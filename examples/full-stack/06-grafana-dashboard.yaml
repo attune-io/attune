@@ -1,0 +1,22 @@
+# Grafana dashboard ConfigMap for sidecar auto-provisioning.
+# Requires Grafana with the dashboard sidecar enabled (kube-prometheus-stack
+# enables this by default). The sidecar watches for ConfigMaps with the
+# label grafana_dashboard: "1" and imports them automatically.
+#
+# The dashboard JSON is maintained at deploy/grafana/dashboard.json.
+# To update this ConfigMap, copy the JSON into the data field below.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kube-rightsize-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  kube-rightsize.json: |
+    See deploy/grafana/dashboard.json for the full dashboard definition.
+    Copy its contents here, or use:
+      kubectl create configmap kube-rightsize-dashboard \
+        --from-file=kube-rightsize.json=deploy/grafana/dashboard.json \
+        -n monitoring \
+        -o yaml --dry-run=client | kubectl apply -f -

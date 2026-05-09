@@ -1,0 +1,21 @@
+apiVersion: rightsize.io/v1alpha1
+kind: RightSizeDefaults
+metadata:
+  name: org-defaults
+spec:
+  metricsSource:
+    prometheus:
+      address: http://prometheus-server.monitoring:9090
+    historyWindow: 168h
+    minimumDataPoints: 168
+  cpu:
+    bounds:
+      min: "50m"
+      max: "4000m"
+    controlledValues: RequestsAndLimits
+  memory:
+    bounds:
+      min: "64Mi"
+      max: "8Gi"
+    controlledValues: RequestsAndLimits
+    allowDecrease: false
