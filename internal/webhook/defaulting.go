@@ -19,22 +19,14 @@ package webhook
 import (
 	"context"
 
-	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
-
 	rightsizev1alpha1 "github.com/SebTardif/kube-rightsize/api/v1alpha1"
 )
 
-// RightSizePolicyDefaulter implements webhook.CustomDefaulter for RightSizePolicy.
+// RightSizePolicyDefaulter implements the typed Defaulter interface for RightSizePolicy.
 type RightSizePolicyDefaulter struct{}
 
-var _ webhook.CustomDefaulter = &RightSizePolicyDefaulter{}
-
-func (d *RightSizePolicyDefaulter) Default(ctx context.Context, obj runtime.Object) error {
-	policy, ok := obj.(*rightsizev1alpha1.RightSizePolicy)
-	if !ok {
-		return nil
-	}
+// Default sets default values on a RightSizePolicy.
+func (d *RightSizePolicyDefaulter) Default(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy) error {
 
 	if policy.Spec.CPU.Percentile == 0 {
 		policy.Spec.CPU.Percentile = 95

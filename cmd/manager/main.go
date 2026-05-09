@@ -24,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/kubernetes"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -32,6 +33,7 @@ import (
 	rightsizev1alpha1 "github.com/SebTardif/kube-rightsize/api/v1alpha1"
 	"github.com/SebTardif/kube-rightsize/internal/controller"
 	"github.com/SebTardif/kube-rightsize/internal/metrics"
+	"github.com/SebTardif/kube-rightsize/internal/webhook"
 	// Register operator Prometheus metrics via init()
 	_ "github.com/SebTardif/kube-rightsize/internal/operatormetrics"
 )
@@ -79,19 +81,36 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Setup the RightSizePolicyReconciler with a real Prometheus metrics factory.
+	// Create a typed clientset for the /resize subresource (not available via controller-runtime client).
+	clientset, err := kubernetes.NewForConfig(mgr.GetConfig())
+	if err != nil {
+		setupLog.Error(err, "unable to create Kubernetes clientset")
+		os.Exit(1)
+	}
+
+	// Setup the RightSizePolicyReconciler with a real Prometheus metrics factory and clientset.
 	if err = (&controller.RightSizePolicyReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:    mgr.GetClient(),
+		Scheme:    mgr.GetScheme(),
+		Clientset: clientset,
 		MetricsFactory: func(address string) (metrics.MetricsCollector, error) {
 			collector, err := metrics.NewPrometheusCollector(address)
 			if err != nil {
 				return nil, fmt.Errorf("creating Prometheus collector for %s: %w", address, err)
 			}
-			return collector, nil
+			return metrics.NewRateLimitedCollector(collector, 10, 20), nil
 		},
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "RightSizePolicy")
+		os.Exit(1)
+	}
+
+	// Register webhooks.
+	if err = ctrl.NewWebhookManagedBy(mgr, &rightsizev1alpha1.RightSizePolicy{}).
+		WithDefaulter(&webhook.RightSizePolicyDefaulter{}).
+		WithValidator(&webhook.RightSizePolicyValidator{}).
+		Complete(); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "RightSizePolicy")
 		os.Exit(1)
 	}
 

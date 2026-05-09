@@ -1,0 +1,130 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: opt-out
+spec:
+  description: Verify that a Deployment with rightsize.io/skip annotation is not processed by the controller
+  timeouts:
+    apply: 30s
+    assert: 2m
+    delete: 30s
+  steps:
+    - name: create-resources
+      try:
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: e2e-opt-out
+        - apply:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: skipped-app
+                namespace: e2e-opt-out
+                labels:
+                  app: skipped-app
+                  tier: api
+                annotations:
+                  rightsize.io/skip: "true"
+              spec:
+                replicas: 1
+                selector:
+                  matchLabels:
+                    app: skipped-app
+                template:
+                  metadata:
+                    labels:
+                      app: skipped-app
+                      tier: api
+                  spec:
+                    containers:
+                      - name: app
+                        image: registry.k8s.io/pause:3.9
+                        resources:
+                          requests:
+                            cpu: 500m
+                            memory: 512Mi
+                          limits:
+                            cpu: "1"
+                            memory: 1Gi
+        - apply:
+            resource:
+              apiVersion: rightsize.io/v1alpha1
+              kind: RightSizePolicy
+              metadata:
+                name: opt-out-test
+                namespace: e2e-opt-out
+              spec:
+                targetRef:
+                  kind: Deployment
+                  selector:
+                    matchLabels:
+                      tier: api
+                metricsSource:
+                  prometheus:
+                    address: http://prometheus-server.monitoring:9090
+                  historyWindow: 7d
+                  minimumDataPoints: 1
+                cpu:
+                  percentile: 95
+                  safetyMargin: "1.2"
+                  bounds:
+                    min: 50m
+                    max: "4000m"
+                  controlledValues: RequestsAndLimits
+                memory:
+                  percentile: 99
+                  safetyMargin: "1.3"
+                  bounds:
+                    min: 64Mi
+                    max: 8Gi
+                  controlledValues: RequestsAndLimits
+                updateStrategy:
+                  mode: Recommend
+                  cooldown: 1h
+    - name: verify-deployment-ready
+      try:
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: skipped-app
+                namespace: e2e-opt-out
+              status:
+                readyReplicas: 1
+    - name: verify-workload-not-processed
+      try:
+        - assert:
+            resource:
+              apiVersion: rightsize.io/v1alpha1
+              kind: RightSizePolicy
+              metadata:
+                name: opt-out-test
+                namespace: e2e-opt-out
+              status:
+                conditions:
+                  - type: Ready
+                    status: "False"
+                    reason: InsufficientData
+  catch:
+    - describe:
+        apiVersion: rightsize.io/v1alpha1
+        kind: RightSizePolicy
+        namespace: e2e-opt-out
+    - describe:
+        apiVersion: apps/v1
+        kind: Deployment
+        namespace: e2e-opt-out
+    - podLogs:
+        namespace: e2e-opt-out
+        selector: app=skipped-app
+  finally:
+    - delete:
+        ref:
+          apiVersion: v1
+          kind: Namespace
+          name: e2e-opt-out

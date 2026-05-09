@@ -20,35 +20,30 @@ import (
 	"context"
 	"fmt"
 
-	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	rightsizev1alpha1 "github.com/SebTardif/kube-rightsize/api/v1alpha1"
 )
 
-// RightSizePolicyValidator implements webhook.CustomValidator for RightSizePolicy.
+// RightSizePolicyValidator implements the typed Validator interface for RightSizePolicy.
 type RightSizePolicyValidator struct{}
 
-var _ webhook.CustomValidator = &RightSizePolicyValidator{}
-
-func (v *RightSizePolicyValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	return v.validate(obj)
+// ValidateCreate validates a new RightSizePolicy.
+func (v *RightSizePolicyValidator) ValidateCreate(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy) (admission.Warnings, error) {
+	return v.validate(policy)
 }
 
-func (v *RightSizePolicyValidator) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
-	return v.validate(newObj)
+// ValidateUpdate validates an updated RightSizePolicy.
+func (v *RightSizePolicyValidator) ValidateUpdate(ctx context.Context, oldPolicy, policy *rightsizev1alpha1.RightSizePolicy) (admission.Warnings, error) {
+	return v.validate(policy)
 }
 
-func (v *RightSizePolicyValidator) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+// ValidateDelete validates a RightSizePolicy deletion (always succeeds).
+func (v *RightSizePolicyValidator) ValidateDelete(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy) (admission.Warnings, error) {
 	return nil, nil
 }
 
-func (v *RightSizePolicyValidator) validate(obj runtime.Object) (admission.Warnings, error) {
-	policy, ok := obj.(*rightsizev1alpha1.RightSizePolicy)
-	if !ok {
-		return nil, nil
-	}
+func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizePolicy) (admission.Warnings, error) {
 
 	var warnings admission.Warnings
 

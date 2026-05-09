@@ -38,6 +38,7 @@ import (
 	rightsizev1alpha1 "github.com/SebTardif/kube-rightsize/api/v1alpha1"
 	"github.com/SebTardif/kube-rightsize/internal/conflict"
 	rsmetrics "github.com/SebTardif/kube-rightsize/internal/metrics"
+	"github.com/SebTardif/kube-rightsize/internal/operatormetrics"
 	"github.com/SebTardif/kube-rightsize/internal/recommendation"
 	"github.com/SebTardif/kube-rightsize/internal/resize"
 	"github.com/SebTardif/kube-rightsize/internal/safety"
@@ -64,6 +65,13 @@ const (
 
 	// conditionTypeReady is the condition type for overall health.
 	conditionTypeReady = "Ready"
+
+	// resizeTrackingAnnotation is the annotation prefix used to track resized pods
+	// for deferred safety observation.
+	resizeTrackingAnnotation = "rightsize.io/resize-tracking"
+
+	// defaultObservationPeriod is the default safety observation window after resize.
+	defaultObservationPeriod = 5 * time.Minute
 )
 
 //+kubebuilder:rbac:groups=rightsize.io,resources=rightsizepolicies,verbs=get;list;watch
@@ -89,6 +97,7 @@ type MetricsCollectorFactory func(address string) (rsmetrics.MetricsCollector, e
 
 // Reconcile is the main reconciliation loop for RightSizePolicy resources.
 func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	startTime := time.Now()
 	logger := log.FromContext(ctx)
 
 	// Step 1: Fetch the RightSizePolicy CR.
@@ -103,6 +112,12 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	// Merge cluster-scoped defaults into the policy.
 	r.mergeDefaults(ctx, &policy)
+
+	// Check pending safety observations from previous resizes before computing
+	// new recommendations.
+	if policy.Spec.UpdateStrategy.AutoRevert {
+		r.checkPendingSafetyObservations(ctx, &policy)
+	}
 
 	// Step 2: Resolve Prometheus address from spec or RightSizeDefaults.
 	prometheusAddr, err := r.resolvePrometheusAddress(ctx, &policy)
@@ -218,7 +233,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	policy.Status.Recommendations = recommendations
 
 	// Compute savings estimate.
-	policy.Status.Savings = r.computeSavings(recommendations)
+	policy.Status.Savings = r.computeSavings(policy.Namespace, recommendations)
 
 	// Step 9: Execute resizes if mode allows.
 	mode := policy.Spec.UpdateStrategy.Mode
@@ -265,6 +280,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	// Step 10: Requeue after cooldown.
 	cooldown := r.parseCooldown(&policy)
 	logger.Info("Reconciliation complete, requeueing", "cooldown", cooldown)
+	operatormetrics.ReconcileDuration.WithLabelValues("rightsizepolicy").Observe(time.Since(startTime).Seconds())
 	return ctrl.Result{RequeueAfter: cooldown}, nil
 }
 
@@ -562,6 +578,27 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 			rec.Recommended.MemoryRequest = memRec
 		}
 
+		// Scale limits proportionally if ControlledValues is RequestsAndLimits.
+		cpuControlled := "RequestsOnly"
+		if policy.Spec.CPU.ControlledValues != nil {
+			cpuControlled = *policy.Spec.CPU.ControlledValues
+		}
+		memControlled := "RequestsOnly"
+		if policy.Spec.Memory.ControlledValues != nil {
+			memControlled = *policy.Spec.Memory.ControlledValues
+		}
+		if cpuControlled == "RequestsAndLimits" {
+			rec.Recommended.CPULimit = scaleLimits(currentCPUReq, currentCPULim, rec.Recommended.CPURequest)
+		}
+		if memControlled == "RequestsAndLimits" {
+			rec.Recommended.MemoryLimit = scaleLimits(currentMemReq, currentMemLim, rec.Recommended.MemoryRequest)
+		}
+
+		// Set recommendation gauges for this container.
+		operatormetrics.RecommendationCPU.WithLabelValues(policy.Namespace, workload.GetName(), containerName).Set(float64(rec.Recommended.CPURequest.MilliValue()) / 1000.0)
+		operatormetrics.RecommendationMemory.WithLabelValues(policy.Namespace, workload.GetName(), containerName).Set(float64(rec.Recommended.MemoryRequest.Value()))
+		operatormetrics.Confidence.WithLabelValues(policy.Namespace, workload.GetName(), containerName).Set(rec.Confidence)
+
 		containerRecs = append(containerRecs, rec)
 	}
 
@@ -652,7 +689,7 @@ func (r *RightSizePolicyReconciler) parseCooldown(policy *rightsizev1alpha1.Righ
 }
 
 // computeSavings calculates the aggregate resource savings across all recommendations.
-func (r *RightSizePolicyReconciler) computeSavings(recommendations []rightsizev1alpha1.WorkloadRecommendation) rightsizev1alpha1.SavingsStatus {
+func (r *RightSizePolicyReconciler) computeSavings(namespace string, recommendations []rightsizev1alpha1.WorkloadRecommendation) rightsizev1alpha1.SavingsStatus {
 	var totalCPUSaved, totalMemSaved int64
 
 	for _, rec := range recommendations {
@@ -672,11 +709,24 @@ func (r *RightSizePolicyReconciler) computeSavings(recommendations []rightsizev1
 	savings := rightsizev1alpha1.SavingsStatus{}
 	if totalCPUSaved > 0 {
 		savings.CPURequestReduction = resource.NewMilliQuantity(totalCPUSaved, resource.DecimalSI).String()
+		operatormetrics.SavingsCPU.WithLabelValues(namespace).Set(float64(totalCPUSaved) / 1000.0)
 	}
 	if totalMemSaved > 0 {
 		savings.MemoryRequestReduction = resource.NewQuantity(totalMemSaved, resource.BinarySI).String()
+		operatormetrics.SavingsMemory.WithLabelValues(namespace).Set(float64(totalMemSaved))
 	}
 	return savings
+}
+
+// scaleLimits scales a resource limit proportionally to maintain the same
+// request:limit ratio when the request changes.
+func scaleLimits(currentReq, currentLim, newReq resource.Quantity) resource.Quantity {
+	if currentReq.IsZero() || currentLim.IsZero() {
+		return newReq.DeepCopy()
+	}
+	ratio := float64(currentLim.MilliValue()) / float64(currentReq.MilliValue())
+	newLimMilli := int64(float64(newReq.MilliValue()) * ratio)
+	return *resource.NewMilliQuantity(newLimMilli, currentLim.Format)
 }
 
 // parseFloat64 parses a string as a float64, returning the fallback on error.
@@ -836,6 +886,7 @@ func (r *RightSizePolicyReconciler) executeResizes(
 							Method:    "InPlace",
 							Result:    "Failed",
 						})
+						operatormetrics.ResizeTotal.WithLabelValues(pod.Namespace, rec.Workload, res.Resource, "failed").Inc()
 					}
 					continue
 				}
@@ -856,7 +907,18 @@ func (r *RightSizePolicyReconciler) executeResizes(
 						Method:    "InPlace",
 						Result:    result,
 					})
+					if res.Success {
+						operatormetrics.ResizeTotal.WithLabelValues(pod.Namespace, rec.Workload, res.Resource, "success").Inc()
+					}
 				}
+
+				// Track resize via pod annotations for deferred safety observation.
+				if pod.Annotations == nil {
+					pod.Annotations = make(map[string]string)
+				}
+				pod.Annotations["rightsize.io/resized-at"] = time.Now().UTC().Format(time.RFC3339)
+				pod.Annotations["rightsize.io/original-cpu-request"] = containerRec.Current.CPURequest.String()
+				pod.Annotations["rightsize.io/original-memory-request"] = containerRec.Current.MemoryRequest.String()
 
 				// Safety check (if autoRevert is enabled)
 				if policy.Spec.UpdateStrategy.AutoRevert {
@@ -881,6 +943,8 @@ func (r *RightSizePolicyReconciler) executeResizes(
 						if revertErr := monitor.RevertPod(ctx, record); revertErr != nil {
 							logger.Error(revertErr, "Failed to revert pod", "pod", pod.Name)
 						}
+						operatormetrics.RevertsTotal.WithLabelValues(pod.Namespace, rec.Workload, verdict.Reason).Inc()
+						operatormetrics.ResizeTotal.WithLabelValues(pod.Namespace, rec.Workload, containerRec.Name, "reverted").Inc()
 						// Update history entry to Reverted
 						for i := len(history) - 1; i >= 0; i-- {
 							if history[i].Workload == rec.Workload && history[i].Container == containerRec.Name {
@@ -895,6 +959,102 @@ func (r *RightSizePolicyReconciler) executeResizes(
 	}
 
 	return totalResized, history
+}
+
+// checkPendingSafetyObservations checks pods that were previously resized and
+// annotated with tracking annotations. For each pod whose observation period
+// has elapsed, it runs a safety check. Unsafe pods are reverted to their
+// original resource values and the annotations are removed.
+func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy) {
+	logger := log.FromContext(ctx)
+	if r.Clientset == nil {
+		return
+	}
+
+	// List pods with the resize-tracking annotation in the policy's namespace.
+	var podList corev1.PodList
+	if err := r.List(ctx, &podList, client.InNamespace(policy.Namespace)); err != nil {
+		logger.Error(err, "Failed to list pods for safety observation")
+		return
+	}
+
+	monitor := safety.NewMonitor(r.Clientset, logger)
+
+	observationPeriod := defaultObservationPeriod
+	if policy.Spec.UpdateStrategy.Canary != nil && policy.Spec.UpdateStrategy.Canary.ObservationPeriod.Duration > 0 {
+		observationPeriod = policy.Spec.UpdateStrategy.Canary.ObservationPeriod.Duration
+	}
+
+	for i := range podList.Items {
+		pod := &podList.Items[i]
+		resizedAtStr, ok := pod.Annotations["rightsize.io/resized-at"]
+		if !ok {
+			continue
+		}
+
+		resizedAt, err := time.Parse(time.RFC3339, resizedAtStr)
+		if err != nil {
+			logger.Error(err, "Failed to parse resized-at annotation", "pod", pod.Name)
+			continue
+		}
+
+		// Skip if the observation period hasn't elapsed yet.
+		if time.Since(resizedAt) < observationPeriod {
+			continue
+		}
+
+		originalCPUStr := pod.Annotations["rightsize.io/original-cpu-request"]
+		originalMemStr := pod.Annotations["rightsize.io/original-memory-request"]
+
+		originalCPU := resource.MustParse(originalCPUStr)
+		originalMem := resource.MustParse(originalMemStr)
+
+		// Build a safety record from the first container (annotations are per-pod).
+		containerName := ""
+		var currentResources corev1.ResourceRequirements
+		if len(pod.Spec.Containers) > 0 {
+			containerName = pod.Spec.Containers[0].Name
+			currentResources = pod.Spec.Containers[0].Resources
+		}
+
+		record := safety.ResizeRecord{
+			PodName:   pod.Name,
+			Namespace: pod.Namespace,
+			Container: containerName,
+			OriginalResources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    originalCPU,
+					corev1.ResourceMemory: originalMem,
+				},
+			},
+			NewResources:   currentResources,
+			ResizedAt:      resizedAt,
+			ObservationEnd: resizedAt.Add(observationPeriod),
+		}
+
+		verdict, err := monitor.CheckPod(ctx, record)
+		if err != nil {
+			logger.Error(err, "Safety observation check failed", "pod", pod.Name)
+			continue
+		}
+
+		if !verdict.Safe {
+			logger.Info("Deferred safety violation detected, reverting",
+				"pod", pod.Name, "reason", verdict.Reason)
+			if revertErr := monitor.RevertPod(ctx, record); revertErr != nil {
+				logger.Error(revertErr, "Failed to revert pod during safety observation", "pod", pod.Name)
+			}
+			operatormetrics.RevertsTotal.WithLabelValues(pod.Namespace, pod.Labels["app"], verdict.Reason).Inc()
+		}
+
+		// Remove tracking annotations regardless of outcome (observation complete).
+		delete(pod.Annotations, "rightsize.io/resized-at")
+		delete(pod.Annotations, "rightsize.io/original-cpu-request")
+		delete(pod.Annotations, "rightsize.io/original-memory-request")
+		if updateErr := r.Update(ctx, pod); updateErr != nil {
+			logger.Error(updateErr, "Failed to remove resize tracking annotations", "pod", pod.Name)
+		}
+	}
 }
 
 // appendHistory appends new entries to existing history, capping at maxEntries.

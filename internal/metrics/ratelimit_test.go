@@ -1,0 +1,91 @@
+/*
+Copyright 2026.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package metrics
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// mockCollector implements MetricsCollector for testing.
+type mockCollector struct {
+	queryRangeCalls int
+	queryCalls      int
+	queryRangeFunc  func(ctx context.Context, query string, start, end time.Time, step time.Duration) ([]Sample, error)
+	queryFunc       func(ctx context.Context, query string, ts time.Time) (float64, error)
+}
+
+func (m *mockCollector) QueryRange(ctx context.Context, query string, start, end time.Time, step time.Duration) ([]Sample, error) {
+	m.queryRangeCalls++
+	if m.queryRangeFunc != nil {
+		return m.queryRangeFunc(ctx, query, start, end, step)
+	}
+	return []Sample{{Timestamp: start, Value: 0.5}}, nil
+}
+
+func (m *mockCollector) Query(ctx context.Context, query string, ts time.Time) (float64, error) {
+	m.queryCalls++
+	if m.queryFunc != nil {
+		return m.queryFunc(ctx, query, ts)
+	}
+	return 42.0, nil
+}
+
+func TestRateLimitedCollector_PassesThrough(t *testing.T) {
+	mock := &mockCollector{}
+	rl := NewRateLimitedCollector(mock, 10, 20)
+
+	ctx := context.Background()
+	now := time.Now()
+
+	// QueryRange passes through to inner collector.
+	samples, err := rl.QueryRange(ctx, "cpu_usage", now.Add(-time.Hour), now, 5*time.Minute)
+	require.NoError(t, err)
+	assert.Len(t, samples, 1)
+	assert.InDelta(t, 0.5, samples[0].Value, 0.001)
+	assert.Equal(t, 1, mock.queryRangeCalls)
+
+	// Query passes through to inner collector.
+	val, err := rl.Query(ctx, "mem_usage", now)
+	require.NoError(t, err)
+	assert.InDelta(t, 42.0, val, 0.001)
+	assert.Equal(t, 1, mock.queryCalls)
+}
+
+func TestRateLimitedCollector_CancelledContext(t *testing.T) {
+	mock := &mockCollector{}
+	rl := NewRateLimitedCollector(mock, 10, 20)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately.
+
+	now := time.Now()
+
+	// QueryRange should return context error.
+	_, err := rl.QueryRange(ctx, "cpu_usage", now.Add(-time.Hour), now, 5*time.Minute)
+	assert.Error(t, err)
+	assert.Equal(t, 0, mock.queryRangeCalls)
+
+	// Query should return context error.
+	_, err = rl.Query(ctx, "mem_usage", now)
+	assert.Error(t, err)
+	assert.Equal(t, 0, mock.queryCalls)
+}

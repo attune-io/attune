@@ -1,0 +1,236 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.0
+  name: rightsizedefaults.rightsize.io
+spec:
+  group: rightsize.io
+  names:
+    kind: RightSizeDefaults
+    listKind: RightSizeDefaultsList
+    plural: rightsizedefaults
+    shortNames:
+    - rsd
+    singular: rightsizedefaults
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          RightSizeDefaults is the Schema for the rightsizedefaults API.
+          It defines cluster-scoped default values for RightSizePolicy resources.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: RightSizeDefaultsSpec defines cluster-scoped default values
+              for RightSizePolicy resources.
+            properties:
+              cpu:
+                description: CPU configures default CPU resource recommendation parameters.
+                properties:
+                  allowDecrease:
+                    description: |-
+                      AllowDecrease controls whether the resource value can be decreased.
+                      Only applicable to memory resources.
+                    type: boolean
+                  bounds:
+                    description: Bounds defines the minimum and maximum allowed resource
+                      values.
+                    properties:
+                      max:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: Max is the maximum allowed resource value.
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      min:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: Min is the minimum allowed resource value.
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                    required:
+                    - max
+                    - min
+                    type: object
+                  controlledValues:
+                    description: ControlledValues specifies which resource values
+                      to manage.
+                    enum:
+                    - RequestsOnly
+                    - RequestsAndLimits
+                    type: string
+                  percentile:
+                    description: Percentile is the usage percentile to target for
+                      recommendations.
+                    format: int32
+                    maximum: 99
+                    minimum: 50
+                    type: integer
+                  safetyMargin:
+                    description: |-
+                      SafetyMargin is a multiplier applied to the recommended value.
+                      Expressed as a resource.Quantity-compatible string (e.g. "1.2").
+                    type: string
+                required:
+                - percentile
+                - safetyMargin
+                type: object
+              memory:
+                description: Memory configures default memory resource recommendation
+                  parameters.
+                properties:
+                  allowDecrease:
+                    description: |-
+                      AllowDecrease controls whether the resource value can be decreased.
+                      Only applicable to memory resources.
+                    type: boolean
+                  bounds:
+                    description: Bounds defines the minimum and maximum allowed resource
+                      values.
+                    properties:
+                      max:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: Max is the maximum allowed resource value.
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      min:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: Min is the minimum allowed resource value.
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                    required:
+                    - max
+                    - min
+                    type: object
+                  controlledValues:
+                    description: ControlledValues specifies which resource values
+                      to manage.
+                    enum:
+                    - RequestsOnly
+                    - RequestsAndLimits
+                    type: string
+                  percentile:
+                    description: Percentile is the usage percentile to target for
+                      recommendations.
+                    format: int32
+                    maximum: 99
+                    minimum: 50
+                    type: integer
+                  safetyMargin:
+                    description: |-
+                      SafetyMargin is a multiplier applied to the recommended value.
+                      Expressed as a resource.Quantity-compatible string (e.g. "1.2").
+                    type: string
+                required:
+                - percentile
+                - safetyMargin
+                type: object
+              metricsSource:
+                description: MetricsSource configures default metrics source settings.
+                properties:
+                  historyWindow:
+                    description: |-
+                      HistoryWindow is the time window for historical metrics data.
+                      Defaults to 7d (168h) if not specified.
+                    type: string
+                  minimumDataPoints:
+                    default: 168
+                    description: |-
+                      MinimumDataPoints is the minimum number of data points required
+                      before generating recommendations.
+                    format: int32
+                    type: integer
+                  prometheus:
+                    description: Prometheus configures a Prometheus metrics source.
+                    properties:
+                      address:
+                        description: Address is the URL of the Prometheus server.
+                        type: string
+                    required:
+                    - address
+                    type: object
+                type: object
+              updateStrategy:
+                description: UpdateStrategy configures default update strategy settings.
+                properties:
+                  autoRevert:
+                    default: true
+                    description: AutoRevert automatically reverts changes if degradation
+                      is detected.
+                    type: boolean
+                  canary:
+                    description: Canary configures canary rollout behavior when Mode
+                      is Canary.
+                    properties:
+                      observationPeriod:
+                        description: ObservationPeriod is how long to observe canary
+                          pods before proceeding.
+                        type: string
+                      percentage:
+                        description: Percentage is the percentage of pods to resize
+                          first.
+                        format: int32
+                        type: integer
+                    required:
+                    - observationPeriod
+                    - percentage
+                    type: object
+                  cooldown:
+                    description: |-
+                      Cooldown is the minimum time between successive resize operations.
+                      Defaults to 1h if not specified.
+                    type: string
+                  maxCpuChangePercent:
+                    default: 50
+                    description: MaxCPUChangePercent is the maximum allowed CPU change
+                      percentage per operation.
+                    format: int32
+                    type: integer
+                  maxMemoryChangePercent:
+                    default: 30
+                    description: MaxMemoryChangePercent is the maximum allowed memory
+                      change percentage per operation.
+                    format: int32
+                    type: integer
+                  mode:
+                    description: Mode determines the update behavior.
+                    enum:
+                    - Observe
+                    - Recommend
+                    - OneShot
+                    - Canary
+                    - Auto
+                    type: string
+                required:
+                - mode
+                type: object
+            type: object
+        type: object
+    served: true
+    storage: true
