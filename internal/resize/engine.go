@@ -70,7 +70,6 @@ func NewPodResizer(client kubernetes.Interface, logger logr.Logger) *PodResizer 
 // (cpu and memory) describing the change.
 func (r *PodResizer) ResizePod(ctx context.Context, pod *corev1.Pod, container string,
 	target corev1.ResourceRequirements) ([]ResizeResult, error) {
-
 	idx := -1
 	for i, c := range pod.Spec.Containers {
 		if c.Name == container {
@@ -136,7 +135,6 @@ func (r *PodResizer) ResizePod(ctx context.Context, pod *corev1.Pod, container s
 // is reached.
 func (r *PodResizer) WaitForResize(ctx context.Context, namespace, podName, container string,
 	target corev1.ResourceRequirements, timeout time.Duration) error {
-
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 

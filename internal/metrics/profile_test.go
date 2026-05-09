@@ -56,8 +56,8 @@ func TestBuildProfile(t *testing.T) {
 		checkHourly    bool
 	}{
 		{
-			name:    "empty samples returns zero profile",
-			samples: nil,
+			name:      "empty samples returns zero profile",
+			samples:   nil,
 			wantBurst: false,
 			wantConfidence: func(c float64) bool {
 				return c == 0
@@ -65,8 +65,8 @@ func TestBuildProfile(t *testing.T) {
 			wantDataPoints: 0,
 		},
 		{
-			name:    "steady usage has no bursts and high confidence",
-			samples: generateSteadySamples(0.1, 7), // 100m CPU for 7 days
+			name:      "steady usage has no bursts and high confidence",
+			samples:   generateSteadySamples(0.1, 7), // 100m CPU for 7 days
 			wantBurst: false,
 			wantConfidence: func(c float64) bool {
 				return c > 0.8
@@ -109,8 +109,8 @@ func TestBuildProfile(t *testing.T) {
 			wantDataPoints: 5,
 		},
 		{
-			name:    "seven days of data approaches confidence 1.0",
-			samples: generateSteadySamples(0.5, 7),
+			name:      "seven days of data approaches confidence 1.0",
+			samples:   generateSteadySamples(0.5, 7),
 			wantBurst: false,
 			wantConfidence: func(c float64) bool {
 				return c >= 0.85

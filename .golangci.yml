@@ -67,10 +67,14 @@ linters:
     rules:
       - linters: [govet]
         text: "composites"
+      - linters: [staticcheck]
+        text: "SA1019.*scheme.Builder"
       - path: _test\.go
-        linters: [gosec, bodyclose, forbidigo]
+        linters: [gosec, bodyclose, forbidigo, unparam]
       - path: test/
         linters: [gosec, bodyclose, forbidigo]
+      - path: cmd/kubectl-rightsize/
+        linters: [forbidigo]
 
 formatters:
   enable:

@@ -88,7 +88,7 @@ func (m *Monitor) CheckPod(ctx context.Context, record ResizeRecord) (SafetyVerd
 		// Check for OOMKill that happened after the resize.
 		if cs.LastTerminationState.Terminated != nil &&
 			cs.LastTerminationState.Terminated.Reason == "OOMKilled" &&
-			cs.LastTerminationState.Terminated.FinishedAt.Time.After(record.ResizedAt) {
+			cs.LastTerminationState.Terminated.FinishedAt.After(record.ResizedAt) {
 			return SafetyVerdict{
 				Safe:    false,
 				Reason:  "oomkill",

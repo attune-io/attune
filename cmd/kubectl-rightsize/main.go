@@ -108,7 +108,9 @@ func printStatus(ctx context.Context, dynClient dynamic.Interface, namespace str
 			ns, name, mode, workloads, resized, ready, age)
 	}
 
-	w.Flush()
+	if err := w.Flush(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error flushing output: %v\n", err)
+	}
 }
 
 func printSavings(ctx context.Context, dynClient dynamic.Interface, namespace string) {
@@ -143,7 +145,9 @@ func printSavings(ctx context.Context, dynClient dynamic.Interface, namespace st
 			ns, name, cpuSaved, memSaved, estMonthly)
 	}
 
-	w.Flush()
+	if err := w.Flush(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error flushing output: %v\n", err)
+	}
 }
 
 func getNestedString(obj unstructured.Unstructured, fields ...string) string {
@@ -229,7 +233,9 @@ func printRecommendations(ctx context.Context, dynClient dynamic.Interface, name
 		}
 	}
 
-	w.Flush()
+	if err := w.Flush(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error flushing output: %v\n", err)
+	}
 }
 
 func formatMemory(s string) string {

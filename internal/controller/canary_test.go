@@ -49,7 +49,7 @@ func makeCanaryPod(name string, running bool, deleting bool) corev1.Pod {
 	}
 	if deleting {
 		now := metav1.NewTime(time.Now())
-		pod.ObjectMeta.DeletionTimestamp = &now
+		pod.DeletionTimestamp = &now
 	}
 	return pod
 }

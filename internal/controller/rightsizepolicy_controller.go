@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"math"
 	"strconv"
 	"time"
 
@@ -45,9 +46,6 @@ import (
 )
 
 const (
-	// optOutAnnotation is the annotation key used to skip a workload.
-	optOutAnnotation = "rightsize.io/skip"
-
 	// lastResizeAnnotation is the annotation key for tracking last resize time.
 	lastResizeAnnotation = "rightsize.io/last-resize-time"
 
@@ -65,10 +63,6 @@ const (
 
 	// conditionTypeReady is the condition type for overall health.
 	conditionTypeReady = "Ready"
-
-	// resizeTrackingAnnotation is the annotation prefix used to track resized pods
-	// for deferred safety observation.
-	resizeTrackingAnnotation = "rightsize.io/resize-tracking"
 
 	// defaultObservationPeriod is the default safety observation window after resize.
 	defaultObservationPeriod = 5 * time.Minute
@@ -227,7 +221,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	// Step 8: Update status fields.
 	policy.Status.Workloads = rightsizev1alpha1.WorkloadStatus{
-		Discovered:          int32(len(workloads)),
+		Discovered:          safeInt32(len(workloads)),
 		WithRecommendations: workloadsWithRecs,
 	}
 	policy.Status.Recommendations = recommendations
@@ -240,7 +234,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	if (mode == "OneShot" || mode == "Canary" || mode == "Auto") && !r.isCooldownActive(&policy) {
 		resizedCount, history := r.executeResizes(ctx, &policy, workloads, recommendations)
 		if resizedCount > 0 {
-			policy.Status.Workloads.Resized = int32(resizedCount)
+			policy.Status.Workloads.Resized = safeInt32(resizedCount)
 			policy.Status.ResizeHistory = appendHistory(policy.Status.ResizeHistory, history, 20)
 		}
 	} else if mode == "OneShot" || mode == "Canary" || mode == "Auto" {
@@ -463,6 +457,8 @@ func buildPrometheusQuery(namespace, podPrefix, container, metric string) string
 
 // computeRecommendations generates resource recommendations for all containers
 // in a workload based on Prometheus metrics.
+//
+//nolint:unparam // error return is part of the interface contract for future use
 func (r *RightSizePolicyReconciler) computeRecommendations(
 	ctx context.Context,
 	policy *rightsizev1alpha1.RightSizePolicy,
@@ -550,7 +546,7 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 		memProfile := rsmetrics.BuildProfile(memSamples)
 
 		// Check for sufficient data points.
-		if int32(cpuProfile.DataPoints) < minimumDataPoints && int32(memProfile.DataPoints) < minimumDataPoints {
+		if cpuProfile.DataPoints < int(minimumDataPoints) && memProfile.DataPoints < int(minimumDataPoints) {
 			logger.Info("Insufficient data points",
 				"container", containerName,
 				"cpuPoints", cpuProfile.DataPoints,
@@ -567,7 +563,7 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 
 		rec := rightsizev1alpha1.ContainerRecommendation{
 			Name:       containerName,
-			DataPoints: int32(cpuProfile.DataPoints + memProfile.DataPoints),
+			DataPoints: safeInt32(cpuProfile.DataPoints + memProfile.DataPoints),
 			Confidence: (cpuProfile.Confidence + memProfile.Confidence) / 2.0,
 			LastUpdated: metav1.Time{
 				Time: now,
@@ -587,13 +583,13 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 		}
 
 		// Compute CPU recommendation.
-		if int32(cpuProfile.DataPoints) >= minimumDataPoints {
+		if cpuProfile.DataPoints >= int(minimumDataPoints) {
 			cpuRec, _ := cpuEngine.Recommend(cpuProfile, currentCPUReq)
 			rec.Recommended.CPURequest = cpuRec
 		}
 
 		// Compute memory recommendation.
-		if int32(memProfile.DataPoints) >= minimumDataPoints {
+		if memProfile.DataPoints >= int(minimumDataPoints) {
 			memRec, _ := memEngine.Recommend(memProfile, currentMemReq)
 			rec.Recommended.MemoryRequest = memRec
 		}
@@ -759,6 +755,14 @@ func parseFloat64(s string, fallback float64) float64 {
 		return fallback
 	}
 	return v
+}
+
+// safeInt32 converts an int to int32, clamping to math.MaxInt32 on overflow.
+func safeInt32(v int) int32 {
+	if v > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	return int32(v) // #nosec G115 -- overflow guarded by check above
 }
 
 // isCooldownActive checks if the policy is within the cooldown window since last resize.
@@ -1113,6 +1117,8 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 }
 
 // appendHistory appends new entries to existing history, capping at maxEntries.
+//
+//nolint:unparam // maxEntries is a parameter for configurability
 func appendHistory(existing []rightsizev1alpha1.ResizeHistoryEntry,
 	newEntries []rightsizev1alpha1.ResizeHistoryEntry, maxEntries int) []rightsizev1alpha1.ResizeHistoryEntry {
 	result := append(existing, newEntries...)
@@ -1182,4 +1188,3 @@ func (r *RightSizePolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&rightsizev1alpha1.RightSizePolicy{}).
 		Complete(r)
 }
-

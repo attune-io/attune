@@ -48,11 +48,11 @@ func buildRealisticCPUProfile(p95 float64, confidence float64) metrics.UsageProf
 
 func TestRecommendationEngine_RealisticCPU(t *testing.T) {
 	engine := NewEngine(
-		95,                           // percentile
-		1.2,                          // safety margin
-		resource.MustParse("50m"),    // min bound
-		resource.MustParse("4000m"),  // max bound
-		50,                           // max change percent
+		95,                          // percentile
+		1.2,                         // safety margin
+		resource.MustParse("50m"),   // min bound
+		resource.MustParse("4000m"), // max bound
+		50,                          // max change percent
 	)
 
 	// Profile with P95 = 0.200 (200m CPU), high confidence.
@@ -70,11 +70,11 @@ func TestRecommendationEngine_RealisticCPU(t *testing.T) {
 
 func TestRecommendationEngine_RealisticMemory(t *testing.T) {
 	engine := NewEngine(
-		99,                                   // percentile
-		1.2,                                  // safety margin
-		resource.MustParse("64Mi"),           // min bound
-		resource.MustParse("8Gi"),            // max bound
-		50,                                   // max change percent
+		99,                         // percentile
+		1.2,                        // safety margin
+		resource.MustParse("64Mi"), // min bound
+		resource.MustParse("8Gi"),  // max bound
+		50,                         // max change percent
 	)
 
 	// Memory profile: P99 = 256Mi = 268435456 bytes.
@@ -107,7 +107,7 @@ func TestRecommendationEngine_RealisticMemory(t *testing.T) {
 func TestRecommendationEngine_SmallChangeFiltered(t *testing.T) {
 	engine := NewEngine(
 		95,
-		1.0,                          // no margin
+		1.0, // no margin
 		resource.MustParse("10m"),
 		resource.MustParse("10000m"),
 		50,
