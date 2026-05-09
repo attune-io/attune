@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"text/tabwriter"
 	"time"
 
@@ -38,7 +39,7 @@ var gvr = schema.GroupVersionResource{
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintf(os.Stderr, "Usage: kubectl rightsize <status|savings> [-n namespace]\n")
+		fmt.Fprintf(os.Stderr, "Usage: kubectl rightsize <status|savings|recommendations> [-n namespace]\n")
 		os.Exit(1)
 	}
 
@@ -76,8 +77,10 @@ func main() {
 		printStatus(ctx, dynClient, namespace)
 	case "savings":
 		printSavings(ctx, dynClient, namespace)
+	case "recommendations":
+		printRecommendations(ctx, dynClient, namespace)
 	default:
-		fmt.Fprintf(os.Stderr, "Unknown command: %s\nUsage: kubectl rightsize <status|savings> [-n namespace]\n", cmd)
+		fmt.Fprintf(os.Stderr, "Unknown command: %s\nUsage: kubectl rightsize <status|savings|recommendations> [-n namespace]\n", cmd)
 		os.Exit(1)
 	}
 }
@@ -128,6 +131,7 @@ func printSavings(ctx context.Context, dynClient dynamic.Interface, namespace st
 		if cpuSaved == "" {
 			cpuSaved = "-"
 		}
+		memSaved = formatMemory(memSaved)
 		if memSaved == "" {
 			memSaved = "-"
 		}
@@ -177,6 +181,75 @@ func getReadyStatus(obj unstructured.Unstructured) string {
 	}
 
 	return "Unknown"
+}
+
+func printRecommendations(ctx context.Context, dynClient dynamic.Interface, namespace string) {
+	list, err := dynClient.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error listing policies: %v\n", err)
+		os.Exit(1)
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 4, 3, ' ', 0)
+	fmt.Fprintln(w, "WORKLOAD\tCONTAINER\tCPU REQ\tCPU REC\tMEM REQ\tMEM REC\tCONFIDENCE")
+
+	for _, item := range list.Items {
+		recs, found, _ := unstructured.NestedSlice(item.Object, "status", "recommendations")
+		if !found {
+			continue
+		}
+
+		for _, r := range recs {
+			rec, ok := r.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			workload, _ := rec["workload"].(string)
+			containers, _ := rec["containers"].([]interface{})
+
+			for _, c := range containers {
+				cont, ok := c.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				name, _ := cont["name"].(string)
+				confidence, _ := cont["confidence"].(float64)
+
+				current, _ := cont["current"].(map[string]interface{})
+				recommended, _ := cont["recommended"].(map[string]interface{})
+
+				curCPU, _ := current["cpuRequest"].(string)
+				recCPU, _ := recommended["cpuRequest"].(string)
+				curMem, _ := current["memoryRequest"].(string)
+				recMem, _ := recommended["memoryRequest"].(string)
+
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%.1f%%\n",
+					workload, name, curCPU, recCPU, curMem, recMem, confidence*100)
+			}
+		}
+	}
+
+	w.Flush()
+}
+
+func formatMemory(s string) string {
+	if s == "" || s == "-" {
+		return s
+	}
+	bytes, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return s
+	}
+	switch {
+	case bytes >= 1<<30:
+		return fmt.Sprintf("%.1fGi", float64(bytes)/float64(1<<30))
+	case bytes >= 1<<20:
+		return fmt.Sprintf("%.0fMi", float64(bytes)/float64(1<<20))
+	case bytes >= 1<<10:
+		return fmt.Sprintf("%.0fKi", float64(bytes)/float64(1<<10))
+	default:
+		return fmt.Sprintf("%dB", bytes)
+	}
 }
 
 func formatAge(created time.Time) string {

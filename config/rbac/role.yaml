@@ -52,10 +52,19 @@ rules:
   - rightsize.io
   resources:
   - rightsizedefaults
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - rightsize.io
+  resources:
   - rightsizepolicies
   verbs:
   - get
   - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - rightsize.io

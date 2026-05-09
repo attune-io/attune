@@ -430,3 +430,84 @@ func TestIsRollingOut_DeploymentMidRollout(t *testing.T) {
 	deploy.Status.UpdatedReplicas = 1 // Only 1 of 2 updated.
 	assert.True(t, reconciler.isRollingOut(deploy))
 }
+
+func TestBuildPrometheusQuery_FallbackNoContainer(t *testing.T) {
+	query := buildPrometheusQuery("default", "api-server", "", "cpu")
+	assert.Contains(t, query, `namespace="default"`)
+	assert.Contains(t, query, `pod=~"api-server.*"`)
+	assert.NotContains(t, query, `container=`)
+}
+
+func TestBuildPrometheusQuery_MemoryFallbackNoContainer(t *testing.T) {
+	query := buildPrometheusQuery("default", "api-server", "", "memory")
+	assert.Contains(t, query, `namespace="default"`)
+	assert.Contains(t, query, `pod=~"api-server.*"`)
+	assert.NotContains(t, query, `container=`)
+}
+
+func TestScaleLimits(t *testing.T) {
+	tests := []struct {
+		name       string
+		currentReq string
+		currentLim string
+		newReq     string
+		wantLim    string
+	}{
+		{
+			name:       "2:1 ratio preserved",
+			currentReq: "500m",
+			currentLim: "1000m",
+			newReq:     "250m",
+			wantLim:    "500m",
+		},
+		{
+			name:       "1:1 ratio preserved",
+			currentReq: "500m",
+			currentLim: "500m",
+			newReq:     "300m",
+			wantLim:    "300m",
+		},
+		{
+			name:       "zero current req returns new req as limit",
+			currentReq: "0",
+			currentLim: "1000m",
+			newReq:     "250m",
+			wantLim:    "250m",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := scaleLimits(
+				resource.MustParse(tt.currentReq),
+				resource.MustParse(tt.currentLim),
+				resource.MustParse(tt.newReq),
+			)
+			want := resource.MustParse(tt.wantLim)
+			assert.Equal(t, want.MilliValue(), got.MilliValue())
+		})
+	}
+}
+
+func TestComputeSavings_ReturnsCorrectStructure(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	recs := []rightsizev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "api-server",
+			Containers: []rightsizev1alpha1.ContainerRecommendation{
+				{
+					Name: "api",
+					Current: rightsizev1alpha1.ResourceValues{
+						CPURequest: resource.MustParse("1"),
+					},
+					Recommended: rightsizev1alpha1.ResourceValues{
+						CPURequest: resource.MustParse("500m"),
+					},
+				},
+			},
+		},
+	}
+	savings := r.computeSavings("test-ns", recs)
+	assert.NotEmpty(t, savings.CPURequestReduction)
+	assert.Equal(t, "500m", savings.CPURequestReduction)
+}
