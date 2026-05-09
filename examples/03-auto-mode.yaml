@@ -1,0 +1,46 @@
+# Auto Mode: fully automated right-sizing for trusted workloads
+#
+# All pods matching the selector are resized in-place.
+# Use this for workloads where you have high confidence in the
+# operator's recommendations (e.g., after weeks of Canary mode).
+#
+# Apply:
+#   kubectl apply -f 03-auto-mode.yaml
+---
+apiVersion: rightsize.io/v1alpha1
+kind: RightSizePolicy
+metadata:
+  name: batch-workers-auto
+  namespace: batch
+spec:
+  targetRef:
+    kind: Deployment
+    selector:
+      matchLabels:
+        tier: worker
+  metricsSource:
+    prometheus:
+      address: http://prometheus-server.monitoring:9090
+    historyWindow: 168h
+    minimumDataPoints: 168
+  cpu:
+    percentile: 95
+    safetyMargin: "1.15"
+    bounds:
+      min: "200m"
+      max: "16000m"
+    controlledValues: RequestsAndLimits
+  memory:
+    percentile: 99
+    safetyMargin: "1.25"
+    bounds:
+      min: "256Mi"
+      max: "32Gi"
+    controlledValues: RequestsAndLimits
+    allowDecrease: false
+  updateStrategy:
+    mode: Auto
+    maxCpuChangePercent: 30
+    maxMemoryChangePercent: 20
+    cooldown: 4h
+    autoRevert: true

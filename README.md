@@ -116,6 +116,49 @@ spec:
     autoRevert: true
 ```
 
+See the [examples/](examples/) directory for more scenarios: Auto mode,
+HPA coexistence, cluster-wide defaults, and multi-workload selectors.
+
+## kubectl Plugin
+
+A `kubectl rightsize` plugin provides quick access to policy status,
+savings, and recommendations without raw YAML parsing.
+
+```bash
+# Build the plugin
+make build-plugin
+
+# Copy to your PATH
+cp bin/kubectl-rightsize /usr/local/bin/
+
+# Usage
+kubectl rightsize status -n production
+kubectl rightsize savings -n production
+kubectl rightsize recommendations -n production
+```
+
+Example output:
+
+```
+NAMESPACE    NAME           MODE      WORKLOADS   RESIZED   READY   AGE
+production   api-services   Canary    3           1         True    2d
+
+WORKLOAD     CONTAINER   CPU REQ   CPU REC   MEM REQ   MEM REC   CONFIDENCE
+api-server   app         500m      320m      512Mi     384Mi     92.0%
+```
+
+## Grafana Dashboard
+
+A pre-built Grafana dashboard is included at
+[`deploy/grafana/dashboard.json`](deploy/grafana/dashboard.json). Import it
+into Grafana and select your Prometheus data source.
+
+The dashboard includes:
+- **Overview**: total resizes, reverts, CPU/memory saved
+- **Resize Operations**: resize rate by result, reverts by reason
+- **Recommendations**: per-workload CPU/memory recommendations and confidence scores
+- **Operator Health**: reconcile latency (p50/p99), Prometheus query duration, query errors
+
 ## Architecture
 
 ```
@@ -159,7 +202,9 @@ spec:
 
 ## Documentation
 
+- [Examples](examples/) -- ready-to-use policy manifests for common scenarios
 - [Specification](docs/SPEC.md)
+- [Grafana Dashboard](deploy/grafana/dashboard.json)
 - [Contributing](CONTRIBUTING.md)
 - [Security Policy](SECURITY.md)
 - [Changelog](CHANGELOG.md)
