@@ -68,6 +68,9 @@ func (e *ChangeFilter) Estimate(profile metrics.UsageProfile, current resource.Q
 		} else {
 			capped = currentMillis - maxDelta
 		}
+		if recommended.Format == resource.BinarySI {
+			return *resource.NewQuantity(int64(math.Ceil(capped/1000)), resource.BinarySI)
+		}
 		return *resource.NewMilliQuantity(int64(math.Ceil(capped)), resource.DecimalSI)
 	}
 

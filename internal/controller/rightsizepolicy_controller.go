@@ -242,13 +242,6 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		if resizedCount > 0 {
 			policy.Status.Workloads.Resized = int32(resizedCount)
 			policy.Status.ResizeHistory = appendHistory(policy.Status.ResizeHistory, history, 20)
-			if err := r.markResizeTime(ctx, &policy); err != nil {
-				logger.Error(err, "Failed to mark resize time")
-			}
-			// Re-update status with resize results
-			if statusErr := r.Status().Update(ctx, &policy); statusErr != nil {
-				logger.Error(statusErr, "Failed to update status after resize")
-			}
 		}
 	} else if mode == "OneShot" || mode == "Canary" || mode == "Auto" {
 		logger.Info("Cooldown active, skipping resize")
@@ -273,8 +266,18 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		})
 	}
 
-	if statusErr := r.Status().Update(ctx, &policy); statusErr != nil {
+	// Use a retry loop for the status update to handle resource version conflicts
+	// caused by concurrent metadata updates (e.g., cooldown annotations).
+	if statusErr := r.updateStatusWithRetry(ctx, &policy, req.NamespacedName); statusErr != nil {
 		return ctrl.Result{}, fmt.Errorf("updating status: %w", statusErr)
+	}
+
+	// Mark resize time AFTER status is written (avoids resourceVersion conflict
+	// between metadata and status subresource updates).
+	if policy.Status.Workloads.Resized > 0 {
+		if err := r.markResizeTime(ctx, &policy); err != nil {
+			logger.Error(err, "Failed to mark resize time")
+		}
 	}
 
 	// Step 10: Requeue after cooldown.
@@ -880,6 +883,15 @@ func (r *RightSizePolicyReconciler) executeResizes(
 					},
 				}
 
+				// Pre-check: skip if recommended equals current (no change needed).
+				// Compare by value rather than Quantity.Equal() because formats
+				// may differ (DecimalSI vs BinarySI).
+				cpuSame := containerRec.Recommended.CPURequest.MilliValue() == containerRec.Current.CPURequest.MilliValue()
+				memSame := containerRec.Recommended.MemoryRequest.Value() == containerRec.Current.MemoryRequest.Value()
+				if cpuSame && memSame {
+					continue
+				}
+
 				// Pre-check: QoS preservation
 				if !resize.PreservesQoS(&pod, containerRec.Name, target) {
 					logger.Info("Skipping resize: would change QoS class",
@@ -1113,6 +1125,29 @@ func (r *RightSizePolicyReconciler) mergeDefaults(ctx context.Context, policy *r
 	if policy.Spec.UpdateStrategy.Mode == "" && defaults.UpdateStrategy != nil {
 		policy.Spec.UpdateStrategy.Mode = defaults.UpdateStrategy.Mode
 	}
+}
+
+// updateStatusWithRetry performs a status update with a retry on conflict.
+// If the first attempt fails with a conflict, it re-fetches the policy,
+// re-applies the status fields, and retries once.
+func (r *RightSizePolicyReconciler) updateStatusWithRetry(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy, key types.NamespacedName) error {
+	err := r.Status().Update(ctx, policy)
+	if err == nil {
+		return nil
+	}
+	if !apierrors.IsConflict(err) {
+		return err
+	}
+
+	// Conflict: re-fetch and retry.
+	logger := log.FromContext(ctx)
+	logger.Info("Status update conflict, retrying")
+	savedStatus := policy.Status.DeepCopy()
+	if fetchErr := r.Get(ctx, key, policy); fetchErr != nil {
+		return fetchErr
+	}
+	policy.Status = *savedStatus
+	return r.Status().Update(ctx, policy)
 }
 
 // SetupWithManager sets up the controller with the Manager.

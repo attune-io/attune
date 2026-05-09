@@ -44,7 +44,6 @@ type ConfidenceEstimator struct {
 // division by zero or extreme inflation.
 func (e *ConfidenceEstimator) Estimate(profile metrics.UsageProfile, current resource.Quantity) resource.Quantity {
 	inner := e.Inner.Estimate(profile, current)
-	millis := float64(inner.MilliValue())
 
 	multiplier := e.Multiplier
 	if multiplier == 0 {
@@ -58,6 +57,10 @@ func (e *ConfidenceEstimator) Estimate(profile metrics.UsageProfile, current res
 	confidence := math.Max(profile.Confidence, 0.1)
 	factor := math.Pow(1+multiplier/confidence, exponent)
 
-	adjusted := int64(math.Ceil(millis * factor))
+	if inner.Format == resource.BinarySI {
+		adjusted := int64(math.Ceil(float64(inner.Value()) * factor))
+		return *resource.NewQuantity(adjusted, resource.BinarySI)
+	}
+	adjusted := int64(math.Ceil(float64(inner.MilliValue()) * factor))
 	return *resource.NewMilliQuantity(adjusted, resource.DecimalSI)
 }
