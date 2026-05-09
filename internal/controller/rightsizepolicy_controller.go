@@ -883,12 +883,19 @@ func (r *RightSizePolicyReconciler) executeResizes(
 					},
 				}
 
-				// Pre-check: skip if recommended equals current (no change needed).
-				// Compare by value rather than Quantity.Equal() because formats
-				// may differ (DecimalSI vs BinarySI).
-				cpuSame := containerRec.Recommended.CPURequest.MilliValue() == containerRec.Current.CPURequest.MilliValue()
-				memSame := containerRec.Recommended.MemoryRequest.Value() == containerRec.Current.MemoryRequest.Value()
-				if cpuSame && memSame {
+				// Pre-check: skip if the pod's ACTUAL resources already match the
+				// recommendation. Compare against the running pod, not the
+				// Deployment template (which isn't updated by in-place resize).
+				var podActualCPU, podActualMem int64
+				for _, c := range pod.Spec.Containers {
+					if c.Name == containerRec.Name {
+						podActualCPU = c.Resources.Requests.Cpu().MilliValue()
+						podActualMem = c.Resources.Requests.Memory().Value()
+						break
+					}
+				}
+				if podActualCPU == containerRec.Recommended.CPURequest.MilliValue() &&
+					podActualMem == containerRec.Recommended.MemoryRequest.Value() {
 					continue
 				}
 
