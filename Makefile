@@ -59,16 +59,24 @@ lint-fix: golangci-lint ## Run golangci-lint with auto-fix
 ##@ Testing
 
 .PHONY: test
-test: manifests generate ## Run unit tests
-	go test ./api/... -race -count=1
-	go test ./internal/... -race -count=1 -coverprofile=coverage.out -covermode=atomic
+test: manifests generate gotestsum ## Run unit tests
+	$(GOTESTSUM) --format pkgname \
+		--rerun-fails --rerun-fails-max-failures=5 \
+		--packages="./api/... ./cmd/... ./internal/..." \
+		-- -race -timeout=10m \
+		-coverpkg=./internal/... \
+		-coverprofile=coverage.out \
+		-covermode=atomic
 	@echo ""
 	@go tool cover -func=coverage.out | grep total:
 
 .PHONY: test-integration
-test-integration: manifests generate setup-envtest ## Run integration tests
+test-integration: manifests generate setup-envtest gotestsum ## Run integration tests
 	KUBEBUILDER_ASSETS="$(shell $(SETUP_ENVTEST) use -p path)" \
-		go test ./test/integration/... -race -count=1 -timeout=15m -tags=integration
+		$(GOTESTSUM) --format pkgname \
+		--rerun-fails --rerun-fails-max-failures=3 \
+		--packages="./test/integration/..." \
+		-- -race -count=1 -timeout=15m -tags=integration
 
 .PHONY: test-e2e
 test-e2e: chainsaw ## Run E2E tests (requires Kind cluster)
@@ -156,6 +164,11 @@ CONTROLLER_GEN = $(GOBIN)/controller-gen
 .PHONY: controller-gen
 controller-gen: ## Install controller-gen
 	@test -s $(CONTROLLER_GEN) || go install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_TOOLS_VERSION)
+
+GOTESTSUM = $(GOBIN)/gotestsum
+.PHONY: gotestsum
+gotestsum: ## Install gotestsum
+	@test -s $(GOTESTSUM) || go install gotest.tools/gotestsum@latest
 
 SETUP_ENVTEST = $(GOBIN)/setup-envtest
 .PHONY: setup-envtest

@@ -111,8 +111,9 @@ jobs:
           gotestsum --format pkgname \
             --junitfile test-results/unit.xml \
             --rerun-fails --rerun-fails-max-failures=5 \
-            -- ./api/... ./cmd/... ./internal/... \
-            -race -timeout=10m \
+            --packages="./api/... ./cmd/... ./internal/..." \
+            -- -race -timeout=10m \
+            -coverpkg=./internal/... \
             -coverprofile=coverage.out \
             -covermode=atomic
 
@@ -173,8 +174,8 @@ jobs:
           gotestsum --format pkgname \
             --junitfile test-results/integration.xml \
             --rerun-fails --rerun-fails-max-failures=3 \
-            -- ./test/integration/... \
-            -race -timeout=15m \
+            --packages="./test/integration/..." \
+            -- -race -timeout=15m \
             -tags=integration
 
       - name: Upload test results

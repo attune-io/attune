@@ -16,6 +16,9 @@ jobs:
     name: Govulncheck
     runs-on: ubuntu-latest
     steps:
+      - uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
       - uses: actions/checkout@v6
 
       - uses: actions/setup-go@v6
@@ -32,6 +35,9 @@ jobs:
     name: Trivy
     runs-on: ubuntu-latest
     steps:
+      - uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
       - uses: actions/checkout@v6
 
       - name: Trivy filesystem scan
@@ -48,6 +54,9 @@ jobs:
     name: Gitleaks
     runs-on: ubuntu-latest
     steps:
+      - uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
@@ -69,6 +78,9 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     steps:
+      - uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
       - uses: actions/checkout@v6
       - uses: actions/dependency-review-action@v4
         with:
