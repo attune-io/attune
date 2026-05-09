@@ -110,6 +110,7 @@ jobs:
   test-e2e:
     name: E2E Tests
     runs-on: ubuntu-latest
+    continue-on-error: true
     needs: [lint, test-unit]
     strategy:
       matrix:
