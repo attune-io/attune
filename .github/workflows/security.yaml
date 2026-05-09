@@ -10,34 +10,10 @@ on:
 
 permissions:
   contents: read
-  security-events: write
 
 jobs:
-  codeql:
-    name: CodeQL Analysis
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-go@v6
-        with:
-          go-version: "1.26"
-
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4
-        with:
-          languages: go
-
-      - name: Build
-        shell: bash -Eeuo pipefail -x {0}
-        run: go build ./...
-
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v4
-        continue-on-error: true
-
   govulncheck:
-    name: Go Vulnerability Check
+    name: Govulncheck
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -47,13 +23,13 @@ jobs:
           go-version: "1.26"
 
       - name: Run govulncheck
-        shell: bash -Eeuo pipefail {0}
+        shell: bash -Eeuo pipefail -x {0}
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
-          govulncheck ./... || echo "::warning::govulncheck found vulnerabilities (likely in transitive dependencies)"
+          govulncheck ./...
 
   trivy:
-    name: Trivy Scan
+    name: Trivy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -63,16 +39,30 @@ jobs:
         with:
           scan-type: fs
           scan-ref: .
-          format: sarif
-          output: trivy-results.sarif
+          scanners: vuln
           severity: HIGH,CRITICAL
+          exit-code: 1
+          ignore-unfixed: true
 
-      - name: Upload Trivy results to GitHub Security
-        uses: github/codeql-action/upload-sarif@v4
-        if: always()
-        continue-on-error: true
+  gitleaks:
+    name: Gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
         with:
-          sarif_file: trivy-results.sarif
+          fetch-depth: 0
+
+      - name: Install gitleaks
+        shell: bash -Eeuo pipefail -x {0}
+        run: |
+          VER=$(curl -sL https://api.github.com/repos/gitleaks/gitleaks/releases/latest \
+            | jq -r '.tag_name' | sed 's/^v//')
+          curl -sfL "https://github.com/gitleaks/gitleaks/releases/download/v${VER}/gitleaks_${VER}_linux_x64.tar.gz" \
+            | tar xz -C /usr/local/bin gitleaks
+
+      - name: Detect secrets
+        shell: bash -Eeuo pipefail -x {0}
+        run: gitleaks detect --source . --exit-code 1
 
   dependency-review:
     name: Dependency Review
