@@ -33,6 +33,7 @@ import (
 	kubefake "k8s.io/client-go/kubernetes/fake"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	rightsizev1alpha1 "github.com/SebTardif/kube-rightsize/api/v1alpha1"
@@ -1216,6 +1217,182 @@ func TestExecuteResizes_NoClientset(t *testing.T) {
 	count, history := reconciler.executeResizes(context.Background(), policy, nil, nil)
 	assert.Equal(t, 0, count)
 	assert.Nil(t, history)
+}
+
+func TestExecuteResizes_SuccessfulResize(t *testing.T) {
+	scheme := testScheme()
+
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "api-server-abc-1",
+			Namespace: "default",
+			Labels:    map[string]string{"app": "api-server"},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  "main",
+					Image: "nginx",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("500m"),
+							corev1.ResourceMemory: resource.MustParse("512Mi"),
+						},
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1000m"),
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+	}
+
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod).Build()
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+
+	reconciler := &RightSizePolicyReconciler{
+		Client:    fakeClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = "OneShot"
+
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "api-server",
+			Kind:     "Deployment",
+			Containers: []rightsizev1alpha1.ContainerRecommendation{
+				{
+					Name: "main",
+					Current: rightsizev1alpha1.ResourceValues{
+						CPURequest:    resource.MustParse("500m"),
+						CPULimit:      resource.MustParse("1000m"),
+						MemoryRequest: resource.MustParse("512Mi"),
+						MemoryLimit:   resource.MustParse("1Gi"),
+					},
+					Recommended: rightsizev1alpha1.ResourceValues{
+						CPURequest:    resource.MustParse("750m"),
+						CPULimit:      resource.MustParse("1500m"),
+						MemoryRequest: resource.MustParse("384Mi"),
+						MemoryLimit:   resource.MustParse("768Mi"),
+					},
+				},
+			},
+		},
+	}
+
+	workloads := []client.Object{deploy}
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations)
+	assert.Equal(t, 1, count)
+	assert.NotEmpty(t, history)
+	assert.Equal(t, "api-server", history[0].Workload)
+	assert.Equal(t, "main", history[0].Container)
+	assert.Equal(t, "InPlace", history[0].Method)
+}
+
+func TestExecuteResizes_SkipsMatchingResources(t *testing.T) {
+	scheme := testScheme()
+
+	// Pod already at the recommended values.
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "api-server-abc-1",
+			Namespace: "default",
+			Labels:    map[string]string{"app": "api-server"},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  "main",
+					Image: "nginx",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("750m"),
+							corev1.ResourceMemory: resource.MustParse("384Mi"),
+						},
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1500m"),
+							corev1.ResourceMemory: resource.MustParse("768Mi"),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+	}
+
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod).Build()
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+
+	reconciler := &RightSizePolicyReconciler{
+		Client:    fakeClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = "OneShot"
+
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "api-server",
+			Kind:     "Deployment",
+			Containers: []rightsizev1alpha1.ContainerRecommendation{
+				{
+					Name: "main",
+					Current: rightsizev1alpha1.ResourceValues{
+						CPURequest:    resource.MustParse("500m"),
+						MemoryRequest: resource.MustParse("512Mi"),
+					},
+					Recommended: rightsizev1alpha1.ResourceValues{
+						CPURequest:    resource.MustParse("750m"),
+						CPULimit:      resource.MustParse("1500m"),
+						MemoryRequest: resource.MustParse("384Mi"),
+						MemoryLimit:   resource.MustParse("768Mi"),
+					},
+				},
+			},
+		},
+	}
+
+	workloads := []client.Object{deploy}
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations)
+	assert.Equal(t, 0, count)
+	assert.Empty(t, history)
+}
+
+func TestExecuteResizes_NoMatchingWorkload(t *testing.T) {
+	scheme := testScheme()
+
+	deploy := newTestDeployment("other-app", "default", nil)
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy).Build()
+	clientset := kubefake.NewSimpleClientset()
+
+	reconciler := &RightSizePolicyReconciler{
+		Client:    fakeClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = "OneShot"
+
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		{Workload: "api-server", Kind: "Deployment"},
+	}
+
+	workloads := []client.Object{deploy}
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations)
+	assert.Equal(t, 0, count)
+	assert.Empty(t, history)
 }
 
 // ---------- listWorkloadsBySelector (StatefulSet + DaemonSet paths) ----------
