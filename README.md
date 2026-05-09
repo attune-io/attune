@@ -1,0 +1,166 @@
+# kube-rightsize
+
+[![CI](https://github.com/SebTardif/kube-rightsize/actions/workflows/ci.yaml/badge.svg)](https://github.com/SebTardif/kube-rightsize/actions/workflows/ci.yaml)
+[![Security](https://github.com/SebTardif/kube-rightsize/actions/workflows/security.yaml/badge.svg)](https://github.com/SebTardif/kube-rightsize/actions/workflows/security.yaml)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/SebTardif/kube-rightsize)](go.mod)
+[![License](https://img.shields.io/github/license/SebTardif/kube-rightsize)](LICENSE)
+
+**Safe, in-place Kubernetes pod resource right-sizing. VPA done right.**
+
+kube-rightsize is a Kubernetes operator that automatically right-sizes pod
+resource requests and limits using [In-Place Pod Resize](https://kubernetes.io/blog/2025/12/19/kubernetes-v1-35-in-place-pod-resize-ga/)
+(GA in Kubernetes 1.35). No pod restarts. No evictions. No HPA conflicts.
+
+---
+
+## Why
+
+| Problem | Impact |
+|---------|--------|
+| Average CPU utilization is **8%** | Billions wasted industry-wide (CAST AI 2026) |
+| **70%** cite overprovisioning as #1 cost driver | Resources allocated "just in case" never reclaimed (CNCF 2023) |
+| **<1%** run VPA fully automated | VPA evicts pods, conflicts with HPA, causes outages (ScaleOps 2026) |
+| In-Place Pod Resize is **GA** (K8s 1.35) | The foundation for non-disruptive right-sizing now exists |
+
+## How It's Different
+
+| | VPA | Goldilocks | kube-rightsize |
+|---|---|---|---|
+| Resize method | Evicts pods | No resize (recommend only) | **In-place** (no restarts) |
+| HPA compatible | No (death spirals) | N/A | **Yes** (adjusts base, not %) |
+| Safety | Minimal guardrails | N/A | **Graduated rollout + auto-revert** |
+| Algorithm | Backward-looking histograms | VPA recommender | **Time-of-day-aware + burst detection** |
+| Production confidence | <1% use automated | N/A | **Observe -> Recommend -> Canary -> Auto** |
+
+## Quick Start
+
+### Prerequisites
+
+- Kubernetes 1.35+ (In-Place Pod Resize GA)
+- Prometheus (for usage metrics)
+- Helm 3.16+
+
+### Install
+
+```bash
+helm install kube-rightsize oci://ghcr.io/sebtardif/charts/kube-rightsize \
+  --namespace kube-rightsize-system --create-namespace
+```
+
+### Create a Policy
+
+Start in **Recommend** mode (safe, no changes applied):
+
+```yaml
+apiVersion: rightsize.io/v1alpha1
+kind: RightSizePolicy
+metadata:
+  name: api-services
+  namespace: production
+spec:
+  targetRef:
+    kind: Deployment
+    selector:
+      matchLabels:
+        tier: api
+  metricsSource:
+    prometheus:
+      address: http://prometheus.monitoring:9090
+  cpu:
+    percentile: 95
+    safetyMargin: 1.2
+    bounds:
+      min: "50m"
+      max: "4000m"
+  memory:
+    percentile: 99
+    safetyMargin: 1.3
+    bounds:
+      min: "64Mi"
+      max: "8Gi"
+  updateStrategy:
+    mode: Recommend
+```
+
+```bash
+kubectl apply -f policy.yaml
+```
+
+### Check Recommendations
+
+```bash
+kubectl get rightsizepolicies -n production
+# NAME            MODE        WORKLOADS   RESIZED   READY   AGE
+# api-services    Recommend   3           0         True    1h
+
+kubectl get rightsizepolicies api-services -n production -o yaml
+# status.recommendations shows per-container recommendations with savings estimates
+```
+
+### Upgrade to Canary Mode
+
+Once you trust the recommendations, switch to Canary mode to apply changes
+to 10% of pods first:
+
+```yaml
+spec:
+  updateStrategy:
+    mode: Canary
+    canary:
+      percentage: 10
+      observationPeriod: 30m
+    autoRevert: true
+```
+
+## Architecture
+
+```
+┌──────────────────────────────────────────────────┐
+│                 kube-rightsize                     │
+│                                                    │
+│  Policy         Metrics         Recommender        │
+│  Controller ──► Collector ──►  Engine              │
+│       │                     (percentile -> margin  │
+│       │                      -> confidence ->      │
+│       ▼                      bounds clamping)      │
+│  Resize         Safety                             │
+│  Engine ◄────► Monitor                             │
+│  (/resize       (OOMKill, throttle,                │
+│   subresource)   auto-revert)                      │
+└──────────────────────────────────────────────────┘
+         │                    │
+         ▼                    ▼
+    Kubernetes API       Prometheus
+    (Pod /resize)        (usage data)
+```
+
+## Features
+
+- **In-place resize**: Adjusts CPU and memory on running pods via the K8s 1.35+
+  `/resize` subresource. No evictions, no rolling restarts.
+- **Graduated rollout**: Five modes from zero-risk observation to full automation:
+  Observe, Recommend, OneShot, Canary, Auto.
+- **Auto-revert**: Automatically restores original resources if a resized pod gets
+  OOMKilled, CPU-throttled, or becomes NotReady.
+- **HPA coexistence**: Right-sizes the base resource request without interfering
+  with HPA's percentage-based scaling decisions.
+- **Confidence scaling**: Recommendations widen automatically when data is sparse,
+  becoming more precise as data accumulates.
+- **Time-of-day awareness**: Uses hourly usage profiles so recommendations cover
+  the busiest hour, not just the average.
+- **Mandatory bounds**: Resource bounds (`min`/`max`) are required fields. No
+  unbounded recommendations, ever.
+- **Conflict detection**: Detects and warns about VPA, other RightSizePolicy, or
+  active Deployment rollouts targeting the same workload.
+
+## Documentation
+
+- [Specification](docs/SPEC.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security Policy](SECURITY.md)
+- [Changelog](CHANGELOG.md)
+- [Adopters](ADOPTERS.md)
+
+## License
+
+Apache License 2.0. See [LICENSE](LICENSE) for details.

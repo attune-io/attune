@@ -1,0 +1,78 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    - importas
+    - forbidigo
+    - ginkgolinter
+    - errorlint
+    - revive
+    - staticcheck
+    - bodyclose
+    - nilerr
+    - govet
+    - unused
+    - gosec
+    - unconvert
+    - unparam
+    - wastedassign
+    - whitespace
+    - misspell
+    - prealloc
+
+  settings:
+    importas:
+      alias:
+        - pkg: k8s.io/api/core/v1
+          alias: corev1
+        - pkg: k8s.io/api/apps/v1
+          alias: appsv1
+        - pkg: k8s.io/apimachinery/pkg/apis/meta/v1
+          alias: metav1
+        - pkg: k8s.io/apimachinery/pkg/api/errors
+          alias: apierrors
+        - pkg: k8s.io/apimachinery/pkg/api/resource
+          alias: apiresource
+        - pkg: sigs.k8s.io/controller-runtime
+          alias: ctrl
+        - pkg: sigs.k8s.io/controller-runtime/pkg/client
+          alias: ctrlclient
+    forbidigo:
+      forbid:
+        - pattern: ^fmt\.Print
+          msg: "Use structured logging (logr) instead of fmt.Print"
+        - pattern: ^fmt\.Fprint
+          msg: "Use structured logging (logr) instead of fmt.Fprint"
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment
+        - shadow
+    revive:
+      rules:
+        - name: exported
+          arguments:
+            - disableStutteringCheck
+    gosec:
+      excludes:
+        - G101  # Potential hardcoded credentials (false positives on field names)
+
+  exclusions:
+    presets:
+      - comments
+      - std-error-handling
+    rules:
+      - linters: [govet]
+        text: "composites"
+      - path: _test\.go
+        linters: [gosec, bodyclose, forbidigo]
+      - path: test/
+        linters: [gosec, bodyclose, forbidigo]
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

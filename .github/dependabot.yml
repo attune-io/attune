@@ -1,0 +1,35 @@
+version: 2
+
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      k8s-deps:
+        patterns:
+          - "k8s.io/*"
+          - "sigs.k8s.io/*"
+      prometheus:
+        patterns:
+          - "github.com/prometheus/*"
+      testing:
+        patterns:
+          - "github.com/onsi/*"
+          - "github.com/stretchr/*"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
