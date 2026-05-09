@@ -1,0 +1,119 @@
+# AGENTS.md
+
+## Project
+
+Kubernetes operator for in-place pod resource right-sizing (VPA replacement).
+Built with Go 1.26, controller-runtime v0.24.0, Kubebuilder v4, K8s API v0.36.0.
+
+## Commands
+
+- Install deps: `go mod download`
+- Build: `make build`
+- Build plugin: `make build-plugin`
+- Build image: `make docker-build IMG=kube-rightsize:dev`
+- Test (unit): `make test`
+- Test (single pkg): `go test ./internal/resize/... -race -count=1`
+- Test (integration): `make test-integration`
+- Test (E2E): `make test-e2e` (requires Kind cluster)
+- Test (fuzz): `make test-fuzz`
+- Test (bench): `make test-bench`
+- Lint: `make lint`
+- Lint + fix: `make lint-fix`
+- Format: `make fmt`
+- Generate CRDs/RBAC: `make manifests`
+- Generate deepcopy: `make generate`
+- Local cluster: `make kind-create && make kind-deploy IMG=kube-rightsize:dev`
+
+## Structure
+
+- `api/v1alpha1/` - CRD type definitions (RightSizePolicy, RightSizeDefaults)
+- `cmd/manager/` - Operator entry point
+- `cmd/kubectl-rightsize/` - kubectl plugin
+- `internal/controller/` - Reconciler (core business logic)
+- `internal/metrics/` - Prometheus metrics collection and rate limiting
+- `internal/recommendation/` - Composable estimator chain (percentile, margin, confidence, bounds, change filter)
+- `internal/resize/` - In-place pod resize engine via /resize subresource
+- `internal/safety/` - Post-resize safety observation and rollback
+- `internal/conflict/` - HPA conflict detection
+- `internal/webhook/` - Admission webhooks (defaulting + validation)
+- `internal/operatormetrics/` - Operator-level Prometheus metrics (init-registered)
+- `config/` - Kustomize manifests (CRDs, RBAC, manager deployment)
+- `charts/kube-rightsize/` - Helm chart with cert-manager webhook support
+- `test/integration/` - envtest-based integration tests
+- `test/e2e/` - Chainsaw E2E test scenarios
+- `docs/` - MkDocs documentation site
+
+## Conventions
+
+### Import aliases (enforced by golangci-lint importas)
+
+Use these exact aliases; the linter rejects alternatives:
+
+```go
+corev1      "k8s.io/api/core/v1"
+appsv1      "k8s.io/api/apps/v1"
+metav1      "k8s.io/apimachinery/pkg/apis/meta/v1"
+apierrors   "k8s.io/apimachinery/pkg/api/errors"
+apiresource "k8s.io/apimachinery/pkg/api/resource"
+ctrl        "sigs.k8s.io/controller-runtime"
+ctrlclient  "sigs.k8s.io/controller-runtime/pkg/client"
+```
+
+### Logging
+
+Use `logr` structured logging exclusively. `fmt.Print` and `fmt.Fprint` are
+forbidden by the linter (except in `cmd/kubectl-rightsize/`).
+
+### resource.Quantity
+
+Use `resource.ParseQuantity()` (returns error) instead of `resource.MustParse()`
+(panics). Use DecimalSI format for CPU, BinarySI for memory. Use Go `time.Duration`
+for all durations (e.g., `168h` not `7d`).
+
+### Webhooks
+
+controller-runtime v0.24.0 uses typed generic interfaces. Register webhooks with:
+
+```go
+ctrl.NewWebhookManagedBy(mgr, &rightsizev1alpha1.RightSizePolicy{}).
+    WithDefaulter(&webhook.RightSizePolicyDefaulter{}).
+    WithValidator(&webhook.RightSizePolicyValidator{}).
+    Complete()
+```
+
+### Pod resize
+
+The `/resize` subresource is not available via the controller-runtime client.
+Use a typed `kubernetes.Clientset` and call `UpdateResize()`:
+
+```go
+clientset.CoreV1().Pods(ns).UpdateResize(ctx, name, pod, metav1.UpdateOptions{})
+```
+
+### Code generation
+
+Run `make manifests` after changing CRD types or RBAC markers. Run
+`make generate` after changing API types. Commit the generated output.
+
+## Testing
+
+- Framework: `testify` (assert/require)
+- Write table-driven tests for all logic
+- Coverage threshold: 75% on `./internal/...` (CI enforced)
+- Generated files (`zz_generated.deepcopy.go`) are excluded from coverage
+- Run with `-race` flag
+- Use `kubefake.NewSimpleClientset()` to test resize operations
+- Use `fake.NewClientBuilder()` for controller-runtime client mocking
+- Integration tests use envtest (build tag: `integration`)
+- E2E tests use Chainsaw v0.2.15 on Kind clusters
+
+## Safety
+
+- Never commit secrets, API keys, or `.env` files (gitleaks runs in CI)
+- Run `make manifests && make generate` before committing CRD/API changes
+- Run `make lint && make test` before committing
+- Ask before adding new dependencies
+- Ask before destructive cluster operations (delete namespaces, CRDs)
+- The operator manages live pod resources; always test resize logic on a
+  Kind cluster (`make kind-deploy`) before pushing changes to resize or
+  safety packages
