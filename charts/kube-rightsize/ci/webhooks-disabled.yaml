@@ -1,0 +1,11 @@
+# CI test: webhooks disabled
+replicaCount: 1
+webhooks:
+  enabled: false
+resources:
+  limits:
+    cpu: 200m
+    memory: 64Mi
+  requests:
+    cpu: 50m
+    memory: 32Mi

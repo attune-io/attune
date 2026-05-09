@@ -1,0 +1,27 @@
+{{- if .Values.webhooks.enabled }}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "kube-rightsize.fullname" . }}-selfsigned
+  labels:
+    {{- include "kube-rightsize.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "kube-rightsize.fullname" . }}-webhook
+  labels:
+    {{- include "kube-rightsize.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "kube-rightsize.fullname" . }}-webhook-tls
+  issuerRef:
+    name: {{ include "kube-rightsize.fullname" . }}-selfsigned
+    kind: Issuer
+  dnsNames:
+    - {{ include "kube-rightsize.fullname" . }}-webhook
+    - {{ include "kube-rightsize.fullname" . }}-webhook.{{ .Release.Namespace }}
+    - {{ include "kube-rightsize.fullname" . }}-webhook.{{ .Release.Namespace }}.svc
+    - {{ include "kube-rightsize.fullname" . }}-webhook.{{ .Release.Namespace }}.svc.cluster.local
+{{- end }}

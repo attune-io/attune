@@ -31,3 +31,38 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: --leader-elect
+
+  - it: should expose webhook port when webhooks enabled
+    set:
+      webhooks.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: webhook
+            containerPort: 9443
+            protocol: TCP
+
+  - it: should mount webhook certs when webhooks enabled
+    set:
+      webhooks.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: webhook-certs
+            mountPath: /tmp/k8s-webhook-server/serving-certs
+            readOnly: true
+
+  - it: should disable webhooks via flag
+    set:
+      webhooks.enabled: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --enable-webhooks=false
+      - notContains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: webhook
+          any: true

@@ -83,13 +83,11 @@ metrics:
     # -- Scrape interval
     interval: 30s
 
-# -- Webhook configuration
+# -- Webhook configuration (requires cert-manager installed in the cluster)
 webhooks:
-  # -- Enable admission webhooks (requires cert-manager or manual TLS cert provisioning).
-  # -- Disabled by default because the chart does not include webhook infrastructure
-  # -- (ValidatingWebhookConfiguration, cert-manager Certificate/Issuer templates).
-  # -- Enable only if you provision TLS certs externally.
-  enabled: false
+  # -- Enable admission webhooks for defaulting and validation.
+  # -- Requires cert-manager to be installed for TLS certificate provisioning.
+  enabled: true
 
 # -- Logging configuration
 logging:

@@ -1,0 +1,49 @@
+{{- if .Values.webhooks.enabled }}
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: {{ include "kube-rightsize.fullname" . }}-mutating
+  labels:
+    {{- include "kube-rightsize.labels" . | nindent 4 }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kube-rightsize.fullname" . }}-webhook
+webhooks:
+  - name: defaulting.rightsize.io
+    admissionReviewVersions: ["v1"]
+    clientConfig:
+      service:
+        name: {{ include "kube-rightsize.fullname" . }}-webhook
+        namespace: {{ .Release.Namespace }}
+        path: /mutate-rightsize-io-v1alpha1-rightsizepolicy
+    failurePolicy: Fail
+    rules:
+      - apiGroups: ["rightsize.io"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["rightsizepolicies"]
+    sideEffects: None
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: {{ include "kube-rightsize.fullname" . }}-validating
+  labels:
+    {{- include "kube-rightsize.labels" . | nindent 4 }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kube-rightsize.fullname" . }}-webhook
+webhooks:
+  - name: validation.rightsize.io
+    admissionReviewVersions: ["v1"]
+    clientConfig:
+      service:
+        name: {{ include "kube-rightsize.fullname" . }}-webhook
+        namespace: {{ .Release.Namespace }}
+        path: /validate-rightsize-io-v1alpha1-rightsizepolicy
+    failurePolicy: Fail
+    rules:
+      - apiGroups: ["rightsize.io"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["rightsizepolicies"]
+    sideEffects: None
+{{- end }}

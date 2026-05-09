@@ -303,8 +303,8 @@
       "properties": {
         "enabled": {
           "type": "boolean",
-          "description": "Enable admission webhooks (requires cert-manager or manual TLS)",
-          "default": false
+          "description": "Enable admission webhooks (requires cert-manager)",
+          "default": true
         }
       },
       "additionalProperties": false

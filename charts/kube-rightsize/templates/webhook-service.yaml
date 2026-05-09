@@ -1,0 +1,16 @@
+{{- if .Values.webhooks.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kube-rightsize.fullname" . }}-webhook
+  labels:
+    {{- include "kube-rightsize.labels" . | nindent 4 }}
+spec:
+  ports:
+    - name: https
+      port: 443
+      targetPort: webhook
+      protocol: TCP
+  selector:
+    {{- include "kube-rightsize.selectorLabels" . | nindent 4 }}
+{{- end }}
