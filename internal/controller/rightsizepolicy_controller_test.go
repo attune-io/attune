@@ -511,3 +511,164 @@ func TestComputeSavings_ReturnsCorrectStructure(t *testing.T) {
 	assert.NotEmpty(t, savings.CPURequestReduction)
 	assert.Equal(t, "500m", savings.CPURequestReduction)
 }
+
+func TestGetContainers_Deployment(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	dep := &appsv1.Deployment{
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{Name: "web", Image: "nginx"},
+						{Name: "sidecar", Image: "envoy"},
+					},
+				},
+			},
+		},
+	}
+	containers := r.getContainers(dep)
+	assert.Len(t, containers, 2)
+	assert.Equal(t, "web", containers[0].Name)
+	assert.Equal(t, "sidecar", containers[1].Name)
+}
+
+func TestGetContainers_StatefulSet(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	sts := &appsv1.StatefulSet{
+		Spec: appsv1.StatefulSetSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{Name: "db", Image: "postgres"},
+					},
+				},
+			},
+		},
+	}
+	containers := r.getContainers(sts)
+	assert.Len(t, containers, 1)
+	assert.Equal(t, "db", containers[0].Name)
+}
+
+func TestGetPodPrefix(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	dep := &appsv1.Deployment{}
+	dep.Name = "api-server"
+	assert.Equal(t, "api-server", r.getPodPrefix(dep))
+}
+
+func TestParseHistoryWindow_Default(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	policy := &rightsizev1alpha1.RightSizePolicy{}
+	assert.Equal(t, 7*24*time.Hour, r.parseHistoryWindow(policy))
+}
+
+func TestParseHistoryWindow_Custom(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	policy := &rightsizev1alpha1.RightSizePolicy{}
+	d := metav1.Duration{Duration: 14 * 24 * time.Hour}
+	policy.Spec.MetricsSource.HistoryWindow = &d
+	assert.Equal(t, 14*24*time.Hour, r.parseHistoryWindow(policy))
+}
+
+func TestGetMinimumDataPoints_Default(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	policy := &rightsizev1alpha1.RightSizePolicy{}
+	assert.Equal(t, int32(168), r.getMinimumDataPoints(policy))
+}
+
+func TestGetMinimumDataPoints_Custom(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	policy := &rightsizev1alpha1.RightSizePolicy{}
+	policy.Spec.MetricsSource.MinimumDataPoints = 42
+	assert.Equal(t, int32(42), r.getMinimumDataPoints(policy))
+}
+
+func TestIsRollingOut_StatefulSetStable(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	replicas := int32(3)
+	sts := &appsv1.StatefulSet{
+		Spec:   appsv1.StatefulSetSpec{Replicas: &replicas},
+		Status: appsv1.StatefulSetStatus{UpdatedReplicas: 3},
+	}
+	assert.False(t, r.isRollingOut(sts))
+}
+
+func TestIsRollingOut_StatefulSetMidRollout(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	replicas := int32(3)
+	sts := &appsv1.StatefulSet{
+		Spec:   appsv1.StatefulSetSpec{Replicas: &replicas},
+		Status: appsv1.StatefulSetStatus{UpdatedReplicas: 1},
+	}
+	assert.True(t, r.isRollingOut(sts))
+}
+
+func TestIsRollingOut_DaemonSet(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	ds := &appsv1.DaemonSet{
+		Status: appsv1.DaemonSetStatus{
+			DesiredNumberScheduled: 5,
+			UpdatedNumberScheduled: 5,
+		},
+	}
+	assert.False(t, r.isRollingOut(ds))
+}
+
+func TestIsRollingOut_DaemonSetMidRollout(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	ds := &appsv1.DaemonSet{
+		Status: appsv1.DaemonSetStatus{
+			DesiredNumberScheduled: 5,
+			UpdatedNumberScheduled: 2,
+		},
+	}
+	assert.True(t, r.isRollingOut(ds))
+}
+
+func TestParseCooldown_Default(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	policy := &rightsizev1alpha1.RightSizePolicy{}
+	assert.Equal(t, 1*time.Hour, r.parseCooldown(policy))
+}
+
+func TestParseCooldown_Custom(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	policy := &rightsizev1alpha1.RightSizePolicy{}
+	d := metav1.Duration{Duration: 5 * time.Minute}
+	policy.Spec.UpdateStrategy.Cooldown = &d
+	assert.Equal(t, 5*time.Minute, r.parseCooldown(policy))
+}
+
+func TestDiscoverWorkloads_FindsStatefulSetByName(t *testing.T) {
+	scheme := testScheme()
+	name := "my-sts"
+
+	sts := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-sts", Namespace: "default"},
+		Spec: appsv1.StatefulSetSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "my-sts"}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "my-sts"}},
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(sts).Build()
+	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			TargetRef: rightsizev1alpha1.TargetRef{
+				Kind: "StatefulSet",
+				Name: &name,
+			},
+		},
+	}
+
+	workloads, err := r.discoverWorkloads(context.Background(), policy)
+	assert.NoError(t, err)
+	assert.Len(t, workloads, 1)
+	assert.Equal(t, "my-sts", workloads[0].GetName())
+}
