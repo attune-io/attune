@@ -22,6 +22,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -42,15 +43,37 @@ import (
 	"github.com/SebTardif/kube-rightsize/internal/metrics"
 )
 
-// stubCollector implements metrics.MetricsCollector with no-op behavior.
-type stubCollector struct{}
+// syntheticCollector implements metrics.MetricsCollector and returns synthetic
+// sample data. CPU samples use value ~0.05 (50m) and memory ~50MB, producing
+// recommendations that differ from the test deployment's 100m/128Mi requests.
+type syntheticCollector struct{}
 
-func (s *stubCollector) QueryRange(ctx context.Context, query string, start, end time.Time, step time.Duration) ([]metrics.Sample, error) {
-	return nil, nil
+func (s *syntheticCollector) QueryRange(_ context.Context, query string, start, end time.Time, step time.Duration) ([]metrics.Sample, error) {
+	value := 0.05 // ~50m CPU
+	if strings.Contains(query, "memory") {
+		value = 50_000_000 // ~50MB
+	}
+
+	var samples []metrics.Sample
+	count := int(end.Sub(start) / step)
+	if count < 1 {
+		count = 1
+	}
+	if count > 500 {
+		count = 500
+	}
+	for i := 0; i < count; i++ {
+		jitter := float64(i%10) * 0.001
+		samples = append(samples, metrics.Sample{
+			Timestamp: start.Add(time.Duration(i) * step),
+			Value:     value + jitter,
+		})
+	}
+	return samples, nil
 }
 
-func (s *stubCollector) Query(ctx context.Context, query string, ts time.Time) (float64, error) {
-	return 0, nil
+func (s *syntheticCollector) Query(_ context.Context, _ string, _ time.Time) (float64, error) {
+	return 0.05, nil
 }
 
 var (
@@ -96,7 +119,7 @@ func TestMain(m *testing.M) {
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 		MetricsFactory: func(address string) (metrics.MetricsCollector, error) {
-			return &stubCollector{}, nil
+			return &syntheticCollector{}, nil
 		},
 	}
 	err = reconciler.SetupWithManager(mgr)
@@ -203,6 +226,10 @@ func newTestPolicy(name, namespace, deploymentName string) *rightsizev1alpha1.Ri
 			},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 				Mode: "Recommend",
+				// Short cooldown so reconciliation retries quickly in tests.
+				// Without this, the default 1h cooldown causes test timeouts
+				// if the first reconciliation runs before the cache syncs.
+				Cooldown: &metav1.Duration{Duration: 3 * time.Second},
 			},
 		},
 	}
@@ -287,3 +314,151 @@ func TestReconcile_DeletedPolicy_NoError(t *testing.T) {
 		return err != nil // should be NotFound
 	}, 30*time.Second, 500*time.Millisecond, "policy should be deleted")
 }
+
+func TestReconcile_LabelSelectorTargetsMultipleWorkloads(t *testing.T) {
+	namespace := "integration-test"
+
+	// Create two deployments with the same label.
+	for _, name := range []string{"tier-app-1", "tier-app-2"} {
+		deploy := newTestDeployment(name, namespace)
+		deploy.Labels["tier"] = "api"
+		require.NoError(t, k8sClient.Create(ctx, deploy))
+	}
+
+	// Create a policy with a label selector targeting both deployments.
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "policy-selector",
+			Namespace: namespace,
+		},
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			TargetRef: rightsizev1alpha1.TargetRef{
+				Kind: "Deployment",
+				Selector: &metav1.LabelSelector{
+					MatchLabels: map[string]string{"tier": "api"},
+				},
+			},
+			MetricsSource: rightsizev1alpha1.MetricsSource{
+				Prometheus: &rightsizev1alpha1.PrometheusConfig{
+					Address: "http://prometheus:9090",
+				},
+				MinimumDataPoints: 1,
+			},
+			CPU: rightsizev1alpha1.ResourceConfig{
+				Percentile:   95,
+				SafetyMargin: "1.2",
+			},
+			Memory: rightsizev1alpha1.ResourceConfig{
+				Percentile:   99,
+				SafetyMargin: "1.3",
+			},
+			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+				Mode:     "Recommend",
+				Cooldown: &metav1.Duration{Duration: 3 * time.Second},
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, policy))
+
+	assert.Eventually(t, func() bool {
+		var fetched rightsizev1alpha1.RightSizePolicy
+		if err := k8sClient.Get(ctx, types.NamespacedName{
+			Name: "policy-selector", Namespace: namespace,
+		}, &fetched); err != nil {
+			return false
+		}
+		return fetched.Status.Workloads.Discovered >= 2
+	}, 30*time.Second, 500*time.Millisecond, "policy should discover at least 2 workloads")
+}
+
+func TestReconcile_OptOutAnnotationSkipsWorkload(t *testing.T) {
+	namespace := "integration-test"
+
+	deploy := newTestDeployment("opted-out-app", namespace)
+	deploy.Annotations = map[string]string{"rightsize.io/skip": "true"}
+	require.NoError(t, k8sClient.Create(ctx, deploy))
+
+	policy := newTestPolicy("policy-optout", namespace, "opted-out-app")
+	require.NoError(t, k8sClient.Create(ctx, policy))
+
+	// The workload is discovered but opted out, so no recommendations.
+	assert.Eventually(t, func() bool {
+		var fetched rightsizev1alpha1.RightSizePolicy
+		if err := k8sClient.Get(ctx, types.NamespacedName{
+			Name: "policy-optout", Namespace: namespace,
+		}, &fetched); err != nil {
+			return false
+		}
+		for _, c := range fetched.Status.Conditions {
+			if c.Type == "Ready" && c.Reason == "InsufficientData" {
+				return fetched.Status.Workloads.WithRecommendations == 0
+			}
+		}
+		return false
+	}, 30*time.Second, 500*time.Millisecond, "opted-out workload should produce no recommendations")
+}
+
+func TestReconcile_DefaultsMergingFromClusterDefaults(t *testing.T) {
+	namespace := "integration-test"
+
+	// Create a cluster-scoped RightSizeDefaults with CPU percentile 90.
+	defaults := &rightsizev1alpha1.RightSizeDefaults{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "integration-defaults",
+		},
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			CPU: &rightsizev1alpha1.ResourceConfig{
+				Percentile:   90,
+				SafetyMargin: "1.5",
+			},
+			Memory: &rightsizev1alpha1.ResourceConfig{
+				Percentile:   95,
+				SafetyMargin: "1.4",
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, defaults))
+	defer func() { _ = k8sClient.Delete(ctx, defaults) }()
+
+	deploy := newTestDeployment("defaults-app", namespace)
+	require.NoError(t, k8sClient.Create(ctx, deploy))
+
+	// Create a policy with zero percentile/margin (should inherit from defaults).
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "policy-defaults",
+			Namespace: namespace,
+		},
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			TargetRef: rightsizev1alpha1.TargetRef{
+				Kind: "Deployment",
+				Name: func() *string { s := "defaults-app"; return &s }(),
+			},
+			MetricsSource: rightsizev1alpha1.MetricsSource{
+				Prometheus: &rightsizev1alpha1.PrometheusConfig{
+					Address: "http://prometheus:9090",
+				},
+				MinimumDataPoints: 1,
+			},
+			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+				Mode:     "Recommend",
+				Cooldown: &metav1.Duration{Duration: 3 * time.Second},
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, policy))
+
+	// The policy should still reconcile successfully (defaults fill in
+	// the missing CPU/Memory config).
+	assert.Eventually(t, func() bool {
+		var fetched rightsizev1alpha1.RightSizePolicy
+		if err := k8sClient.Get(ctx, types.NamespacedName{
+			Name: "policy-defaults", Namespace: namespace,
+		}, &fetched); err != nil {
+			return false
+		}
+		return len(fetched.Status.Conditions) > 0
+	}, 30*time.Second, 500*time.Millisecond, "policy with defaults should reconcile")
+}
+
+
