@@ -953,17 +953,25 @@ func (r *RightSizePolicyReconciler) executeResizes(
 					pod.Annotations = make(map[string]string)
 				}
 				pod.Annotations["rightsize.io/resized-at"] = time.Now().UTC().Format(time.RFC3339)
+				pod.Annotations["rightsize.io/resized-container"] = containerRec.Name
 				pod.Annotations["rightsize.io/original-cpu-request"] = containerRec.Current.CPURequest.String()
 				pod.Annotations["rightsize.io/original-memory-request"] = containerRec.Current.MemoryRequest.String()
 
 				// Safety check (if autoRevert is enabled)
 				if policy.Spec.UpdateStrategy.AutoRevert {
 					observationEnd := time.Now().Add(30 * time.Second)
+					var originalResources corev1.ResourceRequirements
+					for _, c := range pod.Spec.Containers {
+						if c.Name == containerRec.Name {
+							originalResources = c.Resources
+							break
+						}
+					}
 					record := safety.ResizeRecord{
 						PodName:           pod.Name,
 						Namespace:         pod.Namespace,
 						Container:         containerRec.Name,
-						OriginalResources: pod.Spec.Containers[0].Resources,
+						OriginalResources: originalResources,
 						NewResources:      target,
 						ResizedAt:         time.Now(),
 						ObservationEnd:    observationEnd,
@@ -1042,15 +1050,25 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 		originalCPUStr := pod.Annotations["rightsize.io/original-cpu-request"]
 		originalMemStr := pod.Annotations["rightsize.io/original-memory-request"]
 
-		originalCPU := resource.MustParse(originalCPUStr)
-		originalMem := resource.MustParse(originalMemStr)
+		originalCPU, err := resource.ParseQuantity(originalCPUStr)
+		if err != nil {
+			logger.Error(err, "Failed to parse original CPU annotation", "pod", pod.Name, "value", originalCPUStr)
+			continue
+		}
+		originalMem, err := resource.ParseQuantity(originalMemStr)
+		if err != nil {
+			logger.Error(err, "Failed to parse original memory annotation", "pod", pod.Name, "value", originalMemStr)
+			continue
+		}
 
-		// Build a safety record from the first container (annotations are per-pod).
-		containerName := ""
+		// Use the tracked container name from the annotation.
+		containerName := pod.Annotations["rightsize.io/resized-container"]
 		var currentResources corev1.ResourceRequirements
-		if len(pod.Spec.Containers) > 0 {
-			containerName = pod.Spec.Containers[0].Name
-			currentResources = pod.Spec.Containers[0].Resources
+		for _, c := range pod.Spec.Containers {
+			if c.Name == containerName {
+				currentResources = c.Resources
+				break
+			}
 		}
 
 		record := safety.ResizeRecord{
@@ -1085,6 +1103,7 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 
 		// Remove tracking annotations regardless of outcome (observation complete).
 		delete(pod.Annotations, "rightsize.io/resized-at")
+		delete(pod.Annotations, "rightsize.io/resized-container")
 		delete(pod.Annotations, "rightsize.io/original-cpu-request")
 		delete(pod.Annotations, "rightsize.io/original-memory-request")
 		if updateErr := r.Update(ctx, pod); updateErr != nil {

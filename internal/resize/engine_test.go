@@ -407,3 +407,178 @@ func TestWaitForResize_ImmediateSuccess(t *testing.T) {
 	err := resizer.WaitForResize(context.Background(), "default", "web-0", "app", target, 10*time.Second)
 	assert.NoError(t, err)
 }
+
+func TestWaitForResize_Infeasible(t *testing.T) {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "web-0",
+			Namespace: "default",
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{
+				{
+					Type:    corev1.PodConditionType("PodResizePending"),
+					Status:  corev1.ConditionTrue,
+					Reason:  "Infeasible",
+					Message: "insufficient cpu on node",
+				},
+			},
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "app"},
+			},
+		},
+	}
+
+	fakeClient := fake.NewSimpleClientset(pod)
+	resizer := NewPodResizer(fakeClient, testr.New(t))
+
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("250m"),
+			corev1.ResourceMemory: resource.MustParse("512Mi"),
+		},
+	}
+
+	err := resizer.WaitForResize(context.Background(), "default", "web-0", "app", target, 100*time.Millisecond)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "resize infeasible")
+	assert.Contains(t, err.Error(), "insufficient cpu on node")
+}
+
+func TestWaitForResize_ResourcesNil(t *testing.T) {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "web-0",
+			Namespace: "default",
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{
+					Name:      "app",
+					Resources: nil,
+				},
+			},
+		},
+	}
+
+	fakeClient := fake.NewSimpleClientset(pod)
+	resizer := NewPodResizer(fakeClient, testr.New(t))
+
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("250m"),
+			corev1.ResourceMemory: resource.MustParse("512Mi"),
+		},
+	}
+
+	err := resizer.WaitForResize(context.Background(), "default", "web-0", "app", target, 100*time.Millisecond)
+	require.Error(t, err, "should time out because Resources is nil")
+}
+
+func TestWaitForResize_CPUMismatch(t *testing.T) {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "web-0",
+			Namespace: "default",
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{
+					Name: "app",
+					Resources: &corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("100m"),
+							corev1.ResourceMemory: resource.MustParse("512Mi"),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	fakeClient := fake.NewSimpleClientset(pod)
+	resizer := NewPodResizer(fakeClient, testr.New(t))
+
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("250m"),
+			corev1.ResourceMemory: resource.MustParse("512Mi"),
+		},
+	}
+
+	err := resizer.WaitForResize(context.Background(), "default", "web-0", "app", target, 100*time.Millisecond)
+	require.Error(t, err, "should time out because CPU does not match target")
+}
+
+func TestWaitForResize_MissingCPUInStatus(t *testing.T) {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "web-0",
+			Namespace: "default",
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{
+					Name: "app",
+					Resources: &corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceMemory: resource.MustParse("512Mi"),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	fakeClient := fake.NewSimpleClientset(pod)
+	resizer := NewPodResizer(fakeClient, testr.New(t))
+
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("250m"),
+			corev1.ResourceMemory: resource.MustParse("512Mi"),
+		},
+	}
+
+	err := resizer.WaitForResize(context.Background(), "default", "web-0", "app", target, 100*time.Millisecond)
+	require.Error(t, err, "should time out because CPU key is absent in status")
+}
+
+func TestWaitForResize_MissingMemoryInStatus(t *testing.T) {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "web-0",
+			Namespace: "default",
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{
+					Name: "app",
+					Resources: &corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("250m"),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	fakeClient := fake.NewSimpleClientset(pod)
+	resizer := NewPodResizer(fakeClient, testr.New(t))
+
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("250m"),
+			corev1.ResourceMemory: resource.MustParse("512Mi"),
+		},
+	}
+
+	err := resizer.WaitForResize(context.Background(), "default", "web-0", "app", target, 100*time.Millisecond)
+	require.Error(t, err, "should time out because memory key is absent in status")
+}
