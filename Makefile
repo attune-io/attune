@@ -8,6 +8,7 @@ KUBEBUILDER_VERSION ?= 4.14.0
 CONTROLLER_TOOLS_VERSION ?= v0.17.0
 GOLANGCI_LINT_VERSION ?= v2.12.2
 CHAINSAW_VERSION ?= v0.2.15
+KUSTOMIZE_VERSION ?= v5.6.0
 HELM_DOCS_VERSION ?= v1.14.2
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
@@ -116,8 +117,8 @@ uninstall: ## Uninstall CRDs from the cluster
 	kubectl delete -f config/crd/bases/ --ignore-not-found
 
 .PHONY: deploy
-deploy: manifests ## Deploy operator to the cluster
-	cd config/manager && kustomize edit set image controller=$(IMG)
+deploy: manifests kustomize ## Deploy operator to the cluster
+	cd config/manager && $(KUSTOMIZE) edit set image controller=$(IMG)
 	kubectl apply -k config/default/
 
 .PHONY: undeploy
@@ -142,10 +143,10 @@ kind-deploy: docker-build ## Build, load, and deploy to Kind
 ##@ Release
 
 .PHONY: build-installer
-build-installer: manifests ## Generate install manifest for release
+build-installer: manifests kustomize ## Generate install manifest for release
 	mkdir -p dist
-	cd config/manager && kustomize edit set image controller=$(IMG)
-	kubectl kustomize config/default > dist/install.yaml
+	cd config/manager && $(KUSTOMIZE) edit set image controller=$(IMG)
+	$(KUSTOMIZE) build config/default > dist/install.yaml
 
 ##@ Tools
 
@@ -164,7 +165,17 @@ GOLANGCI_LINT = $(GOBIN)/golangci-lint
 golangci-lint: ## Install golangci-lint
 	@test -s $(GOLANGCI_LINT) || go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 
+KUSTOMIZE = $(GOBIN)/kustomize
+.PHONY: kustomize
+kustomize: ## Install kustomize
+	@test -s $(KUSTOMIZE) || go install sigs.k8s.io/kustomize/kustomize/v5@$(KUSTOMIZE_VERSION)
+
 CHAINSAW = $(GOBIN)/chainsaw
 .PHONY: chainsaw
 chainsaw: ## Install chainsaw
 	@test -s $(CHAINSAW) || go install github.com/kyverno/chainsaw@$(CHAINSAW_VERSION)
+
+.PHONY: helm-unittest
+helm-unittest: ## Run Helm chart unit tests
+	@helm plugin list | grep -q unittest || helm plugin install https://github.com/helm-unittest/helm-unittest.git --verify=false
+	helm unittest charts/kube-rightsize
