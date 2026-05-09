@@ -1,0 +1,92 @@
+# kube-rightsize Helm chart values
+
+# -- Number of operator replicas (use 2 for HA with leader election)
+replicaCount: 1
+
+image:
+  # -- Container image repository
+  repository: ghcr.io/sebtardif/kube-rightsize
+  # -- Image pull policy
+  pullPolicy: IfNotPresent
+  # -- Image tag (defaults to Chart appVersion)
+  tag: ""
+
+# -- Image pull secrets
+imagePullSecrets: []
+
+# -- Override the chart name
+nameOverride: ""
+# -- Override the full name
+fullnameOverride: ""
+
+serviceAccount:
+  # -- Create a ServiceAccount
+  create: true
+  # -- Annotations to add to the ServiceAccount
+  annotations: {}
+  # -- ServiceAccount name (generated if not set)
+  name: ""
+
+# -- Pod annotations
+podAnnotations: {}
+
+# -- Pod security context
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+# -- Container security context
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 65532
+
+# -- Operator pod resources
+resources:
+  limits:
+    cpu: 500m
+    memory: 128Mi
+  requests:
+    cpu: 100m
+    memory: 64Mi
+
+# -- Node selector
+nodeSelector: {}
+
+# -- Tolerations
+tolerations: []
+
+# -- Affinity rules
+affinity: {}
+
+# -- Leader election (enable for HA with replicaCount > 1)
+leaderElection:
+  enabled: true
+
+# -- Default Prometheus address for metrics collection
+prometheus:
+  address: http://prometheus-server.monitoring:9090
+
+# -- Metrics endpoint
+metrics:
+  enabled: true
+  port: 8080
+  serviceMonitor:
+    # -- Create a ServiceMonitor for Prometheus Operator
+    enabled: false
+    # -- Additional labels for the ServiceMonitor
+    additionalLabels: {}
+    # -- Scrape interval
+    interval: 30s
+
+# -- Logging configuration
+logging:
+  # -- Log level (debug, info, warn, error)
+  level: info
+  # -- Log format (json, text)
+  format: json

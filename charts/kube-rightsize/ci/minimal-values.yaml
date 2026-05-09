@@ -1,0 +1,11 @@
+# Minimal resources for CI testing
+replicaCount: 1
+resources:
+  limits:
+    cpu: 200m
+    memory: 64Mi
+  requests:
+    cpu: 50m
+    memory: 32Mi
+metrics:
+  enabled: false
