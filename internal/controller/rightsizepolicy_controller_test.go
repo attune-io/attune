@@ -1217,3 +1217,422 @@ func TestExecuteResizes_NoClientset(t *testing.T) {
 	assert.Equal(t, 0, count)
 	assert.Nil(t, history)
 }
+
+// ---------- listWorkloadsBySelector (StatefulSet + DaemonSet paths) ----------
+
+func TestListWorkloadsBySelector_StatefulSets(t *testing.T) {
+	scheme := testScheme()
+	sts1 := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "db-1", Namespace: "default", Labels: map[string]string{"tier": "db"}},
+		Spec: appsv1.StatefulSetSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "db-1"}},
+		},
+	}
+	sts2 := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "db-2", Namespace: "default", Labels: map[string]string{"tier": "db"}},
+		Spec: appsv1.StatefulSetSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "db-2"}},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(sts1, sts2).Build()
+	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+
+	selector := &metav1.LabelSelector{MatchLabels: map[string]string{"tier": "db"}}
+	workloads, err := r.listWorkloadsBySelector(context.Background(), "default", "StatefulSet", selector)
+	assert.NoError(t, err)
+	assert.Len(t, workloads, 2)
+}
+
+func TestListWorkloadsBySelector_DaemonSets(t *testing.T) {
+	scheme := testScheme()
+	ds := &appsv1.DaemonSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "log-agent", Namespace: "default", Labels: map[string]string{"role": "logging"}},
+		Spec: appsv1.DaemonSetSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "log-agent"}},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ds).Build()
+	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+
+	selector := &metav1.LabelSelector{MatchLabels: map[string]string{"role": "logging"}}
+	workloads, err := r.listWorkloadsBySelector(context.Background(), "default", "DaemonSet", selector)
+	assert.NoError(t, err)
+	assert.Len(t, workloads, 1)
+	assert.Equal(t, "log-agent", workloads[0].GetName())
+}
+
+func TestListWorkloadsBySelector_UnsupportedKind(t *testing.T) {
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+
+	selector := &metav1.LabelSelector{MatchLabels: map[string]string{"app": "test"}}
+	_, err := r.listWorkloadsBySelector(context.Background(), "default", "CronJob", selector)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported workload kind")
+}
+
+// ---------- getWorkloadByName (DaemonSet + unsupported kind) ----------
+
+func TestDiscoverWorkloads_FindsDaemonSetByName(t *testing.T) {
+	scheme := testScheme()
+	name := "node-agent"
+	ds := &appsv1.DaemonSet{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+		Spec: appsv1.DaemonSetSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": name}},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ds).Build()
+	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			TargetRef: rightsizev1alpha1.TargetRef{
+				Kind: "DaemonSet",
+				Name: &name,
+			},
+		},
+	}
+
+	workloads, err := r.discoverWorkloads(context.Background(), policy)
+	assert.NoError(t, err)
+	assert.Len(t, workloads, 1)
+	assert.Equal(t, name, workloads[0].GetName())
+}
+
+func TestDiscoverWorkloads_UnsupportedKind(t *testing.T) {
+	scheme := testScheme()
+	name := "my-job"
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			TargetRef: rightsizev1alpha1.TargetRef{
+				Kind: "CronJob",
+				Name: &name,
+			},
+		},
+	}
+
+	_, err := r.discoverWorkloads(context.Background(), policy)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported workload kind")
+}
+
+// ---------- getPodSelectorLabels (StatefulSet + DaemonSet) ----------
+
+func TestGetPodSelectorLabels_StatefulSet(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	sts := &appsv1.StatefulSet{
+		Spec: appsv1.StatefulSetSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "db"}},
+		},
+	}
+	labels := r.getPodSelectorLabels(sts)
+	assert.Equal(t, map[string]string{"app": "db"}, labels)
+}
+
+func TestGetPodSelectorLabels_DaemonSet(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	ds := &appsv1.DaemonSet{
+		Spec: appsv1.DaemonSetSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "agent"}},
+		},
+	}
+	labels := r.getPodSelectorLabels(ds)
+	assert.Equal(t, map[string]string{"app": "agent"}, labels)
+}
+
+func TestGetPodSelectorLabels_NilSelector(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	dep := &appsv1.Deployment{Spec: appsv1.DeploymentSpec{}}
+	labels := r.getPodSelectorLabels(dep)
+	assert.Nil(t, labels)
+}
+
+// ---------- getContainers (DaemonSet) ----------
+
+func TestGetContainers_DaemonSet(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	ds := &appsv1.DaemonSet{
+		Spec: appsv1.DaemonSetSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{Name: "agent", Image: "fluentd"},
+					},
+				},
+			},
+		},
+	}
+	containers := r.getContainers(ds)
+	assert.Len(t, containers, 1)
+	assert.Equal(t, "agent", containers[0].Name)
+}
+
+func TestGetContainers_UnknownType(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	containers := r.getContainers(&corev1.Pod{})
+	assert.Nil(t, containers)
+}
+
+// ---------- mergeDefaults (more paths) ----------
+
+func TestMergeDefaults_MergesAllFields(t *testing.T) {
+	scheme := testScheme()
+
+	defaults := &rightsizev1alpha1.RightSizeDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster-defaults"},
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			CPU:    &rightsizev1alpha1.ResourceConfig{Percentile: 90, SafetyMargin: "1.5"},
+			Memory: &rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.4"},
+			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{
+				Mode: "Auto",
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(defaults).Build()
+	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+
+	// Policy with all zeros/empty (should inherit from defaults).
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+	}
+
+	r.mergeDefaults(context.Background(), policy)
+
+	assert.Equal(t, int32(90), policy.Spec.CPU.Percentile)
+	assert.Equal(t, "1.5", policy.Spec.CPU.SafetyMargin)
+	assert.Equal(t, int32(95), policy.Spec.Memory.Percentile)
+	assert.Equal(t, "1.4", policy.Spec.Memory.SafetyMargin)
+	assert.Equal(t, "Auto", policy.Spec.UpdateStrategy.Mode)
+}
+
+func TestMergeDefaults_PolicyOverridesDefaults(t *testing.T) {
+	scheme := testScheme()
+
+	defaults := &rightsizev1alpha1.RightSizeDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster-defaults"},
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			CPU:    &rightsizev1alpha1.ResourceConfig{Percentile: 90, SafetyMargin: "1.5"},
+			Memory: &rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.4"},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(defaults).Build()
+	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+
+	// Policy with explicit values (should NOT be overwritten).
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 99, SafetyMargin: "1.1"},
+			Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, SafetyMargin: "1.2"},
+		},
+	}
+
+	r.mergeDefaults(context.Background(), policy)
+
+	assert.Equal(t, int32(99), policy.Spec.CPU.Percentile)
+	assert.Equal(t, "1.1", policy.Spec.CPU.SafetyMargin)
+	assert.Equal(t, int32(99), policy.Spec.Memory.Percentile)
+	assert.Equal(t, "1.2", policy.Spec.Memory.SafetyMargin)
+}
+
+// ---------- appendHistory ----------
+
+func TestAppendHistory_CapsAtMaxEntries(t *testing.T) {
+	existing := make([]rightsizev1alpha1.ResizeHistoryEntry, 18)
+	for i := range existing {
+		existing[i] = rightsizev1alpha1.ResizeHistoryEntry{Workload: fmt.Sprintf("w-%d", i)}
+	}
+	newEntries := []rightsizev1alpha1.ResizeHistoryEntry{
+		{Workload: "new-1"},
+		{Workload: "new-2"},
+		{Workload: "new-3"},
+		{Workload: "new-4"},
+	}
+
+	result := appendHistory(existing, newEntries, 20)
+	assert.Len(t, result, 20)
+	assert.Equal(t, "w-2", result[0].Workload)
+	assert.Equal(t, "new-4", result[19].Workload)
+}
+
+// ---------- Reconcile with OneShot mode (exercises resize path entry) ----------
+
+func TestReconcile_OneShotMode_NoClientset_SkipsResize(t *testing.T) {
+	scheme := testScheme()
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = "OneShot"
+
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	pod := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(policy, deploy, pod).
+		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
+		Build()
+
+	mc := &mockCollector{
+		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return generateSamples(200, 0.1), nil
+		},
+	}
+
+	reconciler := &RightSizePolicyReconciler{
+		Client:         fakeClient,
+		Scheme:         scheme,
+		MetricsFactory: mockMetricsFactory(mc),
+		// Clientset is nil, so executeResizes will log and return 0
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
+	}
+
+	result, err := reconciler.Reconcile(context.Background(), req)
+	assert.NoError(t, err)
+	assert.NotZero(t, result.RequeueAfter)
+
+	var updated rightsizev1alpha1.RightSizePolicy
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "test-policy", Namespace: "default",
+	}, &updated))
+	assert.Equal(t, int32(1), updated.Status.Workloads.Discovered)
+	assert.Equal(t, int32(0), updated.Status.Workloads.Resized)
+}
+
+// ---------- Reconcile with Prometheus error ----------
+
+func TestReconcile_PrometheusUnavailable(t *testing.T) {
+	scheme := testScheme()
+	policy := newTestPolicy("test-policy", "default")
+	// Clear the Prometheus address to force an error.
+	policy.Spec.MetricsSource.Prometheus = nil
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(policy).
+		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
+		Build()
+
+	reconciler := &RightSizePolicyReconciler{
+		Client: fakeClient,
+		Scheme: scheme,
+		MetricsFactory: func(_ string) (rsmetrics.MetricsCollector, error) {
+			return nil, fmt.Errorf("connection refused")
+		},
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
+	}
+
+	result, err := reconciler.Reconcile(context.Background(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, 1*time.Minute, result.RequeueAfter)
+
+	var updated rightsizev1alpha1.RightSizePolicy
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "test-policy", Namespace: "default",
+	}, &updated))
+	require.Len(t, updated.Status.Conditions, 1)
+	assert.Equal(t, "PrometheusUnavailable", updated.Status.Conditions[0].Reason)
+}
+
+// ---------- Reconcile with cooldown active ----------
+
+func TestReconcile_CooldownActive_SkipsResize(t *testing.T) {
+	scheme := testScheme()
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = "OneShot"
+	// Set a recent resize time to activate cooldown.
+	policy.Annotations = map[string]string{
+		lastResizeAnnotation: time.Now().UTC().Format(time.RFC3339),
+	}
+
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	pod := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(policy, deploy, pod).
+		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
+		Build()
+
+	mc := &mockCollector{
+		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return generateSamples(200, 0.1), nil
+		},
+	}
+
+	reconciler := &RightSizePolicyReconciler{
+		Client:         fakeClient,
+		Scheme:         scheme,
+		MetricsFactory: mockMetricsFactory(mc),
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
+	}
+
+	result, err := reconciler.Reconcile(context.Background(), req)
+	assert.NoError(t, err)
+	assert.NotZero(t, result.RequeueAfter)
+
+	var updated rightsizev1alpha1.RightSizePolicy
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "test-policy", Namespace: "default",
+	}, &updated))
+	assert.Equal(t, int32(0), updated.Status.Workloads.Resized)
+}
+
+// ---------- Reconcile with opt-out annotation ----------
+
+func TestReconcile_WorkloadOptedOut(t *testing.T) {
+	scheme := testScheme()
+	policy := newTestPolicy("test-policy", "default")
+
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	deploy.Annotations = map[string]string{"rightsize.io/skip": "true"}
+	pod := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(policy, deploy, pod).
+		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
+		Build()
+
+	mc := &mockCollector{}
+
+	reconciler := &RightSizePolicyReconciler{
+		Client:         fakeClient,
+		Scheme:         scheme,
+		MetricsFactory: mockMetricsFactory(mc),
+	}
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
+	}
+
+	result, err := reconciler.Reconcile(context.Background(), req)
+	assert.NoError(t, err)
+	assert.NotZero(t, result.RequeueAfter)
+
+	var updated rightsizev1alpha1.RightSizePolicy
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "test-policy", Namespace: "default",
+	}, &updated))
+	// Workload was discovered but skipped, so no recommendations.
+	assert.Equal(t, int32(0), updated.Status.Workloads.WithRecommendations)
+}
