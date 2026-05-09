@@ -27,7 +27,6 @@ type RightSizePolicyDefaulter struct{}
 
 // Default sets default values on a RightSizePolicy.
 func (d *RightSizePolicyDefaulter) Default(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy) error {
-
 	if policy.Spec.CPU.Percentile == 0 {
 		policy.Spec.CPU.Percentile = 95
 	}

@@ -44,7 +44,6 @@ func (v *RightSizePolicyValidator) ValidateDelete(ctx context.Context, policy *r
 }
 
 func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizePolicy) (admission.Warnings, error) {
-
 	var warnings admission.Warnings
 
 	// CPU bounds: min must be <= max
