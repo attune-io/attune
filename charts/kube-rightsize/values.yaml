@@ -84,6 +84,11 @@ metrics:
     # -- Scrape interval
     interval: 30s
 
+# -- Webhook configuration
+webhooks:
+  # -- Enable admission webhooks (requires cert-manager or manual TLS cert provisioning)
+  enabled: true
+
 # -- Logging configuration
 logging:
   # -- Log level (debug, info, warn, error)

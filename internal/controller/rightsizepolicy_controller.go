@@ -435,17 +435,23 @@ func (r *RightSizePolicyReconciler) getContainers(workload client.Object) []core
 }
 
 // buildPrometheusQuery generates a PromQL query for the given metric type.
+// If container is empty, the query matches pod-level metrics (no container filter).
 func buildPrometheusQuery(namespace, podPrefix, container, metric string) string {
+	containerFilter := ""
+	if container != "" {
+		containerFilter = fmt.Sprintf(`,container="%s"`, container)
+	}
+
 	switch metric {
 	case "cpu":
 		return fmt.Sprintf(
-			`rate(container_cpu_usage_seconds_total{namespace="%s",pod=~"%s.*",container="%s"}[5m])`,
-			namespace, podPrefix, container,
+			`rate(container_cpu_usage_seconds_total{namespace="%s",pod=~"%s.*"%s}[5m])`,
+			namespace, podPrefix, containerFilter,
 		)
 	case "memory":
 		return fmt.Sprintf(
-			`container_memory_working_set_bytes{namespace="%s",pod=~"%s.*",container="%s"}`,
-			namespace, podPrefix, container,
+			`container_memory_working_set_bytes{namespace="%s",pod=~"%s.*"%s}`,
+			namespace, podPrefix, containerFilter,
 		)
 	default:
 		return ""
@@ -508,7 +514,7 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 	for _, container := range containers {
 		containerName := container.Name
 
-		// Build Prometheus queries.
+		// Build Prometheus queries with container label.
 		cpuQuery := buildPrometheusQuery(policy.Namespace, podPrefix, containerName, "cpu")
 		memQuery := buildPrometheusQuery(policy.Namespace, podPrefix, containerName, "memory")
 
@@ -523,6 +529,17 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 		if err != nil {
 			logger.Error(err, "Failed to query memory metrics", "container", containerName)
 			memSamples = nil
+		}
+
+		// Fallback: if no results with container label, try pod-level metrics (no container filter).
+		// Some Prometheus/cAdvisor configurations don't include the container label.
+		if len(cpuSamples) == 0 {
+			fallbackCPU := buildPrometheusQuery(policy.Namespace, podPrefix, "", "cpu")
+			cpuSamples, _ = collector.QueryRange(ctx, fallbackCPU, start, now, defaultPrometheusStep)
+		}
+		if len(memSamples) == 0 {
+			fallbackMem := buildPrometheusQuery(policy.Namespace, podPrefix, "", "memory")
+			memSamples, _ = collector.QueryRange(ctx, fallbackMem, start, now, defaultPrometheusStep)
 		}
 
 		// Build UsageProfile from samples.

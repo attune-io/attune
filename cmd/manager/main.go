@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	webhookserver "sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	rightsizev1alpha1 "github.com/SebTardif/kube-rightsize/api/v1alpha1"
 	"github.com/SebTardif/kube-rightsize/internal/controller"
@@ -52,12 +53,15 @@ func main() {
 	var metricsAddr string
 	var probeAddr string
 	var enableLeaderElection bool
+	var enableWebhooks bool
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metrics endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the health probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
+	flag.BoolVar(&enableWebhooks, "enable-webhooks", true,
+		"Enable admission webhooks for defaulting and validation.")
 
 	opts := zap.Options{
 		Development: false,
@@ -67,7 +71,7 @@ func main() {
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	mgrOpts := ctrl.Options{
 		Scheme: scheme,
 		Metrics: metricsserver.Options{
 			BindAddress: metricsAddr,
@@ -75,7 +79,15 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "kube-rightsize.rightsize.io",
-	})
+	}
+
+	// When webhooks are disabled, point the webhook server at a non-existent port
+	// to prevent it from listening. The webhook handler is simply never registered.
+	if !enableWebhooks {
+		mgrOpts.WebhookServer = webhookserver.NewServer(webhookserver.Options{Port: 0})
+	}
+
+	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), mgrOpts)
 	if err != nil {
 		setupLog.Error(err, "unable to create manager")
 		os.Exit(1)
@@ -105,13 +117,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Register webhooks.
-	if err = ctrl.NewWebhookManagedBy(mgr, &rightsizev1alpha1.RightSizePolicy{}).
-		WithDefaulter(&webhook.RightSizePolicyDefaulter{}).
-		WithValidator(&webhook.RightSizePolicyValidator{}).
-		Complete(); err != nil {
-		setupLog.Error(err, "unable to create webhook", "webhook", "RightSizePolicy")
-		os.Exit(1)
+	// Register webhooks (requires cert-manager or manual TLS cert provisioning).
+	if enableWebhooks {
+		if err = ctrl.NewWebhookManagedBy(mgr, &rightsizev1alpha1.RightSizePolicy{}).
+			WithDefaulter(&webhook.RightSizePolicyDefaulter{}).
+			WithValidator(&webhook.RightSizePolicyValidator{}).
+			Complete(); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "RightSizePolicy")
+			os.Exit(1)
+		}
 	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {

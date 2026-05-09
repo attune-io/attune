@@ -309,6 +309,18 @@
         }
       },
       "additionalProperties": false
+    },
+    "webhooks": {
+      "type": "object",
+      "description": "Webhook configuration",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable admission webhooks (requires cert-manager or manual TLS)",
+          "default": true
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false

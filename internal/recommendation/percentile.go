@@ -68,11 +68,14 @@ func (e *PercentileEstimator) selectPercentile(ps metrics.PercentileSet) float64
 }
 
 // quantityFromFloat converts a float64 value to a resource.Quantity.
-// Values less than 1.0 are treated as fractional CPU cores (expressed in
-// millicore), while values >= 1.0 with no fractional component smaller
-// than 1m are preserved directly.
+// For CPU (values typically < 100): uses millicore precision with DecimalSI.
+// For memory (values typically > 1000): uses byte precision with BinarySI.
 func quantityFromFloat(val float64) resource.Quantity {
-	// Use millicore precision: convert to milli and use MilliValue.
+	if val > 100 {
+		// Memory: value is in bytes, use integer bytes with BinarySI format.
+		return *resource.NewQuantity(int64(math.Ceil(val)), resource.BinarySI)
+	}
+	// CPU: value is in cores, use millicore precision.
 	millis := int64(math.Ceil(val * 1000))
 	return *resource.NewMilliQuantity(millis, resource.DecimalSI)
 }

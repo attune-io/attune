@@ -39,6 +39,11 @@ spec:
             {{- if .Values.leaderElection.enabled }}
             - --leader-elect
             {{- end }}
+            {{- if hasKey .Values "webhooks" }}
+            {{- if not .Values.webhooks.enabled }}
+            - --enable-webhooks=false
+            {{- end }}
+            {{- end }}
           ports:
             {{- if .Values.metrics.enabled }}
             - name: metrics
