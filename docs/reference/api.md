@@ -83,6 +83,7 @@ spec:
 | `recommendations[].containers[].lastUpdated` | `Time` | Last recommendation timestamp |
 | `savings.cpuRequestReduction` | `string` | Total CPU request reduction (e.g. "1200m") |
 | `savings.memoryRequestReduction` | `string` | Total memory request reduction (e.g. "2Gi") |
+| `savings.estimatedMonthlySavings` | `string` | Estimated monthly cost savings |
 | `resizeHistory[].timestamp` | `Time` | When the resize occurred |
 | `resizeHistory[].workload` | `string` | Resized workload name |
 | `resizeHistory[].container` | `string` | Resized container name |

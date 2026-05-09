@@ -19,7 +19,7 @@ kubectl get rsp <name> -o jsonpath='{.status.conditions}' | jq .
 kubectl get rsp <name> -o jsonpath='{.spec.metricsSource.prometheus.address}'
 
 # Test connectivity from the operator pod
-kubectl -n kube-rightsize-system exec deploy/kube-rightsize -- \
+kubectl -n kube-rightsize-system exec deploy/kube-rightsize-controller-manager -- \
   wget -qO- http://prometheus-server.monitoring:9090/-/healthy
 ```
 
@@ -112,7 +112,7 @@ Common causes:
 Operator logs:
 
 ```bash
-kubectl -n kube-rightsize-system logs deploy/kube-rightsize --tail=100
+kubectl -n kube-rightsize-system logs deploy/kube-rightsize-controller-manager --tail=100
 ```
 
 List all policies with status:
