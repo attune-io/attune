@@ -246,6 +246,29 @@ jobs:
           echo "=== Events ==="
           kubectl get events -A --sort-by='.lastTimestamp' | tail -30
 
+  # Aggregates all E2E matrix results into a single required status check.
+  # Without this, branch protection must list each matrix entry individually.
+  test-e2e-result:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    needs: [changes, test-e2e]
+    if: always()
+    steps:
+      - name: Aggregate matrix results
+        shell: bash -Eeuo pipefail {0}
+        run: |
+          if [[ "${{ needs.changes.outputs.go }}" != "true" ]]; then
+            echo "Skipped: no Go changes"
+            exit 0
+          fi
+          result="${{ needs.test-e2e.result }}"
+          if [[ "$result" == "success" || "$result" == "skipped" ]]; then
+            echo "E2E matrix passed (result: $result)"
+          else
+            echo "E2E matrix failed (result: $result)"
+            exit 1
+          fi
+
   crd-freshness:
     name: CRD Freshness Check
     runs-on: ubuntu-latest
