@@ -36,7 +36,8 @@ type RightSizePolicySpec struct {
 	Memory ResourceConfig `json:"memory"`
 
 	// UpdateStrategy configures how and when to apply resource changes.
-	UpdateStrategy UpdateStrategy `json:"updateStrategy"`
+	// +optional
+	UpdateStrategy UpdateStrategy `json:"updateStrategy,omitempty"`
 
 	// Weight determines the priority of this policy when multiple policies
 	// match the same workload. Higher values take precedence.
@@ -89,11 +90,13 @@ type ResourceConfig struct {
 	// Percentile is the usage percentile to target for recommendations.
 	// +kubebuilder:validation:Minimum=50
 	// +kubebuilder:validation:Maximum=99
-	Percentile int32 `json:"percentile"`
+	// +optional
+	Percentile int32 `json:"percentile,omitempty"`
 
 	// SafetyMargin is a multiplier applied to the recommended value.
 	// Expressed as a resource.Quantity-compatible string (e.g. "1.2").
-	SafetyMargin string `json:"safetyMargin"`
+	// +optional
+	SafetyMargin string `json:"safetyMargin,omitempty"`
 
 	// Bounds defines the minimum and maximum allowed resource values.
 	// +optional

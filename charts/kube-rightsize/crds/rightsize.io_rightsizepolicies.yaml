@@ -114,9 +114,6 @@ spec:
                       SafetyMargin is a multiplier applied to the recommended value.
                       Expressed as a resource.Quantity-compatible string (e.g. "1.2").
                     type: string
-                required:
-                - percentile
-                - safetyMargin
                 type: object
               memory:
                 description: Memory configures memory resource recommendations.
@@ -167,9 +164,6 @@ spec:
                       SafetyMargin is a multiplier applied to the recommended value.
                       Expressed as a resource.Quantity-compatible string (e.g. "1.2").
                     type: string
-                required:
-                - percentile
-                - safetyMargin
                 type: object
               metricsSource:
                 description: MetricsSource configures where and how to collect metrics.
@@ -327,7 +321,6 @@ spec:
             - memory
             - metricsSource
             - targetRef
-            - updateStrategy
             type: object
           status:
             description: RightSizePolicyStatus defines the observed state of RightSizePolicy.
