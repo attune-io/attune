@@ -72,13 +72,13 @@ spec:
       address: http://prometheus.monitoring:9090
   cpu:
     percentile: 95
-    safetyMargin: 1.2
+    safetyMargin: "1.2"
     bounds:
       min: "50m"
       max: "4000m"
   memory:
     percentile: 99
-    safetyMargin: 1.3
+    safetyMargin: "1.3"
     bounds:
       min: "64Mi"
       max: "8Gi"

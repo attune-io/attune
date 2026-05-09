@@ -185,7 +185,7 @@ spec:
   cpu:
     # Algorithm parameters
     percentile: 95            # default: 95, range: 50-99
-    safetyMargin: 1.2         # default: 1.2 (20% headroom above percentile)
+    safetyMargin: "1.2"       # default: 1.2 (20% headroom above percentile)
     # Hard bounds (REQUIRED -- never let recommendations go unbounded)
     bounds:
       min: "50m"              # required
@@ -195,7 +195,7 @@ spec:
 
   memory:
     percentile: 99            # default: 99 (more conservative for OOM risk)
-    safetyMargin: 1.3         # default: 1.3 (30% headroom)
+    safetyMargin: "1.3"       # default: 1.3 (30% headroom)
     bounds:
       min: "64Mi"             # required
       max: "8Gi"              # required
@@ -352,11 +352,11 @@ spec:
     minimumDataPoints: 168
   cpu:
     percentile: 95
-    safetyMargin: 1.2
+    safetyMargin: "1.2"
     controlledValues: RequestsAndLimits
   memory:
     percentile: 99
-    safetyMargin: 1.3
+    safetyMargin: "1.3"
     controlledValues: RequestsAndLimits
     allowDecrease: false
   updateStrategy:
