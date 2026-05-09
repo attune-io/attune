@@ -32,6 +32,8 @@ import (
 	rightsizev1alpha1 "github.com/SebTardif/kube-rightsize/api/v1alpha1"
 	"github.com/SebTardif/kube-rightsize/internal/controller"
 	"github.com/SebTardif/kube-rightsize/internal/metrics"
+	// Register operator Prometheus metrics via init()
+	_ "github.com/SebTardif/kube-rightsize/internal/operatormetrics"
 )
 
 var (

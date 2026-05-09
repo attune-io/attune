@@ -19,8 +19,11 @@ limitations under the License.
 package conflict
 
 import (
+	"fmt"
+
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -72,4 +75,18 @@ func (d *Detector) CheckAnnotationOptOut(obj metav1.ObjectMeta) bool {
 // revision yet.
 func (d *Detector) CheckActiveRollout(deployment *appsv1.Deployment) bool {
 	return deployment.Status.UpdatedReplicas != deployment.Status.Replicas
+}
+
+// CheckHPAConflict checks if an HPA targets the same workload and returns a Conflict if so.
+func (d *Detector) CheckHPAConflict(hpas []autoscalingv2.HorizontalPodAutoscaler, workloadName, workloadKind string) *Conflict {
+	for _, hpa := range hpas {
+		if hpa.Spec.ScaleTargetRef.Name == workloadName && hpa.Spec.ScaleTargetRef.Kind == workloadKind {
+			return &Conflict{
+				Type:    ConflictHPA,
+				Name:    hpa.Name,
+				Message: fmt.Sprintf("HPA %s targets the same %s/%s; kube-rightsize will adjust requests without interfering with HPA scaling", hpa.Name, workloadKind, workloadName),
+			}
+		}
+	}
+	return nil
 }

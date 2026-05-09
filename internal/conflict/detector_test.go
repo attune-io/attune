@@ -22,6 +22,7 @@ import (
 	"github.com/go-logr/logr/testr"
 	"github.com/stretchr/testify/assert"
 	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -138,4 +139,71 @@ func TestCheckActiveRollout(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestCheckHPAConflict_Found(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+
+	hpas := []autoscalingv2.HorizontalPodAutoscaler{
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "my-hpa"},
+			Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+				ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+					Kind: "Deployment",
+					Name: "my-app",
+				},
+			},
+		},
+	}
+
+	conflict := detector.CheckHPAConflict(hpas, "my-app", "Deployment")
+	assert.NotNil(t, conflict)
+	assert.Equal(t, ConflictHPA, conflict.Type)
+	assert.Equal(t, "my-hpa", conflict.Name)
+	assert.Contains(t, conflict.Message, "HPA my-hpa targets the same Deployment/my-app")
+}
+
+func TestCheckHPAConflict_NotFound(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+
+	hpas := []autoscalingv2.HorizontalPodAutoscaler{
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "other-hpa"},
+			Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+				ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+					Kind: "Deployment",
+					Name: "other-app",
+				},
+			},
+		},
+	}
+
+	conflict := detector.CheckHPAConflict(hpas, "my-app", "Deployment")
+	assert.Nil(t, conflict)
+}
+
+func TestCheckHPAConflict_EmptyList(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+
+	conflict := detector.CheckHPAConflict([]autoscalingv2.HorizontalPodAutoscaler{}, "my-app", "Deployment")
+	assert.Nil(t, conflict)
+}
+
+func TestCheckHPAConflict_DifferentKind(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+
+	hpas := []autoscalingv2.HorizontalPodAutoscaler{
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "my-hpa"},
+			Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+				ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+					Kind: "StatefulSet",
+					Name: "my-app",
+				},
+			},
+		},
+	}
+
+	conflict := detector.CheckHPAConflict(hpas, "my-app", "Deployment")
+	assert.Nil(t, conflict)
 }
