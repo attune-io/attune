@@ -25,6 +25,22 @@ builds:
       - -X main.commit={{ .Commit }}
       - -X main.date={{ .Date }}
 
+  - id: kubectl-rightsize
+    main: ./cmd/kubectl-rightsize/
+    binary: kubectl-rightsize
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+
 archives:
   - id: binary
     formats: [tar.gz]
@@ -47,5 +63,3 @@ release:
     owner: SebTardif
     name: kube-rightsize
   prerelease: auto
-  extra_files:
-    - glob: dist/install.yaml
