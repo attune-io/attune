@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/logo.jpg" alt="kube-rightsize logo" width="200">
+</p>
+
 # kube-rightsize
 
 [![CI](https://github.com/SebTardif/kube-rightsize/actions/workflows/ci.yaml/badge.svg)](https://github.com/SebTardif/kube-rightsize/actions/workflows/ci.yaml)

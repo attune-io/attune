@@ -75,6 +75,10 @@ test-e2e: chainsaw ## Run E2E tests (requires Kind cluster)
 test-fuzz: ## Run fuzz tests (30 seconds per target)
 	go test ./internal/recommendation/... -fuzz=. -fuzztime=30s
 
+.PHONY: test-bench
+test-bench: ## Run benchmark tests
+	go test ./internal/... -bench=. -benchmem -run=^$$ -timeout=5m
+
 .PHONY: test-all
 test-all: test test-integration test-e2e ## Run all tests
 
@@ -83,6 +87,10 @@ test-all: test test-integration test-e2e ## Run all tests
 .PHONY: build
 build: manifests generate ## Build operator binary
 	go build -o bin/manager ./cmd/manager/
+
+.PHONY: build-plugin
+build-plugin: ## Build kubectl-rightsize plugin
+	go build -o bin/kubectl-rightsize ./cmd/kubectl-rightsize/
 
 .PHONY: run
 run: manifests generate ## Run operator locally against the configured cluster
