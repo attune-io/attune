@@ -120,9 +120,4 @@ spec:
     - podLogs:
         namespace: e2e-oneshot-resize
         selector: app=test-app
-  finally:
-    - delete:
-        ref:
-          apiVersion: v1
-          kind: Namespace
-          name: e2e-oneshot-resize
+

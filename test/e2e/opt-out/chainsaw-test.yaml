@@ -122,9 +122,4 @@ spec:
     - podLogs:
         namespace: e2e-opt-out
         selector: app=skipped-app
-  finally:
-    - delete:
-        ref:
-          apiVersion: v1
-          kind: Namespace
-          name: e2e-opt-out
+

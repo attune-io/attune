@@ -123,9 +123,4 @@ spec:
     - podLogs:
         namespace: e2e-canary-rollout
         selector: app=canary-app
-  finally:
-    - delete:
-        ref:
-          apiVersion: v1
-          kind: Namespace
-          name: e2e-canary-rollout
+
