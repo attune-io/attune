@@ -17,6 +17,7 @@ jobs:
     name: CodeQL
     runs-on: self-hosted
     permissions:
+      actions: read
       contents: read
       security-events: write
     steps:
