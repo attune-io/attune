@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -31,6 +32,7 @@ import (
 
 	rightsizev1alpha1 "github.com/SebTardif/kube-rightsize/api/v1alpha1"
 	rsmetrics "github.com/SebTardif/kube-rightsize/internal/metrics"
+	"github.com/SebTardif/kube-rightsize/internal/operatormetrics"
 )
 
 // discoverWorkloads finds workloads matching the policy's targetRef.
@@ -214,36 +216,57 @@ func (r *RightSizePolicyReconciler) getPodPrefix(workload client.Object) string 
 // to pod-level metrics if the container-specific query returns no data.
 func queryMetrics(ctx context.Context, collector rsmetrics.MetricsCollector, namespace, podPrefix, container, metric string, start, end time.Time, step time.Duration) []rsmetrics.Sample {
 	query := buildPrometheusQuery(namespace, podPrefix, container, metric)
+
+	queryStart := time.Now()
 	samples, err := collector.QueryRange(ctx, query, start, end, step)
+	operatormetrics.PrometheusQueryDuration.WithLabelValues().Observe(time.Since(queryStart).Seconds())
+
 	if err != nil {
+		operatormetrics.PrometheusQueryErrors.Inc()
 		log.FromContext(ctx).Error(err, "Failed to query metrics", "metric", metric, "container", container)
 		samples = nil
 	}
 	if len(samples) == 0 && container != "" {
 		fallback := buildPrometheusQuery(namespace, podPrefix, "", metric)
-		samples, _ = collector.QueryRange(ctx, fallback, start, end, step)
+		queryStart = time.Now()
+		samples, err = collector.QueryRange(ctx, fallback, start, end, step)
+		operatormetrics.PrometheusQueryDuration.WithLabelValues().Observe(time.Since(queryStart).Seconds())
+		if err != nil {
+			operatormetrics.PrometheusQueryErrors.Inc()
+		}
 	}
 	return samples
+}
+
+// escapePromQL escapes double quotes and backslashes in a string for safe
+// interpolation into PromQL label matchers.
+func escapePromQL(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	return s
 }
 
 // buildPrometheusQuery generates a PromQL query for the given metric type.
 // If container is empty, the query matches pod-level metrics (no container filter).
 func buildPrometheusQuery(namespace, podPrefix, container, metric string) string {
+	ns := escapePromQL(namespace)
+	pp := escapePromQL(podPrefix)
+
 	containerFilter := ""
 	if container != "" {
-		containerFilter = fmt.Sprintf(`,container="%s"`, container)
+		containerFilter = fmt.Sprintf(`,container="%s"`, escapePromQL(container))
 	}
 
 	switch metric {
 	case "cpu":
 		return fmt.Sprintf(
 			`rate(container_cpu_usage_seconds_total{namespace="%s",pod=~"%s.*"%s}[5m])`,
-			namespace, podPrefix, containerFilter,
+			ns, pp, containerFilter,
 		)
 	case "memory":
 		return fmt.Sprintf(
 			`container_memory_working_set_bytes{namespace="%s",pod=~"%s.*"%s}`,
-			namespace, podPrefix, containerFilter,
+			ns, pp, containerFilter,
 		)
 	default:
 		return ""

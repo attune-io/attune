@@ -58,6 +58,7 @@ func newHistoryEntry(now metav1.Time, workload, container string, res resize.Res
 func removeTrackingAnnotations(pod *corev1.Pod) {
 	delete(pod.Annotations, annotationResizedAt)
 	delete(pod.Annotations, annotationResizedContainer)
+	delete(pod.Annotations, annotationResizedWorkload)
 	delete(pod.Annotations, annotationOriginalCPU)
 	delete(pod.Annotations, annotationOriginalMemory)
 }

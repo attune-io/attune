@@ -48,6 +48,7 @@ const (
 	// Annotation keys for tracking in-flight resizes on pods.
 	annotationResizedAt        = "rightsize.io/resized-at"
 	annotationResizedContainer = "rightsize.io/resized-container"
+	annotationResizedWorkload  = "rightsize.io/resized-workload"
 	annotationOriginalCPU      = "rightsize.io/original-cpu-request"
 	annotationOriginalMemory   = "rightsize.io/original-memory-request"
 
@@ -575,14 +576,25 @@ func (r *RightSizePolicyReconciler) executeResizes(
 				if pod.Annotations == nil {
 					pod.Annotations = make(map[string]string)
 				}
-				pod.Annotations[annotationResizedAt] = time.Now().UTC().Format(time.RFC3339)
+				pod.Annotations[annotationResizedAt] = now.UTC().Format(time.RFC3339)
 				pod.Annotations[annotationResizedContainer] = containerRec.Name
+				pod.Annotations[annotationResizedWorkload] = rec.Workload
 				pod.Annotations[annotationOriginalCPU] = containerRec.Current.CPURequest.String()
 				pod.Annotations[annotationOriginalMemory] = containerRec.Current.MemoryRequest.String()
 
+				// Persist tracking annotations to the API server so
+				// checkPendingSafetyObservations can find them later.
+				if updateErr := r.Update(ctx, &pod); updateErr != nil {
+					logger.Error(updateErr, "Failed to persist resize tracking annotations", "pod", pod.Name)
+				}
+
 				// Safety check (if autoRevert is enabled)
 				if policy.Spec.UpdateStrategy.AutoRevert {
-					observationEnd := time.Now().Add(30 * time.Second)
+					observationPeriod := defaultObservationPeriod
+					if policy.Spec.UpdateStrategy.Canary != nil && policy.Spec.UpdateStrategy.Canary.ObservationPeriod.Duration > 0 {
+						observationPeriod = policy.Spec.UpdateStrategy.Canary.ObservationPeriod.Duration
+					}
+					observationEnd := now.Add(observationPeriod)
 					var originalResources corev1.ResourceRequirements
 					for _, c := range pod.Spec.Containers {
 						if c.Name == containerRec.Name {
@@ -596,7 +608,7 @@ func (r *RightSizePolicyReconciler) executeResizes(
 						Container:         containerRec.Name,
 						OriginalResources: originalResources,
 						NewResources:      target,
-						ResizedAt:         time.Now(),
+						ResizedAt:         now.Time,
 						ObservationEnd:    observationEnd,
 					}
 
@@ -721,7 +733,8 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 			if revertErr := monitor.RevertPod(ctx, record); revertErr != nil {
 				logger.Error(revertErr, "Failed to revert pod during safety observation", "pod", pod.Name)
 			}
-			operatormetrics.RevertsTotal.WithLabelValues(pod.Namespace, pod.Labels["app"], verdict.Reason).Inc()
+			workloadName := pod.Annotations[annotationResizedWorkload]
+			operatormetrics.RevertsTotal.WithLabelValues(pod.Namespace, workloadName, verdict.Reason).Inc()
 		}
 
 		// Remove tracking annotations regardless of outcome (observation complete).
