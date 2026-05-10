@@ -39,6 +39,7 @@ import (
 )
 
 var (
+	// Set by -ldflags at build time.
 	version  = "dev"
 	commit   = "none"
 	date     = "unknown"
