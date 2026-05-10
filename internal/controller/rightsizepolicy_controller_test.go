@@ -553,7 +553,7 @@ func TestComputeSavings_ReturnsCorrectStructure(t *testing.T) {
 			},
 		},
 	}
-	savings := r.computeSavings(context.Background(), "test-ns", recs)
+	savings := r.computeSavings("test-ns", recs, nil)
 	assert.NotEmpty(t, savings.CPURequestReduction)
 	assert.Equal(t, "500m", savings.CPURequestReduction)
 }
@@ -832,7 +832,7 @@ func TestResolvePrometheusAddress_PolicyHasAddress(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	reconciler := newReconcilerWithClient()
 
-	addr, err := reconciler.resolvePrometheusAddress(context.Background(), policy)
+	addr, err := reconciler.resolvePrometheusAddress(context.Background(), policy, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, "http://prometheus:9090", addr)
 }
@@ -855,7 +855,7 @@ func TestResolvePrometheusAddress_FallsBackToDefaults(t *testing.T) {
 	}
 	reconciler := newReconcilerWithClient(defaults)
 
-	addr, err := reconciler.resolvePrometheusAddress(context.Background(), policy)
+	addr, err := reconciler.resolvePrometheusAddress(context.Background(), policy, defaults)
 	assert.NoError(t, err)
 	assert.Equal(t, "http://defaults-prometheus:9090", addr)
 }
@@ -867,7 +867,7 @@ func TestResolvePrometheusAddress_NoAddressAnywhere(t *testing.T) {
 	}
 	reconciler := newReconcilerWithClient()
 
-	_, err := reconciler.resolvePrometheusAddress(context.Background(), policy)
+	_, err := reconciler.resolvePrometheusAddress(context.Background(), policy, nil)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "no Prometheus address configured")
 }
@@ -1406,7 +1406,7 @@ func TestMergeDefaults_MergesAllFields(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
 	}
 
-	r.mergeDefaults(context.Background(), policy)
+	r.mergeDefaults(policy, defaults)
 
 	assert.Equal(t, int32(90), policy.Spec.CPU.Percentile)
 	assert.Equal(t, "1.5", policy.Spec.CPU.SafetyMargin)
@@ -1434,7 +1434,7 @@ func TestMergeDefaults_PolicyOverridesDefaults(t *testing.T) {
 		},
 	}
 
-	r.mergeDefaults(context.Background(), policy)
+	r.mergeDefaults(policy, nil)
 
 	assert.Equal(t, int32(99), policy.Spec.CPU.Percentile)
 	assert.Equal(t, "1.1", policy.Spec.CPU.SafetyMargin)
@@ -2255,7 +2255,7 @@ func TestResolvePrometheusAddress_FallsBackToAutoDiscovery(t *testing.T) {
 	}
 	reconciler := newReconcilerWithClient(svc)
 
-	addr, err := reconciler.resolvePrometheusAddress(context.Background(), policy)
+	addr, err := reconciler.resolvePrometheusAddress(context.Background(), policy, nil)
 	assert.NoError(t, err)
 	assert.Equal(t, "http://prometheus-kube-prometheus-prometheus.monitoring:9090", addr)
 }

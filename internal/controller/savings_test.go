@@ -17,7 +17,6 @@ limitations under the License.
 package controller
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -36,7 +35,7 @@ func newSavingsReconciler() *RightSizePolicyReconciler {
 
 func TestComputeSavings_Empty(t *testing.T) {
 	r := newSavingsReconciler()
-	savings := r.computeSavings(context.Background(), "default", nil)
+	savings := r.computeSavings("default", nil, nil)
 	assert.Empty(t, savings.CPURequestReduction)
 	assert.Empty(t, savings.MemoryRequestReduction)
 }
@@ -63,7 +62,7 @@ func TestComputeSavings_CPUReduction(t *testing.T) {
 		},
 	}
 
-	savings := r.computeSavings(context.Background(), "default", recommendations)
+	savings := r.computeSavings("default", recommendations, nil)
 	// 500m - 150m = 350m saved.
 	assert.Equal(t, "350m", savings.CPURequestReduction)
 	// Memory unchanged.
@@ -95,7 +94,7 @@ func TestComputeSavings_MemoryReduction(t *testing.T) {
 		},
 	}
 
-	savings := r.computeSavings(context.Background(), "default", recommendations)
+	savings := r.computeSavings("default", recommendations, nil)
 	// CPU unchanged.
 	assert.Empty(t, savings.CPURequestReduction)
 	// 512Mi - 280Mi = 232Mi saved.
@@ -141,7 +140,7 @@ func TestComputeSavings_MultipleWorkloads(t *testing.T) {
 		},
 	}
 
-	savings := r.computeSavings(context.Background(), "default", recommendations)
+	savings := r.computeSavings("default", recommendations, nil)
 	// CPU: (500-300) + (1000-900) = 200 + 100 = 300m.
 	assert.Equal(t, "300m", savings.CPURequestReduction)
 	// Memory: (512-384)Mi + (1024-768)Mi = 128Mi + 256Mi = 384Mi.
@@ -170,7 +169,7 @@ func TestComputeSavings_NoReduction(t *testing.T) {
 		},
 	}
 
-	savings := r.computeSavings(context.Background(), "default", recommendations)
+	savings := r.computeSavings("default", recommendations, nil)
 	// Recommended >= current for both resources: no savings.
 	assert.Empty(t, savings.CPURequestReduction)
 	assert.Empty(t, savings.MemoryRequestReduction)
@@ -209,7 +208,7 @@ func TestComputeSavings_Mixed(t *testing.T) {
 		},
 	}
 
-	savings := r.computeSavings(context.Background(), "default", recommendations)
+	savings := r.computeSavings("default", recommendations, nil)
 	// Only the first container saves CPU: 500m - 150m = 350m.
 	// The second container increases CPU, which is not counted.
 	assert.Equal(t, "350m", savings.CPURequestReduction)

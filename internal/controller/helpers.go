@@ -113,7 +113,7 @@ const (
 )
 
 // computeSavings calculates the aggregate resource savings across all recommendations.
-func (r *RightSizePolicyReconciler) computeSavings(ctx context.Context, namespace string, recommendations []rightsizev1alpha1.WorkloadRecommendation) rightsizev1alpha1.SavingsStatus {
+func (r *RightSizePolicyReconciler) computeSavings(namespace string, recommendations []rightsizev1alpha1.WorkloadRecommendation, defaults *rightsizev1alpha1.RightSizeDefaults) rightsizev1alpha1.SavingsStatus {
 	var totalCPUSaved, totalMemSaved int64
 
 	for _, rec := range recommendations {
@@ -142,7 +142,7 @@ func (r *RightSizePolicyReconciler) computeSavings(ctx context.Context, namespac
 
 	// Compute estimated monthly cost savings.
 	if totalCPUSaved > 0 || totalMemSaved > 0 {
-		cpuPrice, memPrice := r.getCostPricing(ctx)
+		cpuPrice, memPrice := getCostPricing(defaults)
 		cpuCoresSaved := float64(totalCPUSaved) / 1000.0
 		memGiBSaved := float64(totalMemSaved) / (1024 * 1024 * 1024)
 		monthlySavings := (cpuCoresSaved*cpuPrice + memGiBSaved*memPrice) * hoursPerMonth
@@ -154,16 +154,15 @@ func (r *RightSizePolicyReconciler) computeSavings(ctx context.Context, namespac
 }
 
 // getCostPricing reads pricing from RightSizeDefaults, falling back to defaults.
-func (r *RightSizePolicyReconciler) getCostPricing(ctx context.Context) (cpuPerCoreHour, memPerGiBHour float64) {
+func getCostPricing(defaults *rightsizev1alpha1.RightSizeDefaults) (cpuPerCoreHour, memPerGiBHour float64) {
 	cpuPerCoreHour = defaultCPUPerCoreHour
 	memPerGiBHour = defaultMemPerGiBHour
 
-	var defaultsList rightsizev1alpha1.RightSizeDefaultsList
-	if err := r.List(ctx, &defaultsList); err != nil || len(defaultsList.Items) == 0 {
+	if defaults == nil {
 		return
 	}
 
-	pricing := defaultsList.Items[0].Spec.CostPricing
+	pricing := defaults.Spec.CostPricing
 	if pricing == nil {
 		return
 	}
@@ -437,38 +436,47 @@ func consecutiveReverts(history []rightsizev1alpha1.ResizeHistoryEntry) int {
 	return count
 }
 
-// mergeDefaults reads the cluster-scoped RightSizeDefaults and merges values
-// into the policy where the policy has not specified its own values.
-func (r *RightSizePolicyReconciler) mergeDefaults(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy) {
+// fetchDefaults fetches the cluster-scoped RightSizeDefaults once per reconciliation.
+// Returns nil if no defaults exist or on error.
+func (r *RightSizePolicyReconciler) fetchDefaults(ctx context.Context) *rightsizev1alpha1.RightSizeDefaults {
 	var defaultsList rightsizev1alpha1.RightSizeDefaultsList
 	if err := r.List(ctx, &defaultsList); err != nil {
 		log.FromContext(ctx).Error(err, "Failed to list RightSizeDefaults")
-		return
+		return nil
 	}
 	if len(defaultsList.Items) == 0 {
+		return nil
+	}
+	return &defaultsList.Items[0]
+}
+
+// mergeDefaults merges values from RightSizeDefaults into the policy where
+// the policy has not specified its own values.
+func (r *RightSizePolicyReconciler) mergeDefaults(policy *rightsizev1alpha1.RightSizePolicy, defaults *rightsizev1alpha1.RightSizeDefaults) {
+	if defaults == nil {
 		return
 	}
-	defaults := defaultsList.Items[0].Spec
+	spec := defaults.Spec
 
 	// Merge CPU config
-	if policy.Spec.CPU.Percentile == 0 && defaults.CPU != nil {
-		policy.Spec.CPU.Percentile = defaults.CPU.Percentile
+	if policy.Spec.CPU.Percentile == 0 && spec.CPU != nil {
+		policy.Spec.CPU.Percentile = spec.CPU.Percentile
 	}
-	if policy.Spec.CPU.SafetyMargin == "" && defaults.CPU != nil {
-		policy.Spec.CPU.SafetyMargin = defaults.CPU.SafetyMargin
+	if policy.Spec.CPU.SafetyMargin == "" && spec.CPU != nil {
+		policy.Spec.CPU.SafetyMargin = spec.CPU.SafetyMargin
 	}
 
 	// Merge Memory config
-	if policy.Spec.Memory.Percentile == 0 && defaults.Memory != nil {
-		policy.Spec.Memory.Percentile = defaults.Memory.Percentile
+	if policy.Spec.Memory.Percentile == 0 && spec.Memory != nil {
+		policy.Spec.Memory.Percentile = spec.Memory.Percentile
 	}
-	if policy.Spec.Memory.SafetyMargin == "" && defaults.Memory != nil {
-		policy.Spec.Memory.SafetyMargin = defaults.Memory.SafetyMargin
+	if policy.Spec.Memory.SafetyMargin == "" && spec.Memory != nil {
+		policy.Spec.Memory.SafetyMargin = spec.Memory.SafetyMargin
 	}
 
 	// Merge UpdateStrategy mode
-	if policy.Spec.UpdateStrategy.Mode == "" && defaults.UpdateStrategy != nil {
-		policy.Spec.UpdateStrategy.Mode = defaults.UpdateStrategy.Mode
+	if policy.Spec.UpdateStrategy.Mode == "" && spec.UpdateStrategy != nil {
+		policy.Spec.UpdateStrategy.Mode = spec.UpdateStrategy.Mode
 	}
 }
 

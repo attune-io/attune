@@ -115,10 +115,12 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	// Merge cluster-scoped defaults into the policy.
-	r.mergeDefaults(ctx, &policy)
+	// Fetch defaults once and reuse for Prometheus address and cost pricing.
+	defaults := r.fetchDefaults(ctx)
+	r.mergeDefaults(&policy, defaults)
 
 	// Step 2: Resolve Prometheus address from spec or RightSizeDefaults.
-	prometheusAddr, err := r.resolvePrometheusAddress(ctx, &policy)
+	prometheusAddr, err := r.resolvePrometheusAddress(ctx, &policy, defaults)
 	if err != nil {
 		logger.Error(err, "Failed to resolve Prometheus address")
 		r.setFailedCondition(ctx, &policy, rightsizev1alpha1.ReasonPrometheusUnavailable,
@@ -235,7 +237,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	policy.Status.Recommendations = recommendations
 
 	// Compute savings estimate.
-	policy.Status.Savings = r.computeSavings(ctx, policy.Namespace, recommendations)
+	policy.Status.Savings = r.computeSavings(policy.Namespace, recommendations, defaults)
 
 	// Step 9: Execute resizes if mode allows.
 	mode := policy.Spec.UpdateStrategy.Mode
@@ -463,7 +465,7 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 
 // resolvePrometheusAddress returns the Prometheus address from the policy spec,
 // falling back to the cluster-scoped RightSizeDefaults if not set.
-func (r *RightSizePolicyReconciler) resolvePrometheusAddress(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy) (string, error) {
+func (r *RightSizePolicyReconciler) resolvePrometheusAddress(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy, defaults *rightsizev1alpha1.RightSizeDefaults) (string, error) {
 	// Check policy-level config first.
 	if policy.Spec.MetricsSource.Prometheus != nil &&
 		policy.Spec.MetricsSource.Prometheus.Address != "" {
@@ -471,17 +473,11 @@ func (r *RightSizePolicyReconciler) resolvePrometheusAddress(ctx context.Context
 	}
 
 	// Fall back to RightSizeDefaults.
-	var defaultsList rightsizev1alpha1.RightSizeDefaultsList
-	if err := r.List(ctx, &defaultsList); err != nil {
-		return "", fmt.Errorf("listing RightSizeDefaults: %w", err)
-	}
-
-	for _, defaults := range defaultsList.Items {
-		if defaults.Spec.MetricsSource != nil &&
-			defaults.Spec.MetricsSource.Prometheus != nil &&
-			defaults.Spec.MetricsSource.Prometheus.Address != "" {
-			return defaults.Spec.MetricsSource.Prometheus.Address, nil
-		}
+	if defaults != nil &&
+		defaults.Spec.MetricsSource != nil &&
+		defaults.Spec.MetricsSource.Prometheus != nil &&
+		defaults.Spec.MetricsSource.Prometheus.Address != "" {
+		return defaults.Spec.MetricsSource.Prometheus.Address, nil
 	}
 
 	// Fall back to auto-discovery: look for Prometheus Operator's Prometheus CRD.

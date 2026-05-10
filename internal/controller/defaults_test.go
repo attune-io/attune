@@ -51,7 +51,8 @@ func TestMergeDefaults_NoDefaults(t *testing.T) {
 		},
 	}
 
-	r.mergeDefaults(context.Background(), policy)
+	defaults := r.fetchDefaults(context.Background())
+	r.mergeDefaults(policy, defaults)
 
 	// Nothing should change when no defaults exist.
 	assert.Equal(t, int32(95), policy.Spec.CPU.Percentile)
@@ -93,7 +94,8 @@ func TestMergeDefaults_CPUPercentileMerged(t *testing.T) {
 		},
 	}
 
-	r.mergeDefaults(context.Background(), policy)
+	fetchedDefaults := r.fetchDefaults(context.Background())
+	r.mergeDefaults(policy, fetchedDefaults)
 
 	assert.Equal(t, int32(95), policy.Spec.CPU.Percentile)
 	// SafetyMargin was already set on the policy, so it stays.
@@ -133,7 +135,8 @@ func TestMergeDefaults_SafetyMarginMerged(t *testing.T) {
 		},
 	}
 
-	r.mergeDefaults(context.Background(), policy)
+	fetchedDefaults := r.fetchDefaults(context.Background())
+	r.mergeDefaults(policy, fetchedDefaults)
 
 	assert.Equal(t, int32(90), policy.Spec.CPU.Percentile)
 	assert.Equal(t, "1.2", policy.Spec.CPU.SafetyMargin)
@@ -172,7 +175,8 @@ func TestMergeDefaults_PolicyTakesPrecedence(t *testing.T) {
 		},
 	}
 
-	r.mergeDefaults(context.Background(), policy)
+	fetchedDefaults := r.fetchDefaults(context.Background())
+	r.mergeDefaults(policy, fetchedDefaults)
 
 	// Policy values take precedence over defaults.
 	assert.Equal(t, int32(90), policy.Spec.CPU.Percentile)
