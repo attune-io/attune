@@ -17,6 +17,7 @@ limitations under the License.
 package conflict
 
 import (
+	"context"
 	"testing"
 
 	"github.com/go-logr/logr/testr"
@@ -24,6 +25,9 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 func TestCheckAnnotationOptOut(t *testing.T) {
@@ -187,6 +191,61 @@ func TestCheckHPAConflict_EmptyList(t *testing.T) {
 
 	conflict := detector.CheckHPAConflict([]autoscalingv2.HorizontalPodAutoscaler{}, "my-app", "Deployment")
 	assert.Nil(t, conflict)
+}
+
+func TestCheckVPAConflict_Found(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+
+	vpa := &unstructured.Unstructured{}
+	vpa.SetGroupVersionKind(vpaGVK)
+	vpa.SetName("my-vpa")
+	vpa.SetNamespace("default")
+	vpa.Object["apiVersion"] = "autoscaling.k8s.io/v1"
+	vpa.Object["kind"] = "VerticalPodAutoscaler"
+	_ = unstructured.SetNestedMap(vpa.Object, map[string]interface{}{
+		"kind": "Deployment",
+		"name": "my-app",
+	}, "spec", "targetRef")
+
+	scheme := runtime.NewScheme()
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(vpa).Build()
+
+	result := detector.CheckVPAConflict(context.Background(), c, "default", "my-app", "Deployment")
+	assert.NotNil(t, result)
+	assert.Equal(t, ConflictVPA, result.Type)
+	assert.Equal(t, "my-vpa", result.Name)
+	assert.Contains(t, result.Message, "VPA my-vpa targets the same Deployment/my-app")
+}
+
+func TestCheckVPAConflict_NotFound(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+
+	vpa := &unstructured.Unstructured{}
+	vpa.SetGroupVersionKind(vpaGVK)
+	vpa.SetName("other-vpa")
+	vpa.SetNamespace("default")
+	vpa.Object["apiVersion"] = "autoscaling.k8s.io/v1"
+	vpa.Object["kind"] = "VerticalPodAutoscaler"
+	_ = unstructured.SetNestedMap(vpa.Object, map[string]interface{}{
+		"kind": "Deployment",
+		"name": "other-app",
+	}, "spec", "targetRef")
+
+	scheme := runtime.NewScheme()
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(vpa).Build()
+
+	result := detector.CheckVPAConflict(context.Background(), c, "default", "my-app", "Deployment")
+	assert.Nil(t, result)
+}
+
+func TestCheckVPAConflict_NoCRD(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+
+	scheme := runtime.NewScheme()
+	c := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	result := detector.CheckVPAConflict(context.Background(), c, "default", "my-app", "Deployment")
+	assert.Nil(t, result)
 }
 
 func TestCheckHPAConflict_DifferentKind(t *testing.T) {

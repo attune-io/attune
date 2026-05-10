@@ -84,13 +84,15 @@ make kind-delete
 
 ### Test scenarios
 
-| Directory | Mode | What it verifies |
-|-----------|------|------------------|
+| Directory | Mode / Kind | What it verifies |
+|-----------|-------------|------------------|
 | `test/e2e/recommend-mode/` | Recommend | Discovers workloads, reaches InsufficientData |
 | `test/e2e/observe-mode/` | Observe | Reaches condition, no resizes performed |
 | `test/e2e/oneshot-resize/` | OneShot | Reaches InsufficientData (no Prometheus) |
 | `test/e2e/canary-rollout/` | Canary | Canary config accepted, reaches InsufficientData |
 | `test/e2e/auto-mode/` | Auto | Discovers workloads, reaches InsufficientData |
+| `test/e2e/statefulset-target/` | StatefulSet | Discovers StatefulSet workload |
+| `test/e2e/daemonset-target/` | DaemonSet | Discovers DaemonSet workload |
 | `test/e2e/opt-out/` | (cross-cutting) | `rightsize.io/skip` annotation respected |
 
 ### Writing new E2E tests

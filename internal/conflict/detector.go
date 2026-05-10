@@ -19,12 +19,16 @@ limitations under the License.
 package conflict
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // ConflictType identifies the kind of resource that conflicts with a
@@ -75,6 +79,44 @@ func (d *Detector) CheckAnnotationOptOut(obj metav1.ObjectMeta) bool {
 // revision yet.
 func (d *Detector) CheckActiveRollout(deployment *appsv1.Deployment) bool {
 	return deployment.Status.UpdatedReplicas != deployment.Status.Replicas
+}
+
+// vpaGVK is the GroupVersionKind for VerticalPodAutoscaler resources.
+var vpaGVK = schema.GroupVersionKind{
+	Group:   "autoscaling.k8s.io",
+	Version: "v1",
+	Kind:    "VerticalPodAutoscalerList",
+}
+
+// CheckVPAConflict lists VerticalPodAutoscaler resources in the namespace and
+// returns a Conflict if any VPA targets the same workload. Returns nil if the
+// VPA CRD is not installed (no error) or no conflicts are found.
+func (d *Detector) CheckVPAConflict(ctx context.Context, c client.Client, namespace, workloadName, workloadKind string) *Conflict {
+	vpaList := &unstructured.UnstructuredList{}
+	vpaList.SetGroupVersionKind(vpaGVK)
+
+	if err := c.List(ctx, vpaList, client.InNamespace(namespace)); err != nil {
+		// VPA CRD not installed or RBAC issue; not an error for our purposes.
+		d.logger.V(1).Info("Could not list VPAs (CRD may not be installed)", "error", err)
+		return nil
+	}
+
+	for _, vpa := range vpaList.Items {
+		targetRef, found, _ := unstructured.NestedMap(vpa.Object, "spec", "targetRef")
+		if !found {
+			continue
+		}
+		refKind, _ := targetRef["kind"].(string)
+		refName, _ := targetRef["name"].(string)
+		if refKind == workloadKind && refName == workloadName {
+			return &Conflict{
+				Type:    ConflictVPA,
+				Name:    vpa.GetName(),
+				Message: fmt.Sprintf("VPA %s targets the same %s/%s; consider disabling VPA to avoid conflicting resource adjustments", vpa.GetName(), workloadKind, workloadName),
+			}
+		}
+	}
+	return nil
 }
 
 // CheckHPAConflict checks if an HPA targets the same workload and returns a Conflict if so.

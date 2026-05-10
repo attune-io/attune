@@ -173,6 +173,11 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			logger.Info("HPA conflict detected", "workload", workloadName, "hpa", hpaConflict.Name, "message", hpaConflict.Message)
 		}
 
+		// Check for VPA conflict (log warning, don't block).
+		if vpaConflict := conflictDetector.CheckVPAConflict(ctx, r.Client, policy.Namespace, workloadName, workloadKind); vpaConflict != nil {
+			logger.Info("VPA conflict detected", "workload", workloadName, "vpa", vpaConflict.Name, "message", vpaConflict.Message)
+		}
+
 		// Step 6: Check for active rollout.
 		if r.isRollingOut(workload) {
 			logger.Info("Skipping workload mid-rollout", "workload", workloadName)

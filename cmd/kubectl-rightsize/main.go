@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -30,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/tools/clientcmd"
+	sigsyaml "sigs.k8s.io/yaml"
 )
 
 var gvr = schema.GroupVersionResource{
@@ -45,6 +47,8 @@ func main() {
 	allNamespaces := fs.Bool("A", false, "List across all namespaces")
 	fs.BoolVar(allNamespaces, "all-namespaces", false, "List across all namespaces")
 	kubeconfig := fs.String("kubeconfig", "", "Path to kubeconfig file")
+	output := fs.String("o", "", "Output format: json or yaml")
+	fs.StringVar(output, "output", "", "Output format: json or yaml")
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: kubectl rightsize <status|savings|recommendations> [flags]\n\nFlags:\n")
 		fs.PrintDefaults()
@@ -92,6 +96,12 @@ func main() {
 	}
 
 	ctx := context.Background()
+
+	// For structured output, fetch and print all policies as JSON/YAML.
+	if *output == "json" || *output == "yaml" {
+		printStructured(ctx, dynClient, *namespace, *output)
+		return
+	}
 
 	switch cmd {
 	case "status":
@@ -277,6 +287,36 @@ func formatMemory(s string) string {
 		return fmt.Sprintf("%.0fKi", float64(bytes)/float64(1<<10))
 	default:
 		return fmt.Sprintf("%dB", bytes)
+	}
+}
+
+func printStructured(ctx context.Context, dynClient dynamic.Interface, namespace, format string) {
+	list, err := dynClient.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error listing policies: %v\n", err)
+		os.Exit(1)
+	}
+
+	switch format {
+	case "json":
+		data, err := json.MarshalIndent(list, "", "  ")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error marshaling JSON: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println(string(data))
+	case "yaml":
+		data, err := json.Marshal(list)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error marshaling: %v\n", err)
+			os.Exit(1)
+		}
+		yamlData, err := sigsyaml.JSONToYAML(data)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error converting to YAML: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Print(string(yamlData))
 	}
 }
 
