@@ -18,6 +18,7 @@ package webhook
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -63,11 +64,17 @@ func (d *RightSizePolicyDefaulter) Default(ctx context.Context, policy *rightsiz
 		policy.Spec.Memory.ControlledValues = &cv
 	}
 	if policy.Spec.MetricsSource.HistoryWindow == nil {
-		d, _ := time.ParseDuration(rightsizev1alpha1.DefaultHistoryWindow)
+		d, err := time.ParseDuration(rightsizev1alpha1.DefaultHistoryWindow)
+		if err != nil {
+			return fmt.Errorf("parsing default historyWindow %q: %w", rightsizev1alpha1.DefaultHistoryWindow, err)
+		}
 		policy.Spec.MetricsSource.HistoryWindow = &metav1.Duration{Duration: d}
 	}
 	if policy.Spec.UpdateStrategy.Cooldown == nil {
-		d, _ := time.ParseDuration(rightsizev1alpha1.DefaultCooldown)
+		d, err := time.ParseDuration(rightsizev1alpha1.DefaultCooldown)
+		if err != nil {
+			return fmt.Errorf("parsing default cooldown %q: %w", rightsizev1alpha1.DefaultCooldown, err)
+		}
 		policy.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: d}
 	}
 	return nil

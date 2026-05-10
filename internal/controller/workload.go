@@ -233,6 +233,7 @@ func queryMetrics(ctx context.Context, collector rsmetrics.MetricsCollector, nam
 		operatormetrics.PrometheusQueryDuration.WithLabelValues().Observe(time.Since(queryStart).Seconds())
 		if err != nil {
 			operatormetrics.PrometheusQueryErrors.Inc()
+			log.FromContext(ctx).Error(err, "Failed to query fallback metrics", "metric", metric)
 		}
 	}
 	return samples

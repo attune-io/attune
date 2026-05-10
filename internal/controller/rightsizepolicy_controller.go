@@ -141,8 +141,8 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	logger.Info("Discovered workloads", "count", len(workloads))
 
 	if len(workloads) == 0 {
-		r.setFailedCondition(ctx, &policy, rightsizev1alpha1.ReasonInsufficientData, "No matching workloads found")
 		policy.Status.Workloads = rightsizev1alpha1.WorkloadStatus{}
+		r.setFailedCondition(ctx, &policy, rightsizev1alpha1.ReasonInsufficientData, "No matching workloads found")
 		return ctrl.Result{RequeueAfter: r.parseCooldown(&policy)}, nil
 	}
 
@@ -257,7 +257,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	// between metadata and status subresource updates).
 	if policy.Status.Workloads.Resized > 0 {
 		if err := r.markResizeTime(ctx, &policy); err != nil {
-			logger.Error(err, "Failed to mark resize time")
+			return ctrl.Result{}, fmt.Errorf("marking resize time: %w", err)
 		}
 	}
 

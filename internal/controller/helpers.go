@@ -208,7 +208,11 @@ func appendHistory(existing []rightsizev1alpha1.ResizeHistoryEntry,
 // into the policy where the policy has not specified its own values.
 func (r *RightSizePolicyReconciler) mergeDefaults(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy) {
 	var defaultsList rightsizev1alpha1.RightSizeDefaultsList
-	if err := r.List(ctx, &defaultsList); err != nil || len(defaultsList.Items) == 0 {
+	if err := r.List(ctx, &defaultsList); err != nil {
+		log.FromContext(ctx).Error(err, "Failed to list RightSizeDefaults")
+		return
+	}
+	if len(defaultsList.Items) == 0 {
 		return
 	}
 	defaults := defaultsList.Items[0].Spec
