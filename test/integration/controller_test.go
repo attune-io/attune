@@ -460,5 +460,3 @@ func TestReconcile_DefaultsMergingFromClusterDefaults(t *testing.T) {
 		return len(fetched.Status.Conditions) > 0
 	}, 30*time.Second, 500*time.Millisecond, "policy with defaults should reconcile")
 }
-
-

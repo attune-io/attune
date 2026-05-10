@@ -993,7 +993,6 @@ func TestReconcile_HappyPathWithRecommendations(t *testing.T) {
 // ---------- checkPendingSafetyObservations ----------
 
 func TestCheckPendingSafetyObservations_ObservationElapsed(t *testing.T) {
-
 	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -1050,7 +1049,6 @@ func TestCheckPendingSafetyObservations_ObservationElapsed(t *testing.T) {
 }
 
 func TestCheckPendingSafetyObservations_MalformedAnnotation(t *testing.T) {
-
 	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -1091,7 +1089,6 @@ func TestCheckPendingSafetyObservations_MalformedAnnotation(t *testing.T) {
 }
 
 func TestCheckPendingSafetyObservations_NotElapsed(t *testing.T) {
-
 	// Just resized -- observation period has NOT elapsed yet.
 	resizedAt := time.Now().UTC().Format(time.RFC3339)
 	pod := &corev1.Pod{
@@ -1642,7 +1639,6 @@ func TestReconcile_WorkloadOptedOut(t *testing.T) {
 // ---------- checkPendingSafetyObservations additional paths ----------
 
 func TestCheckPendingSafetyObservations_MalformedTimestamp(t *testing.T) {
-
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "bad-ts-pod",
@@ -1681,7 +1677,6 @@ func TestCheckPendingSafetyObservations_MalformedTimestamp(t *testing.T) {
 }
 
 func TestCheckPendingSafetyObservations_MalformedMemoryAnnotation(t *testing.T) {
-
 	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -1720,7 +1715,6 @@ func TestCheckPendingSafetyObservations_MalformedMemoryAnnotation(t *testing.T) 
 }
 
 func TestCheckPendingSafetyObservations_CustomObservationPeriod(t *testing.T) {
-
 	// Resized 2 minutes ago. With a custom observation period of 1 minute,
 	// the period has elapsed and the pod should be checked.
 	resizedAt := time.Now().Add(-2 * time.Minute).UTC().Format(time.RFC3339)
@@ -1789,7 +1783,6 @@ func TestCheckPendingSafetyObservations_NilClientset(t *testing.T) {
 }
 
 func TestCheckPendingSafetyObservations_UnsafeVerdictReverts(t *testing.T) {
-
 	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
