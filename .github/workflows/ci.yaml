@@ -72,19 +72,22 @@ jobs:
           args: --timeout=5m
 
       - name: YAML lint
-        uses: ibiqlik/action-yamllint@v3
-        with:
-          file_or_dir: config/ charts/kube-rightsize/Chart.yaml charts/kube-rightsize/values.yaml charts/kube-rightsize/ci/
-          config_data: |
-            extends: default
-            rules:
-              line-length:
-                max: 200
-              truthy:
-                check-keys: false
-              indentation:
-                spaces: 2
-                indent-sequences: whatever
+        shell: bash -Eeuo pipefail {0}
+        run: |
+          command -v yamllint || pip install --break-system-packages yamllint 2>/dev/null
+          cat > /tmp/yamllint-config.yaml <<'EOF'
+          extends: default
+          rules:
+            line-length:
+              max: 200
+            truthy:
+              check-keys: false
+            indentation:
+              spaces: 2
+              indent-sequences: whatever
+          EOF
+          yamllint -c /tmp/yamllint-config.yaml \
+            config/ charts/kube-rightsize/Chart.yaml charts/kube-rightsize/values.yaml charts/kube-rightsize/ci/
 
   test-unit:
     name: Unit Tests
