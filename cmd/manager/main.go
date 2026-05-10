@@ -34,7 +34,6 @@ import (
 	rightsizev1alpha1 "github.com/SebTardif/kube-rightsize/api/v1alpha1"
 	"github.com/SebTardif/kube-rightsize/internal/controller"
 	"github.com/SebTardif/kube-rightsize/internal/metrics"
-	// Register operator Prometheus metrics via init()
 	_ "github.com/SebTardif/kube-rightsize/internal/operatormetrics"
 	"github.com/SebTardif/kube-rightsize/internal/webhook"
 )
@@ -109,7 +108,7 @@ func main() {
 		Scheme:    mgr.GetScheme(),
 		Clientset: clientset,
 		MetricsFactory: func(address string) (metrics.MetricsCollector, error) {
-			collector, err := metrics.NewPrometheusCollector(address)
+			collector, err := metrics.NewPrometheusCollector(address, nil)
 			if err != nil {
 				return nil, fmt.Errorf("creating Prometheus collector for %s: %w", address, err)
 			}

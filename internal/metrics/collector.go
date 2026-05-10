@@ -21,6 +21,8 @@ package metrics
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"strings"
 	"time"
 
 	promapi "github.com/prometheus/client_golang/api"
@@ -49,20 +51,25 @@ type MetricsCollector interface {
 
 // PrometheusCollector implements MetricsCollector using the Prometheus HTTP API.
 type PrometheusCollector struct {
-	api promv1.API
+	api    promv1.API
+	logger *slog.Logger
 }
 
 // NewPrometheusCollector creates a new PrometheusCollector that queries the
 // Prometheus instance at the given address (e.g. "http://prometheus:9090").
-func NewPrometheusCollector(address string) (*PrometheusCollector, error) {
+func NewPrometheusCollector(address string, logger *slog.Logger) (*PrometheusCollector, error) {
 	client, err := promapi.NewClient(promapi.Config{
 		Address: address,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("creating prometheus client: %w", err)
 	}
+	if logger == nil {
+		logger = slog.Default()
+	}
 	return &PrometheusCollector{
-		api: promv1.NewAPI(client),
+		api:    promv1.NewAPI(client),
+		logger: logger,
 	}, nil
 }
 
@@ -78,8 +85,8 @@ func (c *PrometheusCollector) QueryRange(ctx context.Context, query string, star
 		return nil, fmt.Errorf("prometheus range query failed: %w", err)
 	}
 	if len(warnings) > 0 {
-		// Log warnings but don't fail; they are typically non-fatal.
-		_ = warnings
+		c.logger.Warn("prometheus range query returned warnings",
+			"warnings", strings.Join(warnings, "; "))
 	}
 
 	matrix, ok := result.(model.Matrix)
@@ -108,7 +115,8 @@ func (c *PrometheusCollector) Query(ctx context.Context, query string, ts time.T
 		return 0, fmt.Errorf("prometheus instant query failed: %w", err)
 	}
 	if len(warnings) > 0 {
-		_ = warnings
+		c.logger.Warn("prometheus instant query returned warnings",
+			"warnings", strings.Join(warnings, "; "))
 	}
 
 	switch v := result.(type) {

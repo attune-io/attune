@@ -291,15 +291,15 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 	cpuSafetyMargin := parseFloat64(policy.Spec.CPU.SafetyMargin, 1.2)
 	memSafetyMargin := parseFloat64(policy.Spec.Memory.SafetyMargin, 1.3)
 
-	cpuBoundsMin := resource.MustParse("50m")
-	cpuBoundsMax := resource.MustParse("4000m")
+	cpuBoundsMin := rightsizev1alpha1.DefaultCPUBoundsMin.DeepCopy()
+	cpuBoundsMax := rightsizev1alpha1.DefaultCPUBoundsMax.DeepCopy()
 	if policy.Spec.CPU.Bounds != nil {
 		cpuBoundsMin = policy.Spec.CPU.Bounds.Min.DeepCopy()
 		cpuBoundsMax = policy.Spec.CPU.Bounds.Max.DeepCopy()
 	}
 
-	memBoundsMin := resource.MustParse("64Mi")
-	memBoundsMax := resource.MustParse("8Gi")
+	memBoundsMin := rightsizev1alpha1.DefaultMemoryBoundsMin.DeepCopy()
+	memBoundsMax := rightsizev1alpha1.DefaultMemoryBoundsMax.DeepCopy()
 	if policy.Spec.Memory.Bounds != nil {
 		memBoundsMin = policy.Spec.Memory.Bounds.Min.DeepCopy()
 		memBoundsMax = policy.Spec.Memory.Bounds.Max.DeepCopy()

@@ -92,7 +92,7 @@ func TestQueryRange_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	collector, err := NewPrometheusCollector(server.URL)
+	collector, err := NewPrometheusCollector(server.URL, nil)
 	require.NoError(t, err)
 
 	start := time.Unix(1700000000, 0)
@@ -116,7 +116,7 @@ func TestQuery_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	collector, err := NewPrometheusCollector(server.URL)
+	collector, err := NewPrometheusCollector(server.URL, nil)
 	require.NoError(t, err)
 
 	val, err := collector.Query(context.Background(), "memory_usage", time.Unix(1700000000, 0))
@@ -132,7 +132,7 @@ func TestQuery_EmptyResult(t *testing.T) {
 	}))
 	defer server.Close()
 
-	collector, err := NewPrometheusCollector(server.URL)
+	collector, err := NewPrometheusCollector(server.URL, nil)
 	require.NoError(t, err)
 
 	_, err = collector.Query(context.Background(), "missing_metric", time.Now())
@@ -148,7 +148,7 @@ func TestQueryRange_PrometheusError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	collector, err := NewPrometheusCollector(server.URL)
+	collector, err := NewPrometheusCollector(server.URL, nil)
 	require.NoError(t, err)
 
 	start := time.Unix(1700000000, 0)
@@ -161,7 +161,7 @@ func TestQueryRange_PrometheusError(t *testing.T) {
 
 func TestQuery_ConnectionRefused(t *testing.T) {
 	// Use a URL that will not be listening.
-	collector, err := NewPrometheusCollector("http://127.0.0.1:19999")
+	collector, err := NewPrometheusCollector("http://127.0.0.1:19999", nil)
 	require.NoError(t, err)
 
 	_, err = collector.Query(context.Background(), "cpu_usage", time.Now())
@@ -183,7 +183,7 @@ func TestQuery_ScalarResult(t *testing.T) {
 	}))
 	defer server.Close()
 
-	collector, err := NewPrometheusCollector(server.URL)
+	collector, err := NewPrometheusCollector(server.URL, nil)
 	require.NoError(t, err)
 
 	val, err := collector.Query(context.Background(), "scalar_metric", time.Unix(1700000000, 0))
@@ -199,7 +199,7 @@ func TestQuery_PrometheusError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	collector, err := NewPrometheusCollector(server.URL)
+	collector, err := NewPrometheusCollector(server.URL, nil)
 	require.NoError(t, err)
 
 	_, err = collector.Query(context.Background(), "bad{query", time.Now())
@@ -207,7 +207,7 @@ func TestQuery_PrometheusError(t *testing.T) {
 }
 
 func TestNewPrometheusCollector_InvalidAddress(t *testing.T) {
-	_, err := NewPrometheusCollector("://bad-url")
+	_, err := NewPrometheusCollector("://bad-url", nil)
 	assert.Error(t, err)
 }
 
@@ -226,7 +226,7 @@ func TestQueryRange_EmptyMatrix(t *testing.T) {
 	}))
 	defer server.Close()
 
-	collector, err := NewPrometheusCollector(server.URL)
+	collector, err := NewPrometheusCollector(server.URL, nil)
 	require.NoError(t, err)
 
 	start := time.Unix(1700000000, 0)

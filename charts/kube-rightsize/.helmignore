@@ -3,6 +3,5 @@
 .github
 tests/
 ci/
-dashboards/
 *.md
 LICENSE

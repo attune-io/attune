@@ -92,6 +92,11 @@ webhooks:
   # -- Requires cert-manager to be installed for TLS certificate provisioning.
   enabled: true
 
+# -- Network policy restricts pod traffic to only required endpoints
+networkPolicy:
+  # -- Enable NetworkPolicy for the operator pod
+  enabled: false
+
 # -- Logging configuration
 logging:
   # -- Log level (debug, info, warn, error)

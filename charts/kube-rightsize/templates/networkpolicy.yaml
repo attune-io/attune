@@ -1,0 +1,49 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "kube-rightsize.fullname" . }}
+  labels:
+    {{- include "kube-rightsize.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "kube-rightsize.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Metrics scraping
+    - ports:
+        - port: {{ .Values.metrics.port }}
+          protocol: TCP
+    # Health/readiness probes
+    - ports:
+        - port: 8081
+          protocol: TCP
+    {{- if .Values.webhooks.enabled }}
+    # Webhook HTTPS
+    - ports:
+        - port: 9443
+          protocol: TCP
+    {{- end }}
+  egress:
+    # DNS resolution
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Kubernetes API server (HTTPS)
+    - ports:
+        - port: 443
+          protocol: TCP
+        - port: 6443
+          protocol: TCP
+    # Prometheus (HTTP/HTTPS, address is per-policy so allow common ports)
+    - ports:
+        - port: 9090
+          protocol: TCP
+        - port: 443
+          protocol: TCP
+{{- end }}

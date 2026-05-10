@@ -81,7 +81,7 @@ jobs:
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
           severity: HIGH,CRITICAL
-          exit-code: 0  # Don't block release, but report
+          exit-code: 1
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6

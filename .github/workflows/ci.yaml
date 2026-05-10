@@ -188,7 +188,6 @@ jobs:
   test-e2e:
     name: E2E Tests (K8s ${{ matrix.k8s-version }})
     runs-on: ubuntu-latest
-    continue-on-error: true
     needs: [changes, lint, test-unit]
     if: needs.changes.outputs.go == 'true'
     strategy:

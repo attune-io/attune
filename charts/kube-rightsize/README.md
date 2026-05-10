@@ -34,6 +34,8 @@ helm install kube-rightsize oci://ghcr.io/sebtardif/charts/kube-rightsize \
 | metrics.serviceMonitor.enabled | bool | `false` | Create a ServiceMonitor for Prometheus Operator |
 | metrics.serviceMonitor.interval | string | `"30s"` | Scrape interval |
 | nameOverride | string | `""` | Override the chart name |
+| networkPolicy | object | `{"enabled":false}` | Network policy restricts pod traffic to only required endpoints |
+| networkPolicy.enabled | bool | `false` | Enable NetworkPolicy for the operator pod |
 | nodeSelector | object | `{}` | Node selector |
 | podAnnotations | object | `{}` | Pod annotations |
 | podSecurityContext | object | `{"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}}` | Pod security context |

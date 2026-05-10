@@ -286,6 +286,18 @@
       },
       "additionalProperties": false
     },
+    "networkPolicy": {
+      "type": "object",
+      "description": "Network policy configuration",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable NetworkPolicy for the operator pod",
+          "default": false
+        }
+      },
+      "additionalProperties": false
+    },
     "logging": {
       "type": "object",
       "description": "Logging configuration",

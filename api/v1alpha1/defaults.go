@@ -16,6 +16,8 @@ limitations under the License.
 
 package v1alpha1
 
+import "k8s.io/apimachinery/pkg/api/resource"
+
 // Default values for RightSizePolicy fields. These are the single source
 // of truth, referenced by the webhook defaulter, mergeDefaults, and
 // computeRecommendations.
@@ -28,4 +30,14 @@ const (
 	DefaultMaxCPUChangePercent    int32 = 50
 	DefaultMaxMemoryChangePercent int32 = 30
 	DefaultWeight                 int32 = 100
+)
+
+// Default resource bounds applied when a policy does not specify explicit bounds.
+// These are package-level vars (parsed once at init) rather than inline
+// MustParse calls in the reconciler hot path.
+var (
+	DefaultCPUBoundsMin    = resource.MustParse("50m")
+	DefaultCPUBoundsMax    = resource.MustParse("4000m")
+	DefaultMemoryBoundsMin = resource.MustParse("64Mi")
+	DefaultMemoryBoundsMax = resource.MustParse("8Gi")
 )
