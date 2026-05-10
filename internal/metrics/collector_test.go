@@ -238,3 +238,48 @@ func TestQueryRange_EmptyMatrix(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, samples)
 }
+
+func TestEscapePromQL(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"simple", "simple"},
+		{`with"quote`, `with\"quote`},
+		{`with\backslash`, `with\\backslash`},
+		{`both\"chars`, `both\\\"chars`},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			result := escapePromQL(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestGetThrottleRatio_EscapesInput(t *testing.T) {
+	var receivedQuery string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("failed to parse form: %v", err)
+		}
+		receivedQuery = r.Form.Get("query")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(cannedInstantResponse()))
+	}))
+	defer server.Close()
+
+	collector, err := NewPrometheusCollector(server.URL, logr.Discard())
+	require.NoError(t, err)
+
+	// Use names with special characters that need escaping.
+	_, err = collector.GetThrottleRatio(context.Background(), `ns"with"quotes`, `pod\with\backslash`, `container"both`)
+	require.NoError(t, err)
+
+	// Verify the query has escaped values.
+	assert.Contains(t, receivedQuery, `ns\"with\"quotes`)
+	assert.Contains(t, receivedQuery, `pod\\with\\backslash`)
+	assert.Contains(t, receivedQuery, `container\"both`)
+}

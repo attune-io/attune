@@ -196,6 +196,63 @@ func TestValidate_NegativeCooldown(t *testing.T) {
 	assert.Contains(t, err.Error(), "cooldown must be non-negative")
 }
 
+func TestValidate_SafetyMarginExceedsMax(t *testing.T) {
+	tests := []struct {
+		name    string
+		cpu     string
+		memory  string
+		wantErr string
+	}{
+		{"CPU exceeds max", "15.0", "1.3", "cpu.safetyMargin must be <= 10.0"},
+		{"memory exceeds max", "1.2", "100.0", "memory.safetyMargin must be <= 10.0"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			validator := &RightSizePolicyValidator{}
+			policy := validPolicy()
+			policy.Spec.CPU.SafetyMargin = tt.cpu
+			policy.Spec.Memory.SafetyMargin = tt.memory
+
+			_, err := validator.ValidateCreate(context.Background(), policy)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
+func TestValidate_HistoryWindowBounds(t *testing.T) {
+	tests := []struct {
+		name    string
+		window  time.Duration
+		wantErr string
+	}{
+		{"below minimum", 30 * time.Minute, "historyWindow must be at least 1h"},
+		{"above maximum", 1000 * time.Hour, "historyWindow must be at most 720h"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			validator := &RightSizePolicyValidator{}
+			policy := validPolicy()
+			policy.Spec.MetricsSource.HistoryWindow = &metav1.Duration{Duration: tt.window}
+
+			_, err := validator.ValidateCreate(context.Background(), policy)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
+func TestValidate_HistoryWindowValid(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.MetricsSource.HistoryWindow = &metav1.Duration{Duration: 168 * time.Hour} // 7d
+
+	warnings, err := validator.ValidateCreate(context.Background(), policy)
+
+	assert.NoError(t, err)
+	assert.Empty(t, warnings)
+}
+
 func TestValidateDelete_AlwaysSucceeds(t *testing.T) {
 	validator := &RightSizePolicyValidator{}
 	policy := validPolicy()

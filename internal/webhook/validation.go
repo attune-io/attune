@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"time"
 
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
@@ -86,6 +87,17 @@ func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizeP
 		return warnings, fmt.Errorf("updateStrategy.cooldown must be non-negative, got %s", policy.Spec.UpdateStrategy.Cooldown.Duration)
 	}
 
+	// Validate historyWindow is within reasonable bounds (1h to 720h/30d).
+	if policy.Spec.MetricsSource.HistoryWindow != nil {
+		hw := policy.Spec.MetricsSource.HistoryWindow.Duration
+		if hw < time.Hour {
+			return warnings, fmt.Errorf("metricsSource.historyWindow must be at least 1h, got %s", hw)
+		}
+		if hw > 720*time.Hour {
+			return warnings, fmt.Errorf("metricsSource.historyWindow must be at most 720h (30d), got %s", hw)
+		}
+	}
+
 	// Warn if memory decrease is enabled
 	if policy.Spec.Memory.AllowDecrease != nil && *policy.Spec.Memory.AllowDecrease {
 		warnings = append(warnings, "memory.allowDecrease is enabled; this carries OOMKill risk")
@@ -104,6 +116,10 @@ func validateSafetyMargin(resource, margin string) error {
 	}
 	if v <= 0 {
 		return fmt.Errorf("%s.safetyMargin must be positive, got %s", resource, margin)
+	}
+	// Upper bound prevents excessive resource allocation that could exhaust nodes.
+	if v > 10.0 {
+		return fmt.Errorf("%s.safetyMargin must be <= 10.0, got %s", resource, margin)
 	}
 	return nil
 }

@@ -134,14 +134,25 @@ func (c *PrometheusCollector) Query(ctx context.Context, query string, ts time.T
 // rate(container_cpu_cfs_periods_total[5m]).
 // Returns 0.0 if no data is available. Implements safety.ThrottleChecker.
 func (c *PrometheusCollector) GetThrottleRatio(ctx context.Context, namespace, pod, container string) (float64, error) {
+	// Escape all parameters to prevent PromQL injection.
+	ns := escapePromQL(namespace)
+	p := escapePromQL(pod)
+	cont := escapePromQL(container)
 	query := fmt.Sprintf(
 		`rate(container_cpu_cfs_throttled_periods_total{namespace="%s",pod="%s",container="%s"}[5m])`+
 			` / rate(container_cpu_cfs_periods_total{namespace="%s",pod="%s",container="%s"}[5m])`,
-		namespace, pod, container, namespace, pod, container,
+		ns, p, cont, ns, p, cont,
 	)
 	val, err := c.Query(ctx, query, time.Now())
 	if err != nil {
 		return 0, err
 	}
 	return val, nil
+}
+
+// escapePromQL escapes backslashes and quotes for safe interpolation into PromQL strings.
+func escapePromQL(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	return s
 }
