@@ -298,8 +298,17 @@ func TestReconcile_DeletedPolicy_NoError(t *testing.T) {
 	err := k8sClient.Create(ctx, policy)
 	require.NoError(t, err, "failed to create policy")
 
-	// Wait briefly for reconciler to pick it up.
-	time.Sleep(1 * time.Second)
+	// Wait for reconciler to pick it up (condition gets set).
+	assert.Eventually(t, func() bool {
+		var fetched rightsizev1alpha1.RightSizePolicy
+		if err := k8sClient.Get(ctx, types.NamespacedName{
+			Name:      "policy-delete",
+			Namespace: namespace,
+		}, &fetched); err != nil {
+			return false
+		}
+		return len(fetched.Status.Conditions) > 0
+	}, 30*time.Second, 500*time.Millisecond, "reconciler should process policy")
 
 	err = k8sClient.Delete(ctx, policy)
 	require.NoError(t, err, "failed to delete policy")

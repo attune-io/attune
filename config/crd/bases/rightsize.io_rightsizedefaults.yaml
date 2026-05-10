@@ -16,7 +16,17 @@ spec:
     singular: rightsizedefaults
   scope: Cluster
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .spec.metricsSource.prometheus.address
+      name: Prometheus
+      type: string
+    - jsonPath: .spec.updateStrategy.mode
+      name: Mode
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: |-
@@ -190,6 +200,8 @@ spec:
                         description: Percentage is the percentage of pods to resize
                           first.
                         format: int32
+                        maximum: 100
+                        minimum: 1
                         type: integer
                     required:
                     - observationPeriod
@@ -205,12 +217,16 @@ spec:
                     description: MaxCPUChangePercent is the maximum allowed CPU change
                       percentage per operation.
                     format: int32
+                    maximum: 100
+                    minimum: 1
                     type: integer
                   maxMemoryChangePercent:
                     default: 30
                     description: MaxMemoryChangePercent is the maximum allowed memory
                       change percentage per operation.
                     format: int32
+                    maximum: 100
+                    minimum: 1
                     type: integer
                   mode:
                     description: Mode determines the update behavior.
@@ -228,3 +244,4 @@ spec:
         type: object
     served: true
     storage: true
+    subresources: {}

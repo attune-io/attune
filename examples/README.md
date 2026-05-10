@@ -12,7 +12,7 @@ setups. Every file can be applied directly with `kubectl apply -f`.
 | [03-auto-mode.yaml](03-auto-mode.yaml) | Fully automated for trusted workloads | Auto |
 | [04-hpa-coexistence.yaml](04-hpa-coexistence.yaml) | Right-sizing alongside a HorizontalPodAutoscaler | Recommend |
 | [05-cluster-defaults.yaml](05-cluster-defaults.yaml) | RightSizeDefaults CRD with simplified policy | Recommend |
-| [06-multi-workload-selector.yaml](06-multi-workload-selector.yaml) | Label selector targeting many Deployments | Canary |
+| [06-multi-workload-selector.yaml](06-multi-workload-selector.yaml) | Label selector targeting many Deployments | Recommend |
 
 Start with `01-getting-started.yaml` to see recommendations without touching
 any pods. Promote to `02-canary-rollout.yaml` once you trust the numbers.

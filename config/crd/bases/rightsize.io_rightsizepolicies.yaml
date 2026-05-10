@@ -273,6 +273,8 @@ spec:
                         description: Percentage is the percentage of pods to resize
                           first.
                         format: int32
+                        maximum: 100
+                        minimum: 1
                         type: integer
                     required:
                     - observationPeriod
@@ -288,12 +290,16 @@ spec:
                     description: MaxCPUChangePercent is the maximum allowed CPU change
                       percentage per operation.
                     format: int32
+                    maximum: 100
+                    minimum: 1
                     type: integer
                   maxMemoryChangePercent:
                     default: 30
                     description: MaxMemoryChangePercent is the maximum allowed memory
                       change percentage per operation.
                     format: int32
+                    maximum: 100
+                    minimum: 1
                     type: integer
                   mode:
                     description: Mode determines the update behavior.

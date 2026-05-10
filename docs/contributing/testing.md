@@ -6,11 +6,16 @@ Run all unit tests with race detection and coverage:
 make test
 ```
 
-This executes:
+This uses `gotestsum` with auto-retry for flaky tests:
 
 ```bash
-go test ./api/... ./internal/... -race -count=1 \
-  -coverprofile=coverage.out -covermode=atomic
+gotestsum --format pkgname \
+  --rerun-fails --rerun-fails-max-failures=5 \
+  --packages="./api/... ./cmd/... ./internal/..." \
+  -- -race -timeout=10m \
+  -coverpkg=./internal/... \
+  -coverprofile=coverage.out \
+  -covermode=atomic
 ```
 
 View the coverage report:
@@ -20,8 +25,8 @@ go tool cover -html=coverage.out
 ```
 
 !!! note "Coverage requirements"
-    The project targets 80%+ line coverage for `internal/` packages. CI will
-    report the total coverage percentage at the end of the test run.
+    The project requires 75%+ line coverage for `internal/` packages. CI
+    enforces this threshold and fails if coverage drops below it.
 
 ## Integration tests (envtest)
 

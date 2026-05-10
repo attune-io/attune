@@ -27,7 +27,17 @@ SHELL = /usr/bin/env bash -Eeuo pipefail
 
 .PHONY: help
 help: ## Display this help
-	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
+
+.PHONY: verify
+verify: lint test helm-docs-check helm-unittest ## Run all CI checks locally
+	@$(MAKE) manifests
+	@git diff --quiet --exit-code config/crd/ charts/kube-rightsize/crds/ || \
+		(echo "::error::CRD manifests are stale. Run 'make manifests' and commit." && exit 1)
+
+.PHONY: clean
+clean: ## Remove build artifacts
+	rm -rf bin/ dist/ coverage.out
 
 ##@ Development
 

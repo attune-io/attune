@@ -136,10 +136,14 @@ type UpdateStrategy struct {
 
 	// MaxCPUChangePercent is the maximum allowed CPU change percentage per operation.
 	// +kubebuilder:default=50
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=100
 	MaxCPUChangePercent int32 `json:"maxCpuChangePercent,omitempty"`
 
 	// MaxMemoryChangePercent is the maximum allowed memory change percentage per operation.
 	// +kubebuilder:default=30
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=100
 	MaxMemoryChangePercent int32 `json:"maxMemoryChangePercent,omitempty"`
 
 	// Cooldown is the minimum time between successive resize operations.
@@ -155,6 +159,8 @@ type UpdateStrategy struct {
 // CanaryConfig defines canary rollout parameters.
 type CanaryConfig struct {
 	// Percentage is the percentage of pods to resize first.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=100
 	Percentage int32 `json:"percentage"`
 
 	// ObservationPeriod is how long to observe canary pods before proceeding.

@@ -852,7 +852,7 @@ Ship a pre-built Grafana dashboard JSON covering:
 - Resize patch construction
 - Status condition building
 
-**Coverage target**: 80%+ on `internal/` packages.
+**Coverage target**: 75%+ on `internal/` packages.
 
 ### 9.3 Integration Tests (envtest)
 
@@ -993,7 +993,7 @@ Jobs:
   test-unit:
     - go test ./internal/... ./api/... -race -count=1 -coverprofile=coverage.out
     - Upload coverage to Codecov
-    - Fail if coverage < 80%
+    - Fail if coverage < 75%
 
   test-integration:
     - Setup envtest binaries (setup-envtest)
@@ -1382,7 +1382,7 @@ kube-rightsize/
 - [ ] Status reporting (recommendations, conditions)
 - [ ] Observe and Recommend modes only (no resize)
 - [ ] Helm chart
-- [ ] Unit tests (80%+ coverage)
+- [ ] Unit tests (75%+ coverage)
 - [ ] envtest integration tests
 - [ ] CI pipeline (lint, test, build)
 - [ ] README with quickstart

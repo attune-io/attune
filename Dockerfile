@@ -23,6 +23,11 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a \
 # Runtime stage
 FROM gcr.io/distroless/static:nonroot
 
+LABEL org.opencontainers.image.source="https://github.com/SebTardif/kube-rightsize"
+LABEL org.opencontainers.image.title="kube-rightsize"
+LABEL org.opencontainers.image.description="Kubernetes operator for in-place pod resource right-sizing"
+LABEL org.opencontainers.image.licenses="Apache-2.0"
+
 WORKDIR /
 
 COPY --from=builder /workspace/manager .

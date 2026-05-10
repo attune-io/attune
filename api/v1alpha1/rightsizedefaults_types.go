@@ -41,6 +41,9 @@ type RightSizeDefaultsSpec struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Cluster,shortName=rsd
+// +kubebuilder:printcolumn:name="Prometheus",type=string,JSONPath=`.spec.metricsSource.prometheus.address`
+// +kubebuilder:printcolumn:name="Mode",type=string,JSONPath=`.spec.updateStrategy.mode`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // RightSizeDefaults is the Schema for the rightsizedefaults API.
 // It defines cluster-scoped default values for RightSizePolicy resources.
