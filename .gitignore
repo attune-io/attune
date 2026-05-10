@@ -32,3 +32,6 @@ testbin/
 # Helm
 charts/kube-rightsize/charts/
 *.tgz
+
+# Local audit symlink
+audit-findings.md
