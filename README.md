@@ -135,6 +135,9 @@ cp bin/kubectl-rightsize /usr/local/bin/
 kubectl rightsize status -n production
 kubectl rightsize savings -n production
 kubectl rightsize recommendations -n production
+
+# All namespaces
+kubectl rightsize status -A
 ```
 
 Example output:

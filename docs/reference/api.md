@@ -26,7 +26,7 @@ spec:
   metricsSource:
     prometheus:
       address: "http://prometheus:9090"   # Prometheus URL
-    historyWindow: 168h                    # lookback window (default: 7d)
+    historyWindow: 168h                    # lookback window (default: 168h)
     minimumDataPoints: 168                 # min samples before recommending (default: 168)
 
   # CPU recommendation parameters.
@@ -37,7 +37,6 @@ spec:
       min: "50m"
       max: "4000m"
     controlledValues: RequestsAndLimits  # RequestsOnly | RequestsAndLimits
-    allowDecrease: true        # (default: true for CPU)
 
   # Memory recommendation parameters.
   memory:
