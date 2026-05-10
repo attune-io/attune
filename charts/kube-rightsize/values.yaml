@@ -86,6 +86,12 @@ metrics:
     # -- Scrape interval
     interval: 30s
 
+grafanaDashboard:
+  # -- Create a ConfigMap with the Grafana dashboard (auto-discovered by Grafana sidecar)
+  enabled: false
+  # -- Additional labels for the dashboard ConfigMap (e.g., for folder selection)
+  additionalLabels: {}
+
 # -- Webhook configuration (requires cert-manager installed in the cluster)
 webhooks:
   # -- Enable admission webhooks for defaulting and validation.

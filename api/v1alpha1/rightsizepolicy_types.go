@@ -39,6 +39,13 @@ type RightSizePolicySpec struct {
 	// +optional
 	UpdateStrategy UpdateStrategy `json:"updateStrategy,omitempty"`
 
+	// ExcludeContainers is a list of container names to skip when computing
+	// recommendations and performing resizes. Use this for sidecar containers
+	// (e.g., istio-proxy, linkerd-proxy) that are managed by a service mesh
+	// and should not be right-sized.
+	// +optional
+	ExcludeContainers []string `json:"excludeContainers,omitempty"`
+
 	// Weight determines the priority of this policy when multiple policies
 	// match the same workload. Higher values take precedence.
 	// +kubebuilder:default=100

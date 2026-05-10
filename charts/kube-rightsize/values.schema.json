@@ -298,6 +298,26 @@
       },
       "additionalProperties": false
     },
+    "grafanaDashboard": {
+      "type": "object",
+      "description": "Grafana dashboard ConfigMap configuration",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Create a ConfigMap with the Grafana dashboard",
+          "default": false
+        },
+        "additionalLabels": {
+          "type": "object",
+          "description": "Additional labels for the dashboard ConfigMap",
+          "default": {},
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
     "logging": {
       "type": "object",
       "description": "Logging configuration",

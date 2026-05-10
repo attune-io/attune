@@ -27,7 +27,10 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -326,10 +329,21 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 	cpuEngine := recommendation.NewEngine(cpuPercentile, cpuSafetyMargin, cpuBoundsMin, cpuBoundsMax, float64(policy.Spec.UpdateStrategy.MaxCPUChangePercent))
 	memEngine := recommendation.NewEngine(memPercentile, memSafetyMargin, memBoundsMin, memBoundsMax, float64(policy.Spec.UpdateStrategy.MaxMemoryChangePercent))
 
+	// Build excludeContainers set for O(1) lookup.
+	excludeSet := make(map[string]bool, len(policy.Spec.ExcludeContainers))
+	for _, name := range policy.Spec.ExcludeContainers {
+		excludeSet[name] = true
+	}
+
 	var containerRecs []rightsizev1alpha1.ContainerRecommendation
 
 	for _, container := range containers {
 		containerName := container.Name
+
+		if excludeSet[containerName] {
+			logger.Info("Skipping excluded container", "container", containerName)
+			continue
+		}
 
 		// Query Prometheus for CPU and memory metrics (with pod-level fallback).
 		cpuSamples := queryMetrics(ctx, collector, policy.Namespace, podPrefix, containerName, "cpu", start, now, defaultPrometheusStep)
@@ -449,7 +463,59 @@ func (r *RightSizePolicyReconciler) resolvePrometheusAddress(ctx context.Context
 		}
 	}
 
-	return "", fmt.Errorf("no Prometheus address configured in policy or cluster defaults")
+	// Fall back to auto-discovery: look for Prometheus Operator's Prometheus CRD.
+	if addr := r.discoverPrometheus(ctx); addr != "" {
+		log.FromContext(ctx).Info("Auto-discovered Prometheus address", "address", addr)
+		return addr, nil
+	}
+
+	return "", fmt.Errorf("no Prometheus address configured in policy or cluster defaults, and auto-discovery found no Prometheus instance")
+}
+
+// discoverPrometheus attempts to find a Prometheus instance in the cluster
+// by checking for the Prometheus Operator's Prometheus CRD, then falling back
+// to well-known service names.
+func (r *RightSizePolicyReconciler) discoverPrometheus(ctx context.Context) string {
+	logger := log.FromContext(ctx)
+
+	// Try Prometheus Operator CRD: monitoring.coreos.com/v1 Prometheus
+	promList := &unstructured.UnstructuredList{}
+	promList.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "monitoring.coreos.com",
+		Version: "v1",
+		Kind:    "PrometheusList",
+	})
+	if err := r.List(ctx, promList); err == nil && len(promList.Items) > 0 {
+		prom := promList.Items[0]
+		ns := prom.GetNamespace()
+		name := prom.GetName()
+		// Prometheus Operator creates a service named "prometheus-<name>"
+		// or the service name matches the Prometheus resource name.
+		port := int64(9090)
+		if p, found, _ := unstructured.NestedInt64(prom.Object, "spec", "port"); found && p > 0 {
+			port = p
+		}
+		addr := fmt.Sprintf("http://prometheus-%s.%s:%d", name, ns, port)
+		return addr
+	}
+
+	// Try well-known service names.
+	wellKnown := []struct{ namespace, name string }{
+		{"monitoring", "prometheus-server"},
+		{"monitoring", "prometheus-kube-prometheus-prometheus"},
+		{"prometheus", "prometheus-server"},
+		{"kube-prometheus-stack", "prometheus-kube-prometheus-prometheus"},
+	}
+	for _, svc := range wellKnown {
+		var service corev1.Service
+		if err := r.Get(ctx, types.NamespacedName{Namespace: svc.namespace, Name: svc.name}, &service); err == nil {
+			addr := fmt.Sprintf("http://%s.%s:%d", svc.name, svc.namespace, 9090)
+			logger.V(1).Info("Found well-known Prometheus service", "address", addr)
+			return addr
+		}
+	}
+
+	return ""
 }
 
 // selectPodsForResize selects pods eligible for resize based on the update mode.
@@ -561,6 +627,33 @@ func (r *RightSizePolicyReconciler) executeResizes(
 				if podActualCPU == containerRec.Recommended.CPURequest.MilliValue() &&
 					podActualMem == containerRec.Recommended.MemoryRequest.Value() {
 					continue
+				}
+
+				// Pre-check: total pod resource requests after resize vs node allocatable.
+				if pod.Spec.NodeName != "" {
+					var node corev1.Node
+					if err := r.Get(ctx, types.NamespacedName{Name: pod.Spec.NodeName}, &node); err == nil {
+						totalCPU := int64(0)
+						totalMem := int64(0)
+						for _, c := range pod.Spec.Containers {
+							if c.Name == containerRec.Name {
+								totalCPU += target.Requests.Cpu().MilliValue()
+								totalMem += target.Requests.Memory().Value()
+							} else {
+								totalCPU += c.Resources.Requests.Cpu().MilliValue()
+								totalMem += c.Resources.Requests.Memory().Value()
+							}
+						}
+						allocCPU := node.Status.Allocatable.Cpu().MilliValue()
+						allocMem := node.Status.Allocatable.Memory().Value()
+						if totalCPU > allocCPU || totalMem > allocMem {
+							logger.Info("Skipping resize: total pod requests would exceed node allocatable",
+								"pod", pod.Name, "container", containerRec.Name,
+								"totalCPU", totalCPU, "allocCPU", allocCPU,
+								"totalMem", totalMem, "allocMem", allocMem)
+							continue
+						}
+					}
 				}
 
 				// Pre-check: QoS preservation

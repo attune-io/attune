@@ -21,6 +21,8 @@ helm install kube-rightsize oci://ghcr.io/sebtardif/charts/kube-rightsize \
 |-----|------|---------|-------------|
 | affinity | object | `{}` | Affinity rules |
 | fullnameOverride | string | `""` | Override the full name |
+| grafanaDashboard.additionalLabels | object | `{}` | Additional labels for the dashboard ConfigMap (e.g., for folder selection) |
+| grafanaDashboard.enabled | bool | `false` | Create a ConfigMap with the Grafana dashboard (auto-discovered by Grafana sidecar) |
 | image.pullPolicy | string | `"IfNotPresent"` | Image pull policy |
 | image.repository | string | `"ghcr.io/sebtardif/kube-rightsize"` | Container image repository |
 | image.tag | string | `""` | Image tag (defaults to Chart appVersion) |

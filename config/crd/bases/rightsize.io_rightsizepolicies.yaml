@@ -115,6 +115,15 @@ spec:
                       Expressed as a resource.Quantity-compatible string (e.g. "1.2").
                     type: string
                 type: object
+              excludeContainers:
+                description: |-
+                  ExcludeContainers is a list of container names to skip when computing
+                  recommendations and performing resizes. Use this for sidecar containers
+                  (e.g., istio-proxy, linkerd-proxy) that are managed by a service mesh
+                  and should not be right-sized.
+                items:
+                  type: string
+                type: array
               memory:
                 description: Memory configures memory resource recommendations.
                 properties:
