@@ -1,6 +1,10 @@
 This guide walks you through creating a RightSizePolicy, reviewing its
 recommendations, and promoting to Canary mode, all in about five minutes.
 
+!!! info "Prerequisites"
+    Make sure the operator is installed before proceeding. See
+    [Installation](installation.md) for Helm and raw manifest options.
+
 ## 1. Create a RightSizePolicy in Recommend mode
 
 Start in **Recommend** mode so that no pods are modified. The operator will

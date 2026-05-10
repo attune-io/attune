@@ -30,6 +30,17 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
+// ThrottleChecker queries Prometheus for CPU throttle ratio.
+type ThrottleChecker interface {
+	// GetThrottleRatio returns the CPU throttle ratio (0.0-1.0) for a container.
+	// Returns 0.0 if data is unavailable.
+	GetThrottleRatio(ctx context.Context, namespace, pod, container string) (float64, error)
+}
+
+// DefaultThrottleThreshold is the fraction of CPU periods that are throttled
+// above which the safety monitor triggers a revert (50%).
+const DefaultThrottleThreshold = 0.5
+
 // ResizeRecord tracks a resize operation for safety monitoring.
 type ResizeRecord struct {
 	PodName           string
@@ -53,16 +64,28 @@ type SafetyVerdict struct {
 
 // Monitor watches resized pods for safety violations.
 type Monitor struct {
-	client kubernetes.Interface
-	logger logr.Logger
+	client            kubernetes.Interface
+	logger            logr.Logger
+	throttleChecker   ThrottleChecker
+	throttleThreshold float64
 }
 
 // NewMonitor creates a Monitor backed by the given Kubernetes client.
 func NewMonitor(client kubernetes.Interface, logger logr.Logger) *Monitor {
 	return &Monitor{
-		client: client,
-		logger: logger,
+		client:            client,
+		logger:            logger,
+		throttleThreshold: DefaultThrottleThreshold,
 	}
+}
+
+// WithThrottleChecker adds CPU throttle checking via Prometheus queries.
+func (m *Monitor) WithThrottleChecker(checker ThrottleChecker, threshold float64) *Monitor {
+	m.throttleChecker = checker
+	if threshold > 0 {
+		m.throttleThreshold = threshold
+	}
+	return m
 }
 
 // CheckPod evaluates the current state of a pod that was previously resized
@@ -106,6 +129,20 @@ func (m *Monitor) CheckPod(ctx context.Context, record ResizeRecord) (SafetyVerd
 		}
 	}
 
+	// Check for CPU throttling via Prometheus (if checker is configured).
+	if m.throttleChecker != nil {
+		ratio, err := m.throttleChecker.GetThrottleRatio(ctx, record.Namespace, record.PodName, record.Container)
+		if err != nil {
+			m.logger.V(1).Info("Could not check CPU throttle ratio", "pod", record.PodName, "error", err)
+		} else if ratio > m.throttleThreshold {
+			return SafetyVerdict{
+				Safe:    false,
+				Reason:  "throttle",
+				Message: fmt.Sprintf("container %s in pod %s/%s has %.0f%% CPU throttle ratio (threshold %.0f%%)", record.Container, record.Namespace, record.PodName, ratio*100, m.throttleThreshold*100),
+			}, nil
+		}
+	}
+
 	// Check the pod Ready condition.
 	for _, condition := range pod.Status.Conditions {
 		if condition.Type == corev1.PodReady {
@@ -132,11 +169,19 @@ func (m *Monitor) RevertPod(ctx context.Context, record ResizeRecord) error {
 	}
 
 	updated := pod.DeepCopy()
+	found := false
 	for i, c := range updated.Spec.Containers {
 		if c.Name == record.Container {
 			updated.Spec.Containers[i].Resources = record.OriginalResources
+			found = true
 			break
 		}
+	}
+	if !found {
+		m.logger.Info("container not found in pod, skipping revert",
+			"pod", record.PodName, "namespace", record.Namespace,
+			"container", record.Container)
+		return nil
 	}
 
 	m.logger.Info("reverting pod resize", "pod", record.PodName,

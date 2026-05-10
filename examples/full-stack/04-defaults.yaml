@@ -23,3 +23,6 @@ spec:
       max: "8Gi"
     controlledValues: RequestsAndLimits
     allowDecrease: false
+  costPricing:
+    cpuPerCoreHour: "0.031"
+    memoryPerGiBHour: "0.004"

@@ -582,3 +582,59 @@ func TestWaitForResize_MissingMemoryInStatus(t *testing.T) {
 	err := resizer.WaitForResize(context.Background(), "default", "web-0", "app", target, 100*time.Millisecond)
 	require.Error(t, err, "should time out because memory key is absent in status")
 }
+
+// ---------- WouldRestartContainer ----------
+
+func TestWouldRestartContainer_RestartPolicy(t *testing.T) {
+	pod := &corev1.Pod{
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "app",
+					ResizePolicy: []corev1.ContainerResizePolicy{
+						{ResourceName: corev1.ResourceMemory, RestartPolicy: corev1.RestartContainer},
+					},
+				},
+			},
+		},
+	}
+	assert.True(t, WouldRestartContainer(pod, "app"))
+}
+
+func TestWouldRestartContainer_NotRequired(t *testing.T) {
+	pod := &corev1.Pod{
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "app",
+					ResizePolicy: []corev1.ContainerResizePolicy{
+						{ResourceName: corev1.ResourceCPU, RestartPolicy: corev1.NotRequired},
+					},
+				},
+			},
+		},
+	}
+	assert.False(t, WouldRestartContainer(pod, "app"))
+}
+
+func TestWouldRestartContainer_NoPolicy(t *testing.T) {
+	pod := &corev1.Pod{
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{Name: "app"},
+			},
+		},
+	}
+	assert.False(t, WouldRestartContainer(pod, "app"))
+}
+
+func TestWouldRestartContainer_ContainerNotFound(t *testing.T) {
+	pod := &corev1.Pod{
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{Name: "other"},
+			},
+		},
+	}
+	assert.False(t, WouldRestartContainer(pod, "app"))
+}

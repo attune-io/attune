@@ -119,6 +119,48 @@ func (d *Detector) CheckVPAConflict(ctx context.Context, c client.Client, namesp
 	return nil
 }
 
+// CheckPolicyConflict checks if another RightSizePolicy with higher weight
+// targets the same workload. Returns a Conflict if a higher-weight policy
+// exists (the current policy should defer). Returns nil if the current policy
+// has the highest weight or no overlap exists.
+func (d *Detector) CheckPolicyConflict(ctx context.Context, c client.Client, namespace, workloadName, workloadKind, currentPolicyName string, currentWeight int32) *Conflict {
+	policyList := &unstructured.UnstructuredList{}
+	policyList.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "rightsize.io",
+		Version: "v1alpha1",
+		Kind:    "RightSizePolicyList",
+	})
+
+	if err := c.List(ctx, policyList, client.InNamespace(namespace)); err != nil {
+		d.logger.V(1).Info("Could not list RightSizePolicies for conflict check", "error", err)
+		return nil
+	}
+
+	for _, policy := range policyList.Items {
+		if policy.GetName() == currentPolicyName {
+			continue
+		}
+
+		// Check if this policy targets the same workload by name.
+		targetKind, _, _ := unstructured.NestedString(policy.Object, "spec", "targetRef", "kind")
+		targetName, _, _ := unstructured.NestedString(policy.Object, "spec", "targetRef", "name")
+		if targetKind != workloadKind || targetName != workloadName {
+			continue
+		}
+
+		otherWeight, _, _ := unstructured.NestedInt64(policy.Object, "spec", "weight")
+		if otherWeight > int64(currentWeight) {
+			return &Conflict{
+				Type: ConflictPolicy,
+				Name: policy.GetName(),
+				Message: fmt.Sprintf("RightSizePolicy %s has higher weight (%d > %d) for %s/%s; deferring",
+					policy.GetName(), otherWeight, currentWeight, workloadKind, workloadName),
+			}
+		}
+	}
+	return nil
+}
+
 // CheckHPAConflict checks if an HPA targets the same workload and returns a Conflict if so.
 func (d *Detector) CheckHPAConflict(hpas []autoscalingv2.HorizontalPodAutoscaler, workloadName, workloadKind string) *Conflict {
 	for _, hpa := range hpas {

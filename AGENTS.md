@@ -79,9 +79,15 @@ for all durations (e.g., `168h` not `7d`).
 controller-runtime v0.24.0 uses typed generic interfaces. Register webhooks with:
 
 ```go
+// RightSizePolicy: defaulting + validation
 ctrl.NewWebhookManagedBy(mgr, &rightsizev1alpha1.RightSizePolicy{}).
     WithDefaulter(&webhook.RightSizePolicyDefaulter{}).
     WithValidator(&webhook.RightSizePolicyValidator{}).
+    Complete()
+
+// RightSizeDefaults: validation only (costPricing fields)
+ctrl.NewWebhookManagedBy(mgr, &rightsizev1alpha1.RightSizeDefaults{}).
+    WithValidator(&webhook.RightSizeDefaultsValidator{}).
     Complete()
 ```
 

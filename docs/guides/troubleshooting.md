@@ -10,18 +10,67 @@ kubectl get rsp <name> -o jsonpath='{.status.conditions}' | jq .
 
 **Symptom**: Ready condition is `False` with reason `PrometheusUnavailable`.
 
-**Cause**: The operator cannot reach the configured Prometheus address.
+**Cause**: No Prometheus address could be resolved. The operator checks
+(in order): policy spec, RightSizeDefaults, Prometheus Operator CRD,
+well-known service names. All four failed.
 
 **Fix**:
 
-```bash
-# Verify the Prometheus address in the policy spec
-kubectl get rsp <name> -o jsonpath='{.spec.metricsSource.prometheus.address}'
+1. Set the address explicitly in a `RightSizeDefaults` resource:
 
-# Test connectivity from the operator pod
-kubectl -n kube-rightsize-system exec deploy/kube-rightsize-controller-manager -- \
-  wget -qO- http://prometheus-server.monitoring:9090/-/healthy
-```
+    ```yaml
+    apiVersion: rightsize.io/v1alpha1
+    kind: RightSizeDefaults
+    metadata:
+      name: default
+    spec:
+      metricsSource:
+        prometheus:
+          address: http://prometheus-server.monitoring:80
+    ```
+
+2. Verify the Prometheus Service exists and note its port:
+
+    ```bash
+    kubectl get svc -n monitoring
+    # Check the PORT(S) column: "80/TCP" means use :80, not :9090
+    ```
+
+3. Test connectivity from inside the cluster:
+
+    ```bash
+    kubectl run prom-test --image=curlimages/curl --restart=Never --rm -it -- \
+      curl -sf http://prometheus-server.monitoring:80/-/healthy
+    ```
+
+See the [Prometheus Setup](prometheus-setup.md) guide for full details on
+address resolution and common installations.
+
+### Prometheus reachable but queries return no data
+
+**Symptom**: Ready condition is `InsufficientData` even after days of running.
+Operator logs show `"cpuPoints":0,"memPoints":0`.
+
+**Cause**: Prometheus is reachable but cadvisor metrics are not being scraped,
+or label names have been relabeled.
+
+**Fix**:
+
+1. Verify cadvisor metrics exist in Prometheus:
+
+    ```bash
+    kubectl run prom-check --image=curlimages/curl --restart=Never --rm -it -- \
+      curl -s 'http://prometheus-server.monitoring:80/api/v1/query?query=container_cpu_usage_seconds_total' \
+      | head -c 200
+    ```
+
+2. If the result is empty (`"result":[]`), cadvisor scraping is not
+   configured. Check your Prometheus scrape configuration for a
+   `kubernetes-nodes-cadvisor` or equivalent job.
+
+3. If the result has data but the operator still reports 0 data points,
+   check that the `namespace`, `pod`, and `container` label names match.
+   Some Prometheus configurations relabel these.
 
 ### InsufficientData
 
@@ -85,14 +134,35 @@ skipped.
 **Fix**: Set `controlledValues: RequestsAndLimits` so both are updated
 together, or switch to `RequestsOnly` if the pod should be Burstable.
 
+### ResourceQuota exceeded
+
+**Symptom**: Operator logs `Skipping resize: quota/limitrange violation`
+with a message mentioning `exceed ResourceQuota`.
+
+**Cause**: The resize would increase CPU or memory requests beyond the
+remaining headroom in the namespace's ResourceQuota.
+
+**Fix**:
+
+1. Check current quota usage:
+
+    ```bash
+    kubectl get resourcequota -n <namespace>
+    ```
+
+2. Either increase the quota limits, or tighten the policy's resource
+   bounds so recommendations stay within quota.
+
 ## Revert issues
 
 ### High revert rate
 
-**Symptom**: Degraded condition with reason `HighRevertRate`.
+**Symptom**: `Degraded` condition is `True` with reason `HighRevertRate`, or
+multiple entries in `.status.resizeHistory` show `result: Reverted`.
 
-**Cause**: Multiple consecutive resizes have been reverted due to safety
-violations.
+**Cause**: 3+ of the last 5 resize operations were reverted due to safety
+violations. The controller applies exponential backoff (2x cooldown per
+consecutive revert, capped at 16x).
 
 **Fix**: Investigate the revert reasons:
 
@@ -104,6 +174,7 @@ kubectl get rsp <name> -o jsonpath='{.status.resizeHistory}' | \
 Common causes:
 
 - **oomkill**: safety margin is too low for memory. Increase `memory.safetyMargin`.
+- **throttle**: CPU throttle ratio exceeded 50% post-resize. Increase `cpu.safetyMargin`.
 - **restart**: the application crashes at the new resource level. Check application logs.
 - **notready**: readiness probe fails post-resize. Verify probe configuration.
 
@@ -112,7 +183,7 @@ Common causes:
 Operator logs:
 
 ```bash
-kubectl -n kube-rightsize-system logs deploy/kube-rightsize-controller-manager --tail=100
+kubectl -n kube-rightsize-system logs -l app.kubernetes.io/name=kube-rightsize --tail=100
 ```
 
 List all policies with status:
@@ -130,6 +201,6 @@ kubectl describe rsp <name>
 Check operator metrics:
 
 ```bash
-kubectl -n kube-rightsize-system port-forward svc/kube-rightsize 8080:8080 &
+kubectl -n kube-rightsize-system port-forward svc/kube-rightsize-metrics 8080:8080 &
 curl -s localhost:8080/metrics | grep kube_rightsize
 ```

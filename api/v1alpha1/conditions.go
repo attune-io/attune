@@ -16,11 +16,6 @@ limitations under the License.
 
 package v1alpha1
 
-import (
-	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-)
-
 // Condition type constants for RightSizePolicy.
 const (
 	ConditionReady    = "Ready"
@@ -37,26 +32,5 @@ const (
 	ReasonInProgress            = "InProgress"
 	ReasonIdle                  = "Idle"
 	ReasonCooldownActive        = "CooldownActive"
-	ReasonPartialFailure        = "PartialFailure"
 	ReasonHighRevertRate        = "HighRevertRate"
 )
-
-// SetReady sets the Ready condition on the policy status.
-func (s *RightSizePolicyStatus) SetReady(ready bool, reason, message string) {
-	status := metav1.ConditionFalse
-	if ready {
-		status = metav1.ConditionTrue
-	}
-	meta.SetStatusCondition(&s.Conditions, metav1.Condition{
-		Type:               ConditionReady,
-		Status:             status,
-		Reason:             reason,
-		Message:            message,
-		LastTransitionTime: metav1.Now(),
-	})
-}
-
-// IsReady returns true if the Ready condition is True.
-func (s *RightSizePolicyStatus) IsReady() bool {
-	return meta.IsStatusConditionTrue(s.Conditions, ConditionReady)
-}

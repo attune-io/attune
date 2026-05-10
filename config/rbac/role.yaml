@@ -7,10 +7,26 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - limitranges
+  - resourcequotas
+  verbs:
+  - get
+  - list
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  - services
+  verbs:
+  - get
+- apiGroups:
+  - ""
+  resources:
   - pods
   verbs:
   - get
   - list
+  - update
   - watch
 - apiGroups:
   - ""

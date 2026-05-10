@@ -72,12 +72,37 @@ var (
 		[]string{"namespace"},
 	)
 
+	SavingsEstimatedMonthly = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "kube_rightsize_savings_estimated_monthly_dollars",
+			Help: "Estimated monthly cost savings in USD per namespace",
+		},
+		[]string{"namespace"},
+	)
+
 	Confidence = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "kube_rightsize_confidence",
 			Help: "Recommendation confidence score (0-1) per workload/container",
 		},
 		[]string{"namespace", "workload", "container"},
+	)
+
+	ResizeDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "kube_rightsize_resize_duration_seconds",
+			Help:    "Duration of individual pod resize operations",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"namespace", "workload"},
+	)
+
+	ReconcileErrorsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "kube_rightsize_reconcile_errors_total",
+			Help: "Total number of reconciliation errors by type",
+		},
+		[]string{"error_type"},
 	)
 
 	ReconcileDuration = prometheus.NewHistogramVec(
@@ -114,7 +139,10 @@ func init() {
 		RecommendationMemory,
 		SavingsCPU,
 		SavingsMemory,
+		SavingsEstimatedMonthly,
 		Confidence,
+		ResizeDuration,
+		ReconcileErrorsTotal,
 		ReconcileDuration,
 		PrometheusQueryDuration,
 		PrometheusQueryErrors,

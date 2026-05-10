@@ -24,3 +24,6 @@ spec:
     mode: Recommend
     cooldown: 1h
     autoRevert: true
+  costPricing:
+    cpuPerCoreHour: "0.031"
+    memoryPerGiBHour: "0.004"

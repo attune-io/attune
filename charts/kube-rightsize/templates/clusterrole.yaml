@@ -45,7 +45,7 @@ rules:
       - get
       - list
       - watch
-  # Pods: read + resize subresource
+  # Pods: read + update (tracking annotations) + resize subresource
   - apiGroups:
       - ""
     resources:
@@ -53,6 +53,7 @@ rules:
     verbs:
       - get
       - list
+      - update
       - watch
   - apiGroups:
       - ""
@@ -81,3 +82,26 @@ rules:
       - get
       - list
       - watch
+  # Nodes: read-only (capacity pre-check before resize)
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+    verbs:
+      - get
+  # Services: read-only (Prometheus auto-discovery via well-known service names)
+  - apiGroups:
+      - ""
+    resources:
+      - services
+    verbs:
+      - get
+  # ResourceQuotas and LimitRanges: read-only (pre-resize compatibility checks)
+  - apiGroups:
+      - ""
+    resources:
+      - resourcequotas
+      - limitranges
+    verbs:
+      - get
+      - list

@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -265,4 +266,97 @@ func TestCheckHPAConflict_DifferentKind(t *testing.T) {
 
 	conflict := detector.CheckHPAConflict(hpas, "my-app", "Deployment")
 	assert.Nil(t, conflict)
+}
+
+// ---------- CheckPolicyConflict ----------
+
+func TestCheckPolicyConflict_HigherWeightDefers(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+
+	otherPolicy := &unstructured.Unstructured{}
+	otherPolicy.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "rightsize.io",
+		Version: "v1alpha1",
+		Kind:    "RightSizePolicy",
+	})
+	otherPolicy.SetName("high-priority")
+	otherPolicy.SetNamespace("default")
+	_ = unstructured.SetNestedField(otherPolicy.Object, "Deployment", "spec", "targetRef", "kind")
+	_ = unstructured.SetNestedField(otherPolicy.Object, "my-app", "spec", "targetRef", "name")
+	_ = unstructured.SetNestedField(otherPolicy.Object, int64(200), "spec", "weight")
+
+	scheme := runtime.NewScheme()
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(otherPolicy).Build()
+
+	result := detector.CheckPolicyConflict(context.Background(), c, "default", "my-app", "Deployment", "low-priority", 100)
+	assert.NotNil(t, result)
+	assert.Equal(t, ConflictPolicy, result.Type)
+	assert.Equal(t, "high-priority", result.Name)
+	assert.Contains(t, result.Message, "higher weight")
+}
+
+func TestCheckPolicyConflict_LowerWeightNoConflict(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+
+	otherPolicy := &unstructured.Unstructured{}
+	otherPolicy.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "rightsize.io",
+		Version: "v1alpha1",
+		Kind:    "RightSizePolicy",
+	})
+	otherPolicy.SetName("low-priority")
+	otherPolicy.SetNamespace("default")
+	_ = unstructured.SetNestedField(otherPolicy.Object, "Deployment", "spec", "targetRef", "kind")
+	_ = unstructured.SetNestedField(otherPolicy.Object, "my-app", "spec", "targetRef", "name")
+	_ = unstructured.SetNestedField(otherPolicy.Object, int64(50), "spec", "weight")
+
+	scheme := runtime.NewScheme()
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(otherPolicy).Build()
+
+	result := detector.CheckPolicyConflict(context.Background(), c, "default", "my-app", "Deployment", "high-priority", 100)
+	assert.Nil(t, result)
+}
+
+func TestCheckPolicyConflict_DifferentWorkload(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+
+	otherPolicy := &unstructured.Unstructured{}
+	otherPolicy.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "rightsize.io",
+		Version: "v1alpha1",
+		Kind:    "RightSizePolicy",
+	})
+	otherPolicy.SetName("other")
+	otherPolicy.SetNamespace("default")
+	_ = unstructured.SetNestedField(otherPolicy.Object, "Deployment", "spec", "targetRef", "kind")
+	_ = unstructured.SetNestedField(otherPolicy.Object, "other-app", "spec", "targetRef", "name")
+	_ = unstructured.SetNestedField(otherPolicy.Object, int64(999), "spec", "weight")
+
+	scheme := runtime.NewScheme()
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(otherPolicy).Build()
+
+	result := detector.CheckPolicyConflict(context.Background(), c, "default", "my-app", "Deployment", "current", 100)
+	assert.Nil(t, result)
+}
+
+func TestCheckPolicyConflict_SkipsSelf(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+
+	self := &unstructured.Unstructured{}
+	self.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "rightsize.io",
+		Version: "v1alpha1",
+		Kind:    "RightSizePolicy",
+	})
+	self.SetName("current-policy")
+	self.SetNamespace("default")
+	_ = unstructured.SetNestedField(self.Object, "Deployment", "spec", "targetRef", "kind")
+	_ = unstructured.SetNestedField(self.Object, "my-app", "spec", "targetRef", "name")
+	_ = unstructured.SetNestedField(self.Object, int64(100), "spec", "weight")
+
+	scheme := runtime.NewScheme()
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(self).Build()
+
+	result := detector.CheckPolicyConflict(context.Background(), c, "default", "my-app", "Deployment", "current-policy", 100)
+	assert.Nil(t, result, "should not conflict with itself")
 }

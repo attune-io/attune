@@ -214,6 +214,24 @@ func CanResizeInPlace(pod *corev1.Pod) bool {
 	return true
 }
 
+// WouldRestartContainer returns true if resizing the named container would
+// trigger a kubelet restart based on the container's resizePolicy. If the
+// container has no resizePolicy, the default is NotRequired (no restart).
+func WouldRestartContainer(pod *corev1.Pod, containerName string) bool {
+	for _, c := range pod.Spec.Containers {
+		if c.Name != containerName {
+			continue
+		}
+		for _, rp := range c.ResizePolicy {
+			if rp.RestartPolicy == corev1.RestartContainer {
+				return true
+			}
+		}
+		return false
+	}
+	return false
+}
+
 // PreservesQoS returns true if applying the target resources to the named
 // container would preserve the pod's current QoS class. For Guaranteed pods
 // this means requests must equal limits for both CPU and memory. Burstable

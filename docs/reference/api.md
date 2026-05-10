@@ -59,6 +59,11 @@ spec:
     cooldown: 1h               # min time between resize operations (default: 1h)
     autoRevert: true           # revert on safety violation (default: true)
 
+  # Containers to skip (e.g., service mesh sidecars).
+  excludeContainers:
+    - istio-proxy
+    - linkerd-proxy
+
   # Policy priority (1-1000, higher wins). Default: 100.
   weight: 100
 ```
@@ -94,11 +99,11 @@ spec:
 
 ### Condition types
 
-| Type | Reasons |
-|------|---------|
-| `Ready` | `Monitoring`, `InsufficientData`, `PrometheusUnavailable`, `InvalidConfig` |
-| `Resizing` | `InProgress`, `Idle`, `CooldownActive` |
-| `Degraded` | `PartialFailure`, `HighRevertRate` |
+| Type | Reasons | Description |
+|------|---------|-------------|
+| `Ready` | `Monitoring`, `InsufficientData`, `PrometheusUnavailable`, `InvalidConfig` | Overall health |
+| `Resizing` | `InProgress`, `Idle`, `CooldownActive` | Active resize operation state |
+| `Degraded` | `HighRevertRate` | High revert rate detected (3+ of last 5 reverted) |
 
 ### Print columns
 
@@ -143,7 +148,30 @@ spec:
     mode: Recommend
     cooldown: 1h
     autoRevert: true
+  costPricing:      # optional, for EstimatedMonthlySavings computation
+    cpuPerCoreHour: "0.031"     # USD per vCPU-hour (default: $0.031)
+    memoryPerGiBHour: "0.004"   # USD per GiB-hour (default: $0.004)
 ```
 
 RightSizeDefaults fields are merged into every RightSizePolicy at
 reconciliation time. Policy-level values always take precedence.
+
+### Cost pricing
+
+The `costPricing` section configures per-unit pricing used to compute
+`status.savings.estimatedMonthlySavings`. If omitted, standard on-demand
+Linux pricing is used.
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `cpuPerCoreHour` | `0.031` | Cost per vCPU-hour |
+| `memoryPerGiBHour` | `0.004` | Cost per GiB-hour |
+
+**Formula**: `(cpuCoresSaved * cpuPrice + memGiBSaved * memPrice) * 730 hours/month`
+
+### Webhook validation
+
+`RightSizeDefaults` has a validating webhook that rejects invalid
+`costPricing` values. If `cpuPerCoreHour` or `memoryPerGiBHour` is set,
+the webhook validates that each is a parseable positive float. Invalid
+values (e.g., `"banana"`, `"-0.5"`) are rejected at admission time.

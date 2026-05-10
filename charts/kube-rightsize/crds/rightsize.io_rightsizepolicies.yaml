@@ -582,8 +582,9 @@ spec:
                     description: CPURequestReduction is the total CPU request reduction.
                     type: string
                   estimatedMonthlySavings:
-                    description: EstimatedMonthlySavings is the estimated monthly
-                      cost savings.
+                    description: |-
+                      EstimatedMonthlySavings is the estimated monthly cost savings based on
+                      configured or default pricing (e.g. "$12.50").
                     type: string
                   memoryRequestReduction:
                     description: MemoryRequestReduction is the total memory request

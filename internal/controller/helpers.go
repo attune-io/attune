@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"strconv"
 	"time"
@@ -28,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	rightsizev1alpha1 "github.com/SebTardif/kube-rightsize/api/v1alpha1"
@@ -103,8 +105,15 @@ func (r *RightSizePolicyReconciler) parseCooldown(policy *rightsizev1alpha1.Righ
 	return defaultCooldown
 }
 
+const (
+	// Default on-demand Linux pricing (approximate).
+	defaultCPUPerCoreHour = 0.031
+	defaultMemPerGiBHour  = 0.004
+	hoursPerMonth         = 730
+)
+
 // computeSavings calculates the aggregate resource savings across all recommendations.
-func (r *RightSizePolicyReconciler) computeSavings(namespace string, recommendations []rightsizev1alpha1.WorkloadRecommendation) rightsizev1alpha1.SavingsStatus {
+func (r *RightSizePolicyReconciler) computeSavings(ctx context.Context, namespace string, recommendations []rightsizev1alpha1.WorkloadRecommendation) rightsizev1alpha1.SavingsStatus {
 	var totalCPUSaved, totalMemSaved int64
 
 	for _, rec := range recommendations {
@@ -130,7 +139,42 @@ func (r *RightSizePolicyReconciler) computeSavings(namespace string, recommendat
 		savings.MemoryRequestReduction = resource.NewQuantity(totalMemSaved, resource.BinarySI).String()
 		operatormetrics.SavingsMemory.WithLabelValues(namespace).Set(float64(totalMemSaved))
 	}
+
+	// Compute estimated monthly cost savings.
+	if totalCPUSaved > 0 || totalMemSaved > 0 {
+		cpuPrice, memPrice := r.getCostPricing(ctx)
+		cpuCoresSaved := float64(totalCPUSaved) / 1000.0
+		memGiBSaved := float64(totalMemSaved) / (1024 * 1024 * 1024)
+		monthlySavings := (cpuCoresSaved*cpuPrice + memGiBSaved*memPrice) * hoursPerMonth
+		savings.EstimatedMonthlySavings = fmt.Sprintf("$%.2f", monthlySavings)
+		operatormetrics.SavingsEstimatedMonthly.WithLabelValues(namespace).Set(monthlySavings)
+	}
+
 	return savings
+}
+
+// getCostPricing reads pricing from RightSizeDefaults, falling back to defaults.
+func (r *RightSizePolicyReconciler) getCostPricing(ctx context.Context) (cpuPerCoreHour, memPerGiBHour float64) {
+	cpuPerCoreHour = defaultCPUPerCoreHour
+	memPerGiBHour = defaultMemPerGiBHour
+
+	var defaultsList rightsizev1alpha1.RightSizeDefaultsList
+	if err := r.List(ctx, &defaultsList); err != nil || len(defaultsList.Items) == 0 {
+		return
+	}
+
+	pricing := defaultsList.Items[0].Spec.CostPricing
+	if pricing == nil {
+		return
+	}
+
+	if v := parseFloat64(pricing.CPUPerCoreHour, 0); v > 0 {
+		cpuPerCoreHour = v
+	}
+	if v := parseFloat64(pricing.MemoryPerGiBHour, 0); v > 0 {
+		memPerGiBHour = v
+	}
+	return
 }
 
 // scaleLimits scales a resource limit proportionally to maintain the same
@@ -165,6 +209,8 @@ func safeInt32(v int) int32 {
 }
 
 // isCooldownActive checks if the policy is within the cooldown window since last resize.
+// The cooldown is multiplied by 2^N where N is the number of consecutive reverts
+// (exponential backoff), capped at 16x the base cooldown.
 func (r *RightSizePolicyReconciler) isCooldownActive(policy *rightsizev1alpha1.RightSizePolicy) bool {
 	ann := policy.Annotations
 	if ann == nil {
@@ -178,8 +224,24 @@ func (r *RightSizePolicyReconciler) isCooldownActive(policy *rightsizev1alpha1.R
 	if err != nil {
 		return false
 	}
-	cooldown := r.parseCooldown(policy)
+	cooldown := r.getEffectiveCooldown(policy)
 	return time.Since(last) < cooldown
+}
+
+// getEffectiveCooldown returns the cooldown with exponential backoff applied
+// based on the number of consecutive reverts in the resize history.
+func (r *RightSizePolicyReconciler) getEffectiveCooldown(policy *rightsizev1alpha1.RightSizePolicy) time.Duration {
+	base := r.parseCooldown(policy)
+	reverts := consecutiveReverts(policy.Status.ResizeHistory)
+	if reverts == 0 {
+		return base
+	}
+	// Cap at 4 doublings (16x).
+	if reverts > 4 {
+		reverts = 4
+	}
+	multiplier := 1 << reverts // 2^N
+	return base * time.Duration(multiplier)
 }
 
 // markResizeTime sets the last-resize-time annotation on the policy.
@@ -202,6 +264,177 @@ func appendHistory(existing []rightsizev1alpha1.ResizeHistoryEntry,
 		result = result[len(result)-maxEntries:]
 	}
 	return result
+}
+
+// setResizingCondition sets the Resizing condition based on current state.
+func (r *RightSizePolicyReconciler) setResizingCondition(policy *rightsizev1alpha1.RightSizePolicy, cooldownActive bool) {
+	if !isResizeMode(policy.Spec.UpdateStrategy.Mode) {
+		// Non-resize modes: clear the condition.
+		meta.RemoveStatusCondition(&policy.Status.Conditions, rightsizev1alpha1.ConditionResizing)
+		return
+	}
+
+	if policy.Status.Workloads.Resized > 0 {
+		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
+			Type:               rightsizev1alpha1.ConditionResizing,
+			Status:             metav1.ConditionTrue,
+			Reason:             rightsizev1alpha1.ReasonInProgress,
+			Message:            fmt.Sprintf("%d workload(s) resized this cycle", policy.Status.Workloads.Resized),
+			ObservedGeneration: policy.Generation,
+		})
+	} else if cooldownActive {
+		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
+			Type:               rightsizev1alpha1.ConditionResizing,
+			Status:             metav1.ConditionFalse,
+			Reason:             rightsizev1alpha1.ReasonCooldownActive,
+			Message:            "Waiting for cooldown period to expire",
+			ObservedGeneration: policy.Generation,
+		})
+	} else {
+		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
+			Type:               rightsizev1alpha1.ConditionResizing,
+			Status:             metav1.ConditionFalse,
+			Reason:             rightsizev1alpha1.ReasonIdle,
+			Message:            "No resizes needed",
+			ObservedGeneration: policy.Generation,
+		})
+	}
+}
+
+// setDegradedCondition checks recent resize history for high revert rates.
+// If 3+ of the last 5 history entries are reverted, the condition is set.
+func (r *RightSizePolicyReconciler) setDegradedCondition(policy *rightsizev1alpha1.RightSizePolicy) {
+	history := policy.Status.ResizeHistory
+	if len(history) == 0 {
+		meta.RemoveStatusCondition(&policy.Status.Conditions, rightsizev1alpha1.ConditionDegraded)
+		return
+	}
+
+	// Count reverts in the last 5 entries.
+	window := 5
+	if len(history) < window {
+		window = len(history)
+	}
+	recent := history[len(history)-window:]
+	reverts := 0
+	for _, entry := range recent {
+		if entry.Result == "Reverted" {
+			reverts++
+		}
+	}
+
+	if reverts >= 3 {
+		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
+			Type:               rightsizev1alpha1.ConditionDegraded,
+			Status:             metav1.ConditionTrue,
+			Reason:             rightsizev1alpha1.ReasonHighRevertRate,
+			Message:            fmt.Sprintf("%d of last %d resizes were reverted; consider adjusting safety margins", reverts, window),
+			ObservedGeneration: policy.Generation,
+		})
+	} else {
+		meta.RemoveStatusCondition(&policy.Status.Conditions, rightsizev1alpha1.ConditionDegraded)
+	}
+}
+
+// checkQuotaCompatibility verifies that the target resources don't violate
+// LimitRange or ResourceQuota constraints in the namespace.
+func (r *RightSizePolicyReconciler) checkQuotaCompatibility(ctx context.Context, namespace string, currentResources, target corev1.ResourceRequirements) error {
+	logger := log.FromContext(ctx)
+
+	// Check LimitRange per-container min/max.
+	var limitRangeList corev1.LimitRangeList
+	if err := r.List(ctx, &limitRangeList, client.InNamespace(namespace)); err != nil {
+		logger.V(1).Info("Could not list LimitRanges", "error", err)
+	} else {
+		for _, lr := range limitRangeList.Items {
+			for _, item := range lr.Spec.Limits {
+				if item.Type != corev1.LimitTypeContainer {
+					continue
+				}
+				if minCPU, ok := item.Min[corev1.ResourceCPU]; ok {
+					if target.Requests.Cpu().Cmp(minCPU) < 0 {
+						return fmt.Errorf("CPU request %s below LimitRange minimum %s", target.Requests.Cpu().String(), minCPU.String())
+					}
+				}
+				if minMem, ok := item.Min[corev1.ResourceMemory]; ok {
+					if target.Requests.Memory().Cmp(minMem) < 0 {
+						return fmt.Errorf("memory request %s below LimitRange minimum %s", target.Requests.Memory().String(), minMem.String())
+					}
+				}
+				if maxCPU, ok := item.Max[corev1.ResourceCPU]; ok {
+					if target.Requests.Cpu().Cmp(maxCPU) > 0 {
+						return fmt.Errorf("CPU request %s exceeds LimitRange maximum %s", target.Requests.Cpu().String(), maxCPU.String())
+					}
+				}
+				if maxMem, ok := item.Max[corev1.ResourceMemory]; ok {
+					if target.Requests.Memory().Cmp(maxMem) > 0 {
+						return fmt.Errorf("memory request %s exceeds LimitRange maximum %s", target.Requests.Memory().String(), maxMem.String())
+					}
+				}
+			}
+		}
+	}
+
+	// Check ResourceQuota: verify the delta won't exceed quota headroom.
+	var quotaList corev1.ResourceQuotaList
+	if err := r.List(ctx, &quotaList, client.InNamespace(namespace)); err != nil {
+		logger.V(1).Info("Could not list ResourceQuotas", "error", err)
+		return nil
+	}
+	for _, quota := range quotaList.Items {
+		if err := checkQuotaHeadroom(quota, currentResources, target); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// checkQuotaHeadroom verifies that the increase from current to target
+// resources fits within the remaining headroom of a ResourceQuota.
+func checkQuotaHeadroom(quota corev1.ResourceQuota, current, target corev1.ResourceRequirements) error {
+	cpuDelta := target.Requests.Cpu().MilliValue() - current.Requests.Cpu().MilliValue()
+	memDelta := target.Requests.Memory().Value() - current.Requests.Memory().Value()
+
+	if cpuDelta > 0 {
+		hardCPU, hasHard := quota.Status.Hard[corev1.ResourceRequestsCPU]
+		usedCPU, hasUsed := quota.Status.Used[corev1.ResourceRequestsCPU]
+		if hasHard && hasUsed {
+			headroom := hardCPU.MilliValue() - usedCPU.MilliValue()
+			if cpuDelta > headroom {
+				return fmt.Errorf("CPU increase of %dm would exceed ResourceQuota %s (headroom: %dm)",
+					cpuDelta, quota.Name, headroom)
+			}
+		}
+	}
+
+	if memDelta > 0 {
+		hardMem, hasHard := quota.Status.Hard[corev1.ResourceRequestsMemory]
+		usedMem, hasUsed := quota.Status.Used[corev1.ResourceRequestsMemory]
+		if hasHard && hasUsed {
+			headroom := hardMem.Value() - usedMem.Value()
+			if memDelta > headroom {
+				return fmt.Errorf("memory increase of %d bytes would exceed ResourceQuota %s (headroom: %d bytes)",
+					memDelta, quota.Name, headroom)
+			}
+		}
+	}
+
+	return nil
+}
+
+// consecutiveReverts returns the number of consecutive reverted entries at the
+// end of the resize history.
+func consecutiveReverts(history []rightsizev1alpha1.ResizeHistoryEntry) int {
+	count := 0
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Result == "Reverted" {
+			count++
+		} else {
+			break
+		}
+	}
+	return count
 }
 
 // mergeDefaults reads the cluster-scoped RightSizeDefaults and merges values

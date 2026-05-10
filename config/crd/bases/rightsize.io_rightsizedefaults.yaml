@@ -54,6 +54,23 @@ spec:
             description: RightSizeDefaultsSpec defines cluster-scoped default values
               for RightSizePolicy resources.
             properties:
+              costPricing:
+                description: |-
+                  CostPricing configures the per-unit pricing used to compute
+                  EstimatedMonthlySavings. If omitted, defaults to standard
+                  on-demand Linux pricing ($0.031/vCPU-hour, $0.004/GiB-hour).
+                properties:
+                  cpuPerCoreHour:
+                    description: |-
+                      CPUPerCoreHour is the cost per vCPU-hour (e.g. "0.031").
+                      Defaults to 0.031 if not specified.
+                    type: string
+                  memoryPerGiBHour:
+                    description: |-
+                      MemoryPerGiBHour is the cost per GiB-hour (e.g. "0.004").
+                      Defaults to 0.004 if not specified.
+                    type: string
+                type: object
               cpu:
                 description: CPU configures default CPU resource recommendation parameters.
                 properties:

@@ -152,7 +152,15 @@ api-server   app         500m      320m      512Mi     384Mi     92.0%
 
 ## Grafana Dashboard
 
-A pre-built Grafana dashboard is included at
+**Helm chart (recommended):** Enable `grafanaDashboard.enabled: true` in your
+Helm values to auto-provision the dashboard via the Grafana sidecar:
+
+```bash
+helm upgrade kube-rightsize oci://ghcr.io/sebtardif/charts/kube-rightsize \
+  --set grafanaDashboard.enabled=true
+```
+
+**Manual import:** The raw JSON is at
 [`deploy/grafana/dashboard.json`](deploy/grafana/dashboard.json). Import it
 into Grafana and select your Prometheus data source.
 
@@ -176,7 +184,7 @@ The dashboard includes:
 │  Resize         Safety                             │
 │  Engine ◄────► Monitor                             │
 │  (/resize       (OOMKill, throttle,                │
-│   subresource)   auto-revert)                      │
+│   subresource)   restarts, auto-revert)            │
 └──────────────────────────────────────────────────┘
          │                    │
          ▼                    ▼
@@ -191,7 +199,7 @@ The dashboard includes:
 - **Graduated rollout**: Five modes from zero-risk observation to full automation:
   Observe, Recommend, OneShot, Canary, Auto.
 - **Auto-revert**: Automatically restores original resources if a resized pod gets
-  OOMKilled, CPU-throttled, or becomes NotReady.
+  OOMKilled, CPU-throttled, experiences restart spikes, or becomes NotReady.
 - **HPA coexistence**: Right-sizes the base resource request without interfering
   with HPA's percentage-based scaling decisions.
 - **Confidence scaling**: Recommendations widen automatically when data is sparse,
@@ -200,8 +208,25 @@ The dashboard includes:
   the busiest hour, not just the average.
 - **Always-bounded recommendations**: Resource bounds (`min`/`max`) can be set
   per-policy. When omitted, safe defaults apply (CPU: 50m-4000m, Memory: 64Mi-8Gi).
+- **Sidecar exclusion**: Skip specific containers (e.g., `istio-proxy`,
+  `linkerd-proxy`) from recommendations and resizes via `excludeContainers`.
+- **Node capacity guard**: Validates that total pod resource requests after resize
+  will not exceed node allocatable, preventing eviction.
+- **Prometheus auto-discovery**: Finds Prometheus automatically via the Prometheus
+  Operator CRD or well-known service names when no explicit address is configured.
 - **Conflict detection**: Detects and warns about VPA, other RightSizePolicy, or
   active Deployment rollouts targeting the same workload.
+- **Cost savings estimation**: Computes `EstimatedMonthlySavings` based on
+  configurable pricing (default: $0.031/vCPU-hr, $0.004/GiB-hr). Visible via
+  `kubectl rightsize savings` and the Grafana dashboard.
+- **LimitRange/ResourceQuota guard**: Skips resizes that would violate namespace
+  LimitRange constraints or exceed ResourceQuota headroom.
+- **Degraded condition**: Sets `Degraded` with reason `HighRevertRate` when 3+
+  of the last 5 resizes are reverted, signaling parameters need adjustment.
+- **Exponential backoff**: Cooldown doubles per consecutive revert (capped at
+  16x), preventing repeated failed resizes.
+- **Kubernetes Events**: Emits `Normal/Resized` and `Warning/Reverted` events
+  on the policy, visible via `kubectl describe`.
 
 ## Documentation
 

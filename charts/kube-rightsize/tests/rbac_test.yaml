@@ -49,3 +49,41 @@ tests:
               - get
               - list
               - watch
+
+  - it: should include node read permissions for capacity pre-check
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - ""
+            resources:
+              - nodes
+            verbs:
+              - get
+
+  - it: should include service read permissions for Prometheus auto-discovery
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - ""
+            resources:
+              - services
+            verbs:
+              - get
+
+  - it: should include resourcequotas and limitranges read permissions
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - ""
+            resources:
+              - resourcequotas
+              - limitranges
+            verbs:
+              - get
+              - list

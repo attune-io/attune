@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -34,6 +35,7 @@ import (
 	kubefake "k8s.io/client-go/kubernetes/fake"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	k8stesting "k8s.io/client-go/testing"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -533,7 +535,8 @@ func TestScaleLimits(t *testing.T) {
 }
 
 func TestComputeSavings_ReturnsCorrectStructure(t *testing.T) {
-	r := &RightSizePolicyReconciler{}
+	scheme := testScheme()
+	r := &RightSizePolicyReconciler{Client: fake.NewClientBuilder().WithScheme(scheme).Build()}
 	recs := []rightsizev1alpha1.WorkloadRecommendation{
 		{
 			Workload: "api-server",
@@ -550,7 +553,7 @@ func TestComputeSavings_ReturnsCorrectStructure(t *testing.T) {
 			},
 		},
 	}
-	savings := r.computeSavings("test-ns", recs)
+	savings := r.computeSavings(context.Background(), "test-ns", recs)
 	assert.NotEmpty(t, savings.CPURequestReduction)
 	assert.Equal(t, "500m", savings.CPURequestReduction)
 }
@@ -1059,7 +1062,7 @@ func TestCheckPendingSafetyObservations_ObservationElapsed(t *testing.T) {
 
 	reconciler, fakeClient := newResizeReconciler(pod)
 
-	reconciler.checkPendingSafetyObservations(context.Background(), policy)
+	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
 
 	// Verify tracking annotations were removed.
 	var updated corev1.Pod
@@ -1100,7 +1103,7 @@ func TestCheckPendingSafetyObservations_MalformedAnnotation(t *testing.T) {
 
 	// Should not panic when the annotation value is unparseable.
 	assert.NotPanics(t, func() {
-		reconciler.checkPendingSafetyObservations(context.Background(), policy)
+		reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
 	})
 
 	// Annotations should still be present since the pod was skipped due to parse error.
@@ -1139,7 +1142,7 @@ func TestCheckPendingSafetyObservations_NotElapsed(t *testing.T) {
 
 	reconciler, fakeClient := newResizeReconciler(pod)
 
-	reconciler.checkPendingSafetyObservations(context.Background(), policy)
+	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
 
 	// Verify annotations are still present (observation period not elapsed).
 	var updated corev1.Pod
@@ -1168,7 +1171,7 @@ func TestExecuteResizes_NoClientset(t *testing.T) {
 	reconciler := &RightSizePolicyReconciler{}
 	policy := newTestPolicy("test-policy", "default")
 
-	count, history := reconciler.executeResizes(context.Background(), policy, nil, nil)
+	count, history := reconciler.executeResizes(context.Background(), policy, nil, nil, nil)
 	assert.Equal(t, 0, count)
 	assert.Nil(t, history)
 }
@@ -1186,7 +1189,7 @@ func TestExecuteResizes_SuccessfulResize(t *testing.T) {
 	}
 
 	workloads := []client.Object{deploy}
-	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations)
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, nil)
 	assert.Equal(t, 1, count)
 	assert.NotEmpty(t, history)
 	assert.Equal(t, "api-server", history[0].Workload)
@@ -1208,7 +1211,7 @@ func TestExecuteResizes_SkipsMatchingResources(t *testing.T) {
 	}
 
 	workloads := []client.Object{deploy}
-	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations)
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, nil)
 	assert.Equal(t, 0, count)
 	assert.Empty(t, history)
 }
@@ -1226,7 +1229,7 @@ func TestExecuteResizes_NoMatchingWorkload(t *testing.T) {
 	}
 
 	workloads := []client.Object{deploy}
-	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations)
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, nil)
 	assert.Equal(t, 0, count)
 	assert.Empty(t, history)
 }
@@ -1579,7 +1582,7 @@ func TestExecuteResizes_SkipsQoSChange(t *testing.T) {
 	}
 
 	workloads := []client.Object{deploy}
-	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations)
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, nil)
 	assert.Equal(t, 0, count)
 	assert.Empty(t, history)
 }
@@ -1605,7 +1608,7 @@ func TestExecuteResizes_ResizeError(t *testing.T) {
 	}
 
 	workloads := []client.Object{deploy}
-	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations)
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, nil)
 	assert.Equal(t, 0, count)
 	assert.NotEmpty(t, history)
 	assert.Equal(t, "Failed", history[0].Result)
@@ -1625,7 +1628,7 @@ func TestExecuteResizes_AutoRevertOnSafetyViolation(t *testing.T) {
 	}
 
 	workloads := []client.Object{deploy}
-	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations)
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, nil)
 
 	// Resize was attempted. The safety check runs immediately but with a
 	// fake clientset the pod won't have conditions set, so CheckPod will
@@ -1688,7 +1691,7 @@ func TestCheckPendingSafetyObservations_MalformedTimestamp(t *testing.T) {
 	reconciler, fakeClient := newResizeReconciler(pod)
 
 	assert.NotPanics(t, func() {
-		reconciler.checkPendingSafetyObservations(context.Background(), policy)
+		reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
 	})
 
 	// Annotations should remain since the pod was skipped due to timestamp parse error.
@@ -1727,7 +1730,7 @@ func TestCheckPendingSafetyObservations_MalformedMemoryAnnotation(t *testing.T) 
 	reconciler, fakeClient := newResizeReconciler(pod)
 
 	assert.NotPanics(t, func() {
-		reconciler.checkPendingSafetyObservations(context.Background(), policy)
+		reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
 	})
 
 	var updated corev1.Pod
@@ -1787,7 +1790,7 @@ func TestCheckPendingSafetyObservations_CustomObservationPeriod(t *testing.T) {
 
 	reconciler, fakeClient := newResizeReconciler(pod)
 
-	reconciler.checkPendingSafetyObservations(context.Background(), policy)
+	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
 
 	var updated corev1.Pod
 	err := fakeClient.Get(context.Background(), types.NamespacedName{
@@ -1803,7 +1806,7 @@ func TestCheckPendingSafetyObservations_NilClientset(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 
 	assert.NotPanics(t, func() {
-		reconciler.checkPendingSafetyObservations(context.Background(), policy)
+		reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
 	})
 }
 
@@ -1850,7 +1853,7 @@ func TestCheckPendingSafetyObservations_UnsafeVerdictReverts(t *testing.T) {
 
 	reconciler, fakeClient := newResizeReconciler(pod)
 
-	reconciler.checkPendingSafetyObservations(context.Background(), policy)
+	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
 
 	var updated corev1.Pod
 	err := fakeClient.Get(context.Background(), types.NamespacedName{
@@ -1906,6 +1909,34 @@ func TestBuildPrometheusQuery_EscapesSpecialChars(t *testing.T) {
 	assert.Contains(t, query, `ns\"test`)
 	assert.Contains(t, query, `pod\"prefix`)
 	assert.Contains(t, query, `con\"tainer`)
+}
+
+func TestEscapePromQLRegex(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"clean string", "my-app", "my-app"},
+		{"dot in name", "my.app", `my\.app`},
+		{"plus in name", "app+v2", `app\+v2`},
+		{"multiple metacharacters", "a.b+c*d", `a\.b\+c\*d`},
+		{"pipe", "a|b", `a\|b`},
+		{"brackets", "[test]", `\[test\]`},
+		{"empty", "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, escapePromQLRegex(tt.input))
+		})
+	}
+}
+
+func TestBuildPrometheusQuery_EscapesRegexInPodPrefix(t *testing.T) {
+	query := buildPrometheusQuery("default", "my.app", "main", "cpu")
+	// The dot in "my.app" should be escaped as "my\.app" in the regex matcher.
+	assert.Contains(t, query, `my\.app`)
+	assert.NotContains(t, query, `my.app.*`)
 }
 
 // ---------- listWorkloadsBySelector invalid selector ----------
@@ -2037,4 +2068,287 @@ func TestReconcile_SkipsMidRolloutWorkload(t *testing.T) {
 		Name: "test-policy", Namespace: "default",
 	}, &updated))
 	assert.Equal(t, int32(0), updated.Status.Workloads.WithRecommendations)
+}
+
+// ---------- excludeContainers ----------
+
+func TestComputeRecommendations_ExcludeContainers(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.ExcludeContainers = []string{"istio-proxy"}
+
+	// Deployment with two containers: main + istio-proxy sidecar.
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "api-server", Namespace: "default"},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: int32Ptr(1),
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "api-server"}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "api-server"}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "main",
+							Image: "nginx",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("500m"),
+									corev1.ResourceMemory: resource.MustParse("512Mi"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("1000m"),
+									corev1.ResourceMemory: resource.MustParse("1Gi"),
+								},
+							},
+						},
+						{
+							Name:  "istio-proxy",
+							Image: "istio/proxyv2",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("100m"),
+									corev1.ResourceMemory: resource.MustParse("128Mi"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("200m"),
+									corev1.ResourceMemory: resource.MustParse("256Mi"),
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		Status: appsv1.DeploymentStatus{Replicas: 1, UpdatedReplicas: 1, AvailableReplicas: 1},
+	}
+	reconciler := newReconcilerWithClient()
+
+	mc := &mockCollector{
+		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return generateSamples(200, 0.1), nil
+		},
+	}
+
+	rec, err := reconciler.computeRecommendations(context.Background(), policy, deploy, nil, mc)
+	require.NoError(t, err)
+	require.NotNil(t, rec)
+
+	// Only "main" should have a recommendation; "istio-proxy" is excluded.
+	assert.Len(t, rec.Containers, 1)
+	assert.Equal(t, "main", rec.Containers[0].Name)
+}
+
+func TestComputeRecommendations_ExcludeAllContainers(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.ExcludeContainers = []string{"main"}
+
+	deploy := newTestDeployment("api-server", "default", nil)
+	reconciler := newReconcilerWithClient()
+
+	mc := &mockCollector{
+		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return generateSamples(200, 0.1), nil
+		},
+	}
+
+	rec, err := reconciler.computeRecommendations(context.Background(), policy, deploy, nil, mc)
+	assert.NoError(t, err)
+	assert.Nil(t, rec, "all containers excluded, should return nil")
+}
+
+// ---------- node capacity pre-check ----------
+
+func TestExecuteResizes_SkipsWhenExceedsNodeCapacity(t *testing.T) {
+	pod := newResizePod("api-server", "500m", "512Mi", "1000m", "1Gi")
+	pod.Spec.NodeName = "test-node"
+
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-node"},
+		Status: corev1.NodeStatus{
+			Allocatable: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("600m"), // less than recommended 750m
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+			},
+		},
+	}
+
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	reconciler, _ := newResizeReconciler(pod, deploy, node)
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = "OneShot"
+
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("api-server", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),
+	}
+
+	workloads := []client.Object{deploy}
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, nil)
+	assert.Equal(t, 0, count, "resize should be skipped when total requests exceed node allocatable")
+	assert.Empty(t, history)
+}
+
+func TestExecuteResizes_ProceedsWhenWithinNodeCapacity(t *testing.T) {
+	pod := newResizePod("api-server", "500m", "512Mi", "1000m", "1Gi")
+	pod.Spec.NodeName = "test-node"
+
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-node"},
+		Status: corev1.NodeStatus{
+			Allocatable: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("4"),
+				corev1.ResourceMemory: resource.MustParse("8Gi"),
+			},
+		},
+	}
+
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	reconciler, _ := newResizeReconciler(pod, deploy, node)
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = "OneShot"
+
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("api-server", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),
+	}
+
+	workloads := []client.Object{deploy}
+	count, _ := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, nil)
+	assert.Equal(t, 1, count, "resize should proceed when within node capacity")
+}
+
+// ---------- discoverPrometheus ----------
+
+func TestDiscoverPrometheus_WellKnownService(t *testing.T) {
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "prometheus-server",
+			Namespace: "monitoring",
+		},
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{{Port: 9090}},
+		},
+	}
+	reconciler := newReconcilerWithClient(svc)
+
+	addr := reconciler.discoverPrometheus(context.Background())
+	assert.Equal(t, "http://prometheus-server.monitoring:9090", addr)
+}
+
+func TestDiscoverPrometheus_NoServiceFound(t *testing.T) {
+	reconciler := newReconcilerWithClient()
+
+	addr := reconciler.discoverPrometheus(context.Background())
+	assert.Empty(t, addr, "should return empty when no Prometheus service is found")
+}
+
+func TestResolvePrometheusAddress_FallsBackToAutoDiscovery(t *testing.T) {
+	// Policy has no Prometheus address, no RightSizeDefaults, but a well-known service exists.
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec:       rightsizev1alpha1.RightSizePolicySpec{MetricsSource: rightsizev1alpha1.MetricsSource{}},
+	}
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "prometheus-kube-prometheus-prometheus",
+			Namespace: "monitoring",
+		},
+	}
+	reconciler := newReconcilerWithClient(svc)
+
+	addr, err := reconciler.resolvePrometheusAddress(context.Background(), policy)
+	assert.NoError(t, err)
+	assert.Equal(t, "http://prometheus-kube-prometheus-prometheus.monitoring:9090", addr)
+}
+
+// ---------- Event emission ----------
+
+func TestExecuteResizes_EmitsResizedEvent(t *testing.T) {
+	pod := newResizePod("api-server", "500m", "256Mi", "500m", "256Mi")
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	reconciler, _ := newResizeReconciler(pod, deploy)
+
+	recorder := record.NewFakeRecorder(10)
+	reconciler.Recorder = recorder
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = "Auto"
+	policy.Spec.UpdateStrategy.AutoRevert = false
+
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("api-server", "500m", "256Mi", "500m", "256Mi", "250m", "128Mi", "250m", "128Mi"),
+	}
+	workloads := []client.Object{deploy}
+
+	count, _ := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, nil)
+	assert.Equal(t, 1, count)
+
+	// Drain the event channel and check for a Resized event.
+	select {
+	case event := <-recorder.Events:
+		assert.Contains(t, event, "Resized")
+	default:
+		t.Fatal("expected a Resized event but channel was empty")
+	}
+}
+
+// ---------- Throttle integration ----------
+
+// mockThrottleCollector extends mockCollector with ThrottleChecker.
+type mockThrottleCollector struct {
+	mockCollector
+	throttleRatio float64
+}
+
+func (m *mockThrottleCollector) GetThrottleRatio(_ context.Context, _, _, _ string) (float64, error) {
+	return m.throttleRatio, nil
+}
+
+func TestExecuteResizes_ThrottleTriggersRevert(t *testing.T) {
+	pod := newResizePod("api-server", "500m", "256Mi", "500m", "256Mi")
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	reconciler, _ := newResizeReconciler(pod, deploy)
+
+	recorder := record.NewFakeRecorder(10)
+	reconciler.Recorder = recorder
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = "Auto"
+	policy.Spec.UpdateStrategy.AutoRevert = true
+
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("api-server", "500m", "256Mi", "500m", "256Mi", "250m", "128Mi", "250m", "128Mi"),
+	}
+	workloads := []client.Object{deploy}
+
+	// Collector reports 60% throttle (above 50% threshold).
+	collector := &mockThrottleCollector{throttleRatio: 0.6}
+
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, collector)
+	// The resize should succeed then immediately revert due to throttle.
+	assert.Equal(t, 0, count, "should be 0 after revert")
+
+	// History should show reverted entries.
+	reverted := false
+	for _, h := range history {
+		if h.Result == "Reverted" {
+			reverted = true
+			break
+		}
+	}
+	assert.True(t, reverted, "expected at least one Reverted history entry")
+
+	// Check for the Reverted event mentioning throttle.
+	foundRevert := false
+	for {
+		select {
+		case event := <-recorder.Events:
+			if strings.Contains(event, "Reverted") && strings.Contains(event, "throttle") {
+				foundRevert = true
+			}
+		default:
+			goto done
+		}
+	}
+done:
+	assert.True(t, foundRevert, "expected a Reverted event mentioning throttle")
 }

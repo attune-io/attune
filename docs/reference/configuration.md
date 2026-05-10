@@ -73,6 +73,13 @@ This page documents every value in the Helm chart's `values.yaml`.
 |-----|------|---------|-------------|
 | `webhooks.enabled` | bool | `true` | Enable admission webhooks for defaulting and validation. Requires cert-manager. |
 
+## Grafana Dashboard
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `grafanaDashboard.enabled` | bool | `false` | Create a ConfigMap with the Grafana dashboard. Auto-discovered by the Grafana sidecar via the `grafana_dashboard: "1"` label. |
+| `grafanaDashboard.additionalLabels` | object | `{}` | Extra labels for the dashboard ConfigMap (e.g., folder selection). |
+
 ## Network Policy
 
 | Key | Type | Default | Description |
@@ -85,6 +92,45 @@ This page documents every value in the Helm chart's `values.yaml`.
 |-----|------|---------|-------------|
 | `logging.level` | string | `info` | Log level: `debug`, `info`, `warn`, `error` |
 | `logging.format` | string | `json` | Log format: `json` or `text` |
+
+## CRD Configuration (RightSizeDefaults)
+
+These fields are set on the `RightSizeDefaults` cluster-scoped CRD, not in
+the Helm `values.yaml`. They apply to all `RightSizePolicy` resources.
+
+### Cost Pricing
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `costPricing.cpuPerCoreHour` | string | `"0.031"` | USD per vCPU-hour for cost estimation |
+| `costPricing.memoryPerGiBHour` | string | `"0.004"` | USD per GiB-hour for cost estimation |
+
+These values are used to compute `status.savings.estimatedMonthlySavings`
+on each `RightSizePolicy`. Adjust for your cloud provider or reserved
+instance pricing.
+
+### Status Conditions
+
+The controller sets these conditions on each `RightSizePolicy`:
+
+| Condition | Reasons | Description |
+|-----------|---------|-------------|
+| `Ready` | `Monitoring`, `InsufficientData`, `PrometheusUnavailable`, `InvalidConfig` | Overall health |
+| `Resizing` | `InProgress`, `Idle`, `CooldownActive` | Active resize operation state (only in resize modes) |
+| `Degraded` | `HighRevertRate` | Set when 3+ of the last 5 resizes were reverted |
+
+### Exponential Backoff
+
+When consecutive resizes are reverted, the cooldown doubles per revert
+(capped at 16x). A successful resize resets the multiplier.
+
+| Consecutive reverts | Effective cooldown |
+|---------------------|-------------------|
+| 0 | 1x base |
+| 1 | 2x |
+| 2 | 4x |
+| 3 | 8x |
+| 4+ | 16x (cap) |
 
 ## Example: HA deployment with ServiceMonitor
 

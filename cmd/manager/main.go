@@ -107,8 +107,9 @@ func main() {
 		Client:    mgr.GetClient(),
 		Scheme:    mgr.GetScheme(),
 		Clientset: clientset,
+		Recorder:  mgr.GetEventRecorderFor("kube-rightsize"),
 		MetricsFactory: func(address string) (metrics.MetricsCollector, error) {
-			collector, err := metrics.NewPrometheusCollector(address, nil)
+			collector, err := metrics.NewPrometheusCollector(address, ctrl.Log.WithName("prometheus"))
 			if err != nil {
 				return nil, fmt.Errorf("creating Prometheus collector for %s: %w", address, err)
 			}
@@ -126,6 +127,12 @@ func main() {
 			WithValidator(&webhook.RightSizePolicyValidator{}).
 			Complete(); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "RightSizePolicy")
+			os.Exit(1)
+		}
+		if err = ctrl.NewWebhookManagedBy(mgr, &rightsizev1alpha1.RightSizeDefaults{}).
+			WithValidator(&webhook.RightSizeDefaultsValidator{}).
+			Complete(); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "RightSizeDefaults")
 			os.Exit(1)
 		}
 	}

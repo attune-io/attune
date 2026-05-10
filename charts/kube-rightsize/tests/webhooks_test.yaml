@@ -27,7 +27,7 @@ tests:
           path: webhooks[0].clientConfig.service.path
           value: /mutate-rightsize-io-v1alpha1-rightsizepolicy
 
-  - it: should set correct validating webhook path
+  - it: should set correct validating webhook path for policies
     set:
       webhooks.enabled: true
     documentIndex: 1
@@ -37,6 +37,21 @@ tests:
       - equal:
           path: webhooks[0].clientConfig.service.path
           value: /validate-rightsize-io-v1alpha1-rightsizepolicy
+
+  - it: should include RightSizeDefaults validation webhook
+    set:
+      webhooks.enabled: true
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: webhooks[1].name
+          value: validation-defaults.rightsize.io
+      - equal:
+          path: webhooks[1].clientConfig.service.path
+          value: /validate-rightsize-io-v1alpha1-rightsizedefaults
+      - equal:
+          path: webhooks[1].rules[0].resources[0]
+          value: rightsizedefaults
 
   - it: should set cert-manager annotation
     set:

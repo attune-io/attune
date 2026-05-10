@@ -37,6 +37,25 @@ type RightSizeDefaultsSpec struct {
 	// UpdateStrategy configures default update strategy settings.
 	// +optional
 	UpdateStrategy *UpdateStrategy `json:"updateStrategy,omitempty"`
+
+	// CostPricing configures the per-unit pricing used to compute
+	// EstimatedMonthlySavings. If omitted, defaults to standard
+	// on-demand Linux pricing ($0.031/vCPU-hour, $0.004/GiB-hour).
+	// +optional
+	CostPricing *CostPricing `json:"costPricing,omitempty"`
+}
+
+// CostPricing defines per-unit resource pricing for cost estimation.
+type CostPricing struct {
+	// CPUPerCoreHour is the cost per vCPU-hour (e.g. "0.031").
+	// Defaults to 0.031 if not specified.
+	// +optional
+	CPUPerCoreHour string `json:"cpuPerCoreHour,omitempty"`
+
+	// MemoryPerGiBHour is the cost per GiB-hour (e.g. "0.004").
+	// Defaults to 0.004 if not specified.
+	// +optional
+	MemoryPerGiBHour string `json:"memoryPerGiBHour,omitempty"`
 }
 
 // +kubebuilder:object:root=true

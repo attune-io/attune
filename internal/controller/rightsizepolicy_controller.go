@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -76,10 +77,13 @@ const (
 //+kubebuilder:rbac:groups=rightsize.io,resources=rightsizepolicies/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=rightsize.io,resources=rightsizedefaults,verbs=get;list;watch
 //+kubebuilder:rbac:groups=apps,resources=deployments;statefulsets;daemonsets;replicasets,verbs=get;list;watch
-//+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
+//+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;update
 //+kubebuilder:rbac:groups="",resources=pods/resize,verbs=update;patch
 //+kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=get;list;watch;create;patch
 //+kubebuilder:rbac:groups=autoscaling,resources=horizontalpodautoscalers,verbs=get;list;watch
+//+kubebuilder:rbac:groups="",resources=nodes,verbs=get
+//+kubebuilder:rbac:groups="",resources=services,verbs=get
+//+kubebuilder:rbac:groups="",resources=resourcequotas;limitranges,verbs=get;list
 
 // RightSizePolicyReconciler reconciles a RightSizePolicy object.
 type RightSizePolicyReconciler struct {
@@ -87,6 +91,7 @@ type RightSizePolicyReconciler struct {
 	Scheme         *runtime.Scheme
 	MetricsFactory MetricsCollectorFactory
 	Clientset      kubernetes.Interface // for resize subresource calls
+	Recorder       record.EventRecorder
 }
 
 // MetricsCollectorFactory creates MetricsCollector instances from a Prometheus address.
@@ -105,17 +110,12 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			logger.Info("RightSizePolicy resource not found, likely deleted")
 			return ctrl.Result{}, nil
 		}
+		operatormetrics.ReconcileErrorsTotal.WithLabelValues("fetch").Inc()
 		return ctrl.Result{}, fmt.Errorf("fetching RightSizePolicy: %w", err)
 	}
 
 	// Merge cluster-scoped defaults into the policy.
 	r.mergeDefaults(ctx, &policy)
-
-	// Check pending safety observations from previous resizes before computing
-	// new recommendations.
-	if policy.Spec.UpdateStrategy.AutoRevert {
-		r.checkPendingSafetyObservations(ctx, &policy)
-	}
 
 	// Step 2: Resolve Prometheus address from spec or RightSizeDefaults.
 	prometheusAddr, err := r.resolvePrometheusAddress(ctx, &policy)
@@ -134,10 +134,17 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 	}
 
+	// Check pending safety observations from previous resizes before computing
+	// new recommendations.
+	if policy.Spec.UpdateStrategy.AutoRevert {
+		r.checkPendingSafetyObservations(ctx, &policy, collector)
+	}
+
 	// Step 3: Discover target workloads.
 	workloads, err := r.discoverWorkloads(ctx, &policy)
 	if err != nil {
 		logger.Error(err, "Failed to discover workloads")
+		operatormetrics.ReconcileErrorsTotal.WithLabelValues("discover_workloads").Inc()
 		return ctrl.Result{}, fmt.Errorf("discovering workloads: %w", err)
 	}
 
@@ -181,6 +188,12 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			logger.Info("VPA conflict detected", "workload", workloadName, "vpa", vpaConflict.Name, "message", vpaConflict.Message)
 		}
 
+		// Check for higher-weight policy conflict (skip this workload if outranked).
+		if policyConflict := conflictDetector.CheckPolicyConflict(ctx, r.Client, policy.Namespace, workloadName, workloadKind, policy.Name, policy.Spec.Weight); policyConflict != nil {
+			logger.Info("Higher-weight policy exists, skipping workload", "workload", workloadName, "policy", policyConflict.Name, "message", policyConflict.Message)
+			continue
+		}
+
 		// Step 6: Check for active rollout.
 		if r.isRollingOut(workload) {
 			logger.Info("Skipping workload mid-rollout", "workload", workloadName)
@@ -222,12 +235,13 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	policy.Status.Recommendations = recommendations
 
 	// Compute savings estimate.
-	policy.Status.Savings = r.computeSavings(policy.Namespace, recommendations)
+	policy.Status.Savings = r.computeSavings(ctx, policy.Namespace, recommendations)
 
 	// Step 9: Execute resizes if mode allows.
 	mode := policy.Spec.UpdateStrategy.Mode
-	if isResizeMode(mode) && !r.isCooldownActive(&policy) {
-		resizedCount, history := r.executeResizes(ctx, &policy, workloads, recommendations)
+	cooldownActive := r.isCooldownActive(&policy)
+	if isResizeMode(mode) && !cooldownActive {
+		resizedCount, history := r.executeResizes(ctx, &policy, workloads, recommendations, collector)
 		if resizedCount > 0 {
 			policy.Status.Workloads.Resized = safeInt32(resizedCount)
 			policy.Status.ResizeHistory = appendHistory(policy.Status.ResizeHistory, history, 20)
@@ -255,9 +269,16 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		})
 	}
 
+	// Set Resizing condition.
+	r.setResizingCondition(&policy, cooldownActive)
+
+	// Set Degraded condition based on recent revert rate.
+	r.setDegradedCondition(&policy)
+
 	// Use a retry loop for the status update to handle resource version conflicts
 	// caused by concurrent metadata updates (e.g., cooldown annotations).
 	if statusErr := r.updateStatusWithRetry(ctx, &policy, req.NamespacedName); statusErr != nil {
+		operatormetrics.ReconcileErrorsTotal.WithLabelValues("status_update").Inc()
 		return ctrl.Result{}, fmt.Errorf("updating status: %w", statusErr)
 	}
 
@@ -555,6 +576,7 @@ func (r *RightSizePolicyReconciler) executeResizes(
 	policy *rightsizev1alpha1.RightSizePolicy,
 	workloads []client.Object,
 	recommendations []rightsizev1alpha1.WorkloadRecommendation,
+	collector rsmetrics.MetricsCollector,
 ) (int, []rightsizev1alpha1.ResizeHistoryEntry) {
 	logger := log.FromContext(ctx)
 	if r.Clientset == nil {
@@ -570,6 +592,9 @@ func (r *RightSizePolicyReconciler) executeResizes(
 
 	resizer := resize.NewPodResizer(r.Clientset, logger)
 	monitor := safety.NewMonitor(r.Clientset, logger)
+	if tc, ok := collector.(safety.ThrottleChecker); ok {
+		monitor.WithThrottleChecker(tc, safety.DefaultThrottleThreshold)
+	}
 
 	var totalResized int
 	var history []rightsizev1alpha1.ResizeHistoryEntry
@@ -656,6 +681,19 @@ func (r *RightSizePolicyReconciler) executeResizes(
 					}
 				}
 
+				// Pre-check: LimitRange/ResourceQuota compatibility.
+				currentRes := corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    containerRec.Current.CPURequest.DeepCopy(),
+						corev1.ResourceMemory: containerRec.Current.MemoryRequest.DeepCopy(),
+					},
+				}
+				if err := r.checkQuotaCompatibility(ctx, pod.Namespace, currentRes, target); err != nil {
+					logger.Info("Skipping resize: quota/limitrange violation",
+						"pod", pod.Name, "container", containerRec.Name, "reason", err.Error())
+					continue
+				}
+
 				// Pre-check: QoS preservation
 				if !resize.PreservesQoS(&pod, containerRec.Name, target) {
 					logger.Info("Skipping resize: would change QoS class",
@@ -663,7 +701,14 @@ func (r *RightSizePolicyReconciler) executeResizes(
 					continue
 				}
 
+				// Warn if resize will cause container restart (resizePolicy: RestartContainer).
+				if resize.WouldRestartContainer(&pod, containerRec.Name) {
+					logger.Info("Container has RestartContainer resize policy; resize will trigger restart",
+						"pod", pod.Name, "container", containerRec.Name)
+				}
+
 				// Execute resize
+				resizeStart := time.Now()
 				results, err := resizer.ResizePod(ctx, &pod, containerRec.Name, target)
 				if err != nil {
 					logger.Error(err, "Failed to resize pod",
@@ -675,6 +720,7 @@ func (r *RightSizePolicyReconciler) executeResizes(
 					continue
 				}
 
+				operatormetrics.ResizeDuration.WithLabelValues(pod.Namespace, rec.Workload).Observe(time.Since(resizeStart).Seconds())
 				totalResized++
 				for _, res := range results {
 					result := "Success"
@@ -684,6 +730,11 @@ func (r *RightSizePolicyReconciler) executeResizes(
 					history = append(history, newHistoryEntry(now, rec.Workload, containerRec.Name, res, result))
 					if res.Success {
 						operatormetrics.ResizeTotal.WithLabelValues(pod.Namespace, rec.Workload, res.Resource, "success").Inc()
+						if r.Recorder != nil {
+							r.Recorder.Eventf(policy, corev1.EventTypeNormal, "Resized",
+								"Resized %s %s/%s: %s %s -> %s",
+								res.Resource, rec.Workload, containerRec.Name, res.Resource, res.From.String(), res.To.String())
+						}
 					}
 				}
 
@@ -739,6 +790,10 @@ func (r *RightSizePolicyReconciler) executeResizes(
 						}
 						operatormetrics.RevertsTotal.WithLabelValues(pod.Namespace, rec.Workload, verdict.Reason).Inc()
 						operatormetrics.ResizeTotal.WithLabelValues(pod.Namespace, rec.Workload, containerRec.Name, "reverted").Inc()
+						if r.Recorder != nil {
+							r.Recorder.Eventf(policy, corev1.EventTypeWarning, "Reverted",
+								"Reverted resize on %s/%s: %s", rec.Workload, containerRec.Name, verdict.Message)
+						}
 						// Update history entry to Reverted
 						for i := len(history) - 1; i >= 0; i-- {
 							if history[i].Workload == rec.Workload && history[i].Container == containerRec.Name {
@@ -759,7 +814,7 @@ func (r *RightSizePolicyReconciler) executeResizes(
 // annotated with tracking annotations. For each pod whose observation period
 // has elapsed, it runs a safety check. Unsafe pods are reverted to their
 // original resource values and the annotations are removed.
-func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy) {
+func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy, collector rsmetrics.MetricsCollector) {
 	logger := log.FromContext(ctx)
 	if r.Clientset == nil {
 		return
@@ -773,6 +828,9 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 	}
 
 	monitor := safety.NewMonitor(r.Clientset, logger)
+	if tc, ok := collector.(safety.ThrottleChecker); ok {
+		monitor.WithThrottleChecker(tc, safety.DefaultThrottleThreshold)
+	}
 
 	observationPeriod := defaultObservationPeriod
 	if policy.Spec.UpdateStrategy.Canary != nil && policy.Spec.UpdateStrategy.Canary.ObservationPeriod.Duration > 0 {
@@ -850,6 +908,10 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 			}
 			workloadName := pod.Annotations[annotationResizedWorkload]
 			operatormetrics.RevertsTotal.WithLabelValues(pod.Namespace, workloadName, verdict.Reason).Inc()
+			if r.Recorder != nil {
+				r.Recorder.Eventf(policy, corev1.EventTypeWarning, "Reverted",
+					"Safety observation reverted resize on pod %s: %s", pod.Name, verdict.Message)
+			}
 		}
 
 		// Remove tracking annotations regardless of outcome (observation complete).

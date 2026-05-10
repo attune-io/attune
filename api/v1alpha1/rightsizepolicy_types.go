@@ -298,7 +298,8 @@ type SavingsStatus struct {
 	// MemoryRequestReduction is the total memory request reduction.
 	MemoryRequestReduction string `json:"memoryRequestReduction,omitempty"`
 
-	// EstimatedMonthlySavings is the estimated monthly cost savings.
+	// EstimatedMonthlySavings is the estimated monthly cost savings based on
+	// configured or default pricing (e.g. "$12.50").
 	EstimatedMonthlySavings string `json:"estimatedMonthlySavings,omitempty"`
 }
 

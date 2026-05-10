@@ -58,17 +58,21 @@ nav:
       - Quick Start: getting-started/quickstart.md
       - Concepts: getting-started/concepts.md
   - Guides:
+      - Prometheus Setup: guides/prometheus-setup.md
       - Recommend Mode: guides/recommend-mode.md
       - Canary Rollout: guides/canary-rollout.md
       - HPA Coexistence: guides/hpa-coexistence.md
+      - GitOps Integration: guides/gitops-integration.md
       - Migrating from VPA: guides/migrating-from-vpa.md
       - Troubleshooting: guides/troubleshooting.md
   - Reference:
       - API Reference: reference/api.md
+      - CLI Reference: reference/cli.md
       - Metrics: reference/metrics.md
       - Configuration: reference/configuration.md
   - Architecture:
       - Design: architecture/design.md
+      - Resize API: architecture/resize-api.md
       - Algorithm: architecture/algorithm.md
       - Safety System: architecture/safety.md
   - Contributing:

@@ -46,4 +46,18 @@ webhooks:
         operations: ["CREATE", "UPDATE"]
         resources: ["rightsizepolicies"]
     sideEffects: None
+  - name: validation-defaults.rightsize.io
+    admissionReviewVersions: ["v1"]
+    clientConfig:
+      service:
+        name: {{ include "kube-rightsize.fullname" . }}-webhook
+        namespace: {{ .Release.Namespace }}
+        path: /validate-rightsize-io-v1alpha1-rightsizedefaults
+    failurePolicy: Fail
+    rules:
+      - apiGroups: ["rightsize.io"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["rightsizedefaults"]
+    sideEffects: None
 {{- end }}

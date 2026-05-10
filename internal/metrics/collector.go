@@ -21,10 +21,10 @@ package metrics
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
+	"github.com/go-logr/logr"
 	promapi "github.com/prometheus/client_golang/api"
 	promv1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	"github.com/prometheus/common/model"
@@ -52,20 +52,17 @@ type MetricsCollector interface {
 // PrometheusCollector implements MetricsCollector using the Prometheus HTTP API.
 type PrometheusCollector struct {
 	api    promv1.API
-	logger *slog.Logger
+	logger logr.Logger
 }
 
 // NewPrometheusCollector creates a new PrometheusCollector that queries the
 // Prometheus instance at the given address (e.g. "http://prometheus:9090").
-func NewPrometheusCollector(address string, logger *slog.Logger) (*PrometheusCollector, error) {
+func NewPrometheusCollector(address string, logger logr.Logger) (*PrometheusCollector, error) {
 	client, err := promapi.NewClient(promapi.Config{
 		Address: address,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("creating prometheus client: %w", err)
-	}
-	if logger == nil {
-		logger = slog.Default()
 	}
 	return &PrometheusCollector{
 		api:    promv1.NewAPI(client),
@@ -85,7 +82,7 @@ func (c *PrometheusCollector) QueryRange(ctx context.Context, query string, star
 		return nil, fmt.Errorf("prometheus range query failed: %w", err)
 	}
 	if len(warnings) > 0 {
-		c.logger.Warn("prometheus range query returned warnings",
+		c.logger.Info("Prometheus range query returned warnings",
 			"warnings", strings.Join(warnings, "; "))
 	}
 
@@ -115,7 +112,7 @@ func (c *PrometheusCollector) Query(ctx context.Context, query string, ts time.T
 		return 0, fmt.Errorf("prometheus instant query failed: %w", err)
 	}
 	if len(warnings) > 0 {
-		c.logger.Warn("prometheus instant query returned warnings",
+		c.logger.Info("Prometheus instant query returned warnings",
 			"warnings", strings.Join(warnings, "; "))
 	}
 
@@ -130,4 +127,21 @@ func (c *PrometheusCollector) Query(ctx context.Context, query string, ts time.T
 	default:
 		return 0, fmt.Errorf("unexpected result type %T, expected vector or scalar", result)
 	}
+}
+
+// GetThrottleRatio queries Prometheus for the CPU throttle ratio of a container.
+// It computes: rate(container_cpu_cfs_throttled_periods_total[5m]) /
+// rate(container_cpu_cfs_periods_total[5m]).
+// Returns 0.0 if no data is available. Implements safety.ThrottleChecker.
+func (c *PrometheusCollector) GetThrottleRatio(ctx context.Context, namespace, pod, container string) (float64, error) {
+	query := fmt.Sprintf(
+		`rate(container_cpu_cfs_throttled_periods_total{namespace="%s",pod="%s",container="%s"}[5m])`+
+			` / rate(container_cpu_cfs_periods_total{namespace="%s",pod="%s",container="%s"}[5m])`,
+		namespace, pod, container, namespace, pod, container,
+	)
+	val, err := c.Query(ctx, query, time.Now())
+	if err != nil {
+		return 0, err
+	}
+	return val, nil
 }

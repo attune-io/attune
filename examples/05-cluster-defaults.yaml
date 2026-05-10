@@ -30,6 +30,11 @@ spec:
     mode: Recommend
     cooldown: 1h
     autoRevert: true
+  # Cost pricing for EstimatedMonthlySavings (optional).
+  # Adjust to match your cloud provider or reserved instance pricing.
+  costPricing:
+    cpuPerCoreHour: "0.031"     # USD per vCPU-hour (default)
+    memoryPerGiBHour: "0.004"   # USD per GiB-hour (default)
 ---
 # With defaults set, policies become much simpler:
 apiVersion: rightsize.io/v1alpha1

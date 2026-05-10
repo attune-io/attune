@@ -247,11 +247,33 @@ func escapePromQL(s string) string {
 	return s
 }
 
+// escapePromQLRegex escapes regex metacharacters in addition to PromQL
+// escaping. Used for values interpolated into =~ regex matchers to prevent
+// unintended pattern matching (e.g., "." matching any character).
+func escapePromQLRegex(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	s = strings.ReplaceAll(s, `.`, `\.`)
+	s = strings.ReplaceAll(s, `+`, `\+`)
+	s = strings.ReplaceAll(s, `*`, `\*`)
+	s = strings.ReplaceAll(s, `?`, `\?`)
+	s = strings.ReplaceAll(s, `(`, `\(`)
+	s = strings.ReplaceAll(s, `)`, `\)`)
+	s = strings.ReplaceAll(s, `[`, `\[`)
+	s = strings.ReplaceAll(s, `]`, `\]`)
+	s = strings.ReplaceAll(s, `{`, `\{`)
+	s = strings.ReplaceAll(s, `}`, `\}`)
+	s = strings.ReplaceAll(s, `|`, `\|`)
+	s = strings.ReplaceAll(s, `^`, `\^`)
+	s = strings.ReplaceAll(s, `$`, `\$`)
+	return s
+}
+
 // buildPrometheusQuery generates a PromQL query for the given metric type.
 // If container is empty, the query matches pod-level metrics (no container filter).
 func buildPrometheusQuery(namespace, podPrefix, container, metric string) string {
 	ns := escapePromQL(namespace)
-	pp := escapePromQL(podPrefix)
+	pp := escapePromQLRegex(podPrefix)
 
 	containerFilter := ""
 	if container != "" {

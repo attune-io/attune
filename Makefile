@@ -156,9 +156,30 @@ kind-delete: ## Delete the Kind cluster
 	kind delete cluster --name kube-rightsize
 
 .PHONY: kind-deploy
-kind-deploy: docker-build ## Build, load, and deploy to Kind
+kind-deploy: docker-build ## Build, load, and deploy to Kind (with Prometheus + cert-manager)
 	kind load docker-image $(IMG) --name kube-rightsize
-	$(MAKE) install deploy
+	@echo "Installing cert-manager..."
+	kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.17.2/cert-manager.yaml
+	kubectl wait --for=condition=Available deployment/cert-manager-webhook -n cert-manager --timeout=120s
+	@echo "Installing Prometheus..."
+	helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true
+	helm repo update
+	helm install prometheus prometheus-community/prometheus \
+		--namespace monitoring --create-namespace \
+		--set server.persistentVolume.enabled=false \
+		--set alertmanager.enabled=false \
+		--set prometheus-pushgateway.enabled=false \
+		--wait --timeout 3m 2>/dev/null || true
+	@echo "Installing operator via Helm..."
+	helm install kube-rightsize ./charts/kube-rightsize \
+		--namespace kube-rightsize-system --create-namespace \
+		--set image.repository=$(firstword $(subst :, ,$(IMG))) \
+		--set image.tag=$(lastword $(subst :, ,$(IMG))) \
+		--set image.pullPolicy=Never \
+		--set webhooks.enabled=true \
+		--set metrics.enabled=true \
+		--set leaderElection.enabled=false \
+		--wait --timeout 3m
 
 ##@ Release
 

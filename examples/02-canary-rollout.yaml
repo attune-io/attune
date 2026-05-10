@@ -3,7 +3,7 @@
 # After running in Recommend mode and trusting the recommendations,
 # switch to Canary. The operator resizes a small percentage of pods,
 # watches them for the observation period, and auto-reverts if any
-# pod becomes unhealthy (OOMKilled, throttled, NotReady).
+# pod becomes unhealthy (OOMKilled, CPU-throttled, restart spikes, NotReady).
 #
 # Apply:
 #   kubectl apply -f 02-canary-rollout.yaml

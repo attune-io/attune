@@ -66,13 +66,66 @@ condition appears.
 Every resize is guarded by the safety monitor:
 
 - **OOMKill detection**: reverts if the container is OOMKilled after resize.
+- **CPU throttle detection**: reverts if the CPU throttle ratio exceeds 50%
+  post-resize (queries Prometheus for `container_cpu_cfs_throttled_periods_total`).
 - **Restart spike**: reverts if the container restarts 2+ times post-resize.
 - **NotReady detection**: reverts if the pod loses its Ready condition.
+- **Exponential backoff**: consecutive reverts double the cooldown (capped at 16x).
+- **LimitRange/ResourceQuota guard**: skips resizes that would violate
+  namespace LimitRange min/max constraints or exceed ResourceQuota headroom.
+- **Degraded condition**: when 3+ of the last 5 resizes are reverted, the
+  controller sets a `Degraded` condition with reason `HighRevertRate`.
+- **Kubernetes Events**: emits `Normal/Resized` and `Warning/Reverted` events
+  on the policy for visibility via `kubectl describe`.
 - **Auto-revert**: when enabled (default), the operator restores the original
   resources via the `/resize` subresource.
 
 Cooldown enforcement prevents repeated resize attempts. See
 [Safety System](../architecture/safety.md) for the full design.
+
+## Cost savings estimation
+
+The operator computes `EstimatedMonthlySavings` based on the difference
+between current and recommended resource requests. Pricing is configurable
+via `RightSizeDefaults`:
+
+```yaml
+spec:
+  costPricing:
+    cpuPerCoreHour: "0.031"     # default: $0.031
+    memoryPerGiBHour: "0.004"   # default: $0.004
+```
+
+The formula is: `(cpuCoresSaved * cpuPrice + memGiBSaved * memPrice) * 730 hours/month`.
+View savings via `kubectl rightsize savings` or the Grafana dashboard.
+
+## Multi-container support
+
+By default, the operator computes recommendations for every container in a pod.
+For pods with sidecar containers managed by a service mesh (e.g., `istio-proxy`,
+`linkerd-proxy`), use `excludeContainers` to skip them:
+
+```yaml
+spec:
+  excludeContainers:
+    - istio-proxy
+```
+
+Before executing a resize, the operator also checks that the total resource
+requests across all containers (with the new target applied) do not exceed the
+node's allocatable resources.
+
+## Prometheus auto-discovery
+
+The Prometheus address is resolved in order:
+
+1. `spec.metricsSource.prometheus.address` on the RightSizePolicy
+2. `spec.metricsSource.prometheus.address` on a RightSizeDefaults resource
+3. Auto-discovery: Prometheus Operator CRD (`monitoring.coreos.com/v1 Prometheus`)
+4. Auto-discovery: well-known service names (`prometheus-server`,
+   `prometheus-kube-prometheus-prometheus`) in common namespaces
+
+If all four fail, the policy enters `PrometheusUnavailable` status.
 
 ## Conflict detection
 

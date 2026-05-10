@@ -117,14 +117,33 @@ func TestGetNestedInt64(t *testing.T) {
 	assert.Equal(t, int64(0), getNestedInt64(obj, "missing"))
 }
 
-func TestGetReadyStatus(t *testing.T) {
+func TestGetConditionReason(t *testing.T) {
 	tests := []struct {
-		name string
-		obj  unstructured.Unstructured
-		want string
+		name          string
+		obj           unstructured.Unstructured
+		conditionType string
+		want          string
 	}{
 		{
-			name: "ready true",
+			name: "ready with reason",
+			obj: unstructured.Unstructured{
+				Object: map[string]interface{}{
+					"status": map[string]interface{}{
+						"conditions": []interface{}{
+							map[string]interface{}{
+								"type":   "Ready",
+								"status": "True",
+								"reason": "Monitoring",
+							},
+						},
+					},
+				},
+			},
+			conditionType: "Ready",
+			want:          "Monitoring",
+		},
+		{
+			name: "ready without reason returns status",
 			obj: unstructured.Unstructured{
 				Object: map[string]interface{}{
 					"status": map[string]interface{}{
@@ -137,24 +156,20 @@ func TestGetReadyStatus(t *testing.T) {
 					},
 				},
 			},
-			want: "True",
+			conditionType: "Ready",
+			want:          "True",
 		},
 		{
-			name: "ready false",
+			name: "condition not found",
 			obj: unstructured.Unstructured{
 				Object: map[string]interface{}{
 					"status": map[string]interface{}{
-						"conditions": []interface{}{
-							map[string]interface{}{
-								"type":   "Ready",
-								"status": "False",
-								"reason": "InsufficientData",
-							},
-						},
+						"conditions": []interface{}{},
 					},
 				},
 			},
-			want: "False",
+			conditionType: "Degraded",
+			want:          "-",
 		},
 		{
 			name: "no conditions",
@@ -163,40 +178,32 @@ func TestGetReadyStatus(t *testing.T) {
 					"status": map[string]interface{}{},
 				},
 			},
-			want: "Unknown",
+			conditionType: "Ready",
+			want:          "-",
 		},
 		{
-			name: "no status",
-			obj: unstructured.Unstructured{
-				Object: map[string]interface{}{},
-			},
-			want: "Unknown",
-		},
-		{
-			name: "multiple conditions, ready in second",
+			name: "degraded with reason",
 			obj: unstructured.Unstructured{
 				Object: map[string]interface{}{
 					"status": map[string]interface{}{
 						"conditions": []interface{}{
 							map[string]interface{}{
-								"type":   "Progressing",
+								"type":   "Degraded",
 								"status": "True",
-							},
-							map[string]interface{}{
-								"type":   "Ready",
-								"status": "True",
+								"reason": "HighRevertRate",
 							},
 						},
 					},
 				},
 			},
-			want: "True",
+			conditionType: "Degraded",
+			want:          "HighRevertRate",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := getReadyStatus(tt.obj)
+			got := getConditionReason(tt.obj, tt.conditionType)
 			assert.Equal(t, tt.want, got)
 		})
 	}

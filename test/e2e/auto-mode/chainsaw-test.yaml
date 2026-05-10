@@ -59,9 +59,9 @@ spec:
                   name: auto-app
                 metricsSource:
                   prometheus:
-                    address: http://prometheus-server.monitoring:9090
+                    address: http://prometheus-server.monitoring:80
                   historyWindow: 168h
-                  minimumDataPoints: 1
+
                 cpu:
                   percentile: 95
                   safetyMargin: "1.2"
@@ -116,4 +116,4 @@ spec:
         namespace: e2e-auto-mode
     - podLogs:
         namespace: kube-rightsize-system
-        selector: control-plane=controller-manager
+        selector: app.kubernetes.io/name=kube-rightsize

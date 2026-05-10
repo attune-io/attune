@@ -22,7 +22,7 @@ Total number of resize reverts triggered by the safety monitor.
 |-------|-------------|
 | `namespace` | Workload namespace |
 | `workload` | Workload name |
-| `reason` | `oomkill`, `restart`, `notready`, or `throttle` |
+| `reason` | `oomkill`, `throttle`, `restart`, or `notready` |
 
 ### kube_rightsize_prometheus_query_errors_total
 
@@ -66,6 +66,15 @@ Total memory bytes saved per namespace.
 |-------|-------------|
 | `namespace` | Namespace |
 
+### kube_rightsize_savings_estimated_monthly_dollars
+
+Estimated monthly cost savings in USD per namespace, computed from configured
+or default pricing ($0.031/vCPU-hour, $0.004/GiB-hour).
+
+| Label | Description |
+|-------|-------------|
+| `namespace` | Namespace |
+
 ### kube_rightsize_confidence
 
 Recommendation confidence score (0-1) per workload container.
@@ -78,6 +87,15 @@ Recommendation confidence score (0-1) per workload container.
 
 ## Histograms
 
+### kube_rightsize_resize_duration_seconds
+
+Duration of individual pod resize operations.
+
+| Label | Description |
+|-------|-------------|
+| `namespace` | Workload namespace |
+| `workload` | Workload name |
+
 ### kube_rightsize_reconcile_duration_seconds
 
 Duration of each reconciliation loop.
@@ -85,6 +103,14 @@ Duration of each reconciliation loop.
 | Label | Description |
 |-------|-------------|
 | `controller` | Controller name |
+
+### kube_rightsize_reconcile_errors_total
+
+Total number of reconciliation errors by type.
+
+| Label | Description |
+|-------|-------------|
+| `error_type` | `fetch`, `discover_workloads`, or `status_update` |
 
 ### kube_rightsize_prometheus_query_duration_seconds
 

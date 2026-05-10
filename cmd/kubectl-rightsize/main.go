@@ -125,7 +125,7 @@ func printStatus(ctx context.Context, dynClient dynamic.Interface, namespace str
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 3, ' ', 0)
-	fmt.Fprintln(w, "NAMESPACE\tNAME\tMODE\tWORKLOADS\tRESIZED\tREADY\tAGE")
+	fmt.Fprintln(w, "NAMESPACE\tNAME\tMODE\tWORKLOADS\tRESIZED\tREADY\tRESIZING\tDEGRADED\tAGE")
 
 	for _, item := range list.Items {
 		ns := item.GetNamespace()
@@ -133,11 +133,13 @@ func printStatus(ctx context.Context, dynClient dynamic.Interface, namespace str
 		mode := getNestedString(item, "spec", "updateStrategy", "mode")
 		workloads := getNestedInt64(item, "status", "workloads", "discovered")
 		resized := getNestedInt64(item, "status", "workloads", "resized")
-		ready := getReadyStatus(item)
+		ready := getConditionReason(item, "Ready")
+		resizing := getConditionReason(item, "Resizing")
+		degraded := getConditionReason(item, "Degraded")
 		age := formatAge(item.GetCreationTimestamp().Time)
 
-		fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%d\t%s\t%s\n",
-			ns, name, mode, workloads, resized, ready, age)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%d\t%s\t%s\t%s\t%s\n",
+			ns, name, mode, workloads, resized, ready, resizing, degraded, age)
 	}
 
 	if err := w.Flush(); err != nil {
@@ -198,10 +200,11 @@ func getNestedInt64(obj unstructured.Unstructured, fields ...string) int64 {
 	return val
 }
 
-func getReadyStatus(obj unstructured.Unstructured) string {
+// getConditionReason returns "Status/Reason" for the named condition, or "-".
+func getConditionReason(obj unstructured.Unstructured, conditionType string) string {
 	conditions, found, err := unstructured.NestedSlice(obj.Object, "status", "conditions")
 	if err != nil || !found {
-		return "Unknown"
+		return "-"
 	}
 
 	for _, c := range conditions {
@@ -209,14 +212,18 @@ func getReadyStatus(obj unstructured.Unstructured) string {
 		if !ok {
 			continue
 		}
-		condType, _ := cond["type"].(string)
-		if condType == "Ready" {
+		ct, _ := cond["type"].(string)
+		if ct == conditionType {
 			status, _ := cond["status"].(string)
+			reason, _ := cond["reason"].(string)
+			if reason != "" {
+				return reason
+			}
 			return status
 		}
 	}
 
-	return "Unknown"
+	return "-"
 }
 
 func printRecommendations(ctx context.Context, dynClient dynamic.Interface, namespace string) {

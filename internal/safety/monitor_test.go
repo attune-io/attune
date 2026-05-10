@@ -324,10 +324,17 @@ func TestRevertPod_ContainerNotInPod(t *testing.T) {
 		ResizedAt: time.Now().Add(-1 * time.Minute),
 	}
 
-	// The container won't be found but the method still issues the UpdateResize
-	// call. It should not error because the API call itself succeeds.
+	// The container won't be found; RevertPod should return nil without
+	// issuing an UpdateResize call.
 	err := monitor.RevertPod(context.Background(), record)
 	assert.NoError(t, err)
+
+	// Verify no UpdateResize was called (only the Get action should exist).
+	actions := clientset.Actions()
+	for _, a := range actions {
+		assert.NotEqual(t, "update", a.GetVerb(),
+			"should not issue UpdateResize when container is not in pod")
+	}
 }
 
 func TestCheckPod_ContainerNotMatched(t *testing.T) {
@@ -385,4 +392,110 @@ func TestCheckPod_NoPodReadyCondition(t *testing.T) {
 	verdict, err := monitor.CheckPod(context.Background(), record)
 	require.NoError(t, err)
 	assert.True(t, verdict.Safe, "pod with no Ready condition should be considered safe")
+}
+
+// ---------- CPU Throttle detection ----------
+
+type mockThrottleChecker struct {
+	ratio float64
+	err   error
+}
+
+func (m *mockThrottleChecker) GetThrottleRatio(_ context.Context, _, _, _ string) (float64, error) {
+	return m.ratio, m.err
+}
+
+func TestCheckPod_ThrottleDetected(t *testing.T) {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "web-0", Namespace: "default"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "app", RestartCount: 0},
+			},
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+
+	clientset := fake.NewSimpleClientset(pod)
+	monitor := NewMonitor(clientset, testr.New(t))
+	monitor.WithThrottleChecker(&mockThrottleChecker{ratio: 0.6}, 0.5)
+
+	record := ResizeRecord{
+		PodName:      "web-0",
+		Namespace:    "default",
+		Container:    "app",
+		ResizedAt:    time.Now().Add(-1 * time.Minute),
+		RestartCount: 0,
+	}
+
+	verdict, err := monitor.CheckPod(context.Background(), record)
+	require.NoError(t, err)
+	assert.False(t, verdict.Safe)
+	assert.Equal(t, "throttle", verdict.Reason)
+	assert.Contains(t, verdict.Message, "60%")
+}
+
+func TestCheckPod_ThrottleBelowThreshold(t *testing.T) {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "web-0", Namespace: "default"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "app", RestartCount: 0},
+			},
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+
+	clientset := fake.NewSimpleClientset(pod)
+	monitor := NewMonitor(clientset, testr.New(t))
+	monitor.WithThrottleChecker(&mockThrottleChecker{ratio: 0.3}, 0.5)
+
+	record := ResizeRecord{
+		PodName:      "web-0",
+		Namespace:    "default",
+		Container:    "app",
+		ResizedAt:    time.Now().Add(-1 * time.Minute),
+		RestartCount: 0,
+	}
+
+	verdict, err := monitor.CheckPod(context.Background(), record)
+	require.NoError(t, err)
+	assert.True(t, verdict.Safe)
+}
+
+func TestCheckPod_NoThrottleChecker(t *testing.T) {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "web-0", Namespace: "default"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "app", RestartCount: 0},
+			},
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+
+	clientset := fake.NewSimpleClientset(pod)
+	monitor := NewMonitor(clientset, testr.New(t))
+	// No throttle checker configured -- should skip throttle check.
+
+	record := ResizeRecord{
+		PodName:      "web-0",
+		Namespace:    "default",
+		Container:    "app",
+		ResizedAt:    time.Now().Add(-1 * time.Minute),
+		RestartCount: 0,
+	}
+
+	verdict, err := monitor.CheckPod(context.Background(), record)
+	require.NoError(t, err)
+	assert.True(t, verdict.Safe)
 }
