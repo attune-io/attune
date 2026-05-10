@@ -287,7 +287,7 @@ func newReconcilerForReconcile(mc rsmetrics.MetricsCollector, objects ...client.
 
 // newResizeReconciler creates a reconciler with both a controller-runtime
 // fake client and a typed clientset for resize tests.
-func newResizeReconciler(pod *corev1.Pod, objects ...client.Object) *RightSizePolicyReconciler {
+func newResizeReconciler(pod *corev1.Pod, objects ...client.Object) (*RightSizePolicyReconciler, client.Client) {
 	scheme := testScheme()
 	allObjects := append(objects, pod)
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(allObjects...).Build()
@@ -296,7 +296,7 @@ func newResizeReconciler(pod *corev1.Pod, objects ...client.Object) *RightSizePo
 		Client:    fakeClient,
 		Scheme:    scheme,
 		Clientset: clientset,
-	}
+	}, fakeClient
 }
 
 func TestDiscoverWorkloads_FindsDeploymentByName(t *testing.T) {
@@ -417,23 +417,9 @@ func TestReconcile_MissingPolicyReturnsNoError(t *testing.T) {
 }
 
 func TestReconcile_NoMatchingWorkloadsSetsInsufficientData(t *testing.T) {
-	scheme := testScheme()
-
 	policy := newTestPolicy("test-policy", "default")
-
-	// Use a fake client with status subresource support.
-	fakeClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(policy).
-		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
-		Build()
-
 	mc := &mockCollector{}
-	reconciler := &RightSizePolicyReconciler{
-		Client:         fakeClient,
-		Scheme:         scheme,
-		MetricsFactory: mockMetricsFactory(mc),
-	}
+	reconciler, fakeClient := newReconcilerForReconcile(mc, policy)
 
 	req := ctrl.Request{
 		NamespacedName: types.NamespacedName{
@@ -698,9 +684,7 @@ func TestParseCooldown_Custom(t *testing.T) {
 }
 
 func TestDiscoverWorkloads_FindsStatefulSetByName(t *testing.T) {
-	scheme := testScheme()
 	name := "my-sts"
-
 	sts := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-sts", Namespace: "default"},
 		Spec: appsv1.StatefulSetSpec{
@@ -710,9 +694,7 @@ func TestDiscoverWorkloads_FindsStatefulSetByName(t *testing.T) {
 			},
 		},
 	}
-
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(sts).Build()
-	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := newReconcilerWithClient(sts)
 
 	policy := &rightsizev1alpha1.RightSizePolicy{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
@@ -746,12 +728,9 @@ func generateSamples(count int, baseValue float64) []rsmetrics.Sample {
 // ---------- computeRecommendations ----------
 
 func TestComputeRecommendations_HappyPath(t *testing.T) {
-	scheme := testScheme()
 	policy := newTestPolicy("test-policy", "default")
 	deploy := newTestDeployment("api-server", "default", nil)
-
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-	reconciler := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	reconciler := newReconcilerWithClient()
 
 	mc := &mockCollector{
 		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
@@ -769,12 +748,9 @@ func TestComputeRecommendations_HappyPath(t *testing.T) {
 }
 
 func TestComputeRecommendations_InsufficientDataPoints(t *testing.T) {
-	scheme := testScheme()
 	policy := newTestPolicy("test-policy", "default")
 	deploy := newTestDeployment("api-server", "default", nil)
-
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-	reconciler := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	reconciler := newReconcilerWithClient()
 
 	mc := &mockCollector{
 		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
@@ -788,12 +764,9 @@ func TestComputeRecommendations_InsufficientDataPoints(t *testing.T) {
 }
 
 func TestComputeRecommendations_QueryError(t *testing.T) {
-	scheme := testScheme()
 	policy := newTestPolicy("test-policy", "default")
 	deploy := newTestDeployment("api-server", "default", nil)
-
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-	reconciler := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	reconciler := newReconcilerWithClient()
 
 	mc := &mockCollector{
 		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
@@ -807,9 +780,7 @@ func TestComputeRecommendations_QueryError(t *testing.T) {
 }
 
 func TestComputeRecommendations_EmptyContainers(t *testing.T) {
-	scheme := testScheme()
 	policy := newTestPolicy("test-policy", "default")
-
 	emptyDeploy := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{Name: "empty", Namespace: "default"},
 		Spec: appsv1.DeploymentSpec{
@@ -818,9 +789,7 @@ func TestComputeRecommendations_EmptyContainers(t *testing.T) {
 			},
 		},
 	}
-
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-	reconciler := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	reconciler := newReconcilerWithClient()
 
 	mc := &mockCollector{}
 
@@ -832,12 +801,8 @@ func TestComputeRecommendations_EmptyContainers(t *testing.T) {
 // ---------- resolvePrometheusAddress ----------
 
 func TestResolvePrometheusAddress_PolicyHasAddress(t *testing.T) {
-	scheme := testScheme()
 	policy := newTestPolicy("test-policy", "default")
-	// newTestPolicy sets Prometheus.Address to "http://prometheus:9090".
-
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-	reconciler := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	reconciler := newReconcilerWithClient()
 
 	addr, err := reconciler.resolvePrometheusAddress(context.Background(), policy)
 	assert.NoError(t, err)
@@ -845,15 +810,11 @@ func TestResolvePrometheusAddress_PolicyHasAddress(t *testing.T) {
 }
 
 func TestResolvePrometheusAddress_FallsBackToDefaults(t *testing.T) {
-	scheme := testScheme()
-
-	// Policy WITHOUT a Prometheus address.
 	policy := &rightsizev1alpha1.RightSizePolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
 		Spec:       rightsizev1alpha1.RightSizePolicySpec{MetricsSource: rightsizev1alpha1.MetricsSource{}},
 	}
 
-	// Cluster-scoped RightSizeDefaults with a Prometheus address.
 	defaults := &rightsizev1alpha1.RightSizeDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "cluster-defaults"},
 		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
@@ -864,12 +825,7 @@ func TestResolvePrometheusAddress_FallsBackToDefaults(t *testing.T) {
 			},
 		},
 	}
-
-	fakeClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(defaults).
-		Build()
-	reconciler := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	reconciler := newReconcilerWithClient(defaults)
 
 	addr, err := reconciler.resolvePrometheusAddress(context.Background(), policy)
 	assert.NoError(t, err)
@@ -877,17 +833,11 @@ func TestResolvePrometheusAddress_FallsBackToDefaults(t *testing.T) {
 }
 
 func TestResolvePrometheusAddress_NoAddressAnywhere(t *testing.T) {
-	scheme := testScheme()
-
-	// Policy WITHOUT a Prometheus address.
 	policy := &rightsizev1alpha1.RightSizePolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
 		Spec:       rightsizev1alpha1.RightSizePolicySpec{MetricsSource: rightsizev1alpha1.MetricsSource{}},
 	}
-
-	// No RightSizeDefaults in the cluster.
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-	reconciler := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	reconciler := newReconcilerWithClient()
 
 	_, err := reconciler.resolvePrometheusAddress(context.Background(), policy)
 	assert.Error(t, err)
@@ -897,15 +847,8 @@ func TestResolvePrometheusAddress_NoAddressAnywhere(t *testing.T) {
 // ---------- updateStatusWithRetry ----------
 
 func TestUpdateStatusWithRetry_SuccessFirstAttempt(t *testing.T) {
-	scheme := testScheme()
 	policy := newTestPolicy("test-policy", "default")
-
-	fakeClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(policy).
-		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
-		Build()
-	reconciler := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	reconciler, fakeClient := newReconcilerForReconcile(&mockCollector{}, policy)
 
 	ctx := context.Background()
 	key := types.NamespacedName{Name: "test-policy", Namespace: "default"}
@@ -924,15 +867,8 @@ func TestUpdateStatusWithRetry_SuccessFirstAttempt(t *testing.T) {
 }
 
 func TestUpdateStatusWithRetry_ConflictThenRetry(t *testing.T) {
-	scheme := testScheme()
 	policy := newTestPolicy("test-policy", "default")
-
-	fakeClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(policy).
-		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
-		Build()
-	reconciler := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	reconciler, fakeClient := newReconcilerForReconcile(&mockCollector{}, policy)
 
 	ctx := context.Background()
 	key := types.NamespacedName{Name: "test-policy", Namespace: "default"}
@@ -967,27 +903,20 @@ func TestUpdateStatusWithRetry_ConflictThenRetry(t *testing.T) {
 // ---------- markResizeTime ----------
 
 func TestMarkResizeTime_NoExistingAnnotations(t *testing.T) {
-	scheme := testScheme()
 	policy := newTestPolicy("test-policy", "default")
-	// policy.Annotations is nil by default.
-
-	fakeClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(policy).
-		Build()
-	reconciler := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	reconciler := newReconcilerWithClient(policy)
 
 	ctx := context.Background()
 	key := types.NamespacedName{Name: "test-policy", Namespace: "default"}
 
 	var p rightsizev1alpha1.RightSizePolicy
-	require.NoError(t, fakeClient.Get(ctx, key, &p))
+	require.NoError(t, reconciler.Get(ctx, key, &p))
 
 	err := reconciler.markResizeTime(ctx, &p)
 	require.NoError(t, err)
 
 	var updated rightsizev1alpha1.RightSizePolicy
-	require.NoError(t, fakeClient.Get(ctx, key, &updated))
+	require.NoError(t, reconciler.Get(ctx, key, &updated))
 
 	resizeTime, ok := updated.Annotations[lastResizeAnnotation]
 	assert.True(t, ok, "last-resize-time annotation should be set")
@@ -996,27 +925,21 @@ func TestMarkResizeTime_NoExistingAnnotations(t *testing.T) {
 }
 
 func TestMarkResizeTime_ExistingAnnotations(t *testing.T) {
-	scheme := testScheme()
 	policy := newTestPolicy("test-policy", "default")
 	policy.Annotations = map[string]string{"existing-key": "existing-value"}
-
-	fakeClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(policy).
-		Build()
-	reconciler := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	reconciler := newReconcilerWithClient(policy)
 
 	ctx := context.Background()
 	key := types.NamespacedName{Name: "test-policy", Namespace: "default"}
 
 	var p rightsizev1alpha1.RightSizePolicy
-	require.NoError(t, fakeClient.Get(ctx, key, &p))
+	require.NoError(t, reconciler.Get(ctx, key, &p))
 
 	err := reconciler.markResizeTime(ctx, &p)
 	require.NoError(t, err)
 
 	var updated rightsizev1alpha1.RightSizePolicy
-	require.NoError(t, fakeClient.Get(ctx, key, &updated))
+	require.NoError(t, reconciler.Get(ctx, key, &updated))
 
 	assert.Equal(t, "existing-value", updated.Annotations["existing-key"])
 	resizeTime, ok := updated.Annotations[lastResizeAnnotation]
@@ -1028,29 +951,17 @@ func TestMarkResizeTime_ExistingAnnotations(t *testing.T) {
 // ---------- Reconcile happy path ----------
 
 func TestReconcile_HappyPathWithRecommendations(t *testing.T) {
-	scheme := testScheme()
 	policy := newTestPolicy("test-policy", "default")
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
 	pod1 := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
 	pod2 := newTestPod("api-server-abc-2", "default", map[string]string{"app": "api-server"})
-
-	fakeClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(policy, deploy, pod1, pod2).
-		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
-		Build()
 
 	mc := &mockCollector{
 		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
 			return generateSamples(200, 0.1), nil
 		},
 	}
-
-	reconciler := &RightSizePolicyReconciler{
-		Client:         fakeClient,
-		Scheme:         scheme,
-		MetricsFactory: mockMetricsFactory(mc),
-	}
+	reconciler, fakeClient := newReconcilerForReconcile(mc, policy, deploy, pod1, pod2)
 
 	req := ctrl.Request{
 		NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
@@ -1082,7 +993,6 @@ func TestReconcile_HappyPathWithRecommendations(t *testing.T) {
 // ---------- checkPendingSafetyObservations ----------
 
 func TestCheckPendingSafetyObservations_ObservationElapsed(t *testing.T) {
-	scheme := testScheme()
 
 	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
 	pod := &corev1.Pod{
@@ -1123,17 +1033,7 @@ func TestCheckPendingSafetyObservations_ObservationElapsed(t *testing.T) {
 
 	policy := newTestPolicy("test-policy", "default")
 
-	fakeClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(pod).
-		Build()
-	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
-
-	reconciler := &RightSizePolicyReconciler{
-		Client:    fakeClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	reconciler, fakeClient := newResizeReconciler(pod)
 
 	reconciler.checkPendingSafetyObservations(context.Background(), policy)
 
@@ -1150,7 +1050,6 @@ func TestCheckPendingSafetyObservations_ObservationElapsed(t *testing.T) {
 }
 
 func TestCheckPendingSafetyObservations_MalformedAnnotation(t *testing.T) {
-	scheme := testScheme()
 
 	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
 	pod := &corev1.Pod{
@@ -1174,17 +1073,7 @@ func TestCheckPendingSafetyObservations_MalformedAnnotation(t *testing.T) {
 
 	policy := newTestPolicy("test-policy", "default")
 
-	fakeClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(pod).
-		Build()
-	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
-
-	reconciler := &RightSizePolicyReconciler{
-		Client:    fakeClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	reconciler, fakeClient := newResizeReconciler(pod)
 
 	// Should not panic when the annotation value is unparseable.
 	assert.NotPanics(t, func() {
@@ -1202,7 +1091,6 @@ func TestCheckPendingSafetyObservations_MalformedAnnotation(t *testing.T) {
 }
 
 func TestCheckPendingSafetyObservations_NotElapsed(t *testing.T) {
-	scheme := testScheme()
 
 	// Just resized -- observation period has NOT elapsed yet.
 	resizedAt := time.Now().UTC().Format(time.RFC3339)
@@ -1227,17 +1115,7 @@ func TestCheckPendingSafetyObservations_NotElapsed(t *testing.T) {
 
 	policy := newTestPolicy("test-policy", "default")
 
-	fakeClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(pod).
-		Build()
-	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
-
-	reconciler := &RightSizePolicyReconciler{
-		Client:    fakeClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	reconciler, fakeClient := newResizeReconciler(pod)
 
 	reconciler.checkPendingSafetyObservations(context.Background(), policy)
 
@@ -1276,7 +1154,7 @@ func TestExecuteResizes_NoClientset(t *testing.T) {
 func TestExecuteResizes_SuccessfulResize(t *testing.T) {
 	pod := newResizePod("api-server", "500m", "512Mi", "1000m", "1Gi")
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
-	reconciler := newResizeReconciler(pod, deploy)
+	reconciler, _ := newResizeReconciler(pod, deploy)
 
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.Mode = "OneShot"
@@ -1298,7 +1176,7 @@ func TestExecuteResizes_SkipsMatchingResources(t *testing.T) {
 	// Pod already at the recommended values.
 	pod := newResizePod("api-server", "750m", "384Mi", "1500m", "768Mi")
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
-	reconciler := newResizeReconciler(pod, deploy)
+	reconciler, _ := newResizeReconciler(pod, deploy)
 
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.Mode = "OneShot"
@@ -1334,7 +1212,6 @@ func TestExecuteResizes_NoMatchingWorkload(t *testing.T) {
 // ---------- listWorkloadsBySelector (StatefulSet + DaemonSet paths) ----------
 
 func TestListWorkloadsBySelector_StatefulSets(t *testing.T) {
-	scheme := testScheme()
 	sts1 := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{Name: "db-1", Namespace: "default", Labels: map[string]string{"tier": "db"}},
 		Spec: appsv1.StatefulSetSpec{
@@ -1347,9 +1224,7 @@ func TestListWorkloadsBySelector_StatefulSets(t *testing.T) {
 			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "db-2"}},
 		},
 	}
-
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(sts1, sts2).Build()
-	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := newReconcilerWithClient(sts1, sts2)
 
 	selector := &metav1.LabelSelector{MatchLabels: map[string]string{"tier": "db"}}
 	workloads, err := r.listWorkloadsBySelector(context.Background(), "default", "StatefulSet", selector)
@@ -1358,16 +1233,13 @@ func TestListWorkloadsBySelector_StatefulSets(t *testing.T) {
 }
 
 func TestListWorkloadsBySelector_DaemonSets(t *testing.T) {
-	scheme := testScheme()
 	ds := &appsv1.DaemonSet{
 		ObjectMeta: metav1.ObjectMeta{Name: "log-agent", Namespace: "default", Labels: map[string]string{"role": "logging"}},
 		Spec: appsv1.DaemonSetSpec{
 			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "log-agent"}},
 		},
 	}
-
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ds).Build()
-	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := newReconcilerWithClient(ds)
 
 	selector := &metav1.LabelSelector{MatchLabels: map[string]string{"role": "logging"}}
 	workloads, err := r.listWorkloadsBySelector(context.Background(), "default", "DaemonSet", selector)
@@ -1377,9 +1249,7 @@ func TestListWorkloadsBySelector_DaemonSets(t *testing.T) {
 }
 
 func TestListWorkloadsBySelector_UnsupportedKind(t *testing.T) {
-	scheme := testScheme()
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := newReconcilerWithClient()
 
 	selector := &metav1.LabelSelector{MatchLabels: map[string]string{"app": "test"}}
 	_, err := r.listWorkloadsBySelector(context.Background(), "default", "CronJob", selector)
@@ -1390,7 +1260,6 @@ func TestListWorkloadsBySelector_UnsupportedKind(t *testing.T) {
 // ---------- getWorkloadByName (DaemonSet + unsupported kind) ----------
 
 func TestDiscoverWorkloads_FindsDaemonSetByName(t *testing.T) {
-	scheme := testScheme()
 	name := "node-agent"
 	ds := &appsv1.DaemonSet{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
@@ -1398,9 +1267,7 @@ func TestDiscoverWorkloads_FindsDaemonSetByName(t *testing.T) {
 			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": name}},
 		},
 	}
-
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ds).Build()
-	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := newReconcilerWithClient(ds)
 
 	policy := &rightsizev1alpha1.RightSizePolicy{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
@@ -1419,10 +1286,8 @@ func TestDiscoverWorkloads_FindsDaemonSetByName(t *testing.T) {
 }
 
 func TestDiscoverWorkloads_UnsupportedKind(t *testing.T) {
-	scheme := testScheme()
 	name := "my-job"
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := newReconcilerWithClient()
 
 	policy := &rightsizev1alpha1.RightSizePolicy{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
@@ -1499,8 +1364,6 @@ func TestGetContainers_UnknownType(t *testing.T) {
 // ---------- mergeDefaults (more paths) ----------
 
 func TestMergeDefaults_MergesAllFields(t *testing.T) {
-	scheme := testScheme()
-
 	defaults := &rightsizev1alpha1.RightSizeDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "cluster-defaults"},
 		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
@@ -1511,9 +1374,7 @@ func TestMergeDefaults_MergesAllFields(t *testing.T) {
 			},
 		},
 	}
-
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(defaults).Build()
-	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := newReconcilerWithClient(defaults)
 
 	// Policy with all zeros/empty (should inherit from defaults).
 	policy := &rightsizev1alpha1.RightSizePolicy{
@@ -1530,8 +1391,6 @@ func TestMergeDefaults_MergesAllFields(t *testing.T) {
 }
 
 func TestMergeDefaults_PolicyOverridesDefaults(t *testing.T) {
-	scheme := testScheme()
-
 	defaults := &rightsizev1alpha1.RightSizeDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "cluster-defaults"},
 		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
@@ -1539,9 +1398,7 @@ func TestMergeDefaults_PolicyOverridesDefaults(t *testing.T) {
 			Memory: &rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.4"},
 		},
 	}
-
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(defaults).Build()
-	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := newReconcilerWithClient(defaults)
 
 	// Policy with explicit values (should NOT be overwritten).
 	policy := &rightsizev1alpha1.RightSizePolicy{
@@ -1583,31 +1440,18 @@ func TestAppendHistory_CapsAtMaxEntries(t *testing.T) {
 // ---------- Reconcile with OneShot mode (exercises resize path entry) ----------
 
 func TestReconcile_OneShotMode_NoClientset_SkipsResize(t *testing.T) {
-	scheme := testScheme()
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.Mode = "OneShot"
 
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
 	pod := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
 
-	fakeClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(policy, deploy, pod).
-		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
-		Build()
-
 	mc := &mockCollector{
 		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
 			return generateSamples(200, 0.1), nil
 		},
 	}
-
-	reconciler := &RightSizePolicyReconciler{
-		Client:         fakeClient,
-		Scheme:         scheme,
-		MetricsFactory: mockMetricsFactory(mc),
-		// Clientset is nil, so executeResizes will log and return 0
-	}
+	reconciler, fakeClient := newReconcilerForReconcile(mc, policy, deploy, pod)
 
 	req := ctrl.Request{
 		NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
@@ -1628,23 +1472,12 @@ func TestReconcile_OneShotMode_NoClientset_SkipsResize(t *testing.T) {
 // ---------- Reconcile with Prometheus error ----------
 
 func TestReconcile_PrometheusUnavailable(t *testing.T) {
-	scheme := testScheme()
 	policy := newTestPolicy("test-policy", "default")
-	// Clear the Prometheus address to force an error.
 	policy.Spec.MetricsSource.Prometheus = nil
 
-	fakeClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(policy).
-		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
-		Build()
-
-	reconciler := &RightSizePolicyReconciler{
-		Client: fakeClient,
-		Scheme: scheme,
-		MetricsFactory: func(_ string) (rsmetrics.MetricsCollector, error) {
-			return nil, fmt.Errorf("connection refused")
-		},
+	reconciler, fakeClient := newReconcilerForReconcile(&mockCollector{}, policy)
+	reconciler.MetricsFactory = func(_ string) (rsmetrics.MetricsCollector, error) {
+		return nil, fmt.Errorf("connection refused")
 	}
 
 	req := ctrl.Request{
@@ -1666,10 +1499,8 @@ func TestReconcile_PrometheusUnavailable(t *testing.T) {
 // ---------- Reconcile with cooldown active ----------
 
 func TestReconcile_CooldownActive_SkipsResize(t *testing.T) {
-	scheme := testScheme()
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.Mode = "OneShot"
-	// Set a recent resize time to activate cooldown.
 	policy.Annotations = map[string]string{
 		lastResizeAnnotation: time.Now().UTC().Format(time.RFC3339),
 	}
@@ -1677,23 +1508,12 @@ func TestReconcile_CooldownActive_SkipsResize(t *testing.T) {
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
 	pod := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
 
-	fakeClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(policy, deploy, pod).
-		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
-		Build()
-
 	mc := &mockCollector{
 		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
 			return generateSamples(200, 0.1), nil
 		},
 	}
-
-	reconciler := &RightSizePolicyReconciler{
-		Client:         fakeClient,
-		Scheme:         scheme,
-		MetricsFactory: mockMetricsFactory(mc),
-	}
+	reconciler, fakeClient := newReconcilerForReconcile(mc, policy, deploy, pod)
 
 	req := ctrl.Request{
 		NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
@@ -1727,7 +1547,7 @@ func TestExecuteResizes_SkipsQoSChange(t *testing.T) {
 	pod := newResizePod("api-server", "500m", "512Mi", "500m", "512Mi")
 	pod.Status.QOSClass = corev1.PodQOSGuaranteed
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
-	reconciler := newResizeReconciler(pod, deploy)
+	reconciler, _ := newResizeReconciler(pod, deploy)
 
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.Mode = "OneShot"
@@ -1745,7 +1565,7 @@ func TestExecuteResizes_SkipsQoSChange(t *testing.T) {
 func TestExecuteResizes_ResizeError(t *testing.T) {
 	pod := newResizePod("api-server", "500m", "512Mi", "1000m", "1Gi")
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
-	reconciler := newResizeReconciler(pod, deploy)
+	reconciler, _ := newResizeReconciler(pod, deploy)
 
 	// Inject an error on UpdateResize calls.
 	reconciler.Clientset.(*kubefake.Clientset).PrependReactor("update", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
@@ -1772,7 +1592,7 @@ func TestExecuteResizes_ResizeError(t *testing.T) {
 func TestExecuteResizes_AutoRevertOnSafetyViolation(t *testing.T) {
 	pod := newResizePod("api-server", "500m", "512Mi", "1000m", "1Gi")
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
-	reconciler := newResizeReconciler(pod, deploy)
+	reconciler, _ := newResizeReconciler(pod, deploy)
 
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.Mode = "Auto"
@@ -1795,26 +1615,13 @@ func TestExecuteResizes_AutoRevertOnSafetyViolation(t *testing.T) {
 }
 
 func TestReconcile_WorkloadOptedOut(t *testing.T) {
-	scheme := testScheme()
 	policy := newTestPolicy("test-policy", "default")
-
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
 	deploy.Annotations = map[string]string{"rightsize.io/skip": "true"}
 	pod := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
 
-	fakeClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(policy, deploy, pod).
-		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
-		Build()
-
 	mc := &mockCollector{}
-
-	reconciler := &RightSizePolicyReconciler{
-		Client:         fakeClient,
-		Scheme:         scheme,
-		MetricsFactory: mockMetricsFactory(mc),
-	}
+	reconciler, fakeClient := newReconcilerForReconcile(mc, policy, deploy, pod)
 
 	req := ctrl.Request{
 		NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
@@ -1835,7 +1642,6 @@ func TestReconcile_WorkloadOptedOut(t *testing.T) {
 // ---------- checkPendingSafetyObservations additional paths ----------
 
 func TestCheckPendingSafetyObservations_MalformedTimestamp(t *testing.T) {
-	scheme := testScheme()
 
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -1858,17 +1664,7 @@ func TestCheckPendingSafetyObservations_MalformedTimestamp(t *testing.T) {
 
 	policy := newTestPolicy("test-policy", "default")
 
-	fakeClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(pod).
-		Build()
-	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
-
-	reconciler := &RightSizePolicyReconciler{
-		Client:    fakeClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	reconciler, fakeClient := newResizeReconciler(pod)
 
 	assert.NotPanics(t, func() {
 		reconciler.checkPendingSafetyObservations(context.Background(), policy)
@@ -1885,7 +1681,6 @@ func TestCheckPendingSafetyObservations_MalformedTimestamp(t *testing.T) {
 }
 
 func TestCheckPendingSafetyObservations_MalformedMemoryAnnotation(t *testing.T) {
-	scheme := testScheme()
 
 	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
 	pod := &corev1.Pod{
@@ -1909,17 +1704,7 @@ func TestCheckPendingSafetyObservations_MalformedMemoryAnnotation(t *testing.T) 
 
 	policy := newTestPolicy("test-policy", "default")
 
-	fakeClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(pod).
-		Build()
-	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
-
-	reconciler := &RightSizePolicyReconciler{
-		Client:    fakeClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	reconciler, fakeClient := newResizeReconciler(pod)
 
 	assert.NotPanics(t, func() {
 		reconciler.checkPendingSafetyObservations(context.Background(), policy)
@@ -1935,7 +1720,6 @@ func TestCheckPendingSafetyObservations_MalformedMemoryAnnotation(t *testing.T) 
 }
 
 func TestCheckPendingSafetyObservations_CustomObservationPeriod(t *testing.T) {
-	scheme := testScheme()
 
 	// Resized 2 minutes ago. With a custom observation period of 1 minute,
 	// the period has elapsed and the pod should be checked.
@@ -1982,17 +1766,7 @@ func TestCheckPendingSafetyObservations_CustomObservationPeriod(t *testing.T) {
 		ObservationPeriod: metav1.Duration{Duration: 1 * time.Minute},
 	}
 
-	fakeClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(pod).
-		Build()
-	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
-
-	reconciler := &RightSizePolicyReconciler{
-		Client:    fakeClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	reconciler, fakeClient := newResizeReconciler(pod)
 
 	reconciler.checkPendingSafetyObservations(context.Background(), policy)
 
@@ -2015,7 +1789,6 @@ func TestCheckPendingSafetyObservations_NilClientset(t *testing.T) {
 }
 
 func TestCheckPendingSafetyObservations_UnsafeVerdictReverts(t *testing.T) {
-	scheme := testScheme()
 
 	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
 	pod := &corev1.Pod{
@@ -2057,17 +1830,7 @@ func TestCheckPendingSafetyObservations_UnsafeVerdictReverts(t *testing.T) {
 
 	policy := newTestPolicy("test-policy", "default")
 
-	fakeClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(pod).
-		Build()
-	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
-
-	reconciler := &RightSizePolicyReconciler{
-		Client:    fakeClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	reconciler, fakeClient := newResizeReconciler(pod)
 
 	reconciler.checkPendingSafetyObservations(context.Background(), policy)
 
@@ -2083,16 +1846,11 @@ func TestCheckPendingSafetyObservations_UnsafeVerdictReverts(t *testing.T) {
 // ---------- getPodsForWorkload error path ----------
 
 func TestGetPodsForWorkload_EmptySelectorLabels(t *testing.T) {
-	scheme := testScheme()
-
-	// Deployment with nil Selector to trigger the empty-labels error path.
 	deploy := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{Name: "no-selector", Namespace: "default"},
 		Spec:       appsv1.DeploymentSpec{},
 	}
-
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy).Build()
-	reconciler := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	reconciler := newReconcilerWithClient(deploy)
 
 	_, err := reconciler.getPodsForWorkload(context.Background(), deploy)
 	assert.Error(t, err)
@@ -2109,9 +1867,7 @@ func TestBuildPrometheusQuery_UnknownMetric(t *testing.T) {
 // ---------- listWorkloadsBySelector invalid selector ----------
 
 func TestListWorkloadsBySelector_InvalidSelector(t *testing.T) {
-	scheme := testScheme()
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := newReconcilerWithClient()
 
 	// matchExpressions with invalid operator to trigger parse error.
 	invalidSelector := &metav1.LabelSelector{
@@ -2127,9 +1883,7 @@ func TestListWorkloadsBySelector_InvalidSelector(t *testing.T) {
 // ---------- discoverWorkloads with missing name ----------
 
 func TestDiscoverWorkloads_NoNameOrSelector(t *testing.T) {
-	scheme := testScheme()
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := newReconcilerWithClient()
 
 	policy := &rightsizev1alpha1.RightSizePolicy{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
@@ -2148,21 +1902,10 @@ func TestDiscoverWorkloads_NoNameOrSelector(t *testing.T) {
 // ---------- Reconcile with MetricsFactory error ----------
 
 func TestReconcile_MetricsFactoryError(t *testing.T) {
-	scheme := testScheme()
 	policy := newTestPolicy("test-policy", "default")
-
-	fakeClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(policy).
-		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
-		Build()
-
-	reconciler := &RightSizePolicyReconciler{
-		Client: fakeClient,
-		Scheme: scheme,
-		MetricsFactory: func(_ string) (rsmetrics.MetricsCollector, error) {
-			return nil, fmt.Errorf("TLS handshake timeout")
-		},
+	reconciler, fakeClient := newReconcilerForReconcile(&mockCollector{}, policy)
+	reconciler.MetricsFactory = func(_ string) (rsmetrics.MetricsCollector, error) {
+		return nil, fmt.Errorf("TLS handshake timeout")
 	}
 
 	req := ctrl.Request{
@@ -2185,24 +1928,11 @@ func TestReconcile_MetricsFactoryError(t *testing.T) {
 // ---------- Reconcile with workload discovery error ----------
 
 func TestReconcile_DiscoverWorkloadsError(t *testing.T) {
-	scheme := testScheme()
-
 	policy := newTestPolicy("test-policy", "default")
-	// Set kind to unsupported to trigger discoverWorkloads error.
 	policy.Spec.TargetRef.Kind = "CronJob"
 
-	fakeClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(policy).
-		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
-		Build()
-
 	mc := &mockCollector{}
-	reconciler := &RightSizePolicyReconciler{
-		Client:         fakeClient,
-		Scheme:         scheme,
-		MetricsFactory: mockMetricsFactory(mc),
-	}
+	reconciler, _ := newReconcilerForReconcile(mc, policy)
 
 	req := ctrl.Request{
 		NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
@@ -2216,31 +1946,19 @@ func TestReconcile_DiscoverWorkloadsError(t *testing.T) {
 // ---------- Reconcile with AutoRevert checking safety observations ----------
 
 func TestReconcile_AutoRevertCallsSafetyObservations(t *testing.T) {
-	scheme := testScheme()
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.AutoRevert = true
 
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
 	pod := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
 
-	fakeClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(policy, deploy, pod).
-		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
-		Build()
-
 	mc := &mockCollector{
 		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
 			return generateSamples(200, 0.1), nil
 		},
 	}
-
-	reconciler := &RightSizePolicyReconciler{
-		Client:         fakeClient,
-		Scheme:         scheme,
-		MetricsFactory: mockMetricsFactory(mc),
-		Clientset:      kubefake.NewSimpleClientset(),
-	}
+	reconciler, _ := newReconcilerForReconcile(mc, policy, deploy, pod)
+	reconciler.Clientset = kubefake.NewSimpleClientset()
 
 	req := ctrl.Request{
 		NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
@@ -2254,25 +1972,13 @@ func TestReconcile_AutoRevertCallsSafetyObservations(t *testing.T) {
 // ---------- Reconcile mid-rollout skip ----------
 
 func TestReconcile_SkipsMidRolloutWorkload(t *testing.T) {
-	scheme := testScheme()
 	policy := newTestPolicy("test-policy", "default")
-
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
 	deploy.Status.UpdatedReplicas = 1 // Only 1 of 2 updated (mid-rollout).
 	pod := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
 
-	fakeClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(policy, deploy, pod).
-		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
-		Build()
-
 	mc := &mockCollector{}
-	reconciler := &RightSizePolicyReconciler{
-		Client:         fakeClient,
-		Scheme:         scheme,
-		MetricsFactory: mockMetricsFactory(mc),
-	}
+	reconciler, fakeClient := newReconcilerForReconcile(mc, policy, deploy, pod)
 
 	req := ctrl.Request{
 		NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
