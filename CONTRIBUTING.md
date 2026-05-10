@@ -49,16 +49,21 @@ make kind-deploy IMG=kube-rightsize:dev
 ### Running Tests
 
 ```bash
-# Unit tests only
-go test ./api/... ./internal/... -race -count=1
+# Unit tests (with gotestsum, coverage, flaky retry)
+make test
 
 # Integration tests (requires envtest binaries)
-make setup-envtest
-go test ./test/integration/... -race -count=1 -tags=integration
+make test-integration
 
 # E2E tests (requires Kind cluster)
 make kind-create
-chainsaw test test/e2e/ --config .chainsaw.yaml
+make test-e2e
+
+# All tests
+make test-all
+
+# All CI checks locally (lint, test, helm-docs, CRD freshness)
+make verify
 ```
 
 ## Pull Request Process
@@ -66,7 +71,7 @@ chainsaw test test/e2e/ --config .chainsaw.yaml
 1. Fork the repository and create a branch from `main`
 2. Make your changes with tests
 3. Run `make manifests` if you changed CRD types
-4. Run `make lint` and `make test`
+4. Run `make verify` to run all CI checks locally
 5. Submit a pull request
 
 ### Commit Messages
