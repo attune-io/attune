@@ -30,6 +30,9 @@ const (
 	DefaultMaxCPUChangePercent    int32 = 50
 	DefaultMaxMemoryChangePercent int32 = 30
 	DefaultWeight                 int32 = 100
+	DefaultControlledValues             = "RequestsOnly"
+	DefaultHistoryWindow                = "168h"
+	DefaultCooldown                     = "1h"
 )
 
 // Default resource bounds applied when a policy does not specify explicit bounds.

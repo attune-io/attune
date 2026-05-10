@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"time"
 
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -150,6 +151,12 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	var workloadsWithRecs int32
 	conflictDetector := conflict.NewDetector(logger)
 
+	// List HPAs in the namespace for conflict detection.
+	var hpaList autoscalingv2.HorizontalPodAutoscalerList
+	if err := r.List(ctx, &hpaList, client.InNamespace(policy.Namespace)); err != nil {
+		logger.Error(err, "Failed to list HPAs for conflict detection")
+	}
+
 	for _, workload := range workloads {
 		workloadName := workload.GetName()
 		workloadKind := workload.GetObjectKind().GroupVersionKind().Kind
@@ -159,6 +166,11 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		if conflictDetector.CheckAnnotationOptOut(workloadMeta) {
 			logger.Info("Workload opted out via annotation", "workload", workloadName)
 			continue
+		}
+
+		// Check for HPA conflict (log warning, don't block).
+		if hpaConflict := conflictDetector.CheckHPAConflict(hpaList.Items, workloadName, workloadKind); hpaConflict != nil {
+			logger.Info("HPA conflict detected", "workload", workloadName, "hpa", hpaConflict.Name, "message", hpaConflict.Message)
 		}
 
 		// Step 6: Check for active rollout.
@@ -368,6 +380,11 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 		// Compute memory recommendation.
 		if memProfile.DataPoints >= int(minimumDataPoints) {
 			memRec, _ := memEngine.Recommend(memProfile, currentMemReq)
+			// Enforce AllowDecrease: skip memory decreases unless explicitly allowed.
+			allowDecrease := policy.Spec.Memory.AllowDecrease != nil && *policy.Spec.Memory.AllowDecrease
+			if !allowDecrease && memRec.Cmp(currentMemReq) < 0 {
+				memRec = currentMemReq.DeepCopy()
+			}
 			rec.Recommended.MemoryRequest = memRec
 		}
 

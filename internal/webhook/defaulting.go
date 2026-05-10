@@ -18,6 +18,9 @@ package webhook
 
 import (
 	"context"
+	"time"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	rightsizev1alpha1 "github.com/SebTardif/kube-rightsize/api/v1alpha1"
 )
@@ -50,6 +53,22 @@ func (d *RightSizePolicyDefaulter) Default(ctx context.Context, policy *rightsiz
 	}
 	if policy.Spec.Weight == 0 {
 		policy.Spec.Weight = rightsizev1alpha1.DefaultWeight
+	}
+	if policy.Spec.CPU.ControlledValues == nil {
+		cv := rightsizev1alpha1.DefaultControlledValues
+		policy.Spec.CPU.ControlledValues = &cv
+	}
+	if policy.Spec.Memory.ControlledValues == nil {
+		cv := rightsizev1alpha1.DefaultControlledValues
+		policy.Spec.Memory.ControlledValues = &cv
+	}
+	if policy.Spec.MetricsSource.HistoryWindow == nil {
+		d, _ := time.ParseDuration(rightsizev1alpha1.DefaultHistoryWindow)
+		policy.Spec.MetricsSource.HistoryWindow = &metav1.Duration{Duration: d}
+	}
+	if policy.Spec.UpdateStrategy.Cooldown == nil {
+		d, _ := time.ParseDuration(rightsizev1alpha1.DefaultCooldown)
+		policy.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: d}
 	}
 	return nil
 }

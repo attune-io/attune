@@ -19,6 +19,7 @@ package webhook
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
@@ -72,10 +73,37 @@ func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizeP
 		return warnings, fmt.Errorf("targetRef must specify either name or selector")
 	}
 
+	// Validate safetyMargin is a valid positive float.
+	if err := validateSafetyMargin("cpu", policy.Spec.CPU.SafetyMargin); err != nil {
+		return warnings, err
+	}
+	if err := validateSafetyMargin("memory", policy.Spec.Memory.SafetyMargin); err != nil {
+		return warnings, err
+	}
+
+	// Validate cooldown is non-negative.
+	if policy.Spec.UpdateStrategy.Cooldown != nil && policy.Spec.UpdateStrategy.Cooldown.Duration < 0 {
+		return warnings, fmt.Errorf("updateStrategy.cooldown must be non-negative, got %s", policy.Spec.UpdateStrategy.Cooldown.Duration)
+	}
+
 	// Warn if memory decrease is enabled
 	if policy.Spec.Memory.AllowDecrease != nil && *policy.Spec.Memory.AllowDecrease {
 		warnings = append(warnings, "memory.allowDecrease is enabled; this carries OOMKill risk")
 	}
 
 	return warnings, nil
+}
+
+func validateSafetyMargin(resource, margin string) error {
+	if margin == "" {
+		return nil
+	}
+	v, err := strconv.ParseFloat(margin, 64)
+	if err != nil {
+		return fmt.Errorf("%s.safetyMargin %q is not a valid number: %w", resource, margin, err)
+	}
+	if v <= 0 {
+		return fmt.Errorf("%s.safetyMargin must be positive, got %s", resource, margin)
+	}
+	return nil
 }
