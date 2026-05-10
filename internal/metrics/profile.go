@@ -57,7 +57,7 @@ func BuildProfile(samples []Sample) UsageProfile {
 	hourBuckets := [24][]float64{}
 	allValues := make([]float64, 0, len(samples))
 
-	var minTime, maxTime = samples[0].Timestamp, samples[0].Timestamp
+	minTime, maxTime := samples[0].Timestamp, samples[0].Timestamp
 	for _, s := range samples {
 		hour := s.Timestamp.Hour()
 		hourBuckets[hour] = append(hourBuckets[hour], s.Value)

@@ -20,8 +20,9 @@ limitations under the License.
 package recommendation
 
 import (
-	"github.com/SebTardif/kube-rightsize/internal/metrics"
 	"k8s.io/apimachinery/pkg/api/resource"
+
+	"github.com/SebTardif/kube-rightsize/internal/metrics"
 )
 
 // Estimator computes a recommended resource quantity based on a usage profile

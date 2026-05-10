@@ -19,8 +19,9 @@ package recommendation
 import (
 	"math"
 
-	"github.com/SebTardif/kube-rightsize/internal/metrics"
 	"k8s.io/apimachinery/pkg/api/resource"
+
+	"github.com/SebTardif/kube-rightsize/internal/metrics"
 )
 
 // ChangeFilter rejects changes that are too small (below MinChangePercent)

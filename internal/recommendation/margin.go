@@ -19,8 +19,9 @@ package recommendation
 import (
 	"math"
 
-	"github.com/SebTardif/kube-rightsize/internal/metrics"
 	"k8s.io/apimachinery/pkg/api/resource"
+
+	"github.com/SebTardif/kube-rightsize/internal/metrics"
 )
 
 // MarginEstimator wraps another estimator and multiplies the result by a

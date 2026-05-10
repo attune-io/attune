@@ -19,9 +19,10 @@ package recommendation
 import (
 	"testing"
 
-	"github.com/SebTardif/kube-rightsize/internal/metrics"
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/api/resource"
+
+	"github.com/SebTardif/kube-rightsize/internal/metrics"
 )
 
 // buildRealisticCPUProfile creates a profile simulating realistic CPU usage

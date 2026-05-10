@@ -194,7 +194,8 @@ func (r *RightSizePolicyReconciler) markResizeTime(ctx context.Context, policy *
 //
 //nolint:unparam // maxEntries is a parameter for configurability
 func appendHistory(existing []rightsizev1alpha1.ResizeHistoryEntry,
-	newEntries []rightsizev1alpha1.ResizeHistoryEntry, maxEntries int) []rightsizev1alpha1.ResizeHistoryEntry {
+	newEntries []rightsizev1alpha1.ResizeHistoryEntry, maxEntries int,
+) []rightsizev1alpha1.ResizeHistoryEntry {
 	result := append(existing, newEntries...)
 	if len(result) > maxEntries {
 		result = result[len(result)-maxEntries:]

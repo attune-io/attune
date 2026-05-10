@@ -78,5 +78,16 @@ linters:
 
 formatters:
   enable:
-    - gofmt
+    - gofumpt
     - goimports
+    - gci
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/SebTardif/kube-rightsize
+    gci:
+      sections:
+        - standard
+        - default
+        - prefix(github.com/SebTardif/kube-rightsize)
+      custom-order: true

@@ -19,8 +19,9 @@ package recommendation
 import (
 	"testing"
 
-	"github.com/SebTardif/kube-rightsize/internal/metrics"
 	"k8s.io/apimachinery/pkg/api/resource"
+
+	"github.com/SebTardif/kube-rightsize/internal/metrics"
 )
 
 // buildTestProfile creates a UsageProfile with the given usage value

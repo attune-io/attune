@@ -17,8 +17,9 @@ limitations under the License.
 package recommendation
 
 import (
-	"github.com/SebTardif/kube-rightsize/internal/metrics"
 	"k8s.io/apimachinery/pkg/api/resource"
+
+	"github.com/SebTardif/kube-rightsize/internal/metrics"
 )
 
 // RecommendationEngine composes a chain of estimators to produce a final
@@ -32,7 +33,8 @@ type RecommendationEngine struct {
 // The estimator chain is: PercentileEstimator -> MarginEstimator ->
 // ConfidenceEstimator -> BoundsEstimator -> ChangeFilter.
 func NewEngine(percentile int, safetyMargin float64, minBound, maxBound resource.Quantity,
-	maxChangePercent float64) *RecommendationEngine {
+	maxChangePercent float64,
+) *RecommendationEngine {
 	// Build the chain from innermost to outermost.
 	base := &PercentileEstimator{Percentile: percentile}
 

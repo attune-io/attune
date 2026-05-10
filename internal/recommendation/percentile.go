@@ -19,8 +19,9 @@ package recommendation
 import (
 	"math"
 
-	"github.com/SebTardif/kube-rightsize/internal/metrics"
 	"k8s.io/apimachinery/pkg/api/resource"
+
+	"github.com/SebTardif/kube-rightsize/internal/metrics"
 )
 
 // PercentileEstimator selects the configured percentile from the usage
