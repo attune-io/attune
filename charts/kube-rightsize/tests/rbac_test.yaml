@@ -1,0 +1,51 @@
+suite: rbac tests
+templates:
+  - templates/clusterrole.yaml
+tests:
+  - it: should render ClusterRole
+    asserts:
+      - isKind:
+          of: ClusterRole
+
+  - it: should include rightsizepolicies permissions
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - rightsize.io
+            resources:
+              - rightsizepolicies
+            verbs:
+              - get
+              - list
+              - watch
+              - update
+              - patch
+
+  - it: should include pod resize permissions
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - ""
+            resources:
+              - pods/resize
+            verbs:
+              - update
+              - patch
+
+  - it: should include HPA read permissions for conflict detection
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - autoscaling
+            resources:
+              - horizontalpodautoscalers
+            verbs:
+              - get
+              - list
+              - watch

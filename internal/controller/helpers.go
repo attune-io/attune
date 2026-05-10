@@ -56,10 +56,10 @@ func newHistoryEntry(now metav1.Time, workload, container string, res resize.Res
 
 // removeTrackingAnnotations removes the resize-tracking annotations from a pod.
 func removeTrackingAnnotations(pod *corev1.Pod) {
-	delete(pod.Annotations, "rightsize.io/resized-at")
-	delete(pod.Annotations, "rightsize.io/resized-container")
-	delete(pod.Annotations, "rightsize.io/original-cpu-request")
-	delete(pod.Annotations, "rightsize.io/original-memory-request")
+	delete(pod.Annotations, annotationResizedAt)
+	delete(pod.Annotations, annotationResizedContainer)
+	delete(pod.Annotations, annotationOriginalCPU)
+	delete(pod.Annotations, annotationOriginalMemory)
 }
 
 // setFailedCondition sets a Ready=False condition on the policy and updates
@@ -67,7 +67,7 @@ func removeTrackingAnnotations(pod *corev1.Pod) {
 // returned, since the caller typically returns a requeue result regardless.
 func (r *RightSizePolicyReconciler) setFailedCondition(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy, reason, message string) {
 	meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
-		Type:               conditionTypeReady,
+		Type:               rightsizev1alpha1.ConditionReady,
 		Status:             metav1.ConditionFalse,
 		Reason:             reason,
 		Message:            message,

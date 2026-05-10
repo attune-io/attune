@@ -222,6 +222,14 @@
       "description": "Affinity rules",
       "default": {}
     },
+    "topologySpreadConstraints": {
+      "type": "array",
+      "description": "Topology spread constraints",
+      "default": [],
+      "items": {
+        "type": "object"
+      }
+    },
     "leaderElection": {
       "type": "object",
       "description": "Leader election (enable for HA with replicaCount > 1)",

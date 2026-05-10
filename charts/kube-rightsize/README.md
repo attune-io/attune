@@ -27,7 +27,6 @@ helm install kube-rightsize oci://ghcr.io/sebtardif/charts/kube-rightsize \
 | `resources.limits.memory` | Memory limit | `128Mi` |
 | `resources.requests.cpu` | CPU request | `100m` |
 | `resources.requests.memory` | Memory request | `64Mi` |
-| `prometheus.address` | Prometheus server URL | `http://prometheus-server.monitoring:9090` |
 | `leaderElection.enabled` | Enable leader election for HA | `true` |
 | `metrics.enabled` | Enable metrics endpoint | `true` |
 | `metrics.port` | Metrics port | `8080` |

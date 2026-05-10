@@ -1,0 +1,20 @@
+suite: pdb tests
+templates:
+  - templates/pdb.yaml
+tests:
+  - it: should not render PDB with single replica
+    set:
+      replicaCount: 1
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render PDB with multiple replicas
+    set:
+      replicaCount: 2
+    asserts:
+      - isKind:
+          of: PodDisruptionBudget
+      - equal:
+          path: spec.minAvailable
+          value: 1

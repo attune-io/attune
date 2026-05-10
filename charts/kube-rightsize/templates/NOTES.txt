@@ -1,0 +1,32 @@
+kube-rightsize has been installed.
+
+1. Verify the operator is running:
+
+   kubectl get pods -n {{ .Release.Namespace }} -l {{ include "kube-rightsize.selectorLabels" . | replace ": " "=" | replace "\n" "," }}
+
+2. Check operator logs:
+
+   kubectl logs -n {{ .Release.Namespace }} deploy/{{ include "kube-rightsize.fullname" . }} -f
+
+3. Create your first RightSizePolicy:
+
+   cat <<EOF | kubectl apply -f -
+   apiVersion: rightsize.io/v1alpha1
+   kind: RightSizePolicy
+   metadata:
+     name: my-policy
+     namespace: default
+   spec:
+     targetRef:
+       kind: Deployment
+       name: my-app
+     metricsSource:
+       prometheus:
+         address: http://prometheus-server.monitoring:9090
+   EOF
+
+4. Check policy status:
+
+   kubectl get rightsizepolicies -A
+
+For more information, visit: https://github.com/SebTardif/kube-rightsize

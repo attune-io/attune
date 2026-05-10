@@ -64,6 +64,9 @@ tolerations: []
 # -- Affinity rules
 affinity: {}
 
+# -- Topology spread constraints
+topologySpreadConstraints: []
+
 # -- Leader election (enable for HA with replicaCount > 1)
 leaderElection:
   enabled: true

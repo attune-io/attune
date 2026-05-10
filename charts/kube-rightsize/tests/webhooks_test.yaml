@@ -1,0 +1,47 @@
+suite: webhook tests
+templates:
+  - templates/webhooks.yaml
+tests:
+  - it: should render mutating and validating webhooks when enabled
+    set:
+      webhooks.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 2
+
+  - it: should not render when webhooks disabled
+    set:
+      webhooks.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should set correct mutating webhook path
+    set:
+      webhooks.enabled: true
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: MutatingWebhookConfiguration
+      - equal:
+          path: webhooks[0].clientConfig.service.path
+          value: /mutate-rightsize-io-v1alpha1-rightsizepolicy
+
+  - it: should set correct validating webhook path
+    set:
+      webhooks.enabled: true
+    documentIndex: 1
+    asserts:
+      - isKind:
+          of: ValidatingWebhookConfiguration
+      - equal:
+          path: webhooks[0].clientConfig.service.path
+          value: /validate-rightsize-io-v1alpha1-rightsizepolicy
+
+  - it: should set cert-manager annotation
+    set:
+      webhooks.enabled: true
+    documentIndex: 0
+    asserts:
+      - isNotNull:
+          path: metadata.annotations["cert-manager.io/inject-ca-from"]

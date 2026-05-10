@@ -45,6 +45,12 @@ const (
 	// lastResizeAnnotation is the annotation key for tracking last resize time.
 	lastResizeAnnotation = "rightsize.io/last-resize-time"
 
+	// Annotation keys for tracking in-flight resizes on pods.
+	annotationResizedAt        = "rightsize.io/resized-at"
+	annotationResizedContainer = "rightsize.io/resized-container"
+	annotationOriginalCPU      = "rightsize.io/original-cpu-request"
+	annotationOriginalMemory   = "rightsize.io/original-memory-request"
+
 	// defaultHistoryWindow is the default history window if not specified.
 	defaultHistoryWindow = 7 * 24 * time.Hour
 
@@ -56,9 +62,6 @@ const (
 
 	// defaultPrometheusStep is the step interval for Prometheus range queries.
 	defaultPrometheusStep = 5 * time.Minute
-
-	// conditionTypeReady is the condition type for overall health.
-	conditionTypeReady = "Ready"
 
 	// defaultObservationPeriod is the default safety observation window after resize.
 	defaultObservationPeriod = 5 * time.Minute
@@ -113,7 +116,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	prometheusAddr, err := r.resolvePrometheusAddress(ctx, &policy)
 	if err != nil {
 		logger.Error(err, "Failed to resolve Prometheus address")
-		r.setFailedCondition(ctx, &policy, "PrometheusUnavailable",
+		r.setFailedCondition(ctx, &policy, rightsizev1alpha1.ReasonPrometheusUnavailable,
 			fmt.Sprintf("Cannot resolve Prometheus address: %v", err))
 		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 	}
@@ -121,7 +124,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	collector, err := r.MetricsFactory(prometheusAddr)
 	if err != nil {
 		logger.Error(err, "Failed to create metrics collector", "address", prometheusAddr)
-		r.setFailedCondition(ctx, &policy, "PrometheusUnavailable",
+		r.setFailedCondition(ctx, &policy, rightsizev1alpha1.ReasonPrometheusUnavailable,
 			fmt.Sprintf("Cannot create metrics collector: %v", err))
 		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 	}
@@ -136,7 +139,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	logger.Info("Discovered workloads", "count", len(workloads))
 
 	if len(workloads) == 0 {
-		r.setFailedCondition(ctx, &policy, "InsufficientData", "No matching workloads found")
+		r.setFailedCondition(ctx, &policy, rightsizev1alpha1.ReasonInsufficientData, "No matching workloads found")
 		policy.Status.Workloads = rightsizev1alpha1.WorkloadStatus{}
 		return ctrl.Result{RequeueAfter: r.parseCooldown(&policy)}, nil
 	}
@@ -215,17 +218,17 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	// Set Ready condition.
 	if workloadsWithRecs > 0 {
 		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
-			Type:               conditionTypeReady,
+			Type:               rightsizev1alpha1.ConditionReady,
 			Status:             metav1.ConditionTrue,
-			Reason:             "Monitoring",
+			Reason:             rightsizev1alpha1.ReasonMonitoring,
 			Message:            fmt.Sprintf("Watching %d workloads, %d with recommendations", len(workloads), workloadsWithRecs),
 			ObservedGeneration: policy.Generation,
 		})
 	} else {
 		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
-			Type:               conditionTypeReady,
+			Type:               rightsizev1alpha1.ConditionReady,
 			Status:             metav1.ConditionFalse,
-			Reason:             "InsufficientData",
+			Reason:             rightsizev1alpha1.ReasonInsufficientData,
 			Message:            "No workloads have sufficient data for recommendations",
 			ObservedGeneration: policy.Generation,
 		})
@@ -572,10 +575,10 @@ func (r *RightSizePolicyReconciler) executeResizes(
 				if pod.Annotations == nil {
 					pod.Annotations = make(map[string]string)
 				}
-				pod.Annotations["rightsize.io/resized-at"] = time.Now().UTC().Format(time.RFC3339)
-				pod.Annotations["rightsize.io/resized-container"] = containerRec.Name
-				pod.Annotations["rightsize.io/original-cpu-request"] = containerRec.Current.CPURequest.String()
-				pod.Annotations["rightsize.io/original-memory-request"] = containerRec.Current.MemoryRequest.String()
+				pod.Annotations[annotationResizedAt] = time.Now().UTC().Format(time.RFC3339)
+				pod.Annotations[annotationResizedContainer] = containerRec.Name
+				pod.Annotations[annotationOriginalCPU] = containerRec.Current.CPURequest.String()
+				pod.Annotations[annotationOriginalMemory] = containerRec.Current.MemoryRequest.String()
 
 				// Safety check (if autoRevert is enabled)
 				if policy.Spec.UpdateStrategy.AutoRevert {
@@ -651,7 +654,7 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 
 	for i := range podList.Items {
 		pod := &podList.Items[i]
-		resizedAtStr, ok := pod.Annotations["rightsize.io/resized-at"]
+		resizedAtStr, ok := pod.Annotations[annotationResizedAt]
 		if !ok {
 			continue
 		}
@@ -667,8 +670,8 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 			continue
 		}
 
-		originalCPUStr := pod.Annotations["rightsize.io/original-cpu-request"]
-		originalMemStr := pod.Annotations["rightsize.io/original-memory-request"]
+		originalCPUStr := pod.Annotations[annotationOriginalCPU]
+		originalMemStr := pod.Annotations[annotationOriginalMemory]
 
 		originalCPU, err := resource.ParseQuantity(originalCPUStr)
 		if err != nil {
@@ -682,7 +685,7 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 		}
 
 		// Use the tracked container name from the annotation.
-		containerName := pod.Annotations["rightsize.io/resized-container"]
+		containerName := pod.Annotations[annotationResizedContainer]
 		var currentResources corev1.ResourceRequirements
 		for _, c := range pod.Spec.Containers {
 			if c.Name == containerName {
