@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"strconv"
@@ -38,26 +39,46 @@ var gvr = schema.GroupVersionResource{
 }
 
 func main() {
+	fs := flag.NewFlagSet("kubectl-rightsize", flag.ExitOnError)
+	namespace := fs.String("n", "", "Namespace (defaults to current context namespace)")
+	fs.StringVar(namespace, "namespace", "", "Namespace (defaults to current context namespace)")
+	allNamespaces := fs.Bool("A", false, "List across all namespaces")
+	fs.BoolVar(allNamespaces, "all-namespaces", false, "List across all namespaces")
+	kubeconfig := fs.String("kubeconfig", "", "Path to kubeconfig file")
+	fs.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: kubectl rightsize <status|savings|recommendations> [flags]\n\nFlags:\n")
+		fs.PrintDefaults()
+	}
+
 	if len(os.Args) < 2 {
-		fmt.Fprintf(os.Stderr, "Usage: kubectl rightsize <status|savings|recommendations> [-n namespace]\n")
+		fs.Usage()
 		os.Exit(1)
 	}
 
 	cmd := os.Args[1]
-	namespace := ""
-	for i, arg := range os.Args {
-		if arg == "-n" && i+1 < len(os.Args) {
-			namespace = os.Args[i+1]
-		}
-	}
-	if namespace == "" {
-		namespace = "default"
+	if err := fs.Parse(os.Args[2:]); err != nil {
+		os.Exit(1)
 	}
 
 	// Build client from kubeconfig.
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+	if *kubeconfig != "" {
+		loadingRules.ExplicitPath = *kubeconfig
+	}
 	configOverrides := &clientcmd.ConfigOverrides{}
 	kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides)
+
+	if *namespace == "" && !*allNamespaces {
+		ns, _, err := kubeConfig.Namespace()
+		if err != nil || ns == "" {
+			ns = "default"
+		}
+		*namespace = ns
+	}
+	if *allNamespaces {
+		*namespace = ""
+	}
+
 	config, err := kubeConfig.ClientConfig()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -74,13 +95,14 @@ func main() {
 
 	switch cmd {
 	case "status":
-		printStatus(ctx, dynClient, namespace)
+		printStatus(ctx, dynClient, *namespace)
 	case "savings":
-		printSavings(ctx, dynClient, namespace)
+		printSavings(ctx, dynClient, *namespace)
 	case "recommendations":
-		printRecommendations(ctx, dynClient, namespace)
+		printRecommendations(ctx, dynClient, *namespace)
 	default:
-		fmt.Fprintf(os.Stderr, "Unknown command: %s\nUsage: kubectl rightsize <status|savings|recommendations> [-n namespace]\n", cmd)
+		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", cmd)
+		fs.Usage()
 		os.Exit(1)
 	}
 }
