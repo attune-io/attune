@@ -23,7 +23,7 @@ jobs:
   # Docs-only or YAML-only PRs skip all Go CI (lint, test, build).
   changes:
     name: Detect Changes
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     outputs:
       go: ${{ steps.filter.outputs.go }}
       helm: ${{ steps.filter.outputs.helm }}
@@ -51,7 +51,7 @@ jobs:
 
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs: changes
     if: needs.changes.outputs.go == 'true'
     steps:
@@ -87,7 +87,7 @@ jobs:
 
   test-unit:
     name: Unit Tests
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs: changes
     if: needs.changes.outputs.go == 'true'
     steps:
@@ -143,7 +143,7 @@ jobs:
 
   test-integration:
     name: Integration Tests
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs: changes
     if: needs.changes.outputs.go == 'true'
     steps:
@@ -187,7 +187,7 @@ jobs:
 
   test-e2e:
     name: E2E Tests (K8s ${{ matrix.k8s-version }})
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs: [changes, lint, test-unit]
     if: needs.changes.outputs.go == 'true'
     strategy:
@@ -268,7 +268,7 @@ jobs:
   # Without this, branch protection must list each matrix entry individually.
   test-e2e-result:
     name: E2E Tests
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs: [changes, test-e2e]
     if: always()
     steps:
@@ -289,7 +289,7 @@ jobs:
 
   crd-freshness:
     name: CRD Freshness Check
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs: changes
     if: needs.changes.outputs.go == 'true'
     steps:
@@ -317,7 +317,7 @@ jobs:
 
   helm-lint:
     name: Helm Lint
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs: changes
     if: needs.changes.outputs.helm == 'true' || needs.changes.outputs.go == 'true'
     steps:
@@ -370,7 +370,7 @@ jobs:
 
   build:
     name: Build
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs: changes
     if: needs.changes.outputs.go == 'true'
     steps:
