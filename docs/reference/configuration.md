@@ -49,18 +49,13 @@ This page documents every value in the Helm chart's `values.yaml`.
 | `nodeSelector` | object | `{}` | Node selector for operator pods |
 | `tolerations` | list | `[]` | Tolerations for operator pods |
 | `affinity` | object | `{}` | Affinity rules for operator pods |
+| `topologySpreadConstraints` | list | `[]` | Topology spread constraints for operator pods |
 
 ## Leader election
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `leaderElection.enabled` | bool | `true` | Enable leader election. Required for `replicaCount > 1`. |
-
-## Prometheus
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `prometheus.address` | string | `http://prometheus-server.monitoring:9090` | Default Prometheus address for metrics collection |
 
 ## Operator metrics
 
@@ -71,6 +66,18 @@ This page documents every value in the Helm chart's `values.yaml`.
 | `metrics.serviceMonitor.enabled` | bool | `false` | Create a Prometheus Operator ServiceMonitor |
 | `metrics.serviceMonitor.additionalLabels` | object | `{}` | Extra labels for the ServiceMonitor |
 | `metrics.serviceMonitor.interval` | string | `30s` | Scrape interval |
+
+## Webhooks
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `webhooks.enabled` | bool | `true` | Enable admission webhooks for defaulting and validation. Requires cert-manager. |
+
+## Network Policy
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `networkPolicy.enabled` | bool | `false` | Enable a NetworkPolicy restricting operator pod traffic to DNS, K8s API, Prometheus, and metrics/health/webhook ports. |
 
 ## Logging
 

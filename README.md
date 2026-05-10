@@ -195,8 +195,8 @@ The dashboard includes:
   becoming more precise as data accumulates.
 - **Time-of-day awareness**: Uses hourly usage profiles so recommendations cover
   the busiest hour, not just the average.
-- **Mandatory bounds**: Resource bounds (`min`/`max`) are required fields. No
-  unbounded recommendations, ever.
+- **Always-bounded recommendations**: Resource bounds (`min`/`max`) can be set
+  per-policy. When omitted, safe defaults apply (CPU: 50m-4000m, Memory: 64Mi-8Gi).
 - **Conflict detection**: Detects and warns about VPA, other RightSizePolicy, or
   active Deployment rollouts targeting the same workload.
 

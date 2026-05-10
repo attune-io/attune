@@ -55,9 +55,7 @@ corev1      "k8s.io/api/core/v1"
 appsv1      "k8s.io/api/apps/v1"
 metav1      "k8s.io/apimachinery/pkg/apis/meta/v1"
 apierrors   "k8s.io/apimachinery/pkg/api/errors"
-apiresource "k8s.io/apimachinery/pkg/api/resource"
 ctrl        "sigs.k8s.io/controller-runtime"
-ctrlclient  "sigs.k8s.io/controller-runtime/pkg/client"
 ```
 
 ### Logging

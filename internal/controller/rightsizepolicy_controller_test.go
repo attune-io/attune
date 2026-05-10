@@ -798,6 +798,31 @@ func TestComputeRecommendations_EmptyContainers(t *testing.T) {
 	assert.Nil(t, rec)
 }
 
+func TestComputeRecommendations_AllowDecreaseBlocked(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	// AllowDecrease is nil (default) — memory decreases should be clamped.
+
+	deploy := newTestDeployment("api-server", "default", nil)
+	reconciler := newReconcilerWithClient()
+
+	// Return very low memory usage (0.001 cores CPU, ~1MiB memory)
+	// to produce recommendations lower than current (512Mi).
+	mc := &mockCollector{
+		queryRangeFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return generateSamples(200, 0.001), nil
+		},
+	}
+
+	rec, err := reconciler.computeRecommendations(context.Background(), policy, deploy, nil, mc)
+	require.NoError(t, err)
+	require.NotNil(t, rec)
+	require.Len(t, rec.Containers, 1)
+
+	// Memory should be clamped to current (512Mi) since AllowDecrease is nil.
+	assert.True(t, rec.Containers[0].Recommended.MemoryRequest.Cmp(resource.MustParse("512Mi")) >= 0,
+		"memory should not decrease below current when AllowDecrease is nil, got %s", rec.Containers[0].Recommended.MemoryRequest.String())
+}
+
 // ---------- resolvePrometheusAddress ----------
 
 func TestResolvePrometheusAddress_PolicyHasAddress(t *testing.T) {
@@ -1855,6 +1880,32 @@ func TestGetPodsForWorkload_EmptySelectorLabels(t *testing.T) {
 func TestBuildPrometheusQuery_UnknownMetric(t *testing.T) {
 	query := buildPrometheusQuery("default", "api-server", "main", "disk")
 	assert.Empty(t, query)
+}
+
+func TestEscapePromQL(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"clean string", "my-namespace", "my-namespace"},
+		{"double quote", `my"ns`, `my\"ns`},
+		{"backslash", `my\ns`, `my\\ns`},
+		{"both", `a"b\c`, `a\"b\\c`},
+		{"empty", "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, escapePromQL(tt.input))
+		})
+	}
+}
+
+func TestBuildPrometheusQuery_EscapesSpecialChars(t *testing.T) {
+	query := buildPrometheusQuery(`ns"test`, `pod"prefix`, `con"tainer`, "cpu")
+	assert.Contains(t, query, `ns\"test`)
+	assert.Contains(t, query, `pod\"prefix`)
+	assert.Contains(t, query, `con\"tainer`)
 }
 
 // ---------- listWorkloadsBySelector invalid selector ----------

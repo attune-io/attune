@@ -19,9 +19,11 @@ package webhook
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	rightsizev1alpha1 "github.com/SebTardif/kube-rightsize/api/v1alpha1"
 )
@@ -156,6 +158,42 @@ func TestValidateUpdate_InvalidBounds(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "cpu.bounds.min")
+}
+
+func TestValidate_SafetyMarginInvalid(t *testing.T) {
+	tests := []struct {
+		name    string
+		cpu     string
+		memory  string
+		wantErr string
+	}{
+		{"non-numeric CPU", "abc", "1.3", "cpu.safetyMargin"},
+		{"non-numeric memory", "1.2", "xyz", "memory.safetyMargin"},
+		{"zero CPU", "0", "1.3", "must be positive"},
+		{"negative memory", "1.2", "-1.5", "must be positive"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			validator := &RightSizePolicyValidator{}
+			policy := validPolicy()
+			policy.Spec.CPU.SafetyMargin = tt.cpu
+			policy.Spec.Memory.SafetyMargin = tt.memory
+
+			_, err := validator.ValidateCreate(context.Background(), policy)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
+func TestValidate_NegativeCooldown(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: -5 * time.Minute}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "cooldown must be non-negative")
 }
 
 func TestValidateDelete_AlwaysSucceeds(t *testing.T) {

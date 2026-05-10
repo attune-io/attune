@@ -20,14 +20,13 @@ kubectl create namespace kube-rightsize-system
 
 helm install kube-rightsize \
   oci://ghcr.io/sebtardif/charts/kube-rightsize \
-  --namespace kube-rightsize-system \
-  --set prometheus.address=http://prometheus-server.monitoring:9090
+  --namespace kube-rightsize-system
 ```
 
-!!! tip "Custom Prometheus address"
-    Set `prometheus.address` to the in-cluster URL of your Prometheus server.
-    The default (`http://prometheus-server.monitoring:9090`) works for the
-    standard `prometheus-community/prometheus` Helm chart.
+!!! tip "Prometheus address"
+    The Prometheus address is configured per-policy in
+    `RightSizePolicy.spec.metricsSource.prometheus.address`, or globally
+    via the `RightSizeDefaults` CRD. It is not a Helm chart value.
 
 ### Upgrading
 

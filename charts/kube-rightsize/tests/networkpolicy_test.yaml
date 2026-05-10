@@ -1,0 +1,49 @@
+suite: networkpolicy tests
+templates:
+  - templates/networkpolicy.yaml
+tests:
+  - it: should not render NetworkPolicy by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render NetworkPolicy when enabled
+    set:
+      networkPolicy:
+        enabled: true
+    asserts:
+      - isKind:
+          of: NetworkPolicy
+      - equal:
+          path: spec.policyTypes
+          value:
+            - Ingress
+            - Egress
+
+  - it: should include webhook ingress port when webhooks enabled
+    set:
+      networkPolicy:
+        enabled: true
+      webhooks:
+        enabled: true
+    asserts:
+      - contains:
+          path: spec.ingress
+          content:
+            ports:
+              - port: 9443
+                protocol: TCP
+
+  - it: should not include webhook ingress port when webhooks disabled
+    set:
+      networkPolicy:
+        enabled: true
+      webhooks:
+        enabled: false
+    asserts:
+      - notContains:
+          path: spec.ingress
+          content:
+            ports:
+              - port: 9443
+                protocol: TCP

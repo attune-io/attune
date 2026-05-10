@@ -19,8 +19,10 @@ package webhook
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	rightsizev1alpha1 "github.com/SebTardif/kube-rightsize/api/v1alpha1"
 )
@@ -72,4 +74,51 @@ func TestDefault_SetsWeight(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Equal(t, int32(100), policy.Spec.Weight)
+}
+
+func TestDefault_SetsControlledValues(t *testing.T) {
+	defaulter := &RightSizePolicyDefaulter{}
+	policy := &rightsizev1alpha1.RightSizePolicy{}
+
+	err := defaulter.Default(context.Background(), policy)
+
+	require.NoError(t, err)
+	require.NotNil(t, policy.Spec.CPU.ControlledValues)
+	assert.Equal(t, "RequestsOnly", *policy.Spec.CPU.ControlledValues)
+	require.NotNil(t, policy.Spec.Memory.ControlledValues)
+	assert.Equal(t, "RequestsOnly", *policy.Spec.Memory.ControlledValues)
+}
+
+func TestDefault_SetsHistoryWindow(t *testing.T) {
+	defaulter := &RightSizePolicyDefaulter{}
+	policy := &rightsizev1alpha1.RightSizePolicy{}
+
+	err := defaulter.Default(context.Background(), policy)
+
+	require.NoError(t, err)
+	require.NotNil(t, policy.Spec.MetricsSource.HistoryWindow)
+	assert.Equal(t, 168*time.Hour, policy.Spec.MetricsSource.HistoryWindow.Duration)
+}
+
+func TestDefault_SetsCooldown(t *testing.T) {
+	defaulter := &RightSizePolicyDefaulter{}
+	policy := &rightsizev1alpha1.RightSizePolicy{}
+
+	err := defaulter.Default(context.Background(), policy)
+
+	require.NoError(t, err)
+	require.NotNil(t, policy.Spec.UpdateStrategy.Cooldown)
+	assert.Equal(t, 1*time.Hour, policy.Spec.UpdateStrategy.Cooldown.Duration)
+}
+
+func TestDefault_PreservesExistingCooldown(t *testing.T) {
+	defaulter := &RightSizePolicyDefaulter{}
+	policy := &rightsizev1alpha1.RightSizePolicy{}
+	cv := "RequestsAndLimits"
+	policy.Spec.CPU.ControlledValues = &cv
+
+	err := defaulter.Default(context.Background(), policy)
+
+	require.NoError(t, err)
+	assert.Equal(t, "RequestsAndLimits", *policy.Spec.CPU.ControlledValues)
 }
