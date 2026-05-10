@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -26,8 +27,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	rightsizev1alpha1 "github.com/SebTardif/kube-rightsize/api/v1alpha1"
+	rsmetrics "github.com/SebTardif/kube-rightsize/internal/metrics"
 )
 
 // discoverWorkloads finds workloads matching the policy's targetRef.
@@ -205,6 +208,22 @@ func (r *RightSizePolicyReconciler) isRollingOut(workload client.Object) bool {
 // getPodPrefix derives the pod name prefix from a workload.
 func (r *RightSizePolicyReconciler) getPodPrefix(workload client.Object) string {
 	return workload.GetName()
+}
+
+// queryMetrics queries Prometheus for the given metric type, falling back
+// to pod-level metrics if the container-specific query returns no data.
+func queryMetrics(ctx context.Context, collector rsmetrics.MetricsCollector, namespace, podPrefix, container, metric string, start, end time.Time, step time.Duration) []rsmetrics.Sample {
+	query := buildPrometheusQuery(namespace, podPrefix, container, metric)
+	samples, err := collector.QueryRange(ctx, query, start, end, step)
+	if err != nil {
+		log.FromContext(ctx).Error(err, "Failed to query metrics", "metric", metric, "container", container)
+		samples = nil
+	}
+	if len(samples) == 0 && container != "" {
+		fallback := buildPrometheusQuery(namespace, podPrefix, "", metric)
+		samples, _ = collector.QueryRange(ctx, fallback, start, end, step)
+	}
+	return samples
 }
 
 // buildPrometheusQuery generates a PromQL query for the given metric type.

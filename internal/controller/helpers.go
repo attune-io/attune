@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -31,7 +32,35 @@ import (
 
 	rightsizev1alpha1 "github.com/SebTardif/kube-rightsize/api/v1alpha1"
 	"github.com/SebTardif/kube-rightsize/internal/operatormetrics"
+	"github.com/SebTardif/kube-rightsize/internal/resize"
 )
+
+// isResizeMode returns true if the policy mode performs actual pod resizes.
+func isResizeMode(mode string) bool {
+	return mode == "OneShot" || mode == "Canary" || mode == "Auto"
+}
+
+// newHistoryEntry creates a ResizeHistoryEntry from a resize result.
+func newHistoryEntry(now metav1.Time, workload, container string, res resize.ResizeResult, result string) rightsizev1alpha1.ResizeHistoryEntry {
+	return rightsizev1alpha1.ResizeHistoryEntry{
+		Timestamp: now,
+		Workload:  workload,
+		Container: container,
+		Resource:  res.Resource,
+		From:      res.From.String(),
+		To:        res.To.String(),
+		Method:    "InPlace",
+		Result:    result,
+	}
+}
+
+// removeTrackingAnnotations removes the resize-tracking annotations from a pod.
+func removeTrackingAnnotations(pod *corev1.Pod) {
+	delete(pod.Annotations, "rightsize.io/resized-at")
+	delete(pod.Annotations, "rightsize.io/resized-container")
+	delete(pod.Annotations, "rightsize.io/original-cpu-request")
+	delete(pod.Annotations, "rightsize.io/original-memory-request")
+}
 
 // setFailedCondition sets a Ready=False condition on the policy and updates
 // the status subresource. Errors from the status update are logged but not

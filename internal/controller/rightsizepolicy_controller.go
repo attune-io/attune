@@ -202,13 +202,13 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	// Step 9: Execute resizes if mode allows.
 	mode := policy.Spec.UpdateStrategy.Mode
-	if (mode == "OneShot" || mode == "Canary" || mode == "Auto") && !r.isCooldownActive(&policy) {
+	if isResizeMode(mode) && !r.isCooldownActive(&policy) {
 		resizedCount, history := r.executeResizes(ctx, &policy, workloads, recommendations)
 		if resizedCount > 0 {
 			policy.Status.Workloads.Resized = safeInt32(resizedCount)
 			policy.Status.ResizeHistory = appendHistory(policy.Status.ResizeHistory, history, 20)
 		}
-	} else if mode == "OneShot" || mode == "Canary" || mode == "Auto" {
+	} else if isResizeMode(mode) {
 		logger.Info("Cooldown active, skipping resize")
 	}
 
@@ -310,33 +310,9 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 	for _, container := range containers {
 		containerName := container.Name
 
-		// Build Prometheus queries with container label.
-		cpuQuery := buildPrometheusQuery(policy.Namespace, podPrefix, containerName, "cpu")
-		memQuery := buildPrometheusQuery(policy.Namespace, podPrefix, containerName, "memory")
-
-		// Query Prometheus with QueryRange.
-		cpuSamples, err := collector.QueryRange(ctx, cpuQuery, start, now, defaultPrometheusStep)
-		if err != nil {
-			logger.Error(err, "Failed to query CPU metrics", "container", containerName)
-			cpuSamples = nil
-		}
-
-		memSamples, err := collector.QueryRange(ctx, memQuery, start, now, defaultPrometheusStep)
-		if err != nil {
-			logger.Error(err, "Failed to query memory metrics", "container", containerName)
-			memSamples = nil
-		}
-
-		// Fallback: if no results with container label, try pod-level metrics (no container filter).
-		// Some Prometheus/cAdvisor configurations don't include the container label.
-		if len(cpuSamples) == 0 {
-			fallbackCPU := buildPrometheusQuery(policy.Namespace, podPrefix, "", "cpu")
-			cpuSamples, _ = collector.QueryRange(ctx, fallbackCPU, start, now, defaultPrometheusStep)
-		}
-		if len(memSamples) == 0 {
-			fallbackMem := buildPrometheusQuery(policy.Namespace, podPrefix, "", "memory")
-			memSamples, _ = collector.QueryRange(ctx, fallbackMem, start, now, defaultPrometheusStep)
-		}
+		// Query Prometheus for CPU and memory metrics (with pod-level fallback).
+		cpuSamples := queryMetrics(ctx, collector, policy.Namespace, podPrefix, containerName, "cpu", start, now, defaultPrometheusStep)
+		memSamples := queryMetrics(ctx, collector, policy.Namespace, podPrefix, containerName, "memory", start, now, defaultPrometheusStep)
 
 		// Build UsageProfile from samples.
 		cpuProfile := rsmetrics.BuildProfile(cpuSamples)
@@ -574,16 +550,7 @@ func (r *RightSizePolicyReconciler) executeResizes(
 					logger.Error(err, "Failed to resize pod",
 						"pod", pod.Name, "container", containerRec.Name)
 					for _, res := range results {
-						history = append(history, rightsizev1alpha1.ResizeHistoryEntry{
-							Timestamp: now,
-							Workload:  rec.Workload,
-							Container: containerRec.Name,
-							Resource:  res.Resource,
-							From:      res.From.String(),
-							To:        res.To.String(),
-							Method:    "InPlace",
-							Result:    "Failed",
-						})
+						history = append(history, newHistoryEntry(now, rec.Workload, containerRec.Name, res, "Failed"))
 						operatormetrics.ResizeTotal.WithLabelValues(pod.Namespace, rec.Workload, res.Resource, "failed").Inc()
 					}
 					continue
@@ -595,16 +562,7 @@ func (r *RightSizePolicyReconciler) executeResizes(
 					if !res.Success {
 						result = "Failed"
 					}
-					history = append(history, rightsizev1alpha1.ResizeHistoryEntry{
-						Timestamp: now,
-						Workload:  rec.Workload,
-						Container: containerRec.Name,
-						Resource:  res.Resource,
-						From:      res.From.String(),
-						To:        res.To.String(),
-						Method:    "InPlace",
-						Result:    result,
-					})
+					history = append(history, newHistoryEntry(now, rec.Workload, containerRec.Name, res, result))
 					if res.Success {
 						operatormetrics.ResizeTotal.WithLabelValues(pod.Namespace, rec.Workload, res.Resource, "success").Inc()
 					}
@@ -764,10 +722,7 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 		}
 
 		// Remove tracking annotations regardless of outcome (observation complete).
-		delete(pod.Annotations, "rightsize.io/resized-at")
-		delete(pod.Annotations, "rightsize.io/resized-container")
-		delete(pod.Annotations, "rightsize.io/original-cpu-request")
-		delete(pod.Annotations, "rightsize.io/original-memory-request")
+		removeTrackingAnnotations(pod)
 		if updateErr := r.Update(ctx, pod); updateErr != nil {
 			logger.Error(updateErr, "Failed to remove resize tracking annotations", "pod", pod.Name)
 		}
