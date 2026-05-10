@@ -38,10 +38,7 @@ spec:
         - script:
             content: |
               # This should be rejected by the webhook
-              if kubectl apply -f - <<'EOF' 2>/dev/null; then
-                echo "ERROR: invalid costPricing should have been rejected"
-                exit 1
-              fi
+              cat <<'EOF' | kubectl apply -f - 2>/dev/null && { echo "ERROR: invalid costPricing should have been rejected"; exit 1; }
               apiVersion: rightsize.io/v1alpha1
               kind: RightSizeDefaults
               metadata:
@@ -56,10 +53,7 @@ spec:
       try:
         - script:
             content: |
-              if kubectl apply -f - <<'EOF' 2>/dev/null; then
-                echo "ERROR: negative memoryPerGiBHour should have been rejected"
-                exit 1
-              fi
+              cat <<'EOF' | kubectl apply -f - 2>/dev/null && { echo "ERROR: negative memoryPerGiBHour should have been rejected"; exit 1; }
               apiVersion: rightsize.io/v1alpha1
               kind: RightSizeDefaults
               metadata:

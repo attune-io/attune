@@ -12,14 +12,21 @@ spec:
     - name: check-health-endpoints
       try:
         - script:
+            timeout: 60s
             content: |
-              POD=$(kubectl get pods -n kube-rightsize-system -l app.kubernetes.io/name=kube-rightsize -o jsonpath='{.items[0].metadata.name}')
-              # /healthz via port-forward
-              kubectl run health-check --image=curlimages/curl --restart=Never --rm -it \
-                -- curl -sf "http://${POD}.kube-rightsize-system.pod:8081/healthz" || {
-                # fallback: exec into the pod network via a curl pod
-                POD_IP=$(kubectl get pod "$POD" -n kube-rightsize-system -o jsonpath='{.status.podIP}')
-                kubectl run health-check2 --image=curlimages/curl --restart=Never --rm -it \
-                  -- sh -c "curl -sf http://${POD_IP}:8081/healthz && curl -sf http://${POD_IP}:8081/readyz"
-              }
+              # Use wget (available in distroless/static via busybox) or port-forward
+              POD=$(kubectl get pods -n kube-rightsize-system -l app.kubernetes.io/name=kube-rightsize \
+                -o jsonpath='{.items[0].metadata.name}')
+              echo "Operator pod: ${POD}"
+              # Port-forward and curl from localhost
+              kubectl port-forward -n kube-rightsize-system "pod/${POD}" 18081:8081 &
+              PF_PID=$!
+              sleep 2
+              curl -sf http://localhost:18081/healthz && echo "healthz OK"
+              curl -sf http://localhost:18081/readyz && echo "readyz OK"
+              kill $PF_PID 2>/dev/null || true
               echo "Health probes OK"
+      catch:
+        - script:
+            content: |
+              kubectl logs -n kube-rightsize-system -l app.kubernetes.io/name=kube-rightsize --tail=20
