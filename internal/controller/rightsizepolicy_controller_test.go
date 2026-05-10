@@ -35,7 +35,7 @@ import (
 	kubefake "k8s.io/client-go/kubernetes/fake"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	k8stesting "k8s.io/client-go/testing"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -2267,7 +2267,7 @@ func TestExecuteResizes_EmitsResizedEvent(t *testing.T) {
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
 	reconciler, _ := newResizeReconciler(pod, deploy)
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := events.NewFakeRecorder(10)
 	reconciler.Recorder = recorder
 
 	policy := newTestPolicy("test-policy", "default")
@@ -2308,7 +2308,7 @@ func TestExecuteResizes_ThrottleTriggersRevert(t *testing.T) {
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
 	reconciler, _ := newResizeReconciler(pod, deploy)
 
-	recorder := record.NewFakeRecorder(10)
+	recorder := events.NewFakeRecorder(10)
 	reconciler.Recorder = recorder
 
 	policy := newTestPolicy("test-policy", "default")

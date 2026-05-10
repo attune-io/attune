@@ -360,3 +360,170 @@ func TestCheckPolicyConflict_SkipsSelf(t *testing.T) {
 	result := detector.CheckPolicyConflict(context.Background(), c, "default", "my-app", "Deployment", "current-policy", 100)
 	assert.Nil(t, result, "should not conflict with itself")
 }
+
+// ---------- CheckVPAConflictInMemory ----------
+
+func newVPA(name, targetKind, targetName string) unstructured.Unstructured {
+	vpa := unstructured.Unstructured{}
+	vpa.SetGroupVersionKind(schema.GroupVersionKind{
+		Group: "autoscaling.k8s.io", Version: "v1", Kind: "VerticalPodAutoscaler",
+	})
+	vpa.SetName(name)
+	vpa.SetNamespace("default")
+	_ = unstructured.SetNestedMap(vpa.Object, map[string]interface{}{
+		"kind": targetKind, "name": targetName,
+	}, "spec", "targetRef")
+	return vpa
+}
+
+func TestCheckVPAConflictInMemory_NilList(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+	assert.Nil(t, detector.CheckVPAConflictInMemory(nil, "my-app", "Deployment"))
+}
+
+func TestCheckVPAConflictInMemory_EmptyList(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+	list := &unstructured.UnstructuredList{}
+	assert.Nil(t, detector.CheckVPAConflictInMemory(list, "my-app", "Deployment"))
+}
+
+func TestCheckVPAConflictInMemory_Match(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+	vpa := newVPA("my-vpa", "Deployment", "my-app")
+	list := &unstructured.UnstructuredList{Items: []unstructured.Unstructured{vpa}}
+
+	result := detector.CheckVPAConflictInMemory(list, "my-app", "Deployment")
+	assert.NotNil(t, result)
+	assert.Equal(t, ConflictVPA, result.Type)
+	assert.Equal(t, "my-vpa", result.Name)
+	assert.Contains(t, result.Message, "VPA my-vpa")
+}
+
+func TestCheckVPAConflictInMemory_DifferentName(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+	vpa := newVPA("other-vpa", "Deployment", "other-app")
+	list := &unstructured.UnstructuredList{Items: []unstructured.Unstructured{vpa}}
+
+	assert.Nil(t, detector.CheckVPAConflictInMemory(list, "my-app", "Deployment"))
+}
+
+func TestCheckVPAConflictInMemory_DifferentKind(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+	vpa := newVPA("my-vpa", "StatefulSet", "my-app")
+	list := &unstructured.UnstructuredList{Items: []unstructured.Unstructured{vpa}}
+
+	assert.Nil(t, detector.CheckVPAConflictInMemory(list, "my-app", "Deployment"))
+}
+
+func TestCheckVPAConflictInMemory_NoTargetRef(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+	vpa := unstructured.Unstructured{}
+	vpa.SetGroupVersionKind(schema.GroupVersionKind{
+		Group: "autoscaling.k8s.io", Version: "v1", Kind: "VerticalPodAutoscaler",
+	})
+	vpa.SetName("broken-vpa")
+	list := &unstructured.UnstructuredList{Items: []unstructured.Unstructured{vpa}}
+
+	assert.Nil(t, detector.CheckVPAConflictInMemory(list, "my-app", "Deployment"))
+}
+
+func TestCheckVPAConflictInMemory_MultipleVPAs_MatchSecond(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+	vpa1 := newVPA("unrelated-vpa", "Deployment", "other-app")
+	vpa2 := newVPA("matching-vpa", "Deployment", "my-app")
+	list := &unstructured.UnstructuredList{Items: []unstructured.Unstructured{vpa1, vpa2}}
+
+	result := detector.CheckVPAConflictInMemory(list, "my-app", "Deployment")
+	assert.NotNil(t, result)
+	assert.Equal(t, "matching-vpa", result.Name)
+}
+
+// ---------- CheckPolicyConflictInMemory ----------
+
+func newPolicy(name, targetKind, targetName string, weight int64) unstructured.Unstructured {
+	p := unstructured.Unstructured{}
+	p.SetGroupVersionKind(schema.GroupVersionKind{
+		Group: "rightsize.io", Version: "v1alpha1", Kind: "RightSizePolicy",
+	})
+	p.SetName(name)
+	p.SetNamespace("default")
+	_ = unstructured.SetNestedField(p.Object, targetKind, "spec", "targetRef", "kind")
+	_ = unstructured.SetNestedField(p.Object, targetName, "spec", "targetRef", "name")
+	_ = unstructured.SetNestedField(p.Object, weight, "spec", "weight")
+	return p
+}
+
+func TestCheckPolicyConflictInMemory_NilList(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+	assert.Nil(t, detector.CheckPolicyConflictInMemory(nil, "my-app", "Deployment", "current", 100))
+}
+
+func TestCheckPolicyConflictInMemory_EmptyList(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+	list := &unstructured.UnstructuredList{}
+	assert.Nil(t, detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment", "current", 100))
+}
+
+func TestCheckPolicyConflictInMemory_SkipsSelf(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+	self := newPolicy("current", "Deployment", "my-app", 999)
+	list := &unstructured.UnstructuredList{Items: []unstructured.Unstructured{self}}
+
+	assert.Nil(t, detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment", "current", 100))
+}
+
+func TestCheckPolicyConflictInMemory_HigherWeightConflicts(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+	other := newPolicy("high-priority", "Deployment", "my-app", 200)
+	list := &unstructured.UnstructuredList{Items: []unstructured.Unstructured{other}}
+
+	result := detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment", "low-priority", 100)
+	assert.NotNil(t, result)
+	assert.Equal(t, ConflictPolicy, result.Type)
+	assert.Equal(t, "high-priority", result.Name)
+	assert.Contains(t, result.Message, "higher weight (200 > 100)")
+}
+
+func TestCheckPolicyConflictInMemory_LowerWeightNoConflict(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+	other := newPolicy("low-priority", "Deployment", "my-app", 50)
+	list := &unstructured.UnstructuredList{Items: []unstructured.Unstructured{other}}
+
+	assert.Nil(t, detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment", "high-priority", 100))
+}
+
+func TestCheckPolicyConflictInMemory_EqualWeightNoConflict(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+	other := newPolicy("peer", "Deployment", "my-app", 100)
+	list := &unstructured.UnstructuredList{Items: []unstructured.Unstructured{other}}
+
+	assert.Nil(t, detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment", "current", 100))
+}
+
+func TestCheckPolicyConflictInMemory_DifferentWorkload(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+	other := newPolicy("other", "Deployment", "other-app", 999)
+	list := &unstructured.UnstructuredList{Items: []unstructured.Unstructured{other}}
+
+	assert.Nil(t, detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment", "current", 100))
+}
+
+func TestCheckPolicyConflictInMemory_DifferentKind(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+	other := newPolicy("other", "StatefulSet", "my-app", 999)
+	list := &unstructured.UnstructuredList{Items: []unstructured.Unstructured{other}}
+
+	assert.Nil(t, detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment", "current", 100))
+}
+
+func TestCheckPolicyConflictInMemory_MultiplePolicies(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+	low := newPolicy("low", "Deployment", "my-app", 50)
+	high := newPolicy("high", "Deployment", "my-app", 200)
+	unrelated := newPolicy("unrelated", "Deployment", "other-app", 999)
+	list := &unstructured.UnstructuredList{Items: []unstructured.Unstructured{low, high, unrelated}}
+
+	result := detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment", "current", 100)
+	assert.NotNil(t, result)
+	assert.Equal(t, "high", result.Name)
+}

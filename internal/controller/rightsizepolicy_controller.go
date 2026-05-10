@@ -32,7 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -91,7 +91,7 @@ type RightSizePolicyReconciler struct {
 	Scheme         *runtime.Scheme
 	MetricsFactory MetricsCollectorFactory
 	Clientset      kubernetes.Interface // for resize subresource calls
-	Recorder       record.EventRecorder
+	Recorder       events.EventRecorder
 }
 
 // MetricsCollectorFactory creates MetricsCollector instances from a Prometheus address.
@@ -733,7 +733,7 @@ func (r *RightSizePolicyReconciler) executeResizes(
 					if res.Success {
 						operatormetrics.ResizeTotal.WithLabelValues(pod.Namespace, rec.Workload, res.Resource, "success").Inc()
 						if r.Recorder != nil {
-							r.Recorder.Eventf(policy, corev1.EventTypeNormal, "Resized",
+							r.Recorder.Eventf(policy, nil, corev1.EventTypeNormal, "Resized", "resize",
 								"Resized %s %s/%s: %s %s -> %s",
 								res.Resource, rec.Workload, containerRec.Name, res.Resource, res.From.String(), res.To.String())
 						}
@@ -793,7 +793,7 @@ func (r *RightSizePolicyReconciler) executeResizes(
 						operatormetrics.RevertsTotal.WithLabelValues(pod.Namespace, rec.Workload, verdict.Reason).Inc()
 						operatormetrics.ResizeTotal.WithLabelValues(pod.Namespace, rec.Workload, containerRec.Name, "reverted").Inc()
 						if r.Recorder != nil {
-							r.Recorder.Eventf(policy, corev1.EventTypeWarning, "Reverted",
+							r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "Reverted", "revert",
 								"Reverted resize on %s/%s: %s", rec.Workload, containerRec.Name, verdict.Message)
 						}
 						// Update history entry to Reverted
@@ -911,7 +911,7 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 			workloadName := pod.Annotations[annotationResizedWorkload]
 			operatormetrics.RevertsTotal.WithLabelValues(pod.Namespace, workloadName, verdict.Reason).Inc()
 			if r.Recorder != nil {
-				r.Recorder.Eventf(policy, corev1.EventTypeWarning, "Reverted",
+				r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "Reverted", "revert",
 					"Safety observation reverted resize on pod %s: %s", pod.Name, verdict.Message)
 			}
 		}

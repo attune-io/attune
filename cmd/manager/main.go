@@ -108,7 +108,7 @@ func main() {
 		Client:    mgr.GetClient(),
 		Scheme:    mgr.GetScheme(),
 		Clientset: clientset,
-		Recorder:  mgr.GetEventRecorderFor("kube-rightsize"), //nolint:staticcheck // TODO: migrate to events.EventRecorder
+		Recorder:  mgr.GetEventRecorder("kube-rightsize"),
 		MetricsFactory: func(address string) (metrics.MetricsCollector, error) {
 			collector, err := metrics.NewPrometheusCollector(address, ctrl.Log.WithName("prometheus"))
 			if err != nil {
