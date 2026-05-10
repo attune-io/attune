@@ -1,0 +1,46 @@
+{{ template "chart.header" . }}
+
+{{ template "chart.description" . }}
+
+## Prerequisites
+
+- Kubernetes 1.33+ (In-Place Pod Resize GA)
+- Prometheus (for usage metrics)
+- Helm 3.16+
+
+## Installation
+
+```bash
+helm install kube-rightsize oci://ghcr.io/sebtardif/charts/kube-rightsize \
+  --namespace kube-rightsize-system --create-namespace
+```
+
+{{ template "chart.valuesSection" . }}
+
+## CRDs
+
+This chart automatically installs the required CRDs:
+- `rightsizepolicies.rightsize.io`
+- `rightsizedefaults.rightsize.io`
+
+## Prometheus Configuration
+
+Prometheus address is configured per-policy in `RightSizePolicy.spec.metricsSource.prometheus.address`
+or globally via the `RightSizeDefaults` CRD. It is not a chart value.
+
+## Grafana Dashboard
+
+A pre-built Grafana dashboard is included in `dashboards/grafana-dashboard.json`.
+Import it into Grafana to visualize recommendations, resize operations, and savings.
+
+## Uninstall
+
+```bash
+helm uninstall kube-rightsize -n kube-rightsize-system
+```
+
+CRDs are not removed by `helm uninstall`. To remove them:
+
+```bash
+kubectl delete crd rightsizepolicies.rightsize.io rightsizedefaults.rightsize.io
+```

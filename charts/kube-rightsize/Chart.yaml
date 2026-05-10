@@ -21,3 +21,9 @@ keywords:
   - finops
   - in-place-resize
 kubeVersion: ">= 1.33.0-0"
+annotations:
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/operator: "true"
+  artifacthub.io/operatorCapabilities: Seamless Upgrades
+  artifacthub.io/prerelease: "true"
+  artifacthub.io/signKey: ""

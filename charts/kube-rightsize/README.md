@@ -1,6 +1,6 @@
-# kube-rightsize Helm Chart
+# kube-rightsize
 
-Safe, in-place Kubernetes pod resource right-sizing operator.
+Safe, in-place Kubernetes pod resource right-sizing operator
 
 ## Prerequisites
 
@@ -15,31 +15,49 @@ helm install kube-rightsize oci://ghcr.io/sebtardif/charts/kube-rightsize \
   --namespace kube-rightsize-system --create-namespace
 ```
 
-## Configuration
+## Values
 
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `replicaCount` | Number of operator replicas | `1` |
-| `image.repository` | Container image repository | `ghcr.io/sebtardif/kube-rightsize` |
-| `image.tag` | Image tag (defaults to chart appVersion) | `""` |
-| `image.pullPolicy` | Image pull policy | `IfNotPresent` |
-| `resources.limits.cpu` | CPU limit | `500m` |
-| `resources.limits.memory` | Memory limit | `128Mi` |
-| `resources.requests.cpu` | CPU request | `100m` |
-| `resources.requests.memory` | Memory request | `64Mi` |
-| `leaderElection.enabled` | Enable leader election for HA | `true` |
-| `metrics.enabled` | Enable metrics endpoint | `true` |
-| `metrics.port` | Metrics port | `8080` |
-| `metrics.serviceMonitor.enabled` | Create Prometheus ServiceMonitor | `false` |
-| `metrics.serviceMonitor.interval` | Scrape interval | `30s` |
-| `logging.level` | Log level (debug, info, warn, error) | `info` |
-| `logging.format` | Log format (json, text) | `json` |
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| affinity | object | `{}` | Affinity rules |
+| fullnameOverride | string | `""` | Override the full name |
+| image.pullPolicy | string | `"IfNotPresent"` | Image pull policy |
+| image.repository | string | `"ghcr.io/sebtardif/kube-rightsize"` | Container image repository |
+| image.tag | string | `""` | Image tag (defaults to Chart appVersion) |
+| imagePullSecrets | list | `[]` | Image pull secrets |
+| leaderElection | object | `{"enabled":true}` | Leader election (enable for HA with replicaCount > 1) |
+| logging | object | `{"format":"json","level":"info"}` | Logging configuration |
+| logging.format | string | `"json"` | Log format (json, text) |
+| logging.level | string | `"info"` | Log level (debug, info, warn, error) |
+| metrics | object | `{"enabled":true,"port":8080,"serviceMonitor":{"additionalLabels":{},"enabled":false,"interval":"30s"}}` | Metrics endpoint |
+| metrics.serviceMonitor.additionalLabels | object | `{}` | Additional labels for the ServiceMonitor |
+| metrics.serviceMonitor.enabled | bool | `false` | Create a ServiceMonitor for Prometheus Operator |
+| metrics.serviceMonitor.interval | string | `"30s"` | Scrape interval |
+| nameOverride | string | `""` | Override the chart name |
+| nodeSelector | object | `{}` | Node selector |
+| podAnnotations | object | `{}` | Pod annotations |
+| podSecurityContext | object | `{"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}}` | Pod security context |
+| replicaCount | int | `1` | Number of operator replicas (use 2 for HA with leader election) |
+| resources | object | `{"limits":{"cpu":"500m","memory":"128Mi"},"requests":{"cpu":"100m","memory":"64Mi"}}` | Operator pod resources |
+| securityContext | object | `{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true,"runAsNonRoot":true,"runAsUser":65532}` | Container security context |
+| serviceAccount.annotations | object | `{}` | Annotations to add to the ServiceAccount |
+| serviceAccount.create | bool | `true` | Create a ServiceAccount |
+| serviceAccount.name | string | `""` | ServiceAccount name (generated if not set) |
+| tolerations | list | `[]` | Tolerations |
+| topologySpreadConstraints | list | `[]` | Topology spread constraints |
+| webhooks | object | `{"enabled":true}` | Webhook configuration (requires cert-manager installed in the cluster) |
+| webhooks.enabled | bool | `true` | Requires cert-manager to be installed for TLS certificate provisioning. |
 
 ## CRDs
 
 This chart automatically installs the required CRDs:
 - `rightsizepolicies.rightsize.io`
 - `rightsizedefaults.rightsize.io`
+
+## Prometheus Configuration
+
+Prometheus address is configured per-policy in `RightSizePolicy.spec.metricsSource.prometheus.address`
+or globally via the `RightSizeDefaults` CRD. It is not a chart value.
 
 ## Grafana Dashboard
 

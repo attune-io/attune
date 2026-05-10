@@ -190,6 +190,20 @@ CHAINSAW = $(GOBIN)/chainsaw
 chainsaw: ## Install chainsaw
 	@test -s $(CHAINSAW) || go install github.com/kyverno/chainsaw@$(CHAINSAW_VERSION)
 
+HELM_DOCS = $(GOBIN)/helm-docs
+.PHONY: helm-docs
+helm-docs: ## Install helm-docs
+	@test -s $(HELM_DOCS) || go install github.com/norwoodj/helm-docs/cmd/helm-docs@$(HELM_DOCS_VERSION)
+
+.PHONY: helm-docs-gen
+helm-docs-gen: helm-docs ## Generate Helm chart README from values.yaml
+	$(HELM_DOCS) --chart-search-root charts/
+
+.PHONY: helm-docs-check
+helm-docs-check: helm-docs-gen ## Verify Helm docs are up to date
+	@git diff --quiet --exit-code charts/kube-rightsize/README.md || \
+		(echo "::error::Helm README is stale. Run 'make helm-docs-gen' and commit." && exit 1)
+
 .PHONY: helm-unittest
 helm-unittest: ## Run Helm chart unit tests
 	@helm plugin list | grep -q unittest || helm plugin install https://github.com/helm-unittest/helm-unittest.git --verify=false

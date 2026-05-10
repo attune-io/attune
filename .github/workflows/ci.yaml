@@ -334,6 +334,22 @@ jobs:
             | tar xz -C "$PLUGINS_DIR"
           helm unittest charts/kube-rightsize
 
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Helm docs freshness
+        shell: bash -Eeuo pipefail {0}
+        run: |
+          go install github.com/norwoodj/helm-docs/cmd/helm-docs@v1.14.2
+          helm-docs --chart-search-root charts/
+          if ! git diff --quiet --exit-code charts/kube-rightsize/README.md; then
+            echo "::error::Helm README is stale. Run 'make helm-docs-gen' and commit."
+            git diff charts/kube-rightsize/README.md
+            exit 1
+          fi
+
   build:
     name: Build
     runs-on: ubuntu-latest

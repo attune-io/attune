@@ -1,0 +1,8 @@
+# Helm chart packaging exclusions
+.git
+.github
+tests/
+ci/
+dashboards/
+*.md
+LICENSE
