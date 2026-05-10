@@ -7,11 +7,16 @@ guidelines and instructions for contributing.
 
 ### Prerequisites
 
-- Go 1.26+
-- Docker
-- kubectl
-- Kind (for local cluster testing)
-- Helm 3.16+
+| Tool | Version | Install |
+|------|---------|---------|
+| Go | 1.26+ | [golang.org/dl](https://golang.org/dl/) |
+| Docker | 24+ | [docs.docker.com](https://docs.docker.com/engine/install/) |
+| kubectl | 1.33+ | [kubernetes.io](https://kubernetes.io/docs/tasks/tools/) |
+| Helm | 3.16+ | [helm.sh](https://helm.sh/docs/intro/install/) |
+| Kind | 0.20+ | `go install sigs.k8s.io/kind@latest` |
+
+The Makefile auto-installs these Go tools on first use (to `$GOPATH/bin`):
+golangci-lint, gotestsum, controller-gen, setup-envtest, chainsaw, kustomize, helm-docs.
 
 ### Local Development
 
@@ -20,59 +25,72 @@ guidelines and instructions for contributing.
 git clone https://github.com/SebTardif/kube-rightsize.git
 cd kube-rightsize
 
-# Install dependencies
+# Install Go dependencies
 go mod download
 
-# Generate CRDs and RBAC
-make manifests
-
-# Generate deep copy methods
-make generate
-
-# Run unit tests
-make test
-
-# Run linter
-make lint
-
-# Build the operator binary
+# Build the operator and kubectl plugin
 make build
+make build-plugin
 
-# Build the container image
-make docker-build IMG=kube-rightsize:dev
-
-# Create a local Kind cluster and deploy
-make kind-create
-make kind-deploy IMG=kube-rightsize:dev
+# Run all CI checks locally (lint, test, helm-docs, CRD freshness)
+make verify
 ```
 
 ### Running Tests
 
 ```bash
-# Unit tests (with gotestsum, coverage, flaky retry)
+# Unit tests (370+ tests, 75% coverage threshold enforced)
 make test
 
-# Integration tests (requires envtest binaries)
+# Integration tests (uses envtest, no cluster needed)
 make test-integration
 
-# E2E tests (requires Kind cluster)
-make kind-create
-make test-e2e
+# E2E tests (requires Kind cluster with operator deployed)
+make kind-create                          # create Kind cluster (K8s 1.33)
+make kind-deploy IMG=kube-rightsize:e2e   # build, load, install cert-manager + Prometheus + operator
+make test-e2e                             # run Chainsaw E2E scenarios
 
-# All tests
+# All tests in sequence
 make test-all
 
-# All CI checks locally (lint, test, helm-docs, CRD freshness)
-make verify
+# Clean up the Kind cluster when done
+make kind-delete
 ```
+
+**Important:** `make kind-deploy` mutates `config/manager/kustomization.yaml`.
+Before committing, always restore it:
+```bash
+git checkout config/manager/kustomization.yaml
+```
+
+### Building the Container Image
+
+```bash
+make docker-build IMG=kube-rightsize:dev
+```
+
+### Pre-commit Checklist
+
+Run `make verify` before every commit. It covers:
+- golangci-lint (code quality + import alias enforcement)
+- Unit tests with coverage threshold (75%)
+- Helm chart docs freshness
+- Helm chart unit tests (44 tests)
+- CRD manifest freshness (`make manifests` output matches committed files)
+
+If you changed CRD types (`api/v1alpha1/`), also run:
+```bash
+make manifests   # regenerate CRDs and RBAC
+make generate    # regenerate deepcopy methods
+```
+Commit the generated output.
 
 ## Pull Request Process
 
 1. Fork the repository and create a branch from `main`
 2. Make your changes with tests
-3. Run `make manifests` if you changed CRD types
-4. Run `make verify` to run all CI checks locally
-5. Submit a pull request
+3. Run `make verify` to run all CI checks locally
+4. Submit a pull request
 
 ### Commit Messages
 
