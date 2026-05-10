@@ -27,7 +27,8 @@ controller-runtime v0.24.0, Kubebuilder v4, K8s API v0.36.0.
 - Helm chart tests: `make helm-unittest`
 - All CI checks locally: `make verify`
 - Clean build artifacts: `make clean`
-- Local cluster: `make kind-create && make kind-deploy IMG=kube-rightsize:dev`
+- Local cluster: `make kind-create && make kind-deploy IMG=kube-rightsize:e2e`
+- E2E tests: `make test-e2e` (requires Kind cluster with operator deployed)
 
 ## Structure
 
@@ -116,6 +117,9 @@ Run `make manifests` after changing CRD types or RBAC markers. Run
 - Never commit secrets, API keys, or `.env` files (gitleaks runs in CI)
 - Run `make manifests && make generate` before committing CRD/API changes
 - Run `make verify` before committing (covers lint, test, helm-docs, CRD freshness)
+- After running `make deploy` or `make kind-deploy`, restore
+  `git checkout config/manager/kustomization.yaml` before committing
+  (kustomize edit set image mutates this file)
 - Ask before adding new dependencies
 - Ask before destructive cluster operations (delete namespaces, CRDs)
 - The operator manages live pod resources; always test resize logic on a
