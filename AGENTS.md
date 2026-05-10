@@ -23,6 +23,10 @@ controller-runtime v0.24.0, Kubebuilder v4, K8s API v0.36.0.
 - Format: `make fmt`
 - Generate CRDs/RBAC: `make manifests`
 - Generate deepcopy: `make generate`
+- Helm chart docs: `make helm-docs-gen`
+- Helm chart tests: `make helm-unittest`
+- All CI checks locally: `make verify`
+- Clean build artifacts: `make clean`
 - Local cluster: `make kind-create && make kind-deploy IMG=kube-rightsize:dev`
 
 ## Structure
@@ -98,7 +102,7 @@ Run `make manifests` after changing CRD types or RBAC markers. Run
 
 - Framework: `testify` (assert/require)
 - Write table-driven tests for all logic
-- Coverage threshold: 75% on `./internal/...` (CI enforced, currently 91%)
+- Coverage threshold: 75% on `./internal/...` (CI enforced)
 - Generated files (`zz_generated.deepcopy.go`) are excluded from coverage
 - CI uses `gotestsum` with `--rerun-fails` for flaky retry and JUnit XML reports
 - Run with `-race` flag
@@ -111,7 +115,7 @@ Run `make manifests` after changing CRD types or RBAC markers. Run
 
 - Never commit secrets, API keys, or `.env` files (gitleaks runs in CI)
 - Run `make manifests && make generate` before committing CRD/API changes
-- Run `make lint && make test` before committing
+- Run `make verify` before committing (covers lint, test, helm-docs, CRD freshness)
 - Ask before adding new dependencies
 - Ask before destructive cluster operations (delete namespaces, CRDs)
 - The operator manages live pod resources; always test resize logic on a
