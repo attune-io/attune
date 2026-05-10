@@ -163,11 +163,17 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	var workloadsWithRecs int32
 	conflictDetector := conflict.NewDetector(logger)
 
-	// List HPAs in the namespace for conflict detection.
+	// List HPAs in the namespace for conflict detection (once for all workloads).
 	var hpaList autoscalingv2.HorizontalPodAutoscalerList
 	if err := r.List(ctx, &hpaList, client.InNamespace(policy.Namespace)); err != nil {
 		logger.Error(err, "Failed to list HPAs for conflict detection")
 	}
+
+	// List VPAs in the namespace for conflict detection (once for all workloads).
+	vpaList := conflictDetector.ListVPAs(ctx, r.Client, policy.Namespace)
+
+	// List policies in the namespace for conflict detection (once for all workloads).
+	policyList := conflictDetector.ListPolicies(ctx, r.Client, policy.Namespace)
 
 	for _, workload := range workloads {
 		workloadName := workload.GetName()
@@ -186,12 +192,12 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 
 		// Check for VPA conflict (log warning, don't block).
-		if vpaConflict := conflictDetector.CheckVPAConflict(ctx, r.Client, policy.Namespace, workloadName, workloadKind); vpaConflict != nil {
+		if vpaConflict := conflictDetector.CheckVPAConflictInMemory(vpaList, workloadName, workloadKind); vpaConflict != nil {
 			logger.Info("VPA conflict detected", "workload", workloadName, "vpa", vpaConflict.Name, "message", vpaConflict.Message)
 		}
 
 		// Check for higher-weight policy conflict (skip this workload if outranked).
-		if policyConflict := conflictDetector.CheckPolicyConflict(ctx, r.Client, policy.Namespace, workloadName, workloadKind, policy.Name, policy.Spec.Weight); policyConflict != nil {
+		if policyConflict := conflictDetector.CheckPolicyConflictInMemory(policyList, workloadName, workloadKind, policy.Name, policy.Spec.Weight); policyConflict != nil {
 			logger.Info("Higher-weight policy exists, skipping workload", "workload", workloadName, "policy", policyConflict.Name, "message", policyConflict.Message)
 			continue
 		}

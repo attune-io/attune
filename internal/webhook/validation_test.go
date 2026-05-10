@@ -253,6 +253,40 @@ func TestValidate_HistoryWindowValid(t *testing.T) {
 	assert.Empty(t, warnings)
 }
 
+func TestValidate_PrometheusAddressValid(t *testing.T) {
+	tests := []struct {
+		name    string
+		address string
+		wantErr bool
+	}{
+		{"valid http", "http://prometheus:9090", false},
+		{"valid https", "https://prometheus.example.com", false},
+		{"valid with path", "http://prometheus:9090/api/v1", false},
+		{"invalid scheme", "ftp://prometheus:9090", true},
+		{"invalid scheme file", "file:///etc/passwd", true},
+		{"missing scheme", "prometheus:9090", true},
+		{"empty host", "http://", true},
+		{"invalid URL", "://bad", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			validator := &RightSizePolicyValidator{}
+			policy := validPolicy()
+			policy.Spec.MetricsSource.Prometheus = &rightsizev1alpha1.PrometheusConfig{
+				Address: tt.address,
+			}
+
+			_, err := validator.ValidateCreate(context.Background(), policy)
+			if tt.wantErr {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), "prometheus.address")
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestValidateDelete_AlwaysSucceeds(t *testing.T) {
 	validator := &RightSizePolicyValidator{}
 	policy := validPolicy()

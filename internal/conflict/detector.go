@@ -174,3 +174,89 @@ func (d *Detector) CheckHPAConflict(hpas []autoscalingv2.HorizontalPodAutoscaler
 	}
 	return nil
 }
+
+// ListVPAs fetches all VPAs in the namespace once for efficient conflict checking.
+// Returns nil if the VPA CRD is not installed.
+func (d *Detector) ListVPAs(ctx context.Context, c client.Client, namespace string) *unstructured.UnstructuredList {
+	vpaList := &unstructured.UnstructuredList{}
+	vpaList.SetGroupVersionKind(vpaGVK)
+
+	if err := c.List(ctx, vpaList, client.InNamespace(namespace)); err != nil {
+		d.logger.V(1).Info("Could not list VPAs (CRD may not be installed)", "error", err)
+		return nil
+	}
+	return vpaList
+}
+
+// CheckVPAConflictInMemory checks for VPA conflicts against a pre-fetched list.
+// Use with ListVPAs to avoid repeated API calls when checking multiple workloads.
+func (d *Detector) CheckVPAConflictInMemory(vpaList *unstructured.UnstructuredList, workloadName, workloadKind string) *Conflict {
+	if vpaList == nil {
+		return nil
+	}
+
+	for _, vpa := range vpaList.Items {
+		targetRef, found, _ := unstructured.NestedMap(vpa.Object, "spec", "targetRef")
+		if !found {
+			continue
+		}
+		refKind, _ := targetRef["kind"].(string)
+		refName, _ := targetRef["name"].(string)
+		if refKind == workloadKind && refName == workloadName {
+			return &Conflict{
+				Type:    ConflictVPA,
+				Name:    vpa.GetName(),
+				Message: fmt.Sprintf("VPA %s targets the same %s/%s; consider disabling VPA to avoid conflicting resource adjustments", vpa.GetName(), workloadKind, workloadName),
+			}
+		}
+	}
+	return nil
+}
+
+// ListPolicies fetches all RightSizePolicies in the namespace once for efficient conflict checking.
+func (d *Detector) ListPolicies(ctx context.Context, c client.Client, namespace string) *unstructured.UnstructuredList {
+	policyList := &unstructured.UnstructuredList{}
+	policyList.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "rightsize.io",
+		Version: "v1alpha1",
+		Kind:    "RightSizePolicyList",
+	})
+
+	if err := c.List(ctx, policyList, client.InNamespace(namespace)); err != nil {
+		d.logger.V(1).Info("Could not list RightSizePolicies for conflict check", "error", err)
+		return nil
+	}
+	return policyList
+}
+
+// CheckPolicyConflictInMemory checks for policy conflicts against a pre-fetched list.
+// Use with ListPolicies to avoid repeated API calls when checking multiple workloads.
+func (d *Detector) CheckPolicyConflictInMemory(policyList *unstructured.UnstructuredList, workloadName, workloadKind, currentPolicyName string, currentWeight int32) *Conflict {
+	if policyList == nil {
+		return nil
+	}
+
+	for _, policy := range policyList.Items {
+		if policy.GetName() == currentPolicyName {
+			continue
+		}
+
+		// Check if this policy targets the same workload by name.
+		targetKind, _, _ := unstructured.NestedString(policy.Object, "spec", "targetRef", "kind")
+		targetName, _, _ := unstructured.NestedString(policy.Object, "spec", "targetRef", "name")
+		if targetKind != workloadKind || targetName != workloadName {
+			continue
+		}
+
+		otherWeight, _, _ := unstructured.NestedInt64(policy.Object, "spec", "weight")
+		if otherWeight > int64(currentWeight) {
+			return &Conflict{
+				Type: ConflictPolicy,
+				Name: policy.GetName(),
+				Message: fmt.Sprintf("RightSizePolicy %s has higher weight (%d > %d) for %s/%s; deferring",
+					policy.GetName(), otherWeight, currentWeight, workloadKind, workloadName),
+			}
+		}
+	}
+	return nil
+}

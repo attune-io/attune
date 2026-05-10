@@ -18,6 +18,8 @@ spec:
       serviceAccountName: controller-manager
       securityContext:
         runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: manager
           image: controller:latest
@@ -52,3 +54,5 @@ spec:
             capabilities:
               drop: ["ALL"]
             readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault

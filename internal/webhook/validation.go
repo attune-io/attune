@@ -19,6 +19,7 @@ package webhook
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -98,6 +99,13 @@ func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizeP
 		}
 	}
 
+	// Validate Prometheus address URL scheme if specified.
+	if policy.Spec.MetricsSource.Prometheus != nil && policy.Spec.MetricsSource.Prometheus.Address != "" {
+		if err := validatePrometheusAddress(policy.Spec.MetricsSource.Prometheus.Address); err != nil {
+			return warnings, fmt.Errorf("metricsSource.prometheus.address: %w", err)
+		}
+	}
+
 	// Warn if memory decrease is enabled
 	if policy.Spec.Memory.AllowDecrease != nil && *policy.Spec.Memory.AllowDecrease {
 		warnings = append(warnings, "memory.allowDecrease is enabled; this carries OOMKill risk")
@@ -121,5 +129,26 @@ func validateSafetyMargin(resource, margin string) error {
 	if v > 10.0 {
 		return fmt.Errorf("%s.safetyMargin must be <= 10.0, got %s", resource, margin)
 	}
+	return nil
+}
+
+// validatePrometheusAddress validates that the Prometheus address is a valid URL
+// with an allowed scheme (http or https).
+func validatePrometheusAddress(address string) error {
+	parsed, err := url.Parse(address)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+
+	// Only allow http and https schemes to prevent SSRF via other schemes.
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("scheme must be http or https, got %q", parsed.Scheme)
+	}
+
+	// Host must be present.
+	if parsed.Host == "" {
+		return fmt.Errorf("host is required")
+	}
+
 	return nil
 }
