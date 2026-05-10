@@ -1,0 +1,102 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: defaults-merge
+spec:
+  description: Verify that RightSizeDefaults values are merged into a policy that omits them
+  timeouts:
+    apply: 30s
+    assert: 2m
+    delete: 30s
+  steps:
+    - name: create-resources
+      try:
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: e2e-defaults-merge
+        - apply:
+            resource:
+              apiVersion: rightsize.io/v1alpha1
+              kind: RightSizeDefaults
+              metadata:
+                name: e2e-defaults
+              spec:
+                metricsSource:
+                  prometheus:
+                    address: http://prometheus-server.monitoring:80
+                cpu:
+                  percentile: 90
+                  safetyMargin: "1.5"
+                memory:
+                  percentile: 95
+                  safetyMargin: "1.4"
+                updateStrategy:
+                  mode: Recommend
+        - apply:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: defaults-app
+                namespace: e2e-defaults-merge
+              spec:
+                replicas: 1
+                selector:
+                  matchLabels:
+                    app: defaults-app
+                template:
+                  metadata:
+                    labels:
+                      app: defaults-app
+                  spec:
+                    containers:
+                      - name: app
+                        image: registry.k8s.io/pause:3.9
+                        resources:
+                          requests:
+                            cpu: 100m
+                            memory: 128Mi
+                          limits:
+                            cpu: 200m
+                            memory: 256Mi
+        - apply:
+            resource:
+              apiVersion: rightsize.io/v1alpha1
+              kind: RightSizePolicy
+              metadata:
+                name: inherits-defaults
+                namespace: e2e-defaults-merge
+              spec:
+                targetRef:
+                  kind: Deployment
+                  name: defaults-app
+                updateStrategy:
+                  mode: Recommend
+    - name: verify-policy-reconciles
+      try:
+        - assert:
+            resource:
+              apiVersion: rightsize.io/v1alpha1
+              kind: RightSizePolicy
+              metadata:
+                name: inherits-defaults
+                namespace: e2e-defaults-merge
+              status:
+                conditions:
+                  - type: Ready
+                workloads:
+                  discovered: 1
+  catch:
+    - describe:
+        apiVersion: rightsize.io/v1alpha1
+        kind: RightSizePolicy
+        namespace: e2e-defaults-merge
+    - describe:
+        apiVersion: rightsize.io/v1alpha1
+        kind: RightSizeDefaults
+    - podLogs:
+        namespace: kube-rightsize-system
+        selector: app.kubernetes.io/name=kube-rightsize

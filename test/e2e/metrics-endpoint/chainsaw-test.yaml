@@ -1,0 +1,28 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: metrics-endpoint
+spec:
+  description: Verify that the operator exposes Prometheus metrics at the /metrics endpoint
+  timeouts:
+    apply: 30s
+    assert: 1m
+    delete: 30s
+  steps:
+    - name: scrape-metrics
+      try:
+        - script:
+            content: |
+              METRICS_IP=$(kubectl get svc kube-rightsize-metrics -n kube-rightsize-system -o jsonpath='{.spec.clusterIP}')
+              METRICS_PORT=$(kubectl get svc kube-rightsize-metrics -n kube-rightsize-system -o jsonpath='{.spec.ports[0].port}')
+              kubectl run metrics-check --image=curlimages/curl --restart=Never --rm -it \
+                -- curl -sf "http://${METRICS_IP}:${METRICS_PORT}/metrics" > /tmp/e2e-metrics.txt 2>&1
+              # Verify operator-specific metrics are present
+              grep -q 'kube_rightsize_reconcile_duration_seconds' /tmp/e2e-metrics.txt
+              grep -q 'kube_rightsize_resize_total' /tmp/e2e-metrics.txt
+              grep -q 'kube_rightsize_reverts_total' /tmp/e2e-metrics.txt
+              grep -q 'kube_rightsize_prometheus_query_errors_total' /tmp/e2e-metrics.txt
+              grep -q 'kube_rightsize_resize_duration_seconds' /tmp/e2e-metrics.txt
+              grep -q 'kube_rightsize_reconcile_errors_total' /tmp/e2e-metrics.txt
+              grep -q 'kube_rightsize_savings_estimated_monthly_dollars' /tmp/e2e-metrics.txt
+              echo "All expected metrics found"

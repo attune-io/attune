@@ -1,0 +1,79 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: defaults-validation
+spec:
+  description: Verify that the RightSizeDefaults validation webhook rejects invalid costPricing values
+  timeouts:
+    apply: 30s
+    assert: 1m
+    delete: 30s
+  steps:
+    - name: valid-defaults-accepted
+      try:
+        - apply:
+            resource:
+              apiVersion: rightsize.io/v1alpha1
+              kind: RightSizeDefaults
+              metadata:
+                name: e2e-valid
+              spec:
+                costPricing:
+                  cpuPerCoreHour: "0.05"
+                  memoryPerGiBHour: "0.01"
+        - assert:
+            resource:
+              apiVersion: rightsize.io/v1alpha1
+              kind: RightSizeDefaults
+              metadata:
+                name: e2e-valid
+      catch:
+        - podLogs:
+            selector: app.kubernetes.io/name=kube-rightsize
+            namespace: kube-rightsize-system
+            tail: 20
+
+    - name: invalid-cpu-price-rejected
+      try:
+        - script:
+            content: |
+              # This should be rejected by the webhook
+              if kubectl apply -f - <<'EOF' 2>/dev/null; then
+                echo "ERROR: invalid costPricing should have been rejected"
+                exit 1
+              fi
+              apiVersion: rightsize.io/v1alpha1
+              kind: RightSizeDefaults
+              metadata:
+                name: e2e-invalid-cpu
+              spec:
+                costPricing:
+                  cpuPerCoreHour: "banana"
+              EOF
+              echo "Correctly rejected invalid cpuPerCoreHour"
+
+    - name: negative-memory-price-rejected
+      try:
+        - script:
+            content: |
+              if kubectl apply -f - <<'EOF' 2>/dev/null; then
+                echo "ERROR: negative memoryPerGiBHour should have been rejected"
+                exit 1
+              fi
+              apiVersion: rightsize.io/v1alpha1
+              kind: RightSizeDefaults
+              metadata:
+                name: e2e-invalid-mem
+              spec:
+                costPricing:
+                  memoryPerGiBHour: "-0.5"
+              EOF
+              echo "Correctly rejected negative memoryPerGiBHour"
+
+    - name: cleanup
+      try:
+        - script:
+            content: |
+              kubectl delete rightsizedefaults e2e-valid --ignore-not-found
+              kubectl delete rightsizedefaults e2e-invalid-cpu --ignore-not-found
+              kubectl delete rightsizedefaults e2e-invalid-mem --ignore-not-found

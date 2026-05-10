@@ -1,0 +1,64 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: webhook-defaulting
+spec:
+  description: Verify that the mutating webhook applies defaults to a minimal policy
+  timeouts:
+    apply: 30s
+    assert: 30s
+    delete: 30s
+  steps:
+    - name: create-namespace
+      try:
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: e2e-webhook-defaulting
+    - name: create-minimal-policy
+      try:
+        - apply:
+            resource:
+              apiVersion: rightsize.io/v1alpha1
+              kind: RightSizePolicy
+              metadata:
+                name: minimal-policy
+                namespace: e2e-webhook-defaulting
+              spec:
+                targetRef:
+                  kind: Deployment
+                  name: my-app
+                metricsSource:
+                  prometheus:
+                    address: http://prometheus-server.monitoring:80
+                cpu:
+                  percentile: 95
+                memory:
+                  percentile: 99
+                updateStrategy:
+                  mode: Recommend
+    - name: verify-defaults-applied
+      try:
+        - assert:
+            resource:
+              apiVersion: rightsize.io/v1alpha1
+              kind: RightSizePolicy
+              metadata:
+                name: minimal-policy
+                namespace: e2e-webhook-defaulting
+              spec:
+                cpu:
+                  controlledValues: RequestsOnly
+                memory:
+                  controlledValues: RequestsOnly
+                updateStrategy:
+                  cooldown: 1h0m0s
+                metricsSource:
+                  historyWindow: 168h0m0s
+  catch:
+    - describe:
+        apiVersion: rightsize.io/v1alpha1
+        kind: RightSizePolicy
+        namespace: e2e-webhook-defaulting

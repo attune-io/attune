@@ -1,0 +1,35 @@
+suite: service tests
+templates:
+  - templates/service.yaml
+tests:
+  - it: should render when metrics enabled
+    set:
+      metrics.enabled: true
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: spec.type
+          value: ClusterIP
+      - equal:
+          path: spec.ports[0].name
+          value: metrics
+      - equal:
+          path: spec.ports[0].port
+          value: 8080
+
+  - it: should not render when metrics disabled
+    set:
+      metrics.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should use custom metrics port
+    set:
+      metrics.enabled: true
+      metrics.port: 9090
+    asserts:
+      - equal:
+          path: spec.ports[0].port
+          value: 9090

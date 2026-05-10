@@ -1,0 +1,88 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: prometheus-unreachable
+spec:
+  description: Verify that the operator handles an unreachable Prometheus gracefully (InsufficientData, not crash)
+  timeouts:
+    apply: 30s
+    assert: 2m
+    delete: 30s
+  steps:
+    - name: create-resources
+      try:
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: e2e-prom-unreachable
+        - apply:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: test-app
+                namespace: e2e-prom-unreachable
+              spec:
+                replicas: 1
+                selector:
+                  matchLabels:
+                    app: test-app
+                template:
+                  metadata:
+                    labels:
+                      app: test-app
+                  spec:
+                    containers:
+                      - name: app
+                        image: registry.k8s.io/pause:3.9
+                        resources:
+                          requests:
+                            cpu: 100m
+                            memory: 128Mi
+        - apply:
+            resource:
+              apiVersion: rightsize.io/v1alpha1
+              kind: RightSizePolicy
+              metadata:
+                name: unreachable-prom
+                namespace: e2e-prom-unreachable
+              spec:
+                targetRef:
+                  kind: Deployment
+                  name: test-app
+                metricsSource:
+                  prometheus:
+                    address: http://does-not-exist.nowhere:9090
+                cpu:
+                  percentile: 95
+                memory:
+                  percentile: 99
+                updateStrategy:
+                  mode: Recommend
+    - name: verify-graceful-degradation
+      try:
+        - assert:
+            resource:
+              apiVersion: rightsize.io/v1alpha1
+              kind: RightSizePolicy
+              metadata:
+                name: unreachable-prom
+                namespace: e2e-prom-unreachable
+              status:
+                conditions:
+                  - type: Ready
+                    status: "False"
+                    reason: InsufficientData
+                workloads:
+                  discovered: 1
+                  resized: 0
+  catch:
+    - describe:
+        apiVersion: rightsize.io/v1alpha1
+        kind: RightSizePolicy
+        namespace: e2e-prom-unreachable
+    - podLogs:
+        namespace: kube-rightsize-system
+        selector: app.kubernetes.io/name=kube-rightsize

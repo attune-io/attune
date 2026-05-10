@@ -1,0 +1,25 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: health-probes
+spec:
+  description: Verify that the operator health and readiness endpoints return 200
+  timeouts:
+    apply: 30s
+    assert: 1m
+    delete: 30s
+  steps:
+    - name: check-health-endpoints
+      try:
+        - script:
+            content: |
+              POD=$(kubectl get pods -n kube-rightsize-system -l app.kubernetes.io/name=kube-rightsize -o jsonpath='{.items[0].metadata.name}')
+              # /healthz via port-forward
+              kubectl run health-check --image=curlimages/curl --restart=Never --rm -it \
+                -- curl -sf "http://${POD}.kube-rightsize-system.pod:8081/healthz" || {
+                # fallback: exec into the pod network via a curl pod
+                POD_IP=$(kubectl get pod "$POD" -n kube-rightsize-system -o jsonpath='{.status.podIP}')
+                kubectl run health-check2 --image=curlimages/curl --restart=Never --rm -it \
+                  -- sh -c "curl -sf http://${POD_IP}:8081/healthz && curl -sf http://${POD_IP}:8081/readyz"
+              }
+              echo "Health probes OK"

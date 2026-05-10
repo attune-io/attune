@@ -1,0 +1,76 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: webhook-validation
+spec:
+  description: Verify that the validating webhook rejects invalid policies
+  timeouts:
+    apply: 30s
+    assert: 30s
+    delete: 30s
+  steps:
+    - name: create-namespace
+      try:
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: e2e-webhook-validation
+    - name: reject-invalid-safety-margin
+      try:
+        - apply:
+            expect:
+              - check:
+                  ($error != null): true
+            resource:
+              apiVersion: rightsize.io/v1alpha1
+              kind: RightSizePolicy
+              metadata:
+                name: bad-margin
+                namespace: e2e-webhook-validation
+              spec:
+                targetRef:
+                  kind: Deployment
+                  name: my-app
+                metricsSource:
+                  prometheus:
+                    address: http://prometheus-server.monitoring:80
+                cpu:
+                  percentile: 95
+                  safetyMargin: "not-a-number"
+                memory:
+                  percentile: 99
+                updateStrategy:
+                  mode: Recommend
+    - name: reject-negative-cooldown
+      try:
+        - apply:
+            expect:
+              - check:
+                  ($error != null): true
+            resource:
+              apiVersion: rightsize.io/v1alpha1
+              kind: RightSizePolicy
+              metadata:
+                name: bad-cooldown
+                namespace: e2e-webhook-validation
+              spec:
+                targetRef:
+                  kind: Deployment
+                  name: my-app
+                metricsSource:
+                  prometheus:
+                    address: http://prometheus-server.monitoring:80
+                cpu:
+                  percentile: 95
+                memory:
+                  percentile: 99
+                updateStrategy:
+                  mode: Recommend
+                  cooldown: -5m
+  catch:
+    - describe:
+        apiVersion: rightsize.io/v1alpha1
+        kind: RightSizePolicy
+        namespace: e2e-webhook-validation

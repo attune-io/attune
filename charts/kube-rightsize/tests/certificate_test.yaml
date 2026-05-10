@@ -1,0 +1,49 @@
+suite: certificate tests
+templates:
+  - templates/certificate.yaml
+tests:
+  - it: should render Issuer and Certificate when webhooks enabled
+    set:
+      webhooks.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 2
+
+  - it: should not render when webhooks disabled
+    set:
+      webhooks.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should create self-signed Issuer
+    set:
+      webhooks.enabled: true
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: Issuer
+      - exists:
+          path: spec.selfSigned
+
+  - it: should reference Issuer in Certificate
+    set:
+      webhooks.enabled: true
+    documentIndex: 1
+    asserts:
+      - isKind:
+          of: Certificate
+      - equal:
+          path: spec.issuerRef.kind
+          value: Issuer
+
+  - it: should include SVC DNS names in Certificate
+    set:
+      webhooks.enabled: true
+    release:
+      namespace: test-ns
+    documentIndex: 1
+    asserts:
+      - contains:
+          path: spec.dnsNames
+          content: RELEASE-NAME-kube-rightsize-webhook.test-ns.svc
