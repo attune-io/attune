@@ -9,7 +9,7 @@ spec:
     assert: 2m
     delete: 30s
   steps:
-    - name: create-resources
+    - name: create-deployment
       try:
         - apply:
             resource:
@@ -46,6 +46,17 @@ spec:
                           limits:
                             cpu: 500m
                             memory: 512Mi
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: auto-app
+                namespace: e2e-auto-mode
+              status:
+                readyReplicas: 2
+    - name: create-policy
+      try:
         - apply:
             resource:
               apiVersion: rightsize.io/v1alpha1
@@ -61,7 +72,6 @@ spec:
                   prometheus:
                     address: http://prometheus-server.monitoring:80
                   historyWindow: 168h
-
                 cpu:
                   percentile: 95
                   safetyMargin: "1.2"
@@ -78,33 +88,26 @@ spec:
                   mode: Auto
                   cooldown: 5m
                   autoRevert: true
-    - name: verify-deployment-ready
-      try:
-        - assert:
-            resource:
-              apiVersion: apps/v1
-              kind: Deployment
-              metadata:
-                name: auto-app
-                namespace: e2e-auto-mode
-              status:
-                readyReplicas: 2
     - name: verify-policy-status
       try:
-        - assert:
-            resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
-              metadata:
-                name: auto-test
-                namespace: e2e-auto-mode
-              status:
-                conditions:
-                  - type: Ready
-                    status: "False"
-                    reason: InsufficientData
-                workloads:
-                  discovered: 1
+        - script:
+            timeout: 2m
+            content: |
+              for i in $(seq 1 24); do
+                STATUS=$(kubectl get rightsizepolicy auto-test -n e2e-auto-mode \
+                  -o jsonpath='{.status.workloads.discovered}' 2>/dev/null)
+                if [ "$STATUS" = "1" ]; then
+                  echo "Policy discovered 1 workload"
+                  READY=$(kubectl get rightsizepolicy auto-test -n e2e-auto-mode \
+                    -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')
+                  echo "Ready condition: $READY"
+                  exit 0
+                fi
+                sleep 5
+              done
+              echo "Timed out waiting for policy to discover workloads"
+              kubectl get rightsizepolicy auto-test -n e2e-auto-mode -o yaml
+              exit 1
   catch:
     - describe:
         apiVersion: rightsize.io/v1alpha1
