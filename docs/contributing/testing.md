@@ -52,19 +52,54 @@ updated correctly.
 ## E2E tests (Chainsaw)
 
 End-to-end tests run against a real Kubernetes cluster using
-[Chainsaw](https://kyverno.github.io/chainsaw/):
+[Chainsaw](https://kyverno.github.io/chainsaw/). They deploy actual
+Deployments and RightSizePolicy resources and verify the operator
+behaves correctly.
+
+### Prerequisites
+
+- Docker
+- Kind (`go install sigs.k8s.io/kind@latest`)
+- Chainsaw (`go install github.com/kyverno/chainsaw@v0.2.15`)
+
+### Running E2E tests from scratch
 
 ```bash
+# 1. Create a Kind cluster
+make kind-create
+
+# 2. Build the operator image, load into Kind, install CRDs, deploy
+make kind-deploy IMG=kube-rightsize:e2e
+
+# 3. Wait for the operator to be ready
+kubectl wait --for=condition=Available deployment/kube-rightsize-controller-manager \
+  -n kube-rightsize-system --timeout=120s
+
+# 4. Run all E2E tests
 make test-e2e
+
+# 5. Clean up
+make kind-delete
 ```
 
-Prerequisites:
+### Test scenarios
 
-- A running Kind cluster (`make kind-create`)
-- The operator deployed (`make kind-deploy`)
+| Directory | Mode | What it verifies |
+|-----------|------|------------------|
+| `test/e2e/recommend-mode/` | Recommend | Discovers workloads, reaches InsufficientData |
+| `test/e2e/observe-mode/` | Observe | Reaches condition, no resizes performed |
+| `test/e2e/oneshot-resize/` | OneShot | Reaches InsufficientData (no Prometheus) |
+| `test/e2e/canary-rollout/` | Canary | Canary config accepted, reaches InsufficientData |
+| `test/e2e/auto-mode/` | Auto | Discovers workloads, reaches InsufficientData |
+| `test/e2e/opt-out/` | (cross-cutting) | `rightsize.io/skip` annotation respected |
 
-Chainsaw test cases live in `test/e2e/` and are configured via
-`.chainsaw.yaml`.
+### Writing new E2E tests
+
+Create a directory under `test/e2e/<scenario-name>/` with a
+`chainsaw-test.yaml` file. Follow the existing pattern: create a
+namespace, deploy a workload, create a policy, assert on status.
+
+Chainsaw configuration is in `.chainsaw.yaml` (timeouts, parallelism).
 
 !!! warning
     E2E tests modify cluster state. Always run them against a disposable
