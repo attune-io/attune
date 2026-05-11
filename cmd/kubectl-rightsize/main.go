@@ -34,6 +34,8 @@ import (
 	sigsyaml "sigs.k8s.io/yaml"
 )
 
+var version = "dev"
+
 var gvr = schema.GroupVersionResource{
 	Group:    "rightsize.io",
 	Version:  "v1alpha1",
@@ -57,6 +59,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "  savings           Show estimated CPU/memory savings per policy")
 		fmt.Fprintln(os.Stderr, "  recommendations   Show per-container sizing recommendations")
 		fmt.Fprintln(os.Stderr, "  history           Show resize history (timestamp, from/to, result)")
+		fmt.Fprintln(os.Stderr, "  version           Print plugin version")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Flags:")
 		fs.PrintDefaults()
@@ -72,6 +75,11 @@ func main() {
 		fs.Usage()
 		return
 	}
+	if cmd == "version" {
+		fmt.Printf("kubectl-rightsize %s\n", version)
+		return
+	}
+
 	if err := fs.Parse(os.Args[2:]); err != nil {
 		os.Exit(1)
 	}
