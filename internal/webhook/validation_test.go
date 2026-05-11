@@ -185,6 +185,9 @@ func TestValidate_SafetyMarginInvalid(t *testing.T) {
 		{"non-numeric memory", "1.2", "xyz", "memory.safetyMargin"},
 		{"zero CPU", "0", "1.3", "must be positive"},
 		{"negative memory", "1.2", "-1.5", "must be positive"},
+		{"NaN CPU", "NaN", "1.3", "must be a finite number"},
+		{"Inf memory", "1.2", "Inf", "must be a finite number"},
+		{"-Inf CPU", "-Inf", "1.3", "must be a finite number"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

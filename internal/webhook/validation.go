@@ -19,6 +19,7 @@ package webhook
 import (
 	"context"
 	"fmt"
+	"math"
 	"net"
 	"net/url"
 	"strconv"
@@ -133,6 +134,9 @@ func validateSafetyMargin(resource, margin string) (warning string, err error) {
 	v, err := strconv.ParseFloat(margin, 64)
 	if err != nil {
 		return "", fmt.Errorf("%s.safetyMargin %q is not a valid number: %w", resource, margin, err)
+	}
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return "", fmt.Errorf("%s.safetyMargin must be a finite number, got %s", resource, margin)
 	}
 	if v <= 0 {
 		return "", fmt.Errorf("%s.safetyMargin must be positive, got %s", resource, margin)

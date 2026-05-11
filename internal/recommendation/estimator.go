@@ -34,7 +34,11 @@ type Estimator interface {
 }
 
 // scaleQuantity multiplies q by factor, preserving BinarySI vs DecimalSI format.
+// Returns q unchanged if factor is NaN, Inf, or non-positive (defense-in-depth).
 func scaleQuantity(q resource.Quantity, factor float64) resource.Quantity {
+	if math.IsNaN(factor) || math.IsInf(factor, 0) || factor <= 0 {
+		return q.DeepCopy()
+	}
 	if q.Format == resource.BinarySI {
 		return *resource.NewQuantity(int64(math.Ceil(float64(q.Value())*factor)), resource.BinarySI)
 	}
