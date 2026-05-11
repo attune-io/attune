@@ -53,7 +53,7 @@ spec:
             - --zap-log-level={{ .level }}
             {{- end }}
             {{- if eq .format "text" }}
-            - --zap-devel=true
+            - --zap-encoder=console
             {{- end }}
             {{- end }}
           ports:

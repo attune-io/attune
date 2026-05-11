@@ -17,11 +17,18 @@ limitations under the License.
 package main
 
 import (
+	"bytes"
+	"context"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
 )
 
 func TestFormatAge(t *testing.T) {
@@ -207,4 +214,109 @@ func TestGetConditionReason(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestPrintHistory(t *testing.T) {
+	policy := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "rightsize.io/v1alpha1",
+			"kind":       "RightSizePolicy",
+			"metadata": map[string]interface{}{
+				"name":      "my-app",
+				"namespace": "default",
+			},
+			"status": map[string]interface{}{
+				"resizeHistory": []interface{}{
+					map[string]interface{}{
+						"timestamp": "2026-05-10T12:00:00Z",
+						"workload":  "my-deploy",
+						"container": "app",
+						"resource":  "cpu",
+						"from":      "500m",
+						"to":        "250m",
+						"result":    "Success",
+					},
+					map[string]interface{}{
+						"timestamp": "2026-05-10T13:00:00Z",
+						"workload":  "my-deploy",
+						"container": "app",
+						"resource":  "memory",
+						"from":      "512Mi",
+						"to":        "384Mi",
+						"result":    "Reverted",
+					},
+				},
+			},
+		},
+	}
+
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{
+			gvr: "RightSizePolicyList",
+		}, policy)
+
+	// Capture stdout.
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	printHistory(context.Background(), dynClient, "default")
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	output := buf.String()
+
+	assert.Contains(t, output, "NAMESPACE")
+	assert.Contains(t, output, "POLICY")
+	assert.Contains(t, output, "my-app")
+	assert.Contains(t, output, "my-deploy")
+	assert.Contains(t, output, "500m")
+	assert.Contains(t, output, "250m")
+	assert.Contains(t, output, "Success")
+	assert.Contains(t, output, "Reverted")
+}
+
+func TestPrintHistory_NoHistory(t *testing.T) {
+	policy := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "rightsize.io/v1alpha1",
+			"kind":       "RightSizePolicy",
+			"metadata": map[string]interface{}{
+				"name":      "empty-policy",
+				"namespace": "default",
+			},
+			"status": map[string]interface{}{},
+		},
+	}
+
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{
+			gvr: "RightSizePolicyList",
+		}, policy)
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	printHistory(context.Background(), dynClient, "default")
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	output := buf.String()
+
+	// Should have header but no data rows.
+	assert.Contains(t, output, "NAMESPACE")
+	assert.NotContains(t, output, "empty-policy")
 }
