@@ -8,6 +8,8 @@ metadata:
 spec:
   group: rightsize.io
   names:
+    categories:
+    - rightsize
     kind: RightSizeDefaults
     listKind: RightSizeDefaultsList
     plural: rightsizedefaults
