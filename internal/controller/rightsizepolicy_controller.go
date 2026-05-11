@@ -613,6 +613,10 @@ func (r *RightSizePolicyReconciler) executeResizes(
 	now := metav1.Now()
 
 	for _, rec := range recommendations {
+		if ctx.Err() != nil {
+			logger.Info("Context cancelled, aborting remaining resizes")
+			break
+		}
 		// Find the matching workload
 		var matchedWorkload client.Object
 		for _, w := range workloads {
