@@ -187,8 +187,12 @@ type CanaryConfig struct {
 // RightSizePolicyStatus defines the observed state of RightSizePolicy.
 type RightSizePolicyStatus struct {
 	// Conditions represent the latest available observations of the policy's state.
+	// +listType=map
+	// +listMapKey=type
+	// +patchMergeKey=type
+	// +patchStrategy=merge
 	// +optional
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 
 	// Workloads summarizes workload discovery and resize counts.
 	// +optional

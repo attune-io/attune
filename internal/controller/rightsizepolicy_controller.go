@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
@@ -51,11 +52,12 @@ const (
 	lastResizeAnnotation = "rightsize.io/last-resize-time"
 
 	// Annotation keys for tracking in-flight resizes on pods.
-	annotationResizedAt        = "rightsize.io/resized-at"
-	annotationResizedContainer = "rightsize.io/resized-container"
-	annotationResizedWorkload  = "rightsize.io/resized-workload"
-	annotationOriginalCPU      = "rightsize.io/original-cpu-request"
-	annotationOriginalMemory   = "rightsize.io/original-memory-request"
+	annotationResizedAt            = "rightsize.io/resized-at"
+	annotationResizedContainer     = "rightsize.io/resized-container"
+	annotationResizedWorkload      = "rightsize.io/resized-workload"
+	annotationOriginalCPU          = "rightsize.io/original-cpu-request"
+	annotationOriginalMemory       = "rightsize.io/original-memory-request"
+	annotationOriginalRestartCount = "rightsize.io/original-restart-count"
 
 	// defaultHistoryWindow is the default history window if not specified.
 	defaultHistoryWindow = 7 * 24 * time.Hour
@@ -748,20 +750,30 @@ func (r *RightSizePolicyReconciler) executeResizes(
 					}
 				}
 
-				// Track resize via pod annotations for deferred safety observation.
-				if pod.Annotations == nil {
-					pod.Annotations = make(map[string]string)
-				}
-				pod.Annotations[annotationResizedAt] = now.UTC().Format(time.RFC3339)
-				pod.Annotations[annotationResizedContainer] = containerRec.Name
-				pod.Annotations[annotationResizedWorkload] = rec.Workload
-				pod.Annotations[annotationOriginalCPU] = containerRec.Current.CPURequest.String()
-				pod.Annotations[annotationOriginalMemory] = containerRec.Current.MemoryRequest.String()
+				// Re-fetch the pod to get a fresh resourceVersion after the
+				// resize subresource call incremented it. Without this, the
+				// annotation update always fails with 409 Conflict.
+				if getErr := r.Get(ctx, client.ObjectKeyFromObject(&pod), &pod); getErr != nil {
+					logger.Error(getErr, "Failed to re-fetch pod after resize", "pod", pod.Name)
+				} else {
+					if pod.Annotations == nil {
+						pod.Annotations = make(map[string]string)
+					}
+					pod.Annotations[annotationResizedAt] = now.UTC().Format(time.RFC3339)
+					pod.Annotations[annotationResizedContainer] = containerRec.Name
+					pod.Annotations[annotationResizedWorkload] = rec.Workload
+					pod.Annotations[annotationOriginalCPU] = containerRec.Current.CPURequest.String()
+					pod.Annotations[annotationOriginalMemory] = containerRec.Current.MemoryRequest.String()
+					for _, cs := range pod.Status.ContainerStatuses {
+						if cs.Name == containerRec.Name {
+							pod.Annotations[annotationOriginalRestartCount] = strconv.FormatInt(int64(cs.RestartCount), 10)
+							break
+						}
+					}
 
-				// Persist tracking annotations to the API server so
-				// checkPendingSafetyObservations can find them later.
-				if updateErr := r.Update(ctx, &pod); updateErr != nil {
-					logger.Error(updateErr, "Failed to persist resize tracking annotations", "pod", pod.Name)
+					if updateErr := r.Update(ctx, &pod); updateErr != nil {
+						logger.Error(updateErr, "Failed to persist resize tracking annotations", "pod", pod.Name)
+					}
 				}
 
 				// Safety check (if autoRevert is enabled)
@@ -774,6 +786,13 @@ func (r *RightSizePolicyReconciler) executeResizes(
 							break
 						}
 					}
+					var restartCount int32
+					for _, cs := range pod.Status.ContainerStatuses {
+						if cs.Name == containerRec.Name {
+							restartCount = cs.RestartCount
+							break
+						}
+					}
 					record := safety.ResizeRecord{
 						PodName:           pod.Name,
 						Namespace:         pod.Namespace,
@@ -782,6 +801,7 @@ func (r *RightSizePolicyReconciler) executeResizes(
 						NewResources:      target,
 						ResizedAt:         now.Time,
 						ObservationEnd:    observationEnd,
+						RestartCount:      restartCount,
 					}
 
 					verdict, err := monitor.CheckPod(ctx, record)
@@ -878,6 +898,13 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 			}
 		}
 
+		var origRestartCount int32
+		if rcStr := pod.Annotations[annotationOriginalRestartCount]; rcStr != "" {
+			if rc, parseErr := strconv.ParseInt(rcStr, 10, 32); parseErr == nil {
+				origRestartCount = int32(rc)
+			}
+		}
+
 		record := safety.ResizeRecord{
 			PodName:   pod.Name,
 			Namespace: pod.Namespace,
@@ -891,6 +918,7 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 			NewResources:   currentResources,
 			ResizedAt:      resizedAt,
 			ObservationEnd: resizedAt.Add(observationPeriod),
+			RestartCount:   origRestartCount,
 		}
 
 		verdict, err := monitor.CheckPod(ctx, record)
