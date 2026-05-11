@@ -7,6 +7,8 @@ on:
       - "docs/**"
       - "mkdocs.yml"
       - "config/crd/bases/**"
+      - ".github/workflows/docs.yaml"
+  workflow_dispatch: {}
 
 permissions:
   contents: read

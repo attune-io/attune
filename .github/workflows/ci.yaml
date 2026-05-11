@@ -45,6 +45,7 @@ jobs:
               - 'go.sum'
               - 'Makefile'
               - 'Dockerfile'
+              - '.github/workflows/ci.yaml'
             helm:
               - 'charts/**'
             yaml:
