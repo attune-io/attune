@@ -106,7 +106,7 @@ webhooks:
 # -- Network policy restricts pod traffic to only required endpoints
 networkPolicy:
   # -- Enable NetworkPolicy for the operator pod
-  enabled: false
+  enabled: true
 
 # -- Logging configuration
 logging:

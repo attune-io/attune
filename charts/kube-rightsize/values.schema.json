@@ -304,7 +304,7 @@
         "enabled": {
           "type": "boolean",
           "description": "Enable NetworkPolicy for the operator pod",
-          "default": false
+          "default": true
         }
       },
       "additionalProperties": false
