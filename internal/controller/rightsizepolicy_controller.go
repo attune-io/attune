@@ -115,19 +115,6 @@ func (r *RightSizePolicyReconciler) getOrCreateCollector(address string) (rsmetr
 		return cached.(rsmetrics.MetricsCollector), nil
 	}
 
-	// Prevent unbounded cache growth: evict all entries when cap is reached.
-	var count int
-	r.collectors.Range(func(_, _ any) bool {
-		count++
-		return count < 64
-	})
-	if count >= 64 {
-		r.collectors.Range(func(key, _ any) bool {
-			r.collectors.Delete(key)
-			return true
-		})
-	}
-
 	collector, err := r.MetricsFactory(address)
 	if err != nil {
 		return nil, err

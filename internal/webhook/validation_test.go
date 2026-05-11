@@ -294,12 +294,13 @@ func TestValidate_PrometheusAddressValid(t *testing.T) {
 		{"missing scheme", "prometheus:9090", true},
 		{"empty host", "http://", true},
 		{"invalid URL", "://bad", true},
-		// SSRF protection: private/loopback IPs
+		// SSRF protection: loopback and link-local IPs
 		{"loopback IPv4", "http://127.0.0.1:9090", true},
 		{"loopback IPv6", "http://[::1]:9090", true},
-		{"private 10.x", "http://10.0.0.1:9090", true},
-		{"private 192.168.x", "http://192.168.1.1:9090", true},
-		{"private 172.16.x", "http://172.16.0.1:9090", true},
+		// Private IPs are allowed (Prometheus typically runs on ClusterIP)
+		{"private 10.x allowed", "http://10.0.0.1:9090", false},
+		{"private 192.168.x allowed", "http://192.168.1.1:9090", false},
+		{"private 172.16.x allowed", "http://172.16.0.1:9090", false},
 		{"link-local AWS metadata", "http://169.254.169.254/latest/meta-data/", true},
 		// SSRF protection: cloud metadata hostnames
 		{"GCP metadata hostname", "http://metadata.google.internal", true},
