@@ -25,6 +25,14 @@ endif
 SHELL = /usr/bin/env bash -Eeuo pipefail
 .SHELLFLAGS = -c
 
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+COMMIT ?= $(shell git rev-parse HEAD 2>/dev/null || echo none)
+BUILD_DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+LDFLAGS := -s -w \
+	-X main.version=$(VERSION) \
+	-X main.commit=$(COMMIT) \
+	-X main.date=$(BUILD_DATE)
+
 .DEFAULT_GOAL := help
 
 ##@ General
@@ -135,11 +143,11 @@ test-all: test test-integration test-e2e ## Run all tests
 
 .PHONY: build
 build: manifests generate ## Build operator binary
-	go build -o bin/manager ./cmd/manager/
+	go build -ldflags="$(LDFLAGS)" -o bin/manager ./cmd/manager/
 
 .PHONY: build-plugin
 build-plugin: ## Build kubectl-rightsize plugin
-	go build -o bin/kubectl-rightsize ./cmd/kubectl-rightsize/
+	go build -ldflags="$(LDFLAGS)" -o bin/kubectl-rightsize ./cmd/kubectl-rightsize/
 
 .PHONY: run
 run: manifests generate ## Run operator locally against the configured cluster
