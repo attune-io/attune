@@ -122,9 +122,10 @@ func TestMain(m *testing.M) {
 	}
 
 	reconciler := &controller.RightSizePolicyReconciler{
-		Client:    mgr.GetClient(),
-		Scheme:    mgr.GetScheme(),
-		Clientset: clientset,
+		Client:      mgr.GetClient(),
+		Scheme:      mgr.GetScheme(),
+		Clientset:   clientset,
+		MinCooldown: 1 * time.Second, // fast reconciliation for tests
 		MetricsFactory: func(address string) (metrics.MetricsCollector, error) {
 			return &syntheticCollector{}, nil
 		},
@@ -233,9 +234,7 @@ func newTestPolicy(name, namespace, deploymentName string) *rightsizev1alpha1.Ri
 			},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 				Mode: "Recommend",
-				// Short cooldown so reconciliation retries quickly in tests.
-				// Without this, the default 1h cooldown causes test timeouts
-				// if the first reconciliation runs before the cache syncs.
+				// Short cooldown for fast test reconciliation (MinCooldown=1s allows this).
 				Cooldown: &metav1.Duration{Duration: 3 * time.Second},
 			},
 		},

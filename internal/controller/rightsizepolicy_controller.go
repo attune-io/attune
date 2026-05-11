@@ -99,7 +99,8 @@ type RightSizePolicyReconciler struct {
 	MetricsFactory MetricsCollectorFactory
 	Clientset      kubernetes.Interface // for resize subresource calls
 	Recorder       events.EventRecorder
-	collectors     sync.Map // map[string]rsmetrics.MetricsCollector cache
+	MinCooldown    time.Duration // minimum cooldown floor (default: 1m)
+	collectors     sync.Map      // map[string]rsmetrics.MetricsCollector cache
 }
 
 // MetricsCollectorFactory creates MetricsCollector instances from a Prometheus address.

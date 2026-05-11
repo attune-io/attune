@@ -116,9 +116,13 @@ func (r *RightSizePolicyReconciler) getMinimumDataPoints(policy *rightsizev1alph
 func (r *RightSizePolicyReconciler) parseCooldown(policy *rightsizev1alpha1.RightSizePolicy) time.Duration {
 	if policy.Spec.UpdateStrategy.Cooldown != nil {
 		cd := policy.Spec.UpdateStrategy.Cooldown.Duration
-		// Defense-in-depth: enforce minimum 1m even if webhook validation is bypassed.
-		if cd > 0 && cd < time.Minute {
-			cd = time.Minute
+		// Defense-in-depth: enforce minimum floor even if webhook validation is bypassed.
+		minCooldown := r.MinCooldown
+		if minCooldown == 0 {
+			minCooldown = time.Minute
+		}
+		if cd > 0 && cd < minCooldown {
+			cd = minCooldown
 		}
 		return cd
 	}
