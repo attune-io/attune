@@ -27,8 +27,8 @@ controller-runtime v0.24.0, Kubebuilder v4, K8s API v0.36.0.
 - Helm chart tests: `make helm-unittest`
 - All CI checks locally: `make verify`
 - Clean build artifacts: `make clean`
-- Local cluster: `make kind-create && make kind-deploy IMG=kube-rightsize:e2e`
-- E2E tests: `make test-e2e` (requires Kind cluster with operator deployed)
+- Local cluster: `make k3d-create && make k3d-deploy IMG=kube-rightsize:e2e`
+- E2E tests: `make test-e2e` (requires k3d cluster with operator deployed)
 
 ## Structure
 
@@ -116,18 +116,18 @@ Run `make manifests` after changing CRD types or RBAC markers. Run
 - Use `kubefake.NewSimpleClientset()` to test resize operations
 - Use `fake.NewClientBuilder()` for controller-runtime client mocking
 - Integration tests use envtest (build tag: `integration`)
-- E2E tests use Chainsaw v0.2.15 on Kind clusters (K8s 1.33, 1.34, 1.35 matrix)
+- E2E tests use Chainsaw v0.2.15 on k3d clusters (K8s 1.33, 1.34, 1.35 matrix)
 
 ## Safety
 
 - Never commit secrets, API keys, or `.env` files (gitleaks runs in CI)
 - Run `make manifests && make generate` before committing CRD/API changes
 - Run `make verify` before committing (covers lint, test, helm-docs, CRD freshness)
-- After running `make deploy` or `make kind-deploy`, restore
+- After running `make deploy` or `make k3d-deploy`, restore
   `git checkout config/manager/kustomization.yaml` before committing
   (kustomize edit set image mutates this file)
 - Ask before adding new dependencies
 - Ask before destructive cluster operations (delete namespaces, CRDs)
 - The operator manages live pod resources; always test resize logic on a
-  Kind cluster (`make kind-deploy`) before pushing changes to resize or
+  k3d cluster (`make k3d-deploy`) before pushing changes to resize or
   safety packages

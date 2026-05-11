@@ -203,7 +203,13 @@ jobs:
     if: needs.changes.outputs.go == 'true'
     strategy:
       matrix:
-        k8s-version: ["v1.33.7", "v1.34.3", "v1.35.0"]
+        include:
+          - k8s-version: "v1.33"
+            k3s-image: "v1.33.11-k3s1"
+          - k8s-version: "v1.34"
+            k3s-image: "v1.34.7-k3s1"
+          - k8s-version: "v1.35"
+            k3s-image: "v1.35.4-k3s1"
       fail-fast: false
     steps:
       - uses: step-security/harden-runner@v2
@@ -216,11 +222,23 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      - name: Create Kind cluster
-        uses: helm/kind-action@v1
-        with:
-          node_image: kindest/node:${{ matrix.k8s-version }}
-          cluster_name: e2e-test
+      - name: Install k3d
+        shell: bash -Eeuo pipefail -x {0}
+        run: |
+          if command -v k3d &>/dev/null; then
+            echo "k3d already installed: $(k3d version)"
+          else
+            curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | K3D_INSTALL_DIR="$HOME/.local/bin" USE_SUDO=false bash
+          fi
+
+      - name: Create k3d cluster
+        shell: bash -Eeuo pipefail -x {0}
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          k3d cluster create e2e-test \
+            --image rancher/k3s:${{ matrix.k3s-image }} \
+            --k3s-arg "--disable=traefik,servicelb@server:*" \
+            --wait --timeout 120s
 
       - name: Install cert-manager
         shell: bash -Eeuo pipefail -x {0}
@@ -243,8 +261,9 @@ jobs:
       - name: Build and load operator image
         shell: bash -Eeuo pipefail -x {0}
         run: |
+          export PATH="$HOME/.local/bin:$PATH"
           make docker-build IMG=kube-rightsize:e2e
-          kind load docker-image kube-rightsize:e2e --name e2e-test
+          k3d image import kube-rightsize:e2e -c e2e-test
 
       - name: Install operator via Helm
         shell: bash -Eeuo pipefail -x {0}
@@ -274,6 +293,13 @@ jobs:
           kubectl get pods -A
           echo "=== Events ==="
           kubectl get events -A --sort-by='.lastTimestamp' | tail -30
+
+      - name: Cleanup k3d cluster
+        if: always()
+        shell: bash -Eeuo pipefail {0}
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          k3d cluster delete e2e-test 2>/dev/null || true
 
   # Aggregates all E2E matrix results into a single required status check.
   # Without this, branch protection must list each matrix entry individually.
