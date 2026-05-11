@@ -25,12 +25,13 @@ const (
 
 // Condition reason constants for RightSizePolicy.
 const (
-	ReasonMonitoring            = "Monitoring"
-	ReasonInsufficientData      = "InsufficientData"
-	ReasonPrometheusUnavailable = "PrometheusUnavailable"
-	ReasonInvalidConfig         = "InvalidConfig"
-	ReasonInProgress            = "InProgress"
-	ReasonIdle                  = "Idle"
-	ReasonCooldownActive        = "CooldownActive"
-	ReasonHighRevertRate        = "HighRevertRate"
+	ReasonMonitoring              = "Monitoring"
+	ReasonInsufficientData        = "InsufficientData"
+	ReasonPrometheusUnavailable   = "PrometheusUnavailable"
+	ReasonInvalidConfig           = "InvalidConfig"
+	ReasonInProgress              = "InProgress"
+	ReasonIdle                    = "Idle"
+	ReasonCooldownActive          = "CooldownActive"
+	ReasonHighRevertRate          = "HighRevertRate"
+	ReasonWorkloadDiscoveryFailed = "WorkloadDiscoveryFailed"
 )

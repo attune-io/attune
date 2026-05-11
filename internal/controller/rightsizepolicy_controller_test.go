@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -2098,15 +2099,24 @@ func TestReconcile_DiscoverWorkloadsError(t *testing.T) {
 	policy.Spec.TargetRef.Kind = "CronJob"
 
 	mc := &mockCollector{}
-	reconciler, _ := newReconcilerForReconcile(mc, policy)
+	reconciler, fakeClient := newReconcilerForReconcile(mc, policy)
 
 	req := ctrl.Request{
 		NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
 	}
 
-	_, err := reconciler.Reconcile(context.Background(), req)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "discovering workloads")
+	result, err := reconciler.Reconcile(context.Background(), req)
+	assert.NoError(t, err, "discovery errors should be surfaced via status condition, not returned")
+	assert.Equal(t, 1*time.Minute, result.RequeueAfter)
+
+	// Verify the error is visible in the policy status condition.
+	var updated rightsizev1alpha1.RightSizePolicy
+	require.NoError(t, fakeClient.Get(context.Background(), req.NamespacedName, &updated))
+	cond := meta.FindStatusCondition(updated.Status.Conditions, rightsizev1alpha1.ConditionReady)
+	require.NotNil(t, cond)
+	assert.Equal(t, metav1.ConditionFalse, cond.Status)
+	assert.Equal(t, rightsizev1alpha1.ReasonWorkloadDiscoveryFailed, cond.Reason)
+	assert.Contains(t, cond.Message, "Failed to discover workloads")
 }
 
 // ---------- Reconcile with AutoRevert checking safety observations ----------

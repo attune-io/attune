@@ -50,7 +50,14 @@ func main() {
 	output := fs.String("o", "", "Output format: json or yaml")
 	fs.StringVar(output, "output", "", "Output format: json or yaml")
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: kubectl rightsize <status|savings|recommendations> [flags]\n\nFlags:\n")
+		fmt.Fprintln(os.Stderr, "Usage: kubectl rightsize <command> [flags]")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "Commands:")
+		fmt.Fprintln(os.Stderr, "  status            Show policy status, workload counts, and conditions")
+		fmt.Fprintln(os.Stderr, "  savings           Show estimated CPU/memory savings per policy")
+		fmt.Fprintln(os.Stderr, "  recommendations   Show per-container sizing recommendations")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "Flags:")
 		fs.PrintDefaults()
 	}
 
@@ -60,6 +67,10 @@ func main() {
 	}
 
 	cmd := os.Args[1]
+	if cmd == "--help" || cmd == "-h" || cmd == "help" {
+		fs.Usage()
+		return
+	}
 	if err := fs.Parse(os.Args[2:]); err != nil {
 		os.Exit(1)
 	}

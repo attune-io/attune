@@ -147,7 +147,9 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	if err != nil {
 		logger.Error(err, "Failed to discover workloads")
 		operatormetrics.ReconcileErrorsTotal.WithLabelValues("discover_workloads").Inc()
-		return ctrl.Result{}, fmt.Errorf("discovering workloads: %w", err)
+		r.setFailedCondition(ctx, &policy, rightsizev1alpha1.ReasonWorkloadDiscoveryFailed,
+			fmt.Sprintf("Failed to discover workloads: %v", err))
+		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 	}
 
 	logger.Info("Discovered workloads", "count", len(workloads))
