@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.1.0] - 2026-05-11
+
 ### Added
 - Policy conflict resolution: `Weight` field now resolves overlapping policies; lower-weight policies defer to higher-weight ones targeting the same workload
 - `resizePolicy` warning: logs when a resize will trigger container restart due to `RestartContainer` policy
@@ -122,3 +124,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Helm webhooks.enabled defaults correctly
 - E2E tests assert InsufficientData without Prometheus
 - 28 golangci-lint issues resolved
+
+[v0.1.0]: https://github.com/SebTardifLabs/kube-rightsize/releases/tag/v0.1.0
