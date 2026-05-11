@@ -10,6 +10,10 @@ GOLANGCI_LINT_VERSION ?= v2.12.2
 CHAINSAW_VERSION ?= v0.2.15
 KUSTOMIZE_VERSION ?= v5.6.0
 HELM_DOCS_VERSION ?= v1.14.2
+GOTESTSUM_VERSION ?= v1.13.0
+GOVULNCHECK_VERSION ?= v1.4.0
+K3D_VERSION ?= v5.8.3
+GITLEAKS_VERSION ?= 8.30.1
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -205,12 +209,12 @@ controller-gen: ## Install controller-gen
 GOTESTSUM = $(GOBIN)/gotestsum
 .PHONY: gotestsum
 gotestsum: ## Install gotestsum
-	@test -s $(GOTESTSUM) || go install gotest.tools/gotestsum@latest
+	@test -s $(GOTESTSUM) || go install gotest.tools/gotestsum@$(GOTESTSUM_VERSION)
 
 SETUP_ENVTEST = $(GOBIN)/setup-envtest
 .PHONY: setup-envtest
 setup-envtest: ## Install setup-envtest
-	@test -s $(SETUP_ENVTEST) || go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+	@test -s $(SETUP_ENVTEST) || go install sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.24
 
 GOLANGCI_LINT = $(GOBIN)/golangci-lint
 .PHONY: golangci-lint
