@@ -182,7 +182,7 @@
             "memory": {
               "type": "string",
               "description": "Memory limit",
-              "default": "128Mi"
+              "default": "256Mi"
             }
           },
           "additionalProperties": false
@@ -199,7 +199,7 @@
             "memory": {
               "type": "string",
               "description": "Memory request",
-              "default": "64Mi"
+              "default": "128Mi"
             }
           },
           "additionalProperties": false
