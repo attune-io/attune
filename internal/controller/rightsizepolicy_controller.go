@@ -835,7 +835,21 @@ func (r *RightSizePolicyReconciler) executeResizes(
 					pod.Annotations[annotationOriginalRestartCount] = strconv.FormatInt(int64(restartCount), 10)
 
 					if updateErr := r.Update(ctx, &pod); updateErr != nil {
-						logger.Error(updateErr, "Failed to persist resize tracking annotations", "pod", pod.Name)
+						logger.Error(updateErr, "Failed to persist resize tracking annotations, reverting resize", "pod", pod.Name)
+						// Without tracking annotations, deferred safety
+						// monitoring cannot find this pod. Revert to avoid
+						// an unmonitored resize remaining in the cluster.
+						revertRecord := safety.ResizeRecord{
+							PodName:           pod.Name,
+							Namespace:         pod.Namespace,
+							Container:         containerRec.Name,
+							OriginalResources: originalResources,
+						}
+						if revertErr := monitor.RevertPod(ctx, revertRecord); revertErr != nil {
+							logger.Error(revertErr, "Failed to revert pod after annotation failure", "pod", pod.Name)
+						}
+						totalResized--
+						continue
 					}
 				}
 

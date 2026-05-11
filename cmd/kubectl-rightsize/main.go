@@ -139,12 +139,17 @@ func main() {
 	}
 }
 
-func printStatus(ctx context.Context, dynClient dynamic.Interface, namespace string) {
+func fetchPolicies(ctx context.Context, dynClient dynamic.Interface, namespace string) *unstructured.UnstructuredList {
 	list, err := dynClient.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error listing policies: %v\n", err)
 		os.Exit(1)
 	}
+	return list
+}
+
+func printStatus(ctx context.Context, dynClient dynamic.Interface, namespace string) {
+	list := fetchPolicies(ctx, dynClient, namespace)
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 3, ' ', 0)
 	fmt.Fprintln(w, "NAMESPACE\tNAME\tMODE\tWORKLOADS\tRESIZED\tREADY\tRESIZING\tDEGRADED\tAGE")
@@ -170,11 +175,7 @@ func printStatus(ctx context.Context, dynClient dynamic.Interface, namespace str
 }
 
 func printSavings(ctx context.Context, dynClient dynamic.Interface, namespace string) {
-	list, err := dynClient.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error listing policies: %v\n", err)
-		os.Exit(1)
-	}
+	list := fetchPolicies(ctx, dynClient, namespace)
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 3, ' ', 0)
 	fmt.Fprintln(w, "NAMESPACE\tNAME\tCPU SAVED\tMEMORY SAVED\tEST. MONTHLY")
@@ -249,11 +250,7 @@ func getConditionReason(obj unstructured.Unstructured, conditionType string) str
 }
 
 func printRecommendations(ctx context.Context, dynClient dynamic.Interface, namespace string) {
-	list, err := dynClient.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error listing policies: %v\n", err)
-		os.Exit(1)
-	}
+	list := fetchPolicies(ctx, dynClient, namespace)
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 3, ' ', 0)
 	fmt.Fprintln(w, "NAMESPACE\tPOLICY\tWORKLOAD\tCONTAINER\tCPU REQ\tCPU REC\tMEM REQ\tMEM REC\tCONFIDENCE")
@@ -322,11 +319,7 @@ func formatMemory(s string) string {
 }
 
 func printStructured(ctx context.Context, dynClient dynamic.Interface, namespace, format string) {
-	list, err := dynClient.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error listing policies: %v\n", err)
-		os.Exit(1)
-	}
+	list := fetchPolicies(ctx, dynClient, namespace)
 
 	switch format {
 	case "json":
@@ -366,11 +359,7 @@ func formatAge(created time.Time) string {
 }
 
 func printHistory(ctx context.Context, dynClient dynamic.Interface, namespace string) {
-	list, err := dynClient.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error listing policies: %v\n", err)
-		os.Exit(1)
-	}
+	list := fetchPolicies(ctx, dynClient, namespace)
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 3, ' ', 0)
 	fmt.Fprintln(w, "NAMESPACE\tPOLICY\tTIMESTAMP\tWORKLOAD\tCONTAINER\tRESOURCE\tFROM\tTO\tRESULT")

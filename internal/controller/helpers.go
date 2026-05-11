@@ -40,6 +40,17 @@ import (
 	"github.com/SebTardif/kube-rightsize/internal/safety"
 )
 
+const (
+	// degradedWindowSize is the number of recent resize history entries
+	// inspected when evaluating the Degraded condition.
+	degradedWindowSize = 5
+	// degradedRevertThreshold is the number of reverts in the window that
+	// triggers the Degraded condition.
+	degradedRevertThreshold = 3
+	// maxBackoffDoublings caps exponential cooldown at 2^N x base.
+	maxBackoffDoublings = 4
+)
+
 // isResizeMode returns true if the policy mode performs actual pod resizes.
 func isResizeMode(mode string) bool {
 	return mode == "OneShot" || mode == "Canary" || mode == "Auto"
@@ -244,9 +255,8 @@ func (r *RightSizePolicyReconciler) getEffectiveCooldown(policy *rightsizev1alph
 	if reverts == 0 {
 		return base
 	}
-	// Cap at 4 doublings (16x).
-	if reverts > 4 {
-		reverts = 4
+	if reverts > maxBackoffDoublings {
+		reverts = maxBackoffDoublings
 	}
 	multiplier := 1 << reverts // 2^N
 	return base * time.Duration(multiplier)
@@ -320,8 +330,7 @@ func (r *RightSizePolicyReconciler) setDegradedCondition(policy *rightsizev1alph
 		return
 	}
 
-	// Count reverts in the last 5 entries.
-	window := 5
+	window := degradedWindowSize
 	if len(history) < window {
 		window = len(history)
 	}
@@ -333,7 +342,7 @@ func (r *RightSizePolicyReconciler) setDegradedCondition(policy *rightsizev1alph
 		}
 	}
 
-	if reverts >= 3 {
+	if reverts >= degradedRevertThreshold {
 		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
 			Type:               rightsizev1alpha1.ConditionDegraded,
 			Status:             metav1.ConditionTrue,
