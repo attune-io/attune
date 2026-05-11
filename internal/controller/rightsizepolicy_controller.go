@@ -198,14 +198,6 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{RequeueAfter: r.parseCooldown(&policy)}, nil
 	}
 
-	// Clear stale recommendation gauges for this namespace before re-setting.
-	// Workloads/containers that are no longer managed won't be re-set,
-	// preventing stale gauge values from persisting indefinitely.
-	nsLabels := prometheus.Labels{"namespace": policy.Namespace}
-	operatormetrics.RecommendationCPU.DeletePartialMatch(nsLabels)
-	operatormetrics.RecommendationMemory.DeletePartialMatch(nsLabels)
-	operatormetrics.Confidence.DeletePartialMatch(nsLabels)
-
 	// Step 4-8: Process each workload.
 	var recommendations []rightsizev1alpha1.WorkloadRecommendation
 	var workloadsWithRecs int32
@@ -227,6 +219,13 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	for _, workload := range workloads {
 		workloadName := workload.GetName()
 		workloadKind := workload.GetObjectKind().GroupVersionKind().Kind
+
+		// Clear stale recommendation gauges for this workload before re-setting.
+		// Containers that were removed or excluded won't be re-set.
+		wlLabels := prometheus.Labels{"namespace": policy.Namespace, "workload": workloadName}
+		operatormetrics.RecommendationCPU.DeletePartialMatch(wlLabels)
+		operatormetrics.RecommendationMemory.DeletePartialMatch(wlLabels)
+		operatormetrics.Confidence.DeletePartialMatch(wlLabels)
 
 		// Step 5: Check for opt-out annotation.
 		workloadMeta := metav1.ObjectMeta{Annotations: workload.GetAnnotations()}

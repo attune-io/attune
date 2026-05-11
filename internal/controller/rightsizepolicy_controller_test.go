@@ -786,9 +786,10 @@ func TestComputeRecommendations_QueryError(t *testing.T) {
 		},
 	}
 
-	rec, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, nil, mc)
-	assert.NoError(t, err) // Errors are logged but do not bubble up
-	assert.Nil(t, rec)     // No data means no recommendations
+	rec, qErrors, err := reconciler.computeRecommendations(context.Background(), policy, deploy, nil, mc)
+	assert.NoError(t, err)
+	assert.Nil(t, rec)
+	assert.Greater(t, qErrors, 0, "query failures should be counted")
 }
 
 func TestComputeRecommendations_EmptyContainers(t *testing.T) {
@@ -1651,6 +1652,35 @@ func TestExecuteResizes_SkipsQoSChange(t *testing.T) {
 	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, nil)
 	assert.Equal(t, 0, count)
 	assert.Empty(t, history)
+}
+
+func TestExecuteResizes_QoSBlocked_EmitsResizeSkippedEvent(t *testing.T) {
+	pod := newResizePod("api-server", "500m", "512Mi", "500m", "512Mi")
+	pod.Status.QOSClass = corev1.PodQOSGuaranteed
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	reconciler, _ := newResizeReconciler(pod, deploy)
+
+	recorder := events.NewFakeRecorder(10)
+	reconciler.Recorder = recorder
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = "Auto"
+
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("api-server", "500m", "512Mi", "500m", "512Mi", "250m", "256Mi", "500m", "512Mi"),
+	}
+	workloads := []client.Object{deploy}
+
+	count, _ := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, nil)
+	assert.Equal(t, 0, count)
+
+	select {
+	case event := <-recorder.Events:
+		assert.Contains(t, event, "ResizeSkipped")
+		assert.Contains(t, event, "controlledValues")
+	default:
+		t.Fatal("expected a ResizeSkipped event but channel was empty")
+	}
 }
 
 func TestExecuteResizes_ResizeError(t *testing.T) {
