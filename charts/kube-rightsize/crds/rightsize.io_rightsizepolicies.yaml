@@ -423,6 +423,13 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              lastReconcileTime:
+                description: |-
+                  LastReconcileTime is the timestamp of the most recent reconciliation.
+                  Serves as a heartbeat to confirm the operator is actively evaluating
+                  this policy, even when no state changes occur.
+                format: date-time
+                type: string
               recommendations:
                 description: Recommendations contains per-workload resource recommendations.
                 items:

@@ -193,6 +193,8 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	logger.Info("Discovered workloads", "count", len(workloads))
 
 	if len(workloads) == 0 {
+		earlyNow := metav1.Now()
+		policy.Status.LastReconcileTime = &earlyNow
 		policy.Status.Workloads = rightsizev1alpha1.WorkloadStatus{}
 		r.setFailedCondition(ctx, &policy, rightsizev1alpha1.ReasonInsufficientData, "No matching workloads found")
 		return ctrl.Result{RequeueAfter: r.parseCooldown(&policy)}, nil
@@ -285,6 +287,8 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	// Step 8: Update status fields.
+	nowMeta := metav1.Now()
+	policy.Status.LastReconcileTime = &nowMeta
 	policy.Status.Workloads = rightsizev1alpha1.WorkloadStatus{
 		Discovered:          safeInt32(len(workloads)),
 		WithRecommendations: workloadsWithRecs,

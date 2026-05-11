@@ -214,6 +214,12 @@ type RightSizePolicyStatus struct {
 	// +kubebuilder:validation:MaxItems=20
 	// +optional
 	ResizeHistory []ResizeHistoryEntry `json:"resizeHistory,omitempty"`
+
+	// LastReconcileTime is the timestamp of the most recent reconciliation.
+	// Serves as a heartbeat to confirm the operator is actively evaluating
+	// this policy, even when no state changes occur.
+	// +optional
+	LastReconcileTime *metav1.Time `json:"lastReconcileTime,omitempty"`
 }
 
 // WorkloadStatus summarizes workload counts.
