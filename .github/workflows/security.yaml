@@ -13,6 +13,10 @@ permissions:
   contents: read
   pull-requests: read
 
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   # CodeQL requires GitHub Advanced Security (paid) for private repos.
   # Re-enable if the repo becomes public or GHAS is purchased.
