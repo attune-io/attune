@@ -62,11 +62,11 @@ func TestRecommendationEngine_RealisticCPU(t *testing.T) {
 
 	recommended, changed := engine.Recommend(profile, current)
 	assert.True(t, changed)
-	// P95=200m, *1.2 margin=240m, confidence ~0.95 will inflate somewhat,
-	// then bounded and change-filtered. The result should be a reasonable
-	// CPU recommendation.
-	assert.Greater(t, recommended.MilliValue(), int64(0))
-	t.Logf("CPU recommendation: %s (from current %s)", recommended.String(), current.String())
+	// Chain: P95=200m → margin(1.2)=240m → confidence(~4.2x)=~1011m
+	//   → bounds OK → change filter: 1011m vs 500m = 102% > 50%
+	//   → capped at 500m + 250m = 750m.
+	assert.Equal(t, int64(750), recommended.MilliValue(),
+		"50%% max increase from 500m should cap at 750m")
 }
 
 func TestRecommendationEngine_RealisticMemory(t *testing.T) {
@@ -114,14 +114,18 @@ func TestRecommendationEngine_SmallChangeFiltered(t *testing.T) {
 		50,
 	)
 
-	// Create a profile where the P95 is very close to current after
-	// confidence adjustment. Use high confidence and a P95 matching current.
+	// Design a profile where the full chain (percentile -> margin ->
+	// confidence -> bounds) produces a value within 10% of current,
+	// so the ChangeFilter's MinChangePercent (10%) rejects it.
+	// With confidence=1.0: factor = (1+1/1)^2 = 4.
+	// P95=0.1275 → 128m → margin(1.0)=128m → confidence(4x)=512m → bounds OK.
+	// Change from current 500m: (512-500)/500 = 2.4% < 10% → filtered.
 	ps := metrics.PercentileSet{
-		P50: 0.450,
-		P90: 0.480,
-		P95: 0.490,
-		P99: 0.495,
-		Max: 0.500,
+		P50: 0.060,
+		P90: 0.100,
+		P95: 0.1275,
+		P99: 0.135,
+		Max: 0.150,
 	}
 	profile := metrics.UsageProfile{
 		OverallPercentiles: ps,
@@ -136,13 +140,9 @@ func TestRecommendationEngine_SmallChangeFiltered(t *testing.T) {
 	current := resource.MustParse("500m")
 	recommended, changed := engine.Recommend(profile, current)
 
-	// The confidence adjustment with confidence=1.0: (1 + 1/1.0)^2 = 4
-	// P95=490m * 1.0 * 4 = 1960m, which is a 292% change from 500m.
-	// This exceeds the 50% max change, so it will be capped at 750m.
-	t.Logf("Small change test: recommended=%s, current=%s, changed=%v",
-		recommended.String(), current.String(), changed)
-	// We just verify the engine processes without error.
-	assert.Greater(t, recommended.MilliValue(), int64(0))
+	assert.False(t, changed, "change <10%% should be filtered out")
+	assert.Equal(t, current.MilliValue(), recommended.MilliValue(),
+		"filtered recommendation should equal current")
 }
 
 func TestRecommendationEngine_LargeChangeCapped(t *testing.T) {
@@ -155,14 +155,16 @@ func TestRecommendationEngine_LargeChangeCapped(t *testing.T) {
 	)
 
 	// Profile where recommended would be much higher than current.
-	profile := buildRealisticCPUProfile(2.0, 0.95) // P95 = 2000m
+	// Chain: P95=2000m → margin(1.2)=2400m → confidence(~4.2x)=~10112m
+	//   → bounds(4000m) → change filter: 4000m vs 200m = 1900% > 50%
+	//   → capped at 200m + 100m = 300m.
+	profile := buildRealisticCPUProfile(2.0, 0.95)
 	current := resource.MustParse("200m")
 
 	recommended, changed := engine.Recommend(profile, current)
 	assert.True(t, changed)
-	// Max 50% increase from 200m would be 300m, but confidence adjustment
-	// may push it further; the bounds and filter will handle it.
-	t.Logf("Large change test: recommended=%s, current=%s", recommended.String(), current.String())
+	assert.Equal(t, int64(300), recommended.MilliValue(),
+		"50%% max increase from 200m should cap at 300m")
 }
 
 func TestRecommendationEngine_HighVsLowConfidence(t *testing.T) {

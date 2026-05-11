@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 )
 
 func TestCheckPod(t *testing.T) {
@@ -283,7 +284,23 @@ func TestRevertPod(t *testing.T) {
 	}
 
 	err := monitor.RevertPod(context.Background(), record)
-	assert.NoError(t, err)
+	require.NoError(t, err)
+
+	// Verify UpdateResize was called with original resources.
+	var foundResize bool
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			foundResize = true
+			updated := a.(k8stesting.UpdateAction).GetObject().(*corev1.Pod)
+			cpu := updated.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
+			mem := updated.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory]
+			assert.True(t, cpu.Equal(resource.MustParse("500m")),
+				"CPU should be reverted to 500m, got %s", cpu.String())
+			assert.True(t, mem.Equal(resource.MustParse("256Mi")),
+				"memory should be reverted to 256Mi, got %s", mem.String())
+		}
+	}
+	assert.True(t, foundResize, "UpdateResize should have been called")
 }
 
 func TestRevertPod_PodNotFound(t *testing.T) {
@@ -423,11 +440,17 @@ func TestCheckPod_NoPodReadyCondition(t *testing.T) {
 // ---------- CPU Throttle detection ----------
 
 type mockThrottleChecker struct {
-	ratio float64
-	err   error
+	ratio  float64
+	err    error
+	gotNS  string
+	gotPod string
+	gotCtr string
 }
 
-func (m *mockThrottleChecker) GetThrottleRatio(_ context.Context, _, _, _ string) (float64, error) {
+func (m *mockThrottleChecker) GetThrottleRatio(_ context.Context, ns, pod, ctr string) (float64, error) {
+	m.gotNS = ns
+	m.gotPod = pod
+	m.gotCtr = ctr
 	return m.ratio, m.err
 }
 
@@ -447,7 +470,8 @@ func TestCheckPod_ThrottleDetected(t *testing.T) {
 
 	clientset := fake.NewSimpleClientset(pod)
 	monitor := NewMonitor(clientset, testr.New(t))
-	monitor.WithThrottleChecker(&mockThrottleChecker{ratio: 0.6}, 0.5)
+	checker := &mockThrottleChecker{ratio: 0.6}
+	monitor.WithThrottleChecker(checker, 0.5)
 
 	record := ResizeRecord{
 		PodName:      "web-0",
@@ -462,6 +486,11 @@ func TestCheckPod_ThrottleDetected(t *testing.T) {
 	assert.False(t, verdict.Safe)
 	assert.Equal(t, "throttle", verdict.Reason)
 	assert.Contains(t, verdict.Message, "60%")
+
+	// Verify correct identifiers were passed to the throttle checker.
+	assert.Equal(t, "default", checker.gotNS)
+	assert.Equal(t, "web-0", checker.gotPod)
+	assert.Equal(t, "app", checker.gotCtr)
 }
 
 func TestCheckPod_ThrottleBelowThreshold(t *testing.T) {
