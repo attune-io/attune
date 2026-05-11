@@ -22,7 +22,7 @@ golangci-lint, gotestsum, controller-gen, setup-envtest, chainsaw, kustomize, he
 
 ```bash
 # Clone the repo
-git clone https://github.com/SebTardif/kube-rightsize.git
+git clone https://github.com/SebTardifLabs/kube-rightsize.git
 cd kube-rightsize
 
 # Install Go dependencies

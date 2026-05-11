@@ -4,10 +4,10 @@
 
 # kube-rightsize
 
-[![CI](https://github.com/SebTardif/kube-rightsize/actions/workflows/ci.yaml/badge.svg)](https://github.com/SebTardif/kube-rightsize/actions/workflows/ci.yaml)
-[![Security](https://github.com/SebTardif/kube-rightsize/actions/workflows/security.yaml/badge.svg)](https://github.com/SebTardif/kube-rightsize/actions/workflows/security.yaml)
-[![Go Version](https://img.shields.io/github/go-mod/go-version/SebTardif/kube-rightsize)](go.mod)
-[![License](https://img.shields.io/github/license/SebTardif/kube-rightsize)](LICENSE)
+[![CI](https://github.com/SebTardifLabs/kube-rightsize/actions/workflows/ci.yaml/badge.svg)](https://github.com/SebTardifLabs/kube-rightsize/actions/workflows/ci.yaml)
+[![Security](https://github.com/SebTardifLabs/kube-rightsize/actions/workflows/security.yaml/badge.svg)](https://github.com/SebTardifLabs/kube-rightsize/actions/workflows/security.yaml)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/SebTardifLabs/kube-rightsize)](go.mod)
+[![License](https://img.shields.io/github/license/SebTardifLabs/kube-rightsize)](LICENSE)
 
 **Safe, in-place Kubernetes pod resource right-sizing. VPA done right.**
 
