@@ -54,6 +54,33 @@ kubectl rightsize recommendations
 kubectl rightsize recommendations -n production
 ```
 
+### history
+
+Shows past resize operations with timestamps, before/after values, and outcomes.
+
+```bash
+kubectl rightsize history
+kubectl rightsize history -n production
+```
+
+| Column | Description |
+|--------|-------------|
+| TIMESTAMP | When the resize occurred |
+| WORKLOAD | Name of the resized workload |
+| CONTAINER | Container that was resized |
+| RESOURCE | `cpu` or `memory` |
+| FROM | Previous resource value |
+| TO | New resource value |
+| RESULT | `Success`, `Failed`, or `Reverted` |
+
+### version
+
+Shows the plugin version. Works without cluster access.
+
+```bash
+kubectl rightsize version
+```
+
 ## Structured output
 
 All commands support `-o json` and `-o yaml`:
