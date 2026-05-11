@@ -31,7 +31,7 @@ tag matching `v*` is pushed.
 GoReleaser produces:
 
 - Linux binaries for amd64 and arm64
-- A container image pushed to `ghcr.io/sebtardif/kube-rightsize`
+- A container image pushed to `ghcr.io/sebtardiflabs/kube-rightsize`
 - A GitHub release with checksums and release notes
 
 ### 4. Container image signing
@@ -41,14 +41,14 @@ using keyless signing (Fulcio + Rekor). Verify a release image:
 
 ```bash
 cosign verify \
-  --certificate-identity-regexp="https://github.com/SebTardif/kube-rightsize" \
+  --certificate-identity-regexp="https://github.com/SebTardifLabs/kube-rightsize" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-  ghcr.io/sebtardif/kube-rightsize:v0.2.0
+  ghcr.io/sebtardiflabs/kube-rightsize:v0.2.0
 ```
 
 ### 5. Helm chart publishing
 
-The Helm chart is published as an OCI artifact to `ghcr.io/sebtardif/charts/kube-rightsize`.
+The Helm chart is published as an OCI artifact to `ghcr.io/sebtardiflabs/charts/kube-rightsize`.
 
 Update the chart version in `charts/kube-rightsize/Chart.yaml`:
 
@@ -61,7 +61,7 @@ The CI pipeline packages and pushes the chart automatically:
 
 ```bash
 helm package charts/kube-rightsize
-helm push kube-rightsize-0.2.0.tgz oci://ghcr.io/sebtardif/charts
+helm push kube-rightsize-0.2.0.tgz oci://ghcr.io/sebtardiflabs/charts
 ```
 
 ### 6. Static install manifest
@@ -76,11 +76,13 @@ This writes `dist/install.yaml`, which is uploaded as a release artifact.
 
 ## Pre-release checklist
 
-- [ ] All tests pass (`make test-all`)
+- [ ] All tests pass (`make test && make test-e2e`)
 - [ ] `CHANGELOG.md` updated
 - [ ] `Chart.yaml` version and appVersion bumped
 - [ ] No uncommitted changes
 - [ ] Tag pushed to origin
+- [ ] GitHub Actions billing is active (the release workflow uses
+  `ubuntu-latest`, not self-hosted runners)
 
 ## Patch releases
 

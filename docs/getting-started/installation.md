@@ -20,7 +20,7 @@ Create a namespace and install the chart from the OCI registry:
 kubectl create namespace kube-rightsize-system
 
 helm install kube-rightsize \
-  oci://ghcr.io/sebtardif/charts/kube-rightsize \
+  oci://ghcr.io/sebtardiflabs/charts/kube-rightsize \
   --namespace kube-rightsize-system
 ```
 
@@ -37,7 +37,7 @@ helm install kube-rightsize \
 
 ```bash
 helm upgrade kube-rightsize \
-  oci://ghcr.io/sebtardif/charts/kube-rightsize \
+  oci://ghcr.io/sebtardiflabs/charts/kube-rightsize \
   --namespace kube-rightsize-system
 ```
 
@@ -49,7 +49,7 @@ If you prefer not to use Helm, apply the static install manifest:
 kubectl create namespace kube-rightsize-system
 
 kubectl apply -f \
-  https://github.com/SebTardif/kube-rightsize/releases/latest/download/install.yaml
+  https://github.com/SebTardifLabs/kube-rightsize/releases/latest/download/install.yaml
 ```
 
 !!! warning

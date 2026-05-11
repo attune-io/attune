@@ -90,6 +90,34 @@ make generate    # regenerate deepcopy methods
 ```
 Commit the generated output.
 
+## Known Issues
+
+- **Integration tests (`make test-integration`) fail** -- all 6 envtest-based
+  tests fail with "Condition never satisfied." This is a pre-existing envtest
+  infrastructure issue ([#40](https://github.com/SebTardifLabs/kube-rightsize/issues/40)),
+  not a code problem. Unit tests and E2E tests cover the same paths.
+- **`make test-all` will fail** because it includes integration tests.
+  Use `make test` (unit) and `make test-e2e` (E2E) separately.
+
+## CI Runners
+
+CI runs on self-hosted runners (3 org-level runners in `SebTardifLabs`).
+Runners are background processes that must be restarted after a machine reboot:
+
+```bash
+for i in 1 2 3; do
+  cd ~/actions-runner-pool/runner-$i && nohup ./run.sh &
+done
+```
+
+Check runner health:
+```bash
+gh api orgs/SebTardifLabs/actions/runners \
+  --jq '.runners[] | "\(.name): \(.status)"'
+```
+
+If runners are offline, CI jobs will queue indefinitely.
+
 ## Pull Request Process
 
 1. Fork the repository and create a branch from `main`

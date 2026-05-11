@@ -37,4 +37,4 @@ exclusively for in-place resize.
 - [Quick Start](getting-started/quickstart.md)
 - [Specification](SPEC.md)
 - [API Reference](reference/api.md)
-- [Contributing](https://github.com/SebTardif/kube-rightsize/blob/main/CONTRIBUTING.md)
+- [Contributing](https://github.com/SebTardifLabs/kube-rightsize/blob/main/CONTRIBUTING.md)

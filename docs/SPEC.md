@@ -1158,10 +1158,10 @@ charts/kube-rightsize/
 
 ```bash
 # Push Helm chart
-helm push kube-rightsize-0.1.0.tgz oci://ghcr.io/sebtardif/charts
+helm push kube-rightsize-0.1.0.tgz oci://ghcr.io/sebtardiflabs/charts
 
 # Install from OCI
-helm install kube-rightsize oci://ghcr.io/sebtardif/charts/kube-rightsize --version 0.1.0
+helm install kube-rightsize oci://ghcr.io/sebtardiflabs/charts/kube-rightsize --version 0.1.0
 ```
 
 ### 11.3 kubectl Plugin (Future)
@@ -1181,7 +1181,7 @@ kubectl rightsize recommendations -n production
 For users who don't use Helm:
 
 ```bash
-kubectl apply -f https://github.com/SebTardif/kube-rightsize/releases/latest/download/install.yaml
+kubectl apply -f https://github.com/SebTardifLabs/kube-rightsize/releases/latest/download/install.yaml
 ```
 
 ---

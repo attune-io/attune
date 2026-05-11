@@ -222,11 +222,11 @@ Enable the Helm chart's dashboard ConfigMap to auto-provision a
 Grafana dashboard:
 
 ```bash
-helm upgrade kube-rightsize oci://ghcr.io/sebtardif/charts/kube-rightsize \
+helm upgrade kube-rightsize oci://ghcr.io/sebtardiflabs/charts/kube-rightsize \
   --set grafanaDashboard.enabled=true
 ```
 
 The dashboard covers resizes, reverts, savings, recommendations, confidence
 scores, reconcile latency, and Prometheus query health. See
-[deploy/grafana/dashboard.json](https://github.com/SebTardif/kube-rightsize/blob/main/deploy/grafana/dashboard.json)
+[deploy/grafana/dashboard.json](https://github.com/SebTardifLabs/kube-rightsize/blob/main/deploy/grafana/dashboard.json)
 for the raw JSON.
