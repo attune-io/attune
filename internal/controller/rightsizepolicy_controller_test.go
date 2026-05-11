@@ -1241,6 +1241,28 @@ func TestExecuteResizes_SuccessfulResize(t *testing.T) {
 	assert.Equal(t, "InPlace", history[0].Method)
 }
 
+func TestExecuteResizes_ContextCancelledAbortsRemaining(t *testing.T) {
+	pod := newResizePod("api-server", "500m", "512Mi", "1000m", "1Gi")
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	reconciler, _ := newResizeReconciler(pod, deploy)
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = "Auto"
+
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("api-server", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),
+	}
+
+	workloads := []client.Object{deploy}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	count, history := reconciler.executeResizes(ctx, policy, workloads, recommendations, nil)
+	assert.Equal(t, 0, count, "no resizes should complete with cancelled context")
+	assert.Empty(t, history, "no history entries with cancelled context")
+}
+
 func TestExecuteResizes_SkipsMatchingResources(t *testing.T) {
 	// Pod already at the recommended values.
 	pod := newResizePod("api-server", "750m", "384Mi", "1500m", "768Mi")
