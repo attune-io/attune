@@ -45,6 +45,15 @@ func (v *RightSizeDefaultsValidator) ValidateDelete(_ context.Context, _ *rights
 }
 
 func (v *RightSizeDefaultsValidator) validate(defaults *rightsizev1alpha1.RightSizeDefaults) (admission.Warnings, error) {
+	// Validate Prometheus address if provided (SSRF prevention).
+	if defaults.Spec.MetricsSource != nil &&
+		defaults.Spec.MetricsSource.Prometheus != nil &&
+		defaults.Spec.MetricsSource.Prometheus.Address != "" {
+		if err := validatePrometheusAddress(defaults.Spec.MetricsSource.Prometheus.Address); err != nil {
+			return nil, fmt.Errorf("metricsSource.prometheus.address: %w", err)
+		}
+	}
+
 	if defaults.Spec.CostPricing == nil {
 		return nil, nil
 	}

@@ -19,8 +19,10 @@ package webhook
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -83,9 +85,15 @@ func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizeP
 		return warnings, err
 	}
 
-	// Validate cooldown is non-negative.
-	if policy.Spec.UpdateStrategy.Cooldown != nil && policy.Spec.UpdateStrategy.Cooldown.Duration < 0 {
-		return warnings, fmt.Errorf("updateStrategy.cooldown must be non-negative, got %s", policy.Spec.UpdateStrategy.Cooldown.Duration)
+	// Validate cooldown has a minimum floor to prevent resource exhaustion via tight reconciliation loops.
+	if policy.Spec.UpdateStrategy.Cooldown != nil {
+		cd := policy.Spec.UpdateStrategy.Cooldown.Duration
+		if cd < 0 {
+			return warnings, fmt.Errorf("updateStrategy.cooldown must be non-negative, got %s", cd)
+		}
+		if cd > 0 && cd < time.Minute {
+			return warnings, fmt.Errorf("updateStrategy.cooldown must be at least 1m to prevent excessive reconciliation, got %s", cd)
+		}
 	}
 
 	// Validate historyWindow is within reasonable bounds (1h to 720h/30d).
@@ -133,21 +141,40 @@ func validateSafetyMargin(resource, margin string) error {
 }
 
 // validatePrometheusAddress validates that the Prometheus address is a valid URL
-// with an allowed scheme (http or https).
+// with an allowed scheme and blocks SSRF against private/metadata endpoints.
 func validatePrometheusAddress(address string) error {
 	parsed, err := url.Parse(address)
 	if err != nil {
 		return fmt.Errorf("invalid URL: %w", err)
 	}
 
-	// Only allow http and https schemes to prevent SSRF via other schemes.
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
 		return fmt.Errorf("scheme must be http or https, got %q", parsed.Scheme)
 	}
 
-	// Host must be present.
 	if parsed.Host == "" {
 		return fmt.Errorf("host is required")
+	}
+
+	hostname := parsed.Hostname()
+
+	// Block cloud metadata endpoints.
+	blockedHosts := []string{
+		"metadata.google.internal",
+		"metadata.internal",
+	}
+	lowerHost := strings.ToLower(hostname)
+	for _, blocked := range blockedHosts {
+		if lowerHost == blocked {
+			return fmt.Errorf("address must not target cloud metadata endpoint %q", hostname)
+		}
+	}
+
+	// Block private/loopback IP addresses.
+	if ip := net.ParseIP(hostname); ip != nil {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
+			return fmt.Errorf("address must not target private/loopback IP %q", hostname)
+		}
 	}
 
 	return nil

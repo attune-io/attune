@@ -103,7 +103,12 @@ func (r *RightSizePolicyReconciler) getMinimumDataPoints(policy *rightsizev1alph
 // parseCooldown returns the cooldown duration from the policy's update strategy.
 func (r *RightSizePolicyReconciler) parseCooldown(policy *rightsizev1alpha1.RightSizePolicy) time.Duration {
 	if policy.Spec.UpdateStrategy.Cooldown != nil {
-		return policy.Spec.UpdateStrategy.Cooldown.Duration
+		cd := policy.Spec.UpdateStrategy.Cooldown.Duration
+		// Defense-in-depth: enforce minimum 1m even if webhook validation is bypassed.
+		if cd > 0 && cd < time.Minute {
+			cd = time.Minute
+		}
+		return cd
 	}
 	return defaultCooldown
 }
