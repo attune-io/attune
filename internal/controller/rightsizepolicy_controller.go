@@ -107,10 +107,26 @@ type MetricsCollectorFactory func(address string) (rsmetrics.MetricsCollector, e
 
 // getOrCreateCollector returns a cached collector for the address, creating one
 // if needed. This avoids re-creating HTTP clients and rate limiters per reconcile.
+// The cache is bounded at 64 entries to prevent memory-based DoS via address
+// rotation.
 func (r *RightSizePolicyReconciler) getOrCreateCollector(address string) (rsmetrics.MetricsCollector, error) {
 	if cached, ok := r.collectors.Load(address); ok {
 		return cached.(rsmetrics.MetricsCollector), nil
 	}
+
+	// Prevent unbounded cache growth: evict all entries when cap is reached.
+	var count int
+	r.collectors.Range(func(_, _ any) bool {
+		count++
+		return count < 64
+	})
+	if count >= 64 {
+		r.collectors.Range(func(key, _ any) bool {
+			r.collectors.Delete(key)
+			return true
+		})
+	}
+
 	collector, err := r.MetricsFactory(address)
 	if err != nil {
 		return nil, err

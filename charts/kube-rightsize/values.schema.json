@@ -156,6 +156,12 @@
           "description": "The UID to run the container process as",
           "default": 65532,
           "minimum": 0
+        },
+        "runAsGroup": {
+          "type": "integer",
+          "description": "The GID to run the container process as",
+          "default": 65532,
+          "minimum": 0
         }
       },
       "additionalProperties": false
