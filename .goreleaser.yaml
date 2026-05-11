@@ -1,65 +1,27 @@
+---
 version: 2
-
-project_name: kube-rightsize
-
-before:
-  hooks:
-    - go mod tidy
-
 builds:
   - id: manager
-    main: ./cmd/manager/
+    main: ./cmd/manager
     binary: manager
-    env:
-      - CGO_ENABLED=0
-    goos:
-      - linux
-    goarch:
-      - amd64
-      - arm64
-    flags:
-      - -trimpath
+    goos: [linux]
+    goarch: [amd64, arm64]
     ldflags:
       - -s -w
-      - -X main.version={{ .Version }}
-      - -X main.commit={{ .Commit }}
-      - -X main.date={{ .Date }}
-
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
   - id: kubectl-rightsize
-    main: ./cmd/kubectl-rightsize/
+    main: ./cmd/kubectl-rightsize
     binary: kubectl-rightsize
-    env:
-      - CGO_ENABLED=0
-    goos:
-      - linux
-      - darwin
-    goarch:
-      - amd64
-      - arm64
-    flags:
-      - -trimpath
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
     ldflags:
       - -s -w
-
+      - -X main.version={{.Version}}
 archives:
-  - id: binary
-    formats: [tar.gz]
-    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-
-checksum:
-  name_template: checksums.txt
-
+  - id: kubectl-plugin
+    builds: [kubectl-rightsize]
+    name_template: "kubectl-rightsize_{{ .Os }}_{{ .Arch }}"
 changelog:
-  sort: asc
-  filters:
-    exclude:
-      - "^docs:"
-      - "^test:"
-      - "^chore:"
-      - "^ci:"
-
-release:
-  github:
-    owner: SebTardif
-    name: kube-rightsize
-  prerelease: auto
+  use: github-native

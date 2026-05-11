@@ -104,7 +104,8 @@ test-e2e: chainsaw ## Run E2E tests (requires Kind cluster)
 
 .PHONY: test-fuzz
 test-fuzz: ## Run fuzz tests (30 seconds per target)
-	go test ./internal/recommendation/... -fuzz=. -fuzztime=30s
+	go test ./internal/recommendation/... -run='^$$' -fuzz=FuzzPercentileEstimator -fuzztime=30s
+	go test ./internal/recommendation/... -run='^$$' -fuzz=FuzzRecommendationEngine -fuzztime=30s
 
 .PHONY: test-bench
 test-bench: ## Run benchmark tests
