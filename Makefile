@@ -125,7 +125,7 @@ test-integration: manifests generate setup-envtest gotestsum ## Run integration 
 
 .PHONY: test-e2e
 test-e2e: chainsaw ## Run E2E tests (requires Kind cluster)
-	$(CHAINSAW) test test/e2e/ --config .chainsaw.yaml --no-color
+	$(CHAINSAW) test test/e2e/ --config .chainsaw.yaml
 
 .PHONY: test-fuzz
 test-fuzz: ## Run fuzz tests (30 seconds per target)
