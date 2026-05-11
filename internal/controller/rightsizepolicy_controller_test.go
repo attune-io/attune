@@ -826,6 +826,40 @@ func TestComputeRecommendations_AllowDecreaseBlocked(t *testing.T) {
 		"memory should not decrease below current when AllowDecrease is nil, got %s", rec.Containers[0].Recommended.MemoryRequest.String())
 }
 
+func TestComputeRecommendations_RequestsAndLimits(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	ral := "RequestsAndLimits"
+	policy.Spec.CPU.ControlledValues = &ral
+	policy.Spec.Memory.ControlledValues = &ral
+
+	deploy := newTestDeployment("api-server", "default", nil)
+	reconciler := newReconcilerWithClient()
+
+	mc := &mockCollector{
+		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return generateSamples(200, 0.1), nil
+		},
+	}
+
+	rec, err := reconciler.computeRecommendations(context.Background(), policy, deploy, nil, mc)
+	require.NoError(t, err)
+	require.NotNil(t, rec)
+	require.Len(t, rec.Containers, 1)
+
+	c := rec.Containers[0]
+	// With RequestsAndLimits, limits must be scaled proportionally.
+	assert.False(t, c.Recommended.CPULimit.IsZero(), "CPULimit should be set when ControlledValues=RequestsAndLimits")
+	assert.False(t, c.Recommended.MemoryLimit.IsZero(), "MemoryLimit should be set when ControlledValues=RequestsAndLimits")
+
+	// The deployment has 2:1 ratio (limits=1000m, requests=500m for CPU; limits=1Gi, requests=512Mi for memory).
+	// Limits should be proportionally scaled from the new request.
+	cpuRatio := float64(c.Recommended.CPULimit.MilliValue()) / float64(c.Recommended.CPURequest.MilliValue())
+	assert.InDelta(t, 2.0, cpuRatio, 0.01, "CPU limit/request ratio should preserve the original 2:1 ratio")
+
+	memRatio := float64(c.Recommended.MemoryLimit.Value()) / float64(c.Recommended.MemoryRequest.Value())
+	assert.InDelta(t, 2.0, memRatio, 0.01, "Memory limit/request ratio should preserve the original ~2:1 ratio")
+}
+
 // ---------- resolvePrometheusAddress ----------
 
 func TestResolvePrometheusAddress_PolicyHasAddress(t *testing.T) {
@@ -1862,6 +1896,63 @@ func TestCheckPendingSafetyObservations_UnsafeVerdictReverts(t *testing.T) {
 	require.NoError(t, err)
 	_, has := updated.Annotations["rightsize.io/resized-at"]
 	assert.False(t, has, "tracking annotations should be removed after observation completes")
+}
+
+func TestCheckPendingSafetyObservations_UnsafeVerdictEmitsEvent(t *testing.T) {
+	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "unsafe-pod",
+			Namespace: "default",
+			Labels:    map[string]string{"app": "test"},
+			Annotations: map[string]string{
+				"rightsize.io/resized-at":              resizedAt,
+				"rightsize.io/resized-container":       "main",
+				"rightsize.io/original-cpu-request":    "500m",
+				"rightsize.io/original-memory-request": "512Mi",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  "main",
+					Image: "nginx",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("250m"),
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionFalse},
+			},
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "main", RestartCount: 0},
+			},
+		},
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	reconciler, _ := newResizeReconciler(pod)
+
+	recorder := events.NewFakeRecorder(10)
+	reconciler.Recorder = recorder
+
+	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
+
+	// Verify a Reverted event was emitted containing the pod name.
+	select {
+	case event := <-recorder.Events:
+		assert.Contains(t, event, "Reverted")
+		assert.Contains(t, event, "unsafe-pod")
+	default:
+		t.Fatal("expected a Reverted event but channel was empty")
+	}
 }
 
 // ---------- getPodsForWorkload error path ----------

@@ -18,6 +18,7 @@ package resize
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -354,6 +355,42 @@ func TestResizePod_ContainerNotFound(t *testing.T) {
 	assert.Error(t, err)
 	assert.Nil(t, results)
 	assert.Contains(t, err.Error(), "not found")
+}
+
+func TestResizePod_UpdateResizeAPIError(t *testing.T) {
+	pod := newTestPod("web-0", "default", "app", "100m", "128Mi", "200m", "256Mi")
+	fakeClient := fake.NewSimpleClientset(pod)
+	fakeClient.PrependReactor("update", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if action.GetSubresource() != "resize" {
+			return false, nil, nil
+		}
+		return true, nil, fmt.Errorf("node has insufficient resources")
+	})
+
+	resizer := NewPodResizer(fakeClient, testr.New(t))
+
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("250m"),
+			corev1.ResourceMemory: resource.MustParse("512Mi"),
+		},
+	}
+
+	results, err := resizer.ResizePod(context.Background(), pod, "app", target)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "calling UpdateResize for pod default/web-0")
+	assert.Contains(t, err.Error(), "node has insufficient resources")
+
+	require.Len(t, results, 2)
+	assert.Equal(t, "cpu", results[0].Resource)
+	assert.Equal(t, "memory", results[1].Resource)
+	assert.False(t, results[0].Success)
+	assert.False(t, results[1].Success)
+	assert.Error(t, results[0].Error)
+	assert.Error(t, results[1].Error)
+	assert.Equal(t, "web-0", results[0].PodName)
+	assert.Equal(t, "app", results[0].Container)
+	assert.Equal(t, "InPlace", results[0].Method)
 }
 
 func TestWaitForResize_ImmediateSuccess(t *testing.T) {
