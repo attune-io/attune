@@ -23,6 +23,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -196,6 +197,14 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		r.setFailedCondition(ctx, &policy, rightsizev1alpha1.ReasonInsufficientData, "No matching workloads found")
 		return ctrl.Result{RequeueAfter: r.parseCooldown(&policy)}, nil
 	}
+
+	// Clear stale recommendation gauges for this namespace before re-setting.
+	// Workloads/containers that are no longer managed won't be re-set,
+	// preventing stale gauge values from persisting indefinitely.
+	nsLabels := prometheus.Labels{"namespace": policy.Namespace}
+	operatormetrics.RecommendationCPU.DeletePartialMatch(nsLabels)
+	operatormetrics.RecommendationMemory.DeletePartialMatch(nsLabels)
+	operatormetrics.Confidence.DeletePartialMatch(nsLabels)
 
 	// Step 4-8: Process each workload.
 	var recommendations []rightsizev1alpha1.WorkloadRecommendation
