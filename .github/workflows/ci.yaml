@@ -26,6 +26,7 @@ jobs:
   changes:
     name: Detect Changes
     runs-on: self-hosted
+    timeout-minutes: 5
     outputs:
       go: ${{ steps.filter.outputs.go }}
       helm: ${{ steps.filter.outputs.helm }}
@@ -55,6 +56,7 @@ jobs:
   lint:
     name: Lint
     runs-on: self-hosted
+    timeout-minutes: 10
     needs: changes
     if: needs.changes.outputs.go == 'true'
     steps:
@@ -94,6 +96,7 @@ jobs:
   test-unit:
     name: Unit Tests
     runs-on: self-hosted
+    timeout-minutes: 15
     needs: changes
     if: needs.changes.outputs.go == 'true'
     steps:
@@ -150,6 +153,7 @@ jobs:
   test-integration:
     name: Integration Tests
     runs-on: self-hosted
+    timeout-minutes: 15
     needs: changes
     if: needs.changes.outputs.go == 'true'
     steps:
@@ -194,6 +198,7 @@ jobs:
   test-e2e:
     name: E2E Tests (K8s ${{ matrix.k8s-version }})
     runs-on: self-hosted
+    timeout-minutes: 30
     needs: [changes, lint, test-unit]
     if: needs.changes.outputs.go == 'true'
     strategy:
@@ -275,6 +280,7 @@ jobs:
   test-e2e-result:
     name: E2E Tests
     runs-on: self-hosted
+    timeout-minutes: 5
     needs: [changes, test-e2e]
     if: always()
     steps:
@@ -296,6 +302,7 @@ jobs:
   crd-freshness:
     name: CRD Freshness Check
     runs-on: self-hosted
+    timeout-minutes: 10
     needs: changes
     if: needs.changes.outputs.go == 'true'
     steps:
@@ -324,6 +331,7 @@ jobs:
   helm-lint:
     name: Helm Lint
     runs-on: self-hosted
+    timeout-minutes: 10
     needs: changes
     if: needs.changes.outputs.helm == 'true' || needs.changes.outputs.go == 'true'
     steps:
@@ -379,6 +387,7 @@ jobs:
   build:
     name: Build
     runs-on: self-hosted
+    timeout-minutes: 15
     needs: changes
     if: needs.changes.outputs.go == 'true'
     steps:

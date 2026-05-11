@@ -23,6 +23,7 @@ jobs:
   govulncheck:
     name: Govulncheck
     runs-on: self-hosted
+    timeout-minutes: 10
     steps:
       - uses: step-security/harden-runner@v2
         with:
@@ -43,6 +44,7 @@ jobs:
   trivy:
     name: Trivy
     runs-on: self-hosted
+    timeout-minutes: 10
     steps:
       - uses: step-security/harden-runner@v2
         with:
@@ -62,6 +64,7 @@ jobs:
   gitleaks:
     name: Gitleaks
     runs-on: self-hosted
+    timeout-minutes: 10
     steps:
       - uses: step-security/harden-runner@v2
         with:
