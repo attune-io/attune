@@ -34,7 +34,7 @@ help: ## Display this help
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
 .PHONY: verify
-verify: lint test helm-docs-check helm-unittest ## Run all CI checks locally
+verify: lint yaml-lint test helm-docs-check helm-unittest ## Run all CI checks locally
 	@$(MAKE) manifests
 	@git diff --quiet --exit-code config/crd/ charts/kube-rightsize/crds/ || \
 		(echo "::error::CRD manifests are stale. Run 'make manifests' and commit." && exit 1)
@@ -65,6 +65,12 @@ vet: ## Run go vet
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint
 	$(GOLANGCI_LINT) run --timeout 5m
+
+.PHONY: yaml-lint
+yaml-lint: ## Lint YAML files (mirrors CI)
+	@command -v yamllint >/dev/null 2>&1 || { echo "Install yamllint: pip install yamllint"; exit 1; }
+	@yamllint -d '{extends: default, rules: {line-length: {max: 200}, truthy: {check-keys: false}, indentation: {spaces: 2, indent-sequences: whatever}}}' \
+		config/ charts/kube-rightsize/Chart.yaml charts/kube-rightsize/values.yaml charts/kube-rightsize/ci/
 
 .PHONY: lint-fix
 lint-fix: golangci-lint ## Run golangci-lint with auto-fix

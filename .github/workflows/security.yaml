@@ -80,7 +80,6 @@ jobs:
             echo "gitleaks already installed: $(gitleaks version)"
           else
             VER="8.30.1"
-              | jq -r '.tag_name' | sed 's/^v//')
             mkdir -p "$HOME/.local/bin"
             curl -sfL "https://github.com/gitleaks/gitleaks/releases/download/v${VER}/gitleaks_${VER}_linux_x64.tar.gz" \
               | tar xz -C "$HOME/.local/bin" gitleaks
