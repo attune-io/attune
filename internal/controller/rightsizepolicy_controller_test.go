@@ -2022,6 +2022,172 @@ func TestCheckPendingSafetyObservations_UnsafeVerdictEmitsEvent(t *testing.T) {
 	}
 }
 
+func TestCheckPendingSafetyObservations_RestartCountParsed(t *testing.T) {
+	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "restart-pod",
+			Namespace: "default",
+			Annotations: map[string]string{
+				"rightsize.io/resized-at":              resizedAt,
+				"rightsize.io/resized-container":       "main",
+				"rightsize.io/original-cpu-request":    "500m",
+				"rightsize.io/original-memory-request": "512Mi",
+				"rightsize.io/original-restart-count":  "3",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  "main",
+					Image: "nginx",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("250m"),
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+			ContainerStatuses: []corev1.ContainerStatus{
+				// RestartCount 4 is within threshold (baseline 3 + 2 = 5),
+				// so the pod should be considered safe and annotations removed.
+				{Name: "main", RestartCount: 4},
+			},
+		},
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	reconciler, fakeClient := newResizeReconciler(pod)
+
+	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
+
+	var updated corev1.Pod
+	err := fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "restart-pod", Namespace: "default",
+	}, &updated)
+	require.NoError(t, err)
+	_, hasResizedAt := updated.Annotations["rightsize.io/resized-at"]
+	assert.False(t, hasResizedAt, "safe pod should have annotations removed")
+}
+
+func TestCheckPendingSafetyObservations_RestartCountExceeded(t *testing.T) {
+	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "crashing-pod",
+			Namespace: "default",
+			Annotations: map[string]string{
+				"rightsize.io/resized-at":              resizedAt,
+				"rightsize.io/resized-container":       "main",
+				"rightsize.io/original-cpu-request":    "500m",
+				"rightsize.io/original-memory-request": "512Mi",
+				"rightsize.io/original-restart-count":  "3",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  "main",
+					Image: "nginx",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("250m"),
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+			ContainerStatuses: []corev1.ContainerStatus{
+				// RestartCount 5 >= baseline 3 + 2: triggers revert.
+				{Name: "main", RestartCount: 5},
+			},
+		},
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	reconciler, _ := newResizeReconciler(pod)
+
+	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
+
+	// Verify UpdateResize (revert) was called.
+	var found bool
+	for _, a := range reconciler.Clientset.(*kubefake.Clientset).Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			found = true
+		}
+	}
+	assert.True(t, found, "should have reverted pod with excessive restarts")
+}
+
+func TestCheckPendingSafetyObservations_InvalidRestartCount(t *testing.T) {
+	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "bad-annotation-pod",
+			Namespace: "default",
+			Annotations: map[string]string{
+				"rightsize.io/resized-at":              resizedAt,
+				"rightsize.io/resized-container":       "main",
+				"rightsize.io/original-cpu-request":    "500m",
+				"rightsize.io/original-memory-request": "512Mi",
+				"rightsize.io/original-restart-count":  "not-a-number",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  "main",
+					Image: "nginx",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("250m"),
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+			ContainerStatuses: []corev1.ContainerStatus{
+				// RestartCount 1 with baseline defaulting to 0 (parse failed):
+				// 1 < 0+2 = safe, annotations should be removed normally.
+				{Name: "main", RestartCount: 1},
+			},
+		},
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	reconciler, fakeClient := newResizeReconciler(pod)
+
+	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
+
+	var updated corev1.Pod
+	err := fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "bad-annotation-pod", Namespace: "default",
+	}, &updated)
+	require.NoError(t, err)
+	// Invalid restart count should default to 0; pod with 1 restart is safe.
+	_, hasResizedAt := updated.Annotations["rightsize.io/resized-at"]
+	assert.False(t, hasResizedAt, "pod should complete observation despite invalid restart count")
+}
+
 // ---------- getPodsForWorkload error path ----------
 
 func TestGetPodsForWorkload_EmptySelectorLabels(t *testing.T) {

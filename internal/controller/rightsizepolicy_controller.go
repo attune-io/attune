@@ -758,6 +758,12 @@ func (r *RightSizePolicyReconciler) executeResizes(
 				if !resize.PreservesQoS(&pod, containerRec.Name, target) {
 					logger.Info("Skipping resize: would change QoS class",
 						"pod", pod.Name, "container", containerRec.Name)
+					if r.Recorder != nil {
+						r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "ResizeSkipped", "resize",
+							"Skipping resize for pod %s container %s: would change QoS class from Guaranteed. "+
+								"Set controlledValues: RequestsAndLimits to resize Guaranteed pods",
+							pod.Name, containerRec.Name)
+					}
 					continue
 				}
 
