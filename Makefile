@@ -233,40 +233,62 @@ build-installer: manifests kustomize ## Generate install manifest for release
 
 ##@ Tools
 
-CONTROLLER_GEN = $(GOBIN)/controller-gen
+# Version-aware tool installs: embed version in binary filename so a version
+# bump in the Makefile automatically triggers a fresh install.
+LOCALBIN ?= $(GOBIN)
+
+CONTROLLER_GEN = $(LOCALBIN)/controller-gen-$(CONTROLLER_TOOLS_VERSION)
 .PHONY: controller-gen
 controller-gen: ## Install controller-gen
-	@test -s $(CONTROLLER_GEN) || go install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_TOOLS_VERSION)
+	@test -s $(CONTROLLER_GEN) || { \
+		go install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_TOOLS_VERSION) && \
+		mv $(LOCALBIN)/controller-gen $(CONTROLLER_GEN); \
+	}
 
-GOTESTSUM = $(GOBIN)/gotestsum
+GOTESTSUM = $(LOCALBIN)/gotestsum-$(GOTESTSUM_VERSION)
 .PHONY: gotestsum
 gotestsum: ## Install gotestsum
-	@test -s $(GOTESTSUM) || go install gotest.tools/gotestsum@$(GOTESTSUM_VERSION)
+	@test -s $(GOTESTSUM) || { \
+		go install gotest.tools/gotestsum@$(GOTESTSUM_VERSION) && \
+		mv $(LOCALBIN)/gotestsum $(GOTESTSUM); \
+	}
 
-SETUP_ENVTEST = $(GOBIN)/setup-envtest
+SETUP_ENVTEST = $(LOCALBIN)/setup-envtest
 .PHONY: setup-envtest
 setup-envtest: ## Install setup-envtest
 	@test -s $(SETUP_ENVTEST) || go install sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.24
 
-GOLANGCI_LINT = $(GOBIN)/golangci-lint
+GOLANGCI_LINT = $(LOCALBIN)/golangci-lint-$(GOLANGCI_LINT_VERSION)
 .PHONY: golangci-lint
 golangci-lint: ## Install golangci-lint
-	@test -s $(GOLANGCI_LINT) || go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+	@test -s $(GOLANGCI_LINT) || { \
+		go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) && \
+		mv $(LOCALBIN)/golangci-lint $(GOLANGCI_LINT); \
+	}
 
-KUSTOMIZE = $(GOBIN)/kustomize
+KUSTOMIZE = $(LOCALBIN)/kustomize-$(KUSTOMIZE_VERSION)
 .PHONY: kustomize
 kustomize: ## Install kustomize
-	@test -s $(KUSTOMIZE) || go install sigs.k8s.io/kustomize/kustomize/v5@$(KUSTOMIZE_VERSION)
+	@test -s $(KUSTOMIZE) || { \
+		go install sigs.k8s.io/kustomize/kustomize/v5@$(KUSTOMIZE_VERSION) && \
+		mv $(LOCALBIN)/kustomize $(KUSTOMIZE); \
+	}
 
-CHAINSAW = $(GOBIN)/chainsaw
+CHAINSAW = $(LOCALBIN)/chainsaw-$(CHAINSAW_VERSION)
 .PHONY: chainsaw
 chainsaw: ## Install chainsaw
-	@test -s $(CHAINSAW) || go install github.com/kyverno/chainsaw@$(CHAINSAW_VERSION)
+	@test -s $(CHAINSAW) || { \
+		go install github.com/kyverno/chainsaw@$(CHAINSAW_VERSION) && \
+		mv $(LOCALBIN)/chainsaw $(CHAINSAW); \
+	}
 
-HELM_DOCS = $(GOBIN)/helm-docs
+HELM_DOCS = $(LOCALBIN)/helm-docs-$(HELM_DOCS_VERSION)
 .PHONY: helm-docs
 helm-docs: ## Install helm-docs
-	@test -s $(HELM_DOCS) || go install github.com/norwoodj/helm-docs/cmd/helm-docs@$(HELM_DOCS_VERSION)
+	@test -s $(HELM_DOCS) || { \
+		go install github.com/norwoodj/helm-docs/cmd/helm-docs@$(HELM_DOCS_VERSION) && \
+		mv $(LOCALBIN)/helm-docs $(HELM_DOCS); \
+	}
 
 .PHONY: helm-docs-gen
 helm-docs-gen: helm-docs ## Generate Helm chart README from values.yaml
