@@ -30,6 +30,9 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
+// MethodInPlace is the resize method for in-place pod resize.
+const MethodInPlace = "InPlace"
+
 // ResizeResult represents the outcome of a resize operation.
 type ResizeResult struct {
 	PodName   string
@@ -37,7 +40,7 @@ type ResizeResult struct {
 	Resource  string // "cpu" or "memory"
 	From      resource.Quantity
 	To        resource.Quantity
-	Method    string // "InPlace"
+	Method    string
 	Success   bool
 	Error     error
 }
@@ -88,13 +91,13 @@ func (r *PodResizer) ResizePod(ctx context.Context, pod *corev1.Pod, container s
 	updated.Spec.Containers[idx].Resources = target
 
 	r.logger.V(1).Info("resizing pod", "pod", pod.Name, "namespace", pod.Namespace,
-		"container", container, "method", "InPlace")
+		"container", container, "method", MethodInPlace)
 
 	_, err := r.client.CoreV1().Pods(pod.Namespace).UpdateResize(ctx, pod.Name, updated, metav1.UpdateOptions{})
 	if err != nil {
 		return []ResizeResult{
-			{PodName: pod.Name, Container: container, Resource: "cpu", Method: "InPlace", Success: false, Error: err},
-			{PodName: pod.Name, Container: container, Resource: "memory", Method: "InPlace", Success: false, Error: err},
+			{PodName: pod.Name, Container: container, Resource: "cpu", Method: MethodInPlace, Success: false, Error: err},
+			{PodName: pod.Name, Container: container, Resource: "memory", Method: MethodInPlace, Success: false, Error: err},
 		}, fmt.Errorf("calling UpdateResize for pod %s/%s: %w", pod.Namespace, pod.Name, err)
 	}
 
@@ -110,7 +113,7 @@ func (r *PodResizer) ResizePod(ctx context.Context, pod *corev1.Pod, container s
 			Resource:  "cpu",
 			From:      fromCPU,
 			To:        toCPU,
-			Method:    "InPlace",
+			Method:    MethodInPlace,
 			Success:   true,
 		},
 		{
@@ -119,7 +122,7 @@ func (r *PodResizer) ResizePod(ctx context.Context, pod *corev1.Pod, container s
 			Resource:  "memory",
 			From:      fromMem,
 			To:        toMem,
-			Method:    "InPlace",
+			Method:    MethodInPlace,
 			Success:   true,
 		},
 	}

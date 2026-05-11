@@ -18,6 +18,34 @@ package v1alpha1
 
 import "k8s.io/apimachinery/pkg/api/resource"
 
+// Update strategy modes.
+const (
+	ModeRecommend = "Recommend"
+	ModeObserve   = "Observe"
+	ModeOneShot   = "OneShot"
+	ModeCanary    = "Canary"
+	ModeAuto      = "Auto"
+)
+
+// Controlled values options.
+const (
+	ControlledRequestsOnly      = "RequestsOnly"
+	ControlledRequestsAndLimits = "RequestsAndLimits"
+)
+
+// Resize result values.
+const (
+	ResultSuccess  = "Success"
+	ResultFailed   = "Failed"
+	ResultReverted = "Reverted"
+	ResultSkipped  = "Skipped"
+)
+
+// Resize method values.
+const (
+	MethodInPlace = "InPlace"
+)
+
 // Default values for RightSizePolicy fields. These are the single source
 // of truth, referenced by the webhook defaulter, mergeDefaults, and
 // computeRecommendations.
@@ -26,11 +54,11 @@ const (
 	DefaultCPUSafetyMargin              = "1.2"
 	DefaultMemoryPercentile       int32 = 99
 	DefaultMemorySafetyMargin           = "1.3"
-	DefaultUpdateMode                   = "Recommend"
+	DefaultUpdateMode                   = ModeRecommend
 	DefaultMaxCPUChangePercent    int32 = 50
 	DefaultMaxMemoryChangePercent int32 = 30
 	DefaultWeight                 int32 = 100
-	DefaultControlledValues             = "RequestsOnly"
+	DefaultControlledValues             = ControlledRequestsOnly
 	DefaultHistoryWindow                = "168h"
 	DefaultCooldown                     = "1h"
 )

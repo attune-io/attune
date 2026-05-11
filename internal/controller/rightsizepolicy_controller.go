@@ -466,18 +466,18 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 		}
 
 		// Scale limits proportionally if ControlledValues is RequestsAndLimits.
-		cpuControlled := "RequestsOnly"
+		cpuControlled := rightsizev1alpha1.ControlledRequestsOnly
 		if policy.Spec.CPU.ControlledValues != nil {
 			cpuControlled = *policy.Spec.CPU.ControlledValues
 		}
-		memControlled := "RequestsOnly"
+		memControlled := rightsizev1alpha1.ControlledRequestsOnly
 		if policy.Spec.Memory.ControlledValues != nil {
 			memControlled = *policy.Spec.Memory.ControlledValues
 		}
-		if cpuControlled == "RequestsAndLimits" {
+		if cpuControlled == rightsizev1alpha1.ControlledRequestsAndLimits {
 			rec.Recommended.CPULimit = scaleLimits(currentCPUReq, currentCPULim, rec.Recommended.CPURequest)
 		}
-		if memControlled == "RequestsAndLimits" {
+		if memControlled == rightsizev1alpha1.ControlledRequestsAndLimits {
 			rec.Recommended.MemoryLimit = scaleLimits(currentMemReq, currentMemLim, rec.Recommended.MemoryRequest)
 		}
 
@@ -594,9 +594,9 @@ func selectPodsForResize(pods []corev1.Pod, mode string, canaryPercentage int32)
 	}
 
 	switch mode {
-	case "OneShot":
+	case rightsizev1alpha1.ModeOneShot:
 		return eligible[:1]
-	case "Canary":
+	case rightsizev1alpha1.ModeCanary:
 		count := int(canaryPercentage) * len(eligible) / 100
 		if count < 1 {
 			count = 1
@@ -605,7 +605,7 @@ func selectPodsForResize(pods []corev1.Pod, mode string, canaryPercentage int32)
 			count = len(eligible)
 		}
 		return eligible[:count]
-	case "Auto":
+	case rightsizev1alpha1.ModeAuto:
 		return eligible // resize all in Auto mode
 	default:
 		return nil
@@ -694,7 +694,7 @@ func (r *RightSizePolicyReconciler) executeResizes(
 					logger.Error(err, "Failed to resize pod",
 						"pod", pod.Name, "container", containerRec.Name)
 					for _, res := range results {
-						history = append(history, newHistoryEntry(now, rec.Workload, containerRec.Name, res, "Failed"))
+						history = append(history, newHistoryEntry(now, rec.Workload, containerRec.Name, res, rightsizev1alpha1.ResultFailed))
 						operatormetrics.ResizeTotal.WithLabelValues(pod.Namespace, rec.Workload, res.Resource, "failed").Inc()
 					}
 					if r.Recorder != nil {
@@ -707,9 +707,9 @@ func (r *RightSizePolicyReconciler) executeResizes(
 				operatormetrics.ResizeDuration.WithLabelValues(pod.Namespace, rec.Workload).Observe(time.Since(resizeStart).Seconds())
 				totalResized++
 				for _, res := range results {
-					result := "Success"
+					result := rightsizev1alpha1.ResultSuccess
 					if !res.Success {
-						result = "Failed"
+						result = rightsizev1alpha1.ResultFailed
 					}
 					history = append(history, newHistoryEntry(now, rec.Workload, containerRec.Name, res, result))
 					if res.Success {
@@ -763,12 +763,12 @@ func (r *RightSizePolicyReconciler) executeResizes(
 						}
 					}
 					if r.Recorder != nil {
-						r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "Reverted", "revert",
+						r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, rightsizev1alpha1.ResultReverted, "revert",
 							"Reverted resize on %s/%s: %s", rec.Workload, containerRec.Name, reason)
 					}
 					for i := len(history) - 1; i >= 0; i-- {
 						if history[i].Workload == rec.Workload && history[i].Container == containerRec.Name {
-							history[i].Result = "Reverted"
+							history[i].Result = rightsizev1alpha1.ResultReverted
 						}
 					}
 					totalResized--
@@ -1050,7 +1050,7 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 			workloadName := pod.Annotations[annotationResizedWorkload]
 			operatormetrics.RevertsTotal.WithLabelValues(pod.Namespace, workloadName, verdict.Reason).Inc()
 			if r.Recorder != nil {
-				r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "Reverted", "revert",
+				r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, rightsizev1alpha1.ResultReverted, "revert",
 					"Safety observation reverted resize on pod %s: %s", pod.Name, verdict.Message)
 			}
 		}
