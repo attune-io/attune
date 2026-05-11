@@ -395,34 +395,7 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 	start := now.Add(-historyWindow)
 	podPrefix := r.getPodPrefix(workload)
 
-	cpuPercentile := int(policy.Spec.CPU.Percentile)
-	if cpuPercentile == 0 {
-		cpuPercentile = int(rightsizev1alpha1.DefaultCPUPercentile)
-	}
-	memPercentile := int(policy.Spec.Memory.Percentile)
-	if memPercentile == 0 {
-		memPercentile = int(rightsizev1alpha1.DefaultMemoryPercentile)
-	}
-
-	cpuSafetyMargin := parseFloat64(policy.Spec.CPU.SafetyMargin, 1.2)
-	memSafetyMargin := parseFloat64(policy.Spec.Memory.SafetyMargin, 1.3)
-
-	cpuBoundsMin := rightsizev1alpha1.DefaultCPUBoundsMin.DeepCopy()
-	cpuBoundsMax := rightsizev1alpha1.DefaultCPUBoundsMax.DeepCopy()
-	if policy.Spec.CPU.Bounds != nil {
-		cpuBoundsMin = policy.Spec.CPU.Bounds.Min.DeepCopy()
-		cpuBoundsMax = policy.Spec.CPU.Bounds.Max.DeepCopy()
-	}
-
-	memBoundsMin := rightsizev1alpha1.DefaultMemoryBoundsMin.DeepCopy()
-	memBoundsMax := rightsizev1alpha1.DefaultMemoryBoundsMax.DeepCopy()
-	if policy.Spec.Memory.Bounds != nil {
-		memBoundsMin = policy.Spec.Memory.Bounds.Min.DeepCopy()
-		memBoundsMax = policy.Spec.Memory.Bounds.Max.DeepCopy()
-	}
-
-	cpuEngine := recommendation.NewEngine(cpuPercentile, cpuSafetyMargin, cpuBoundsMin, cpuBoundsMax, float64(policy.Spec.UpdateStrategy.MaxCPUChangePercent))
-	memEngine := recommendation.NewEngine(memPercentile, memSafetyMargin, memBoundsMin, memBoundsMax, float64(policy.Spec.UpdateStrategy.MaxMemoryChangePercent))
+	cpuEngine, memEngine := buildRecommendationEngines(policy)
 
 	// Build excludeContainers set for O(1) lookup.
 	excludeSet := make(map[string]bool, len(policy.Spec.ExcludeContainers))
@@ -866,6 +839,40 @@ func (r *RightSizePolicyReconciler) executeResizes(
 	}
 
 	return totalResized, history
+}
+
+// buildRecommendationEngines creates CPU and memory recommendation engines
+// from the policy's configuration, falling back to defaults.
+func buildRecommendationEngines(policy *rightsizev1alpha1.RightSizePolicy) (cpuEngine, memEngine *recommendation.RecommendationEngine) {
+	cpuPercentile := int(policy.Spec.CPU.Percentile)
+	if cpuPercentile == 0 {
+		cpuPercentile = int(rightsizev1alpha1.DefaultCPUPercentile)
+	}
+	memPercentile := int(policy.Spec.Memory.Percentile)
+	if memPercentile == 0 {
+		memPercentile = int(rightsizev1alpha1.DefaultMemoryPercentile)
+	}
+
+	cpuSafetyMargin := parseFloat64(policy.Spec.CPU.SafetyMargin, 1.2)
+	memSafetyMargin := parseFloat64(policy.Spec.Memory.SafetyMargin, 1.3)
+
+	cpuBoundsMin := rightsizev1alpha1.DefaultCPUBoundsMin.DeepCopy()
+	cpuBoundsMax := rightsizev1alpha1.DefaultCPUBoundsMax.DeepCopy()
+	if policy.Spec.CPU.Bounds != nil {
+		cpuBoundsMin = policy.Spec.CPU.Bounds.Min.DeepCopy()
+		cpuBoundsMax = policy.Spec.CPU.Bounds.Max.DeepCopy()
+	}
+
+	memBoundsMin := rightsizev1alpha1.DefaultMemoryBoundsMin.DeepCopy()
+	memBoundsMax := rightsizev1alpha1.DefaultMemoryBoundsMax.DeepCopy()
+	if policy.Spec.Memory.Bounds != nil {
+		memBoundsMin = policy.Spec.Memory.Bounds.Min.DeepCopy()
+		memBoundsMax = policy.Spec.Memory.Bounds.Max.DeepCopy()
+	}
+
+	cpuEngine = recommendation.NewEngine(cpuPercentile, cpuSafetyMargin, cpuBoundsMin, cpuBoundsMax, float64(policy.Spec.UpdateStrategy.MaxCPUChangePercent))
+	memEngine = recommendation.NewEngine(memPercentile, memSafetyMargin, memBoundsMin, memBoundsMax, float64(policy.Spec.UpdateStrategy.MaxMemoryChangePercent))
+	return cpuEngine, memEngine
 }
 
 // buildResizeTarget constructs the target ResourceRequirements from a container recommendation.
