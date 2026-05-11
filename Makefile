@@ -39,8 +39,14 @@ verify-boilerplate: ## Check license headers on all Go files
 	  -exec sh -c 'head -5 "$$1" | grep -q "^Copyright" || echo "$$1"' _ {} \;); \
 	if [ -n "$$missing" ]; then echo "Missing license header:" && echo "$$missing" && exit 1; fi
 
+.PHONY: tidy-check
+tidy-check: ## Verify go.mod/go.sum are tidy
+	go mod tidy
+	@git diff --quiet --exit-code go.mod go.sum || \
+		(echo "::error::go.mod/go.sum are not tidy. Run 'go mod tidy' and commit." && exit 1)
+
 .PHONY: verify
-verify: lint yaml-lint test helm-docs-check helm-unittest verify-boilerplate ## Run all CI checks locally
+verify: lint yaml-lint test helm-docs-check helm-unittest verify-boilerplate tidy-check ## Run all CI checks locally
 	@$(MAKE) manifests
 	@git diff --quiet --exit-code config/crd/ charts/kube-rightsize/crds/ || \
 		(echo "::error::CRD manifests are stale. Run 'make manifests' and commit." && exit 1)

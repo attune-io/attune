@@ -78,6 +78,16 @@ jobs:
           version: ${{ env.GOLANGCI_LINT_VERSION }}
           args: --timeout=5m
 
+      - name: Check go mod tidy
+        shell: bash -Eeuo pipefail {0}
+        run: |
+          go mod tidy
+          if ! git diff --quiet --exit-code go.mod go.sum; then
+            echo "::error::go.mod/go.sum are not tidy. Run 'go mod tidy' and commit."
+            git diff go.mod go.sum
+            exit 1
+          fi
+
       - name: YAML lint
         shell: bash -Eeuo pipefail {0}
         run: |
