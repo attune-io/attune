@@ -287,6 +287,8 @@ func TestValidate_PrometheusAddressValid(t *testing.T) {
 		// SSRF protection: cloud metadata hostnames
 		{"GCP metadata hostname", "http://metadata.google.internal", true},
 		{"metadata.internal", "http://metadata.internal", true},
+		{"AWS EC2 internal hostname", "http://instance-data.ec2.internal", true},
+		{"AWS IPv6 metadata", "http://[fd00:ec2::254]/latest/meta-data/", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

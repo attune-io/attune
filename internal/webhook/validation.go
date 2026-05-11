@@ -162,6 +162,7 @@ func validatePrometheusAddress(address string) error {
 	blockedHosts := []string{
 		"metadata.google.internal",
 		"metadata.internal",
+		"instance-data.ec2.internal",
 	}
 	lowerHost := strings.ToLower(hostname)
 	for _, blocked := range blockedHosts {
@@ -170,9 +171,10 @@ func validatePrometheusAddress(address string) error {
 		}
 	}
 
-	// Block private/loopback IP addresses.
+	// Block private/loopback IP addresses (including AWS IPv6 metadata fd00:ec2::254).
 	if ip := net.ParseIP(hostname); ip != nil {
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+			ip.Equal(net.ParseIP("fd00:ec2::254")) {
 			return fmt.Errorf("address must not target private/loopback IP %q", hostname)
 		}
 	}
