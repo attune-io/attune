@@ -13,7 +13,7 @@ guidelines and instructions for contributing.
 | Docker | 24+ | [docs.docker.com](https://docs.docker.com/engine/install/) |
 | kubectl | 1.33+ | [kubernetes.io](https://kubernetes.io/docs/tasks/tools/) |
 | Helm | 3.16+ | [helm.sh](https://helm.sh/docs/intro/install/) |
-| k3d | 5.8+ | [k3d.io](https://k3d.io/#installation) |
+| k3d **or** Kind | k3d 5.8+ / Kind 0.20+ | [k3d.io](https://k3d.io/#installation) or `go install sigs.k8s.io/kind@latest` |
 
 The Makefile auto-installs these Go tools on first use (to `$GOPATH/bin`):
 golangci-lint, gotestsum, controller-gen, setup-envtest, chainsaw, kustomize, helm-docs.
@@ -45,20 +45,25 @@ make test
 # Integration tests (uses envtest, no cluster needed)
 make test-integration
 
-# E2E tests (requires k3d cluster with operator deployed)
-make k3d-create                           # create k3d cluster (K8s 1.33)
-make k3d-deploy IMG=kube-rightsize:e2e    # build, load, install cert-manager + Prometheus + operator
+# E2E tests (requires a local cluster with operator deployed)
+# Option A: k3d (fast startup, uses k3s)
+make k3d-create                           # create k3d cluster
+make k3d-deploy IMG=kube-rightsize:e2e    # build, load, deploy
 make test-e2e                             # run Chainsaw E2E scenarios
+make k3d-delete                           # clean up
 
-# All tests in sequence
+# Option B: Kind (upstream K8s, production-accurate)
+make kind-create                          # create Kind cluster
+make kind-deploy IMG=kube-rightsize:e2e   # build, load, deploy
+make test-e2e                             # run Chainsaw E2E scenarios
+make kind-delete                          # clean up
+
+# All tests in sequence (unit + integration + E2E)
 make test-all
-
-# Clean up the k3d cluster when done
-make k3d-delete
 ```
 
-**Important:** `make k3d-deploy` mutates `config/manager/kustomization.yaml`.
-Before committing, always restore it:
+**Important:** `make k3d-deploy` and `make kind-deploy` mutate
+`config/manager/kustomization.yaml`. Before committing, always restore it:
 ```bash
 git checkout config/manager/kustomization.yaml
 ```

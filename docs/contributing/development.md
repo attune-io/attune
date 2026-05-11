@@ -5,14 +5,14 @@
 | Go | 1.26+ |
 | Docker | 24+ |
 | kubectl | matching your cluster |
-| Kind | 0.24+ |
+| k3d **or** Kind | k3d 5.8+ / Kind 0.24+ |
 | Helm | 3.16+ |
 | Make | any |
 
 ## Clone and build
 
 ```bash
-git clone https://github.com/SebTardif/kube-rightsize.git
+git clone https://github.com/SebTardifLabs/kube-rightsize.git
 cd kube-rightsize
 
 # Generate CRD manifests and deepcopy methods
@@ -24,15 +24,17 @@ make build
 
 The binary is written to `bin/manager`.
 
-## Local Kind cluster
+## Local cluster
 
-Create a Kind cluster running Kubernetes 1.33+:
+Create a local Kubernetes cluster. Either option works:
 
 ```bash
+# Option A: k3d (fast startup, uses k3s)
+make k3d-create
+
+# Option B: Kind (upstream K8s, production-accurate)
 make kind-create
 ```
-
-This runs `kind create cluster --name kube-rightsize --image kindest/node:v1.33.7`.
 
 Install CRDs into the cluster:
 
@@ -42,7 +44,7 @@ make install
 
 ## Running the operator locally
 
-Run the operator against the Kind cluster (uses your local kubeconfig):
+Run the operator against the local cluster (uses your current kubeconfig):
 
 ```bash
 make run
@@ -62,12 +64,16 @@ kubectl apply -f config/samples/defaults.yaml
 kubectl apply -f config/samples/recommend-mode.yaml
 ```
 
-## Build and deploy to Kind
+## Build and deploy to cluster
 
-Build the container image, load it into Kind, and deploy:
+Build the container image, load it into the local cluster, and deploy:
 
 ```bash
-make kind-deploy
+# If using k3d:
+make k3d-deploy IMG=kube-rightsize:e2e
+
+# If using Kind:
+make kind-deploy IMG=kube-rightsize:e2e
 ```
 
 ## Linting
@@ -93,9 +99,13 @@ make manifests generate
 
 ## Cleanup
 
-Delete the Kind cluster:
+Delete the local cluster:
 
 ```bash
+# If using k3d:
+make k3d-delete
+
+# If using Kind:
 make kind-delete
 ```
 

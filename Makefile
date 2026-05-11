@@ -183,11 +183,16 @@ undeploy: ## Undeploy operator from the cluster
 
 ##@ Local Development
 
+# k3d settings (lightweight, fast startup)
 K3D_CLUSTER_NAME ?= kube-rightsize
 K3S_VERSION ?= v1.33.11-k3s1
 
+# Kind settings (upstream K8s, production-accurate)
+KIND_CLUSTER_NAME ?= kube-rightsize
+KIND_NODE_IMAGE ?= kindest/node:v1.33.7
+
 .PHONY: k3d-create
-k3d-create: ## Create a k3d cluster for local dev
+k3d-create: ## Create a k3d cluster for local dev (fast, uses k3s)
 	k3d cluster create $(K3D_CLUSTER_NAME) \
 		--image rancher/k3s:$(K3S_VERSION) \
 		--k3s-arg "--disable=traefik,servicelb@server:*" \
@@ -200,6 +205,40 @@ k3d-delete: ## Delete the k3d cluster
 .PHONY: k3d-deploy
 k3d-deploy: docker-build ## Build, load, and deploy to k3d (with Prometheus + cert-manager)
 	k3d image import $(IMG) -c $(K3D_CLUSTER_NAME)
+	@echo "Installing cert-manager..."
+	kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.17.2/cert-manager.yaml
+	kubectl wait --for=condition=Available deployment/cert-manager-webhook -n cert-manager --timeout=120s
+	@echo "Installing Prometheus..."
+	helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true
+	helm repo update
+	helm install prometheus prometheus-community/prometheus \
+		--namespace monitoring --create-namespace \
+		--set server.persistentVolume.enabled=false \
+		--set alertmanager.enabled=false \
+		--set prometheus-pushgateway.enabled=false \
+		--wait --timeout 3m 2>/dev/null || true
+	@echo "Installing operator via Helm..."
+	helm install kube-rightsize ./charts/kube-rightsize \
+		--namespace kube-rightsize-system --create-namespace \
+		--set image.repository=$(firstword $(subst :, ,$(IMG))) \
+		--set image.tag=$(lastword $(subst :, ,$(IMG))) \
+		--set image.pullPolicy=Never \
+		--set webhooks.enabled=true \
+		--set metrics.enabled=true \
+		--set leaderElection.enabled=false \
+		--wait --timeout 3m
+
+.PHONY: kind-create
+kind-create: ## Create a Kind cluster for local dev (upstream K8s)
+	kind create cluster --name $(KIND_CLUSTER_NAME) --image $(KIND_NODE_IMAGE) --wait 120s
+
+.PHONY: kind-delete
+kind-delete: ## Delete the Kind cluster
+	kind delete cluster --name $(KIND_CLUSTER_NAME)
+
+.PHONY: kind-deploy
+kind-deploy: docker-build ## Build, load, and deploy to Kind (with Prometheus + cert-manager)
+	kind load docker-image $(IMG) --name $(KIND_CLUSTER_NAME)
 	@echo "Installing cert-manager..."
 	kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.17.2/cert-manager.yaml
 	kubectl wait --for=condition=Available deployment/cert-manager-webhook -n cert-manager --timeout=120s

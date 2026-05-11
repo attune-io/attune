@@ -59,32 +59,28 @@ behaves correctly.
 ### Prerequisites
 
 - Docker
-- Kind (`go install sigs.k8s.io/kind@latest`)
-- Chainsaw (`go install github.com/kyverno/chainsaw@v0.2.15`)
+- k3d (`curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash`) **or** Kind (`go install sigs.k8s.io/kind@latest`)
+- Chainsaw (auto-installed by the Makefile)
 
 ### Running E2E tests from scratch
 
 ```bash
-# 1. Create a Kind cluster
-make kind-create
-
-# 2. Build the operator image, load into Kind, install CRDs, deploy
-make kind-deploy IMG=kube-rightsize:e2e
-
-# 3. Wait for the operator to be ready
-kubectl wait --for=condition=Available deployment/kube-rightsize-controller-manager \
-  -n kube-rightsize-system --timeout=120s
-
-# 4. Run all E2E tests
+# Option A: k3d (fast startup, uses k3s)
+make k3d-create
+make k3d-deploy IMG=kube-rightsize:e2e
 make test-e2e
+make k3d-delete
 
-# 5. Clean up
+# Option B: Kind (upstream K8s, production-accurate)
+make kind-create
+make kind-deploy IMG=kube-rightsize:e2e
+make test-e2e
 make kind-delete
 ```
 
 ### Test scenarios
 
-| Directory | Mode / Kind | What it verifies |
+| Directory | Mode | What it verifies |
 |-----------|-------------|------------------|
 | `test/e2e/recommend-mode/` | Recommend | Discovers workloads, reaches InsufficientData |
 | `test/e2e/observe-mode/` | Observe | Reaches condition, no resizes performed |
@@ -105,7 +101,7 @@ Chainsaw configuration is in `.chainsaw.yaml` (timeouts, parallelism).
 
 !!! warning
     E2E tests modify cluster state. Always run them against a disposable
-    Kind cluster, not a shared environment.
+    local cluster (k3d or Kind), not a shared environment.
 
 ## Fuzz testing
 
