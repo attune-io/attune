@@ -17,6 +17,7 @@ limitations under the License.
 package recommendation
 
 import (
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -78,4 +79,33 @@ func TestMarginEstimator(t *testing.T) {
 			assert.Equal(t, tt.wantMillis, result.MilliValue())
 		})
 	}
+}
+
+func TestScaleQuantity_InvalidFactors(t *testing.T) {
+	base := resource.MustParse("500m")
+	tests := []struct {
+		name   string
+		factor float64
+	}{
+		{"NaN", math.NaN()},
+		{"+Inf", math.Inf(1)},
+		{"-Inf", math.Inf(-1)},
+		{"zero", 0},
+		{"negative", -1.5},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := scaleQuantity(base, tt.factor)
+			assert.Equal(t, base.MilliValue(), result.MilliValue(),
+				"scaleQuantity with invalid factor should return input unchanged")
+		})
+	}
+}
+
+func TestScaleQuantity_BinarySI(t *testing.T) {
+	base := resource.MustParse("256Mi")
+	result := scaleQuantity(base, 1.5)
+	// 256 * 1.5 = 384 MiB
+	expected := resource.MustParse("384Mi")
+	assert.Equal(t, expected.Value(), result.Value())
 }

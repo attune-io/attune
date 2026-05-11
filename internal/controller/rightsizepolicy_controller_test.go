@@ -1680,6 +1680,41 @@ func TestExecuteResizes_ResizeError(t *testing.T) {
 	assert.Equal(t, "Failed", history[0].Result)
 }
 
+func TestExecuteResizes_ResizeError_EmitsResizeFailedEvent(t *testing.T) {
+	pod := newResizePod("api-server", "500m", "512Mi", "1000m", "1Gi")
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	reconciler, _ := newResizeReconciler(pod, deploy)
+
+	recorder := events.NewFakeRecorder(10)
+	reconciler.Recorder = recorder
+
+	reconciler.Clientset.(*kubefake.Clientset).PrependReactor("update", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if action.GetSubresource() == "resize" {
+			return true, nil, fmt.Errorf("node has insufficient resources")
+		}
+		return false, nil, nil
+	})
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = "OneShot"
+
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("api-server", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),
+	}
+	workloads := []client.Object{deploy}
+
+	count, _ := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, nil)
+	assert.Equal(t, 0, count)
+
+	select {
+	case event := <-recorder.Events:
+		assert.Contains(t, event, "ResizeFailed")
+		assert.Contains(t, event, "api-server")
+	default:
+		t.Fatal("expected a ResizeFailed event but channel was empty")
+	}
+}
+
 func TestExecuteResizes_AutoRevertOnSafetyViolation(t *testing.T) {
 	pod := newResizePod("api-server", "500m", "512Mi", "1000m", "1Gi")
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
