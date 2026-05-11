@@ -39,6 +39,11 @@ verify-boilerplate: ## Check license headers on all Go files
 	  -exec sh -c 'head -5 "$$1" | grep -q "^Copyright" || echo "$$1"' _ {} \;); \
 	if [ -n "$$missing" ]; then echo "Missing license header:" && echo "$$missing" && exit 1; fi
 
+.PHONY: govulncheck
+govulncheck: ## Run govulncheck for known vulnerabilities
+	@test -s $(GOBIN)/govulncheck || go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
+	$(GOBIN)/govulncheck ./...
+
 .PHONY: tidy-check
 tidy-check: ## Verify go.mod/go.sum are tidy
 	go mod tidy
