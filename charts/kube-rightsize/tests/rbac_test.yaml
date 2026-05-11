@@ -21,7 +21,6 @@ tests:
               - list
               - watch
               - update
-              - patch
 
   - it: should include pod resize permissions
     asserts:
