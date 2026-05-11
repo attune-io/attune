@@ -469,7 +469,7 @@ A single controller reconciles `RightSizePolicy` resources. The reconcile functi
 
 # Workload controllers: read-only
 - apiGroups: ["apps"]
-  resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
+  resources: ["deployments", "statefulsets", "daemonsets"]
   verbs: ["get", "list", "watch"]
 
 # Events: read (OOMKill detection) + create (operator events)

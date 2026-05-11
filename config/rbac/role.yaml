@@ -54,6 +54,14 @@ rules:
   - list
   - watch
 - apiGroups:
+  - autoscaling.k8s.io
+  resources:
+  - verticalpodautoscalers
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - events.k8s.io
   resources:
   - events
@@ -63,6 +71,13 @@ rules:
   - list
   - patch
   - watch
+- apiGroups:
+  - monitoring.coreos.com
+  resources:
+  - prometheuses
+  verbs:
+  - get
+  - list
 - apiGroups:
   - rightsize.io
   resources:
@@ -78,7 +93,6 @@ rules:
   verbs:
   - get
   - list
-  - patch
   - update
   - watch
 - apiGroups:
@@ -87,5 +101,4 @@ rules:
   - rightsizepolicies/status
   verbs:
   - get
-  - patch
   - update

@@ -15,7 +15,6 @@ rules:
       - list
       - watch
       - update
-      - patch
   - apiGroups:
       - rightsize.io
     resources:
@@ -23,7 +22,6 @@ rules:
     verbs:
       - get
       - update
-      - patch
   # RightSizeDefaults: read-only
   - apiGroups:
       - rightsize.io
@@ -81,6 +79,23 @@ rules:
       - get
       - list
       - watch
+  # VPA: read-only (conflict detection)
+  - apiGroups:
+      - autoscaling.k8s.io
+    resources:
+      - verticalpodautoscalers
+    verbs:
+      - get
+      - list
+      - watch
+  # Prometheus Operator: read-only (auto-discovery)
+  - apiGroups:
+      - monitoring.coreos.com
+    resources:
+      - prometheuses
+    verbs:
+      - get
+      - list
   # Nodes: read-only (capacity pre-check before resize)
   - apiGroups:
       - ""

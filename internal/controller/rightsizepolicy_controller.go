@@ -73,14 +73,16 @@ const (
 	defaultObservationPeriod = 5 * time.Minute
 )
 
-//+kubebuilder:rbac:groups=rightsize.io,resources=rightsizepolicies,verbs=get;list;watch;update;patch
-//+kubebuilder:rbac:groups=rightsize.io,resources=rightsizepolicies/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=rightsize.io,resources=rightsizepolicies,verbs=get;list;watch;update
+//+kubebuilder:rbac:groups=rightsize.io,resources=rightsizepolicies/status,verbs=get;update
 //+kubebuilder:rbac:groups=rightsize.io,resources=rightsizedefaults,verbs=get;list;watch
 //+kubebuilder:rbac:groups=apps,resources=deployments;statefulsets;daemonsets,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;update
 //+kubebuilder:rbac:groups="",resources=pods/resize,verbs=update;patch
 //+kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=get;list;watch;create;patch
 //+kubebuilder:rbac:groups=autoscaling,resources=horizontalpodautoscalers,verbs=get;list;watch
+//+kubebuilder:rbac:groups=autoscaling.k8s.io,resources=verticalpodautoscalers,verbs=get;list;watch
+//+kubebuilder:rbac:groups=monitoring.coreos.com,resources=prometheuses,verbs=get;list
 //+kubebuilder:rbac:groups="",resources=nodes,verbs=get
 //+kubebuilder:rbac:groups="",resources=services,verbs=get
 //+kubebuilder:rbac:groups="",resources=resourcequotas;limitranges,verbs=get;list
