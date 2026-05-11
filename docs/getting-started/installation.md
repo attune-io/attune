@@ -5,6 +5,7 @@
 | Kubernetes  | 1.33+           |
 | Helm        | 3.16+           |
 | Prometheus  | 2.x (with `container_cpu_usage_seconds_total` and `container_memory_working_set_bytes`) |
+| cert-manager | 1.12+ (for webhook TLS; optional if installing with `--set webhooks.enabled=false`) |
 
 !!! note "In-Place Pod Resize"
     Kubernetes 1.33+ is required because kube-rightsize uses the

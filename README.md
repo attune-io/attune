@@ -43,6 +43,7 @@ resource requests and limits using [In-Place Pod Resize](https://kubernetes.io/b
 - Kubernetes 1.33+ (In-Place Pod Resize GA)
 - Prometheus (for usage metrics)
 - Helm 3.16+
+- [cert-manager](https://cert-manager.io/docs/installation/) (for admission webhook TLS; to skip, install with `--set webhooks.enabled=false`)
 
 ### Install
 
@@ -143,11 +144,11 @@ kubectl rightsize status -A
 Example output:
 
 ```
-NAMESPACE    NAME           MODE      WORKLOADS   RESIZED   READY   AGE
-production   api-services   Canary    3           1         True    2d
+NAMESPACE    NAME           MODE      WORKLOADS   RESIZED   READY   RESIZING   DEGRADED   AGE
+production   api-services   Canary    3           1         True    -          -          2d
 
-WORKLOAD     CONTAINER   CPU REQ   CPU REC   MEM REQ   MEM REC   CONFIDENCE
-api-server   app         500m      320m      512Mi     384Mi     92.0%
+NAMESPACE    POLICY         WORKLOAD     CONTAINER   CPU REQ   CPU REC   MEM REQ   MEM REC   CONFIDENCE
+production   api-services   api-server   app         500m      320m      512Mi     384Mi     92.0%
 ```
 
 ## Grafana Dashboard
