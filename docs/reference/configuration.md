@@ -38,9 +38,9 @@ This page documents every value in the Helm chart's `values.yaml`.
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `resources.limits.cpu` | string | `500m` | CPU limit for the operator pod |
-| `resources.limits.memory` | string | `128Mi` | Memory limit for the operator pod |
+| `resources.limits.memory` | string | `256Mi` | Memory limit for the operator pod |
 | `resources.requests.cpu` | string | `100m` | CPU request for the operator pod |
-| `resources.requests.memory` | string | `64Mi` | Memory request for the operator pod |
+| `resources.requests.memory` | string | `128Mi` | Memory request for the operator pod |
 
 ## Scheduling
 

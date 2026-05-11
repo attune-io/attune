@@ -110,10 +110,10 @@ kubectl get rsp -A -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadat
 
 The operator exports metrics for dashboarding:
 
-- `kube_rightsize_recommendation_cpu` -- Recommended CPU per workload
-- `kube_rightsize_recommendation_memory` -- Recommended memory per workload
+- `kube_rightsize_recommendation_cpu_cores` -- Recommended CPU per workload
+- `kube_rightsize_recommendation_memory_bytes` -- Recommended memory per workload
 - `kube_rightsize_confidence` -- Confidence score (0-1) per workload
-- `kube_rightsize_resizes_total` -- Total resizes performed
+- `kube_rightsize_resize_total` -- Total resizes performed
 - `kube_rightsize_reverts_total` -- Total reverts (broken down by reason)
 
 Alert on high revert rates:
