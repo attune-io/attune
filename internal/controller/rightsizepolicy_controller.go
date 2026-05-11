@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"sync"
 	"time"
 
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
@@ -97,11 +98,26 @@ type RightSizePolicyReconciler struct {
 	MetricsFactory MetricsCollectorFactory
 	Clientset      kubernetes.Interface // for resize subresource calls
 	Recorder       events.EventRecorder
+	collectors     sync.Map // map[string]rsmetrics.MetricsCollector cache
 }
 
 // MetricsCollectorFactory creates MetricsCollector instances from a Prometheus address.
 // This enables dependency injection for testing.
 type MetricsCollectorFactory func(address string) (rsmetrics.MetricsCollector, error)
+
+// getOrCreateCollector returns a cached collector for the address, creating one
+// if needed. This avoids re-creating HTTP clients and rate limiters per reconcile.
+func (r *RightSizePolicyReconciler) getOrCreateCollector(address string) (rsmetrics.MetricsCollector, error) {
+	if cached, ok := r.collectors.Load(address); ok {
+		return cached.(rsmetrics.MetricsCollector), nil
+	}
+	collector, err := r.MetricsFactory(address)
+	if err != nil {
+		return nil, err
+	}
+	actual, _ := r.collectors.LoadOrStore(address, collector)
+	return actual.(rsmetrics.MetricsCollector), nil
+}
 
 // Reconcile is the main reconciliation loop for RightSizePolicy resources.
 func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -133,7 +149,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 	}
 
-	collector, err := r.MetricsFactory(prometheusAddr)
+	collector, err := r.getOrCreateCollector(prometheusAddr)
 	if err != nil {
 		logger.Error(err, "Failed to create metrics collector", "address", prometheusAddr)
 		r.setFailedCondition(ctx, &policy, rightsizev1alpha1.ReasonPrometheusUnavailable,
@@ -832,7 +848,11 @@ func (r *RightSizePolicyReconciler) executeResizes(
 							logger.Error(revertErr, "Failed to revert pod", "pod", pod.Name)
 						}
 						operatormetrics.RevertsTotal.WithLabelValues(pod.Namespace, rec.Workload, verdict.Reason).Inc()
-						operatormetrics.ResizeTotal.WithLabelValues(pod.Namespace, rec.Workload, containerRec.Name, "reverted").Inc()
+						for _, res := range results {
+							if res.Success {
+								operatormetrics.ResizeTotal.WithLabelValues(pod.Namespace, rec.Workload, res.Resource, "reverted").Inc()
+							}
+						}
 						if r.Recorder != nil {
 							r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "Reverted", "revert",
 								"Reverted resize on %s/%s: %s", rec.Workload, containerRec.Name, verdict.Message)
