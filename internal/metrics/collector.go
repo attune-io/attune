@@ -135,9 +135,9 @@ func (c *PrometheusCollector) Query(ctx context.Context, query string, ts time.T
 // Returns 0.0 if no data is available. Implements safety.ThrottleChecker.
 func (c *PrometheusCollector) GetThrottleRatio(ctx context.Context, namespace, pod, container string) (float64, error) {
 	// Escape all parameters to prevent PromQL injection.
-	ns := escapePromQL(namespace)
-	p := escapePromQL(pod)
-	cont := escapePromQL(container)
+	ns := EscapePromQL(namespace)
+	p := EscapePromQL(pod)
+	cont := EscapePromQL(container)
 	query := fmt.Sprintf(
 		`rate(container_cpu_cfs_throttled_periods_total{namespace="%s",pod="%s",container="%s"}[5m])`+
 			` / rate(container_cpu_cfs_periods_total{namespace="%s",pod="%s",container="%s"}[5m])`,
@@ -150,9 +150,31 @@ func (c *PrometheusCollector) GetThrottleRatio(ctx context.Context, namespace, p
 	return val, nil
 }
 
-// escapePromQL escapes backslashes and quotes for safe interpolation into PromQL strings.
-func escapePromQL(s string) string {
+// EscapePromQL escapes backslashes and quotes for safe interpolation into PromQL strings.
+func EscapePromQL(s string) string {
 	s = strings.ReplaceAll(s, `\`, `\\`)
 	s = strings.ReplaceAll(s, `"`, `\"`)
+	return s
+}
+
+// EscapePromQLRegex escapes regex metacharacters in addition to PromQL
+// escaping. Used for values interpolated into =~ regex matchers to prevent
+// unintended pattern matching (e.g., "." matching any character).
+func EscapePromQLRegex(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	s = strings.ReplaceAll(s, `.`, `\.`)
+	s = strings.ReplaceAll(s, `+`, `\+`)
+	s = strings.ReplaceAll(s, `*`, `\*`)
+	s = strings.ReplaceAll(s, `?`, `\?`)
+	s = strings.ReplaceAll(s, `(`, `\(`)
+	s = strings.ReplaceAll(s, `)`, `\)`)
+	s = strings.ReplaceAll(s, `[`, `\[`)
+	s = strings.ReplaceAll(s, `]`, `\]`)
+	s = strings.ReplaceAll(s, `{`, `\{`)
+	s = strings.ReplaceAll(s, `}`, `\}`)
+	s = strings.ReplaceAll(s, `|`, `\|`)
+	s = strings.ReplaceAll(s, `^`, `\^`)
+	s = strings.ReplaceAll(s, `$`, `\$`)
 	return s
 }

@@ -23,6 +23,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -33,8 +34,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	rightsizev1alpha1 "github.com/SebTardif/kube-rightsize/api/v1alpha1"
+	rsmetrics "github.com/SebTardif/kube-rightsize/internal/metrics"
 	"github.com/SebTardif/kube-rightsize/internal/operatormetrics"
 	"github.com/SebTardif/kube-rightsize/internal/resize"
+	"github.com/SebTardif/kube-rightsize/internal/safety"
 )
 
 // isResizeMode returns true if the policy mode performs actual pod resizes.
@@ -501,4 +504,23 @@ func (r *RightSizePolicyReconciler) updateStatusWithRetry(ctx context.Context, p
 	}
 	policy.Status = *savedStatus
 	return r.Status().Update(ctx, policy)
+}
+
+// newSafetyMonitor creates a safety.Monitor with optional throttle checking
+// if the metrics collector supports it.
+func (r *RightSizePolicyReconciler) newSafetyMonitor(logger logr.Logger, collector rsmetrics.MetricsCollector) *safety.Monitor {
+	monitor := safety.NewMonitor(r.Clientset, logger)
+	if tc, ok := collector.(safety.ThrottleChecker); ok {
+		monitor.WithThrottleChecker(tc, safety.DefaultThrottleThreshold)
+	}
+	return monitor
+}
+
+// getObservationPeriod returns the safety observation period from the policy's
+// canary config, falling back to defaultObservationPeriod.
+func getObservationPeriod(policy *rightsizev1alpha1.RightSizePolicy) time.Duration {
+	if policy.Spec.UpdateStrategy.Canary != nil && policy.Spec.UpdateStrategy.Canary.ObservationPeriod.Duration > 0 {
+		return policy.Spec.UpdateStrategy.Canary.ObservationPeriod.Duration
+	}
+	return defaultObservationPeriod
 }

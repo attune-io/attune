@@ -19,7 +19,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -239,45 +238,15 @@ func queryMetrics(ctx context.Context, collector rsmetrics.MetricsCollector, nam
 	return samples
 }
 
-// escapePromQL escapes double quotes and backslashes in a string for safe
-// interpolation into PromQL label matchers.
-func escapePromQL(s string) string {
-	s = strings.ReplaceAll(s, `\`, `\\`)
-	s = strings.ReplaceAll(s, `"`, `\"`)
-	return s
-}
-
-// escapePromQLRegex escapes regex metacharacters in addition to PromQL
-// escaping. Used for values interpolated into =~ regex matchers to prevent
-// unintended pattern matching (e.g., "." matching any character).
-func escapePromQLRegex(s string) string {
-	s = strings.ReplaceAll(s, `\`, `\\`)
-	s = strings.ReplaceAll(s, `"`, `\"`)
-	s = strings.ReplaceAll(s, `.`, `\.`)
-	s = strings.ReplaceAll(s, `+`, `\+`)
-	s = strings.ReplaceAll(s, `*`, `\*`)
-	s = strings.ReplaceAll(s, `?`, `\?`)
-	s = strings.ReplaceAll(s, `(`, `\(`)
-	s = strings.ReplaceAll(s, `)`, `\)`)
-	s = strings.ReplaceAll(s, `[`, `\[`)
-	s = strings.ReplaceAll(s, `]`, `\]`)
-	s = strings.ReplaceAll(s, `{`, `\{`)
-	s = strings.ReplaceAll(s, `}`, `\}`)
-	s = strings.ReplaceAll(s, `|`, `\|`)
-	s = strings.ReplaceAll(s, `^`, `\^`)
-	s = strings.ReplaceAll(s, `$`, `\$`)
-	return s
-}
-
 // buildPrometheusQuery generates a PromQL query for the given metric type.
 // If container is empty, the query matches pod-level metrics (no container filter).
 func buildPrometheusQuery(namespace, podPrefix, container, metric string) string {
-	ns := escapePromQL(namespace)
-	pp := escapePromQLRegex(podPrefix)
+	ns := rsmetrics.EscapePromQL(namespace)
+	pp := rsmetrics.EscapePromQLRegex(podPrefix)
 
 	containerFilter := ""
 	if container != "" {
-		containerFilter = fmt.Sprintf(`,container="%s"`, escapePromQL(container))
+		containerFilter = fmt.Sprintf(`,container="%s"`, rsmetrics.EscapePromQL(container))
 	}
 
 	switch metric {

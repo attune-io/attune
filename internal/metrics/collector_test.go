@@ -252,7 +252,7 @@ func TestEscapePromQL(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			result := escapePromQL(tt.input)
+			result := EscapePromQL(tt.input)
 			assert.Equal(t, tt.expected, result)
 		})
 	}

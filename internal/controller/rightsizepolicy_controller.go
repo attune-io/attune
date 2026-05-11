@@ -593,10 +593,7 @@ func (r *RightSizePolicyReconciler) executeResizes(
 	}
 
 	resizer := resize.NewPodResizer(r.Clientset, logger)
-	monitor := safety.NewMonitor(r.Clientset, logger)
-	if tc, ok := collector.(safety.ThrottleChecker); ok {
-		monitor.WithThrottleChecker(tc, safety.DefaultThrottleThreshold)
-	}
+	monitor := r.newSafetyMonitor(logger, collector)
 
 	var totalResized int
 	var history []rightsizev1alpha1.ResizeHistoryEntry
@@ -758,11 +755,7 @@ func (r *RightSizePolicyReconciler) executeResizes(
 
 				// Safety check (if autoRevert is enabled)
 				if policy.Spec.UpdateStrategy.AutoRevert {
-					observationPeriod := defaultObservationPeriod
-					if policy.Spec.UpdateStrategy.Canary != nil && policy.Spec.UpdateStrategy.Canary.ObservationPeriod.Duration > 0 {
-						observationPeriod = policy.Spec.UpdateStrategy.Canary.ObservationPeriod.Duration
-					}
-					observationEnd := now.Add(observationPeriod)
+					observationEnd := now.Add(getObservationPeriod(policy))
 					var originalResources corev1.ResourceRequirements
 					for _, c := range pod.Spec.Containers {
 						if c.Name == containerRec.Name {
@@ -829,15 +822,8 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 		return
 	}
 
-	monitor := safety.NewMonitor(r.Clientset, logger)
-	if tc, ok := collector.(safety.ThrottleChecker); ok {
-		monitor.WithThrottleChecker(tc, safety.DefaultThrottleThreshold)
-	}
-
-	observationPeriod := defaultObservationPeriod
-	if policy.Spec.UpdateStrategy.Canary != nil && policy.Spec.UpdateStrategy.Canary.ObservationPeriod.Duration > 0 {
-		observationPeriod = policy.Spec.UpdateStrategy.Canary.ObservationPeriod.Duration
-	}
+	monitor := r.newSafetyMonitor(logger, collector)
+	observationPeriod := getObservationPeriod(policy)
 
 	for i := range podList.Items {
 		pod := &podList.Items[i]
