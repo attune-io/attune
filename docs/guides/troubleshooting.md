@@ -103,6 +103,64 @@ kubectl patch rsp <name> --type merge \
   -p '{"spec":{"updateStrategy":{"cooldown":"30m"}}}'
 ```
 
+## Webhook / cert-manager issues
+
+### Webhook connection refused
+
+**Symptom**: `kubectl apply -f policy.yaml` returns:
+
+```
+Error from server (InternalError): Internal error occurred: failed calling
+webhook "vrightsizepolicy.kb.io": Post "https://...": dial tcp ...: connection refused
+```
+
+**Cause**: The webhook server is not running or the TLS certificate is not
+ready. This typically means cert-manager is missing or broken.
+
+**Fix**:
+
+1. Verify cert-manager is installed and running:
+
+    ```bash
+    kubectl get pods -n cert-manager
+    # All 3 pods (cert-manager, cainjector, webhook) should be Running
+    ```
+
+2. If cert-manager is not installed, install it:
+
+    ```bash
+    kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.17.2/cert-manager.yaml
+    kubectl wait --for=condition=Available deployment/cert-manager-webhook -n cert-manager --timeout=120s
+    ```
+
+3. Check the Certificate status:
+
+    ```bash
+    kubectl get certificate -n kube-rightsize-system
+    # Status should be True (Ready)
+    ```
+
+4. If the Certificate is not ready, check the cert-manager logs:
+
+    ```bash
+    kubectl logs -n cert-manager deploy/cert-manager --tail=20
+    ```
+
+### Webhook timeout
+
+**Symptom**: Policy creation takes 30 seconds then fails with timeout.
+
+**Cause**: The webhook pod is running but the cainjector has not patched the
+CA bundle into the webhook configuration yet.
+
+**Fix**: Wait for cainjector to inject the CA bundle (usually resolves within
+1-2 minutes after cert-manager is ready):
+
+```bash
+kubectl get validatingwebhookconfiguration -o yaml | grep caBundle | head -1
+# If empty, cainjector has not run yet. Wait and retry.
+```
+
 ## Resize failures
 
 ### Infeasible resize

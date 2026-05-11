@@ -151,6 +151,11 @@ func fetchPolicies(ctx context.Context, dynClient dynamic.Interface, namespace s
 func printStatus(ctx context.Context, dynClient dynamic.Interface, namespace string) {
 	list := fetchPolicies(ctx, dynClient, namespace)
 
+	if len(list.Items) == 0 {
+		fmt.Println("No RightSizePolicies found.")
+		return
+	}
+
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 3, ' ', 0)
 	fmt.Fprintln(w, "NAMESPACE\tNAME\tMODE\tWORKLOADS\tRESIZED\tREADY\tRESIZING\tDEGRADED\tAGE")
 
@@ -176,6 +181,11 @@ func printStatus(ctx context.Context, dynClient dynamic.Interface, namespace str
 
 func printSavings(ctx context.Context, dynClient dynamic.Interface, namespace string) {
 	list := fetchPolicies(ctx, dynClient, namespace)
+
+	if len(list.Items) == 0 {
+		fmt.Println("No RightSizePolicies found.")
+		return
+	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 3, ' ', 0)
 	fmt.Fprintln(w, "NAMESPACE\tNAME\tCPU SAVED\tMEMORY SAVED\tEST. MONTHLY")
@@ -251,6 +261,11 @@ func getConditionReason(obj unstructured.Unstructured, conditionType string) str
 
 func printRecommendations(ctx context.Context, dynClient dynamic.Interface, namespace string) {
 	list := fetchPolicies(ctx, dynClient, namespace)
+
+	if len(list.Items) == 0 {
+		fmt.Println("No RightSizePolicies found.")
+		return
+	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 3, ' ', 0)
 	fmt.Fprintln(w, "NAMESPACE\tPOLICY\tWORKLOAD\tCONTAINER\tCPU REQ\tCPU REC\tMEM REQ\tMEM REC\tCONFIDENCE")
