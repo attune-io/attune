@@ -17,8 +17,6 @@ limitations under the License.
 package recommendation
 
 import (
-	"math"
-
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/SebTardif/kube-rightsize/internal/metrics"
@@ -38,12 +36,5 @@ type MarginEstimator struct {
 func (e *MarginEstimator) Estimate(profile metrics.UsageProfile, current resource.Quantity) resource.Quantity {
 	inner := e.Inner.Estimate(profile, current)
 
-	// Preserve the format: use byte-level precision for memory (BinarySI),
-	// millicore for CPU (DecimalSI).
-	if inner.Format == resource.BinarySI {
-		adjusted := int64(math.Ceil(float64(inner.Value()) * e.Factor))
-		return *resource.NewQuantity(adjusted, resource.BinarySI)
-	}
-	adjusted := int64(math.Ceil(float64(inner.MilliValue()) * e.Factor))
-	return *resource.NewMilliQuantity(adjusted, resource.DecimalSI)
+	return scaleQuantity(inner, e.Factor)
 }

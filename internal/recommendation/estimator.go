@@ -20,6 +20,8 @@ limitations under the License.
 package recommendation
 
 import (
+	"math"
+
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/SebTardif/kube-rightsize/internal/metrics"
@@ -29,4 +31,12 @@ import (
 // and the current resource allocation.
 type Estimator interface {
 	Estimate(profile metrics.UsageProfile, current resource.Quantity) resource.Quantity
+}
+
+// scaleQuantity multiplies q by factor, preserving BinarySI vs DecimalSI format.
+func scaleQuantity(q resource.Quantity, factor float64) resource.Quantity {
+	if q.Format == resource.BinarySI {
+		return *resource.NewQuantity(int64(math.Ceil(float64(q.Value())*factor)), resource.BinarySI)
+	}
+	return *resource.NewMilliQuantity(int64(math.Ceil(float64(q.MilliValue())*factor)), resource.DecimalSI)
 }

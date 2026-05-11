@@ -58,10 +58,5 @@ func (e *ConfidenceEstimator) Estimate(profile metrics.UsageProfile, current res
 	confidence := math.Max(profile.Confidence, 0.1)
 	factor := math.Pow(1+multiplier/confidence, exponent)
 
-	if inner.Format == resource.BinarySI {
-		adjusted := int64(math.Ceil(float64(inner.Value()) * factor))
-		return *resource.NewQuantity(adjusted, resource.BinarySI)
-	}
-	adjusted := int64(math.Ceil(float64(inner.MilliValue()) * factor))
-	return *resource.NewMilliQuantity(adjusted, resource.DecimalSI)
+	return scaleQuantity(inner, factor)
 }
