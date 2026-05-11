@@ -1,3 +1,4 @@
+---
 apiVersion: v2
 name: kube-rightsize
 description: Safe, in-place Kubernetes pod resource right-sizing operator

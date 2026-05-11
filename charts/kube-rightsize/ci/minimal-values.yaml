@@ -1,3 +1,4 @@
+---
 # Minimal resources for CI testing
 replicaCount: 1
 resources:

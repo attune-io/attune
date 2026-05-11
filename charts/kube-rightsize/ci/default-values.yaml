@@ -1,3 +1,4 @@
+---
 # Default CI test values
 replicaCount: 1
 resources:

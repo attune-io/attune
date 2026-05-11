@@ -1,3 +1,4 @@
+---
 # CI test: webhooks disabled
 replicaCount: 1
 webhooks:

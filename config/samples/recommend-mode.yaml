@@ -1,3 +1,4 @@
+---
 # Example: Recommend mode (safe, no changes applied)
 # Generates recommendations in status without modifying any pods.
 apiVersion: rightsize.io/v1alpha1

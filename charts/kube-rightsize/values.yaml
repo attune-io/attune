@@ -1,3 +1,4 @@
+---
 # kube-rightsize Helm chart values
 
 # -- Number of operator replicas (use 2 for HA with leader election)

@@ -1,3 +1,4 @@
+---
 # Example: Cluster-scoped defaults
 # Sets global defaults so individual RightSizePolicy resources
 # can be simpler (only override what differs).
