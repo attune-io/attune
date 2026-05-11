@@ -110,6 +110,10 @@ type ResourceConfig struct {
 	Bounds *ResourceBounds `json:"bounds,omitempty"`
 
 	// ControlledValues specifies which resource values to manage.
+	// "RequestsOnly" (default) adjusts only requests, leaving limits unchanged.
+	// "RequestsAndLimits" adjusts both requests and limits in lockstep.
+	// For Guaranteed-QoS pods (where requests equal limits), use
+	// "RequestsAndLimits" or resizes will be skipped to preserve QoS class.
 	// +kubebuilder:validation:Enum=RequestsOnly;RequestsAndLimits
 	// +optional
 	ControlledValues *string `json:"controlledValues,omitempty"`
@@ -133,7 +137,13 @@ type ResourceBounds struct {
 
 // UpdateStrategy configures how resource changes are applied.
 type UpdateStrategy struct {
-	// Mode determines the update behavior.
+	// Mode determines the update behavior, graduated from safe to automated:
+	//   Observe: collects metrics only, no recommendations or resizes.
+	//   Recommend: writes recommendations to status, no pod changes.
+	//   OneShot: resizes one pod per reconcile cycle.
+	//   Canary: resizes a percentage of pods first, then the rest after observation.
+	//   Auto: resizes all eligible pods each cycle.
+	// Start with Recommend in production and promote after reviewing status.
 	// +kubebuilder:validation:Enum=Observe;Recommend;OneShot;Canary;Auto
 	Mode string `json:"mode"`
 

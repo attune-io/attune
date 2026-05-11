@@ -96,8 +96,12 @@ spec:
                     - min
                     type: object
                   controlledValues:
-                    description: ControlledValues specifies which resource values
-                      to manage.
+                    description: |-
+                      ControlledValues specifies which resource values to manage.
+                      "RequestsOnly" (default) adjusts only requests, leaving limits unchanged.
+                      "RequestsAndLimits" adjusts both requests and limits in lockstep.
+                      For Guaranteed-QoS pods (where requests equal limits), use
+                      "RequestsAndLimits" or resizes will be skipped to preserve QoS class.
                     enum:
                     - RequestsOnly
                     - RequestsAndLimits
@@ -155,8 +159,12 @@ spec:
                     - min
                     type: object
                   controlledValues:
-                    description: ControlledValues specifies which resource values
-                      to manage.
+                    description: |-
+                      ControlledValues specifies which resource values to manage.
+                      "RequestsOnly" (default) adjusts only requests, leaving limits unchanged.
+                      "RequestsAndLimits" adjusts both requests and limits in lockstep.
+                      For Guaranteed-QoS pods (where requests equal limits), use
+                      "RequestsAndLimits" or resizes will be skipped to preserve QoS class.
                     enum:
                     - RequestsOnly
                     - RequestsAndLimits
@@ -311,7 +319,14 @@ spec:
                     minimum: 1
                     type: integer
                   mode:
-                    description: Mode determines the update behavior.
+                    description: |-
+                      Mode determines the update behavior, graduated from safe to automated:
+                        Observe: collects metrics only, no recommendations or resizes.
+                        Recommend: writes recommendations to status, no pod changes.
+                        OneShot: resizes one pod per reconcile cycle.
+                        Canary: resizes a percentage of pods first, then the rest after observation.
+                        Auto: resizes all eligible pods each cycle.
+                      Start with Recommend in production and promote after reviewing status.
                     enum:
                     - Observe
                     - Recommend
