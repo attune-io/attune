@@ -620,6 +620,24 @@ func TestWaitForResize_MissingMemoryInStatus(t *testing.T) {
 	require.Error(t, err, "should time out because memory key is absent in status")
 }
 
+func TestWaitForResize_GetPodError(t *testing.T) {
+	fakeClient := fake.NewSimpleClientset()
+	fakeClient.PrependReactor("get", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, fmt.Errorf("API server unavailable")
+	})
+
+	resizer := NewPodResizer(fakeClient, testr.New(t))
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU: resource.MustParse("250m"),
+		},
+	}
+
+	err := resizer.WaitForResize(context.Background(), "default", "web-0", "app", target, 5*time.Second)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "API server unavailable")
+}
+
 // ---------- WouldRestartContainer ----------
 
 func TestWouldRestartContainer_RestartPolicy(t *testing.T) {

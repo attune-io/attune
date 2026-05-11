@@ -196,6 +196,16 @@ func TestValidate_NegativeCooldown(t *testing.T) {
 	assert.Contains(t, err.Error(), "cooldown must be non-negative")
 }
 
+func TestValidate_SubMinuteCooldownRejected(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: 30 * time.Second}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "cooldown must be at least 1m")
+}
+
 func TestValidate_SafetyMarginExceedsMax(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -267,6 +277,16 @@ func TestValidate_PrometheusAddressValid(t *testing.T) {
 		{"missing scheme", "prometheus:9090", true},
 		{"empty host", "http://", true},
 		{"invalid URL", "://bad", true},
+		// SSRF protection: private/loopback IPs
+		{"loopback IPv4", "http://127.0.0.1:9090", true},
+		{"loopback IPv6", "http://[::1]:9090", true},
+		{"private 10.x", "http://10.0.0.1:9090", true},
+		{"private 192.168.x", "http://192.168.1.1:9090", true},
+		{"private 172.16.x", "http://172.16.0.1:9090", true},
+		{"link-local AWS metadata", "http://169.254.169.254/latest/meta-data/", true},
+		// SSRF protection: cloud metadata hostnames
+		{"GCP metadata hostname", "http://metadata.google.internal", true},
+		{"metadata.internal", "http://metadata.internal", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

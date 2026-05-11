@@ -687,6 +687,14 @@ func TestParseCooldown_Custom(t *testing.T) {
 	assert.Equal(t, 5*time.Minute, r.parseCooldown(policy))
 }
 
+func TestParseCooldown_SubMinuteClampedTo1m(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	policy := &rightsizev1alpha1.RightSizePolicy{}
+	d := metav1.Duration{Duration: 30 * time.Second}
+	policy.Spec.UpdateStrategy.Cooldown = &d
+	assert.Equal(t, 1*time.Minute, r.parseCooldown(policy))
+}
+
 func TestDiscoverWorkloads_FindsStatefulSetByName(t *testing.T) {
 	name := "my-sts"
 	sts := &appsv1.StatefulSet{
