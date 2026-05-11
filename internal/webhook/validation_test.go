@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -131,6 +132,19 @@ func TestValidate_MemoryDecreaseWarning(t *testing.T) {
 	assert.Len(t, warnings, 1)
 	assert.Contains(t, warnings[0], "memory.allowDecrease is enabled")
 	assert.Contains(t, warnings[0], "OOMKill risk")
+}
+
+func TestValidate_SafetyMarginBelowOneWarns(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.CPU.SafetyMargin = "0.8"
+
+	warnings, err := validator.ValidateCreate(context.Background(), policy)
+
+	assert.NoError(t, err)
+	require.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0], "below 1.0")
+	assert.Contains(t, warnings[0], "reduce resources below the target percentile")
 }
 
 func TestValidateUpdate_ValidPolicy(t *testing.T) {

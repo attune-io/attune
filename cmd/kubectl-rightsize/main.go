@@ -245,9 +245,11 @@ func printRecommendations(ctx context.Context, dynClient dynamic.Interface, name
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 3, ' ', 0)
-	fmt.Fprintln(w, "WORKLOAD\tCONTAINER\tCPU REQ\tCPU REC\tMEM REQ\tMEM REC\tCONFIDENCE")
+	fmt.Fprintln(w, "NAMESPACE\tPOLICY\tWORKLOAD\tCONTAINER\tCPU REQ\tCPU REC\tMEM REQ\tMEM REC\tCONFIDENCE")
 
 	for _, item := range list.Items {
+		ns := item.GetNamespace()
+		policyName := item.GetName()
 		recs, found, _ := unstructured.NestedSlice(item.Object, "status", "recommendations")
 		if !found {
 			continue
@@ -277,8 +279,8 @@ func printRecommendations(ctx context.Context, dynClient dynamic.Interface, name
 				curMem, _ := current["memoryRequest"].(string)
 				recMem, _ := recommended["memoryRequest"].(string)
 
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%.1f%%\n",
-					workload, name, curCPU, recCPU, curMem, recMem, confidence*100)
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%.1f%%\n",
+					ns, policyName, workload, name, curCPU, recCPU, curMem, recMem, confidence*100)
 			}
 		}
 	}

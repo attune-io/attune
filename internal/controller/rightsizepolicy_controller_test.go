@@ -1051,6 +1051,7 @@ func TestReconcile_HappyPathWithRecommendations(t *testing.T) {
 
 	assert.Equal(t, int32(1), updated.Status.Workloads.Discovered)
 	assert.Equal(t, int32(1), updated.Status.Workloads.WithRecommendations)
+	assert.Equal(t, int32(1), updated.Status.Workloads.Pending, "Recommend mode: all workloads with recs should be pending")
 	require.Len(t, updated.Status.Recommendations, 1)
 	assert.Equal(t, "api-server", updated.Status.Recommendations[0].Workload)
 

@@ -262,6 +262,13 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		logger.Info("Cooldown active, skipping resize")
 	}
 
+	// Pending = workloads with recommendations that have not been resized yet.
+	pending := workloadsWithRecs - policy.Status.Workloads.Resized
+	if pending < 0 {
+		pending = 0
+	}
+	policy.Status.Workloads.Pending = pending
+
 	// Set Ready condition.
 	if workloadsWithRecs > 0 {
 		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{

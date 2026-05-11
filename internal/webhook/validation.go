@@ -78,11 +78,15 @@ func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizeP
 	}
 
 	// Validate safetyMargin is a valid positive float.
-	if err := validateSafetyMargin("cpu", policy.Spec.CPU.SafetyMargin); err != nil {
+	if w, err := validateSafetyMargin("cpu", policy.Spec.CPU.SafetyMargin); err != nil {
 		return warnings, err
+	} else if w != "" {
+		warnings = append(warnings, w)
 	}
-	if err := validateSafetyMargin("memory", policy.Spec.Memory.SafetyMargin); err != nil {
+	if w, err := validateSafetyMargin("memory", policy.Spec.Memory.SafetyMargin); err != nil {
 		return warnings, err
+	} else if w != "" {
+		warnings = append(warnings, w)
 	}
 
 	// Validate cooldown has a minimum floor to prevent resource exhaustion via tight reconciliation loops.
@@ -122,22 +126,27 @@ func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizeP
 	return warnings, nil
 }
 
-func validateSafetyMargin(resource, margin string) error {
+func validateSafetyMargin(resource, margin string) (warning string, err error) {
 	if margin == "" {
-		return nil
+		return "", nil
 	}
 	v, err := strconv.ParseFloat(margin, 64)
 	if err != nil {
-		return fmt.Errorf("%s.safetyMargin %q is not a valid number: %w", resource, margin, err)
+		return "", fmt.Errorf("%s.safetyMargin %q is not a valid number: %w", resource, margin, err)
 	}
 	if v <= 0 {
-		return fmt.Errorf("%s.safetyMargin must be positive, got %s", resource, margin)
+		return "", fmt.Errorf("%s.safetyMargin must be positive, got %s", resource, margin)
 	}
 	// Upper bound prevents excessive resource allocation that could exhaust nodes.
 	if v > 10.0 {
-		return fmt.Errorf("%s.safetyMargin must be <= 10.0, got %s", resource, margin)
+		return "", fmt.Errorf("%s.safetyMargin must be <= 10.0, got %s", resource, margin)
 	}
-	return nil
+	if v < 1.0 {
+		return fmt.Sprintf(
+			"%s.safetyMargin %.2f is below 1.0 and will reduce resources below the target percentile; did you mean %.1f?",
+			resource, v, 1+v), nil
+	}
+	return "", nil
 }
 
 // validatePrometheusAddress validates that the Prometheus address is a valid URL
