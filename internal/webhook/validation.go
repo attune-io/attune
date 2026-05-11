@@ -113,7 +113,7 @@ func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizeP
 
 	// Validate Prometheus address URL scheme if specified.
 	if policy.Spec.MetricsSource.Prometheus != nil && policy.Spec.MetricsSource.Prometheus.Address != "" {
-		if err := validatePrometheusAddress(policy.Spec.MetricsSource.Prometheus.Address); err != nil {
+		if err := ValidatePrometheusAddress(policy.Spec.MetricsSource.Prometheus.Address); err != nil {
 			return warnings, fmt.Errorf("metricsSource.prometheus.address: %w", err)
 		}
 	}
@@ -149,9 +149,10 @@ func validateSafetyMargin(resource, margin string) (warning string, err error) {
 	return "", nil
 }
 
-// validatePrometheusAddress validates that the Prometheus address is a valid URL
+// ValidatePrometheusAddress validates that the Prometheus address is a valid URL
 // with an allowed scheme and blocks SSRF against private/metadata endpoints.
-func validatePrometheusAddress(address string) error {
+// Exported for defense-in-depth use in the controller.
+func ValidatePrometheusAddress(address string) error {
 	parsed, err := url.Parse(address)
 	if err != nil {
 		return fmt.Errorf("invalid URL: %w", err)

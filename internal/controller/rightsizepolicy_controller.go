@@ -45,6 +45,7 @@ import (
 	"github.com/SebTardif/kube-rightsize/internal/recommendation"
 	"github.com/SebTardif/kube-rightsize/internal/resize"
 	"github.com/SebTardif/kube-rightsize/internal/safety"
+	"github.com/SebTardif/kube-rightsize/internal/webhook"
 )
 
 const (
@@ -485,27 +486,38 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 // resolvePrometheusAddress returns the Prometheus address from the policy spec,
 // falling back to the cluster-scoped RightSizeDefaults if not set.
 func (r *RightSizePolicyReconciler) resolvePrometheusAddress(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy, defaults *rightsizev1alpha1.RightSizeDefaults) (string, error) {
+	var addr string
+
 	// Check policy-level config first.
 	if policy.Spec.MetricsSource.Prometheus != nil &&
 		policy.Spec.MetricsSource.Prometheus.Address != "" {
-		return policy.Spec.MetricsSource.Prometheus.Address, nil
+		addr = policy.Spec.MetricsSource.Prometheus.Address
 	}
 
 	// Fall back to RightSizeDefaults.
-	if defaults != nil &&
+	if addr == "" && defaults != nil &&
 		defaults.Spec.MetricsSource != nil &&
 		defaults.Spec.MetricsSource.Prometheus != nil &&
 		defaults.Spec.MetricsSource.Prometheus.Address != "" {
-		return defaults.Spec.MetricsSource.Prometheus.Address, nil
+		addr = defaults.Spec.MetricsSource.Prometheus.Address
 	}
 
 	// Fall back to auto-discovery: look for Prometheus Operator's Prometheus CRD.
-	if addr := r.discoverPrometheus(ctx); addr != "" {
-		log.FromContext(ctx).Info("Auto-discovered Prometheus address", "address", addr)
-		return addr, nil
+	if addr == "" {
+		if discovered := r.discoverPrometheus(ctx); discovered != "" {
+			log.FromContext(ctx).Info("Auto-discovered Prometheus address", "address", discovered)
+			return discovered, nil
+		}
+		return "", fmt.Errorf("no Prometheus address configured in policy or cluster defaults, and auto-discovery found no Prometheus instance")
 	}
 
-	return "", fmt.Errorf("no Prometheus address configured in policy or cluster defaults, and auto-discovery found no Prometheus instance")
+	// Defense-in-depth: re-validate even if the webhook was supposed to
+	// catch SSRF. This protects when webhooks are disabled.
+	if err := webhook.ValidatePrometheusAddress(addr); err != nil {
+		return "", fmt.Errorf("SSRF blocked: %w", err)
+	}
+
+	return addr, nil
 }
 
 // discoverPrometheus attempts to find a Prometheus instance in the cluster

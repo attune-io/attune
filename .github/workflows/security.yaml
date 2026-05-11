@@ -25,12 +25,12 @@ jobs:
     runs-on: self-hosted
     timeout-minutes: 10
     steps:
-      - uses: step-security/harden-runner@v2
+      - uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2
         with:
           egress-policy: audit
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version: "1.26"
           cache: false
@@ -46,13 +46,13 @@ jobs:
     runs-on: self-hosted
     timeout-minutes: 10
     steps:
-      - uses: step-security/harden-runner@v2
+      - uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2
         with:
           egress-policy: audit
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Trivy filesystem scan
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
           scan-type: fs
           scan-ref: .
@@ -66,10 +66,10 @@ jobs:
     runs-on: self-hosted
     timeout-minutes: 10
     steps:
-      - uses: step-security/harden-runner@v2
+      - uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2
         with:
           egress-policy: audit
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
 
@@ -97,10 +97,10 @@ jobs:
   #   runs-on: self-hosted
   #   if: github.event_name == 'pull_request'
   #   steps:
-  #     - uses: step-security/harden-runner@v2
+  #     - uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2
   #       with:
   #         egress-policy: audit
-  #     - uses: actions/checkout@v6
+  #     - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
   #     - uses: actions/dependency-review-action@v5
   #       with:
   #         fail-on-severity: high

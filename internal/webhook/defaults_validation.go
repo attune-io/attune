@@ -49,7 +49,7 @@ func (v *RightSizeDefaultsValidator) validate(defaults *rightsizev1alpha1.RightS
 	if defaults.Spec.MetricsSource != nil &&
 		defaults.Spec.MetricsSource.Prometheus != nil &&
 		defaults.Spec.MetricsSource.Prometheus.Address != "" {
-		if err := validatePrometheusAddress(defaults.Spec.MetricsSource.Prometheus.Address); err != nil {
+		if err := ValidatePrometheusAddress(defaults.Spec.MetricsSource.Prometheus.Address); err != nil {
 			return nil, fmt.Errorf("metricsSource.prometheus.address: %w", err)
 		}
 	}
