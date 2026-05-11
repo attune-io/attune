@@ -2919,11 +2919,20 @@ func TestExecuteResizes_RevertsOnReFetchFailure(t *testing.T) {
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(allObjects...).Build()
 	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
 
-	// Wrap the client to fail on pod Get (the re-fetch after resize).
-	wrappedClient := &failOnPodGetClient{Client: fakeClient}
+	// Inject failure on typed clientset Get for pods (the re-fetch after
+	// resize now uses Clientset directly, not r.Get()). Only fail the
+	// first Get (the re-fetch); subsequent Gets (revert's pod lookup) pass.
+	getCalled := false
+	clientset.PrependReactor("get", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if !getCalled {
+			getCalled = true
+			return true, nil, fmt.Errorf("simulated re-fetch failure")
+		}
+		return false, nil, nil
+	})
 
 	reconciler := &RightSizePolicyReconciler{
-		Client:    wrappedClient,
+		Client:    fakeClient,
 		Scheme:    scheme,
 		Clientset: clientset,
 	}
@@ -2976,19 +2985,4 @@ checkReFetch:
 		}
 	}
 	assert.Equal(t, 2, resizeCalls, "should have 2 UpdateResize calls: original + revert")
-}
-
-// failOnPodGetClient wraps a client.Client and fails on Get calls for Pods,
-// simulating a re-fetch failure after resize.
-type failOnPodGetClient struct {
-	client.Client
-}
-
-func (f *failOnPodGetClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-	if _, ok := obj.(*corev1.Pod); ok {
-		// getPodsForWorkload uses List (not Get), so any direct Get for
-		// a Pod is the re-fetch after resize.
-		return fmt.Errorf("simulated re-fetch failure")
-	}
-	return f.Client.Get(ctx, key, obj, opts...)
 }

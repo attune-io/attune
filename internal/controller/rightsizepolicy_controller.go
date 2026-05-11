@@ -774,12 +774,18 @@ func (r *RightSizePolicyReconciler) executeResizes(
 					totalResized--
 				}
 
-				// Re-fetch to get fresh resourceVersion after UpdateResize.
-				if getErr := r.Get(ctx, client.ObjectKeyFromObject(&pod), &pod); getErr != nil {
+				// Re-fetch directly from API server (not informer cache) to get
+				// fresh resourceVersion after UpdateResize. The manager's r.Get()
+				// reads from the informer cache which may not have processed the
+				// MODIFIED watch event yet, causing 409 Conflict on the subsequent
+				// annotation Update. See #37.
+				freshPod, getErr := r.Clientset.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
+				if getErr != nil {
 					logger.Error(getErr, "Failed to re-fetch pod after resize, reverting to avoid untracked resize", "pod", pod.Name)
 					revertDueToFailure("re-fetch-failed")
 					continue
 				} else {
+					pod = *freshPod
 					if pod.Annotations == nil {
 						pod.Annotations = make(map[string]string)
 					}
