@@ -61,6 +61,38 @@ jobs:
           exit-code: 1
           ignore-unfixed: true
 
+  trivy-image:
+    name: Trivy Image Scan
+    runs-on: self-hosted
+    timeout-minutes: 15
+    steps:
+      - uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version: "1.26"
+          cache: false
+
+      - name: Build image for scanning
+        shell: bash -Eeuo pipefail -x {0}
+        run: docker build -t kube-rightsize:scan .
+
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: kube-rightsize:scan
+          severity: HIGH,CRITICAL
+          exit-code: 1
+          ignore-unfixed: true
+
+      - name: Cleanup scan image
+        if: always()
+        run: docker rmi kube-rightsize:scan 2>/dev/null || true
+
   gitleaks:
     name: Gitleaks
     runs-on: self-hosted
