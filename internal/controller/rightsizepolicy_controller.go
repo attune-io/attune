@@ -826,7 +826,18 @@ func (r *RightSizePolicyReconciler) executeResizes(
 
 				// Re-fetch to get fresh resourceVersion after UpdateResize.
 				if getErr := r.Get(ctx, client.ObjectKeyFromObject(&pod), &pod); getErr != nil {
-					logger.Error(getErr, "Failed to re-fetch pod after resize", "pod", pod.Name)
+					logger.Error(getErr, "Failed to re-fetch pod after resize, reverting to avoid untracked resize", "pod", pod.Name)
+					revertRecord := safety.ResizeRecord{
+						PodName:           pod.Name,
+						Namespace:         pod.Namespace,
+						Container:         containerRec.Name,
+						OriginalResources: originalResources,
+					}
+					if revertErr := monitor.RevertPod(ctx, revertRecord); revertErr != nil {
+						logger.Error(revertErr, "Failed to revert pod after re-fetch failure", "pod", pod.Name)
+					}
+					totalResized--
+					continue
 				} else {
 					if pod.Annotations == nil {
 						pod.Annotations = make(map[string]string)

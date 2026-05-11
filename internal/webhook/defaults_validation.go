@@ -19,6 +19,7 @@ package webhook
 import (
 	"context"
 	"fmt"
+	"math"
 	"strconv"
 
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -75,6 +76,9 @@ func validatePositiveFloat(field, value string) error {
 	v, err := strconv.ParseFloat(value, 64)
 	if err != nil {
 		return fmt.Errorf("%s %q is not a valid number: %w", field, value, err)
+	}
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return fmt.Errorf("%s must be a finite number, got %s", field, value)
 	}
 	if v <= 0 {
 		return fmt.Errorf("%s must be positive, got %s", field, value)
