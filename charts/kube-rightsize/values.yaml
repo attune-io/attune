@@ -57,6 +57,9 @@ resources:
     cpu: 100m
     memory: 128Mi
 
+# -- Priority class name for the operator pod (recommended: system-cluster-critical for production)
+priorityClassName: ""
+
 # -- Node selector
 nodeSelector: {}
 

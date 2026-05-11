@@ -207,6 +207,11 @@
       },
       "additionalProperties": false
     },
+    "priorityClassName": {
+      "type": "string",
+      "description": "Priority class name for the operator pod",
+      "default": ""
+    },
     "nodeSelector": {
       "type": "object",
       "description": "Node selector",

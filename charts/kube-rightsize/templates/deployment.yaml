@@ -23,6 +23,9 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "kube-rightsize.serviceAccountName" . }}
+      {{- if .Values.priorityClassName }}
+      priorityClassName: {{ .Values.priorityClassName }}
+      {{- end }}
       terminationGracePeriodSeconds: 60
       {{- with .Values.podSecurityContext }}
       securityContext:

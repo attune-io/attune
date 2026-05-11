@@ -777,6 +777,10 @@ func (r *RightSizePolicyReconciler) executeResizes(
 						history = append(history, newHistoryEntry(now, rec.Workload, containerRec.Name, res, "Failed"))
 						operatormetrics.ResizeTotal.WithLabelValues(pod.Namespace, rec.Workload, res.Resource, "failed").Inc()
 					}
+					if r.Recorder != nil {
+						r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "ResizeFailed", "resize",
+							"Failed to resize pod %s container %s: %v", pod.Name, containerRec.Name, err)
+					}
 					continue
 				}
 
