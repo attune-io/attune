@@ -65,6 +65,8 @@ kubectl rightsize history -n production
 
 | Column | Description |
 |--------|-------------|
+| NAMESPACE | Namespace of the policy |
+| POLICY | Name of the RightSizePolicy |
 | TIMESTAMP | When the resize occurred |
 | WORKLOAD | Name of the resized workload |
 | CONTAINER | Container that was resized |

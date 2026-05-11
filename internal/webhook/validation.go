@@ -189,7 +189,7 @@ func ValidatePrometheusAddress(address string) error {
 	if ip := net.ParseIP(hostname); ip != nil {
 		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
 			ip.Equal(net.ParseIP("fd00:ec2::254")) {
-			return fmt.Errorf("address must not target private/loopback IP %q", hostname)
+			return fmt.Errorf("address must not use a private/loopback IP %q; use the DNS service name instead (e.g. http://prometheus-server.monitoring:9090)", hostname)
 		}
 	}
 

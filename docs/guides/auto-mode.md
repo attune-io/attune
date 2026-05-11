@@ -73,7 +73,19 @@ spec:
 | `bounds.min/max` | Prevent extreme recommendations | Match your resource limits policy |
 | `cooldown` | Time between resizes | 1h minimum for production |
 | `autoRevert` | Roll back if pods become unhealthy | `true` for production |
-| `canary.observationPeriod` | How long to watch after resize | 5m minimum |
+
+The safety monitor watches each resized pod for an observation period before
+declaring the resize successful. The default is 5 minutes. To configure it,
+set `canary.observationPeriod` (this field is shared across all resize modes):
+
+```yaml
+spec:
+  updateStrategy:
+    mode: Auto
+    autoRevert: true
+    canary:
+      observationPeriod: 10m  # safety watch window after each resize
+```
 
 ### Safety margin guidance
 
