@@ -44,7 +44,7 @@ func (e *PercentileEstimator) Estimate(profile metrics.UsageProfile, current res
 		maxVal = math.Max(maxVal, hourVal)
 	}
 
-	if maxVal <= 0 {
+	if maxVal <= 0 || math.IsNaN(maxVal) || math.IsInf(maxVal, 0) {
 		return current
 	}
 

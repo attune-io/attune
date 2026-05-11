@@ -156,6 +156,32 @@ func TestCheckPod(t *testing.T) {
 			wantReason: "restart",
 		},
 		{
+			name: "restarts within baseline threshold is safe",
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{Name: "web-baseline", Namespace: "default"},
+				Status: corev1.PodStatus{
+					ContainerStatuses: []corev1.ContainerStatus{
+						{
+							Name:         "app",
+							RestartCount: 6,
+						},
+					},
+					Conditions: []corev1.PodCondition{
+						{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+					},
+				},
+			},
+			record: ResizeRecord{
+				PodName:      "web-baseline",
+				Namespace:    "default",
+				Container:    "app",
+				ResizedAt:    oneHourAgo,
+				RestartCount: 5,
+			},
+			wantSafe:   true,
+			wantReason: "",
+		},
+		{
 			name: "pod not ready is unsafe",
 			pod: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{Name: "web-4", Namespace: "default"},

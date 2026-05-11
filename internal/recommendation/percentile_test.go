@@ -17,6 +17,7 @@ limitations under the License.
 package recommendation
 
 import (
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -124,4 +125,32 @@ func TestPercentileEstimator(t *testing.T) {
 			assert.Equal(t, tt.wantMillis, result.MilliValue())
 		})
 	}
+}
+
+func TestPercentileEstimator_NaNReturnsCurrent(t *testing.T) {
+	e := &PercentileEstimator{Percentile: 95}
+	nanPS := metrics.PercentileSet{
+		P50: math.NaN(), P90: math.NaN(), P95: math.NaN(),
+		P99: math.NaN(), Max: math.NaN(),
+	}
+	profile := makeProfile(nanPS, nil)
+	current := resource.MustParse("500m")
+
+	result := e.Estimate(profile, current)
+	assert.Equal(t, current.MilliValue(), result.MilliValue(),
+		"NaN percentiles should fall back to current allocation")
+}
+
+func TestPercentileEstimator_InfReturnsCurrent(t *testing.T) {
+	e := &PercentileEstimator{Percentile: 95}
+	infPS := metrics.PercentileSet{
+		P50: math.Inf(1), P90: math.Inf(1), P95: math.Inf(1),
+		P99: math.Inf(1), Max: math.Inf(1),
+	}
+	profile := makeProfile(infPS, nil)
+	current := resource.MustParse("500m")
+
+	result := e.Estimate(profile, current)
+	assert.Equal(t, current.MilliValue(), result.MilliValue(),
+		"+Inf percentiles should fall back to current allocation")
 }
