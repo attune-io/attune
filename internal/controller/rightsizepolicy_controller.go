@@ -200,6 +200,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	// Step 4-8: Process each workload.
 	var recommendations []rightsizev1alpha1.WorkloadRecommendation
 	var workloadsWithRecs int32
+	var totalQueryErrors int
 	conflictDetector := conflict.NewDetector(logger)
 
 	// List HPAs in the namespace for conflict detection (once for all workloads).
@@ -260,7 +261,8 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 
 		// Step 7: Compute recommendations for each container.
-		rec, err := r.computeRecommendations(ctx, &policy, workload, pods, collector)
+		rec, qErrors, err := r.computeRecommendations(ctx, &policy, workload, pods, collector)
+		totalQueryErrors += qErrors
 		if err != nil {
 			logger.Error(err, "Failed to compute recommendations", "workload", workloadName)
 			continue
@@ -314,11 +316,17 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			ObservedGeneration: policy.Generation,
 		})
 	} else {
+		reason := rightsizev1alpha1.ReasonInsufficientData
+		message := "No workloads have sufficient data for recommendations"
+		if totalQueryErrors > 0 {
+			reason = rightsizev1alpha1.ReasonPrometheusUnavailable
+			message = fmt.Sprintf("Prometheus query errors (%d) prevented data collection; check operator logs", totalQueryErrors)
+		}
 		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
 			Type:               rightsizev1alpha1.ConditionReady,
 			Status:             metav1.ConditionFalse,
-			Reason:             rightsizev1alpha1.ReasonInsufficientData,
-			Message:            "No workloads have sufficient data for recommendations",
+			Reason:             reason,
+			Message:            message,
 			ObservedGeneration: policy.Generation,
 		})
 	}
@@ -361,11 +369,11 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 	workload client.Object,
 	_ []corev1.Pod,
 	collector rsmetrics.MetricsCollector,
-) (*rightsizev1alpha1.WorkloadRecommendation, error) {
+) (rec *rightsizev1alpha1.WorkloadRecommendation, queryErrors int, err error) {
 	logger := log.FromContext(ctx)
 	containers := r.getContainers(workload)
 	if len(containers) == 0 {
-		return nil, nil
+		return nil, 0, nil
 	}
 
 	historyWindow := r.parseHistoryWindow(policy)
@@ -421,8 +429,11 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 		}
 
 		// Query Prometheus for CPU and memory metrics (with pod-level fallback).
-		cpuSamples := queryMetrics(ctx, collector, policy.Namespace, podPrefix, containerName, "cpu", start, now, defaultPrometheusStep)
-		memSamples := queryMetrics(ctx, collector, policy.Namespace, podPrefix, containerName, "memory", start, now, defaultPrometheusStep)
+		cpuSamples, cpuErr := queryMetrics(ctx, collector, policy.Namespace, podPrefix, containerName, "cpu", start, now, defaultPrometheusStep)
+		memSamples, memErr := queryMetrics(ctx, collector, policy.Namespace, podPrefix, containerName, "memory", start, now, defaultPrometheusStep)
+		if cpuErr || memErr {
+			queryErrors++
+		}
 
 		// Build UsageProfile from samples.
 		cpuProfile := rsmetrics.BuildProfile(cpuSamples)
@@ -507,12 +518,12 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 	}
 
 	if len(containerRecs) == 0 {
-		return nil, nil
+		return nil, queryErrors, nil
 	}
 
 	return &rightsizev1alpha1.WorkloadRecommendation{
 		Containers: containerRecs,
-	}, nil
+	}, queryErrors, nil
 }
 
 // resolvePrometheusAddress returns the Prometheus address from the policy spec,

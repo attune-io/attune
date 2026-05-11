@@ -213,8 +213,12 @@ func (r *RightSizePolicyReconciler) getPodPrefix(workload client.Object) string 
 
 // queryMetrics queries Prometheus for the given metric type, falling back
 // to pod-level metrics if the container-specific query returns no data.
-func queryMetrics(ctx context.Context, collector rsmetrics.MetricsCollector, namespace, podPrefix, container, metric string, start, end time.Time, step time.Duration) []rsmetrics.Sample {
+// queryMetrics queries Prometheus for metric samples, falling back to a
+// pod-level query if the container-level query returns no data. Returns
+// the samples and whether any query errors occurred (for condition reporting).
+func queryMetrics(ctx context.Context, collector rsmetrics.MetricsCollector, namespace, podPrefix, container, metric string, start, end time.Time, step time.Duration) ([]rsmetrics.Sample, bool) {
 	query := buildPrometheusQuery(namespace, podPrefix, container, metric)
+	hadError := false
 
 	queryStart := time.Now()
 	samples, err := collector.QueryRange(ctx, query, start, end, step)
@@ -224,6 +228,7 @@ func queryMetrics(ctx context.Context, collector rsmetrics.MetricsCollector, nam
 		operatormetrics.PrometheusQueryErrors.Inc()
 		log.FromContext(ctx).Error(err, "Failed to query metrics", "metric", metric, "container", container)
 		samples = nil
+		hadError = true
 	}
 	if len(samples) == 0 && container != "" {
 		fallback := buildPrometheusQuery(namespace, podPrefix, "", metric)
@@ -233,9 +238,10 @@ func queryMetrics(ctx context.Context, collector rsmetrics.MetricsCollector, nam
 		if err != nil {
 			operatormetrics.PrometheusQueryErrors.Inc()
 			log.FromContext(ctx).Error(err, "Failed to query fallback metrics", "metric", metric)
+			hadError = true
 		}
 	}
-	return samples
+	return samples, hadError
 }
 
 // buildPrometheusQuery generates a PromQL query for the given metric type.

@@ -750,7 +750,7 @@ func TestComputeRecommendations_HappyPath(t *testing.T) {
 		},
 	}
 
-	rec, err := reconciler.computeRecommendations(context.Background(), policy, deploy, nil, mc)
+	rec, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, nil, mc)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
 	require.Len(t, rec.Containers, 1)
@@ -770,7 +770,7 @@ func TestComputeRecommendations_InsufficientDataPoints(t *testing.T) {
 		},
 	}
 
-	rec, err := reconciler.computeRecommendations(context.Background(), policy, deploy, nil, mc)
+	rec, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, nil, mc)
 	assert.NoError(t, err)
 	assert.Nil(t, rec) // No recommendation because data points are insufficient
 }
@@ -786,7 +786,7 @@ func TestComputeRecommendations_QueryError(t *testing.T) {
 		},
 	}
 
-	rec, err := reconciler.computeRecommendations(context.Background(), policy, deploy, nil, mc)
+	rec, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, nil, mc)
 	assert.NoError(t, err) // Errors are logged but do not bubble up
 	assert.Nil(t, rec)     // No data means no recommendations
 }
@@ -805,7 +805,7 @@ func TestComputeRecommendations_EmptyContainers(t *testing.T) {
 
 	mc := &mockCollector{}
 
-	rec, err := reconciler.computeRecommendations(context.Background(), policy, emptyDeploy, nil, mc)
+	rec, _, err := reconciler.computeRecommendations(context.Background(), policy, emptyDeploy, nil, mc)
 	assert.NoError(t, err)
 	assert.Nil(t, rec)
 }
@@ -825,7 +825,7 @@ func TestComputeRecommendations_AllowDecreaseBlocked(t *testing.T) {
 		},
 	}
 
-	rec, err := reconciler.computeRecommendations(context.Background(), policy, deploy, nil, mc)
+	rec, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, nil, mc)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
 	require.Len(t, rec.Containers, 1)
@@ -850,7 +850,7 @@ func TestComputeRecommendations_RequestsAndLimits(t *testing.T) {
 		},
 	}
 
-	rec, err := reconciler.computeRecommendations(context.Background(), policy, deploy, nil, mc)
+	rec, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, nil, mc)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
 	require.Len(t, rec.Containers, 1)
@@ -2461,7 +2461,7 @@ func TestComputeRecommendations_ExcludeContainers(t *testing.T) {
 		},
 	}
 
-	rec, err := reconciler.computeRecommendations(context.Background(), policy, deploy, nil, mc)
+	rec, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, nil, mc)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
 
@@ -2483,7 +2483,7 @@ func TestComputeRecommendations_ExcludeAllContainers(t *testing.T) {
 		},
 	}
 
-	rec, err := reconciler.computeRecommendations(context.Background(), policy, deploy, nil, mc)
+	rec, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, nil, mc)
 	assert.NoError(t, err)
 	assert.Nil(t, rec, "all containers excluded, should return nil")
 }
