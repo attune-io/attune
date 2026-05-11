@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -115,9 +116,15 @@ func TestMain(m *testing.M) {
 		panic("failed to create manager: " + err.Error())
 	}
 
+	clientset, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		panic("failed to create clientset: " + err.Error())
+	}
+
 	reconciler := &controller.RightSizePolicyReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:    mgr.GetClient(),
+		Scheme:    mgr.GetScheme(),
+		Clientset: clientset,
 		MetricsFactory: func(address string) (metrics.MetricsCollector, error) {
 			return &syntheticCollector{}, nil
 		},
@@ -469,3 +476,17 @@ func TestReconcile_DefaultsMergingFromClusterDefaults(t *testing.T) {
 		return len(fetched.Status.Conditions) > 0
 	}, 30*time.Second, 500*time.Millisecond, "policy with defaults should reconcile")
 }
+
+// ---------- Resize execution path (#20) ----------
+
+// Note: Resize execution integration tests are NOT included because envtest's
+// informer cache creates an inherent race: after UpdateResize bumps the pod's
+// resourceVersion, the re-fetch via the cached client returns the stale version,
+// causing a 409 Conflict on annotation persistence. This triggers revert on every
+// attempt, preventing the resize from ever completing.
+//
+// The resize path is covered by:
+//   - Unit tests: TestExecuteResizes_PersistsAnnotations, _CapturesZeroRestartCount,
+//     _PreservesExistingPodAnnotations, _RevertsOnAnnotationUpdateFailure,
+//     _RevertsOnReFetchFailure (using fake clients without informer cache)
+//   - E2E tests: Chainsaw scenarios on Kind clusters (real kubelet, real cache sync)

@@ -2715,3 +2715,280 @@ func TestExecuteResizes_ThrottleTriggersRevert(t *testing.T) {
 done:
 	assert.True(t, foundRevert, "expected a Reverted event mentioning throttle")
 }
+
+// ---------- annotation persistence and RestartCount capture (#27) ----------
+
+// newResizePodWithStatus creates a pod with container statuses, suitable for
+// testing annotation persistence where RestartCount needs to be captured.
+func newResizePodWithStatus(deployName string, cpuReq, memReq, cpuLim, memLim string, restartCount int32) *corev1.Pod {
+	pod := newResizePod(deployName, cpuReq, memReq, cpuLim, memLim)
+	pod.Status.ContainerStatuses = []corev1.ContainerStatus{
+		{
+			Name:         "main",
+			RestartCount: restartCount,
+			Ready:        true,
+		},
+	}
+	return pod
+}
+
+func TestExecuteResizes_PersistsAnnotations(t *testing.T) {
+	pod := newResizePodWithStatus("api-server", "500m", "512Mi", "1000m", "1Gi", 7)
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	reconciler, fakeClient := newResizeReconciler(pod, deploy)
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = "OneShot"
+
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("api-server", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),
+	}
+
+	workloads := []client.Object{deploy}
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, nil)
+	require.Equal(t, 1, count, "resize should succeed")
+	require.NotEmpty(t, history)
+	assert.Equal(t, "Success", history[0].Result)
+
+	// Verify annotations were persisted on the pod.
+	var updated corev1.Pod
+	err := fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: pod.Name, Namespace: "default",
+	}, &updated)
+	require.NoError(t, err)
+
+	assert.NotEmpty(t, updated.Annotations[annotationResizedAt], "resized-at annotation should be set")
+	_, parseErr := time.Parse(time.RFC3339, updated.Annotations[annotationResizedAt])
+	assert.NoError(t, parseErr, "resized-at should be valid RFC3339")
+
+	assert.Equal(t, "main", updated.Annotations[annotationResizedContainer])
+	assert.Equal(t, "api-server", updated.Annotations[annotationResizedWorkload])
+	assert.Equal(t, "500m", updated.Annotations[annotationOriginalCPU])
+	assert.Equal(t, "512Mi", updated.Annotations[annotationOriginalMemory])
+	assert.Equal(t, "7", updated.Annotations[annotationOriginalRestartCount],
+		"RestartCount should be captured from pre-resize container status")
+}
+
+func TestExecuteResizes_CapturesZeroRestartCount(t *testing.T) {
+	pod := newResizePodWithStatus("api-server", "500m", "512Mi", "1000m", "1Gi", 0)
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	reconciler, fakeClient := newResizeReconciler(pod, deploy)
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = "OneShot"
+
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("api-server", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),
+	}
+
+	workloads := []client.Object{deploy}
+	count, _ := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, nil)
+	require.Equal(t, 1, count)
+
+	var updated corev1.Pod
+	err := fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: pod.Name, Namespace: "default",
+	}, &updated)
+	require.NoError(t, err)
+	assert.Equal(t, "0", updated.Annotations[annotationOriginalRestartCount],
+		"zero RestartCount should still be persisted")
+}
+
+func TestExecuteResizes_PreservesExistingPodAnnotations(t *testing.T) {
+	pod := newResizePodWithStatus("api-server", "500m", "512Mi", "1000m", "1Gi", 0)
+	pod.Annotations = map[string]string{"existing-key": "existing-value"}
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	reconciler, fakeClient := newResizeReconciler(pod, deploy)
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = "OneShot"
+
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("api-server", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),
+	}
+
+	workloads := []client.Object{deploy}
+	count, _ := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, nil)
+	require.Equal(t, 1, count)
+
+	var updated corev1.Pod
+	err := fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: pod.Name, Namespace: "default",
+	}, &updated)
+	require.NoError(t, err)
+	assert.Equal(t, "existing-value", updated.Annotations["existing-key"],
+		"pre-existing annotations must not be lost")
+	assert.NotEmpty(t, updated.Annotations[annotationResizedAt],
+		"resize annotations must be added alongside existing ones")
+}
+
+// ---------- revert on annotation persistence failure (#35) ----------
+
+func TestExecuteResizes_RevertsOnAnnotationUpdateFailure(t *testing.T) {
+	pod := newResizePodWithStatus("api-server", "500m", "512Mi", "1000m", "1Gi", 3)
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+
+	scheme := testScheme()
+	allObjects := []client.Object{deploy, pod}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(allObjects...).Build()
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+
+	// Wrap the controller-runtime fake client to fail on the pod Update call
+	// that persists annotations, while letting all other operations succeed.
+	wrappedClient := &failOnPodUpdateClient{Client: fakeClient}
+
+	reconciler := &RightSizePolicyReconciler{
+		Client:    wrappedClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+	}
+
+	recorder := events.NewFakeRecorder(10)
+	reconciler.Recorder = recorder
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = "OneShot"
+
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("api-server", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),
+	}
+
+	workloads := []client.Object{deploy}
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, nil)
+
+	// The resize should have been reverted because annotation update failed.
+	assert.Equal(t, 0, count, "net resized count should be 0 after revert")
+
+	// History should show Reverted entries.
+	require.NotEmpty(t, history)
+	reverted := false
+	for _, h := range history {
+		if h.Result == "Reverted" {
+			reverted = true
+			break
+		}
+	}
+	assert.True(t, reverted, "history should contain a Reverted entry")
+
+	// Verify that a Reverted event was emitted.
+	foundRevert := false
+	for {
+		select {
+		case event := <-recorder.Events:
+			if strings.Contains(event, "Reverted") && strings.Contains(event, "annotation-persist-failed") {
+				foundRevert = true
+			}
+		default:
+			goto checkRevert
+		}
+	}
+checkRevert:
+	assert.True(t, foundRevert, "expected a Reverted event mentioning annotation-persist-failed")
+
+	// Verify the revert was issued via UpdateResize (second call: first is
+	// the original resize, second is the revert).
+	var resizeCalls int
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			resizeCalls++
+		}
+	}
+	assert.Equal(t, 2, resizeCalls, "should have 2 UpdateResize calls: original + revert")
+}
+
+// failOnPodUpdateClient wraps a client.Client and fails on Update calls for Pods.
+// The first Get after a resize (re-fetch) succeeds, but the Update for
+// annotation persistence fails. This simulates a 409 Conflict or similar error.
+type failOnPodUpdateClient struct {
+	client.Client
+}
+
+func (f *failOnPodUpdateClient) Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
+	if _, ok := obj.(*corev1.Pod); ok {
+		return fmt.Errorf("simulated annotation update failure")
+	}
+	return f.Client.Update(ctx, obj, opts...)
+}
+
+func TestExecuteResizes_RevertsOnReFetchFailure(t *testing.T) {
+	pod := newResizePodWithStatus("api-server", "500m", "512Mi", "1000m", "1Gi", 0)
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+
+	scheme := testScheme()
+	allObjects := []client.Object{deploy, pod}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(allObjects...).Build()
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+
+	// Wrap the client to fail on pod Get (the re-fetch after resize).
+	wrappedClient := &failOnPodGetClient{Client: fakeClient}
+
+	reconciler := &RightSizePolicyReconciler{
+		Client:    wrappedClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+	}
+
+	recorder := events.NewFakeRecorder(10)
+	reconciler.Recorder = recorder
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = "OneShot"
+
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("api-server", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),
+	}
+
+	workloads := []client.Object{deploy}
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, nil)
+
+	assert.Equal(t, 0, count, "net resized count should be 0 after revert")
+
+	require.NotEmpty(t, history)
+	reverted := false
+	for _, h := range history {
+		if h.Result == "Reverted" {
+			reverted = true
+			break
+		}
+	}
+	assert.True(t, reverted, "history should contain a Reverted entry for re-fetch failure")
+
+	// Verify revert event.
+	foundRevert := false
+	for {
+		select {
+		case event := <-recorder.Events:
+			if strings.Contains(event, "Reverted") && strings.Contains(event, "re-fetch-failed") {
+				foundRevert = true
+			}
+		default:
+			goto checkReFetch
+		}
+	}
+checkReFetch:
+	assert.True(t, foundRevert, "expected a Reverted event mentioning re-fetch-failed")
+
+	// Verify revert UpdateResize was called.
+	var resizeCalls int
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			resizeCalls++
+		}
+	}
+	assert.Equal(t, 2, resizeCalls, "should have 2 UpdateResize calls: original + revert")
+}
+
+// failOnPodGetClient wraps a client.Client and fails on Get calls for Pods,
+// simulating a re-fetch failure after resize.
+type failOnPodGetClient struct {
+	client.Client
+}
+
+func (f *failOnPodGetClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if _, ok := obj.(*corev1.Pod); ok {
+		// getPodsForWorkload uses List (not Get), so any direct Get for
+		// a Pod is the re-fetch after resize.
+		return fmt.Errorf("simulated re-fetch failure")
+	}
+	return f.Client.Get(ctx, key, obj, opts...)
+}
