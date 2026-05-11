@@ -66,6 +66,7 @@ func removeTrackingAnnotations(pod *corev1.Pod) {
 	delete(pod.Annotations, annotationResizedWorkload)
 	delete(pod.Annotations, annotationOriginalCPU)
 	delete(pod.Annotations, annotationOriginalMemory)
+	delete(pod.Annotations, annotationOriginalRestartCount)
 }
 
 // setFailedCondition sets a Ready=False condition on the policy and updates

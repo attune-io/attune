@@ -753,6 +753,26 @@ func (r *RightSizePolicyReconciler) executeResizes(
 				// Re-fetch the pod to get a fresh resourceVersion after the
 				// resize subresource call incremented it. Without this, the
 				// annotation update always fails with 409 Conflict.
+				// Capture pre-resize state from the recommendation (not the
+				// re-fetched pod, which already has the new resources).
+				originalResources := corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    containerRec.Current.CPURequest.DeepCopy(),
+						corev1.ResourceMemory: containerRec.Current.MemoryRequest.DeepCopy(),
+					},
+				}
+
+				// Capture restart count before the re-GET (single lookup, reused
+				// for both annotations and the safety record).
+				var restartCount int32
+				for _, cs := range pod.Status.ContainerStatuses {
+					if cs.Name == containerRec.Name {
+						restartCount = cs.RestartCount
+						break
+					}
+				}
+
+				// Re-fetch to get fresh resourceVersion after UpdateResize.
 				if getErr := r.Get(ctx, client.ObjectKeyFromObject(&pod), &pod); getErr != nil {
 					logger.Error(getErr, "Failed to re-fetch pod after resize", "pod", pod.Name)
 				} else {
@@ -764,12 +784,7 @@ func (r *RightSizePolicyReconciler) executeResizes(
 					pod.Annotations[annotationResizedWorkload] = rec.Workload
 					pod.Annotations[annotationOriginalCPU] = containerRec.Current.CPURequest.String()
 					pod.Annotations[annotationOriginalMemory] = containerRec.Current.MemoryRequest.String()
-					for _, cs := range pod.Status.ContainerStatuses {
-						if cs.Name == containerRec.Name {
-							pod.Annotations[annotationOriginalRestartCount] = strconv.FormatInt(int64(cs.RestartCount), 10)
-							break
-						}
-					}
+					pod.Annotations[annotationOriginalRestartCount] = strconv.FormatInt(int64(restartCount), 10)
 
 					if updateErr := r.Update(ctx, &pod); updateErr != nil {
 						logger.Error(updateErr, "Failed to persist resize tracking annotations", "pod", pod.Name)
@@ -779,20 +794,6 @@ func (r *RightSizePolicyReconciler) executeResizes(
 				// Safety check (if autoRevert is enabled)
 				if policy.Spec.UpdateStrategy.AutoRevert {
 					observationEnd := now.Add(getObservationPeriod(policy))
-					var originalResources corev1.ResourceRequirements
-					for _, c := range pod.Spec.Containers {
-						if c.Name == containerRec.Name {
-							originalResources = c.Resources
-							break
-						}
-					}
-					var restartCount int32
-					for _, cs := range pod.Status.ContainerStatuses {
-						if cs.Name == containerRec.Name {
-							restartCount = cs.RestartCount
-							break
-						}
-					}
 					record := safety.ResizeRecord{
 						PodName:           pod.Name,
 						Namespace:         pod.Namespace,
