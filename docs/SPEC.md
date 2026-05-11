@@ -801,6 +801,7 @@ kube_rightsize_prometheus_query_errors_total{}
 | Resize succeeded | Normal | ResizeSucceeded | "Pod api-server-abc12 resized successfully" |
 | Resize failed | Warning | ResizeFailed | "Pod api-server-abc12 resize failed: Infeasible" |
 | Auto-revert triggered | Warning | ResizeReverted | "Reverted api-server-abc12: OOMKilled after resize" |
+| QoS class preserved | Warning | ResizeSkipped | "Skipping resize for pod X: would change QoS class from Guaranteed" |
 | Conflict detected | Warning | ConflictDetected | "VPA my-vpa also targets Deployment api-server" |
 | Insufficient data | Normal | InsufficientData | "Only 48/168 data points for api-server; waiting" |
 

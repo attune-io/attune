@@ -849,9 +849,9 @@ func (r *RightSizePolicyReconciler) executeResizes(
 					}
 				}
 
-				// Re-fetch to get fresh resourceVersion after UpdateResize.
-				if getErr := r.Get(ctx, client.ObjectKeyFromObject(&pod), &pod); getErr != nil {
-					logger.Error(getErr, "Failed to re-fetch pod after resize, reverting to avoid untracked resize", "pod", pod.Name)
+				// revertDueToFailure reverts the resize and updates history/metrics/events
+				// when a post-resize operation fails (re-fetch or annotation persistence).
+				revertDueToFailure := func(reason string) {
 					revertRecord := safety.ResizeRecord{
 						PodName:           pod.Name,
 						Namespace:         pod.Namespace,
@@ -859,9 +859,30 @@ func (r *RightSizePolicyReconciler) executeResizes(
 						OriginalResources: originalResources,
 					}
 					if revertErr := monitor.RevertPod(ctx, revertRecord); revertErr != nil {
-						logger.Error(revertErr, "Failed to revert pod after re-fetch failure", "pod", pod.Name)
+						logger.Error(revertErr, "Failed to revert pod after "+reason, "pod", pod.Name)
+					}
+					operatormetrics.RevertsTotal.WithLabelValues(pod.Namespace, rec.Workload, reason).Inc()
+					for _, res := range results {
+						if res.Success {
+							operatormetrics.ResizeTotal.WithLabelValues(pod.Namespace, rec.Workload, res.Resource, "reverted").Inc()
+						}
+					}
+					if r.Recorder != nil {
+						r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "Reverted", "revert",
+							"Reverted resize on %s/%s: %s", rec.Workload, containerRec.Name, reason)
+					}
+					for i := len(history) - 1; i >= 0; i-- {
+						if history[i].Workload == rec.Workload && history[i].Container == containerRec.Name {
+							history[i].Result = "Reverted"
+						}
 					}
 					totalResized--
+				}
+
+				// Re-fetch to get fresh resourceVersion after UpdateResize.
+				if getErr := r.Get(ctx, client.ObjectKeyFromObject(&pod), &pod); getErr != nil {
+					logger.Error(getErr, "Failed to re-fetch pod after resize, reverting to avoid untracked resize", "pod", pod.Name)
+					revertDueToFailure("re-fetch-failed")
 					continue
 				} else {
 					if pod.Annotations == nil {
@@ -876,19 +897,7 @@ func (r *RightSizePolicyReconciler) executeResizes(
 
 					if updateErr := r.Update(ctx, &pod); updateErr != nil {
 						logger.Error(updateErr, "Failed to persist resize tracking annotations, reverting resize", "pod", pod.Name)
-						// Without tracking annotations, deferred safety
-						// monitoring cannot find this pod. Revert to avoid
-						// an unmonitored resize remaining in the cluster.
-						revertRecord := safety.ResizeRecord{
-							PodName:           pod.Name,
-							Namespace:         pod.Namespace,
-							Container:         containerRec.Name,
-							OriginalResources: originalResources,
-						}
-						if revertErr := monitor.RevertPod(ctx, revertRecord); revertErr != nil {
-							logger.Error(revertErr, "Failed to revert pod after annotation failure", "pod", pod.Name)
-						}
-						totalResized--
+						revertDueToFailure("annotation-persist-failed")
 						continue
 					}
 				}
