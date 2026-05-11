@@ -205,6 +205,7 @@ jobs:
     needs: [changes, lint, test-unit]
     if: needs.changes.outputs.go == 'true'
     strategy:
+      max-parallel: 1
       matrix:
         include:
           - k8s-version: "v1.33"
