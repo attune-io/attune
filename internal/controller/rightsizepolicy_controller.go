@@ -710,82 +710,13 @@ func (r *RightSizePolicyReconciler) executeResizes(
 
 		for _, pod := range selectedPods {
 			for _, containerRec := range rec.Containers {
-				target := corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU:    containerRec.Recommended.CPURequest.DeepCopy(),
-						corev1.ResourceMemory: containerRec.Recommended.MemoryRequest.DeepCopy(),
-					},
-					Limits: corev1.ResourceList{
-						corev1.ResourceCPU:    containerRec.Recommended.CPULimit.DeepCopy(),
-						corev1.ResourceMemory: containerRec.Recommended.MemoryLimit.DeepCopy(),
-					},
-				}
+				target := buildResizeTarget(containerRec)
 
-				// Pre-check: skip if the pod's ACTUAL resources already match the
-				// recommendation. Compare against the running pod, not the
-				// Deployment template (which isn't updated by in-place resize).
-				var podActualCPU, podActualMem int64
-				for _, c := range pod.Spec.Containers {
-					if c.Name == containerRec.Name {
-						podActualCPU = c.Resources.Requests.Cpu().MilliValue()
-						podActualMem = c.Resources.Requests.Memory().Value()
-						break
-					}
-				}
-				if podActualCPU == containerRec.Recommended.CPURequest.MilliValue() &&
-					podActualMem == containerRec.Recommended.MemoryRequest.Value() {
-					continue
-				}
-
-				// Pre-check: total pod resource requests after resize vs node allocatable.
-				if pod.Spec.NodeName != "" {
-					var node corev1.Node
-					if err := r.Get(ctx, types.NamespacedName{Name: pod.Spec.NodeName}, &node); err == nil {
-						totalCPU := int64(0)
-						totalMem := int64(0)
-						for _, c := range pod.Spec.Containers {
-							if c.Name == containerRec.Name {
-								totalCPU += target.Requests.Cpu().MilliValue()
-								totalMem += target.Requests.Memory().Value()
-							} else {
-								totalCPU += c.Resources.Requests.Cpu().MilliValue()
-								totalMem += c.Resources.Requests.Memory().Value()
-							}
-						}
-						allocCPU := node.Status.Allocatable.Cpu().MilliValue()
-						allocMem := node.Status.Allocatable.Memory().Value()
-						if totalCPU > allocCPU || totalMem > allocMem {
-							logger.Info("Skipping resize: total pod requests would exceed node allocatable",
-								"pod", pod.Name, "container", containerRec.Name,
-								"totalCPU", totalCPU, "allocCPU", allocCPU,
-								"totalMem", totalMem, "allocMem", allocMem)
-							continue
-						}
-					}
-				}
-
-				// Pre-check: LimitRange/ResourceQuota compatibility.
-				currentRes := corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU:    containerRec.Current.CPURequest.DeepCopy(),
-						corev1.ResourceMemory: containerRec.Current.MemoryRequest.DeepCopy(),
-					},
-				}
-				if err := r.checkQuotaCompatibility(ctx, pod.Namespace, currentRes, target); err != nil {
-					logger.Info("Skipping resize: quota/limitrange violation",
-						"pod", pod.Name, "container", containerRec.Name, "reason", err.Error())
-					continue
-				}
-
-				// Pre-check: QoS preservation
-				if !resize.PreservesQoS(&pod, containerRec.Name, target) {
-					logger.Info("Skipping resize: would change QoS class",
-						"pod", pod.Name, "container", containerRec.Name)
-					if r.Recorder != nil {
-						r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "ResizeSkipped", "resize",
-							"Skipping resize for pod %s container %s: would change QoS class from Guaranteed. "+
-								"Set controlledValues: RequestsAndLimits to resize Guaranteed pods",
-							pod.Name, containerRec.Name)
+				skip, reason := r.shouldSkipResize(ctx, policy, &pod, containerRec, target)
+				if skip {
+					if reason != "" {
+						logger.Info("Skipping resize: "+reason,
+							"pod", pod.Name, "container", containerRec.Name)
 					}
 					continue
 				}
@@ -927,26 +858,7 @@ func (r *RightSizePolicyReconciler) executeResizes(
 					if !verdict.Safe {
 						logger.Info("Safety violation detected, reverting",
 							"pod", pod.Name, "reason", verdict.Reason)
-						if revertErr := monitor.RevertPod(ctx, record); revertErr != nil {
-							logger.Error(revertErr, "Failed to revert pod", "pod", pod.Name)
-						}
-						operatormetrics.RevertsTotal.WithLabelValues(pod.Namespace, rec.Workload, verdict.Reason).Inc()
-						for _, res := range results {
-							if res.Success {
-								operatormetrics.ResizeTotal.WithLabelValues(pod.Namespace, rec.Workload, res.Resource, "reverted").Inc()
-							}
-						}
-						if r.Recorder != nil {
-							r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "Reverted", "revert",
-								"Reverted resize on %s/%s: %s", rec.Workload, containerRec.Name, verdict.Message)
-						}
-						// Update history entry to Reverted
-						for i := len(history) - 1; i >= 0; i-- {
-							if history[i].Workload == rec.Workload && history[i].Container == containerRec.Name {
-								history[i].Result = "Reverted"
-							}
-						}
-						totalResized--
+						revertDueToFailure(verdict.Reason)
 					}
 				}
 			}
@@ -954,6 +866,88 @@ func (r *RightSizePolicyReconciler) executeResizes(
 	}
 
 	return totalResized, history
+}
+
+// buildResizeTarget constructs the target ResourceRequirements from a container recommendation.
+func buildResizeTarget(rec rightsizev1alpha1.ContainerRecommendation) corev1.ResourceRequirements {
+	return corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    rec.Recommended.CPURequest.DeepCopy(),
+			corev1.ResourceMemory: rec.Recommended.MemoryRequest.DeepCopy(),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    rec.Recommended.CPULimit.DeepCopy(),
+			corev1.ResourceMemory: rec.Recommended.MemoryLimit.DeepCopy(),
+		},
+	}
+}
+
+// shouldSkipResize runs pre-checks and returns whether to skip the resize
+// and an optional reason string. An empty reason with skip=true means the
+// pod already matches the recommendation (no log needed).
+func (r *RightSizePolicyReconciler) shouldSkipResize(
+	ctx context.Context,
+	policy *rightsizev1alpha1.RightSizePolicy,
+	pod *corev1.Pod,
+	containerRec rightsizev1alpha1.ContainerRecommendation,
+	target corev1.ResourceRequirements,
+) (skip bool, reason string) {
+	// Already at target.
+	for _, c := range pod.Spec.Containers {
+		if c.Name == containerRec.Name {
+			if c.Resources.Requests.Cpu().MilliValue() == containerRec.Recommended.CPURequest.MilliValue() &&
+				c.Resources.Requests.Memory().Value() == containerRec.Recommended.MemoryRequest.Value() {
+				return true, ""
+			}
+			break
+		}
+	}
+
+	// Node allocatable exceeded.
+	if pod.Spec.NodeName != "" {
+		var node corev1.Node
+		if err := r.Get(ctx, types.NamespacedName{Name: pod.Spec.NodeName}, &node); err == nil {
+			totalCPU := int64(0)
+			totalMem := int64(0)
+			for _, c := range pod.Spec.Containers {
+				if c.Name == containerRec.Name {
+					totalCPU += target.Requests.Cpu().MilliValue()
+					totalMem += target.Requests.Memory().Value()
+				} else {
+					totalCPU += c.Resources.Requests.Cpu().MilliValue()
+					totalMem += c.Resources.Requests.Memory().Value()
+				}
+			}
+			if totalCPU > node.Status.Allocatable.Cpu().MilliValue() ||
+				totalMem > node.Status.Allocatable.Memory().Value() {
+				return true, "total pod requests would exceed node allocatable"
+			}
+		}
+	}
+
+	// Quota/LimitRange violation.
+	currentRes := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    containerRec.Current.CPURequest.DeepCopy(),
+			corev1.ResourceMemory: containerRec.Current.MemoryRequest.DeepCopy(),
+		},
+	}
+	if err := r.checkQuotaCompatibility(ctx, pod.Namespace, currentRes, target); err != nil {
+		return true, "quota/limitrange violation: " + err.Error()
+	}
+
+	// QoS class change.
+	if !resize.PreservesQoS(pod, containerRec.Name, target) {
+		if r.Recorder != nil {
+			r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "ResizeSkipped", "resize",
+				"Skipping resize for pod %s container %s: would change QoS class from Guaranteed. "+
+					"Set controlledValues: RequestsAndLimits to resize Guaranteed pods",
+				pod.Name, containerRec.Name)
+		}
+		return true, "would change QoS class"
+	}
+
+	return false, ""
 }
 
 // checkPendingSafetyObservations checks pods that were previously resized and
