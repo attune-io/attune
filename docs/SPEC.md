@@ -796,14 +796,10 @@ kube_rightsize_prometheus_query_errors_total{}
 
 | Event | Type | Reason | Message Example |
 |-------|------|--------|-----------------|
-| Recommendation generated | Normal | RecommendationReady | "Recommending cpu=150m (was 500m) for api-server/api" |
-| Resize initiated | Normal | ResizeStarted | "Resizing pod api-server-abc12 cpu: 500m -> 150m (in-place)" |
-| Resize succeeded | Normal | ResizeSucceeded | "Pod api-server-abc12 resized successfully" |
-| Resize failed | Warning | ResizeFailed | "Pod api-server-abc12 resize failed: Infeasible" |
-| Auto-revert triggered | Warning | ResizeReverted | "Reverted api-server-abc12: OOMKilled after resize" |
-| QoS class preserved | Warning | ResizeSkipped | "Skipping resize for pod X: would change QoS class from Guaranteed" |
-| Conflict detected | Warning | ConflictDetected | "VPA my-vpa also targets Deployment api-server" |
-| Insufficient data | Normal | InsufficientData | "Only 48/168 data points for api-server; waiting" |
+| Resize succeeded | Normal | Resized | "Resized cpu api-server/app: 500m -> 250m" |
+| Resize failed | Warning | ResizeFailed | "Failed to resize pod api-server-abc12 container app: node has insufficient resources" |
+| Resize skipped (QoS) | Warning | ResizeSkipped | "Skipping resize for pod X container Y: would change QoS class from Guaranteed" |
+| Auto-revert triggered | Warning | Reverted | "Reverted resize on api-server/app: oomkill" |
 
 ### 8.3 Grafana Dashboard
 
