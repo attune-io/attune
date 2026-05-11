@@ -1745,7 +1745,7 @@ func TestExecuteResizes_ResizeError_EmitsResizeFailedEvent(t *testing.T) {
 	}
 }
 
-func TestExecuteResizes_AutoRevertOnSafetyViolation(t *testing.T) {
+func TestExecuteResizes_AutoRevert_SafeVerdictNoRevert(t *testing.T) {
 	pod := newResizePod("api-server", "500m", "512Mi", "1000m", "1Gi")
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
 	reconciler, _ := newResizeReconciler(pod, deploy)
@@ -1986,6 +1986,7 @@ func TestCheckPendingSafetyObservations_UnsafeVerdictReverts(t *testing.T) {
 
 	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
 
+	// Verify annotations were removed (observation complete).
 	var updated corev1.Pod
 	err := fakeClient.Get(context.Background(), types.NamespacedName{
 		Name: "unsafe-pod", Namespace: "default",
@@ -1993,6 +1994,19 @@ func TestCheckPendingSafetyObservations_UnsafeVerdictReverts(t *testing.T) {
 	require.NoError(t, err)
 	_, has := updated.Annotations["rightsize.io/resized-at"]
 	assert.False(t, has, "tracking annotations should be removed after observation completes")
+
+	// Verify the actual revert UpdateResize was issued (not just annotation cleanup).
+	var foundResize bool
+	for _, a := range reconciler.Clientset.(*kubefake.Clientset).Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			foundResize = true
+			reverted := a.(k8stesting.UpdateAction).GetObject().(*corev1.Pod)
+			cpu := reverted.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
+			assert.True(t, cpu.Equal(resource.MustParse("500m")),
+				"CPU should be reverted to original 500m, got %s", cpu.String())
+		}
+	}
+	assert.True(t, foundResize, "should have called UpdateResize to revert the pod")
 }
 
 func TestCheckPendingSafetyObservations_UnsafeVerdictEmitsEvent(t *testing.T) {

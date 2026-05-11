@@ -23,6 +23,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	rightsizev1alpha1 "github.com/SebTardif/kube-rightsize/api/v1alpha1"
 )
@@ -111,7 +112,7 @@ func TestDefault_SetsCooldown(t *testing.T) {
 	assert.Equal(t, 1*time.Hour, policy.Spec.UpdateStrategy.Cooldown.Duration)
 }
 
-func TestDefault_PreservesExistingCooldown(t *testing.T) {
+func TestDefault_PreservesExistingControlledValues(t *testing.T) {
 	defaulter := &RightSizePolicyDefaulter{}
 	policy := &rightsizev1alpha1.RightSizePolicy{}
 	cv := "RequestsAndLimits"
@@ -121,4 +122,17 @@ func TestDefault_PreservesExistingCooldown(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "RequestsAndLimits", *policy.Spec.CPU.ControlledValues)
+}
+
+func TestDefault_PreservesExistingCooldown(t *testing.T) {
+	defaulter := &RightSizePolicyDefaulter{}
+	policy := &rightsizev1alpha1.RightSizePolicy{}
+	policy.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: 30 * time.Minute}
+
+	err := defaulter.Default(context.Background(), policy)
+
+	require.NoError(t, err)
+	require.NotNil(t, policy.Spec.UpdateStrategy.Cooldown)
+	assert.Equal(t, 30*time.Minute, policy.Spec.UpdateStrategy.Cooldown.Duration,
+		"defaulter should not overwrite a pre-existing cooldown")
 }
