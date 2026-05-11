@@ -252,13 +252,15 @@ func (r *RightSizePolicyReconciler) getEffectiveCooldown(policy *rightsizev1alph
 	return base * time.Duration(multiplier)
 }
 
-// markResizeTime sets the last-resize-time annotation on the policy.
+// markResizeTime sets the last-resize-time annotation on the policy using a
+// merge patch to avoid 409 Conflict with concurrent spec changes.
 func (r *RightSizePolicyReconciler) markResizeTime(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy) error {
+	patch := client.MergeFrom(policy.DeepCopy())
 	if policy.Annotations == nil {
 		policy.Annotations = make(map[string]string)
 	}
 	policy.Annotations[lastResizeAnnotation] = time.Now().UTC().Format(time.RFC3339)
-	return r.Update(ctx, policy)
+	return r.Patch(ctx, policy, patch)
 }
 
 // appendHistory appends new entries to existing history, capping at maxEntries.

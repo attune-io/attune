@@ -192,8 +192,9 @@ spec:
                     default: 168
                     description: |-
                       MinimumDataPoints is the minimum number of data points required
-                      before generating recommendations.
+                      before generating recommendations. Minimum 1, default 168 (7 days).
                     format: int32
+                    minimum: 1
                     type: integer
                   prometheus:
                     description: Prometheus configures a Prometheus metrics source.

@@ -81,8 +81,9 @@ type MetricsSource struct {
 	HistoryWindow *metav1.Duration `json:"historyWindow,omitempty"`
 
 	// MinimumDataPoints is the minimum number of data points required
-	// before generating recommendations.
+	// before generating recommendations. Minimum 1, default 168 (7 days).
 	// +kubebuilder:default=168
+	// +kubebuilder:validation:Minimum=1
 	MinimumDataPoints int32 `json:"minimumDataPoints,omitempty"`
 }
 
@@ -199,6 +200,7 @@ type RightSizePolicyStatus struct {
 	Workloads WorkloadStatus `json:"workloads,omitempty"`
 
 	// Recommendations contains per-workload resource recommendations.
+	// +kubebuilder:validation:MaxItems=500
 	// +optional
 	Recommendations []WorkloadRecommendation `json:"recommendations,omitempty"`
 
@@ -207,6 +209,7 @@ type RightSizePolicyStatus struct {
 	Savings SavingsStatus `json:"savings,omitempty"`
 
 	// ResizeHistory records past resize operations.
+	// +kubebuilder:validation:MaxItems=20
 	// +optional
 	ResizeHistory []ResizeHistoryEntry `json:"resizeHistory,omitempty"`
 }
