@@ -1,8 +1,8 @@
 site_name: kube-rightsize
 site_description: Safe, in-place Kubernetes pod resource right-sizing operator
-site_url: https://sebtardif.github.io/kube-rightsize/
-repo_url: https://github.com/SebTardif/kube-rightsize
-repo_name: SebTardif/kube-rightsize
+site_url: https://sebtardiflabs.github.io/kube-rightsize/
+repo_url: https://github.com/SebTardifLabs/kube-rightsize
+repo_name: SebTardifLabs/kube-rightsize
 
 theme:
   name: material
@@ -61,6 +61,7 @@ nav:
       - Prometheus Setup: guides/prometheus-setup.md
       - Recommend Mode: guides/recommend-mode.md
       - Canary Rollout: guides/canary-rollout.md
+      - Auto Mode: guides/auto-mode.md
       - HPA Coexistence: guides/hpa-coexistence.md
       - GitOps Integration: guides/gitops-integration.md
       - Migrating from VPA: guides/migrating-from-vpa.md
