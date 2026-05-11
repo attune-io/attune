@@ -101,8 +101,10 @@ type ResourceConfig struct {
 	// +optional
 	Percentile int32 `json:"percentile,omitempty"`
 
-	// SafetyMargin is a multiplier applied to the recommended value.
-	// Expressed as a resource.Quantity-compatible string (e.g. "1.2").
+	// SafetyMargin is a multiplier applied to the percentile recommendation.
+	// Expressed as a decimal string (e.g. "1.2" means 20% headroom above the
+	// target percentile). Must be a positive number, max 10.0. Values below
+	// 1.0 reduce resources below the percentile and generate a warning.
 	// +optional
 	SafetyMargin string `json:"safetyMargin,omitempty"`
 
