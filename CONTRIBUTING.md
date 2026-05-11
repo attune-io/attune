@@ -13,7 +13,7 @@ guidelines and instructions for contributing.
 | Docker | 24+ | [docs.docker.com](https://docs.docker.com/engine/install/) |
 | kubectl | 1.33+ | [kubernetes.io](https://kubernetes.io/docs/tasks/tools/) |
 | Helm | 3.16+ | [helm.sh](https://helm.sh/docs/intro/install/) |
-| Kind | 0.20+ | `go install sigs.k8s.io/kind@latest` |
+| k3d | 5.8+ | [k3d.io](https://k3d.io/#installation) |
 
 The Makefile auto-installs these Go tools on first use (to `$GOPATH/bin`):
 golangci-lint, gotestsum, controller-gen, setup-envtest, chainsaw, kustomize, helm-docs.
@@ -45,19 +45,19 @@ make test
 # Integration tests (uses envtest, no cluster needed)
 make test-integration
 
-# E2E tests (requires Kind cluster with operator deployed)
-make kind-create                          # create Kind cluster (K8s 1.33)
-make kind-deploy IMG=kube-rightsize:e2e   # build, load, install cert-manager + Prometheus + operator
+# E2E tests (requires k3d cluster with operator deployed)
+make k3d-create                           # create k3d cluster (K8s 1.33)
+make k3d-deploy IMG=kube-rightsize:e2e    # build, load, install cert-manager + Prometheus + operator
 make test-e2e                             # run Chainsaw E2E scenarios
 
 # All tests in sequence
 make test-all
 
-# Clean up the Kind cluster when done
-make kind-delete
+# Clean up the k3d cluster when done
+make k3d-delete
 ```
 
-**Important:** `make kind-deploy` mutates `config/manager/kustomization.yaml`.
+**Important:** `make k3d-deploy` mutates `config/manager/kustomization.yaml`.
 Before committing, always restore it:
 ```bash
 git checkout config/manager/kustomization.yaml
