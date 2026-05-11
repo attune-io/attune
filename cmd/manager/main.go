@@ -146,6 +146,12 @@ func main() {
 		setupLog.Error(err, "unable to set up ready check")
 		os.Exit(1)
 	}
+	if enableWebhooks {
+		if err := mgr.AddReadyzCheck("webhook", mgr.GetWebhookServer().StartedChecker()); err != nil {
+			setupLog.Error(err, "unable to set up webhook ready check")
+			os.Exit(1)
+		}
+	}
 
 	setupLog.Info("starting manager", "version", version, "commit", commit, "date", date)
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
