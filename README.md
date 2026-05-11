@@ -36,6 +36,8 @@ resource requests and limits using [In-Place Pod Resize](https://kubernetes.io/b
 | Algorithm | Backward-looking histograms | VPA recommender | **Time-of-day-aware + burst detection** |
 | Production confidence | <1% use automated | N/A | **Observe -> Recommend -> Canary -> Auto** |
 
+> **Migrating from VPA?** See the step-by-step [migration guide](docs/guides/migrating-from-vpa.md) for field-by-field mapping, side-by-side YAML, and zero-downtime cutover.
+
 ## Quick Start
 
 ### Prerequisites
@@ -231,13 +233,17 @@ The dashboard includes:
 
 ## Documentation
 
-- [Examples](examples/) -- ready-to-use policy manifests for common scenarios
-- [Specification](docs/SPEC.md)
-- [Grafana Dashboard](deploy/grafana/dashboard.json)
-- [Contributing](CONTRIBUTING.md)
-- [Security Policy](SECURITY.md)
-- [Changelog](CHANGELOG.md)
-- [Adopters](ADOPTERS.md)
+| Guide | Description |
+|-------|-------------|
+| [Quickstart](docs/getting-started/quickstart.md) | Get running in 5 minutes |
+| [Migrating from VPA](docs/guides/migrating-from-vpa.md) | Step-by-step VPA replacement |
+| [HPA Coexistence](docs/guides/hpa-coexistence.md) | Running alongside HPA |
+| [Canary Rollout](docs/guides/canary-rollout.md) | Graduated rollout strategy |
+| [CLI Reference](docs/reference/cli.md) | kubectl plugin commands |
+| [API Reference](docs/reference/api.md) | CRD specification |
+| [Troubleshooting](docs/guides/troubleshooting.md) | Common issues and solutions |
+| [Examples](examples/) | Ready-to-use policy manifests |
+| [Contributing](CONTRIBUTING.md) | Development setup and guidelines |
 
 ## License
 

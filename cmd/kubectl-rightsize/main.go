@@ -56,6 +56,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "  status            Show policy status, workload counts, and conditions")
 		fmt.Fprintln(os.Stderr, "  savings           Show estimated CPU/memory savings per policy")
 		fmt.Fprintln(os.Stderr, "  recommendations   Show per-container sizing recommendations")
+		fmt.Fprintln(os.Stderr, "  history           Show resize history (timestamp, from/to, result)")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Flags:")
 		fs.PrintDefaults()
@@ -121,6 +122,8 @@ func main() {
 		printSavings(ctx, dynClient, *namespace)
 	case "recommendations":
 		printRecommendations(ctx, dynClient, *namespace)
+	case "history":
+		printHistory(ctx, dynClient, *namespace)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", cmd)
 		fs.Usage()
@@ -351,5 +354,50 @@ func formatAge(created time.Time) string {
 		return fmt.Sprintf("%dh", int(dur.Hours()))
 	default:
 		return fmt.Sprintf("%dd", int(dur.Hours()/24))
+	}
+}
+
+func printHistory(ctx context.Context, dynClient dynamic.Interface, namespace string) {
+	list, err := dynClient.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error listing policies: %v\n", err)
+		os.Exit(1)
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 4, 3, ' ', 0)
+	fmt.Fprintln(w, "NAMESPACE\tPOLICY\tTIMESTAMP\tWORKLOAD\tCONTAINER\tRESOURCE\tFROM\tTO\tRESULT")
+
+	for _, item := range list.Items {
+		ns := item.GetNamespace()
+		policyName := item.GetName()
+		history, found, _ := unstructured.NestedSlice(item.Object, "status", "resizeHistory")
+		if !found {
+			continue
+		}
+
+		for _, h := range history {
+			entry, ok := h.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			ts, _ := entry["timestamp"].(string)
+			workload, _ := entry["workload"].(string)
+			container, _ := entry["container"].(string)
+			resource, _ := entry["resource"].(string)
+			from, _ := entry["from"].(string)
+			to, _ := entry["to"].(string)
+			result, _ := entry["result"].(string)
+
+			if t, parseErr := time.Parse(time.RFC3339, ts); parseErr == nil {
+				ts = t.Local().Format("Jan 02 15:04")
+			}
+
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				ns, policyName, ts, workload, container, resource, from, to, result)
+		}
+	}
+
+	if err := w.Flush(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error flushing output: %v\n", err)
 	}
 }
