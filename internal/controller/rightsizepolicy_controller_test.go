@@ -147,7 +147,7 @@ func newTestPolicy(name, namespace string) *rightsizev1alpha1.RightSizePolicy {
 				Prometheus: &rightsizev1alpha1.PrometheusConfig{
 					Address: "http://prometheus:9090",
 				},
-				MinimumDataPoints: 168,
+				MinimumDataPoints: 48,
 			},
 			CPU: rightsizev1alpha1.ResourceConfig{
 				Percentile:   95,
@@ -631,7 +631,7 @@ func TestParseHistoryWindow_Custom(t *testing.T) {
 func TestGetMinimumDataPoints_Default(t *testing.T) {
 	r := &RightSizePolicyReconciler{}
 	policy := &rightsizev1alpha1.RightSizePolicy{}
-	assert.Equal(t, int32(168), r.getMinimumDataPoints(policy))
+	assert.Equal(t, int32(48), r.getMinimumDataPoints(policy))
 }
 
 func TestGetMinimumDataPoints_Custom(t *testing.T) {
@@ -836,7 +836,7 @@ func TestComputeRecommendations_InsufficientDataPoints(t *testing.T) {
 
 	mc := &mockCollector{
 		queryRangeFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
-			return generateSamples(50, 0.1), nil // Only 50 samples, below 168 threshold
+			return generateSamples(20, 0.1), nil // Only 20 samples, below 48 threshold
 		},
 	}
 

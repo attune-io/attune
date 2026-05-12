@@ -27,7 +27,7 @@ spec:
     prometheus:
       address: "http://prometheus:9090"   # Prometheus URL
     historyWindow: 168h                    # lookback window (default: 168h)
-    minimumDataPoints: 168                 # min samples before recommending (default: 168)
+    minimumDataPoints: 48                  # min samples before recommending (default: 48)
 
   # CPU recommendation parameters.
   cpu:

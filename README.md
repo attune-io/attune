@@ -101,10 +101,11 @@ kubectl get rightsizepolicies -n production
 # api-services    Recommend   3           0         InsufficientData   5m
 ```
 
-> **Note:** The default `minimumDataPoints: 168` requires ~7 days of hourly
-> Prometheus samples before recommendations appear. Set
-> `metricsSource.minimumDataPoints: 24` for faster evaluation (1 day).
-> See the [quickstart guide](docs/getting-started/quickstart.md) for details.
+> **Note:** The default `minimumDataPoints: 48` requires ~2 days of hourly
+> Prometheus samples before recommendations appear. For faster evaluation,
+> set `metricsSource.minimumDataPoints: 24` (1 day) or increase to 168
+> (7 days) for higher confidence. See the
+> [quickstart guide](docs/getting-started/quickstart.md) for details.
 
 ```bash
 kubectl get rightsizepolicies api-services -n production -o yaml

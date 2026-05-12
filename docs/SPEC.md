@@ -179,7 +179,7 @@ spec:
     # How far back to look for usage patterns
     historyWindow: 168h       # default: 168h (7d), min: 24h, max: 720h
     # Minimum data points before making recommendations
-    minimumDataPoints: 168    # default: 168 (7 days * 24 hours)
+    minimumDataPoints: 48     # default: 48 (2 days * 24 hours)
 
   # Per-resource configuration
   cpu:

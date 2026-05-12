@@ -74,7 +74,7 @@ const (
 	defaultCooldown = 1 * time.Hour
 
 	// defaultMinimumDataPoints is the minimum number of data points required.
-	defaultMinimumDataPoints int32 = 168
+	defaultMinimumDataPoints int32 = 48
 
 	// defaultPrometheusStep is the step interval for Prometheus range queries.
 	defaultPrometheusStep = 5 * time.Minute

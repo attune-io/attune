@@ -81,8 +81,8 @@ type MetricsSource struct {
 	HistoryWindow *metav1.Duration `json:"historyWindow,omitempty"`
 
 	// MinimumDataPoints is the minimum number of data points required
-	// before generating recommendations. Minimum 1, default 168 (7 days).
-	// +kubebuilder:default=168
+	// before generating recommendations. Minimum 1, default 48 (2 days).
+	// +kubebuilder:default=48
 	// +kubebuilder:validation:Minimum=1
 	MinimumDataPoints int32 `json:"minimumDataPoints,omitempty"`
 }

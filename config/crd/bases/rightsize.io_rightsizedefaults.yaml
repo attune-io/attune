@@ -195,10 +195,10 @@ spec:
                       Defaults to 7d (168h) if not specified.
                     type: string
                   minimumDataPoints:
-                    default: 168
+                    default: 48
                     description: |-
                       MinimumDataPoints is the minimum number of data points required
-                      before generating recommendations. Minimum 1, default 168 (7 days).
+                      before generating recommendations. Minimum 1, default 48 (2 days).
                     format: int32
                     minimum: 1
                     type: integer

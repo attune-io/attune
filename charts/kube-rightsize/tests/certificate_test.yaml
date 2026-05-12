@@ -1,6 +1,9 @@
 suite: certificate tests
 templates:
   - templates/certificate.yaml
+capabilities:
+  apiVersions:
+    - cert-manager.io/v1
 tests:
   - it: should render Issuer and Certificate when webhooks enabled
     set:

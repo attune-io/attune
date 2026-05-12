@@ -66,7 +66,7 @@ NAME     MODE        WORKLOADS   RESIZED   READY              AGE
 my-app   Recommend   1           0         InsufficientData   5m
 ```
 
-> **Note:** With the default `minimumDataPoints: 168`, the operator needs ~7 days of
+> **Note:** With the default `minimumDataPoints: 48`, the operator needs ~2 days of
 > hourly Prometheus samples before generating recommendations. To see results faster
 > during evaluation, set `minimumDataPoints: 24` (1 day of data).
 
