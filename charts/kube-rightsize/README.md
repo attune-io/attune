@@ -37,9 +37,9 @@ helm install kube-rightsize oci://ghcr.io/sebtardiflabs/charts/kube-rightsize \
 | metrics.serviceMonitor.enabled | bool | `false` | Create a ServiceMonitor for Prometheus Operator |
 | metrics.serviceMonitor.interval | string | `"30s"` | Scrape interval |
 | nameOverride | string | `""` | Override the chart name |
-| networkPolicy | object | `{"enabled":true,"prometheusPort":80}` | NetworkPolicy configuration for operator ingress and egress ports |
+| networkPolicy | object | `{"enabled":true,"prometheusPort":9090}` | NetworkPolicy configuration for operator ingress and egress ports |
 | networkPolicy.enabled | bool | `true` | Enable NetworkPolicy for the operator pod |
-| networkPolicy.prometheusPort | int | `80` | TCP port used to reach Prometheus from the operator pod |
+| networkPolicy.prometheusPort | int | `9090` | TCP port allowed by NetworkPolicy for Prometheus backend pods |
 | nodeSelector | object | `{}` | Node selector |
 | podAnnotations | object | `{}` | Pod annotations |
 | podSecurityContext | object | `{"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}}` | Pod security context |
@@ -67,8 +67,9 @@ Prometheus address is configured per-policy in `RightSizePolicy.spec.metricsSour
 or globally via the `RightSizeDefaults` CRD. It is not a chart value.
 
 If `networkPolicy.enabled=true`, the operator pod allows egress to Prometheus on
-`networkPolicy.prometheusPort` (default `80`). Set that value to match the port
-used by your Prometheus endpoint.
+`networkPolicy.prometheusPort` (default `9090`). For the `prometheus-community/prometheus`
+chart, keep this at `9090` even if the Service URL uses port `80`, because
+NetworkPolicy egress matches the backend pod port.
 
 ## Security Defaults
 

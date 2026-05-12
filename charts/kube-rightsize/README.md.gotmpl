@@ -30,8 +30,9 @@ Prometheus address is configured per-policy in `RightSizePolicy.spec.metricsSour
 or globally via the `RightSizeDefaults` CRD. It is not a chart value.
 
 If `networkPolicy.enabled=true`, the operator pod allows egress to Prometheus on
-`networkPolicy.prometheusPort` (default `80`). Set that value to match the port
-used by your Prometheus endpoint.
+`networkPolicy.prometheusPort` (default `9090`). For the `prometheus-community/prometheus`
+chart, keep this at `9090` even if the Service URL uses port `80`, because
+NetworkPolicy egress matches the backend pod port.
 
 ## Security Defaults
 

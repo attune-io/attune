@@ -114,7 +114,7 @@ kubectl get rightsizepolicies api-services -n production -o yaml
 
 > **Upgrading?** Review the [changelog](CHANGELOG.md) for breaking metric label changes and default changes such as `minimumDataPoints`.
 >
-> **Helm installs:** If you use restrictive cluster networking, review the chart's generated [Helm README](charts/kube-rightsize/README.md#networkpolicy) before installing with the default `networkPolicy.enabled=true`. The policy allows webhook ingress on `9443`, metrics ingress on the configured `metrics.port` (default `8080`), DNS egress, Kubernetes API egress on `443`, and Prometheus egress on `networkPolicy.prometheusPort` (default `80`).
+> **Helm installs:** If you use restrictive cluster networking, review the chart's generated [Helm README](charts/kube-rightsize/README.md#networkpolicy) before installing with the default `networkPolicy.enabled=true`. The policy allows webhook ingress on `9443`, metrics ingress on the configured `metrics.port` (default `8080`), DNS egress, Kubernetes API egress on `443`, and Prometheus egress on `networkPolicy.prometheusPort` (default `9090`).
 >
 ### Upgrade to Canary Mode
 

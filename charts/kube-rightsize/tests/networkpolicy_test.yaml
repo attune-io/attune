@@ -11,6 +11,12 @@ tests:
           value:
             - Ingress
             - Egress
+      - contains:
+          path: spec.egress
+          content:
+            ports:
+              - port: 9090
+                protocol: TCP
 
   - it: should not render NetworkPolicy when disabled
     set:

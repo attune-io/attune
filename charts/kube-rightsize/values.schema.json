@@ -308,8 +308,8 @@
         },
         "prometheusPort": {
           "type": "integer",
-          "description": "TCP port used to reach Prometheus from the operator pod",
-          "default": 80,
+          "description": "TCP port allowed by NetworkPolicy for Prometheus backend pods",
+          "default": 9090,
           "minimum": 1,
           "maximum": 65535
         }

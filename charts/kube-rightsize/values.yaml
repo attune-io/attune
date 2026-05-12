@@ -107,8 +107,8 @@ webhooks:
 networkPolicy:
   # -- Enable NetworkPolicy for the operator pod
   enabled: true
-  # -- TCP port used to reach Prometheus from the operator pod
-  prometheusPort: 80
+  # -- TCP port allowed by NetworkPolicy for Prometheus backend pods
+  prometheusPort: 9090
 
 # -- Logging configuration
 logging:

@@ -75,6 +75,14 @@ func (s *syntheticCollector) QueryRange(_ context.Context, query string, start, 
 	return samples, nil
 }
 
+func (s *syntheticCollector) QueryRangeGrouped(ctx context.Context, query string, start, end time.Time, step time.Duration) (map[string][]metrics.Sample, error) {
+	samples, err := s.QueryRange(ctx, query, start, end, step)
+	if err != nil {
+		return nil, err
+	}
+	return map[string][]metrics.Sample{"": samples}, nil
+}
+
 func (s *syntheticCollector) Query(_ context.Context, _ string, _ time.Time) (float64, error) {
 	return 0.05, nil
 }
@@ -112,10 +120,10 @@ func TestMain(m *testing.M) {
 	}
 
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
-		Scheme:                  scheme.Scheme,
-		LeaderElection:          false,
-		HealthProbeBindAddress:  "0",
-		Metrics:                 metricsserver.Options{BindAddress: "0"},
+		Scheme:                 scheme.Scheme,
+		LeaderElection:         false,
+		HealthProbeBindAddress: "0",
+		Metrics:                metricsserver.Options{BindAddress: "0"},
 	})
 	if err != nil {
 		panic("failed to create manager: " + err.Error())
@@ -131,7 +139,7 @@ func TestMain(m *testing.M) {
 		Scheme:      mgr.GetScheme(),
 		Clientset:   clientset,
 		Recorder:    mgr.GetEventRecorder("kube-rightsize-integration"),
-		MinCooldown: 1 * time.Second, // fast reconciliation for tests
+		MinCooldown: time.Second, // fast reconciliation for tests
 		MetricsFactory: func(address string) (metrics.MetricsCollector, error) {
 			return &syntheticCollector{}, nil
 		},

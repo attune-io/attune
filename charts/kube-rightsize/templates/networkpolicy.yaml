@@ -42,8 +42,8 @@ spec:
           protocol: UDP
         - port: 53
           protocol: TCP
-    # Prometheus (configurable port)
+    # Prometheus backend pods (configurable port)
     - ports:
-        - port: {{ .Values.networkPolicy.prometheusPort | default 80 }}
+        - port: {{ .Values.networkPolicy.prometheusPort | default 9090 }}
           protocol: TCP
 {{- end }}
