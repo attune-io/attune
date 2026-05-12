@@ -1073,6 +1073,14 @@ func TestReconcile_HappyPathWithRecommendations(t *testing.T) {
 	assert.Equal(t, "Monitoring", updated.Status.Conditions[0].Reason)
 }
 
+// newSafetyTestReconciler creates a reconciler with a pod and a matching
+// deployment for safety observation tests. The deploy satisfies the
+// provenance check in checkPendingSafetyObservations.
+func newSafetyTestReconciler(pod *corev1.Pod) (*RightSizePolicyReconciler, client.Client) {
+	deploy := newTestDeployment("api-server", "default", nil)
+	return newResizeReconciler(pod, deploy)
+}
+
 // ---------- checkPendingSafetyObservations ----------
 
 func TestCheckPendingSafetyObservations_ObservationElapsed(t *testing.T) {
@@ -1083,6 +1091,7 @@ func TestCheckPendingSafetyObservations_ObservationElapsed(t *testing.T) {
 			Namespace: "default",
 			Annotations: map[string]string{
 				"rightsize.io/resized-at":                   resizedAt,
+				"rightsize.io/resized-workload":             "api-server",
 				"rightsize.io/resized-containers":           "main",
 				"rightsize.io/original-cpu-request.main":    "500m",
 				"rightsize.io/original-memory-request.main": "512Mi",
@@ -1115,7 +1124,7 @@ func TestCheckPendingSafetyObservations_ObservationElapsed(t *testing.T) {
 
 	policy := newTestPolicy("test-policy", "default")
 
-	reconciler, fakeClient := newResizeReconciler(pod)
+	reconciler, fakeClient := newSafetyTestReconciler(pod)
 
 	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
 
@@ -1139,6 +1148,7 @@ func TestCheckPendingSafetyObservations_MalformedAnnotation(t *testing.T) {
 			Namespace: "default",
 			Annotations: map[string]string{
 				"rightsize.io/resized-at":                   resizedAt,
+				"rightsize.io/resized-workload":             "api-server",
 				"rightsize.io/resized-containers":           "main",
 				"rightsize.io/original-cpu-request.main":    "not-a-quantity", // malformed
 				"rightsize.io/original-memory-request.main": "512Mi",
@@ -1154,7 +1164,7 @@ func TestCheckPendingSafetyObservations_MalformedAnnotation(t *testing.T) {
 
 	policy := newTestPolicy("test-policy", "default")
 
-	reconciler, fakeClient := newResizeReconciler(pod)
+	reconciler, fakeClient := newSafetyTestReconciler(pod)
 
 	// Should not panic when the annotation value is unparseable.
 	assert.NotPanics(t, func() {
@@ -1180,6 +1190,7 @@ func TestCheckPendingSafetyObservations_NotElapsed(t *testing.T) {
 			Namespace: "default",
 			Annotations: map[string]string{
 				"rightsize.io/resized-at":                   resizedAt,
+				"rightsize.io/resized-workload":             "api-server",
 				"rightsize.io/resized-containers":           "main",
 				"rightsize.io/original-cpu-request.main":    "500m",
 				"rightsize.io/original-memory-request.main": "512Mi",
@@ -1195,7 +1206,7 @@ func TestCheckPendingSafetyObservations_NotElapsed(t *testing.T) {
 
 	policy := newTestPolicy("test-policy", "default")
 
-	reconciler, fakeClient := newResizeReconciler(pod)
+	reconciler, fakeClient := newSafetyTestReconciler(pod)
 
 	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
 
@@ -1814,6 +1825,7 @@ func TestCheckPendingSafetyObservations_MalformedTimestamp(t *testing.T) {
 			Namespace: "default",
 			Annotations: map[string]string{
 				"rightsize.io/resized-at":                   "not-a-timestamp",
+				"rightsize.io/resized-workload":             "api-server",
 				"rightsize.io/resized-containers":           "main",
 				"rightsize.io/original-cpu-request.main":    "500m",
 				"rightsize.io/original-memory-request.main": "512Mi",
@@ -1829,7 +1841,7 @@ func TestCheckPendingSafetyObservations_MalformedTimestamp(t *testing.T) {
 
 	policy := newTestPolicy("test-policy", "default")
 
-	reconciler, fakeClient := newResizeReconciler(pod)
+	reconciler, fakeClient := newSafetyTestReconciler(pod)
 
 	assert.NotPanics(t, func() {
 		reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
@@ -1853,6 +1865,7 @@ func TestCheckPendingSafetyObservations_MalformedMemoryAnnotation(t *testing.T) 
 			Namespace: "default",
 			Annotations: map[string]string{
 				"rightsize.io/resized-at":                   resizedAt,
+				"rightsize.io/resized-workload":             "api-server",
 				"rightsize.io/resized-containers":           "main",
 				"rightsize.io/original-cpu-request.main":    "500m",
 				"rightsize.io/original-memory-request.main": "not-a-quantity",
@@ -1868,7 +1881,7 @@ func TestCheckPendingSafetyObservations_MalformedMemoryAnnotation(t *testing.T) 
 
 	policy := newTestPolicy("test-policy", "default")
 
-	reconciler, fakeClient := newResizeReconciler(pod)
+	reconciler, fakeClient := newSafetyTestReconciler(pod)
 
 	assert.NotPanics(t, func() {
 		reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
@@ -1893,6 +1906,7 @@ func TestCheckPendingSafetyObservations_CustomObservationPeriod(t *testing.T) {
 			Namespace: "default",
 			Annotations: map[string]string{
 				"rightsize.io/resized-at":                   resizedAt,
+				"rightsize.io/resized-workload":             "api-server",
 				"rightsize.io/resized-containers":           "main",
 				"rightsize.io/original-cpu-request.main":    "500m",
 				"rightsize.io/original-memory-request.main": "512Mi",
@@ -1929,7 +1943,7 @@ func TestCheckPendingSafetyObservations_CustomObservationPeriod(t *testing.T) {
 		ObservationPeriod: metav1.Duration{Duration: 1 * time.Minute},
 	}
 
-	reconciler, fakeClient := newResizeReconciler(pod)
+	reconciler, fakeClient := newSafetyTestReconciler(pod)
 
 	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
 
@@ -1960,6 +1974,7 @@ func TestCheckPendingSafetyObservations_UnsafeVerdictReverts(t *testing.T) {
 			Labels:    map[string]string{"app": "test"},
 			Annotations: map[string]string{
 				"rightsize.io/resized-at":                   resizedAt,
+				"rightsize.io/resized-workload":             "api-server",
 				"rightsize.io/resized-containers":           "main",
 				"rightsize.io/original-cpu-request.main":    "500m",
 				"rightsize.io/original-memory-request.main": "512Mi",
@@ -1992,7 +2007,7 @@ func TestCheckPendingSafetyObservations_UnsafeVerdictReverts(t *testing.T) {
 
 	policy := newTestPolicy("test-policy", "default")
 
-	reconciler, fakeClient := newResizeReconciler(pod)
+	reconciler, fakeClient := newSafetyTestReconciler(pod)
 
 	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
 
@@ -2028,6 +2043,7 @@ func TestCheckPendingSafetyObservations_UnsafeVerdictEmitsEvent(t *testing.T) {
 			Labels:    map[string]string{"app": "test"},
 			Annotations: map[string]string{
 				"rightsize.io/resized-at":                   resizedAt,
+				"rightsize.io/resized-workload":             "api-server",
 				"rightsize.io/resized-containers":           "main",
 				"rightsize.io/original-cpu-request.main":    "500m",
 				"rightsize.io/original-memory-request.main": "512Mi",
@@ -2059,7 +2075,7 @@ func TestCheckPendingSafetyObservations_UnsafeVerdictEmitsEvent(t *testing.T) {
 	}
 
 	policy := newTestPolicy("test-policy", "default")
-	reconciler, _ := newResizeReconciler(pod)
+	reconciler, _ := newSafetyTestReconciler(pod)
 
 	recorder := events.NewFakeRecorder(10)
 	reconciler.Recorder = recorder
@@ -2084,6 +2100,7 @@ func TestCheckPendingSafetyObservations_RestartCountParsed(t *testing.T) {
 			Namespace: "default",
 			Annotations: map[string]string{
 				"rightsize.io/resized-at":                   resizedAt,
+				"rightsize.io/resized-workload":             "api-server",
 				"rightsize.io/resized-containers":           "main",
 				"rightsize.io/original-cpu-request.main":    "500m",
 				"rightsize.io/original-memory-request.main": "512Mi",
@@ -2118,7 +2135,7 @@ func TestCheckPendingSafetyObservations_RestartCountParsed(t *testing.T) {
 	}
 
 	policy := newTestPolicy("test-policy", "default")
-	reconciler, fakeClient := newResizeReconciler(pod)
+	reconciler, fakeClient := newSafetyTestReconciler(pod)
 
 	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
 
@@ -2139,6 +2156,7 @@ func TestCheckPendingSafetyObservations_RestartCountExceeded(t *testing.T) {
 			Namespace: "default",
 			Annotations: map[string]string{
 				"rightsize.io/resized-at":                   resizedAt,
+				"rightsize.io/resized-workload":             "api-server",
 				"rightsize.io/resized-containers":           "main",
 				"rightsize.io/original-cpu-request.main":    "500m",
 				"rightsize.io/original-memory-request.main": "512Mi",
@@ -2172,7 +2190,7 @@ func TestCheckPendingSafetyObservations_RestartCountExceeded(t *testing.T) {
 	}
 
 	policy := newTestPolicy("test-policy", "default")
-	reconciler, _ := newResizeReconciler(pod)
+	reconciler, _ := newSafetyTestReconciler(pod)
 
 	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
 
@@ -2194,6 +2212,7 @@ func TestCheckPendingSafetyObservations_InvalidRestartCount(t *testing.T) {
 			Namespace: "default",
 			Annotations: map[string]string{
 				"rightsize.io/resized-at":                   resizedAt,
+				"rightsize.io/resized-workload":             "api-server",
 				"rightsize.io/resized-containers":           "main",
 				"rightsize.io/original-cpu-request.main":    "500m",
 				"rightsize.io/original-memory-request.main": "512Mi",
@@ -2228,7 +2247,7 @@ func TestCheckPendingSafetyObservations_InvalidRestartCount(t *testing.T) {
 	}
 
 	policy := newTestPolicy("test-policy", "default")
-	reconciler, fakeClient := newResizeReconciler(pod)
+	reconciler, fakeClient := newSafetyTestReconciler(pod)
 
 	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
 

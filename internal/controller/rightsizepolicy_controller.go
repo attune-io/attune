@@ -1033,8 +1033,24 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 	monitor := r.newSafetyMonitor(logger, collector)
 	observationPeriod := getObservationPeriod(policy)
 
+	// Build a set of workload names this policy targets for provenance checks.
+	policyWorkloads, _ := r.discoverWorkloads(ctx, policy)
+	workloadNames := make(map[string]bool, len(policyWorkloads))
+	for _, w := range policyWorkloads {
+		workloadNames[w.GetName()] = true
+	}
+
 	for i := range podList.Items {
 		pod := &podList.Items[i]
+
+		// Provenance check: only process pods whose tracked workload matches
+		// this policy's targets. Prevents spoofed annotations from triggering
+		// reverts via the operator's elevated permissions.
+		trackedWorkload := pod.Annotations[annotationResizedWorkload]
+		if trackedWorkload == "" || !workloadNames[trackedWorkload] {
+			continue
+		}
+
 		records, err := parseResizeRecords(pod, observationPeriod)
 		if err != nil {
 			if !errors.Is(err, errNotReady) {
