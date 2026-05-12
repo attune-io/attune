@@ -47,7 +47,7 @@ Total number of webhook admission decisions.
 
 | Label | Description |
 |-------|-------------|
-| `operation` | `validate_create`, `validate_update`, or `defaulting` |
+| `operation` | `validate_create`, `validate_update`, `defaulting`, `defaults_validate_create`, or `defaults_validate_update` |
 | `result` | `allowed` or `rejected` |
 
 ## Gauges

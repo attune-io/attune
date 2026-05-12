@@ -415,6 +415,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 37 },
       "id": 14,
       "title": "Webhook Validation Rate",
+      "description": "Covers RightSizePolicy (validate_create, validate_update, defaulting) and RightSizeDefaults (defaults_validate_create, defaults_validate_update) webhooks.",
       "type": "timeseries",
       "targets": [
         {

@@ -42,7 +42,7 @@ make verify
 ### Running Tests
 
 ```bash
-# Unit tests (490+ tests, 75% coverage threshold enforced)
+# Unit tests (500+ tests, 80% coverage threshold enforced)
 make test
 
 # Integration tests (uses envtest, no cluster needed)
@@ -86,7 +86,7 @@ make docker-build IMG=kube-rightsize:dev
 
 Run `make verify` before every commit. It covers:
 - golangci-lint (code quality + import alias enforcement)
-- Unit and integration tests with coverage threshold (75%)
+- Unit and integration tests with coverage threshold (80%)
 - Helm lint + template validation
 - Helm chart docs freshness and unit tests
 - CRD manifest freshness (`make manifests` output matches committed files)

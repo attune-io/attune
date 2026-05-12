@@ -503,10 +503,14 @@ func TestReconcile_DefaultsMergingFromClusterDefaults(t *testing.T) {
 // informer cache creates an inherent race: after UpdateResize bumps the pod's
 // resourceVersion, the re-fetch via the cached client returns the stale version,
 // causing a 409 Conflict on annotation persistence. This triggers revert on every
-// attempt, preventing the resize from ever completing.
+// attempt, preventing the resize from ever completing. The same limitation
+// applies to the observation-period requeue shortening path, which requires
+// a successful resize (Resized > 0) to activate.
 //
 // The resize path is covered by:
 //   - Unit tests: TestExecuteResizes_PersistsAnnotations, _CapturesZeroRestartCount,
 //     _PreservesExistingPodAnnotations, _RevertsOnAnnotationUpdateFailure,
 //     _RevertsOnReFetchFailure (using fake clients without informer cache)
+//   - Unit tests: TestRequeueShortenedByObservationPeriod (tests getObservationPeriod
+//     and min(cooldown, obs) logic directly)
 //   - E2E tests: Chainsaw scenarios on Kind clusters (real kubelet, real cache sync)

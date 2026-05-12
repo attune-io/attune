@@ -54,6 +54,20 @@ tests:
             mountPath: /tmp/k8s-webhook-server/serving-certs
             readOnly: true
 
+  - it: should pass collector-ttl arg with default value
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --collector-ttl=10m
+
+  - it: should pass custom collector-ttl arg
+    set:
+      collectorTTL: "30m"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --collector-ttl=30m
+
   - it: should disable webhooks via flag
     set:
       webhooks.enabled: false

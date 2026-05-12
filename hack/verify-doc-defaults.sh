@@ -100,6 +100,22 @@ check_default "memBounds (README)" \
   'min.*64Mi' \
   "README.md"
 
+# --- cooldown default = 1h ---
+check_default "cooldown (Go)" \
+  'DefaultCooldown.*"1h"' \
+  "api/v1alpha1/defaults.go"
+check_default "cooldown (README)" \
+  '[Cc]ooldown' \
+  "README.md"
+
+# --- collectorTTL default = 10m ---
+check_default "collectorTTL (Go)" \
+  'collectorTTL = 10 \* time.Minute' \
+  "internal/controller/rightsizepolicy_controller.go"
+check_default "collectorTTL (Helm values)" \
+  'collectorTTL: "10m"' \
+  "charts/kube-rightsize/values.yaml"
+
 # --- networkPolicy.prometheusPort default = 9090 ---
 check_default "prometheusPort (values.yaml)" \
   "prometheusPort: 9090" \
