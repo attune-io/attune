@@ -416,6 +416,7 @@ func TestPrintSavings(t *testing.T) {
 			"status": map[string]interface{}{
 				"savings": map[string]interface{}{
 					"cpuRequestReduction":     "350m",
+					"cpuRequestTotal":         "1",
 					"memoryRequestReduction":  "134217728",
 					"estimatedMonthlySavings": "$12.78",
 				},
@@ -445,6 +446,7 @@ func TestPrintSavings(t *testing.T) {
 	assert.Contains(t, output, "api-svc")
 	assert.Contains(t, output, "350m")
 	assert.Contains(t, output, "128Mi")
+	assert.Contains(t, output, "35%")
 	assert.Contains(t, output, "$12.78")
 }
 

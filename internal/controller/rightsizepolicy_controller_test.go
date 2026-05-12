@@ -1140,7 +1140,7 @@ func TestCheckPendingSafetyObservations_MalformedAnnotation(t *testing.T) {
 			Annotations: map[string]string{
 				"rightsize.io/resized-at":                   resizedAt,
 				"rightsize.io/resized-containers":           "main",
-				"rightsize.io/original-cpu-request":         "not-a-quantity", // malformed
+				"rightsize.io/original-cpu-request.main":    "not-a-quantity", // malformed
 				"rightsize.io/original-memory-request.main": "512Mi",
 			},
 		},
@@ -1852,10 +1852,10 @@ func TestCheckPendingSafetyObservations_MalformedMemoryAnnotation(t *testing.T) 
 			Name:      "bad-mem-pod",
 			Namespace: "default",
 			Annotations: map[string]string{
-				"rightsize.io/resized-at":                resizedAt,
-				"rightsize.io/resized-containers":        "main",
-				"rightsize.io/original-cpu-request.main": "500m",
-				"rightsize.io/original-memory-request":   "not-a-quantity",
+				"rightsize.io/resized-at":                   resizedAt,
+				"rightsize.io/resized-containers":           "main",
+				"rightsize.io/original-cpu-request.main":    "500m",
+				"rightsize.io/original-memory-request.main": "not-a-quantity",
 			},
 		},
 		Spec: corev1.PodSpec{
