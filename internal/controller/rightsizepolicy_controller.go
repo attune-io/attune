@@ -108,13 +108,24 @@ type RightSizePolicyReconciler struct {
 // This enables dependency injection for testing.
 type MetricsCollectorFactory func(address string) (rsmetrics.MetricsCollector, error)
 
+// maxCollectors bounds the collector cache to prevent memory-based DoS
+// via address rotation in CRD specs.
+const maxCollectors = 64
+
 // getOrCreateCollector returns a cached collector for the address, creating one
-// if needed. This avoids re-creating HTTP clients and rate limiters per reconcile.
-// The cache is bounded at 64 entries to prevent memory-based DoS via address
-// rotation.
+// if needed. The cache is bounded at maxCollectors entries.
 func (r *RightSizePolicyReconciler) getOrCreateCollector(address string) (rsmetrics.MetricsCollector, error) {
 	if cached, ok := r.collectors.Load(address); ok {
 		return cached.(rsmetrics.MetricsCollector), nil
+	}
+
+	var count int
+	r.collectors.Range(func(_, _ any) bool {
+		count++
+		return count < maxCollectors
+	})
+	if count >= maxCollectors {
+		return nil, fmt.Errorf("collector cache full (%d entries); refusing new Prometheus address %q", maxCollectors, address)
 	}
 
 	collector, err := r.MetricsFactory(address)
@@ -524,8 +535,12 @@ func (r *RightSizePolicyReconciler) resolvePrometheusAddress(ctx context.Context
 	// Fall back to auto-discovery: look for Prometheus Operator's Prometheus CRD.
 	if addr == "" {
 		if discovered := r.discoverPrometheus(ctx); discovered != "" {
-			log.FromContext(ctx).Info("Auto-discovered Prometheus address", "address", discovered)
-			return discovered, nil
+			if err := webhook.ValidatePrometheusAddress(discovered); err != nil {
+				log.FromContext(ctx).Error(err, "Auto-discovered Prometheus address failed SSRF validation", "address", discovered)
+			} else {
+				log.FromContext(ctx).Info("Auto-discovered Prometheus address", "address", discovered)
+				return discovered, nil
+			}
 		}
 		return "", fmt.Errorf("no Prometheus address configured in policy or cluster defaults, and auto-discovery found no Prometheus instance")
 	}
