@@ -94,7 +94,6 @@ rules:
   - get
   - list
   - patch
-  - update
   - watch
 - apiGroups:
   - rightsize.io

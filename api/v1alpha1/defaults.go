@@ -38,12 +38,6 @@ const (
 	ResultSuccess  = "Success"
 	ResultFailed   = "Failed"
 	ResultReverted = "Reverted"
-	ResultSkipped  = "Skipped"
-)
-
-// Resize method values.
-const (
-	MethodInPlace = "InPlace"
 )
 
 // Default values for RightSizePolicy fields. These are the single source

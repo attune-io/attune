@@ -307,7 +307,7 @@ type ResizeHistoryEntry struct {
 	To string `json:"to"`
 
 	// Method is the resize method used.
-	// +kubebuilder:validation:Enum=InPlace;Recreate
+	// +kubebuilder:validation:Enum=InPlace
 	Method string `json:"method"`
 
 	// Result is the outcome of the resize operation.

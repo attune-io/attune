@@ -5,7 +5,7 @@ metadata:
   labels:
     {{- include "kube-rightsize.labels" . | nindent 4 }}
 rules:
-  # RightSizePolicy CRDs: read + status update
+  # RightSizePolicy CRDs: read + patch (annotations)
   - apiGroups:
       - rightsize.io
     resources:
@@ -14,7 +14,6 @@ rules:
       - get
       - list
       - watch
-      - update
       - patch
   - apiGroups:
       - rightsize.io

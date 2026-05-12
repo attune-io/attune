@@ -20,7 +20,6 @@ tests:
               - get
               - list
               - watch
-              - update
               - patch
 
   - it: should include pod resize permissions

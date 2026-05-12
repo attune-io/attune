@@ -572,7 +572,6 @@ spec:
                       description: Method is the resize method used.
                       enum:
                       - InPlace
-                      - Recreate
                       type: string
                     resource:
                       description: Resource is the resource type that was resized.
