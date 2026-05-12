@@ -1082,10 +1082,10 @@ func TestCheckPendingSafetyObservations_ObservationElapsed(t *testing.T) {
 			Name:      "test-pod",
 			Namespace: "default",
 			Annotations: map[string]string{
-				"rightsize.io/resized-at":              resizedAt,
-				"rightsize.io/resized-container":       "main",
-				"rightsize.io/original-cpu-request":    "500m",
-				"rightsize.io/original-memory-request": "512Mi",
+				"rightsize.io/resized-at":                   resizedAt,
+				"rightsize.io/resized-containers":           "main",
+				"rightsize.io/original-cpu-request.main":    "500m",
+				"rightsize.io/original-memory-request.main": "512Mi",
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -1138,10 +1138,10 @@ func TestCheckPendingSafetyObservations_MalformedAnnotation(t *testing.T) {
 			Name:      "bad-pod",
 			Namespace: "default",
 			Annotations: map[string]string{
-				"rightsize.io/resized-at":              resizedAt,
-				"rightsize.io/resized-container":       "main",
-				"rightsize.io/original-cpu-request":    "not-a-quantity", // malformed
-				"rightsize.io/original-memory-request": "512Mi",
+				"rightsize.io/resized-at":                   resizedAt,
+				"rightsize.io/resized-containers":           "main",
+				"rightsize.io/original-cpu-request":         "not-a-quantity", // malformed
+				"rightsize.io/original-memory-request.main": "512Mi",
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -1179,10 +1179,10 @@ func TestCheckPendingSafetyObservations_NotElapsed(t *testing.T) {
 			Name:      "recent-pod",
 			Namespace: "default",
 			Annotations: map[string]string{
-				"rightsize.io/resized-at":              resizedAt,
-				"rightsize.io/resized-container":       "main",
-				"rightsize.io/original-cpu-request":    "500m",
-				"rightsize.io/original-memory-request": "512Mi",
+				"rightsize.io/resized-at":                   resizedAt,
+				"rightsize.io/resized-containers":           "main",
+				"rightsize.io/original-cpu-request.main":    "500m",
+				"rightsize.io/original-memory-request.main": "512Mi",
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -1813,10 +1813,10 @@ func TestCheckPendingSafetyObservations_MalformedTimestamp(t *testing.T) {
 			Name:      "bad-ts-pod",
 			Namespace: "default",
 			Annotations: map[string]string{
-				"rightsize.io/resized-at":              "not-a-timestamp",
-				"rightsize.io/resized-container":       "main",
-				"rightsize.io/original-cpu-request":    "500m",
-				"rightsize.io/original-memory-request": "512Mi",
+				"rightsize.io/resized-at":                   "not-a-timestamp",
+				"rightsize.io/resized-containers":           "main",
+				"rightsize.io/original-cpu-request.main":    "500m",
+				"rightsize.io/original-memory-request.main": "512Mi",
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -1852,10 +1852,10 @@ func TestCheckPendingSafetyObservations_MalformedMemoryAnnotation(t *testing.T) 
 			Name:      "bad-mem-pod",
 			Namespace: "default",
 			Annotations: map[string]string{
-				"rightsize.io/resized-at":              resizedAt,
-				"rightsize.io/resized-container":       "main",
-				"rightsize.io/original-cpu-request":    "500m",
-				"rightsize.io/original-memory-request": "not-a-quantity",
+				"rightsize.io/resized-at":                resizedAt,
+				"rightsize.io/resized-containers":        "main",
+				"rightsize.io/original-cpu-request.main": "500m",
+				"rightsize.io/original-memory-request":   "not-a-quantity",
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -1892,10 +1892,10 @@ func TestCheckPendingSafetyObservations_CustomObservationPeriod(t *testing.T) {
 			Name:      "custom-period-pod",
 			Namespace: "default",
 			Annotations: map[string]string{
-				"rightsize.io/resized-at":              resizedAt,
-				"rightsize.io/resized-container":       "main",
-				"rightsize.io/original-cpu-request":    "500m",
-				"rightsize.io/original-memory-request": "512Mi",
+				"rightsize.io/resized-at":                   resizedAt,
+				"rightsize.io/resized-containers":           "main",
+				"rightsize.io/original-cpu-request.main":    "500m",
+				"rightsize.io/original-memory-request.main": "512Mi",
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -1959,10 +1959,10 @@ func TestCheckPendingSafetyObservations_UnsafeVerdictReverts(t *testing.T) {
 			Namespace: "default",
 			Labels:    map[string]string{"app": "test"},
 			Annotations: map[string]string{
-				"rightsize.io/resized-at":              resizedAt,
-				"rightsize.io/resized-container":       "main",
-				"rightsize.io/original-cpu-request":    "500m",
-				"rightsize.io/original-memory-request": "512Mi",
+				"rightsize.io/resized-at":                   resizedAt,
+				"rightsize.io/resized-containers":           "main",
+				"rightsize.io/original-cpu-request.main":    "500m",
+				"rightsize.io/original-memory-request.main": "512Mi",
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -2027,10 +2027,10 @@ func TestCheckPendingSafetyObservations_UnsafeVerdictEmitsEvent(t *testing.T) {
 			Namespace: "default",
 			Labels:    map[string]string{"app": "test"},
 			Annotations: map[string]string{
-				"rightsize.io/resized-at":              resizedAt,
-				"rightsize.io/resized-container":       "main",
-				"rightsize.io/original-cpu-request":    "500m",
-				"rightsize.io/original-memory-request": "512Mi",
+				"rightsize.io/resized-at":                   resizedAt,
+				"rightsize.io/resized-containers":           "main",
+				"rightsize.io/original-cpu-request.main":    "500m",
+				"rightsize.io/original-memory-request.main": "512Mi",
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -2083,11 +2083,11 @@ func TestCheckPendingSafetyObservations_RestartCountParsed(t *testing.T) {
 			Name:      "restart-pod",
 			Namespace: "default",
 			Annotations: map[string]string{
-				"rightsize.io/resized-at":              resizedAt,
-				"rightsize.io/resized-container":       "main",
-				"rightsize.io/original-cpu-request":    "500m",
-				"rightsize.io/original-memory-request": "512Mi",
-				"rightsize.io/original-restart-count":  "3",
+				"rightsize.io/resized-at":                   resizedAt,
+				"rightsize.io/resized-containers":           "main",
+				"rightsize.io/original-cpu-request.main":    "500m",
+				"rightsize.io/original-memory-request.main": "512Mi",
+				"rightsize.io/original-restart-count":       "3",
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -2138,11 +2138,11 @@ func TestCheckPendingSafetyObservations_RestartCountExceeded(t *testing.T) {
 			Name:      "crashing-pod",
 			Namespace: "default",
 			Annotations: map[string]string{
-				"rightsize.io/resized-at":              resizedAt,
-				"rightsize.io/resized-container":       "main",
-				"rightsize.io/original-cpu-request":    "500m",
-				"rightsize.io/original-memory-request": "512Mi",
-				"rightsize.io/original-restart-count":  "3",
+				"rightsize.io/resized-at":                   resizedAt,
+				"rightsize.io/resized-containers":           "main",
+				"rightsize.io/original-cpu-request.main":    "500m",
+				"rightsize.io/original-memory-request.main": "512Mi",
+				"rightsize.io/original-restart-count":       "3",
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -2193,11 +2193,11 @@ func TestCheckPendingSafetyObservations_InvalidRestartCount(t *testing.T) {
 			Name:      "bad-annotation-pod",
 			Namespace: "default",
 			Annotations: map[string]string{
-				"rightsize.io/resized-at":              resizedAt,
-				"rightsize.io/resized-container":       "main",
-				"rightsize.io/original-cpu-request":    "500m",
-				"rightsize.io/original-memory-request": "512Mi",
-				"rightsize.io/original-restart-count":  "not-a-number",
+				"rightsize.io/resized-at":                   resizedAt,
+				"rightsize.io/resized-containers":           "main",
+				"rightsize.io/original-cpu-request.main":    "500m",
+				"rightsize.io/original-memory-request.main": "512Mi",
+				"rightsize.io/original-restart-count":       "not-a-number",
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -2785,11 +2785,11 @@ func TestExecuteResizes_PersistsAnnotations(t *testing.T) {
 	_, parseErr := time.Parse(time.RFC3339, updated.Annotations[annotationResizedAt])
 	assert.NoError(t, parseErr, "resized-at should be valid RFC3339")
 
-	assert.Equal(t, "main", updated.Annotations[annotationResizedContainer])
+	assert.Contains(t, updated.Annotations[annotationResizedContainers], "main")
 	assert.Equal(t, "api-server", updated.Annotations[annotationResizedWorkload])
-	assert.Equal(t, "500m", updated.Annotations[annotationOriginalCPU])
-	assert.Equal(t, "512Mi", updated.Annotations[annotationOriginalMemory])
-	assert.Equal(t, "7", updated.Annotations[annotationOriginalRestartCount],
+	assert.Equal(t, "500m", updated.Annotations[annotationOriginalCPUPrefix+"main"])
+	assert.Equal(t, "512Mi", updated.Annotations[annotationOriginalMemoryPrefix+"main"])
+	assert.Equal(t, "7", updated.Annotations[annotationOriginalRestartCountPrefix+"main"],
 		"RestartCount should be captured from pre-resize container status")
 }
 
@@ -2814,7 +2814,7 @@ func TestExecuteResizes_CapturesZeroRestartCount(t *testing.T) {
 		Name: pod.Name, Namespace: "default",
 	}, &updated)
 	require.NoError(t, err)
-	assert.Equal(t, "0", updated.Annotations[annotationOriginalRestartCount],
+	assert.Equal(t, "0", updated.Annotations[annotationOriginalRestartCountPrefix+"main"],
 		"zero RestartCount should still be persisted")
 }
 

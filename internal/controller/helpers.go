@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -72,12 +73,37 @@ func newHistoryEntry(now metav1.Time, workload, container string, res resize.Res
 
 // removeTrackingAnnotations removes the resize-tracking annotations from a pod.
 func removeTrackingAnnotations(pod *corev1.Pod) {
+	// Remove per-container annotations for each tracked container.
+	if names, ok := pod.Annotations[annotationResizedContainers]; ok {
+		for _, name := range strings.Split(names, ",") {
+			name = strings.TrimSpace(name)
+			if name == "" {
+				continue
+			}
+			delete(pod.Annotations, annotationOriginalCPUPrefix+name)
+			delete(pod.Annotations, annotationOriginalMemoryPrefix+name)
+			delete(pod.Annotations, annotationOriginalRestartCountPrefix+name)
+		}
+	}
 	delete(pod.Annotations, annotationResizedAt)
-	delete(pod.Annotations, annotationResizedContainer)
+	delete(pod.Annotations, annotationResizedContainers)
 	delete(pod.Annotations, annotationResizedWorkload)
-	delete(pod.Annotations, annotationOriginalCPU)
-	delete(pod.Annotations, annotationOriginalMemory)
-	delete(pod.Annotations, annotationOriginalRestartCount)
+}
+
+// appendResizedContainer adds a container name to the comma-separated
+// resized-containers annotation, avoiding duplicates.
+func appendResizedContainer(pod *corev1.Pod, containerName string) {
+	existing := pod.Annotations[annotationResizedContainers]
+	if existing == "" {
+		pod.Annotations[annotationResizedContainers] = containerName
+		return
+	}
+	for _, name := range strings.Split(existing, ",") {
+		if strings.TrimSpace(name) == containerName {
+			return
+		}
+	}
+	pod.Annotations[annotationResizedContainers] = existing + "," + containerName
 }
 
 // setFailedCondition sets a Ready=False condition on the policy and updates

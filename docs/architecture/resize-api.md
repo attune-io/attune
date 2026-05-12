@@ -61,21 +61,20 @@ observation and revert tracking:
 | Annotation | Description |
 |---|---|
 | `rightsize.io/resized-at` | RFC 3339 timestamp of the resize |
-| `rightsize.io/resized-container` | Name of the resized container |
+| `rightsize.io/resized-containers` | Comma-separated list of resized container names |
 | `rightsize.io/resized-workload` | Name of the parent workload |
-| `rightsize.io/original-cpu-request` | CPU request before the resize |
-| `rightsize.io/original-memory-request` | Memory request before the resize |
-| `rightsize.io/original-restart-count` | Container restart count at resize time |
+| `rightsize.io/original-cpu-request.<container>` | CPU request before the resize (per container) |
+| `rightsize.io/original-memory-request.<container>` | Memory request before the resize (per container) |
+| `rightsize.io/original-restart-count.<container>` | Container restart count at resize time (per container) |
 
 These annotations are removed once the safety observation period completes
 (regardless of whether the resize is kept or reverted).
 
-!!! warning "Multi-container limitation"
-    When multiple containers in the same pod are resized in the same cycle,
-    each container's annotations overwrite the previous container's data.
-    This means only the last container's resize is tracked for safety
-    observation. A fix is tracked in
-    [#45](https://github.com/SebTardifLabs/kube-rightsize/issues/45).
+When multiple containers in the same pod are resized in the same cycle,
+each container gets its own set of per-container annotations (e.g.,
+`rightsize.io/original-cpu-request.app`, `rightsize.io/original-cpu-request.sidecar`).
+The `rightsize.io/resized-containers` annotation lists all resized containers
+as a comma-separated value.
 
 ## Limits and caveats
 

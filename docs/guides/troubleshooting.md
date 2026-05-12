@@ -238,17 +238,6 @@ Common causes:
 
 ## Known limitations
 
-### Multi-container pod annotation tracking
-
-When multiple containers in the same pod are resized in a single
-reconciliation cycle, the tracking annotations (used for safety observation
-and auto-revert) only preserve the last container's data. This means only
-the last resized container can be safely reverted. Tracked in
-[#45](https://github.com/SebTardifLabs/kube-rightsize/issues/45).
-
-**Workaround**: Use `excludeContainers` to limit resizing to one container
-per pod, or use separate policies for different containers.
-
 ### Maximum Prometheus addresses
 
 The operator caches at most 64 unique Prometheus collector connections.
