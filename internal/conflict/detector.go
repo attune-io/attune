@@ -27,6 +27,7 @@ import (
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -122,11 +123,68 @@ func (d *Detector) CheckVPAConflict(ctx context.Context, c client.Client, namesp
 	return nil
 }
 
+// policyTargetsWorkload checks whether a policy's targetRef matches the given
+// workload by name or by label selector. Returns true if the policy targets
+// the workload.
+func policyTargetsWorkload(policy unstructured.Unstructured, workloadName, workloadKind string, workloadLabels map[string]string) bool {
+	targetKind, _, _ := unstructured.NestedString(policy.Object, "spec", "targetRef", "kind")
+	if targetKind != workloadKind {
+		return false
+	}
+
+	targetName, _, _ := unstructured.NestedString(policy.Object, "spec", "targetRef", "name")
+	if targetName != "" {
+		return targetName == workloadName
+	}
+
+	// No name set; check selector-based targeting.
+	selectorMap, found, _ := unstructured.NestedMap(policy.Object, "spec", "targetRef", "selector")
+	if !found || len(selectorMap) == 0 {
+		return false
+	}
+
+	// Convert matchLabels from map[string]interface{} to map[string]string.
+	matchLabelsRaw, _, _ := unstructured.NestedStringMap(policy.Object, "spec", "targetRef", "selector", "matchLabels")
+	ls := &metav1.LabelSelector{MatchLabels: matchLabelsRaw}
+
+	// Also handle matchExpressions if present.
+	exprs, found, _ := unstructured.NestedSlice(policy.Object, "spec", "targetRef", "selector", "matchExpressions")
+	if found {
+		for _, expr := range exprs {
+			m, ok := expr.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			key, _ := m["key"].(string)
+			op, _ := m["operator"].(string)
+			var vals []string
+			if rawVals, ok := m["values"].([]interface{}); ok {
+				for _, v := range rawVals {
+					if s, ok := v.(string); ok {
+						vals = append(vals, s)
+					}
+				}
+			}
+			ls.MatchExpressions = append(ls.MatchExpressions, metav1.LabelSelectorRequirement{
+				Key:      key,
+				Operator: metav1.LabelSelectorOperator(op),
+				Values:   vals,
+			})
+		}
+	}
+
+	sel, err := metav1.LabelSelectorAsSelector(ls)
+	if err != nil {
+		return false
+	}
+	return sel.Matches(labels.Set(workloadLabels))
+}
+
 // CheckPolicyConflict checks if another RightSizePolicy with higher weight
 // targets the same workload. Returns a Conflict if a higher-weight policy
 // exists (the current policy should defer). Returns nil if the current policy
 // has the highest weight or no overlap exists.
-func (d *Detector) CheckPolicyConflict(ctx context.Context, c client.Client, namespace, workloadName, workloadKind, currentPolicyName string, currentWeight int32) *Conflict {
+func (d *Detector) CheckPolicyConflict(ctx context.Context, c client.Client, namespace, workloadName, workloadKind string, workloadLabels map[string]string, currentPolicyName string, currentWeight int32) *Conflict {
 	policyList := &unstructured.UnstructuredList{}
 	policyList.SetGroupVersionKind(schema.GroupVersionKind{
 		Group:   "rightsize.io",
@@ -144,10 +202,7 @@ func (d *Detector) CheckPolicyConflict(ctx context.Context, c client.Client, nam
 			continue
 		}
 
-		// Check if this policy targets the same workload by name.
-		targetKind, _, _ := unstructured.NestedString(policy.Object, "spec", "targetRef", "kind")
-		targetName, _, _ := unstructured.NestedString(policy.Object, "spec", "targetRef", "name")
-		if targetKind != workloadKind || targetName != workloadName {
+		if !policyTargetsWorkload(policy, workloadName, workloadKind, workloadLabels) {
 			continue
 		}
 
@@ -234,7 +289,7 @@ func (d *Detector) ListPolicies(ctx context.Context, c client.Client, namespace 
 
 // CheckPolicyConflictInMemory checks for policy conflicts against a pre-fetched list.
 // Use with ListPolicies to avoid repeated API calls when checking multiple workloads.
-func (d *Detector) CheckPolicyConflictInMemory(policyList *unstructured.UnstructuredList, workloadName, workloadKind, currentPolicyName string, currentWeight int32) *Conflict {
+func (d *Detector) CheckPolicyConflictInMemory(policyList *unstructured.UnstructuredList, workloadName, workloadKind string, workloadLabels map[string]string, currentPolicyName string, currentWeight int32) *Conflict {
 	if policyList == nil {
 		return nil
 	}
@@ -244,10 +299,7 @@ func (d *Detector) CheckPolicyConflictInMemory(policyList *unstructured.Unstruct
 			continue
 		}
 
-		// Check if this policy targets the same workload by name.
-		targetKind, _, _ := unstructured.NestedString(policy.Object, "spec", "targetRef", "kind")
-		targetName, _, _ := unstructured.NestedString(policy.Object, "spec", "targetRef", "name")
-		if targetKind != workloadKind || targetName != workloadName {
+		if !policyTargetsWorkload(policy, workloadName, workloadKind, workloadLabels) {
 			continue
 		}
 

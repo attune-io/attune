@@ -253,7 +253,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 
 		// Check for higher-weight policy conflict (skip this workload if outranked).
-		if policyConflict := conflictDetector.CheckPolicyConflictInMemory(policyList, workloadName, workloadKind, policy.Name, policy.Spec.Weight); policyConflict != nil {
+		if policyConflict := conflictDetector.CheckPolicyConflictInMemory(policyList, workloadName, workloadKind, workload.GetLabels(), policy.Name, policy.Spec.Weight); policyConflict != nil {
 			logger.Info("Higher-weight policy exists, skipping workload", "workload", workloadName, "policy", policyConflict.Name, "message", policyConflict.Message)
 			continue
 		}

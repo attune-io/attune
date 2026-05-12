@@ -288,7 +288,7 @@ func TestCheckPolicyConflict_HigherWeightDefers(t *testing.T) {
 	scheme := runtime.NewScheme()
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(otherPolicy).Build()
 
-	result := detector.CheckPolicyConflict(context.Background(), c, "default", "my-app", "Deployment", "low-priority", 100)
+	result := detector.CheckPolicyConflict(context.Background(), c, "default", "my-app", "Deployment", nil, "low-priority", 100)
 	assert.NotNil(t, result)
 	assert.Equal(t, ConflictPolicy, result.Type)
 	assert.Equal(t, "high-priority", result.Name)
@@ -313,7 +313,7 @@ func TestCheckPolicyConflict_LowerWeightNoConflict(t *testing.T) {
 	scheme := runtime.NewScheme()
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(otherPolicy).Build()
 
-	result := detector.CheckPolicyConflict(context.Background(), c, "default", "my-app", "Deployment", "high-priority", 100)
+	result := detector.CheckPolicyConflict(context.Background(), c, "default", "my-app", "Deployment", nil, "high-priority", 100)
 	assert.Nil(t, result)
 }
 
@@ -335,7 +335,7 @@ func TestCheckPolicyConflict_DifferentWorkload(t *testing.T) {
 	scheme := runtime.NewScheme()
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(otherPolicy).Build()
 
-	result := detector.CheckPolicyConflict(context.Background(), c, "default", "my-app", "Deployment", "current", 100)
+	result := detector.CheckPolicyConflict(context.Background(), c, "default", "my-app", "Deployment", nil, "current", 100)
 	assert.Nil(t, result)
 }
 
@@ -357,7 +357,7 @@ func TestCheckPolicyConflict_SkipsSelf(t *testing.T) {
 	scheme := runtime.NewScheme()
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(self).Build()
 
-	result := detector.CheckPolicyConflict(context.Background(), c, "default", "my-app", "Deployment", "current-policy", 100)
+	result := detector.CheckPolicyConflict(context.Background(), c, "default", "my-app", "Deployment", nil, "current-policy", 100)
 	assert.Nil(t, result, "should not conflict with itself")
 }
 
@@ -455,13 +455,13 @@ func newPolicy(name, targetKind, targetName string, weight int64) unstructured.U
 
 func TestCheckPolicyConflictInMemory_NilList(t *testing.T) {
 	detector := NewDetector(testr.New(t))
-	assert.Nil(t, detector.CheckPolicyConflictInMemory(nil, "my-app", "Deployment", "current", 100))
+	assert.Nil(t, detector.CheckPolicyConflictInMemory(nil, "my-app", "Deployment", nil, "current", 100))
 }
 
 func TestCheckPolicyConflictInMemory_EmptyList(t *testing.T) {
 	detector := NewDetector(testr.New(t))
 	list := &unstructured.UnstructuredList{}
-	assert.Nil(t, detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment", "current", 100))
+	assert.Nil(t, detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment", nil, "current", 100))
 }
 
 func TestCheckPolicyConflictInMemory_SkipsSelf(t *testing.T) {
@@ -469,7 +469,7 @@ func TestCheckPolicyConflictInMemory_SkipsSelf(t *testing.T) {
 	self := newPolicy("current", "Deployment", "my-app", 999)
 	list := &unstructured.UnstructuredList{Items: []unstructured.Unstructured{self}}
 
-	assert.Nil(t, detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment", "current", 100))
+	assert.Nil(t, detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment", nil, "current", 100))
 }
 
 func TestCheckPolicyConflictInMemory_HigherWeightConflicts(t *testing.T) {
@@ -477,7 +477,7 @@ func TestCheckPolicyConflictInMemory_HigherWeightConflicts(t *testing.T) {
 	other := newPolicy("high-priority", "Deployment", "my-app", 200)
 	list := &unstructured.UnstructuredList{Items: []unstructured.Unstructured{other}}
 
-	result := detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment", "low-priority", 100)
+	result := detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment", nil, "low-priority", 100)
 	assert.NotNil(t, result)
 	assert.Equal(t, ConflictPolicy, result.Type)
 	assert.Equal(t, "high-priority", result.Name)
@@ -489,7 +489,7 @@ func TestCheckPolicyConflictInMemory_LowerWeightNoConflict(t *testing.T) {
 	other := newPolicy("low-priority", "Deployment", "my-app", 50)
 	list := &unstructured.UnstructuredList{Items: []unstructured.Unstructured{other}}
 
-	assert.Nil(t, detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment", "high-priority", 100))
+	assert.Nil(t, detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment", nil, "high-priority", 100))
 }
 
 func TestCheckPolicyConflictInMemory_EqualWeightNoConflict(t *testing.T) {
@@ -497,7 +497,7 @@ func TestCheckPolicyConflictInMemory_EqualWeightNoConflict(t *testing.T) {
 	other := newPolicy("peer", "Deployment", "my-app", 100)
 	list := &unstructured.UnstructuredList{Items: []unstructured.Unstructured{other}}
 
-	assert.Nil(t, detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment", "current", 100))
+	assert.Nil(t, detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment", nil, "current", 100))
 }
 
 func TestCheckPolicyConflictInMemory_DifferentWorkload(t *testing.T) {
@@ -505,7 +505,7 @@ func TestCheckPolicyConflictInMemory_DifferentWorkload(t *testing.T) {
 	other := newPolicy("other", "Deployment", "other-app", 999)
 	list := &unstructured.UnstructuredList{Items: []unstructured.Unstructured{other}}
 
-	assert.Nil(t, detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment", "current", 100))
+	assert.Nil(t, detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment", nil, "current", 100))
 }
 
 func TestCheckPolicyConflictInMemory_DifferentKind(t *testing.T) {
@@ -513,7 +513,7 @@ func TestCheckPolicyConflictInMemory_DifferentKind(t *testing.T) {
 	other := newPolicy("other", "StatefulSet", "my-app", 999)
 	list := &unstructured.UnstructuredList{Items: []unstructured.Unstructured{other}}
 
-	assert.Nil(t, detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment", "current", 100))
+	assert.Nil(t, detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment", nil, "current", 100))
 }
 
 func TestCheckPolicyConflictInMemory_MultiplePolicies(t *testing.T) {
@@ -523,7 +523,74 @@ func TestCheckPolicyConflictInMemory_MultiplePolicies(t *testing.T) {
 	unrelated := newPolicy("unrelated", "Deployment", "other-app", 999)
 	list := &unstructured.UnstructuredList{Items: []unstructured.Unstructured{low, high, unrelated}}
 
-	result := detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment", "current", 100)
+	result := detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment", nil, "current", 100)
 	assert.NotNil(t, result)
 	assert.Equal(t, "high", result.Name)
+}
+
+// ---------- Selector-based conflict detection ----------
+
+func newSelectorPolicy(name string, targetKind string, matchLabels map[string]string, weight int64) unstructured.Unstructured {
+	p := unstructured.Unstructured{}
+	p.SetGroupVersionKind(schema.GroupVersionKind{
+		Group: "rightsize.io", Version: "v1alpha1", Kind: "RightSizePolicy",
+	})
+	p.SetName(name)
+	_ = unstructured.SetNestedField(p.Object, targetKind, "spec", "targetRef", "kind")
+	_ = unstructured.SetNestedField(p.Object, weight, "spec", "weight")
+
+	ml := make(map[string]interface{}, len(matchLabels))
+	for k, v := range matchLabels {
+		ml[k] = v
+	}
+	_ = unstructured.SetNestedField(p.Object, ml, "spec", "targetRef", "selector", "matchLabels")
+	return p
+}
+
+func TestCheckPolicyConflictInMemory_SelectorMatchesWorkload(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+	selectorPolicy := newSelectorPolicy("broad-policy", "Deployment", map[string]string{"app": "web"}, 200)
+	list := &unstructured.UnstructuredList{Items: []unstructured.Unstructured{selectorPolicy}}
+
+	workloadLabels := map[string]string{"app": "web", "version": "v2"}
+	result := detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment", workloadLabels, "narrow-policy", 100)
+
+	assert.NotNil(t, result)
+	assert.Equal(t, ConflictPolicy, result.Type)
+	assert.Equal(t, "broad-policy", result.Name)
+}
+
+func TestCheckPolicyConflictInMemory_SelectorDoesNotMatchWorkload(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+	selectorPolicy := newSelectorPolicy("broad-policy", "Deployment", map[string]string{"app": "api"}, 200)
+	list := &unstructured.UnstructuredList{Items: []unstructured.Unstructured{selectorPolicy}}
+
+	workloadLabels := map[string]string{"app": "web"}
+	result := detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment", workloadLabels, "narrow-policy", 100)
+
+	assert.Nil(t, result)
+}
+
+func TestCheckPolicyConflictInMemory_SelectorLowerWeightNoConflict(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+	selectorPolicy := newSelectorPolicy("low-policy", "Deployment", map[string]string{"app": "web"}, 50)
+	list := &unstructured.UnstructuredList{Items: []unstructured.Unstructured{selectorPolicy}}
+
+	workloadLabels := map[string]string{"app": "web"}
+	result := detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment", workloadLabels, "high-policy", 100)
+
+	assert.Nil(t, result)
+}
+
+func TestCheckPolicyConflictInMemory_TwoSelectorPoliciesBothMatch(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+	p1 := newSelectorPolicy("low-sel", "Deployment", map[string]string{"app": "web"}, 50)
+	p2 := newSelectorPolicy("high-sel", "Deployment", map[string]string{"team": "platform"}, 300)
+	list := &unstructured.UnstructuredList{Items: []unstructured.Unstructured{p1, p2}}
+
+	workloadLabels := map[string]string{"app": "web", "team": "platform"}
+	result := detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment", workloadLabels, "current", 100)
+
+	assert.NotNil(t, result)
+	assert.Equal(t, "high-sel", result.Name)
 }
