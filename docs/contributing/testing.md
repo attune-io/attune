@@ -122,7 +122,18 @@ Fuzz targets are defined in `internal/recommendation/fuzz_test.go`.
 
 ## Running all tests
 
+> **Warning:** `make test-all` includes integration tests, which currently
+> fail due to a pre-existing envtest infrastructure issue
+> ([#40](https://github.com/SebTardifLabs/kube-rightsize/issues/40)).
+> Use `make test` (unit) and `make test-e2e` (E2E) separately until
+> this is resolved.
+
 ```bash
+# Recommended: run unit and E2E separately
+make test
+make test-e2e   # requires a local k3d or Kind cluster
+
+# This will fail due to integration test issue #40:
 make test-all
 ```
 
