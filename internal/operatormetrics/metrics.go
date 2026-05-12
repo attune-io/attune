@@ -19,6 +19,8 @@ limitations under the License.
 package operatormetrics
 
 import (
+	"time"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 )
@@ -130,7 +132,49 @@ var (
 		},
 		[]string{"namespace", "query_type"},
 	)
+
+	WebhookValidationTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "kube_rightsize_webhook_validation_total",
+			Help: "Total number of webhook admission decisions",
+		},
+		[]string{"operation", "result"},
+	)
+
+	WebhookDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "kube_rightsize_webhook_duration_seconds",
+			Help:    "Duration of webhook validation and defaulting operations",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"operation"},
+	)
 )
+
+// WebhookTimer tracks webhook operation duration and result.
+type WebhookTimer struct {
+	operation string
+	start     time.Time
+}
+
+// NewWebhookTimer starts timing a webhook operation.
+func NewWebhookTimer(operation string) *WebhookTimer {
+	return &WebhookTimer{operation: operation, start: time.Now()}
+}
+
+// Observe records the duration.
+func (t *WebhookTimer) Observe() {
+	WebhookDuration.WithLabelValues(t.operation).Observe(time.Since(t.start).Seconds())
+}
+
+// RecordResult increments the validation counter with the appropriate result.
+func (t *WebhookTimer) RecordResult(err error) {
+	result := "allowed"
+	if err != nil {
+		result = "rejected"
+	}
+	WebhookValidationTotal.WithLabelValues(t.operation, result).Inc()
+}
 
 func init() {
 	metrics.Registry.MustRegister(
@@ -147,5 +191,7 @@ func init() {
 		ReconcileDuration,
 		PrometheusQueryDuration,
 		PrometheusQueryErrors,
+		WebhookValidationTotal,
+		WebhookDuration,
 	)
 }

@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	rightsizev1alpha1 "github.com/SebTardif/kube-rightsize/api/v1alpha1"
+	"github.com/SebTardif/kube-rightsize/internal/operatormetrics"
 	"github.com/SebTardif/kube-rightsize/internal/validation"
 )
 
@@ -34,12 +35,20 @@ type RightSizePolicyValidator struct{}
 
 // ValidateCreate validates a new RightSizePolicy.
 func (v *RightSizePolicyValidator) ValidateCreate(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy) (admission.Warnings, error) {
-	return v.validate(policy)
+	timer := operatormetrics.NewWebhookTimer("validate_create")
+	defer timer.Observe()
+	w, err := v.validate(policy)
+	timer.RecordResult(err)
+	return w, err
 }
 
 // ValidateUpdate validates an updated RightSizePolicy.
 func (v *RightSizePolicyValidator) ValidateUpdate(ctx context.Context, oldPolicy, policy *rightsizev1alpha1.RightSizePolicy) (admission.Warnings, error) {
-	return v.validate(policy)
+	timer := operatormetrics.NewWebhookTimer("validate_update")
+	defer timer.Observe()
+	w, err := v.validate(policy)
+	timer.RecordResult(err)
+	return w, err
 }
 
 // ValidateDelete validates a RightSizePolicy deletion (always succeeds).
