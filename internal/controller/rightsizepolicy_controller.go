@@ -1043,10 +1043,12 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 			continue
 		}
 
+		var revertFailed bool
 		for _, record := range records {
 			verdict, err := monitor.CheckPod(ctx, record)
 			if err != nil {
 				logger.Error(err, "Safety observation check failed", "pod", pod.Name, "container", record.Container)
+				revertFailed = true
 				continue
 			}
 
@@ -1055,6 +1057,8 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 					"pod", pod.Name, "container", record.Container, "reason", verdict.Reason)
 				if revertErr := monitor.RevertPod(ctx, record); revertErr != nil {
 					logger.Error(revertErr, "Failed to revert pod during safety observation", "pod", pod.Name)
+					revertFailed = true
+					continue
 				}
 				workloadName := pod.Annotations[annotationResizedWorkload]
 				operatormetrics.RevertsTotal.WithLabelValues(pod.Namespace, workloadName, verdict.Reason).Inc()
@@ -1065,6 +1069,11 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 			}
 		}
 
+		// Only remove tracking annotations if all reverts succeeded.
+		// If any failed, keep annotations so the next reconciliation retries.
+		if revertFailed {
+			continue
+		}
 		removeTrackingAnnotations(pod)
 		if updateErr := r.Update(ctx, pod); updateErr != nil {
 			logger.Error(updateErr, "Failed to remove resize tracking annotations", "pod", pod.Name)

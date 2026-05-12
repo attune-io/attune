@@ -171,16 +171,10 @@ func printStatus(ctx context.Context, dynClient dynamic.Interface, namespace str
 		degraded := getConditionReason(item, "Degraded")
 		age := formatAge(item.GetCreationTimestamp().Time)
 
-		// Enrich InsufficientData with progress info.
+		// Enrich InsufficientData with the condition message (contains progress info).
 		if ready == "InsufficientData" {
-			collected := getNestedInt64(item, "status", "workloads", "dataPointsCollected")
-			required := getNestedInt64(item, "status", "workloads", "dataPointsRequired")
-			if required > 0 {
-				pct := collected * 100 / required
-				if pct > 99 {
-					pct = 99
-				}
-				ready = fmt.Sprintf("Collecting (%d%%)", pct)
+			if msg := getConditionMessage(item, "Ready"); msg != "" {
+				ready = msg
 			}
 		}
 
@@ -339,6 +333,25 @@ func printRecommendations(ctx context.Context, dynClient dynamic.Interface, name
 		fmt.Fprintf(os.Stderr, "\n%d %s collecting data. Run 'kubectl rightsize status' for details.\n",
 			collecting, noun)
 	}
+}
+
+// getConditionMessage returns the message for the named condition, or "".
+func getConditionMessage(obj unstructured.Unstructured, conditionType string) string {
+	conditions, found, err := unstructured.NestedSlice(obj.Object, "status", "conditions")
+	if err != nil || !found {
+		return ""
+	}
+	for _, c := range conditions {
+		cond, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if t, _ := cond["type"].(string); t == conditionType {
+			msg, _ := cond["message"].(string)
+			return msg
+		}
+	}
+	return ""
 }
 
 // savingsPercent computes the CPU savings percentage from reduction and total strings.
