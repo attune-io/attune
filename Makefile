@@ -14,6 +14,7 @@ GOTESTSUM_VERSION ?= v1.13.0
 GOVULNCHECK_VERSION ?= v1.3.0
 K3D_VERSION ?= v5.8.3
 GITLEAKS_VERSION ?= 8.30.1
+CERT_MANAGER_VERSION ?= v1.17.2
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -59,7 +60,7 @@ tidy-check: ## Verify go.mod/go.sum are tidy
 		(echo "::error::go.mod/go.sum are not tidy. Run 'go mod tidy' and commit." && exit 1)
 
 .PHONY: verify
-verify: lint yaml-lint test helm-docs-check helm-unittest verify-boilerplate tidy-check ## Run all CI checks locally
+verify: lint yaml-lint test helm-docs-check helm-unittest verify-boilerplate tidy-check govulncheck ## Run all CI checks locally
 	@$(MAKE) manifests
 	@git diff --quiet --exit-code config/crd/ charts/kube-rightsize/crds/ || \
 		(echo "::error::CRD manifests are stale. Run 'make manifests' and commit." && exit 1)
@@ -202,11 +203,10 @@ k3d-create: ## Create a k3d cluster for local dev (fast, uses k3s)
 k3d-delete: ## Delete the k3d cluster
 	k3d cluster delete $(K3D_CLUSTER_NAME)
 
-.PHONY: k3d-deploy
-k3d-deploy: docker-build ## Build, load, and deploy to k3d (with Prometheus + cert-manager)
-	k3d image import $(IMG) -c $(K3D_CLUSTER_NAME)
+# Internal: install cert-manager, Prometheus, and operator (called after image load)
+_deploy-stack:
 	@echo "Installing cert-manager..."
-	kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.17.2/cert-manager.yaml
+	kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/$(CERT_MANAGER_VERSION)/cert-manager.yaml
 	kubectl wait --for=condition=Available deployment/cert-manager-webhook -n cert-manager --timeout=120s
 	@echo "Installing Prometheus..."
 	helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true
@@ -227,6 +227,11 @@ k3d-deploy: docker-build ## Build, load, and deploy to k3d (with Prometheus + ce
 		--set metrics.enabled=true \
 		--set leaderElection.enabled=false \
 		--wait --timeout 3m
+
+.PHONY: k3d-deploy
+k3d-deploy: docker-build ## Build, load, and deploy to k3d (with Prometheus + cert-manager)
+	k3d image import $(IMG) -c $(K3D_CLUSTER_NAME)
+	@$(MAKE) _deploy-stack
 
 .PHONY: kind-create
 kind-create: ## Create a Kind cluster for local dev (upstream K8s)
@@ -239,28 +244,7 @@ kind-delete: ## Delete the Kind cluster
 .PHONY: kind-deploy
 kind-deploy: docker-build ## Build, load, and deploy to Kind (with Prometheus + cert-manager)
 	kind load docker-image $(IMG) --name $(KIND_CLUSTER_NAME)
-	@echo "Installing cert-manager..."
-	kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.17.2/cert-manager.yaml
-	kubectl wait --for=condition=Available deployment/cert-manager-webhook -n cert-manager --timeout=120s
-	@echo "Installing Prometheus..."
-	helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true
-	helm repo update
-	helm install prometheus prometheus-community/prometheus \
-		--namespace monitoring --create-namespace \
-		--set server.persistentVolume.enabled=false \
-		--set alertmanager.enabled=false \
-		--set prometheus-pushgateway.enabled=false \
-		--wait --timeout 3m 2>/dev/null || true
-	@echo "Installing operator via Helm..."
-	helm install kube-rightsize ./charts/kube-rightsize \
-		--namespace kube-rightsize-system --create-namespace \
-		--set image.repository=$(firstword $(subst :, ,$(IMG))) \
-		--set image.tag=$(lastword $(subst :, ,$(IMG))) \
-		--set image.pullPolicy=Never \
-		--set webhooks.enabled=true \
-		--set metrics.enabled=true \
-		--set leaderElection.enabled=false \
-		--wait --timeout 3m
+	@$(MAKE) _deploy-stack
 
 ##@ Release
 
