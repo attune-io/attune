@@ -21,6 +21,8 @@ package metrics
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/http"
 	"strings"
 	"time"
 
@@ -55,11 +57,53 @@ type PrometheusCollector struct {
 	logger logr.Logger
 }
 
+// ssrfSafeTransport returns an http.RoundTripper that resolves hostnames
+// and validates the resolved IP against SSRF blocklists before connecting.
+// This defeats DNS rebinding attacks where a hostname initially resolves
+// to a legitimate IP but switches to a metadata endpoint during the TTL gap.
+func ssrfSafeTransport() http.RoundTripper {
+	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	return &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				return nil, fmt.Errorf("SSRF dial: invalid address %q: %w", addr, err)
+			}
+			ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+			if err != nil {
+				return nil, fmt.Errorf("SSRF dial: DNS resolution failed for %q: %w", host, err)
+			}
+			for _, ip := range ips {
+				if isBlockedIP(ip.IP) {
+					return nil, fmt.Errorf("SSRF blocked: %s resolved to blocked address %s", host, ip.IP)
+				}
+			}
+			return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
+		},
+	}
+}
+
+// isBlockedIP returns true for IPs that should never be contacted by the
+// operator (loopback, link-local, metadata endpoints, private RFC 1918).
+func isBlockedIP(ip net.IP) bool {
+	return ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified()
+}
+
 // NewPrometheusCollector creates a new PrometheusCollector that queries the
-// Prometheus instance at the given address (e.g. "http://prometheus:9090").
-func NewPrometheusCollector(address string, logger logr.Logger) (*PrometheusCollector, error) {
+// Prometheus instance at the given address (e.g. "http://prometheus-server.monitoring:80").
+// It uses an SSRF-safe HTTP transport that validates resolved IPs.
+// An optional http.RoundTripper can be passed to override the default SSRF-safe
+// transport (used in tests with httptest.NewServer on localhost).
+func NewPrometheusCollector(address string, logger logr.Logger, transport ...http.RoundTripper) (*PrometheusCollector, error) {
+	var rt http.RoundTripper
+	if len(transport) > 0 && transport[0] != nil {
+		rt = transport[0]
+	} else {
+		rt = ssrfSafeTransport()
+	}
 	client, err := promapi.NewClient(promapi.Config{
-		Address: address,
+		Address:      address,
+		RoundTripper: rt,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("creating prometheus client: %w", err)

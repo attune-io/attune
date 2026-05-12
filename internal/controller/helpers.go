@@ -123,9 +123,17 @@ func (r *RightSizePolicyReconciler) setFailedCondition(ctx context.Context, poli
 }
 
 // parseHistoryWindow parses the history window duration from the policy.
+// Defense-in-depth: clamps to [1h, 720h] even if webhook validation is bypassed.
 func (r *RightSizePolicyReconciler) parseHistoryWindow(policy *rightsizev1alpha1.RightSizePolicy) time.Duration {
 	if policy.Spec.MetricsSource.HistoryWindow != nil {
-		return policy.Spec.MetricsSource.HistoryWindow.Duration
+		hw := policy.Spec.MetricsSource.HistoryWindow.Duration
+		if hw < time.Hour {
+			hw = time.Hour
+		}
+		if hw > 720*time.Hour {
+			hw = 720 * time.Hour
+		}
+		return hw
 	}
 	return defaultHistoryWindow
 }

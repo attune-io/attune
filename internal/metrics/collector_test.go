@@ -18,6 +18,7 @@ package metrics
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -93,7 +94,7 @@ func TestQueryRange_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	collector, err := NewPrometheusCollector(server.URL, logr.Discard())
+	collector, err := NewPrometheusCollector(server.URL, logr.Discard(), http.DefaultTransport)
 	require.NoError(t, err)
 
 	start := time.Unix(1700000000, 0)
@@ -117,7 +118,7 @@ func TestQuery_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	collector, err := NewPrometheusCollector(server.URL, logr.Discard())
+	collector, err := NewPrometheusCollector(server.URL, logr.Discard(), http.DefaultTransport)
 	require.NoError(t, err)
 
 	val, err := collector.Query(context.Background(), "memory_usage", time.Unix(1700000000, 0))
@@ -133,7 +134,7 @@ func TestQuery_EmptyResult(t *testing.T) {
 	}))
 	defer server.Close()
 
-	collector, err := NewPrometheusCollector(server.URL, logr.Discard())
+	collector, err := NewPrometheusCollector(server.URL, logr.Discard(), http.DefaultTransport)
 	require.NoError(t, err)
 
 	_, err = collector.Query(context.Background(), "missing_metric", time.Now())
@@ -149,7 +150,7 @@ func TestQueryRange_PrometheusError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	collector, err := NewPrometheusCollector(server.URL, logr.Discard())
+	collector, err := NewPrometheusCollector(server.URL, logr.Discard(), http.DefaultTransport)
 	require.NoError(t, err)
 
 	start := time.Unix(1700000000, 0)
@@ -184,7 +185,7 @@ func TestQuery_ScalarResult(t *testing.T) {
 	}))
 	defer server.Close()
 
-	collector, err := NewPrometheusCollector(server.URL, logr.Discard())
+	collector, err := NewPrometheusCollector(server.URL, logr.Discard(), http.DefaultTransport)
 	require.NoError(t, err)
 
 	val, err := collector.Query(context.Background(), "scalar_metric", time.Unix(1700000000, 0))
@@ -200,7 +201,7 @@ func TestQuery_PrometheusError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	collector, err := NewPrometheusCollector(server.URL, logr.Discard())
+	collector, err := NewPrometheusCollector(server.URL, logr.Discard(), http.DefaultTransport)
 	require.NoError(t, err)
 
 	_, err = collector.Query(context.Background(), "bad{query", time.Now())
@@ -227,7 +228,7 @@ func TestQueryRange_EmptyMatrix(t *testing.T) {
 	}))
 	defer server.Close()
 
-	collector, err := NewPrometheusCollector(server.URL, logr.Discard())
+	collector, err := NewPrometheusCollector(server.URL, logr.Discard(), http.DefaultTransport)
 	require.NoError(t, err)
 
 	start := time.Unix(1700000000, 0)
@@ -271,7 +272,7 @@ func TestGetThrottleRatio_EscapesInput(t *testing.T) {
 	}))
 	defer server.Close()
 
-	collector, err := NewPrometheusCollector(server.URL, logr.Discard())
+	collector, err := NewPrometheusCollector(server.URL, logr.Discard(), http.DefaultTransport)
 	require.NoError(t, err)
 
 	// Use names with special characters that need escaping.
@@ -282,4 +283,43 @@ func TestGetThrottleRatio_EscapesInput(t *testing.T) {
 	assert.Contains(t, receivedQuery, `ns\"with\"quotes`)
 	assert.Contains(t, receivedQuery, `pod\\with\\backslash`)
 	assert.Contains(t, receivedQuery, `container\"both`)
+}
+
+func TestIsBlockedIP(t *testing.T) {
+	tests := []struct {
+		name    string
+		ip      string
+		blocked bool
+	}{
+		{"loopback v4", "127.0.0.1", true},
+		{"loopback v6", "::1", true},
+		{"link-local v4", "169.254.169.254", true},
+		{"link-local v6", "fe80::1", true},
+		{"unspecified", "0.0.0.0", true},
+		{"private 10.x", "10.0.0.1", false},
+		{"private 172.x", "172.16.0.1", false},
+		{"public IP", "8.8.8.8", false},
+		{"cluster IP", "10.96.0.1", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ip := net.ParseIP(tt.ip)
+			assert.Equal(t, tt.blocked, isBlockedIP(ip))
+		})
+	}
+}
+
+func TestSSRFSafeTransport_BlocksLoopback(t *testing.T) {
+	// A server on localhost should be blocked by the SSRF-safe transport.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	collector, err := NewPrometheusCollector(server.URL, logr.Discard())
+	require.NoError(t, err)
+
+	_, err = collector.Query(context.Background(), "up", time.Now())
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "SSRF blocked")
 }
