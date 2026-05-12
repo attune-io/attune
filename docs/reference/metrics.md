@@ -114,7 +114,11 @@ Total number of reconciliation errors by type.
 
 ### kube_rightsize_prometheus_query_duration_seconds
 
-Duration of each Prometheus query. No labels.
+Duration of each Prometheus query.
+
+| Label | Values |
+|-------|--------|
+| `query_type` | `cpu_range`, `memory_range`, `cpu_range_fallback`, `memory_fallback` |
 
 ## Example PromQL queries
 

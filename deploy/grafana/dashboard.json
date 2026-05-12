@@ -363,12 +363,12 @@
       "type": "timeseries",
       "targets": [
         {
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(kube_rightsize_prometheus_query_duration_seconds_bucket[$__rate_interval])))",
-          "legendFormat": "p99"
+          "expr": "histogram_quantile(0.99, sum by (le, query_type) (rate(kube_rightsize_prometheus_query_duration_seconds_bucket[$__rate_interval])))",
+          "legendFormat": "p99 {{query_type}}"
         },
         {
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(kube_rightsize_prometheus_query_duration_seconds_bucket[$__rate_interval])))",
-          "legendFormat": "p50"
+          "expr": "histogram_quantile(0.50, sum by (le, query_type) (rate(kube_rightsize_prometheus_query_duration_seconds_bucket[$__rate_interval])))",
+          "legendFormat": "p50 {{query_type}}"
         }
       ]
     },

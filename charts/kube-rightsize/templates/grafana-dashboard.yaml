@@ -113,7 +113,7 @@ data:
           "type": "timeseries",
           "title": "Prometheus Query Duration",
           "gridPos": { "h": 8, "w": 6, "x": 12, "y": 31 },
-          "targets": [{ "expr": "histogram_quantile(0.99, rate(kube_rightsize_prometheus_query_duration_seconds_bucket[5m]))" }],
+          "targets": [{ "expr": "histogram_quantile(0.99, sum by (le, query_type) (rate(kube_rightsize_prometheus_query_duration_seconds_bucket[5m])))" }],
           "fieldConfig": { "defaults": { "unit": "s" } }
         },
         {
