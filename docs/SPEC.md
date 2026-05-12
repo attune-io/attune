@@ -72,7 +72,7 @@ in-place resize. It exists to make VPA obsolete by delivering:
 | What competitors use | right-sizer: Go 1.25, OptiPod: Go 1.24.6, VPA: Go |
 | What model operators use | CloudNativePG: Go 1.26.3, Kyverno: Go 1.26.2 |
 
-### 2.2 Framework: Kubebuilder v4 + controller-runtime v0.24.0
+### 2.2 Framework: Kubebuilder v4 + controller-runtime v0.24.1
 
 | Component | Version | Purpose |
 |-----------|---------|---------|
@@ -87,7 +87,7 @@ Kubebuilder provides the cleanest scaffolding. Operator SDK adds OLM bundle gene
 of the same controller-runtime foundation. We can add Operator SDK later for OperatorHub
 distribution.
 
-**Why controller-runtime v0.24.0**: PriorityQueue (default since v0.23.0) enables prioritizing
+**Why controller-runtime v0.24.1**: PriorityQueue (default since v0.23.0) enables prioritizing
 resize reconciliations for critical pods. Subresource Apply support enables clean SSA patches
 to the `/resize` subresource. Generic Validator/Defaulter webhooks provide type-safe CRD
 validation.
