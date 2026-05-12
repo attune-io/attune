@@ -808,14 +808,22 @@ func generateSamples(count int, baseValue float64) []rsmetrics.Sample {
 func TestGetOrCreateCollector_CacheHit(t *testing.T) {
 	reconciler := &RightSizePolicyReconciler{}
 	mc := &mockCollector{}
+	staleTime := time.Now().Add(-5 * time.Minute)
 	reconciler.collectors.Store("http://prom:9090", &collectorEntry{
 		collector: mc,
-		lastUsed:  time.Now(),
+		lastUsed:  staleTime,
 	})
 
+	before := time.Now()
 	got, err := reconciler.getOrCreateCollector("http://prom:9090")
 	require.NoError(t, err)
 	assert.Equal(t, mc, got)
+
+	// Verify lastUsed was refreshed on cache hit.
+	entry, ok := reconciler.collectors.Load("http://prom:9090")
+	require.True(t, ok)
+	assert.True(t, entry.(*collectorEntry).lastUsed.After(before) || entry.(*collectorEntry).lastUsed.Equal(before),
+		"lastUsed should be refreshed to ~now on cache hit, got %v", entry.(*collectorEntry).lastUsed)
 }
 
 func TestGetOrCreateCollector_CacheMiss(t *testing.T) {
@@ -1424,10 +1432,9 @@ func TestParseResizeRecords_MalformedRestartCount(t *testing.T) {
 		}},
 	}
 
-	records, err := parseResizeRecords(pod, 5*time.Minute)
-	require.NoError(t, err)
-	require.Len(t, records, 1)
-	assert.Equal(t, int32(0), records[0].RestartCount, "malformed restart count should default to 0")
+	_, err := parseResizeRecords(pod, 5*time.Minute)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parsing original restart count for app")
 }
 
 // newSafetyTestReconciler creates a reconciler with a pod and a matching

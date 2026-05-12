@@ -1223,9 +1223,11 @@ func parseResizeRecords(pod *corev1.Pod, observationPeriod time.Duration) ([]saf
 
 		var origRestartCount int32
 		if rcStr := pod.Annotations[annotationOriginalRestartCountPrefix+containerName]; rcStr != "" {
-			if rc, parseErr := strconv.ParseInt(rcStr, 10, 32); parseErr == nil {
-				origRestartCount = int32(rc)
+			rc, parseErr := strconv.ParseInt(rcStr, 10, 32)
+			if parseErr != nil {
+				return nil, fmt.Errorf("parsing original restart count for %s: %w", containerName, parseErr)
 			}
+			origRestartCount = int32(rc)
 		}
 
 		records = append(records, safety.ResizeRecord{
