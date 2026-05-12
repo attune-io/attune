@@ -173,6 +173,24 @@ Linux pricing is used.
 
 **Formula**: `(cpuCoresSaved * cpuPrice + memGiBSaved * memPrice) * 730 hours/month`
 
+#### Reference pricing by provider
+
+The defaults use AWS on-demand pricing. Adjust for your environment:
+
+| Provider | Instance type | `cpuPerCoreHour` | `memoryPerGiBHour` | Notes |
+|----------|---------------|------------------|--------------------|-------|
+| **AWS** (default) | m6i on-demand | `"0.031"` | `"0.004"` | US East, Linux |
+| AWS Savings Plans | m6i 1yr | `"0.020"` | `"0.003"` | ~35% discount |
+| **GCP** on-demand | e2-standard | `"0.034"` | `"0.005"` | US |
+| GCP committed | e2-standard 1yr | `"0.022"` | `"0.003"` | ~35% discount |
+| **Azure** PAYG | D4s v5 | `"0.036"` | `"0.005"` | East US |
+| Azure Reserved | D4s v5 1yr | `"0.022"` | `"0.003"` | ~38% discount |
+| **On-prem** | bare metal | `"0.010"` | `"0.001"` | Amortized hardware |
+
+These are approximate. Use your actual billing data for accurate savings
+estimates. For reserved instances, use the reserved rate so savings reflect
+true recoverability.
+
 ### Webhook validation
 
 `RightSizeDefaults` has a validating webhook that rejects invalid
