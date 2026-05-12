@@ -747,6 +747,63 @@ func generateSamples(count int, baseValue float64) []rsmetrics.Sample {
 	return samples
 }
 
+// ---------- getOrCreateCollector ----------
+
+func TestGetOrCreateCollector_CacheHit(t *testing.T) {
+	reconciler := &RightSizePolicyReconciler{}
+	mc := &mockCollector{}
+	reconciler.collectors.Store("http://prom:9090", mc)
+
+	got, err := reconciler.getOrCreateCollector("http://prom:9090")
+	require.NoError(t, err)
+	assert.Equal(t, mc, got)
+}
+
+func TestGetOrCreateCollector_CacheMiss(t *testing.T) {
+	mc := &mockCollector{}
+	reconciler := &RightSizePolicyReconciler{
+		MetricsFactory: func(address string) (rsmetrics.MetricsCollector, error) {
+			assert.Equal(t, "http://new:9090", address)
+			return mc, nil
+		},
+	}
+
+	got, err := reconciler.getOrCreateCollector("http://new:9090")
+	require.NoError(t, err)
+	assert.Equal(t, mc, got)
+}
+
+func TestGetOrCreateCollector_FactoryError(t *testing.T) {
+	reconciler := &RightSizePolicyReconciler{
+		MetricsFactory: func(string) (rsmetrics.MetricsCollector, error) {
+			return nil, fmt.Errorf("connection refused")
+		},
+	}
+
+	_, err := reconciler.getOrCreateCollector("http://broken:9090")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "connection refused")
+}
+
+func TestGetOrCreateCollector_CacheFull(t *testing.T) {
+	reconciler := &RightSizePolicyReconciler{
+		MetricsFactory: func(string) (rsmetrics.MetricsCollector, error) {
+			return &mockCollector{}, nil
+		},
+	}
+	// Fill the cache to maxCollectors.
+	for i := 0; i < maxCollectors; i++ {
+		addr := fmt.Sprintf("http://prom-%d:9090", i)
+		_, err := reconciler.getOrCreateCollector(addr)
+		require.NoError(t, err)
+	}
+
+	// The next address should be rejected.
+	_, err := reconciler.getOrCreateCollector("http://one-too-many:9090")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "collector cache full")
+}
+
 // ---------- computeRecommendations ----------
 
 func TestComputeRecommendations_HappyPath(t *testing.T) {
