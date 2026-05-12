@@ -245,23 +245,33 @@ func getCostPricing(defaults *rightsizev1alpha1.RightSizeDefaults) (cpuPerCoreHo
 }
 
 // scaleLimits scales a resource limit proportionally to maintain the same
-// request:limit ratio when the request changes.
+// request:limit ratio when the request changes. Protects against int64
+// overflow from extreme limit/request ratios.
 func scaleLimits(currentReq, currentLim, newReq resource.Quantity) resource.Quantity {
 	if currentReq.IsZero() || currentLim.IsZero() {
 		return newReq.DeepCopy()
 	}
 	ratio := float64(currentLim.MilliValue()) / float64(currentReq.MilliValue())
-	newLimMilli := int64(float64(newReq.MilliValue()) * ratio)
-	return *resource.NewMilliQuantity(newLimMilli, currentLim.Format)
+	if math.IsNaN(ratio) || math.IsInf(ratio, 0) || ratio <= 0 {
+		return newReq.DeepCopy()
+	}
+	product := float64(newReq.MilliValue()) * ratio
+	if product > float64(math.MaxInt64) || product < 0 {
+		return currentLim.DeepCopy()
+	}
+	return *resource.NewMilliQuantity(int64(product), currentLim.Format)
 }
 
-// parseFloat64 parses a string as a float64, returning the fallback on error.
+// parseFloat64 parses a string as a float64, returning the fallback on error
+// or if the value is NaN, Inf, negative, or unreasonably large (>10.0).
+// Defense-in-depth: webhook validates first, but this protects when webhooks
+// are disabled or bypassed.
 func parseFloat64(s string, fallback float64) float64 {
 	if s == "" {
 		return fallback
 	}
 	v, err := strconv.ParseFloat(s, 64)
-	if err != nil {
+	if err != nil || math.IsNaN(v) || math.IsInf(v, 0) || v <= 0 || v > 10.0 {
 		return fallback
 	}
 	return v

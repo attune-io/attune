@@ -545,6 +545,36 @@ func TestScaleLimits(t *testing.T) {
 	}
 }
 
+func TestScaleLimits_OverflowClamped(t *testing.T) {
+	// 1Ki request with 100Gi limit: ratio = 104857600.
+	// New 1Gi request * ratio overflows int64; must preserve existing limit.
+	got := scaleLimits(
+		resource.MustParse("1Ki"),
+		resource.MustParse("100Gi"),
+		resource.MustParse("1Gi"),
+	)
+	assert.True(t, got.Value() > 0, "overflow must not produce negative limit: %v", got)
+	want := resource.MustParse("100Gi")
+	assert.Equal(t, want.Value(), got.Value(),
+		"overflow should preserve existing limit")
+}
+
+func TestParseFloat64_NaNFallback(t *testing.T) {
+	assert.InDelta(t, 1.2, parseFloat64("NaN", 1.2), 0.001)
+}
+
+func TestParseFloat64_InfFallback(t *testing.T) {
+	assert.InDelta(t, 1.2, parseFloat64("Inf", 1.2), 0.001)
+}
+
+func TestParseFloat64_NegativeFallback(t *testing.T) {
+	assert.InDelta(t, 1.2, parseFloat64("-0.5", 1.2), 0.001)
+}
+
+func TestParseFloat64_ZeroFallback(t *testing.T) {
+	assert.InDelta(t, 1.2, parseFloat64("0", 1.2), 0.001)
+}
+
 func TestComputeSavings_ReturnsCorrectStructure(t *testing.T) {
 	scheme := testScheme()
 	r := &RightSizePolicyReconciler{Client: fake.NewClientBuilder().WithScheme(scheme).Build()}
