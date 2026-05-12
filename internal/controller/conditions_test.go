@@ -311,6 +311,66 @@ func TestCheckQuotaCompatibility_AboveMaximum(t *testing.T) {
 	assert.Contains(t, err.Error(), "exceeds LimitRange maximum")
 }
 
+func TestCheckQuotaCompatibility_MemoryBelowMinimum(t *testing.T) {
+	lr := &corev1.LimitRange{
+		ObjectMeta: metav1.ObjectMeta{Name: "limits", Namespace: "default"},
+		Spec: corev1.LimitRangeSpec{
+			Limits: []corev1.LimitRangeItem{
+				{
+					Type: corev1.LimitTypeContainer,
+					Min: corev1.ResourceList{
+						corev1.ResourceMemory: resource.MustParse("128Mi"),
+					},
+				},
+			},
+		},
+	}
+	scheme := testScheme()
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(lr).Build()
+	r := &RightSizePolicyReconciler{Client: c}
+
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("500m"),
+			corev1.ResourceMemory: resource.MustParse("64Mi"),
+		},
+	}
+	err := r.checkQuotaCompatibility(context.Background(), "default", zeroCurrent, target)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "memory request")
+	assert.Contains(t, err.Error(), "below LimitRange minimum")
+}
+
+func TestCheckQuotaCompatibility_CPUAboveMaximum(t *testing.T) {
+	lr := &corev1.LimitRange{
+		ObjectMeta: metav1.ObjectMeta{Name: "limits", Namespace: "default"},
+		Spec: corev1.LimitRangeSpec{
+			Limits: []corev1.LimitRangeItem{
+				{
+					Type: corev1.LimitTypeContainer,
+					Max: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("2"),
+					},
+				},
+			},
+		},
+	}
+	scheme := testScheme()
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(lr).Build()
+	r := &RightSizePolicyReconciler{Client: c}
+
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("4"),
+			corev1.ResourceMemory: resource.MustParse("256Mi"),
+		},
+	}
+	err := r.checkQuotaCompatibility(context.Background(), "default", zeroCurrent, target)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "CPU request")
+	assert.Contains(t, err.Error(), "exceeds LimitRange maximum")
+}
+
 // ---------- ResourceQuota ----------
 
 func TestCheckQuotaCompatibility_QuotaExceeded(t *testing.T) {
