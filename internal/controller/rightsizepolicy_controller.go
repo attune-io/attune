@@ -704,14 +704,18 @@ func (r *RightSizePolicyReconciler) executeResizes(
 			continue
 		}
 
+		var workloadResized bool
 		for _, pod := range selectedPods {
 			for _, containerRec := range rec.Containers {
 				entries, resized := r.resizeContainer(ctx, policy, &pod, rec.Workload, containerRec, resizer, monitor, now)
 				history = append(history, entries...)
 				if resized {
-					totalResized++
+					workloadResized = true
 				}
 			}
+		}
+		if workloadResized {
+			totalResized++
 		}
 	}
 
