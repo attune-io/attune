@@ -401,6 +401,45 @@
           "legendFormat": "{{namespace}} {{query_type}}"
         }
       ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 36 },
+      "id": 13,
+      "title": "Webhook Health",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "ops" } },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 37 },
+      "id": 14,
+      "title": "Webhook Validation Rate",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum by (operation, result) (rate(kube_rightsize_webhook_validation_total[$__rate_interval]))",
+          "legendFormat": "{{operation}} {{result}}"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 37 },
+      "id": 15,
+      "title": "Webhook Duration (p99)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum by (le, operation) (rate(kube_rightsize_webhook_duration_seconds_bucket[$__rate_interval])))",
+          "legendFormat": "p99 {{operation}}"
+        },
+        {
+          "expr": "histogram_quantile(0.50, sum by (le, operation) (rate(kube_rightsize_webhook_duration_seconds_bucket[$__rate_interval])))",
+          "legendFormat": "p50 {{operation}}"
+        }
+      ]
     }
   ],
   "schemaVersion": 39,
