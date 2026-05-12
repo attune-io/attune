@@ -594,3 +594,108 @@ func TestCheckPolicyConflictInMemory_TwoSelectorPoliciesBothMatch(t *testing.T) 
 	assert.NotNil(t, result)
 	assert.Equal(t, "high-sel", result.Name)
 }
+
+func newExpressionPolicy(name, targetKind string, matchLabels map[string]string, expressions []interface{}, weight int64) unstructured.Unstructured {
+	p := unstructured.Unstructured{}
+	p.SetGroupVersionKind(schema.GroupVersionKind{
+		Group: "rightsize.io", Version: "v1alpha1", Kind: "RightSizePolicy",
+	})
+	p.SetName(name)
+	_ = unstructured.SetNestedField(p.Object, targetKind, "spec", "targetRef", "kind")
+	_ = unstructured.SetNestedField(p.Object, weight, "spec", "weight")
+	if matchLabels != nil {
+		ml := make(map[string]interface{}, len(matchLabels))
+		for k, v := range matchLabels {
+			ml[k] = v
+		}
+		_ = unstructured.SetNestedField(p.Object, ml, "spec", "targetRef", "selector", "matchLabels")
+	}
+	if expressions != nil {
+		_ = unstructured.SetNestedSlice(p.Object, expressions, "spec", "targetRef", "selector", "matchExpressions")
+	}
+	return p
+}
+
+func TestCheckPolicyConflictInMemory_MatchExpressionsIn(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+	exprs := []interface{}{
+		map[string]interface{}{
+			"key":      "env",
+			"operator": "In",
+			"values":   []interface{}{"prod", "staging"},
+		},
+	}
+	p := newExpressionPolicy("expr-policy", "Deployment", nil, exprs, 200)
+	list := &unstructured.UnstructuredList{Items: []unstructured.Unstructured{p}}
+
+	result := detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment",
+		map[string]string{"env": "prod"}, "current", 100)
+	assert.NotNil(t, result, "In expression matching 'prod' should detect conflict")
+	assert.Equal(t, "expr-policy", result.Name)
+}
+
+func TestCheckPolicyConflictInMemory_MatchExpressionsInNoMatch(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+	exprs := []interface{}{
+		map[string]interface{}{
+			"key":      "env",
+			"operator": "In",
+			"values":   []interface{}{"prod", "staging"},
+		},
+	}
+	p := newExpressionPolicy("expr-policy", "Deployment", nil, exprs, 200)
+	list := &unstructured.UnstructuredList{Items: []unstructured.Unstructured{p}}
+
+	result := detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment",
+		map[string]string{"env": "dev"}, "current", 100)
+	assert.Nil(t, result, "In expression not matching 'dev' should not detect conflict")
+}
+
+func TestCheckPolicyConflictInMemory_MatchExpressionsExists(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+	exprs := []interface{}{
+		map[string]interface{}{
+			"key":      "tier",
+			"operator": "Exists",
+		},
+	}
+	p := newExpressionPolicy("exists-policy", "Deployment", nil, exprs, 200)
+	list := &unstructured.UnstructuredList{Items: []unstructured.Unstructured{p}}
+
+	result := detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment",
+		map[string]string{"tier": "frontend"}, "current", 100)
+	assert.NotNil(t, result, "Exists expression should match when label is present")
+
+	result = detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment",
+		map[string]string{"app": "web"}, "current", 100)
+	assert.Nil(t, result, "Exists expression should not match when label is absent")
+}
+
+func TestCheckPolicyConflictInMemory_CombinedMatchLabelsAndExpressions(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+	exprs := []interface{}{
+		map[string]interface{}{
+			"key":      "env",
+			"operator": "In",
+			"values":   []interface{}{"prod"},
+		},
+	}
+	p := newExpressionPolicy("combined-policy", "Deployment",
+		map[string]string{"app": "web"}, exprs, 200)
+	list := &unstructured.UnstructuredList{Items: []unstructured.Unstructured{p}}
+
+	// Both matchLabels and matchExpressions must match.
+	result := detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment",
+		map[string]string{"app": "web", "env": "prod"}, "current", 100)
+	assert.NotNil(t, result, "both conditions met should detect conflict")
+
+	// matchLabels match but expression doesn't.
+	result = detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment",
+		map[string]string{"app": "web", "env": "dev"}, "current", 100)
+	assert.Nil(t, result, "expression not met should not detect conflict")
+
+	// expression matches but matchLabels doesn't.
+	result = detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment",
+		map[string]string{"app": "api", "env": "prod"}, "current", 100)
+	assert.Nil(t, result, "matchLabels not met should not detect conflict")
+}

@@ -98,3 +98,56 @@ func TestChangeFilter(t *testing.T) {
 		})
 	}
 }
+
+func TestChangeFilter_BinarySIMemoryCapping(t *testing.T) {
+	// Current: 512Mi, inner recommends 1024Mi (100% increase), max 50%.
+	// Expected: 512Mi + 50% = 768Mi.
+	innerValue := resource.MustParse("1024Mi")
+	e := &ChangeFilter{
+		MinChangePercent: 10,
+		MaxChangePercent: 50,
+		Inner:            &stubEstimator{value: innerValue},
+	}
+	current := resource.MustParse("512Mi")
+	result := e.Estimate(metrics.UsageProfile{Confidence: 0.95}, current)
+
+	assert.Equal(t, resource.BinarySI, result.Format,
+		"capped memory result should preserve BinarySI format")
+	// 512Mi = 536870912 bytes. 50% increase = 805306368 bytes.
+	// The code computes in millis: current=536870912000, delta=268435456000,
+	// capped=805306368000, then divides by 1000 and ceils: 805306368.
+	assert.Equal(t, int64(805306368), result.Value(),
+		"50%% increase from 512Mi should produce 768Mi")
+}
+
+func TestChangeFilter_BinarySIMemoryDecreaseCapping(t *testing.T) {
+	// Current: 1Gi, inner recommends 256Mi (75% decrease), max 50%.
+	// Expected: 1Gi - 50% = 512Mi.
+	innerValue := resource.MustParse("256Mi")
+	e := &ChangeFilter{
+		MinChangePercent: 10,
+		MaxChangePercent: 50,
+		Inner:            &stubEstimator{value: innerValue},
+	}
+	current := resource.MustParse("1Gi")
+	result := e.Estimate(metrics.UsageProfile{Confidence: 0.95}, current)
+
+	assert.Equal(t, resource.BinarySI, result.Format)
+	// 1Gi = 1073741824 bytes. 50% decrease = 536870912.
+	assert.Equal(t, int64(536870912), result.Value(),
+		"50%% decrease from 1Gi should produce 512Mi")
+}
+
+func TestChangeFilter_ZeroCurrent(t *testing.T) {
+	innerValue := resource.MustParse("500m")
+	e := &ChangeFilter{
+		MinChangePercent: 10,
+		MaxChangePercent: 50,
+		Inner:            &stubEstimator{value: innerValue},
+	}
+	current := resource.MustParse("0")
+	result := e.Estimate(metrics.UsageProfile{Confidence: 0.95}, current)
+
+	assert.Equal(t, int64(500), result.MilliValue(),
+		"zero current should pass through inner recommendation")
+}

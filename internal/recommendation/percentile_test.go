@@ -127,6 +127,39 @@ func TestPercentileEstimator(t *testing.T) {
 	}
 }
 
+func TestPercentileEstimator_MemoryConversion(t *testing.T) {
+	// 256Mi = 268435456 bytes.
+	memP95 := 268435456.0
+	profile := makeProfile(metrics.PercentileSet{
+		P50: memP95 * 0.5, P90: memP95 * 0.9, P95: memP95,
+		P99: memP95 * 1.1, Max: memP95 * 1.2,
+	}, nil)
+
+	e := &PercentileEstimator{Percentile: 95, IsCPU: false}
+	result := e.Estimate(profile, resource.MustParse("512Mi"))
+
+	// Should produce 268435456 bytes in BinarySI format.
+	assert.Equal(t, int64(268435456), result.Value(),
+		"memory P95 should produce correct byte value")
+	assert.Equal(t, resource.BinarySI, result.Format,
+		"memory quantity should use BinarySI format")
+}
+
+func TestQuantityFromFloat_CPUSubMillicore(t *testing.T) {
+	// 0.0005 cores = 0.5m, ceil should round up to 1m.
+	q := quantityFromFloat(0.0005, true)
+	assert.Equal(t, int64(1), q.MilliValue(),
+		"sub-millicore CPU should round up to 1m")
+}
+
+func TestQuantityFromFloat_MemoryFractional(t *testing.T) {
+	// 100.3 bytes should round up to 101 bytes.
+	q := quantityFromFloat(100.3, false)
+	assert.Equal(t, int64(101), q.Value(),
+		"fractional bytes should round up")
+	assert.Equal(t, resource.BinarySI, q.Format)
+}
+
 func TestPercentileEstimator_NaNReturnsCurrent(t *testing.T) {
 	e := &PercentileEstimator{Percentile: 95}
 	nanPS := metrics.PercentileSet{
