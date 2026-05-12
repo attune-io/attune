@@ -612,7 +612,12 @@ spec:
                 description: Savings summarizes estimated resource savings.
                 properties:
                   cpuRequestReduction:
-                    description: CPURequestReduction is the total CPU request reduction.
+                    description: CPURequestReduction is the total CPU request reduction
+                      (e.g. "200m").
+                    type: string
+                  cpuRequestTotal:
+                    description: CPURequestTotal is the total current CPU requests
+                      across all workloads (e.g. "2000m").
                     type: string
                   estimatedMonthlySavings:
                     description: |-
@@ -621,7 +626,11 @@ spec:
                     type: string
                   memoryRequestReduction:
                     description: MemoryRequestReduction is the total memory request
-                      reduction.
+                      reduction (e.g. "256Mi").
+                    type: string
+                  memoryRequestTotal:
+                    description: MemoryRequestTotal is the total current memory requests
+                      across all workloads (e.g. "2Gi").
                     type: string
                 type: object
               workloads:

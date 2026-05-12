@@ -26,6 +26,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -201,12 +202,13 @@ func printSavings(ctx context.Context, dynClient dynamic.Interface, namespace st
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 3, ' ', 0)
-	fmt.Fprintln(w, "NAMESPACE\tNAME\tCPU SAVED\tMEMORY SAVED\tEST. MONTHLY")
+	fmt.Fprintln(w, "NAMESPACE\tNAME\tCPU SAVED\tMEMORY SAVED\t% SAVED\tEST. MONTHLY")
 
 	for _, item := range list.Items {
 		ns := item.GetNamespace()
 		name := item.GetName()
 		cpuSaved := getNestedString(item, "status", "savings", "cpuRequestReduction")
+		cpuTotal := getNestedString(item, "status", "savings", "cpuRequestTotal")
 		memSaved := getNestedString(item, "status", "savings", "memoryRequestReduction")
 		estMonthly := getNestedString(item, "status", "savings", "estimatedMonthlySavings")
 
@@ -220,9 +222,10 @@ func printSavings(ctx context.Context, dynClient dynamic.Interface, namespace st
 		if estMonthly == "" {
 			estMonthly = "-"
 		}
+		pctSaved := savingsPercent(cpuSaved, cpuTotal)
 
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
-			ns, name, cpuSaved, memSaved, estMonthly)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+			ns, name, cpuSaved, memSaved, pctSaved, estMonthly)
 	}
 
 	if err := w.Flush(); err != nil {
@@ -336,6 +339,23 @@ func printRecommendations(ctx context.Context, dynClient dynamic.Interface, name
 		fmt.Fprintf(os.Stderr, "\n%d %s collecting data. Run 'kubectl rightsize status' for details.\n",
 			collecting, noun)
 	}
+}
+
+// savingsPercent computes the CPU savings percentage from reduction and total strings.
+func savingsPercent(saved, total string) string {
+	if saved == "-" || saved == "" || total == "" {
+		return "-"
+	}
+	s, err := resource.ParseQuantity(saved)
+	if err != nil {
+		return "-"
+	}
+	t, err := resource.ParseQuantity(total)
+	if err != nil || t.MilliValue() == 0 {
+		return "-"
+	}
+	pct := float64(s.MilliValue()) * 100.0 / float64(t.MilliValue())
+	return fmt.Sprintf("%.0f%%", pct)
 }
 
 // policyReadyReason extracts the Ready condition reason from an unstructured policy.

@@ -165,9 +165,13 @@ const (
 // computeSavings calculates the aggregate resource savings across all recommendations.
 func (r *RightSizePolicyReconciler) computeSavings(namespace string, recommendations []rightsizev1alpha1.WorkloadRecommendation, defaults *rightsizev1alpha1.RightSizeDefaults) rightsizev1alpha1.SavingsStatus {
 	var totalCPUSaved, totalMemSaved int64
+	var totalCPU, totalMem int64
 
 	for _, rec := range recommendations {
 		for _, c := range rec.Containers {
+			totalCPU += c.Current.CPURequest.MilliValue()
+			totalMem += c.Current.MemoryRequest.Value()
+
 			cpuDiff := c.Current.CPURequest.MilliValue() - c.Recommended.CPURequest.MilliValue()
 			if cpuDiff > 0 {
 				totalCPUSaved += cpuDiff
@@ -181,6 +185,12 @@ func (r *RightSizePolicyReconciler) computeSavings(namespace string, recommendat
 	}
 
 	savings := rightsizev1alpha1.SavingsStatus{}
+	if totalCPU > 0 {
+		savings.CPURequestTotal = resource.NewMilliQuantity(totalCPU, resource.DecimalSI).String()
+	}
+	if totalMem > 0 {
+		savings.MemoryRequestTotal = resource.NewQuantity(totalMem, resource.BinarySI).String()
+	}
 	if totalCPUSaved > 0 {
 		savings.CPURequestReduction = resource.NewMilliQuantity(totalCPUSaved, resource.DecimalSI).String()
 		operatormetrics.SavingsCPU.WithLabelValues(namespace).Set(float64(totalCPUSaved) / 1000.0)

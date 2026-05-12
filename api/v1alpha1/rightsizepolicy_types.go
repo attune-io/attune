@@ -327,11 +327,19 @@ type ResizeHistoryEntry struct {
 
 // SavingsStatus summarizes estimated resource savings.
 type SavingsStatus struct {
-	// CPURequestReduction is the total CPU request reduction.
+	// CPURequestReduction is the total CPU request reduction (e.g. "200m").
 	CPURequestReduction string `json:"cpuRequestReduction,omitempty"`
 
-	// MemoryRequestReduction is the total memory request reduction.
+	// CPURequestTotal is the total current CPU requests across all workloads (e.g. "2000m").
+	// +optional
+	CPURequestTotal string `json:"cpuRequestTotal,omitempty"`
+
+	// MemoryRequestReduction is the total memory request reduction (e.g. "256Mi").
 	MemoryRequestReduction string `json:"memoryRequestReduction,omitempty"`
+
+	// MemoryRequestTotal is the total current memory requests across all workloads (e.g. "2Gi").
+	// +optional
+	MemoryRequestTotal string `json:"memoryRequestTotal,omitempty"`
 
 	// EstimatedMonthlySavings is the estimated monthly cost savings based on
 	// configured or default pricing (e.g. "$12.50").
