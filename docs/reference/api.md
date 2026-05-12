@@ -50,7 +50,7 @@ spec:
 
   # How and when to apply changes.
   updateStrategy:
-    mode: Recommend            # Observe | Recommend | OneShot | Canary | Auto
+    mode: Recommend            # Recommend | OneShot | Canary | Auto (Observe is an alias for Recommend)
     canary:                    # required when mode is Canary
       percentage: 10           # % of pods to resize first
       observationPeriod: 30m   # watch canary pods before proceeding

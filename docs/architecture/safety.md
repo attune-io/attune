@@ -16,11 +16,12 @@ flowchart LR
 
 | Mode | Risk | What happens |
 |------|------|-------------|
-| Observe | None | Metrics collected, recommendations computed and written to status |
-| Recommend | None | Same as Observe (recommendations in status, no resizes) |
+| Recommend | None | Metrics collected, recommendations computed and written to status |
 | OneShot | Low | One pod resized per cycle |
 | Canary | Medium | Percentage-based rollout with observation |
 | Auto | Higher | All eligible pods resized |
+
+`Observe` is accepted as a mode value and behaves identically to `Recommend`.
 
 The recommended production path is Recommend, then Canary, then Auto.
 

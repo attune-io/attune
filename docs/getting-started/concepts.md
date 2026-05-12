@@ -16,11 +16,15 @@ Modes are graduated from safe observation to full automation:
 
 | Mode | Reads metrics | Writes recommendations | Resizes pods |
 |------|:---:|:---:|:---:|
-| **Observe** | Yes | No | No |
 | **Recommend** | Yes | Yes (status only) | No |
 | **OneShot** | Yes | Yes | One pod per cycle |
 | **Canary** | Yes | Yes | A percentage of pods, then the rest after observation |
 | **Auto** | Yes | Yes | All eligible pods |
+
+!!! note "Observe mode"
+    `Observe` is accepted as a mode value and behaves identically to
+    `Recommend` (collects metrics, writes recommendations, no resizes).
+    Use `Recommend` for new policies.
 
 !!! warning
     Start with **Recommend** in production. Promote to **Canary** only after
