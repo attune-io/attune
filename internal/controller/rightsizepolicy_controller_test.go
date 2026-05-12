@@ -1373,6 +1373,63 @@ func TestParseResizeRecords_MultiContainer(t *testing.T) {
 	assert.Equal(t, int32(2), records[1].RestartCount)
 }
 
+func TestParseResizeRecords_MissingCPUAnnotation(t *testing.T) {
+	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "bad-pod", Namespace: "default",
+			Annotations: map[string]string{
+				annotationResizedAt:                    resizedAt,
+				annotationResizedContainers:            "app",
+				annotationOriginalMemoryPrefix + "app": "512Mi",
+			},
+		},
+	}
+
+	_, err := parseResizeRecords(pod, 5*time.Minute)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parsing original CPU for app")
+}
+
+func TestParseResizeRecords_InvalidTimestamp(t *testing.T) {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "bad-pod", Namespace: "default",
+			Annotations: map[string]string{
+				annotationResizedAt: "not-a-timestamp",
+			},
+		},
+	}
+
+	_, err := parseResizeRecords(pod, 5*time.Minute)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parsing resized-at annotation")
+}
+
+func TestParseResizeRecords_MalformedRestartCount(t *testing.T) {
+	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "bad-pod", Namespace: "default",
+			Annotations: map[string]string{
+				annotationResizedAt:                              resizedAt,
+				annotationResizedContainers:                      "app",
+				annotationOriginalCPUPrefix + "app":              "500m",
+				annotationOriginalMemoryPrefix + "app":           "512Mi",
+				annotationOriginalRestartCountPrefix + "app":     "not-a-number",
+			},
+		},
+		Spec: corev1.PodSpec{Containers: []corev1.Container{
+			{Name: "app"},
+		}},
+	}
+
+	records, err := parseResizeRecords(pod, 5*time.Minute)
+	require.NoError(t, err)
+	require.Len(t, records, 1)
+	assert.Equal(t, int32(0), records[0].RestartCount, "malformed restart count should default to 0")
+}
+
 // newSafetyTestReconciler creates a reconciler with a pod and a matching
 // deployment for safety observation tests. The deploy satisfies the
 // provenance check in checkPendingSafetyObservations.
