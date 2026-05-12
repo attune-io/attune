@@ -302,6 +302,15 @@ func newResizeReconciler(pod *corev1.Pod, objects ...client.Object) (*RightSizeP
 	}, fakeClient
 }
 
+// podMap builds a podsByWorkload map for use in executeResizes tests.
+func podMap(workloadName string, pods ...*corev1.Pod) map[string][]corev1.Pod {
+	m := make(map[string][]corev1.Pod, 1)
+	for _, p := range pods {
+		m[workloadName] = append(m[workloadName], *p)
+	}
+	return m
+}
+
 func TestDiscoverWorkloads_FindsDeploymentByName(t *testing.T) {
 	deploy := newTestDeployment("api-server", "default", map[string]string{"tier": "api"})
 	reconciler := newReconcilerWithClient(deploy)
@@ -750,7 +759,7 @@ func TestComputeRecommendations_HappyPath(t *testing.T) {
 		},
 	}
 
-	rec, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, nil, mc)
+	rec, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
 	require.Len(t, rec.Containers, 1)
@@ -770,7 +779,7 @@ func TestComputeRecommendations_InsufficientDataPoints(t *testing.T) {
 		},
 	}
 
-	rec, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, nil, mc)
+	rec, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
 	assert.NoError(t, err)
 	assert.Nil(t, rec) // No recommendation because data points are insufficient
 }
@@ -786,7 +795,7 @@ func TestComputeRecommendations_QueryError(t *testing.T) {
 		},
 	}
 
-	rec, qErrors, err := reconciler.computeRecommendations(context.Background(), policy, deploy, nil, mc)
+	rec, qErrors, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
 	assert.NoError(t, err)
 	assert.Nil(t, rec)
 	assert.Greater(t, qErrors, 0, "query failures should be counted")
@@ -806,7 +815,7 @@ func TestComputeRecommendations_EmptyContainers(t *testing.T) {
 
 	mc := &mockCollector{}
 
-	rec, _, err := reconciler.computeRecommendations(context.Background(), policy, emptyDeploy, nil, mc)
+	rec, _, err := reconciler.computeRecommendations(context.Background(), policy, emptyDeploy, mc)
 	assert.NoError(t, err)
 	assert.Nil(t, rec)
 }
@@ -826,7 +835,7 @@ func TestComputeRecommendations_AllowDecreaseBlocked(t *testing.T) {
 		},
 	}
 
-	rec, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, nil, mc)
+	rec, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
 	require.Len(t, rec.Containers, 1)
@@ -851,7 +860,7 @@ func TestComputeRecommendations_RequestsAndLimits(t *testing.T) {
 		},
 	}
 
-	rec, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, nil, mc)
+	rec, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
 	require.Len(t, rec.Containers, 1)
@@ -1216,7 +1225,7 @@ func TestExecuteResizes_NoClientset(t *testing.T) {
 	reconciler := &RightSizePolicyReconciler{}
 	policy := newTestPolicy("test-policy", "default")
 
-	count, history := reconciler.executeResizes(context.Background(), policy, nil, nil, nil)
+	count, history := reconciler.executeResizes(context.Background(), policy, nil, nil, nil, nil)
 	assert.Equal(t, 0, count)
 	assert.Nil(t, history)
 }
@@ -1234,7 +1243,7 @@ func TestExecuteResizes_SuccessfulResize(t *testing.T) {
 	}
 
 	workloads := []client.Object{deploy}
-	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, nil)
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil)
 	assert.Equal(t, 1, count)
 	assert.NotEmpty(t, history)
 	assert.Equal(t, "api-server", history[0].Workload)
@@ -1259,7 +1268,7 @@ func TestExecuteResizes_ContextCancelledAbortsRemaining(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	count, history := reconciler.executeResizes(ctx, policy, workloads, recommendations, nil)
+	count, history := reconciler.executeResizes(ctx, policy, workloads, recommendations, podMap("api-server", pod), nil)
 	assert.Equal(t, 0, count, "no resizes should complete with cancelled context")
 	assert.Empty(t, history, "no history entries with cancelled context")
 }
@@ -1278,7 +1287,7 @@ func TestExecuteResizes_SkipsMatchingResources(t *testing.T) {
 	}
 
 	workloads := []client.Object{deploy}
-	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, nil)
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil)
 	assert.Equal(t, 0, count)
 	assert.Empty(t, history)
 }
@@ -1296,7 +1305,7 @@ func TestExecuteResizes_NoMatchingWorkload(t *testing.T) {
 	}
 
 	workloads := []client.Object{deploy}
-	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, nil)
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, nil, nil)
 	assert.Equal(t, 0, count)
 	assert.Empty(t, history)
 }
@@ -1649,7 +1658,7 @@ func TestExecuteResizes_SkipsQoSChange(t *testing.T) {
 	}
 
 	workloads := []client.Object{deploy}
-	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, nil)
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil)
 	assert.Equal(t, 0, count)
 	assert.Empty(t, history)
 }
@@ -1671,7 +1680,7 @@ func TestExecuteResizes_QoSBlocked_EmitsResizeSkippedEvent(t *testing.T) {
 	}
 	workloads := []client.Object{deploy}
 
-	count, _ := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, nil)
+	count, _ := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil)
 	assert.Equal(t, 0, count)
 
 	select {
@@ -1704,7 +1713,7 @@ func TestExecuteResizes_ResizeError(t *testing.T) {
 	}
 
 	workloads := []client.Object{deploy}
-	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, nil)
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil)
 	assert.Equal(t, 0, count)
 	assert.NotEmpty(t, history)
 	assert.Equal(t, "Failed", history[0].Result)
@@ -1733,7 +1742,7 @@ func TestExecuteResizes_ResizeError_EmitsResizeFailedEvent(t *testing.T) {
 	}
 	workloads := []client.Object{deploy}
 
-	count, _ := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, nil)
+	count, _ := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil)
 	assert.Equal(t, 0, count)
 
 	select {
@@ -1759,7 +1768,7 @@ func TestExecuteResizes_AutoRevert_SafeVerdictNoRevert(t *testing.T) {
 	}
 
 	workloads := []client.Object{deploy}
-	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, nil)
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil)
 
 	// Resize was attempted. The safety check runs immediately but with a
 	// fake clientset the pod won't have conditions set, so CheckPod will
@@ -2505,7 +2514,7 @@ func TestComputeRecommendations_ExcludeContainers(t *testing.T) {
 		},
 	}
 
-	rec, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, nil, mc)
+	rec, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
 
@@ -2527,7 +2536,7 @@ func TestComputeRecommendations_ExcludeAllContainers(t *testing.T) {
 		},
 	}
 
-	rec, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, nil, mc)
+	rec, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
 	assert.NoError(t, err)
 	assert.Nil(t, rec, "all containers excluded, should return nil")
 }
@@ -2559,7 +2568,7 @@ func TestExecuteResizes_SkipsWhenExceedsNodeCapacity(t *testing.T) {
 	}
 
 	workloads := []client.Object{deploy}
-	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, nil)
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil)
 	assert.Equal(t, 0, count, "resize should be skipped when total requests exceed node allocatable")
 	assert.Empty(t, history)
 }
@@ -2589,7 +2598,7 @@ func TestExecuteResizes_ProceedsWhenWithinNodeCapacity(t *testing.T) {
 	}
 
 	workloads := []client.Object{deploy}
-	count, _ := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, nil)
+	count, _ := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil)
 	assert.Equal(t, 1, count, "resize should proceed when within node capacity")
 }
 
@@ -2656,7 +2665,7 @@ func TestExecuteResizes_EmitsResizedEvent(t *testing.T) {
 	}
 	workloads := []client.Object{deploy}
 
-	count, _ := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, nil)
+	count, _ := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil)
 	assert.Equal(t, 1, count)
 
 	// Drain the event channel and check for a Resized event.
@@ -2700,7 +2709,7 @@ func TestExecuteResizes_ThrottleTriggersRevert(t *testing.T) {
 	// Collector reports 60% throttle (above 50% threshold).
 	collector := &mockThrottleCollector{throttleRatio: 0.6}
 
-	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, collector)
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), collector)
 	// The resize should succeed then immediately revert due to throttle.
 	assert.Equal(t, 0, count, "should be 0 after revert")
 
@@ -2759,7 +2768,7 @@ func TestExecuteResizes_PersistsAnnotations(t *testing.T) {
 	}
 
 	workloads := []client.Object{deploy}
-	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, nil)
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil)
 	require.Equal(t, 1, count, "resize should succeed")
 	require.NotEmpty(t, history)
 	assert.Equal(t, "Success", history[0].Result)
@@ -2796,7 +2805,7 @@ func TestExecuteResizes_CapturesZeroRestartCount(t *testing.T) {
 	}
 
 	workloads := []client.Object{deploy}
-	count, _ := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, nil)
+	count, _ := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil)
 	require.Equal(t, 1, count)
 
 	var updated corev1.Pod
@@ -2822,7 +2831,7 @@ func TestExecuteResizes_PreservesExistingPodAnnotations(t *testing.T) {
 	}
 
 	workloads := []client.Object{deploy}
-	count, _ := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, nil)
+	count, _ := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil)
 	require.Equal(t, 1, count)
 
 	var updated corev1.Pod
@@ -2868,7 +2877,7 @@ func TestExecuteResizes_RevertsOnAnnotationUpdateFailure(t *testing.T) {
 	}
 
 	workloads := []client.Object{deploy}
-	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, nil)
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil)
 
 	// The resize should have been reverted because annotation update failed.
 	assert.Equal(t, 0, count, "net resized count should be 0 after revert")
@@ -2962,7 +2971,7 @@ func TestExecuteResizes_RevertsOnReFetchFailure(t *testing.T) {
 	}
 
 	workloads := []client.Object{deploy}
-	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, nil)
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil)
 
 	assert.Equal(t, 0, count, "net resized count should be 0 after revert")
 

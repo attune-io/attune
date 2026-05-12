@@ -191,6 +191,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	// Step 4-8: Process each workload.
 	var recommendations []rightsizev1alpha1.WorkloadRecommendation
 	var workloadsWithRecs int32
+	podsByWorkload := make(map[string][]corev1.Pod)
 	var totalQueryErrors int
 	conflictDetector := conflict.NewDetector(logger)
 
@@ -258,8 +259,10 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			continue
 		}
 
+		podsByWorkload[workloadName] = pods
+
 		// Step 7: Compute recommendations for each container.
-		rec, qErrors, err := r.computeRecommendations(ctx, &policy, workload, pods, collector)
+		rec, qErrors, err := r.computeRecommendations(ctx, &policy, workload, collector)
 		totalQueryErrors += qErrors
 		if err != nil {
 			logger.Error(err, "Failed to compute recommendations", "workload", workloadName)
@@ -290,7 +293,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	mode := policy.Spec.UpdateStrategy.Mode
 	cooldownActive := r.isCooldownActive(&policy)
 	if isResizeMode(mode) && !cooldownActive {
-		resizedCount, history := r.executeResizes(ctx, &policy, workloads, recommendations, collector)
+		resizedCount, history := r.executeResizes(ctx, &policy, workloads, recommendations, podsByWorkload, collector)
 		if resizedCount > 0 {
 			policy.Status.Workloads.Resized = safeInt32(resizedCount)
 			policy.Status.ResizeHistory = appendHistory(policy.Status.ResizeHistory, history, 20)
@@ -367,7 +370,6 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 	ctx context.Context,
 	policy *rightsizev1alpha1.RightSizePolicy,
 	workload client.Object,
-	_ []corev1.Pod,
 	collector rsmetrics.MetricsCollector,
 ) (rec *rightsizev1alpha1.WorkloadRecommendation, queryErrors int, err error) {
 	logger := log.FromContext(ctx)
@@ -619,6 +621,7 @@ func (r *RightSizePolicyReconciler) executeResizes(
 	policy *rightsizev1alpha1.RightSizePolicy,
 	workloads []client.Object,
 	recommendations []rightsizev1alpha1.WorkloadRecommendation,
+	podsByWorkload map[string][]corev1.Pod,
 	collector rsmetrics.MetricsCollector,
 ) (int, []rightsizev1alpha1.ResizeHistoryEntry) {
 	logger := log.FromContext(ctx)
@@ -657,13 +660,8 @@ func (r *RightSizePolicyReconciler) executeResizes(
 			continue
 		}
 
-		// Get pods for this workload
-		pods, err := r.getPodsForWorkload(ctx, matchedWorkload)
-		if err != nil {
-			logger.Error(err, "Failed to get pods for resize", "workload", rec.Workload)
-			continue
-		}
-
+		// Use pre-fetched pods (avoids duplicate API call per workload).
+		pods := podsByWorkload[rec.Workload]
 		selectedPods := selectPodsForResize(pods, mode, canaryPct)
 		if len(selectedPods) == 0 {
 			continue
