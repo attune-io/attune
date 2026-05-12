@@ -49,7 +49,7 @@ import (
 	"github.com/SebTardif/kube-rightsize/internal/recommendation"
 	"github.com/SebTardif/kube-rightsize/internal/resize"
 	"github.com/SebTardif/kube-rightsize/internal/safety"
-	"github.com/SebTardif/kube-rightsize/internal/webhook"
+	"github.com/SebTardif/kube-rightsize/internal/validation"
 )
 
 const (
@@ -556,7 +556,7 @@ func (r *RightSizePolicyReconciler) resolvePrometheusAddress(ctx context.Context
 	// Fall back to auto-discovery: look for Prometheus Operator's Prometheus CRD.
 	if addr == "" {
 		if discovered := r.discoverPrometheus(ctx); discovered != "" {
-			if err := webhook.ValidatePrometheusAddress(discovered); err != nil {
+			if err := validation.PrometheusAddress(discovered); err != nil {
 				log.FromContext(ctx).Error(err, "Auto-discovered Prometheus address failed SSRF validation", "address", discovered)
 			} else {
 				log.FromContext(ctx).Info("Auto-discovered Prometheus address", "address", discovered)
@@ -568,7 +568,7 @@ func (r *RightSizePolicyReconciler) resolvePrometheusAddress(ctx context.Context
 
 	// Defense-in-depth: re-validate even if the webhook was supposed to
 	// catch SSRF. This protects when webhooks are disabled.
-	if err := webhook.ValidatePrometheusAddress(addr); err != nil {
+	if err := validation.PrometheusAddress(addr); err != nil {
 		return "", fmt.Errorf("SSRF blocked: %w", err)
 	}
 
