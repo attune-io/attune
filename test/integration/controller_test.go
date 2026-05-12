@@ -38,6 +38,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	rightsizev1alpha1 "github.com/SebTardif/kube-rightsize/api/v1alpha1"
 	"github.com/SebTardif/kube-rightsize/internal/controller"
@@ -110,7 +111,10 @@ func TestMain(m *testing.M) {
 	}
 
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
-		Scheme: scheme.Scheme,
+		Scheme:                  scheme.Scheme,
+		LeaderElection:          false,
+		HealthProbeBindAddress:  "0",
+		Metrics:                 metricsserver.Options{BindAddress: "0"},
 	})
 	if err != nil {
 		panic("failed to create manager: " + err.Error())
@@ -125,6 +129,7 @@ func TestMain(m *testing.M) {
 		Client:      mgr.GetClient(),
 		Scheme:      mgr.GetScheme(),
 		Clientset:   clientset,
+		Recorder:    mgr.GetEventRecorder("kube-rightsize-integration"),
 		MinCooldown: 1 * time.Second, // fast reconciliation for tests
 		MetricsFactory: func(address string) (metrics.MetricsCollector, error) {
 			return &syntheticCollector{}, nil
@@ -136,8 +141,15 @@ func TestMain(m *testing.M) {
 	}
 
 	go func() {
-		_ = mgr.Start(ctx)
+		if err := mgr.Start(ctx); err != nil {
+			panic("manager failed to start: " + err.Error())
+		}
 	}()
+
+	// Wait for informer caches to sync before running tests.
+	if !mgr.GetCache().WaitForCacheSync(ctx) {
+		panic("failed to sync informer caches")
+	}
 
 	// Create the test namespace.
 	ns := &corev1.Namespace{
