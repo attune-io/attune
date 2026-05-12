@@ -488,6 +488,254 @@ spec:
                               to generate the recommendation.
                             format: int32
                             type: integer
+                          explanation:
+                            description: Explanation contains the reasoning chain
+                              behind the recommendation.
+                            properties:
+                              cpu:
+                                description: CPU contains the CPU recommendation reasoning.
+                                properties:
+                                  afterBounds:
+                                    anyOf:
+                                    - type: integer
+                                    - type: string
+                                    description: AfterBounds is the value after bounds
+                                      clamping.
+                                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                    x-kubernetes-int-or-string: true
+                                  afterChangeFilter:
+                                    anyOf:
+                                    - type: integer
+                                    - type: string
+                                    description: AfterChangeFilter is the value after
+                                      change filtering.
+                                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                    x-kubernetes-int-or-string: true
+                                  afterConfidence:
+                                    anyOf:
+                                    - type: integer
+                                    - type: string
+                                    description: AfterConfidence is the value after
+                                      applying the confidence adjustment.
+                                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                    x-kubernetes-int-or-string: true
+                                  afterSafetyMargin:
+                                    anyOf:
+                                    - type: integer
+                                    - type: string
+                                    description: AfterSafetyMargin is the value after
+                                      applying the safety margin.
+                                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                    x-kubernetes-int-or-string: true
+                                  bounds:
+                                    description: Bounds are the configured minimum
+                                      and maximum limits.
+                                    properties:
+                                      max:
+                                        anyOf:
+                                        - type: integer
+                                        - type: string
+                                        description: Max is the maximum allowed resource
+                                          value.
+                                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                        x-kubernetes-int-or-string: true
+                                      min:
+                                        anyOf:
+                                        - type: integer
+                                        - type: string
+                                        description: Min is the minimum allowed resource
+                                          value.
+                                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                        x-kubernetes-int-or-string: true
+                                    required:
+                                    - max
+                                    - min
+                                    type: object
+                                  boundsApplied:
+                                    description: BoundsApplied indicates whether the
+                                      value was clamped to min, max, or neither.
+                                    type: string
+                                  changeFilterApplied:
+                                    description: ChangeFilterApplied indicates whether
+                                      the result was filtered or capped.
+                                    type: string
+                                  confidence:
+                                    description: Confidence is the profile confidence
+                                      score used for adjustment.
+                                    type: number
+                                  confidenceFactor:
+                                    description: ConfidenceFactor is the multiplier
+                                      derived from the confidence score.
+                                    type: number
+                                  final:
+                                    anyOf:
+                                    - type: integer
+                                    - type: string
+                                    description: Final is the final resource recommendation
+                                      after any post-processing.
+                                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                    x-kubernetes-int-or-string: true
+                                  finalAdjustment:
+                                    description: FinalAdjustment describes any controller-level
+                                      adjustment after the estimator chain.
+                                    type: string
+                                  maxChangePercent:
+                                    description: MaxChangePercent is the maximum allowed
+                                      change threshold.
+                                    type: number
+                                  minChangePercent:
+                                    description: MinChangePercent is the minimum change
+                                      threshold required to alter the current value.
+                                    type: number
+                                  rawPercentile:
+                                    anyOf:
+                                    - type: integer
+                                    - type: string
+                                    description: RawPercentile is the selected percentile
+                                      before any adjustments.
+                                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                    x-kubernetes-int-or-string: true
+                                  safetyMargin:
+                                    description: SafetyMargin is the configured safety
+                                      multiplier applied to the raw percentile.
+                                    type: number
+                                required:
+                                - afterBounds
+                                - afterChangeFilter
+                                - afterConfidence
+                                - afterSafetyMargin
+                                - bounds
+                                - confidence
+                                - confidenceFactor
+                                - final
+                                - maxChangePercent
+                                - minChangePercent
+                                - rawPercentile
+                                - safetyMargin
+                                type: object
+                              memory:
+                                description: Memory contains the memory recommendation
+                                  reasoning.
+                                properties:
+                                  afterBounds:
+                                    anyOf:
+                                    - type: integer
+                                    - type: string
+                                    description: AfterBounds is the value after bounds
+                                      clamping.
+                                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                    x-kubernetes-int-or-string: true
+                                  afterChangeFilter:
+                                    anyOf:
+                                    - type: integer
+                                    - type: string
+                                    description: AfterChangeFilter is the value after
+                                      change filtering.
+                                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                    x-kubernetes-int-or-string: true
+                                  afterConfidence:
+                                    anyOf:
+                                    - type: integer
+                                    - type: string
+                                    description: AfterConfidence is the value after
+                                      applying the confidence adjustment.
+                                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                    x-kubernetes-int-or-string: true
+                                  afterSafetyMargin:
+                                    anyOf:
+                                    - type: integer
+                                    - type: string
+                                    description: AfterSafetyMargin is the value after
+                                      applying the safety margin.
+                                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                    x-kubernetes-int-or-string: true
+                                  bounds:
+                                    description: Bounds are the configured minimum
+                                      and maximum limits.
+                                    properties:
+                                      max:
+                                        anyOf:
+                                        - type: integer
+                                        - type: string
+                                        description: Max is the maximum allowed resource
+                                          value.
+                                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                        x-kubernetes-int-or-string: true
+                                      min:
+                                        anyOf:
+                                        - type: integer
+                                        - type: string
+                                        description: Min is the minimum allowed resource
+                                          value.
+                                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                        x-kubernetes-int-or-string: true
+                                    required:
+                                    - max
+                                    - min
+                                    type: object
+                                  boundsApplied:
+                                    description: BoundsApplied indicates whether the
+                                      value was clamped to min, max, or neither.
+                                    type: string
+                                  changeFilterApplied:
+                                    description: ChangeFilterApplied indicates whether
+                                      the result was filtered or capped.
+                                    type: string
+                                  confidence:
+                                    description: Confidence is the profile confidence
+                                      score used for adjustment.
+                                    type: number
+                                  confidenceFactor:
+                                    description: ConfidenceFactor is the multiplier
+                                      derived from the confidence score.
+                                    type: number
+                                  final:
+                                    anyOf:
+                                    - type: integer
+                                    - type: string
+                                    description: Final is the final resource recommendation
+                                      after any post-processing.
+                                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                    x-kubernetes-int-or-string: true
+                                  finalAdjustment:
+                                    description: FinalAdjustment describes any controller-level
+                                      adjustment after the estimator chain.
+                                    type: string
+                                  maxChangePercent:
+                                    description: MaxChangePercent is the maximum allowed
+                                      change threshold.
+                                    type: number
+                                  minChangePercent:
+                                    description: MinChangePercent is the minimum change
+                                      threshold required to alter the current value.
+                                    type: number
+                                  rawPercentile:
+                                    anyOf:
+                                    - type: integer
+                                    - type: string
+                                    description: RawPercentile is the selected percentile
+                                      before any adjustments.
+                                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                    x-kubernetes-int-or-string: true
+                                  safetyMargin:
+                                    description: SafetyMargin is the configured safety
+                                      multiplier applied to the raw percentile.
+                                    type: number
+                                required:
+                                - afterBounds
+                                - afterChangeFilter
+                                - afterConfidence
+                                - afterSafetyMargin
+                                - bounds
+                                - confidence
+                                - confidenceFactor
+                                - final
+                                - maxChangePercent
+                                - minChangePercent
+                                - rawPercentile
+                                - safetyMargin
+                                type: object
+                            type: object
                           lastUpdated:
                             description: LastUpdated is the timestamp of the last
                               recommendation update.

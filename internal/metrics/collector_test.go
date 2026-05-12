@@ -110,6 +110,52 @@ func TestQueryRange_Success(t *testing.T) {
 	assert.False(t, samples[1].Timestamp.IsZero())
 }
 
+func TestQueryRangeGrouped_Success(t *testing.T) {
+	response := `{
+		"status": "success",
+		"data": {
+			"resultType": "matrix",
+			"result": [
+				{
+					"metric": {"__name__": "cpu_usage", "pod": "test-pod", "container": "app"},
+					"values": [
+						[1700000000, "0.25"],
+						[1700000060, "0.50"]
+					]
+				},
+				{
+					"metric": {"__name__": "cpu_usage", "pod": "test-pod", "container": "sidecar"},
+					"values": [
+						[1700000000, "0.05"]
+					]
+				}
+			]
+		}
+	}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(response))
+	}))
+	defer server.Close()
+
+	collector, err := NewPrometheusCollector(server.URL, logr.Discard(), http.DefaultTransport)
+	require.NoError(t, err)
+
+	start := time.Unix(1700000000, 0)
+	end := time.Unix(1700000120, 0)
+	step := 60 * time.Second
+
+	grouped, err := collector.QueryRangeGrouped(context.Background(), "cpu_usage", start, end, step)
+	require.NoError(t, err)
+	require.Len(t, grouped, 2)
+	require.Len(t, grouped["app"], 2)
+	require.Len(t, grouped["sidecar"], 1)
+	assert.InDelta(t, 0.25, grouped["app"][0].Value, 0.001)
+	assert.InDelta(t, 0.50, grouped["app"][1].Value, 0.001)
+	assert.InDelta(t, 0.05, grouped["sidecar"][0].Value, 0.001)
+}
+
 func TestQuery_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

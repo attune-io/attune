@@ -592,6 +592,142 @@ func TestPrintRecommendations_CollectingData(t *testing.T) {
 	assert.Contains(t, output, "Not enough data")
 }
 
+func TestPrintExplain(t *testing.T) {
+	policy := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "rightsize.io/v1alpha1",
+			"kind":       "RightSizePolicy",
+			"metadata": map[string]interface{}{
+				"name":      "my-policy",
+				"namespace": "default",
+			},
+			"status": map[string]interface{}{
+				"recommendations": []interface{}{
+					map[string]interface{}{
+						"workload": "web-deploy",
+						"containers": []interface{}{
+							map[string]interface{}{
+								"name":       "app",
+								"confidence": 0.85,
+								"current": map[string]interface{}{
+									"cpuRequest":    "500m",
+									"memoryRequest": "512Mi",
+								},
+								"recommended": map[string]interface{}{
+									"cpuRequest":    "250m",
+									"memoryRequest": "512Mi",
+								},
+								"explanation": map[string]interface{}{
+									"cpu": map[string]interface{}{
+										"rawPercentile":       "200m",
+										"safetyMargin":        1.2,
+										"afterSafetyMargin":   "240m",
+										"confidence":          0.85,
+										"confidenceFactor":    4.0,
+										"afterConfidence":     "960m",
+										"bounds":              map[string]interface{}{"min": "50m", "max": "4000m"},
+										"afterBounds":         "960m",
+										"minChangePercent":    10.0,
+										"maxChangePercent":    50.0,
+										"changeFilterApplied": "max_change_capped",
+										"afterChangeFilter":   "250m",
+										"final":               "250m",
+									},
+									"memory": map[string]interface{}{
+										"rawPercentile":     "256Mi",
+										"safetyMargin":      1.3,
+										"afterSafetyMargin": "333Mi",
+										"confidence":        0.85,
+										"confidenceFactor":  4.0,
+										"afterConfidence":   "1332Mi",
+										"bounds":            map[string]interface{}{"min": "64Mi", "max": "8Gi"},
+										"afterBounds":       "1332Mi",
+										"minChangePercent":  10.0,
+										"maxChangePercent":  30.0,
+										"afterChangeFilter": "512Mi",
+										"final":             "512Mi",
+										"finalAdjustment":   "memory decrease blocked by allowDecrease=false",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{gvr: "RightSizePolicyList"}, policy)
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	printExplain(context.Background(), dynClient, "default", "my-policy")
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	output := buf.String()
+
+	assert.Contains(t, output, "Policy: default/my-policy")
+	assert.Contains(t, output, "Workload: web-deploy")
+	assert.Contains(t, output, "Container: app")
+	assert.Contains(t, output, "Raw percentile:              200m")
+	assert.Contains(t, output, "Change filter [10.00%, 50.00%]: 250m (max_change_capped)")
+	assert.Contains(t, output, "Final adjustment:           memory decrease blocked by allowDecrease=false")
+}
+
+func TestPrintExplain_NoRecommendations(t *testing.T) {
+	policy := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "rightsize.io/v1alpha1",
+			"kind":       "RightSizePolicy",
+			"metadata": map[string]interface{}{
+				"name":      "new-policy",
+				"namespace": "default",
+			},
+			"status": map[string]interface{}{
+				"conditions": []interface{}{
+					map[string]interface{}{
+						"type":    "Ready",
+						"status":  "False",
+						"reason":  "InsufficientData",
+						"message": "Not enough data",
+					},
+				},
+			},
+		},
+	}
+
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{gvr: "RightSizePolicyList"}, policy)
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	printExplain(context.Background(), dynClient, "default", "new-policy")
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	output := buf.String()
+
+	assert.Contains(t, output, "default/new-policy has no recommendations yet (Not enough data).")
+}
+
 // ---------- policyReadyReason ----------
 
 func TestPolicyReadyReason_NoConditions(t *testing.T) {

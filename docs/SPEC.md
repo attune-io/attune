@@ -774,8 +774,8 @@ kube_rightsize_savings_cpu_cores_total{namespace}
 kube_rightsize_savings_memory_bytes_total{namespace}
 
 # Resize operations
-kube_rightsize_resize_total{namespace, workload, resource, result}  # result: success|failure|reverted
-kube_rightsize_resize_duration_seconds{namespace, workload, resource}
+kube_rightsize_resize_total{namespace, workload, resource, result}  # result: success|failed|reverted
+kube_rightsize_resize_duration_seconds{namespace, workload}
 
 # Safety
 kube_rightsize_reverts_total{namespace, workload, reason}  # reason: oomkill|throttle|restart|notready
@@ -783,9 +783,9 @@ kube_rightsize_confidence{namespace, workload, container}
 
 # Operator health
 kube_rightsize_reconcile_duration_seconds{controller}
-kube_rightsize_reconcile_errors_total{controller}
-kube_rightsize_prometheus_query_duration_seconds{}
-kube_rightsize_prometheus_query_errors_total{}
+kube_rightsize_reconcile_errors_total{error_type}
+kube_rightsize_prometheus_query_duration_seconds{query_type}
+kube_rightsize_prometheus_query_errors_total{namespace, query_type}
 ```
 
 ### 8.2 Kubernetes Events

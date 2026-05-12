@@ -211,39 +211,24 @@ func (r *RightSizePolicyReconciler) getPodPrefix(workload client.Object) string 
 	return workload.GetName()
 }
 
-// queryMetrics queries Prometheus for the given metric type, falling back
-// to pod-level metrics if the container-specific query returns no data.
-// queryMetrics queries Prometheus for metric samples, falling back to a
-// pod-level query if the container-level query returns no data. Returns
-// the samples and whether any query errors occurred (for condition reporting).
-func queryMetrics(ctx context.Context, collector rsmetrics.MetricsCollector, namespace, podPrefix, container, metric string, start, end time.Time, step time.Duration) ([]rsmetrics.Sample, bool) {
-	query := buildPrometheusQuery(namespace, podPrefix, container, metric)
-	hadError := false
+// queryMetricsGrouped queries Prometheus once per metric for the whole
+// workload, preserving the `container` label so callers can split samples
+// by container client-side. If the grouped query returns no labeled series,
+// it falls back to the pod-level query and returns samples under the empty
+// string key.
+func queryMetricsGrouped(ctx context.Context, collector rsmetrics.MetricsCollector, namespace, podPrefix, metric string, start, end time.Time, step time.Duration) (map[string][]rsmetrics.Sample, bool) {
+	query := buildPrometheusQuery(namespace, podPrefix, "", metric)
 
-	queryType := metric + "_range"
+	queryType := metric + "_grouped"
 	queryStart := time.Now()
-	samples, err := collector.QueryRange(ctx, query, start, end, step)
+	grouped, err := collector.QueryRangeGrouped(ctx, query, start, end, step)
 	operatormetrics.PrometheusQueryDuration.WithLabelValues(queryType).Observe(time.Since(queryStart).Seconds())
-
 	if err != nil {
 		operatormetrics.PrometheusQueryErrors.WithLabelValues(namespace, queryType).Inc()
-		log.FromContext(ctx).Error(err, "Failed to query metrics", "metric", metric, "container", container, "query", query)
-		samples = nil
-		hadError = true
+		log.FromContext(ctx).Error(err, "Failed to query grouped metrics", "metric", metric, "query", query)
+		return map[string][]rsmetrics.Sample{}, true
 	}
-	if len(samples) == 0 && container != "" {
-		fallback := buildPrometheusQuery(namespace, podPrefix, "", metric)
-		fallbackType := metric + "_fallback"
-		queryStart = time.Now()
-		samples, err = collector.QueryRange(ctx, fallback, start, end, step)
-		operatormetrics.PrometheusQueryDuration.WithLabelValues(fallbackType).Observe(time.Since(queryStart).Seconds())
-		if err != nil {
-			operatormetrics.PrometheusQueryErrors.WithLabelValues(namespace, fallbackType).Inc()
-			log.FromContext(ctx).Error(err, "Failed to query fallback metrics", "metric", metric, "query", fallback)
-			hadError = true
-		}
-	}
-	return samples, hadError
+	return grouped, false
 }
 
 // buildPrometheusQuery generates a PromQL query for the given metric type.

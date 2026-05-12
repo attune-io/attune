@@ -44,4 +44,4 @@ kube-rightsize has been installed.
 
    kubectl get rightsizepolicies -A
 
-For more information, visit: https://github.com/SebTardif/kube-rightsize
+For more information, visit: https://github.com/SebTardifLabs/kube-rightsize

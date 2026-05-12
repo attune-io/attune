@@ -5,10 +5,10 @@ description: Safe, in-place Kubernetes pod resource right-sizing operator
 type: application
 version: 0.1.0
 appVersion: "0.1.0"
-icon: https://raw.githubusercontent.com/SebTardif/kube-rightsize/main/docs/logo.jpg
-home: https://github.com/SebTardif/kube-rightsize
+icon: https://raw.githubusercontent.com/SebTardifLabs/kube-rightsize/main/docs/logo.jpg
+home: https://github.com/SebTardifLabs/kube-rightsize
 sources:
-  - https://github.com/SebTardif/kube-rightsize
+  - https://github.com/SebTardifLabs/kube-rightsize
 maintainers:
   - name: SebTardif
     url: https://github.com/SebTardif

@@ -270,6 +270,10 @@ type ContainerRecommendation struct {
 	// Recommended contains the recommended resource values.
 	Recommended ResourceValues `json:"recommended"`
 
+	// Explanation contains the reasoning chain behind the recommendation.
+	// +optional
+	Explanation *ContainerRecommendationExplanation `json:"explanation,omitempty"`
+
 	// Confidence is the confidence score of the recommendation (0-1).
 	Confidence float64 `json:"confidence"`
 
@@ -278,6 +282,68 @@ type ContainerRecommendation struct {
 
 	// LastUpdated is the timestamp of the last recommendation update.
 	LastUpdated metav1.Time `json:"lastUpdated"`
+}
+
+// ContainerRecommendationExplanation stores per-resource recommendation reasoning.
+type ContainerRecommendationExplanation struct {
+	// CPU contains the CPU recommendation reasoning.
+	// +optional
+	CPU *ResourceRecommendationExplanation `json:"cpu,omitempty"`
+
+	// Memory contains the memory recommendation reasoning.
+	// +optional
+	Memory *ResourceRecommendationExplanation `json:"memory,omitempty"`
+}
+
+// ResourceRecommendationExplanation captures the estimator chain output for one resource.
+type ResourceRecommendationExplanation struct {
+	// RawPercentile is the selected percentile before any adjustments.
+	RawPercentile resource.Quantity `json:"rawPercentile"`
+
+	// SafetyMargin is the configured safety multiplier applied to the raw percentile.
+	SafetyMargin float64 `json:"safetyMargin"`
+
+	// AfterSafetyMargin is the value after applying the safety margin.
+	AfterSafetyMargin resource.Quantity `json:"afterSafetyMargin"`
+
+	// Confidence is the profile confidence score used for adjustment.
+	Confidence float64 `json:"confidence"`
+
+	// ConfidenceFactor is the multiplier derived from the confidence score.
+	ConfidenceFactor float64 `json:"confidenceFactor"`
+
+	// AfterConfidence is the value after applying the confidence adjustment.
+	AfterConfidence resource.Quantity `json:"afterConfidence"`
+
+	// Bounds are the configured minimum and maximum limits.
+	Bounds ResourceBounds `json:"bounds"`
+
+	// BoundsApplied indicates whether the value was clamped to min, max, or neither.
+	// +optional
+	BoundsApplied string `json:"boundsApplied,omitempty"`
+
+	// AfterBounds is the value after bounds clamping.
+	AfterBounds resource.Quantity `json:"afterBounds"`
+
+	// MinChangePercent is the minimum change threshold required to alter the current value.
+	MinChangePercent float64 `json:"minChangePercent"`
+
+	// MaxChangePercent is the maximum allowed change threshold.
+	MaxChangePercent float64 `json:"maxChangePercent"`
+
+	// ChangeFilterApplied indicates whether the result was filtered or capped.
+	// +optional
+	ChangeFilterApplied string `json:"changeFilterApplied,omitempty"`
+
+	// AfterChangeFilter is the value after change filtering.
+	AfterChangeFilter resource.Quantity `json:"afterChangeFilter"`
+
+	// Final is the final resource recommendation after any post-processing.
+	Final resource.Quantity `json:"final"`
+
+	// FinalAdjustment describes any controller-level adjustment after the estimator chain.
+	// +optional
+	FinalAdjustment string `json:"finalAdjustment,omitempty"`
 }
 
 // ResourceValues represents CPU and memory resource values.

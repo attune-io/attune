@@ -27,10 +27,12 @@ import (
 
 // mockCollector implements MetricsCollector for testing.
 type mockCollector struct {
-	queryRangeCalls int
-	queryCalls      int
-	queryRangeFunc  func(ctx context.Context, query string, start, end time.Time, step time.Duration) ([]Sample, error)
-	queryFunc       func(ctx context.Context, query string, ts time.Time) (float64, error)
+	queryRangeCalls        int
+	queryRangeGroupedCalls int
+	queryCalls             int
+	queryRangeFunc         func(ctx context.Context, query string, start, end time.Time, step time.Duration) ([]Sample, error)
+	queryRangeGroupedFunc  func(ctx context.Context, query string, start, end time.Time, step time.Duration) (map[string][]Sample, error)
+	queryFunc              func(ctx context.Context, query string, ts time.Time) (float64, error)
 }
 
 func (m *mockCollector) QueryRange(ctx context.Context, query string, start, end time.Time, step time.Duration) ([]Sample, error) {
@@ -39,6 +41,14 @@ func (m *mockCollector) QueryRange(ctx context.Context, query string, start, end
 		return m.queryRangeFunc(ctx, query, start, end, step)
 	}
 	return []Sample{{Timestamp: start, Value: 0.5}}, nil
+}
+
+func (m *mockCollector) QueryRangeGrouped(ctx context.Context, query string, start, end time.Time, step time.Duration) (map[string][]Sample, error) {
+	m.queryRangeGroupedCalls++
+	if m.queryRangeGroupedFunc != nil {
+		return m.queryRangeGroupedFunc(ctx, query, start, end, step)
+	}
+	return map[string][]Sample{"": {{Timestamp: start, Value: 0.5}}}, nil
 }
 
 func (m *mockCollector) Query(ctx context.Context, query string, ts time.Time) (float64, error) {

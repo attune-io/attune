@@ -299,12 +299,19 @@
     },
     "networkPolicy": {
       "type": "object",
-      "description": "Network policy configuration",
+      "description": "NetworkPolicy configuration for operator ingress and egress ports",
       "properties": {
         "enabled": {
           "type": "boolean",
           "description": "Enable NetworkPolicy for the operator pod",
           "default": true
+        },
+        "prometheusPort": {
+          "type": "integer",
+          "description": "TCP port used to reach Prometheus from the operator pod",
+          "default": 80,
+          "minimum": 1,
+          "maximum": 65535
         }
       },
       "additionalProperties": false

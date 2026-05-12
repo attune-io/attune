@@ -1,5 +1,6 @@
 The `kubectl-rightsize` plugin provides quick access to policy status,
-savings estimates, and per-container recommendations.
+savings estimates, per-container recommendations, and recommendation
+reasoning.
 
 ## Installation
 
@@ -56,6 +57,18 @@ Shows per-container current vs recommended values with confidence scores.
 kubectl rightsize recommendations
 kubectl rightsize recommendations -n production
 ```
+
+### explain
+
+Shows the stored recommendation reasoning for a single policy, including
+percentile selection, safety margin, confidence adjustment, bounds, and
+change filtering for CPU and memory.
+
+```bash
+kubectl rightsize explain api-services -n production
+```
+
+`explain` requires both a policy name and a single namespace.
 
 ### history
 

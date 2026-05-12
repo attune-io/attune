@@ -29,6 +29,34 @@ This chart automatically installs the required CRDs:
 Prometheus address is configured per-policy in `RightSizePolicy.spec.metricsSource.prometheus.address`
 or globally via the `RightSizeDefaults` CRD. It is not a chart value.
 
+If `networkPolicy.enabled=true`, the operator pod allows egress to Prometheus on
+`networkPolicy.prometheusPort` (default `80`). Set that value to match the port
+used by your Prometheus endpoint.
+
+## Security Defaults
+
+The chart defaults to a restricted runtime profile:
+
+- Pod security context sets `runAsNonRoot: true` and pod-level `seccompProfile.type: RuntimeDefault`
+- Container security context drops all Linux capabilities, disables privilege escalation,
+  uses a read-only root filesystem, and runs as UID/GID `65532`
+
+If your cluster enforces Pod Security Admission or custom policies, verify these
+settings match your environment before overriding them.
+
+## NetworkPolicy
+
+When `networkPolicy.enabled=true`, the chart creates a policy for the operator pod that:
+
+- allows webhook ingress on `9443` when `webhooks.enabled=true`
+- allows metrics ingress on `metrics.port` when `metrics.enabled=true`
+- allows egress to the Kubernetes API on `443`
+- allows DNS egress on UDP/TCP `53`
+- allows egress to Prometheus on `networkPolicy.prometheusPort`
+
+Clusters with default-deny policies may need matching Prometheus namespace or source
+policies so scraping can still reach the operator metrics Service.
+
 ## Grafana Dashboard
 
 A pre-built Grafana dashboard is included in [`deploy/grafana/dashboard.json`](https://github.com/SebTardifLabs/kube-rightsize/blob/main/deploy/grafana/dashboard.json).

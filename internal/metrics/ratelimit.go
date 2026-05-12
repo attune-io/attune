@@ -45,6 +45,13 @@ func (c *RateLimitedCollector) QueryRange(ctx context.Context, query string, sta
 	return c.inner.QueryRange(ctx, query, start, end, step)
 }
 
+func (c *RateLimitedCollector) QueryRangeGrouped(ctx context.Context, query string, start, end time.Time, step time.Duration) (map[string][]Sample, error) {
+	if err := c.limiter.Wait(ctx); err != nil {
+		return nil, err
+	}
+	return c.inner.QueryRangeGrouped(ctx, query, start, end, step)
+}
+
 func (c *RateLimitedCollector) Query(ctx context.Context, query string, ts time.Time) (float64, error) {
 	if err := c.limiter.Wait(ctx); err != nil {
 		return 0, err

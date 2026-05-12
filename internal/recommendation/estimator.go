@@ -33,6 +33,27 @@ type Estimator interface {
 	Estimate(profile metrics.UsageProfile, current resource.Quantity) resource.Quantity
 }
 
+// RecommendationExplanation captures the intermediate values produced by the
+// estimator chain for a single resource recommendation.
+type RecommendationExplanation struct {
+	RawPercentile       resource.Quantity
+	SafetyMargin        float64
+	AfterSafetyMargin   resource.Quantity
+	Confidence          float64
+	ConfidenceFactor    float64
+	AfterConfidence     resource.Quantity
+	MinBound            resource.Quantity
+	MaxBound            resource.Quantity
+	BoundsApplied       string
+	AfterBounds         resource.Quantity
+	MinChangePercent    float64
+	MaxChangePercent    float64
+	ChangeFilterApplied string
+	AfterChangeFilter   resource.Quantity
+	Final               resource.Quantity
+	FinalAdjustment     string
+}
+
 // scaleQuantity multiplies q by factor, preserving BinarySI vs DecimalSI format.
 // Returns q unchanged if factor is NaN, Inf, or non-positive (defense-in-depth).
 func scaleQuantity(q resource.Quantity, factor float64) resource.Quantity {

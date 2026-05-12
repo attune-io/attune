@@ -420,6 +420,15 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 		excludeSet[name] = true
 	}
 
+	cpuSamplesByContainer, cpuErr := queryMetricsGrouped(ctx, collector, policy.Namespace, podPrefix, "cpu", start, now, defaultPrometheusStep)
+	memSamplesByContainer, memErr := queryMetricsGrouped(ctx, collector, policy.Namespace, podPrefix, "memory", start, now, defaultPrometheusStep)
+	if cpuErr {
+		queryErrors++
+	}
+	if memErr {
+		queryErrors++
+	}
+
 	var containerRecs []rightsizev1alpha1.ContainerRecommendation
 
 	for _, container := range containers {
@@ -430,12 +439,8 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 			continue
 		}
 
-		// Query Prometheus for CPU and memory metrics (with pod-level fallback).
-		cpuSamples, cpuErr := queryMetrics(ctx, collector, policy.Namespace, podPrefix, containerName, "cpu", start, now, defaultPrometheusStep)
-		memSamples, memErr := queryMetrics(ctx, collector, policy.Namespace, podPrefix, containerName, "memory", start, now, defaultPrometheusStep)
-		if cpuErr || memErr {
-			queryErrors++
-		}
+		cpuSamples := samplesForContainer(cpuSamplesByContainer, containerName)
+		memSamples := samplesForContainer(memSamplesByContainer, containerName)
 
 		// Build UsageProfile from samples.
 		cpuProfile := rsmetrics.BuildProfile(cpuSamples)
@@ -486,21 +491,30 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 			},
 		}
 
+		explanation := &rightsizev1alpha1.ContainerRecommendationExplanation{}
+
 		// Compute CPU recommendation.
 		if cpuProfile.DataPoints >= int(minimumDataPoints) {
-			cpuRec, _ := cpuEngine.Recommend(cpuProfile, currentCPUReq)
+			cpuRec, cpuExplain, _ := cpuEngine.RecommendWithExplanation(cpuProfile, currentCPUReq)
 			rec.Recommended.CPURequest = cpuRec
+			explanation.CPU = toAPIRecommendationExplanation(cpuExplain)
 		}
 
 		// Compute memory recommendation.
 		if memProfile.DataPoints >= int(minimumDataPoints) {
-			memRec, _ := memEngine.Recommend(memProfile, currentMemReq)
+			memRec, memExplain, _ := memEngine.RecommendWithExplanation(memProfile, currentMemReq)
 			// Enforce AllowDecrease: skip memory decreases unless explicitly allowed.
 			allowDecrease := policy.Spec.Memory.AllowDecrease != nil && *policy.Spec.Memory.AllowDecrease
 			if !allowDecrease && memRec.Cmp(currentMemReq) < 0 {
 				memRec = currentMemReq.DeepCopy()
+				memExplain.Final = memRec.DeepCopy()
+				memExplain.FinalAdjustment = "memory decrease blocked by allowDecrease=false"
 			}
 			rec.Recommended.MemoryRequest = memRec
+			explanation.Memory = toAPIRecommendationExplanation(memExplain)
+		}
+		if explanation.CPU != nil || explanation.Memory != nil {
+			rec.Explanation = explanation
 		}
 
 		// Scale limits proportionally if ControlledValues is RequestsAndLimits.
@@ -903,6 +917,36 @@ func ensureAnnotations(m map[string]string) map[string]string {
 		return make(map[string]string)
 	}
 	return m
+}
+
+func samplesForContainer(grouped map[string][]rsmetrics.Sample, container string) []rsmetrics.Sample {
+	if samples, ok := grouped[container]; ok {
+		return samples
+	}
+	return grouped[""]
+}
+
+func toAPIRecommendationExplanation(explanation recommendation.RecommendationExplanation) *rightsizev1alpha1.ResourceRecommendationExplanation {
+	return &rightsizev1alpha1.ResourceRecommendationExplanation{
+		RawPercentile:     explanation.RawPercentile.DeepCopy(),
+		SafetyMargin:      explanation.SafetyMargin,
+		AfterSafetyMargin: explanation.AfterSafetyMargin.DeepCopy(),
+		Confidence:        explanation.Confidence,
+		ConfidenceFactor:  explanation.ConfidenceFactor,
+		AfterConfidence:   explanation.AfterConfidence.DeepCopy(),
+		Bounds: rightsizev1alpha1.ResourceBounds{
+			Min: explanation.MinBound.DeepCopy(),
+			Max: explanation.MaxBound.DeepCopy(),
+		},
+		BoundsApplied:       explanation.BoundsApplied,
+		AfterBounds:         explanation.AfterBounds.DeepCopy(),
+		MinChangePercent:    explanation.MinChangePercent,
+		MaxChangePercent:    explanation.MaxChangePercent,
+		ChangeFilterApplied: explanation.ChangeFilterApplied,
+		AfterChangeFilter:   explanation.AfterChangeFilter.DeepCopy(),
+		Final:               explanation.Final.DeepCopy(),
+		FinalAdjustment:     explanation.FinalAdjustment,
+	}
 }
 
 // buildRecommendationEngines creates CPU and memory recommendation engines

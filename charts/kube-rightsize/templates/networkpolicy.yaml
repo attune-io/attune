@@ -13,15 +13,24 @@ spec:
   policyTypes:
     - Ingress
     - Egress
+  {{- if or .Values.webhooks.enabled .Values.metrics.enabled }}
   ingress:
-    # Webhook port (from API server)
+    {{- if .Values.webhooks.enabled }}
+    # Webhook server port
     - ports:
         - port: 9443
           protocol: TCP
-    # Metrics port (from Prometheus)
+    {{- end }}
+    {{- if .Values.metrics.enabled }}
+    # Metrics endpoint port
     - ports:
-        - port: 8443
+        - port: {{ .Values.metrics.port }}
           protocol: TCP
+    {{- end }}
+  {{- else }}
+  # Deny all ingress when webhook and metrics endpoints are disabled
+  ingress: []
+  {{- end }}
   egress:
     # Kubernetes API server
     - ports:

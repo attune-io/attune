@@ -103,10 +103,12 @@ webhooks:
   # -- Requires cert-manager to be installed for TLS certificate provisioning.
   enabled: true
 
-# -- Network policy restricts pod traffic to only required endpoints
+# -- NetworkPolicy configuration for operator ingress and egress ports
 networkPolicy:
   # -- Enable NetworkPolicy for the operator pod
   enabled: true
+  # -- TCP port used to reach Prometheus from the operator pod
+  prometheusPort: 80
 
 # -- Logging configuration
 logging:

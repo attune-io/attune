@@ -12,7 +12,7 @@ Total number of resize operations performed.
 | `namespace` | Workload namespace |
 | `workload` | Workload name |
 | `resource` | `cpu` or `memory` |
-| `result` | `Success`, `Failed`, or `Reverted` |
+| `result` | `success`, `failed`, or `reverted` |
 
 ### kube_rightsize_reverts_total
 
@@ -28,10 +28,18 @@ Total number of resize reverts triggered by the safety monitor.
 
 Total number of failed Prometheus queries.
 
-| Label | Values |
-|-------|--------|
+| Label | Description |
+|-------|-------------|
 | `namespace` | Workload namespace where the query originated |
-| `query_type` | `cpu_range`, `memory_range`, `cpu_range_fallback`, `memory_fallback` |
+| `query_type` | `cpu_range`, `memory_range`, `cpu_fallback`, `memory_fallback` |
+
+### kube_rightsize_reconcile_errors_total
+
+Total number of reconciliation errors by type.
+
+| Label | Description |
+|-------|-------------|
+| `error_type` | `fetch`, `discover_workloads`, `get_pods`, `compute_recommendations`, or `status_update` |
 
 ## Gauges
 
@@ -109,28 +117,20 @@ Duration of each reconciliation loop.
 |-------|-------------|
 | `controller` | Controller name |
 
-### kube_rightsize_reconcile_errors_total
-
-Total number of reconciliation errors by type.
-
-| Label | Description |
-|-------|-------------|
-| `error_type` | `fetch`, `discover_workloads`, or `status_update` |
-
 ### kube_rightsize_prometheus_query_duration_seconds
 
 Duration of each Prometheus query.
 
-| Label | Values |
-|-------|--------|
-| `query_type` | `cpu_range`, `memory_range`, `cpu_range_fallback`, `memory_fallback` |
+| Label | Description |
+|-------|-------------|
+| `query_type` | `cpu_range`, `memory_range`, `cpu_fallback`, `memory_fallback` |
 
 ## Example PromQL queries
 
 Total successful resizes in the last 24 hours:
 
 ```promql
-sum(increase(kube_rightsize_resize_total{result="Success"}[24h]))
+sum(increase(kube_rightsize_resize_total{result="success"}[24h]))
 ```
 
 Revert rate as a percentage:

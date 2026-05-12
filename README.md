@@ -112,6 +112,10 @@ kubectl get rightsizepolicies api-services -n production -o yaml
 # status.recommendations shows per-container recommendations with savings estimates
 ```
 
+> **Upgrading?** Review the [changelog](CHANGELOG.md) for breaking metric label changes and default changes such as `minimumDataPoints`.
+>
+> **Helm installs:** If you use restrictive cluster networking, review the chart's generated [Helm README](charts/kube-rightsize/README.md#networkpolicy) before installing with the default `networkPolicy.enabled=true`. The policy allows webhook ingress on `9443`, metrics ingress on the configured `metrics.port` (default `8080`), DNS egress, Kubernetes API egress on `443`, and Prometheus egress on `networkPolicy.prometheusPort` (default `80`).
+>
 ### Upgrade to Canary Mode
 
 Once you trust the recommendations, switch to Canary mode to apply changes
@@ -133,7 +137,8 @@ HPA coexistence, cluster-wide defaults, and multi-workload selectors.
 ## kubectl Plugin
 
 A `kubectl rightsize` plugin provides quick access to policy status,
-savings, and recommendations without raw YAML parsing.
+savings, recommendations, and recommendation reasoning without raw YAML
+parsing.
 
 ```bash
 # Build the plugin
@@ -146,6 +151,7 @@ cp bin/kubectl-rightsize /usr/local/bin/
 kubectl rightsize status -n production
 kubectl rightsize savings -n production
 kubectl rightsize recommendations -n production
+kubectl rightsize explain api-services -n production
 
 # All namespaces
 kubectl rightsize status -A

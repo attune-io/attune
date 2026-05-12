@@ -27,7 +27,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # Runtime stage
 FROM gcr.io/distroless/static:nonroot@sha256:e3f945647ffb95b5839c07038d64f9811adf17308b9121d8a2b87b6a22a80a39
 
-LABEL org.opencontainers.image.source="https://github.com/SebTardif/kube-rightsize"
+LABEL org.opencontainers.image.source="https://github.com/SebTardifLabs/kube-rightsize"
 LABEL org.opencontainers.image.title="kube-rightsize"
 LABEL org.opencontainers.image.description="Kubernetes operator for in-place pod resource right-sizing"
 LABEL org.opencontainers.image.licenses="Apache-2.0"

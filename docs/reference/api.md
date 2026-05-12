@@ -84,6 +84,9 @@ spec:
 | `recommendations[].containers[].name` | `string` | Container name |
 | `recommendations[].containers[].current` | `ResourceValues` | Current CPU/memory requests and limits |
 | `recommendations[].containers[].recommended` | `ResourceValues` | Proposed CPU/memory requests and limits |
+| `recommendations[].containers[].explanation` | `ContainerRecommendationExplanation` | Persisted reasoning used by `kubectl rightsize explain` |
+| `recommendations[].containers[].explanation.cpu` | `ResourceRecommendationExplanation` | CPU estimator-chain details |
+| `recommendations[].containers[].explanation.memory` | `ResourceRecommendationExplanation` | Memory estimator-chain details |
 | `recommendations[].containers[].confidence` | `float64` | Confidence score (0-1) |
 | `recommendations[].containers[].dataPoints` | `int32` | Prometheus samples used |
 | `recommendations[].containers[].lastUpdated` | `Time` | Last recommendation timestamp |
@@ -100,6 +103,13 @@ spec:
 | `resizeHistory[].to` | `string` | New value |
 | `resizeHistory[].method` | `string` | `InPlace` |
 | `resizeHistory[].result` | `string` | `Success`, `Failed`, or `Reverted` |
+
+`ResourceRecommendationExplanation` contains the intermediate fields emitted by
+the estimator chain: `rawPercentile`, `safetyMargin`, `afterSafetyMargin`,
+`confidence`, `confidenceFactor`, `afterConfidence`, `bounds`,
+`boundsApplied`, `afterBounds`, `minChangePercent`, `maxChangePercent`,
+`changeFilterApplied`, `afterChangeFilter`, `final`, and optional
+`finalAdjustment`.
 
 ### Condition types
 

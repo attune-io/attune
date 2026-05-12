@@ -236,3 +236,25 @@ func TestRecommendationEngine_BurstyProfile(t *testing.T) {
 	assert.GreaterOrEqual(t, recommended.MilliValue(), int64(50))
 	t.Logf("Bursty profile: recommended=%s, current=%s", recommended.String(), current.String())
 }
+
+func TestRecommendationEngine_ExplainChain(t *testing.T) {
+	engine := NewEngine(
+		95,
+		1.2,
+		resource.MustParse("50m"),
+		resource.MustParse("4000m"),
+		50,
+		true,
+	)
+	profile := buildRealisticCPUProfile(0.200, 0.95)
+	current := resource.MustParse("500m")
+
+	recommended, explanation, changed := engine.RecommendWithExplanation(profile, current)
+	assert.True(t, changed)
+	assert.Equal(t, recommended.String(), explanation.Final.String())
+	assert.Equal(t, int64(200), explanation.RawPercentile.MilliValue())
+	assert.Equal(t, int64(240), explanation.AfterSafetyMargin.MilliValue())
+	assert.InDelta(t, 4.2133, explanation.ConfidenceFactor, 0.0001)
+	assert.Equal(t, "max_change_capped", explanation.ChangeFilterApplied)
+	assert.Equal(t, int64(750), explanation.AfterChangeFilter.MilliValue())
+}

@@ -59,6 +59,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "  status            Show policy status, workload counts, and conditions")
 		fmt.Fprintln(os.Stderr, "  savings           Show estimated CPU/memory savings per policy")
 		fmt.Fprintln(os.Stderr, "  recommendations   Show per-container sizing recommendations")
+		fmt.Fprintln(os.Stderr, "  explain           Show recommendation reasoning for one policy")
 		fmt.Fprintln(os.Stderr, "  history           Show resize history (timestamp, from/to, result)")
 		fmt.Fprintln(os.Stderr, "  version           Print plugin version")
 		fmt.Fprintln(os.Stderr, "")
@@ -131,6 +132,12 @@ func main() {
 		printSavings(ctx, dynClient, *namespace)
 	case "recommendations":
 		printRecommendations(ctx, dynClient, *namespace)
+	case "explain":
+		if fs.NArg() < 1 {
+			fmt.Fprintln(os.Stderr, "Error: explain requires a policy name")
+			os.Exit(1)
+		}
+		printExplain(ctx, dynClient, *namespace, fs.Arg(0))
 	case "history":
 		printHistory(ctx, dynClient, *namespace)
 	default:
@@ -335,6 +342,94 @@ func printRecommendations(ctx context.Context, dynClient dynamic.Interface, name
 	}
 }
 
+func printExplain(ctx context.Context, dynClient dynamic.Interface, namespace, policyName string) {
+	if namespace == "" {
+		fmt.Fprintln(os.Stderr, "Error: explain requires a single namespace. Use -n or --namespace.")
+		os.Exit(1)
+	}
+
+	item, err := dynClient.Resource(gvr).Namespace(namespace).Get(ctx, policyName, metav1.GetOptions{})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error fetching policy %s/%s: %v\n", namespace, policyName, err)
+		os.Exit(1)
+	}
+
+	recs, found, _ := unstructured.NestedSlice(item.Object, "status", "recommendations")
+	if !found || len(recs) == 0 {
+		fmt.Printf("%s/%s has no recommendations yet (%s).\n", namespace, policyName, policyReadyReason(*item))
+		return
+	}
+
+	fmt.Printf("Policy: %s/%s\n", namespace, policyName)
+	for _, r := range recs {
+		rec, ok := r.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		workload, _ := rec["workload"].(string)
+		fmt.Printf("\nWorkload: %s\n", workload)
+		containers, _ := rec["containers"].([]interface{})
+		for _, c := range containers {
+			cont, ok := c.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			name, _ := cont["name"].(string)
+			confidence, _ := cont["confidence"].(float64)
+			current, _ := cont["current"].(map[string]interface{})
+			recommended, _ := cont["recommended"].(map[string]interface{})
+			explanation, _ := cont["explanation"].(map[string]interface{})
+
+			fmt.Printf("  Container: %s\n", name)
+			fmt.Printf("    Confidence: %.1f%%\n", confidence*100)
+			printResourceExplanation("CPU", current, recommended, explanation)
+			printResourceExplanation("Memory", current, recommended, explanation)
+		}
+	}
+}
+
+func printResourceExplanation(resourceName string, current, recommended, explanation map[string]interface{}) {
+	key := "cpu"
+	currentField := "cpuRequest"
+	recommendedField := "cpuRequest"
+	if resourceName == "Memory" {
+		key = "memory"
+		currentField = "memoryRequest"
+		recommendedField = "memoryRequest"
+	}
+	resourceExplanation, _ := explanation[key].(map[string]interface{})
+	if len(resourceExplanation) == 0 {
+		return
+	}
+	currentValue, _ := current[currentField].(string)
+	finalValue, _ := recommended[recommendedField].(string)
+
+	fmt.Printf("    %s:\n", resourceName)
+	fmt.Printf("      Raw percentile:              %s\n", nestedString(resourceExplanation, "rawPercentile"))
+	fmt.Printf("      x Safety margin (%s):      %s\n",
+		formatFloat(nestedFloat(resourceExplanation, "safetyMargin")),
+		nestedString(resourceExplanation, "afterSafetyMargin"))
+	fmt.Printf("      x Confidence factor (%s, confidence %.2f): %s\n",
+		formatFloat(nestedFloat(resourceExplanation, "confidenceFactor")),
+		nestedFloat(resourceExplanation, "confidence"),
+		nestedString(resourceExplanation, "afterConfidence"))
+	fmt.Printf("      Bounds [%s, %s]:         %s%s\n",
+		nestedStringMap(resourceExplanation, "bounds", "min"),
+		nestedStringMap(resourceExplanation, "bounds", "max"),
+		nestedString(resourceExplanation, "afterBounds"),
+		formatAppliedSuffix(nestedString(resourceExplanation, "boundsApplied")))
+	fmt.Printf("      Change filter [%s%%, %s%%]: %s%s\n",
+		formatFloat(nestedFloat(resourceExplanation, "minChangePercent")),
+		formatFloat(nestedFloat(resourceExplanation, "maxChangePercent")),
+		nestedString(resourceExplanation, "afterChangeFilter"),
+		formatAppliedSuffix(nestedString(resourceExplanation, "changeFilterApplied")))
+	fmt.Printf("      Final recommendation:       %s (vs current %s%s)\n",
+		finalValue, currentValue, formatDeltaSuffix(currentValue, finalValue))
+	if adjustment := nestedString(resourceExplanation, "finalAdjustment"); adjustment != "" {
+		fmt.Printf("      Final adjustment:           %s\n", adjustment)
+	}
+}
+
 // getConditionMessage returns the message for the named condition, or "".
 func getConditionMessage(obj unstructured.Unstructured, conditionType string) string {
 	conditions, found, err := unstructured.NestedSlice(obj.Object, "status", "conditions")
@@ -411,6 +506,53 @@ func formatMemory(s string) string {
 	default:
 		return fmt.Sprintf("%dB", bytes)
 	}
+}
+
+func nestedString(obj map[string]interface{}, field string) string {
+	value, _ := obj[field].(string)
+	return value
+}
+
+func nestedFloat(obj map[string]interface{}, field string) float64 {
+	value, _ := obj[field].(float64)
+	return value
+}
+
+func nestedStringMap(obj map[string]interface{}, field, nested string) string {
+	child, _ := obj[field].(map[string]interface{})
+	if child == nil {
+		return ""
+	}
+	value, _ := child[nested].(string)
+	return value
+}
+
+func formatFloat(v float64) string {
+	return fmt.Sprintf("%.2f", v)
+}
+
+func formatAppliedSuffix(value string) string {
+	if value == "" {
+		return ""
+	}
+	return fmt.Sprintf(" (%s)", value)
+}
+
+func formatDeltaSuffix(currentValue, finalValue string) string {
+	currentQty, err := resource.ParseQuantity(currentValue)
+	if err != nil {
+		return ""
+	}
+	finalQty, err := resource.ParseQuantity(finalValue)
+	if err != nil {
+		return ""
+	}
+	currentMilli := currentQty.MilliValue()
+	if currentMilli == 0 {
+		return ""
+	}
+	deltaPct := (float64(finalQty.MilliValue()) - float64(currentMilli)) * 100 / float64(currentMilli)
+	return fmt.Sprintf(", %+0.0f%%", deltaPct)
 }
 
 func printStructured(ctx context.Context, dynClient dynamic.Interface, namespace, format string) {

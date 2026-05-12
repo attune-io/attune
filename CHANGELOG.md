@@ -17,7 +17,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Update Grafana dashboards and alerting rules that reference this metric.
   The bundled Grafana dashboards are already updated.
 - `kube_rightsize_prometheus_query_duration_seconds` histogram now includes a
-  `query_type` label (e.g., `cpu_range`, `memory_range`, `cpu_range_fallback`).
+  `query_type` label (e.g., `cpu_range`, `memory_range`, `cpu_fallback`,
+  `memory_fallback`).
 
 ### Added
 

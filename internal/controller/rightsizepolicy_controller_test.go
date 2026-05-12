@@ -184,15 +184,41 @@ func mockMetricsFactory(collector rsmetrics.MetricsCollector) MetricsCollectorFa
 
 // mockCollector implements MetricsCollector for testing.
 type mockCollector struct {
-	queryRangeFunc func(ctx context.Context, query string, start, end time.Time, step time.Duration) ([]rsmetrics.Sample, error)
-	queryFunc      func(ctx context.Context, query string, ts time.Time) (float64, error)
+	queryRangeFunc        func(ctx context.Context, query string, start, end time.Time, step time.Duration) ([]rsmetrics.Sample, error)
+	queryRangeGroupedFunc func(ctx context.Context, query string, start, end time.Time, step time.Duration) (map[string][]rsmetrics.Sample, error)
+	queryFunc             func(ctx context.Context, query string, ts time.Time) (float64, error)
 }
 
 func (m *mockCollector) QueryRange(ctx context.Context, query string, start, end time.Time, step time.Duration) ([]rsmetrics.Sample, error) {
 	if m.queryRangeFunc != nil {
 		return m.queryRangeFunc(ctx, query, start, end, step)
 	}
+	if m.queryRangeGroupedFunc != nil {
+		grouped, err := m.queryRangeGroupedFunc(ctx, query, start, end, step)
+		if err != nil {
+			return nil, err
+		}
+		var samples []rsmetrics.Sample
+		for _, groupedSamples := range grouped {
+			samples = append(samples, groupedSamples...)
+		}
+		return samples, nil
+	}
 	return nil, nil
+}
+
+func (m *mockCollector) QueryRangeGrouped(ctx context.Context, query string, start, end time.Time, step time.Duration) (map[string][]rsmetrics.Sample, error) {
+	if m.queryRangeGroupedFunc != nil {
+		return m.queryRangeGroupedFunc(ctx, query, start, end, step)
+	}
+	if m.queryRangeFunc != nil {
+		samples, err := m.queryRangeFunc(ctx, query, start, end, step)
+		if err != nil {
+			return nil, err
+		}
+		return map[string][]rsmetrics.Sample{"": samples}, nil
+	}
+	return map[string][]rsmetrics.Sample{}, nil
 }
 
 func (m *mockCollector) Query(ctx context.Context, query string, ts time.Time) (float64, error) {
@@ -970,6 +996,93 @@ func TestComputeRecommendations_RequestsAndLimits(t *testing.T) {
 	assert.InDelta(t, 2.0, memRatio, 0.01, "Memory limit/request ratio should preserve the original ~2:1 ratio")
 }
 
+func TestComputeRecommendations_BatchesQueriesPerWorkload(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	deploy := newTestDeployment("api-server", "default", nil)
+	deploy.Spec.Template.Spec.Containers = append(deploy.Spec.Template.Spec.Containers, corev1.Container{
+		Name:  "sidecar",
+		Image: "busybox",
+		Resources: corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("100m"),
+				corev1.ResourceMemory: resource.MustParse("128Mi"),
+			},
+		},
+	})
+	reconciler := newReconcilerWithClient()
+
+	calls := make(map[string]int)
+	mc := &mockCollector{
+		queryRangeGroupedFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) (map[string][]rsmetrics.Sample, error) {
+			calls[query]++
+			return map[string][]rsmetrics.Sample{
+				"main":    generateSamples(200, 0.1),
+				"sidecar": generateSamples(200, 0.05),
+			}, nil
+		},
+	}
+
+	rec, qErrors, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
+	require.NoError(t, err)
+	require.NotNil(t, rec)
+	assert.Zero(t, qErrors)
+	require.Len(t, rec.Containers, 2)
+	assert.Len(t, calls, 2, "expected one CPU query and one memory query per workload")
+	for _, count := range calls {
+		assert.Equal(t, 1, count)
+	}
+}
+
+func TestComputeRecommendations_UsesPodLevelSeriesWithoutExtraQuery(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	deploy := newTestDeployment("api-server", "default", nil)
+	reconciler := newReconcilerWithClient()
+
+	mc := &mockCollector{
+		queryRangeGroupedFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) (map[string][]rsmetrics.Sample, error) {
+			if strings.Contains(query, "cpu_usage_seconds_total") {
+				return map[string][]rsmetrics.Sample{"": generateSamples(200, 0.1)}, nil
+			}
+			return map[string][]rsmetrics.Sample{"": generateSamples(200, 128*1024*1024)}, nil
+		},
+		queryRangeFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return nil, fmt.Errorf("unexpected extra fallback query: %s", query)
+		},
+	}
+
+	rec, qErrors, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
+	require.NoError(t, err)
+	require.NotNil(t, rec)
+	assert.Zero(t, qErrors)
+	require.Len(t, rec.Containers, 1)
+}
+
+func TestComputeRecommendations_PopulatesExplanation(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	deploy := newTestDeployment("api-server", "default", nil)
+	reconciler := newReconcilerWithClient()
+
+	mc := &mockCollector{
+		queryRangeGroupedFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) (map[string][]rsmetrics.Sample, error) {
+			return map[string][]rsmetrics.Sample{
+				"main": generateSamples(200, 0.1),
+			}, nil
+		},
+	}
+
+	rec, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
+	require.NoError(t, err)
+	require.NotNil(t, rec)
+	require.Len(t, rec.Containers, 1)
+	require.NotNil(t, rec.Containers[0].Explanation)
+	require.NotNil(t, rec.Containers[0].Explanation.CPU)
+	require.NotNil(t, rec.Containers[0].Explanation.Memory)
+	assert.False(t, rec.Containers[0].Explanation.CPU.RawPercentile.IsZero())
+	assert.False(t, rec.Containers[0].Explanation.CPU.Final.IsZero())
+	assert.False(t, rec.Containers[0].Explanation.Memory.RawPercentile.IsZero())
+	assert.False(t, rec.Containers[0].Explanation.Memory.Final.IsZero())
+}
+
 // ---------- resolvePrometheusAddress ----------
 
 func TestResolvePrometheusAddress_PolicyHasAddress(t *testing.T) {
@@ -1289,7 +1402,7 @@ func TestCheckPendingSafetyObservations_ObservationElapsed(t *testing.T) {
 
 	reconciler, fakeClient := newSafetyTestReconciler(pod)
 
-	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, nil)
+	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
 
 	// Verify tracking annotations were removed.
 	var updated corev1.Pod
@@ -1331,7 +1444,7 @@ func TestCheckPendingSafetyObservations_MalformedAnnotation(t *testing.T) {
 
 	// Should not panic when the annotation value is unparseable.
 	assert.NotPanics(t, func() {
-		reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, nil)
+		reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
 	})
 
 	// Annotations should still be present since the pod was skipped due to parse error.
@@ -1371,7 +1484,7 @@ func TestCheckPendingSafetyObservations_NotElapsed(t *testing.T) {
 
 	reconciler, fakeClient := newSafetyTestReconciler(pod)
 
-	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, nil)
+	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
 
 	// Verify annotations are still present (observation period not elapsed).
 	var updated corev1.Pod
@@ -2007,7 +2120,7 @@ func TestCheckPendingSafetyObservations_MalformedTimestamp(t *testing.T) {
 	reconciler, fakeClient := newSafetyTestReconciler(pod)
 
 	assert.NotPanics(t, func() {
-		reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, nil)
+		reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
 	})
 
 	// Annotations should remain since the pod was skipped due to timestamp parse error.
@@ -2047,7 +2160,7 @@ func TestCheckPendingSafetyObservations_MalformedMemoryAnnotation(t *testing.T) 
 	reconciler, fakeClient := newSafetyTestReconciler(pod)
 
 	assert.NotPanics(t, func() {
-		reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, nil)
+		reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
 	})
 
 	var updated corev1.Pod
@@ -2108,7 +2221,7 @@ func TestCheckPendingSafetyObservations_CustomObservationPeriod(t *testing.T) {
 
 	reconciler, fakeClient := newSafetyTestReconciler(pod)
 
-	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, nil)
+	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
 
 	var updated corev1.Pod
 	err := fakeClient.Get(context.Background(), types.NamespacedName{
@@ -2124,7 +2237,7 @@ func TestCheckPendingSafetyObservations_NilClientset(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 
 	assert.NotPanics(t, func() {
-		reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, nil)
+		reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
 	})
 }
 
@@ -2172,7 +2285,7 @@ func TestCheckPendingSafetyObservations_UnsafeVerdictReverts(t *testing.T) {
 
 	reconciler, fakeClient := newSafetyTestReconciler(pod)
 
-	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, nil)
+	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
 
 	// Verify annotations were removed (observation complete).
 	var updated corev1.Pod
@@ -2243,7 +2356,7 @@ func TestCheckPendingSafetyObservations_UnsafeVerdictEmitsEvent(t *testing.T) {
 	recorder := events.NewFakeRecorder(10)
 	reconciler.Recorder = recorder
 
-	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, nil)
+	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
 
 	// Verify a Reverted event was emitted containing the pod name.
 	select {
@@ -2300,7 +2413,7 @@ func TestCheckPendingSafetyObservations_RestartCountParsed(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	reconciler, fakeClient := newSafetyTestReconciler(pod)
 
-	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, nil)
+	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
 
 	var updated corev1.Pod
 	err := fakeClient.Get(context.Background(), types.NamespacedName{
@@ -2355,7 +2468,7 @@ func TestCheckPendingSafetyObservations_RestartCountExceeded(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	reconciler, _ := newSafetyTestReconciler(pod)
 
-	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, nil)
+	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
 
 	// Verify UpdateResize (revert) was called.
 	var found bool
@@ -2412,7 +2525,7 @@ func TestCheckPendingSafetyObservations_InvalidRestartCount(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	reconciler, fakeClient := newSafetyTestReconciler(pod)
 
-	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, nil)
+	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
 
 	var updated corev1.Pod
 	err := fakeClient.Get(context.Background(), types.NamespacedName{

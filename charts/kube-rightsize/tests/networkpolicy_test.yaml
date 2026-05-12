@@ -47,3 +47,58 @@ tests:
             ports:
               - port: 9443
                 protocol: TCP
+
+  - it: should include metrics ingress port when metrics enabled
+    set:
+      networkPolicy:
+        enabled: true
+      metrics:
+        enabled: true
+        port: 8080
+    asserts:
+      - contains:
+          path: spec.ingress
+          content:
+            ports:
+              - port: 8080
+                protocol: TCP
+
+  - it: should not include metrics ingress port when metrics disabled
+    set:
+      networkPolicy:
+        enabled: true
+      metrics:
+        enabled: false
+    asserts:
+      - notContains:
+          path: spec.ingress
+          content:
+            ports:
+              - port: 8080
+                protocol: TCP
+
+  - it: should render configurable Prometheus egress port
+    set:
+      networkPolicy:
+        enabled: true
+        prometheusPort: 9090
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            ports:
+              - port: 9090
+                protocol: TCP
+
+  - it: should render empty ingress list when metrics and webhooks are disabled
+    set:
+      networkPolicy:
+        enabled: true
+      metrics:
+        enabled: false
+      webhooks:
+        enabled: false
+    asserts:
+      - equal:
+          path: spec.ingress
+          value: []

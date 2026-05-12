@@ -46,6 +46,11 @@ type MetricsCollector interface {
 	// with the given step interval.
 	QueryRange(ctx context.Context, query string, start, end time.Time, step time.Duration) ([]Sample, error)
 
+	// QueryRangeGrouped executes a range query against Prometheus and returns
+	// samples grouped by the Prometheus `container` label. Series without a
+	// container label are returned under the empty-string key.
+	QueryRangeGrouped(ctx context.Context, query string, start, end time.Time, step time.Duration) (map[string][]Sample, error)
+
 	// Query executes an instant query against Prometheus at the given
 	// timestamp and returns a single scalar value.
 	Query(ctx context.Context, query string, ts time.Time) (float64, error)
@@ -124,6 +129,21 @@ func NewPrometheusCollector(address string, logger logr.Logger, transport ...htt
 // QueryRange executes a Prometheus range query and returns the parsed samples.
 // It expects the result to be a matrix type containing at least one series.
 func (c *PrometheusCollector) QueryRange(ctx context.Context, query string, start, end time.Time, step time.Duration) ([]Sample, error) {
+	grouped, err := c.QueryRangeGrouped(ctx, query, start, end, step)
+	if err != nil {
+		return nil, err
+	}
+
+	var samples []Sample
+	for _, groupedSamples := range grouped {
+		samples = append(samples, groupedSamples...)
+	}
+	return samples, nil
+}
+
+// QueryRangeGrouped executes a Prometheus range query and preserves the
+// `container` label from each returned series.
+func (c *PrometheusCollector) QueryRangeGrouped(ctx context.Context, query string, start, end time.Time, step time.Duration) (map[string][]Sample, error) {
 	result, warnings, err := c.api.QueryRange(ctx, query, promv1.Range{
 		Start: start,
 		End:   end,
@@ -142,17 +162,18 @@ func (c *PrometheusCollector) QueryRange(ctx context.Context, query string, star
 		return nil, fmt.Errorf("unexpected result type %T, expected matrix", result)
 	}
 
-	var samples []Sample
+	grouped := make(map[string][]Sample, len(matrix))
 	for _, series := range matrix {
+		container := string(series.Metric[model.LabelName("container")])
 		for _, sp := range series.Values {
-			samples = append(samples, Sample{
+			grouped[container] = append(grouped[container], Sample{
 				Timestamp: sp.Timestamp.Time(),
 				Value:     float64(sp.Value),
 			})
 		}
 	}
 
-	return samples, nil
+	return grouped, nil
 }
 
 // Query executes a Prometheus instant query and returns a single float64 value.
