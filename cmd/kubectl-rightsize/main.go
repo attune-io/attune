@@ -410,9 +410,15 @@ func formatAge(created time.Time) string {
 func printHistory(ctx context.Context, dynClient dynamic.Interface, namespace string) {
 	list := fetchPolicies(ctx, dynClient, namespace)
 
+	if len(list.Items) == 0 {
+		fmt.Println("No RightSizePolicies found.")
+		return
+	}
+
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 3, ' ', 0)
 	fmt.Fprintln(w, "NAMESPACE\tPOLICY\tTIMESTAMP\tWORKLOAD\tCONTAINER\tRESOURCE\tFROM\tTO\tRESULT")
 
+	var hasEntries bool
 	for _, item := range list.Items {
 		ns := item.GetNamespace()
 		policyName := item.GetName()
@@ -438,6 +444,7 @@ func printHistory(ctx context.Context, dynClient dynamic.Interface, namespace st
 				ts = t.Local().Format("Jan 02 15:04")
 			}
 
+			hasEntries = true
 			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 				ns, policyName, ts, workload, container, resource, from, to, result)
 		}
@@ -445,5 +452,8 @@ func printHistory(ctx context.Context, dynClient dynamic.Interface, namespace st
 
 	if err := w.Flush(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error flushing output: %v\n", err)
+	}
+	if !hasEntries {
+		fmt.Fprintf(os.Stderr, "\nNo resize history found. Resizes are recorded in Canary, OneShot, and Auto modes.\n")
 	}
 }

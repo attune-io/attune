@@ -84,7 +84,7 @@ This page documents every value in the Helm chart's `values.yaml`.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `networkPolicy.enabled` | bool | `false` | Enable a NetworkPolicy restricting operator pod traffic to DNS, K8s API, Prometheus, and metrics/health/webhook ports. |
+| `networkPolicy.enabled` | bool | `true` | Enable a NetworkPolicy restricting operator pod traffic to DNS, K8s API, Prometheus, and metrics/health/webhook ports. |
 
 ## Logging
 

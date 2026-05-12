@@ -12,7 +12,7 @@ Safe, in-place Kubernetes pod resource right-sizing operator
 ## Installation
 
 ```bash
-helm install kube-rightsize oci://ghcr.io/sebtardif/charts/kube-rightsize \
+helm install kube-rightsize oci://ghcr.io/sebtardiflabs/charts/kube-rightsize \
   --namespace kube-rightsize-system --create-namespace
 ```
 

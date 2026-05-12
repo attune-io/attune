@@ -50,7 +50,7 @@ resource requests and limits using [In-Place Pod Resize](https://kubernetes.io/b
 ### Install
 
 ```bash
-helm install kube-rightsize oci://ghcr.io/sebtardif/charts/kube-rightsize \
+helm install kube-rightsize oci://ghcr.io/sebtardiflabs/charts/kube-rightsize \
   --namespace kube-rightsize-system --create-namespace
 ```
 
@@ -159,7 +159,7 @@ production   api-services   api-server   app         500m      320m      512Mi  
 Helm values to auto-provision the dashboard via the Grafana sidecar:
 
 ```bash
-helm upgrade kube-rightsize oci://ghcr.io/sebtardif/charts/kube-rightsize \
+helm upgrade kube-rightsize oci://ghcr.io/sebtardiflabs/charts/kube-rightsize \
   --set grafanaDashboard.enabled=true
 ```
 
