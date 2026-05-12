@@ -141,6 +141,19 @@ test-fuzz: ## Run fuzz tests (30 seconds per target)
 test-bench: ## Run benchmark tests
 	go test ./internal/... -bench=. -benchmem -run=^$$ -timeout=5m
 
+.PHONY: test-local
+test-local: test test-integration ## Run all tests with auto-provisioned k3d cluster for E2E
+	k3d cluster delete kube-rightsize-test 2>/dev/null || true
+	k3d cluster create kube-rightsize-test \
+		--image rancher/k3s:$(K3S_VERSION) \
+		--k3s-arg "--disable=traefik,servicelb@server:*" \
+		--wait --timeout 120s
+	@$(MAKE) docker-build IMG=kube-rightsize:test
+	k3d image import kube-rightsize:test -c kube-rightsize-test
+	@$(MAKE) _deploy-stack IMG=kube-rightsize:test
+	@$(MAKE) test-e2e
+	k3d cluster delete kube-rightsize-test
+
 .PHONY: test-all
 test-all: test test-integration test-e2e ## Run all tests (E2E requires a pre-provisioned cluster; see CONTRIBUTING.md)
 
