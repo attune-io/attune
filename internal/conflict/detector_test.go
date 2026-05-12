@@ -43,7 +43,7 @@ func TestCheckAnnotationOptOut(t *testing.T) {
 			name: "annotation present with value true",
 			obj: metav1.ObjectMeta{
 				Annotations: map[string]string{
-					"rightsize.io/skip": "true",
+					AnnotationSkip: "true",
 				},
 			},
 			want: true,
@@ -57,7 +57,7 @@ func TestCheckAnnotationOptOut(t *testing.T) {
 			name: "annotation present with value false",
 			obj: metav1.ObjectMeta{
 				Annotations: map[string]string{
-					"rightsize.io/skip": "false",
+					AnnotationSkip: "false",
 				},
 			},
 			want: false,

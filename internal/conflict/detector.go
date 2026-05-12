@@ -35,6 +35,9 @@ import (
 // RightSizePolicy.
 type ConflictType string
 
+// AnnotationSkip is the annotation key for opting a workload out of right-sizing.
+const AnnotationSkip = "rightsize.io/skip"
+
 const (
 	// ConflictVPA indicates a VerticalPodAutoscaler targets the same workload.
 	ConflictVPA ConflictType = "VPA"
@@ -70,7 +73,7 @@ func (d *Detector) CheckAnnotationOptOut(obj metav1.ObjectMeta) bool {
 	if obj.Annotations == nil {
 		return false
 	}
-	return obj.Annotations["rightsize.io/skip"] == "true"
+	return obj.Annotations[AnnotationSkip] == "true"
 }
 
 // CheckActiveRollout returns true if the deployment has an active rollout in

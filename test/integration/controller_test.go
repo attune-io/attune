@@ -41,6 +41,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	rightsizev1alpha1 "github.com/SebTardif/kube-rightsize/api/v1alpha1"
+	"github.com/SebTardif/kube-rightsize/internal/conflict"
 	"github.com/SebTardif/kube-rightsize/internal/controller"
 	"github.com/SebTardif/kube-rightsize/internal/metrics"
 )
@@ -402,7 +403,7 @@ func TestReconcile_OptOutAnnotationSkipsWorkload(t *testing.T) {
 	namespace := "integration-test"
 
 	deploy := newTestDeployment("opted-out-app", namespace)
-	deploy.Annotations = map[string]string{"rightsize.io/skip": "true"}
+	deploy.Annotations = map[string]string{conflict.AnnotationSkip: "true"}
 	require.NoError(t, k8sClient.Create(ctx, deploy))
 
 	policy := newTestPolicy("policy-optout", namespace, "opted-out-app")

@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"sync"
@@ -986,70 +987,15 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 
 	for i := range podList.Items {
 		pod := &podList.Items[i]
-		resizedAtStr, ok := pod.Annotations[annotationResizedAt]
-		if !ok {
-			continue
-		}
-
-		resizedAt, err := time.Parse(time.RFC3339, resizedAtStr)
+		record, err := parseResizeRecord(pod, observationPeriod)
 		if err != nil {
-			logger.Error(err, "Failed to parse resized-at annotation", "pod", pod.Name)
-			continue
-		}
-
-		// Skip if the observation period hasn't elapsed yet.
-		if time.Since(resizedAt) < observationPeriod {
-			continue
-		}
-
-		originalCPUStr := pod.Annotations[annotationOriginalCPU]
-		originalMemStr := pod.Annotations[annotationOriginalMemory]
-
-		originalCPU, err := resource.ParseQuantity(originalCPUStr)
-		if err != nil {
-			logger.Error(err, "Failed to parse original CPU annotation", "pod", pod.Name, "value", originalCPUStr)
-			continue
-		}
-		originalMem, err := resource.ParseQuantity(originalMemStr)
-		if err != nil {
-			logger.Error(err, "Failed to parse original memory annotation", "pod", pod.Name, "value", originalMemStr)
-			continue
-		}
-
-		// Use the tracked container name from the annotation.
-		containerName := pod.Annotations[annotationResizedContainer]
-		var currentResources corev1.ResourceRequirements
-		for _, c := range pod.Spec.Containers {
-			if c.Name == containerName {
-				currentResources = c.Resources
-				break
+			if !errors.Is(err, errNotReady) {
+				logger.Error(err, "Failed to parse resize record", "pod", pod.Name)
 			}
+			continue
 		}
 
-		var origRestartCount int32
-		if rcStr := pod.Annotations[annotationOriginalRestartCount]; rcStr != "" {
-			if rc, parseErr := strconv.ParseInt(rcStr, 10, 32); parseErr == nil {
-				origRestartCount = int32(rc)
-			}
-		}
-
-		record := safety.ResizeRecord{
-			PodName:   pod.Name,
-			Namespace: pod.Namespace,
-			Container: containerName,
-			OriginalResources: corev1.ResourceRequirements{
-				Requests: corev1.ResourceList{
-					corev1.ResourceCPU:    originalCPU,
-					corev1.ResourceMemory: originalMem,
-				},
-			},
-			NewResources:   currentResources,
-			ResizedAt:      resizedAt,
-			ObservationEnd: resizedAt.Add(observationPeriod),
-			RestartCount:   origRestartCount,
-		}
-
-		verdict, err := monitor.CheckPod(ctx, record)
+		verdict, err := monitor.CheckPod(ctx, *record)
 		if err != nil {
 			logger.Error(err, "Safety observation check failed", "pod", pod.Name)
 			continue
@@ -1058,7 +1004,7 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 		if !verdict.Safe {
 			logger.Info("Deferred safety violation detected, reverting",
 				"pod", pod.Name, "reason", verdict.Reason)
-			if revertErr := monitor.RevertPod(ctx, record); revertErr != nil {
+			if revertErr := monitor.RevertPod(ctx, *record); revertErr != nil {
 				logger.Error(revertErr, "Failed to revert pod during safety observation", "pod", pod.Name)
 			}
 			workloadName := pod.Annotations[annotationResizedWorkload]
@@ -1069,12 +1015,75 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 			}
 		}
 
-		// Remove tracking annotations regardless of outcome (observation complete).
 		removeTrackingAnnotations(pod)
 		if updateErr := r.Update(ctx, pod); updateErr != nil {
 			logger.Error(updateErr, "Failed to remove resize tracking annotations", "pod", pod.Name)
 		}
 	}
+}
+
+// errNotReady is a sentinel error indicating the pod's observation period hasn't elapsed yet.
+var errNotReady = fmt.Errorf("observation period not elapsed")
+
+// parseResizeRecord extracts a safety.ResizeRecord from a pod's tracking
+// annotations. Returns errNotReady if the observation period hasn't elapsed,
+// nil record if the pod has no tracking annotations, or an error if
+// annotations are malformed.
+func parseResizeRecord(pod *corev1.Pod, observationPeriod time.Duration) (*safety.ResizeRecord, error) {
+	resizedAtStr, ok := pod.Annotations[annotationResizedAt]
+	if !ok {
+		return nil, errNotReady
+	}
+
+	resizedAt, err := time.Parse(time.RFC3339, resizedAtStr)
+	if err != nil {
+		return nil, fmt.Errorf("parsing resized-at annotation: %w", err)
+	}
+
+	if time.Since(resizedAt) < observationPeriod {
+		return nil, errNotReady
+	}
+
+	originalCPU, err := resource.ParseQuantity(pod.Annotations[annotationOriginalCPU])
+	if err != nil {
+		return nil, fmt.Errorf("parsing original CPU: %w", err)
+	}
+	originalMem, err := resource.ParseQuantity(pod.Annotations[annotationOriginalMemory])
+	if err != nil {
+		return nil, fmt.Errorf("parsing original memory: %w", err)
+	}
+
+	containerName := pod.Annotations[annotationResizedContainer]
+	var currentResources corev1.ResourceRequirements
+	for _, c := range pod.Spec.Containers {
+		if c.Name == containerName {
+			currentResources = c.Resources
+			break
+		}
+	}
+
+	var origRestartCount int32
+	if rcStr := pod.Annotations[annotationOriginalRestartCount]; rcStr != "" {
+		if rc, parseErr := strconv.ParseInt(rcStr, 10, 32); parseErr == nil {
+			origRestartCount = int32(rc)
+		}
+	}
+
+	return &safety.ResizeRecord{
+		PodName:   pod.Name,
+		Namespace: pod.Namespace,
+		Container: containerName,
+		OriginalResources: corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    originalCPU,
+				corev1.ResourceMemory: originalMem,
+			},
+		},
+		NewResources:   currentResources,
+		ResizedAt:      resizedAt,
+		ObservationEnd: resizedAt.Add(observationPeriod),
+		RestartCount:   origRestartCount,
+	}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

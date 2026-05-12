@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	rightsizev1alpha1 "github.com/SebTardif/kube-rightsize/api/v1alpha1"
+	"github.com/SebTardif/kube-rightsize/internal/conflict"
 	rsmetrics "github.com/SebTardif/kube-rightsize/internal/metrics"
 )
 
@@ -1782,7 +1783,7 @@ func TestExecuteResizes_AutoRevert_SafeVerdictNoRevert(t *testing.T) {
 func TestReconcile_WorkloadOptedOut(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
-	deploy.Annotations = map[string]string{"rightsize.io/skip": "true"}
+	deploy.Annotations = map[string]string{conflict.AnnotationSkip: "true"}
 	pod := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
 
 	mc := &mockCollector{}
