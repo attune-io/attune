@@ -270,11 +270,15 @@ func printRecommendations(ctx context.Context, dynClient dynamic.Interface, name
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 3, ' ', 0)
 	fmt.Fprintln(w, "NAMESPACE\tPOLICY\tWORKLOAD\tCONTAINER\tCPU REQ\tCPU REC\tMEM REQ\tMEM REC\tCONFIDENCE")
 
+	var collecting int
 	for _, item := range list.Items {
 		ns := item.GetNamespace()
 		policyName := item.GetName()
 		recs, found, _ := unstructured.NestedSlice(item.Object, "status", "recommendations")
-		if !found {
+		if !found || len(recs) == 0 {
+			collecting++
+			fmt.Fprintf(w, "%s\t%s\t-\t-\t-\t-\t-\t-\t%s\n",
+				ns, policyName, policyReadyReason(item))
 			continue
 		}
 
@@ -311,6 +315,39 @@ func printRecommendations(ctx context.Context, dynClient dynamic.Interface, name
 	if err := w.Flush(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error flushing output: %v\n", err)
 	}
+	if collecting > 0 {
+		fmt.Fprintf(os.Stderr, "\n%d %s collecting data. Run 'kubectl rightsize status' for details.\n",
+			collecting, pluralize(collecting, "policy", "policies"))
+	}
+}
+
+// policyReadyReason extracts the Ready condition reason from an unstructured policy.
+func policyReadyReason(item unstructured.Unstructured) string {
+	conditions, _, _ := unstructured.NestedSlice(item.Object, "status", "conditions")
+	for _, c := range conditions {
+		cond, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if t, _ := cond["type"].(string); t == "Ready" {
+			reason, _ := cond["reason"].(string)
+			msg, _ := cond["message"].(string)
+			if reason == "InsufficientData" && msg != "" {
+				return "Collecting data"
+			}
+			if reason != "" {
+				return reason
+			}
+		}
+	}
+	return "Pending"
+}
+
+func pluralize(n int, singular, plural string) string {
+	if n == 1 {
+		return singular
+	}
+	return plural
 }
 
 func formatMemory(s string) string {
