@@ -340,7 +340,7 @@
       "type": "string",
       "description": "Collector cache TTL for unused Prometheus connections (Go duration)",
       "default": "10m",
-      "pattern": "^[0-9]+(ns|us|µs|ms|s|m|h)$"
+      "pattern": "^([0-9]+(ns|us|µs|ms|s|m|h))+$"
     },
     "logging": {
       "type": "object",
