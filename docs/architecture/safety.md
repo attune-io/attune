@@ -120,6 +120,8 @@ The controller emits Kubernetes Events for visibility:
 | Event type | Reason | When |
 |-----------|--------|------|
 | Normal | `Resized` | A container was successfully resized |
+| Warning | `ResizeFailed` | The resize API call returned an error |
+| Warning | `ResizeSkipped` | A resize was skipped (QoS change, node capacity, quota) |
 | Warning | `Reverted` | A resize was reverted due to a safety violation |
 
 Events are visible via `kubectl describe rightsizepolicy` and

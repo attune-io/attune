@@ -94,7 +94,7 @@ spec:
 | `resizeHistory[].resource` | `string` | `cpu` or `memory` |
 | `resizeHistory[].from` | `string` | Previous value |
 | `resizeHistory[].to` | `string` | New value |
-| `resizeHistory[].method` | `string` | `InPlace` or `Recreate` |
+| `resizeHistory[].method` | `string` | `InPlace` |
 | `resizeHistory[].result` | `string` | `Success`, `Failed`, or `Reverted` |
 
 ### Condition types

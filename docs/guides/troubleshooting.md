@@ -236,6 +236,32 @@ Common causes:
 - **restart**: the application crashes at the new resource level. Check application logs.
 - **notready**: readiness probe fails post-resize. Verify probe configuration.
 
+## Known limitations
+
+### Multi-container pod annotation tracking
+
+When multiple containers in the same pod are resized in a single
+reconciliation cycle, the tracking annotations (used for safety observation
+and auto-revert) only preserve the last container's data. This means only
+the last resized container can be safely reverted. Tracked in
+[#45](https://github.com/SebTardifLabs/kube-rightsize/issues/45).
+
+**Workaround**: Use `excludeContainers` to limit resizing to one container
+per pod, or use separate policies for different containers.
+
+### Maximum Prometheus addresses
+
+The operator caches at most 64 unique Prometheus collector connections.
+Clusters with more than 64 distinct Prometheus addresses across all policies
+will see errors on additional addresses. In practice this is rarely hit
+since most clusters use 1-2 Prometheus instances.
+
+### Minimum cooldown floor
+
+The operator enforces a minimum cooldown of 1 minute regardless of the
+configured `cooldown` value. Setting `cooldown: 10s` effectively becomes
+`cooldown: 1m`. This prevents accidental resource churn.
+
 ## Debug commands
 
 Operator logs:

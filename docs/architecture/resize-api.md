@@ -47,12 +47,35 @@ Before calling `UpdateResize`, the controller runs several safety checks:
 
 After a successful resize, the operator:
 
-1. Writes tracking annotations to the pod (`rightsize.io/resized-at`,
-   `rightsize.io/resized-container`, etc.).
+1. Writes tracking annotations to the pod (see table below).
 2. If `autoRevert: true`, monitors the pod for safety violations (OOMKill,
    CPU throttle, restart spikes, NotReady).
 3. Records the operation in `status.resizeHistory`.
 4. Emits a Kubernetes Event (`Normal/Resized`).
+
+### Pod tracking annotations
+
+After a resize, the operator writes these annotations to the pod for safety
+observation and revert tracking:
+
+| Annotation | Description |
+|---|---|
+| `rightsize.io/resized-at` | RFC 3339 timestamp of the resize |
+| `rightsize.io/resized-container` | Name of the resized container |
+| `rightsize.io/resized-workload` | Name of the parent workload |
+| `rightsize.io/original-cpu-request` | CPU request before the resize |
+| `rightsize.io/original-memory-request` | Memory request before the resize |
+| `rightsize.io/original-restart-count` | Container restart count at resize time |
+
+These annotations are removed once the safety observation period completes
+(regardless of whether the resize is kept or reverted).
+
+!!! warning "Multi-container limitation"
+    When multiple containers in the same pod are resized in the same cycle,
+    each container's annotations overwrite the previous container's data.
+    This means only the last container's resize is tracked for safety
+    observation. A fix is tracked in
+    [#45](https://github.com/SebTardifLabs/kube-rightsize/issues/45).
 
 ## Limits and caveats
 
@@ -63,3 +86,10 @@ After a successful resize, the operator:
   regular containers.
 - **Restart policy**: Containers with `resizePolicy: RestartContainer` will
   be restarted by the kubelet when their resources change.
+- **Prometheus address limit**: The operator caches at most 64 unique
+  Prometheus collector instances. If more than 64 distinct addresses are
+  configured across all policies, additional addresses are rejected with
+  an error status.
+- **Minimum cooldown**: The operator enforces a minimum cooldown of 1 minute
+  regardless of the `cooldown` field value. This prevents accidental DoS
+  via rapid resize loops.
