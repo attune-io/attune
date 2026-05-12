@@ -77,6 +77,8 @@ spec:
 | `workloads.withRecommendations` | `int32` | Workloads with active recommendations |
 | `workloads.resized` | `int32` | Workloads that have been resized |
 | `workloads.pending` | `int32` | Workloads awaiting resize |
+| `workloads.dataPointsCollected` | `int32` | Max data points collected across all containers |
+| `workloads.dataPointsRequired` | `int32` | Minimum data points needed before recommendations |
 | `recommendations[].workload` | `string` | Workload name |
 | `recommendations[].kind` | `string` | Workload kind |
 | `recommendations[].containers[].name` | `string` | Container name |
@@ -86,7 +88,9 @@ spec:
 | `recommendations[].containers[].dataPoints` | `int32` | Prometheus samples used |
 | `recommendations[].containers[].lastUpdated` | `Time` | Last recommendation timestamp |
 | `savings.cpuRequestReduction` | `string` | Total CPU request reduction (e.g. "1200m") |
+| `savings.cpuRequestTotal` | `string` | Total current CPU requests across all workloads (e.g. "2000m") |
 | `savings.memoryRequestReduction` | `string` | Total memory request reduction (e.g. "2Gi") |
+| `savings.memoryRequestTotal` | `string` | Total current memory requests across all workloads (e.g. "2Gi") |
 | `savings.estimatedMonthlySavings` | `string` | Estimated monthly cost savings |
 | `resizeHistory[].timestamp` | `Time` | When the resize occurred |
 | `resizeHistory[].workload` | `string` | Resized workload name |

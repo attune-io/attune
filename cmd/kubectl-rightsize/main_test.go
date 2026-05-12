@@ -589,7 +589,7 @@ func TestPrintRecommendations_CollectingData(t *testing.T) {
 	output := buf.String()
 
 	assert.Contains(t, output, "new-policy")
-	assert.Contains(t, output, "Collecting data")
+	assert.Contains(t, output, "Not enough data")
 }
 
 // ---------- policyReadyReason ----------
@@ -614,7 +614,7 @@ func TestPolicyReadyReason_InsufficientDataWithMessage(t *testing.T) {
 			},
 		},
 	}}
-	assert.Equal(t, "Collecting data", policyReadyReason(item))
+	assert.Equal(t, "No matching workloads found", policyReadyReason(item))
 }
 
 func TestPolicyReadyReason_OtherReason(t *testing.T) {

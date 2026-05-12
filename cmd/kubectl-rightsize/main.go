@@ -383,7 +383,7 @@ func policyReadyReason(item unstructured.Unstructured) string {
 			reason, _ := cond["reason"].(string)
 			msg, _ := cond["message"].(string)
 			if reason == "InsufficientData" && msg != "" {
-				return "Collecting data"
+				return msg
 			}
 			if reason != "" {
 				return reason

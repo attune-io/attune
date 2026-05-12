@@ -41,8 +41,11 @@ kubectl rightsize savings -n production
 
 | Column | Description |
 |--------|-------------|
+| NAMESPACE | Namespace of the policy |
+| NAME | Policy name |
 | CPU SAVED | Total CPU request reduction (e.g., `350m`) |
 | MEMORY SAVED | Total memory request reduction (e.g., `232Mi`) |
+| % SAVED | CPU savings as percentage of total CPU requests |
 | EST. MONTHLY | Estimated monthly cost savings (e.g., `$12.78`) |
 
 ### recommendations
