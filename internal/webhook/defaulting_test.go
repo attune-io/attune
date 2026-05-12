@@ -158,4 +158,12 @@ func TestDefault_RecordsWebhookMetrics(t *testing.T) {
 	require.NoError(t, h.Write(&metric))
 	assert.Equal(t, uint64(1), metric.GetHistogram().GetSampleCount(),
 		"defaulting should record one duration observation")
+
+	// Verify validation counter was incremented with "allowed".
+	counter, cErr := operatormetrics.WebhookValidationTotal.GetMetricWithLabelValues("defaulting", "allowed")
+	require.NoError(t, cErr)
+	var cMetric io_prometheus_client.Metric
+	require.NoError(t, counter.Write(&cMetric))
+	assert.Equal(t, 1.0, cMetric.GetCounter().GetValue(),
+		"defaulting should record one validation_total with result=allowed")
 }

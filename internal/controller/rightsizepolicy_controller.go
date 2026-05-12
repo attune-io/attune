@@ -136,7 +136,8 @@ func (r *RightSizePolicyReconciler) getOrCreateCollector(address string) (rsmetr
 
 	if cached, ok := r.collectors.Load(address); ok {
 		entry := cached.(*collectorEntry)
-		entry.lastUsed = now
+		// Store a new entry to avoid data race on lastUsed with concurrent reconciles.
+		r.collectors.Store(address, &collectorEntry{collector: entry.collector, lastUsed: now})
 		return entry.collector, nil
 	}
 

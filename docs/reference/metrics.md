@@ -31,7 +31,7 @@ Total number of failed Prometheus queries.
 | Label | Description |
 |-------|-------------|
 | `namespace` | Workload namespace where the query originated |
-| `query_type` | `cpu_range`, `memory_range`, `cpu_fallback`, `memory_fallback` |
+| `query_type` | `cpu_grouped` or `memory_grouped` |
 
 ### kube_rightsize_reconcile_errors_total
 
@@ -132,7 +132,7 @@ Duration of each Prometheus query.
 
 | Label | Description |
 |-------|-------------|
-| `query_type` | `cpu_range`, `memory_range`, `cpu_fallback`, `memory_fallback` |
+| `query_type` | `cpu_grouped` or `memory_grouped` |
 
 ### kube_rightsize_webhook_duration_seconds
 

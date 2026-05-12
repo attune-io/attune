@@ -78,6 +78,11 @@ func main() {
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
+	if collectorTTL < 0 {
+		setupLog.Error(fmt.Errorf("got %s", collectorTTL), "collector-ttl must be non-negative")
+		os.Exit(1)
+	}
+
 	mgrOpts := ctrl.Options{
 		Scheme: scheme,
 		Metrics: metricsserver.Options{
