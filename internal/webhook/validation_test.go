@@ -21,12 +21,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	io_prometheus_client "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	rightsizev1alpha1 "github.com/SebTardif/kube-rightsize/api/v1alpha1"
+	"github.com/SebTardif/kube-rightsize/internal/operatormetrics"
 )
 
 func validPolicy() *rightsizev1alpha1.RightSizePolicy {
@@ -325,6 +328,52 @@ func TestValidate_PrometheusAddressValid(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateCreate_RecordsWebhookMetrics(t *testing.T) {
+	operatormetrics.WebhookValidationTotal.Reset()
+	operatormetrics.WebhookDuration.Reset()
+
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	require.NoError(t, err)
+
+	// Verify validation counter was incremented with "allowed".
+	counter, err := operatormetrics.WebhookValidationTotal.GetMetricWithLabelValues("validate_create", "allowed")
+	require.NoError(t, err)
+	var metric io_prometheus_client.Metric
+	require.NoError(t, counter.Write(&metric))
+	assert.Equal(t, 1.0, metric.GetCounter().GetValue())
+
+	// Verify duration histogram was recorded.
+	observer, err := operatormetrics.WebhookDuration.GetMetricWithLabelValues("validate_create")
+	require.NoError(t, err)
+	h := observer.(prometheus.Histogram)
+	var hMetric io_prometheus_client.Metric
+	require.NoError(t, h.Write(&hMetric))
+	assert.Equal(t, uint64(1), hMetric.GetHistogram().GetSampleCount())
+}
+
+func TestValidateCreate_RecordsRejectedMetric(t *testing.T) {
+	operatormetrics.WebhookValidationTotal.Reset()
+
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.CPU.Bounds = &rightsizev1alpha1.ResourceBounds{
+		Min: resource.MustParse("2"),
+		Max: resource.MustParse("1"),
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	require.Error(t, err)
+
+	counter, err := operatormetrics.WebhookValidationTotal.GetMetricWithLabelValues("validate_create", "rejected")
+	require.NoError(t, err)
+	var metric io_prometheus_client.Metric
+	require.NoError(t, counter.Write(&metric))
+	assert.Equal(t, 1.0, metric.GetCounter().GetValue())
 }
 
 func TestValidateDelete_AlwaysSucceeds(t *testing.T) {

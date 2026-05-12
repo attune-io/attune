@@ -116,3 +116,20 @@ kubectl rightsize recommendations -o yaml
 | `--all-namespaces` | `-A` | List across all namespaces |
 | `--kubeconfig` | | Path to kubeconfig file |
 | `--output` | `-o` | Output format: `json` or `yaml` |
+
+## Manager Binary Flags
+
+The operator manager binary (`cmd/manager`) accepts these flags. They are
+typically set via the Helm chart `values.yaml` rather than directly.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--metrics-bind-address` | `:8080` | Address the Prometheus metrics endpoint binds to |
+| `--health-probe-bind-address` | `:8081` | Address the health/readiness probe endpoint binds to |
+| `--leader-elect` | `false` | Enable leader election (required for HA with multiple replicas) |
+| `--enable-webhooks` | `true` | Enable admission webhooks for defaulting and validation (requires cert-manager) |
+| `--collector-ttl` | `10m` | How long unused Prometheus collectors stay cached before eviction |
+| `--zap-log-level` | `info` | Log verbosity: `debug`, `info`, `error`, or integer (higher = more verbose) |
+| `--zap-encoder` | `json` | Log format: `json` (default) or `console` (human-readable) |
+| `--zap-stacktrace-level` | `error` | Minimum level for automatic stacktrace capture |
+| `--zap-devel` | `false` | Enable development mode (console encoder, debug level, stacktrace on warn) |

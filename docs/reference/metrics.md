@@ -134,6 +134,14 @@ Duration of each Prometheus query.
 |-------|-------------|
 | `query_type` | `cpu_range`, `memory_range`, `cpu_fallback`, `memory_fallback` |
 
+### kube_rightsize_webhook_duration_seconds
+
+Duration of webhook validation and defaulting operations.
+
+| Label | Description |
+|-------|-------------|
+| `operation` | `validate_create`, `validate_update`, `defaulting`, `defaults_validate_create`, or `defaults_validate_update` |
+
 ## Example PromQL queries
 
 Total successful resizes in the last 24 hours:
