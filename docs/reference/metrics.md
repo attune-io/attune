@@ -26,7 +26,12 @@ Total number of resize reverts triggered by the safety monitor.
 
 ### kube_rightsize_prometheus_query_errors_total
 
-Total number of failed Prometheus queries. No labels.
+Total number of failed Prometheus queries.
+
+| Label | Values |
+|-------|--------|
+| `namespace` | Workload namespace where the query originated |
+| `query_type` | `cpu_range`, `memory_range`, `cpu_range_fallback`, `memory_fallback` |
 
 ## Gauges
 
@@ -158,5 +163,5 @@ histogram_quantile(0.99, rate(kube_rightsize_reconcile_duration_seconds_bucket[5
 Prometheus query error rate:
 
 ```promql
-rate(kube_rightsize_prometheus_query_errors_total[5m])
+sum(rate(kube_rightsize_prometheus_query_errors_total[5m]))
 ```

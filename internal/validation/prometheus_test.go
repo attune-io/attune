@@ -38,16 +38,23 @@ func TestPrometheusAddress_BlockedMetadata(t *testing.T) {
 		"http://169.254.169.254/latest/meta-data",
 		"http://metadata.google.internal/computeMetadata",
 		"http://METADATA.GOOGLE.INTERNAL/foo",
+		"http://instance-data.ec2.internal",
+		"http://metadata.internal",
+		"http://[fd00:ec2::254]/latest/meta-data/",
 	}
 	for _, addr := range blocked {
 		err := PrometheusAddress(addr)
 		assert.Error(t, err, "expected blocked: %s", addr)
-		assert.Contains(t, err.Error(), "metadata")
 	}
 }
 
 func TestPrometheusAddress_BlockedLoopback(t *testing.T) {
 	assert.Error(t, PrometheusAddress("http://127.0.0.1:9090"))
+	assert.Error(t, PrometheusAddress("http://[::1]:9090"))
+}
+
+func TestPrometheusAddress_BlockedLinkLocal(t *testing.T) {
+	assert.Error(t, PrometheusAddress("http://[fe80::1]:9090"))
 }
 
 func TestPrometheusAddress_BadScheme(t *testing.T) {

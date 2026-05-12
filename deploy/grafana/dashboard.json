@@ -397,8 +397,8 @@
       "type": "stat",
       "targets": [
         {
-          "expr": "rate(kube_rightsize_prometheus_query_errors_total[$__rate_interval])",
-          "legendFormat": "errors/s"
+          "expr": "sum by (namespace, query_type) (rate(kube_rightsize_prometheus_query_errors_total[$__rate_interval]))",
+          "legendFormat": "{{namespace}} {{query_type}}"
         }
       ]
     }

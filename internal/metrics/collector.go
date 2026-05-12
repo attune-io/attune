@@ -83,10 +83,17 @@ func ssrfSafeTransport() http.RoundTripper {
 	}
 }
 
+// awsIMDSv6 is the AWS EC2 Instance Metadata Service v2 IPv6 endpoint.
+// It lives in fd00::/8 (Unique Local Address), which is NOT link-local.
+var awsIMDSv6 = net.ParseIP("fd00:ec2::254")
+
 // isBlockedIP returns true for IPs that should never be contacted by the
-// operator (loopback, link-local, metadata endpoints, private RFC 1918).
+// operator: loopback, link-local, unspecified, and the AWS IMDSv2 IPv6 endpoint.
+// Private IPs (10.x, 172.16.x, 192.168.x) are intentionally allowed because
+// Prometheus typically runs on a ClusterIP service inside the cluster.
 func isBlockedIP(ip net.IP) bool {
-	return ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified()
+	return ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+		ip.IsUnspecified() || ip.Equal(awsIMDSv6)
 }
 
 // NewPrometheusCollector creates a new PrometheusCollector that queries the

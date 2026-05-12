@@ -300,6 +300,8 @@ func TestIsBlockedIP(t *testing.T) {
 		{"private 172.x", "172.16.0.1", false},
 		{"public IP", "8.8.8.8", false},
 		{"cluster IP", "10.96.0.1", false},
+		{"AWS IMDSv2 IPv6", "fd00:ec2::254", true},
+		{"other ULA", "fd00::1", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
