@@ -96,37 +96,13 @@ var vpaGVK = schema.GroupVersionKind{
 // returns a Conflict if any VPA targets the same workload. Returns nil if the
 // VPA CRD is not installed (no error) or no conflicts are found.
 func (d *Detector) CheckVPAConflict(ctx context.Context, c client.Client, namespace, workloadName, workloadKind string) *Conflict {
-	vpaList := &unstructured.UnstructuredList{}
-	vpaList.SetGroupVersionKind(vpaGVK)
-
-	if err := c.List(ctx, vpaList, client.InNamespace(namespace)); err != nil {
-		// VPA CRD not installed or RBAC issue; not an error for our purposes.
-		d.logger.V(1).Info("Could not list VPAs (CRD may not be installed)", "error", err)
-		return nil
-	}
-
-	for _, vpa := range vpaList.Items {
-		targetRef, found, _ := unstructured.NestedMap(vpa.Object, "spec", "targetRef")
-		if !found {
-			continue
-		}
-		refKind, _ := targetRef["kind"].(string)
-		refName, _ := targetRef["name"].(string)
-		if refKind == workloadKind && refName == workloadName {
-			return &Conflict{
-				Type:    ConflictVPA,
-				Name:    vpa.GetName(),
-				Message: fmt.Sprintf("VPA %s targets the same %s/%s; consider disabling VPA to avoid conflicting resource adjustments", vpa.GetName(), workloadKind, workloadName),
-			}
-		}
-	}
-	return nil
+	return d.CheckVPAConflictInMemory(d.ListVPAs(ctx, c, namespace), workloadName, workloadKind)
 }
 
 // policyTargetsWorkload checks whether a policy's targetRef matches the given
 // workload by name or by label selector. Returns true if the policy targets
-// the workload.
-func policyTargetsWorkload(policy unstructured.Unstructured, workloadName, workloadKind string, workloadLabels map[string]string) bool {
+// the workload. The logger is used for debug-level diagnostics on parse errors.
+func policyTargetsWorkload(logger logr.Logger, policy unstructured.Unstructured, workloadName, workloadKind string, workloadLabels map[string]string) bool {
 	targetKind, _, _ := unstructured.NestedString(policy.Object, "spec", "targetRef", "kind")
 	if targetKind != workloadKind {
 		return false
@@ -175,6 +151,7 @@ func policyTargetsWorkload(policy unstructured.Unstructured, workloadName, workl
 
 	sel, err := metav1.LabelSelectorAsSelector(ls)
 	if err != nil {
+		logger.V(1).Info("Malformed label selector in policy, skipping", "policy", policy.GetName(), "error", err)
 		return false
 	}
 	return sel.Matches(labels.Set(workloadLabels))
@@ -185,38 +162,7 @@ func policyTargetsWorkload(policy unstructured.Unstructured, workloadName, workl
 // exists (the current policy should defer). Returns nil if the current policy
 // has the highest weight or no overlap exists.
 func (d *Detector) CheckPolicyConflict(ctx context.Context, c client.Client, namespace, workloadName, workloadKind string, workloadLabels map[string]string, currentPolicyName string, currentWeight int32) *Conflict {
-	policyList := &unstructured.UnstructuredList{}
-	policyList.SetGroupVersionKind(schema.GroupVersionKind{
-		Group:   "rightsize.io",
-		Version: "v1alpha1",
-		Kind:    "RightSizePolicyList",
-	})
-
-	if err := c.List(ctx, policyList, client.InNamespace(namespace)); err != nil {
-		d.logger.V(1).Info("Could not list RightSizePolicies for conflict check", "error", err)
-		return nil
-	}
-
-	for _, policy := range policyList.Items {
-		if policy.GetName() == currentPolicyName {
-			continue
-		}
-
-		if !policyTargetsWorkload(policy, workloadName, workloadKind, workloadLabels) {
-			continue
-		}
-
-		otherWeight, _, _ := unstructured.NestedInt64(policy.Object, "spec", "weight")
-		if otherWeight > int64(currentWeight) {
-			return &Conflict{
-				Type: ConflictPolicy,
-				Name: policy.GetName(),
-				Message: fmt.Sprintf("RightSizePolicy %s has higher weight (%d > %d) for %s/%s; deferring",
-					policy.GetName(), otherWeight, currentWeight, workloadKind, workloadName),
-			}
-		}
-	}
-	return nil
+	return d.CheckPolicyConflictInMemory(d.ListPolicies(ctx, c, namespace), workloadName, workloadKind, workloadLabels, currentPolicyName, currentWeight)
 }
 
 // CheckHPAConflict checks if an HPA targets the same workload and returns a Conflict if so.
@@ -299,7 +245,7 @@ func (d *Detector) CheckPolicyConflictInMemory(policyList *unstructured.Unstruct
 			continue
 		}
 
-		if !policyTargetsWorkload(policy, workloadName, workloadKind, workloadLabels) {
+		if !policyTargetsWorkload(d.logger, policy, workloadName, workloadKind, workloadLabels) {
 			continue
 		}
 
