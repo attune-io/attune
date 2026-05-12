@@ -48,6 +48,9 @@ spec:
             - --enable-webhooks=false
             {{- end }}
             {{- end }}
+            {{- if .Values.collectorTTL }}
+            - --collector-ttl={{ .Values.collectorTTL }}
+            {{- end }}
             {{- with .Values.logging }}
             {{- if .level }}
             - --zap-log-level={{ .level }}

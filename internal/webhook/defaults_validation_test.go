@@ -20,11 +20,14 @@ import (
 	"context"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
+	io_prometheus_client "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	rightsizev1alpha1 "github.com/SebTardif/kube-rightsize/api/v1alpha1"
+	"github.com/SebTardif/kube-rightsize/internal/operatormetrics"
 )
 
 func TestDefaultsValidator_NoPricing(t *testing.T) {
@@ -103,4 +106,55 @@ func TestDefaultsValidator_Delete(t *testing.T) {
 	v := &RightSizeDefaultsValidator{}
 	_, err := v.ValidateDelete(context.Background(), &rightsizev1alpha1.RightSizeDefaults{})
 	require.NoError(t, err)
+}
+
+func TestDefaultsValidator_RecordsMetrics(t *testing.T) {
+	operatormetrics.WebhookValidationTotal.Reset()
+	operatormetrics.WebhookDuration.Reset()
+
+	v := &RightSizeDefaultsValidator{}
+	defaults := &rightsizev1alpha1.RightSizeDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+	}
+
+	_, err := v.ValidateCreate(context.Background(), defaults)
+	require.NoError(t, err)
+
+	// Verify validation counter was incremented.
+	counter, err := operatormetrics.WebhookValidationTotal.GetMetricWithLabelValues("defaults_validate_create", "allowed")
+	require.NoError(t, err)
+	var metric io_prometheus_client.Metric
+	require.NoError(t, counter.Write(&metric))
+	assert.Equal(t, 1.0, metric.GetCounter().GetValue())
+
+	// Verify duration histogram was recorded.
+	observer, err := operatormetrics.WebhookDuration.GetMetricWithLabelValues("defaults_validate_create")
+	require.NoError(t, err)
+	h := observer.(prometheus.Histogram)
+	var hMetric io_prometheus_client.Metric
+	require.NoError(t, h.Write(&hMetric))
+	assert.Equal(t, uint64(1), hMetric.GetHistogram().GetSampleCount())
+}
+
+func TestDefaultsValidator_RecordsRejectedMetric(t *testing.T) {
+	operatormetrics.WebhookValidationTotal.Reset()
+
+	v := &RightSizeDefaultsValidator{}
+	defaults := &rightsizev1alpha1.RightSizeDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			CostPricing: &rightsizev1alpha1.CostPricing{
+				CPUPerCoreHour: "invalid",
+			},
+		},
+	}
+
+	_, err := v.ValidateCreate(context.Background(), defaults)
+	require.Error(t, err)
+
+	counter, err := operatormetrics.WebhookValidationTotal.GetMetricWithLabelValues("defaults_validate_create", "rejected")
+	require.NoError(t, err)
+	var metric io_prometheus_client.Metric
+	require.NoError(t, counter.Write(&metric))
+	assert.Equal(t, 1.0, metric.GetCounter().GetValue())
 }

@@ -65,6 +65,9 @@ make kind-delete                          # clean up
 # NOTE: E2E requires a cluster with the operator deployed (see above).
 # Unit and integration tests run without any cluster.
 make test-all
+
+# Single command: auto-provisions k3d cluster, deploys, runs everything, cleans up
+make test-local
 ```
 
 **Important:** `make k3d-deploy` and `make kind-deploy` mutate
@@ -83,10 +86,15 @@ make docker-build IMG=kube-rightsize:dev
 
 Run `make verify` before every commit. It covers:
 - golangci-lint (code quality + import alias enforcement)
-- Unit tests with coverage threshold (75%)
-- Helm chart docs freshness
-- Helm chart unit tests (44 tests)
+- Unit and integration tests with coverage threshold (75%)
+- Helm lint + template validation
+- Helm chart docs freshness and unit tests
 - CRD manifest freshness (`make manifests` output matches committed files)
+- Documentation defaults consistency check
+- govulncheck for known vulnerabilities
+
+For faster feedback on docs-only or YAML-only changes, use `make verify-quick`
+(skips integration tests and govulncheck).
 
 If you changed CRD types (`api/v1alpha1/`), also run:
 ```bash

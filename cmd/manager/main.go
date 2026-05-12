@@ -20,6 +20,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -57,6 +58,7 @@ func main() {
 	var probeAddr string
 	var enableLeaderElection bool
 	var enableWebhooks bool
+	var collectorTTL time.Duration
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metrics endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the health probe endpoint binds to.")
@@ -65,6 +67,8 @@ func main() {
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.BoolVar(&enableWebhooks, "enable-webhooks", true,
 		"Enable admission webhooks for defaulting and validation.")
+	flag.DurationVar(&collectorTTL, "collector-ttl", 10*time.Minute,
+		"How long unused Prometheus collectors stay cached before eviction.")
 
 	opts := zap.Options{
 		Development: false,
@@ -105,10 +109,11 @@ func main() {
 
 	// Setup the RightSizePolicyReconciler with a real Prometheus metrics factory and clientset.
 	if err = (&controller.RightSizePolicyReconciler{
-		Client:    mgr.GetClient(),
-		Scheme:    mgr.GetScheme(),
-		Clientset: clientset,
-		Recorder:  mgr.GetEventRecorder("kube-rightsize"),
+		Client:       mgr.GetClient(),
+		Scheme:       mgr.GetScheme(),
+		Clientset:    clientset,
+		Recorder:     mgr.GetEventRecorder("kube-rightsize"),
+		CollectorTTL: collectorTTL,
 		MetricsFactory: func(address string) (metrics.MetricsCollector, error) {
 			collector, err := metrics.NewPrometheusCollector(address, ctrl.Log.WithName("prometheus"))
 			if err != nil {

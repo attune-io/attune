@@ -41,6 +41,15 @@ Total number of reconciliation errors by type.
 |-------|-------------|
 | `error_type` | `fetch`, `discover_workloads`, `get_pods`, `compute_recommendations`, or `status_update` |
 
+### kube_rightsize_webhook_validation_total
+
+Total number of webhook admission decisions.
+
+| Label | Description |
+|-------|-------------|
+| `operation` | `validate_create`, `validate_update`, or `defaulting` |
+| `result` | `allowed` or `rejected` |
+
 ## Gauges
 
 ### kube_rightsize_recommendation_cpu_cores

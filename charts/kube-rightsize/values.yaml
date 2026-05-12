@@ -110,6 +110,9 @@ networkPolicy:
   # -- TCP port allowed by NetworkPolicy for Prometheus backend pods
   prometheusPort: 9090
 
+# -- Collector cache TTL for unused Prometheus connections (Go duration, e.g. "10m", "1h")
+collectorTTL: "10m"
+
 # -- Logging configuration
 logging:
   # -- Log level (debug, info, warn, error)

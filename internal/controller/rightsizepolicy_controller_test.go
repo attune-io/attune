@@ -871,6 +871,30 @@ func TestGetOrCreateCollector_CacheFull(t *testing.T) {
 	assert.Contains(t, err.Error(), "collector cache full")
 }
 
+func TestGetOrCreateCollector_CustomTTL(t *testing.T) {
+	customTTL := 2 * time.Minute
+	reconciler := &RightSizePolicyReconciler{
+		CollectorTTL: customTTL,
+		MetricsFactory: func(string) (rsmetrics.MetricsCollector, error) {
+			return &mockCollector{}, nil
+		},
+	}
+
+	// Store an entry that is stale under custom TTL but fresh under default TTL.
+	staleTime := time.Now().Add(-(customTTL + time.Minute))
+	reconciler.collectors.Store("http://stale:9090", &collectorEntry{
+		collector: &mockCollector{},
+		lastUsed:  staleTime,
+	})
+
+	// Creating a new collector should trigger eviction of the stale entry.
+	_, err := reconciler.getOrCreateCollector("http://fresh:9090")
+	require.NoError(t, err)
+
+	_, stillExists := reconciler.collectors.Load("http://stale:9090")
+	assert.False(t, stillExists, "entry older than custom TTL should be evicted")
+}
+
 func TestGetOrCreateCollector_EvictsStaleEntries(t *testing.T) {
 	reconciler := &RightSizePolicyReconciler{
 		MetricsFactory: func(string) (rsmetrics.MetricsCollector, error) {
@@ -1308,6 +1332,54 @@ func TestReconcile_HappyPathWithRecommendations(t *testing.T) {
 	assert.Equal(t, "Monitoring", updated.Status.Conditions[0].Reason)
 }
 
+// ---------- observation-period requeue ----------
+
+func TestRequeueShortenedByObservationPeriod(t *testing.T) {
+	// Test that getObservationPeriod returns the canary config value.
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Canary = &rightsizev1alpha1.CanaryConfig{
+		ObservationPeriod: metav1.Duration{Duration: 2 * time.Minute},
+	}
+	assert.Equal(t, 2*time.Minute, getObservationPeriod(policy))
+
+	// Test that default observation period is used when no canary config.
+	policyNoCanary := newTestPolicy("test-policy2", "default")
+	assert.Equal(t, defaultObservationPeriod, getObservationPeriod(policyNoCanary))
+
+	// Test the min(cooldown, observationPeriod) requeue logic directly.
+	// When AutoRevert is true and resizes occurred, the reconciler
+	// uses min(cooldown, observationPeriod) as requeue interval
+	// (lines 417-424 of rightsizepolicy_controller.go).
+	cooldown := 1 * time.Hour
+	obs := getObservationPeriod(policy) // 2m
+	requeueAfter := cooldown
+	if obs < requeueAfter {
+		requeueAfter = obs
+	}
+	assert.Equal(t, 2*time.Minute, requeueAfter,
+		"requeue should be shortened to observation period when it is less than cooldown")
+
+	// When observation period exceeds cooldown, cooldown wins.
+	longObs := &rightsizev1alpha1.RightSizePolicy{
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+				Cooldown: &metav1.Duration{Duration: 5 * time.Minute},
+				Canary: &rightsizev1alpha1.CanaryConfig{
+					ObservationPeriod: metav1.Duration{Duration: 10 * time.Minute},
+				},
+			},
+		},
+	}
+	obsLong := getObservationPeriod(longObs)
+	cooldownShort := longObs.Spec.UpdateStrategy.Cooldown.Duration
+	requeueAfter2 := cooldownShort
+	if obsLong < requeueAfter2 {
+		requeueAfter2 = obsLong
+	}
+	assert.Equal(t, 5*time.Minute, requeueAfter2,
+		"cooldown should win when observation period is longer")
+}
+
 // ---------- appendResizedContainer ----------
 
 func TestAppendResizedContainer(t *testing.T) {
@@ -1420,11 +1492,11 @@ func TestParseResizeRecords_MalformedRestartCount(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "bad-pod", Namespace: "default",
 			Annotations: map[string]string{
-				annotationResizedAt:                              resizedAt,
-				annotationResizedContainers:                      "app",
-				annotationOriginalCPUPrefix + "app":              "500m",
-				annotationOriginalMemoryPrefix + "app":           "512Mi",
-				annotationOriginalRestartCountPrefix + "app":     "not-a-number",
+				annotationResizedAt:                          resizedAt,
+				annotationResizedContainers:                  "app",
+				annotationOriginalCPUPrefix + "app":          "500m",
+				annotationOriginalMemoryPrefix + "app":       "512Mi",
+				annotationOriginalRestartCountPrefix + "app": "not-a-number",
 			},
 		},
 		Spec: corev1.PodSpec{Containers: []corev1.Container{

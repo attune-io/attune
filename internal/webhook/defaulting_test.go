@@ -21,11 +21,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	io_prometheus_client "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	rightsizev1alpha1 "github.com/SebTardif/kube-rightsize/api/v1alpha1"
+	"github.com/SebTardif/kube-rightsize/internal/operatormetrics"
 )
 
 func TestDefault_SetsPercentiles(t *testing.T) {
@@ -135,4 +138,24 @@ func TestDefault_PreservesExistingCooldown(t *testing.T) {
 	require.NotNil(t, policy.Spec.UpdateStrategy.Cooldown)
 	assert.Equal(t, 30*time.Minute, policy.Spec.UpdateStrategy.Cooldown.Duration,
 		"defaulter should not overwrite a pre-existing cooldown")
+}
+
+func TestDefault_RecordsWebhookMetrics(t *testing.T) {
+	operatormetrics.WebhookValidationTotal.Reset()
+	operatormetrics.WebhookDuration.Reset()
+
+	defaulter := &RightSizePolicyDefaulter{}
+	policy := &rightsizev1alpha1.RightSizePolicy{}
+
+	err := defaulter.Default(context.Background(), policy)
+	require.NoError(t, err)
+
+	// Verify duration histogram was recorded.
+	var metric io_prometheus_client.Metric
+	observer, err := operatormetrics.WebhookDuration.GetMetricWithLabelValues("defaulting")
+	require.NoError(t, err)
+	h := observer.(prometheus.Histogram)
+	require.NoError(t, h.Write(&metric))
+	assert.Equal(t, uint64(1), metric.GetHistogram().GetSampleCount(),
+		"defaulting should record one duration observation")
 }

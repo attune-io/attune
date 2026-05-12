@@ -336,6 +336,11 @@
       },
       "additionalProperties": false
     },
+    "collectorTTL": {
+      "type": "string",
+      "description": "Collector cache TTL for unused Prometheus connections (Go duration)",
+      "default": "10m"
+    },
     "logging": {
       "type": "object",
       "description": "Logging configuration",

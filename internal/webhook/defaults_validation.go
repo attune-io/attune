@@ -25,6 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	rightsizev1alpha1 "github.com/SebTardif/kube-rightsize/api/v1alpha1"
+	"github.com/SebTardif/kube-rightsize/internal/operatormetrics"
 )
 
 // RightSizeDefaultsValidator validates RightSizeDefaults resources.
@@ -32,12 +33,20 @@ type RightSizeDefaultsValidator struct{}
 
 // ValidateCreate validates a new RightSizeDefaults.
 func (v *RightSizeDefaultsValidator) ValidateCreate(_ context.Context, defaults *rightsizev1alpha1.RightSizeDefaults) (admission.Warnings, error) {
-	return v.validate(defaults)
+	timer := operatormetrics.NewWebhookTimer("defaults_validate_create")
+	defer timer.Observe()
+	w, err := v.validate(defaults)
+	timer.RecordResult(err)
+	return w, err
 }
 
 // ValidateUpdate validates an updated RightSizeDefaults.
 func (v *RightSizeDefaultsValidator) ValidateUpdate(_ context.Context, _, defaults *rightsizev1alpha1.RightSizeDefaults) (admission.Warnings, error) {
-	return v.validate(defaults)
+	timer := operatormetrics.NewWebhookTimer("defaults_validate_update")
+	defer timer.Observe()
+	w, err := v.validate(defaults)
+	timer.RecordResult(err)
+	return w, err
 }
 
 // ValidateDelete validates a RightSizeDefaults deletion (always succeeds).
@@ -45,6 +54,7 @@ func (v *RightSizeDefaultsValidator) ValidateDelete(_ context.Context, _ *rights
 	return nil, nil
 }
 
+//nolint:unparam // warnings return kept for symmetry with RightSizePolicyValidator.validate
 func (v *RightSizeDefaultsValidator) validate(defaults *rightsizev1alpha1.RightSizeDefaults) (admission.Warnings, error) {
 	// Validate Prometheus address if provided (SSRF prevention).
 	if defaults.Spec.MetricsSource != nil &&

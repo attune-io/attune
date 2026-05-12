@@ -25,10 +25,14 @@ controller-runtime v0.24.1, Kubebuilder v4, K8s API v0.36.0.
 - Generate deepcopy: `make generate`
 - Helm chart docs: `make helm-docs-gen`
 - Helm chart tests: `make helm-unittest`
+- Helm lint + template validation: `make helm-lint`
+- Doc defaults consistency check: `make verify-doc-defaults`
+- Fast pre-commit checks: `make verify-quick` (no integration tests or govulncheck)
 - All CI checks locally: `make verify`
 - Clean build artifacts: `make clean`
 - Local cluster (k3d): `make k3d-create && make k3d-deploy IMG=kube-rightsize:e2e`
 - Local cluster (Kind): `make kind-create && make kind-deploy IMG=kube-rightsize:e2e`
+- Full local test (auto-provisions k3d): `make test-local`
 - E2E tests: `make test-e2e` (requires local cluster with operator deployed)
 
 ## Structure
