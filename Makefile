@@ -59,8 +59,12 @@ tidy-check: ## Verify go.mod/go.sum are tidy
 	@git diff --quiet --exit-code go.mod go.sum || \
 		(echo "::error::go.mod/go.sum are not tidy. Run 'go mod tidy' and commit." && exit 1)
 
+.PHONY: verify-doc-defaults
+verify-doc-defaults: ## Verify critical defaults are consistent across docs and code
+	@bash hack/verify-doc-defaults.sh
+
 .PHONY: verify
-verify: lint yaml-lint test helm-docs-check helm-unittest verify-boilerplate tidy-check govulncheck ## Run all CI checks locally
+verify: lint yaml-lint test helm-lint helm-docs-check helm-unittest verify-boilerplate tidy-check govulncheck verify-doc-defaults ## Run all CI checks locally
 	@$(MAKE) manifests generate
 	@git diff --quiet --exit-code config/crd/ charts/kube-rightsize/crds/ api/v1alpha1/zz_generated.deepcopy.go config/rbac/ || \
 		(echo "::error::Generated files are stale. Run 'make manifests generate' and commit." && exit 1)
@@ -138,7 +142,7 @@ test-bench: ## Run benchmark tests
 	go test ./internal/... -bench=. -benchmem -run=^$$ -timeout=5m
 
 .PHONY: test-all
-test-all: test test-integration test-e2e ## Run all tests
+test-all: test test-integration test-e2e ## Run all tests (E2E requires a pre-provisioned cluster; see CONTRIBUTING.md)
 
 ##@ Build
 
@@ -312,6 +316,16 @@ helm-docs: ## Install helm-docs
 		go install github.com/norwoodj/helm-docs/cmd/helm-docs@$(HELM_DOCS_VERSION) && \
 		mv $(LOCALBIN)/helm-docs $(HELM_DOCS); \
 	}
+
+.PHONY: helm-lint
+helm-lint: ## Lint Helm chart and validate templates (mirrors CI helm-lint job)
+	helm lint charts/kube-rightsize --kube-version v1.33.0
+	@for f in charts/kube-rightsize/ci/*.yaml; do \
+		echo "--- Template validation with $$f ---"; \
+		helm template kube-rightsize charts/kube-rightsize -f "$$f" \
+			--kube-version v1.33.0 \
+			--api-versions cert-manager.io/v1 > /dev/null; \
+	done
 
 .PHONY: helm-docs-gen
 helm-docs-gen: helm-docs ## Generate Helm chart README from values.yaml

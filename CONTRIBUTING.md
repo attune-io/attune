@@ -62,6 +62,8 @@ make test-e2e                             # run Chainsaw E2E scenarios
 make kind-delete                          # clean up
 
 # All tests in sequence (unit + integration + E2E)
+# NOTE: E2E requires a cluster with the operator deployed (see above).
+# Unit and integration tests run without any cluster.
 make test-all
 ```
 
