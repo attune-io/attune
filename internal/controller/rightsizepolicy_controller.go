@@ -669,168 +669,183 @@ func (r *RightSizePolicyReconciler) executeResizes(
 
 		for _, pod := range selectedPods {
 			for _, containerRec := range rec.Containers {
-				target := buildResizeTarget(containerRec)
-
-				skip, reason := r.shouldSkipResize(ctx, policy, &pod, containerRec, target)
-				if skip {
-					if reason != "" {
-						logger.Info("Skipping resize: "+reason,
-							"pod", pod.Name, "container", containerRec.Name)
-					}
-					continue
-				}
-
-				// Warn if resize will cause container restart (resizePolicy: RestartContainer).
-				if resize.WouldRestartContainer(&pod, containerRec.Name) {
-					logger.Info("Container has RestartContainer resize policy; resize will trigger restart",
-						"pod", pod.Name, "container", containerRec.Name)
-				}
-
-				// Execute resize
-				resizeStart := time.Now()
-				results, err := resizer.ResizePod(ctx, &pod, containerRec.Name, target)
-				if err != nil {
-					logger.Error(err, "Failed to resize pod",
-						"pod", pod.Name, "container", containerRec.Name)
-					for _, res := range results {
-						history = append(history, newHistoryEntry(now, rec.Workload, containerRec.Name, res, rightsizev1alpha1.ResultFailed))
-						operatormetrics.ResizeTotal.WithLabelValues(pod.Namespace, rec.Workload, res.Resource, "failed").Inc()
-					}
-					if r.Recorder != nil {
-						r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "ResizeFailed", "resize",
-							"Failed to resize pod %s container %s: %v", pod.Name, containerRec.Name, err)
-					}
-					continue
-				}
-
-				operatormetrics.ResizeDuration.WithLabelValues(pod.Namespace, rec.Workload).Observe(time.Since(resizeStart).Seconds())
-				totalResized++
-				for _, res := range results {
-					result := rightsizev1alpha1.ResultSuccess
-					if !res.Success {
-						result = rightsizev1alpha1.ResultFailed
-					}
-					history = append(history, newHistoryEntry(now, rec.Workload, containerRec.Name, res, result))
-					if res.Success {
-						operatormetrics.ResizeTotal.WithLabelValues(pod.Namespace, rec.Workload, res.Resource, "success").Inc()
-						if r.Recorder != nil {
-							r.Recorder.Eventf(policy, nil, corev1.EventTypeNormal, "Resized", "resize",
-								"Resized %s %s/%s: %s %s -> %s",
-								res.Resource, rec.Workload, containerRec.Name, res.Resource, res.From.String(), res.To.String())
-						}
-					}
-				}
-
-				// Re-fetch the pod to get a fresh resourceVersion after the
-				// resize subresource call incremented it. Without this, the
-				// annotation update always fails with 409 Conflict.
-				// Capture pre-resize state from the recommendation (not the
-				// re-fetched pod, which already has the new resources).
-				originalResources := corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU:    containerRec.Current.CPURequest.DeepCopy(),
-						corev1.ResourceMemory: containerRec.Current.MemoryRequest.DeepCopy(),
-					},
-				}
-
-				// Capture restart count before the re-GET (single lookup, reused
-				// for both annotations and the safety record).
-				var restartCount int32
-				for _, cs := range pod.Status.ContainerStatuses {
-					if cs.Name == containerRec.Name {
-						restartCount = cs.RestartCount
-						break
-					}
-				}
-
-				// revertDueToFailure reverts the resize and updates history/metrics/events
-				// when a post-resize operation fails (re-fetch or annotation persistence).
-				revertDueToFailure := func(reason string) {
-					revertRecord := safety.ResizeRecord{
-						PodName:           pod.Name,
-						Namespace:         pod.Namespace,
-						Container:         containerRec.Name,
-						OriginalResources: originalResources,
-					}
-					if revertErr := monitor.RevertPod(ctx, revertRecord); revertErr != nil {
-						logger.Error(revertErr, "Failed to revert pod after "+reason, "pod", pod.Name)
-					}
-					operatormetrics.RevertsTotal.WithLabelValues(pod.Namespace, rec.Workload, reason).Inc()
-					for _, res := range results {
-						if res.Success {
-							operatormetrics.ResizeTotal.WithLabelValues(pod.Namespace, rec.Workload, res.Resource, "reverted").Inc()
-						}
-					}
-					if r.Recorder != nil {
-						r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, rightsizev1alpha1.ResultReverted, "revert",
-							"Reverted resize on %s/%s: %s", rec.Workload, containerRec.Name, reason)
-					}
-					for i := len(history) - 1; i >= 0; i-- {
-						if history[i].Workload == rec.Workload && history[i].Container == containerRec.Name {
-							history[i].Result = rightsizev1alpha1.ResultReverted
-						}
-					}
-					totalResized--
-				}
-
-				// Re-fetch directly from API server (not informer cache) to get
-				// fresh resourceVersion after UpdateResize. The manager's r.Get()
-				// reads from the informer cache which may not have processed the
-				// MODIFIED watch event yet, causing 409 Conflict on the subsequent
-				// annotation Update. See #37.
-				freshPod, getErr := r.Clientset.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
-				if getErr != nil {
-					logger.Error(getErr, "Failed to re-fetch pod after resize, reverting to avoid untracked resize", "pod", pod.Name)
-					revertDueToFailure("re-fetch-failed")
-					continue
-				} else {
-					pod = *freshPod
-					if pod.Annotations == nil {
-						pod.Annotations = make(map[string]string)
-					}
-					pod.Annotations[annotationResizedAt] = now.UTC().Format(time.RFC3339)
-					pod.Annotations[annotationResizedContainer] = containerRec.Name
-					pod.Annotations[annotationResizedWorkload] = rec.Workload
-					pod.Annotations[annotationOriginalCPU] = containerRec.Current.CPURequest.String()
-					pod.Annotations[annotationOriginalMemory] = containerRec.Current.MemoryRequest.String()
-					pod.Annotations[annotationOriginalRestartCount] = strconv.FormatInt(int64(restartCount), 10)
-
-					if updateErr := r.Update(ctx, &pod); updateErr != nil {
-						logger.Error(updateErr, "Failed to persist resize tracking annotations, reverting resize", "pod", pod.Name)
-						revertDueToFailure("annotation-persist-failed")
-						continue
-					}
-				}
-
-				// Safety check (if autoRevert is enabled)
-				if policy.Spec.UpdateStrategy.AutoRevert {
-					observationEnd := now.Add(getObservationPeriod(policy))
-					record := safety.ResizeRecord{
-						PodName:           pod.Name,
-						Namespace:         pod.Namespace,
-						Container:         containerRec.Name,
-						OriginalResources: originalResources,
-						NewResources:      target,
-						ResizedAt:         now.Time,
-						ObservationEnd:    observationEnd,
-						RestartCount:      restartCount,
-					}
-
-					verdict, err := monitor.CheckPod(ctx, record)
-					if err != nil {
-						logger.Error(err, "Safety check failed", "pod", pod.Name)
-					}
-					if !verdict.Safe {
-						logger.Info("Safety violation detected, reverting",
-							"pod", pod.Name, "reason", verdict.Reason)
-						revertDueToFailure(verdict.Reason)
-					}
+				entries, resized := r.resizeContainer(ctx, policy, &pod, rec.Workload, containerRec, resizer, monitor, now)
+				history = append(history, entries...)
+				if resized {
+					totalResized++
 				}
 			}
 		}
 	}
 
 	return totalResized, history
+}
+
+// resizeContainer performs a single container resize on a pod, including
+// skip checks, the resize call, annotation persistence, and safety checks.
+// Returns the history entries produced and whether the resize counted as successful.
+func (r *RightSizePolicyReconciler) resizeContainer(
+	ctx context.Context,
+	policy *rightsizev1alpha1.RightSizePolicy,
+	pod *corev1.Pod,
+	workloadName string,
+	containerRec rightsizev1alpha1.ContainerRecommendation,
+	resizer *resize.PodResizer,
+	monitor *safety.Monitor,
+	now metav1.Time,
+) ([]rightsizev1alpha1.ResizeHistoryEntry, bool) {
+	logger := log.FromContext(ctx)
+	target := buildResizeTarget(containerRec)
+
+	skip, reason := r.shouldSkipResize(ctx, policy, pod, containerRec, target)
+	if skip {
+		if reason != "" {
+			logger.Info("Skipping resize: "+reason,
+				"pod", pod.Name, "container", containerRec.Name)
+		}
+		return nil, false
+	}
+
+	if resize.WouldRestartContainer(pod, containerRec.Name) {
+		logger.Info("Container has RestartContainer resize policy; resize will trigger restart",
+			"pod", pod.Name, "container", containerRec.Name)
+	}
+
+	resizeStart := time.Now()
+	results, err := resizer.ResizePod(ctx, pod, containerRec.Name, target)
+	if err != nil {
+		logger.Error(err, "Failed to resize pod",
+			"pod", pod.Name, "container", containerRec.Name)
+		var entries []rightsizev1alpha1.ResizeHistoryEntry
+		for _, res := range results {
+			entries = append(entries, newHistoryEntry(now, workloadName, containerRec.Name, res, rightsizev1alpha1.ResultFailed))
+			operatormetrics.ResizeTotal.WithLabelValues(pod.Namespace, workloadName, res.Resource, "failed").Inc()
+		}
+		if r.Recorder != nil {
+			r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "ResizeFailed", "resize",
+				"Failed to resize pod %s container %s: %v", pod.Name, containerRec.Name, err)
+		}
+		return entries, false
+	}
+
+	operatormetrics.ResizeDuration.WithLabelValues(pod.Namespace, workloadName).Observe(time.Since(resizeStart).Seconds())
+
+	var history []rightsizev1alpha1.ResizeHistoryEntry
+	for _, res := range results {
+		result := rightsizev1alpha1.ResultSuccess
+		if !res.Success {
+			result = rightsizev1alpha1.ResultFailed
+		}
+		history = append(history, newHistoryEntry(now, workloadName, containerRec.Name, res, result))
+		if res.Success {
+			operatormetrics.ResizeTotal.WithLabelValues(pod.Namespace, workloadName, res.Resource, "success").Inc()
+			if r.Recorder != nil {
+				r.Recorder.Eventf(policy, nil, corev1.EventTypeNormal, "Resized", "resize",
+					"Resized %s %s/%s: %s %s -> %s",
+					res.Resource, workloadName, containerRec.Name, res.Resource, res.From.String(), res.To.String())
+			}
+		}
+	}
+
+	originalResources := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    containerRec.Current.CPURequest.DeepCopy(),
+			corev1.ResourceMemory: containerRec.Current.MemoryRequest.DeepCopy(),
+		},
+	}
+
+	var restartCount int32
+	for _, cs := range pod.Status.ContainerStatuses {
+		if cs.Name == containerRec.Name {
+			restartCount = cs.RestartCount
+			break
+		}
+	}
+
+	// revert reverts the resize and marks all history entries as Reverted.
+	revert := func(reason string) {
+		revertRecord := safety.ResizeRecord{
+			PodName:           pod.Name,
+			Namespace:         pod.Namespace,
+			Container:         containerRec.Name,
+			OriginalResources: originalResources,
+		}
+		if revertErr := monitor.RevertPod(ctx, revertRecord); revertErr != nil {
+			logger.Error(revertErr, "Failed to revert pod after "+reason, "pod", pod.Name)
+		}
+		operatormetrics.RevertsTotal.WithLabelValues(pod.Namespace, workloadName, reason).Inc()
+		for _, res := range results {
+			if res.Success {
+				operatormetrics.ResizeTotal.WithLabelValues(pod.Namespace, workloadName, res.Resource, "reverted").Inc()
+			}
+		}
+		if r.Recorder != nil {
+			r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, rightsizev1alpha1.ResultReverted, "revert",
+				"Reverted resize on %s/%s: %s", workloadName, containerRec.Name, reason)
+		}
+		for i := range history {
+			if history[i].Workload == workloadName && history[i].Container == containerRec.Name {
+				history[i].Result = rightsizev1alpha1.ResultReverted
+			}
+		}
+	}
+
+	// Re-fetch directly from API server (not informer cache) to get
+	// fresh resourceVersion after UpdateResize. See #37.
+	freshPod, getErr := r.Clientset.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
+	if getErr != nil {
+		logger.Error(getErr, "Failed to re-fetch pod after resize, reverting to avoid untracked resize", "pod", pod.Name)
+		revert("re-fetch-failed")
+		return history, false
+	}
+
+	freshPod.Annotations = ensureAnnotations(freshPod.Annotations)
+	freshPod.Annotations[annotationResizedAt] = now.UTC().Format(time.RFC3339)
+	freshPod.Annotations[annotationResizedContainer] = containerRec.Name
+	freshPod.Annotations[annotationResizedWorkload] = workloadName
+	freshPod.Annotations[annotationOriginalCPU] = containerRec.Current.CPURequest.String()
+	freshPod.Annotations[annotationOriginalMemory] = containerRec.Current.MemoryRequest.String()
+	freshPod.Annotations[annotationOriginalRestartCount] = strconv.FormatInt(int64(restartCount), 10)
+
+	if updateErr := r.Update(ctx, freshPod); updateErr != nil {
+		logger.Error(updateErr, "Failed to persist resize tracking annotations, reverting resize", "pod", pod.Name)
+		revert("annotation-persist-failed")
+		return history, false
+	}
+
+	if policy.Spec.UpdateStrategy.AutoRevert {
+		observationEnd := now.Add(getObservationPeriod(policy))
+		record := safety.ResizeRecord{
+			PodName:           pod.Name,
+			Namespace:         pod.Namespace,
+			Container:         containerRec.Name,
+			OriginalResources: originalResources,
+			NewResources:      target,
+			ResizedAt:         now.Time,
+			ObservationEnd:    observationEnd,
+			RestartCount:      restartCount,
+		}
+		verdict, err := monitor.CheckPod(ctx, record)
+		if err != nil {
+			logger.Error(err, "Safety check failed", "pod", pod.Name)
+		}
+		if !verdict.Safe {
+			logger.Info("Safety violation detected, reverting",
+				"pod", pod.Name, "reason", verdict.Reason)
+			revert(verdict.Reason)
+			return history, false
+		}
+	}
+
+	return history, true
+}
+
+// ensureAnnotations returns a non-nil annotations map.
+func ensureAnnotations(m map[string]string) map[string]string {
+	if m == nil {
+		return make(map[string]string)
+	}
+	return m
 }
 
 // buildRecommendationEngines creates CPU and memory recommendation engines
