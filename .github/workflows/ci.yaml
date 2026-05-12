@@ -23,6 +23,7 @@ env:
   K3D_VERSION: "v5.8.3"
   K3S_IMAGE: "rancher/k3s:v1.35.4-k3s1"
   ENVTEST_K8S_VERSION: "1.35.0"
+  HELM_UNITTEST_VERSION: "v0.7.2"
   CERT_MANAGER_VERSION: "v1.17.2"
 
 jobs:
@@ -367,7 +368,7 @@ jobs:
       - name: Install Chainsaw
         uses: kyverno/action-install-chainsaw@1223ef75bedeb59c4e7b5455463d4316e76dff01 # v0.2.15
       - shell: bash -Eeuo pipefail -x {0}
-        run: chainsaw test test/e2e/ --config .chainsaw.yaml
+        run: chainsaw test test/e2e/ --config .chainsaw.yaml --report-format junit --report-name e2e --report-path test-results/
 
       - name: Collect debug info on failure
         if: failure()
@@ -454,7 +455,7 @@ jobs:
           rm -rf "$(helm env HELM_PLUGINS)/helm-unittest.git" 2>/dev/null || true
           PLUGINS_DIR="$(helm env HELM_PLUGINS)/unittest"
           mkdir -p "$PLUGINS_DIR"
-          curl -fsSL "https://github.com/helm-unittest/helm-unittest/releases/download/v0.7.2/helm-unittest-linux-amd64-0.7.2.tgz" \
+          curl -fsSL "https://github.com/helm-unittest/helm-unittest/releases/download/${{ env.HELM_UNITTEST_VERSION }}/helm-unittest-linux-amd64-${{ env.HELM_UNITTEST_VERSION }}.tgz" \
             | tar xz -C "$PLUGINS_DIR"
           helm unittest charts/kube-rightsize
 
