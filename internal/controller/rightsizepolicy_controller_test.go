@@ -1533,10 +1533,12 @@ func TestExecuteResizes_SuccessfulResize(t *testing.T) {
 	workloads := []client.Object{deploy}
 	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil)
 	assert.Equal(t, 1, count)
-	assert.NotEmpty(t, history)
+	require.Len(t, history, 2, "expect one cpu + one memory history entry")
 	assert.Equal(t, "api-server", history[0].Workload)
 	assert.Equal(t, "main", history[0].Container)
 	assert.Equal(t, "InPlace", history[0].Method)
+	assert.Equal(t, "Success", history[0].Result, "cpu resize should succeed")
+	assert.Equal(t, "Success", history[1].Result, "memory resize should succeed")
 }
 
 func TestExecuteResizes_ContextCancelledAbortsRemaining(t *testing.T) {
