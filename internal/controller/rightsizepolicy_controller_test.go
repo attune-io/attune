@@ -1509,12 +1509,21 @@ func TestParseResizeRecords_MalformedRestartCount(t *testing.T) {
 	assert.Contains(t, err.Error(), "parsing original restart count for app")
 }
 
+// safetyTestDeploy is the deployment used by safety observation tests.
+// Declared at package level so tests can pass it as the workloads arg
+// to checkPendingSafetyObservations.
+var safetyTestDeploy = newTestDeployment("api-server", "default", nil)
+
 // newSafetyTestReconciler creates a reconciler with a pod and a matching
 // deployment for safety observation tests. The deploy satisfies the
 // provenance check in checkPendingSafetyObservations.
 func newSafetyTestReconciler(pod *corev1.Pod) (*RightSizePolicyReconciler, client.Client) {
-	deploy := newTestDeployment("api-server", "default", nil)
-	return newResizeReconciler(pod, deploy)
+	return newResizeReconciler(pod, safetyTestDeploy)
+}
+
+// safetyWorkloads returns the workloads slice for safety observation tests.
+func safetyWorkloads() []client.Object {
+	return []client.Object{safetyTestDeploy}
 }
 
 // ---------- checkPendingSafetyObservations ----------
@@ -1562,7 +1571,7 @@ func TestCheckPendingSafetyObservations_ObservationElapsed(t *testing.T) {
 
 	reconciler, fakeClient := newSafetyTestReconciler(pod)
 
-	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
+	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
 
 	// Verify tracking annotations were removed.
 	var updated corev1.Pod
@@ -1604,7 +1613,7 @@ func TestCheckPendingSafetyObservations_MalformedAnnotation(t *testing.T) {
 
 	// Should not panic when the annotation value is unparseable.
 	assert.NotPanics(t, func() {
-		reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
+		reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
 	})
 
 	// Annotations should still be present since the pod was skipped due to parse error.
@@ -1644,7 +1653,7 @@ func TestCheckPendingSafetyObservations_NotElapsed(t *testing.T) {
 
 	reconciler, fakeClient := newSafetyTestReconciler(pod)
 
-	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
+	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
 
 	// Verify annotations are still present (observation period not elapsed).
 	var updated corev1.Pod
@@ -2282,7 +2291,7 @@ func TestCheckPendingSafetyObservations_MalformedTimestamp(t *testing.T) {
 	reconciler, fakeClient := newSafetyTestReconciler(pod)
 
 	assert.NotPanics(t, func() {
-		reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
+		reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
 	})
 
 	// Annotations should remain since the pod was skipped due to timestamp parse error.
@@ -2322,7 +2331,7 @@ func TestCheckPendingSafetyObservations_MalformedMemoryAnnotation(t *testing.T) 
 	reconciler, fakeClient := newSafetyTestReconciler(pod)
 
 	assert.NotPanics(t, func() {
-		reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
+		reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
 	})
 
 	var updated corev1.Pod
@@ -2383,7 +2392,7 @@ func TestCheckPendingSafetyObservations_CustomObservationPeriod(t *testing.T) {
 
 	reconciler, fakeClient := newSafetyTestReconciler(pod)
 
-	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
+	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
 
 	var updated corev1.Pod
 	err := fakeClient.Get(context.Background(), types.NamespacedName{
@@ -2399,7 +2408,7 @@ func TestCheckPendingSafetyObservations_NilClientset(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 
 	assert.NotPanics(t, func() {
-		reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
+		reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
 	})
 }
 
@@ -2447,7 +2456,7 @@ func TestCheckPendingSafetyObservations_UnsafeVerdictReverts(t *testing.T) {
 
 	reconciler, fakeClient := newSafetyTestReconciler(pod)
 
-	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
+	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
 
 	// Verify annotations were removed (observation complete).
 	var updated corev1.Pod
@@ -2518,7 +2527,7 @@ func TestCheckPendingSafetyObservations_UnsafeVerdictEmitsEvent(t *testing.T) {
 	recorder := events.NewFakeRecorder(10)
 	reconciler.Recorder = recorder
 
-	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
+	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
 
 	// Verify a Reverted event was emitted containing the pod name.
 	select {
@@ -2575,7 +2584,7 @@ func TestCheckPendingSafetyObservations_RestartCountParsed(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	reconciler, fakeClient := newSafetyTestReconciler(pod)
 
-	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
+	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
 
 	var updated corev1.Pod
 	err := fakeClient.Get(context.Background(), types.NamespacedName{
@@ -2630,7 +2639,7 @@ func TestCheckPendingSafetyObservations_RestartCountExceeded(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	reconciler, _ := newSafetyTestReconciler(pod)
 
-	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
+	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
 
 	// Verify UpdateResize (revert) was called.
 	var found bool
@@ -2687,7 +2696,7 @@ func TestCheckPendingSafetyObservations_InvalidRestartCount(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	reconciler, fakeClient := newSafetyTestReconciler(pod)
 
-	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil)
+	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
 
 	var updated corev1.Pod
 	err := fakeClient.Get(context.Background(), types.NamespacedName{

@@ -210,13 +210,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 	}
 
-	// Check pending safety observations from previous resizes before computing
-	// new recommendations.
-	if policy.Spec.UpdateStrategy.AutoRevert {
-		r.checkPendingSafetyObservations(ctx, &policy, collector)
-	}
-
-	// Step 3: Discover target workloads.
+	// Step 3: Discover target workloads (before safety check to avoid duplicate API calls).
 	workloads, err := r.discoverWorkloads(ctx, &policy)
 	if err != nil {
 		logger.Error(err, "Failed to discover workloads")
@@ -224,6 +218,12 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		r.setFailedCondition(ctx, &policy, rightsizev1alpha1.ReasonWorkloadDiscoveryFailed,
 			fmt.Sprintf("Failed to discover workloads: %v", err))
 		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
+	}
+
+	// Check pending safety observations from previous resizes before computing
+	// new recommendations. Uses already-discovered workloads for provenance.
+	if policy.Spec.UpdateStrategy.AutoRevert {
+		r.checkPendingSafetyObservations(ctx, &policy, collector, workloads)
 	}
 
 	logger.Info("Discovered workloads", "count", len(workloads))
@@ -1108,7 +1108,7 @@ func (r *RightSizePolicyReconciler) shouldSkipResize(
 // annotated with tracking annotations. For each pod whose observation period
 // has elapsed, it runs a safety check. Unsafe pods are reverted to their
 // original resource values and the annotations are removed.
-func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy, collector rsmetrics.MetricsCollector) {
+func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy, collector rsmetrics.MetricsCollector, workloads []client.Object) {
 	logger := log.FromContext(ctx)
 	if r.Clientset == nil {
 		return
@@ -1125,9 +1125,8 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 	observationPeriod := getObservationPeriod(policy)
 
 	// Build a set of workload names this policy targets for provenance checks.
-	policyWorkloads, _ := r.discoverWorkloads(ctx, policy)
-	workloadNames := make(map[string]bool, len(policyWorkloads))
-	for _, w := range policyWorkloads {
+	workloadNames := make(map[string]bool, len(workloads))
+	for _, w := range workloads {
 		workloadNames[w.GetName()] = true
 	}
 

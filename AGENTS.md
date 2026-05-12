@@ -114,7 +114,7 @@ Run `make manifests` after changing CRD types or RBAC markers. Run
 
 - Framework: `testify` (assert/require)
 - Write table-driven tests for all logic
-- Coverage threshold: 75% on `./internal/...` (CI enforced)
+- Coverage threshold: 80% on `./internal/...` (CI enforced)
 - Generated files (`zz_generated.deepcopy.go`) are excluded from coverage
 - CI uses `gotestsum` with `--rerun-fails` for flaky retry and JUnit XML reports
 - Run with `-race` flag
