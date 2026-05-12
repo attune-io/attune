@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Copyright 2025 kube-rightsize Authors
+# Copyright 2026 kube-rightsize Authors
 # SPDX-License-Identifier: Apache-2.0
 #
 # Verify that critical user-facing defaults are consistent across docs,

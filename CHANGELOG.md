@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Dependencies
+
+- Bump `sigs.k8s.io/controller-runtime` from v0.24.0 to v0.24.1 (patch release).
+
 ### Changed
 
 - **BREAKING**: Default `minimumDataPoints` lowered from 168 (7 days) to 48
