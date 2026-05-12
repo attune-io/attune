@@ -123,11 +123,12 @@ var (
 		[]string{"query_type"},
 	)
 
-	PrometheusQueryErrors = prometheus.NewCounter(
+	PrometheusQueryErrors = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "kube_rightsize_prometheus_query_errors_total",
 			Help: "Total number of Prometheus query errors",
 		},
+		[]string{"namespace", "query_type"},
 	)
 )
 

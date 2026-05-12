@@ -268,6 +268,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		pods, err := r.getPodsForWorkload(ctx, workload)
 		if err != nil {
 			logger.Error(err, "Failed to get pods for workload", "workload", workloadName)
+			operatormetrics.ReconcileErrorsTotal.WithLabelValues("get_pods").Inc()
 			continue
 		}
 
@@ -286,6 +287,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 		if err != nil {
 			logger.Error(err, "Failed to compute recommendations", "workload", workloadName)
+			operatormetrics.ReconcileErrorsTotal.WithLabelValues("compute_recommendations").Inc()
 			continue
 		}
 

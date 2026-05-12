@@ -226,19 +226,20 @@ func queryMetrics(ctx context.Context, collector rsmetrics.MetricsCollector, nam
 	operatormetrics.PrometheusQueryDuration.WithLabelValues(queryType).Observe(time.Since(queryStart).Seconds())
 
 	if err != nil {
-		operatormetrics.PrometheusQueryErrors.Inc()
-		log.FromContext(ctx).Error(err, "Failed to query metrics", "metric", metric, "container", container)
+		operatormetrics.PrometheusQueryErrors.WithLabelValues(namespace, queryType).Inc()
+		log.FromContext(ctx).Error(err, "Failed to query metrics", "metric", metric, "container", container, "query", query)
 		samples = nil
 		hadError = true
 	}
 	if len(samples) == 0 && container != "" {
 		fallback := buildPrometheusQuery(namespace, podPrefix, "", metric)
+		fallbackType := metric + "_fallback"
 		queryStart = time.Now()
 		samples, err = collector.QueryRange(ctx, fallback, start, end, step)
-		operatormetrics.PrometheusQueryDuration.WithLabelValues(metric + "_fallback").Observe(time.Since(queryStart).Seconds())
+		operatormetrics.PrometheusQueryDuration.WithLabelValues(fallbackType).Observe(time.Since(queryStart).Seconds())
 		if err != nil {
-			operatormetrics.PrometheusQueryErrors.Inc()
-			log.FromContext(ctx).Error(err, "Failed to query fallback metrics", "metric", metric)
+			operatormetrics.PrometheusQueryErrors.WithLabelValues(namespace, fallbackType).Inc()
+			log.FromContext(ctx).Error(err, "Failed to query fallback metrics", "metric", metric, "query", fallback)
 			hadError = true
 		}
 	}

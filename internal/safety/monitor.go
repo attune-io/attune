@@ -133,7 +133,8 @@ func (m *Monitor) CheckPod(ctx context.Context, record ResizeRecord) (SafetyVerd
 	if m.throttleChecker != nil {
 		ratio, err := m.throttleChecker.GetThrottleRatio(ctx, record.Namespace, record.PodName, record.Container)
 		if err != nil {
-			m.logger.V(1).Info("Could not check CPU throttle ratio", "pod", record.PodName, "error", err)
+			m.logger.Error(err, "Safety throttle check failed, skipping throttle detection",
+				"pod", record.PodName, "namespace", record.Namespace, "container", record.Container)
 		} else if ratio > m.throttleThreshold {
 			return SafetyVerdict{
 				Safe:    false,
