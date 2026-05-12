@@ -320,3 +320,56 @@ func TestPrintHistory_NoHistory(t *testing.T) {
 	assert.Contains(t, output, "NAMESPACE")
 	assert.NotContains(t, output, "empty-policy")
 }
+
+func TestPolicyReadyReason_NoConditions(t *testing.T) {
+	item := unstructured.Unstructured{Object: map[string]interface{}{
+		"status": map[string]interface{}{},
+	}}
+	assert.Equal(t, "Pending", policyReadyReason(item))
+}
+
+func TestPolicyReadyReason_InsufficientDataWithMessage(t *testing.T) {
+	item := unstructured.Unstructured{Object: map[string]interface{}{
+		"status": map[string]interface{}{
+			"conditions": []interface{}{
+				map[string]interface{}{
+					"type":    "Ready",
+					"status":  "False",
+					"reason":  "InsufficientData",
+					"message": "No matching workloads found",
+				},
+			},
+		},
+	}}
+	assert.Equal(t, "Collecting data", policyReadyReason(item))
+}
+
+func TestPolicyReadyReason_OtherReason(t *testing.T) {
+	item := unstructured.Unstructured{Object: map[string]interface{}{
+		"status": map[string]interface{}{
+			"conditions": []interface{}{
+				map[string]interface{}{
+					"type":   "Ready",
+					"status": "True",
+					"reason": "Monitoring",
+				},
+			},
+		},
+	}}
+	assert.Equal(t, "Monitoring", policyReadyReason(item))
+}
+
+func TestPolicyReadyReason_InsufficientDataNoMessage(t *testing.T) {
+	item := unstructured.Unstructured{Object: map[string]interface{}{
+		"status": map[string]interface{}{
+			"conditions": []interface{}{
+				map[string]interface{}{
+					"type":   "Ready",
+					"status": "False",
+					"reason": "InsufficientData",
+				},
+			},
+		},
+	}}
+	assert.Equal(t, "InsufficientData", policyReadyReason(item))
+}

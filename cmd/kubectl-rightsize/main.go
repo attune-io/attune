@@ -316,8 +316,12 @@ func printRecommendations(ctx context.Context, dynClient dynamic.Interface, name
 		fmt.Fprintf(os.Stderr, "Error flushing output: %v\n", err)
 	}
 	if collecting > 0 {
+		noun := "policies"
+		if collecting == 1 {
+			noun = "policy"
+		}
 		fmt.Fprintf(os.Stderr, "\n%d %s collecting data. Run 'kubectl rightsize status' for details.\n",
-			collecting, pluralize(collecting, "policy", "policies"))
+			collecting, noun)
 	}
 }
 
@@ -341,13 +345,6 @@ func policyReadyReason(item unstructured.Unstructured) string {
 		}
 	}
 	return "Pending"
-}
-
-func pluralize(n int, singular, plural string) string {
-	if n == 1 {
-		return singular
-	}
-	return plural
 }
 
 func formatMemory(s string) string {
