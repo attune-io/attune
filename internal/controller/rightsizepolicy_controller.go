@@ -813,6 +813,7 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 		}
 		if revertErr := monitor.RevertPod(ctx, revertRecord); revertErr != nil {
 			logger.Error(revertErr, "Failed to revert pod after "+reason, "pod", pod.Name)
+			return
 		}
 		operatormetrics.RevertsTotal.WithLabelValues(pod.Namespace, workloadName, reason).Inc()
 		for _, res := range results {
