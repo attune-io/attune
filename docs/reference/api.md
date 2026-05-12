@@ -105,7 +105,7 @@ spec:
 
 | Type | Reasons | Description |
 |------|---------|-------------|
-| `Ready` | `Monitoring`, `InsufficientData`, `PrometheusUnavailable`, `InvalidConfig` | Overall health |
+| `Ready` | `Monitoring`, `InsufficientData`, `PrometheusUnavailable`, `InvalidConfig`, `WorkloadDiscoveryFailed` | Overall health |
 | `Resizing` | `InProgress`, `Idle`, `CooldownActive` | Active resize operation state |
 | `Degraded` | `HighRevertRate` | High revert rate detected (3+ of last 5 reverted) |
 

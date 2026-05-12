@@ -177,7 +177,7 @@ spec:
       # bearerTokenSecretRef:
       #   name: prometheus-token
     # How far back to look for usage patterns
-    historyWindow: 168h       # default: 168h (7d), min: 24h, max: 720h
+    historyWindow: 168h       # default: 168h (7d), min: 1h, max: 720h
     # Minimum data points before making recommendations
     minimumDataPoints: 48     # default: 48 (2 days * 24 hours)
 
@@ -251,19 +251,15 @@ status:
       containers:
         - name: api
           current:
-            cpu:
-              request: "500m"
-              limit: "1000m"
-            memory:
-              request: "512Mi"
-              limit: "1Gi"
+            cpuRequest: "500m"
+            cpuLimit: "1000m"
+            memoryRequest: "512Mi"
+            memoryLimit: "1Gi"
           recommended:
-            cpu:
-              request: "150m"
-              limit: "300m"
-            memory:
-              request: "280Mi"
-              limit: "560Mi"
+            cpuRequest: "150m"
+            cpuLimit: "300m"
+            memoryRequest: "280Mi"
+            memoryLimit: "560Mi"
           confidence: 0.92
           dataPoints: 1680
           lastUpdated: "2026-01-15T10:30:00Z"
@@ -309,8 +305,8 @@ x-kubernetes-validations:
     message: "weight cannot be changed after creation"
 
 # historyWindow: reasonable bounds
-  - rule: "self.metricsSource.historyWindow >= duration('24h')"
-    message: "historyWindow must be at least 24 hours"
+  - rule: "self.metricsSource.historyWindow >= duration('1h')"
+    message: "historyWindow must be at least 1 hour"
 ```
 
 #### Printer Columns
@@ -369,9 +365,9 @@ spec:
 
 | Condition Type | Reasons | Description |
 |---------------|---------|-------------|
-| `Ready` | `Monitoring`, `InsufficientData`, `PrometheusUnavailable`, `InvalidConfig` | Overall health |
+| `Ready` | `Monitoring`, `InsufficientData`, `PrometheusUnavailable`, `InvalidConfig`, `WorkloadDiscoveryFailed` | Overall health |
 | `Resizing` | `InProgress`, `Idle`, `CooldownActive` | Active resize operation |
-| `Degraded` | `PartialFailure`, `HighRevertRate` | Some resizes failing |
+| `Degraded` | `HighRevertRate` | Some resizes failing |
 
 Status conditions use `meta.SetStatusCondition()` from `k8s.io/apimachinery/pkg/api/meta`
 (the Kyverno pattern) with `observedGeneration` on every condition.
