@@ -120,7 +120,7 @@ var (
 			Help:    "Duration of Prometheus queries",
 			Buckets: prometheus.DefBuckets,
 		},
-		[]string{},
+		[]string{"query_type"},
 	)
 
 	PrometheusQueryErrors = prometheus.NewCounter(
