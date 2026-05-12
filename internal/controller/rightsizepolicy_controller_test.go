@@ -1076,6 +1076,79 @@ func TestReconcile_HappyPathWithRecommendations(t *testing.T) {
 	assert.Equal(t, "Monitoring", updated.Status.Conditions[0].Reason)
 }
 
+// ---------- appendResizedContainer ----------
+
+func TestAppendResizedContainer(t *testing.T) {
+	tests := []struct {
+		name      string
+		existing  string
+		container string
+		want      string
+	}{
+		{"first container on empty", "", "main", "main"},
+		{"append second container", "main", "sidecar", "main,sidecar"},
+		{"dedup existing container", "main", "main", "main"},
+		{"dedup in multi-container list", "main,sidecar", "main", "main,sidecar"},
+		{"append third container", "main,sidecar", "worker", "main,sidecar,worker"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+				Annotations: map[string]string{},
+			}}
+			if tt.existing != "" {
+				pod.Annotations[annotationResizedContainers] = tt.existing
+			}
+			appendResizedContainer(pod, tt.container)
+			assert.Equal(t, tt.want, pod.Annotations[annotationResizedContainers])
+		})
+	}
+}
+
+// ---------- parseResizeRecords ----------
+
+func TestParseResizeRecords_MultiContainer(t *testing.T) {
+	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "multi-pod", Namespace: "default",
+			Annotations: map[string]string{
+				annotationResizedAt:                              resizedAt,
+				annotationResizedContainers:                      "app,sidecar",
+				annotationOriginalCPUPrefix + "app":              "500m",
+				annotationOriginalMemoryPrefix + "app":           "512Mi",
+				annotationOriginalRestartCountPrefix + "app":     "0",
+				annotationOriginalCPUPrefix + "sidecar":          "100m",
+				annotationOriginalMemoryPrefix + "sidecar":       "128Mi",
+				annotationOriginalRestartCountPrefix + "sidecar": "2",
+			},
+		},
+		Spec: corev1.PodSpec{Containers: []corev1.Container{
+			{Name: "app", Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("250m"),
+					corev1.ResourceMemory: resource.MustParse("256Mi"),
+				},
+			}},
+			{Name: "sidecar", Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("50m"),
+					corev1.ResourceMemory: resource.MustParse("64Mi"),
+				},
+			}},
+		}},
+	}
+
+	records, err := parseResizeRecords(pod, 5*time.Minute)
+	require.NoError(t, err)
+	require.Len(t, records, 2)
+	assert.Equal(t, "app", records[0].Container)
+	assert.Equal(t, "sidecar", records[1].Container)
+	assert.True(t, records[0].OriginalResources.Requests.Cpu().Equal(resource.MustParse("500m")))
+	assert.True(t, records[1].OriginalResources.Requests.Cpu().Equal(resource.MustParse("100m")))
+	assert.Equal(t, int32(2), records[1].RestartCount)
+}
+
 // newSafetyTestReconciler creates a reconciler with a pod and a matching
 // deployment for safety observation tests. The deploy satisfies the
 // provenance check in checkPendingSafetyObservations.
