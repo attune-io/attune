@@ -21,6 +21,7 @@ env:
   GOLANGCI_LINT_VERSION: "v2.12.2"
   GOTESTSUM_VERSION: "v1.13.0"
   K3D_VERSION: "v5.8.3"
+  K3S_IMAGE: "rancher/k3s:v1.35.4-k3s1"
   CERT_MANAGER_VERSION: "v1.17.2"
 
 jobs:
@@ -86,6 +87,16 @@ jobs:
           if ! git diff --quiet --exit-code go.mod go.sum; then
             echo "::error::go.mod/go.sum are not tidy. Run 'go mod tidy' and commit."
             git diff go.mod go.sum
+            exit 1
+          fi
+
+      - name: Check license boilerplate
+        shell: bash -Eeuo pipefail {0}
+        run: |
+          missing=$(find . -name '*.go' -not -path './vendor/*' -not -name 'zz_generated.*' \
+            -exec sh -c 'head -5 "$1" | grep -q "^Copyright" || echo "$1"' _ {} \;)
+          if [ -n "$missing" ]; then
+            echo "::error::Missing license header in: $missing"
             exit 1
           fi
 
@@ -292,7 +303,7 @@ jobs:
           export PATH="$HOME/.local/bin:$PATH"
           k3d cluster delete e2e 2>/dev/null || true
           k3d cluster create e2e \
-            --image rancher/k3s:v1.35.4-k3s1 \
+            --image ${{ env.K3S_IMAGE }} \
             --k3s-arg "--disable=traefik,servicelb@server:*" \
             --wait --timeout 120s
 

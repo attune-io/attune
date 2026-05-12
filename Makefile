@@ -61,9 +61,9 @@ tidy-check: ## Verify go.mod/go.sum are tidy
 
 .PHONY: verify
 verify: lint yaml-lint test helm-docs-check helm-unittest verify-boilerplate tidy-check govulncheck ## Run all CI checks locally
-	@$(MAKE) manifests
-	@git diff --quiet --exit-code config/crd/ charts/kube-rightsize/crds/ || \
-		(echo "::error::CRD manifests are stale. Run 'make manifests' and commit." && exit 1)
+	@$(MAKE) manifests generate
+	@git diff --quiet --exit-code config/crd/ charts/kube-rightsize/crds/ api/v1alpha1/zz_generated.deepcopy.go config/rbac/ || \
+		(echo "::error::Generated files are stale. Run 'make manifests generate' and commit." && exit 1)
 
 .PHONY: clean
 clean: ## Remove build artifacts
