@@ -11,8 +11,8 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 rc=0
 
 check_default() {
-  local label="$1" pattern="$2" expected="$3"
-  shift 3
+  local label="$1" pattern="$2"
+  shift 2
   local files=("$@")
 
   for f in "${files[@]}"; do
@@ -30,34 +30,34 @@ check_default() {
 # --- minimumDataPoints default = 48 ---
 # Go code (canonical source of truth)
 check_default "minimumDataPoints (Go)" \
-  "defaultMinimumDataPoints.*= 48" "48" \
+  "defaultMinimumDataPoints.*= 48" \
   "internal/controller/rightsizepolicy_controller.go"
 
 # CRD schemas (generated, should say default: 48)
 check_default "minimumDataPoints (CRD policy)" \
-  "default: 48" "48" \
+  "default: 48" \
   "config/crd/bases/rightsize.io_rightsizepolicies.yaml"
 check_default "minimumDataPoints (CRD defaults)" \
-  "default: 48" "48" \
+  "default: 48" \
   "config/crd/bases/rightsize.io_rightsizedefaults.yaml"
 
 # Docs that state the default
 check_default "minimumDataPoints (API ref)" \
-  "minimumDataPoints: 48" "48" \
+  "minimumDataPoints: 48" \
   "docs/reference/api.md"
 check_default "minimumDataPoints (quickstart)" \
-  "minimumDataPoints: 48" "48" \
+  "minimumDataPoints: 48" \
   "docs/getting-started/quickstart.md"
 check_default "minimumDataPoints (README)" \
-  "minimumDataPoints: 48" "48" \
+  "minimumDataPoints: 48" \
   "README.md"
 
 # --- networkPolicy.prometheusPort default = 9090 ---
 check_default "prometheusPort (values.yaml)" \
-  "prometheusPort: 9090" "9090" \
+  "prometheusPort: 9090" \
   "charts/kube-rightsize/values.yaml"
 check_default "prometheusPort (README)" \
-  'prometheusPort.*9090' "9090" \
+  'prometheusPort.*9090' \
   "README.md"
 
 if [ $rc -ne 0 ]; then
