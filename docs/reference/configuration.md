@@ -5,7 +5,7 @@ This page documents every value in the Helm chart's `values.yaml`.
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `replicaCount` | int | `1` | Number of operator replicas. Set to `2` for HA with leader election. |
-| `image.repository` | string | `ghcr.io/sebtardif/kube-rightsize` | Container image repository |
+| `image.repository` | string | `ghcr.io/sebtardiflabs/kube-rightsize` | Container image repository |
 | `image.pullPolicy` | string | `IfNotPresent` | Image pull policy |
 | `image.tag` | string | `""` | Image tag. Defaults to the chart's `appVersion`. |
 | `imagePullSecrets` | list | `[]` | Image pull secrets for private registries |

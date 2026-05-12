@@ -25,7 +25,7 @@ helm install kube-rightsize oci://ghcr.io/sebtardiflabs/charts/kube-rightsize \
 | grafanaDashboard.additionalLabels | object | `{}` | Additional labels for the dashboard ConfigMap (e.g., for folder selection) |
 | grafanaDashboard.enabled | bool | `false` | Create a ConfigMap with the Grafana dashboard (auto-discovered by Grafana sidecar) |
 | image.pullPolicy | string | `"IfNotPresent"` | Image pull policy |
-| image.repository | string | `"ghcr.io/sebtardif/kube-rightsize"` | Container image repository |
+| image.repository | string | `"ghcr.io/sebtardiflabs/kube-rightsize"` | Container image repository |
 | image.tag | string | `""` | Image tag (defaults to Chart appVersion) |
 | imagePullSecrets | list | `[]` | Image pull secrets |
 | leaderElection | object | `{"enabled":true}` | Leader election (enable for HA with replicaCount > 1) |

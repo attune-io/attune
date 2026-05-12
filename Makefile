@@ -1,7 +1,7 @@
 # kube-rightsize Makefile
 
 # Image
-IMG ?= ghcr.io/sebtardif/kube-rightsize:latest
+IMG ?= ghcr.io/sebtardiflabs/kube-rightsize:latest
 
 # Tool versions
 KUBEBUILDER_VERSION ?= 4.14.0

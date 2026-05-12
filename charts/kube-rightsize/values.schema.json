@@ -19,7 +19,7 @@
         "repository": {
           "type": "string",
           "description": "Container image repository",
-          "default": "ghcr.io/sebtardif/kube-rightsize"
+          "default": "ghcr.io/sebtardiflabs/kube-rightsize"
         },
         "pullPolicy": {
           "type": "string",

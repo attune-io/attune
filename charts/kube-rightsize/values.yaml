@@ -6,7 +6,7 @@ replicaCount: 1
 
 image:
   # -- Container image repository
-  repository: ghcr.io/sebtardif/kube-rightsize
+  repository: ghcr.io/sebtardiflabs/kube-rightsize
   # -- Image pull policy
   pullPolicy: IfNotPresent
   # -- Image tag (defaults to Chart appVersion)
