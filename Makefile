@@ -63,8 +63,11 @@ tidy-check: ## Verify go.mod/go.sum are tidy
 verify-doc-defaults: ## Verify critical defaults are consistent across docs and code
 	@bash hack/verify-doc-defaults.sh
 
+.PHONY: verify-quick
+verify-quick: lint yaml-lint test helm-lint helm-docs-check helm-unittest verify-boilerplate tidy-check verify-doc-defaults ## Fast pre-commit checks (no integration tests or govulncheck)
+
 .PHONY: verify
-verify: lint yaml-lint test test-integration helm-lint helm-docs-check helm-unittest verify-boilerplate tidy-check govulncheck verify-doc-defaults ## Run all CI checks locally
+verify: verify-quick test-integration govulncheck ## Run all CI checks locally (includes integration tests)
 	@$(MAKE) manifests generate
 	@git diff --quiet --exit-code config/crd/ charts/kube-rightsize/crds/ api/v1alpha1/zz_generated.deepcopy.go config/rbac/ || \
 		(echo "::error::Generated files are stale. Run 'make manifests generate' and commit." && exit 1)

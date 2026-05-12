@@ -24,6 +24,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	rightsizev1alpha1 "github.com/SebTardif/kube-rightsize/api/v1alpha1"
+	"github.com/SebTardif/kube-rightsize/internal/operatormetrics"
 )
 
 // RightSizePolicyDefaulter implements the typed Defaulter interface for RightSizePolicy.
@@ -31,6 +32,8 @@ type RightSizePolicyDefaulter struct{}
 
 // Default sets default values on a RightSizePolicy.
 func (d *RightSizePolicyDefaulter) Default(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy) error {
+	timer := operatormetrics.NewWebhookTimer("defaulting")
+	defer timer.Observe()
 	if policy.Spec.CPU.Percentile == 0 {
 		policy.Spec.CPU.Percentile = rightsizev1alpha1.DefaultCPUPercentile
 	}

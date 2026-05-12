@@ -105,6 +105,7 @@ type RightSizePolicyReconciler struct {
 	Clientset      kubernetes.Interface // for resize subresource calls
 	Recorder       events.EventRecorder
 	MinCooldown    time.Duration // minimum cooldown floor (default: 1m)
+	CollectorTTL   time.Duration // how long unused collectors stay cached (default: 10m)
 	collectors     sync.Map      // map[string]*collectorEntry cache
 }
 
@@ -140,9 +141,13 @@ func (r *RightSizePolicyReconciler) getOrCreateCollector(address string) (rsmetr
 	}
 
 	// Evict stale entries before checking capacity.
+	ttl := r.CollectorTTL
+	if ttl == 0 {
+		ttl = collectorTTL
+	}
 	r.collectors.Range(func(key, value any) bool {
 		entry := value.(*collectorEntry)
-		if now.Sub(entry.lastUsed) > collectorTTL {
+		if now.Sub(entry.lastUsed) > ttl {
 			r.collectors.Delete(key)
 		}
 		return true
@@ -408,11 +413,18 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 	}
 
-	// Step 10: Requeue after cooldown.
+	// Step 10: Requeue after cooldown, or sooner if safety observations are pending.
 	cooldown := r.parseCooldown(&policy)
-	logger.Info("Reconciliation complete, requeueing", "cooldown", cooldown)
+	requeueAfter := cooldown
+	if policy.Spec.UpdateStrategy.AutoRevert && policy.Status.Workloads.Resized > 0 {
+		obs := getObservationPeriod(&policy)
+		if obs < requeueAfter {
+			requeueAfter = obs
+		}
+	}
+	logger.Info("Reconciliation complete, requeueing", "requeueAfter", requeueAfter)
 	operatormetrics.ReconcileDuration.WithLabelValues("rightsizepolicy").Observe(time.Since(startTime).Seconds())
-	return ctrl.Result{RequeueAfter: cooldown}, nil
+	return ctrl.Result{RequeueAfter: requeueAfter}, nil
 }
 
 // computeRecommendations generates resource recommendations for all containers
