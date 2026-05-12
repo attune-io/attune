@@ -24,7 +24,7 @@ spec:
         tier: api
   metricsSource:
     prometheus:
-      address: http://prometheus-server.monitoring:9090
+      address: http://prometheus-server.monitoring:80
     historyWindow: 336h        # 2 weeks of data
     minimumDataPoints: 336
   cpu:

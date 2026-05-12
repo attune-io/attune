@@ -22,7 +22,7 @@ kube-rightsize has been installed.
        name: my-app
      metricsSource:
        prometheus:
-         address: http://prometheus-server.monitoring:9090
+         address: http://prometheus-server.monitoring:80
        historyWindow: 168h
      cpu:
        percentile: 95

@@ -25,7 +25,7 @@ spec:
     name: my-app
   metricsSource:
     prometheus:
-      address: http://prometheus-server.monitoring:9090
+      address: http://prometheus-server.monitoring:80
 ```
 
 !!! tip "Skip the Prometheus address on every policy"
@@ -39,7 +39,7 @@ spec:
     spec:
       metricsSource:
         prometheus:
-          address: http://prometheus-server.monitoring:9090
+          address: http://prometheus-server.monitoring:80
     ```
     With this set, your policies only need `targetRef`.
 

@@ -169,7 +169,7 @@ spec:
   # Prometheus connection
   metricsSource:
     prometheus:
-      address: http://prometheus.monitoring:9090
+      address: http://prometheus-server.monitoring:80
       # Optional: custom TLS and auth
       # tlsConfig:
       #   secretRef:
@@ -347,7 +347,7 @@ metadata:
 spec:
   metricsSource:
     prometheus:
-      address: http://prometheus.monitoring:9090
+      address: http://prometheus-server.monitoring:80
     historyWindow: 168h
     minimumDataPoints: 168
   cpu:

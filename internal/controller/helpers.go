@@ -473,8 +473,10 @@ func checkQuotaHeadroom(quota corev1.ResourceQuota, current, target corev1.Resou
 		if hasHard && hasUsed {
 			headroom := hardMem.Value() - usedMem.Value()
 			if memDelta > headroom {
-				return fmt.Errorf("memory increase of %d bytes would exceed ResourceQuota %s (headroom: %d bytes)",
-					memDelta, quota.Name, headroom)
+				return fmt.Errorf("memory increase of %s would exceed ResourceQuota %s (headroom: %s)",
+					resource.NewQuantity(memDelta, resource.BinarySI).String(),
+					quota.Name,
+					resource.NewQuantity(headroom, resource.BinarySI).String())
 			}
 		}
 	}

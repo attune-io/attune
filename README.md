@@ -72,7 +72,7 @@ spec:
         tier: api
   metricsSource:
     prometheus:
-      address: http://prometheus.monitoring:9090
+      address: http://prometheus-server.monitoring:80
   cpu:
     percentile: 95
     safetyMargin: "1.2"
@@ -97,9 +97,16 @@ kubectl apply -f policy.yaml
 
 ```bash
 kubectl get rightsizepolicies -n production
-# NAME            MODE        WORKLOADS   RESIZED   READY   AGE
-# api-services    Recommend   3           0         True    1h
+# NAME            MODE        WORKLOADS   RESIZED   READY              AGE
+# api-services    Recommend   3           0         InsufficientData   5m
+```
 
+> **Note:** The default `minimumDataPoints: 168` requires ~7 days of hourly
+> Prometheus samples before recommendations appear. Set
+> `metricsSource.minimumDataPoints: 24` for faster evaluation (1 day).
+> See the [quickstart guide](docs/getting-started/quickstart.md) for details.
+
+```bash
 kubectl get rightsizepolicies api-services -n production -o yaml
 # status.recommendations shows per-container recommendations with savings estimates
 ```

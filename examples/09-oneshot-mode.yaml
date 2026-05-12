@@ -14,7 +14,7 @@ spec:
     name: postgres
   metricsSource:
     prometheus:
-      address: http://prometheus-server.monitoring:9090
+      address: http://prometheus-server.monitoring:80
     historyWindow: 336h
     minimumDataPoints: 336
   cpu:

@@ -70,7 +70,7 @@ spec:
     name: my-app
   metricsSource:
     prometheus:
-      address: http://prometheus.monitoring:9090
+      address: http://prometheus-server.monitoring:80
     historyWindow: 168h
   cpu:
     percentile: 95

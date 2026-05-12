@@ -21,7 +21,7 @@ spec:
     name: api-server
   metricsSource:
     prometheus:
-      address: http://prometheus-server.monitoring:9090
+      address: http://prometheus-server.monitoring:80
     historyWindow: 168h
     minimumDataPoints: 168
   cpu:

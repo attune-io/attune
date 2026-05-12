@@ -24,7 +24,7 @@ spec:
     - linkerd-proxy        # Linkerd sidecar
   metricsSource:
     prometheus:
-      address: http://prometheus-server.monitoring:9090
+      address: http://prometheus-server.monitoring:80
     historyWindow: 168h
   cpu:
     percentile: 95

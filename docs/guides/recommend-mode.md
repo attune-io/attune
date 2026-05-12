@@ -18,7 +18,7 @@ spec:
         tier: api
   metricsSource:
     prometheus:
-      address: http://prometheus.monitoring:9090
+      address: http://prometheus-server.monitoring:80
     historyWindow: 168h
     minimumDataPoints: 168
   cpu:
