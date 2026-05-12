@@ -321,6 +321,277 @@ func TestPrintHistory_NoHistory(t *testing.T) {
 	assert.NotContains(t, output, "empty-policy")
 }
 
+// ---------- printStatus ----------
+
+func TestPrintStatus(t *testing.T) {
+	policy := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "rightsize.io/v1alpha1",
+			"kind":       "RightSizePolicy",
+			"metadata": map[string]interface{}{
+				"name":              "web-app",
+				"namespace":         "production",
+				"creationTimestamp": "2026-01-01T00:00:00Z",
+			},
+			"spec": map[string]interface{}{
+				"updateStrategy": map[string]interface{}{
+					"mode": "Auto",
+				},
+			},
+			"status": map[string]interface{}{
+				"workloads": map[string]interface{}{
+					"discovered": int64(3),
+					"resized":    int64(2),
+				},
+				"conditions": []interface{}{
+					map[string]interface{}{
+						"type":   "Ready",
+						"status": "True",
+						"reason": "Monitoring",
+					},
+				},
+			},
+		},
+	}
+
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{gvr: "RightSizePolicyList"}, policy)
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	printStatus(context.Background(), dynClient, "production")
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	output := buf.String()
+
+	assert.Contains(t, output, "web-app")
+	assert.Contains(t, output, "Auto")
+	assert.Contains(t, output, "Monitoring")
+	assert.Contains(t, output, "production")
+}
+
+func TestPrintStatus_NoPolicies(t *testing.T) {
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{gvr: "RightSizePolicyList"})
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	printStatus(context.Background(), dynClient, "default")
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	output := buf.String()
+
+	assert.Contains(t, output, "No RightSizePolicies found")
+}
+
+// ---------- printSavings ----------
+
+func TestPrintSavings(t *testing.T) {
+	policy := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "rightsize.io/v1alpha1",
+			"kind":       "RightSizePolicy",
+			"metadata": map[string]interface{}{
+				"name":      "api-svc",
+				"namespace": "default",
+			},
+			"status": map[string]interface{}{
+				"savings": map[string]interface{}{
+					"cpuRequestReduction":     "350m",
+					"memoryRequestReduction":  "134217728",
+					"estimatedMonthlySavings": "$12.78",
+				},
+			},
+		},
+	}
+
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{gvr: "RightSizePolicyList"}, policy)
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	printSavings(context.Background(), dynClient, "default")
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	output := buf.String()
+
+	assert.Contains(t, output, "api-svc")
+	assert.Contains(t, output, "350m")
+	assert.Contains(t, output, "128Mi")
+	assert.Contains(t, output, "$12.78")
+}
+
+func TestPrintSavings_NoSavings(t *testing.T) {
+	policy := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "rightsize.io/v1alpha1",
+			"kind":       "RightSizePolicy",
+			"metadata": map[string]interface{}{
+				"name":      "fresh-policy",
+				"namespace": "default",
+			},
+			"status": map[string]interface{}{},
+		},
+	}
+
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{gvr: "RightSizePolicyList"}, policy)
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	printSavings(context.Background(), dynClient, "default")
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	output := buf.String()
+
+	assert.Contains(t, output, "fresh-policy")
+	assert.Contains(t, output, "-")
+}
+
+// ---------- printRecommendations ----------
+
+func TestPrintRecommendations(t *testing.T) {
+	policy := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "rightsize.io/v1alpha1",
+			"kind":       "RightSizePolicy",
+			"metadata": map[string]interface{}{
+				"name":      "my-policy",
+				"namespace": "default",
+			},
+			"status": map[string]interface{}{
+				"recommendations": []interface{}{
+					map[string]interface{}{
+						"workload": "web-deploy",
+						"containers": []interface{}{
+							map[string]interface{}{
+								"name":       "app",
+								"confidence": 0.85,
+								"current": map[string]interface{}{
+									"cpuRequest":    "500m",
+									"memoryRequest": "512Mi",
+								},
+								"recommended": map[string]interface{}{
+									"cpuRequest":    "250m",
+									"memoryRequest": "384Mi",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{gvr: "RightSizePolicyList"}, policy)
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	printRecommendations(context.Background(), dynClient, "default")
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	output := buf.String()
+
+	assert.Contains(t, output, "web-deploy")
+	assert.Contains(t, output, "app")
+	assert.Contains(t, output, "500m")
+	assert.Contains(t, output, "250m")
+	assert.Contains(t, output, "85.0%")
+}
+
+func TestPrintRecommendations_CollectingData(t *testing.T) {
+	policy := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "rightsize.io/v1alpha1",
+			"kind":       "RightSizePolicy",
+			"metadata": map[string]interface{}{
+				"name":      "new-policy",
+				"namespace": "default",
+			},
+			"status": map[string]interface{}{
+				"conditions": []interface{}{
+					map[string]interface{}{
+						"type":    "Ready",
+						"status":  "False",
+						"reason":  "InsufficientData",
+						"message": "Not enough data",
+					},
+				},
+			},
+		},
+	}
+
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{gvr: "RightSizePolicyList"}, policy)
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	printRecommendations(context.Background(), dynClient, "default")
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	output := buf.String()
+
+	assert.Contains(t, output, "new-policy")
+	assert.Contains(t, output, "Collecting data")
+}
+
+// ---------- policyReadyReason ----------
+
 func TestPolicyReadyReason_NoConditions(t *testing.T) {
 	item := unstructured.Unstructured{Object: map[string]interface{}{
 		"status": map[string]interface{}{},
