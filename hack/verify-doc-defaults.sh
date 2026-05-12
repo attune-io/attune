@@ -52,6 +52,34 @@ check_default "minimumDataPoints (README)" \
   "minimumDataPoints: 48" \
   "README.md"
 
+# --- CPU percentile default = 95, memory percentile default = 99 ---
+check_default "cpuPercentile (Go)" \
+  "DefaultCPUPercentile.*= 95" \
+  "api/v1alpha1/defaults.go"
+check_default "memPercentile (Go)" \
+  "DefaultMemoryPercentile.*= 99" \
+  "api/v1alpha1/defaults.go"
+check_default "cpuPercentile (README)" \
+  "percentile: 95" \
+  "README.md"
+check_default "memPercentile (README)" \
+  "percentile: 99" \
+  "README.md"
+
+# --- CPU safetyMargin default = 1.2, memory safetyMargin default = 1.3 ---
+check_default "cpuSafetyMargin (Go)" \
+  'DefaultCPUSafetyMargin.*"1.2"' \
+  "api/v1alpha1/defaults.go"
+check_default "memSafetyMargin (Go)" \
+  'DefaultMemorySafetyMargin.*"1.3"' \
+  "api/v1alpha1/defaults.go"
+check_default "cpuSafetyMargin (README)" \
+  'safetyMargin.*1.2' \
+  "README.md"
+check_default "memSafetyMargin (README)" \
+  'safetyMargin.*1.3' \
+  "README.md"
+
 # --- networkPolicy.prometheusPort default = 9090 ---
 check_default "prometheusPort (values.yaml)" \
   "prometheusPort: 9090" \
