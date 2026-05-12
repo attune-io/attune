@@ -871,7 +871,8 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 		}
 		verdict, err := monitor.CheckPod(ctx, record)
 		if err != nil {
-			logger.Error(err, "Safety check failed", "pod", pod.Name)
+			logger.Error(err, "Safety check failed, deferring to observation cycle", "pod", pod.Name)
+			return history, true
 		}
 		if !verdict.Safe {
 			logger.Info("Safety violation detected, reverting",
