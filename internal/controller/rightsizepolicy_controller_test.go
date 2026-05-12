@@ -755,8 +755,11 @@ func TestComputeRecommendations_HappyPath(t *testing.T) {
 	reconciler := newReconcilerWithClient()
 
 	mc := &mockCollector{
-		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
-			return generateSamples(200, 0.1), nil
+		queryRangeFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			if strings.Contains(query, "cpu_usage_seconds_total") {
+				return generateSamples(200, 0.1), nil // ~100m CPU
+			}
+			return generateSamples(200, 128*1024*1024), nil // ~128Mi memory
 		},
 	}
 
@@ -775,7 +778,7 @@ func TestComputeRecommendations_InsufficientDataPoints(t *testing.T) {
 	reconciler := newReconcilerWithClient()
 
 	mc := &mockCollector{
-		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+		queryRangeFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
 			return generateSamples(50, 0.1), nil // Only 50 samples, below 168 threshold
 		},
 	}
@@ -791,7 +794,7 @@ func TestComputeRecommendations_QueryError(t *testing.T) {
 	reconciler := newReconcilerWithClient()
 
 	mc := &mockCollector{
-		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+		queryRangeFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
 			return nil, fmt.Errorf("connection refused")
 		},
 	}
@@ -856,7 +859,7 @@ func TestComputeRecommendations_RequestsAndLimits(t *testing.T) {
 	reconciler := newReconcilerWithClient()
 
 	mc := &mockCollector{
-		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+		queryRangeFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
 			return generateSamples(200, 0.1), nil
 		},
 	}
@@ -1039,7 +1042,7 @@ func TestReconcile_HappyPathWithRecommendations(t *testing.T) {
 	pod2 := newTestPod("api-server-abc-2", "default", map[string]string{"app": "api-server"})
 
 	mc := &mockCollector{
-		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+		queryRangeFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
 			return generateSamples(200, 0.1), nil
 		},
 	}
@@ -1560,7 +1563,7 @@ func TestReconcile_OneShotMode_NoClientset_SkipsResize(t *testing.T) {
 	pod := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
 
 	mc := &mockCollector{
-		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+		queryRangeFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
 			return generateSamples(200, 0.1), nil
 		},
 	}
@@ -1622,7 +1625,7 @@ func TestReconcile_CooldownActive_SkipsResize(t *testing.T) {
 	pod := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
 
 	mc := &mockCollector{
-		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+		queryRangeFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
 			return generateSamples(200, 0.1), nil
 		},
 	}
@@ -2434,7 +2437,7 @@ func TestReconcile_AutoRevertCallsSafetyObservations(t *testing.T) {
 	pod := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
 
 	mc := &mockCollector{
-		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+		queryRangeFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
 			return generateSamples(200, 0.1), nil
 		},
 	}
@@ -2529,7 +2532,7 @@ func TestComputeRecommendations_ExcludeContainers(t *testing.T) {
 	reconciler := newReconcilerWithClient()
 
 	mc := &mockCollector{
-		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+		queryRangeFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
 			return generateSamples(200, 0.1), nil
 		},
 	}
@@ -2551,7 +2554,7 @@ func TestComputeRecommendations_ExcludeAllContainers(t *testing.T) {
 	reconciler := newReconcilerWithClient()
 
 	mc := &mockCollector{
-		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+		queryRangeFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
 			return generateSamples(200, 0.1), nil
 		},
 	}
