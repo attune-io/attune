@@ -20,13 +20,11 @@ package resize
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -45,15 +43,7 @@ type ResizeResult struct {
 	Error     error
 }
 
-// Resizer performs in-place pod resizes.
-type Resizer interface {
-	ResizePod(ctx context.Context, pod *corev1.Pod, container string,
-		target corev1.ResourceRequirements) ([]ResizeResult, error)
-	WaitForResize(ctx context.Context, namespace, podName, container string,
-		target corev1.ResourceRequirements, timeout time.Duration) error
-}
-
-// PodResizer implements Resizer using the Kubernetes /resize subresource.
+// PodResizer performs in-place pod resizes via the Kubernetes /resize subresource.
 type PodResizer struct {
 	client kubernetes.Interface
 	logger logr.Logger
@@ -132,63 +122,6 @@ func (r *PodResizer) ResizePod(ctx context.Context, pod *corev1.Pod, container s
 		"memFrom", fromMem.String(), "memTo", toMem.String())
 
 	return results, nil
-}
-
-// WaitForResize polls the pod status until the container reports resources
-// matching the target, an infeasible condition is detected, or the timeout
-// is reached.
-func (r *PodResizer) WaitForResize(ctx context.Context, namespace, podName, container string,
-	target corev1.ResourceRequirements, timeout time.Duration,
-) error {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	return wait.PollUntilContextCancel(ctx, 3*time.Second, true, func(ctx context.Context) (bool, error) {
-		pod, err := r.client.CoreV1().Pods(namespace).Get(ctx, podName, metav1.GetOptions{})
-		if err != nil {
-			return false, fmt.Errorf("getting pod %s/%s: %w", namespace, podName, err)
-		}
-
-		// Check for infeasible resize.
-		for _, condition := range pod.Status.Conditions {
-			if condition.Type == corev1.PodConditionType("PodResizePending") && condition.Reason == "Infeasible" {
-				return false, fmt.Errorf("resize infeasible for pod %s/%s: %s", namespace, podName, condition.Message)
-			}
-		}
-
-		// Check whether the container status reports resources matching the target.
-		for _, cs := range pod.Status.ContainerStatuses {
-			if cs.Name != container {
-				continue
-			}
-			if cs.Resources == nil {
-				return false, nil
-			}
-
-			if targetCPU, ok := target.Requests[corev1.ResourceCPU]; ok {
-				if actualCPU, ok := cs.Resources.Requests[corev1.ResourceCPU]; ok {
-					if !actualCPU.Equal(targetCPU) {
-						return false, nil
-					}
-				} else {
-					return false, nil
-				}
-			}
-			if targetMem, ok := target.Requests[corev1.ResourceMemory]; ok {
-				if actualMem, ok := cs.Resources.Requests[corev1.ResourceMemory]; ok {
-					if !actualMem.Equal(targetMem) {
-						return false, nil
-					}
-				} else {
-					return false, nil
-				}
-			}
-
-			return true, nil
-		}
-
-		return false, nil
-	})
 }
 
 // CanResizeInPlace returns true if the pod is eligible for an in-place resize.
