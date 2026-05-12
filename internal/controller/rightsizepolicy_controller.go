@@ -105,23 +105,48 @@ type RightSizePolicyReconciler struct {
 	Clientset      kubernetes.Interface // for resize subresource calls
 	Recorder       events.EventRecorder
 	MinCooldown    time.Duration // minimum cooldown floor (default: 1m)
-	collectors     sync.Map      // map[string]rsmetrics.MetricsCollector cache
+	collectors     sync.Map      // map[string]*collectorEntry cache
+}
+
+// collectorEntry wraps a MetricsCollector with a last-used timestamp
+// for TTL-based eviction.
+type collectorEntry struct {
+	collector rsmetrics.MetricsCollector
+	lastUsed  time.Time
 }
 
 // MetricsCollectorFactory creates MetricsCollector instances from a Prometheus address.
 // This enables dependency injection for testing.
 type MetricsCollectorFactory func(address string) (rsmetrics.MetricsCollector, error)
 
-// maxCollectors bounds the collector cache to prevent memory-based DoS
-// via address rotation in CRD specs.
-const maxCollectors = 64
+const (
+	// maxCollectors bounds the collector cache to prevent memory-based DoS
+	// via address rotation in CRD specs.
+	maxCollectors = 64
+	// collectorTTL is how long an unused collector stays cached before eviction.
+	collectorTTL = 10 * time.Minute
+)
 
 // getOrCreateCollector returns a cached collector for the address, creating one
-// if needed. The cache is bounded at maxCollectors entries.
+// if needed. The cache is bounded at maxCollectors entries. Stale entries
+// (unused for collectorTTL) are evicted on each call.
 func (r *RightSizePolicyReconciler) getOrCreateCollector(address string) (rsmetrics.MetricsCollector, error) {
+	now := time.Now()
+
 	if cached, ok := r.collectors.Load(address); ok {
-		return cached.(rsmetrics.MetricsCollector), nil
+		entry := cached.(*collectorEntry)
+		entry.lastUsed = now
+		return entry.collector, nil
 	}
+
+	// Evict stale entries before checking capacity.
+	r.collectors.Range(func(key, value any) bool {
+		entry := value.(*collectorEntry)
+		if now.Sub(entry.lastUsed) > collectorTTL {
+			r.collectors.Delete(key)
+		}
+		return true
+	})
 
 	var count int
 	r.collectors.Range(func(_, _ any) bool {
@@ -136,8 +161,9 @@ func (r *RightSizePolicyReconciler) getOrCreateCollector(address string) (rsmetr
 	if err != nil {
 		return nil, err
 	}
-	actual, _ := r.collectors.LoadOrStore(address, collector)
-	return actual.(rsmetrics.MetricsCollector), nil
+	entry := &collectorEntry{collector: collector, lastUsed: now}
+	actual, _ := r.collectors.LoadOrStore(address, entry)
+	return actual.(*collectorEntry).collector, nil
 }
 
 // Reconcile is the main reconciliation loop for RightSizePolicy resources.
