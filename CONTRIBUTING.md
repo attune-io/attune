@@ -42,7 +42,7 @@ make verify
 ### Running Tests
 
 ```bash
-# Unit tests (480+ tests, 75% coverage threshold enforced)
+# Unit tests (490+ tests, 75% coverage threshold enforced)
 make test
 
 # Integration tests (uses envtest, no cluster needed)

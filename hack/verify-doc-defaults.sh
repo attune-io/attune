@@ -80,6 +80,26 @@ check_default "memSafetyMargin (README)" \
   'safetyMargin.*1.3' \
   "README.md"
 
+# --- Resource bounds defaults ---
+check_default "cpuBoundsMin (Go)" \
+  'DefaultCPUBoundsMin.*"50m"' \
+  "api/v1alpha1/defaults.go"
+check_default "cpuBoundsMax (Go)" \
+  'DefaultCPUBoundsMax.*"4000m"' \
+  "api/v1alpha1/defaults.go"
+check_default "memBoundsMin (Go)" \
+  'DefaultMemoryBoundsMin.*"64Mi"' \
+  "api/v1alpha1/defaults.go"
+check_default "memBoundsMax (Go)" \
+  'DefaultMemoryBoundsMax.*"8Gi"' \
+  "api/v1alpha1/defaults.go"
+check_default "cpuBounds (README)" \
+  'min.*50m' \
+  "README.md"
+check_default "memBounds (README)" \
+  'min.*64Mi' \
+  "README.md"
+
 # --- networkPolicy.prometheusPort default = 9090 ---
 check_default "prometheusPort (values.yaml)" \
   "prometheusPort: 9090" \
