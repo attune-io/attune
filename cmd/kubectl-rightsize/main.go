@@ -170,6 +170,19 @@ func printStatus(ctx context.Context, dynClient dynamic.Interface, namespace str
 		degraded := getConditionReason(item, "Degraded")
 		age := formatAge(item.GetCreationTimestamp().Time)
 
+		// Enrich InsufficientData with progress info.
+		if ready == "InsufficientData" {
+			collected := getNestedInt64(item, "status", "workloads", "dataPointsCollected")
+			required := getNestedInt64(item, "status", "workloads", "dataPointsRequired")
+			if required > 0 {
+				pct := collected * 100 / required
+				if pct > 99 {
+					pct = 99
+				}
+				ready = fmt.Sprintf("Collecting (%d%%)", pct)
+			}
+		}
+
 		fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%d\t%s\t%s\t%s\t%s\n",
 			ns, name, mode, workloads, resized, ready, resizing, degraded, age)
 	}

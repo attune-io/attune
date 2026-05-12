@@ -627,6 +627,18 @@ spec:
               workloads:
                 description: Workloads summarizes workload discovery and resize counts.
                 properties:
+                  dataPointsCollected:
+                    description: |-
+                      DataPointsCollected is the maximum number of data points collected across
+                      all containers in the discovered workloads.
+                    format: int32
+                    type: integer
+                  dataPointsRequired:
+                    description: |-
+                      DataPointsRequired is the minimum number of data points needed before
+                      generating recommendations (from metricsSource.minimumDataPoints).
+                    format: int32
+                    type: integer
                   discovered:
                     description: Discovered is the number of workloads matching the
                       target selector.

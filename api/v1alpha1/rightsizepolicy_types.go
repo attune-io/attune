@@ -235,6 +235,16 @@ type WorkloadStatus struct {
 
 	// Pending is the number of workloads awaiting resize.
 	Pending int32 `json:"pending"`
+
+	// DataPointsCollected is the maximum number of data points collected across
+	// all containers in the discovered workloads.
+	// +optional
+	DataPointsCollected int32 `json:"dataPointsCollected,omitempty"`
+
+	// DataPointsRequired is the minimum number of data points needed before
+	// generating recommendations (from metricsSource.minimumDataPoints).
+	// +optional
+	DataPointsRequired int32 `json:"dataPointsRequired,omitempty"`
 }
 
 // WorkloadRecommendation contains recommendations for a single workload.

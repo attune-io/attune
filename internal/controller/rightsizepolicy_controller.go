@@ -207,6 +207,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	// Step 4-8: Process each workload.
 	var recommendations []rightsizev1alpha1.WorkloadRecommendation
 	var workloadsWithRecs int32
+	var globalMaxDataPoints int
 	podsByWorkload := make(map[string][]corev1.Pod)
 	var totalQueryErrors int
 	conflictDetector := conflict.NewDetector(logger)
@@ -278,8 +279,11 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		podsByWorkload[workloadName] = pods
 
 		// Step 7: Compute recommendations for each container.
-		rec, qErrors, err := r.computeRecommendations(ctx, &policy, workload, collector)
+		rec, qErrors, dataPoints, err := r.computeRecommendations(ctx, &policy, workload, collector)
 		totalQueryErrors += qErrors
+		if dataPoints > globalMaxDataPoints {
+			globalMaxDataPoints = dataPoints
+		}
 		if err != nil {
 			logger.Error(err, "Failed to compute recommendations", "workload", workloadName)
 			continue
@@ -296,9 +300,12 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	// Step 8: Update status fields.
 	nowMeta := metav1.Now()
 	policy.Status.LastReconcileTime = &nowMeta
+	minimumDP := r.getMinimumDataPoints(&policy)
 	policy.Status.Workloads = rightsizev1alpha1.WorkloadStatus{
 		Discovered:          safeInt32(len(workloads)),
 		WithRecommendations: workloadsWithRecs,
+		DataPointsCollected: safeInt32(globalMaxDataPoints),
+		DataPointsRequired:  safeInt32(int(minimumDP)),
 	}
 	policy.Status.Recommendations = recommendations
 
@@ -336,7 +343,9 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		})
 	} else {
 		reason := rightsizev1alpha1.ReasonInsufficientData
-		message := "No workloads have sufficient data for recommendations"
+		message := fmt.Sprintf("Collecting data: %d/%d data points (%d%%)",
+			globalMaxDataPoints, minimumDP,
+			progressPercent(globalMaxDataPoints, int(minimumDP)))
 		if totalQueryErrors > 0 {
 			reason = rightsizev1alpha1.ReasonPrometheusUnavailable
 			message = fmt.Sprintf("Prometheus query errors (%d) prevented data collection; check operator logs", totalQueryErrors)
@@ -387,11 +396,11 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 	policy *rightsizev1alpha1.RightSizePolicy,
 	workload client.Object,
 	collector rsmetrics.MetricsCollector,
-) (rec *rightsizev1alpha1.WorkloadRecommendation, queryErrors int, err error) {
+) (rec *rightsizev1alpha1.WorkloadRecommendation, queryErrors int, maxDataPoints int, err error) {
 	logger := log.FromContext(ctx)
 	containers := r.getContainers(workload)
 	if len(containers) == 0 {
-		return nil, 0, nil
+		return nil, 0, 0, nil
 	}
 
 	historyWindow := r.parseHistoryWindow(policy)
@@ -429,6 +438,14 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 		// Build UsageProfile from samples.
 		cpuProfile := rsmetrics.BuildProfile(cpuSamples)
 		memProfile := rsmetrics.BuildProfile(memSamples)
+
+		// Track maximum data points across all containers.
+		if pts := cpuProfile.DataPoints; pts > maxDataPoints {
+			maxDataPoints = pts
+		}
+		if pts := memProfile.DataPoints; pts > maxDataPoints {
+			maxDataPoints = pts
+		}
 
 		// Check for sufficient data points.
 		if cpuProfile.DataPoints < int(minimumDataPoints) && memProfile.DataPoints < int(minimumDataPoints) {
@@ -509,12 +526,12 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 	}
 
 	if len(containerRecs) == 0 {
-		return nil, queryErrors, nil
+		return nil, queryErrors, maxDataPoints, nil
 	}
 
 	return &rightsizev1alpha1.WorkloadRecommendation{
 		Containers: containerRecs,
-	}, queryErrors, nil
+	}, queryErrors, maxDataPoints, nil
 }
 
 // resolvePrometheusAddress returns the Prometheus address from the policy spec,
@@ -858,6 +875,18 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 	}
 
 	return history, true
+}
+
+// progressPercent returns collected/required as an integer percentage, clamped to 0-99.
+func progressPercent(collected, required int) int {
+	if required <= 0 {
+		return 0
+	}
+	pct := collected * 100 / required
+	if pct > 99 {
+		pct = 99
+	}
+	return pct
 }
 
 // ensureAnnotations returns a non-nil annotations map.
