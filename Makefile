@@ -64,7 +64,7 @@ verify-doc-defaults: ## Verify critical defaults are consistent across docs and 
 	@bash hack/verify-doc-defaults.sh
 
 .PHONY: verify
-verify: lint yaml-lint test helm-lint helm-docs-check helm-unittest verify-boilerplate tidy-check govulncheck verify-doc-defaults ## Run all CI checks locally
+verify: lint yaml-lint test test-integration helm-lint helm-docs-check helm-unittest verify-boilerplate tidy-check govulncheck verify-doc-defaults ## Run all CI checks locally
 	@$(MAKE) manifests generate
 	@git diff --quiet --exit-code config/crd/ charts/kube-rightsize/crds/ api/v1alpha1/zz_generated.deepcopy.go config/rbac/ || \
 		(echo "::error::Generated files are stale. Run 'make manifests generate' and commit." && exit 1)
