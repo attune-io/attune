@@ -33,10 +33,11 @@ type RecommendationEngine struct {
 // The estimator chain is: PercentileEstimator -> MarginEstimator ->
 // ConfidenceEstimator -> BoundsEstimator -> ChangeFilter.
 func NewEngine(percentile int, safetyMargin float64, minBound, maxBound resource.Quantity,
-	maxChangePercent float64,
+	maxChangePercent float64, isCPU ...bool,
 ) *RecommendationEngine {
 	// Build the chain from innermost to outermost.
-	base := &PercentileEstimator{Percentile: percentile}
+	cpu := len(isCPU) > 0 && isCPU[0]
+	base := &PercentileEstimator{Percentile: percentile, IsCPU: cpu}
 
 	margin := &MarginEstimator{
 		Factor: safetyMargin,

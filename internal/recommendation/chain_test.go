@@ -54,6 +54,7 @@ func TestRecommendationEngine_RealisticCPU(t *testing.T) {
 		resource.MustParse("50m"),   // min bound
 		resource.MustParse("4000m"), // max bound
 		50,                          // max change percent
+		true,                        // isCPU
 	)
 
 	// Profile with P95 = 0.200 (200m CPU), high confidence.
@@ -112,6 +113,7 @@ func TestRecommendationEngine_SmallChangeFiltered(t *testing.T) {
 		resource.MustParse("10m"),
 		resource.MustParse("10000m"),
 		50,
+		true, // isCPU
 	)
 
 	// Design a profile where the full chain (percentile -> margin ->
@@ -151,7 +153,8 @@ func TestRecommendationEngine_LargeChangeCapped(t *testing.T) {
 		1.2,
 		resource.MustParse("50m"),
 		resource.MustParse("4000m"),
-		50, // max 50% change
+		50,   // max 50% change
+		true, // isCPU
 	)
 
 	// Profile where recommended would be much higher than current.
@@ -174,7 +177,8 @@ func TestRecommendationEngine_HighVsLowConfidence(t *testing.T) {
 			1.2,
 			resource.MustParse("50m"),
 			resource.MustParse("100000m"),
-			100, // allow full range of change so filter doesn't mask differences
+			100,  // allow full range of change so filter doesn't mask differences
+			true, // isCPU
 		)
 	}
 
@@ -200,6 +204,7 @@ func TestRecommendationEngine_BurstyProfile(t *testing.T) {
 		resource.MustParse("50m"),
 		resource.MustParse("4000m"),
 		50,
+		true, // isCPU
 	)
 
 	// Bursty profile: P95 is low but max is very high.

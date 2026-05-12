@@ -30,6 +30,8 @@ import (
 type PercentileEstimator struct {
 	// Percentile is the target percentile to use: 50, 90, 95, or 99.
 	Percentile int
+	// IsCPU indicates whether this estimator handles CPU (true) or memory (false).
+	IsCPU bool
 }
 
 // Estimate returns a resource.Quantity derived from the maximum of the
@@ -48,7 +50,7 @@ func (e *PercentileEstimator) Estimate(profile metrics.UsageProfile, current res
 		return current
 	}
 
-	return quantityFromFloat(maxVal)
+	return quantityFromFloat(maxVal, e.IsCPU)
 }
 
 // selectPercentile extracts the value for the configured percentile level
@@ -69,14 +71,12 @@ func (e *PercentileEstimator) selectPercentile(ps metrics.PercentileSet) float64
 }
 
 // quantityFromFloat converts a float64 value to a resource.Quantity.
-// For CPU (values typically < 100): uses millicore precision with DecimalSI.
-// For memory (values typically > 1000): uses byte precision with BinarySI.
-func quantityFromFloat(val float64) resource.Quantity {
-	if val > 100 {
-		// Memory: value is in bytes, use integer bytes with BinarySI format.
-		return *resource.NewQuantity(int64(math.Ceil(val)), resource.BinarySI)
+// CPU values are in cores and use millicore precision with DecimalSI.
+// Memory values are in bytes and use integer bytes with BinarySI.
+func quantityFromFloat(val float64, isCPU bool) resource.Quantity {
+	if isCPU {
+		millis := int64(math.Ceil(val * 1000))
+		return *resource.NewMilliQuantity(millis, resource.DecimalSI)
 	}
-	// CPU: value is in cores, use millicore precision.
-	millis := int64(math.Ceil(val * 1000))
-	return *resource.NewMilliQuantity(millis, resource.DecimalSI)
+	return *resource.NewQuantity(int64(math.Ceil(val)), resource.BinarySI)
 }

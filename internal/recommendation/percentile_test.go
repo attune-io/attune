@@ -120,7 +120,7 @@ func TestPercentileEstimator(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			e := &PercentileEstimator{Percentile: tt.percentile}
+			e := &PercentileEstimator{Percentile: tt.percentile, IsCPU: true}
 			result := e.Estimate(tt.profile, tt.current)
 			assert.Equal(t, tt.wantMillis, result.MilliValue())
 		})
