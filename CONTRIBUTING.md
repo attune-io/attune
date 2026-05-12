@@ -93,14 +93,20 @@ make generate    # regenerate deepcopy methods
 ```
 Commit the generated output.
 
-## Known Issues
+## Helm CI parity notes
 
-- **Integration tests (`make test-integration`) fail** -- all 6 envtest-based
-  tests fail with "Condition never satisfied." This is a pre-existing envtest
-  infrastructure issue ([#40](https://github.com/SebTardifLabs/kube-rightsize/issues/40)),
-  not a code problem. Unit tests and E2E tests cover the same paths.
-- **`make test-all` will fail** because it includes integration tests.
-  Use `make test` (unit) and `make test-e2e` (E2E) separately.
+If you are reproducing CI failures locally, prefer `make verify` over hand-built
+Helm commands. The CI workflow includes a couple of details that are easy to
+miss when replaying the Helm jobs manually:
+
+- template validation simulates cert-manager CRDs with
+  `--api-versions cert-manager.io/v1`
+- the Helm unittest plugin is installed from the exact release asset filename,
+  which may not match the tag string one-to-one
+
+If a local manual replay disagrees with CI, check the exact commands in
+[`.github/workflows/ci.yaml`](.github/workflows/ci.yaml) before assuming the
+chart or workflow is wrong.
 
 ## CI Runners
 

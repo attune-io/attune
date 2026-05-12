@@ -77,7 +77,7 @@ or label names have been relabeled.
 **Symptom**: Ready condition is `False` with reason `InsufficientData`.
 
 **Cause**: Not enough Prometheus data points to generate recommendations.
-The default minimum is 168 (one week of hourly samples).
+The default minimum is 48 (about 2 days of hourly samples).
 
 **Fix**: Wait for more data to accumulate, or lower `minimumDataPoints` for
 faster (but less confident) recommendations:

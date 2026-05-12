@@ -20,7 +20,7 @@ spec:
     prometheus:
       address: http://prometheus-server.monitoring:80
     historyWindow: 168h
-    minimumDataPoints: 168
+    minimumDataPoints: 48
   cpu:
     percentile: 95
     safetyMargin: "1.2"
