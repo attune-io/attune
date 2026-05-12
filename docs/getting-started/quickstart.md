@@ -10,6 +10,9 @@ recommendations, and promoting to Canary mode, all in about five minutes.
 Start in **Recommend** mode so that no pods are modified. The operator will
 collect metrics and write recommendations to the resource status.
 
+All fields have production-ready defaults (P95 CPU, P99 memory, 1.2x/1.3x
+safety margins, sensible bounds). A minimal policy is just:
+
 ```yaml
 apiVersion: rightsize.io/v1alpha1
 kind: RightSizePolicy
@@ -23,25 +26,28 @@ spec:
   metricsSource:
     prometheus:
       address: http://prometheus-server.monitoring:9090
-    historyWindow: 168h
-    minimumDataPoints: 168
-  cpu:
-    percentile: 95
-    safetyMargin: "1.2"
-    bounds:
-      min: "50m"
-      max: "4000m"
-  memory:
-    percentile: 99
-    safetyMargin: "1.3"
-    bounds:
-      min: "64Mi"
-      max: "8Gi"
-    allowDecrease: false
-  updateStrategy:
-    mode: Recommend
-    cooldown: 1h
 ```
+
+!!! tip "Skip the Prometheus address on every policy"
+    Create a cluster-scoped `RightSizeDefaults` resource with the Prometheus
+    address and it will apply to all policies:
+    ```yaml
+    apiVersion: rightsize.io/v1alpha1
+    kind: RightSizeDefaults
+    metadata:
+      name: cluster-defaults
+    spec:
+      metricsSource:
+        prometheus:
+          address: http://prometheus-server.monitoring:9090
+    ```
+    With this set, your policies only need `targetRef`.
+
+??? note "Full configuration reference"
+    All defaults can be overridden per-policy. See
+    [Configuration Reference](../reference/configuration.md) for the complete
+    list of fields including `cpu.percentile`, `memory.safetyMargin`,
+    `updateStrategy.cooldown`, bounds, and more.
 
 ```bash
 kubectl apply -f rightsizepolicy.yaml
