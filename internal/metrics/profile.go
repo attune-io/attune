@@ -106,22 +106,21 @@ func BuildProfile(samples []Sample) UsageProfile {
 	return profile
 }
 
-// computePercentiles sorts the values and computes p50, p90, p95, p99, and max.
+// computePercentiles sorts values in place and computes p50, p90, p95, p99,
+// and max. Callers must not use the slice after this call.
 func computePercentiles(values []float64) PercentileSet {
 	if len(values) == 0 {
 		return PercentileSet{}
 	}
 
-	sorted := make([]float64, len(values))
-	copy(sorted, values)
-	sort.Float64s(sorted)
+	sort.Float64s(values)
 
 	return PercentileSet{
-		P50: percentile(sorted, 0.50),
-		P90: percentile(sorted, 0.90),
-		P95: percentile(sorted, 0.95),
-		P99: percentile(sorted, 0.99),
-		Max: sorted[len(sorted)-1],
+		P50: percentile(values, 0.50),
+		P90: percentile(values, 0.90),
+		P95: percentile(values, 0.95),
+		P99: percentile(values, 0.99),
+		Max: values[len(values)-1],
 	}
 }
 
