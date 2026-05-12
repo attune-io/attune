@@ -456,7 +456,8 @@ jobs:
           rm -rf "$(helm env HELM_PLUGINS)/helm-unittest.git" 2>/dev/null || true
           PLUGINS_DIR="$(helm env HELM_PLUGINS)/unittest"
           mkdir -p "$PLUGINS_DIR"
-          curl -fsSL "https://github.com/helm-unittest/helm-unittest/releases/download/${{ env.HELM_UNITTEST_VERSION }}/helm-unittest-linux-amd64-${{ env.HELM_UNITTEST_VERSION }}.tgz" \
+          HELM_UNITTEST_ASSET_VERSION="${HELM_UNITTEST_VERSION#v}"
+          curl -fsSL "https://github.com/helm-unittest/helm-unittest/releases/download/${HELM_UNITTEST_VERSION}/helm-unittest-linux-amd64-${HELM_UNITTEST_ASSET_VERSION}.tgz" \
             | tar xz -C "$PLUGINS_DIR"
           helm unittest charts/kube-rightsize
 
