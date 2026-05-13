@@ -203,8 +203,14 @@ func collectorCacheKey(config *rightsizev1alpha1.PrometheusConfig, opts *rsmetri
 		if opts.InsecureSkipVerify {
 			key += "|insecure"
 		}
-		for k, v := range opts.Headers {
-			key += "|h:" + k + "=" + v
+		// Sort header keys for deterministic cache keys (map iteration is random).
+		keys := make([]string, 0, len(opts.Headers))
+		for k := range opts.Headers {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+		for _, k := range keys {
+			key += "|h:" + k + "=" + opts.Headers[k]
 		}
 	}
 	return key

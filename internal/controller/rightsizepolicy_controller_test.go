@@ -1262,6 +1262,20 @@ func TestCollectorCacheKey_WithOptions(t *testing.T) {
 	assert.Contains(t, key, "|h:X-Scope-OrgID=tenant-1")
 }
 
+func TestCollectorCacheKey_DeterministicWithMultipleHeaders(t *testing.T) {
+	config := &rightsizev1alpha1.PrometheusConfig{Address: "http://prom:9090"}
+	opts := &rsmetrics.CollectorOptions{
+		Headers: map[string]string{"Z-Header": "z", "A-Header": "a", "M-Header": "m"},
+	}
+	// Call multiple times to verify map iteration order doesn't affect the key.
+	key1 := collectorCacheKey(config, opts)
+	for i := 0; i < 100; i++ {
+		assert.Equal(t, key1, collectorCacheKey(config, opts), "cache key must be deterministic on iteration %d", i)
+	}
+	// Verify sorted order: A before M before Z.
+	assert.Contains(t, key1, "|h:A-Header=a|h:M-Header=m|h:Z-Header=z")
+}
+
 func TestCollectorCacheKey_DifferentConfigsDifferentKeys(t *testing.T) {
 	config := &rightsizev1alpha1.PrometheusConfig{Address: "http://prom:9090"}
 	key1 := collectorCacheKey(config, nil)
