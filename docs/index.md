@@ -33,6 +33,10 @@ exclusively for in-place resize.
 
 ## Quick Links
 
+- **[Why kube-rightsize?](why-kube-rightsize.md)** -- The problem, why VPA
+  fails, and how in-place resize changes everything
+- **[Savings Calculator](savings-calculator.md)** -- Estimate your monthly
+  savings with an interactive calculator
 - [Installation](getting-started/installation.md)
 - [Quick Start](getting-started/quickstart.md)
 - [Specification](SPEC.md)

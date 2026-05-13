@@ -249,6 +249,8 @@ The dashboard includes:
 
 | Guide | Description |
 |-------|-------------|
+| [Why kube-rightsize?](docs/why-kube-rightsize.md) | The problem, why VPA fails, and how in-place resize changes everything |
+| [Savings Calculator](docs/savings-calculator.md) | Estimate your monthly savings with an interactive calculator |
 | [Quickstart](docs/getting-started/quickstart.md) | Get running in 5 minutes |
 | [Migrating from VPA](docs/guides/migrating-from-vpa.md) | Step-by-step VPA replacement |
 | [HPA Coexistence](docs/guides/hpa-coexistence.md) | Running alongside HPA |

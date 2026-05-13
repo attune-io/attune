@@ -53,6 +53,8 @@ markdown_extensions:
 
 nav:
   - Home: index.md
+  - Why kube-rightsize: why-kube-rightsize.md
+  - Savings Calculator: savings-calculator.md
   - Getting Started:
       - Installation: getting-started/installation.md
       - Quick Start: getting-started/quickstart.md
