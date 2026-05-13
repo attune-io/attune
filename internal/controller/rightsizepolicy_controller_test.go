@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -1960,6 +1961,127 @@ func TestDiscoverWorkloads_FindsDaemonSetByName(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, workloads, 1)
 	assert.Equal(t, name, workloads[0].GetName())
+}
+
+func TestDiscoverWorkloads_FindsCronJobByName(t *testing.T) {
+	name := "nightly-report"
+	cj := &batchv1.CronJob{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+		Spec: batchv1.CronJobSpec{
+			Schedule: "0 3 * * *",
+			JobTemplate: batchv1.JobTemplateSpec{
+				Spec: batchv1.JobSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{Name: "report", Image: "report:latest"}},
+						},
+					},
+				},
+			},
+		},
+	}
+	r := newReconcilerWithClient(cj)
+
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			TargetRef: rightsizev1alpha1.TargetRef{Kind: "CronJob", Name: &name},
+		},
+	}
+
+	workloads, err := r.discoverWorkloads(context.Background(), policy)
+	assert.NoError(t, err)
+	require.Len(t, workloads, 1)
+	assert.Equal(t, name, workloads[0].GetName())
+}
+
+func TestDiscoverWorkloads_FindsJobByName(t *testing.T) {
+	name := "data-migration"
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+		Spec: batchv1.JobSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{Name: "migrate", Image: "migrate:latest"}},
+				},
+			},
+		},
+	}
+	r := newReconcilerWithClient(job)
+
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			TargetRef: rightsizev1alpha1.TargetRef{Kind: "Job", Name: &name},
+		},
+	}
+
+	workloads, err := r.discoverWorkloads(context.Background(), policy)
+	assert.NoError(t, err)
+	require.Len(t, workloads, 1)
+	assert.Equal(t, name, workloads[0].GetName())
+}
+
+func TestGetContainers_CronJob(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	cj := &batchv1.CronJob{
+		Spec: batchv1.CronJobSpec{
+			JobTemplate: batchv1.JobTemplateSpec{
+				Spec: batchv1.JobSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Name: "worker", Image: "worker:1"},
+								{Name: "sidecar", Image: "sidecar:1"},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	containers := r.getContainers(cj)
+	require.Len(t, containers, 2)
+	assert.Equal(t, "worker", containers[0].Name)
+	assert.Equal(t, "sidecar", containers[1].Name)
+}
+
+func TestGetPodSelectorLabels_CronJob(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	cj := &batchv1.CronJob{
+		Spec: batchv1.CronJobSpec{
+			JobTemplate: batchv1.JobTemplateSpec{
+				Spec: batchv1.JobSpec{
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "report"}},
+					},
+				},
+			},
+		},
+	}
+	labels := r.getPodSelectorLabels(cj)
+	assert.Equal(t, map[string]string{"app": "report"}, labels)
+}
+
+func TestIsBatchWorkload(t *testing.T) {
+	assert.True(t, isBatchWorkload(&batchv1.CronJob{}))
+	assert.True(t, isBatchWorkload(&batchv1.Job{}))
+	assert.False(t, isBatchWorkload(&appsv1.Deployment{}))
+	assert.False(t, isBatchWorkload(&appsv1.StatefulSet{}))
+	assert.False(t, isBatchWorkload(&appsv1.DaemonSet{}))
+}
+
+func TestListWorkloadsBySelector_CronJobs(t *testing.T) {
+	cj := &batchv1.CronJob{
+		ObjectMeta: metav1.ObjectMeta{Name: "report", Namespace: "default", Labels: map[string]string{"tier": "batch"}},
+	}
+	r := newReconcilerWithClient(cj)
+
+	selector := &metav1.LabelSelector{MatchLabels: map[string]string{"tier": "batch"}}
+	result, err := r.listWorkloadsBySelector(context.Background(), "default", "CronJob", selector)
+	assert.NoError(t, err)
+	require.Len(t, result, 1)
+	assert.Equal(t, "report", result[0].GetName())
 }
 
 func TestDiscoverWorkloads_UnsupportedKind(t *testing.T) {
