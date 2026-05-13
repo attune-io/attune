@@ -85,6 +85,26 @@ Teams install VPA in `Recommend` mode, look at the numbers, manually apply some
 changes once a quarter, and move on. The promise of automated right-sizing
 remains unfulfilled.
 
+### Recommendation-only tools don't solve this
+
+Tools like Goldilocks and Robusta KRR took a different approach: skip VPA's
+dangerous Auto mode entirely and just show you the recommendations. Goldilocks
+creates a dashboard. KRR prints a table. Both are useful for a one-time audit.
+
+The problem is what happens next. For a platform running 200 microservices,
+"useful recommendations" means 200 Deployment YAML edits, 200 pull requests,
+200 code reviews, and 200 rollouts. Most teams create a Jira ticket titled
+"right-size services," and it sits in the backlog for six months. The
+recommendations go stale. New services deploy with the same inflated defaults.
+Nothing changes.
+
+Diagnostic tools tell you what to fix. They don't fix it. At scale, the gap
+between "knowing" and "doing" is where savings go to die.
+
+kube-rightsize closes that gap. It computes the recommendation AND applies it
+to the running pod, with graduated safety controls so you don't have to
+babysit each change. No YAML edits, no pull requests, no backlog tickets.
+
 ## What Changed: In-Place Pod Resize (Kubernetes 1.33+)
 
 In December 2025, Kubernetes v1.35 graduated
