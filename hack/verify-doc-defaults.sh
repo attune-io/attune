@@ -124,6 +124,31 @@ check_default "prometheusPort (README)" \
   'prometheusPort.*9090' \
   "README.md"
 
+# --- why-kube-rightsize.md: pricing, safety margins ---
+check_default "cpuPricing (why page)" \
+  '0\.031' \
+  "docs/why-kube-rightsize.md"
+check_default "memPricing (why page)" \
+  '0\.004' \
+  "docs/why-kube-rightsize.md"
+check_default "cpuSafetyMargin (why page)" \
+  'x 1.2' \
+  "docs/why-kube-rightsize.md"
+check_default "memSafetyMargin (why page)" \
+  'x 1.3' \
+  "docs/why-kube-rightsize.md"
+check_default "cpuPercentile (why page)" \
+  'P95' \
+  "docs/why-kube-rightsize.md"
+
+# --- savings-calculator.md: pricing input defaults ---
+check_default "cpuPricing (calculator)" \
+  'value="0.031"' \
+  "docs/savings-calculator.md"
+check_default "memPricing (calculator)" \
+  'value="0.004"' \
+  "docs/savings-calculator.md"
+
 if [ $rc -ne 0 ]; then
   echo ""
   echo "ERROR: Documentation defaults are inconsistent. Fix the files above."

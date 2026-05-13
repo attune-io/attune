@@ -454,9 +454,6 @@ function calculate() {
     const cpuRightsized = Math.max(w.cpuP95 * cpuMargin, w.cpuP95);
     const memRightsized = Math.max(w.memP95 * memMargin, w.memP95);
 
-    const cpuSavedPerReplica = Math.max(0, w.cpuReq - cpuRightsized);
-    const memSavedPerReplica = Math.max(0, w.memReq - memRightsized);
-
     const cpuCurrentCost = (w.cpuReq / 1000) * cpuPrice * hoursPerMonth * w.replicas;
     const memCurrentCost = (w.memReq / 1024) * memPrice * hoursPerMonth * w.replicas;
     const cpuNewCost = (Math.min(cpuRightsized, w.cpuReq) / 1000) * cpuPrice * hoursPerMonth * w.replicas;
