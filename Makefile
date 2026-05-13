@@ -76,6 +76,10 @@ verify: verify-quick test-integration govulncheck ## Run all CI checks locally (
 clean: ## Remove build artifacts
 	rm -rf bin/ dist/ coverage.out
 
+.PHONY: docs-serve
+docs-serve: ## Serve documentation site locally (requires pip install mkdocs-material)
+	mkdocs serve
+
 ##@ Development
 
 .PHONY: manifests

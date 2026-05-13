@@ -1,4 +1,4 @@
-name: Documentation
+name: Docs
 
 on:
   push:
@@ -6,8 +6,6 @@ on:
     paths:
       - "docs/**"
       - "mkdocs.yml"
-      - "config/crd/bases/**"
-      - ".github/workflows/docs.yaml"
   workflow_dispatch: {}
 
 permissions:
@@ -16,47 +14,37 @@ permissions:
   id-token: write
 
 concurrency:
-  group: docs-deploy
+  group: pages
   cancel-in-progress: true
 
 jobs:
   build:
-    name: Build Docs
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    name: Build
+    runs-on: self-hosted
+    timeout-minutes: 5
     steps:
-      - uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2
-        with:
-          egress-policy: audit
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
-        with:
-          python-version: "3.12"
-
       - name: Install MkDocs
-        shell: bash -Eeuo pipefail -x {0}
-        run: pip install mkdocs-material
+        run: pip install --user mkdocs-material
 
-      - name: Build docs
-        shell: bash -Eeuo pipefail -x {0}
+      - name: Build site
         run: mkdocs build --strict
 
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
         with:
           path: site/
 
   deploy:
-    name: Deploy to GitHub Pages
-    runs-on: ubuntu-latest
+    name: Deploy
+    runs-on: self-hosted
     timeout-minutes: 5
     needs: build
-    if: github.event_name == 'workflow_dispatch'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac553fd0d31 # v4

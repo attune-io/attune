@@ -103,6 +103,27 @@ make generate    # regenerate deepcopy methods
 ```
 Commit the generated output.
 
+## Documentation Site
+
+The `docs/` directory is configured as an [MkDocs](https://www.mkdocs.org/)
+site with the [Material](https://squidfun.github.io/mkdocs-material/) theme.
+
+### Local preview
+
+```bash
+pip install mkdocs-material
+mkdocs serve
+```
+
+Then open `http://127.0.0.1:8000`. Changes to markdown files reload
+automatically.
+
+### Editing docs
+
+- Every markdown file under `docs/` must start with a `# Title` heading.
+- Navigation order is controlled by `mkdocs.yml` (the `nav:` key).
+- Admonitions (`!!! note`, `!!! tip`, `!!! warning`) are supported.
+
 ## Helm CI parity notes
 
 If you are reproducing CI failures locally, prefer `make verify` over hand-built
