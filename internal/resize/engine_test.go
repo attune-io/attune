@@ -393,6 +393,42 @@ func TestResizePod_UpdateResizeAPIError(t *testing.T) {
 	assert.Equal(t, "InPlace", results[0].Method)
 }
 
+// ---------- findContainer ----------
+
+func TestFindContainer_RegularContainer(t *testing.T) {
+	pod := &corev1.Pod{
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{Name: "app"}},
+		},
+	}
+	idx, isInit := findContainer(pod, "app")
+	assert.Equal(t, 0, idx)
+	assert.False(t, isInit)
+}
+
+func TestFindContainer_InitContainer(t *testing.T) {
+	always := corev1.ContainerRestartPolicyAlways
+	pod := &corev1.Pod{
+		Spec: corev1.PodSpec{
+			InitContainers: []corev1.Container{{Name: "istio-proxy", RestartPolicy: &always}},
+			Containers:     []corev1.Container{{Name: "app"}},
+		},
+	}
+	idx, isInit := findContainer(pod, "istio-proxy")
+	assert.Equal(t, 0, idx)
+	assert.True(t, isInit)
+}
+
+func TestFindContainer_NotFound(t *testing.T) {
+	pod := &corev1.Pod{
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{Name: "app"}},
+		},
+	}
+	idx, _ := findContainer(pod, "missing")
+	assert.Equal(t, -1, idx)
+}
+
 // ---------- WouldRestartContainer ----------
 
 func TestWouldRestartContainer_RestartPolicy(t *testing.T) {

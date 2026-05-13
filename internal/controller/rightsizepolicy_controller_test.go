@@ -1921,6 +1921,51 @@ func TestGetContainers_UnknownType(t *testing.T) {
 	assert.Nil(t, containers)
 }
 
+func TestGetContainers_IncludesNativeSidecars(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	always := corev1.ContainerRestartPolicyAlways
+	deploy := &appsv1.Deployment{
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					InitContainers: []corev1.Container{
+						{Name: "istio-proxy", RestartPolicy: &always, Image: "istio"},
+						{Name: "init-db", Image: "busybox"}, // regular init, NOT a native sidecar
+					},
+					Containers: []corev1.Container{
+						{Name: "app", Image: "nginx"},
+					},
+				},
+			},
+		},
+	}
+	containers := r.getContainers(deploy)
+	require.Len(t, containers, 2) // istio-proxy + app, NOT init-db
+	assert.Equal(t, "istio-proxy", containers[0].Name)
+	assert.Equal(t, "app", containers[1].Name)
+}
+
+func TestGetContainers_NoNativeSidecars(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	deploy := &appsv1.Deployment{
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					InitContainers: []corev1.Container{
+						{Name: "init-db", Image: "busybox"}, // regular init
+					},
+					Containers: []corev1.Container{
+						{Name: "app", Image: "nginx"},
+					},
+				},
+			},
+		},
+	}
+	containers := r.getContainers(deploy)
+	require.Len(t, containers, 1)
+	assert.Equal(t, "app", containers[0].Name)
+}
+
 // ---------- mergeDefaults (more paths) ----------
 
 func TestMergeDefaults_MergesAllFields(t *testing.T) {

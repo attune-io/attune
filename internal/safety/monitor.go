@@ -103,7 +103,10 @@ func (m *Monitor) CheckPod(ctx context.Context, record ResizeRecord) (SafetyVerd
 		return SafetyVerdict{}, fmt.Errorf("getting pod %s/%s: %w", record.Namespace, record.PodName, err)
 	}
 
-	for _, cs := range pod.Status.ContainerStatuses {
+	// Search both regular and init container statuses (native sidecars
+	// report status in InitContainerStatuses).
+	allStatuses := append(pod.Status.ContainerStatuses, pod.Status.InitContainerStatuses...)
+	for _, cs := range allStatuses {
 		if cs.Name != record.Container {
 			continue
 		}

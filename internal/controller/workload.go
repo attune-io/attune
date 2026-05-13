@@ -171,17 +171,35 @@ func (r *RightSizePolicyReconciler) getPodSelectorLabels(workload client.Object)
 	return nil
 }
 
-// getContainers returns the container specs from a workload's pod template.
+// getContainers returns the container specs from a workload's pod template,
+// including native sidecar containers (init containers with restartPolicy=Always).
 func (r *RightSizePolicyReconciler) getContainers(workload client.Object) []corev1.Container {
+	var spec *corev1.PodSpec
 	switch w := workload.(type) {
 	case *appsv1.Deployment:
-		return w.Spec.Template.Spec.Containers
+		spec = &w.Spec.Template.Spec
 	case *appsv1.StatefulSet:
-		return w.Spec.Template.Spec.Containers
+		spec = &w.Spec.Template.Spec
 	case *appsv1.DaemonSet:
-		return w.Spec.Template.Spec.Containers
+		spec = &w.Spec.Template.Spec
 	}
-	return nil
+	if spec == nil {
+		return nil
+	}
+	containers := nativeSidecars(spec.InitContainers)
+	return append(containers, spec.Containers...)
+}
+
+// nativeSidecars returns init containers that have restartPolicy=Always,
+// which makes them run for the pod's lifetime (KEP-753, stable since K8s 1.29).
+func nativeSidecars(initContainers []corev1.Container) []corev1.Container {
+	var sidecars []corev1.Container
+	for _, c := range initContainers {
+		if c.RestartPolicy != nil && *c.RestartPolicy == corev1.ContainerRestartPolicyAlways {
+			sidecars = append(sidecars, c)
+		}
+	}
+	return sidecars
 }
 
 // isRollingOut checks if a workload is currently in the middle of a rollout.

@@ -64,21 +64,20 @@ func NewPodResizer(client kubernetes.Interface, logger logr.Logger) *PodResizer 
 func (r *PodResizer) ResizePod(ctx context.Context, pod *corev1.Pod, container string,
 	target corev1.ResourceRequirements,
 ) ([]ResizeResult, error) {
-	idx := -1
-	for i, c := range pod.Spec.Containers {
-		if c.Name == container {
-			idx = i
-			break
-		}
-	}
+	idx, isInit := findContainer(pod, container)
 	if idx == -1 {
 		return nil, fmt.Errorf("container %q not found in pod %s/%s", container, pod.Namespace, pod.Name)
 	}
 
-	current := pod.Spec.Containers[idx].Resources
-
+	var current corev1.ResourceRequirements
 	updated := pod.DeepCopy()
-	updated.Spec.Containers[idx].Resources = target
+	if isInit {
+		current = pod.Spec.InitContainers[idx].Resources
+		updated.Spec.InitContainers[idx].Resources = target
+	} else {
+		current = pod.Spec.Containers[idx].Resources
+		updated.Spec.Containers[idx].Resources = target
+	}
 
 	r.logger.V(1).Info("resizing pod", "pod", pod.Name, "namespace", pod.Namespace,
 		"container", container, "method", MethodInPlace)
@@ -124,6 +123,22 @@ func (r *PodResizer) ResizePod(ctx context.Context, pod *corev1.Pod, container s
 	return results, nil
 }
 
+// findContainer searches both regular and init containers for the named container.
+// Returns the index and whether it was found in InitContainers.
+func findContainer(pod *corev1.Pod, name string) (idx int, isInit bool) {
+	for i, c := range pod.Spec.InitContainers {
+		if c.Name == name {
+			return i, true
+		}
+	}
+	for i, c := range pod.Spec.Containers {
+		if c.Name == name {
+			return i, false
+		}
+	}
+	return -1, false
+}
+
 // CanResizeInPlace returns true if the pod is eligible for an in-place resize.
 // The pod must be Running, must not be marked for deletion, and must not have
 // an active resize already in progress.
@@ -154,7 +169,8 @@ func CanResizeInPlace(pod *corev1.Pod) bool {
 // trigger a kubelet restart based on the container's resizePolicy. If the
 // container has no resizePolicy, the default is NotRequired (no restart).
 func WouldRestartContainer(pod *corev1.Pod, containerName string) bool {
-	for _, c := range pod.Spec.Containers {
+	allContainers := append(pod.Spec.InitContainers, pod.Spec.Containers...)
+	for _, c := range allContainers {
 		if c.Name != containerName {
 			continue
 		}
