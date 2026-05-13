@@ -68,58 +68,79 @@ data:
           "targets": [{ "expr": "sum by (reason) (rate(kube_rightsize_reverts_total[5m]))", "legendFormat": "{{`{{reason}}`}}" }]
         },
         {
+          "type": "timeseries",
+          "title": "Resize Method Breakdown",
+          "description": "In-place resizes vs eviction fallback",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 13 },
+          "targets": [{ "expr": "sum by (resource) (rate(kube_rightsize_resize_total{result=\"success\"}[5m]))", "legendFormat": "{{`{{resource}}`}}" }]
+        },
+        {
+          "type": "stat",
+          "title": "Estimated Monthly Savings",
+          "gridPos": { "h": 8, "w": 6, "x": 12, "y": 13 },
+          "targets": [{ "expr": "sum(kube_rightsize_savings_estimated_monthly_dollars)" }],
+          "fieldConfig": { "defaults": { "unit": "currencyUSD", "thresholds": { "steps": [{ "color": "green", "value": null }] } } }
+        },
+        {
+          "type": "timeseries",
+          "title": "Resize Duration (p99)",
+          "gridPos": { "h": 8, "w": 6, "x": 18, "y": 13 },
+          "targets": [{ "expr": "histogram_quantile(0.99, rate(kube_rightsize_resize_duration_seconds_bucket[5m]))" }],
+          "fieldConfig": { "defaults": { "unit": "s" } }
+        },
+        {
           "type": "row",
           "title": "Recommendations",
-          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 13 },
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 21 },
           "collapsed": false,
           "panels": []
         },
         {
           "type": "timeseries",
           "title": "Recommended CPU (cores)",
-          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 22 },
           "targets": [{ "expr": "kube_rightsize_recommendation_cpu_cores", "legendFormat": "{{`{{workload}}`}}/{{`{{container}}`}}" }],
           "fieldConfig": { "defaults": { "unit": "short" } }
         },
         {
           "type": "timeseries",
           "title": "Recommended Memory",
-          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 22 },
           "targets": [{ "expr": "kube_rightsize_recommendation_memory_bytes", "legendFormat": "{{`{{workload}}`}}/{{`{{container}}`}}" }],
           "fieldConfig": { "defaults": { "unit": "bytes" } }
         },
         {
           "type": "gauge",
           "title": "Recommendation Confidence",
-          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 22 },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 30 },
           "targets": [{ "expr": "kube_rightsize_confidence", "legendFormat": "{{`{{workload}}`}}/{{`{{container}}`}}" }],
           "fieldConfig": { "defaults": { "min": 0, "max": 1, "thresholds": { "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 0.5 }, { "color": "green", "value": 0.8 }] } } }
         },
         {
           "type": "row",
           "title": "Operator Health",
-          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 30 },
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 38 },
           "collapsed": false,
           "panels": []
         },
         {
           "type": "timeseries",
           "title": "Reconcile Duration",
-          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 31 },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 39 },
           "targets": [{ "expr": "histogram_quantile(0.99, rate(kube_rightsize_reconcile_duration_seconds_bucket[5m]))" }],
           "fieldConfig": { "defaults": { "unit": "s" } }
         },
         {
           "type": "timeseries",
           "title": "Prometheus Query Duration",
-          "gridPos": { "h": 8, "w": 6, "x": 12, "y": 31 },
+          "gridPos": { "h": 8, "w": 6, "x": 12, "y": 39 },
           "targets": [{ "expr": "histogram_quantile(0.99, sum by (le, query_type) (rate(kube_rightsize_prometheus_query_duration_seconds_bucket[5m])))" }],
           "fieldConfig": { "defaults": { "unit": "s" } }
         },
         {
           "type": "stat",
           "title": "Query Errors",
-          "gridPos": { "h": 8, "w": 6, "x": 18, "y": 31 },
+          "gridPos": { "h": 8, "w": 6, "x": 18, "y": 39 },
           "targets": [{ "expr": "sum(rate(kube_rightsize_prometheus_query_errors_total[5m]))" }],
           "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 0.01 }] } } }
         }
