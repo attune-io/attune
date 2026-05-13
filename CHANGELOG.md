@@ -29,6 +29,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `CronJob`. Batch workloads are recommend-only: the operator computes
   recommendations from historical Prometheus usage but does not attempt
   in-place resizes (batch pods complete and are not available for resize).
+- **Multi-data-source support** for Thanos, VictoriaMetrics, Grafana Mimir,
+  and managed Prometheus services (AMP, GMP, Azure). PrometheusConfig now
+  supports custom headers (e.g., `X-Scope-OrgID` for Mimir), bearer token
+  auth from a Kubernetes Secret, and TLS settings. The PromQL queries work
+  unchanged since these backends implement the Prometheus HTTP API.
 - **Scheduled resize windows** via `updateStrategy.schedule`. Restrict
   when resizes can occur using time-of-day windows, day-of-week constraints,
   and configurable timezone. Recommendations are computed continuously;

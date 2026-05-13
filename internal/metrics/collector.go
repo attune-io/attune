@@ -20,6 +20,7 @@ package metrics
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"net/http"
@@ -101,18 +102,68 @@ func isBlockedIP(ip net.IP) bool {
 		ip.IsUnspecified() || ip.Equal(awsIMDSv6)
 }
 
+// CollectorOptions configures optional HTTP settings for Prometheus-compatible
+// backends (Thanos, VictoriaMetrics, Grafana Mimir, managed services).
+type CollectorOptions struct {
+	// Headers are added to every HTTP request (e.g. "X-Scope-OrgID" for Mimir).
+	Headers map[string]string
+	// BearerToken is sent as "Authorization: Bearer <token>".
+	BearerToken string
+	// InsecureSkipVerify disables TLS certificate verification.
+	InsecureSkipVerify bool
+}
+
+// headerTransport wraps an http.RoundTripper and injects custom headers
+// and/or a bearer token into every request.
+type headerTransport struct {
+	base        http.RoundTripper
+	headers     map[string]string
+	bearerToken string
+}
+
+func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	for k, v := range t.headers {
+		req.Header.Set(k, v)
+	}
+	if t.bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+t.bearerToken)
+	}
+	return t.base.RoundTrip(req)
+}
+
 // NewPrometheusCollector creates a new PrometheusCollector that queries the
 // Prometheus instance at the given address (e.g. "http://prometheus-server.monitoring:80").
 // It uses an SSRF-safe HTTP transport that validates resolved IPs.
 // An optional http.RoundTripper can be passed to override the default SSRF-safe
 // transport (used in tests with httptest.NewServer on localhost).
 func NewPrometheusCollector(address string, logger logr.Logger, transport ...http.RoundTripper) (*PrometheusCollector, error) {
+	return NewPrometheusCollectorWithOptions(address, logger, nil, transport...)
+}
+
+// NewPrometheusCollectorWithOptions creates a collector with custom headers,
+// bearer token auth, and TLS settings for Prometheus-compatible backends.
+func NewPrometheusCollectorWithOptions(address string, logger logr.Logger, opts *CollectorOptions, transport ...http.RoundTripper) (*PrometheusCollector, error) {
 	var rt http.RoundTripper
 	if len(transport) > 0 && transport[0] != nil {
 		rt = transport[0]
 	} else {
-		rt = ssrfSafeTransport()
+		base := ssrfSafeTransport()
+		if opts != nil && opts.InsecureSkipVerify {
+			if httpTransport, ok := base.(*http.Transport); ok {
+				if httpTransport.TLSClientConfig == nil {
+					httpTransport.TLSClientConfig = &tls.Config{} //nolint:gosec // user-configured
+				}
+				httpTransport.TLSClientConfig.InsecureSkipVerify = true //nolint:gosec // user-configured
+			}
+		}
+		rt = base
 	}
+
+	// Wrap with header/token injection if needed.
+	if opts != nil && (len(opts.Headers) > 0 || opts.BearerToken != "") {
+		rt = &headerTransport{base: rt, headers: opts.Headers, bearerToken: opts.BearerToken}
+	}
+
 	client, err := promapi.NewClient(promapi.Config{
 		Address:      address,
 		RoundTripper: rt,

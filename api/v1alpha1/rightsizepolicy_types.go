@@ -87,10 +87,43 @@ type MetricsSource struct {
 	MinimumDataPoints int32 `json:"minimumDataPoints,omitempty"`
 }
 
-// PrometheusConfig configures a Prometheus metrics source.
+// PrometheusConfig configures a Prometheus-compatible metrics source.
+// Works with Thanos, VictoriaMetrics, Grafana Mimir, and managed
+// Prometheus services (AMP, GMP) that implement the Prometheus HTTP API.
 type PrometheusConfig struct {
-	// Address is the URL of the Prometheus server.
+	// Address is the URL of the Prometheus-compatible query endpoint.
 	Address string `json:"address"`
+
+	// Headers are custom HTTP headers added to every query request.
+	// Use for tenant IDs (e.g. "X-Scope-OrgID" for Mimir), API keys,
+	// or other auth headers required by the backend.
+	// +optional
+	Headers map[string]string `json:"headers,omitempty"`
+
+	// BearerTokenSecret references a Kubernetes Secret containing a bearer
+	// token for authenticating with managed Prometheus services.
+	// +optional
+	BearerTokenSecret *SecretKeyRef `json:"bearerTokenSecret,omitempty"`
+
+	// TLS configures TLS settings for the connection.
+	// +optional
+	TLS *TLSConfig `json:"tls,omitempty"`
+}
+
+// SecretKeyRef references a key within a Kubernetes Secret.
+type SecretKeyRef struct {
+	// Name of the Secret.
+	Name string `json:"name"`
+	// Key within the Secret.
+	Key string `json:"key"`
+}
+
+// TLSConfig defines TLS settings for Prometheus connections.
+type TLSConfig struct {
+	// InsecureSkipVerify disables TLS certificate verification.
+	// Use only for self-signed certificates in development.
+	// +optional
+	InsecureSkipVerify bool `json:"insecureSkipVerify,omitempty"`
 }
 
 // ResourceConfig defines resource recommendation parameters.

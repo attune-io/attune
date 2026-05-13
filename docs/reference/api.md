@@ -25,7 +25,14 @@ spec:
   # Prometheus metrics configuration.
   metricsSource:
     prometheus:
-      address: "http://prometheus:9090"   # Prometheus URL
+      address: "http://prometheus:9090"   # Prometheus-compatible URL
+      headers:                            # optional: custom HTTP headers
+        X-Scope-OrgID: "my-tenant"        # e.g., Mimir tenant ID
+      bearerTokenSecret:                  # optional: auth from Secret
+        name: prometheus-token
+        key: token
+      tls:                                # optional: TLS settings
+        insecureSkipVerify: false
     historyWindow: 168h                    # lookback window (default: 168h)
     minimumDataPoints: 48                  # min samples before recommending (default: 48)
 

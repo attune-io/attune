@@ -206,8 +206,41 @@ spec:
                     description: Prometheus configures a Prometheus metrics source.
                     properties:
                       address:
-                        description: Address is the URL of the Prometheus server.
+                        description: Address is the URL of the Prometheus-compatible
+                          query endpoint.
                         type: string
+                      bearerTokenSecret:
+                        description: |-
+                          BearerTokenSecret references a Kubernetes Secret containing a bearer
+                          token for authenticating with managed Prometheus services.
+                        properties:
+                          key:
+                            description: Key within the Secret.
+                            type: string
+                          name:
+                            description: Name of the Secret.
+                            type: string
+                        required:
+                        - key
+                        - name
+                        type: object
+                      headers:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          Headers are custom HTTP headers added to every query request.
+                          Use for tenant IDs (e.g. "X-Scope-OrgID" for Mimir), API keys,
+                          or other auth headers required by the backend.
+                        type: object
+                      tls:
+                        description: TLS configures TLS settings for the connection.
+                        properties:
+                          insecureSkipVerify:
+                            description: |-
+                              InsecureSkipVerify disables TLS certificate verification.
+                              Use only for self-signed certificates in development.
+                            type: boolean
+                        type: object
                     required:
                     - address
                     type: object
