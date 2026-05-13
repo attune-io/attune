@@ -550,11 +550,18 @@ func TestScaleLimits(t *testing.T) {
 			wantLim:    "300m",
 		},
 		{
-			name:       "zero current req returns new req as limit",
+			name:       "zero current req returns zero limit",
 			currentReq: "0",
 			currentLim: "1000m",
 			newReq:     "250m",
-			wantLim:    "250m",
+			wantLim:    "0",
+		},
+		{
+			name:       "zero current lim returns zero limit",
+			currentReq: "500m",
+			currentLim: "0",
+			newReq:     "250m",
+			wantLim:    "0",
 		},
 	}
 
@@ -1563,6 +1570,7 @@ func TestCheckPendingSafetyObservations_ObservationElapsed(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-pod",
 			Namespace: "default",
+			Labels:    map[string]string{"rightsize.io/tracked": "true"},
 			Annotations: map[string]string{
 				"rightsize.io/resized-at":                   resizedAt,
 				"rightsize.io/resized-workload":             "api-server",
@@ -1620,6 +1628,7 @@ func TestCheckPendingSafetyObservations_MalformedAnnotation(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "bad-pod",
 			Namespace: "default",
+			Labels:    map[string]string{"rightsize.io/tracked": "true"},
 			Annotations: map[string]string{
 				"rightsize.io/resized-at":                   resizedAt,
 				"rightsize.io/resized-workload":             "api-server",
@@ -1662,6 +1671,7 @@ func TestCheckPendingSafetyObservations_NotElapsed(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "recent-pod",
 			Namespace: "default",
+			Labels:    map[string]string{"rightsize.io/tracked": "true"},
 			Annotations: map[string]string{
 				"rightsize.io/resized-at":                   resizedAt,
 				"rightsize.io/resized-workload":             "api-server",
@@ -2344,6 +2354,7 @@ func TestCheckPendingSafetyObservations_MalformedTimestamp(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "bad-ts-pod",
 			Namespace: "default",
+			Labels:    map[string]string{"rightsize.io/tracked": "true"},
 			Annotations: map[string]string{
 				"rightsize.io/resized-at":                   "not-a-timestamp",
 				"rightsize.io/resized-workload":             "api-server",
@@ -2384,6 +2395,7 @@ func TestCheckPendingSafetyObservations_MalformedMemoryAnnotation(t *testing.T) 
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "bad-mem-pod",
 			Namespace: "default",
+			Labels:    map[string]string{"rightsize.io/tracked": "true"},
 			Annotations: map[string]string{
 				"rightsize.io/resized-at":                   resizedAt,
 				"rightsize.io/resized-workload":             "api-server",
@@ -2425,6 +2437,7 @@ func TestCheckPendingSafetyObservations_CustomObservationPeriod(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "custom-period-pod",
 			Namespace: "default",
+			Labels:    map[string]string{"rightsize.io/tracked": "true"},
 			Annotations: map[string]string{
 				"rightsize.io/resized-at":                   resizedAt,
 				"rightsize.io/resized-workload":             "api-server",
@@ -2492,7 +2505,7 @@ func TestCheckPendingSafetyObservations_UnsafeVerdictReverts(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "unsafe-pod",
 			Namespace: "default",
-			Labels:    map[string]string{"app": "test"},
+			Labels:    map[string]string{"app": "test", "rightsize.io/tracked": "true"},
 			Annotations: map[string]string{
 				"rightsize.io/resized-at":                   resizedAt,
 				"rightsize.io/resized-workload":             "api-server",
@@ -2561,7 +2574,7 @@ func TestCheckPendingSafetyObservations_UnsafeVerdictEmitsEvent(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "unsafe-pod",
 			Namespace: "default",
-			Labels:    map[string]string{"app": "test"},
+			Labels:    map[string]string{"app": "test", "rightsize.io/tracked": "true"},
 			Annotations: map[string]string{
 				"rightsize.io/resized-at":                   resizedAt,
 				"rightsize.io/resized-workload":             "api-server",
@@ -2619,6 +2632,7 @@ func TestCheckPendingSafetyObservations_RestartCountParsed(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "restart-pod",
 			Namespace: "default",
+			Labels:    map[string]string{"rightsize.io/tracked": "true"},
 			Annotations: map[string]string{
 				"rightsize.io/resized-at":                   resizedAt,
 				"rightsize.io/resized-workload":             "api-server",
@@ -2675,6 +2689,7 @@ func TestCheckPendingSafetyObservations_RestartCountExceeded(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "crashing-pod",
 			Namespace: "default",
+			Labels:    map[string]string{"rightsize.io/tracked": "true"},
 			Annotations: map[string]string{
 				"rightsize.io/resized-at":                   resizedAt,
 				"rightsize.io/resized-workload":             "api-server",
@@ -2731,6 +2746,7 @@ func TestCheckPendingSafetyObservations_InvalidRestartCount(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "bad-annotation-pod",
 			Namespace: "default",
+			Labels:    map[string]string{"rightsize.io/tracked": "true"},
 			Annotations: map[string]string{
 				"rightsize.io/resized-at":                   resizedAt,
 				"rightsize.io/resized-workload":             "api-server",

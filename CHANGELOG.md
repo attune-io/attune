@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- Webhook validation now **rejects** `cpu.percentile` and `memory.percentile`
+  values outside `{50, 90, 95, 99}`. Previously, unsupported values (e.g., 75)
+  were accepted with a warning and silently fell back to P95. Existing policies
+  with unsupported percentile values must be updated before they can be modified.
+
 ### Changed
 
 - RBAC: Added `list` and `watch` verbs to `nodes`, `resourcequotas`, and
@@ -27,3 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in-place memory limit decreases.
 - Status race condition: concurrent reconciles no longer overwrite the
   `status.workloads.resized` count with a stale zero value.
+- `scaleLimits` no longer sets limit equal to request when the current limit
+  is zero. Returns zero instead, preventing unintended QoS class changes.
+- `RevertPod` now searches both init containers and regular containers,
+  fixing silent revert failures for native sidecars.
+- Trivy image scan in CI now uses `docker save` tar instead of image-ref,
+  fixing "UNAUTHORIZED" errors when scanning locally-built images.

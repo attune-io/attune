@@ -62,6 +62,9 @@ const (
 	annotationResizedContainers = "rightsize.io/resized-containers"
 	annotationResizedWorkload   = "rightsize.io/resized-workload"
 
+	// Label for filtering resized pods in safety observation queries.
+	labelTracked = "rightsize.io/tracked"
+
 	// Per-container annotation prefixes (suffixed with ".containerName").
 	annotationOriginalCPUPrefix          = "rightsize.io/original-cpu-request."
 	annotationOriginalMemoryPrefix       = "rightsize.io/original-memory-request."
@@ -916,6 +919,10 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 	freshPod.Annotations = ensureAnnotations(freshPod.Annotations)
 	freshPod.Annotations[annotationResizedAt] = now.UTC().Format(time.RFC3339)
 	freshPod.Annotations[annotationResizedWorkload] = workloadName
+	if freshPod.Labels == nil {
+		freshPod.Labels = make(map[string]string)
+	}
+	freshPod.Labels[labelTracked] = "true"
 	appendResizedContainer(freshPod, containerRec.Name)
 	freshPod.Annotations[annotationOriginalCPUPrefix+containerRec.Name] = containerRec.Current.CPURequest.String()
 	freshPod.Annotations[annotationOriginalMemoryPrefix+containerRec.Name] = containerRec.Current.MemoryRequest.String()
@@ -1144,9 +1151,9 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 		return
 	}
 
-	// List pods with the resize-tracking annotation in the policy's namespace.
+	// List only pods with the tracking label (set during resize).
 	var podList corev1.PodList
-	if err := r.List(ctx, &podList, client.InNamespace(policy.Namespace)); err != nil {
+	if err := r.List(ctx, &podList, client.InNamespace(policy.Namespace), client.MatchingLabels{labelTracked: "true"}); err != nil {
 		logger.Error(err, "Failed to list pods for safety observation")
 		return
 	}

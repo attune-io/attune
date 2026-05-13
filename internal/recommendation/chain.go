@@ -24,11 +24,11 @@ import (
 	"github.com/SebTardif/kube-rightsize/internal/metrics"
 )
 
-// RecommendationEngine composes a chain of estimators to produce a final
-// resource recommendation. The chain is built from:
-// percentile -> margin -> confidence -> bounds -> change_filter.
+// RecommendationEngine produces resource recommendations by applying a
+// pipeline: percentile -> margin -> confidence -> bounds -> change_filter.
+// Each step is configured via the fields below and executed inline in
+// RecommendWithExplanation.
 type RecommendationEngine struct {
-	chain                Estimator
 	percentile           int
 	safetyMargin         float64
 	minBound             resource.Quantity
@@ -41,51 +41,19 @@ type RecommendationEngine struct {
 }
 
 // NewEngine creates a new RecommendationEngine with the specified parameters.
-// The estimator chain is: PercentileEstimator -> MarginEstimator ->
-// ConfidenceEstimator -> BoundsEstimator -> ChangeFilter.
 func NewEngine(percentile int, safetyMargin float64, minBound, maxBound resource.Quantity,
 	maxChangePercent float64, isCPU ...bool,
 ) *RecommendationEngine {
-	// Build the chain from innermost to outermost.
 	cpu := len(isCPU) > 0 && isCPU[0]
-	base := &PercentileEstimator{Percentile: percentile, IsCPU: cpu}
-
-	margin := &MarginEstimator{
-		Factor: safetyMargin,
-		Inner:  base,
-	}
-
-	confidenceMultiplier := 1.0
-	confidenceExponent := 2.0
-	confidence := &ConfidenceEstimator{
-		Multiplier: confidenceMultiplier,
-		Exponent:   confidenceExponent,
-		Inner:      margin,
-	}
-
-	bounds := &BoundsEstimator{
-		Min:   minBound,
-		Max:   maxBound,
-		Inner: confidence,
-	}
-
-	minChangePercent := 10.0
-	filter := &ChangeFilter{
-		MinChangePercent: minChangePercent,
-		MaxChangePercent: maxChangePercent,
-		Inner:            bounds,
-	}
-
 	return &RecommendationEngine{
-		chain:                filter,
 		percentile:           percentile,
 		safetyMargin:         safetyMargin,
 		minBound:             minBound.DeepCopy(),
 		maxBound:             maxBound.DeepCopy(),
-		minChangePercent:     minChangePercent,
+		minChangePercent:     10.0,
 		maxChangePercent:     maxChangePercent,
-		confidenceMultiplier: confidenceMultiplier,
-		confidenceExponent:   confidenceExponent,
+		confidenceMultiplier: 1.0,
+		confidenceExponent:   2.0,
 		isCPU:                cpu,
 	}
 }

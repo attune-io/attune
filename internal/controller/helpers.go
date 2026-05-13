@@ -88,6 +88,7 @@ func removeTrackingAnnotations(pod *corev1.Pod) {
 	delete(pod.Annotations, annotationResizedAt)
 	delete(pod.Annotations, annotationResizedContainers)
 	delete(pod.Annotations, annotationResizedWorkload)
+	delete(pod.Labels, labelTracked)
 }
 
 // appendResizedContainer adds a container name to the comma-separated
@@ -249,7 +250,9 @@ func getCostPricing(defaults *rightsizev1alpha1.RightSizeDefaults) (cpuPerCoreHo
 // overflow from extreme limit/request ratios.
 func scaleLimits(currentReq, currentLim, newReq resource.Quantity) resource.Quantity {
 	if currentReq.IsZero() || currentLim.IsZero() {
-		return newReq.DeepCopy()
+		// Return zero so buildResizeTarget excludes this limit from the target.
+		// Setting limit = request would change the pod's QoS class.
+		return resource.Quantity{}
 	}
 	ratio := float64(currentLim.MilliValue()) / float64(currentReq.MilliValue())
 	if math.IsNaN(ratio) || math.IsInf(ratio, 0) || ratio <= 0 {
