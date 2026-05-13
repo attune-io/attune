@@ -223,6 +223,8 @@ spec:
                     - Deployment
                     - StatefulSet
                     - DaemonSet
+                    - CronJob
+                    - Job
                     type: string
                   name:
                     description: Name is the name of a specific target resource.

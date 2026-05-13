@@ -1929,7 +1929,7 @@ func TestListWorkloadsBySelector_UnsupportedKind(t *testing.T) {
 	r := newReconcilerWithClient()
 
 	selector := &metav1.LabelSelector{MatchLabels: map[string]string{"app": "test"}}
-	_, err := r.listWorkloadsBySelector(context.Background(), "default", "CronJob", selector)
+	_, err := r.listWorkloadsBySelector(context.Background(), "default", "ReplicaSet", selector)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported workload kind")
 }
@@ -1963,14 +1963,14 @@ func TestDiscoverWorkloads_FindsDaemonSetByName(t *testing.T) {
 }
 
 func TestDiscoverWorkloads_UnsupportedKind(t *testing.T) {
-	name := "my-job"
+	name := "my-replicaset"
 	r := newReconcilerWithClient()
 
 	policy := &rightsizev1alpha1.RightSizePolicy{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
 		Spec: rightsizev1alpha1.RightSizePolicySpec{
 			TargetRef: rightsizev1alpha1.TargetRef{
-				Kind: "CronJob",
+				Kind: "ReplicaSet",
 				Name: &name,
 			},
 		},
@@ -2995,7 +2995,7 @@ func TestReconcile_MetricsFactoryError(t *testing.T) {
 
 func TestReconcile_DiscoverWorkloadsError(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.TargetRef.Kind = "CronJob"
+	policy.Spec.TargetRef.Kind = "ReplicaSet"
 
 	mc := &mockCollector{}
 	reconciler, fakeClient := newReconcilerForReconcile(mc, policy)

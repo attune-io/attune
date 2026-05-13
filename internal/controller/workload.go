@@ -22,6 +22,7 @@ import (
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -82,6 +83,18 @@ func (r *RightSizePolicyReconciler) getWorkloadByName(ctx context.Context, names
 			return nil, err
 		}
 		return obj, nil
+	case "CronJob":
+		obj := &batchv1.CronJob{}
+		if err := r.Get(ctx, key, obj); err != nil {
+			return nil, err
+		}
+		return obj, nil
+	case "Job":
+		obj := &batchv1.Job{}
+		if err := r.Get(ctx, key, obj); err != nil {
+			return nil, err
+		}
+		return obj, nil
 	default:
 		return nil, fmt.Errorf("unsupported workload kind: %s", kind)
 	}
@@ -120,6 +133,22 @@ func (r *RightSizePolicyReconciler) listWorkloadsBySelector(ctx context.Context,
 		}
 	case "DaemonSet":
 		var list appsv1.DaemonSetList
+		if err := r.List(ctx, &list, listOpts...); err != nil {
+			return nil, err
+		}
+		for i := range list.Items {
+			result = append(result, &list.Items[i])
+		}
+	case "CronJob":
+		var list batchv1.CronJobList
+		if err := r.List(ctx, &list, listOpts...); err != nil {
+			return nil, err
+		}
+		for i := range list.Items {
+			result = append(result, &list.Items[i])
+		}
+	case "Job":
+		var list batchv1.JobList
 		if err := r.List(ctx, &list, listOpts...); err != nil {
 			return nil, err
 		}
@@ -167,6 +196,17 @@ func (r *RightSizePolicyReconciler) getPodSelectorLabels(workload client.Object)
 		if w.Spec.Selector != nil {
 			return w.Spec.Selector.MatchLabels
 		}
+	case *batchv1.CronJob:
+		if w.Spec.JobTemplate.Spec.Selector != nil {
+			return w.Spec.JobTemplate.Spec.Selector.MatchLabels
+		}
+		// Fall back to pod template labels for CronJobs without explicit selector.
+		return w.Spec.JobTemplate.Spec.Template.Labels
+	case *batchv1.Job:
+		if w.Spec.Selector != nil {
+			return w.Spec.Selector.MatchLabels
+		}
+		return w.Spec.Template.Labels
 	}
 	return nil
 }
@@ -181,6 +221,10 @@ func (r *RightSizePolicyReconciler) getContainers(workload client.Object) []core
 	case *appsv1.StatefulSet:
 		spec = &w.Spec.Template.Spec
 	case *appsv1.DaemonSet:
+		spec = &w.Spec.Template.Spec
+	case *batchv1.CronJob:
+		spec = &w.Spec.JobTemplate.Spec.Template.Spec
+	case *batchv1.Job:
 		spec = &w.Spec.Template.Spec
 	}
 	if spec == nil {
@@ -202,6 +246,16 @@ func nativeSidecars(initContainers []corev1.Container) []corev1.Container {
 	return sidecars
 }
 
+// isBatchWorkload returns true for Job and CronJob workloads. These only
+// support Observe/Recommend modes; in-place resize is not applicable.
+func isBatchWorkload(workload client.Object) bool {
+	switch workload.(type) {
+	case *batchv1.CronJob, *batchv1.Job:
+		return true
+	}
+	return false
+}
+
 // isRollingOut checks if a workload is currently in the middle of a rollout.
 func (r *RightSizePolicyReconciler) isRollingOut(workload client.Object) bool {
 	switch w := workload.(type) {
@@ -220,6 +274,8 @@ func (r *RightSizePolicyReconciler) isRollingOut(workload client.Object) bool {
 		if w.Status.UpdatedNumberScheduled < w.Status.DesiredNumberScheduled {
 			return true
 		}
+	case *batchv1.CronJob, *batchv1.Job:
+		return false // batch workloads don't have rollouts
 	}
 	return false
 }

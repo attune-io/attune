@@ -57,7 +57,7 @@ type RightSizePolicySpec struct {
 // TargetRef identifies the target workload(s).
 type TargetRef struct {
 	// Kind is the kind of the target resource.
-	// +kubebuilder:validation:Enum=Deployment;StatefulSet;DaemonSet
+	// +kubebuilder:validation:Enum=Deployment;StatefulSet;DaemonSet;CronJob;Job
 	Kind string `json:"kind"`
 
 	// Name is the name of a specific target resource.
