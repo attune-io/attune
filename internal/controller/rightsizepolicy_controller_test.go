@@ -3898,6 +3898,69 @@ func TestTryEvictionFallback_SkipsLastReplica(t *testing.T) {
 	assert.False(t, evicted, "should NOT evict the last replica")
 }
 
+func TestExecuteResizes_BudgetCapsDefersExcessiveIncrease(t *testing.T) {
+	// Pod at 200m CPU, recommendation is 800m (increase of 600m).
+	// Budget cap is 500m, so the resize should be skipped.
+	pod := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	reconciler, _ := newResizeReconciler(pod, deploy)
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.ModeAuto
+	cpuBudget := resource.MustParse("500m")
+	policy.Spec.UpdateStrategy.MaxTotalCPUIncrease = &cpuBudget
+
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("api-server", "200m", "256Mi", "0", "0", "800m", "256Mi", "0", "0"),
+	}
+
+	count, _ := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
+		recommendations, podMap("api-server", pod), nil)
+	assert.Equal(t, 0, count, "resize should be deferred when CPU increase exceeds budget")
+}
+
+func TestExecuteResizes_BudgetCapsAllowsWithinBudget(t *testing.T) {
+	// Pod at 200m CPU, recommendation is 500m (increase of 300m).
+	// Budget cap is 500m, so the resize should proceed.
+	pod := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	reconciler, _ := newResizeReconciler(pod, deploy)
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.ModeAuto
+	cpuBudget := resource.MustParse("500m")
+	policy.Spec.UpdateStrategy.MaxTotalCPUIncrease = &cpuBudget
+
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("api-server", "200m", "256Mi", "0", "0", "500m", "256Mi", "0", "0"),
+	}
+
+	count, _ := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
+		recommendations, podMap("api-server", pod), nil)
+	assert.Equal(t, 1, count, "resize should proceed when within budget")
+}
+
+func TestExecuteResizes_BudgetCapsDecreasesFree(t *testing.T) {
+	// Pod at 800m CPU, recommendation is 400m (decrease of 400m).
+	// Budget cap is 100m. Decreases should NOT consume budget.
+	pod := newResizePod("api-server", "800m", "256Mi", "800m", "256Mi")
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	reconciler, _ := newResizeReconciler(pod, deploy)
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.ModeAuto
+	cpuBudget := resource.MustParse("100m")
+	policy.Spec.UpdateStrategy.MaxTotalCPUIncrease = &cpuBudget
+
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("api-server", "800m", "256Mi", "0", "0", "400m", "256Mi", "0", "0"),
+	}
+
+	count, _ := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
+		recommendations, podMap("api-server", pod), nil)
+	assert.Equal(t, 1, count, "decreases should not consume budget")
+}
+
 func TestProgressPercent(t *testing.T) {
 	tests := []struct {
 		name                      string

@@ -244,6 +244,9 @@ The dashboard includes:
   16x), preventing repeated failed resizes.
 - **Kubernetes Events**: Emits `Normal/Resized` and `Warning/Reverted` events
   on the policy, visible via `kubectl describe`.
+- **Per-cycle budget caps**: `maxTotalCpuIncrease` and `maxTotalMemoryIncrease`
+  limit aggregate resource increases per reconcile cycle, preventing cluster-wide
+  spikes when many pods need scaling up.
 - **Eviction fallback**: Optional `resizeMethod: InPlaceOrEvict` falls back to
   pod eviction when in-place resize fails. Respects PDBs and never evicts
   the last replica. Default `InPlaceOnly` preserves current zero-disruption behavior.

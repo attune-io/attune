@@ -29,6 +29,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `CronJob`. Batch workloads are recommend-only: the operator computes
   recommendations from historical Prometheus usage but does not attempt
   in-place resizes (batch pods complete and are not available for resize).
+- **Per-cycle budget caps** via `maxTotalCpuIncrease` and
+  `maxTotalMemoryIncrease` on `updateStrategy`. Limits the total aggregate
+  resource increase across all pods in a single reconcile cycle. Prevents
+  sudden cluster-wide resource spikes when many pods need increases.
+  Decreases do not consume budget. Default: unlimited (current behavior).
 - **Eviction fallback** via `resizeMethod: InPlaceOrEvict`. When in-place
   resize fails (node full, kubelet marks Infeasible), the operator falls
   back to pod eviction via the Eviction API. Safety: respects PDBs, never

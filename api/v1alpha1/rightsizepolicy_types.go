@@ -184,6 +184,20 @@ type UpdateStrategy struct {
 	// +kubebuilder:validation:Enum=InPlaceOnly;InPlaceOrEvict
 	// +optional
 	ResizeMethod string `json:"resizeMethod,omitempty"`
+
+	// MaxTotalCPUIncrease is the maximum aggregate CPU increase allowed
+	// across all pods in a single reconcile cycle (e.g. "2000m", "4").
+	// Once exhausted, remaining pods are deferred to the next cycle.
+	// Decreases do not consume budget. Default: unlimited.
+	// +optional
+	MaxTotalCPUIncrease *resource.Quantity `json:"maxTotalCpuIncrease,omitempty"`
+
+	// MaxTotalMemoryIncrease is the maximum aggregate memory increase
+	// allowed across all pods in a single reconcile cycle (e.g. "4Gi").
+	// Once exhausted, remaining pods are deferred to the next cycle.
+	// Decreases do not consume budget. Default: unlimited.
+	// +optional
+	MaxTotalMemoryIncrease *resource.Quantity `json:"maxTotalMemoryIncrease,omitempty"`
 }
 
 // CanaryConfig defines canary rollout parameters.

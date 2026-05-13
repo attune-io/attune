@@ -760,6 +760,16 @@ func (r *RightSizePolicyReconciler) executeResizes(
 	var history []rightsizev1alpha1.ResizeHistoryEntry
 	now := metav1.Now()
 
+	// Per-cycle budget caps. Negative remaining means unlimited.
+	cpuBudget := int64(-1)
+	memBudget := int64(-1)
+	if policy.Spec.UpdateStrategy.MaxTotalCPUIncrease != nil {
+		cpuBudget = policy.Spec.UpdateStrategy.MaxTotalCPUIncrease.MilliValue()
+	}
+	if policy.Spec.UpdateStrategy.MaxTotalMemoryIncrease != nil {
+		memBudget = policy.Spec.UpdateStrategy.MaxTotalMemoryIncrease.Value()
+	}
+
 	for _, rec := range recommendations {
 		if ctx.Err() != nil {
 			logger.Info("Context cancelled, aborting remaining resizes")
@@ -792,6 +802,28 @@ func (r *RightSizePolicyReconciler) executeResizes(
 		var workloadResized bool
 		for _, pod := range selectedPods {
 			for _, containerRec := range rec.Containers {
+				// Check per-cycle budget caps before resizing.
+				if cpuBudget >= 0 || memBudget >= 0 {
+					cpuIncrease := containerRec.Recommended.CPURequest.MilliValue() - containerRec.Current.CPURequest.MilliValue()
+					memIncrease := containerRec.Recommended.MemoryRequest.Value() - containerRec.Current.MemoryRequest.Value()
+					// Only increases consume budget; decreases are free.
+					if cpuIncrease < 0 {
+						cpuIncrease = 0
+					}
+					if memIncrease < 0 {
+						memIncrease = 0
+					}
+					if (cpuBudget >= 0 && cpuIncrease > cpuBudget) ||
+						(memBudget >= 0 && memIncrease > memBudget) {
+						logger.Info("Budget exhausted, deferring resize to next cycle",
+							"pod", pod.Name, "container", containerRec.Name,
+							"cpuIncrease", cpuIncrease, "cpuBudgetRemaining", cpuBudget,
+							"memIncrease", memIncrease, "memBudgetRemaining", memBudget)
+						continue
+					}
+					cpuBudget -= cpuIncrease
+					memBudget -= memIncrease
+				}
 				entries, resized := r.resizeContainer(ctx, policy, &pod, rec.Workload, containerRec, resizer, monitor, now)
 				history = append(history, entries...)
 				if resized {

@@ -59,6 +59,8 @@ spec:
     cooldown: 1h               # min time between resize operations (default: 1h)
     autoRevert: true           # revert on safety violation (default: true)
     resizeMethod: InPlaceOnly  # InPlaceOnly | InPlaceOrEvict (default: InPlaceOnly)
+    maxTotalCpuIncrease: "2000m"    # max aggregate CPU increase per cycle (default: unlimited)
+    maxTotalMemoryIncrease: "4Gi"   # max aggregate memory increase per cycle (default: unlimited)
 
   # Containers to skip (e.g., service mesh sidecars).
   excludeContainers:
