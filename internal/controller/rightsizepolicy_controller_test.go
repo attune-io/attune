@@ -3593,3 +3593,23 @@ func TestBuildResizeTarget_PartialLimits(t *testing.T) {
 	_, hasMemLimit := target.Limits[corev1.ResourceMemory]
 	assert.False(t, hasMemLimit, "Memory limit should not be set when zero in recommendation")
 }
+
+func TestProgressPercent(t *testing.T) {
+	tests := []struct {
+		name              string
+		collected, required, want int
+	}{
+		{"zero required returns zero", 5, 0, 0},
+		{"negative required returns zero", 5, -1, 0},
+		{"partial progress", 50, 100, 50},
+		{"exactly at required clamps to 99", 100, 100, 99},
+		{"over required clamps to 99", 200, 100, 99},
+		{"zero collected", 0, 100, 0},
+		{"one sample", 1, 100, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, progressPercent(tt.collected, tt.required))
+		})
+	}
+}
