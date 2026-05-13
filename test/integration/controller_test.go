@@ -686,6 +686,50 @@ func TestWebhook_AcceptsValidSchedule(t *testing.T) {
 	assert.NoError(t, err, "webhook should accept valid schedule")
 }
 
+func TestReconcile_BearerTokenSecretWiredToCollector(t *testing.T) {
+	namespace := "integration-test"
+
+	// Create a Secret with a bearer token.
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "prom-auth", Namespace: namespace},
+		Data:       map[string][]byte{"token": []byte("test-bearer-token")},
+	}
+	require.NoError(t, k8sClient.Create(ctx, secret))
+
+	// Create a Deployment for the policy to target.
+	deploy := newTestDeployment("bearer-test-app", namespace)
+	require.NoError(t, k8sClient.Create(ctx, deploy))
+
+	// Create a policy with bearerTokenSecret.
+	policy := newTestPolicy("policy-bearer", namespace, "bearer-test-app")
+	policy.Spec.MetricsSource.Prometheus.BearerTokenSecret = &rightsizev1alpha1.SecretKeyRef{
+		Name: "prom-auth",
+		Key:  "token",
+	}
+	require.NoError(t, k8sClient.Create(ctx, policy))
+
+	// The reconciler should read the Secret and create a collector without errors.
+	// If the bearer token wiring is broken, the policy status would show
+	// PrometheusUnavailable. We verify it reaches Ready/InsufficientData instead.
+	assert.Eventually(t, func() bool {
+		var fetched rightsizev1alpha1.RightSizePolicy
+		if err := k8sClient.Get(ctx, types.NamespacedName{
+			Name: "policy-bearer", Namespace: namespace,
+		}, &fetched); err != nil {
+			return false
+		}
+		for _, c := range fetched.Status.Conditions {
+			// Any condition other than PrometheusUnavailable means the
+			// Secret was read and the collector was created successfully.
+			if c.Type == "Ready" && c.Reason != "PrometheusUnavailable" {
+				return true
+			}
+		}
+		return false
+	}, 30*time.Second, 500*time.Millisecond,
+		"policy with bearerTokenSecret should reconcile without PrometheusUnavailable")
+}
+
 // ---------- Resize execution path (#20) ----------
 
 // Note: Resize execution integration tests are NOT included because envtest's
