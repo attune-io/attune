@@ -1,3 +1,5 @@
+# Core Concepts
+
 ## Custom Resource Definitions
 
 kube-rightsize introduces two CRDs:

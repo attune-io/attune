@@ -1,3 +1,5 @@
+# Troubleshooting
+
 ## Common conditions
 
 Check the policy's conditions for a quick diagnosis:

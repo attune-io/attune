@@ -1,3 +1,5 @@
+# GitOps Integration
+
 kube-rightsize performs in-place pod resizes via the `/resize` subresource,
 which modifies the running pod without changing the Deployment, StatefulSet,
 or DaemonSet spec. This has specific implications for GitOps workflows.

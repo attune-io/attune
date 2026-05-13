@@ -1,3 +1,5 @@
+# Auto Mode
+
 Auto mode is the production end-state for kube-rightsize. The operator
 continuously resizes all eligible pods based on observed metrics. Before
 enabling Auto mode, you should have validated recommendations through

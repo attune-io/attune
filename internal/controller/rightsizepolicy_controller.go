@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -871,7 +872,7 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 	}
 
 	var restartCount int32
-	for _, cs := range append(pod.Status.ContainerStatuses, pod.Status.InitContainerStatuses...) {
+	for _, cs := range slices.Concat(pod.Status.ContainerStatuses, pod.Status.InitContainerStatuses) {
 		if cs.Name == containerRec.Name {
 			restartCount = cs.RestartCount
 			break
@@ -1083,8 +1084,7 @@ func (r *RightSizePolicyReconciler) shouldSkipResize(
 	target corev1.ResourceRequirements,
 ) (skip bool, reason string) {
 	// Already at target (search both regular and init containers).
-	allContainers := append(pod.Spec.InitContainers, pod.Spec.Containers...)
-	for _, c := range allContainers {
+	for _, c := range slices.Concat(pod.Spec.InitContainers, pod.Spec.Containers) {
 		if c.Name == containerRec.Name {
 			if c.Resources.Requests.Cpu().MilliValue() == containerRec.Recommended.CPURequest.MilliValue() &&
 				c.Resources.Requests.Memory().Value() == containerRec.Recommended.MemoryRequest.Value() {
@@ -1100,7 +1100,7 @@ func (r *RightSizePolicyReconciler) shouldSkipResize(
 		if err := r.Get(ctx, types.NamespacedName{Name: pod.Spec.NodeName}, &node); err == nil {
 			totalCPU := int64(0)
 			totalMem := int64(0)
-			for _, c := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
+			for _, c := range slices.Concat(pod.Spec.InitContainers, pod.Spec.Containers) {
 				if c.Name == containerRec.Name {
 					totalCPU += target.Requests.Cpu().MilliValue()
 					totalMem += target.Requests.Memory().Value()
@@ -1263,7 +1263,7 @@ func parseResizeRecords(pod *corev1.Pod, observationPeriod time.Duration) ([]saf
 		}
 
 		var currentResources corev1.ResourceRequirements
-		for _, c := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
+		for _, c := range slices.Concat(pod.Spec.InitContainers, pod.Spec.Containers) {
 			if c.Name == containerName {
 				currentResources = c.Resources
 				break

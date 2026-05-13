@@ -1,3 +1,5 @@
+# Canary Rollout
+
 Canary mode resizes a small percentage of pods first, watches them for safety
 violations, and only proceeds to the full fleet after the observation period
 passes without issues.

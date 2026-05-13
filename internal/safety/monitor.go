@@ -21,6 +21,7 @@ package safety
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -105,8 +106,7 @@ func (m *Monitor) CheckPod(ctx context.Context, record ResizeRecord) (SafetyVerd
 
 	// Search both regular and init container statuses (native sidecars
 	// report status in InitContainerStatuses).
-	allStatuses := append(pod.Status.ContainerStatuses, pod.Status.InitContainerStatuses...)
-	for _, cs := range allStatuses {
+	for _, cs := range slices.Concat(pod.Status.ContainerStatuses, pod.Status.InitContainerStatuses) {
 		if cs.Name != record.Container {
 			continue
 		}

@@ -1,3 +1,5 @@
+# Prometheus Setup
+
 kube-rightsize relies on Prometheus for historical CPU and memory usage data.
 This guide covers which metrics are required, how to configure the Prometheus
 address, and how to verify the integration is working.

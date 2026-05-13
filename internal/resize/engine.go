@@ -20,6 +20,7 @@ package resize
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -197,8 +198,7 @@ func CanResizeInPlace(pod *corev1.Pod) bool {
 // trigger a kubelet restart based on the container's resizePolicy. If the
 // container has no resizePolicy, the default is NotRequired (no restart).
 func WouldRestartContainer(pod *corev1.Pod, containerName string) bool {
-	allContainers := append(pod.Spec.InitContainers, pod.Spec.Containers...)
-	for _, c := range allContainers {
+	for _, c := range slices.Concat(pod.Spec.InitContainers, pod.Spec.Containers) {
 		if c.Name != containerName {
 			continue
 		}

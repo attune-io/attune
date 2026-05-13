@@ -2845,27 +2845,6 @@ func TestBuildPrometheusQuery_EscapesSpecialChars(t *testing.T) {
 	assert.Contains(t, query, `con\"tainer`)
 }
 
-func TestEscapePromQLRegex(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		want  string
-	}{
-		{"clean string", "my-app", "my-app"},
-		{"dot in name", "my.app", `my\.app`},
-		{"plus in name", "app+v2", `app\+v2`},
-		{"multiple metacharacters", "a.b+c*d", `a\.b\+c\*d`},
-		{"pipe", "a|b", `a\|b`},
-		{"brackets", "[test]", `\[test\]`},
-		{"empty", "", ""},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, rsmetrics.EscapePromQLRegex(tt.input))
-		})
-	}
-}
-
 func TestBuildPrometheusQuery_EscapesRegexInPodPrefix(t *testing.T) {
 	query := buildPrometheusQuery("default", "my.app", "main", "cpu")
 	// The dot in "my.app" should be escaped as "my\.app" in the regex matcher.

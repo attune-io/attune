@@ -1,3 +1,5 @@
+# HPA Coexistence
+
 kube-rightsize is designed to work alongside Horizontal Pod Autoscalers
 (HPAs) without causing scaling conflicts or death spirals.
 

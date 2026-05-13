@@ -1,85 +1,72 @@
 site_name: kube-rightsize
-site_description: Safe, in-place Kubernetes pod resource right-sizing operator
+site_description: Safe, in-place Kubernetes pod resource right-sizing
 site_url: https://sebtardiflabs.github.io/kube-rightsize/
 repo_url: https://github.com/SebTardifLabs/kube-rightsize
 repo_name: SebTardifLabs/kube-rightsize
+docs_dir: docs
 
 theme:
   name: material
   palette:
-    - media: "(prefers-color-scheme: light)"
-      scheme: default
+    - scheme: default
       primary: teal
       accent: teal
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
-    - media: "(prefers-color-scheme: dark)"
-      scheme: slate
+    - scheme: slate
       primary: teal
       accent: teal
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
   features:
-    - content.code.copy
-    - content.code.annotate
-    - content.tabs.link
-    - navigation.instant
-    - navigation.tabs
     - navigation.sections
+    - navigation.expand
     - navigation.top
-    - search.suggest
+    - content.code.copy
     - search.highlight
-  icon:
-    repo: fontawesome/brands/github
 
 markdown_extensions:
   - admonition
   - pymdownx.details
-  - pymdownx.superfences:
-      custom_fences:
-        - name: mermaid
-          class: mermaid
-          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.superfences
   - pymdownx.tabbed:
       alternate_style: true
-  - pymdownx.highlight:
-      anchor_linenums: true
-  - pymdownx.inlinehilite
-  - pymdownx.snippets
   - tables
   - attr_list
+  - toc:
+      permalink: true
 
 nav:
   - Home: index.md
-  - Why kube-rightsize: why-kube-rightsize.md
+  - Why kube-rightsize?: why-kube-rightsize.md
   - Savings Calculator: savings-calculator.md
   - Getting Started:
+      - Core Concepts: getting-started/concepts.md
       - Installation: getting-started/installation.md
       - Quick Start: getting-started/quickstart.md
-      - Concepts: getting-started/concepts.md
   - Guides:
-      - Prometheus Setup: guides/prometheus-setup.md
       - Recommend Mode: guides/recommend-mode.md
       - Canary Rollout: guides/canary-rollout.md
       - Auto Mode: guides/auto-mode.md
       - HPA Coexistence: guides/hpa-coexistence.md
+      - Prometheus Setup: guides/prometheus-setup.md
+      - Istio Integration: guides/istio-integration.md
       - GitOps Integration: guides/gitops-integration.md
       - Migrating from VPA: guides/migrating-from-vpa.md
       - Troubleshooting: guides/troubleshooting.md
   - Reference:
       - API Reference: reference/api.md
       - CLI Reference: reference/cli.md
-      - Metrics: reference/metrics.md
       - Configuration: reference/configuration.md
+      - Metrics: reference/metrics.md
   - Architecture:
       - Design: architecture/design.md
-      - Resize API: architecture/resize-api.md
       - Algorithm: architecture/algorithm.md
-      - Safety System: architecture/safety.md
+      - Resize API: architecture/resize-api.md
+      - Safety: architecture/safety.md
   - Contributing:
       - Development: contributing/development.md
       - Testing: contributing/testing.md
       - Releasing: contributing/releasing.md
-  - Specification: SPEC.md

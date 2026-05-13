@@ -1,3 +1,5 @@
+# Quick Start
+
 This guide walks you through creating a RightSizePolicy, reviewing its
 recommendations, and promoting to Canary mode, all in about five minutes.
 

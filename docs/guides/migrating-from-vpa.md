@@ -1,3 +1,5 @@
+# Migrating from VPA
+
 This guide walks you through replacing the Kubernetes Vertical Pod Autoscaler
 (VPA) with kube-rightsize. The migration can be done workload-by-workload
 with no downtime.
