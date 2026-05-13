@@ -65,15 +65,20 @@ func (v *RightSizeDefaultsValidator) validate(defaults *rightsizev1alpha1.RightS
 		}
 	}
 
-	if defaults.Spec.CostPricing == nil {
-		return nil, nil
+	// Validate schedule fields if present.
+	if defaults.Spec.UpdateStrategy != nil && defaults.Spec.UpdateStrategy.Schedule != nil {
+		if err := validateSchedule(defaults.Spec.UpdateStrategy.Schedule); err != nil {
+			return nil, err
+		}
 	}
 
-	if err := validatePositiveFloat("costPricing.cpuPerCoreHour", defaults.Spec.CostPricing.CPUPerCoreHour); err != nil {
-		return nil, err
-	}
-	if err := validatePositiveFloat("costPricing.memoryPerGiBHour", defaults.Spec.CostPricing.MemoryPerGiBHour); err != nil {
-		return nil, err
+	if defaults.Spec.CostPricing != nil {
+		if err := validatePositiveFloat("costPricing.cpuPerCoreHour", defaults.Spec.CostPricing.CPUPerCoreHour); err != nil {
+			return nil, err
+		}
+		if err := validatePositiveFloat("costPricing.memoryPerGiBHour", defaults.Spec.CostPricing.MemoryPerGiBHour); err != nil {
+			return nil, err
+		}
 	}
 
 	return nil, nil

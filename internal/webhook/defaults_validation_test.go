@@ -108,6 +108,58 @@ func TestDefaultsValidator_Delete(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestDefaultsValidator_InvalidScheduleTimezone(t *testing.T) {
+	v := &RightSizeDefaultsValidator{}
+	defaults := &rightsizev1alpha1.RightSizeDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{
+				Schedule: &rightsizev1alpha1.ResizeSchedule{
+					Timezone: "Invalid/Zone",
+				},
+			},
+		},
+	}
+	_, err := v.ValidateCreate(context.Background(), defaults)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "timezone")
+}
+
+func TestDefaultsValidator_InvalidScheduleDayOfWeek(t *testing.T) {
+	v := &RightSizeDefaultsValidator{}
+	defaults := &rightsizev1alpha1.RightSizeDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{
+				Schedule: &rightsizev1alpha1.ResizeSchedule{
+					DaysOfWeek: []string{"Notaday"},
+				},
+			},
+		},
+	}
+	_, err := v.ValidateCreate(context.Background(), defaults)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "daysOfWeek")
+}
+
+func TestDefaultsValidator_ValidSchedule(t *testing.T) {
+	v := &RightSizeDefaultsValidator{}
+	defaults := &rightsizev1alpha1.RightSizeDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{
+				Schedule: &rightsizev1alpha1.ResizeSchedule{
+					Windows:    []rightsizev1alpha1.TimeWindow{{Start: "02:00", End: "06:00"}},
+					DaysOfWeek: []string{"Monday", "Friday"},
+					Timezone:   "UTC",
+				},
+			},
+		},
+	}
+	_, err := v.ValidateCreate(context.Background(), defaults)
+	assert.NoError(t, err)
+}
+
 func TestDefaultsValidator_RecordsMetrics(t *testing.T) {
 	operatormetrics.WebhookValidationTotal.Reset()
 	operatormetrics.WebhookDuration.Reset()
