@@ -379,6 +379,10 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 	if isResizeMode(mode) && !withinWindow {
 		logger.Info("Outside resize window, skipping resize")
+		if r.Recorder != nil {
+			r.Recorder.Eventf(&policy, nil, corev1.EventTypeNormal, "ScheduleSkipped", "resize",
+				"Resize deferred: outside configured schedule window")
+		}
 	}
 
 	// Preserve the Resized count from a concurrent reconcile that may have
@@ -845,6 +849,11 @@ func (r *RightSizePolicyReconciler) executeResizes(
 						budgetMu.Unlock()
 						logger.Info("Budget exhausted, deferring resize to next cycle",
 							"pod", pod.Name, "container", containerRec.Name)
+						if r.Recorder != nil {
+							r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "BudgetExhausted", "resize",
+								"Resize deferred for pod %s container %s: per-cycle budget exhausted",
+								pod.Name, containerRec.Name)
+						}
 						continue
 					}
 					cpuBudget -= cpuIncrease
