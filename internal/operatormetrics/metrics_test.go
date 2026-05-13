@@ -46,3 +46,31 @@ func TestMetricLabels(t *testing.T) {
 	})
 	// No panic means labels are valid
 }
+
+func TestMetricsRegistered_AllMetrics(t *testing.T) {
+	// Exercise every metric variable that the init() registers.
+	assert.NotPanics(t, func() {
+		SavingsEstimatedMonthly.WithLabelValues("default").Set(42.50)
+		ResizeDuration.WithLabelValues("default", "api-server").Observe(0.3)
+		ReconcileErrorsTotal.WithLabelValues("metrics_unavailable").Inc()
+		WebhookValidationTotal.WithLabelValues("CREATE", "allowed").Inc()
+		WebhookDuration.WithLabelValues("CREATE").Observe(0.01)
+	})
+}
+
+func TestWebhookTimer_Observe(t *testing.T) {
+	timer := NewWebhookTimer("validate")
+	assert.NotNil(t, timer)
+	// Observe should record a non-negative duration without panicking.
+	assert.NotPanics(t, func() { timer.Observe() })
+}
+
+func TestWebhookTimer_RecordResult_Allowed(t *testing.T) {
+	timer := NewWebhookTimer("validate")
+	assert.NotPanics(t, func() { timer.RecordResult(nil) })
+}
+
+func TestWebhookTimer_RecordResult_Rejected(t *testing.T) {
+	timer := NewWebhookTimer("validate")
+	assert.NotPanics(t, func() { timer.RecordResult(assert.AnError) })
+}

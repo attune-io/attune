@@ -331,6 +331,27 @@ func TestGetThrottleRatio_EscapesInput(t *testing.T) {
 	assert.Contains(t, receivedQuery, `container\"both`)
 }
 
+func TestEscapePromQLRegex(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"simple", "simple"},
+		{`with.dot`, `with\.dot`},
+		{`a+b*c?d`, `a\+b\*c\?d`},
+		{`(group)[class]{brace}`, `\(group\)\[class\]\{brace\}`},
+		{`pipe|or`, `pipe\|or`},
+		{`^start$end`, `\^start\$end`},
+		{`quote"and\backslash`, `quote\"and\\backslash`},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			assert.Equal(t, tt.expected, EscapePromQLRegex(tt.input))
+		})
+	}
+}
+
 func TestIsBlockedIP(t *testing.T) {
 	tests := []struct {
 		name    string

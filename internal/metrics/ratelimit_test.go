@@ -80,6 +80,22 @@ func TestRateLimitedCollector_PassesThrough(t *testing.T) {
 	assert.Equal(t, 1, mock.queryCalls)
 }
 
+func TestRateLimitedCollector_QueryRangeGrouped(t *testing.T) {
+	mock := &mockCollector{}
+	rl := NewRateLimitedCollector(mock, 10, 20)
+
+	ctx := context.Background()
+	now := time.Now()
+
+	grouped, err := rl.QueryRangeGrouped(ctx, "cpu_usage", now.Add(-time.Hour), now, 5*time.Minute)
+	require.NoError(t, err)
+	assert.Len(t, grouped, 1)
+	assert.Contains(t, grouped, "")
+	assert.Len(t, grouped[""], 1)
+	assert.InDelta(t, 0.5, grouped[""][0].Value, 0.001)
+	assert.Equal(t, 1, mock.queryRangeGroupedCalls)
+}
+
 func TestRateLimitedCollector_CancelledContext(t *testing.T) {
 	mock := &mockCollector{}
 	rl := NewRateLimitedCollector(mock, 10, 20)
@@ -93,6 +109,11 @@ func TestRateLimitedCollector_CancelledContext(t *testing.T) {
 	_, err := rl.QueryRange(ctx, "cpu_usage", now.Add(-time.Hour), now, 5*time.Minute)
 	assert.Error(t, err)
 	assert.Equal(t, 0, mock.queryRangeCalls)
+
+	// QueryRangeGrouped should return context error.
+	_, err = rl.QueryRangeGrouped(ctx, "cpu_usage", now.Add(-time.Hour), now, 5*time.Minute)
+	assert.Error(t, err)
+	assert.Equal(t, 0, mock.queryRangeGroupedCalls)
 
 	// Query should return context error.
 	_, err = rl.Query(ctx, "mem_usage", now)
