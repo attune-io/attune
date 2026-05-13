@@ -403,13 +403,35 @@ func TestE2E_MultiContainer_ExcludesSidecar(t *testing.T) {
 	require.NoError(t, k8sClient.Create(ctx, deploy))
 	waitForDeploymentReady(t, "multi-app", ns, 60*time.Second)
 
-	// Create policy excluding istio-proxy.
-	createPolicy(t, "multi-policy", ns, "multi-app", "Auto")
-	// Re-fetch after webhook defaulting to get the current resourceVersion.
-	var policy rightsizev1alpha1.RightSizePolicy
-	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "multi-policy", Namespace: ns}, &policy))
-	policy.Spec.ExcludeContainers = []string{"istio-proxy"}
-	require.NoError(t, k8sClient.Update(ctx, &policy))
+	// Create policy with excludeContainers set directly to avoid update conflicts
+	// with the reconciler which starts processing immediately after creation.
+	deployName := "multi-app"
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "multi-policy", Namespace: ns},
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			TargetRef: rightsizev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
+			MetricsSource: rightsizev1alpha1.MetricsSource{
+				Prometheus:        &rightsizev1alpha1.PrometheusConfig{Address: promAddr},
+				MinimumDataPoints: 1,
+				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+			},
+			CPU: rightsizev1alpha1.ResourceConfig{
+				Percentile: 95, SafetyMargin: "1.2",
+				Bounds: &rightsizev1alpha1.ResourceBounds{Min: resource.MustParse("50m"), Max: resource.MustParse("4000m")},
+			},
+			Memory: rightsizev1alpha1.ResourceConfig{
+				Percentile: 99, SafetyMargin: "1.3",
+				AllowDecrease: func() *bool { b := true; return &b }(),
+				Bounds:        &rightsizev1alpha1.ResourceBounds{Min: resource.MustParse("64Mi"), Max: resource.MustParse("8Gi")},
+			},
+			ExcludeContainers: []string{"istio-proxy"},
+			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+				Mode: "Auto", Cooldown: &metav1.Duration{Duration: time.Minute},
+				AutoRevert: true, MaxCPUChangePercent: 100, MaxMemoryChangePercent: 100,
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, policy))
 
 	waitForResize(t, "multi-policy", ns, 3*time.Minute)
 
