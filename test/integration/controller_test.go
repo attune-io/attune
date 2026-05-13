@@ -39,11 +39,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	webhookserver "sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
 	"github.com/SebTardifLabs/kube-rightsize/internal/conflict"
 	"github.com/SebTardifLabs/kube-rightsize/internal/controller"
 	"github.com/SebTardifLabs/kube-rightsize/internal/metrics"
+	"github.com/SebTardifLabs/kube-rightsize/internal/webhook"
 )
 
 // syntheticCollector implements metrics.MetricsCollector and returns synthetic
@@ -103,6 +105,9 @@ func TestMain(m *testing.M) {
 			filepath.Join("..", "..", "config", "crd", "bases"),
 		},
 		ErrorIfCRDPathMissing: true,
+		WebhookInstallOptions: envtest.WebhookInstallOptions{
+			Paths: []string{filepath.Join("testdata")},
+		},
 	}
 
 	cfg, err := testEnv.Start()
@@ -120,11 +125,17 @@ func TestMain(m *testing.M) {
 		panic("failed to create client: " + err.Error())
 	}
 
+	webhookOpts := testEnv.WebhookInstallOptions
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme:                 scheme.Scheme,
 		LeaderElection:         false,
 		HealthProbeBindAddress: "0",
 		Metrics:                metricsserver.Options{BindAddress: "0"},
+		WebhookServer: webhookserver.NewServer(webhookserver.Options{
+			Host:    webhookOpts.LocalServingHost,
+			Port:    webhookOpts.LocalServingPort,
+			CertDir: webhookOpts.LocalServingCertDir,
+		}),
 	})
 	if err != nil {
 		panic("failed to create manager: " + err.Error())
@@ -148,6 +159,15 @@ func TestMain(m *testing.M) {
 	err = testReconciler.SetupWithManager(mgr)
 	if err != nil {
 		panic("failed to setup controller: " + err.Error())
+	}
+
+	// Register webhooks (validation + defaulting).
+	err = ctrl.NewWebhookManagedBy(mgr, &rightsizev1alpha1.RightSizePolicy{}).
+		WithDefaulter(&webhook.RightSizePolicyDefaulter{}).
+		WithValidator(&webhook.RightSizePolicyValidator{}).
+		Complete()
+	if err != nil {
+		panic("failed to setup webhook: " + err.Error())
 	}
 
 	go func() {
@@ -256,8 +276,9 @@ func newTestPolicy(name, namespace, deploymentName string) *rightsizev1alpha1.Ri
 			},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 				Mode: "Recommend",
-				// Short cooldown for fast test reconciliation (MinCooldown=1s allows this).
-				Cooldown: &metav1.Duration{Duration: 3 * time.Second},
+				// Minimum valid cooldown (webhook rejects < 1m).
+				// MinCooldown=1s on the reconciler is a separate runtime floor.
+				Cooldown: &metav1.Duration{Duration: 1 * time.Minute},
 			},
 		},
 	}
@@ -391,7 +412,7 @@ func TestReconcile_LabelSelectorTargetsMultipleWorkloads(t *testing.T) {
 			},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 				Mode:     "Recommend",
-				Cooldown: &metav1.Duration{Duration: 3 * time.Second},
+				Cooldown: &metav1.Duration{Duration: 1 * time.Minute},
 			},
 		},
 	}
@@ -479,7 +500,7 @@ func TestReconcile_DefaultsMergingFromClusterDefaults(t *testing.T) {
 			},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 				Mode:     "Recommend",
-				Cooldown: &metav1.Duration{Duration: 3 * time.Second},
+				Cooldown: &metav1.Duration{Duration: 1 * time.Minute},
 			},
 		},
 	}
@@ -604,7 +625,7 @@ func TestReconcile_ConcurrentResizesFieldProcessedWithoutRaces(t *testing.T) {
 			},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 				Mode:                 "Recommend",
-				Cooldown:             &metav1.Duration{Duration: 3 * time.Second},
+				Cooldown:             &metav1.Duration{Duration: 1 * time.Minute},
 				MaxConcurrentResizes: 5,
 			},
 		},
@@ -623,6 +644,46 @@ func TestReconcile_ConcurrentResizesFieldProcessedWithoutRaces(t *testing.T) {
 		return fetched.Status.Workloads.Discovered >= 3
 	}, 30*time.Second, 500*time.Millisecond,
 		"policy with maxConcurrentResizes should discover 3 workloads without races")
+}
+
+func TestWebhook_RejectsInvalidScheduleTimezone(t *testing.T) {
+	namespace := "integration-test"
+
+	policy := newTestPolicy("policy-bad-tz", namespace, "some-deploy")
+	policy.Spec.UpdateStrategy.Schedule = &rightsizev1alpha1.ResizeSchedule{
+		Timezone: "Invalid/Timezone",
+	}
+
+	err := k8sClient.Create(ctx, policy)
+	require.Error(t, err, "webhook should reject invalid timezone")
+	assert.Contains(t, err.Error(), "timezone")
+}
+
+func TestWebhook_RejectsInvalidDayOfWeek(t *testing.T) {
+	namespace := "integration-test"
+
+	policy := newTestPolicy("policy-bad-day", namespace, "some-deploy")
+	policy.Spec.UpdateStrategy.Schedule = &rightsizev1alpha1.ResizeSchedule{
+		DaysOfWeek: []string{"Notaday"},
+	}
+
+	err := k8sClient.Create(ctx, policy)
+	require.Error(t, err, "webhook should reject invalid day of week")
+	assert.Contains(t, err.Error(), "daysOfWeek")
+}
+
+func TestWebhook_AcceptsValidSchedule(t *testing.T) {
+	namespace := "integration-test"
+
+	policy := newTestPolicy("policy-valid-schedule", namespace, "some-deploy")
+	policy.Spec.UpdateStrategy.Schedule = &rightsizev1alpha1.ResizeSchedule{
+		Windows:    []rightsizev1alpha1.TimeWindow{{Start: "02:00", End: "06:00"}},
+		DaysOfWeek: []string{"Monday", "Wednesday", "Friday"},
+		Timezone:   "America/New_York",
+	}
+
+	err := k8sClient.Create(ctx, policy)
+	assert.NoError(t, err, "webhook should accept valid schedule")
 }
 
 // ---------- Resize execution path (#20) ----------
