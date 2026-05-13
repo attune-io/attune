@@ -182,7 +182,7 @@ func newTestPolicy(name, namespace string) *rightsizev1alpha1.RightSizePolicy {
 
 // mockMetricsFactory returns a MetricsCollectorFactory that creates a mock collector.
 func mockMetricsFactory(collector rsmetrics.MetricsCollector) MetricsCollectorFactory {
-	return func(_ string) (rsmetrics.MetricsCollector, error) {
+	return func(_ string, _ *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
 		return collector, nil
 	}
 }
@@ -827,7 +827,7 @@ func TestGetOrCreateCollector_CacheHit(t *testing.T) {
 	})
 
 	before := time.Now()
-	got, err := reconciler.getOrCreateCollector("http://prom:9090")
+	got, err := reconciler.getOrCreateCollector(&rightsizev1alpha1.PrometheusConfig{Address: "http://prom:9090"}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, mc, got)
 
@@ -841,44 +841,44 @@ func TestGetOrCreateCollector_CacheHit(t *testing.T) {
 func TestGetOrCreateCollector_CacheMiss(t *testing.T) {
 	mc := &mockCollector{}
 	reconciler := &RightSizePolicyReconciler{
-		MetricsFactory: func(address string) (rsmetrics.MetricsCollector, error) {
+		MetricsFactory: func(address string, _ *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
 			assert.Equal(t, "http://new:9090", address)
 			return mc, nil
 		},
 	}
 
-	got, err := reconciler.getOrCreateCollector("http://new:9090")
+	got, err := reconciler.getOrCreateCollector(&rightsizev1alpha1.PrometheusConfig{Address: "http://new:9090"}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, mc, got)
 }
 
 func TestGetOrCreateCollector_FactoryError(t *testing.T) {
 	reconciler := &RightSizePolicyReconciler{
-		MetricsFactory: func(string) (rsmetrics.MetricsCollector, error) {
+		MetricsFactory: func(string, *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
 			return nil, fmt.Errorf("connection refused")
 		},
 	}
 
-	_, err := reconciler.getOrCreateCollector("http://broken:9090")
+	_, err := reconciler.getOrCreateCollector(&rightsizev1alpha1.PrometheusConfig{Address: "http://broken:9090"}, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "connection refused")
 }
 
 func TestGetOrCreateCollector_CacheFull(t *testing.T) {
 	reconciler := &RightSizePolicyReconciler{
-		MetricsFactory: func(string) (rsmetrics.MetricsCollector, error) {
+		MetricsFactory: func(string, *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
 			return &mockCollector{}, nil
 		},
 	}
 	// Fill the cache to maxCollectors.
 	for i := 0; i < maxCollectors; i++ {
 		addr := fmt.Sprintf("http://prom-%d:9090", i)
-		_, err := reconciler.getOrCreateCollector(addr)
+		_, err := reconciler.getOrCreateCollector(&rightsizev1alpha1.PrometheusConfig{Address: addr}, nil)
 		require.NoError(t, err)
 	}
 
 	// The next address should be rejected.
-	_, err := reconciler.getOrCreateCollector("http://one-too-many:9090")
+	_, err := reconciler.getOrCreateCollector(&rightsizev1alpha1.PrometheusConfig{Address: "http://one-too-many:9090"}, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "collector cache full")
 }
@@ -887,7 +887,7 @@ func TestGetOrCreateCollector_CustomTTL(t *testing.T) {
 	customTTL := 2 * time.Minute
 	reconciler := &RightSizePolicyReconciler{
 		CollectorTTL: customTTL,
-		MetricsFactory: func(string) (rsmetrics.MetricsCollector, error) {
+		MetricsFactory: func(string, *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
 			return &mockCollector{}, nil
 		},
 	}
@@ -900,7 +900,7 @@ func TestGetOrCreateCollector_CustomTTL(t *testing.T) {
 	})
 
 	// Creating a new collector should trigger eviction of the stale entry.
-	_, err := reconciler.getOrCreateCollector("http://fresh:9090")
+	_, err := reconciler.getOrCreateCollector(&rightsizev1alpha1.PrometheusConfig{Address: "http://fresh:9090"}, nil)
 	require.NoError(t, err)
 
 	_, stillExists := reconciler.collectors.Load("http://stale:9090")
@@ -909,7 +909,7 @@ func TestGetOrCreateCollector_CustomTTL(t *testing.T) {
 
 func TestGetOrCreateCollector_EvictsStaleEntries(t *testing.T) {
 	reconciler := &RightSizePolicyReconciler{
-		MetricsFactory: func(string) (rsmetrics.MetricsCollector, error) {
+		MetricsFactory: func(string, *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
 			return &mockCollector{}, nil
 		},
 	}
@@ -924,14 +924,14 @@ func TestGetOrCreateCollector_EvictsStaleEntries(t *testing.T) {
 	}
 
 	// A new address should succeed because stale entries get evicted.
-	_, err := reconciler.getOrCreateCollector("http://fresh:9090")
+	_, err := reconciler.getOrCreateCollector(&rightsizev1alpha1.PrometheusConfig{Address: "http://fresh:9090"}, nil)
 	require.NoError(t, err)
 }
 
 func TestGetOrCreateCollector_ConcurrentAccess(t *testing.T) {
 	reconciler := &RightSizePolicyReconciler{
 		CollectorTTL: 50 * time.Millisecond,
-		MetricsFactory: func(string) (rsmetrics.MetricsCollector, error) {
+		MetricsFactory: func(string, *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
 			return &mockCollector{}, nil
 		},
 	}
@@ -955,7 +955,7 @@ func TestGetOrCreateCollector_ConcurrentAccess(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			_, err := reconciler.getOrCreateCollector(addresses[idx])
+			_, err := reconciler.getOrCreateCollector(&rightsizev1alpha1.PrometheusConfig{Address: addresses[idx]}, nil)
 			errs[idx] = err
 		}(i)
 	}
@@ -1195,18 +1195,18 @@ func TestComputeRecommendations_PopulatesExplanation(t *testing.T) {
 	assert.False(t, rec.Containers[0].Explanation.Memory.Final.IsZero())
 }
 
-// ---------- resolvePrometheusAddress ----------
+// ---------- resolvePrometheusConfig ----------
 
-func TestResolvePrometheusAddress_PolicyHasAddress(t *testing.T) {
+func TestResolvePrometheusConfig_PolicyHasAddress(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	reconciler := newReconcilerWithClient()
 
-	addr, err := reconciler.resolvePrometheusAddress(context.Background(), policy, nil)
+	config, err := reconciler.resolvePrometheusConfig(context.Background(), policy, nil)
 	assert.NoError(t, err)
-	assert.Equal(t, "http://prometheus:9090", addr)
+	assert.Equal(t, "http://prometheus:9090", config.Address)
 }
 
-func TestResolvePrometheusAddress_FallsBackToDefaults(t *testing.T) {
+func TestResolvePrometheusConfig_FallsBackToDefaults(t *testing.T) {
 	policy := &rightsizev1alpha1.RightSizePolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
 		Spec:       rightsizev1alpha1.RightSizePolicySpec{MetricsSource: rightsizev1alpha1.MetricsSource{}},
@@ -1224,19 +1224,19 @@ func TestResolvePrometheusAddress_FallsBackToDefaults(t *testing.T) {
 	}
 	reconciler := newReconcilerWithClient(defaults)
 
-	addr, err := reconciler.resolvePrometheusAddress(context.Background(), policy, defaults)
+	config, err := reconciler.resolvePrometheusConfig(context.Background(), policy, defaults)
 	assert.NoError(t, err)
-	assert.Equal(t, "http://defaults-prometheus:9090", addr)
+	assert.Equal(t, "http://defaults-prometheus:9090", config.Address)
 }
 
-func TestResolvePrometheusAddress_NoAddressAnywhere(t *testing.T) {
+func TestResolvePrometheusConfig_NoAddressAnywhere(t *testing.T) {
 	policy := &rightsizev1alpha1.RightSizePolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
 		Spec:       rightsizev1alpha1.RightSizePolicySpec{MetricsSource: rightsizev1alpha1.MetricsSource{}},
 	}
 	reconciler := newReconcilerWithClient()
 
-	_, err := reconciler.resolvePrometheusAddress(context.Background(), policy, nil)
+	_, err := reconciler.resolvePrometheusConfig(context.Background(), policy, nil)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "no Prometheus address configured")
 }
@@ -2321,7 +2321,7 @@ func TestReconcile_PrometheusUnavailable(t *testing.T) {
 	policy.Spec.MetricsSource.Prometheus = nil
 
 	reconciler, fakeClient := newReconcilerForReconcile(&mockCollector{}, policy)
-	reconciler.MetricsFactory = func(_ string) (rsmetrics.MetricsCollector, error) {
+	reconciler.MetricsFactory = func(_ string, _ *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
 		return nil, fmt.Errorf("connection refused")
 	}
 
@@ -3093,7 +3093,7 @@ func TestDiscoverWorkloads_NoNameOrSelector(t *testing.T) {
 func TestReconcile_MetricsFactoryError(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	reconciler, fakeClient := newReconcilerForReconcile(&mockCollector{}, policy)
-	reconciler.MetricsFactory = func(_ string) (rsmetrics.MetricsCollector, error) {
+	reconciler.MetricsFactory = func(_ string, _ *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
 		return nil, fmt.Errorf("TLS handshake timeout")
 	}
 
@@ -3427,9 +3427,9 @@ func TestResolvePrometheusAddress_FallsBackToAutoDiscovery(t *testing.T) {
 	}
 	reconciler := newReconcilerWithClient(svc)
 
-	addr, err := reconciler.resolvePrometheusAddress(context.Background(), policy, nil)
+	config, err := reconciler.resolvePrometheusConfig(context.Background(), policy, nil)
 	assert.NoError(t, err)
-	assert.Equal(t, "http://prometheus-kube-prometheus-prometheus.monitoring:9090", addr)
+	assert.Equal(t, "http://prometheus-kube-prometheus-prometheus.monitoring:9090", config.Address)
 }
 
 // ---------- Event emission ----------

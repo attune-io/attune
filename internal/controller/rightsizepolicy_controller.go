@@ -134,9 +134,10 @@ type collectorEntry struct {
 	lastUsed  time.Time
 }
 
-// MetricsCollectorFactory creates MetricsCollector instances from a Prometheus address.
+// MetricsCollectorFactory creates MetricsCollector instances from a Prometheus address
+// and optional collector options (headers, bearer token, TLS).
 // This enables dependency injection for testing.
-type MetricsCollectorFactory func(address string) (rsmetrics.MetricsCollector, error)
+type MetricsCollectorFactory func(address string, opts *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error)
 
 const (
 	// maxCollectors bounds the collector cache to prevent memory-based DoS
@@ -146,16 +147,17 @@ const (
 	collectorTTL = 10 * time.Minute
 )
 
-// getOrCreateCollector returns a cached collector for the address, creating one
-// if needed. The cache is bounded at maxCollectors entries. Stale entries
-// (unused for collectorTTL) are evicted on each call.
-func (r *RightSizePolicyReconciler) getOrCreateCollector(address string) (rsmetrics.MetricsCollector, error) {
+// getOrCreateCollector returns a cached collector for the given config,
+// creating one if needed. The cache key includes the address, headers, and
+// TLS settings so different configs get different collectors. The cache is
+// bounded at maxCollectors entries.
+func (r *RightSizePolicyReconciler) getOrCreateCollector(config *rightsizev1alpha1.PrometheusConfig, opts *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
+	cacheKey := collectorCacheKey(config, opts)
 	now := time.Now()
 
-	if cached, ok := r.collectors.Load(address); ok {
+	if cached, ok := r.collectors.Load(cacheKey); ok {
 		entry := cached.(*collectorEntry)
-		// Store a new entry to avoid data race on lastUsed with concurrent reconciles.
-		r.collectors.Store(address, &collectorEntry{collector: entry.collector, lastUsed: now})
+		r.collectors.Store(cacheKey, &collectorEntry{collector: entry.collector, lastUsed: now})
 		return entry.collector, nil
 	}
 
@@ -178,16 +180,34 @@ func (r *RightSizePolicyReconciler) getOrCreateCollector(address string) (rsmetr
 		return count < maxCollectors
 	})
 	if count >= maxCollectors {
-		return nil, fmt.Errorf("collector cache full (%d entries); refusing new Prometheus address %q", maxCollectors, address)
+		return nil, fmt.Errorf("collector cache full (%d entries); refusing new Prometheus address %q", maxCollectors, config.Address)
 	}
 
-	collector, err := r.MetricsFactory(address)
+	collector, err := r.MetricsFactory(config.Address, opts)
 	if err != nil {
 		return nil, err
 	}
 	entry := &collectorEntry{collector: collector, lastUsed: now}
-	actual, _ := r.collectors.LoadOrStore(address, entry)
+	actual, _ := r.collectors.LoadOrStore(cacheKey, entry)
 	return actual.(*collectorEntry).collector, nil
+}
+
+// collectorCacheKey builds a cache key that includes address, headers,
+// bearer token presence, and TLS settings.
+func collectorCacheKey(config *rightsizev1alpha1.PrometheusConfig, opts *rsmetrics.CollectorOptions) string {
+	key := config.Address
+	if opts != nil {
+		if opts.BearerToken != "" {
+			key += "|bearer"
+		}
+		if opts.InsecureSkipVerify {
+			key += "|insecure"
+		}
+		for k, v := range opts.Headers {
+			key += "|h:" + k + "=" + v
+		}
+	}
+	return key
 }
 
 // Reconcile is the main reconciliation loop for RightSizePolicy resources.
@@ -211,18 +231,41 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	defaults := r.fetchDefaults(ctx, policy.Namespace)
 	r.mergeDefaults(&policy, defaults)
 
-	// Step 2: Resolve Prometheus address from spec or RightSizeDefaults.
-	prometheusAddr, err := r.resolvePrometheusAddress(ctx, &policy, defaults)
+	// Step 2: Resolve Prometheus address and config from spec or RightSizeDefaults.
+	promConfig, err := r.resolvePrometheusConfig(ctx, &policy, defaults)
 	if err != nil {
-		logger.Error(err, "Failed to resolve Prometheus address")
+		logger.Error(err, "Failed to resolve Prometheus config")
 		r.setFailedCondition(ctx, &policy, rightsizev1alpha1.ReasonPrometheusUnavailable,
-			fmt.Sprintf("Cannot resolve Prometheus address: %v", err))
+			fmt.Sprintf("Cannot resolve Prometheus config: %v", err))
 		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 	}
 
-	collector, err := r.getOrCreateCollector(prometheusAddr)
+	// Build collector options from the PrometheusConfig.
+	var collectorOpts *rsmetrics.CollectorOptions
+	if promConfig.Headers != nil || promConfig.BearerTokenSecret != nil ||
+		(promConfig.TLS != nil && promConfig.TLS.InsecureSkipVerify) {
+		collectorOpts = &rsmetrics.CollectorOptions{
+			Headers: promConfig.Headers,
+		}
+		if promConfig.TLS != nil {
+			collectorOpts.InsecureSkipVerify = promConfig.TLS.InsecureSkipVerify
+		}
+		if promConfig.BearerTokenSecret != nil {
+			token, secretErr := r.readSecretKey(ctx, policy.Namespace,
+				promConfig.BearerTokenSecret.Name, promConfig.BearerTokenSecret.Key)
+			if secretErr != nil {
+				logger.Error(secretErr, "Failed to read bearer token secret")
+				r.setFailedCondition(ctx, &policy, rightsizev1alpha1.ReasonPrometheusUnavailable,
+					fmt.Sprintf("Cannot read bearer token secret: %v", secretErr))
+				return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
+			}
+			collectorOpts.BearerToken = token
+		}
+	}
+
+	collector, err := r.getOrCreateCollector(promConfig, collectorOpts)
 	if err != nil {
-		logger.Error(err, "Failed to create metrics collector", "address", prometheusAddr)
+		logger.Error(err, "Failed to create metrics collector", "address", promConfig.Address)
 		r.setFailedCondition(ctx, &policy, rightsizev1alpha1.ReasonPrometheusUnavailable,
 			fmt.Sprintf("Cannot create metrics collector: %v", err))
 		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
@@ -637,43 +680,52 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 
 // resolvePrometheusAddress returns the Prometheus address from the policy spec,
 // falling back to the cluster-scoped RightSizeDefaults if not set.
-func (r *RightSizePolicyReconciler) resolvePrometheusAddress(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy, defaults *rightsizev1alpha1.RightSizeDefaults) (string, error) {
-	var addr string
-
+func (r *RightSizePolicyReconciler) resolvePrometheusConfig(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy, defaults *rightsizev1alpha1.RightSizeDefaults) (*rightsizev1alpha1.PrometheusConfig, error) {
 	// Check policy-level config first.
 	if policy.Spec.MetricsSource.Prometheus != nil &&
 		policy.Spec.MetricsSource.Prometheus.Address != "" {
-		addr = policy.Spec.MetricsSource.Prometheus.Address
+		config := policy.Spec.MetricsSource.Prometheus.DeepCopy()
+		if err := validation.PrometheusAddress(config.Address); err != nil {
+			return nil, fmt.Errorf("SSRF blocked: %w", err)
+		}
+		return config, nil
 	}
 
 	// Fall back to RightSizeDefaults.
-	if addr == "" && defaults != nil &&
+	if defaults != nil &&
 		defaults.Spec.MetricsSource != nil &&
 		defaults.Spec.MetricsSource.Prometheus != nil &&
 		defaults.Spec.MetricsSource.Prometheus.Address != "" {
-		addr = defaults.Spec.MetricsSource.Prometheus.Address
+		config := defaults.Spec.MetricsSource.Prometheus.DeepCopy()
+		if err := validation.PrometheusAddress(config.Address); err != nil {
+			return nil, fmt.Errorf("SSRF blocked: %w", err)
+		}
+		return config, nil
 	}
 
 	// Fall back to auto-discovery: look for Prometheus Operator's Prometheus CRD.
-	if addr == "" {
-		if discovered := r.discoverPrometheus(ctx); discovered != "" {
-			if err := validation.PrometheusAddress(discovered); err != nil {
-				log.FromContext(ctx).Error(err, "Auto-discovered Prometheus address failed SSRF validation", "address", discovered)
-			} else {
-				log.FromContext(ctx).Info("Auto-discovered Prometheus address", "address", discovered)
-				return discovered, nil
-			}
+	if discovered := r.discoverPrometheus(ctx); discovered != "" {
+		if err := validation.PrometheusAddress(discovered); err != nil {
+			log.FromContext(ctx).Error(err, "Auto-discovered Prometheus address failed SSRF validation", "address", discovered)
+		} else {
+			log.FromContext(ctx).Info("Auto-discovered Prometheus address", "address", discovered)
+			return &rightsizev1alpha1.PrometheusConfig{Address: discovered}, nil
 		}
-		return "", fmt.Errorf("no Prometheus address configured in policy or cluster defaults, and auto-discovery found no Prometheus instance")
 	}
+	return nil, fmt.Errorf("no Prometheus address configured in policy or cluster defaults, and auto-discovery found no Prometheus instance")
+}
 
-	// Defense-in-depth: re-validate even if the webhook was supposed to
-	// catch SSRF. This protects when webhooks are disabled.
-	if err := validation.PrometheusAddress(addr); err != nil {
-		return "", fmt.Errorf("SSRF blocked: %w", err)
+// readSecretKey reads a single key from a Kubernetes Secret.
+func (r *RightSizePolicyReconciler) readSecretKey(ctx context.Context, namespace, name, key string) (string, error) {
+	var secret corev1.Secret
+	if err := r.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, &secret); err != nil {
+		return "", fmt.Errorf("reading secret %s/%s: %w", namespace, name, err)
 	}
-
-	return addr, nil
+	data, ok := secret.Data[key]
+	if !ok {
+		return "", fmt.Errorf("key %q not found in secret %s/%s", key, namespace, name)
+	}
+	return string(data), nil
 }
 
 // discoverPrometheus attempts to find a Prometheus instance in the cluster

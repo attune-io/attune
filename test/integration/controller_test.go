@@ -152,7 +152,7 @@ func TestMain(m *testing.M) {
 		Clientset:   clientset,
 		Recorder:    mgr.GetEventRecorder("kube-rightsize-integration"),
 		MinCooldown: time.Second, // fast reconciliation for tests
-		MetricsFactory: func(address string) (metrics.MetricsCollector, error) {
+		MetricsFactory: func(address string, _ *metrics.CollectorOptions) (metrics.MetricsCollector, error) {
 			return &syntheticCollector{}, nil
 		},
 	}

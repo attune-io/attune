@@ -120,8 +120,8 @@ func main() {
 		Clientset:    clientset,
 		Recorder:     mgr.GetEventRecorder("kube-rightsize"),
 		CollectorTTL: collectorTTL,
-		MetricsFactory: func(address string) (metrics.MetricsCollector, error) {
-			collector, err := metrics.NewPrometheusCollector(address, ctrl.Log.WithName("prometheus"))
+		MetricsFactory: func(address string, opts *metrics.CollectorOptions) (metrics.MetricsCollector, error) {
+			collector, err := metrics.NewPrometheusCollectorWithOptions(address, ctrl.Log.WithName("prometheus"), opts)
 			if err != nil {
 				return nil, fmt.Errorf("creating Prometheus collector for %s: %w", address, err)
 			}
