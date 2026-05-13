@@ -3961,6 +3961,79 @@ func TestExecuteResizes_BudgetCapsDecreasesFree(t *testing.T) {
 	assert.Equal(t, 1, count, "decreases should not consume budget")
 }
 
+func TestExecuteResizes_BudgetCapsMemory(t *testing.T) {
+	// Pod at 256Mi memory, recommendation is 1Gi (increase of 768Mi).
+	// Memory budget is 512Mi, so the resize should be deferred.
+	pod := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	reconciler, _ := newResizeReconciler(pod, deploy)
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.ModeAuto
+	memBudget := resource.MustParse("512Mi")
+	policy.Spec.UpdateStrategy.MaxTotalMemoryIncrease = &memBudget
+
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("api-server", "200m", "256Mi", "0", "0", "200m", "1Gi", "0", "0"),
+	}
+
+	count, _ := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
+		recommendations, podMap("api-server", pod), nil)
+	assert.Equal(t, 0, count, "resize should be deferred when memory increase exceeds budget")
+}
+
+func TestExecuteResizes_BudgetCapsExactlyEqualsPasses(t *testing.T) {
+	// Increase of exactly 500m with budget of 500m should pass (not strict >).
+	pod := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	reconciler, _ := newResizeReconciler(pod, deploy)
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.ModeAuto
+	cpuBudget := resource.MustParse("500m")
+	policy.Spec.UpdateStrategy.MaxTotalCPUIncrease = &cpuBudget
+
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("api-server", "200m", "256Mi", "0", "0", "700m", "256Mi", "0", "0"),
+	}
+
+	count, _ := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
+		recommendations, podMap("api-server", pod), nil)
+	assert.Equal(t, 1, count, "increase exactly equal to budget should proceed")
+}
+
+func TestExecuteResizes_ConcurrentResizes(t *testing.T) {
+	// Test that maxConcurrentResizes > 1 processes multiple pods without races.
+	pod1 := newResizePod("api-server", "500m", "256Mi", "500m", "256Mi")
+	pod1.Name = "api-server-abc-1"
+	pod2 := newResizePod("api-server", "500m", "256Mi", "500m", "256Mi")
+	pod2.Name = "api-server-abc-2"
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod1, pod2).Build()
+	clientset := kubefake.NewSimpleClientset(pod1.DeepCopy(), pod2.DeepCopy())
+	reconciler := &RightSizePolicyReconciler{
+		Client:    fakeClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.ModeAuto
+	policy.Spec.UpdateStrategy.MaxConcurrentResizes = 5 // allow parallelism
+
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("api-server", "500m", "256Mi", "0", "0", "750m", "384Mi", "0", "0"),
+	}
+
+	count, history := reconciler.executeResizes(context.Background(), policy,
+		[]client.Object{deploy}, recommendations,
+		map[string][]corev1.Pod{"api-server": {*pod1, *pod2}}, nil)
+	assert.Equal(t, 1, count, "workload should count as resized once")
+	assert.NotEmpty(t, history, "should produce resize history entries")
+}
+
 func TestIsWithinResizeWindow_NoSchedule(t *testing.T) {
 	assert.True(t, isWithinResizeWindow(nil, time.Now()))
 }
