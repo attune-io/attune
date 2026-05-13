@@ -1241,6 +1241,74 @@ func TestResolvePrometheusConfig_NoAddressAnywhere(t *testing.T) {
 	assert.Contains(t, err.Error(), "no Prometheus address configured")
 }
 
+// ---------- collectorCacheKey ----------
+
+func TestCollectorCacheKey_AddressOnly(t *testing.T) {
+	config := &rightsizev1alpha1.PrometheusConfig{Address: "http://prom:9090"}
+	assert.Equal(t, "http://prom:9090", collectorCacheKey(config, nil))
+}
+
+func TestCollectorCacheKey_WithOptions(t *testing.T) {
+	config := &rightsizev1alpha1.PrometheusConfig{Address: "http://prom:9090"}
+	opts := &rsmetrics.CollectorOptions{
+		BearerToken:        "tok",
+		InsecureSkipVerify: true,
+		Headers:            map[string]string{"X-Scope-OrgID": "tenant-1"},
+	}
+	key := collectorCacheKey(config, opts)
+	assert.Contains(t, key, "http://prom:9090")
+	assert.Contains(t, key, "|bearer")
+	assert.Contains(t, key, "|insecure")
+	assert.Contains(t, key, "|h:X-Scope-OrgID=tenant-1")
+}
+
+func TestCollectorCacheKey_DifferentConfigsDifferentKeys(t *testing.T) {
+	config := &rightsizev1alpha1.PrometheusConfig{Address: "http://prom:9090"}
+	key1 := collectorCacheKey(config, nil)
+	key2 := collectorCacheKey(config, &rsmetrics.CollectorOptions{BearerToken: "tok"})
+	assert.NotEqual(t, key1, key2)
+}
+
+// ---------- readSecretKey ----------
+
+func TestReadSecretKey_Success(t *testing.T) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "prom-token", Namespace: "default"},
+		Data:       map[string][]byte{"token": []byte("my-bearer-token")},
+	}
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret).Build()
+	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+
+	token, err := r.readSecretKey(context.Background(), "default", "prom-token", "token")
+	assert.NoError(t, err)
+	assert.Equal(t, "my-bearer-token", token)
+}
+
+func TestReadSecretKey_SecretNotFound(t *testing.T) {
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+
+	_, err := r.readSecretKey(context.Background(), "default", "missing-secret", "token")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "reading secret default/missing-secret")
+}
+
+func TestReadSecretKey_KeyNotFound(t *testing.T) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "prom-token", Namespace: "default"},
+		Data:       map[string][]byte{"wrong-key": []byte("value")},
+	}
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret).Build()
+	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+
+	_, err := r.readSecretKey(context.Background(), "default", "prom-token", "token")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "key \"token\" not found")
+}
+
 // ---------- updateStatusWithRetry ----------
 
 func TestUpdateStatusWithRetry_SuccessFirstAttempt(t *testing.T) {
