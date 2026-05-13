@@ -23,7 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/api/resource"
 
-	"github.com/SebTardif/kube-rightsize/internal/metrics"
+	"github.com/SebTardifLabs/kube-rightsize/internal/metrics"
 )
 
 // stubEstimator returns a fixed quantity for testing decorator estimators.

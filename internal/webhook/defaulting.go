@@ -23,8 +23,8 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	rightsizev1alpha1 "github.com/SebTardif/kube-rightsize/api/v1alpha1"
-	"github.com/SebTardif/kube-rightsize/internal/operatormetrics"
+	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
+	"github.com/SebTardifLabs/kube-rightsize/internal/operatormetrics"
 )
 
 // RightSizePolicyDefaulter implements the typed Defaulter interface for RightSizePolicy.

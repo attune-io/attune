@@ -43,9 +43,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	rightsizev1alpha1 "github.com/SebTardif/kube-rightsize/api/v1alpha1"
-	"github.com/SebTardif/kube-rightsize/internal/conflict"
-	rsmetrics "github.com/SebTardif/kube-rightsize/internal/metrics"
+	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
+	"github.com/SebTardifLabs/kube-rightsize/internal/conflict"
+	rsmetrics "github.com/SebTardifLabs/kube-rightsize/internal/metrics"
 )
 
 // testScheme returns a runtime.Scheme with all needed types registered.

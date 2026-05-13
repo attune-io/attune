@@ -40,10 +40,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	rightsizev1alpha1 "github.com/SebTardif/kube-rightsize/api/v1alpha1"
-	"github.com/SebTardif/kube-rightsize/internal/conflict"
-	"github.com/SebTardif/kube-rightsize/internal/controller"
-	"github.com/SebTardif/kube-rightsize/internal/metrics"
+	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
+	"github.com/SebTardifLabs/kube-rightsize/internal/conflict"
+	"github.com/SebTardifLabs/kube-rightsize/internal/controller"
+	"github.com/SebTardifLabs/kube-rightsize/internal/metrics"
 )
 
 // syntheticCollector implements metrics.MetricsCollector and returns synthetic

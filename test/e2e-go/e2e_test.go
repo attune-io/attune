@@ -41,7 +41,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	rightsizev1alpha1 "github.com/SebTardif/kube-rightsize/api/v1alpha1"
+	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
 )
 
 var (

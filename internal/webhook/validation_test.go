@@ -28,8 +28,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	rightsizev1alpha1 "github.com/SebTardif/kube-rightsize/api/v1alpha1"
-	"github.com/SebTardif/kube-rightsize/internal/operatormetrics"
+	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
+	"github.com/SebTardifLabs/kube-rightsize/internal/operatormetrics"
 )
 
 func validPolicy() *rightsizev1alpha1.RightSizePolicy {

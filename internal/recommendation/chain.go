@@ -21,7 +21,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/resource"
 
-	"github.com/SebTardif/kube-rightsize/internal/metrics"
+	"github.com/SebTardifLabs/kube-rightsize/internal/metrics"
 )
 
 // RecommendationEngine produces resource recommendations by applying a

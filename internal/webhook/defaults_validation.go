@@ -24,8 +24,8 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	rightsizev1alpha1 "github.com/SebTardif/kube-rightsize/api/v1alpha1"
-	"github.com/SebTardif/kube-rightsize/internal/operatormetrics"
+	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
+	"github.com/SebTardifLabs/kube-rightsize/internal/operatormetrics"
 )
 
 // RightSizeDefaultsValidator validates RightSizeDefaults resources.

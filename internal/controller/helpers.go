@@ -34,11 +34,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	rightsizev1alpha1 "github.com/SebTardif/kube-rightsize/api/v1alpha1"
-	rsmetrics "github.com/SebTardif/kube-rightsize/internal/metrics"
-	"github.com/SebTardif/kube-rightsize/internal/operatormetrics"
-	"github.com/SebTardif/kube-rightsize/internal/resize"
-	"github.com/SebTardif/kube-rightsize/internal/safety"
+	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
+	rsmetrics "github.com/SebTardifLabs/kube-rightsize/internal/metrics"
+	"github.com/SebTardifLabs/kube-rightsize/internal/operatormetrics"
+	"github.com/SebTardifLabs/kube-rightsize/internal/resize"
+	"github.com/SebTardifLabs/kube-rightsize/internal/safety"
 )
 
 const (

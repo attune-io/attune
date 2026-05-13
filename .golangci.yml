@@ -80,10 +80,10 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/SebTardif/kube-rightsize
+        - github.com/SebTardifLabs/kube-rightsize
     gci:
       sections:
         - standard
         - default
-        - prefix(github.com/SebTardif/kube-rightsize)
+        - prefix(github.com/SebTardifLabs/kube-rightsize)
       custom-order: true

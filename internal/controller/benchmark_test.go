@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	rsmetrics "github.com/SebTardif/kube-rightsize/internal/metrics"
+	rsmetrics "github.com/SebTardifLabs/kube-rightsize/internal/metrics"
 )
 
 func BenchmarkBuildPrometheusQuery_CPU(b *testing.B) {

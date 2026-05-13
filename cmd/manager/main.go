@@ -32,11 +32,11 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	webhookserver "sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	rightsizev1alpha1 "github.com/SebTardif/kube-rightsize/api/v1alpha1"
-	"github.com/SebTardif/kube-rightsize/internal/controller"
-	"github.com/SebTardif/kube-rightsize/internal/metrics"
-	_ "github.com/SebTardif/kube-rightsize/internal/operatormetrics"
-	"github.com/SebTardif/kube-rightsize/internal/webhook"
+	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
+	"github.com/SebTardifLabs/kube-rightsize/internal/controller"
+	"github.com/SebTardifLabs/kube-rightsize/internal/metrics"
+	_ "github.com/SebTardifLabs/kube-rightsize/internal/operatormetrics"
+	"github.com/SebTardifLabs/kube-rightsize/internal/webhook"
 )
 
 var (

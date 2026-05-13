@@ -23,7 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/api/resource"
 
-	"github.com/SebTardif/kube-rightsize/internal/metrics"
+	"github.com/SebTardifLabs/kube-rightsize/internal/metrics"
 )
 
 func makeProfile(overall metrics.PercentileSet, hourlyOverrides map[int]metrics.PercentileSet) metrics.UsageProfile {

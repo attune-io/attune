@@ -1,4 +1,4 @@
-module github.com/SebTardif/kube-rightsize
+module github.com/SebTardifLabs/kube-rightsize
 
 go 1.26.3
 
