@@ -1241,6 +1241,35 @@ func TestUpdateStatusWithRetry_ConflictThenRetry(t *testing.T) {
 	assert.Equal(t, "true", final.Annotations["test-bump"])
 }
 
+func TestUpdateStatusWithRetry_PreservesHigherResizedCount(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	reconciler, fakeClient := newReconcilerForReconcile(&mockCollector{}, policy)
+
+	ctx := context.Background()
+	key := types.NamespacedName{Name: "test-policy", Namespace: "default"}
+
+	var p rightsizev1alpha1.RightSizePolicy
+	require.NoError(t, fakeClient.Get(ctx, key, &p))
+
+	// This reconcile has Resized=0 (stale snapshot).
+	p.Status.Workloads = rightsizev1alpha1.WorkloadStatus{Discovered: 5, Resized: 0}
+
+	// Simulate a concurrent reconcile that set Resized=2.
+	var concurrent rightsizev1alpha1.RightSizePolicy
+	require.NoError(t, fakeClient.Get(ctx, key, &concurrent))
+	concurrent.Status.Workloads = rightsizev1alpha1.WorkloadStatus{Discovered: 5, Resized: 2}
+	require.NoError(t, fakeClient.Status().Update(ctx, &concurrent))
+
+	// p now has a stale resource version AND a lower Resized count.
+	err := reconciler.updateStatusWithRetry(ctx, &p, key)
+	assert.NoError(t, err)
+
+	var final rightsizev1alpha1.RightSizePolicy
+	require.NoError(t, fakeClient.Get(ctx, key, &final))
+	assert.Equal(t, int32(2), final.Status.Workloads.Resized,
+		"should preserve the higher Resized count from the concurrent reconcile")
+}
+
 // ---------- markResizeTime ----------
 
 func TestMarkResizeTime_NoExistingAnnotations(t *testing.T) {
