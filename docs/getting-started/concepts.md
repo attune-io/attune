@@ -24,9 +24,9 @@ Modes are graduated from safe observation to full automation:
 | **Auto** | Yes | Yes | All eligible pods |
 
 !!! note "Observe mode"
-    `Observe` is accepted as a mode value and behaves identically to
-    `Recommend` (collects metrics, writes recommendations, no resizes).
-    Use `Recommend` for new policies.
+    `Observe` mode collects metrics and tracks data-point progress but does
+    not surface recommendations or savings estimates. Use it as a
+    zero-footprint warm-up phase before switching to `Recommend`.
 
 !!! warning
     Start with **Recommend** in production. Promote to **Canary** only after

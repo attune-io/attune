@@ -159,8 +159,8 @@ provides a graduated path:
 
 | Mode | What happens | Risk level |
 |------|-------------|------------|
-| **Observe** | Collects metrics, computes recommendations, does nothing | Zero |
-| **Recommend** | Same as Observe, plus writes recommendations to the policy status | Zero |
+| **Observe** | Collects metrics and tracks data-point progress; no recommendations surfaced | Zero |
+| **Recommend** | Collects metrics and writes recommendations to the policy status | Zero |
 | **OneShot** | Resizes one pod per reconciliation cycle, then stops | Minimal |
 | **Canary** | Resizes 10% of pods first, watches them, then rolls out to the rest | Low |
 | **Auto** | Continuously resizes all eligible pods based on observed metrics | Production-ready |

@@ -1415,6 +1415,37 @@ func TestReconcile_HappyPathWithRecommendations(t *testing.T) {
 	assert.Equal(t, "Monitoring", updated.Status.Conditions[0].Reason)
 }
 
+func TestReconcile_ObserveModeOmitsRecommendations(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.ModeObserve
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	pod := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
+
+	mc := &mockCollector{
+		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return generateSamples(200, 0.1), nil
+		},
+	}
+	reconciler, fakeClient := newReconcilerForReconcile(mc, policy, deploy, pod)
+
+	result, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, 1*time.Hour, result.RequeueAfter)
+
+	var updated rightsizev1alpha1.RightSizePolicy
+	require.NoError(t, fakeClient.Get(context.Background(),
+		types.NamespacedName{Name: "test-policy", Namespace: "default"}, &updated))
+
+	// Observe mode: workloads are discovered and data points tracked,
+	// but recommendations and savings are not surfaced.
+	assert.Equal(t, int32(1), updated.Status.Workloads.Discovered)
+	assert.Empty(t, updated.Status.Recommendations, "Observe mode should not populate recommendations")
+	assert.Empty(t, updated.Status.Savings.EstimatedMonthlySavings, "Observe mode should not compute savings")
+	assert.True(t, updated.Status.Workloads.DataPointsCollected > 0, "Observe mode should still track data points")
+}
+
 // ---------- observation-period requeue ----------
 
 func TestRequeueShortenedByObservationPeriod(t *testing.T) {

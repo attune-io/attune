@@ -145,7 +145,7 @@ type UpdateStrategy struct {
 	//   OneShot: resizes one pod per reconcile cycle.
 	//   Canary: resizes a percentage of pods first, then the rest after observation.
 	//   Auto: resizes all eligible pods each cycle.
-	//   Observe: alias for Recommend (accepted for compatibility).
+	//   Observe: collects metrics and tracks data points but does not surface recommendations or savings.
 	// Start with Recommend in production and promote after reviewing status.
 	// +kubebuilder:validation:Enum=Observe;Recommend;OneShot;Canary;Auto
 	Mode string `json:"mode"`

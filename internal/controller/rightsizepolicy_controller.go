@@ -345,10 +345,12 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		DataPointsCollected: safeInt32(globalMaxDataPoints),
 		DataPointsRequired:  safeInt32(int(minimumDP)),
 	}
-	policy.Status.Recommendations = recommendations
-
-	// Compute savings estimate.
-	policy.Status.Savings = r.computeSavings(policy.Namespace, recommendations, defaults)
+	// Observe mode: collect data and track progress but don't surface
+	// recommendations. This gives a zero-footprint data-collection phase.
+	if policy.Spec.UpdateStrategy.Mode != rightsizev1alpha1.ModeObserve {
+		policy.Status.Recommendations = recommendations
+		policy.Status.Savings = r.computeSavings(policy.Namespace, recommendations, defaults)
+	}
 
 	// Step 9: Execute resizes if mode allows.
 	mode := policy.Spec.UpdateStrategy.Mode

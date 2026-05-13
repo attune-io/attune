@@ -21,7 +21,7 @@ flowchart LR
 | Canary | Medium | Percentage-based rollout with observation |
 | Auto | Higher | All eligible pods resized |
 
-`Observe` is accepted as a mode value and behaves identically to `Recommend`.
+`Observe` collects metrics and tracks data-point progress but does not surface recommendations or savings. It serves as a zero-footprint warm-up before `Recommend`.
 
 The recommended production path is Recommend, then Canary, then Auto.
 
