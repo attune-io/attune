@@ -1,0 +1,37 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: grafana-dashboard
+spec:
+  description: Verify that helm template with grafanaDashboard.enabled=true produces a valid dashboard ConfigMap
+  timeouts:
+    apply: 30s
+    assert: 30s
+    delete: 30s
+  steps:
+    - name: verify-dashboard-template
+      try:
+        - script:
+            content: |
+              output=$(helm template kube-rightsize ./charts/kube-rightsize \
+                --set grafanaDashboard.enabled=true 2>&1)
+              if ! echo "$output" | grep -q 'grafana_dashboard: "1"'; then
+                echo "ERROR: dashboard ConfigMap missing grafana_dashboard label"
+                echo "$output"
+                exit 1
+              fi
+              if ! echo "$output" | grep -q '"panels"'; then
+                echo "ERROR: dashboard ConfigMap missing panels JSON"
+                exit 1
+              fi
+              echo "Grafana dashboard template renders correctly"
+    - name: verify-dashboard-disabled-by-default
+      try:
+        - script:
+            content: |
+              output=$(helm template kube-rightsize ./charts/kube-rightsize 2>&1)
+              if echo "$output" | grep -q 'grafana_dashboard'; then
+                echo "ERROR: dashboard ConfigMap should not render by default"
+                exit 1
+              fi
+              echo "Grafana dashboard correctly disabled by default"

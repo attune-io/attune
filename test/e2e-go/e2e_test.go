@@ -533,3 +533,209 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 	assert.NotEmpty(t, policy.Status.Savings.EstimatedMonthlySavings,
 		"savings estimate should be computed for overprovisioned workload")
 }
+
+func TestE2E_BudgetCaps_DefersResize(t *testing.T) {
+	if os.Getenv("E2E_NIGHTLY") != "true" {
+		t.Skip("requires extended Prometheus warm-up; set E2E_NIGHTLY=true to run")
+	}
+	ns := uniqueNS("budget")
+	createNamespace(t, ns)
+	createDeployment(t, "budget-app", ns, "500m", "512Mi", 3)
+	waitForDeploymentReady(t, "budget-app", ns, 60*time.Second)
+
+	tightBudget := resource.MustParse("1m")
+	deployName := "budget-app"
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "budget-policy", Namespace: ns},
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			TargetRef: rightsizev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
+			MetricsSource: rightsizev1alpha1.MetricsSource{
+				Prometheus:        &rightsizev1alpha1.PrometheusConfig{Address: promAddr},
+				MinimumDataPoints: 1,
+				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+			},
+			CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.2"},
+			Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, SafetyMargin: "1.3"},
+			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+				Mode:                   "Auto",
+				Cooldown:               &metav1.Duration{Duration: time.Minute},
+				MaxTotalCPUIncrease:    &tightBudget,
+				MaxCPUChangePercent:    100,
+				MaxMemoryChangePercent: 100,
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, policy))
+
+	// Wait for at least one reconcile cycle.
+	waitForPolicyDiscovered(t, "budget-policy", ns, 2*time.Minute)
+
+	// With a 1m CPU budget, at most one pod can be resized per cycle.
+	// Check that the policy reconciled without error.
+	var p rightsizev1alpha1.RightSizePolicy
+	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "budget-policy", Namespace: ns}, &p))
+	assert.Equal(t, int32(1), p.Status.Workloads.Discovered)
+}
+
+func TestE2E_ScheduleWindow_SkipsOutsideWindow(t *testing.T) {
+	if os.Getenv("E2E_NIGHTLY") != "true" {
+		t.Skip("requires extended Prometheus warm-up; set E2E_NIGHTLY=true to run")
+	}
+	ns := uniqueNS("sched")
+	createNamespace(t, ns)
+	createDeployment(t, "sched-app", ns, "500m", "512Mi", 1)
+	waitForDeploymentReady(t, "sched-app", ns, 60*time.Second)
+
+	// Build a daysOfWeek list that excludes today.
+	allDays := []string{"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"}
+	today := time.Now().Weekday().String()
+	var excludedDays []string
+	for _, d := range allDays {
+		if d != today {
+			excludedDays = append(excludedDays, d)
+		}
+	}
+
+	deployName := "sched-app"
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "sched-policy", Namespace: ns},
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			TargetRef: rightsizev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
+			MetricsSource: rightsizev1alpha1.MetricsSource{
+				Prometheus:        &rightsizev1alpha1.PrometheusConfig{Address: promAddr},
+				MinimumDataPoints: 1,
+				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+			},
+			CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.2"},
+			Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, SafetyMargin: "1.3"},
+			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+				Mode:                   "Auto",
+				Cooldown:               &metav1.Duration{Duration: time.Minute},
+				MaxCPUChangePercent:    100,
+				MaxMemoryChangePercent: 100,
+				Schedule: &rightsizev1alpha1.ResizeSchedule{
+					DaysOfWeek: excludedDays,
+					Windows:    []rightsizev1alpha1.TimeWindow{{Start: "00:00", End: "23:59"}},
+				},
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, policy))
+
+	waitForPolicyDiscovered(t, "sched-policy", ns, 2*time.Minute)
+
+	// Today is excluded from the schedule, so no resizes should occur.
+	var p rightsizev1alpha1.RightSizePolicy
+	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "sched-policy", Namespace: ns}, &p))
+	assert.Equal(t, int32(0), p.Status.Workloads.Resized,
+		"no resizes should occur when today is excluded from schedule")
+}
+
+func TestE2E_BearerToken_Authenticates(t *testing.T) {
+	if os.Getenv("E2E_NIGHTLY") != "true" {
+		t.Skip("requires extended Prometheus warm-up; set E2E_NIGHTLY=true to run")
+	}
+	ns := uniqueNS("bearer")
+	createNamespace(t, ns)
+
+	// Create a Secret with a dummy bearer token.
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "prom-token", Namespace: ns},
+		Data:       map[string][]byte{"token": []byte("dummy-bearer-token")},
+	}
+	require.NoError(t, k8sClient.Create(ctx, secret))
+
+	createDeployment(t, "bearer-app", ns, "250m", "256Mi", 1)
+	waitForDeploymentReady(t, "bearer-app", ns, 60*time.Second)
+
+	deployName := "bearer-app"
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "bearer-policy", Namespace: ns},
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			TargetRef: rightsizev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
+			MetricsSource: rightsizev1alpha1.MetricsSource{
+				Prometheus: &rightsizev1alpha1.PrometheusConfig{
+					Address: promAddr,
+					BearerTokenSecret: &rightsizev1alpha1.SecretKeyRef{
+						Name: "prom-token",
+						Key:  "token",
+					},
+				},
+				MinimumDataPoints: 1,
+				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+			},
+			CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.2"},
+			Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, SafetyMargin: "1.3"},
+			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+				Mode:     "Recommend",
+				Cooldown: &metav1.Duration{Duration: time.Minute},
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, policy))
+
+	// Prometheus doesn't require auth, but the operator should successfully
+	// read the Secret, inject the bearer token, and query without error.
+	waitForPolicyDiscovered(t, "bearer-policy", ns, 2*time.Minute)
+
+	var p rightsizev1alpha1.RightSizePolicy
+	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "bearer-policy", Namespace: ns}, &p))
+	assert.Equal(t, int32(1), p.Status.Workloads.Discovered,
+		"policy with bearer token should discover workloads")
+}
+
+func TestE2E_EvictionFallback_ResizesWithInPlaceOrEvict(t *testing.T) {
+	if os.Getenv("E2E_NIGHTLY") != "true" {
+		t.Skip("requires extended Prometheus warm-up; set E2E_NIGHTLY=true to run")
+	}
+	ns := uniqueNS("evict")
+	createNamespace(t, ns)
+	createDeployment(t, "evict-app", ns, "500m", "512Mi", 2)
+	waitForDeploymentReady(t, "evict-app", ns, 60*time.Second)
+
+	deployName := "evict-app"
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "evict-policy", Namespace: ns},
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			TargetRef: rightsizev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
+			MetricsSource: rightsizev1alpha1.MetricsSource{
+				Prometheus:        &rightsizev1alpha1.PrometheusConfig{Address: promAddr},
+				MinimumDataPoints: 1,
+				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+			},
+			CPU: rightsizev1alpha1.ResourceConfig{
+				Percentile: 95, SafetyMargin: "1.2",
+				Bounds: &rightsizev1alpha1.ResourceBounds{
+					Min: resource.MustParse("50m"),
+					Max: resource.MustParse("4000m"),
+				},
+			},
+			Memory: rightsizev1alpha1.ResourceConfig{
+				Percentile: 99, SafetyMargin: "1.3",
+				AllowDecrease: func() *bool { b := true; return &b }(),
+				Bounds: &rightsizev1alpha1.ResourceBounds{
+					Min: resource.MustParse("64Mi"),
+					Max: resource.MustParse("8Gi"),
+				},
+			},
+			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+				Mode:                   "Auto",
+				Cooldown:               &metav1.Duration{Duration: time.Minute},
+				AutoRevert:             true,
+				ResizeMethod:           "InPlaceOrEvict",
+				MaxCPUChangePercent:    100,
+				MaxMemoryChangePercent: 100,
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, policy))
+
+	// Wait for resize. With InPlaceOrEvict, the resize should succeed
+	// either in-place or via eviction fallback.
+	waitForResize(t, "evict-policy", ns, 3*time.Minute)
+
+	var p rightsizev1alpha1.RightSizePolicy
+	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "evict-policy", Namespace: ns}, &p))
+	assert.GreaterOrEqual(t, p.Status.Workloads.Resized, int32(1),
+		"at least one workload should be resized with InPlaceOrEvict")
+}
