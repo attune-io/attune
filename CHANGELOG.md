@@ -29,6 +29,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `CronJob`. Batch workloads are recommend-only: the operator computes
   recommendations from historical Prometheus usage but does not attempt
   in-place resizes (batch pods complete and are not available for resize).
+- **Eviction fallback** via `resizeMethod: InPlaceOrEvict`. When in-place
+  resize fails (node full, kubelet marks Infeasible), the operator falls
+  back to pod eviction via the Eviction API. Safety: respects PDBs, never
+  evicts the last running replica, honors cooldown and canary percentages.
+  Default is `InPlaceOnly` (current behavior, no disruption).
 - Go module path updated from `github.com/SebTardif/kube-rightsize` to
   `github.com/SebTardifLabs/kube-rightsize` to match the repo location.
 

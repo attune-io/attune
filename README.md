@@ -244,6 +244,9 @@ The dashboard includes:
   16x), preventing repeated failed resizes.
 - **Kubernetes Events**: Emits `Normal/Resized` and `Warning/Reverted` events
   on the policy, visible via `kubectl describe`.
+- **Eviction fallback**: Optional `resizeMethod: InPlaceOrEvict` falls back to
+  pod eviction when in-place resize fails. Respects PDBs and never evicts
+  the last replica. Default `InPlaceOnly` preserves current zero-disruption behavior.
 - **Batch workload support**: Targets CronJobs and Jobs for recommend-only
   right-sizing based on historical usage of completed pods.
 - **Namespace-scoped defaults**: `RightSizeNamespaceDefaults` provides

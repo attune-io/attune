@@ -58,6 +58,7 @@ spec:
     maxMemoryChangePercent: 30 # max memory change per cycle (default: 30)
     cooldown: 1h               # min time between resize operations (default: 1h)
     autoRevert: true           # revert on safety violation (default: true)
+    resizeMethod: InPlaceOnly  # InPlaceOnly | InPlaceOrEvict (default: InPlaceOnly)
 
   # Containers to skip (e.g., service mesh sidecars).
   excludeContainers:
