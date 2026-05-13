@@ -24,6 +24,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -192,6 +193,32 @@ func CanResizeInPlace(pod *corev1.Pod) bool {
 		}
 	}
 	return true
+}
+
+// IsResizeInfeasible returns true if the kubelet has marked the pod's resize
+// as Infeasible, meaning it cannot be completed in-place on the current node.
+func IsResizeInfeasible(pod *corev1.Pod) bool {
+	for _, cond := range pod.Status.Conditions {
+		if string(cond.Type) == "PodResizePending" &&
+			cond.Status == corev1.ConditionTrue &&
+			cond.Reason == "Infeasible" {
+			return true
+		}
+	}
+	return false
+}
+
+// EvictPod evicts a pod using the Eviction API, which respects
+// PodDisruptionBudgets. Returns an error if the eviction is denied.
+func (r *PodResizer) EvictPod(ctx context.Context, pod *corev1.Pod) error {
+	r.logger.Info("evicting pod for resize fallback",
+		"pod", pod.Name, "namespace", pod.Namespace)
+	return r.client.CoreV1().Pods(pod.Namespace).EvictV1(ctx, &policyv1.Eviction{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      pod.Name,
+			Namespace: pod.Namespace,
+		},
+	})
 }
 
 // WouldRestartContainer returns true if resizing the named container would

@@ -840,6 +840,18 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 	resizeStart := time.Now()
 	results, err := resizer.ResizePod(ctx, pod, containerRec.Name, target)
 	if err != nil {
+		// Attempt eviction fallback if configured.
+		if policy.Spec.UpdateStrategy.ResizeMethod == rightsizev1alpha1.ResizeMethodInPlaceOrEvict {
+			if evicted := r.tryEvictionFallback(ctx, policy, pod, workloadName, containerRec.Name, resizer); evicted {
+				return []rightsizev1alpha1.ResizeHistoryEntry{
+					{
+						Timestamp: now, Workload: workloadName, Container: containerRec.Name,
+						Resource: "cpu+memory", Method: "Eviction", Result: rightsizev1alpha1.ResultSuccess,
+					},
+				}, true
+			}
+		}
+
 		logger.Error(err, "Failed to resize pod",
 			"pod", pod.Name, "container", containerRec.Name)
 		var entries []rightsizev1alpha1.ResizeHistoryEntry
@@ -970,6 +982,61 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 	}
 
 	return history, true
+}
+
+// tryEvictionFallback attempts to evict a pod as a fallback when in-place
+// resize fails. It checks safety guards before evicting:
+//   - Never evict the last replica of a workload
+//   - The Eviction API itself enforces PodDisruptionBudgets
+//
+// Returns true if the eviction was submitted successfully.
+func (r *RightSizePolicyReconciler) tryEvictionFallback(
+	ctx context.Context,
+	policy *rightsizev1alpha1.RightSizePolicy,
+	pod *corev1.Pod,
+	workloadName, containerName string,
+	resizer *resize.PodResizer,
+) bool {
+	logger := log.FromContext(ctx)
+
+	// Safety: never evict the last replica. Count running pods for this workload.
+	var podList corev1.PodList
+	if err := r.List(ctx, &podList,
+		client.InNamespace(pod.Namespace),
+		client.MatchingLabels(pod.Labels),
+	); err != nil {
+		logger.Error(err, "Cannot list pods for eviction safety check, skipping eviction")
+		return false
+	}
+	running := 0
+	for _, p := range podList.Items {
+		if p.Status.Phase == corev1.PodRunning && p.DeletionTimestamp == nil {
+			running++
+		}
+	}
+	if running <= 1 {
+		logger.Info("Skipping eviction fallback: would evict the last running replica",
+			"pod", pod.Name, "workload", workloadName)
+		return false
+	}
+
+	// The Eviction API respects PDBs. If the eviction is denied, the error
+	// will be a 429 TooManyRequests or 500. We just log and skip.
+	if err := resizer.EvictPod(ctx, pod); err != nil {
+		logger.Error(err, "Eviction fallback denied (PDB or other constraint)",
+			"pod", pod.Name, "workload", workloadName)
+		return false
+	}
+
+	operatormetrics.ResizeTotal.WithLabelValues(pod.Namespace, workloadName, "eviction", "success").Inc()
+	if r.Recorder != nil {
+		r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "Evicted", "resize",
+			"Evicted pod %s for workload %s container %s: in-place resize failed, falling back to eviction",
+			pod.Name, workloadName, containerName)
+	}
+	logger.Info("Eviction fallback successful",
+		"pod", pod.Name, "workload", workloadName, "container", containerName)
+	return true
 }
 
 // progressPercent returns collected/required as an integer percentage, clamped to 0-99.

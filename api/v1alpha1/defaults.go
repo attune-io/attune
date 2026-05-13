@@ -27,6 +27,12 @@ const (
 	ModeAuto      = "Auto"
 )
 
+// Resize method options.
+const (
+	ResizeMethodInPlaceOnly    = "InPlaceOnly"
+	ResizeMethodInPlaceOrEvict = "InPlaceOrEvict"
+)
+
 // Controlled values options.
 const (
 	ControlledRequestsOnly      = "RequestsOnly"

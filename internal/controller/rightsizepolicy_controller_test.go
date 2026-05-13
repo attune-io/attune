@@ -48,6 +48,7 @@ import (
 	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
 	"github.com/SebTardifLabs/kube-rightsize/internal/conflict"
 	rsmetrics "github.com/SebTardifLabs/kube-rightsize/internal/metrics"
+	"github.com/SebTardifLabs/kube-rightsize/internal/resize"
 )
 
 // testScheme returns a runtime.Scheme with all needed types registered.
@@ -3841,6 +3842,60 @@ func TestBuildResizeTarget_PartialLimits(t *testing.T) {
 	assert.Equal(t, int64(200), target.Limits.Cpu().MilliValue())
 	_, hasMemLimit := target.Limits[corev1.ResourceMemory]
 	assert.False(t, hasMemLimit, "Memory limit should not be set when zero in recommendation")
+}
+
+func TestTryEvictionFallback_EvictsWhenMultipleReplicas(t *testing.T) {
+	pod1 := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
+	pod2 := newTestPod("api-server-abc-2", "default", map[string]string{"app": "api-server"})
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.ResizeMethod = rightsizev1alpha1.ResizeMethodInPlaceOrEvict
+
+	clientset := kubefake.NewSimpleClientset(pod1, pod2)
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(policy, deploy, pod1, pod2).Build()
+	r := &RightSizePolicyReconciler{
+		Client:    fakeClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+	}
+	resizer := resize.NewPodResizer(clientset, ctrl.Log)
+
+	evicted := r.tryEvictionFallback(context.Background(), policy, pod1,
+		"api-server", "app", resizer)
+	assert.True(t, evicted, "should evict when multiple replicas exist")
+
+	// Verify eviction was called.
+	var evictions int
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "create" && a.GetResource().Resource == "pods" && a.GetSubresource() == "eviction" {
+			evictions++
+		}
+	}
+	assert.Equal(t, 1, evictions)
+}
+
+func TestTryEvictionFallback_SkipsLastReplica(t *testing.T) {
+	pod := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.ResizeMethod = rightsizev1alpha1.ResizeMethodInPlaceOrEvict
+
+	clientset := kubefake.NewSimpleClientset(pod)
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(policy, deploy, pod).Build()
+	r := &RightSizePolicyReconciler{
+		Client:    fakeClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+	}
+	resizer := resize.NewPodResizer(clientset, ctrl.Log)
+
+	evicted := r.tryEvictionFallback(context.Background(), policy, pod,
+		"api-server", "app", resizer)
+	assert.False(t, evicted, "should NOT evict the last replica")
 }
 
 func TestProgressPercent(t *testing.T) {

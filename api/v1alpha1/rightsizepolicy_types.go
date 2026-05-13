@@ -174,6 +174,16 @@ type UpdateStrategy struct {
 	// AutoRevert automatically reverts changes if degradation is detected.
 	// +kubebuilder:default=true
 	AutoRevert bool `json:"autoRevert,omitempty"`
+
+	// ResizeMethod controls what happens when an in-place resize fails.
+	//   InPlaceOnly (default): skip the pod and retry next cycle.
+	//   InPlaceOrEvict: fall back to pod eviction if in-place resize
+	//   fails or is marked Infeasible by kubelet. Evictions respect
+	//   PodDisruptionBudgets and never evict the last replica.
+	// +kubebuilder:default=InPlaceOnly
+	// +kubebuilder:validation:Enum=InPlaceOnly;InPlaceOrEvict
+	// +optional
+	ResizeMethod string `json:"resizeMethod,omitempty"`
 }
 
 // CanaryConfig defines canary rollout parameters.

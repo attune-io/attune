@@ -277,6 +277,18 @@ spec:
                     - Canary
                     - Auto
                     type: string
+                  resizeMethod:
+                    default: InPlaceOnly
+                    description: |-
+                      ResizeMethod controls what happens when an in-place resize fails.
+                        InPlaceOnly (default): skip the pod and retry next cycle.
+                        InPlaceOrEvict: fall back to pod eviction if in-place resize
+                        fails or is marked Infeasible by kubelet. Evictions respect
+                        PodDisruptionBudgets and never evict the last replica.
+                    enum:
+                    - InPlaceOnly
+                    - InPlaceOrEvict
+                    type: string
                 required:
                 - mode
                 type: object

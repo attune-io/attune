@@ -575,3 +575,44 @@ func TestMergeResources(t *testing.T) {
 		})
 	}
 }
+
+func TestIsResizeInfeasible(t *testing.T) {
+	tests := []struct {
+		name string
+		pod  *corev1.Pod
+		want bool
+	}{
+		{
+			name: "no conditions",
+			pod:  &corev1.Pod{},
+			want: false,
+		},
+		{
+			name: "infeasible condition present",
+			pod: &corev1.Pod{
+				Status: corev1.PodStatus{
+					Conditions: []corev1.PodCondition{
+						{Type: "PodResizePending", Status: corev1.ConditionTrue, Reason: "Infeasible"},
+					},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "resize pending but not infeasible",
+			pod: &corev1.Pod{
+				Status: corev1.PodStatus{
+					Conditions: []corev1.PodCondition{
+						{Type: "PodResizePending", Status: corev1.ConditionTrue, Reason: "Deferred"},
+					},
+				},
+			},
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, IsResizeInfeasible(tt.pod))
+		})
+	}
+}
