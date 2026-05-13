@@ -60,6 +60,8 @@ tests:
               - nodes
             verbs:
               - get
+              - list
+              - watch
 
   - it: should include service read permissions for Prometheus auto-discovery
     asserts:
@@ -86,3 +88,4 @@ tests:
             verbs:
               - get
               - list
+              - watch
