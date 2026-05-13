@@ -61,6 +61,12 @@ spec:
     resizeMethod: InPlaceOnly  # InPlaceOnly | InPlaceOrEvict (default: InPlaceOnly)
     maxTotalCpuIncrease: "2000m"    # max aggregate CPU increase per cycle (default: unlimited)
     maxTotalMemoryIncrease: "4Gi"   # max aggregate memory increase per cycle (default: unlimited)
+    schedule:                       # optional: restrict when resizes can occur
+      windows:
+        - start: "02:00"           # HH:MM (24-hour)
+          end: "06:00"
+      daysOfWeek: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+      timezone: "America/New_York" # IANA timezone (default: UTC)
 
   # Containers to skip (e.g., service mesh sidecars).
   excludeContainers:

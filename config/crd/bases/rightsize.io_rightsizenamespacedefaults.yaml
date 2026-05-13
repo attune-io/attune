@@ -311,6 +311,48 @@ spec:
                     - InPlaceOnly
                     - InPlaceOrEvict
                     type: string
+                  schedule:
+                    description: |-
+                      Schedule restricts when resize operations can occur. Recommendations
+                      are always computed; only resize execution is gated. If omitted,
+                      resizes can occur at any time (current behavior).
+                    properties:
+                      daysOfWeek:
+                        description: |-
+                          DaysOfWeek restricts resizes to specific days. Values: Monday through Sunday.
+                          If omitted, all days are allowed.
+                        items:
+                          type: string
+                        type: array
+                      timezone:
+                        default: UTC
+                        description: |-
+                          Timezone for interpreting window start/end times. Must be a valid
+                          IANA timezone name (e.g. "America/New_York"). Default: "UTC".
+                        type: string
+                      windows:
+                        description: |-
+                          Windows defines time-of-day ranges when resizes are allowed.
+                          If multiple windows are specified, resizes are allowed during any of them.
+                        items:
+                          description: TimeWindow defines a daily time range.
+                          properties:
+                            end:
+                              description: |-
+                                End time in HH:MM format (24-hour). If end < start, the window
+                                wraps past midnight (e.g. start=22:00, end=06:00).
+                              pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                              type: string
+                            start:
+                              description: Start time in HH:MM format (24-hour).
+                              pattern: ^([01]\d|2[0-3]):[0-5]\d$
+                              type: string
+                          required:
+                          - end
+                          - start
+                          type: object
+                        type: array
+                    type: object
                 required:
                 - mode
                 type: object

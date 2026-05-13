@@ -29,6 +29,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `CronJob`. Batch workloads are recommend-only: the operator computes
   recommendations from historical Prometheus usage but does not attempt
   in-place resizes (batch pods complete and are not available for resize).
+- **Scheduled resize windows** via `updateStrategy.schedule`. Restrict
+  when resizes can occur using time-of-day windows, day-of-week constraints,
+  and configurable timezone. Recommendations are computed continuously;
+  only resize execution is gated. Supports overnight windows that wrap
+  past midnight (e.g., 22:00-06:00). Default: no schedule (anytime).
 - **Per-cycle budget caps** via `maxTotalCpuIncrease` and
   `maxTotalMemoryIncrease` on `updateStrategy`. Limits the total aggregate
   resource increase across all pods in a single reconcile cycle. Prevents

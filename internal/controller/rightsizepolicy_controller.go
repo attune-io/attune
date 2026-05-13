@@ -357,12 +357,16 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	// Step 9: Execute resizes if mode allows.
 	mode := policy.Spec.UpdateStrategy.Mode
 	cooldownActive := r.isCooldownActive(&policy)
-	if isResizeMode(mode) && !cooldownActive {
+	withinWindow := isWithinResizeWindow(policy.Spec.UpdateStrategy.Schedule, time.Now())
+	if isResizeMode(mode) && !cooldownActive && withinWindow {
 		resizedCount, history := r.executeResizes(ctx, &policy, workloads, recommendations, podsByWorkload, collector)
 		if resizedCount > 0 {
 			policy.Status.Workloads.Resized = safeInt32(resizedCount)
 			policy.Status.ResizeHistory = appendHistory(policy.Status.ResizeHistory, history, 20)
 		}
+	}
+	if isResizeMode(mode) && !withinWindow {
+		logger.Info("Outside resize window, skipping resize")
 	}
 
 	// Preserve the Resized count from a concurrent reconcile that may have

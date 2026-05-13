@@ -244,6 +244,9 @@ The dashboard includes:
   16x), preventing repeated failed resizes.
 - **Kubernetes Events**: Emits `Normal/Resized` and `Warning/Reverted` events
   on the policy, visible via `kubectl describe`.
+- **Scheduled resize windows**: Restrict resizes to specific time windows
+  and days of the week via `updateStrategy.schedule`. Supports timezones
+  and overnight windows. Recommendations compute continuously regardless.
 - **Per-cycle budget caps**: `maxTotalCpuIncrease` and `maxTotalMemoryIncrease`
   limit aggregate resource increases per reconcile cycle, preventing cluster-wide
   spikes when many pods need scaling up.

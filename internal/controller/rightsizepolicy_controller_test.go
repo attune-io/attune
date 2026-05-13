@@ -3961,6 +3961,61 @@ func TestExecuteResizes_BudgetCapsDecreasesFree(t *testing.T) {
 	assert.Equal(t, 1, count, "decreases should not consume budget")
 }
 
+func TestIsWithinResizeWindow_NoSchedule(t *testing.T) {
+	assert.True(t, isWithinResizeWindow(nil, time.Now()))
+}
+
+func TestIsWithinResizeWindow_DayOfWeek(t *testing.T) {
+	// Wednesday 10:00 UTC
+	wed := time.Date(2026, 1, 7, 10, 0, 0, 0, time.UTC)
+	schedule := &rightsizev1alpha1.ResizeSchedule{
+		DaysOfWeek: []string{"Monday", "Wednesday", "Friday"},
+	}
+	assert.True(t, isWithinResizeWindow(schedule, wed))
+
+	// Thursday should be blocked
+	thu := time.Date(2026, 1, 8, 10, 0, 0, 0, time.UTC)
+	assert.False(t, isWithinResizeWindow(schedule, thu))
+}
+
+func TestIsWithinResizeWindow_TimeWindow(t *testing.T) {
+	schedule := &rightsizev1alpha1.ResizeSchedule{
+		Windows: []rightsizev1alpha1.TimeWindow{{Start: "02:00", End: "06:00"}},
+	}
+	// 03:00 is inside
+	assert.True(t, isWithinResizeWindow(schedule, time.Date(2026, 1, 7, 3, 0, 0, 0, time.UTC)))
+	// 10:00 is outside
+	assert.False(t, isWithinResizeWindow(schedule, time.Date(2026, 1, 7, 10, 0, 0, 0, time.UTC)))
+}
+
+func TestIsWithinResizeWindow_OvernightWindow(t *testing.T) {
+	schedule := &rightsizev1alpha1.ResizeSchedule{
+		Windows: []rightsizev1alpha1.TimeWindow{{Start: "22:00", End: "06:00"}},
+	}
+	// 23:00 is inside (after start)
+	assert.True(t, isWithinResizeWindow(schedule, time.Date(2026, 1, 7, 23, 0, 0, 0, time.UTC)))
+	// 03:00 is inside (before end, wraps past midnight)
+	assert.True(t, isWithinResizeWindow(schedule, time.Date(2026, 1, 7, 3, 0, 0, 0, time.UTC)))
+	// 10:00 is outside
+	assert.False(t, isWithinResizeWindow(schedule, time.Date(2026, 1, 7, 10, 0, 0, 0, time.UTC)))
+}
+
+func TestIsWithinResizeWindow_InvalidTimezoneFailsOpen(t *testing.T) {
+	schedule := &rightsizev1alpha1.ResizeSchedule{
+		Timezone: "Invalid/Zone",
+	}
+	// Invalid timezone should fail open (allow resize)
+	assert.True(t, isWithinResizeWindow(schedule, time.Now()))
+}
+
+func TestParseHHMM(t *testing.T) {
+	assert.Equal(t, 120, parseHHMM("02:00"))
+	assert.Equal(t, 1380, parseHHMM("23:00"))
+	assert.Equal(t, 0, parseHHMM("00:00"))
+	assert.Equal(t, -1, parseHHMM("25:00"))
+	assert.Equal(t, -1, parseHHMM("bad"))
+}
+
 func TestProgressPercent(t *testing.T) {
 	tests := []struct {
 		name                      string

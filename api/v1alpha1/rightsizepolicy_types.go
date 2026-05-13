@@ -185,6 +185,12 @@ type UpdateStrategy struct {
 	// +optional
 	ResizeMethod string `json:"resizeMethod,omitempty"`
 
+	// Schedule restricts when resize operations can occur. Recommendations
+	// are always computed; only resize execution is gated. If omitted,
+	// resizes can occur at any time (current behavior).
+	// +optional
+	Schedule *ResizeSchedule `json:"schedule,omitempty"`
+
 	// MaxTotalCPUIncrease is the maximum aggregate CPU increase allowed
 	// across all pods in a single reconcile cycle (e.g. "2000m", "4").
 	// Once exhausted, remaining pods are deferred to the next cycle.
@@ -209,6 +215,37 @@ type CanaryConfig struct {
 
 	// ObservationPeriod is how long to observe canary pods before proceeding.
 	ObservationPeriod metav1.Duration `json:"observationPeriod"`
+}
+
+// ResizeSchedule restricts when resize operations can be applied.
+type ResizeSchedule struct {
+	// Windows defines time-of-day ranges when resizes are allowed.
+	// If multiple windows are specified, resizes are allowed during any of them.
+	// +optional
+	Windows []TimeWindow `json:"windows,omitempty"`
+
+	// DaysOfWeek restricts resizes to specific days. Values: Monday through Sunday.
+	// If omitted, all days are allowed.
+	// +optional
+	DaysOfWeek []string `json:"daysOfWeek,omitempty"`
+
+	// Timezone for interpreting window start/end times. Must be a valid
+	// IANA timezone name (e.g. "America/New_York"). Default: "UTC".
+	// +kubebuilder:default=UTC
+	// +optional
+	Timezone string `json:"timezone,omitempty"`
+}
+
+// TimeWindow defines a daily time range.
+type TimeWindow struct {
+	// Start time in HH:MM format (24-hour).
+	// +kubebuilder:validation:Pattern=`^([01]\d|2[0-3]):[0-5]\d$`
+	Start string `json:"start"`
+
+	// End time in HH:MM format (24-hour). If end < start, the window
+	// wraps past midnight (e.g. start=22:00, end=06:00).
+	// +kubebuilder:validation:Pattern=`^([01]\d|2[0-3]):[0-5]\d$`
+	End string `json:"end"`
 }
 
 // RightSizePolicyStatus defines the observed state of RightSizePolicy.

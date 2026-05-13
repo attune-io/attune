@@ -576,6 +576,80 @@ func (r *RightSizePolicyReconciler) mergeDefaults(policy *rightsizev1alpha1.Righ
 	}
 }
 
+// isWithinResizeWindow returns true if the current time falls within the
+// configured resize schedule. Returns true if no schedule is configured.
+func isWithinResizeWindow(schedule *rightsizev1alpha1.ResizeSchedule, now time.Time) bool {
+	if schedule == nil {
+		return true
+	}
+
+	// Load timezone.
+	tz := schedule.Timezone
+	if tz == "" {
+		tz = "UTC"
+	}
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		// Invalid timezone: fail open (allow resize) rather than silently
+		// blocking resizes with an undetectable config error.
+		return true
+	}
+	localNow := now.In(loc)
+
+	// Check day-of-week constraint.
+	if len(schedule.DaysOfWeek) > 0 {
+		dayName := localNow.Weekday().String()
+		dayAllowed := false
+		for _, d := range schedule.DaysOfWeek {
+			if strings.EqualFold(d, dayName) {
+				dayAllowed = true
+				break
+			}
+		}
+		if !dayAllowed {
+			return false
+		}
+	}
+
+	// Check time windows. If no windows are specified, all times are allowed.
+	if len(schedule.Windows) == 0 {
+		return true
+	}
+	nowMinutes := localNow.Hour()*60 + localNow.Minute()
+	for _, w := range schedule.Windows {
+		start := parseHHMM(w.Start)
+		end := parseHHMM(w.End)
+		if start < 0 || end < 0 {
+			continue
+		}
+		if start <= end {
+			// Normal window: e.g. 02:00-06:00
+			if nowMinutes >= start && nowMinutes < end {
+				return true
+			}
+		} else {
+			// Overnight window: e.g. 22:00-06:00
+			if nowMinutes >= start || nowMinutes < end {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// parseHHMM parses "HH:MM" into minutes since midnight. Returns -1 on error.
+func parseHHMM(s string) int {
+	if len(s) != 5 || s[2] != ':' {
+		return -1
+	}
+	h, err1 := strconv.Atoi(s[:2])
+	m, err2 := strconv.Atoi(s[3:])
+	if err1 != nil || err2 != nil || h < 0 || h > 23 || m < 0 || m > 59 {
+		return -1
+	}
+	return h*60 + m
+}
+
 // updateStatusWithRetry performs a status update with a retry on conflict.
 // If the first attempt fails with a conflict, it re-fetches the policy,
 // re-applies the status fields, and retries once.
