@@ -3965,6 +3965,61 @@ func TestResizeContainer_InfeasiblePodEvictedDirectly(t *testing.T) {
 	assert.Equal(t, 0, resizes, "should NOT have attempted in-place resize on Infeasible pod")
 }
 
+func TestResizeContainer_InfeasiblePodSkippedWithInPlaceOnly(t *testing.T) {
+	// An Infeasible pod with InPlaceOnly should be skipped entirely
+	// (no resize attempt, no eviction).
+	pod := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
+	pod.Name = "api-server-abc-1"
+	pod.Status.Conditions = append(pod.Status.Conditions, corev1.PodCondition{
+		Type:   "PodResizePending",
+		Status: corev1.ConditionTrue,
+		Reason: "Infeasible",
+	})
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(deploy, pod).Build()
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+	r := &RightSizePolicyReconciler{
+		Client:    fakeClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.ModeAuto
+	// InPlaceOnly (default): no eviction allowed.
+
+	resizer := resize.NewPodResizer(clientset, ctrl.Log)
+	containerRec := rightsizev1alpha1.ContainerRecommendation{
+		Name: "app",
+		Current: rightsizev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("200m"),
+			MemoryRequest: resource.MustParse("256Mi"),
+		},
+		Recommended: rightsizev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("500m"),
+			MemoryRequest: resource.MustParse("512Mi"),
+		},
+	}
+
+	entries, resized := r.resizeContainer(context.Background(), policy, pod,
+		"api-server", containerRec, resizer, nil, metav1.Now())
+	assert.False(t, resized, "infeasible pod with InPlaceOnly should not be resized")
+	assert.Empty(t, entries, "should produce no history entries")
+
+	// Verify NO resize and NO eviction was attempted.
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			t.Error("should NOT have attempted in-place resize on Infeasible pod")
+		}
+		if a.GetVerb() == "create" && a.GetSubresource() == "eviction" {
+			t.Error("should NOT have attempted eviction with InPlaceOnly")
+		}
+	}
+}
+
 func TestExecuteResizes_BudgetCapsDefersExcessiveIncrease(t *testing.T) {
 	// Pod at 200m CPU, recommendation is 800m (increase of 600m).
 	// Budget cap is 500m, so the resize should be skipped.
