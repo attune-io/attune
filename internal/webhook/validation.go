@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
 	"time"
 
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -135,6 +136,13 @@ func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizeP
 		}
 	}
 
+	// Validate schedule fields.
+	if schedule := policy.Spec.UpdateStrategy.Schedule; schedule != nil {
+		if err := validateSchedule(schedule); err != nil {
+			return warnings, err
+		}
+	}
+
 	// Warn if memory decrease is enabled
 	if policy.Spec.Memory.AllowDecrease != nil && *policy.Spec.Memory.AllowDecrease {
 		warnings = append(warnings, "memory.allowDecrease is enabled; this carries OOMKill risk")
@@ -167,6 +175,52 @@ func validateSafetyMargin(resource, margin string) (warning string, err error) {
 			resource, v, 1+v), nil
 	}
 	return "", nil
+}
+
+// validWeekdays is the set of accepted day-of-week names (case-insensitive).
+var validWeekdays = map[string]bool{
+	"monday": true, "tuesday": true, "wednesday": true,
+	"thursday": true, "friday": true, "saturday": true, "sunday": true,
+}
+
+func validateSchedule(schedule *rightsizev1alpha1.ResizeSchedule) error {
+	// Validate timezone.
+	if tz := schedule.Timezone; tz != "" {
+		if _, err := time.LoadLocation(tz); err != nil {
+			return fmt.Errorf("updateStrategy.schedule.timezone %q is not a valid IANA timezone: %w", tz, err)
+		}
+	}
+
+	// Validate days of week.
+	for _, day := range schedule.DaysOfWeek {
+		if !validWeekdays[strings.ToLower(day)] {
+			return fmt.Errorf("updateStrategy.schedule.daysOfWeek contains invalid day %q; valid values: Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday", day)
+		}
+	}
+
+	// Validate time windows (defense-in-depth; CRD pattern also validates).
+	for i, w := range schedule.Windows {
+		if err := validateHHMM(fmt.Sprintf("schedule.windows[%d].start", i), w.Start); err != nil {
+			return err
+		}
+		if err := validateHHMM(fmt.Sprintf("schedule.windows[%d].end", i), w.End); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func validateHHMM(field, value string) error {
+	if len(value) != 5 || value[2] != ':' {
+		return fmt.Errorf("updateStrategy.%s %q must be in HH:MM format", field, value)
+	}
+	h, err1 := strconv.Atoi(value[:2])
+	m, err2 := strconv.Atoi(value[3:])
+	if err1 != nil || err2 != nil || h < 0 || h > 23 || m < 0 || m > 59 {
+		return fmt.Errorf("updateStrategy.%s %q is not a valid time (00:00-23:59)", field, value)
+	}
+	return nil
 }
 
 // ValidatePrometheusAddress delegates to the shared validation package.

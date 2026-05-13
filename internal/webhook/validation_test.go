@@ -403,6 +403,107 @@ func TestValidate_UnsupportedPercentileRejected(t *testing.T) {
 	}
 }
 
+func TestValidate_ScheduleTimezoneInvalid(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.Schedule = &rightsizev1alpha1.ResizeSchedule{
+		Timezone: "Not/A/Timezone",
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "schedule.timezone")
+	assert.Contains(t, err.Error(), "Not/A/Timezone")
+}
+
+func TestValidate_ScheduleTimezoneValid(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	for _, tz := range []string{"UTC", "America/New_York", "Europe/London", "Asia/Tokyo"} {
+		policy := validPolicy()
+		policy.Spec.UpdateStrategy.Schedule = &rightsizev1alpha1.ResizeSchedule{
+			Timezone: tz,
+		}
+		_, err := validator.ValidateCreate(context.Background(), policy)
+		assert.NoError(t, err, "timezone %q should be valid", tz)
+	}
+}
+
+func TestValidate_ScheduleDaysOfWeekInvalid(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.Schedule = &rightsizev1alpha1.ResizeSchedule{
+		DaysOfWeek: []string{"Monday", "Notaday"},
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "daysOfWeek")
+	assert.Contains(t, err.Error(), "Notaday")
+}
+
+func TestValidate_ScheduleDaysOfWeekCaseInsensitive(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.Schedule = &rightsizev1alpha1.ResizeSchedule{
+		DaysOfWeek: []string{"monday", "FRIDAY", "Saturday"},
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	assert.NoError(t, err)
+}
+
+func TestValidate_ScheduleTimeWindowInvalid(t *testing.T) {
+	tests := []struct {
+		name    string
+		start   string
+		end     string
+		wantErr string
+	}{
+		{"bad start format", "2:00", "06:00", "HH:MM format"},
+		{"bad end format", "02:00", "6:00", "HH:MM format"},
+		{"hour out of range", "25:00", "06:00", "not a valid time"},
+		{"minute out of range", "02:60", "06:00", "not a valid time"},
+		{"letters", "ab:cd", "06:00", "not a valid time"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			validator := &RightSizePolicyValidator{}
+			policy := validPolicy()
+			policy.Spec.UpdateStrategy.Schedule = &rightsizev1alpha1.ResizeSchedule{
+				Windows: []rightsizev1alpha1.TimeWindow{{Start: tt.start, End: tt.end}},
+			}
+
+			_, err := validator.ValidateCreate(context.Background(), policy)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
+func TestValidate_ScheduleTimeWindowValid(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.Schedule = &rightsizev1alpha1.ResizeSchedule{
+		Windows:    []rightsizev1alpha1.TimeWindow{{Start: "02:00", End: "06:00"}},
+		DaysOfWeek: []string{"Monday", "Wednesday", "Friday"},
+		Timezone:   "America/New_York",
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	assert.NoError(t, err)
+}
+
+func TestValidate_ScheduleOvernightWindowValid(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.Schedule = &rightsizev1alpha1.ResizeSchedule{
+		Windows: []rightsizev1alpha1.TimeWindow{{Start: "22:00", End: "06:00"}},
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	assert.NoError(t, err)
+}
+
 func TestValidateDelete_AlwaysSucceeds(t *testing.T) {
 	validator := &RightSizePolicyValidator{}
 	policy := validPolicy()
