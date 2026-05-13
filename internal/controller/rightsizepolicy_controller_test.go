@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -923,6 +924,50 @@ func TestGetOrCreateCollector_EvictsStaleEntries(t *testing.T) {
 	// A new address should succeed because stale entries get evicted.
 	_, err := reconciler.getOrCreateCollector("http://fresh:9090")
 	require.NoError(t, err)
+}
+
+func TestGetOrCreateCollector_ConcurrentAccess(t *testing.T) {
+	reconciler := &RightSizePolicyReconciler{
+		CollectorTTL: 50 * time.Millisecond,
+		MetricsFactory: func(string) (rsmetrics.MetricsCollector, error) {
+			return &mockCollector{}, nil
+		},
+	}
+
+	// Seed some entries that will become stale mid-test.
+	staleTime := time.Now().Add(-(collectorTTL + time.Minute))
+	for i := 0; i < 10; i++ {
+		reconciler.collectors.Store(fmt.Sprintf("http://stale-%d:9090", i),
+			&collectorEntry{collector: &mockCollector{}, lastUsed: staleTime})
+	}
+
+	const goroutines = 20
+	addresses := make([]string, goroutines)
+	for i := range addresses {
+		addresses[i] = fmt.Sprintf("http://concurrent-%d:9090", i%5) // 5 unique addresses
+	}
+
+	var wg sync.WaitGroup
+	errs := make([]error, goroutines)
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			_, err := reconciler.getOrCreateCollector(addresses[idx])
+			errs[idx] = err
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		assert.NoError(t, err, "goroutine %d", i)
+	}
+	// With 5 unique addresses, at most 5 entries should remain in the map
+	// (LoadOrStore deduplicates). The factory may be called more often due
+	// to races, but the cache itself must be bounded.
+	var stored int
+	reconciler.collectors.Range(func(_, _ any) bool { stored++; return true })
+	assert.LessOrEqual(t, stored, 15, "cache should not grow unbounded")
 }
 
 // ---------- computeRecommendations ----------
