@@ -174,11 +174,20 @@ func (m *Monitor) RevertPod(ctx context.Context, record ResizeRecord) error {
 
 	updated := pod.DeepCopy()
 	found := false
-	for i, c := range updated.Spec.Containers {
+	for i, c := range updated.Spec.InitContainers {
 		if c.Name == record.Container {
-			updated.Spec.Containers[i].Resources = record.OriginalResources
+			updated.Spec.InitContainers[i].Resources = record.OriginalResources
 			found = true
 			break
+		}
+	}
+	if !found {
+		for i, c := range updated.Spec.Containers {
+			if c.Name == record.Container {
+				updated.Spec.Containers[i].Resources = record.OriginalResources
+				found = true
+				break
+			}
 		}
 	}
 	if !found {

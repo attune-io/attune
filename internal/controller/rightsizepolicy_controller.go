@@ -1034,8 +1034,11 @@ func buildRecommendationEngines(policy *rightsizev1alpha1.RightSizePolicy) (cpuE
 		memBoundsMax = policy.Spec.Memory.Bounds.Max.DeepCopy()
 	}
 
-	cpuEngine = recommendation.NewEngine(cpuPercentile, cpuSafetyMargin, cpuBoundsMin, cpuBoundsMax, float64(policy.Spec.UpdateStrategy.MaxCPUChangePercent), true)
-	memEngine = recommendation.NewEngine(memPercentile, memSafetyMargin, memBoundsMin, memBoundsMax, float64(policy.Spec.UpdateStrategy.MaxMemoryChangePercent))
+	// Defense-in-depth: clamp maxChangePercent to [1, 100] even if webhook is bypassed.
+	maxCPUChange := max(float64(policy.Spec.UpdateStrategy.MaxCPUChangePercent), 1)
+	maxMemChange := max(float64(policy.Spec.UpdateStrategy.MaxMemoryChangePercent), 1)
+	cpuEngine = recommendation.NewEngine(cpuPercentile, cpuSafetyMargin, cpuBoundsMin, cpuBoundsMax, maxCPUChange, true)
+	memEngine = recommendation.NewEngine(memPercentile, memSafetyMargin, memBoundsMin, memBoundsMax, maxMemChange)
 	return cpuEngine, memEngine
 }
 
