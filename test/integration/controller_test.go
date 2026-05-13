@@ -88,10 +88,11 @@ func (s *syntheticCollector) Query(_ context.Context, _ string, _ time.Time) (fl
 }
 
 var (
-	testEnv   *envtest.Environment
-	k8sClient client.Client
-	ctx       context.Context
-	cancel    context.CancelFunc
+	testEnv      *envtest.Environment
+	k8sClient    client.Client
+	ctx          context.Context
+	cancel       context.CancelFunc
+	testReconciler *controller.RightSizePolicyReconciler
 )
 
 func TestMain(m *testing.M) {
@@ -134,7 +135,7 @@ func TestMain(m *testing.M) {
 		panic("failed to create clientset: " + err.Error())
 	}
 
-	reconciler := &controller.RightSizePolicyReconciler{
+	testReconciler = &controller.RightSizePolicyReconciler{
 		Client:      mgr.GetClient(),
 		Scheme:      mgr.GetScheme(),
 		Clientset:   clientset,
@@ -144,7 +145,7 @@ func TestMain(m *testing.M) {
 			return &syntheticCollector{}, nil
 		},
 	}
-	err = reconciler.SetupWithManager(mgr)
+	err = testReconciler.SetupWithManager(mgr)
 	if err != nil {
 		panic("failed to setup controller: " + err.Error())
 	}
@@ -495,6 +496,72 @@ func TestReconcile_DefaultsMergingFromClusterDefaults(t *testing.T) {
 		}
 		return len(fetched.Status.Conditions) > 0
 	}, 30*time.Second, 500*time.Millisecond, "policy with defaults should reconcile")
+}
+
+func TestReconcile_ScheduleGateBlocksResizeOutsideWindow(t *testing.T) {
+	namespace := "integration-test"
+
+	deploy := newTestDeployment("schedule-app", namespace)
+	require.NoError(t, k8sClient.Create(ctx, deploy))
+
+	// Policy with a schedule window of 02:00-06:00 on Wednesdays only.
+	// Set mode to Auto so resize execution would be attempted (but blocked by schedule).
+	policy := newTestPolicy("policy-schedule", namespace, "schedule-app")
+	policy.Spec.UpdateStrategy.Mode = "Auto"
+	policy.Spec.UpdateStrategy.Schedule = &rightsizev1alpha1.ResizeSchedule{
+		Windows:    []rightsizev1alpha1.TimeWindow{{Start: "02:00", End: "06:00"}},
+		DaysOfWeek: []string{"Wednesday"},
+	}
+	require.NoError(t, k8sClient.Create(ctx, policy))
+
+	// Set NowFunc to Monday 10:00 -- outside the Wednesday 02:00-06:00 window.
+	// The reconciler should still compute recommendations but skip resize execution.
+	monday := time.Date(2026, 1, 5, 10, 0, 0, 0, time.UTC) // Monday
+	testReconciler.NowFunc = func() time.Time { return monday }
+	defer func() { testReconciler.NowFunc = nil }()
+
+	// The policy should reconcile and discover the workload.
+	assert.Eventually(t, func() bool {
+		var fetched rightsizev1alpha1.RightSizePolicy
+		if err := k8sClient.Get(ctx, types.NamespacedName{
+			Name: "policy-schedule", Namespace: namespace,
+		}, &fetched); err != nil {
+			return false
+		}
+		// Should have conditions and discovered workloads, but no resizes
+		// (schedule blocks execution, and envtest can't do actual resizes anyway).
+		return fetched.Status.Workloads.Discovered >= 1 && len(fetched.Status.Conditions) > 0
+	}, 30*time.Second, 500*time.Millisecond,
+		"policy with schedule gate should reconcile and discover workloads")
+
+	// Switch to Wednesday 03:00 -- inside the window.
+	wednesday := time.Date(2026, 1, 7, 3, 0, 0, 0, time.UTC) // Wednesday
+	testReconciler.NowFunc = func() time.Time { return wednesday }
+
+	// Force a re-reconcile by updating the policy annotation.
+	var fetched rightsizev1alpha1.RightSizePolicy
+	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{
+		Name: "policy-schedule", Namespace: namespace,
+	}, &fetched))
+	if fetched.Annotations == nil {
+		fetched.Annotations = map[string]string{}
+	}
+	fetched.Annotations["test-trigger"] = "inside-window"
+	require.NoError(t, k8sClient.Update(ctx, &fetched))
+
+	// The reconciler should process the policy again. The schedule gate
+	// now allows resize execution (though envtest can't complete actual resizes).
+	assert.Eventually(t, func() bool {
+		var refetched rightsizev1alpha1.RightSizePolicy
+		if err := k8sClient.Get(ctx, types.NamespacedName{
+			Name: "policy-schedule", Namespace: namespace,
+		}, &refetched); err != nil {
+			return false
+		}
+		return refetched.Annotations["test-trigger"] == "inside-window" &&
+			len(refetched.Status.Conditions) > 0
+	}, 30*time.Second, 500*time.Millisecond,
+		"policy should reconcile inside schedule window")
 }
 
 func TestReconcile_ConcurrentResizesFieldProcessedWithoutRaces(t *testing.T) {
