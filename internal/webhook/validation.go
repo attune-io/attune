@@ -111,10 +111,10 @@ func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizeP
 	// Validate percentile values are in the supported set.
 	supportedPercentiles := map[int32]bool{50: true, 90: true, 95: true, 99: true}
 	if p := policy.Spec.CPU.Percentile; p != 0 && !supportedPercentiles[p] {
-		warnings = append(warnings, fmt.Sprintf("cpu.percentile %d is not in the supported set {50, 90, 95, 99}; defaulting to 95", p))
+		return warnings, fmt.Errorf("cpu.percentile %d is not supported; must be one of: 50, 90, 95, 99", p)
 	}
 	if p := policy.Spec.Memory.Percentile; p != 0 && !supportedPercentiles[p] {
-		warnings = append(warnings, fmt.Sprintf("memory.percentile %d is not in the supported set {50, 90, 95, 99}; defaulting to 95", p))
+		return warnings, fmt.Errorf("memory.percentile %d is not supported; must be one of: 50, 90, 95, 99", p)
 	}
 
 	// Validate historyWindow is within reasonable bounds (1h to 720h/30d).
