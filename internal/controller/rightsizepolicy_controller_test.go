@@ -4101,6 +4101,48 @@ func TestExecuteResizes_ConcurrentResizes(t *testing.T) {
 	assert.NotEmpty(t, history, "should produce resize history entries")
 }
 
+func TestReconcile_NowFuncControlsScheduleGate(t *testing.T) {
+	// A policy with a schedule window of 02:00-06:00 UTC on Wednesdays.
+	// When NowFunc returns a time outside the window, no resize should happen.
+	// When NowFunc returns a time inside the window, resize should proceed.
+	pod := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+
+	scheme := testScheme()
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.ModeAuto
+	policy.Spec.UpdateStrategy.Schedule = &rightsizev1alpha1.ResizeSchedule{
+		Windows:    []rightsizev1alpha1.TimeWindow{{Start: "02:00", End: "06:00"}},
+		DaysOfWeek: []string{"Wednesday"},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(deploy, pod, policy).
+		WithStatusSubresource(policy).Build()
+
+	// Wednesday 10:00 UTC -- outside the 02:00-06:00 window.
+	outsideWindow := time.Date(2026, 1, 7, 10, 0, 0, 0, time.UTC)
+
+	r := &RightSizePolicyReconciler{
+		Client:    fakeClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+		NowFunc:   func() time.Time { return outsideWindow },
+	}
+
+	result := r.now()
+	assert.Equal(t, outsideWindow, result)
+	assert.False(t, isWithinResizeWindow(policy.Spec.UpdateStrategy.Schedule, r.now()),
+		"10:00 should be outside 02:00-06:00 window")
+
+	// Wednesday 03:00 UTC -- inside the window.
+	insideWindow := time.Date(2026, 1, 7, 3, 0, 0, 0, time.UTC)
+	r.NowFunc = func() time.Time { return insideWindow }
+	assert.True(t, isWithinResizeWindow(policy.Spec.UpdateStrategy.Schedule, r.now()),
+		"03:00 should be inside 02:00-06:00 window")
+}
+
 func TestIsWithinResizeWindow_NoSchedule(t *testing.T) {
 	assert.True(t, isWithinResizeWindow(nil, time.Now()))
 }

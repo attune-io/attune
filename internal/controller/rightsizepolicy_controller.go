@@ -113,9 +113,18 @@ type RightSizePolicyReconciler struct {
 	MetricsFactory MetricsCollectorFactory
 	Clientset      kubernetes.Interface // for resize subresource calls
 	Recorder       events.EventRecorder
-	MinCooldown    time.Duration // minimum cooldown floor (default: 1m)
-	CollectorTTL   time.Duration // how long unused collectors stay cached (default: 10m)
-	collectors     sync.Map      // map[string]*collectorEntry cache
+	MinCooldown    time.Duration    // minimum cooldown floor (default: 1m)
+	CollectorTTL   time.Duration    // how long unused collectors stay cached (default: 10m)
+	NowFunc        func() time.Time // injectable clock; defaults to time.Now
+	collectors     sync.Map         // map[string]*collectorEntry cache
+}
+
+// now returns the current time, using NowFunc if set, otherwise time.Now.
+func (r *RightSizePolicyReconciler) now() time.Time {
+	if r.NowFunc != nil {
+		return r.NowFunc()
+	}
+	return time.Now()
 }
 
 // collectorEntry wraps a MetricsCollector with a last-used timestamp
@@ -360,7 +369,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	// Step 9: Execute resizes if mode allows.
 	mode := policy.Spec.UpdateStrategy.Mode
 	cooldownActive := r.isCooldownActive(&policy)
-	withinWindow := isWithinResizeWindow(policy.Spec.UpdateStrategy.Schedule, time.Now())
+	withinWindow := isWithinResizeWindow(policy.Spec.UpdateStrategy.Schedule, r.now())
 	if isResizeMode(mode) && !cooldownActive && withinWindow {
 		resizedCount, history := r.executeResizes(ctx, &policy, workloads, recommendations, podsByWorkload, collector)
 		if resizedCount > 0 {
