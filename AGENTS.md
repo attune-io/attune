@@ -15,7 +15,8 @@ controller-runtime v0.24.1, Kubebuilder v4, K8s API v0.36.0.
 - Test (unit): `make test`
 - Test (single pkg): `go test ./internal/resize/... -race -count=1`
 - Test (integration): `make test-integration`
-- Test (E2E): `NO_COLOR=1 make test-e2e` (requires k3d cluster; NO_COLOR prevents raw ANSI codes in agent output)
+- Test (E2E Chainsaw): `NO_COLOR=1 make test-e2e` (requires k3d cluster; NO_COLOR prevents raw ANSI codes in agent output)
+- Test (E2E Go): `make test-e2e-go` (requires k3d cluster with operator + Prometheus)
 - Test (fuzz): `make test-fuzz`
 - Test (bench): `make test-bench`
 - Lint: `make lint`

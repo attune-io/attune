@@ -132,8 +132,12 @@ test-integration: manifests generate setup-envtest gotestsum ## Run integration 
 		-- -race -count=1 -timeout=15m -tags=integration
 
 .PHONY: test-e2e
-test-e2e: chainsaw ## Run E2E tests (requires Kind cluster)
+test-e2e: chainsaw ## Run Chainsaw E2E tests (requires Kind cluster)
 	$(CHAINSAW) test test/e2e/ --config .chainsaw.yaml
+
+.PHONY: test-e2e-go
+test-e2e-go: ## Run Go E2E tests (requires Kind cluster with operator + Prometheus)
+	go test -tags=e2e ./test/e2e-go/... -race -count=1 -timeout=10m -v
 
 .PHONY: test-fuzz
 test-fuzz: ## Run fuzz tests (30 seconds per target)
