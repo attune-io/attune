@@ -25,7 +25,7 @@ go tool cover -html=coverage.out
 ```
 
 !!! note "Coverage requirements"
-    The project requires 75%+ line coverage for `internal/` packages. CI
+    The project requires 80%+ line coverage for `internal/` packages. CI
     enforces this threshold and fails if coverage drops below it.
 
 ## Integration tests (envtest)
@@ -122,22 +122,11 @@ Fuzz targets are defined in `internal/recommendation/fuzz_test.go`.
 
 ## Running all tests
 
-> **Warning:** `make test-all` includes integration tests, which currently
-> fail due to a pre-existing envtest infrastructure issue
-> ([#40](https://github.com/SebTardifLabs/kube-rightsize/issues/40)).
-> Use `make test` (unit) and `make test-e2e` (E2E) separately until
-> this is resolved.
-
 ```bash
-# Recommended: run unit and E2E separately
-make test
-make test-e2e   # requires a local k3d or Kind cluster
-
-# This will fail due to integration test issue #40:
-make test-all
+make test          # unit tests
+make test-integration  # integration tests (envtest)
+make test-e2e      # E2E tests (requires local k3d or Kind cluster)
 ```
-
-This runs unit tests, integration tests, and E2E tests in sequence.
 
 ## Test organization
 
