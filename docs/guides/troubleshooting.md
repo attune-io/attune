@@ -280,6 +280,55 @@ updateStrategy:
   maxTotalMemoryIncrease: "8Gi"   # 8 GiB per cycle
 ```
 
+### Policy rejected: invalid schedule timezone
+
+**Symptom**: `kubectl apply` fails with:
+```
+admission webhook "validation.rightsize.io" denied the request:
+updateStrategy.schedule.timezone "US/Eastern" is not a valid IANA timezone
+```
+
+**Cause**: The timezone must be a valid IANA timezone name from the
+[tz database](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones).
+Common mistakes include using abbreviations (EST, PST) or Windows-style
+names (US/Eastern).
+
+**Fix**: Use the full IANA name:
+
+| Wrong | Correct |
+|-------|---------|
+| `EST` | `America/New_York` |
+| `PST` | `America/Los_Angeles` |
+| `CET` | `Europe/Berlin` |
+| `IST` | `Asia/Kolkata` |
+| `US/Eastern` | `America/New_York` |
+
+```bash
+# List all valid timezones on your system:
+timedatectl list-timezones
+```
+
+### Policy rejected: invalid day of week
+
+**Symptom**: `kubectl apply` fails with:
+```
+admission webhook "validation.rightsize.io" denied the request:
+updateStrategy.schedule.daysOfWeek contains invalid day "Wed"
+```
+
+**Cause**: Day names must be the full English name. Abbreviations and
+non-English names are not accepted.
+
+**Fix**: Use the full name (case-insensitive):
+
+```yaml
+schedule:
+  daysOfWeek: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+```
+
+Valid values: `Monday`, `Tuesday`, `Wednesday`, `Thursday`, `Friday`,
+`Saturday`, `Sunday`.
+
 ## Known limitations
 
 ### Maximum Prometheus addresses
