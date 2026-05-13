@@ -1,0 +1,287 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.0
+  name: rightsizenamespacedefaults.rightsize.io
+spec:
+  group: rightsize.io
+  names:
+    categories:
+    - rightsize
+    kind: RightSizeNamespaceDefaults
+    listKind: RightSizeNamespaceDefaultsList
+    plural: rightsizenamespacedefaults
+    shortNames:
+    - rsnd
+    singular: rightsizenamespacedefaults
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.metricsSource.prometheus.address
+      name: Prometheus
+      type: string
+    - jsonPath: .spec.updateStrategy.mode
+      name: Mode
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          RightSizeNamespaceDefaults is the Schema for namespace-scoped defaults.
+          Values here override cluster-scoped RightSizeDefaults but are overridden
+          by per-policy values. Precedence: policy > namespace defaults > cluster defaults.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: RightSizeDefaultsSpec defines cluster-scoped default values
+              for RightSizePolicy resources.
+            properties:
+              costPricing:
+                description: |-
+                  CostPricing configures the per-unit pricing used to compute
+                  EstimatedMonthlySavings. If omitted, defaults to standard
+                  on-demand Linux pricing ($0.031/vCPU-hour, $0.004/GiB-hour).
+                properties:
+                  cpuPerCoreHour:
+                    description: |-
+                      CPUPerCoreHour is the cost per vCPU-hour (e.g. "0.031").
+                      Defaults to 0.031 if not specified.
+                    type: string
+                  memoryPerGiBHour:
+                    description: |-
+                      MemoryPerGiBHour is the cost per GiB-hour (e.g. "0.004").
+                      Defaults to 0.004 if not specified.
+                    type: string
+                type: object
+              cpu:
+                description: CPU configures default CPU resource recommendation parameters.
+                properties:
+                  allowDecrease:
+                    description: |-
+                      AllowDecrease controls whether the resource value can be decreased.
+                      Only applicable to memory resources.
+                    type: boolean
+                  bounds:
+                    description: Bounds defines the minimum and maximum allowed resource
+                      values.
+                    properties:
+                      max:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: Max is the maximum allowed resource value.
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      min:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: Min is the minimum allowed resource value.
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                    required:
+                    - max
+                    - min
+                    type: object
+                  controlledValues:
+                    description: |-
+                      ControlledValues specifies which resource values to manage.
+                      "RequestsOnly" (default) adjusts only requests, leaving limits unchanged.
+                      "RequestsAndLimits" adjusts both requests and limits in lockstep.
+                      For Guaranteed-QoS pods (where requests equal limits), use
+                      "RequestsAndLimits" or resizes will be skipped to preserve QoS class.
+                    enum:
+                    - RequestsOnly
+                    - RequestsAndLimits
+                    type: string
+                  percentile:
+                    description: Percentile is the usage percentile to target for
+                      recommendations.
+                    format: int32
+                    maximum: 99
+                    minimum: 50
+                    type: integer
+                  safetyMargin:
+                    description: |-
+                      SafetyMargin is a multiplier applied to the percentile recommendation.
+                      Expressed as a decimal string (e.g. "1.2" means 20% headroom above the
+                      target percentile). Must be a positive number, max 10.0. Values below
+                      1.0 reduce resources below the percentile and generate a warning.
+                    type: string
+                type: object
+              memory:
+                description: Memory configures default memory resource recommendation
+                  parameters.
+                properties:
+                  allowDecrease:
+                    description: |-
+                      AllowDecrease controls whether the resource value can be decreased.
+                      Only applicable to memory resources.
+                    type: boolean
+                  bounds:
+                    description: Bounds defines the minimum and maximum allowed resource
+                      values.
+                    properties:
+                      max:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: Max is the maximum allowed resource value.
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      min:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: Min is the minimum allowed resource value.
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                    required:
+                    - max
+                    - min
+                    type: object
+                  controlledValues:
+                    description: |-
+                      ControlledValues specifies which resource values to manage.
+                      "RequestsOnly" (default) adjusts only requests, leaving limits unchanged.
+                      "RequestsAndLimits" adjusts both requests and limits in lockstep.
+                      For Guaranteed-QoS pods (where requests equal limits), use
+                      "RequestsAndLimits" or resizes will be skipped to preserve QoS class.
+                    enum:
+                    - RequestsOnly
+                    - RequestsAndLimits
+                    type: string
+                  percentile:
+                    description: Percentile is the usage percentile to target for
+                      recommendations.
+                    format: int32
+                    maximum: 99
+                    minimum: 50
+                    type: integer
+                  safetyMargin:
+                    description: |-
+                      SafetyMargin is a multiplier applied to the percentile recommendation.
+                      Expressed as a decimal string (e.g. "1.2" means 20% headroom above the
+                      target percentile). Must be a positive number, max 10.0. Values below
+                      1.0 reduce resources below the percentile and generate a warning.
+                    type: string
+                type: object
+              metricsSource:
+                description: MetricsSource configures default metrics source settings.
+                properties:
+                  historyWindow:
+                    description: |-
+                      HistoryWindow is the time window for historical metrics data.
+                      Defaults to 7d (168h) if not specified.
+                    type: string
+                  minimumDataPoints:
+                    default: 48
+                    description: |-
+                      MinimumDataPoints is the minimum number of data points required
+                      before generating recommendations. Minimum 1, default 48 (2 days).
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  prometheus:
+                    description: Prometheus configures a Prometheus metrics source.
+                    properties:
+                      address:
+                        description: Address is the URL of the Prometheus server.
+                        type: string
+                    required:
+                    - address
+                    type: object
+                type: object
+              updateStrategy:
+                description: UpdateStrategy configures default update strategy settings.
+                properties:
+                  autoRevert:
+                    default: true
+                    description: AutoRevert automatically reverts changes if degradation
+                      is detected.
+                    type: boolean
+                  canary:
+                    description: Canary configures canary rollout behavior when Mode
+                      is Canary.
+                    properties:
+                      observationPeriod:
+                        description: ObservationPeriod is how long to observe canary
+                          pods before proceeding.
+                        type: string
+                      percentage:
+                        description: Percentage is the percentage of pods to resize
+                          first.
+                        format: int32
+                        maximum: 100
+                        minimum: 1
+                        type: integer
+                    required:
+                    - observationPeriod
+                    - percentage
+                    type: object
+                  cooldown:
+                    description: |-
+                      Cooldown is the minimum time between successive resize operations.
+                      Defaults to 1h if not specified.
+                    type: string
+                  maxCpuChangePercent:
+                    default: 50
+                    description: MaxCPUChangePercent is the maximum allowed CPU change
+                      percentage per operation.
+                    format: int32
+                    maximum: 100
+                    minimum: 1
+                    type: integer
+                  maxMemoryChangePercent:
+                    default: 30
+                    description: MaxMemoryChangePercent is the maximum allowed memory
+                      change percentage per operation.
+                    format: int32
+                    maximum: 100
+                    minimum: 1
+                    type: integer
+                  mode:
+                    description: |-
+                      Mode determines the update behavior, graduated from safe to automated:
+                        Recommend: collects metrics and writes recommendations to status, no pod changes.
+                        OneShot: resizes one pod per reconcile cycle.
+                        Canary: resizes a percentage of pods first, then the rest after observation.
+                        Auto: resizes all eligible pods each cycle.
+                        Observe: collects metrics and tracks data points but does not surface recommendations or savings.
+                      Start with Recommend in production and promote after reviewing status.
+                    enum:
+                    - Observe
+                    - Recommend
+                    - OneShot
+                    - Canary
+                    - Auto
+                    type: string
+                required:
+                - mode
+                type: object
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources: {}

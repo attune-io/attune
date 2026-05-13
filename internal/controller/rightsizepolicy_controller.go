@@ -90,6 +90,7 @@ const (
 //+kubebuilder:rbac:groups=rightsize.io,resources=rightsizepolicies,verbs=get;list;watch;patch
 //+kubebuilder:rbac:groups=rightsize.io,resources=rightsizepolicies/status,verbs=get;update
 //+kubebuilder:rbac:groups=rightsize.io,resources=rightsizedefaults,verbs=get;list;watch
+//+kubebuilder:rbac:groups=rightsize.io,resources=rightsizenamespacedefaults,verbs=get;list;watch
 //+kubebuilder:rbac:groups=apps,resources=deployments;statefulsets;daemonsets,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;update
 //+kubebuilder:rbac:groups="",resources=pods/resize,verbs=update;patch
@@ -194,7 +195,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	// Merge cluster-scoped defaults into the policy.
 	// Fetch defaults once and reuse for Prometheus address and cost pricing.
-	defaults := r.fetchDefaults(ctx)
+	defaults := r.fetchDefaults(ctx, policy.Namespace)
 	r.mergeDefaults(&policy, defaults)
 
 	// Step 2: Resolve Prometheus address from spec or RightSizeDefaults.

@@ -51,7 +51,7 @@ func TestMergeDefaults_NoDefaults(t *testing.T) {
 		},
 	}
 
-	defaults := r.fetchDefaults(context.Background())
+	defaults := r.fetchDefaults(context.Background(), "default")
 	r.mergeDefaults(policy, defaults)
 
 	// Nothing should change when no defaults exist.
@@ -94,7 +94,7 @@ func TestMergeDefaults_CPUPercentileMerged(t *testing.T) {
 		},
 	}
 
-	fetchedDefaults := r.fetchDefaults(context.Background())
+	fetchedDefaults := r.fetchDefaults(context.Background(), "default")
 	r.mergeDefaults(policy, fetchedDefaults)
 
 	assert.Equal(t, int32(95), policy.Spec.CPU.Percentile)
@@ -135,7 +135,7 @@ func TestMergeDefaults_SafetyMarginMerged(t *testing.T) {
 		},
 	}
 
-	fetchedDefaults := r.fetchDefaults(context.Background())
+	fetchedDefaults := r.fetchDefaults(context.Background(), "default")
 	r.mergeDefaults(policy, fetchedDefaults)
 
 	assert.Equal(t, int32(90), policy.Spec.CPU.Percentile)
@@ -175,10 +175,39 @@ func TestMergeDefaults_PolicyTakesPrecedence(t *testing.T) {
 		},
 	}
 
-	fetchedDefaults := r.fetchDefaults(context.Background())
+	fetchedDefaults := r.fetchDefaults(context.Background(), "default")
 	r.mergeDefaults(policy, fetchedDefaults)
 
 	// Policy values take precedence over defaults.
 	assert.Equal(t, int32(90), policy.Spec.CPU.Percentile)
 	assert.Equal(t, "1.3", policy.Spec.CPU.SafetyMargin)
+}
+
+func TestFetchDefaults_NamespaceScopedOverridesCluster(t *testing.T) {
+	clusterDefaults := &rightsizev1alpha1.RightSizeDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			CPU: &rightsizev1alpha1.ResourceConfig{Percentile: 90},
+		},
+	}
+	nsDefaults := &rightsizev1alpha1.RightSizeNamespaceDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "production-defaults", Namespace: "production"},
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			CPU: &rightsizev1alpha1.ResourceConfig{Percentile: 99},
+		},
+	}
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(clusterDefaults, nsDefaults).Build()
+	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+
+	// Namespace with a RightSizeNamespaceDefaults should use it.
+	result := r.fetchDefaults(context.Background(), "production")
+	assert.NotNil(t, result)
+	assert.Equal(t, int32(99), result.Spec.CPU.Percentile)
+
+	// Namespace without RightSizeNamespaceDefaults falls back to cluster.
+	result = r.fetchDefaults(context.Background(), "staging")
+	assert.NotNil(t, result)
+	assert.Equal(t, int32(90), result.Spec.CPU.Percentile)
 }

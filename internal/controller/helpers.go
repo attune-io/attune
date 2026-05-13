@@ -519,18 +519,31 @@ func consecutiveReverts(history []rightsizev1alpha1.ResizeHistoryEntry) int {
 	return count
 }
 
-// fetchDefaults fetches the cluster-scoped RightSizeDefaults once per reconciliation.
-// Returns nil if no defaults exist or on error.
-func (r *RightSizePolicyReconciler) fetchDefaults(ctx context.Context) *rightsizev1alpha1.RightSizeDefaults {
-	var defaultsList rightsizev1alpha1.RightSizeDefaultsList
-	if err := r.List(ctx, &defaultsList); err != nil {
+// fetchDefaults fetches the effective defaults for a policy by checking
+// namespace-scoped RightSizeNamespaceDefaults first, then falling back to
+// cluster-scoped RightSizeDefaults. Returns nil if neither exists.
+func (r *RightSizePolicyReconciler) fetchDefaults(ctx context.Context, namespace string) *rightsizev1alpha1.RightSizeDefaults {
+	// Check namespace-scoped defaults first.
+	var nsList rightsizev1alpha1.RightSizeNamespaceDefaultsList
+	if err := r.List(ctx, &nsList, client.InNamespace(namespace)); err == nil && len(nsList.Items) > 0 {
+		// Convert to RightSizeDefaults so callers don't need to know the source.
+		nsDefaults := nsList.Items[0]
+		return &rightsizev1alpha1.RightSizeDefaults{
+			ObjectMeta: nsDefaults.ObjectMeta,
+			Spec:       nsDefaults.Spec,
+		}
+	}
+
+	// Fall back to cluster-scoped defaults.
+	var clusterList rightsizev1alpha1.RightSizeDefaultsList
+	if err := r.List(ctx, &clusterList); err != nil {
 		log.FromContext(ctx).Error(err, "Failed to list RightSizeDefaults")
 		return nil
 	}
-	if len(defaultsList.Items) == 0 {
+	if len(clusterList.Items) == 0 {
 		return nil
 	}
-	return &defaultsList.Items[0]
+	return &clusterList.Items[0]
 }
 
 // mergeDefaults merges values from RightSizeDefaults into the policy where

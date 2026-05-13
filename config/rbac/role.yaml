@@ -83,6 +83,7 @@ rules:
   - rightsize.io
   resources:
   - rightsizedefaults
+  - rightsizenamespacedefaults
   verbs:
   - get
   - list

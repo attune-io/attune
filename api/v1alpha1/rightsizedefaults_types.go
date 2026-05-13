@@ -82,6 +82,34 @@ type RightSizeDefaultsList struct {
 	Items           []RightSizeDefaults `json:"items"`
 }
 
+// +kubebuilder:object:root=true
+// +kubebuilder:resource:shortName=rsnd,categories={rightsize}
+// +kubebuilder:printcolumn:name="Prometheus",type=string,JSONPath=`.spec.metricsSource.prometheus.address`
+// +kubebuilder:printcolumn:name="Mode",type=string,JSONPath=`.spec.updateStrategy.mode`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
+
+// RightSizeNamespaceDefaults is the Schema for namespace-scoped defaults.
+// Values here override cluster-scoped RightSizeDefaults but are overridden
+// by per-policy values. Precedence: policy > namespace defaults > cluster defaults.
+type RightSizeNamespaceDefaults struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec RightSizeDefaultsSpec `json:"spec,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+
+// RightSizeNamespaceDefaultsList contains a list of RightSizeNamespaceDefaults.
+type RightSizeNamespaceDefaultsList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []RightSizeNamespaceDefaults `json:"items"`
+}
+
 func init() {
-	SchemeBuilder.Register(&RightSizeDefaults{}, &RightSizeDefaultsList{})
+	SchemeBuilder.Register(
+		&RightSizeDefaults{}, &RightSizeDefaultsList{},
+		&RightSizeNamespaceDefaults{}, &RightSizeNamespaceDefaultsList{},
+	)
 }
