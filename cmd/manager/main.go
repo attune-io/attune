@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"time"
+	_ "time/tzdata" // Embed IANA timezone database for distroless containers.
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
