@@ -303,6 +303,71 @@ func TestRevertPod(t *testing.T) {
 	assert.True(t, foundResize, "UpdateResize should have been called")
 }
 
+func TestRevertPod_InitContainer(t *testing.T) {
+	restartAlways := corev1.ContainerRestartPolicyAlways
+	original := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("100m"),
+			corev1.ResourceMemory: resource.MustParse("64Mi"),
+		},
+	}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-pod",
+			Namespace: "default",
+		},
+		Spec: corev1.PodSpec{
+			InitContainers: []corev1.Container{
+				{
+					Name:          "istio-proxy",
+					RestartPolicy: &restartAlways,
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("200m"),
+							corev1.ResourceMemory: resource.MustParse("128Mi"),
+						},
+					},
+				},
+			},
+			Containers: []corev1.Container{
+				{Name: "app"},
+			},
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+	}
+
+	clientset := fake.NewSimpleClientset(pod)
+	logger := testr.New(t)
+	monitor := NewMonitor(clientset, logger)
+
+	record := ResizeRecord{
+		PodName:           "test-pod",
+		Namespace:         "default",
+		Container:         "istio-proxy",
+		OriginalResources: original,
+		ResizedAt:         time.Now().Add(-1 * time.Minute),
+	}
+
+	err := monitor.RevertPod(context.Background(), record)
+	require.NoError(t, err)
+
+	var foundResize bool
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			foundResize = true
+			updated := a.(k8stesting.UpdateAction).GetObject().(*corev1.Pod)
+			require.Len(t, updated.Spec.InitContainers, 1)
+			cpu := updated.Spec.InitContainers[0].Resources.Requests[corev1.ResourceCPU]
+			mem := updated.Spec.InitContainers[0].Resources.Requests[corev1.ResourceMemory]
+			assert.True(t, cpu.Equal(resource.MustParse("100m")),
+				"CPU should be reverted to 100m, got %s", cpu.String())
+			assert.True(t, mem.Equal(resource.MustParse("64Mi")),
+				"memory should be reverted to 64Mi, got %s", mem.String())
+		}
+	}
+	assert.True(t, foundResize, "UpdateResize should have been called for init container revert")
+}
+
 func TestRevertPod_PodNotFound(t *testing.T) {
 	clientset := fake.NewSimpleClientset()
 	logger := testr.New(t)

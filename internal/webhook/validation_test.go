@@ -376,6 +376,33 @@ func TestValidateCreate_RecordsRejectedMetric(t *testing.T) {
 	assert.Equal(t, 1.0, metric.GetCounter().GetValue())
 }
 
+func TestValidate_UnsupportedPercentileRejected(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+
+	// CPU percentile 75 is not in {50, 90, 95, 99}.
+	policy := validPolicy()
+	policy.Spec.CPU.Percentile = 75
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "cpu.percentile 75")
+
+	// Memory percentile 80 is not in {50, 90, 95, 99}.
+	policy2 := validPolicy()
+	policy2.Spec.Memory.Percentile = 80
+	_, err2 := validator.ValidateCreate(context.Background(), policy2)
+	assert.Error(t, err2)
+	assert.Contains(t, err2.Error(), "memory.percentile 80")
+
+	// Supported values should pass.
+	for _, p := range []int32{50, 90, 95, 99} {
+		policy3 := validPolicy()
+		policy3.Spec.CPU.Percentile = p
+		policy3.Spec.Memory.Percentile = p
+		_, err3 := validator.ValidateCreate(context.Background(), policy3)
+		assert.NoError(t, err3, "percentile %d should be accepted", p)
+	}
+}
+
 func TestValidateDelete_AlwaysSucceeds(t *testing.T) {
 	validator := &RightSizePolicyValidator{}
 	policy := validPolicy()
