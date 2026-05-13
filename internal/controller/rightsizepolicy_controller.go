@@ -96,6 +96,7 @@ const (
 //+kubebuilder:rbac:groups=batch,resources=cronjobs;jobs,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;update
 //+kubebuilder:rbac:groups="",resources=pods/resize,verbs=update;patch
+//+kubebuilder:rbac:groups="",resources=pods/eviction,verbs=create
 //+kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=get;list;watch;create;patch
 //+kubebuilder:rbac:groups=autoscaling,resources=horizontalpodautoscalers,verbs=get;list;watch
 //+kubebuilder:rbac:groups=autoscaling.k8s.io,resources=verticalpodautoscalers,verbs=get;list;watch

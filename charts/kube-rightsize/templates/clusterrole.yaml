@@ -59,6 +59,13 @@ rules:
     verbs:
       - update
       - patch
+  # Eviction fallback (resizeMethod: InPlaceOrEvict)
+  - apiGroups:
+      - ""
+    resources:
+      - pods/eviction
+    verbs:
+      - create
   # Events: read (OOMKill detection) + create (operator events)
   - apiGroups:
       - events.k8s.io
