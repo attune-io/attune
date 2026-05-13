@@ -65,8 +65,11 @@ Kubernetes `/resize` subresource (`UpdateResize` API). Key functions:
   and calls `UpdateResize`.
 - **WaitForResize**: polls pod status until resources match the target or an
   `Infeasible` condition is detected.
-- **CanResizeInPlace**: checks pod eligibility (running, not deleting, no
-  active resize).
+- **IsEligibleForResize**: checks pod eligibility (running, not deleting,
+  no active resize). Infeasible pods are eligible for eviction fallback.
+- **IsResizeInfeasible**: detects pods the kubelet marked as unable to
+  resize in-place on the current node.
+- **EvictPod**: evicts a pod via the Eviction API (respects PDBs).
 - **PreservesQoS**: ensures the resize does not change the pod's QoS class.
 
 ### Safety Monitor

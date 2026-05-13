@@ -161,7 +161,7 @@ func TestResizePod_ReturnsCorrectFromTo(t *testing.T) {
 	assert.NoError(t, memResult.Error)
 }
 
-func TestCanResizeInPlace(t *testing.T) {
+func TestIsEligibleForResize(t *testing.T) {
 	now := metav1.NewTime(time.Now())
 
 	tests := []struct {
@@ -238,7 +238,7 @@ func TestCanResizeInPlace(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := CanResizeInPlace(tt.pod)
+			got := IsEligibleForResize(tt.pod)
 			assert.Equal(t, tt.want, got)
 		})
 	}

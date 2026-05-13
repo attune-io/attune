@@ -28,7 +28,7 @@ import (
 
 // makeCanaryPod creates a pod for canary selection tests. When running is true
 // the pod phase is set to Running; when deleting is true a DeletionTimestamp
-// is set so that resize.CanResizeInPlace returns false.
+// is set so that resize.IsEligibleForResize returns false.
 func makeCanaryPod(name string, running bool, deleting bool) corev1.Pod {
 	pod := corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{

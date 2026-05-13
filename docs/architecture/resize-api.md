@@ -76,6 +76,122 @@ each container gets its own set of per-container annotations (e.g.,
 The `rightsize.io/resized-containers` annotation lists all resized containers
 as a comma-separated value.
 
+## Resize lifecycle
+
+The diagram below shows the complete decision tree for a single pod during
+a resize cycle. The operator evaluates every pod in the workload through
+this flow on each reconciliation.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Discovered: Pod found in workload
+
+    Discovered --> Eligible: IsEligibleForResize = true
+    Discovered --> Ineligible: IsEligibleForResize = false
+
+    state Ineligible {
+        direction LR
+        [*] --> NotRunning: Phase != Running
+        [*] --> Deleting: DeletionTimestamp set
+        [*] --> InProgress: PodResizeInProgress
+        [*] --> Pending: PodResizePending (non-Infeasible)
+    }
+
+    Eligible --> Infeasible: IsResizeInfeasible = true
+    Eligible --> PreChecks: IsResizeInfeasible = false
+
+    state PreChecks {
+        direction TB
+        [*] --> AtTarget: Already at recommended values
+        [*] --> NodeCap: Would exceed node allocatable
+        [*] --> QuotaViolation: Would violate LimitRange/Quota
+        [*] --> QoSChange: Would change QoS class
+        [*] --> PassedChecks: All checks pass
+    }
+
+    Infeasible --> EvictOrSkip
+
+    state EvictOrSkip {
+        direction LR
+        [*] --> InfeasibleSkipped: resizeMethod = InPlaceOnly
+        [*] --> EvictionCheck: resizeMethod = InPlaceOrEvict
+    }
+
+    EvictionCheck --> LastReplicaGuard
+
+    state LastReplicaGuard {
+        direction LR
+        [*] --> EvictionBlocked: Only 1 running replica
+        [*] --> EvictPod: 2+ running replicas
+    }
+
+    EvictPod --> Evicted: Eviction API accepts
+    EvictPod --> EvictionDenied: PDB blocks eviction
+
+    PassedChecks --> ResizePod: UpdateResize API call
+
+    ResizePod --> ResizeSuccess: API returns success
+    ResizePod --> ResizeFailed: API returns error
+
+    ResizeFailed --> EvictOrSkipFailed
+
+    state EvictOrSkipFailed {
+        direction LR
+        [*] --> Failed: resizeMethod = InPlaceOnly
+        [*] --> EvictionFallback: resizeMethod = InPlaceOrEvict
+    }
+
+    EvictionFallback --> LastReplicaGuard
+
+    ResizeSuccess --> SafetyObservation: autoRevert enabled
+    ResizeSuccess --> Done: autoRevert disabled
+
+    state SafetyObservation {
+        direction TB
+        [*] --> Monitoring: Watching for OOMKill, throttle, restarts
+        Monitoring --> Safe: No violations after observation period
+        Monitoring --> Unsafe: Violation detected
+    }
+
+    Safe --> Done: Annotations removed
+    Unsafe --> RevertPod: Restore original resources
+    RevertPod --> Done: Annotations removed
+```
+
+### Decision points explained
+
+| Decision | Function | Location |
+|----------|----------|----------|
+| **IsEligibleForResize** | `resize.IsEligibleForResize()` | `internal/resize/engine.go` |
+| **IsResizeInfeasible** | `resize.IsResizeInfeasible()` | `internal/resize/engine.go` |
+| **Pre-checks** | `shouldSkipResize()` | `internal/controller/rightsizepolicy_controller.go` |
+| **Resize method** | `policy.Spec.UpdateStrategy.ResizeMethod` | CRD field |
+| **Last replica guard** | `tryEvictionFallback()` | `internal/controller/rightsizepolicy_controller.go` |
+| **ResizePod** | `resizer.ResizePod()` | `internal/resize/engine.go` |
+| **Safety observation** | `checkPendingSafetyObservations()` | `internal/controller/rightsizepolicy_controller.go` |
+| **Revert** | `safety.Monitor.RevertPod()` | `internal/safety/monitor.go` |
+
+### Key behaviors
+
+- **Infeasible pods are eligible.** `IsEligibleForResize` returns `true` for
+  pods the kubelet has marked `PodResizePending=Infeasible`. These pods cannot
+  be resized in-place on their current node, but they are included in the
+  resize cycle so the eviction fallback can handle them when `resizeMethod`
+  is `InPlaceOrEvict`. With `InPlaceOnly`, they are silently skipped.
+
+- **Eviction respects PDBs.** The operator uses the Kubernetes Eviction API
+  (`EvictV1`), which enforces PodDisruptionBudgets. If the PDB would be
+  violated, the eviction is denied and the pod stays as-is.
+
+- **Last replica protection.** The operator never evicts the last running
+  replica of a workload, even if the PDB would allow it. This prevents
+  complete service outage during resize.
+
+- **Fail-open schedule.** If the configured timezone is invalid,
+  `isWithinResizeWindow` returns `true` (allows resize) rather than silently
+  blocking all resizes. Invalid timezones should be caught by webhook
+  validation at admission time.
+
 ## Limits and caveats
 
 - **Memory decreases**: The kernel only reclaims memory when the working

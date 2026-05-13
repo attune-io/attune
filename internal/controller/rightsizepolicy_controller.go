@@ -721,7 +721,7 @@ func (r *RightSizePolicyReconciler) discoverPrometheus(ctx context.Context) stri
 func selectPodsForResize(pods []corev1.Pod, mode string, canaryPercentage int32) []corev1.Pod {
 	var eligible []corev1.Pod
 	for _, p := range pods {
-		if resize.CanResizeInPlace(&p) {
+		if resize.IsEligibleForResize(&p) {
 			eligible = append(eligible, p)
 		}
 	}

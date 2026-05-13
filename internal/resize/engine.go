@@ -169,10 +169,12 @@ func findContainer(pod *corev1.Pod, name string) (idx int, isInit bool) {
 	return -1, false
 }
 
-// CanResizeInPlace returns true if the pod is eligible for an in-place resize.
-// The pod must be Running, must not be marked for deletion, and must not have
-// an active resize already in progress.
-func CanResizeInPlace(pod *corev1.Pod) bool {
+// IsEligibleForResize returns true if the pod can be considered for a resize
+// cycle. A pod is eligible if it is Running, not marked for deletion, and does
+// not have an in-progress or deferred resize. Pods marked Infeasible ARE
+// eligible: they cannot be resized in-place but may be evicted when the policy
+// uses InPlaceOrEvict.
+func IsEligibleForResize(pod *corev1.Pod) bool {
 	if pod.Status.Phase != corev1.PodRunning {
 		return false
 	}
