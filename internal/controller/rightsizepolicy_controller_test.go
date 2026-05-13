@@ -3596,7 +3596,7 @@ func TestBuildResizeTarget_PartialLimits(t *testing.T) {
 
 func TestProgressPercent(t *testing.T) {
 	tests := []struct {
-		name              string
+		name                      string
 		collected, required, want int
 	}{
 		{"zero required returns zero", 5, 0, 0},
