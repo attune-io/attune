@@ -1,4 +1,4 @@
-name: E2E Nightly (Multi-Version)
+name: E2E Nightly
 
 on:
   schedule:
