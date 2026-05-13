@@ -187,6 +187,13 @@ stateDiagram-v2
   replica of a workload, even if the PDB would allow it. This prevents
   complete service outage during resize.
 
+- **Evicted pods get correct resources from the template.** When a pod is
+  evicted, the workload controller (Deployment, StatefulSet) creates a
+  replacement pod from the current PodTemplate. If the operator has already
+  updated the Deployment template via a previous resize cycle, the new pod
+  starts with the recommended resources. No safety observation is needed
+  for evicted pods since they are replaced, not modified.
+
 - **Fail-open schedule.** If the configured timezone is invalid,
   `isWithinResizeWindow` returns `true` (allows resize) rather than silently
   blocking all resizes. Invalid timezones should be caught by webhook
