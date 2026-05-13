@@ -1,0 +1,138 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: webhook-schedule-validation
+spec:
+  description: Verify that the validating webhook rejects invalid schedule fields
+  timeouts:
+    apply: 30s
+    assert: 30s
+    delete: 30s
+  steps:
+    - name: create-namespace
+      try:
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: e2e-webhook-schedule
+    - name: reject-invalid-timezone
+      try:
+        - apply:
+            expect:
+              - check:
+                  ($error != null): true
+            resource:
+              apiVersion: rightsize.io/v1alpha1
+              kind: RightSizePolicy
+              metadata:
+                name: bad-timezone
+                namespace: e2e-webhook-schedule
+              spec:
+                targetRef:
+                  kind: Deployment
+                  name: my-app
+                metricsSource:
+                  prometheus:
+                    address: http://prometheus-server.monitoring:80
+                cpu:
+                  percentile: 95
+                memory:
+                  percentile: 99
+                updateStrategy:
+                  mode: Auto
+                  schedule:
+                    timezone: "US/Eastern"
+    - name: reject-invalid-day-of-week
+      try:
+        - apply:
+            expect:
+              - check:
+                  ($error != null): true
+            resource:
+              apiVersion: rightsize.io/v1alpha1
+              kind: RightSizePolicy
+              metadata:
+                name: bad-day
+                namespace: e2e-webhook-schedule
+              spec:
+                targetRef:
+                  kind: Deployment
+                  name: my-app
+                metricsSource:
+                  prometheus:
+                    address: http://prometheus-server.monitoring:80
+                cpu:
+                  percentile: 95
+                memory:
+                  percentile: 99
+                updateStrategy:
+                  mode: Auto
+                  schedule:
+                    daysOfWeek:
+                      - Wed
+    - name: reject-invalid-window-time
+      try:
+        - apply:
+            expect:
+              - check:
+                  ($error != null): true
+            resource:
+              apiVersion: rightsize.io/v1alpha1
+              kind: RightSizePolicy
+              metadata:
+                name: bad-window
+                namespace: e2e-webhook-schedule
+              spec:
+                targetRef:
+                  kind: Deployment
+                  name: my-app
+                metricsSource:
+                  prometheus:
+                    address: http://prometheus-server.monitoring:80
+                cpu:
+                  percentile: 95
+                memory:
+                  percentile: 99
+                updateStrategy:
+                  mode: Auto
+                  schedule:
+                    windows:
+                      - start: "25:00"
+                        end: "06:00"
+    - name: accept-valid-schedule
+      try:
+        - apply:
+            resource:
+              apiVersion: rightsize.io/v1alpha1
+              kind: RightSizePolicy
+              metadata:
+                name: valid-schedule
+                namespace: e2e-webhook-schedule
+              spec:
+                targetRef:
+                  kind: Deployment
+                  name: my-app
+                metricsSource:
+                  prometheus:
+                    address: http://prometheus-server.monitoring:80
+                cpu:
+                  percentile: 95
+                memory:
+                  percentile: 99
+                updateStrategy:
+                  mode: Auto
+                  schedule:
+                    windows:
+                      - start: "02:00"
+                        end: "06:00"
+                    daysOfWeek:
+                      - Monday
+                      - Friday
+                    timezone: America/New_York
+  catch:
+    - describe:
+        apiVersion: rightsize.io/v1alpha1
+        kind: RightSizePolicy
+        namespace: e2e-webhook-schedule

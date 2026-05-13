@@ -89,7 +89,14 @@ make kind-delete
 | `test/e2e/auto-mode/` | Auto | Discovers workloads, reaches InsufficientData |
 | `test/e2e/statefulset-target/` | StatefulSet | Discovers StatefulSet workload |
 | `test/e2e/daemonset-target/` | DaemonSet | Discovers DaemonSet workload |
+| `test/e2e/cronjob-target/` | CronJob | Discovers CronJob workload (recommend-only) |
 | `test/e2e/opt-out/` | (cross-cutting) | `rightsize.io/skip` annotation respected |
+| `test/e2e/eviction-fallback/` | (cross-cutting) | InPlaceOrEvict policy accepted, discovers workloads |
+| `test/e2e/schedule-window/` | (cross-cutting) | Schedule windows, daysOfWeek, timezone accepted |
+| `test/e2e/budget-caps/` | (cross-cutting) | maxTotalCpuIncrease/maxTotalMemoryIncrease accepted |
+| `test/e2e/concurrent-resize/` | (cross-cutting) | maxConcurrentResizes accepted, discovers workloads |
+| `test/e2e/namespace-defaults/` | (cross-cutting) | RightSizeNamespaceDefaults overrides cluster defaults |
+| `test/e2e/webhook-schedule-validation/` | (webhook) | Rejects invalid timezone, day, window time |
 
 ### Writing new E2E tests
 

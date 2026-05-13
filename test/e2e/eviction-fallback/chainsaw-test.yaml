@@ -1,0 +1,106 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: eviction-fallback
+spec:
+  description: Verify that a RightSizePolicy with resizeMethod InPlaceOrEvict is accepted and discovers workloads
+  timeouts:
+    apply: 30s
+    assert: 2m
+    delete: 30s
+  steps:
+    - name: create-resources
+      try:
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: e2e-eviction-fallback
+        - apply:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: eviction-app
+                namespace: e2e-eviction-fallback
+              spec:
+                replicas: 2
+                selector:
+                  matchLabels:
+                    app: eviction-app
+                template:
+                  metadata:
+                    labels:
+                      app: eviction-app
+                  spec:
+                    containers:
+                      - name: app
+                        image: registry.k8s.io/pause:3.9
+                        resources:
+                          requests:
+                            cpu: 100m
+                            memory: 128Mi
+                          limits:
+                            cpu: 200m
+                            memory: 256Mi
+        - apply:
+            resource:
+              apiVersion: rightsize.io/v1alpha1
+              kind: RightSizePolicy
+              metadata:
+                name: eviction-test
+                namespace: e2e-eviction-fallback
+              spec:
+                targetRef:
+                  kind: Deployment
+                  name: eviction-app
+                metricsSource:
+                  prometheus:
+                    address: http://prometheus-server.monitoring:80
+                  minimumDataPoints: 1
+                  historyWindow: 1h
+                cpu:
+                  percentile: 95
+                  safetyMargin: "1.2"
+                memory:
+                  percentile: 99
+                  safetyMargin: "1.3"
+                updateStrategy:
+                  mode: Auto
+                  cooldown: 1m
+                  resizeMethod: InPlaceOrEvict
+                  autoRevert: true
+    - name: verify-deployment-ready
+      try:
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: eviction-app
+                namespace: e2e-eviction-fallback
+              status:
+                readyReplicas: 2
+    - name: verify-policy-reconciles
+      try:
+        - assert:
+            resource:
+              apiVersion: rightsize.io/v1alpha1
+              kind: RightSizePolicy
+              metadata:
+                name: eviction-test
+                namespace: e2e-eviction-fallback
+              status:
+                conditions:
+                  - type: Ready
+                workloads:
+                  discovered: 1
+  catch:
+    - describe:
+        apiVersion: rightsize.io/v1alpha1
+        kind: RightSizePolicy
+        namespace: e2e-eviction-fallback
+    - podLogs:
+        namespace: kube-rightsize-system
+        selector: app.kubernetes.io/name=kube-rightsize

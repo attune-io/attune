@@ -1,0 +1,106 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: budget-caps
+spec:
+  description: Verify that a RightSizePolicy with per-cycle budget caps is accepted and discovers workloads
+  timeouts:
+    apply: 30s
+    assert: 2m
+    delete: 30s
+  steps:
+    - name: create-resources
+      try:
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: e2e-budget-caps
+        - apply:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: budget-app
+                namespace: e2e-budget-caps
+              spec:
+                replicas: 3
+                selector:
+                  matchLabels:
+                    app: budget-app
+                template:
+                  metadata:
+                    labels:
+                      app: budget-app
+                  spec:
+                    containers:
+                      - name: app
+                        image: registry.k8s.io/pause:3.9
+                        resources:
+                          requests:
+                            cpu: 100m
+                            memory: 128Mi
+                          limits:
+                            cpu: 200m
+                            memory: 256Mi
+        - apply:
+            resource:
+              apiVersion: rightsize.io/v1alpha1
+              kind: RightSizePolicy
+              metadata:
+                name: budget-test
+                namespace: e2e-budget-caps
+              spec:
+                targetRef:
+                  kind: Deployment
+                  name: budget-app
+                metricsSource:
+                  prometheus:
+                    address: http://prometheus-server.monitoring:80
+                  minimumDataPoints: 1
+                  historyWindow: 1h
+                cpu:
+                  percentile: 95
+                  safetyMargin: "1.2"
+                memory:
+                  percentile: 99
+                  safetyMargin: "1.3"
+                updateStrategy:
+                  mode: Auto
+                  cooldown: 1m
+                  maxTotalCpuIncrease: "2000m"
+                  maxTotalMemoryIncrease: 4Gi
+    - name: verify-deployment-ready
+      try:
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: budget-app
+                namespace: e2e-budget-caps
+              status:
+                readyReplicas: 3
+    - name: verify-policy-reconciles
+      try:
+        - assert:
+            resource:
+              apiVersion: rightsize.io/v1alpha1
+              kind: RightSizePolicy
+              metadata:
+                name: budget-test
+                namespace: e2e-budget-caps
+              status:
+                conditions:
+                  - type: Ready
+                workloads:
+                  discovered: 1
+  catch:
+    - describe:
+        apiVersion: rightsize.io/v1alpha1
+        kind: RightSizePolicy
+        namespace: e2e-budget-caps
+    - podLogs:
+        namespace: kube-rightsize-system
+        selector: app.kubernetes.io/name=kube-rightsize
