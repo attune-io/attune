@@ -259,7 +259,6 @@ func TestE2E_AutoMode_ResizesRunningPod(t *testing.T) {
 	require.NotEmpty(t, podList.Items)
 
 	pod := podList.Items[0]
-	cpuReq := pod.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
 	memReq := pod.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory]
 
 	// pause container uses ~0 resources, so recommendations will be at min bounds.
