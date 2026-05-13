@@ -896,6 +896,23 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 		return nil, false
 	}
 
+	// Pods already marked Infeasible cannot be resized in-place on the current
+	// node. Go directly to eviction rather than retrying a resize we know will fail.
+	if resize.IsResizeInfeasible(pod) &&
+		policy.Spec.UpdateStrategy.ResizeMethod == rightsizev1alpha1.ResizeMethodInPlaceOrEvict {
+		logger.Info("Pod resize is Infeasible, attempting eviction fallback",
+			"pod", pod.Name, "container", containerRec.Name)
+		if evicted := r.tryEvictionFallback(ctx, policy, pod, workloadName, containerRec.Name, resizer); evicted {
+			return []rightsizev1alpha1.ResizeHistoryEntry{
+				{
+					Timestamp: now, Workload: workloadName, Container: containerRec.Name,
+					Resource: "cpu+memory", Method: "Eviction", Result: rightsizev1alpha1.ResultSuccess,
+				},
+			}, true
+		}
+		return nil, false
+	}
+
 	if resize.WouldRestartContainer(pod, containerRec.Name) {
 		logger.Info("Container has RestartContainer resize policy; resize will trigger restart",
 			"pod", pod.Name, "container", containerRec.Name)

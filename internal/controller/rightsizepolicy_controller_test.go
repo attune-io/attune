@@ -3898,6 +3898,73 @@ func TestTryEvictionFallback_SkipsLastReplica(t *testing.T) {
 	assert.False(t, evicted, "should NOT evict the last replica")
 }
 
+func TestResizeContainer_InfeasiblePodEvictedDirectly(t *testing.T) {
+	// A pod marked Infeasible with InPlaceOrEvict should go directly to
+	// eviction without attempting another in-place resize.
+	pod1 := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
+	pod1.Name = "api-server-abc-1"
+	pod1.Status.Conditions = append(pod1.Status.Conditions, corev1.PodCondition{
+		Type:   "PodResizePending",
+		Status: corev1.ConditionTrue,
+		Reason: "Infeasible",
+	})
+	// Second pod so eviction is not blocked by last-replica protection.
+	pod2 := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
+	pod2.Name = "api-server-abc-2"
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(deploy, pod1, pod2).Build()
+	clientset := kubefake.NewSimpleClientset(pod1.DeepCopy(), pod2.DeepCopy())
+	r := &RightSizePolicyReconciler{
+		Client:    fakeClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.ModeAuto
+	policy.Spec.UpdateStrategy.ResizeMethod = rightsizev1alpha1.ResizeMethodInPlaceOrEvict
+
+	resizer := resize.NewPodResizer(clientset, ctrl.Log)
+	containerRec := rightsizev1alpha1.ContainerRecommendation{
+		Name: "app",
+		Current: rightsizev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("200m"),
+			MemoryRequest: resource.MustParse("256Mi"),
+		},
+		Recommended: rightsizev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("500m"),
+			MemoryRequest: resource.MustParse("512Mi"),
+		},
+	}
+
+	entries, resized := r.resizeContainer(context.Background(), policy, pod1,
+		"api-server", containerRec, resizer, nil, metav1.Now())
+	assert.True(t, resized, "infeasible pod should be evicted")
+	require.Len(t, entries, 1)
+	assert.Equal(t, "Eviction", entries[0].Method)
+
+	// Verify an eviction was actually issued, not a resize attempt.
+	var evictions int
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "create" && a.GetResource().Resource == "pods" && a.GetSubresource() == "eviction" {
+			evictions++
+		}
+	}
+	assert.Equal(t, 1, evictions, "should have issued exactly one eviction")
+
+	// Verify NO resize was attempted (the pod was Infeasible, so we skip UpdateResize).
+	var resizes int
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "update" && a.GetResource().Resource == "pods" && a.GetSubresource() == "resize" {
+			resizes++
+		}
+	}
+	assert.Equal(t, 0, resizes, "should NOT have attempted in-place resize on Infeasible pod")
+}
+
 func TestExecuteResizes_BudgetCapsDefersExcessiveIncrease(t *testing.T) {
 	// Pod at 200m CPU, recommendation is 800m (increase of 600m).
 	// Budget cap is 500m, so the resize should be skipped.
