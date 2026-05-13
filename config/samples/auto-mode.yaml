@@ -1,0 +1,41 @@
+---
+# Example: Auto mode (fully automated right-sizing)
+# Applies in-place resizes to all matching pods with safety guardrails.
+# Use after validating recommendations in Recommend or Canary mode.
+apiVersion: rightsize.io/v1alpha1
+kind: RightSizePolicy
+metadata:
+  name: batch-workers
+  namespace: production
+spec:
+  targetRef:
+    kind: Deployment
+    selector:
+      matchLabels:
+        tier: worker
+  metricsSource:
+    prometheus:
+      address: http://prometheus-server.monitoring:80
+    historyWindow: 168h
+    minimumDataPoints: 168
+  cpu:
+    percentile: 95
+    safetyMargin: "1.15"
+    bounds:
+      min: "100m"
+      max: "8000m"
+    controlledValues: RequestsAndLimits
+  memory:
+    percentile: 99
+    safetyMargin: "1.25"
+    bounds:
+      min: "128Mi"
+      max: "16Gi"
+    controlledValues: RequestsAndLimits
+    allowDecrease: false
+  updateStrategy:
+    mode: Auto
+    maxCpuChangePercent: 50
+    maxMemoryChangePercent: 30
+    cooldown: 2h
+    autoRevert: true
