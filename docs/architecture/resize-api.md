@@ -117,6 +117,8 @@ stateDiagram-v2
         [*] --> EvictionCheck: resizeMethod = InPlaceOrEvict
     }
 
+    note right of InfeasibleSkipped: Skipped to avoid wasted\nUpdateResize API calls\nthat would fail every cycle
+
     EvictionCheck --> LastReplicaGuard
 
     state LastReplicaGuard {
@@ -177,7 +179,10 @@ stateDiagram-v2
   pods the kubelet has marked `PodResizePending=Infeasible`. These pods cannot
   be resized in-place on their current node, but they are included in the
   resize cycle so the eviction fallback can handle them when `resizeMethod`
-  is `InPlaceOrEvict`. With `InPlaceOnly`, they are silently skipped.
+  is `InPlaceOrEvict`. With `InPlaceOnly`, they are skipped with a log
+  message ("Pod resize is Infeasible and resizeMethod is InPlaceOnly,
+  skipping") to avoid wasting an UpdateResize API call that would fail
+  on every reconcile cycle.
 
 - **Eviction respects PDBs.** The operator uses the Kubernetes Eviction API
   (`EvictV1`), which enforces PodDisruptionBudgets. If the PDB would be
