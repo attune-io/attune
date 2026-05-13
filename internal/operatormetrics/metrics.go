@@ -149,6 +149,38 @@ var (
 		},
 		[]string{"operation"},
 	)
+
+	ScheduleSkippedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "kube_rightsize_schedule_skipped_total",
+			Help: "Total resize cycles skipped due to schedule window constraints",
+		},
+		[]string{"namespace", "policy"},
+	)
+
+	BudgetExhaustedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "kube_rightsize_budget_exhausted_total",
+			Help: "Total resize operations deferred due to per-cycle budget caps",
+		},
+		[]string{"namespace", "policy"},
+	)
+
+	EvictionTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "kube_rightsize_eviction_total",
+			Help: "Total eviction attempts (InPlaceOrEvict fallback)",
+		},
+		[]string{"namespace", "workload", "result"},
+	)
+
+	InfeasibleSkippedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "kube_rightsize_infeasible_skipped_total",
+			Help: "Total Infeasible pods skipped with InPlaceOnly resize method",
+		},
+		[]string{"namespace", "workload"},
+	)
 )
 
 // WebhookTimer tracks webhook operation duration and result.
@@ -193,5 +225,9 @@ func init() {
 		PrometheusQueryErrors,
 		WebhookValidationTotal,
 		WebhookDuration,
+		ScheduleSkippedTotal,
+		BudgetExhaustedTotal,
+		EvictionTotal,
+		InfeasibleSkippedTotal,
 	)
 }

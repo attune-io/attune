@@ -379,6 +379,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 	if isResizeMode(mode) && !withinWindow {
 		logger.Info("Outside resize window, skipping resize")
+		operatormetrics.ScheduleSkippedTotal.WithLabelValues(policy.Namespace, policy.Name).Inc()
 		if r.Recorder != nil {
 			r.Recorder.Eventf(&policy, nil, corev1.EventTypeNormal, "ScheduleSkipped", "resize",
 				"Resize deferred: outside configured schedule window")
@@ -849,6 +850,7 @@ func (r *RightSizePolicyReconciler) executeResizes(
 						budgetMu.Unlock()
 						logger.Info("Budget exhausted, deferring resize to next cycle",
 							"pod", pod.Name, "container", containerRec.Name)
+						operatormetrics.BudgetExhaustedTotal.WithLabelValues(policy.Namespace, policy.Name).Inc()
 						if r.Recorder != nil {
 							r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "BudgetExhausted", "resize",
 								"Resize deferred for pod %s container %s: per-cycle budget exhausted",
@@ -930,6 +932,7 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 		} else {
 			logger.Info("Pod resize is Infeasible and resizeMethod is InPlaceOnly, skipping",
 				"pod", pod.Name, "container", containerRec.Name)
+			operatormetrics.InfeasibleSkippedTotal.WithLabelValues(pod.Namespace, workloadName).Inc()
 			if r.Recorder != nil {
 				r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "InfeasibleBlocked", "resize",
 					"Pod %s cannot be resized in-place (Infeasible) and resizeMethod is InPlaceOnly; consider InPlaceOrEvict",
@@ -1132,9 +1135,11 @@ func (r *RightSizePolicyReconciler) tryEvictionFallback(
 	if err := resizer.EvictPod(ctx, pod); err != nil {
 		logger.Error(err, "Eviction fallback denied (PDB or other constraint)",
 			"pod", pod.Name, "workload", workloadName)
+		operatormetrics.EvictionTotal.WithLabelValues(pod.Namespace, workloadName, "denied").Inc()
 		return false
 	}
 
+	operatormetrics.EvictionTotal.WithLabelValues(pod.Namespace, workloadName, "success").Inc()
 	operatormetrics.ResizeTotal.WithLabelValues(pod.Namespace, workloadName, "eviction", "success").Inc()
 	if r.Recorder != nil {
 		r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "Evicted", "resize",
