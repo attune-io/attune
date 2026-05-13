@@ -336,6 +336,38 @@
       },
       "additionalProperties": false
     },
+    "defaults": {
+      "type": "object",
+      "description": "Cluster-wide defaults (creates a RightSizeDefaults CR)",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Create a RightSizeDefaults resource",
+          "default": false
+        },
+        "updateStrategy": {
+          "type": "object",
+          "description": "Default update strategy for all policies",
+          "properties": {
+            "mode": { "type": "string", "enum": ["Observe", "Recommend", "OneShot", "Canary", "Auto"], "default": "Recommend" },
+            "cooldown": { "type": "string", "pattern": "^([0-9]+(ns|us|µs|ms|s|m|h))+$" },
+            "autoRevert": { "type": "boolean", "default": true },
+            "resizeMethod": { "type": "string", "enum": ["InPlaceOnly", "InPlaceOrEvict"], "default": "InPlaceOnly" },
+            "maxConcurrentResizes": { "type": "integer", "minimum": 1, "maximum": 50, "default": 1 },
+            "schedule": {
+              "type": "object",
+              "properties": {
+                "windows": { "type": "array", "items": { "type": "object", "properties": { "start": { "type": "string" }, "end": { "type": "string" } } } },
+                "daysOfWeek": { "type": "array", "items": { "type": "string" } },
+                "timezone": { "type": "string" }
+              }
+            },
+            "maxTotalCpuIncrease": { "type": "string" },
+            "maxTotalMemoryIncrease": { "type": "string" }
+          }
+        }
+      }
+    },
     "collectorTTL": {
       "type": "string",
       "description": "Collector cache TTL for unused Prometheus connections (Go duration)",

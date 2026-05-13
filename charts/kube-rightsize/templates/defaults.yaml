@@ -1,0 +1,37 @@
+{{- if .Values.defaults.enabled }}
+apiVersion: rightsize.io/v1alpha1
+kind: RightSizeDefaults
+metadata:
+  name: {{ include "kube-rightsize.fullname" . }}-defaults
+  labels:
+    {{- include "kube-rightsize.labels" . | nindent 4 }}
+spec:
+  updateStrategy:
+    mode: {{ .Values.defaults.updateStrategy.mode | default "Recommend" }}
+    {{- if .Values.defaults.updateStrategy.cooldown }}
+    cooldown: {{ .Values.defaults.updateStrategy.cooldown }}
+    {{- end }}
+    autoRevert: {{ .Values.defaults.updateStrategy.autoRevert | default true }}
+    resizeMethod: {{ .Values.defaults.updateStrategy.resizeMethod | default "InPlaceOnly" }}
+    maxConcurrentResizes: {{ .Values.defaults.updateStrategy.maxConcurrentResizes | default 1 }}
+    {{- with .Values.defaults.updateStrategy.schedule }}
+    schedule:
+      {{- with .windows }}
+      windows:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .daysOfWeek }}
+      daysOfWeek:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .timezone }}
+      timezone: {{ . }}
+      {{- end }}
+    {{- end }}
+    {{- with .Values.defaults.updateStrategy.maxTotalCpuIncrease }}
+    maxTotalCpuIncrease: {{ . }}
+    {{- end }}
+    {{- with .Values.defaults.updateStrategy.maxTotalMemoryIncrease }}
+    maxTotalMemoryIncrease: {{ . }}
+    {{- end }}
+{{- end }}

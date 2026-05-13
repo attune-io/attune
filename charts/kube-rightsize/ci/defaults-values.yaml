@@ -1,0 +1,11 @@
+# CI test: defaults enabled
+defaults:
+  enabled: true
+  updateStrategy:
+    mode: Recommend
+    cooldown: "1h"
+    autoRevert: true
+    resizeMethod: InPlaceOnly
+    maxConcurrentResizes: 1
+webhooks:
+  enabled: false

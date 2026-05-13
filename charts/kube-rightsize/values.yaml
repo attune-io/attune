@@ -110,6 +110,33 @@ networkPolicy:
   # -- TCP port allowed by NetworkPolicy for Prometheus backend pods
   prometheusPort: 9090
 
+# -- Cluster-wide defaults (creates a RightSizeDefaults CR)
+defaults:
+  # -- Create a RightSizeDefaults resource with the values below
+  enabled: false
+  # -- Default update strategy applied to all policies that don't override it
+  updateStrategy:
+    # -- Resize mode: Observe, Recommend, OneShot, Canary, Auto
+    mode: Recommend
+    # -- Cooldown between resize cycles (Go duration, minimum 1m)
+    cooldown: "1h"
+    # -- Auto-revert unsafe resizes
+    autoRevert: true
+    # -- Resize method: InPlaceOnly or InPlaceOrEvict
+    resizeMethod: InPlaceOnly
+    # -- Max concurrent pod resizes per cycle (1-50)
+    maxConcurrentResizes: 1
+    # -- Schedule restrictions (optional)
+    # schedule:
+    #   windows:
+    #     - start: "02:00"
+    #       end: "06:00"
+    #   daysOfWeek: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+    #   timezone: "UTC"
+    # -- Per-cycle budget caps (optional)
+    # maxTotalCpuIncrease: "2000m"
+    # maxTotalMemoryIncrease: "4Gi"
+
 # -- Collector cache TTL for unused Prometheus connections (Go duration, e.g. "10m", "1h")
 collectorTTL: "10m"
 
