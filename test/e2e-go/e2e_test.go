@@ -461,7 +461,9 @@ func TestE2E_MultiContainer_ExcludesSidecar(t *testing.T) {
 }
 
 func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
-	t.Skip("requires extended Prometheus warm-up; run in nightly with longer timeout")
+	if os.Getenv("E2E_NIGHTLY") != "true" {
+		t.Skip("requires extended Prometheus warm-up; set E2E_NIGHTLY=true to run")
+	}
 	ns := uniqueNS("load")
 	createNamespace(t, ns)
 
