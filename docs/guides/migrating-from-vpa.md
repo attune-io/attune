@@ -8,7 +8,7 @@ with no downtime.
 
 | VPA Mode | kube-rightsize Equivalent | Notes |
 |----------|---------------------------|-------|
-| `Off` | **Observe** | Collect metrics, recommendations in status |
+| `Off` | **Observe** or **Recommend** | Observe: data collection only. Recommend: collect and write recommendations to status |
 | `Initial` | **OneShot** | Set resources once; kube-rightsize uses in-place resize instead of restart |
 | `Auto` (with eviction) | **Canary** or **Auto** | In-place resize, no evictions |
 | `Recommend` (UpdateMode=Off) | **Recommend** | Write recommendations to status without acting |

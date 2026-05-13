@@ -244,6 +244,11 @@ The dashboard includes:
   16x), preventing repeated failed resizes.
 - **Kubernetes Events**: Emits `Normal/Resized` and `Warning/Reverted` events
   on the policy, visible via `kubectl describe`.
+- **Batch workload support**: Targets CronJobs and Jobs for recommend-only
+  right-sizing based on historical usage of completed pods.
+- **Namespace-scoped defaults**: `RightSizeNamespaceDefaults` provides
+  per-namespace defaults that override the cluster-scoped `RightSizeDefaults`,
+  enabling different configurations for production vs staging.
 
 ## Documentation
 

@@ -727,7 +727,7 @@ func (r *ResizeEngine) WaitForResize(ctx context.Context, ns, podName,
 
 | Mode | Behavior | Risk Level |
 |------|----------|------------|
-| `Observe` | Collect metrics, build profiles, write recommendations to status | None |
+| `Observe` | Collect metrics and track data-point progress; no recommendations surfaced | None |
 | `Recommend` | Generate recommendations in status, no changes | None |
 | `OneShot` | Resize one pod, monitor, stop | Low |
 | `Canary` | Resize canary%, monitor, then remaining | Medium |

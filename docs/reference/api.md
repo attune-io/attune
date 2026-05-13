@@ -207,3 +207,46 @@ true recoverability.
 `costPricing` values. If `cpuPerCoreHour` or `memoryPerGiBHour` is set,
 the webhook validates that each is a parseable positive float. Invalid
 values (e.g., `"banana"`, `"-0.5"`) are rejected at admission time.
+
+---
+
+## RightSizeNamespaceDefaults
+
+**Scope**: Namespaced
+**Short name**: `rsnd`
+
+```yaml
+apiVersion: rightsize.io/v1alpha1
+kind: RightSizeNamespaceDefaults
+metadata:
+  name: production-defaults
+  namespace: production
+spec:
+  # Same fields as RightSizeDefaults.spec
+  metricsSource:
+    prometheus:
+      address: http://prometheus-server.monitoring:80
+  cpu:
+    percentile: 99
+    safetyMargin: "1.3"
+  memory:
+    percentile: 99
+    safetyMargin: "1.5"
+    allowDecrease: false
+  updateStrategy:
+    mode: Canary
+    cooldown: 2h
+    autoRevert: true
+```
+
+RightSizeNamespaceDefaults provides per-namespace defaults that override
+cluster-scoped RightSizeDefaults. This enables different configurations
+for different environments (e.g., conservative settings for production,
+aggressive settings for staging).
+
+**Precedence**: policy spec > namespace defaults > cluster defaults.
+
+If a namespace has a RightSizeNamespaceDefaults, it takes priority over
+the cluster-scoped RightSizeDefaults for all policies in that namespace.
+Fields not specified in the namespace defaults are NOT inherited from
+cluster defaults; they use the policy's own defaults.

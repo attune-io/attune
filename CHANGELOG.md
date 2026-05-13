@@ -14,8 +14,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   were accepted with a warning and silently fell back to P95. Existing policies
   with unsupported percentile values must be updated before they can be modified.
 
+### Added
+
+- **Observe mode** is now a distinct mode from Recommend. Observe collects
+  metrics and tracks data-point progress but does not surface recommendations
+  or savings estimates. Use it as a zero-footprint warm-up phase before
+  switching to Recommend.
+- **RightSizeNamespaceDefaults** CRD (namespace-scoped, short name `rsnd`).
+  Provides namespace-level defaults that override cluster-scoped
+  `RightSizeDefaults`. Precedence: policy spec > namespace defaults >
+  cluster defaults. Useful for multi-tenant clusters with different
+  environments (e.g., production vs staging).
+- **Job and CronJob support.** The `targetRef.kind` field now accepts `Job`
+  and `CronJob`. Batch workloads are recommend-only: the operator computes
+  recommendations from historical Prometheus usage but does not attempt
+  in-place resizes (batch pods complete and are not available for resize).
+- Go module path updated from `github.com/SebTardif/kube-rightsize` to
+  `github.com/SebTardifLabs/kube-rightsize` to match the repo location.
+
 ### Changed
 
+- **Observe mode behavior** (breaking for users relying on Observe writing
+  recommendations): Observe mode no longer writes recommendations or
+  savings to `status`. Previously it was an alias for Recommend. Switch
+  to Recommend mode to restore the old behavior.
 - RBAC: Added `list` and `watch` verbs to `nodes`, `resourcequotas`, and
   `limitranges` ClusterRole rules. Previously only `get` (and `list` for
   quotas/limitranges) was granted, which prevented controller-runtime's

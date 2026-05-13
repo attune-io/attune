@@ -18,15 +18,23 @@ Modes are graduated from safe observation to full automation:
 
 | Mode | Reads metrics | Writes recommendations | Resizes pods |
 |------|:---:|:---:|:---:|
+| **Observe** | Yes | No (data collection only) | No |
 | **Recommend** | Yes | Yes (status only) | No |
 | **OneShot** | Yes | Yes | One pod per cycle |
 | **Canary** | Yes | Yes | A percentage of pods, then the rest after observation |
 | **Auto** | Yes | Yes | All eligible pods |
 
-!!! note "Observe mode"
-    `Observe` mode collects metrics and tracks data-point progress but does
-    not surface recommendations or savings estimates. Use it as a
-    zero-footprint warm-up phase before switching to `Recommend`.
+!!! note "Observe vs Recommend"
+    `Observe` collects metrics and tracks data-point progress but does not
+    surface recommendations or savings estimates. Use it as a zero-footprint
+    warm-up phase. Switch to `Recommend` when you want to see what the
+    operator would suggest.
+
+!!! note "Batch workloads (Job / CronJob)"
+    Jobs and CronJobs are supported as `targetRef.kind` values. Batch
+    workloads are always recommend-only regardless of the mode setting,
+    since completed pods cannot be resized in-place. Use the recommendations
+    to update your Job/CronJob template for future runs.
 
 !!! warning
     Start with **Recommend** in production. Promote to **Canary** only after
