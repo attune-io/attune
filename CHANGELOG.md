@@ -29,6 +29,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `CronJob`. Batch workloads are recommend-only: the operator computes
   recommendations from historical Prometheus usage but does not attempt
   in-place resizes (batch pods complete and are not available for resize).
+- **Concurrent pod processing** via `maxConcurrentResizes` on
+  `updateStrategy`. Resizes multiple pods in parallel within a reconcile
+  cycle using a semaphore-bounded worker pool. Default: 1 (serial,
+  preserving current behavior). Budget caps are thread-safe under
+  concurrent access.
 - **Multi-data-source support** for Thanos, VictoriaMetrics, Grafana Mimir,
   and managed Prometheus services (AMP, GMP, Azure). PrometheusConfig now
   supports custom headers (e.g., `X-Scope-OrgID` for Mimir), bearer token

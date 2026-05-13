@@ -277,6 +277,15 @@ spec:
                       Cooldown is the minimum time between successive resize operations.
                       Defaults to 1h if not specified.
                     type: string
+                  maxConcurrentResizes:
+                    default: 1
+                    description: |-
+                      MaxConcurrentResizes is the maximum number of pods to resize
+                      concurrently within a single reconcile cycle. Default: 1 (serial).
+                    format: int32
+                    maximum: 50
+                    minimum: 1
+                    type: integer
                   maxCpuChangePercent:
                     default: 50
                     description: MaxCPUChangePercent is the maximum allowed CPU change

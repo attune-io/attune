@@ -66,6 +66,7 @@ spec:
     cooldown: 1h               # min time between resize operations (default: 1h)
     autoRevert: true           # revert on safety violation (default: true)
     resizeMethod: InPlaceOnly  # InPlaceOnly | InPlaceOrEvict (default: InPlaceOnly)
+    maxConcurrentResizes: 1    # parallel pod resizes per cycle (default: 1, max: 50)
     maxTotalCpuIncrease: "2000m"    # max aggregate CPU increase per cycle (default: unlimited)
     maxTotalMemoryIncrease: "4Gi"   # max aggregate memory increase per cycle (default: unlimited)
     schedule:                       # optional: restrict when resizes can occur

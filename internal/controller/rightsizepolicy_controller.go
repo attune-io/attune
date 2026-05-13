@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -765,7 +766,8 @@ func (r *RightSizePolicyReconciler) executeResizes(
 	var history []rightsizev1alpha1.ResizeHistoryEntry
 	now := metav1.Now()
 
-	// Per-cycle budget caps. Negative remaining means unlimited.
+	// Per-cycle budget caps. Protected by budgetMu for concurrent access.
+	var budgetMu sync.Mutex
 	cpuBudget := int64(-1)
 	memBudget := int64(-1)
 	if policy.Spec.UpdateStrategy.MaxTotalCPUIncrease != nil {
@@ -774,6 +776,16 @@ func (r *RightSizePolicyReconciler) executeResizes(
 	if policy.Spec.UpdateStrategy.MaxTotalMemoryIncrease != nil {
 		memBudget = policy.Spec.UpdateStrategy.MaxTotalMemoryIncrease.Value()
 	}
+
+	// Concurrency control: semaphore limits parallel resize calls.
+	concurrency := int(policy.Spec.UpdateStrategy.MaxConcurrentResizes)
+	if concurrency <= 0 {
+		concurrency = 1
+	}
+	sem := make(chan struct{}, concurrency)
+
+	var historyMu sync.Mutex
+	var wg sync.WaitGroup
 
 	for _, rec := range recommendations {
 		if ctx.Err() != nil {
@@ -804,14 +816,14 @@ func (r *RightSizePolicyReconciler) executeResizes(
 			continue
 		}
 
-		var workloadResized bool
+		var workloadResized int32 // atomic for concurrent access
 		for _, pod := range selectedPods {
 			for _, containerRec := range rec.Containers {
-				// Check per-cycle budget caps before resizing.
+				// Check per-cycle budget caps before resizing (under lock).
+				budgetMu.Lock()
 				if cpuBudget >= 0 || memBudget >= 0 {
 					cpuIncrease := containerRec.Recommended.CPURequest.MilliValue() - containerRec.Current.CPURequest.MilliValue()
 					memIncrease := containerRec.Recommended.MemoryRequest.Value() - containerRec.Current.MemoryRequest.Value()
-					// Only increases consume budget; decreases are free.
 					if cpuIncrease < 0 {
 						cpuIncrease = 0
 					}
@@ -820,23 +832,37 @@ func (r *RightSizePolicyReconciler) executeResizes(
 					}
 					if (cpuBudget >= 0 && cpuIncrease > cpuBudget) ||
 						(memBudget >= 0 && memIncrease > memBudget) {
+						budgetMu.Unlock()
 						logger.Info("Budget exhausted, deferring resize to next cycle",
-							"pod", pod.Name, "container", containerRec.Name,
-							"cpuIncrease", cpuIncrease, "cpuBudgetRemaining", cpuBudget,
-							"memIncrease", memIncrease, "memBudgetRemaining", memBudget)
+							"pod", pod.Name, "container", containerRec.Name)
 						continue
 					}
 					cpuBudget -= cpuIncrease
 					memBudget -= memIncrease
 				}
-				entries, resized := r.resizeContainer(ctx, policy, &pod, rec.Workload, containerRec, resizer, monitor, now)
-				history = append(history, entries...)
-				if resized {
-					workloadResized = true
-				}
+				budgetMu.Unlock()
+
+				// Capture loop variables for the goroutine.
+				pod, containerRec, workloadName := pod, containerRec, rec.Workload
+
+				wg.Add(1)
+				sem <- struct{}{} // acquire semaphore
+				go func() {
+					defer wg.Done()
+					defer func() { <-sem }() // release semaphore
+
+					entries, resized := r.resizeContainer(ctx, policy, &pod, workloadName, containerRec, resizer, monitor, now)
+					historyMu.Lock()
+					history = append(history, entries...)
+					historyMu.Unlock()
+					if resized {
+						atomic.AddInt32(&workloadResized, 1)
+					}
+				}()
 			}
 		}
-		if workloadResized {
+		wg.Wait() // wait for all pods in this workload before moving to the next
+		if atomic.LoadInt32(&workloadResized) > 0 {
 			totalResized++
 		}
 	}

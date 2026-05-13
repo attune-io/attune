@@ -244,6 +244,8 @@ The dashboard includes:
   16x), preventing repeated failed resizes.
 - **Kubernetes Events**: Emits `Normal/Resized` and `Warning/Reverted` events
   on the policy, visible via `kubectl describe`.
+- **Concurrent pod processing**: `maxConcurrentResizes` enables parallel pod
+  resizes within a reconcile cycle for reduced latency at scale.
 - **Multi-data-source support**: Works with Thanos, VictoriaMetrics, Grafana
   Mimir, and managed Prometheus services. Custom headers, bearer token auth
   from Secrets, and TLS configuration available on `PrometheusConfig`.

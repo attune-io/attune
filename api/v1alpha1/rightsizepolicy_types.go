@@ -224,6 +224,14 @@ type UpdateStrategy struct {
 	// +optional
 	Schedule *ResizeSchedule `json:"schedule,omitempty"`
 
+	// MaxConcurrentResizes is the maximum number of pods to resize
+	// concurrently within a single reconcile cycle. Default: 1 (serial).
+	// +kubebuilder:default=1
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=50
+	// +optional
+	MaxConcurrentResizes int32 `json:"maxConcurrentResizes,omitempty"`
+
 	// MaxTotalCPUIncrease is the maximum aggregate CPU increase allowed
 	// across all pods in a single reconcile cycle (e.g. "2000m", "4").
 	// Once exhausted, remaining pods are deferred to the next cycle.
