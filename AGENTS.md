@@ -4,7 +4,7 @@
 
 Kubernetes operator for in-place pod resource right-sizing (VPA replacement).
 Requires Kubernetes 1.33+ (In-Place Pod Resize GA). Built with Go 1.26,
-controller-runtime v0.24.1, Kubebuilder v4, K8s API v0.36.0.
+controller-runtime v0.24.1, Kubebuilder v4, K8s API v0.36.1.
 
 ## Commands
 
