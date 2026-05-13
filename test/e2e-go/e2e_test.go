@@ -158,7 +158,7 @@ func createPolicy(t *testing.T, name, namespace, deployName, mode string) *right
 					Address: promAddr,
 				},
 				MinimumDataPoints: 1,
-				HistoryWindow:     &metav1.Duration{Duration: 5 * time.Minute},
+				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 			},
 			CPU: rightsizev1alpha1.ResourceConfig{
 				Percentile:   95,
@@ -263,7 +263,8 @@ func TestE2E_AutoMode_ResizesRunningPod(t *testing.T) {
 	// The original was 500m/512Mi; after resize it should be lower.
 	assert.Less(t, cpuReq.MilliValue(), int64(500),
 		"CPU request should have decreased from 500m, got %s", cpuReq.String())
-	assert.Less(t, memReq.Value(), resource.MustParse("512Mi").Value(),
+	memTarget := resource.MustParse("512Mi")
+	assert.Less(t, memReq.Value(), memTarget.Value(),
 		"Memory request should have decreased from 512Mi, got %s", memReq.String())
 
 	// Verify pod was not restarted.
@@ -420,10 +421,12 @@ func TestE2E_MultiContainer_ExcludesSidecar(t *testing.T) {
 	pod := podList.Items[0]
 	for _, c := range pod.Spec.Containers {
 		if c.Name == "istio-proxy" {
-			assert.Equal(t, resource.MustParse("100m").MilliValue(),
+			expectedCPU := resource.MustParse("100m")
+			expectedMem := resource.MustParse("128Mi")
+			assert.Equal(t, expectedCPU.MilliValue(),
 				c.Resources.Requests.Cpu().MilliValue(),
 				"istio-proxy CPU should be unchanged")
-			assert.Equal(t, resource.MustParse("128Mi").Value(),
+			assert.Equal(t, expectedMem.Value(),
 				c.Resources.Requests.Memory().Value(),
 				"istio-proxy memory should be unchanged")
 		}

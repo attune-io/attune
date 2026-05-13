@@ -8,17 +8,12 @@ rules:
   - ""
   resources:
   - limitranges
+  - nodes
   - resourcequotas
   verbs:
   - get
   - list
-- apiGroups:
-  - ""
-  resources:
-  - nodes
-  - services
-  verbs:
-  - get
+  - watch
 - apiGroups:
   - ""
   resources:
@@ -35,6 +30,12 @@ rules:
   verbs:
   - patch
   - update
+- apiGroups:
+  - ""
+  resources:
+  - services
+  verbs:
+  - get
 - apiGroups:
   - apps
   resources:

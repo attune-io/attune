@@ -103,6 +103,8 @@ rules:
       - nodes
     verbs:
       - get
+      - list
+      - watch
   # Services: read-only (Prometheus auto-discovery via well-known service names)
   - apiGroups:
       - ""
@@ -119,3 +121,4 @@ rules:
     verbs:
       - get
       - list
+      - watch

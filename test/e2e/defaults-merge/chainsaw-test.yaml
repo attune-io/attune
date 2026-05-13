@@ -73,8 +73,12 @@ spec:
                 targetRef:
                   kind: Deployment
                   name: defaults-app
+                metricsSource:
+                  minimumDataPoints: 1
+                  historyWindow: 1h
                 updateStrategy:
                   mode: Recommend
+                  cooldown: 1m
     - name: verify-policy-reconciles
       try:
         - assert:

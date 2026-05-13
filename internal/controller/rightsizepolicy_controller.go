@@ -93,9 +93,9 @@ const (
 //+kubebuilder:rbac:groups=autoscaling,resources=horizontalpodautoscalers,verbs=get;list;watch
 //+kubebuilder:rbac:groups=autoscaling.k8s.io,resources=verticalpodautoscalers,verbs=get;list;watch
 //+kubebuilder:rbac:groups=monitoring.coreos.com,resources=prometheuses,verbs=get;list
-//+kubebuilder:rbac:groups="",resources=nodes,verbs=get
+//+kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=services,verbs=get
-//+kubebuilder:rbac:groups="",resources=resourcequotas;limitranges,verbs=get;list
+//+kubebuilder:rbac:groups="",resources=resourcequotas;limitranges,verbs=get;list;watch
 
 // RightSizePolicyReconciler reconciles a RightSizePolicy object.
 type RightSizePolicyReconciler struct {

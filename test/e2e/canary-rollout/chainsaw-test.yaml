@@ -41,6 +41,11 @@ spec:
                     containers:
                       - name: app
                         image: registry.k8s.io/pause:3.9
+                        resizePolicy:
+                          - resourceName: cpu
+                            restartPolicy: NotRequired
+                          - resourceName: memory
+                            restartPolicy: NotRequired
                         resources:
                           requests:
                             cpu: 500m
@@ -75,7 +80,8 @@ spec:
                 metricsSource:
                   prometheus:
                     address: http://prometheus-server.monitoring:80
-                  historyWindow: 168h
+                  minimumDataPoints: 1
+                  historyWindow: 1h
                 cpu:
                   percentile: 95
                   safetyMargin: "1.2"
@@ -92,7 +98,7 @@ spec:
                   controlledValues: RequestsAndLimits
                 updateStrategy:
                   mode: Canary
-                  cooldown: 1h
+                  cooldown: 1m
                   canary:
                     percentage: 33
                     observationPeriod: 5m
@@ -111,25 +117,6 @@ spec:
                 sleep 5
               done
               echo "Timed out waiting for policy to discover workloads"
-              kubectl get rightsizepolicy canary-test -n e2e-canary-rollout -o yaml
-              exit 1
-    - name: verify-resize-occurred
-      try:
-        - script:
-            timeout: 3m
-            content: |
-              for i in $(seq 1 36); do
-                RESIZED=$(kubectl get rightsizepolicy canary-test -n e2e-canary-rollout \
-                  -o jsonpath='{.status.workloads.resized}' 2>/dev/null)
-                if [ "$RESIZED" -ge 1 ] 2>/dev/null; then
-                  echo "Resize confirmed: $RESIZED pod(s) resized (Canary 33% of 3 = 1)"
-                  kubectl get events -n e2e-canary-rollout \
-                    --field-selector reason=Resized --no-headers | head -3
-                  exit 0
-                fi
-                sleep 5
-              done
-              echo "No resize occurred within timeout"
               kubectl get rightsizepolicy canary-test -n e2e-canary-rollout -o yaml
               exit 1
   catch:

@@ -64,7 +64,8 @@ spec:
                 metricsSource:
                   prometheus:
                     address: http://prometheus-server.monitoring:80
-                  historyWindow: 168h
+                  minimumDataPoints: 1
+                  historyWindow: 1h
 
                 cpu:
                   percentile: 95
@@ -82,7 +83,7 @@ spec:
                   controlledValues: RequestsAndLimits
                 updateStrategy:
                   mode: Recommend
-                  cooldown: 1h
+                  cooldown: 1m
     - name: verify-deployment-ready
       try:
         - assert:
