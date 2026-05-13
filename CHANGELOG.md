@@ -54,6 +54,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   back to pod eviction via the Eviction API. Safety: respects PDBs, never
   evicts the last running replica, honors cooldown and canary percentages.
   Default is `InPlaceOnly` (current behavior, no disruption).
+- **Webhook validation for schedule fields.** Invalid timezone names,
+  misspelled day-of-week values, and malformed HH:MM times are now
+  rejected at admission time with actionable error messages. Applies to
+  RightSizePolicy, RightSizeDefaults, and RightSizeNamespaceDefaults.
+- **Kubernetes events for operational visibility.** New events emitted
+  during resize cycles: `Normal/ScheduleSkipped` (outside window),
+  `Warning/BudgetExhausted` (budget cap hit), `Warning/InfeasibleBlocked`
+  (pod stuck with InPlaceOnly), `Warning/Evicted` (eviction fallback).
+  Visible via `kubectl get events`.
+- **Prometheus metrics for resize decisions.** Four new counters:
+  `kube_rightsize_schedule_skipped_total`, `kube_rightsize_budget_exhausted_total`,
+  `kube_rightsize_eviction_total`, `kube_rightsize_infeasible_skipped_total`.
+  Grafana dashboard panels added for these metrics.
+- **Helm chart cluster defaults.** New `defaults.enabled` value that
+  optionally creates a `RightSizeDefaults` CR with all `updateStrategy`
+  fields configurable via Helm values.
+- **Resize lifecycle state diagram** in architecture documentation
+  (`docs/architecture/resize-api.md`) showing the complete pod resize
+  decision tree with all states and transitions.
 - Go module path updated from `github.com/SebTardif/kube-rightsize` to
   `github.com/SebTardifLabs/kube-rightsize` to match the repo location.
 
@@ -87,3 +106,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fixing silent revert failures for native sidecars.
 - Trivy image scan in CI now uses `docker save` tar instead of image-ref,
   fixing "UNAUTHORIZED" errors when scanning locally-built images.
+- Missing RBAC for `pods/eviction` subresource. The eviction fallback
+  (`InPlaceOrEvict`) would receive 403 Forbidden without this permission
+  in the ClusterRole.
+- Infeasible pods with `resizeMethod: InPlaceOnly` are now skipped instead
+  of retrying a resize that will fail on every reconcile cycle.
+- Embedded IANA timezone database (`import _ "time/tzdata"`) for distroless
+  containers. Without this, all non-UTC timezones in schedule windows would
+  fail with "unknown time zone" in production.
+- Non-deterministic collector cache keys when multiple custom headers are
+  configured. Map iteration order caused duplicate cache entries. Fixed by
+  sorting header keys.
