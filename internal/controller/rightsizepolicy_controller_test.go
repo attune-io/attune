@@ -3981,10 +3981,12 @@ func TestResizeContainer_InfeasiblePodSkippedWithInPlaceOnly(t *testing.T) {
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
 		WithObjects(deploy, pod).Build()
 	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+	recorder := events.NewFakeRecorder(10)
 	r := &RightSizePolicyReconciler{
 		Client:    fakeClient,
 		Scheme:    scheme,
 		Clientset: clientset,
+		Recorder:  recorder,
 	}
 
 	policy := newTestPolicy("test-policy", "default")
@@ -4008,6 +4010,16 @@ func TestResizeContainer_InfeasiblePodSkippedWithInPlaceOnly(t *testing.T) {
 		"api-server", containerRec, resizer, nil, metav1.Now())
 	assert.False(t, resized, "infeasible pod with InPlaceOnly should not be resized")
 	assert.Empty(t, entries, "should produce no history entries")
+
+	// Verify InfeasibleBlocked event was emitted.
+	select {
+	case event := <-recorder.Events:
+		assert.Contains(t, event, "InfeasibleBlocked")
+		assert.Contains(t, event, "api-server-abc-1")
+		assert.Contains(t, event, "InPlaceOrEvict")
+	default:
+		t.Error("expected InfeasibleBlocked event but none was emitted")
+	}
 
 	// Verify NO resize and NO eviction was attempted.
 	for _, a := range clientset.Actions() {

@@ -921,6 +921,11 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 		} else {
 			logger.Info("Pod resize is Infeasible and resizeMethod is InPlaceOnly, skipping",
 				"pod", pod.Name, "container", containerRec.Name)
+			if r.Recorder != nil {
+				r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "InfeasibleBlocked", "resize",
+					"Pod %s cannot be resized in-place (Infeasible) and resizeMethod is InPlaceOnly; consider InPlaceOrEvict",
+					pod.Name)
+			}
 		}
 		return nil, false
 	}
