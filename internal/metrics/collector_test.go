@@ -424,6 +424,39 @@ func TestHeaderTransport_NoBearer(t *testing.T) {
 	assert.Empty(t, gotHeaders.Get("Authorization"))
 }
 
+func TestNewPrometheusCollectorWithOptions_InsecureSkipVerify(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(cannedInstantResponse()))
+	}))
+	defer server.Close()
+
+	// Without InsecureSkipVerify, TLS verification would fail against the
+	// self-signed cert from httptest.NewTLSServer. We pass the test server's
+	// transport to bypass SSRF checks (localhost), but the InsecureSkipVerify
+	// flag is exercised in the option-parsing branch.
+	opts := &CollectorOptions{InsecureSkipVerify: true}
+	collector, err := NewPrometheusCollectorWithOptions(server.URL, logr.Discard(), opts, server.Client().Transport)
+	require.NoError(t, err)
+
+	_, err = collector.Query(context.Background(), "up", time.Now())
+	require.NoError(t, err)
+}
+
+func TestNewPrometheusCollectorWithOptions_NilOpts(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(cannedInstantResponse()))
+	}))
+	defer server.Close()
+
+	collector, err := NewPrometheusCollectorWithOptions(server.URL, logr.Discard(), nil, server.Client().Transport)
+	require.NoError(t, err)
+
+	_, err = collector.Query(context.Background(), "up", time.Now())
+	require.NoError(t, err)
+}
+
 func TestSSRFSafeTransport_BlocksLoopback(t *testing.T) {
 	// A server on localhost should be blocked by the SSRF-safe transport.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

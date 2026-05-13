@@ -1283,6 +1283,47 @@ func TestCollectorCacheKey_DifferentConfigsDifferentKeys(t *testing.T) {
 	assert.NotEqual(t, key1, key2)
 }
 
+// ---------- getCachedBearerToken ----------
+
+func TestGetCachedBearerToken_NoCachedEntry(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	config := &rightsizev1alpha1.PrometheusConfig{Address: "http://prom:9090"}
+	assert.Empty(t, r.getCachedBearerToken(config))
+}
+
+func TestGetCachedBearerToken_CachedWithToken(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	r.collectors.Store("http://prom:9090|bearer", &collectorEntry{
+		bearerToken: "cached-token-123",
+		lastUsed:    time.Now(),
+	})
+	config := &rightsizev1alpha1.PrometheusConfig{Address: "http://prom:9090"}
+	assert.Equal(t, "cached-token-123", r.getCachedBearerToken(config))
+}
+
+func TestGetCachedBearerToken_CachedWithoutToken(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	r.collectors.Store("http://prom:9090", &collectorEntry{
+		lastUsed: time.Now(),
+	})
+	config := &rightsizev1alpha1.PrometheusConfig{Address: "http://prom:9090"}
+	assert.Empty(t, r.getCachedBearerToken(config))
+}
+
+func TestGetCachedBearerToken_MultipleEntries(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	r.collectors.Store("http://other:9090|bearer", &collectorEntry{
+		bearerToken: "other-token",
+		lastUsed:    time.Now(),
+	})
+	r.collectors.Store("http://prom:9090|bearer", &collectorEntry{
+		bearerToken: "correct-token",
+		lastUsed:    time.Now(),
+	})
+	config := &rightsizev1alpha1.PrometheusConfig{Address: "http://prom:9090"}
+	assert.Equal(t, "correct-token", r.getCachedBearerToken(config))
+}
+
 // ---------- readSecretKey ----------
 
 func TestReadSecretKey_Success(t *testing.T) {

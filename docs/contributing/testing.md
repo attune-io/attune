@@ -122,10 +122,24 @@ Fuzz targets are defined in `internal/recommendation/fuzz_test.go`.
 
 ## Running all tests
 
+Run everything in one command:
+
 ```bash
-make test          # unit tests
+make test-all      # unit + integration + E2E (requires local cluster)
+```
+
+Or run each tier separately:
+
+```bash
+make test              # unit tests only
 make test-integration  # integration tests (envtest)
-make test-e2e      # E2E tests (requires local k3d or Kind cluster)
+make test-e2e          # E2E tests (requires local k3d or Kind cluster)
+```
+
+For a full local validation including lint, helm, and CRD freshness:
+
+```bash
+make verify        # all CI checks locally
 ```
 
 ## Test organization

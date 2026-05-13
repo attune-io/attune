@@ -1,0 +1,22 @@
+---
+# Example: Observe mode (zero-footprint warm-up)
+# Collects metrics and validates connectivity without generating
+# recommendations. Use as the first step before switching to Recommend.
+apiVersion: rightsize.io/v1alpha1
+kind: RightSizePolicy
+metadata:
+  name: api-observe
+  namespace: staging
+spec:
+  targetRef:
+    kind: Deployment
+    name: api-server
+  metricsSource:
+    prometheus:
+      address: http://prometheus-server.monitoring:80
+  cpu:
+    percentile: 95
+  memory:
+    percentile: 99
+  updateStrategy:
+    mode: Observe

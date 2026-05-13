@@ -22,6 +22,8 @@ import (
 	"time"
 
 	rsmetrics "github.com/SebTardifLabs/kube-rightsize/internal/metrics"
+	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
 )
 
 func BenchmarkBuildPrometheusQuery_CPU(b *testing.B) {
@@ -39,6 +41,31 @@ func BenchmarkBuildPrometheusQuery_Memory(b *testing.B) {
 func BenchmarkBuildPrometheusQuery_SpecialChars(b *testing.B) {
 	for b.Loop() {
 		buildPrometheusQuery("my-ns.test", "pod+name.v2[0]", "container(1)", "cpu")
+	}
+}
+
+func BenchmarkReconcile(b *testing.B) {
+	policy := newTestPolicy("bench-policy", "default")
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api"})
+	pod := newTestPod("api-server-abc", "default", map[string]string{"app": "api"})
+
+	samples := generateSamples(2016, 0.2)
+	mc := &mockCollector{
+		queryRangeGroupedFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) (map[string][]rsmetrics.Sample, error) {
+			return map[string][]rsmetrics.Sample{"main": samples}, nil
+		},
+		queryFunc: func(_ context.Context, _ string, _ time.Time) (float64, error) {
+			return 0.1, nil
+		},
+	}
+	r, _ := newReconcilerForReconcile(mc, policy, deploy, pod)
+
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "bench-policy", Namespace: "default"}}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = r.Reconcile(context.Background(), req)
 	}
 }
 
