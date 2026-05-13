@@ -378,6 +378,52 @@ func TestIsBlockedIP(t *testing.T) {
 	}
 }
 
+func TestHeaderTransport_InjectsHeadersAndBearer(t *testing.T) {
+	var gotHeaders http.Header
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHeaders = r.Header.Clone()
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(cannedInstantResponse()))
+	}))
+	defer server.Close()
+
+	opts := &CollectorOptions{
+		Headers:     map[string]string{"X-Scope-OrgID": "tenant-1", "X-Custom": "value"},
+		BearerToken: "my-secret-token",
+	}
+	collector, err := NewPrometheusCollectorWithOptions(server.URL, logr.Discard(), opts, server.Client().Transport)
+	require.NoError(t, err)
+
+	_, err = collector.Query(context.Background(), "up", time.Now())
+	require.NoError(t, err)
+
+	assert.Equal(t, "tenant-1", gotHeaders.Get("X-Scope-OrgID"))
+	assert.Equal(t, "value", gotHeaders.Get("X-Custom"))
+	assert.Equal(t, "Bearer my-secret-token", gotHeaders.Get("Authorization"))
+}
+
+func TestHeaderTransport_NoBearer(t *testing.T) {
+	var gotHeaders http.Header
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHeaders = r.Header.Clone()
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(cannedInstantResponse()))
+	}))
+	defer server.Close()
+
+	opts := &CollectorOptions{
+		Headers: map[string]string{"X-Scope-OrgID": "tenant-2"},
+	}
+	collector, err := NewPrometheusCollectorWithOptions(server.URL, logr.Discard(), opts, server.Client().Transport)
+	require.NoError(t, err)
+
+	_, err = collector.Query(context.Background(), "up", time.Now())
+	require.NoError(t, err)
+
+	assert.Equal(t, "tenant-2", gotHeaders.Get("X-Scope-OrgID"))
+	assert.Empty(t, gotHeaders.Get("Authorization"))
+}
+
 func TestSSRFSafeTransport_BlocksLoopback(t *testing.T) {
 	// A server on localhost should be blocked by the SSRF-safe transport.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

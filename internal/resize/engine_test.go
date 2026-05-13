@@ -616,3 +616,38 @@ func TestIsResizeInfeasible(t *testing.T) {
 		})
 	}
 }
+
+func TestEvictPod_CallsEvictionAPI(t *testing.T) {
+	pod := newTestPod("worker-0", "default", "app", "100m", "128Mi", "200m", "256Mi")
+	fakeClient := fake.NewSimpleClientset(pod)
+
+	resizer := NewPodResizer(fakeClient, testr.New(t))
+	err := resizer.EvictPod(context.Background(), pod)
+	require.NoError(t, err)
+
+	var found bool
+	for _, action := range fakeClient.Actions() {
+		if action.GetVerb() == "create" && action.GetResource().Resource == "pods" &&
+			action.GetSubresource() == "eviction" {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "Eviction action was not recorded on the fake client")
+}
+
+func TestEvictPod_ReturnsErrorOnFailure(t *testing.T) {
+	pod := newTestPod("worker-1", "default", "app", "100m", "128Mi", "200m", "256Mi")
+	fakeClient := fake.NewSimpleClientset(pod)
+	fakeClient.PrependReactor("create", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if action.GetSubresource() == "eviction" {
+			return true, nil, fmt.Errorf("eviction denied by PDB")
+		}
+		return false, nil, nil
+	})
+
+	resizer := NewPodResizer(fakeClient, testr.New(t))
+	err := resizer.EvictPod(context.Background(), pod)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "eviction denied by PDB")
+}
