@@ -31,7 +31,9 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	kubefake "k8s.io/client-go/kubernetes/fake"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -3161,6 +3163,55 @@ func TestDiscoverPrometheus_NoServiceFound(t *testing.T) {
 
 	addr := reconciler.discoverPrometheus(context.Background())
 	assert.Empty(t, addr, "should return empty when no Prometheus service is found")
+}
+
+func TestDiscoverPrometheus_OperatorCRD_DefaultPort(t *testing.T) {
+	prom := &unstructured.Unstructured{}
+	prom.SetGroupVersionKind(schema.GroupVersionKind{
+		Group: "monitoring.coreos.com", Version: "v1", Kind: "Prometheus",
+	})
+	prom.SetName("k8s")
+	prom.SetNamespace("monitoring")
+
+	s := testScheme()
+	s.AddKnownTypeWithName(
+		schema.GroupVersionKind{Group: "monitoring.coreos.com", Version: "v1", Kind: "PrometheusList"},
+		&unstructured.UnstructuredList{},
+	)
+	s.AddKnownTypeWithName(
+		schema.GroupVersionKind{Group: "monitoring.coreos.com", Version: "v1", Kind: "Prometheus"},
+		&unstructured.Unstructured{},
+	)
+	fakeClient := fake.NewClientBuilder().WithScheme(s).WithObjects(prom).Build()
+	reconciler := &RightSizePolicyReconciler{Client: fakeClient, Scheme: s}
+
+	addr := reconciler.discoverPrometheus(context.Background())
+	assert.Equal(t, "http://prometheus-k8s.monitoring:9090", addr)
+}
+
+func TestDiscoverPrometheus_OperatorCRD_CustomPort(t *testing.T) {
+	prom := &unstructured.Unstructured{}
+	prom.SetGroupVersionKind(schema.GroupVersionKind{
+		Group: "monitoring.coreos.com", Version: "v1", Kind: "Prometheus",
+	})
+	prom.SetName("k8s")
+	prom.SetNamespace("monitoring")
+	require.NoError(t, unstructured.SetNestedField(prom.Object, int64(8080), "spec", "port"))
+
+	s := testScheme()
+	s.AddKnownTypeWithName(
+		schema.GroupVersionKind{Group: "monitoring.coreos.com", Version: "v1", Kind: "PrometheusList"},
+		&unstructured.UnstructuredList{},
+	)
+	s.AddKnownTypeWithName(
+		schema.GroupVersionKind{Group: "monitoring.coreos.com", Version: "v1", Kind: "Prometheus"},
+		&unstructured.Unstructured{},
+	)
+	fakeClient := fake.NewClientBuilder().WithScheme(s).WithObjects(prom).Build()
+	reconciler := &RightSizePolicyReconciler{Client: fakeClient, Scheme: s}
+
+	addr := reconciler.discoverPrometheus(context.Background())
+	assert.Equal(t, "http://prometheus-k8s.monitoring:8080", addr)
 }
 
 func TestResolvePrometheusAddress_FallsBackToAutoDiscovery(t *testing.T) {
