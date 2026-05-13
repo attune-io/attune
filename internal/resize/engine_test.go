@@ -484,3 +484,94 @@ func TestWouldRestartContainer_ContainerNotFound(t *testing.T) {
 	}
 	assert.False(t, WouldRestartContainer(pod, "app"))
 }
+
+func TestMergeResources(t *testing.T) {
+	tests := []struct {
+		name          string
+		current       corev1.ResourceRequirements
+		target        corev1.ResourceRequirements
+		wantLimitsNil bool
+		wantCPULimit  string
+		wantMemLimit  string
+	}{
+		{
+			name: "target has limits, use target limits",
+			current: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m")},
+				Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourceMemory: resource.MustParse("1Gi")},
+			},
+			target: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("250m")},
+				Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m"), corev1.ResourceMemory: resource.MustParse("2Gi")},
+			},
+			wantCPULimit: "500m",
+			wantMemLimit: "2Gi",
+		},
+		{
+			name: "target has no limits, current has limits, preserve current",
+			current: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m")},
+				Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourceMemory: resource.MustParse("1Gi")},
+			},
+			target: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("250m")},
+			},
+			wantCPULimit: "1",
+			wantMemLimit: "1Gi",
+		},
+		{
+			name: "neither has limits",
+			current: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m")},
+			},
+			target: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("250m")},
+			},
+			wantLimitsNil: true,
+		},
+		{
+			name: "memory limit decrease clamped to current",
+			current: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("512Mi")},
+				Limits:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("1Gi")},
+			},
+			target: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("256Mi")},
+				Limits:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("512Mi")},
+			},
+			wantMemLimit: "1Gi", // clamped: 512Mi < 1Gi
+		},
+		{
+			name: "memory limit increase allowed",
+			current: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("256Mi")},
+				Limits:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("512Mi")},
+			},
+			target: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("256Mi")},
+				Limits:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("2Gi")},
+			},
+			wantMemLimit: "2Gi",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			merged := mergeResources(tt.current, tt.target)
+			assert.Equal(t, tt.target.Requests.Cpu().MilliValue(), merged.Requests.Cpu().MilliValue())
+			if tt.wantLimitsNil {
+				assert.Nil(t, merged.Limits)
+				return
+			}
+			require.NotNil(t, merged.Limits)
+			if tt.wantCPULimit != "" {
+				want := resource.MustParse(tt.wantCPULimit)
+				assert.Equal(t, want.MilliValue(), merged.Limits.Cpu().MilliValue(), "CPU limit")
+			}
+			if tt.wantMemLimit != "" {
+				want := resource.MustParse(tt.wantMemLimit)
+				assert.Equal(t, want.Value(), merged.Limits.Memory().Value(), "memory limit")
+			}
+		})
+	}
+}

@@ -3521,3 +3521,51 @@ checkReFetch:
 	}
 	assert.Equal(t, 2, resizeCalls, "should have 2 UpdateResize calls: original + revert")
 }
+
+func TestBuildResizeTarget_OmitsLimitsWhenZero(t *testing.T) {
+	rec := rightsizev1alpha1.ContainerRecommendation{
+		Name: "app",
+		Recommended: rightsizev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("100m"),
+			MemoryRequest: resource.MustParse("128Mi"),
+		},
+	}
+	target := buildResizeTarget(rec)
+	assert.Equal(t, int64(100), target.Requests.Cpu().MilliValue())
+	wantMem := resource.MustParse("128Mi")
+	assert.Equal(t, wantMem.Value(), target.Requests.Memory().Value())
+	assert.Nil(t, target.Limits, "Limits should be nil when recommendation limits are zero")
+}
+
+func TestBuildResizeTarget_IncludesLimitsWhenNonZero(t *testing.T) {
+	rec := rightsizev1alpha1.ContainerRecommendation{
+		Name: "app",
+		Recommended: rightsizev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("100m"),
+			CPULimit:      resource.MustParse("200m"),
+			MemoryRequest: resource.MustParse("128Mi"),
+			MemoryLimit:   resource.MustParse("256Mi"),
+		},
+	}
+	target := buildResizeTarget(rec)
+	require.NotNil(t, target.Limits)
+	assert.Equal(t, int64(200), target.Limits.Cpu().MilliValue())
+	wantMemLim := resource.MustParse("256Mi")
+	assert.Equal(t, wantMemLim.Value(), target.Limits.Memory().Value())
+}
+
+func TestBuildResizeTarget_PartialLimits(t *testing.T) {
+	rec := rightsizev1alpha1.ContainerRecommendation{
+		Name: "app",
+		Recommended: rightsizev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("100m"),
+			CPULimit:      resource.MustParse("200m"),
+			MemoryRequest: resource.MustParse("128Mi"),
+		},
+	}
+	target := buildResizeTarget(rec)
+	require.NotNil(t, target.Limits, "Limits should be non-nil when any limit is non-zero")
+	assert.Equal(t, int64(200), target.Limits.Cpu().MilliValue())
+	_, hasMemLimit := target.Limits[corev1.ResourceMemory]
+	assert.False(t, hasMemLimit, "Memory limit should not be set when zero in recommendation")
+}

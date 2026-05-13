@@ -147,6 +147,7 @@ func mergeResources(current, target corev1.ResourceRequirements) corev1.Resource
 	} else if len(current.Limits) > 0 {
 		merged.Limits = current.Limits.DeepCopy()
 	}
+	// CPU limits are not clamped: K8s allows in-place CPU limit decreases.
 	return merged
 }
 
