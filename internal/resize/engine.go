@@ -73,10 +73,10 @@ func (r *PodResizer) ResizePod(ctx context.Context, pod *corev1.Pod, container s
 	updated := pod.DeepCopy()
 	if isInit {
 		current = pod.Spec.InitContainers[idx].Resources
-		updated.Spec.InitContainers[idx].Resources = target
+		updated.Spec.InitContainers[idx].Resources = mergeResources(current, target)
 	} else {
 		current = pod.Spec.Containers[idx].Resources
-		updated.Spec.Containers[idx].Resources = target
+		updated.Spec.Containers[idx].Resources = mergeResources(current, target)
 	}
 
 	r.logger.V(1).Info("resizing pod", "pod", pod.Name, "namespace", pod.Namespace,
@@ -121,6 +121,33 @@ func (r *PodResizer) ResizePod(ctx context.Context, pod *corev1.Pod, container s
 		"memFrom", fromMem.String(), "memTo", toMem.String())
 
 	return results, nil
+}
+
+// mergeResources builds the final ResourceRequirements by applying target values on top
+// of the current resources. Requests are always taken from the target. Limits are taken
+// from the target only if the target specifies them; otherwise the pod's existing limits
+// are preserved. This prevents adding limits to pods that never had them.
+//
+// Memory limits are never decreased below the current value because Kubernetes
+// forbids in-place memory limit decreases (requires RestartContainer resize policy).
+func mergeResources(current, target corev1.ResourceRequirements) corev1.ResourceRequirements {
+	merged := corev1.ResourceRequirements{
+		Requests: target.Requests.DeepCopy(),
+	}
+	if len(target.Limits) > 0 {
+		merged.Limits = target.Limits.DeepCopy()
+		// Clamp memory limits: K8s forbids in-place memory limit decreases.
+		if currentMemLim, ok := current.Limits[corev1.ResourceMemory]; ok {
+			if targetMemLim, ok := merged.Limits[corev1.ResourceMemory]; ok {
+				if targetMemLim.Cmp(currentMemLim) < 0 {
+					merged.Limits[corev1.ResourceMemory] = currentMemLim.DeepCopy()
+				}
+			}
+		}
+	} else if len(current.Limits) > 0 {
+		merged.Limits = current.Limits.DeepCopy()
+	}
+	return merged
 }
 
 // findContainer searches both regular and init containers for the named container.

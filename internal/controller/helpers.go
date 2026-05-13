@@ -572,14 +572,20 @@ func (r *RightSizePolicyReconciler) updateStatusWithRetry(ctx context.Context, p
 		return err
 	}
 
-	// Conflict: re-fetch and retry.
+	// Conflict: re-fetch and retry, preserving the higher Resized count.
+	// A concurrent reconcile may have already set Resized > 0; we must not
+	// overwrite it with 0 from our stale snapshot.
 	logger := log.FromContext(ctx)
 	logger.Info("Status update conflict, retrying")
 	savedStatus := policy.Status.DeepCopy()
 	if fetchErr := r.Get(ctx, key, policy); fetchErr != nil {
 		return fetchErr
 	}
+	fetchedResized := policy.Status.Workloads.Resized
 	policy.Status = *savedStatus
+	if fetchedResized > policy.Status.Workloads.Resized {
+		policy.Status.Workloads.Resized = fetchedResized
+	}
 	return r.Status().Update(ctx, policy)
 }
 

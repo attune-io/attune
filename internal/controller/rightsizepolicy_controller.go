@@ -355,7 +355,24 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			policy.Status.Workloads.Resized = safeInt32(resizedCount)
 			policy.Status.ResizeHistory = appendHistory(policy.Status.ResizeHistory, history, 20)
 		}
-	} else if isResizeMode(mode) {
+	}
+
+	// Preserve the Resized count from a concurrent reconcile that may have
+	// already updated the status. Without this, a stale snapshot from this
+	// reconcile overwrites the count to 0. This applies both when cooldown
+	// is active and when executeResizes returns 0 (pods already at target).
+	if isResizeMode(mode) && policy.Status.Workloads.Resized == 0 {
+		var latest rightsizev1alpha1.RightSizePolicy
+		if err := r.Get(ctx, types.NamespacedName{Name: policy.Name, Namespace: policy.Namespace}, &latest); err == nil {
+			if latest.Status.Workloads.Resized > 0 {
+				policy.Status.Workloads.Resized = latest.Status.Workloads.Resized
+				if len(latest.Status.ResizeHistory) > len(policy.Status.ResizeHistory) {
+					policy.Status.ResizeHistory = latest.Status.ResizeHistory
+				}
+			}
+		}
+	}
+	if isResizeMode(mode) && cooldownActive {
 		logger.Info("Cooldown active, skipping resize")
 	}
 
@@ -1023,17 +1040,26 @@ func buildRecommendationEngines(policy *rightsizev1alpha1.RightSizePolicy) (cpuE
 }
 
 // buildResizeTarget constructs the target ResourceRequirements from a container recommendation.
+// Limits are only included when the recommendation has non-zero limits (i.e., controlledValues
+// is RequestsAndLimits and the original pod had limits set). This avoids trying to ADD limits
+// to pods that never had them, which Kubernetes rejects.
 func buildResizeTarget(rec rightsizev1alpha1.ContainerRecommendation) corev1.ResourceRequirements {
-	return corev1.ResourceRequirements{
+	target := corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
 			corev1.ResourceCPU:    rec.Recommended.CPURequest.DeepCopy(),
 			corev1.ResourceMemory: rec.Recommended.MemoryRequest.DeepCopy(),
 		},
-		Limits: corev1.ResourceList{
-			corev1.ResourceCPU:    rec.Recommended.CPULimit.DeepCopy(),
-			corev1.ResourceMemory: rec.Recommended.MemoryLimit.DeepCopy(),
-		},
 	}
+	if !rec.Recommended.CPULimit.IsZero() || !rec.Recommended.MemoryLimit.IsZero() {
+		target.Limits = corev1.ResourceList{}
+		if !rec.Recommended.CPULimit.IsZero() {
+			target.Limits[corev1.ResourceCPU] = rec.Recommended.CPULimit.DeepCopy()
+		}
+		if !rec.Recommended.MemoryLimit.IsZero() {
+			target.Limits[corev1.ResourceMemory] = rec.Recommended.MemoryLimit.DeepCopy()
+		}
+	}
+	return target
 }
 
 // shouldSkipResize runs pre-checks and returns whether to skip the resize
