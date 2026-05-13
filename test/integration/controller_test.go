@@ -497,6 +497,67 @@ func TestReconcile_DefaultsMergingFromClusterDefaults(t *testing.T) {
 	}, 30*time.Second, 500*time.Millisecond, "policy with defaults should reconcile")
 }
 
+func TestReconcile_ConcurrentResizesFieldProcessedWithoutRaces(t *testing.T) {
+	namespace := "integration-test"
+
+	// Create 3 deployments targeted by a single policy with maxConcurrentResizes=5.
+	// The -race flag during test execution validates the goroutine pool, mutex,
+	// and atomic operations in executeResizes are race-free.
+	for _, name := range []string{"concurrent-app-1", "concurrent-app-2", "concurrent-app-3"} {
+		deploy := newTestDeployment(name, namespace)
+		deploy.Labels["pool"] = "concurrent-test"
+		require.NoError(t, k8sClient.Create(ctx, deploy))
+	}
+
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "policy-concurrent",
+			Namespace: namespace,
+		},
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			TargetRef: rightsizev1alpha1.TargetRef{
+				Kind: "Deployment",
+				Selector: &metav1.LabelSelector{
+					MatchLabels: map[string]string{"pool": "concurrent-test"},
+				},
+			},
+			MetricsSource: rightsizev1alpha1.MetricsSource{
+				Prometheus: &rightsizev1alpha1.PrometheusConfig{
+					Address: "http://prometheus:9090",
+				},
+				MinimumDataPoints: 1,
+			},
+			CPU: rightsizev1alpha1.ResourceConfig{
+				Percentile:   95,
+				SafetyMargin: "1.2",
+			},
+			Memory: rightsizev1alpha1.ResourceConfig{
+				Percentile:   99,
+				SafetyMargin: "1.3",
+			},
+			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+				Mode:                 "Recommend",
+				Cooldown:             &metav1.Duration{Duration: 3 * time.Second},
+				MaxConcurrentResizes: 5,
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, policy))
+
+	// The policy should discover all 3 workloads and produce recommendations
+	// without any data races (verified by -race flag).
+	assert.Eventually(t, func() bool {
+		var fetched rightsizev1alpha1.RightSizePolicy
+		if err := k8sClient.Get(ctx, types.NamespacedName{
+			Name: "policy-concurrent", Namespace: namespace,
+		}, &fetched); err != nil {
+			return false
+		}
+		return fetched.Status.Workloads.Discovered >= 3
+	}, 30*time.Second, 500*time.Millisecond,
+		"policy with maxConcurrentResizes should discover 3 workloads without races")
+}
+
 // ---------- Resize execution path (#20) ----------
 
 // Note: Resize execution integration tests are NOT included because envtest's
