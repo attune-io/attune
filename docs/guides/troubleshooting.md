@@ -238,6 +238,48 @@ Common causes:
 - **restart**: the application crashes at the new resource level. Check application logs.
 - **notready**: readiness probe fails post-resize. Verify probe configuration.
 
+### Resizes not happening during expected window
+
+**Symptom**: Operator logs "Outside resize window, skipping resize" even
+though you expect the window to be open.
+
+**Cause**: The `schedule.timezone` does not match your local time.
+Windows are evaluated in the configured timezone (default: UTC).
+
+**Fix**: Verify your timezone is correct:
+
+```yaml
+schedule:
+  windows:
+    - start: "02:00"
+      end: "06:00"
+  timezone: "America/New_York"  # not UTC
+```
+
+Check the current time in the configured timezone:
+
+```bash
+TZ="America/New_York" date "+%H:%M %A"
+```
+
+### Budget exhausted
+
+**Symptom**: Operator logs "Budget exhausted, deferring resize to next
+cycle" and some pods are not resized.
+
+**Cause**: The total CPU or memory increase across all pods exceeds the
+configured `maxTotalCpuIncrease` or `maxTotalMemoryIncrease`.
+
+**Fix**: Either increase the budget or accept that resizes are spread
+across multiple reconcile cycles (this is the intended behavior for
+gradual rollout):
+
+```yaml
+updateStrategy:
+  maxTotalCpuIncrease: "4000m"    # 4 cores per cycle
+  maxTotalMemoryIncrease: "8Gi"   # 8 GiB per cycle
+```
+
 ## Known limitations
 
 ### Maximum Prometheus addresses
