@@ -92,6 +92,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Helm chart ClusterRole missing RBAC for `rightsizenamespacedefaults`
+  (get/list/watch), `secrets` (list/watch), and `batch` group resources
+  `cronjobs`/`jobs` (get/list/watch). These rules were present in the
+  kustomize-generated manifests but never synced to the Helm chart template.
+  Without them, controller-runtime's informer cache could not function,
+  blocking all reconciliation on Helm-deployed clusters. The `secrets` RBAC
+  marker in the controller was also updated from `get` to `get;list;watch`
+  since the informer cache requires list/watch permissions.
 - Resize engine: `buildResizeTarget` no longer includes zero-valued limits
   when `controlledValues` is `RequestsOnly`, preventing Kubernetes from
   rejecting resize operations with "limits cannot be added" errors.
