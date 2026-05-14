@@ -63,8 +63,12 @@ tidy-check: ## Verify go.mod/go.sum are tidy
 verify-doc-defaults: ## Verify critical defaults are consistent across docs and code
 	@bash hack/verify-doc-defaults.sh
 
+.PHONY: verify-helm-rbac
+verify-helm-rbac: ## Verify Helm chart ClusterRole matches kustomize RBAC
+	@bash hack/verify-helm-rbac.sh
+
 .PHONY: verify-quick
-verify-quick: lint yaml-lint test helm-lint helm-docs-check helm-unittest verify-boilerplate tidy-check verify-doc-defaults ## Fast pre-commit checks (no integration tests or govulncheck)
+verify-quick: lint yaml-lint test helm-lint helm-docs-check helm-unittest verify-boilerplate tidy-check verify-doc-defaults verify-helm-rbac ## Fast pre-commit checks (no integration tests or govulncheck)
 
 .PHONY: verify
 verify: verify-quick test-integration govulncheck ## Run all CI checks locally (includes integration tests)
@@ -75,6 +79,10 @@ verify: verify-quick test-integration govulncheck ## Run all CI checks locally (
 .PHONY: clean
 clean: ## Remove build artifacts
 	rm -rf bin/ dist/ coverage.out
+
+.PHONY: docs-build
+docs-build: ## Build documentation site (requires pip install mkdocs-material)
+	mkdocs build --strict
 
 .PHONY: docs-serve
 docs-serve: ## Serve documentation site locally (requires pip install mkdocs-material)
