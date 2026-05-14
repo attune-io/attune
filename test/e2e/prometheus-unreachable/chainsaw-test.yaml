@@ -74,7 +74,7 @@ spec:
                 conditions:
                   - type: Ready
                     status: "False"
-                    reason: InsufficientData
+                    reason: PrometheusUnavailable
                 workloads:
                   discovered: 1
                   resized: 0
