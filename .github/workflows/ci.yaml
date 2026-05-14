@@ -60,6 +60,9 @@ jobs:
             yaml:
               - 'config/**'
               - '.github/workflows/**'
+              - 'charts/kube-rightsize/Chart.yaml'
+              - 'charts/kube-rightsize/values.yaml'
+              - 'charts/kube-rightsize/ci/**'
             docs:
               - 'README.md'
               - 'CONTRIBUTING.md'
