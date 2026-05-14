@@ -41,6 +41,7 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Why kube-rightsize?: why-kube-rightsize.md
+  - Specification: SPEC.md
   - Savings Calculator: savings-calculator.md
   - Getting Started:
       - Core Concepts: getting-started/concepts.md

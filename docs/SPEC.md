@@ -7,24 +7,25 @@
 
 ## Table of Contents
 
-1. [Vision & Goals](#1-vision--goals)
-2. [Technology Decisions](#2-technology-decisions)
-3. [CRD Design](#3-crd-design)
-4. [Architecture](#4-architecture)
-5. [Algorithm Design](#5-algorithm-design)
-6. [Resize Engine](#6-resize-engine)
-7. [Safety System](#7-safety-system)
-8. [Metrics & Observability](#8-metrics--observability)
-9. [Testing Strategy](#9-testing-strategy)
-10. [CI/CD Pipeline](#10-cicd-pipeline)
-11. [Distribution](#11-distribution)
-12. [Documentation](#12-documentation)
-13. [Project Structure](#13-project-structure)
-14. [Roadmap](#14-roadmap)
-15. [Competitor Lessons](#15-competitor-lessons)
+1. [Vision & Goals](#vision--goals)
+2. [Technology Decisions](#technology-decisions)
+3. [CRD Design](#crd-design)
+4. [Architecture](#architecture)
+5. [Algorithm Design](#algorithm-design)
+6. [Resize Engine](#resize-engine)
+7. [Safety System](#safety-system)
+8. [Metrics & Observability](#metrics--observability)
+9. [Testing Strategy](#testing-strategy)
+10. [CI/CD Pipeline](#cicd-pipeline)
+11. [Distribution](#distribution)
+12. [Documentation](#documentation)
+13. [Project Structure](#project-structure)
+14. [Roadmap](#roadmap)
+15. [Competitor Lessons](#competitor-lessons)
 
 ---
 
+<a id="vision--goals"></a>
 ## 1. Vision & Goals
 
 ### Problem
@@ -60,6 +61,7 @@ in-place resize. It exists to make VPA obsolete by delivering:
 
 ---
 
+<a id="technology-decisions"></a>
 ## 2. Technology Decisions
 
 ### 2.1 Language: Go 1.26
@@ -136,6 +138,7 @@ helm-docs                               latest
 
 ---
 
+<a id="crd-design"></a>
 ## 3. CRD Design
 
 ### 3.1 API Group and Version
@@ -374,6 +377,7 @@ Status conditions use `meta.SetStatusCondition()` from `k8s.io/apimachinery/pkg/
 
 ---
 
+<a id="architecture"></a>
 ## 4. Architecture
 
 ### 4.1 High-Level Components
@@ -489,6 +493,7 @@ A single controller reconciles `RightSizePolicy` resources. The reconcile functi
 
 ---
 
+<a id="algorithm-design"></a>
 ## 5. Algorithm Design
 
 ### 5.1 Composable Estimator Chain
@@ -613,6 +618,7 @@ To prevent conflicts:
 
 ---
 
+<a id="resize-engine"></a>
 ## 6. Resize Engine
 
 ### 6.1 Resize Flow
@@ -721,6 +727,7 @@ func (r *ResizeEngine) WaitForResize(ctx context.Context, ns, podName,
 
 ---
 
+<a id="safety-system"></a>
 ## 7. Safety System
 
 ### 7.1 Graduated Rollout Modes
@@ -760,6 +767,7 @@ Before any resize:
 
 ---
 
+<a id="metrics--observability"></a>
 ## 8. Metrics & Observability
 
 ### 8.1 Prometheus Metrics Exposed
@@ -810,6 +818,7 @@ Ship a pre-built Grafana dashboard JSON covering:
 
 ---
 
+<a id="testing-strategy"></a>
 ## 9. Testing Strategy
 
 ### 9.1 Test Pyramid
@@ -969,6 +978,7 @@ Validate compatibility with Kubernetes API conventions:
 
 ---
 
+<a id="cicd-pipeline"></a>
 ## 10. CI/CD Pipeline
 
 ### 10.1 GitHub Actions Workflows
@@ -1115,6 +1125,7 @@ main branch:
 
 ---
 
+<a id="distribution"></a>
 ## 11. Distribution
 
 ### 11.1 Helm Chart
@@ -1182,6 +1193,7 @@ kubectl apply -f https://github.com/SebTardifLabs/kube-rightsize/releases/latest
 
 ---
 
+<a id="documentation"></a>
 ## 12. Documentation
 
 ### 12.1 Documentation Site
@@ -1249,6 +1261,7 @@ and prioritize features.
 
 ---
 
+<a id="project-structure"></a>
 ## 13. Project Structure
 
 ```
@@ -1363,6 +1376,7 @@ kube-rightsize/
 
 ---
 
+<a id="roadmap"></a>
 ## 14. Roadmap
 
 ### Phase 1: Foundation (MVP)
@@ -1426,6 +1440,7 @@ kube-rightsize/
 
 ---
 
+<a id="competitor-lessons"></a>
 ## 15. Competitor Lessons
 
 ### Patterns Adopted

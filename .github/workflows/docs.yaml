@@ -29,7 +29,7 @@ jobs:
         run: pip install --user --break-system-packages mkdocs-material
 
       - name: Build site
-        run: mkdocs build --strict
+        run: make docs-build
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
