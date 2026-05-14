@@ -341,6 +341,7 @@ func TestPrintStatus(t *testing.T) {
 			"status": map[string]interface{}{
 				"workloads": map[string]interface{}{
 					"discovered": int64(3),
+					"pending":    int64(1),
 					"resized":    int64(2),
 				},
 				"conditions": []interface{}{
@@ -377,6 +378,8 @@ func TestPrintStatus(t *testing.T) {
 	assert.Contains(t, output, "Auto")
 	assert.Contains(t, output, "Monitoring")
 	assert.Contains(t, output, "production")
+	assert.Contains(t, output, "PENDING")
+	assert.Contains(t, output, "3           1         2")
 }
 
 func TestPrintStatus_NoPolicies(t *testing.T) {

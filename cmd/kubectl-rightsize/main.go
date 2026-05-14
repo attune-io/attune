@@ -165,13 +165,14 @@ func printStatus(ctx context.Context, dynClient dynamic.Interface, namespace str
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 3, ' ', 0)
-	fmt.Fprintln(w, "NAMESPACE\tNAME\tMODE\tWORKLOADS\tRESIZED\tREADY\tRESIZING\tDEGRADED\tAGE")
+	fmt.Fprintln(w, "NAMESPACE\tNAME\tMODE\tWORKLOADS\tPENDING\tRESIZED\tREADY\tRESIZING\tDEGRADED\tAGE")
 
 	for _, item := range list.Items {
 		ns := item.GetNamespace()
 		name := item.GetName()
 		mode := getNestedString(item, "spec", "updateStrategy", "mode")
 		workloads := getNestedInt64(item, "status", "workloads", "discovered")
+		pending := getNestedInt64(item, "status", "workloads", "pending")
 		resized := getNestedInt64(item, "status", "workloads", "resized")
 		ready := getConditionReason(item, "Ready")
 		resizing := getConditionReason(item, "Resizing")
@@ -185,8 +186,8 @@ func printStatus(ctx context.Context, dynClient dynamic.Interface, namespace str
 			}
 		}
 
-		fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%d\t%s\t%s\t%s\t%s\n",
-			ns, name, mode, workloads, resized, ready, resizing, degraded, age)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s\t%s\n",
+			ns, name, mode, workloads, pending, resized, ready, resizing, degraded, age)
 	}
 
 	if err := w.Flush(); err != nil {

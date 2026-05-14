@@ -160,8 +160,8 @@ kubectl rightsize status -A
 Example output:
 
 ```
-NAMESPACE    NAME           MODE      WORKLOADS   RESIZED   READY   RESIZING   DEGRADED   AGE
-production   api-services   Canary    3           1         True    -          -          2d
+NAMESPACE    NAME           MODE      WORKLOADS   PENDING   RESIZED   READY   RESIZING   DEGRADED   AGE
+production   api-services   Canary    3           2         1         True    -          -          2d
 
 NAMESPACE    POLICY         WORKLOAD     CONTAINER   CPU REQ   CPU REC   MEM REQ   MEM REC   CONFIDENCE
 production   api-services   api-server   app         500m      320m      512Mi     384Mi     92.0%
