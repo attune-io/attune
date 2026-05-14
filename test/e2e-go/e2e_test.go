@@ -89,6 +89,7 @@ func TestMain(m *testing.M) {
 // ---------- Helpers ----------
 
 func int32Ptr(i int32) *int32 { return &i }
+func boolPtr(b bool) *bool    { return &b }
 
 func uniqueNS(base string) string {
 	return fmt.Sprintf("e2e-go-%s-%d", base, time.Now().UnixNano()%100000)
@@ -171,7 +172,7 @@ func createPolicy(t *testing.T, name, namespace, deployName, mode string) *right
 			Memory: rightsizev1alpha1.ResourceConfig{
 				Percentile:   99,
 				SafetyMargin: "1.3",
-				AllowDecrease: func() *bool { b := true; return &b }(),
+				AllowDecrease: boolPtr(true),
 				Bounds: &rightsizev1alpha1.ResourceBounds{
 					Min: resource.MustParse("64Mi"),
 					Max: resource.MustParse("8Gi"),
@@ -416,7 +417,7 @@ func TestE2E_MultiContainer_ExcludesSidecar(t *testing.T) {
 			},
 			Memory: rightsizev1alpha1.ResourceConfig{
 				Percentile: 99, SafetyMargin: "1.3",
-				AllowDecrease: func() *bool { b := true; return &b }(),
+				AllowDecrease: boolPtr(true),
 				Bounds:        &rightsizev1alpha1.ResourceBounds{Min: resource.MustParse("64Mi"), Max: resource.MustParse("8Gi")},
 			},
 			ExcludeContainers: []string{"istio-proxy"},
@@ -712,7 +713,7 @@ func TestE2E_EvictionFallback_ResizesWithInPlaceOrEvict(t *testing.T) {
 			},
 			Memory: rightsizev1alpha1.ResourceConfig{
 				Percentile: 99, SafetyMargin: "1.3",
-				AllowDecrease: func() *bool { b := true; return &b }(),
+				AllowDecrease: boolPtr(true),
 				Bounds: &rightsizev1alpha1.ResourceBounds{
 					Min: resource.MustParse("64Mi"),
 					Max: resource.MustParse("8Gi"),
