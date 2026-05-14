@@ -44,7 +44,7 @@ resource requests and limits using [In-Place Pod Resize](https://kubernetes.io/b
 
 - Kubernetes 1.33+ (In-Place Pod Resize GA)
 - Prometheus (for usage metrics)
-- Helm 3.16+
+- Helm 3.16+ or 4.x
 - [cert-manager](https://cert-manager.io/docs/installation/) (for admission webhook TLS; to skip, install with `--set webhooks.enabled=false`)
 
 ### Install

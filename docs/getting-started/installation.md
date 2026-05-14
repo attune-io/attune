@@ -5,7 +5,7 @@
 | Requirement | Minimum Version |
 |-------------|-----------------|
 | Kubernetes  | 1.33+           |
-| Helm        | 3.16+           |
+| Helm        | 3.16+ or 4.x    |
 | Prometheus  | 2.x (with `container_cpu_usage_seconds_total` and `container_memory_working_set_bytes`) |
 | cert-manager | 1.12+ (for webhook TLS; optional if installing with `--set webhooks.enabled=false`) |
 
