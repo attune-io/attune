@@ -152,7 +152,7 @@ test-integration: manifests generate setup-envtest gotestsum ## Run integration 
 		-- -race -count=1 -timeout=15m -tags=integration
 
 .PHONY: test-e2e
-test-e2e: chainsaw ## Run Chainsaw E2E tests (requires Kind cluster)
+test-e2e: chainsaw ## Run Chainsaw E2E tests (requires a local k3d or Kind cluster)
 	$(CHAINSAW) test test/e2e/ --config .chainsaw.yaml
 
 .PHONY: test-e2e-go

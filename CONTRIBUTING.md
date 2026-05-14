@@ -70,6 +70,9 @@ make test-all
 make test-local
 ```
 
+`make test-e2e` works with either a k3d or Kind cluster, as long as the
+operator is already deployed.
+
 **Important:** `make k3d-deploy` and `make kind-deploy` mutate
 `config/manager/kustomization.yaml`. Before committing, always restore it:
 ```bash
