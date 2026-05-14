@@ -509,15 +509,8 @@ jobs:
           fi
 
       - name: Verify Helm RBAC matches kustomize
-        shell: bash {0}
-        run: |
-          set -x
-          bash hack/verify-helm-rbac.sh
-          result=$?
-          if [ $result -ne 0 ]; then
-            echo "::error::verify-helm-rbac.sh exited with $result"
-            exit $result
-          fi
+        shell: bash -Eeuo pipefail {0}
+        run: bash hack/verify-helm-rbac.sh 2>&1
 
   build:
     name: Build

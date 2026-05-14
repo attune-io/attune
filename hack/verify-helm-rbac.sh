@@ -6,7 +6,7 @@
 # config/rbac/role.yaml. Catches RBAC desync when kubebuilder markers are
 # updated but the Helm template is not.
 
-set -euo pipefail
+set -euxo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
