@@ -102,11 +102,13 @@ kubectl rightsize version
 
 ## Structured output
 
-All commands support `-o json` and `-o yaml`:
+`--output` / `-o` prints the raw `RightSizePolicy` objects returned by the
+cluster as JSON or YAML. The selected command still controls namespace
+resolution, but structured output is not command-specific.
 
 ```bash
 kubectl rightsize status -o json
-kubectl rightsize recommendations -o yaml
+kubectl rightsize status -A -o yaml
 ```
 
 ## Flags
