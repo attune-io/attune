@@ -206,15 +206,17 @@ func (r *RightSizePolicyReconciler) getCachedBearerToken(config *rightsizev1alph
 	// Build a partial cache key using address only to find any existing entry.
 	// We can't use the full cache key because it includes "|bearer" which
 	// we're trying to determine.
+	prefix := config.Address + "|"
 	var token string
 	r.collectors.Range(func(key, value any) bool {
 		k := key.(string)
-		if len(k) >= len(config.Address) && k[:len(config.Address)] == config.Address {
-			entry := value.(*collectorEntry)
-			if entry.bearerToken != "" {
-				token = entry.bearerToken
-				return false // stop iteration
-			}
+		if !strings.HasPrefix(k, prefix) {
+			return true
+		}
+		entry := value.(*collectorEntry)
+		if entry.bearerToken != "" {
+			token = entry.bearerToken
+			return false // stop iteration
 		}
 		return true
 	})

@@ -1324,6 +1324,16 @@ func TestGetCachedBearerToken_MultipleEntries(t *testing.T) {
 	assert.Equal(t, "correct-token", r.getCachedBearerToken(config))
 }
 
+func TestGetCachedBearerToken_DoesNotMatchAddressPrefix(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	r.collectors.Store("http://prom:90901|bearer", &collectorEntry{
+		bearerToken: "wrong-token",
+		lastUsed:    time.Now(),
+	})
+	config := &rightsizev1alpha1.PrometheusConfig{Address: "http://prom:9090"}
+	assert.Empty(t, r.getCachedBearerToken(config))
+}
+
 // ---------- readSecretKey ----------
 
 func TestReadSecretKey_Success(t *testing.T) {
