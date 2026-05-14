@@ -353,7 +353,6 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	var recommendations []rightsizev1alpha1.WorkloadRecommendation
 	var workloadsWithRecs int32
 	var globalMaxDataPoints int
-	podsByWorkload := make(map[string][]corev1.Pod)
 	var totalQueryErrors int
 	conflictDetector := conflict.NewDetector(logger)
 
@@ -409,22 +408,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			continue
 		}
 
-		// Step 4: Get pods for the workload.
-		pods, err := r.getPodsForWorkload(ctx, workload)
-		if err != nil {
-			logger.Error(err, "Failed to get pods for workload", "workload", workloadName)
-			operatormetrics.ReconcileErrorsTotal.WithLabelValues("get_pods").Inc()
-			continue
-		}
-
-		if len(pods) == 0 {
-			logger.Info("No pods found for workload", "workload", workloadName)
-			continue
-		}
-
-		podsByWorkload[workloadName] = pods
-
-		// Step 7: Compute recommendations for each container.
+		// Step 4: Compute recommendations from historical metrics.
 		rec, qErrors, dataPoints, err := r.computeRecommendations(ctx, &policy, workload, collector)
 		totalQueryErrors += qErrors
 		if dataPoints > globalMaxDataPoints {
@@ -466,7 +450,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	cooldownActive := r.isCooldownActive(&policy)
 	withinWindow := isWithinResizeWindow(policy.Spec.UpdateStrategy.Schedule, r.now())
 	if isResizeMode(mode) && !cooldownActive && withinWindow {
-		resizedCount, history := r.executeResizes(ctx, &policy, workloads, recommendations, podsByWorkload, collector)
+		resizedCount, history := r.executeResizes(ctx, &policy, workloads, recommendations, nil, collector)
 		if resizedCount > 0 {
 			policy.Status.Workloads.Resized = safeInt32(resizedCount)
 			policy.Status.ResizeHistory = appendHistory(policy.Status.ResizeHistory, history, 20)
@@ -928,8 +912,20 @@ func (r *RightSizePolicyReconciler) executeResizes(
 			continue
 		}
 
-		// Use pre-fetched pods (avoids duplicate API call per workload).
 		pods := podsByWorkload[rec.Workload]
+		if pods == nil {
+			var err error
+			pods, err = r.getPodsForWorkload(ctx, matchedWorkload)
+			if err != nil {
+				logger.Error(err, "Failed to get pods for workload", "workload", rec.Workload)
+				operatormetrics.ReconcileErrorsTotal.WithLabelValues("get_pods").Inc()
+				continue
+			}
+		}
+		if len(pods) == 0 {
+			logger.Info("No pods found for workload", "workload", rec.Workload)
+			continue
+		}
 		selectedPods := selectPodsForResize(pods, mode, canaryPct)
 		if len(selectedPods) == 0 {
 			continue
