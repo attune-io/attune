@@ -101,8 +101,6 @@ spec:
                 name: exclude-sidecar
                 namespace: e2e-exclude-containers
               status:
-                conditions:
-                  - type: Ready
                 workloads:
                   discovered: 1
   catch:

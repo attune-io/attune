@@ -22,11 +22,12 @@ rules:
     verbs:
       - get
       - update
-  # RightSizeDefaults: read-only
+  # RightSizeDefaults: read-only (cluster and namespace scoped)
   - apiGroups:
       - rightsize.io
     resources:
       - rightsizedefaults
+      - rightsizenamespacedefaults
     verbs:
       - get
       - list
@@ -38,6 +39,16 @@ rules:
       - deployments
       - statefulsets
       - daemonsets
+    verbs:
+      - get
+      - list
+      - watch
+  # Batch workloads: read-only (Job/CronJob recommend-only support)
+  - apiGroups:
+      - batch
+    resources:
+      - cronjobs
+      - jobs
     verbs:
       - get
       - list
@@ -119,6 +130,15 @@ rules:
       - services
     verbs:
       - get
+  # Secrets: read-only (bearer token for Prometheus auth)
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+      - list
+      - watch
   # ResourceQuotas and LimitRanges: read-only (pre-resize compatibility checks)
   - apiGroups:
       - ""

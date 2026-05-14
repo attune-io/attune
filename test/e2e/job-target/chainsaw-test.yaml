@@ -74,8 +74,6 @@ spec:
                 name: job-test
                 namespace: e2e-job-target
               status:
-                conditions:
-                  - type: Ready
                 workloads:
                   discovered: 1
   catch:

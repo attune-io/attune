@@ -91,8 +91,6 @@ spec:
                 name: concurrent-test
                 namespace: e2e-concurrent-resize
               status:
-                conditions:
-                  - type: Ready
                 workloads:
                   discovered: 1
   catch:

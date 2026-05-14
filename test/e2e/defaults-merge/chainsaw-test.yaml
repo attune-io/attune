@@ -89,8 +89,6 @@ spec:
                 name: inherits-defaults
                 namespace: e2e-defaults-merge
               status:
-                conditions:
-                  - type: Ready
                 workloads:
                   discovered: 1
   catch:

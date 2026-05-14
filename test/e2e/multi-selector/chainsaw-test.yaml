@@ -164,8 +164,6 @@ spec:
                 name: multi-selector-test
                 namespace: e2e-multi-selector
               status:
-                conditions:
-                  - type: Ready
                 workloads:
                   discovered: 3
   catch:

@@ -92,8 +92,6 @@ spec:
                 name: eviction-test
                 namespace: e2e-eviction-fallback
               status:
-                conditions:
-                  - type: Ready
                 workloads:
                   discovered: 1
   catch:

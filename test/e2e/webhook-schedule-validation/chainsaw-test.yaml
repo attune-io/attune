@@ -43,7 +43,7 @@ spec:
                 updateStrategy:
                   mode: Auto
                   schedule:
-                    timezone: "US/Eastern"
+                    timezone: "Mars/Phobos"
     - name: reject-invalid-day-of-week
       try:
         - apply:

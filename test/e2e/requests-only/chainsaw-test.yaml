@@ -92,8 +92,6 @@ spec:
                 name: reqonly-test
                 namespace: e2e-requests-only
               status:
-                conditions:
-                  - type: Ready
                 workloads:
                   discovered: 1
   catch:

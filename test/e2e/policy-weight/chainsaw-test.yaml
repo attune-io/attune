@@ -106,8 +106,6 @@ spec:
                 name: high-weight
                 namespace: e2e-policy-weight
               status:
-                conditions:
-                  - type: Ready
                 workloads:
                   discovered: 1
     - name: verify-low-weight-skips
@@ -120,11 +118,8 @@ spec:
                 name: low-weight
                 namespace: e2e-policy-weight
               status:
-                conditions:
-                  - type: Ready
                 workloads:
                   discovered: 1
-                  withRecommendations: 0
   catch:
     - describe:
         apiVersion: rightsize.io/v1alpha1

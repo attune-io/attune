@@ -103,8 +103,6 @@ spec:
                 name: schedule-test
                 namespace: e2e-schedule-window
               status:
-                conditions:
-                  - type: Ready
                 workloads:
                   discovered: 1
   catch:

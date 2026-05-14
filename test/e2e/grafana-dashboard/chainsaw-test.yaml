@@ -13,8 +13,10 @@ spec:
       try:
         - script:
             content: |
-              output=$(helm template kube-rightsize ./charts/kube-rightsize \
-                --set grafanaDashboard.enabled=true 2>&1)
+              REPO_ROOT=$(git rev-parse --show-toplevel)
+              output=$(helm template kube-rightsize "$REPO_ROOT/charts/kube-rightsize" \
+                --set grafanaDashboard.enabled=true \
+                --set webhooks.enabled=false 2>&1)
               if ! echo "$output" | grep -q 'grafana_dashboard: "1"'; then
                 echo "ERROR: dashboard ConfigMap missing grafana_dashboard label"
                 echo "$output"
@@ -29,7 +31,9 @@ spec:
       try:
         - script:
             content: |
-              output=$(helm template kube-rightsize ./charts/kube-rightsize 2>&1)
+              REPO_ROOT=$(git rev-parse --show-toplevel)
+              output=$(helm template kube-rightsize "$REPO_ROOT/charts/kube-rightsize" \
+                --set webhooks.enabled=false 2>&1)
               if echo "$output" | grep -q 'grafana_dashboard'; then
                 echo "ERROR: dashboard ConfigMap should not render by default"
                 exit 1

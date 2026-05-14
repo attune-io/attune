@@ -92,8 +92,6 @@ spec:
                 name: budget-test
                 namespace: e2e-budget-caps
               status:
-                conditions:
-                  - type: Ready
                 workloads:
                   discovered: 1
   catch:

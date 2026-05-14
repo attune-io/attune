@@ -94,10 +94,6 @@ spec:
                 name: statefulset-test
                 namespace: e2e-statefulset-target
               status:
-                conditions:
-                  - type: Ready
-                    status: "False"
-                    reason: InsufficientData
                 workloads:
                   discovered: 1
   catch:

@@ -75,6 +75,50 @@ tests:
             verbs:
               - get
 
+  - it: should include namespace defaults read permissions
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - rightsize.io
+            resources:
+              - rightsizedefaults
+              - rightsizenamespacedefaults
+            verbs:
+              - get
+              - list
+              - watch
+
+  - it: should include batch workload read permissions
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - batch
+            resources:
+              - cronjobs
+              - jobs
+            verbs:
+              - get
+              - list
+              - watch
+
+  - it: should include secret read permissions for bearer token
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - ""
+            resources:
+              - secrets
+            verbs:
+              - get
+              - list
+              - watch
+
   - it: should include resourcequotas and limitranges read permissions
     asserts:
       - contains:

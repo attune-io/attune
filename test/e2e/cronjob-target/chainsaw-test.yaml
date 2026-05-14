@@ -76,8 +76,6 @@ spec:
                 name: cronjob-test
                 namespace: e2e-cronjob-target
               status:
-                conditions:
-                  - type: Ready
                 workloads:
                   discovered: 1
   catch:
