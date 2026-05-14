@@ -509,10 +509,15 @@ jobs:
           fi
 
       - name: Verify Helm RBAC matches kustomize
-        shell: bash -Eeuo pipefail {0}
+        shell: bash {0}
         run: |
-          command -v yq || go install github.com/mikefarah/yq/v4@latest
+          set -x
           bash hack/verify-helm-rbac.sh
+          result=$?
+          if [ $result -ne 0 ]; then
+            echo "::error::verify-helm-rbac.sh exited with $result"
+            exit $result
+          fi
 
   build:
     name: Build
