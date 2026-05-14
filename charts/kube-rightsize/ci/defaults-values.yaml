@@ -1,3 +1,4 @@
+---
 # CI test: defaults enabled
 defaults:
   enabled: true
