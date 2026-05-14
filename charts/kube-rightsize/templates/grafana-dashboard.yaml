@@ -1,3 +1,6 @@
+{{- /* This dashboard must cover the same kube_rightsize_* metrics as
+       deploy/grafana/dashboard.json. Run hack/verify-dashboard-metrics.sh
+       (or make verify-dashboard-metrics) to check for drift. */ -}}
 {{- if .Values.grafanaDashboard.enabled }}
 apiVersion: v1
 kind: ConfigMap
@@ -107,57 +110,81 @@ data:
         },
         {
           "type": "row",
-          "title": "Recommendations",
+          "title": "Webhook Health",
           "gridPos": { "h": 1, "w": 24, "x": 0, "y": 29 },
           "collapsed": false,
           "panels": []
         },
         {
           "type": "timeseries",
-          "title": "Recommended CPU (cores)",
+          "title": "Webhook Validation Rate",
+          "description": "Covers RightSizePolicy (validate_create, validate_update, defaulting) and RightSizeDefaults (defaults_validate_create, defaults_validate_update) webhooks.",
           "gridPos": { "h": 8, "w": 12, "x": 0, "y": 30 },
+          "targets": [{ "expr": "sum by (operation, result) (rate(kube_rightsize_webhook_validation_total[5m]))", "legendFormat": "{{`{{operation}}`}} {{`{{result}}`}}" }]
+        },
+        {
+          "type": "timeseries",
+          "title": "Webhook Duration (p99)",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 30 },
+          "targets": [
+            { "expr": "histogram_quantile(0.99, sum by (le, operation) (rate(kube_rightsize_webhook_duration_seconds_bucket[5m])))", "legendFormat": "p99 {{`{{operation}}`}}" },
+            { "expr": "histogram_quantile(0.50, sum by (le, operation) (rate(kube_rightsize_webhook_duration_seconds_bucket[5m])))", "legendFormat": "p50 {{`{{operation}}`}}" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "s" } }
+        },
+        {
+          "type": "row",
+          "title": "Recommendations",
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 39 },
+          "collapsed": false,
+          "panels": []
+        },
+        {
+          "type": "timeseries",
+          "title": "Recommended CPU (cores)",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 40 },
           "targets": [{ "expr": "kube_rightsize_recommendation_cpu_cores", "legendFormat": "{{`{{workload}}`}}/{{`{{container}}`}}" }],
           "fieldConfig": { "defaults": { "unit": "short" } }
         },
         {
           "type": "timeseries",
           "title": "Recommended Memory",
-          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 30 },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 40 },
           "targets": [{ "expr": "kube_rightsize_recommendation_memory_bytes", "legendFormat": "{{`{{workload}}`}}/{{`{{container}}`}}" }],
           "fieldConfig": { "defaults": { "unit": "bytes" } }
         },
         {
           "type": "gauge",
           "title": "Recommendation Confidence",
-          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 38 },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 48 },
           "targets": [{ "expr": "kube_rightsize_confidence", "legendFormat": "{{`{{workload}}`}}/{{`{{container}}`}}" }],
           "fieldConfig": { "defaults": { "min": 0, "max": 1, "thresholds": { "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 0.5 }, { "color": "green", "value": 0.8 }] } } }
         },
         {
           "type": "row",
           "title": "Operator Health",
-          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 46 },
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 56 },
           "collapsed": false,
           "panels": []
         },
         {
           "type": "timeseries",
           "title": "Reconcile Duration",
-          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 47 },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 57 },
           "targets": [{ "expr": "histogram_quantile(0.99, rate(kube_rightsize_reconcile_duration_seconds_bucket[5m]))" }],
           "fieldConfig": { "defaults": { "unit": "s" } }
         },
         {
           "type": "timeseries",
           "title": "Prometheus Query Duration",
-          "gridPos": { "h": 8, "w": 6, "x": 12, "y": 47 },
+          "gridPos": { "h": 8, "w": 6, "x": 12, "y": 57 },
           "targets": [{ "expr": "histogram_quantile(0.99, sum by (le, query_type) (rate(kube_rightsize_prometheus_query_duration_seconds_bucket[5m])))" }],
           "fieldConfig": { "defaults": { "unit": "s" } }
         },
         {
           "type": "stat",
           "title": "Query Errors",
-          "gridPos": { "h": 8, "w": 6, "x": 18, "y": 47 },
+          "gridPos": { "h": 8, "w": 6, "x": 18, "y": 57 },
           "targets": [{ "expr": "sum(rate(kube_rightsize_prometheus_query_errors_total[5m]))" }],
           "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 0.01 }] } } }
         }

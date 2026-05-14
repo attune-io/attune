@@ -107,6 +107,10 @@ jobs:
         shell: bash -Eeuo pipefail {0}
         run: bash hack/verify-doc-defaults.sh
 
+      - name: Verify dashboard metrics sync
+        shell: bash -Eeuo pipefail {0}
+        run: bash hack/verify-dashboard-metrics.sh
+
   yaml-lint:
     name: YAML Lint
     runs-on: self-hosted

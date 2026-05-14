@@ -67,8 +67,12 @@ verify-doc-defaults: ## Verify critical defaults are consistent across docs and 
 verify-helm-rbac: ## Verify Helm chart ClusterRole matches kustomize RBAC
 	@bash hack/verify-helm-rbac.sh
 
+.PHONY: verify-dashboard-metrics
+verify-dashboard-metrics: ## Verify standalone and Helm dashboards cover the same metrics
+	@bash hack/verify-dashboard-metrics.sh
+
 .PHONY: verify-quick
-verify-quick: lint yaml-lint test helm-lint helm-docs-check helm-unittest verify-boilerplate tidy-check verify-doc-defaults verify-helm-rbac ## Fast pre-commit checks (no integration tests or govulncheck)
+verify-quick: lint yaml-lint test helm-lint helm-docs-check helm-unittest verify-boilerplate tidy-check verify-doc-defaults verify-helm-rbac verify-dashboard-metrics ## Fast pre-commit checks (no integration tests or govulncheck)
 
 .PHONY: verify
 verify: verify-quick test-integration govulncheck ## Run all CI checks locally (includes integration tests)

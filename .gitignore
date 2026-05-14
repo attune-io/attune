@@ -2,6 +2,7 @@
 bin/
 dist/
 /manager
+/kubectl-rightsize
 
 # Go
 vendor/
