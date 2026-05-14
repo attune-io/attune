@@ -129,11 +129,10 @@ func (r *RightSizePolicyReconciler) now() time.Time {
 }
 
 // collectorEntry wraps a MetricsCollector with a last-used timestamp
-// for TTL-based eviction and cached bearer token.
+// for TTL-based eviction.
 type collectorEntry struct {
-	collector   rsmetrics.MetricsCollector
-	lastUsed    time.Time
-	bearerToken string // cached token from Secret (avoids re-read per reconcile)
+	collector rsmetrics.MetricsCollector
+	lastUsed  time.Time
 }
 
 // MetricsCollectorFactory creates MetricsCollector instances from a Prometheus address
@@ -159,9 +158,7 @@ func (r *RightSizePolicyReconciler) getOrCreateCollector(config *rightsizev1alph
 
 	if cached, ok := r.collectors.Load(cacheKey); ok {
 		entry := cached.(*collectorEntry)
-		r.collectors.Store(cacheKey, &collectorEntry{
-			collector: entry.collector, lastUsed: now, bearerToken: entry.bearerToken,
-		})
+		r.collectors.Store(cacheKey, &collectorEntry{collector: entry.collector, lastUsed: now})
 		return entry.collector, nil
 	}
 
@@ -191,34 +188,9 @@ func (r *RightSizePolicyReconciler) getOrCreateCollector(config *rightsizev1alph
 	if err != nil {
 		return nil, err
 	}
-	var token string
-	if opts != nil {
-		token = opts.BearerToken
-	}
-	entry := &collectorEntry{collector: collector, lastUsed: now, bearerToken: token}
+	entry := &collectorEntry{collector: collector, lastUsed: now}
 	actual, _ := r.collectors.LoadOrStore(cacheKey, entry)
 	return actual.(*collectorEntry).collector, nil
-}
-
-// getCachedBearerToken returns the bearer token from a cached collector entry,
-// or empty string if not cached. Used to skip Secret reads when the collector
-// already has a valid token.
-func (r *RightSizePolicyReconciler) getCachedBearerToken(config *rightsizev1alpha1.PrometheusConfig, headers map[string]string, tlsConfig *rightsizev1alpha1.TLSConfig) string {
-	prefix := collectorConfigPrefix(config.Address, headers, tlsConfig) + "|bearer:"
-	var token string
-	r.collectors.Range(func(key, value any) bool {
-		k := key.(string)
-		if !strings.HasPrefix(k, prefix) {
-			return true
-		}
-		entry := value.(*collectorEntry)
-		if entry.bearerToken != "" {
-			token = entry.bearerToken
-			return false // stop iteration
-		}
-		return true
-	})
-	return token
 }
 
 func collectorConfigPrefix(address string, headers map[string]string, tlsConfig *rightsizev1alpha1.TLSConfig) string {
@@ -298,20 +270,15 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			collectorOpts.InsecureSkipVerify = promConfig.TLS.InsecureSkipVerify
 		}
 		if promConfig.BearerTokenSecret != nil {
-			// Use cached token if available to avoid a Secret read per reconcile.
-			if cached := r.getCachedBearerToken(promConfig, promConfig.Headers, promConfig.TLS); cached != "" {
-				collectorOpts.BearerToken = cached
-			} else {
-				token, secretErr := r.readSecretKey(ctx, policy.Namespace,
-					promConfig.BearerTokenSecret.Name, promConfig.BearerTokenSecret.Key)
-				if secretErr != nil {
-					logger.Error(secretErr, "Failed to read bearer token secret")
-					r.setFailedCondition(ctx, &policy, rightsizev1alpha1.ReasonPrometheusUnavailable,
-						fmt.Sprintf("Cannot read bearer token secret: %v", secretErr))
-					return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
-				}
-				collectorOpts.BearerToken = token
+			token, secretErr := r.readSecretKey(ctx, policy.Namespace,
+				promConfig.BearerTokenSecret.Name, promConfig.BearerTokenSecret.Key)
+			if secretErr != nil {
+				logger.Error(secretErr, "Failed to read bearer token secret")
+				r.setFailedCondition(ctx, &policy, rightsizev1alpha1.ReasonPrometheusUnavailable,
+					fmt.Sprintf("Cannot read bearer token secret: %v", secretErr))
+				return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 			}
+			collectorOpts.BearerToken = token
 		}
 	}
 

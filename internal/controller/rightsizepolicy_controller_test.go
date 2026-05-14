@@ -1291,68 +1291,6 @@ func TestCollectorCacheKey_DifferentBearerTokensDifferentKeys(t *testing.T) {
 	assert.NotEqual(t, key1, key2)
 }
 
-// ---------- getCachedBearerToken ----------
-
-func TestGetCachedBearerToken_NoCachedEntry(t *testing.T) {
-	r := &RightSizePolicyReconciler{}
-	config := &rightsizev1alpha1.PrometheusConfig{Address: "http://prom:9090"}
-	assert.Empty(t, r.getCachedBearerToken(config, nil, nil))
-}
-
-func TestGetCachedBearerToken_CachedWithToken(t *testing.T) {
-	r := &RightSizePolicyReconciler{}
-	r.collectors.Store("http://prom:9090|bearer:12345678", &collectorEntry{
-		bearerToken: "cached-token-123",
-		lastUsed:    time.Now(),
-	})
-	config := &rightsizev1alpha1.PrometheusConfig{Address: "http://prom:9090"}
-	assert.Equal(t, "cached-token-123", r.getCachedBearerToken(config, nil, nil))
-}
-
-func TestGetCachedBearerToken_CachedWithoutToken(t *testing.T) {
-	r := &RightSizePolicyReconciler{}
-	r.collectors.Store("http://prom:9090", &collectorEntry{
-		lastUsed: time.Now(),
-	})
-	config := &rightsizev1alpha1.PrometheusConfig{Address: "http://prom:9090"}
-	assert.Empty(t, r.getCachedBearerToken(config, nil, nil))
-}
-
-func TestGetCachedBearerToken_MultipleEntries(t *testing.T) {
-	r := &RightSizePolicyReconciler{}
-	r.collectors.Store("http://other:9090|bearer:aaaaaaaa", &collectorEntry{
-		bearerToken: "other-token",
-		lastUsed:    time.Now(),
-	})
-	r.collectors.Store("http://prom:9090|bearer:bbbbbbbb", &collectorEntry{
-		bearerToken: "correct-token",
-		lastUsed:    time.Now(),
-	})
-	config := &rightsizev1alpha1.PrometheusConfig{Address: "http://prom:9090"}
-	assert.Equal(t, "correct-token", r.getCachedBearerToken(config, nil, nil))
-}
-
-func TestGetCachedBearerToken_DoesNotMatchAddressPrefix(t *testing.T) {
-	r := &RightSizePolicyReconciler{}
-	r.collectors.Store("http://prom:90901|bearer:12345678", &collectorEntry{
-		bearerToken: "wrong-token",
-		lastUsed:    time.Now(),
-	})
-	config := &rightsizev1alpha1.PrometheusConfig{Address: "http://prom:9090"}
-	assert.Empty(t, r.getCachedBearerToken(config, nil, nil))
-}
-
-func TestGetCachedBearerToken_DoesNotReuseTokenAcrossHeaders(t *testing.T) {
-	r := &RightSizePolicyReconciler{}
-	r.collectors.Store("http://prom:9090|h:X-Scope-OrgID=tenant-a|bearer:11111111", &collectorEntry{
-		bearerToken: "tenant-a-token",
-		lastUsed:    time.Now(),
-	})
-	config := &rightsizev1alpha1.PrometheusConfig{Address: "http://prom:9090"}
-	headers := map[string]string{"X-Scope-OrgID": "tenant-b"}
-	assert.Empty(t, r.getCachedBearerToken(config, headers, nil))
-}
-
 // ---------- readSecretKey ----------
 
 func TestReadSecretKey_Success(t *testing.T) {
@@ -1391,6 +1329,67 @@ func TestReadSecretKey_KeyNotFound(t *testing.T) {
 	_, err := r.readSecretKey(context.Background(), "default", "prom-token", "token")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "key \"token\" not found")
+}
+
+func TestReconcile_BearerTokenSecretRotationRecreatesCollector(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.MetricsSource.Prometheus.BearerTokenSecret = &rightsizev1alpha1.SecretKeyRef{
+		Name: "prom-token",
+		Key:  "token",
+	}
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "prom-token", Namespace: "default"},
+		Data:       map[string][]byte{"token": []byte("token-a")},
+	}
+
+	collector1 := &mockCollector{
+		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return generateSamples(200, 0.1), nil
+		},
+	}
+	collector2 := &mockCollector{
+		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return generateSamples(200, 0.1), nil
+		},
+	}
+	collectors := []rsmetrics.MetricsCollector{collector1, collector2}
+	var optsSeen []*rsmetrics.CollectorOptions
+
+	reconciler, fakeClient := newReconcilerForReconcile(collector1, policy, deploy, secret)
+	reconciler.MetricsFactory = func(_ string, opts *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
+		require.NotNil(t, opts)
+		copyOpts := &rsmetrics.CollectorOptions{
+			BearerToken:        opts.BearerToken,
+			InsecureSkipVerify: opts.InsecureSkipVerify,
+		}
+		if opts.Headers != nil {
+			copyOpts.Headers = make(map[string]string, len(opts.Headers))
+			for k, v := range opts.Headers {
+				copyOpts.Headers[k] = v
+			}
+		}
+		optsSeen = append(optsSeen, copyOpts)
+		idx := len(optsSeen) - 1
+		return collectors[idx], nil
+	}
+
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"}}
+	_, err := reconciler.Reconcile(context.Background(), req)
+	require.NoError(t, err)
+	require.Len(t, optsSeen, 1)
+	assert.Equal(t, "token-a", optsSeen[0].BearerToken)
+
+	var rotated corev1.Secret
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{Name: "prom-token", Namespace: "default"}, &rotated))
+	rotated.Data["token"] = []byte("token-b")
+	require.NoError(t, fakeClient.Update(context.Background(), &rotated))
+
+	_, err = reconciler.Reconcile(context.Background(), req)
+	require.NoError(t, err)
+	require.Len(t, optsSeen, 2)
+	assert.Equal(t, "token-b", optsSeen[1].BearerToken)
+	assert.NotSame(t, collector1, collector2)
 }
 
 // ---------- updateStatusWithRetry ----------
