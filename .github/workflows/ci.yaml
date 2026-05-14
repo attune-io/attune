@@ -38,6 +38,7 @@ jobs:
       go: ${{ steps.filter.outputs.go }}
       helm: ${{ steps.filter.outputs.helm }}
       yaml: ${{ steps.filter.outputs.yaml }}
+      docs: ${{ steps.filter.outputs.docs }}
     steps:
       - uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2
         with:
@@ -59,6 +60,15 @@ jobs:
             yaml:
               - 'config/**'
               - '.github/workflows/**'
+            docs:
+              - 'README.md'
+              - 'CONTRIBUTING.md'
+              - 'docs/**'
+              - 'mkdocs.yml'
+              - 'Makefile'
+              - 'hack/verify-doc-defaults.sh'
+              - 'hack/verify-doc-tool-versions.sh'
+              - 'charts/kube-rightsize/README.md.gotmpl'
 
   lint:
     name: Lint
@@ -110,6 +120,43 @@ jobs:
       - name: Verify dashboard metrics sync
         shell: bash -Eeuo pipefail {0}
         run: bash hack/verify-dashboard-metrics.sh
+
+      - name: Verify supported tool version references
+        shell: bash -Eeuo pipefail {0}
+        run: bash hack/verify-doc-tool-versions.sh
+
+  docs-check:
+    name: Docs Check
+    runs-on: self-hosted
+    timeout-minutes: 10
+    needs: changes
+    if: needs.changes.outputs.docs == 'true' || needs.changes.outputs.helm == 'true'
+    steps:
+      - uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+
+      - name: Install MkDocs
+        shell: bash -Eeuo pipefail {0}
+        run: pip install --user --break-system-packages mkdocs-material
+
+      - name: Build docs site
+        shell: bash -Eeuo pipefail {0}
+        run: make docs-build
+
+      - name: Check Helm README freshness
+        shell: bash -Eeuo pipefail {0}
+        run: make helm-docs-check
+
+      - name: Verify supported tool version references
+        shell: bash -Eeuo pipefail {0}
+        run: bash hack/verify-doc-tool-versions.sh
 
   yaml-lint:
     name: YAML Lint
