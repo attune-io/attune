@@ -75,15 +75,16 @@ NAME                              READY   STATUS    RESTARTS   AGE
 kube-rightsize-6f8b4c7d9f-xk2pq  1/1     Running   0          30s
 ```
 
-Verify that both CRDs are registered:
+Verify that the three CRDs are registered:
 
 ```bash
 kubectl get crds | grep rightsize
 ```
 
 ```text
-rightsizedefaults.rightsize.io    2026-01-15T00:00:00Z
-rightsizepolicies.rightsize.io   2026-01-15T00:00:00Z
+rightsizedefaults.rightsize.io             2026-01-15T00:00:00Z
+rightsizenamespacedefaults.rightsize.io    2026-01-15T00:00:00Z
+rightsizepolicies.rightsize.io             2026-01-15T00:00:00Z
 ```
 
 ## Next steps

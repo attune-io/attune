@@ -1,7 +1,9 @@
 # Examples
 
 Working examples for kube-rightsize, from a single policy to full production
-setups. Every file can be applied directly with `kubectl apply -f`.
+setups. Standalone `.yaml` files can be applied directly with
+`kubectl apply -f`, while directory-based scenarios include their own
+instructions and may use `kubectl apply -k`.
 
 ## Quick-start files
 
@@ -17,6 +19,17 @@ setups. Every file can be applied directly with `kubectl apply -f`.
 
 Start with `01-getting-started.yaml` to see recommendations without touching
 any pods. Promote to `02-canary-rollout.yaml` once you trust the numbers.
+
+## Advanced scenario files
+
+| File | Scenario | Mode |
+|------|----------|------|
+| [08-observe-mode.yaml](08-observe-mode.yaml) | Validate Prometheus connectivity before generating recommendations | Observe |
+| [09-oneshot-mode.yaml](09-oneshot-mode.yaml) | Resize one pod per reconcile cycle for cautious rollout | OneShot |
+| [10-cronjob-policy.yaml](10-cronjob-policy.yaml) | Recommend-only sizing for CronJobs and Jobs | Recommend |
+| [11-namespace-defaults.yaml](11-namespace-defaults.yaml) | Namespace-scoped defaults layered over cluster defaults | Mixed |
+| [12-scheduled-auto-mode.yaml](12-scheduled-auto-mode.yaml) | Auto mode limited to maintenance windows with per-cycle budgets | Auto |
+| [13-multi-datasource.yaml](13-multi-datasource.yaml) | Mimir, Thanos, bearer-token auth, and TLS examples | Recommend |
 
 ## Composite scenarios
 
@@ -34,4 +47,4 @@ All examples assume:
 
 - Kubernetes 1.33+ (in-place pod resize GA)
 - Prometheus reachable inside the cluster
-- kube-rightsize operator installed (`helm install kube-rightsize oci://ghcr.io/sebtardiflabs/charts/kube-rightsize`)
+- kube-rightsize operator installed (for example: `helm install kube-rightsize oci://ghcr.io/sebtardiflabs/charts/kube-rightsize --namespace kube-rightsize-system --create-namespace`)

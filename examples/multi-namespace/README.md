@@ -12,15 +12,12 @@ settings appropriate for its risk tolerance.
 
 ## Usage
 
+Run these commands from the repo root:
+
 ```bash
-# Deploy to dev
-kubectl apply -k overlays/dev
-
-# Deploy to staging
-kubectl apply -k overlays/staging
-
-# Deploy to production
-kubectl apply -k overlays/prod
+kubectl apply -k examples/multi-namespace/overlays/dev
+kubectl apply -k examples/multi-namespace/overlays/staging
+kubectl apply -k examples/multi-namespace/overlays/prod
 ```
 
 ## Structure
