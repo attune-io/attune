@@ -4,14 +4,34 @@ on:
   schedule:
     # Run at 3:00 AM UTC every day
     - cron: "0 3 * * *"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      k8s-version:
+        description: Kubernetes version to test
+        required: true
+        type: choice
+        default: all
+        options:
+          - all
+          - v1.33
+          - v1.34
+          - v1.35
+      suite:
+        description: Test suite to run
+        required: true
+        type: choice
+        default: all
+        options:
+          - all
+          - chainsaw
+          - go-e2e
 
 permissions:
   contents: read
   issues: write
 
 concurrency:
-  group: e2e-nightly
+  group: e2e-nightly-${{ github.ref }}-${{ github.event_name }}-${{ inputs.k8s-version || 'all' }}-${{ inputs.suite || 'all' }}
   cancel-in-progress: true
 
 env:
@@ -21,22 +41,57 @@ env:
   PROMETHEUS_IMAGE: "quay.io/prometheus/prometheus:v3.4.1"
 
 jobs:
+  prepare-matrix:
+    name: Select nightly matrix
+    runs-on: self-hosted
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      suite: ${{ steps.set-matrix.outputs.suite }}
+    steps:
+      - name: Select version and suite
+        id: set-matrix
+        shell: bash -Eeuo pipefail {0}
+        run: |
+          selected_version="${{ inputs.k8s-version || 'all' }}"
+          selected_suite="${{ inputs.suite || 'all' }}"
+
+          case "$selected_version" in
+            v1.33)
+              matrix='{"include":[{"k8s-version":"v1.33","k3s-image":"v1.33.11-k3s1"}]}'
+              ;;
+            v1.34)
+              matrix='{"include":[{"k8s-version":"v1.34","k3s-image":"v1.34.7-k3s1"}]}'
+              ;;
+            v1.35)
+              matrix='{"include":[{"k8s-version":"v1.35","k3s-image":"v1.35.4-k3s1"}]}'
+              ;;
+            all)
+              matrix='{"include":[{"k8s-version":"v1.33","k3s-image":"v1.33.11-k3s1"},{"k8s-version":"v1.34","k3s-image":"v1.34.7-k3s1"},{"k8s-version":"v1.35","k3s-image":"v1.35.4-k3s1"}]}'
+              ;;
+            *)
+              echo "Unknown k8s-version input: $selected_version" >&2
+              exit 1
+              ;;
+          esac
+
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "suite=$selected_suite" >> "$GITHUB_OUTPUT"
+
   test-e2e:
     name: E2E (K8s ${{ matrix.k8s-version }})
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    needs: prepare-matrix
     runs-on: self-hosted
     timeout-minutes: 30
+    env:
+      SELECTED_SUITE: ${{ needs.prepare-matrix.outputs.suite }}
+      CLUSTER_NAME: e2e-${{ matrix.k8s-version }}-${{ github.run_id }}-${{ github.run_attempt }}
+      KUBECONFIG: ${{ github.workspace }}/.kubeconfig-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.k8s-version }}-${{ needs.prepare-matrix.outputs.suite }}
     strategy:
       max-parallel: 1
-      matrix:
-        include:
-          - k8s-version: "v1.33"
-            k3s-image: "v1.33.11-k3s1"
-          - k8s-version: "v1.34"
-            k3s-image: "v1.34.7-k3s1"
-          - k8s-version: "v1.35"
-            k3s-image: "v1.35.4-k3s1"
       fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare-matrix.outputs.matrix) }}
     steps:
       - uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2
         with:
@@ -93,11 +148,14 @@ jobs:
         shell: bash -Eeuo pipefail -x {0}
         run: |
           export PATH="$HOME/.local/bin:$PATH"
-          k3d cluster delete e2e-${{ matrix.k8s-version }} 2>/dev/null || true
-          k3d cluster create e2e-${{ matrix.k8s-version }} \
+          rm -f "$KUBECONFIG"
+          k3d cluster create "$CLUSTER_NAME" \
             --image rancher/k3s:${{ matrix.k3s-image }} \
             --k3s-arg "--disable=traefik,servicelb@server:*" \
-            --wait --timeout 120s
+            --wait --timeout 120s \
+            --kubeconfig-update-default=false \
+            --kubeconfig-switch-context=false
+          k3d kubeconfig merge "$CLUSTER_NAME" --output "$KUBECONFIG" --overwrite
 
       - name: Wait for node Ready
         shell: bash -Eeuo pipefail -x {0}
@@ -111,7 +169,7 @@ jobs:
             quay.io/jetstack/cert-manager-controller:${{ env.CERT_MANAGER_VERSION }} \
             quay.io/jetstack/cert-manager-webhook:${{ env.CERT_MANAGER_VERSION }} \
             quay.io/jetstack/cert-manager-cainjector:${{ env.CERT_MANAGER_VERSION }} \
-            -c e2e-${{ matrix.k8s-version }}
+            -c "$CLUSTER_NAME"
 
       - name: Install cert-manager
         shell: bash -Eeuo pipefail -x {0}
@@ -125,7 +183,7 @@ jobs:
         shell: bash -Eeuo pipefail -x {0}
         run: |
           export PATH="$HOME/.local/bin:$PATH"
-          k3d image import ${{ env.PROMETHEUS_IMAGE }} -c e2e-${{ matrix.k8s-version }}
+          k3d image import ${{ env.PROMETHEUS_IMAGE }} -c "$CLUSTER_NAME"
 
       - name: Install Prometheus
         shell: bash -Eeuo pipefail -x {0}
@@ -144,7 +202,7 @@ jobs:
         run: |
           export PATH="$HOME/.local/bin:$PATH"
           make docker-build IMG=kube-rightsize:e2e
-          k3d image import kube-rightsize:e2e -c e2e-${{ matrix.k8s-version }}
+          k3d image import kube-rightsize:e2e -c "$CLUSTER_NAME"
 
       - name: Install operator via Helm
         shell: bash -Eeuo pipefail -x {0}
@@ -160,35 +218,66 @@ jobs:
             --wait --timeout 3m
 
       - name: Install Chainsaw
+        if: inputs.suite != 'go-e2e'
         uses: kyverno/action-install-chainsaw@1223ef75bedeb59c4e7b5455463d4316e76dff01 # v0.2.15
-      - shell: bash -Eeuo pipefail -x {0}
-        run: chainsaw test test/e2e/ --config .chainsaw.yaml
+
+      - name: Run Chainsaw suite
+        if: inputs.suite != 'go-e2e'
+        shell: bash -Eeuo pipefail -x {0}
+        run: |
+          mkdir -p test-results
+          chainsaw test test/e2e/ --config .chainsaw.yaml 2>&1 | tee test-results/chainsaw-${{ matrix.k8s-version }}.log
 
       - name: Run Go E2E tests
+        if: inputs.suite != 'chainsaw'
         shell: bash -Eeuo pipefail -x {0}
         env:
           E2E_NIGHTLY: "true"
-        run: go test -tags=e2e ./test/e2e-go/... -race -count=1 -timeout=15m -v
+        run: |
+          mkdir -p test-results
+          go test -tags=e2e ./test/e2e-go/... -race -count=1 -timeout=15m -v 2>&1 | tee test-results/go-e2e-${{ matrix.k8s-version }}.log
 
       - name: Collect debug info on failure
         if: failure()
         shell: bash -Eeuo pipefail {0}
         run: |
-          echo "=== cert-manager pods ==="
-          kubectl get pods -n cert-manager
-          echo "=== Operator logs ==="
-          kubectl logs -n kube-rightsize-system -l app.kubernetes.io/name=kube-rightsize --tail=100 || true
-          echo "=== Pod status ==="
-          kubectl get pods -A
-          echo "=== Events ==="
-          kubectl get events -A --sort-by='.lastTimestamp' | tail -30
+          mkdir -p test-results
+          {
+            echo "=== cluster name ==="
+            echo "$CLUSTER_NAME"
+            echo "=== kubeconfig path ==="
+            echo "$KUBECONFIG"
+            echo "=== kubeconfig server ==="
+            kubectl config view --minify --raw -o jsonpath='{.clusters[0].cluster.server}' || true
+            printf '\n'
+            echo "=== cert-manager pods ==="
+            kubectl get pods -n cert-manager || true
+            echo "=== operator logs ==="
+            kubectl logs -n kube-rightsize-system -l app.kubernetes.io/name=kube-rightsize --tail=100 || true
+            echo "=== pod status ==="
+            kubectl get pods -A || true
+            echo "=== pod descriptions ==="
+            kubectl describe pods -A || true
+            echo "=== events ==="
+            kubectl get events -A --sort-by='.lastTimestamp' | tail -30 || true
+          } | tee test-results/debug-${{ matrix.k8s-version }}.log
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: e2e-nightly-${{ matrix.k8s-version }}-${{ env.SELECTED_SUITE }}
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Cleanup k3d cluster
         if: always()
         shell: bash -Eeuo pipefail {0}
         run: |
           export PATH="$HOME/.local/bin:$PATH"
-          k3d cluster delete e2e-${{ matrix.k8s-version }} 2>/dev/null || true
+          k3d cluster delete "$CLUSTER_NAME" 2>/dev/null || true
+          rm -f "$KUBECONFIG"
 
   report:
     name: Nightly Results
@@ -211,7 +300,7 @@ jobs:
           fi
 
       - name: Create issue on failure
-        if: failure()
+        if: failure() && github.event_name == 'schedule'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash -Eeuo pipefail {0}
@@ -222,11 +311,15 @@ jobs:
             echo "Open nightly failure issue already exists, skipping creation"
             exit 0
           fi
+          body=$(cat <<'EOF'
+          The [E2E nightly run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) failed.
+
+          Result: `${{ needs.test-e2e.result }}`
+
+          Check the workflow run for details on which K8s version(s) failed.
+          EOF
+          )
           gh issue create \
             --title "E2E nightly failed on $(date -u +%Y-%m-%d)" \
             --label e2e-nightly-failure \
-            --body "The [E2E nightly run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) failed.
-
-**Result:** \`${{ needs.test-e2e.result }}\`
-
-Check the workflow run for details on which K8s version(s) failed."
+            --body "$body"

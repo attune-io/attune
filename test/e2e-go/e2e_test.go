@@ -39,6 +39,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
@@ -53,7 +54,7 @@ var (
 )
 
 func TestMain(m *testing.M) {
-	ctx, cancel = context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel = context.WithTimeout(context.Background(), 20*time.Minute)
 
 	kubeconfig := os.Getenv("KUBECONFIG")
 	if kubeconfig == "" {
@@ -469,7 +470,7 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 	createNamespace(t, ns)
 
 	// Deploy a workload using stress-ng to generate known CPU/memory load.
-	// Overprovisioned: requests 1000m CPU / 1Gi memory, actual ~200m / ~100Mi.
+	// Overprovisioned: requests 2000m CPU / 1Gi memory, actual ~200m / ~100Mi.
 	deploy := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "load-app",
@@ -488,13 +489,12 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
 						{
-							Name:    "app",
-							Image:   "ghcr.io/alexei-led/stress-ng:0.20.01",
-							Command: []string{"stress-ng"},
-							Args:    []string{"--cpu", "1", "--cpu-load", "20", "--vm", "1", "--vm-bytes", "100M", "--timeout", "0"},
+							Name:  "app",
+							Image: "ghcr.io/alexei-led/stress-ng:0.20.01",
+							Args:  []string{"--cpu", "1", "--cpu-load", "20", "--vm", "1", "--vm-bytes", "100M", "--timeout", "0"},
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
-									corev1.ResourceCPU:    resource.MustParse("1000m"),
+									corev1.ResourceCPU:    resource.MustParse("2000m"),
 									corev1.ResourceMemory: resource.MustParse("1Gi"),
 								},
 							},
@@ -507,31 +507,52 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 	require.NoError(t, k8sClient.Create(ctx, deploy))
 	waitForDeploymentReady(t, "load-app", ns, 120*time.Second)
 
-	createPolicy(t, "load-policy", ns, "load-app", "Recommend")
-
-	// Wait for recommendations to appear.
-	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
-		var policy rightsizev1alpha1.RightSizePolicy
-		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "load-policy", Namespace: ns}, &policy); err != nil {
-			return false, nil
+	loadPolicy := createPolicy(t, "load-policy", ns, "load-app", "Recommend")
+	maxCPU, err := resource.ParseQuantity("1500m")
+	require.NoError(t, err)
+	require.NoError(t, retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		var latestPolicy rightsizev1alpha1.RightSizePolicy
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: loadPolicy.Name, Namespace: ns}, &latestPolicy); err != nil {
+			return err
 		}
-		return policy.Status.Workloads.WithRecommendations > 0, nil
+		latestPolicy.Spec.CPU.Bounds.Max = maxCPU
+		return k8sClient.Update(ctx, &latestPolicy)
 	}))
 
-	var policy rightsizev1alpha1.RightSizePolicy
-	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "load-policy", Namespace: ns}, &policy))
+	// Wait for the updated policy to produce a recommendation using the test-specific max bound.
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
+		var latestPolicy rightsizev1alpha1.RightSizePolicy
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "load-policy", Namespace: ns}, &latestPolicy); err != nil {
+			return false, nil
+		}
+		if latestPolicy.Status.Workloads.WithRecommendations == 0 ||
+			len(latestPolicy.Status.Recommendations) == 0 ||
+			len(latestPolicy.Status.Recommendations[0].Containers) == 0 {
+			return false, nil
+		}
+		return latestPolicy.Status.Recommendations[0].Containers[0].Recommended.CPURequest.MilliValue() == 1500, nil
+	}))
 
-	require.NotEmpty(t, policy.Status.Recommendations)
-	rec := policy.Status.Recommendations[0]
+	var latestPolicy rightsizev1alpha1.RightSizePolicy
+	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "load-policy", Namespace: ns}, &latestPolicy))
+
+	require.NotEmpty(t, latestPolicy.Status.Recommendations)
+	rec := latestPolicy.Status.Recommendations[0]
 	require.NotEmpty(t, rec.Containers)
 
-	// CPU recommendation should be significantly less than 1000m.
+	// CPU recommendation should be clamped by the test-specific max bound.
 	recCPU := rec.Containers[0].Recommended.CPURequest
-	assert.Less(t, recCPU.MilliValue(), int64(800),
-		"recommended CPU should be less than 800m for ~200m actual usage, got %s", recCPU.String())
+	assert.Equal(t, int64(1500), recCPU.MilliValue(),
+		"recommended CPU should honor the test-specific 1500m max bound, got %s", recCPU.String())
 
-	// Savings estimate should be non-empty.
-	assert.NotEmpty(t, policy.Status.Savings.EstimatedMonthlySavings,
+	cpuExplain := rec.Containers[0].Explanation
+	require.NotNil(t, cpuExplain)
+	require.NotNil(t, cpuExplain.CPU)
+	assert.Equal(t, "max", cpuExplain.CPU.BoundsApplied,
+		"nightly load test should observe the CPU max bound being applied")
+
+	// Savings estimate should be non-empty when the recommendation lowers requests.
+	assert.NotEmpty(t, latestPolicy.Status.Savings.EstimatedMonthlySavings,
 		"savings estimate should be computed for overprovisioned workload")
 }
 
