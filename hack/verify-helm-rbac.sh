@@ -13,30 +13,31 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 KUSTOMIZE_ROLE="$REPO_ROOT/config/rbac/role.yaml"
 HELM_CHART="$REPO_ROOT/charts/kube-rightsize"
 
-for tool in yq jq helm; do
+for tool in yq helm; do
   if ! command -v "$tool" &>/dev/null; then
     echo "ERROR: $tool is required but not installed" >&2
     exit 1
   fi
 done
 
-# Normalize rules by expanding to sorted (apiGroup, resource, verb) triples.
-# This handles structural differences (kustomize merges resources with same
-# apiGroup+verbs; Helm keeps them separate for readability).
+# Normalize rules by expanding to sorted (apiGroup, resource, verb) triples
+# using only yq (no jq dependency). This handles structural differences
+# (kustomize merges resources with same apiGroup+verbs; Helm keeps them
+# separate for readability).
 normalize_rules() {
-  jq -r '[ .[] | .apiGroups[] as $g | .resources[] as $r | .verbs[] as $v |
-    "\($g)/\($r)/\($v)" ] | unique | .[]' | sort
+  yq -o=json '.' | yq -r '
+    [.[] | .apiGroups[] as $g | .resources[] as $r | .verbs[] as $v |
+    ($g + "/" + $r + "/" + $v)] | unique | .[]' | sort
 }
 
 # Extract rules from kustomize role.yaml.
 kustomize_rules=$(yq -o=json '.rules' "$KUSTOMIZE_ROLE" | normalize_rules)
 
 # Render Helm template and extract ClusterRole rules.
-helm_output=$(helm template rbac-check "$HELM_CHART" \
+helm_rules=$(helm template rbac-check "$HELM_CHART" \
   --set webhooks.enabled=false \
-  --show-only templates/clusterrole.yaml 2>/dev/null)
-
-helm_rules=$(echo "$helm_output" | yq -o=json '.rules' | normalize_rules)
+  --show-only templates/clusterrole.yaml 2>/dev/null \
+  | yq -o=json '.rules' | normalize_rules)
 
 if [ "$kustomize_rules" = "$helm_rules" ]; then
   echo "OK: Helm chart RBAC rules match kustomize config/rbac/role.yaml"
