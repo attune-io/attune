@@ -123,6 +123,9 @@ Run `make manifests` after changing CRD types or RBAC markers. Run
 - Use `fake.NewClientBuilder()` for controller-runtime client mocking
 - Integration tests use envtest (build tag: `integration`)
 - E2E tests use Chainsaw v0.2.15 on k3d or Kind clusters (K8s 1.33, 1.34, 1.35 matrix in CI)
+- E2E tests that modify CRs mid-test must use a refetch/retry loop to handle
+  optimistic concurrency conflicts (the operator reconciles the same object
+  concurrently, causing `the object has been modified` errors on update)
 
 ## Safety
 
