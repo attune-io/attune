@@ -92,16 +92,25 @@ make kind-delete
 | `test/e2e/cronjob-target/` | CronJob | Discovers CronJob workload (recommend-only) |
 | `test/e2e/job-target/` | Job | Discovers standalone Job workload (recommend-only) |
 | `test/e2e/opt-out/` | (cross-cutting) | `rightsize.io/skip` annotation respected |
+| `test/e2e/exclude-containers/` | (cross-cutting) | `excludeContainers` skips sidecars |
+| `test/e2e/multi-selector/` | (cross-cutting) | Label selector matches multiple deployments |
 | `test/e2e/eviction-fallback/` | (cross-cutting) | InPlaceOrEvict policy accepted, discovers workloads |
 | `test/e2e/schedule-window/` | (cross-cutting) | Schedule windows, daysOfWeek, timezone accepted |
 | `test/e2e/budget-caps/` | (cross-cutting) | maxTotalCpuIncrease/maxTotalMemoryIncrease accepted |
 | `test/e2e/concurrent-resize/` | (cross-cutting) | maxConcurrentResizes accepted, discovers workloads |
 | `test/e2e/namespace-defaults/` | (cross-cutting) | RightSizeNamespaceDefaults overrides cluster defaults |
+| `test/e2e/defaults-merge/` | (cross-cutting) | RightSizeDefaults values merged into policy |
 | `test/e2e/hpa-conflict/` | (cross-cutting) | HPA conflict is warning-only, policy still reconciles |
 | `test/e2e/policy-weight/` | (cross-cutting) | Higher-weight policy outranks lower-weight on same workload |
 | `test/e2e/requests-only/` | (cross-cutting) | controlledValues RequestsOnly accepted, discovers workload |
+| `test/e2e/prometheus-unreachable/` | (cross-cutting) | Handles unreachable Prometheus gracefully |
 | `test/e2e/grafana-dashboard/` | (helm) | Dashboard ConfigMap renders with grafanaDashboard.enabled |
+| `test/e2e/health-probes/` | (infra) | Liveness and readiness probes pass |
+| `test/e2e/metrics-endpoint/` | (infra) | Prometheus metrics endpoint exposed |
+| `test/e2e/webhook-defaulting/` | (webhook) | Mutating webhook applies defaults |
+| `test/e2e/webhook-validation/` | (webhook) | Rejects invalid safety margin, negative cooldown |
 | `test/e2e/webhook-schedule-validation/` | (webhook) | Rejects invalid timezone, day, window time |
+| `test/e2e/defaults-validation/` | (webhook) | Rejects invalid RightSizeDefaults |
 
 ### Writing new E2E tests
 
@@ -160,9 +169,11 @@ make verify        # all CI checks locally
 |-----------|------|-----------|
 | `api/v1alpha1/*_test.go` | Unit | Go testing |
 | `internal/**/*_test.go` | Unit | Go testing + testify |
+| `internal/**/*_benchmark_test.go` | Benchmark | Go testing (`make test-bench`) |
 | `test/integration/` | Integration | envtest |
-| `test/e2e/` | E2E | Chainsaw |
-| `internal/recommendation/fuzz_test.go` | Fuzz | Go native fuzzing |
+| `test/e2e/` | E2E (Chainsaw) | Chainsaw (`make test-e2e`) |
+| `test/e2e-go/` | E2E (Go) | Go testing + real cluster (`make test-e2e-go`) |
+| `internal/recommendation/fuzz_test.go` | Fuzz | Go native fuzzing (`make test-fuzz`) |
 
 ## Writing new tests
 
