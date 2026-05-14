@@ -21,9 +21,10 @@ import (
 	"testing"
 	"time"
 
-	rsmetrics "github.com/SebTardifLabs/kube-rightsize/internal/metrics"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+
+	rsmetrics "github.com/SebTardifLabs/kube-rightsize/internal/metrics"
 )
 
 func BenchmarkBuildPrometheusQuery_CPU(b *testing.B) {
