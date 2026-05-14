@@ -13,16 +13,18 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 KUSTOMIZE_ROLE="$REPO_ROOT/config/rbac/role.yaml"
 HELM_CHART="$REPO_ROOT/charts/kube-rightsize"
 
-if ! command -v yq &>/dev/null; then
-  echo "ERROR: yq is required but not installed" >&2
-  exit 1
-fi
+for tool in yq jq helm; do
+  if ! command -v "$tool" &>/dev/null; then
+    echo "ERROR: $tool is required but not installed" >&2
+    exit 1
+  fi
+done
 
 # Normalize rules by expanding to sorted (apiGroup, resource, verb) triples.
 # This handles structural differences (kustomize merges resources with same
 # apiGroup+verbs; Helm keeps them separate for readability).
 normalize_rules() {
-  jq -S '[ .[] | .apiGroups[] as $g | .resources[] as $r | .verbs[] as $v |
+  jq -r '[ .[] | .apiGroups[] as $g | .resources[] as $r | .verbs[] as $v |
     "\($g)/\($r)/\($v)" ] | unique | .[]' | sort
 }
 
