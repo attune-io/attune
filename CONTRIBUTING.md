@@ -18,6 +18,8 @@ guidelines and instructions for contributing.
 
 The Makefile auto-installs these Go tools on first use (to `$GOPATH/bin`):
 golangci-lint, gotestsum, controller-gen, setup-envtest, chainsaw, kustomize, helm-docs.
+It also installs the Helm unittest plugin automatically when needed for
+`make helm-unittest` or `make verify`.
 
 `yamllint` (Python) is auto-installed via pip if missing when running `make yaml-lint`.
 
