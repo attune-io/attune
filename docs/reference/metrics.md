@@ -50,6 +50,47 @@ Total number of webhook admission decisions.
 | `operation` | `validate_create`, `validate_update`, `defaulting`, `defaults_validate_create`, or `defaults_validate_update` |
 | `result` | `allowed` or `rejected` |
 
+### kube_rightsize_schedule_skipped_total
+
+Total resize cycles skipped because the current time is outside the
+configured schedule window.
+
+| Label | Description |
+|-------|-------------|
+| `namespace` | Policy namespace |
+| `policy` | Policy name |
+
+### kube_rightsize_budget_exhausted_total
+
+Total resize operations deferred because the per-cycle budget cap
+(`maxTotalCpuIncrease` / `maxTotalMemoryIncrease`) was exhausted.
+
+| Label | Description |
+|-------|-------------|
+| `namespace` | Policy namespace |
+| `policy` | Policy name |
+
+### kube_rightsize_eviction_total
+
+Total eviction attempts when `resizeMethod: InPlaceOrEvict` falls back
+to pod eviction after an in-place resize fails or is marked Infeasible.
+
+| Label | Description |
+|-------|-------------|
+| `namespace` | Workload namespace |
+| `workload` | Workload name |
+| `result` | `success` or `failed` |
+
+### kube_rightsize_infeasible_skipped_total
+
+Total pods skipped because kubelet marked the in-place resize as
+Infeasible and `resizeMethod` is `InPlaceOnly` (no eviction fallback).
+
+| Label | Description |
+|-------|-------------|
+| `namespace` | Workload namespace |
+| `workload` | Workload name |
+
 ## Gauges
 
 ### kube_rightsize_recommendation_cpu_cores

@@ -103,6 +103,10 @@ jobs:
             exit 1
           fi
 
+      - name: Verify doc defaults consistency
+        shell: bash -Eeuo pipefail {0}
+        run: bash hack/verify-doc-defaults.sh
+
   yaml-lint:
     name: YAML Lint
     runs-on: self-hosted
