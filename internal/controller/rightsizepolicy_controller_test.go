@@ -1257,9 +1257,10 @@ func TestCollectorCacheKey_WithOptions(t *testing.T) {
 	}
 	key := collectorCacheKey(config, opts)
 	assert.Contains(t, key, "http://prom:9090")
-	assert.Contains(t, key, "|bearer")
+	assert.Contains(t, key, "|bearer:")
 	assert.Contains(t, key, "|insecure")
 	assert.Contains(t, key, "|h:X-Scope-OrgID=tenant-1")
+	assert.NotContains(t, key, "tok")
 }
 
 func TestCollectorCacheKey_DeterministicWithMultipleHeaders(t *testing.T) {
@@ -1283,22 +1284,29 @@ func TestCollectorCacheKey_DifferentConfigsDifferentKeys(t *testing.T) {
 	assert.NotEqual(t, key1, key2)
 }
 
+func TestCollectorCacheKey_DifferentBearerTokensDifferentKeys(t *testing.T) {
+	config := &rightsizev1alpha1.PrometheusConfig{Address: "http://prom:9090"}
+	key1 := collectorCacheKey(config, &rsmetrics.CollectorOptions{BearerToken: "tok-a"})
+	key2 := collectorCacheKey(config, &rsmetrics.CollectorOptions{BearerToken: "tok-b"})
+	assert.NotEqual(t, key1, key2)
+}
+
 // ---------- getCachedBearerToken ----------
 
 func TestGetCachedBearerToken_NoCachedEntry(t *testing.T) {
 	r := &RightSizePolicyReconciler{}
 	config := &rightsizev1alpha1.PrometheusConfig{Address: "http://prom:9090"}
-	assert.Empty(t, r.getCachedBearerToken(config))
+	assert.Empty(t, r.getCachedBearerToken(config, nil, nil))
 }
 
 func TestGetCachedBearerToken_CachedWithToken(t *testing.T) {
 	r := &RightSizePolicyReconciler{}
-	r.collectors.Store("http://prom:9090|bearer", &collectorEntry{
+	r.collectors.Store("http://prom:9090|bearer:12345678", &collectorEntry{
 		bearerToken: "cached-token-123",
 		lastUsed:    time.Now(),
 	})
 	config := &rightsizev1alpha1.PrometheusConfig{Address: "http://prom:9090"}
-	assert.Equal(t, "cached-token-123", r.getCachedBearerToken(config))
+	assert.Equal(t, "cached-token-123", r.getCachedBearerToken(config, nil, nil))
 }
 
 func TestGetCachedBearerToken_CachedWithoutToken(t *testing.T) {
@@ -1307,31 +1315,42 @@ func TestGetCachedBearerToken_CachedWithoutToken(t *testing.T) {
 		lastUsed: time.Now(),
 	})
 	config := &rightsizev1alpha1.PrometheusConfig{Address: "http://prom:9090"}
-	assert.Empty(t, r.getCachedBearerToken(config))
+	assert.Empty(t, r.getCachedBearerToken(config, nil, nil))
 }
 
 func TestGetCachedBearerToken_MultipleEntries(t *testing.T) {
 	r := &RightSizePolicyReconciler{}
-	r.collectors.Store("http://other:9090|bearer", &collectorEntry{
+	r.collectors.Store("http://other:9090|bearer:aaaaaaaa", &collectorEntry{
 		bearerToken: "other-token",
 		lastUsed:    time.Now(),
 	})
-	r.collectors.Store("http://prom:9090|bearer", &collectorEntry{
+	r.collectors.Store("http://prom:9090|bearer:bbbbbbbb", &collectorEntry{
 		bearerToken: "correct-token",
 		lastUsed:    time.Now(),
 	})
 	config := &rightsizev1alpha1.PrometheusConfig{Address: "http://prom:9090"}
-	assert.Equal(t, "correct-token", r.getCachedBearerToken(config))
+	assert.Equal(t, "correct-token", r.getCachedBearerToken(config, nil, nil))
 }
 
 func TestGetCachedBearerToken_DoesNotMatchAddressPrefix(t *testing.T) {
 	r := &RightSizePolicyReconciler{}
-	r.collectors.Store("http://prom:90901|bearer", &collectorEntry{
+	r.collectors.Store("http://prom:90901|bearer:12345678", &collectorEntry{
 		bearerToken: "wrong-token",
 		lastUsed:    time.Now(),
 	})
 	config := &rightsizev1alpha1.PrometheusConfig{Address: "http://prom:9090"}
-	assert.Empty(t, r.getCachedBearerToken(config))
+	assert.Empty(t, r.getCachedBearerToken(config, nil, nil))
+}
+
+func TestGetCachedBearerToken_DoesNotReuseTokenAcrossHeaders(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	r.collectors.Store("http://prom:9090|h:X-Scope-OrgID=tenant-a|bearer:11111111", &collectorEntry{
+		bearerToken: "tenant-a-token",
+		lastUsed:    time.Now(),
+	})
+	config := &rightsizev1alpha1.PrometheusConfig{Address: "http://prom:9090"}
+	headers := map[string]string{"X-Scope-OrgID": "tenant-b"}
+	assert.Empty(t, r.getCachedBearerToken(config, headers, nil))
 }
 
 // ---------- readSecretKey ----------

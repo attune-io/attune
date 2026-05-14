@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"slices"
@@ -202,11 +203,8 @@ func (r *RightSizePolicyReconciler) getOrCreateCollector(config *rightsizev1alph
 // getCachedBearerToken returns the bearer token from a cached collector entry,
 // or empty string if not cached. Used to skip Secret reads when the collector
 // already has a valid token.
-func (r *RightSizePolicyReconciler) getCachedBearerToken(config *rightsizev1alpha1.PrometheusConfig) string {
-	// Build a partial cache key using address only to find any existing entry.
-	// We can't use the full cache key because it includes "|bearer" which
-	// we're trying to determine.
-	prefix := config.Address + "|"
+func (r *RightSizePolicyReconciler) getCachedBearerToken(config *rightsizev1alpha1.PrometheusConfig, headers map[string]string, tlsConfig *rightsizev1alpha1.TLSConfig) string {
+	prefix := collectorConfigPrefix(config.Address, headers, tlsConfig) + "|bearer:"
 	var token string
 	r.collectors.Range(func(key, value any) bool {
 		k := key.(string)
@@ -223,26 +221,38 @@ func (r *RightSizePolicyReconciler) getCachedBearerToken(config *rightsizev1alph
 	return token
 }
 
+func collectorConfigPrefix(address string, headers map[string]string, tlsConfig *rightsizev1alpha1.TLSConfig) string {
+	key := address
+	if tlsConfig != nil && tlsConfig.InsecureSkipVerify {
+		key += "|insecure"
+	}
+	// Sort header keys for deterministic cache keys (map iteration is random).
+	keys := make([]string, 0, len(headers))
+	for k := range headers {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	for _, k := range keys {
+		key += "|h:" + k + "=" + headers[k]
+	}
+	return key
+}
+
 // collectorCacheKey builds a cache key that includes address, headers,
-// bearer token presence, and TLS settings.
+// bearer token identity, and TLS settings.
 func collectorCacheKey(config *rightsizev1alpha1.PrometheusConfig, opts *rsmetrics.CollectorOptions) string {
-	key := config.Address
+	headers := map[string]string(nil)
+	var tlsConfig *rightsizev1alpha1.TLSConfig
 	if opts != nil {
-		if opts.BearerToken != "" {
-			key += "|bearer"
-		}
+		headers = opts.Headers
 		if opts.InsecureSkipVerify {
-			key += "|insecure"
+			tlsConfig = &rightsizev1alpha1.TLSConfig{InsecureSkipVerify: true}
 		}
-		// Sort header keys for deterministic cache keys (map iteration is random).
-		keys := make([]string, 0, len(opts.Headers))
-		for k := range opts.Headers {
-			keys = append(keys, k)
-		}
-		slices.Sort(keys)
-		for _, k := range keys {
-			key += "|h:" + k + "=" + opts.Headers[k]
-		}
+	}
+	key := collectorConfigPrefix(config.Address, headers, tlsConfig)
+	if opts != nil && opts.BearerToken != "" {
+		sum := sha256.Sum256([]byte(opts.BearerToken))
+		key += fmt.Sprintf("|bearer:%x", sum[:8])
 	}
 	return key
 }
@@ -289,7 +299,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 		if promConfig.BearerTokenSecret != nil {
 			// Use cached token if available to avoid a Secret read per reconcile.
-			if cached := r.getCachedBearerToken(promConfig); cached != "" {
+			if cached := r.getCachedBearerToken(promConfig, promConfig.Headers, promConfig.TLS); cached != "" {
 				collectorOpts.BearerToken = cached
 			} else {
 				token, secretErr := r.readSecretKey(ctx, policy.Namespace,
