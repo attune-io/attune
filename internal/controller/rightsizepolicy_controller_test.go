@@ -3293,6 +3293,34 @@ func TestReconcile_MetricsFactoryError(t *testing.T) {
 	assert.Contains(t, updated.Status.Conditions[0].Message, "TLS handshake timeout")
 }
 
+func TestReconcile_BearerTokenSecretReadErrorIncludesSecretRef(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.MetricsSource.Prometheus.BearerTokenSecret = &rightsizev1alpha1.SecretKeyRef{
+		Name: "prom-token",
+		Key:  "token",
+	}
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	reconciler, fakeClient := newReconcilerForReconcile(&mockCollector{}, policy, deploy)
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
+	}
+
+	result, err := reconciler.Reconcile(context.Background(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, 1*time.Minute, result.RequeueAfter)
+
+	var updated rightsizev1alpha1.RightSizePolicy
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "test-policy", Namespace: "default",
+	}, &updated))
+	cond := meta.FindStatusCondition(updated.Status.Conditions, rightsizev1alpha1.ConditionReady)
+	require.NotNil(t, cond)
+	assert.Equal(t, rightsizev1alpha1.ReasonPrometheusUnavailable, cond.Reason)
+	assert.Contains(t, cond.Message, "prom-token/token")
+	assert.Contains(t, cond.Message, "reading secret default/prom-token")
+}
+
 // ---------- Reconcile with workload discovery error ----------
 
 func TestReconcile_DiscoverWorkloadsError(t *testing.T) {

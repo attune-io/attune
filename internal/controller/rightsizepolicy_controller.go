@@ -270,12 +270,13 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			collectorOpts.InsecureSkipVerify = promConfig.TLS.InsecureSkipVerify
 		}
 		if promConfig.BearerTokenSecret != nil {
-			token, secretErr := r.readSecretKey(ctx, policy.Namespace,
-				promConfig.BearerTokenSecret.Name, promConfig.BearerTokenSecret.Key)
+			secretName := promConfig.BearerTokenSecret.Name
+			secretKey := promConfig.BearerTokenSecret.Key
+			token, secretErr := r.readSecretKey(ctx, policy.Namespace, secretName, secretKey)
 			if secretErr != nil {
-				logger.Error(secretErr, "Failed to read bearer token secret")
+				logger.Error(secretErr, "Failed to read bearer token secret", "secret", secretName, "key", secretKey)
 				r.setFailedCondition(ctx, &policy, rightsizev1alpha1.ReasonPrometheusUnavailable,
-					fmt.Sprintf("Cannot read bearer token secret: %v", secretErr))
+					fmt.Sprintf("Cannot read bearer token secret %s/%s: %v", secretName, secretKey, secretErr))
 				return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 			}
 			collectorOpts.BearerToken = token
