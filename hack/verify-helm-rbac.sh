@@ -6,7 +6,7 @@
 # config/rbac/role.yaml. Catches RBAC desync when kubebuilder markers are
 # updated but the Helm template is not.
 
-set -euxo pipefail
+set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -36,7 +36,8 @@ kustomize_rules=$(yq -o=json '.rules' "$KUSTOMIZE_ROLE" | normalize_rules)
 # Render Helm template and extract ClusterRole rules.
 helm_rules=$(helm template rbac-check "$HELM_CHART" \
   --set webhooks.enabled=false \
-  --show-only templates/clusterrole.yaml 2>/dev/null \
+  --show-only templates/clusterrole.yaml \
+  --kube-version v1.33.0 \
   | yq -o=json '.rules' | normalize_rules)
 
 if [ "$kustomize_rules" = "$helm_rules" ]; then

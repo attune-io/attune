@@ -510,7 +510,7 @@ jobs:
 
       - name: Verify Helm RBAC matches kustomize
         shell: bash -Eeuo pipefail {0}
-        run: bash hack/verify-helm-rbac.sh 2>&1
+        run: bash hack/verify-helm-rbac.sh
 
   build:
     name: Build
