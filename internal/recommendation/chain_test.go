@@ -309,6 +309,32 @@ func TestRecommendationEngine_NoBurstExplanation(t *testing.T) {
 		"afterBurst should equal afterSafetyMargin when no burst")
 }
 
+func TestRecommendationEngine_BurstMagnitudeBoundary(t *testing.T) {
+	engine := NewEngine(95, 1.2, resource.MustParse("50m"), resource.MustParse("4000m"), 50, true)
+
+	ps := metrics.PercentileSet{P50: 0.1, P90: 0.15, P95: 0.2, P99: 0.3, Max: 0.6}
+
+	// BurstDetected=true but BurstMagnitude exactly 1.0 -- condition is > 1, so no boost.
+	profile := metrics.UsageProfile{
+		OverallPercentiles: ps,
+		BurstDetected:      true,
+		BurstMagnitude:     1.0,
+		DataPoints:         5000,
+		TimeSpanDays:       7,
+		Confidence:         0.95,
+	}
+	for h := 0; h < 24; h++ {
+		profile.HourlyPercentiles[h] = ps
+	}
+
+	_, explanation, _ := engine.RecommendWithExplanation(profile, resource.MustParse("100m"))
+
+	assert.Equal(t, 1.0, explanation.BurstFactor,
+		"burst factor should be 1.0 when magnitude is exactly 1.0")
+	assert.Equal(t, explanation.AfterSafetyMargin.MilliValue(), explanation.AfterBurst.MilliValue(),
+		"no boost when magnitude is at boundary")
+}
+
 func TestRecommendationEngine_ExplainChain(t *testing.T) {
 	engine := NewEngine(
 		95,

@@ -41,6 +41,5 @@ const (
 // Canary phase constants.
 const (
 	CanaryPhaseInProgress  = "CanaryInProgress"
-	CanaryPhasePassed      = "CanaryPassed"
 	CanaryPhaseFullRollout = "FullRollout"
 )
