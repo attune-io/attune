@@ -23,11 +23,13 @@ helm install kube-rightsize oci://ghcr.io/sebtardiflabs/charts/kube-rightsize \
 This chart automatically installs the required CRDs:
 - `rightsizepolicies.rightsize.io`
 - `rightsizedefaults.rightsize.io`
+- `rightsizenamespacedefaults.rightsize.io`
 
 ## Prometheus Configuration
 
-Prometheus address is configured per-policy in `RightSizePolicy.spec.metricsSource.prometheus.address`
-or globally via the `RightSizeDefaults` CRD. It is not a chart value.
+Prometheus address is configured per-policy in `RightSizePolicy.spec.metricsSource.prometheus.address`,
+via namespace-scoped `RightSizeNamespaceDefaults`, or globally via the
+`RightSizeDefaults` CRD. It is not a chart value.
 
 If `networkPolicy.enabled=true`, the operator pod allows egress to Prometheus on
 `networkPolicy.prometheusPort` (default `9090`). For the `prometheus-community/prometheus`
@@ -60,7 +62,18 @@ policies so scraping can still reach the operator metrics Service.
 
 ## Grafana Dashboard
 
-A pre-built Grafana dashboard is included in [`deploy/grafana/dashboard.json`](https://github.com/SebTardifLabs/kube-rightsize/blob/main/deploy/grafana/dashboard.json).
+**Auto-provision (recommended):** set `grafanaDashboard.enabled=true` to create a
+ConfigMap labeled for the Grafana sidecar:
+
+```bash
+helm upgrade kube-rightsize oci://ghcr.io/sebtardiflabs/charts/kube-rightsize \
+  --namespace kube-rightsize-system \
+  --reuse-values \
+  --set grafanaDashboard.enabled=true
+```
+
+**Manual import:** A pre-built dashboard is also included in
+[`deploy/grafana/dashboard.json`](https://github.com/SebTardifLabs/kube-rightsize/blob/main/deploy/grafana/dashboard.json).
 Import it into Grafana to visualize recommendations, resize operations, and savings.
 
 ## Uninstall
@@ -72,5 +85,5 @@ helm uninstall kube-rightsize -n kube-rightsize-system
 CRDs are not removed by `helm uninstall`. To remove them:
 
 ```bash
-kubectl delete crd rightsizepolicies.rightsize.io rightsizedefaults.rightsize.io
+kubectl delete crd rightsizepolicies.rightsize.io rightsizedefaults.rightsize.io rightsizenamespacedefaults.rightsize.io
 ```
