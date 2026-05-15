@@ -279,6 +279,8 @@ The dashboard includes:
 | [Troubleshooting](docs/guides/troubleshooting.md) | Common issues and solutions |
 | [Examples](examples/) | Ready-to-use policy manifests |
 | [Contributing](CONTRIBUTING.md) | Development setup and guidelines |
+| [Changelog](CHANGELOG.md) | Release history and breaking changes |
+| [Adopters](ADOPTERS.md) | Organizations using kube-rightsize |
 
 ## License
 
