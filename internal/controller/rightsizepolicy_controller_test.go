@@ -1309,6 +1309,38 @@ func TestResolvePrometheusConfig_NoAddressAnywhere(t *testing.T) {
 	assert.Contains(t, err.Error(), "no Prometheus address configured")
 }
 
+func TestResolvePrometheusConfig_RejectsBlockedPolicyAddress(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.MetricsSource.Prometheus.Address = "http://127.0.0.1:9090"
+	reconciler := newReconcilerWithClient()
+
+	_, err := reconciler.resolvePrometheusConfig(context.Background(), policy, nil)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "SSRF blocked")
+}
+
+func TestResolvePrometheusConfig_RejectsBlockedDefaultsAddress(t *testing.T) {
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec:       rightsizev1alpha1.RightSizePolicySpec{MetricsSource: rightsizev1alpha1.MetricsSource{}},
+	}
+	defaults := &rightsizev1alpha1.RightSizeDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster-defaults"},
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			MetricsSource: &rightsizev1alpha1.MetricsSource{
+				Prometheus: &rightsizev1alpha1.PrometheusConfig{
+					Address: "http://127.0.0.1:9090",
+				},
+			},
+		},
+	}
+	reconciler := newReconcilerWithClient(defaults)
+
+	_, err := reconciler.resolvePrometheusConfig(context.Background(), policy, defaults)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "SSRF blocked")
+}
+
 // ---------- collectorCacheKey ----------
 
 func TestCollectorCacheKey_AddressOnly(t *testing.T) {
