@@ -264,9 +264,9 @@ cluster-scoped RightSizeDefaults. This enables different configurations
 for different environments (e.g., conservative settings for production,
 aggressive settings for staging).
 
-**Precedence**: policy spec > namespace defaults > cluster defaults.
+**Resolution order**: policy spec first, then one defaults source.
 
-If a namespace has a RightSizeNamespaceDefaults, it takes priority over
-the cluster-scoped RightSizeDefaults for all policies in that namespace.
-Fields not specified in the namespace defaults are NOT inherited from
-cluster defaults; they use the policy's own defaults.
+If a namespace has a RightSizeNamespaceDefaults, the controller uses it
+instead of the cluster-scoped RightSizeDefaults for all policies in that
+namespace. Fields not specified in the namespace defaults are NOT inherited
+from cluster defaults; they use the policy's own defaults.

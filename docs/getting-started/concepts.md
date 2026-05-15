@@ -12,10 +12,10 @@ recommendation parameters, and controls how resizes are applied.
 values for metrics source, resource config, and update strategy.
 
 **RightSizeNamespaceDefaults** (namespaced, short name `rsnd`) sets
-per-namespace defaults that override cluster defaults for policies in the same
-namespace.
-
-Default precedence is: policy spec > namespace defaults > cluster defaults.
+per-namespace defaults for policies in the same namespace. If a namespace
+has a `RightSizeNamespaceDefaults`, the controller uses it instead of the
+cluster-scoped `RightSizeDefaults`. Fields omitted there fall back to the
+policy's own built-in defaults, not the cluster defaults.
 
 ## Update modes
 

@@ -341,8 +341,10 @@ Global defaults to avoid repetition across many RightSizePolicy resources.
 ### 3.4 RightSizeNamespaceDefaults (Namespaced, Optional)
 
 Namespace-scoped defaults reuse the same spec as `RightSizeDefaults` but apply
-only within one namespace. Precedence is: policy spec > namespace defaults >
-cluster defaults.
+only within one namespace. If a `RightSizeNamespaceDefaults` exists for the
+policy namespace, the controller uses it instead of cluster-scoped
+`RightSizeDefaults`. Fields omitted there fall back to the policy's own
+built-in defaults, not cluster defaults.
 
 ```yaml
 apiVersion: rightsize.io/v1alpha1
@@ -432,7 +434,7 @@ Status conditions use `meta.SetStatusCondition()` from `k8s.io/apimachinery/pkg/
 A single controller reconciles `RightSizePolicy` resources. The reconcile function:
 
 ```
-1. FETCH policy and resolve defaults from RightSizeNamespaceDefaults, then RightSizeDefaults
+1. FETCH policy and resolve one defaults source: RightSizeNamespaceDefaults for the namespace if present, otherwise RightSizeDefaults
 2. DISCOVER target workloads (by name or label selector)
 3. For each workload:
    a. CHECK for conflicting policies (highest weight wins)
