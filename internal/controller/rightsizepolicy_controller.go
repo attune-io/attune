@@ -1376,10 +1376,12 @@ func (r *RightSizePolicyReconciler) resolveCanaryPhase(ctx context.Context, poli
 				}
 			}
 			if hasRevert {
-				logger.Info("Canary observation found reverts, staying in canary mode")
+				logger.Info("Canary observation found reverts, staying in canary mode",
+					"policy", policy.Name, "observationPeriod", observationPeriod)
 				return currentMode
 			}
-			logger.Info("Canary observation passed, promoting to full rollout")
+			logger.Info("Canary observation passed, promoting to full rollout",
+				"policy", policy.Name, "observationPeriod", observationPeriod)
 			policy.Status.Canary.Phase = rightsizev1alpha1.CanaryPhaseFullRollout
 			return rightsizev1alpha1.ModeAuto
 		}
