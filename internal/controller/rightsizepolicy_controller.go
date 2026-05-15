@@ -1015,18 +1015,22 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 		return nil, false
 	}
 
+	evictionHistory := func() []rightsizev1alpha1.ResizeHistoryEntry {
+		return []rightsizev1alpha1.ResizeHistoryEntry{
+			{
+				Timestamp: now, Workload: workloadName, Container: containerRec.Name,
+				Resource: "cpu+memory", Method: "Eviction", Result: rightsizev1alpha1.ResultSuccess,
+			},
+		}
+	}
+
 	// Pods already marked Infeasible cannot be resized in-place on the current node.
 	if resize.IsResizeInfeasible(pod) {
 		if policy.Spec.UpdateStrategy.ResizeMethod == rightsizev1alpha1.ResizeMethodInPlaceOrEvict {
 			logger.Info("Pod resize is Infeasible, attempting eviction fallback",
 				"pod", pod.Name, "container", containerRec.Name)
 			if evicted := r.tryEvictionFallback(ctx, policy, pod, workloadName, containerRec.Name, resizer); evicted {
-				return []rightsizev1alpha1.ResizeHistoryEntry{
-					{
-						Timestamp: now, Workload: workloadName, Container: containerRec.Name,
-						Resource: "cpu+memory", Method: "Eviction", Result: rightsizev1alpha1.ResultSuccess,
-					},
-				}, true
+				return evictionHistory(), true
 			}
 		} else {
 			logger.Info("Pod resize is Infeasible and resizeMethod is InPlaceOnly, skipping",
@@ -1052,12 +1056,7 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 		// Attempt eviction fallback if configured.
 		if policy.Spec.UpdateStrategy.ResizeMethod == rightsizev1alpha1.ResizeMethodInPlaceOrEvict {
 			if evicted := r.tryEvictionFallback(ctx, policy, pod, workloadName, containerRec.Name, resizer); evicted {
-				return []rightsizev1alpha1.ResizeHistoryEntry{
-					{
-						Timestamp: now, Workload: workloadName, Container: containerRec.Name,
-						Resource: "cpu+memory", Method: "Eviction", Result: rightsizev1alpha1.ResultSuccess,
-					},
-				}, true
+				return evictionHistory(), true
 			}
 		}
 
