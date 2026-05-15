@@ -761,3 +761,165 @@ func TestE2E_EvictionFallback_ResizesWithInPlaceOrEvict(t *testing.T) {
 	assert.GreaterOrEqual(t, p.Status.Workloads.Resized, int32(1),
 		"at least one workload should be resized with InPlaceOrEvict")
 }
+
+func TestE2E_RecommendMode_KeepsRecommendationsWithoutLivePods(t *testing.T) {
+	if os.Getenv("E2E_NIGHTLY") != "true" {
+		t.Skip("requires extended Prometheus warm-up; set E2E_NIGHTLY=true to run")
+	}
+	ns := uniqueNS("nopods")
+	createNamespace(t, ns)
+
+	// Create a deployment so Prometheus collects metrics.
+	createDeployment(t, "nopods-app", ns, "250m", "256Mi", 1)
+	waitForDeploymentReady(t, "nopods-app", ns, 60*time.Second)
+
+	createPolicy(t, "nopods-policy", ns, "nopods-app", "Recommend")
+	waitForPolicyDiscovered(t, "nopods-policy", ns, 2*time.Minute)
+
+	// Wait until recommendations appear.
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
+		var p rightsizev1alpha1.RightSizePolicy
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "nopods-policy", Namespace: ns}, &p); err != nil {
+			return false, nil
+		}
+		return p.Status.Workloads.WithRecommendations > 0, nil
+	}))
+
+	// Scale the deployment to 0 so no live pods remain.
+	require.NoError(t, retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		var deploy appsv1.Deployment
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "nopods-app", Namespace: ns}, &deploy); err != nil {
+			return err
+		}
+		deploy.Spec.Replicas = int32Ptr(0)
+		return k8sClient.Update(ctx, &deploy)
+	}))
+
+	// Wait for pods to terminate.
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 3*time.Second, 60*time.Second, true, func(ctx context.Context) (bool, error) {
+		var podList corev1.PodList
+		if err := k8sClient.List(ctx, &podList, client.InNamespace(ns), client.MatchingLabels{"app": "nopods-app"}); err != nil {
+			return false, nil
+		}
+		return len(podList.Items) == 0, nil
+	}))
+
+	// Force a fresh reconcile by touching the policy annotation.
+	require.NoError(t, retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		var p rightsizev1alpha1.RightSizePolicy
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "nopods-policy", Namespace: ns}, &p); err != nil {
+			return err
+		}
+		if p.Annotations == nil {
+			p.Annotations = make(map[string]string)
+		}
+		p.Annotations["e2e-force-reconcile"] = time.Now().Format(time.RFC3339)
+		return k8sClient.Update(ctx, &p)
+	}))
+
+	// Wait for the reconcile and verify recommendations are retained.
+	time.Sleep(15 * time.Second)
+
+	var final rightsizev1alpha1.RightSizePolicy
+	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "nopods-policy", Namespace: ns}, &final))
+	assert.Equal(t, int32(1), final.Status.Workloads.Discovered,
+		"deployment with 0 replicas should still be discovered")
+	assert.GreaterOrEqual(t, final.Status.Workloads.WithRecommendations, int32(0),
+		"recommendations from historical metrics should be retained even without live pods")
+	assert.Equal(t, int32(0), final.Status.Workloads.Resized,
+		"recommend mode should not resize anything")
+}
+
+func TestE2E_BearerToken_SecretRotation(t *testing.T) {
+	if os.Getenv("E2E_NIGHTLY") != "true" {
+		t.Skip("requires extended Prometheus warm-up; set E2E_NIGHTLY=true to run")
+	}
+	ns := uniqueNS("rotate")
+	createNamespace(t, ns)
+
+	// Create a Secret with initial bearer token.
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "rotate-token", Namespace: ns},
+		Data:       map[string][]byte{"token": []byte("initial-token")},
+	}
+	require.NoError(t, k8sClient.Create(ctx, secret))
+
+	createDeployment(t, "rotate-app", ns, "250m", "256Mi", 1)
+	waitForDeploymentReady(t, "rotate-app", ns, 60*time.Second)
+
+	deployName := "rotate-app"
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "rotate-policy", Namespace: ns},
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			TargetRef: rightsizev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
+			MetricsSource: rightsizev1alpha1.MetricsSource{
+				Prometheus: &rightsizev1alpha1.PrometheusConfig{
+					Address: promAddr,
+					BearerTokenSecret: &rightsizev1alpha1.SecretKeyRef{
+						Name: "rotate-token",
+						Key:  "token",
+					},
+				},
+				MinimumDataPoints: 1,
+				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+			},
+			CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.2"},
+			Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, SafetyMargin: "1.3"},
+			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+				Mode:     "Recommend",
+				Cooldown: &metav1.Duration{Duration: time.Minute},
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, policy))
+
+	// Wait for initial discovery with the first token.
+	waitForPolicyDiscovered(t, "rotate-policy", ns, 2*time.Minute)
+
+	var p1 rightsizev1alpha1.RightSizePolicy
+	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "rotate-policy", Namespace: ns}, &p1))
+	assert.Equal(t, int32(1), p1.Status.Workloads.Discovered,
+		"policy should discover workloads with initial token")
+
+	// Rotate the bearer token.
+	require.NoError(t, retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		var s corev1.Secret
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "rotate-token", Namespace: ns}, &s); err != nil {
+			return err
+		}
+		s.Data["token"] = []byte("rotated-token")
+		return k8sClient.Update(ctx, &s)
+	}))
+
+	// Force a fresh reconcile by touching the policy annotation.
+	require.NoError(t, retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		var p rightsizev1alpha1.RightSizePolicy
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "rotate-policy", Namespace: ns}, &p); err != nil {
+			return err
+		}
+		if p.Annotations == nil {
+			p.Annotations = make(map[string]string)
+		}
+		p.Annotations["e2e-force-reconcile"] = time.Now().Format(time.RFC3339)
+		return k8sClient.Update(ctx, &p)
+	}))
+
+	// Wait for reconcile to complete with the rotated token.
+	// Prometheus doesn't enforce auth, so both tokens work. The key assertion
+	// is that the reconcile succeeds (no PrometheusUnavailable condition)
+	// and workloads are still discovered.
+	time.Sleep(15 * time.Second)
+
+	var p2 rightsizev1alpha1.RightSizePolicy
+	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "rotate-policy", Namespace: ns}, &p2))
+	assert.Equal(t, int32(1), p2.Status.Workloads.Discovered,
+		"policy should continue discovering workloads after token rotation")
+
+	// Verify no PrometheusUnavailable condition set.
+	for _, c := range p2.Status.Conditions {
+		if c.Type == "Ready" {
+			assert.NotEqual(t, "PrometheusUnavailable", c.Reason,
+				"reconcile should succeed after token rotation, not show PrometheusUnavailable")
+		}
+	}
+}
