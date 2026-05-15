@@ -346,6 +346,12 @@ type CanaryStatus struct {
 	// StartTime is when the canary subset was first resized.
 	// +optional
 	StartTime *metav1.Time `json:"startTime,omitempty"`
+
+	// ObservedGeneration is the policy generation when this canary cycle
+	// started. If the policy spec changes (generation increments), the
+	// canary observation resets so the new configuration is re-validated.
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 
 // WorkloadStatus summarizes workload counts.

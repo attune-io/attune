@@ -1358,6 +1358,17 @@ func (r *RightSizePolicyReconciler) resolveCanaryPhase(ctx context.Context, poli
 
 	cs := policy.Status.Canary
 
+	// Spec changed since this canary cycle started: reset so the new
+	// configuration is re-validated from scratch.
+	if cs != nil && cs.ObservedGeneration != 0 && cs.ObservedGeneration != policy.Generation {
+		logger.Info("Policy spec changed, resetting canary observation",
+			"policy", policy.Name,
+			"oldGeneration", cs.ObservedGeneration,
+			"newGeneration", policy.Generation)
+		policy.Status.Canary = nil
+		cs = nil
+	}
+
 	// Phase: FullRollout already active from a prior reconcile.
 	if cs != nil && cs.Phase == rightsizev1alpha1.CanaryPhaseFullRollout {
 		return rightsizev1alpha1.ModeAuto
@@ -1392,8 +1403,9 @@ func (r *RightSizePolicyReconciler) resolveCanaryPhase(ctx context.Context, poli
 	if cs == nil {
 		now := metav1.Now()
 		policy.Status.Canary = &rightsizev1alpha1.CanaryStatus{
-			Phase:     rightsizev1alpha1.CanaryPhaseInProgress,
-			StartTime: &now,
+			Phase:              rightsizev1alpha1.CanaryPhaseInProgress,
+			StartTime:          &now,
+			ObservedGeneration: policy.Generation,
 		}
 	}
 	return currentMode

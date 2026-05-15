@@ -2709,6 +2709,57 @@ func TestResolveCanaryPhase_FullRolloutStaysAuto(t *testing.T) {
 	assert.Equal(t, rightsizev1alpha1.ModeAuto, mode, "FullRollout should map to Auto")
 }
 
+func TestResolveCanaryPhase_ResetsOnSpecChange(t *testing.T) {
+	startTime := metav1.NewTime(time.Now().Add(-10 * time.Minute))
+	policy := newTestPolicy("test-policy", "default")
+	policy.Generation = 3
+	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.ModeCanary
+	policy.Spec.UpdateStrategy.Canary = &rightsizev1alpha1.CanaryConfig{
+		Percentage:        20,
+		ObservationPeriod: metav1.Duration{Duration: 5 * time.Minute},
+		AutoPromote:       true,
+	}
+	// Canary was started at generation 2 -- spec has since changed.
+	policy.Status.Canary = &rightsizev1alpha1.CanaryStatus{
+		Phase:              rightsizev1alpha1.CanaryPhaseFullRollout,
+		StartTime:          &startTime,
+		ObservedGeneration: 2,
+	}
+
+	reconciler := &RightSizePolicyReconciler{}
+	mode := reconciler.resolveCanaryPhase(context.Background(), policy, rightsizev1alpha1.ModeCanary)
+
+	// Should reset and re-initialize, staying in canary mode.
+	assert.Equal(t, rightsizev1alpha1.ModeCanary, mode, "spec change should reset canary, not stay in FullRollout")
+	require.NotNil(t, policy.Status.Canary)
+	assert.Equal(t, rightsizev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.Phase)
+	assert.Equal(t, int64(3), policy.Status.Canary.ObservedGeneration, "new cycle should track current generation")
+}
+
+func TestResolveCanaryPhase_NoResetWhenGenerationMatches(t *testing.T) {
+	startTime := metav1.NewTime(time.Now().Add(-10 * time.Minute))
+	policy := newTestPolicy("test-policy", "default")
+	policy.Generation = 2
+	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.ModeCanary
+	policy.Spec.UpdateStrategy.Canary = &rightsizev1alpha1.CanaryConfig{
+		Percentage:        20,
+		ObservationPeriod: metav1.Duration{Duration: 5 * time.Minute},
+		AutoPromote:       true,
+	}
+	policy.Status.Canary = &rightsizev1alpha1.CanaryStatus{
+		Phase:              rightsizev1alpha1.CanaryPhaseInProgress,
+		StartTime:          &startTime,
+		ObservedGeneration: 2,
+	}
+
+	reconciler := &RightSizePolicyReconciler{}
+	mode := reconciler.resolveCanaryPhase(context.Background(), policy, rightsizev1alpha1.ModeCanary)
+
+	// Same generation: should promote normally after observation period.
+	assert.Equal(t, rightsizev1alpha1.ModeAuto, mode, "same generation should promote normally")
+	assert.Equal(t, rightsizev1alpha1.CanaryPhaseFullRollout, policy.Status.Canary.Phase)
+}
+
 // ---------- Reconcile with cooldown active ----------
 
 func TestReconcile_CooldownActive_SkipsResize(t *testing.T) {
