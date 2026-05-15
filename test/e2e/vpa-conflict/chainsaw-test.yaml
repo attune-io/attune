@@ -1,0 +1,157 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: vpa-conflict
+spec:
+  description: Verify that a RightSizePolicy coexists with a VPA on the same Deployment (warning only, not blocking)
+  timeouts:
+    apply: 30s
+    assert: 2m
+    delete: 30s
+  steps:
+    - name: install-vpa-crd
+      try:
+        - apply:
+            resource:
+              apiVersion: apiextensions.k8s.io/v1
+              kind: CustomResourceDefinition
+              metadata:
+                name: verticalpodautoscalers.autoscaling.k8s.io
+              spec:
+                group: autoscaling.k8s.io
+                names:
+                  kind: VerticalPodAutoscaler
+                  listKind: VerticalPodAutoscalerList
+                  plural: verticalpodautoscalers
+                  singular: verticalpodautoscaler
+                  shortNames: [vpa]
+                scope: Namespaced
+                versions:
+                  - name: v1
+                    served: true
+                    storage: true
+                    schema:
+                      openAPIV3Schema:
+                        type: object
+                        properties:
+                          spec:
+                            type: object
+                            properties:
+                              targetRef:
+                                type: object
+                                properties:
+                                  apiVersion:
+                                    type: string
+                                  kind:
+                                    type: string
+                                  name:
+                                    type: string
+                              updatePolicy:
+                                type: object
+                                properties:
+                                  updateMode:
+                                    type: string
+    - name: create-resources
+      try:
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: e2e-vpa-conflict
+        - apply:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: vpa-app
+                namespace: e2e-vpa-conflict
+              spec:
+                replicas: 1
+                selector:
+                  matchLabels:
+                    app: vpa-app
+                template:
+                  metadata:
+                    labels:
+                      app: vpa-app
+                  spec:
+                    containers:
+                      - name: app
+                        image: registry.k8s.io/pause:3.9
+                        resources:
+                          requests:
+                            cpu: 100m
+                            memory: 128Mi
+        - apply:
+            resource:
+              apiVersion: autoscaling.k8s.io/v1
+              kind: VerticalPodAutoscaler
+              metadata:
+                name: vpa-app
+                namespace: e2e-vpa-conflict
+              spec:
+                targetRef:
+                  apiVersion: apps/v1
+                  kind: Deployment
+                  name: vpa-app
+                updatePolicy:
+                  updateMode: "Off"
+        - apply:
+            resource:
+              apiVersion: rightsize.io/v1alpha1
+              kind: RightSizePolicy
+              metadata:
+                name: vpa-conflict-test
+                namespace: e2e-vpa-conflict
+              spec:
+                targetRef:
+                  kind: Deployment
+                  name: vpa-app
+                metricsSource:
+                  prometheus:
+                    address: http://prometheus-server.monitoring:80
+                  minimumDataPoints: 1
+                  historyWindow: 1h
+                cpu:
+                  percentile: 95
+                memory:
+                  percentile: 99
+                updateStrategy:
+                  mode: Recommend
+                  cooldown: 1m
+    - name: verify-deployment-ready
+      try:
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: vpa-app
+                namespace: e2e-vpa-conflict
+              status:
+                readyReplicas: 1
+    - name: verify-policy-reconciles-despite-vpa
+      try:
+        - assert:
+            resource:
+              apiVersion: rightsize.io/v1alpha1
+              kind: RightSizePolicy
+              metadata:
+                name: vpa-conflict-test
+                namespace: e2e-vpa-conflict
+              status:
+                workloads:
+                  discovered: 1
+  catch:
+    - describe:
+        apiVersion: rightsize.io/v1alpha1
+        kind: RightSizePolicy
+        namespace: e2e-vpa-conflict
+    - describe:
+        apiVersion: autoscaling.k8s.io/v1
+        kind: VerticalPodAutoscaler
+        namespace: e2e-vpa-conflict
+    - podLogs:
+        namespace: kube-rightsize-system
+        selector: app.kubernetes.io/name=kube-rightsize
