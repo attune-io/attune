@@ -39,6 +39,8 @@ type RecommendationExplanation struct {
 	RawPercentile       resource.Quantity
 	SafetyMargin        float64
 	AfterSafetyMargin   resource.Quantity
+	BurstFactor         float64
+	AfterBurst          resource.Quantity
 	Confidence          float64
 	ConfidenceFactor    float64
 	AfterConfidence     resource.Quantity

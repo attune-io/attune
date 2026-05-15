@@ -74,6 +74,15 @@ func (e *RecommendationEngine) RecommendWithExplanation(profile metrics.UsagePro
 
 	afterSafetyMargin := scaleQuantity(rawPercentile, e.safetyMargin)
 
+	// Burst-aware boost: if the profile detected a burst (max > 3x p95),
+	// widen the safety margin proportionally using a logarithmic scale
+	// so extreme bursts don't inflate the recommendation excessively.
+	burstFactor := 1.0
+	if profile.BurstDetected && profile.BurstMagnitude > 1 {
+		burstFactor = 1.0 + math.Log2(profile.BurstMagnitude)*0.1
+	}
+	afterBurst := scaleQuantity(afterSafetyMargin, burstFactor)
+
 	confidence := profile.Confidence
 	if confidence < 0.1 {
 		confidence = 0.1
@@ -82,7 +91,7 @@ func (e *RecommendationEngine) RecommendWithExplanation(profile metrics.UsagePro
 	if e.confidenceMultiplier != 0 && e.confidenceExponent != 0 {
 		confidenceFactor = math.Pow(1+e.confidenceMultiplier/confidence, e.confidenceExponent)
 	}
-	afterConfidence := scaleQuantity(afterSafetyMargin, confidenceFactor)
+	afterConfidence := scaleQuantity(afterBurst, confidenceFactor)
 
 	afterBounds := afterConfidence.DeepCopy()
 	boundsApplied := ""
@@ -122,6 +131,8 @@ func (e *RecommendationEngine) RecommendWithExplanation(profile metrics.UsagePro
 		RawPercentile:       rawPercentile.DeepCopy(),
 		SafetyMargin:        e.safetyMargin,
 		AfterSafetyMargin:   afterSafetyMargin.DeepCopy(),
+		BurstFactor:         burstFactor,
+		AfterBurst:          afterBurst.DeepCopy(),
 		Confidence:          profile.Confidence,
 		ConfidenceFactor:    confidenceFactor,
 		AfterConfidence:     afterConfidence.DeepCopy(),

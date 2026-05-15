@@ -1261,6 +1261,8 @@ func toAPIRecommendationExplanation(explanation recommendation.RecommendationExp
 		RawPercentile:     explanation.RawPercentile.DeepCopy(),
 		SafetyMargin:      explanation.SafetyMargin,
 		AfterSafetyMargin: explanation.AfterSafetyMargin.DeepCopy(),
+		BurstFactor:       explanation.BurstFactor,
+		AfterBurst:        explanation.AfterBurst.DeepCopy(),
 		Confidence:        explanation.Confidence,
 		ConfidenceFactor:  explanation.ConfidenceFactor,
 		AfterConfidence:   explanation.AfterConfidence.DeepCopy(),

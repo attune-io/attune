@@ -207,14 +207,65 @@ func TestRecommendationEngine_BurstyProfile(t *testing.T) {
 		true, // isCPU
 	)
 
-	// Bursty profile: P95 is low but max is very high.
+	// Profile with moderate usage so the burst boost is visible after the
+	// change filter's 10% minimum threshold.
 	ps := metrics.PercentileSet{
-		P50: 0.050,
-		P90: 0.080,
-		P95: 0.100,
-		P99: 0.200,
-		Max: 1.000, // 10x P95, clear burst
+		P50: 0.200,
+		P90: 0.350,
+		P95: 0.400,
+		P99: 0.600,
+		Max: 4.000, // 10x P95, clear burst
 	}
+	burstyProfile := metrics.UsageProfile{
+		OverallPercentiles: ps,
+		BurstDetected:      true,
+		BurstMagnitude:     10.0,
+		DataPoints:         5000,
+		TimeSpanDays:       7,
+		Confidence:         0.95,
+	}
+	for h := 0; h < 24; h++ {
+		burstyProfile.HourlyPercentiles[h] = ps
+	}
+
+	calmProfile := burstyProfile
+	calmProfile.BurstDetected = false
+	calmProfile.BurstMagnitude = 0
+
+	current := resource.MustParse("200m")
+	_, burstyExplain, _ := engine.RecommendWithExplanation(burstyProfile, current)
+	_, calmExplain, _ := engine.RecommendWithExplanation(calmProfile, current)
+
+	// The burst factor should be > 1.0 for the bursty profile.
+	assert.Greater(t, burstyExplain.BurstFactor, 1.0,
+		"bursty profile should have burst factor > 1.0")
+	assert.Equal(t, 1.0, calmExplain.BurstFactor,
+		"calm profile should have burst factor == 1.0")
+
+	// The post-burst value should be higher than the post-safety-margin value.
+	assert.Greater(t, burstyExplain.AfterBurst.MilliValue(), burstyExplain.AfterSafetyMargin.MilliValue(),
+		"burst should increase the value above safety margin")
+
+	// The calm profile's post-burst should equal its post-safety-margin.
+	assert.Equal(t, calmExplain.AfterSafetyMargin.MilliValue(), calmExplain.AfterBurst.MilliValue(),
+		"no burst should leave the value unchanged after safety margin")
+
+	t.Logf("Bursty afterBurst=%s (factor=%.3f), Calm afterBurst=%s (factor=%.3f)",
+		burstyExplain.AfterBurst.String(), burstyExplain.BurstFactor,
+		calmExplain.AfterBurst.String(), calmExplain.BurstFactor)
+}
+
+func TestRecommendationEngine_BurstExplanation(t *testing.T) {
+	engine := NewEngine(
+		95,
+		1.2,
+		resource.MustParse("50m"),
+		resource.MustParse("4000m"),
+		50,
+		true,
+	)
+
+	ps := metrics.PercentileSet{P50: 0.1, P90: 0.15, P95: 0.2, P99: 0.3, Max: 2.0}
 	profile := metrics.UsageProfile{
 		OverallPercentiles: ps,
 		BurstDetected:      true,
@@ -227,14 +278,35 @@ func TestRecommendationEngine_BurstyProfile(t *testing.T) {
 		profile.HourlyPercentiles[h] = ps
 	}
 
-	// Set current near the expected recommendation range so the change filter
-	// doesn't reject it as too small.
-	current := resource.MustParse("50m")
-	recommended, _ := engine.Recommend(profile, current)
+	_, explanation, _ := engine.RecommendWithExplanation(profile, resource.MustParse("100m"))
 
-	// The recommendation should be positive and at least the min bound.
-	assert.GreaterOrEqual(t, recommended.MilliValue(), int64(50))
-	t.Logf("Bursty profile: recommended=%s, current=%s", recommended.String(), current.String())
+	assert.Greater(t, explanation.BurstFactor, 1.0,
+		"burst factor should be > 1.0 for bursty profile")
+	assert.True(t, explanation.AfterBurst.Cmp(explanation.AfterSafetyMargin) > 0,
+		"afterBurst should be greater than afterSafetyMargin when burst is active")
+}
+
+func TestRecommendationEngine_NoBurstExplanation(t *testing.T) {
+	engine := NewEngine(95, 1.2, resource.MustParse("50m"), resource.MustParse("4000m"), 50, true)
+
+	ps := metrics.PercentileSet{P50: 0.1, P90: 0.15, P95: 0.2, P99: 0.3, Max: 0.5}
+	profile := metrics.UsageProfile{
+		OverallPercentiles: ps,
+		BurstDetected:      false,
+		DataPoints:         5000,
+		TimeSpanDays:       7,
+		Confidence:         0.95,
+	}
+	for h := 0; h < 24; h++ {
+		profile.HourlyPercentiles[h] = ps
+	}
+
+	_, explanation, _ := engine.RecommendWithExplanation(profile, resource.MustParse("100m"))
+
+	assert.Equal(t, 1.0, explanation.BurstFactor,
+		"burst factor should be 1.0 when no burst detected")
+	assert.Equal(t, explanation.AfterSafetyMargin.MilliValue(), explanation.AfterBurst.MilliValue(),
+		"afterBurst should equal afterSafetyMargin when no burst")
 }
 
 func TestRecommendationEngine_ExplainChain(t *testing.T) {

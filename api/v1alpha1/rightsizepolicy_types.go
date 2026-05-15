@@ -408,6 +408,15 @@ type ResourceRecommendationExplanation struct {
 	// AfterSafetyMargin is the value after applying the safety margin.
 	AfterSafetyMargin resource.Quantity `json:"afterSafetyMargin"`
 
+	// BurstFactor is the multiplier applied when burst is detected (max > 3x p95).
+	// 1.0 when no burst. Uses logarithmic scaling to avoid excessive inflation.
+	// +optional
+	BurstFactor float64 `json:"burstFactor,omitempty"`
+
+	// AfterBurst is the value after applying the burst factor.
+	// +optional
+	AfterBurst resource.Quantity `json:"afterBurst,omitempty"`
+
 	// Confidence is the profile confidence score used for adjustment.
 	Confidence float64 `json:"confidence"`
 
