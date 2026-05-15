@@ -22,6 +22,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -228,4 +229,32 @@ func TestFetchDefaults_ListError(t *testing.T) {
 	// Both namespace and cluster List calls fail; fetchDefaults returns nil.
 	result := r.fetchDefaults(context.Background(), "default")
 	assert.Nil(t, result, "fetchDefaults should return nil when List fails")
+}
+
+func TestFetchDefaults_UsesBoundedLists(t *testing.T) {
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithInterceptorFuncs(interceptor.Funcs{
+			List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+				listOpts := &client.ListOptions{}
+				for _, opt := range opts {
+					opt.ApplyToList(listOpts)
+				}
+				assert.Equal(t, int64(1), listOpts.Limit, "fetchDefaults should bound list calls to a single item")
+				return c.List(ctx, list, opts...)
+			},
+		}).
+		WithObjects(&rightsizev1alpha1.RightSizeDefaults{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster-defaults"},
+			Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+				CPU: &rightsizev1alpha1.ResourceConfig{Percentile: 90},
+			},
+		}).
+		Build()
+	// No namespace defaults exist, so fetchDefaults will hit both list paths.
+	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+
+	result := r.fetchDefaults(context.Background(), "default")
+	require.NotNil(t, result)
+	assert.Equal(t, int32(90), result.Spec.CPU.Percentile)
 }
