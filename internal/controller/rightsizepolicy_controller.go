@@ -464,7 +464,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			progressPercent(globalMaxDataPoints, int(minimumDP)))
 		if totalQueryErrors > 0 {
 			reason = rightsizev1alpha1.ReasonPrometheusUnavailable
-			message = fmt.Sprintf("Prometheus query errors (%d) prevented data collection; check operator logs", totalQueryErrors)
+			message = fmt.Sprintf("Prometheus query errors (%d) prevented CPU and/or memory data collection; check operator logs", totalQueryErrors)
 		}
 		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
 			Type:               rightsizev1alpha1.ConditionReady,

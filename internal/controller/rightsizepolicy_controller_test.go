@@ -2779,6 +2779,35 @@ func TestReconcile_PrometheusUnavailable(t *testing.T) {
 	assert.Equal(t, "PrometheusUnavailable", updated.Status.Conditions[0].Reason)
 }
 
+func TestReconcile_PrometheusQueryErrorsMentionBlockedDataTypes(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+
+	reconciler, fakeClient := newReconcilerForReconcile(&mockCollector{
+		queryRangeGroupedFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) (map[string][]rsmetrics.Sample, error) {
+			return nil, fmt.Errorf("connection refused")
+		},
+	}, policy, deploy)
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
+	}
+
+	result, err := reconciler.Reconcile(context.Background(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, reconciler.parseCooldown(policy), result.RequeueAfter)
+
+	var updated rightsizev1alpha1.RightSizePolicy
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "test-policy", Namespace: "default",
+	}, &updated))
+	cond := meta.FindStatusCondition(updated.Status.Conditions, rightsizev1alpha1.ConditionReady)
+	require.NotNil(t, cond)
+	assert.Equal(t, rightsizev1alpha1.ReasonPrometheusUnavailable, cond.Reason)
+	assert.Contains(t, cond.Message, "Prometheus query errors (2)")
+	assert.Contains(t, cond.Message, "CPU and/or memory data collection")
+}
+
 // ---------- resolveCanaryPhase ----------
 
 func TestResolveCanaryPhase_InitializesOnFirstCall(t *testing.T) {
