@@ -1,410 +1,311 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "kube-rightsize Helm Values",
-  "description": "Schema for validating kube-rightsize Helm chart values.yaml",
   "type": "object",
-  "required": ["image"],
+  "additionalProperties": false,
   "properties": {
     "replicaCount": {
       "type": "integer",
-      "description": "Number of operator replicas (use 2 for HA with leader election)",
+      "minimum": 1,
       "default": 1,
-      "minimum": 1
+      "description": "Number of operator replicas (use 2 for HA with leader election)"
     },
     "image": {
       "type": "object",
-      "description": "Container image configuration",
-      "required": ["repository"],
+      "additionalProperties": false,
       "properties": {
         "repository": {
           "type": "string",
-          "description": "Container image repository",
           "default": "ghcr.io/sebtardiflabs/kube-rightsize"
         },
         "pullPolicy": {
           "type": "string",
-          "description": "Image pull policy",
-          "default": "IfNotPresent",
-          "enum": ["Always", "IfNotPresent", "Never"]
+          "enum": ["Always", "IfNotPresent", "Never"],
+          "default": "IfNotPresent"
         },
         "tag": {
           "type": "string",
-          "description": "Image tag (defaults to Chart appVersion if empty)",
-          "default": ""
+          "default": "",
+          "description": "Image tag (defaults to Chart appVersion)"
         }
-      },
-      "additionalProperties": false
+      }
     },
     "imagePullSecrets": {
       "type": "array",
-      "description": "Image pull secrets",
-      "default": [],
       "items": {
         "type": "object",
         "properties": {
-          "name": {
-            "type": "string"
-          }
+          "name": { "type": "string" }
         },
         "required": ["name"]
-      }
+      },
+      "default": []
     },
     "nameOverride": {
       "type": "string",
-      "description": "Override the chart name",
       "default": ""
     },
     "fullnameOverride": {
       "type": "string",
-      "description": "Override the full name",
       "default": ""
     },
     "serviceAccount": {
       "type": "object",
-      "description": "ServiceAccount configuration",
+      "additionalProperties": false,
       "properties": {
         "create": {
           "type": "boolean",
-          "description": "Create a ServiceAccount",
           "default": true
         },
         "annotations": {
           "type": "object",
-          "description": "Annotations to add to the ServiceAccount",
-          "default": {},
-          "additionalProperties": {
-            "type": "string"
-          }
+          "additionalProperties": { "type": "string" },
+          "default": {}
         },
         "name": {
           "type": "string",
-          "description": "ServiceAccount name (generated if not set)",
           "default": ""
         }
-      },
-      "additionalProperties": false
+      }
     },
     "podAnnotations": {
       "type": "object",
-      "description": "Pod annotations",
-      "default": {},
-      "additionalProperties": {
-        "type": "string"
-      }
+      "additionalProperties": { "type": "string" },
+      "default": {}
     },
     "podSecurityContext": {
       "type": "object",
-      "description": "Pod security context",
-      "properties": {
-        "runAsNonRoot": {
-          "type": "boolean",
-          "description": "Require the pod to run as a non-root user",
-          "default": true
-        },
-        "seccompProfile": {
-          "type": "object",
-          "description": "Seccomp profile for the pod",
-          "properties": {
-            "type": {
-              "type": "string",
-              "description": "Seccomp profile type",
-              "default": "RuntimeDefault",
-              "enum": ["RuntimeDefault", "Unconfined", "Localhost"]
-            }
-          },
-          "additionalProperties": false
-        }
-      },
-      "additionalProperties": false
+      "description": "Pod-level security context"
     },
     "securityContext": {
       "type": "object",
-      "description": "Container security context",
-      "properties": {
-        "allowPrivilegeEscalation": {
-          "type": "boolean",
-          "description": "Whether the container can gain more privileges than its parent process",
-          "default": false
-        },
-        "capabilities": {
-          "type": "object",
-          "description": "Linux capabilities configuration",
-          "properties": {
-            "drop": {
-              "type": "array",
-              "description": "Capabilities to drop",
-              "default": ["ALL"],
-              "items": {
-                "type": "string"
-              }
-            }
-          },
-          "additionalProperties": false
-        },
-        "readOnlyRootFilesystem": {
-          "type": "boolean",
-          "description": "Whether the container has a read-only root filesystem",
-          "default": true
-        },
-        "runAsNonRoot": {
-          "type": "boolean",
-          "description": "Require the container to run as a non-root user",
-          "default": true
-        },
-        "runAsUser": {
-          "type": "integer",
-          "description": "The UID to run the container process as",
-          "default": 65532,
-          "minimum": 0
-        },
-        "runAsGroup": {
-          "type": "integer",
-          "description": "The GID to run the container process as",
-          "default": 65532,
-          "minimum": 0
-        }
-      },
-      "additionalProperties": false
+      "description": "Container-level security context"
     },
     "resources": {
       "type": "object",
-      "description": "Operator pod resources",
+      "description": "Operator pod resource requests and limits",
       "properties": {
         "limits": {
           "type": "object",
-          "description": "Resource limits",
-          "properties": {
-            "cpu": {
-              "type": "string",
-              "description": "CPU limit",
-              "default": "500m"
-            },
-            "memory": {
-              "type": "string",
-              "description": "Memory limit",
-              "default": "256Mi"
-            }
-          },
-          "additionalProperties": false
+          "additionalProperties": { "type": "string" }
         },
         "requests": {
           "type": "object",
-          "description": "Resource requests",
-          "properties": {
-            "cpu": {
-              "type": "string",
-              "description": "CPU request",
-              "default": "100m"
-            },
-            "memory": {
-              "type": "string",
-              "description": "Memory request",
-              "default": "128Mi"
-            }
-          },
-          "additionalProperties": false
+          "additionalProperties": { "type": "string" }
         }
-      },
-      "additionalProperties": false
+      }
     },
     "priorityClassName": {
       "type": "string",
-      "description": "Priority class name for the operator pod",
-      "default": ""
+      "default": "",
+      "description": "Priority class name for the operator pod"
     },
     "nodeSelector": {
       "type": "object",
-      "description": "Node selector",
-      "default": {},
-      "additionalProperties": {
-        "type": "string"
-      }
+      "additionalProperties": { "type": "string" },
+      "default": {}
     },
     "tolerations": {
       "type": "array",
-      "description": "Tolerations",
-      "default": [],
-      "items": {
-        "type": "object"
-      }
+      "items": { "type": "object" },
+      "default": []
     },
     "affinity": {
       "type": "object",
-      "description": "Affinity rules",
       "default": {}
     },
     "topologySpreadConstraints": {
       "type": "array",
-      "description": "Topology spread constraints",
-      "default": [],
-      "items": {
-        "type": "object"
-      }
+      "items": { "type": "object" },
+      "default": []
     },
     "leaderElection": {
       "type": "object",
-      "description": "Leader election (enable for HA with replicaCount > 1)",
+      "additionalProperties": false,
       "properties": {
         "enabled": {
           "type": "boolean",
-          "description": "Enable leader election",
           "default": true
         }
-      },
-      "additionalProperties": false
+      }
     },
     "metrics": {
       "type": "object",
-      "description": "Metrics endpoint configuration",
+      "additionalProperties": false,
       "properties": {
         "enabled": {
           "type": "boolean",
-          "description": "Enable metrics endpoint",
           "default": true
         },
         "port": {
           "type": "integer",
-          "description": "Metrics port",
-          "default": 8080,
           "minimum": 1,
-          "maximum": 65535
+          "maximum": 65535,
+          "default": 8080
         },
         "serviceMonitor": {
           "type": "object",
-          "description": "ServiceMonitor configuration for Prometheus Operator",
+          "additionalProperties": false,
           "properties": {
             "enabled": {
               "type": "boolean",
-              "description": "Create a ServiceMonitor for Prometheus Operator",
               "default": false
             },
             "additionalLabels": {
               "type": "object",
-              "description": "Additional labels for the ServiceMonitor",
-              "default": {},
-              "additionalProperties": {
-                "type": "string"
-              }
+              "additionalProperties": { "type": "string" },
+              "default": {}
             },
             "interval": {
               "type": "string",
-              "description": "Scrape interval",
+              "pattern": "^([0-9]+(ns|us|ms|s|m|h))+$",
               "default": "30s"
             }
-          },
-          "additionalProperties": false
+          }
         }
-      },
-      "additionalProperties": false
-    },
-    "networkPolicy": {
-      "type": "object",
-      "description": "NetworkPolicy configuration for operator ingress and egress ports",
-      "properties": {
-        "enabled": {
-          "type": "boolean",
-          "description": "Enable NetworkPolicy for the operator pod",
-          "default": true
-        },
-        "prometheusPort": {
-          "type": "integer",
-          "description": "TCP port allowed by NetworkPolicy for Prometheus backend pods",
-          "default": 9090,
-          "minimum": 1,
-          "maximum": 65535
-        }
-      },
-      "additionalProperties": false
+      }
     },
     "grafanaDashboard": {
       "type": "object",
-      "description": "Grafana dashboard ConfigMap configuration",
+      "additionalProperties": false,
       "properties": {
         "enabled": {
           "type": "boolean",
-          "description": "Create a ConfigMap with the Grafana dashboard",
           "default": false
         },
         "additionalLabels": {
           "type": "object",
-          "description": "Additional labels for the dashboard ConfigMap",
-          "default": {},
-          "additionalProperties": {
-            "type": "string"
-          }
+          "additionalProperties": { "type": "string" },
+          "default": {}
         }
-      },
-      "additionalProperties": false
+      }
     },
-    "defaults": {
+    "webhooks": {
       "type": "object",
-      "description": "Cluster-wide defaults (creates a RightSizeDefaults CR)",
+      "additionalProperties": false,
       "properties": {
         "enabled": {
           "type": "boolean",
-          "description": "Create a RightSizeDefaults resource",
+          "default": true,
+          "description": "Enable admission webhooks (requires cert-manager)"
+        }
+      }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "prometheusPort": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "default": 9090,
+          "description": "TCP port allowed for Prometheus backend pods"
+        }
+      }
+    },
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Cluster-wide RightSizeDefaults CR",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
           "default": false
         },
         "updateStrategy": {
           "type": "object",
-          "description": "Default update strategy for all policies",
+          "additionalProperties": false,
           "properties": {
-            "mode": { "type": "string", "enum": ["Observe", "Recommend", "OneShot", "Canary", "Auto"], "default": "Recommend" },
-            "cooldown": { "type": "string", "pattern": "^([0-9]+(ns|us|µs|ms|s|m|h))+$" },
-            "autoRevert": { "type": "boolean", "default": true },
-            "resizeMethod": { "type": "string", "enum": ["InPlaceOnly", "InPlaceOrEvict"], "default": "InPlaceOnly" },
-            "maxConcurrentResizes": { "type": "integer", "minimum": 1, "maximum": 50, "default": 1 },
+            "mode": {
+              "type": "string",
+              "enum": ["Observe", "Recommend", "OneShot", "Canary", "Auto"],
+              "default": "Recommend"
+            },
+            "cooldown": {
+              "type": "string",
+              "pattern": "^([0-9]+(ns|us|ms|s|m|h))+$",
+              "default": "1h"
+            },
+            "autoRevert": {
+              "type": "boolean",
+              "default": true
+            },
+            "resizeMethod": {
+              "type": "string",
+              "enum": ["InPlaceOnly", "InPlaceOrEvict"],
+              "default": "InPlaceOnly"
+            },
+            "maxConcurrentResizes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 1
+            },
             "schedule": {
               "type": "object",
+              "additionalProperties": false,
               "properties": {
-                "windows": { "type": "array", "items": { "type": "object", "properties": { "start": { "type": "string" }, "end": { "type": "string" } } } },
-                "daysOfWeek": { "type": "array", "items": { "type": "string" } },
-                "timezone": { "type": "string" }
+                "windows": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "start": { "type": "string", "pattern": "^[0-2][0-9]:[0-5][0-9]$" },
+                      "end": { "type": "string", "pattern": "^[0-2][0-9]:[0-5][0-9]$" }
+                    },
+                    "required": ["start", "end"]
+                  }
+                },
+                "daysOfWeek": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+                  }
+                },
+                "timezone": {
+                  "type": "string",
+                  "default": "UTC"
+                }
               }
             },
-            "maxTotalCpuIncrease": { "type": "string" },
-            "maxTotalMemoryIncrease": { "type": "string" }
+            "maxTotalCpuIncrease": {
+              "type": "string",
+              "description": "Per-cycle CPU increase budget (e.g. 2000m)"
+            },
+            "maxTotalMemoryIncrease": {
+              "type": "string",
+              "description": "Per-cycle memory increase budget (e.g. 4Gi)"
+            }
           }
         }
       }
     },
     "collectorTTL": {
       "type": "string",
-      "description": "Collector cache TTL for unused Prometheus connections (Go duration)",
+      "pattern": "^([0-9]+(ns|us|ms|s|m|h))+$",
       "default": "10m",
-      "pattern": "^([0-9]+(ns|us|µs|ms|s|m|h))+$"
+      "description": "Cache TTL for unused Prometheus connections (Go duration, e.g. 10m, 1h30m)"
     },
     "logging": {
       "type": "object",
-      "description": "Logging configuration",
+      "additionalProperties": false,
       "properties": {
         "level": {
           "type": "string",
-          "description": "Log level",
-          "default": "info",
-          "enum": ["debug", "info", "warn", "error"]
+          "enum": ["debug", "info", "warn", "error"],
+          "default": "info"
         },
         "format": {
           "type": "string",
-          "description": "Log format",
-          "default": "json",
-          "enum": ["json", "text"]
+          "enum": ["json", "text"],
+          "default": "json"
         }
-      },
-      "additionalProperties": false
-    },
-    "webhooks": {
-      "type": "object",
-      "description": "Webhook configuration",
-      "properties": {
-        "enabled": {
-          "type": "boolean",
-          "description": "Enable admission webhooks (requires cert-manager)",
-          "default": true
-        }
-      },
-      "additionalProperties": false
+      }
     }
-  },
-  "additionalProperties": false
+  }
 }
