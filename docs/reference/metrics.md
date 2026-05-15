@@ -39,7 +39,7 @@ Total number of reconciliation errors by type.
 
 | Label | Description |
 |-------|-------------|
-| `error_type` | `fetch`, `discover_workloads`, `get_pods`, `compute_recommendations`, or `status_update` |
+| `error_type` | `fetch`, `discover_workloads`, `get_pods`, `compute_recommendations`, `status_update`, or `safety_observation` |
 
 ### kube_rightsize_webhook_validation_total
 
@@ -147,6 +147,19 @@ Recommendation confidence score (0-1) per workload container.
 | `namespace` | Workload namespace |
 | `workload` | Workload name |
 | `container` | Container name |
+
+### kube_rightsize_burst_factor
+
+Burst detection multiplier applied to recommendations. A value of 1.0 means
+no burst detected; values above 1.0 indicate the recommendation was inflated
+to accommodate a detected usage burst.
+
+| Label | Description |
+|-------|-------------|
+| `namespace` | Workload namespace |
+| `workload` | Workload name |
+| `container` | Container name |
+| `resource` | `cpu` or `memory` |
 
 ## Histograms
 

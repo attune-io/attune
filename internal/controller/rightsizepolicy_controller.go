@@ -1524,6 +1524,7 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 	var podList corev1.PodList
 	if err := r.List(ctx, &podList, client.InNamespace(policy.Namespace), client.MatchingLabels{labelTracked: "true"}); err != nil {
 		logger.Error(err, "Failed to list pods for safety observation")
+		operatormetrics.ReconcileErrorsTotal.WithLabelValues("safety_observation").Inc()
 		return
 	}
 
@@ -1551,6 +1552,7 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 		if err != nil {
 			if !errors.Is(err, errNotReady) {
 				logger.Error(err, "Failed to parse resize records", "pod", pod.Name)
+				operatormetrics.ReconcileErrorsTotal.WithLabelValues("safety_observation").Inc()
 			}
 			continue
 		}
@@ -1560,6 +1562,7 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 			verdict, err := monitor.CheckPod(ctx, record)
 			if err != nil {
 				logger.Error(err, "Safety observation check failed", "pod", pod.Name, "container", record.Container)
+				operatormetrics.ReconcileErrorsTotal.WithLabelValues("safety_observation").Inc()
 				revertFailed = true
 				continue
 			}
