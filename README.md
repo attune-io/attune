@@ -34,7 +34,7 @@ resource requests and limits using [In-Place Pod Resize](https://kubernetes.io/b
 | HPA compatible | No (death spirals) | N/A | **Yes** (adjusts base, not %) |
 | Safety | Minimal guardrails | N/A | **Graduated rollout + auto-revert** |
 | Algorithm | Backward-looking histograms | VPA recommender | **Time-of-day-aware + burst detection** |
-| Production confidence | <1% use automated | N/A | **Observe -> Recommend -> Canary -> Auto** |
+| Production confidence | <1% use automated | N/A | **Observe -> Recommend -> Canary (auto-promote) -> Auto** |
 
 > **Migrating from VPA?** See the step-by-step [migration guide](docs/guides/migrating-from-vpa.md) for field-by-field mapping, side-by-side YAML, and zero-downtime cutover.
 

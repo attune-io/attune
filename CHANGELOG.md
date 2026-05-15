@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Burst detection now influences recommendations via logarithmic safety-margin boost
+- Canary auto-promotion: when `autoPromote: true`, the operator automatically promotes to full fleet resize after the observation period passes without safety violations
+- VPA conflict detection E2E test (Chainsaw scenario with inline CRD)
+- OOMKill safety revert E2E test (nightly Go E2E)
 - Helm values schema validation (`values.schema.json`) for catching typos at install time
 - Pending workloads column in `kubectl rightsize status` output
 - Secret name and key context in Prometheus auth failure messages
