@@ -13,6 +13,7 @@ spec:
     canary:
       percentage: 10          # resize 10% of pods first
       observationPeriod: 30m  # watch canary pods for 30 minutes
+      autoPromote: true       # promote to full fleet automatically
     maxCpuChangePercent: 50
     maxMemoryChangePercent: 30
     cooldown: 2h
@@ -23,6 +24,7 @@ spec:
 |-------|-------------|
 | `canary.percentage` | Percentage of eligible pods to resize in the first wave |
 | `canary.observationPeriod` | How long the operator monitors canary pods before proceeding |
+| `canary.autoPromote` | Automatically promote to full fleet after observation passes without reverts (default: false) |
 | `maxCpuChangePercent` | Maximum CPU change per resize cycle (default 50%) |
 | `maxMemoryChangePercent` | Maximum memory change per resize cycle (default 30%) |
 | `cooldown` | Minimum time between successive resize operations |
@@ -80,8 +82,27 @@ kubectl get rsp my-app -o jsonpath='{.status.resizeHistory}' | jq '.[] | select(
 
 ## Promoting from canary to full fleet
 
-Once canary pods have run successfully through multiple cooldown cycles,
-promote to **Auto** mode to resize all eligible pods:
+### Automatic promotion
+
+When `autoPromote: true`, the operator handles promotion automatically:
+
+1. After the canary pods pass the observation period with zero reverts,
+   the operator sets `status.canary.phase: FullRollout`.
+2. On the next reconcile, all eligible pods are resized (same as Auto mode).
+3. If any revert occurs during observation, promotion is blocked and the
+   operator continues resizing only the canary subset.
+
+Check the canary phase:
+
+```bash
+kubectl get rsp my-app -o jsonpath='{.status.canary.phase}'
+# CanaryInProgress -> FullRollout
+```
+
+### Manual promotion
+
+When `autoPromote` is false (default), promote to **Auto** mode manually
+after canary pods have run successfully through multiple cooldown cycles:
 
 ```bash
 kubectl patch rsp my-app --type merge \

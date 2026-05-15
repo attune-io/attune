@@ -119,9 +119,24 @@ if changePct > MaxChangePercent:
 
 ## Burst detection
 
-`BuildProfile()` flags bursts when `max > 3x p95`. The `BurstDetected` flag
-and `BurstMagnitude` ratio are available on the `UsageProfile` for
-downstream consumers to react to spiky workloads.
+`BuildProfile()` flags bursts when `max > 3x p95`. The recommendation engine
+uses `BurstMagnitude` to apply a logarithmic safety-margin boost:
+
+```
+burstFactor = 1 + 0.1 * log2(BurstMagnitude)
+```
+
+| Burst magnitude | Boost |
+|-----------------|-------|
+| 4x              | +20%  |
+| 8x              | +30%  |
+| 16x             | +40%  |
+| 100x            | +66%  |
+
+This step runs after the base safety margin and before the confidence
+adjustment. When no burst is detected (or magnitude <= 1), the factor
+is 1.0 (no change). The burst factor is visible in `kubectl rightsize explain`
+output via the `burstFactor` and `afterBurst` fields.
 
 ## Full pipeline example
 

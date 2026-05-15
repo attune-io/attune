@@ -61,6 +61,7 @@ spec:
     canary:                    # required when mode is Canary
       percentage: 10           # % of pods to resize first
       observationPeriod: 30m   # watch canary pods before proceeding
+      autoPromote: true        # promote to full fleet after safe observation (default: false)
     maxCpuChangePercent: 50    # max CPU change per cycle (default: 50)
     maxMemoryChangePercent: 30 # max memory change per cycle (default: 30)
     cooldown: 1h               # min time between resize operations (default: 1h)
