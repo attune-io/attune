@@ -931,8 +931,7 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 	ns := uniqueNS("oom")
 	createNamespace(t, ns)
 
-	// Deploy a pod with tight memory limits. The operator will manage both
-	// requests and limits via controlledValues: RequestsAndLimits.
+	// Phase 1: Deploy with sleep so the operator can resize first.
 	deploy := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "oom-app",
@@ -947,8 +946,8 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{{
 						Name:    "app",
-						Image:   "registry.k8s.io/e2e-test-images/busybox:1.36.1-1",
-						Command: []string{"sh", "-c", "sleep 3600"},
+						Image:   "ghcr.io/alexei-led/stress-ng:0.20.01",
+						Command: []string{"sleep", "3600"},
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{
 								corev1.ResourceCPU:    resource.MustParse("50m"),
@@ -1001,52 +1000,63 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 	}
 	require.NoError(t, k8sClient.Create(ctx, policy))
 
-	// Wait for the operator to resize the pod.
+	// Wait for the operator to resize the pod at least once.
 	waitForResize(t, "oom-policy", ns, 3*time.Minute)
 
-	// After resize, trigger OOMKill by allocating more memory than the limit.
-	var podList corev1.PodList
-	require.NoError(t, k8sClient.List(ctx, &podList,
-		client.InNamespace(ns), client.MatchingLabels{"app": "oom-app"}))
-	require.NotEmpty(t, podList.Items)
+	// Phase 2: Patch the deployment command to run stress-ng, which will
+	// allocate 96Mi against a 64Mi limit and trigger OOMKill.
+	patch := client.MergeFrom(deploy.DeepCopy())
+	deploy.Spec.Template.Spec.Containers[0].Command = []string{
+		"stress-ng", "--vm", "1", "--vm-bytes", "96M", "--timeout", "120",
+	}
+	require.NoError(t, k8sClient.Patch(ctx, deploy, patch))
+	t.Log("Patched deployment to run stress-ng (96Mi vs 64Mi limit)")
 
-	pod := podList.Items[0]
-	memLimit := pod.Spec.Containers[0].Resources.Limits[corev1.ResourceMemory]
-	t.Logf("Pod %s has memory limit %s after resize", pod.Name, memLimit.String())
+	// Phase 3: Wait for OOMKilled to appear in pod status.
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
+		var podList corev1.PodList
+		if err := k8sClient.List(ctx, &podList, client.InNamespace(ns), client.MatchingLabels{"app": "oom-app"}); err != nil {
+			return false, nil
+		}
+		for _, pod := range podList.Items {
+			for _, cs := range pod.Status.ContainerStatuses {
+				if cs.LastTerminationReason == "OOMKilled" {
+					t.Logf("OOMKill detected on pod %s", pod.Name)
+					return true, nil
+				}
+				if cs.State.Terminated != nil && cs.State.Terminated.Reason == "OOMKilled" {
+					t.Logf("OOMKill detected on pod %s (current state)", pod.Name)
+					return true, nil
+				}
+			}
+		}
+		return false, nil
+	}), "timed out waiting for OOMKill")
 
-	// Allocate memory to trigger OOMKill. Use dd to /dev/null with large bs.
-	// This runs inside the container and should exceed the memory limit.
-	allocMB := memLimit.Value()/(1024*1024) + 32 // exceed limit by 32Mi
-	execCmd := fmt.Sprintf("dd if=/dev/zero of=/dev/null bs=1M count=%d", allocMB)
-	_, err := clientset.CoreV1().Pods(ns).GetLogs(pod.Name, &corev1.PodLogOptions{}).DoRaw(ctx)
-	_ = err // ignore log read errors
-
-	// Use a subresource exec to trigger the allocation.
-	t.Logf("Triggering OOMKill with: %s (limit=%s, alloc=%dMi)", execCmd, memLimit.String(), allocMB)
-
-	// Instead of exec (which requires a SPDY connection), scale up memory
-	// usage by writing to tmpfs. This approach works without exec privileges.
-	// Write a stress marker annotation so the safety monitor can detect the crash.
-	// The simplest reliable approach: just verify the safety system detects
-	// the condition. The OOMKill will happen naturally if the pod's memory
-	// usage approaches its limit during normal container startup.
-
-	// Wait for the safety observation to complete and check for revert entries.
+	// Phase 4: Wait for the safety monitor to detect OOMKill and record a
+	// Reverted entry in the resize history.
 	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 5*time.Minute, true, func(ctx context.Context) (bool, error) {
 		var p rightsizev1alpha1.RightSizePolicy
 		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "oom-policy", Namespace: ns}, &p); err != nil {
 			return false, nil
 		}
-		// Check if resize history contains any entry (Success or Reverted).
-		return len(p.Status.ResizeHistory) > 0, nil
-	}))
+		for _, h := range p.Status.ResizeHistory {
+			if h.Result == rightsizev1alpha1.ResultReverted {
+				t.Logf("Revert detected: workload=%s container=%s resource=%s", h.Workload, h.Container, h.Resource)
+				return true, nil
+			}
+		}
+		return false, nil
+	}), "timed out waiting for safety revert after OOMKill")
 
 	var finalPolicy rightsizev1alpha1.RightSizePolicy
 	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "oom-policy", Namespace: ns}, &finalPolicy))
-	assert.NotEmpty(t, finalPolicy.Status.ResizeHistory,
-		"resize history should have entries after auto mode resize")
-	t.Logf("Resize history: %d entries", len(finalPolicy.Status.ResizeHistory))
+	hasRevert := false
 	for i, h := range finalPolicy.Status.ResizeHistory {
-		t.Logf("  [%d] workload=%s container=%s result=%s", i, h.Workload, h.Container, h.Result)
+		t.Logf("  [%d] workload=%s container=%s resource=%s result=%s", i, h.Workload, h.Container, h.Resource, h.Result)
+		if h.Result == rightsizev1alpha1.ResultReverted {
+			hasRevert = true
+		}
 	}
+	assert.True(t, hasRevert, "resize history should contain a Reverted entry after OOMKill")
 }
