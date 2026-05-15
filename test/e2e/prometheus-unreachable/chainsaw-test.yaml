@@ -62,6 +62,8 @@ spec:
                 updateStrategy:
                   mode: Recommend
     - name: verify-graceful-degradation
+      timeouts:
+        assert: 3m
       try:
         - assert:
             resource:

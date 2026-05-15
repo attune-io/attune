@@ -17,6 +17,8 @@ spec:
               kind: CustomResourceDefinition
               metadata:
                 name: verticalpodautoscalers.autoscaling.k8s.io
+                annotations:
+                  api-approved.kubernetes.io: "https://github.com/kubernetes/enhancements/pull/1883"
               spec:
                 group: autoscaling.k8s.io
                 names:
