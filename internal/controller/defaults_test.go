@@ -216,6 +216,37 @@ func TestFetchDefaults_NamespaceScopedOverridesCluster(t *testing.T) {
 	assert.Equal(t, int32(90), result.Spec.CPU.Percentile)
 }
 
+func TestFetchDefaults_NamespaceDefaultsDoNotMergeWithClusterDefaults(t *testing.T) {
+	clusterDefaults := &rightsizev1alpha1.RightSizeDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			CPU: &rightsizev1alpha1.ResourceConfig{Percentile: 90, SafetyMargin: "1.2"},
+			Memory: &rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.4"},
+		},
+	}
+	nsDefaults := &rightsizev1alpha1.RightSizeNamespaceDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "production-defaults", Namespace: "production"},
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			CPU: &rightsizev1alpha1.ResourceConfig{Percentile: 99},
+			// Memory intentionally omitted: namespace defaults should replace,
+			// not merge with, cluster defaults for this namespace.
+		},
+	}
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(clusterDefaults, nsDefaults).Build()
+	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+
+	policy := &rightsizev1alpha1.RightSizePolicy{}
+	defaults := r.fetchDefaults(context.Background(), "production")
+	require.NotNil(t, defaults)
+	r.mergeDefaults(policy, defaults)
+
+	assert.Equal(t, int32(99), policy.Spec.CPU.Percentile)
+	assert.Zero(t, policy.Spec.Memory.Percentile)
+	assert.Empty(t, policy.Spec.Memory.SafetyMargin)
+}
+
 func TestFetchDefaults_ListError(t *testing.T) {
 	scheme := testScheme()
 	errClient := fake.NewClientBuilder().WithScheme(scheme).
