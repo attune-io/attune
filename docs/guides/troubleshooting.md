@@ -16,6 +16,12 @@ kubectl get rsp <name> -o jsonpath='{.status.conditions}' | jq .
 (in order): policy spec, RightSizeDefaults, Prometheus Operator CRD,
 well-known service names. All four failed.
 
+If the condition message includes `Cannot resolve Prometheus config: SSRF blocked`,
+the configured address points at `localhost`, `127.0.0.1`, `::1`, or a
+cloud metadata endpoint. Replace it with the in-cluster Prometheus Service
+DNS name or ClusterIP. A local `kubectl port-forward` URL on your workstation
+will not work.
+
 **Fix**:
 
 1. Set the address explicitly in a `RightSizeDefaults` resource:

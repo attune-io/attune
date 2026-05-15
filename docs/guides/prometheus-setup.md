@@ -61,6 +61,16 @@ spec:
 
 Use this when different namespaces use different Prometheus instances.
 
+!!! warning "Use an in-cluster address"
+    The operator validates `metricsSource.prometheus.address` to block
+    loopback and cloud metadata endpoints. `http://127.0.0.1:9090`,
+    `http://[::1]:9090`, `http://169.254.169.254/...`, and metadata
+    hostnames are rejected. Do not point a policy at a local port-forward
+    or a workstation URL. Use a Service DNS name or ClusterIP that the
+    operator can reach from inside the cluster, such as
+    `http://prometheus-server.monitoring:80`. Private cluster IPs are
+    allowed.
+
 ### 2. Cluster-wide defaults
 
 ```yaml
@@ -204,8 +214,9 @@ kubectl get rsp -A
 | `Ready: False, Reason: InsufficientData` | Prometheus reachable but not enough history yet |
 | `Ready: False, Reason: PrometheusUnavailable` | No Prometheus address found (check resolution chain above) |
 
-If the condition is `InsufficientData`, wait for the `historyWindow` period
-(default 7 days) to accumulate enough data points (default 168).
+If the condition is `InsufficientData`, wait for enough samples to accumulate.
+By default, recommendations need `minimumDataPoints: 48` (about 2 days of
+hourly samples) within the default `historyWindow: 168h`.
 
 ## Operator metrics (what kube-rightsize exposes)
 
