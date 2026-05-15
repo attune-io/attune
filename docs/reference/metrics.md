@@ -11,7 +11,7 @@ Total number of resize operations performed.
 |-------|-------------|
 | `namespace` | Workload namespace |
 | `workload` | Workload name |
-| `resource` | `cpu` or `memory` |
+| `resource` | `cpu`, `memory`, or `eviction` (when InPlaceOrEvict falls back to eviction) |
 | `result` | `success`, `failed`, or `reverted` |
 
 ### kube_rightsize_reverts_total
@@ -22,7 +22,7 @@ Total number of resize reverts triggered by the safety monitor.
 |-------|-------------|
 | `namespace` | Workload namespace |
 | `workload` | Workload name |
-| `reason` | `oomkill`, `throttle`, `restart`, or `notready` |
+| `reason` | `oomkill`, `throttle`, `restart`, `notready`, `re-fetch-failed`, or `annotation-persist-failed` |
 
 ### kube_rightsize_prometheus_query_errors_total
 
@@ -79,7 +79,7 @@ to pod eviction after an in-place resize fails or is marked Infeasible.
 |-------|-------------|
 | `namespace` | Workload namespace |
 | `workload` | Workload name |
-| `result` | `success` or `failed` |
+| `result` | `success` or `denied` |
 
 ### kube_rightsize_infeasible_skipped_total
 

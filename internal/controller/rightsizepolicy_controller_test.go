@@ -1828,13 +1828,13 @@ func TestParseResizeRecords_RestoresLimits(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "limits-pod", Namespace: "default",
 			Annotations: map[string]string{
-				annotationResizedAt:                                resizedAt,
-				annotationResizedContainers:                        "app",
-				annotationOriginalCPUPrefix + "app":                "100m",
-				annotationOriginalMemoryPrefix + "app":             "64Mi",
-				annotationOriginalCPULimitPrefix + "app":           "200m",
-				annotationOriginalMemoryLimitPrefix + "app":        "128Mi",
-				annotationOriginalRestartCountPrefix + "app":       "0",
+				annotationResizedAt:                          resizedAt,
+				annotationResizedContainers:                  "app",
+				annotationOriginalCPUPrefix + "app":          "100m",
+				annotationOriginalMemoryPrefix + "app":       "64Mi",
+				annotationOriginalCPULimitPrefix + "app":     "200m",
+				annotationOriginalMemoryLimitPrefix + "app":  "128Mi",
+				annotationOriginalRestartCountPrefix + "app": "0",
 			},
 		},
 		Spec: corev1.PodSpec{Containers: []corev1.Container{
@@ -1869,11 +1869,11 @@ func TestParseResizeRecords_NoLimitAnnotations(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "no-limits-pod", Namespace: "default",
 			Annotations: map[string]string{
-				annotationResizedAt:                            resizedAt,
-				annotationResizedContainers:                    "app",
-				annotationOriginalCPUPrefix + "app":            "100m",
-				annotationOriginalMemoryPrefix + "app":         "64Mi",
-				annotationOriginalRestartCountPrefix + "app":   "0",
+				annotationResizedAt:                          resizedAt,
+				annotationResizedContainers:                  "app",
+				annotationOriginalCPUPrefix + "app":          "100m",
+				annotationOriginalMemoryPrefix + "app":       "64Mi",
+				annotationOriginalRestartCountPrefix + "app": "0",
 			},
 		},
 		Spec: corev1.PodSpec{Containers: []corev1.Container{
