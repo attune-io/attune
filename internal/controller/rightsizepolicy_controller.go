@@ -1358,9 +1358,9 @@ func buildRecommendationEngines(policy *rightsizev1alpha1.RightSizePolicy) (cpuE
 }
 
 // buildResizeTarget constructs the target ResourceRequirements from a container recommendation.
-// Limits are only included when the recommendation has non-zero limits (i.e., controlledValues
-// is RequestsAndLimits and the original pod had limits set). This avoids trying to ADD limits
-// to pods that never had them, which Kubernetes rejects.
+// Limits are included when non-zero: for RequestsOnly they equal the current limits (no-op),
+// for RequestsAndLimits they are scaled proportionally. Pods that never had limits produce
+// zero-valued limit fields, which are omitted to avoid Kubernetes rejecting the resize.
 func buildResizeTarget(rec rightsizev1alpha1.ContainerRecommendation) corev1.ResourceRequirements {
 	target := corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{

@@ -1093,6 +1093,55 @@ func TestComputeRecommendations_AllowDecreaseBlocked(t *testing.T) {
 		"memory should not decrease below current when AllowDecrease is nil, got %s", rec.Containers[0].Recommended.MemoryRequest.String())
 }
 
+func TestComputeRecommendations_RequestsOnly(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	// ControlledValues defaults to RequestsOnly when nil.
+	// Also verify the explicit "RequestsOnly" value behaves identically.
+	for _, cv := range []struct {
+		name string
+		val  *string
+	}{
+		{"nil (default)", nil},
+		{"explicit RequestsOnly", stringPtr("RequestsOnly")},
+	} {
+		t.Run(cv.name, func(t *testing.T) {
+			policy.Spec.CPU.ControlledValues = cv.val
+			policy.Spec.Memory.ControlledValues = cv.val
+
+			deploy := newTestDeployment("api-server", "default", nil)
+			reconciler := newReconcilerWithClient()
+
+			mc := &mockCollector{
+				queryRangeFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+					return generateSamples(200, 0.1), nil
+				},
+			}
+
+			rec, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
+			require.NoError(t, err)
+			require.NotNil(t, rec)
+			require.Len(t, rec.Containers, 1)
+
+			c := rec.Containers[0]
+			// Requests should be adjusted by the recommendation engine.
+			assert.False(t, c.Recommended.CPURequest.IsZero(), "CPURequest should be set")
+			assert.False(t, c.Recommended.MemoryRequest.IsZero(), "MemoryRequest should be set")
+
+			// With RequestsOnly, limits should stay at the CURRENT values (not scaled).
+			// The deployment has limits: CPU=1000m, Memory=1Gi.
+			assert.True(t, c.Recommended.CPULimit.Equal(resource.MustParse("1000m")),
+				"CPULimit should be unchanged at 1000m, got %s", c.Recommended.CPULimit.String())
+			assert.True(t, c.Recommended.MemoryLimit.Equal(resource.MustParse("1Gi")),
+				"MemoryLimit should be unchanged at 1Gi, got %s", c.Recommended.MemoryLimit.String())
+
+			// Verify requests actually changed from the original 500m/512Mi.
+			original := resource.MustParse("500m")
+			assert.NotEqual(t, original.MilliValue(), c.Recommended.CPURequest.MilliValue(),
+				"CPURequest should differ from the original 500m")
+		})
+	}
+}
+
 func TestComputeRecommendations_RequestsAndLimits(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	ral := "RequestsAndLimits"
