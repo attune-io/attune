@@ -699,6 +699,22 @@ func TestParseHistoryWindow_Custom(t *testing.T) {
 	assert.Equal(t, 14*24*time.Hour, r.parseHistoryWindow(policy))
 }
 
+func TestParseHistoryWindow_ClampedTooSmall(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	policy := &rightsizev1alpha1.RightSizePolicy{}
+	d := metav1.Duration{Duration: 10 * time.Minute}
+	policy.Spec.MetricsSource.HistoryWindow = &d
+	assert.Equal(t, time.Hour, r.parseHistoryWindow(policy), "should clamp to 1h minimum")
+}
+
+func TestParseHistoryWindow_ClampedTooLarge(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	policy := &rightsizev1alpha1.RightSizePolicy{}
+	d := metav1.Duration{Duration: 1000 * time.Hour}
+	policy.Spec.MetricsSource.HistoryWindow = &d
+	assert.Equal(t, 720*time.Hour, r.parseHistoryWindow(policy), "should clamp to 720h maximum")
+}
+
 func TestGetMinimumDataPoints_Default(t *testing.T) {
 	r := &RightSizePolicyReconciler{}
 	policy := &rightsizev1alpha1.RightSizePolicy{}
