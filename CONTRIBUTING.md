@@ -51,13 +51,13 @@ make test
 make test-integration
 
 # E2E tests (requires a local cluster with operator deployed)
-# Option A: k3d (fast startup, uses k3s)
+# Recommended: k3d, because CI and nightly workflows run on k3d/K3S
 make k3d-create                           # create k3d cluster
 make k3d-deploy IMG=kube-rightsize:e2e    # build, load, deploy
 make test-e2e                             # run Chainsaw E2E scenarios
 make k3d-delete                           # clean up
 
-# Option B: Kind (upstream K8s, production-accurate)
+# Alternative: Kind (supported, but local-only and not the default CI path)
 make kind-create                          # create Kind cluster
 make kind-deploy IMG=kube-rightsize:e2e   # build, load, deploy
 make test-e2e                             # run Chainsaw E2E scenarios

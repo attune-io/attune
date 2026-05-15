@@ -65,13 +65,13 @@ behaves correctly.
 ### Running E2E tests from scratch
 
 ```bash
-# Option A: k3d (fast startup, uses k3s)
+# Recommended: k3d, because CI and nightly workflows run on k3d/K3S
 make k3d-create
 make k3d-deploy IMG=kube-rightsize:e2e
 make test-e2e
 make k3d-delete
 
-# Option B: Kind (upstream K8s, production-accurate)
+# Alternative: Kind (supported, but local-only and not the default CI path)
 make kind-create
 make kind-deploy IMG=kube-rightsize:e2e
 make test-e2e

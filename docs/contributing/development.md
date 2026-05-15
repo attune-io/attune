@@ -27,13 +27,14 @@ The binary is written to `bin/manager`.
 
 ## Local cluster
 
-Create a local Kubernetes cluster. Either option works:
+Create a local Kubernetes cluster. Prefer k3d unless you specifically need Kind,
+because CI and nightly workflows run on k3d/K3S:
 
 ```bash
-# Option A: k3d (fast startup, uses k3s)
+# Recommended: k3d (matches CI and nightly workflows)
 make k3d-create
 
-# Option B: Kind (upstream K8s, production-accurate)
+# Alternative: Kind (supported, but not the default CI path)
 make kind-create
 ```
 
