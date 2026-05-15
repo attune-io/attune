@@ -82,6 +82,8 @@ func removeTrackingAnnotations(pod *corev1.Pod) {
 			}
 			delete(pod.Annotations, annotationOriginalCPUPrefix+name)
 			delete(pod.Annotations, annotationOriginalMemoryPrefix+name)
+			delete(pod.Annotations, annotationOriginalCPULimitPrefix+name)
+			delete(pod.Annotations, annotationOriginalMemoryLimitPrefix+name)
 			delete(pod.Annotations, annotationOriginalRestartCountPrefix+name)
 		}
 	}

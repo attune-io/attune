@@ -24,6 +24,7 @@ package e2e_go
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"testing"
 	"time"
@@ -38,7 +39,9 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/tools/remotecommand"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -48,6 +51,7 @@ import (
 var (
 	k8sClient  client.Client
 	clientset  *kubernetes.Clientset
+	restConfig *rest.Config
 	ctx        context.Context
 	cancel     context.CancelFunc
 	promAddr   = "http://prometheus-server.monitoring:80"
@@ -66,6 +70,7 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic("failed to build kubeconfig: " + err.Error())
 	}
+	restConfig = cfg
 
 	err = rightsizev1alpha1.AddToScheme(scheme.Scheme)
 	if err != nil {
@@ -947,10 +952,14 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 					Containers: []corev1.Container{{
 						Name:    "app",
 						Image:   "ghcr.io/alexei-led/stress-ng:0.20.01",
-						Command: []string{"sleep", "3600"},
+						Command: []string{"/stress-ng", "--sleep", "1", "--timeout", "3600"},
+						ResizePolicy: []corev1.ContainerResizePolicy{
+							{ResourceName: corev1.ResourceCPU, RestartPolicy: corev1.NotRequired},
+							{ResourceName: corev1.ResourceMemory, RestartPolicy: corev1.RestartContainer},
+						},
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{
-								corev1.ResourceCPU:    resource.MustParse("50m"),
+								corev1.ResourceCPU:    resource.MustParse("100m"),
 								corev1.ResourceMemory: resource.MustParse("64Mi"),
 							},
 							Limits: corev1.ResourceList{
@@ -964,7 +973,7 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 		},
 	}
 	require.NoError(t, k8sClient.Create(ctx, deploy))
-	waitForDeploymentReady(t, "oom-app", ns, 60*time.Second)
+	waitForDeploymentReady(t, "oom-app", ns, 120*time.Second)
 
 	controlledValues := rightsizev1alpha1.ControlledRequestsAndLimits
 	deployName := "oom-app"
@@ -978,9 +987,10 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 			},
 			CPU: rightsizev1alpha1.ResourceConfig{
-				Percentile:   95,
-				SafetyMargin: "1.2",
-				Bounds:       &rightsizev1alpha1.ResourceBounds{Min: resource.MustParse("10m"), Max: resource.MustParse("1000m")},
+				Percentile:       95,
+				SafetyMargin:     "1.2",
+				ControlledValues: &controlledValues,
+				Bounds:           &rightsizev1alpha1.ResourceBounds{Min: resource.MustParse("10m"), Max: resource.MustParse("1000m")},
 			},
 			Memory: rightsizev1alpha1.ResourceConfig{
 				Percentile:       99,
@@ -991,10 +1001,14 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 			},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 				Mode:                   "Auto",
-				Cooldown:               &metav1.Duration{Duration: 30 * time.Second},
+				Cooldown:               &metav1.Duration{Duration: 1 * time.Minute},
 				AutoRevert:             true,
 				MaxCPUChangePercent:    100,
 				MaxMemoryChangePercent: 100,
+				Canary: &rightsizev1alpha1.CanaryConfig{
+					Percentage:        100,
+					ObservationPeriod: metav1.Duration{Duration: 30 * time.Second},
+				},
 			},
 		},
 	}
@@ -1003,25 +1017,49 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 	// Wait for the operator to resize the pod at least once.
 	waitForResize(t, "oom-policy", ns, 3*time.Minute)
 
-	// Phase 2: Patch the deployment command to run stress-ng, which will
-	// allocate 96Mi against a 64Mi limit and trigger OOMKill.
-	patch := client.MergeFrom(deploy.DeepCopy())
-	deploy.Spec.Template.Spec.Containers[0].Command = []string{
-		"stress-ng", "--vm", "1", "--vm-bytes", "96M", "--timeout", "120",
-	}
-	require.NoError(t, k8sClient.Patch(ctx, deploy, patch))
-	t.Log("Patched deployment to run stress-ng (96Mi vs 64Mi limit)")
+	// Phase 2: Exec into the running pod to trigger OOM. Using exec keeps the
+	// same pod (no deployment rollout), so the safety monitor can correlate the
+	// OOMKill with its resize record.
+	var podList corev1.PodList
+	require.NoError(t, k8sClient.List(ctx, &podList, client.InNamespace(ns), client.MatchingLabels{"app": "oom-app"}))
+	require.Len(t, podList.Items, 1, "expected exactly one oom-app pod")
+	podName := podList.Items[0].Name
+	t.Logf("Exec'ing OOM stressor into pod %s", podName)
+
+	go func() {
+		req := clientset.CoreV1().RESTClient().Post().
+			Resource("pods").
+			Namespace(ns).
+			Name(podName).
+			SubResource("exec").
+			VersionedParams(&corev1.PodExecOptions{
+				Container: "app",
+				Command:   []string{"/stress-ng", "--vm", "1", "--vm-bytes", "256M", "--timeout", "120"},
+				Stdout:    true,
+				Stderr:    true,
+			}, scheme.ParameterCodec)
+		exec, err := remotecommand.NewSPDYExecutor(restConfig, "POST", req.URL())
+		if err != nil {
+			t.Logf("exec setup error (expected if container dies): %v", err)
+			return
+		}
+		// StreamWithContext will fail when the container is OOMKilled; that's expected.
+		_ = exec.StreamWithContext(ctx, remotecommand.StreamOptions{
+			Stdout: io.Discard,
+			Stderr: io.Discard,
+		})
+	}()
 
 	// Phase 3: Wait for OOMKilled to appear in pod status.
 	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
-		var podList corev1.PodList
-		if err := k8sClient.List(ctx, &podList, client.InNamespace(ns), client.MatchingLabels{"app": "oom-app"}); err != nil {
+		var pods corev1.PodList
+		if err := k8sClient.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{"app": "oom-app"}); err != nil {
 			return false, nil
 		}
-		for _, pod := range podList.Items {
+		for _, pod := range pods.Items {
 			for _, cs := range pod.Status.ContainerStatuses {
-				if cs.LastTerminationReason == "OOMKilled" {
-					t.Logf("OOMKill detected on pod %s", pod.Name)
+				if cs.LastTerminationState.Terminated != nil && cs.LastTerminationState.Terminated.Reason == "OOMKilled" {
+					t.Logf("OOMKill detected on pod %s (last termination)", pod.Name)
 					return true, nil
 				}
 				if cs.State.Terminated != nil && cs.State.Terminated.Reason == "OOMKilled" {

@@ -71,6 +71,8 @@ const (
 	// Per-container annotation prefixes (suffixed with ".containerName").
 	annotationOriginalCPUPrefix          = "rightsize.io/original-cpu-request."
 	annotationOriginalMemoryPrefix       = "rightsize.io/original-memory-request."
+	annotationOriginalCPULimitPrefix     = "rightsize.io/original-cpu-limit."
+	annotationOriginalMemoryLimitPrefix  = "rightsize.io/original-memory-limit."
 	annotationOriginalRestartCountPrefix = "rightsize.io/original-restart-count."
 
 	// defaultHistoryWindow is the default history window if not specified.
@@ -1155,6 +1157,12 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 	appendResizedContainer(freshPod, containerRec.Name)
 	freshPod.Annotations[annotationOriginalCPUPrefix+containerRec.Name] = containerRec.Current.CPURequest.String()
 	freshPod.Annotations[annotationOriginalMemoryPrefix+containerRec.Name] = containerRec.Current.MemoryRequest.String()
+	if !containerRec.Current.CPULimit.IsZero() {
+		freshPod.Annotations[annotationOriginalCPULimitPrefix+containerRec.Name] = containerRec.Current.CPULimit.String()
+	}
+	if !containerRec.Current.MemoryLimit.IsZero() {
+		freshPod.Annotations[annotationOriginalMemoryLimitPrefix+containerRec.Name] = containerRec.Current.MemoryLimit.String()
+	}
 	freshPod.Annotations[annotationOriginalRestartCountPrefix+containerRec.Name] = strconv.FormatInt(int64(restartCount), 10)
 
 	if updateErr := r.Update(ctx, freshPod); updateErr != nil {
@@ -1571,6 +1579,13 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 					r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, rightsizev1alpha1.ResultReverted, "revert",
 						"Safety observation reverted resize on pod %s/%s: %s", pod.Name, record.Container, verdict.Message)
 				}
+				// Mark matching history entries as reverted so status reflects the revert.
+				for i := range policy.Status.ResizeHistory {
+					h := &policy.Status.ResizeHistory[i]
+					if h.Workload == workloadName && h.Container == record.Container && h.Result == rightsizev1alpha1.ResultSuccess {
+						h.Result = rightsizev1alpha1.ResultReverted
+					}
+				}
 			}
 		}
 
@@ -1641,20 +1656,39 @@ func parseResizeRecords(pod *corev1.Pod, observationPeriod time.Duration) ([]saf
 			origRestartCount = int32(rc)
 		}
 
-		records = append(records, safety.ResizeRecord{
-			PodName:   pod.Name,
-			Namespace: pod.Namespace,
-			Container: containerName,
-			OriginalResources: corev1.ResourceRequirements{
-				Requests: corev1.ResourceList{
-					corev1.ResourceCPU:    originalCPU,
-					corev1.ResourceMemory: originalMem,
-				},
+		origResources := corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    originalCPU,
+				corev1.ResourceMemory: originalMem,
 			},
-			NewResources:   currentResources,
-			ResizedAt:      resizedAt,
-			ObservationEnd: resizedAt.Add(observationPeriod),
-			RestartCount:   origRestartCount,
+		}
+		// Restore original limits if they were saved (pods that had limits set before resize).
+		if cpuLimStr := pod.Annotations[annotationOriginalCPULimitPrefix+containerName]; cpuLimStr != "" {
+			if cpuLim, err := resource.ParseQuantity(cpuLimStr); err == nil {
+				if origResources.Limits == nil {
+					origResources.Limits = make(corev1.ResourceList)
+				}
+				origResources.Limits[corev1.ResourceCPU] = cpuLim
+			}
+		}
+		if memLimStr := pod.Annotations[annotationOriginalMemoryLimitPrefix+containerName]; memLimStr != "" {
+			if memLim, err := resource.ParseQuantity(memLimStr); err == nil {
+				if origResources.Limits == nil {
+					origResources.Limits = make(corev1.ResourceList)
+				}
+				origResources.Limits[corev1.ResourceMemory] = memLim
+			}
+		}
+
+		records = append(records, safety.ResizeRecord{
+			PodName:           pod.Name,
+			Namespace:         pod.Namespace,
+			Container:         containerName,
+			OriginalResources: origResources,
+			NewResources:      currentResources,
+			ResizedAt:         resizedAt,
+			ObservationEnd:    resizedAt.Add(observationPeriod),
+			RestartCount:      origRestartCount,
 		})
 	}
 
