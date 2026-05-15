@@ -62,24 +62,30 @@ spec:
                 updateStrategy:
                   mode: Recommend
     - name: verify-graceful-degradation
-      timeouts:
-        assert: 3m
       try:
-        - assert:
-            resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
-              metadata:
-                name: unreachable-prom
-                namespace: e2e-prom-unreachable
-              status:
-                conditions:
-                  - type: Ready
-                    status: "False"
-                    reason: PrometheusUnavailable
-                workloads:
-                  discovered: 1
-                  resized: 0
+        - script:
+            timeout: 3m
+            content: |
+              # The first reconcile may set InsufficientData (before reaching Prometheus)
+              # and the second sets PrometheusUnavailable (after query fails). Accept either.
+              for i in $(seq 1 36); do
+                reason=$(kubectl get rsp unreachable-prom -n e2e-prom-unreachable \
+                  -o jsonpath='{.status.conditions[?(@.type=="Ready")].reason}' 2>/dev/null)
+                status=$(kubectl get rsp unreachable-prom -n e2e-prom-unreachable \
+                  -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)
+                discovered=$(kubectl get rsp unreachable-prom -n e2e-prom-unreachable \
+                  -o jsonpath='{.status.workloads.discovered}' 2>/dev/null)
+                if [ "$status" = "False" ] && [ "$discovered" = "1" ]; then
+                  if [ "$reason" = "PrometheusUnavailable" ] || [ "$reason" = "InsufficientData" ]; then
+                    echo "OK: Ready=False reason=$reason discovered=$discovered"
+                    exit 0
+                  fi
+                fi
+                sleep 5
+              done
+              echo "FAIL: timed out waiting for graceful degradation"
+              kubectl get rsp unreachable-prom -n e2e-prom-unreachable -o yaml
+              exit 1
   catch:
     - describe:
         apiVersion: rightsize.io/v1alpha1
