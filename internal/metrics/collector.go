@@ -21,6 +21,7 @@ package metrics
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -102,6 +103,8 @@ func isBlockedIP(ip net.IP) bool {
 	return ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
 		ip.IsUnspecified() || ip.Equal(awsIMDSv6)
 }
+
+var errEmptyInstantQuery = errors.New("empty result from instant query")
 
 // CollectorOptions configures optional HTTP settings for Prometheus-compatible
 // backends (Thanos, VictoriaMetrics, Grafana Mimir, managed services).
@@ -260,7 +263,7 @@ func (c *PrometheusCollector) Query(ctx context.Context, query string, ts time.T
 	switch v := result.(type) {
 	case model.Vector:
 		if len(v) == 0 {
-			return 0, fmt.Errorf("empty result from instant query")
+			return 0, errEmptyInstantQuery
 		}
 		if len(v) != 1 {
 			return 0, fmt.Errorf("expected exactly one sample from instant query, got %d", len(v))
@@ -289,6 +292,9 @@ func (c *PrometheusCollector) GetThrottleRatio(ctx context.Context, namespace, p
 	)
 	val, err := c.Query(ctx, query, time.Now())
 	if err != nil {
+		if errors.Is(err, errEmptyInstantQuery) {
+			return 0, nil
+		}
 		return 0, err
 	}
 	return val, nil

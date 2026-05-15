@@ -368,6 +368,22 @@ func TestGetThrottleRatio_EscapesInput(t *testing.T) {
 	assert.Contains(t, receivedQuery, `container\"both`)
 }
 
+func TestGetThrottleRatio_EmptyResultReturnsZero(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(cannedEmptyResponse()))
+	}))
+	defer server.Close()
+
+	collector, err := NewPrometheusCollector(server.URL, logr.Discard(), http.DefaultTransport)
+	require.NoError(t, err)
+
+	ratio, err := collector.GetThrottleRatio(context.Background(), "default", "pod-1", "app")
+	require.NoError(t, err)
+	assert.Zero(t, ratio)
+}
+
 func TestEscapePromQLRegex(t *testing.T) {
 	tests := []struct {
 		input    string
