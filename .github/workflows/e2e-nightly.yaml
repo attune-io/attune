@@ -222,6 +222,8 @@ jobs:
             --set webhooks.enabled=true \
             --set metrics.enabled=true \
             --set leaderElection.enabled=false \
+            --set resources.limits.memory=512Mi \
+            --set resources.requests.memory=256Mi \
             --wait --timeout 3m
 
       - name: Install Chainsaw
