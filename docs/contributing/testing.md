@@ -175,6 +175,23 @@ make verify        # all CI checks locally
 | `test/e2e-go/` | E2E (Go) | Go testing + real cluster (`make test-e2e-go`) |
 | `internal/recommendation/fuzz_test.go` | Fuzz | Go native fuzzing (`make test-fuzz`) |
 
+### Nightly-only Go E2E tests
+
+Several Go E2E tests require extended Prometheus warm-up (2+ minutes of
+real metric collection) and are gated behind `E2E_NIGHTLY=true`. These
+run automatically in the nightly CI workflow but are skipped by default
+in `make test-e2e-go`.
+
+To run the full suite locally, including nightly-only scenarios:
+
+```bash
+E2E_NIGHTLY=true make test-e2e-go
+```
+
+Nightly-only tests cover budget caps, schedule windows, bearer-token
+auth, eviction fallback, and realistic overprovisioned workloads.
+Expect 5-10 minutes of total runtime due to Prometheus warm-up.
+
 ## Writing new tests
 
 - Place unit tests next to the code they test (`foo_test.go` alongside
