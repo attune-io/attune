@@ -246,7 +246,7 @@ func (c *PrometheusCollector) QueryRangeGrouped(ctx context.Context, query strin
 }
 
 // Query executes a Prometheus instant query and returns a single float64 value.
-// It expects the result to be a vector type containing exactly one sample.
+// It accepts either a scalar result or a vector containing exactly one sample.
 func (c *PrometheusCollector) Query(ctx context.Context, query string, ts time.Time) (float64, error) {
 	result, warnings, err := c.api.Query(ctx, query, ts)
 	if err != nil {
@@ -261,6 +261,9 @@ func (c *PrometheusCollector) Query(ctx context.Context, query string, ts time.T
 	case model.Vector:
 		if len(v) == 0 {
 			return 0, fmt.Errorf("empty result from instant query")
+		}
+		if len(v) != 1 {
+			return 0, fmt.Errorf("expected exactly one sample from instant query, got %d", len(v))
 		}
 		return float64(v[0].Value), nil
 	case *model.Scalar:

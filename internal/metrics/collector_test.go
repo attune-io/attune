@@ -66,6 +66,27 @@ func cannedInstantResponse() string {
 	}`
 }
 
+// cannedMultiVectorResponse returns a valid Prometheus API instant query
+// response with multiple vector results.
+func cannedMultiVectorResponse() string {
+	return `{
+		"status": "success",
+		"data": {
+			"resultType": "vector",
+			"result": [
+				{
+					"metric": {"__name__": "memory_usage", "pod": "test-pod-a"},
+					"value": [1700000000, "1073741824"]
+				},
+				{
+					"metric": {"__name__": "memory_usage", "pod": "test-pod-b"},
+					"value": [1700000000, "2147483648"]
+				}
+			]
+		}
+	}`
+}
+
 // cannedEmptyResponse returns a valid Prometheus API response with no results.
 func cannedEmptyResponse() string {
 	return `{
@@ -186,6 +207,22 @@ func TestQuery_EmptyResult(t *testing.T) {
 	_, err = collector.Query(context.Background(), "missing_metric", time.Now())
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "empty result")
+}
+
+func TestQuery_MultipleVectorSamples(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(cannedMultiVectorResponse()))
+	}))
+	defer server.Close()
+
+	collector, err := NewPrometheusCollector(server.URL, logr.Discard(), http.DefaultTransport)
+	require.NoError(t, err)
+
+	_, err = collector.Query(context.Background(), "memory_usage", time.Now())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "expected exactly one sample")
 }
 
 func TestQueryRange_PrometheusError(t *testing.T) {
