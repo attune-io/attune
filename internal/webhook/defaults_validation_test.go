@@ -188,6 +188,39 @@ func TestDefaultsValidator_RecordsMetrics(t *testing.T) {
 	assert.Equal(t, uint64(1), hMetric.GetHistogram().GetSampleCount())
 }
 
+func TestDefaultsValidator_ValidPrometheusAddress(t *testing.T) {
+	v := &RightSizeDefaultsValidator{}
+	defaults := &rightsizev1alpha1.RightSizeDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			MetricsSource: &rightsizev1alpha1.MetricsSource{
+				Prometheus: &rightsizev1alpha1.PrometheusConfig{
+					Address: "http://prometheus-server.monitoring:80",
+				},
+			},
+		},
+	}
+	_, err := v.ValidateCreate(context.Background(), defaults)
+	require.NoError(t, err)
+}
+
+func TestDefaultsValidator_SSRFPrometheusAddress(t *testing.T) {
+	v := &RightSizeDefaultsValidator{}
+	defaults := &rightsizev1alpha1.RightSizeDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			MetricsSource: &rightsizev1alpha1.MetricsSource{
+				Prometheus: &rightsizev1alpha1.PrometheusConfig{
+					Address: "http://169.254.169.254/latest/meta-data/",
+				},
+			},
+		},
+	}
+	_, err := v.ValidateCreate(context.Background(), defaults)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "metricsSource.prometheus.address")
+}
+
 func TestDefaultsValidator_RecordsRejectedMetric(t *testing.T) {
 	operatormetrics.WebhookValidationTotal.Reset()
 
