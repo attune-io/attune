@@ -19,6 +19,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"testing"
 	"time"
@@ -403,6 +404,119 @@ func TestPrintStatus_NoPolicies(t *testing.T) {
 	output := buf.String()
 
 	assert.Contains(t, output, "No RightSizePolicies found")
+}
+
+// ---------- printStructured ----------
+
+func TestPrintStructured_JSON(t *testing.T) {
+	policy := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "rightsize.io/v1alpha1",
+			"kind":       "RightSizePolicy",
+			"metadata": map[string]interface{}{
+				"name":      "json-test",
+				"namespace": "default",
+			},
+			"spec": map[string]interface{}{
+				"updateStrategy": map[string]interface{}{
+					"mode": "Recommend",
+				},
+			},
+		},
+	}
+
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{gvr: "RightSizePolicyList"}, policy)
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	printStructured(context.Background(), dynClient, "default", "json")
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	output := buf.String()
+
+	// Should be valid JSON containing the policy.
+	var parsed interface{}
+	require.NoError(t, json.Unmarshal([]byte(output), &parsed), "output should be valid JSON")
+	assert.Contains(t, output, `"json-test"`)
+	assert.Contains(t, output, `"Recommend"`)
+}
+
+func TestPrintStructured_YAML(t *testing.T) {
+	policy := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "rightsize.io/v1alpha1",
+			"kind":       "RightSizePolicy",
+			"metadata": map[string]interface{}{
+				"name":      "yaml-test",
+				"namespace": "default",
+			},
+			"spec": map[string]interface{}{
+				"updateStrategy": map[string]interface{}{
+					"mode": "Auto",
+				},
+			},
+		},
+	}
+
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{gvr: "RightSizePolicyList"}, policy)
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	printStructured(context.Background(), dynClient, "default", "yaml")
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	output := buf.String()
+
+	// YAML should contain the policy name and mode.
+	assert.Contains(t, output, "yaml-test")
+	assert.Contains(t, output, "Auto")
+	// Should NOT look like JSON.
+	assert.NotContains(t, output, `{`)
+}
+
+func TestPrintStructured_NoPolicies(t *testing.T) {
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{gvr: "RightSizePolicyList"})
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	printStructured(context.Background(), dynClient, "default", "json")
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	output := buf.String()
+
+	// Empty list should still be valid JSON.
+	var parsed interface{}
+	require.NoError(t, json.Unmarshal([]byte(output), &parsed), "empty list should be valid JSON")
 }
 
 // ---------- printSavings ----------
