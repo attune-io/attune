@@ -918,7 +918,7 @@ Eventually(func(g Gomega) {
 | 9 | Insufficient data | Policy reports InsufficientData condition |
 | 10 | Upgrade operator version | CRDs migrated, no downtime |
 
-**Test cluster**: Kind cluster created in CI with metrics-server and a mock Prometheus.
+**Test cluster**: CI uses k3d, not Kind. The push/PR E2E job runs a single K3S version (`v1.35.4-k3s1`), and `e2e-nightly.yaml` runs the full Kubernetes `v1.33` / `v1.34` / `v1.35` matrix. Prometheus is installed in-cluster from the Helm chart and cert-manager is bootstrapped before the operator tests run.
 
 ### 9.5 Fuzz Tests
 
@@ -987,93 +987,136 @@ Validate compatibility with Kubernetes API conventions:
 
 ```
 Jobs:
+  changes:
+    - dorny/paths-filter classifies Go, Helm, YAML, and docs changes
+    - Downstream jobs skip irrelevant work on docs-only or YAML-only diffs
+
   lint:
     - golangci-lint v2.12.x (with .golangci.yml config)
-    - yamllint (CRD manifests, Helm chart)
-    - actionlint (validate workflow files)
-    - shellcheck (bash scripts)
+    - `go mod tidy` cleanliness check
+    - License boilerplate verification
+    - Documentation defaults / dashboard metrics / tool-version consistency checks
+
+  docs-check:
+    - mkdocs build via `make docs-build`
+    - Helm README freshness via `make helm-docs-check`
+    - Supported tool version reference checks
+
+  yaml-lint:
+    - yamllint for `config/` and Helm values/chart metadata
 
   test-unit:
-    - go test ./internal/... ./api/... -race -count=1 -coverprofile=coverage.out
-    - Upload coverage to Codecov
-    - Fail if coverage < 75%
+    - gotestsum over `./api/... ./cmd/... ./internal/...`
+    - race-enabled coverage run
+    - Upload JUnit results and Codecov coverage
+    - Fail if coverage < 80%
+
+  test-fuzz-bench:
+    - targeted Go fuzz runs for recommendation logic
+    - benchmark run for `./internal/...`
 
   test-integration:
-    - Setup envtest binaries (setup-envtest)
-    - go test ./test/integration/... -race -count=1 -tags=integration
-    - Timeout: 15 minutes
+    - setup-envtest for Kubernetes 1.35 assets
+    - gotestsum over `./test/integration/...` with `-tags=integration`
 
   test-e2e:
-    - Create Kind cluster (kubernetes version matrix: 1.33, 1.34, 1.35)
-    - Install CRDs + operator
-    - Run Chainsaw tests
-    - Upload test results as artifacts
-    - Timeout: 30 minutes
+    - Create a k3d cluster for the current default K3S image
+    - Install cert-manager and Prometheus in-cluster
+    - Build and load the operator image
+    - Run Chainsaw and Go E2E suites
+    - Collect cluster debug info on failure
 
   crd-freshness:
-    - Run `make manifests`
-    - `git diff --exit-code config/crd/`
-    - Fails if generated CRDs are stale
+    - Run `make manifests generate`
+    - Fail if CRDs, RBAC, Helm CRDs, or deepcopy output drift
 
   helm-lint:
-    - helm lint charts/kube-rightsize
-    - ct lint --config .ct.yaml
+    - helm lint and template validation for chart CI values
     - helm-unittest
+    - Helm README freshness check
+    - Helm RBAC parity check
 
   build:
-    - ko build --platform=linux/amd64,linux/arm64 (no push)
-    - Verify image builds successfully
-
-  security:
-    - trivy fs . --severity HIGH,CRITICAL
-    - trivy image (from build step)
-    - go vuln check (govulncheck)
+    - Build manager and kubectl plugin binaries
+    - Build the container image locally (no push)
 ```
 
-#### `release.yaml` - Release (on tag push v*)
+#### `e2e-nightly.yaml` - Full nightly E2E matrix (scheduled + manual)
+
+```
+Jobs:
+  prepare-matrix:
+    - Expands the selected Kubernetes version input (`v1.33`, `v1.34`, `v1.35`, or all)
+    - Selects the requested suite (`chainsaw`, `go-e2e`, or all)
+
+  test-e2e:
+    - Runs the full k3d/K3S E2E flow per selected version
+    - Uses isolated cluster names and kubeconfig paths per matrix entry
+    - Uploads per-version logs and debug artifacts
+
+  report:
+    - Fails the workflow if any nightly matrix leg failed
+    - Creates a GitHub issue on scheduled failures when no open nightly-failure issue exists
+```
+
+#### `release.yaml` - Release (on tag push `v*`)
 
 ```
 Jobs:
   release:
-    - goreleaser release
-    - ko build + push to ghcr.io
-    - cosign sign image by digest
-    - trivy scan released image
-    - Generate SBOM (syft)
-    - Attach to GitHub Release: binary, CRD YAML, Helm chart, SBOM, checksums
+    - docker/build-push-action builds and pushes multi-arch images to GHCR
+    - cosign signs the released container image
+    - syft generates an SBOM
+    - Trivy scans the released image
+    - GoReleaser publishes binaries and release artifacts
+    - Attach install manifest and SBOM to the GitHub release
 
   helm-release:
-    - helm package charts/kube-rightsize
-    - helm push to OCI registry (ghcr.io)
-    - cosign sign Helm chart
-    - Update Helm chart index
+    - Package and push the Helm chart to GHCR OCI
+    - Sign the published chart with cosign
 ```
 
-#### `security.yaml` - Security Scanning (scheduled nightly + on PR)
+#### `security.yaml` - Security Scanning (on PR, push, weekly schedule)
 
 ```
 Jobs:
-  codeql:
-    - GitHub CodeQL analysis (Go)
-  
   govulncheck:
     - govulncheck ./...
-  
-  trivy-repo:
-    - trivy fs . --severity HIGH,CRITICAL --exit-code 1
 
-  dependency-review:
-    - actions/dependency-review-action (on PR only)
+  trivy:
+    - Trivy filesystem scan with self-hosted Docker credential-store workaround
+
+  trivy-image:
+    - Build the operator image to a tarball with `docker buildx build --output`
+    - Trivy image scan from the tarball
+
+  gitleaks:
+    - Full-repo secret scan with `fetch-depth: 0`
+
+Notes:
+  - CodeQL and dependency-review are intentionally disabled for this private repo
+    because they require GitHub Advanced Security
 ```
 
-#### `docs.yaml` - Documentation (on push to main when docs/ changes)
+#### `docs.yaml` - Documentation build validation (on docs pushes + manual)
 
 ```
 Jobs:
-  build-docs:
-    - mkdocs build --strict
-    - crdoc --resources config/crd/bases --output docs/reference/api.md
-    - Deploy to GitHub Pages
+  build:
+    - mkdocs build via `make docs-build`
+    - Upload the built site as a workflow artifact
+    - No GitHub Pages deployment workflow is configured
+```
+
+#### `dependabot-auto-merge.yaml` - Dependabot merge automation
+
+```
+Jobs:
+  auto-merge:
+    - Triggers from successful `CI` workflow runs on Dependabot PRs
+    - Finds the PR by head SHA
+    - Approves and squash-merges patch/minor updates
+    - Skips semver-major updates for manual review
 ```
 
 ### 10.2 CI Configuration Files
