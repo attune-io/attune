@@ -2338,6 +2338,19 @@ func TestListWorkloadsBySelector_CronJobs(t *testing.T) {
 	assert.Equal(t, "report", result[0].GetName())
 }
 
+func TestListWorkloadsBySelector_Jobs(t *testing.T) {
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{Name: "migrate", Namespace: "default", Labels: map[string]string{"tier": "batch"}},
+	}
+	r := newReconcilerWithClient(job)
+
+	selector := &metav1.LabelSelector{MatchLabels: map[string]string{"tier": "batch"}}
+	result, err := r.listWorkloadsBySelector(context.Background(), "default", "Job", selector)
+	assert.NoError(t, err)
+	require.Len(t, result, 1)
+	assert.Equal(t, "migrate", result[0].GetName())
+}
+
 func TestDiscoverWorkloads_UnsupportedKind(t *testing.T) {
 	name := "my-replicaset"
 	r := newReconcilerWithClient()
