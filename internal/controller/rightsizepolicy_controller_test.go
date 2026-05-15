@@ -1291,6 +1291,80 @@ func TestCollectorCacheKey_DifferentBearerTokensDifferentKeys(t *testing.T) {
 	assert.NotEqual(t, key1, key2)
 }
 
+// ---------- buildCollectorOptions ----------
+
+func TestBuildCollectorOptions_NilWhenNoAuthOrTLS(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	config := &rightsizev1alpha1.PrometheusConfig{Address: "http://prom:9090"}
+	opts, err := r.buildCollectorOptions(context.Background(), "default", config)
+	assert.NoError(t, err)
+	assert.Nil(t, opts)
+}
+
+func TestBuildCollectorOptions_WithHeaders(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	config := &rightsizev1alpha1.PrometheusConfig{
+		Address: "http://prom:9090",
+		Headers: map[string]string{"X-Scope-OrgID": "tenant-1"},
+	}
+	opts, err := r.buildCollectorOptions(context.Background(), "default", config)
+	assert.NoError(t, err)
+	require.NotNil(t, opts)
+	assert.Equal(t, "tenant-1", opts.Headers["X-Scope-OrgID"])
+}
+
+func TestBuildCollectorOptions_WithTLS(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	config := &rightsizev1alpha1.PrometheusConfig{
+		Address: "https://prom:9090",
+		TLS:     &rightsizev1alpha1.TLSConfig{InsecureSkipVerify: true},
+	}
+	opts, err := r.buildCollectorOptions(context.Background(), "default", config)
+	assert.NoError(t, err)
+	require.NotNil(t, opts)
+	assert.True(t, opts.InsecureSkipVerify)
+}
+
+func TestBuildCollectorOptions_WithBearerToken(t *testing.T) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "prom-token", Namespace: "default"},
+		Data:       map[string][]byte{"token": []byte("test-bearer")},
+	}
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret).Build()
+	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+
+	config := &rightsizev1alpha1.PrometheusConfig{
+		Address: "http://prom:9090",
+		BearerTokenSecret: &rightsizev1alpha1.SecretKeyRef{
+			Name: "prom-token",
+			Key:  "token",
+		},
+	}
+	opts, err := r.buildCollectorOptions(context.Background(), "default", config)
+	assert.NoError(t, err)
+	require.NotNil(t, opts)
+	assert.Equal(t, "test-bearer", opts.BearerToken)
+}
+
+func TestBuildCollectorOptions_SecretNotFound(t *testing.T) {
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+
+	config := &rightsizev1alpha1.PrometheusConfig{
+		Address: "http://prom:9090",
+		BearerTokenSecret: &rightsizev1alpha1.SecretKeyRef{
+			Name: "missing-secret",
+			Key:  "token",
+		},
+	}
+	opts, err := r.buildCollectorOptions(context.Background(), "default", config)
+	assert.Error(t, err)
+	assert.Nil(t, opts)
+	assert.Contains(t, err.Error(), "missing-secret")
+}
+
 // ---------- readSecretKey ----------
 
 func TestReadSecretKey_Success(t *testing.T) {

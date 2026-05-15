@@ -260,27 +260,11 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	// Build collector options from the PrometheusConfig.
-	var collectorOpts *rsmetrics.CollectorOptions
-	if promConfig.Headers != nil || promConfig.BearerTokenSecret != nil ||
-		(promConfig.TLS != nil && promConfig.TLS.InsecureSkipVerify) {
-		collectorOpts = &rsmetrics.CollectorOptions{
-			Headers: promConfig.Headers,
-		}
-		if promConfig.TLS != nil {
-			collectorOpts.InsecureSkipVerify = promConfig.TLS.InsecureSkipVerify
-		}
-		if promConfig.BearerTokenSecret != nil {
-			secretName := promConfig.BearerTokenSecret.Name
-			secretKey := promConfig.BearerTokenSecret.Key
-			token, secretErr := r.readSecretKey(ctx, policy.Namespace, secretName, secretKey)
-			if secretErr != nil {
-				logger.Error(secretErr, "Failed to read bearer token secret", "secret", secretName, "key", secretKey)
-				r.setFailedCondition(ctx, &policy, rightsizev1alpha1.ReasonPrometheusUnavailable,
-					fmt.Sprintf("Cannot read bearer token secret %s/%s: %v", secretName, secretKey, secretErr))
-				return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
-			}
-			collectorOpts.BearerToken = token
-		}
+	collectorOpts, err := r.buildCollectorOptions(ctx, policy.Namespace, promConfig)
+	if err != nil {
+		logger.Error(err, "Failed to build collector options")
+		r.setFailedCondition(ctx, &policy, rightsizev1alpha1.ReasonPrometheusUnavailable, err.Error())
+		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 	}
 
 	collector, err := r.getOrCreateCollector(promConfig, collectorOpts)
@@ -680,6 +664,32 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 	return &rightsizev1alpha1.WorkloadRecommendation{
 		Containers: containerRecs,
 	}, queryErrors, maxDataPoints, nil
+}
+
+// buildCollectorOptions constructs CollectorOptions from the given PrometheusConfig,
+// including headers, TLS settings, and Secret-backed bearer token resolution.
+func (r *RightSizePolicyReconciler) buildCollectorOptions(ctx context.Context, namespace string, config *rightsizev1alpha1.PrometheusConfig) (*rsmetrics.CollectorOptions, error) {
+	if config.Headers == nil && config.BearerTokenSecret == nil &&
+		(config.TLS == nil || !config.TLS.InsecureSkipVerify) {
+		return nil, nil
+	}
+
+	opts := &rsmetrics.CollectorOptions{
+		Headers: config.Headers,
+	}
+	if config.TLS != nil {
+		opts.InsecureSkipVerify = config.TLS.InsecureSkipVerify
+	}
+	if config.BearerTokenSecret != nil {
+		secretName := config.BearerTokenSecret.Name
+		secretKey := config.BearerTokenSecret.Key
+		token, err := r.readSecretKey(ctx, namespace, secretName, secretKey)
+		if err != nil {
+			return nil, fmt.Errorf("cannot read bearer token secret %s/%s: %w", secretName, secretKey, err)
+		}
+		opts.BearerToken = token
+	}
+	return opts, nil
 }
 
 // resolvePrometheusAddress returns the Prometheus address from the policy spec,
