@@ -40,6 +40,7 @@ spec:
   cpu:
     percentile: 95             # target percentile: 50, 90, 95, or 99
     safetyMargin: "1.2"        # multiplier for headroom (1.2 = 20%)
+    burstSensitivity: "0.1"   # burst boost multiplier (0 = disabled, max 1.0)
     bounds:                    # optional: min/max clamps
       min: "50m"
       max: "4000m"
@@ -49,6 +50,7 @@ spec:
   memory:
     percentile: 99
     safetyMargin: "1.3"
+    burstSensitivity: "0.1"
     bounds:
       min: "64Mi"
       max: "8Gi"

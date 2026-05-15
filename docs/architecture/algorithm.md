@@ -123,20 +123,25 @@ if changePct > MaxChangePercent:
 uses `BurstMagnitude` to apply a logarithmic safety-margin boost:
 
 ```
-burstFactor = 1 + 0.1 * log2(BurstMagnitude)
+burstFactor = 1 + sensitivity * log2(BurstMagnitude)
 ```
 
-| Burst magnitude | Boost |
-|-----------------|-------|
-| 4x              | +20%  |
-| 8x              | +30%  |
-| 16x             | +40%  |
-| 100x            | +66%  |
+The `sensitivity` defaults to `0.1` and can be configured per resource via
+`spec.cpu.burstSensitivity` / `spec.memory.burstSensitivity`. Set to `"0"`
+to disable burst boost entirely (useful for batch jobs).
+
+| Burst magnitude | Boost (sensitivity=0.1) | Boost (sensitivity=0.2) |
+|-----------------|-------------------------|-------------------------|
+| 4x              | +20%                    | +40%                    |
+| 8x              | +30%                    | +60%                    |
+| 16x             | +40%                    | +80%                    |
+| 100x            | +66%                    | +133%                   |
 
 This step runs after the base safety margin and before the confidence
 adjustment. When no burst is detected (or magnitude <= 1), the factor
 is 1.0 (no change). The burst factor is visible in `kubectl rightsize explain`
-output via the `burstFactor` and `afterBurst` fields.
+output via the `burstFactor` and `afterBurst` fields, and as the
+`kube_rightsize_burst_factor` Prometheus metric.
 
 ## Full pipeline example
 

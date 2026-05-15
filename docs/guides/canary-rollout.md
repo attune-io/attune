@@ -99,6 +99,11 @@ kubectl get rsp my-app -o jsonpath='{.status.canary.phase}'
 # CanaryInProgress -> FullRollout
 ```
 
+**Spec change resets the canary cycle.** If you edit the policy spec
+(e.g., change `percentile` or `safetyMargin`) while a canary cycle is in
+progress or in `FullRollout`, the operator resets the observation timer.
+The new configuration is re-validated from scratch before promotion.
+
 ### Manual promotion
 
 When `autoPromote` is false (default), promote to **Auto** mode manually

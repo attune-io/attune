@@ -9,10 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Configurable `burstSensitivity` per resource: controls how much burst detection inflates recommendations (default 0.1, set 0 to disable)
+- Canary auto-promotion resets on spec change: editing a policy restarts the observation cycle so new configuration is re-validated
+- `kube_rightsize_burst_factor` Prometheus metric and Grafana dashboard panel showing burst detection multiplier per workload
 - Burst detection now influences recommendations via logarithmic safety-margin boost
 - Canary auto-promotion: when `autoPromote: true`, the operator automatically promotes to full fleet resize after the observation period passes without safety violations
 - VPA conflict detection E2E test (Chainsaw scenario with inline CRD)
-- OOMKill safety revert E2E test (nightly Go E2E)
+- OOMKill safety revert E2E test (nightly Go E2E, uses stress-ng for reliable OOMKill trigger)
 - Helm values schema validation (`values.schema.json`) for catching typos at install time
 - Pending workloads column in `kubectl rightsize status` output
 - Secret name and key context in Prometheus auth failure messages
@@ -32,7 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bearer-token cache prefix collision when one Prometheus address is a prefix of another
 - `make test-local` now cleans up the k3d cluster even on mid-run failures
 - Gitleaks PATH resolution on self-hosted runners
-- `prometheus-unreachable` E2E test assertion updated to match `PrometheusUnavailable` reason
+- `prometheus-unreachable` E2E test now accepts either `InsufficientData` or `PrometheusUnavailable` reason, fixing a flake where the first reconcile sets one reason and subsequent reconciles set another
 
 ## [0.1.0] - Unreleased
 
