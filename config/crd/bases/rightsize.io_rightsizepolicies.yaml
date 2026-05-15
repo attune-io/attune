@@ -497,8 +497,7 @@ spec:
                     description: |-
                       Phase indicates the current canary state.
                       CanaryInProgress: canary pods resized, observing for safety violations.
-                      CanaryPassed: observation period elapsed with no violations; next reconcile promotes.
-                      FullRollout: all pods are being resized.
+                      FullRollout: observation passed with no violations, all pods are being resized.
                     type: string
                   startTime:
                     description: StartTime is when the canary subset was first resized.

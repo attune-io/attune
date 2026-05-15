@@ -339,8 +339,7 @@ type RightSizePolicyStatus struct {
 type CanaryStatus struct {
 	// Phase indicates the current canary state.
 	// CanaryInProgress: canary pods resized, observing for safety violations.
-	// CanaryPassed: observation period elapsed with no violations; next reconcile promotes.
-	// FullRollout: all pods are being resized.
+	// FullRollout: observation passed with no violations, all pods are being resized.
 	// +optional
 	Phase string `json:"phase,omitempty"`
 
