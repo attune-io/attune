@@ -230,6 +230,50 @@ func waitForResize(t *testing.T, policyName, namespace string, timeout time.Dura
 	}))
 }
 
+func forcePolicyReconcile(t *testing.T, name, namespace string, timeout time.Duration) {
+	t.Helper()
+
+	key := types.NamespacedName{Name: name, Namespace: namespace}
+	var before rightsizev1alpha1.RightSizePolicy
+	require.NoError(t, k8sClient.Get(ctx, key, &before))
+
+	lastReconcile := time.Time{}
+	if before.Status.LastReconcileTime != nil {
+		lastReconcile = before.Status.LastReconcileTime.Time
+	}
+
+	annotationResourceVersion := ""
+	require.NoError(t, retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		var policy rightsizev1alpha1.RightSizePolicy
+		if err := k8sClient.Get(ctx, key, &policy); err != nil {
+			return err
+		}
+		if policy.Annotations == nil {
+			policy.Annotations = make(map[string]string)
+		}
+		policy.Annotations["e2e-force-reconcile"] = time.Now().Format(time.RFC3339Nano)
+		if err := k8sClient.Update(ctx, &policy); err != nil {
+			return err
+		}
+		annotationResourceVersion = policy.ResourceVersion
+		return nil
+	}))
+
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 2*time.Second, timeout, true, func(ctx context.Context) (bool, error) {
+		var latest rightsizev1alpha1.RightSizePolicy
+		if err := k8sClient.Get(ctx, key, &latest); err != nil {
+			return false, nil
+		}
+		if latest.ResourceVersion == annotationResourceVersion || latest.Status.LastReconcileTime == nil {
+			return false, nil
+		}
+		if lastReconcile.IsZero() {
+			return true, nil
+		}
+		return !latest.Status.LastReconcileTime.Time.Before(lastReconcile), nil
+	}))
+}
+
 // ---------- Tests ----------
 
 func TestE2E_PolicyDiscovery(t *testing.T) {
@@ -792,8 +836,12 @@ func TestE2E_RecommendMode_KeepsRecommendationsWithoutLivePods(t *testing.T) {
 		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "nopods-policy", Namespace: ns}, &p); err != nil {
 			return false, nil
 		}
-		return p.Status.Workloads.WithRecommendations > 0, nil
+		return p.Status.Workloads.WithRecommendations > 0 && len(p.Status.Recommendations) > 0, nil
 	}))
+
+	var beforeScale rightsizev1alpha1.RightSizePolicy
+	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "nopods-policy", Namespace: ns}, &beforeScale))
+	require.NotEmpty(t, beforeScale.Status.Recommendations)
 
 	// Scale the deployment to 0 so no live pods remain.
 	require.NoError(t, retry.RetryOnConflict(retry.DefaultRetry, func() error {
@@ -814,28 +862,18 @@ func TestE2E_RecommendMode_KeepsRecommendationsWithoutLivePods(t *testing.T) {
 		return len(podList.Items) == 0, nil
 	}))
 
-	// Force a fresh reconcile by touching the policy annotation.
-	require.NoError(t, retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		var p rightsizev1alpha1.RightSizePolicy
-		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "nopods-policy", Namespace: ns}, &p); err != nil {
-			return err
-		}
-		if p.Annotations == nil {
-			p.Annotations = make(map[string]string)
-		}
-		p.Annotations["e2e-force-reconcile"] = time.Now().Format(time.RFC3339)
-		return k8sClient.Update(ctx, &p)
-	}))
-
-	// Wait for the reconcile and verify recommendations are retained.
-	time.Sleep(15 * time.Second)
+	forcePolicyReconcile(t, "nopods-policy", ns, 45*time.Second)
 
 	var final rightsizev1alpha1.RightSizePolicy
 	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "nopods-policy", Namespace: ns}, &final))
 	assert.Equal(t, int32(1), final.Status.Workloads.Discovered,
 		"deployment with 0 replicas should still be discovered")
-	assert.GreaterOrEqual(t, final.Status.Workloads.WithRecommendations, int32(0),
-		"recommendations from historical metrics should be retained even without live pods")
+	assert.Greater(t, final.Status.Workloads.WithRecommendations, int32(0),
+		"historical recommendations should remain available even without live pods")
+	require.NotEmpty(t, final.Status.Recommendations,
+		"recommendations should still be surfaced after the workload scales to zero")
+	assert.Equal(t, beforeScale.Status.Recommendations, final.Status.Recommendations,
+		"reconcile without live pods should retain the last recommendations")
 	assert.Equal(t, int32(0), final.Status.Workloads.Resized,
 		"recommend mode should not resize anything")
 }
@@ -901,24 +939,10 @@ func TestE2E_BearerToken_SecretRotation(t *testing.T) {
 		return k8sClient.Update(ctx, &s)
 	}))
 
-	// Force a fresh reconcile by touching the policy annotation.
-	require.NoError(t, retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		var p rightsizev1alpha1.RightSizePolicy
-		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "rotate-policy", Namespace: ns}, &p); err != nil {
-			return err
-		}
-		if p.Annotations == nil {
-			p.Annotations = make(map[string]string)
-		}
-		p.Annotations["e2e-force-reconcile"] = time.Now().Format(time.RFC3339)
-		return k8sClient.Update(ctx, &p)
-	}))
-
-	// Wait for reconcile to complete with the rotated token.
 	// Prometheus doesn't enforce auth, so both tokens work. The key assertion
 	// is that the reconcile succeeds (no PrometheusUnavailable condition)
-	// and workloads are still discovered.
-	time.Sleep(15 * time.Second)
+	// and workloads are still discovered after a fresh reconcile.
+	forcePolicyReconcile(t, "rotate-policy", ns, 45*time.Second)
 
 	var p2 rightsizev1alpha1.RightSizePolicy
 	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "rotate-policy", Namespace: ns}, &p2))
