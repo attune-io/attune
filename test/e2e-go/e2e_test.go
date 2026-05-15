@@ -475,7 +475,8 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 	createNamespace(t, ns)
 
 	// Deploy a workload using stress-ng to generate known CPU/memory load.
-	// Overprovisioned: requests 2000m CPU / 1Gi memory, actual ~200m / ~100Mi.
+	// Overprovisioned: requests 1 CPU / 256Mi memory, actual ~200m / ~100Mi.
+	// Limits match requests (Guaranteed QoS) to constrain host CPU usage.
 	deploy := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "load-app",
@@ -499,8 +500,12 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 							Args:  []string{"--cpu", "1", "--cpu-load", "20", "--vm", "1", "--vm-bytes", "100M", "--timeout", "0"},
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
-									corev1.ResourceCPU:    resource.MustParse("2000m"),
-									corev1.ResourceMemory: resource.MustParse("1Gi"),
+									corev1.ResourceCPU:    resource.MustParse("1"),
+									corev1.ResourceMemory: resource.MustParse("256Mi"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("1"),
+									corev1.ResourceMemory: resource.MustParse("256Mi"),
 								},
 							},
 						},
@@ -513,7 +518,7 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 	waitForDeploymentReady(t, "load-app", ns, 120*time.Second)
 
 	loadPolicy := createPolicy(t, "load-policy", ns, "load-app", "Recommend")
-	maxCPU, err := resource.ParseQuantity("1500m")
+	maxCPU, err := resource.ParseQuantity("800m")
 	require.NoError(t, err)
 	require.NoError(t, retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		var latestPolicy rightsizev1alpha1.RightSizePolicy
@@ -535,7 +540,7 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 			len(latestPolicy.Status.Recommendations[0].Containers) == 0 {
 			return false, nil
 		}
-		return latestPolicy.Status.Recommendations[0].Containers[0].Recommended.CPURequest.MilliValue() == 1500, nil
+		return latestPolicy.Status.Recommendations[0].Containers[0].Recommended.CPURequest.MilliValue() == 800, nil
 	}))
 
 	var latestPolicy rightsizev1alpha1.RightSizePolicy
@@ -547,8 +552,8 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 
 	// CPU recommendation should be clamped by the test-specific max bound.
 	recCPU := rec.Containers[0].Recommended.CPURequest
-	assert.Equal(t, int64(1500), recCPU.MilliValue(),
-		"recommended CPU should honor the test-specific 1500m max bound, got %s", recCPU.String())
+	assert.Equal(t, int64(800), recCPU.MilliValue(),
+		"recommended CPU should honor the test-specific 800m max bound, got %s", recCPU.String())
 
 	cpuExplain := rec.Containers[0].Explanation
 	require.NotNil(t, cpuExplain)
