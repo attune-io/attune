@@ -25,6 +25,7 @@ import (
 	"testing"
 	"time"
 
+	promtestutil "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
@@ -44,10 +45,12 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
 	"github.com/SebTardifLabs/kube-rightsize/internal/conflict"
 	rsmetrics "github.com/SebTardifLabs/kube-rightsize/internal/metrics"
+	"github.com/SebTardifLabs/kube-rightsize/internal/operatormetrics"
 	"github.com/SebTardifLabs/kube-rightsize/internal/resize"
 )
 
@@ -3560,6 +3563,31 @@ func TestCheckPendingSafetyObservations_InvalidRestartCount(t *testing.T) {
 	// Invalid restart count should default to 0; pod with 1 restart is safe.
 	_, hasResizedAt := updated.Annotations["rightsize.io/resized-at"]
 	assert.False(t, hasResizedAt, "pod should complete observation despite invalid restart count")
+}
+
+func TestCheckPendingSafetyObservations_ListErrorIncrementsCounter(t *testing.T) {
+	scheme := testScheme()
+	// Use an interceptor to make List return an error for pods.
+	failingClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithInterceptorFuncs(interceptor.Funcs{
+			List: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) error {
+				return fmt.Errorf("simulated API server error")
+			},
+		}).Build()
+
+	r := &RightSizePolicyReconciler{
+		Client:    failingClient,
+		Scheme:    scheme,
+		Clientset: kubefake.NewSimpleClientset(),
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	before := promtestutil.ToFloat64(operatormetrics.ReconcileErrorsTotal.WithLabelValues("safety_observation"))
+
+	r.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
+
+	after := promtestutil.ToFloat64(operatormetrics.ReconcileErrorsTotal.WithLabelValues("safety_observation"))
+	assert.Equal(t, before+1, after, "safety_observation error counter should increment on List failure")
 }
 
 // ---------- getPodsForWorkload error path ----------
