@@ -54,7 +54,7 @@ func TestRecommendationEngine_RealisticCPU(t *testing.T) {
 		resource.MustParse("50m"),   // min bound
 		resource.MustParse("4000m"), // max bound
 		50,                          // max change percent
-		true,                        // isCPU
+		EngineOpts{IsCPU: true},
 	)
 
 	// Profile with P95 = 0.200 (200m CPU), high confidence.
@@ -113,7 +113,7 @@ func TestRecommendationEngine_SmallChangeFiltered(t *testing.T) {
 		resource.MustParse("10m"),
 		resource.MustParse("10000m"),
 		50,
-		true, // isCPU
+		EngineOpts{IsCPU: true},
 	)
 
 	// Design a profile where the full chain (percentile -> margin ->
@@ -154,7 +154,7 @@ func TestRecommendationEngine_LargeChangeCapped(t *testing.T) {
 		resource.MustParse("50m"),
 		resource.MustParse("4000m"),
 		50,   // max 50% change
-		true, // isCPU
+		EngineOpts{IsCPU: true},
 	)
 
 	// Profile where recommended would be much higher than current.
@@ -178,7 +178,7 @@ func TestRecommendationEngine_HighVsLowConfidence(t *testing.T) {
 			resource.MustParse("50m"),
 			resource.MustParse("100000m"),
 			100,  // allow full range of change so filter doesn't mask differences
-			true, // isCPU
+			EngineOpts{IsCPU: true},
 		)
 	}
 
@@ -204,7 +204,7 @@ func TestRecommendationEngine_BurstyProfile(t *testing.T) {
 		resource.MustParse("50m"),
 		resource.MustParse("4000m"),
 		50,
-		true, // isCPU
+		EngineOpts{IsCPU: true},
 	)
 
 	// Profile with moderate usage so the burst boost is visible after the
@@ -262,7 +262,7 @@ func TestRecommendationEngine_BurstExplanation(t *testing.T) {
 		resource.MustParse("50m"),
 		resource.MustParse("4000m"),
 		50,
-		true,
+		EngineOpts{IsCPU: true},
 	)
 
 	ps := metrics.PercentileSet{P50: 0.1, P90: 0.15, P95: 0.2, P99: 0.3, Max: 2.0}
@@ -287,7 +287,7 @@ func TestRecommendationEngine_BurstExplanation(t *testing.T) {
 }
 
 func TestRecommendationEngine_NoBurstExplanation(t *testing.T) {
-	engine := NewEngine(95, 1.2, resource.MustParse("50m"), resource.MustParse("4000m"), 50, true)
+	engine := NewEngine(95, 1.2, resource.MustParse("50m"), resource.MustParse("4000m"), 50, EngineOpts{IsCPU: true})
 
 	ps := metrics.PercentileSet{P50: 0.1, P90: 0.15, P95: 0.2, P99: 0.3, Max: 0.5}
 	profile := metrics.UsageProfile{
@@ -310,7 +310,7 @@ func TestRecommendationEngine_NoBurstExplanation(t *testing.T) {
 }
 
 func TestRecommendationEngine_BurstMagnitudeBoundary(t *testing.T) {
-	engine := NewEngine(95, 1.2, resource.MustParse("50m"), resource.MustParse("4000m"), 50, true)
+	engine := NewEngine(95, 1.2, resource.MustParse("50m"), resource.MustParse("4000m"), 50, EngineOpts{IsCPU: true})
 
 	ps := metrics.PercentileSet{P50: 0.1, P90: 0.15, P95: 0.2, P99: 0.3, Max: 0.6}
 
@@ -335,6 +335,63 @@ func TestRecommendationEngine_BurstMagnitudeBoundary(t *testing.T) {
 		"no boost when magnitude is at boundary")
 }
 
+func TestRecommendationEngine_BurstSensitivityZero(t *testing.T) {
+	zero := 0.0
+	engine := NewEngine(95, 1.2, resource.MustParse("50m"), resource.MustParse("4000m"), 50,
+		EngineOpts{IsCPU: true, BurstSensitivity: &zero})
+
+	ps := metrics.PercentileSet{P50: 0.1, P90: 0.15, P95: 0.2, P99: 0.3, Max: 2.0}
+	profile := metrics.UsageProfile{
+		OverallPercentiles: ps,
+		BurstDetected:      true,
+		BurstMagnitude:     10.0,
+		DataPoints:         5000,
+		TimeSpanDays:       7,
+		Confidence:         0.95,
+	}
+	for h := 0; h < 24; h++ {
+		profile.HourlyPercentiles[h] = ps
+	}
+
+	_, explanation, _ := engine.RecommendWithExplanation(profile, resource.MustParse("100m"))
+
+	assert.Equal(t, 1.0, explanation.BurstFactor,
+		"sensitivity=0 should disable burst boost entirely")
+	assert.Equal(t, explanation.AfterSafetyMargin.MilliValue(), explanation.AfterBurst.MilliValue(),
+		"no boost when sensitivity is zero")
+}
+
+func TestRecommendationEngine_BurstSensitivityCustom(t *testing.T) {
+	defaultSens := 0.1
+	doubleSens := 0.2
+	defaultEngine := NewEngine(95, 1.2, resource.MustParse("50m"), resource.MustParse("4000m"), 100,
+		EngineOpts{IsCPU: true, BurstSensitivity: &defaultSens})
+	doubleEngine := NewEngine(95, 1.2, resource.MustParse("50m"), resource.MustParse("4000m"), 100,
+		EngineOpts{IsCPU: true, BurstSensitivity: &doubleSens})
+
+	ps := metrics.PercentileSet{P50: 0.1, P90: 0.15, P95: 0.2, P99: 0.3, Max: 2.0}
+	profile := metrics.UsageProfile{
+		OverallPercentiles: ps,
+		BurstDetected:      true,
+		BurstMagnitude:     10.0,
+		DataPoints:         5000,
+		TimeSpanDays:       7,
+		Confidence:         0.95,
+	}
+	for h := 0; h < 24; h++ {
+		profile.HourlyPercentiles[h] = ps
+	}
+
+	_, defExpl, _ := defaultEngine.RecommendWithExplanation(profile, resource.MustParse("100m"))
+	_, dblExpl, _ := doubleEngine.RecommendWithExplanation(profile, resource.MustParse("100m"))
+
+	// Double sensitivity should produce a higher burst factor.
+	assert.Greater(t, dblExpl.BurstFactor, defExpl.BurstFactor,
+		"sensitivity=0.2 should produce higher burst factor than 0.1")
+	assert.Greater(t, dblExpl.AfterBurst.MilliValue(), defExpl.AfterBurst.MilliValue(),
+		"higher sensitivity should increase the burst-adjusted value")
+}
+
 func TestRecommendationEngine_ExplainChain(t *testing.T) {
 	engine := NewEngine(
 		95,
@@ -342,7 +399,7 @@ func TestRecommendationEngine_ExplainChain(t *testing.T) {
 		resource.MustParse("50m"),
 		resource.MustParse("4000m"),
 		50,
-		true,
+		EngineOpts{IsCPU: true},
 	)
 	profile := buildRealisticCPUProfile(0.200, 0.95)
 	current := resource.MustParse("500m")

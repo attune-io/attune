@@ -250,6 +250,50 @@ func TestValidate_SafetyMarginExceedsMax(t *testing.T) {
 	}
 }
 
+func TestValidate_BurstSensitivity(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		wantErr string
+	}{
+		{"negative", "-0.1", "non-negative"},
+		{"exceeds max", "1.5", "<= 1.0"},
+		{"not a number", "abc", "not a valid number"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			validator := &RightSizePolicyValidator{}
+			policy := validPolicy()
+			policy.Spec.CPU.BurstSensitivity = &tt.value
+
+			_, err := validator.ValidateCreate(context.Background(), policy)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
+func TestValidate_BurstSensitivityValid(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+	}{
+		{"zero", "0"},
+		{"default", "0.1"},
+		{"max", "1.0"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			validator := &RightSizePolicyValidator{}
+			policy := validPolicy()
+			policy.Spec.CPU.BurstSensitivity = &tt.value
+
+			_, err := validator.ValidateCreate(context.Background(), policy)
+			assert.NoError(t, err)
+		})
+	}
+}
+
 func TestValidate_HistoryWindowBounds(t *testing.T) {
 	tests := []struct {
 		name    string

@@ -98,6 +98,14 @@ func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizeP
 		warnings = append(warnings, w)
 	}
 
+	// Validate burstSensitivity is a valid non-negative float, max 1.0.
+	if err := validateBurstSensitivity("cpu", policy.Spec.CPU.BurstSensitivity); err != nil {
+		return warnings, err
+	}
+	if err := validateBurstSensitivity("memory", policy.Spec.Memory.BurstSensitivity); err != nil {
+		return warnings, err
+	}
+
 	// Validate cooldown has a minimum floor to prevent resource exhaustion via tight reconciliation loops.
 	if policy.Spec.UpdateStrategy.Cooldown != nil {
 		cd := policy.Spec.UpdateStrategy.Cooldown.Duration
@@ -175,6 +183,26 @@ func validateSafetyMargin(resource, margin string) (warning string, err error) {
 			resource, v, 1+v), nil
 	}
 	return "", nil
+}
+
+func validateBurstSensitivity(resource string, value *string) error {
+	if value == nil {
+		return nil
+	}
+	v, err := strconv.ParseFloat(*value, 64)
+	if err != nil {
+		return fmt.Errorf("%s.burstSensitivity %q is not a valid number: %w", resource, *value, err)
+	}
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return fmt.Errorf("%s.burstSensitivity must be a finite number, got %s", resource, *value)
+	}
+	if v < 0 {
+		return fmt.Errorf("%s.burstSensitivity must be non-negative, got %s", resource, *value)
+	}
+	if v > 1.0 {
+		return fmt.Errorf("%s.burstSensitivity must be <= 1.0, got %s", resource, *value)
+	}
+	return nil
 }
 
 // validWeekdays is the set of accepted day-of-week names (case-insensitive).

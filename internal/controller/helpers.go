@@ -280,6 +280,22 @@ func parseFloat64(s string, fallback float64) float64 {
 	return v
 }
 
+// parseFloat64NonNeg parses a string as a non-negative float64, capped at 1.0.
+// Returns fallback on error, NaN, Inf, or negative values.
+func parseFloat64NonNeg(s string, fallback float64) float64 {
+	if s == "" {
+		return fallback
+	}
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil || math.IsNaN(v) || math.IsInf(v, 0) || v < 0 {
+		return fallback
+	}
+	if v > 1.0 {
+		return 1.0
+	}
+	return v
+}
+
 // safeInt32 converts an int to int32, clamping to math.MaxInt32 on overflow.
 func safeInt32(v int) int32 {
 	if v > math.MaxInt32 {

@@ -31,6 +31,7 @@ import (
 type RecommendationEngine struct {
 	percentile           int
 	safetyMargin         float64
+	burstSensitivity     float64
 	minBound             resource.Quantity
 	maxBound             resource.Quantity
 	minChangePercent     float64
@@ -40,21 +41,45 @@ type RecommendationEngine struct {
 	isCPU                bool
 }
 
+// EngineOpts holds optional parameters for NewEngine.
+type EngineOpts struct {
+	// IsCPU selects CPU-specific percentile resolution.
+	IsCPU bool
+	// BurstSensitivity controls the burst boost multiplier.
+	// Default (0) means use the standard 0.1; set explicitly to disable or tune.
+	// Negative values are treated as 0 (no boost).
+	BurstSensitivity *float64
+}
+
+// defaultBurstSensitivity is used when BurstSensitivity is nil.
+const defaultBurstSensitivity = 0.1
+
 // NewEngine creates a new RecommendationEngine with the specified parameters.
 func NewEngine(percentile int, safetyMargin float64, minBound, maxBound resource.Quantity,
-	maxChangePercent float64, isCPU ...bool,
+	maxChangePercent float64, opts ...EngineOpts,
 ) *RecommendationEngine {
-	cpu := len(isCPU) > 0 && isCPU[0]
+	var opt EngineOpts
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
+	bs := defaultBurstSensitivity
+	if opt.BurstSensitivity != nil {
+		bs = *opt.BurstSensitivity
+		if bs < 0 {
+			bs = 0
+		}
+	}
 	return &RecommendationEngine{
 		percentile:           percentile,
 		safetyMargin:         safetyMargin,
+		burstSensitivity:     bs,
 		minBound:             minBound.DeepCopy(),
 		maxBound:             maxBound.DeepCopy(),
 		minChangePercent:     10.0,
 		maxChangePercent:     maxChangePercent,
 		confidenceMultiplier: 1.0,
 		confidenceExponent:   2.0,
-		isCPU:                cpu,
+		isCPU:                opt.IsCPU,
 	}
 }
 
@@ -78,8 +103,8 @@ func (e *RecommendationEngine) RecommendWithExplanation(profile metrics.UsagePro
 	// widen the safety margin proportionally using a logarithmic scale
 	// so extreme bursts don't inflate the recommendation excessively.
 	burstFactor := 1.0
-	if profile.BurstDetected && profile.BurstMagnitude > 1 {
-		burstFactor = 1.0 + math.Log2(profile.BurstMagnitude)*0.1
+	if profile.BurstDetected && profile.BurstMagnitude > 1 && e.burstSensitivity > 0 {
+		burstFactor = 1.0 + math.Log2(profile.BurstMagnitude)*e.burstSensitivity
 	}
 	afterBurst := scaleQuantity(afterSafetyMargin, burstFactor)
 

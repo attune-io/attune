@@ -154,6 +154,14 @@ type ResourceConfig struct {
 	// +optional
 	ControlledValues *string `json:"controlledValues,omitempty"`
 
+	// BurstSensitivity controls how much burst detection inflates the
+	// recommendation. Expressed as a decimal string multiplied by
+	// log2(burstMagnitude). Default "0.1" gives ~20% boost for magnitude 4,
+	// ~30% for 8, ~40% for 16. Set "0" to disable burst boost entirely
+	// (e.g. for batch jobs). Must be >= 0, max 1.0.
+	// +optional
+	BurstSensitivity *string `json:"burstSensitivity,omitempty"`
+
 	// AllowDecrease controls whether the resource value can be decreased.
 	// Only applicable to memory resources.
 	// +optional
