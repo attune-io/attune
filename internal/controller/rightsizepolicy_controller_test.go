@@ -1822,6 +1822,78 @@ func TestParseResizeRecords_MultiContainer(t *testing.T) {
 	assert.Equal(t, int32(2), records[1].RestartCount)
 }
 
+func TestParseResizeRecords_RestoresLimits(t *testing.T) {
+	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "limits-pod", Namespace: "default",
+			Annotations: map[string]string{
+				annotationResizedAt:                                resizedAt,
+				annotationResizedContainers:                        "app",
+				annotationOriginalCPUPrefix + "app":                "100m",
+				annotationOriginalMemoryPrefix + "app":             "64Mi",
+				annotationOriginalCPULimitPrefix + "app":           "200m",
+				annotationOriginalMemoryLimitPrefix + "app":        "128Mi",
+				annotationOriginalRestartCountPrefix + "app":       "0",
+			},
+		},
+		Spec: corev1.PodSpec{Containers: []corev1.Container{
+			{Name: "app", Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("150m"),
+					corev1.ResourceMemory: resource.MustParse("96Mi"),
+				},
+				Limits: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("300m"),
+					corev1.ResourceMemory: resource.MustParse("192Mi"),
+				},
+			}},
+		}},
+	}
+
+	records, err := parseResizeRecords(pod, 5*time.Minute)
+	require.NoError(t, err)
+	require.Len(t, records, 1)
+	// Requests restored from annotations.
+	assert.True(t, records[0].OriginalResources.Requests.Cpu().Equal(resource.MustParse("100m")))
+	assert.True(t, records[0].OriginalResources.Requests.Memory().Equal(resource.MustParse("64Mi")))
+	// Limits restored from limit annotations.
+	require.NotNil(t, records[0].OriginalResources.Limits, "Limits should be populated from limit annotations")
+	assert.True(t, records[0].OriginalResources.Limits.Cpu().Equal(resource.MustParse("200m")))
+	assert.True(t, records[0].OriginalResources.Limits.Memory().Equal(resource.MustParse("128Mi")))
+}
+
+func TestParseResizeRecords_NoLimitAnnotations(t *testing.T) {
+	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "no-limits-pod", Namespace: "default",
+			Annotations: map[string]string{
+				annotationResizedAt:                            resizedAt,
+				annotationResizedContainers:                    "app",
+				annotationOriginalCPUPrefix + "app":            "100m",
+				annotationOriginalMemoryPrefix + "app":         "64Mi",
+				annotationOriginalRestartCountPrefix + "app":   "0",
+			},
+		},
+		Spec: corev1.PodSpec{Containers: []corev1.Container{
+			{Name: "app", Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("150m"),
+					corev1.ResourceMemory: resource.MustParse("96Mi"),
+				},
+			}},
+		}},
+	}
+
+	records, err := parseResizeRecords(pod, 5*time.Minute)
+	require.NoError(t, err)
+	require.Len(t, records, 1)
+	assert.True(t, records[0].OriginalResources.Requests.Cpu().Equal(resource.MustParse("100m")))
+	// Limits should be nil when no limit annotations exist (backwards compat).
+	assert.Nil(t, records[0].OriginalResources.Limits, "Limits should be nil when limit annotations are absent")
+}
+
 func TestParseResizeRecords_MissingCPUAnnotation(t *testing.T) {
 	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
 	pod := &corev1.Pod{
@@ -3186,6 +3258,78 @@ func TestCheckPendingSafetyObservations_UnsafeVerdictReverts(t *testing.T) {
 		}
 	}
 	assert.True(t, foundResize, "should have called UpdateResize to revert the pod")
+}
+
+func TestCheckPendingSafetyObservations_UnsafeVerdictMarksHistoryReverted(t *testing.T) {
+	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "history-pod",
+			Namespace: "default",
+			Labels:    map[string]string{"app": "test", "rightsize.io/tracked": "true"},
+			Annotations: map[string]string{
+				"rightsize.io/resized-at":                   resizedAt,
+				"rightsize.io/resized-workload":             "api-server",
+				"rightsize.io/resized-containers":           "main",
+				"rightsize.io/original-cpu-request.main":    "500m",
+				"rightsize.io/original-memory-request.main": "512Mi",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  "main",
+					Image: "nginx",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("250m"),
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionFalse}, // triggers unsafe verdict
+			},
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "main", RestartCount: 0},
+			},
+		},
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	// Pre-populate resize history with a Success entry that should become Reverted.
+	policy.Status.ResizeHistory = []rightsizev1alpha1.ResizeHistoryEntry{
+		{
+			Workload:  "api-server",
+			Container: "main",
+			Resource:  "cpu",
+			From:      "500m",
+			To:        "250m",
+			Result:    rightsizev1alpha1.ResultSuccess,
+		},
+		{
+			Workload:  "api-server",
+			Container: "main",
+			Resource:  "memory",
+			From:      "512Mi",
+			To:        "256Mi",
+			Result:    rightsizev1alpha1.ResultSuccess,
+		},
+	}
+
+	reconciler, _ := newSafetyTestReconciler(pod)
+
+	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
+
+	// Verify that matching Success entries were marked as Reverted.
+	for _, h := range policy.Status.ResizeHistory {
+		assert.Equal(t, rightsizev1alpha1.ResultReverted, h.Result,
+			"history entry %s/%s should be Reverted, got %s", h.Workload, h.Container, h.Result)
+	}
 }
 
 func TestCheckPendingSafetyObservations_UnsafeVerdictEmitsEvent(t *testing.T) {
