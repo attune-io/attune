@@ -246,9 +246,10 @@ You manage dozens or hundreds of namespaces. Developers set resource requests
 once and never look at them again. You're tired of fielding tickets about
 cluster capacity while dashboards show 8% utilization.
 
-**kube-rightsize gives you a single CRD** (`RightSizeDefaults`) to set
-cluster-wide defaults, and per-namespace `RightSizePolicy` resources that
-developers can customize.
+**kube-rightsize gives you cluster-wide and namespace-scoped defaults**.
+Use `RightSizeDefaults` for cluster baselines, `RightSizeNamespaceDefaults`
+for environment- or team-specific overrides, and per-namespace
+`RightSizePolicy` resources for workload-level customization.
 
 ### FinOps teams
 

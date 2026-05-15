@@ -2,15 +2,20 @@
 
 ## Custom Resource Definitions
 
-kube-rightsize introduces two CRDs:
+kube-rightsize introduces three CRDs:
 
 **RightSizePolicy** (namespaced, short name `rsp`) is the primary resource.
 Each policy targets one or more workloads in a namespace, configures the
 recommendation parameters, and controls how resizes are applied.
 
 **RightSizeDefaults** (cluster-scoped, short name `rsd`) sets global default
-values for metrics source, resource config, and update strategy. Individual
-policies inherit these defaults and can override any field.
+values for metrics source, resource config, and update strategy.
+
+**RightSizeNamespaceDefaults** (namespaced, short name `rsnd`) sets
+per-namespace defaults that override cluster defaults for policies in the same
+namespace.
+
+Default precedence is: policy spec > namespace defaults > cluster defaults.
 
 ## Update modes
 
@@ -101,7 +106,7 @@ Cooldown enforcement prevents repeated resize attempts. See
 
 The operator computes `EstimatedMonthlySavings` based on the difference
 between current and recommended resource requests. Pricing is configurable
-via `RightSizeDefaults`:
+via `RightSizeDefaults` or `RightSizeNamespaceDefaults`:
 
 ```yaml
 spec:
@@ -134,9 +139,10 @@ node's allocatable resources.
 The Prometheus address is resolved in order:
 
 1. `spec.metricsSource.prometheus.address` on the RightSizePolicy
-2. `spec.metricsSource.prometheus.address` on a RightSizeDefaults resource
-3. Auto-discovery: Prometheus Operator CRD (`monitoring.coreos.com/v1 Prometheus`)
-4. Auto-discovery: well-known service names (`prometheus-server`,
+2. `spec.metricsSource.prometheus.address` on a RightSizeNamespaceDefaults resource in the same namespace
+3. `spec.metricsSource.prometheus.address` on a RightSizeDefaults resource
+4. Auto-discovery: Prometheus Operator CRD (`monitoring.coreos.com/v1 Prometheus`)
+5. Auto-discovery: well-known service names (`prometheus-server`,
    `prometheus-kube-prometheus-prometheus`) in common namespaces
 
 If all four fail, the policy enters `PrometheusUnavailable` status.

@@ -28,7 +28,7 @@ flowchart TB
 The reconciler loop in `internal/controller/`. On each reconciliation:
 
 1. Fetches the `RightSizePolicy` CR.
-2. Merges cluster-scoped `RightSizeDefaults`.
+2. Merges defaults in precedence order: policy spec > `RightSizeNamespaceDefaults` > `RightSizeDefaults`.
 3. Resolves the Prometheus address.
 4. Discovers target workloads via name or label selector.
 5. Checks for opt-out annotations and active rollouts.

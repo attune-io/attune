@@ -38,13 +38,16 @@ The operator resolves the Prometheus address in this order:
 flowchart TD
     A[Policy spec<br/>metricsSource.prometheus.address] -->|set?| B{Yes}
     B --> Z[Use it]
-    A -->|not set| C[RightSizeDefaults<br/>metricsSource.prometheus.address]
+    A -->|not set| C[RightSizeNamespaceDefaults<br/>metricsSource.prometheus.address]
     C -->|set?| D{Yes}
     D --> Z
-    C -->|not set| E[Auto-discovery:<br/>Prometheus Operator CRD]
-    E -->|found?| F{Yes}
+    C -->|not set| E[RightSizeDefaults<br/>metricsSource.prometheus.address]
+    E -->|set?| F{Yes}
     F --> Z
-    E -->|not found| G[Auto-discovery:<br/>well-known service names]
+    E -->|not set| G[Auto-discovery:<br/>Prometheus Operator CRD]
+    G -->|found?| H{Yes}
+    H --> Z
+    G -->|not found| I[Auto-discovery:<br/>well-known service names]
     G -->|found?| H{Yes}
     H --> Z
     G -->|not found| I[PrometheusUnavailable<br/>condition set]
@@ -71,7 +74,25 @@ Use this when different namespaces use different Prometheus instances.
     `http://prometheus-server.monitoring:80`. Private cluster IPs are
     allowed.
 
-### 2. Cluster-wide defaults
+### 2. Namespace defaults
+
+```yaml
+apiVersion: rightsize.io/v1alpha1
+kind: RightSizeNamespaceDefaults
+metadata:
+  name: team-defaults
+  namespace: production
+spec:
+  metricsSource:
+    prometheus:
+      address: http://prometheus-server.monitoring:80
+```
+
+Policies that omit `metricsSource.prometheus.address` inherit from this first.
+Use namespace defaults when different teams or environments need different
+Prometheus backends.
+
+### 3. Cluster-wide defaults
 
 ```yaml
 apiVersion: rightsize.io/v1alpha1
@@ -84,10 +105,11 @@ spec:
       address: http://prometheus-server.monitoring:80
 ```
 
-Policies that omit `metricsSource.prometheus.address` inherit from this.
-This is the recommended approach for most clusters.
+Policies that omit `metricsSource.prometheus.address` inherit from this when
+no `RightSizeNamespaceDefaults` exists in the same namespace. This is the
+recommended baseline for most clusters.
 
-### 3. Auto-discovery (Prometheus Operator)
+### 4. Auto-discovery (Prometheus Operator)
 
 If the [Prometheus Operator](https://github.com/prometheus-operator/prometheus-operator)
 is installed, kube-rightsize lists `monitoring.coreos.com/v1 Prometheus`
@@ -100,7 +122,7 @@ http://prometheus-<name>.<namespace>:<port>
 No configuration needed. This works with kube-prometheus-stack and any
 Prometheus Operator deployment.
 
-### 4. Auto-discovery (well-known services)
+### 5. Auto-discovery (well-known services)
 
 As a last resort, the operator checks for services with well-known names
 in common namespaces:
@@ -119,7 +141,7 @@ If found, port 9090 is assumed.
     Kubernetes Service may expose a different port (e.g., port 80 in the
     prometheus-community chart). Auto-discovery uses port 9090; if your
     Service uses a different port, set the address explicitly in a
-    `RightSizeDefaults` resource.
+    `RightSizeNamespaceDefaults` or `RightSizeDefaults` resource.
 
 ## Common Prometheus installations
 

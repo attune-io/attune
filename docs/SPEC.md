@@ -338,6 +338,12 @@ api-services    Canary      3           2         True    7d    1050m       696M
 
 Global defaults to avoid repetition across many RightSizePolicy resources.
 
+### 3.4 RightSizeNamespaceDefaults (Namespaced, Optional)
+
+Namespace-scoped defaults reuse the same spec as `RightSizeDefaults` but apply
+only within one namespace. Precedence is: policy spec > namespace defaults >
+cluster defaults.
+
 ```yaml
 apiVersion: rightsize.io/v1alpha1
 kind: RightSizeDefaults
@@ -364,7 +370,7 @@ spec:
     autoRevert: true
 ```
 
-### 3.4 Status Conditions
+### 3.5 Status Conditions
 
 | Condition Type | Reasons | Description |
 |---------------|---------|-------------|
@@ -426,7 +432,7 @@ Status conditions use `meta.SetStatusCondition()` from `k8s.io/apimachinery/pkg/
 A single controller reconciles `RightSizePolicy` resources. The reconcile function:
 
 ```
-1. FETCH policy and resolve defaults from RightSizeDefaults
+1. FETCH policy and resolve defaults from RightSizeNamespaceDefaults, then RightSizeDefaults
 2. DISCOVER target workloads (by name or label selector)
 3. For each workload:
    a. CHECK for conflicting policies (highest weight wins)
@@ -448,7 +454,8 @@ A single controller reconciles `RightSizePolicy` resources. The reconcile functi
 | Resource | Cache | Purpose |
 |----------|-------|---------|
 | RightSizePolicy | Full | Primary reconciliation target |
-| RightSizeDefaults | Full | Global defaults lookup |
+| RightSizeNamespaceDefaults | Full | Namespace defaults lookup |
+| RightSizeDefaults | Full | Cluster defaults lookup |
 | Deployment | Metadata-only | Discover target workloads, read replicas |
 | StatefulSet | Metadata-only | Discover target workloads |
 | DaemonSet | Metadata-only | Discover target workloads |
@@ -487,7 +494,7 @@ A single controller reconciles `RightSizePolicy` resources. The reconcile functi
   resources: ["rightsizepolicies", "rightsizepolicies/status"]
   verbs: ["get", "list", "watch", "update", "patch"]
 - apiGroups: ["rightsize.io"]
-  resources: ["rightsizedefaults"]
+  resources: ["rightsizedefaults", "rightsizenamespacedefaults"]
   verbs: ["get", "list", "watch"]
 ```
 
@@ -854,14 +861,15 @@ Ship a pre-built Grafana dashboard JSON covering:
 - Resize patch construction
 - Status condition building
 
-**Coverage target**: 75%+ on `internal/` packages.
+**Coverage target**: 80%+ on `internal/` packages.
 
 ### 9.3 Integration Tests (envtest)
 
-**Framework**: Ginkgo v2 + Gomega + `controller-runtime/pkg/envtest`
+**Framework**: standard `testing` + `github.com/stretchr/testify` + `controller-runtime/pkg/envtest`
 
 **What to test**:
 - RightSizePolicy CR creation, validation, defaulting
+- RightSizeNamespaceDefaults overrides cluster `RightSizeDefaults`
 - RightSizeDefaults merging with policy-level overrides
 - Controller discovers workloads by name and by selector
 - Controller handles workload updates (new pods, scale events)
@@ -1461,7 +1469,7 @@ kube-rightsize/
 ### Phase 4: Production Readiness
 
 - [ ] Auto mode (canary then fleet)
-- [ ] RightSizeDefaults (cluster-scoped)
+- [ ] RightSizeDefaults / RightSizeNamespaceDefaults
 - [ ] Grafana dashboard
 - [ ] MkDocs documentation site
 - [ ] Cosign image signing

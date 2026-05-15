@@ -28,8 +28,9 @@ helm install kube-rightsize \
 
 !!! tip "Prometheus address"
     The Prometheus address is configured per-policy in
-    `RightSizePolicy.spec.metricsSource.prometheus.address`, or globally
-    via the `RightSizeDefaults` CRD. It is not a Helm chart value.
+    `RightSizePolicy.spec.metricsSource.prometheus.address`, per namespace via
+    the `RightSizeNamespaceDefaults` CRD, or globally via the
+    `RightSizeDefaults` CRD. It is not a Helm chart value.
     If neither is set, the operator auto-discovers Prometheus by checking
     for the Prometheus Operator CRD, then well-known service names
     (`prometheus-server`, `prometheus-kube-prometheus-prometheus`) in
@@ -56,8 +57,9 @@ kubectl apply -f \
 
 !!! warning
     The Prometheus address is configured per-policy in
-    `RightSizePolicy.spec.metricsSource.prometheus.address` or globally
-    via the `RightSizeDefaults` CRD. Auto-discovery is also available
+    `RightSizePolicy.spec.metricsSource.prometheus.address`, per namespace via
+    `RightSizeNamespaceDefaults`, or globally via the `RightSizeDefaults` CRD.
+    Auto-discovery is also available
     if neither is set (see the Helm installation tip above).
 
 ## Verify the installation
