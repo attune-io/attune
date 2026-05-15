@@ -182,7 +182,7 @@ provides a graduated path:
 | **Observe** | Collects metrics and tracks data-point progress; no recommendations surfaced | Zero |
 | **Recommend** | Collects metrics and writes recommendations to the policy status | Zero |
 | **OneShot** | Resizes one pod per reconciliation cycle, then stops | Minimal |
-| **Canary** | Resizes 10% of pods first, watches them, then rolls out to the rest | Low |
+| **Canary** | Resizes 10% of pods first, watches them, then auto-promotes to the rest (optional) | Low |
 | **Auto** | Continuously resizes all eligible pods based on observed metrics | Production-ready |
 
 Most teams follow this progression:
@@ -383,14 +383,14 @@ kubectl rightsize savings -n default
 ### 4. Promote to Canary, then Auto
 
 ```bash
-# Try on 10% of pods first
+# Try on 10% of pods first (autoPromote handles the rest)
 kubectl patch rsp my-app --type merge \
-  -p '{"spec":{"updateStrategy":{"mode":"Canary","canary":{"percentage":10},"autoRevert":true}}}'
-
-# Once validated, go to Auto
-kubectl patch rsp my-app --type merge \
-  -p '{"spec":{"updateStrategy":{"mode":"Auto"}}}'
+  -p '{"spec":{"updateStrategy":{"mode":"Canary","canary":{"percentage":10,"autoPromote":true},"autoRevert":true}}}'
 ```
+
+With `autoPromote: true`, the operator automatically promotes to the full
+fleet after the observation period passes without safety violations. No
+manual mode switch needed.
 
 That's it. No agents to install. No SaaS to configure. No pods to restart.
 
