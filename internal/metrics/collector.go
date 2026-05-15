@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -119,16 +120,29 @@ type headerTransport struct {
 	base        http.RoundTripper
 	headers     map[string]string
 	bearerToken string
+	baseURL     *url.URL
+}
+
+func sameOrigin(a, b *url.URL) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	return a.Scheme == b.Scheme && a.Host == b.Host
 }
 
 func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if t.baseURL != nil && !sameOrigin(t.baseURL, req.URL) {
+		return t.base.RoundTrip(req)
+	}
+	clone := req.Clone(req.Context())
+	clone.Header = req.Header.Clone()
 	for k, v := range t.headers {
-		req.Header.Set(k, v)
+		clone.Header.Set(k, v)
 	}
 	if t.bearerToken != "" {
-		req.Header.Set("Authorization", "Bearer "+t.bearerToken)
+		clone.Header.Set("Authorization", "Bearer "+t.bearerToken)
 	}
-	return t.base.RoundTrip(req)
+	return t.base.RoundTrip(clone)
 }
 
 // NewPrometheusCollector creates a new PrometheusCollector that queries the
@@ -161,7 +175,11 @@ func NewPrometheusCollectorWithOptions(address string, logger logr.Logger, opts 
 
 	// Wrap with header/token injection if needed.
 	if opts != nil && (len(opts.Headers) > 0 || opts.BearerToken != "") {
-		rt = &headerTransport{base: rt, headers: opts.Headers, bearerToken: opts.BearerToken}
+		parsedAddress, err := url.Parse(address)
+		if err != nil {
+			return nil, fmt.Errorf("parsing prometheus address: %w", err)
+		}
+		rt = &headerTransport{base: rt, headers: opts.Headers, bearerToken: opts.BearerToken, baseURL: parsedAddress}
 	}
 
 	client, err := promapi.NewClient(promapi.Config{

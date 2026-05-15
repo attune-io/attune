@@ -424,6 +424,61 @@ func TestHeaderTransport_NoBearer(t *testing.T) {
 	assert.Empty(t, gotHeaders.Get("Authorization"))
 }
 
+func TestHeaderTransport_SkipsHeadersOnCrossOriginRedirect(t *testing.T) {
+	var redirectedHeaders http.Header
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		redirectedHeaders = r.Header.Clone()
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(cannedInstantResponse()))
+	}))
+	defer target.Close()
+
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL+"/api/v1/query?query=up", http.StatusFound)
+	}))
+	defer source.Close()
+
+	opts := &CollectorOptions{
+		Headers:     map[string]string{"X-Scope-OrgID": "tenant-1"},
+		BearerToken: "my-secret-token",
+	}
+	collector, err := NewPrometheusCollectorWithOptions(source.URL, logr.Discard(), opts, http.DefaultTransport)
+	require.NoError(t, err)
+
+	_, err = collector.Query(context.Background(), "up", time.Now())
+	require.NoError(t, err)
+	require.NotNil(t, redirectedHeaders)
+	assert.Empty(t, redirectedHeaders.Get("X-Scope-OrgID"))
+	assert.Empty(t, redirectedHeaders.Get("Authorization"))
+}
+
+func TestHeaderTransport_PreservesHeadersOnSameOriginRedirect(t *testing.T) {
+	var finalHeaders http.Header
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/redirect" {
+			http.Redirect(w, r, "/api/v1/query?query=up", http.StatusFound)
+			return
+		}
+		finalHeaders = r.Header.Clone()
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(cannedInstantResponse()))
+	}))
+	defer server.Close()
+
+	opts := &CollectorOptions{
+		Headers:     map[string]string{"X-Scope-OrgID": "tenant-1"},
+		BearerToken: "my-secret-token",
+	}
+	collector, err := NewPrometheusCollectorWithOptions(server.URL+"/redirect", logr.Discard(), opts, http.DefaultTransport)
+	require.NoError(t, err)
+
+	_, err = collector.Query(context.Background(), "up", time.Now())
+	require.NoError(t, err)
+	require.NotNil(t, finalHeaders)
+	assert.Equal(t, "tenant-1", finalHeaders.Get("X-Scope-OrgID"))
+	assert.Equal(t, "Bearer my-secret-token", finalHeaders.Get("Authorization"))
+}
+
 func TestNewPrometheusCollectorWithOptions_InsecureSkipVerify(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
