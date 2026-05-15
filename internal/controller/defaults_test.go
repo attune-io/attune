@@ -18,11 +18,14 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
 )
@@ -210,4 +213,19 @@ func TestFetchDefaults_NamespaceScopedOverridesCluster(t *testing.T) {
 	result = r.fetchDefaults(context.Background(), "staging")
 	assert.NotNil(t, result)
 	assert.Equal(t, int32(90), result.Spec.CPU.Percentile)
+}
+
+func TestFetchDefaults_ListError(t *testing.T) {
+	scheme := testScheme()
+	errClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithInterceptorFuncs(interceptor.Funcs{
+			List: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) error {
+				return fmt.Errorf("simulated API server error")
+			},
+		}).Build()
+	r := &RightSizePolicyReconciler{Client: errClient, Scheme: scheme}
+
+	// Both namespace and cluster List calls fail; fetchDefaults returns nil.
+	result := r.fetchDefaults(context.Background(), "default")
+	assert.Nil(t, result, "fetchDefaults should return nil when List fails")
 }

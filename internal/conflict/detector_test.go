@@ -18,6 +18,7 @@ package conflict
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/go-logr/logr/testr"
@@ -28,7 +29,9 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
 func TestCheckAnnotationOptOut(t *testing.T) {
@@ -247,6 +250,33 @@ func TestCheckVPAConflict_NoCRD(t *testing.T) {
 
 	result := detector.CheckVPAConflict(context.Background(), c, "default", "my-app", "Deployment")
 	assert.Nil(t, result)
+}
+
+func TestListVPAs_ListError(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+
+	// Interceptor forces List to return an error.
+	errClient := fake.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
+		List: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) error {
+			return fmt.Errorf("simulated API error")
+		},
+	}).Build()
+
+	result := detector.ListVPAs(context.Background(), errClient, "default")
+	assert.Nil(t, result, "ListVPAs should return nil on List error")
+}
+
+func TestListPolicies_ListError(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+
+	errClient := fake.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
+		List: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) error {
+			return fmt.Errorf("simulated API error")
+		},
+	}).Build()
+
+	result := detector.ListPolicies(context.Background(), errClient, "default")
+	assert.Nil(t, result, "ListPolicies should return nil on List error")
 }
 
 func TestCheckHPAConflict_DifferentKind(t *testing.T) {
@@ -698,4 +728,26 @@ func TestCheckPolicyConflictInMemory_CombinedMatchLabelsAndExpressions(t *testin
 	result = detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment",
 		map[string]string{"app": "api", "env": "prod"}, "current", 100)
 	assert.Nil(t, result, "matchLabels not met should not detect conflict")
+}
+
+func TestCheckPolicyConflictInMemory_MalformedSelector(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+
+	// Build a policy with an invalid matchExpressions operator so that
+	// LabelSelectorAsSelector returns an error. The detector should log
+	// the error and return no conflict (safe default).
+	p := newSelectorPolicy("bad-selector", "Deployment", map[string]string{"app": "web"}, 200)
+	exprs := []interface{}{
+		map[string]interface{}{
+			"key":      "zone",
+			"operator": "InvalidOp",
+			"values":   []interface{}{"us-east-1"},
+		},
+	}
+	_ = unstructured.SetNestedSlice(p.Object, exprs, "spec", "targetRef", "selector", "matchExpressions")
+
+	list := &unstructured.UnstructuredList{Items: []unstructured.Unstructured{p}}
+	result := detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment",
+		map[string]string{"app": "web", "zone": "us-east-1"}, "current", 100)
+	assert.Nil(t, result, "malformed selector should be skipped, not treated as a match")
 }

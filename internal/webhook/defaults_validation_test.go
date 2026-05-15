@@ -188,37 +188,41 @@ func TestDefaultsValidator_RecordsMetrics(t *testing.T) {
 	assert.Equal(t, uint64(1), hMetric.GetHistogram().GetSampleCount())
 }
 
-func TestDefaultsValidator_ValidPrometheusAddress(t *testing.T) {
-	v := &RightSizeDefaultsValidator{}
-	defaults := &rightsizev1alpha1.RightSizeDefaults{
-		ObjectMeta: metav1.ObjectMeta{Name: "default"},
-		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			MetricsSource: &rightsizev1alpha1.MetricsSource{
-				Prometheus: &rightsizev1alpha1.PrometheusConfig{
-					Address: "http://prometheus-server.monitoring:80",
-				},
-			},
-		},
+func TestDefaultsValidator_PrometheusAddressSSRF(t *testing.T) {
+	tests := []struct {
+		name      string
+		address   string
+		expectErr bool
+	}{
+		{"valid cluster address", "http://prometheus-server.monitoring:80", false},
+		{"valid private IP", "http://10.0.0.1:9090", false},
+		{"loopback IPv4", "http://127.0.0.1:9090", true},
+		{"loopback IPv6", "http://[::1]:9090", true},
+		{"link-local AWS metadata", "http://169.254.169.254/latest/meta-data/", true},
+		{"GCP metadata hostname", "http://metadata.google.internal", true},
 	}
-	_, err := v.ValidateCreate(context.Background(), defaults)
-	require.NoError(t, err)
-}
-
-func TestDefaultsValidator_SSRFPrometheusAddress(t *testing.T) {
-	v := &RightSizeDefaultsValidator{}
-	defaults := &rightsizev1alpha1.RightSizeDefaults{
-		ObjectMeta: metav1.ObjectMeta{Name: "default"},
-		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			MetricsSource: &rightsizev1alpha1.MetricsSource{
-				Prometheus: &rightsizev1alpha1.PrometheusConfig{
-					Address: "http://169.254.169.254/latest/meta-data/",
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := &RightSizeDefaultsValidator{}
+			defaults := &rightsizev1alpha1.RightSizeDefaults{
+				ObjectMeta: metav1.ObjectMeta{Name: "default"},
+				Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+					MetricsSource: &rightsizev1alpha1.MetricsSource{
+						Prometheus: &rightsizev1alpha1.PrometheusConfig{
+							Address: tt.address,
+						},
+					},
 				},
-			},
-		},
+			}
+			_, err := v.ValidateCreate(context.Background(), defaults)
+			if tt.expectErr {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), "metricsSource.prometheus.address")
+			} else {
+				assert.NoError(t, err)
+			}
+		})
 	}
-	_, err := v.ValidateCreate(context.Background(), defaults)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "metricsSource.prometheus.address")
 }
 
 func TestDefaultsValidator_RecordsRejectedMetric(t *testing.T) {
