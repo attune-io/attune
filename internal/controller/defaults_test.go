@@ -220,7 +220,7 @@ func TestFetchDefaults_NamespaceDefaultsDoNotMergeWithClusterDefaults(t *testing
 	clusterDefaults := &rightsizev1alpha1.RightSizeDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
 		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			CPU: &rightsizev1alpha1.ResourceConfig{Percentile: 90, SafetyMargin: "1.2"},
+			CPU:    &rightsizev1alpha1.ResourceConfig{Percentile: 90, SafetyMargin: "1.2"},
 			Memory: &rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.4"},
 		},
 	}
