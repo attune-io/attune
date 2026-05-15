@@ -251,6 +251,11 @@ func (in *ResourceConfig) DeepCopyInto(out *ResourceConfig) {
 		*out = new(string)
 		**out = **in
 	}
+	if in.BurstSensitivity != nil {
+		in, out := &in.BurstSensitivity, &out.BurstSensitivity
+		*out = new(string)
+		**out = **in
+	}
 	if in.AllowDecrease != nil {
 		in, out := &in.AllowDecrease, &out.AllowDecrease
 		*out = new(bool)

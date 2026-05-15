@@ -97,6 +97,14 @@ spec:
                     - max
                     - min
                     type: object
+                  burstSensitivity:
+                    description: |-
+                      BurstSensitivity controls how much burst detection inflates the
+                      recommendation. Expressed as a decimal string multiplied by
+                      log2(burstMagnitude). Default "0.1" gives ~20% boost for magnitude 4,
+                      ~30% for 8, ~40% for 16. Set "0" to disable burst boost entirely
+                      (e.g. for batch jobs). Must be >= 0, max 1.0.
+                    type: string
                   controlledValues:
                     description: |-
                       ControlledValues specifies which resource values to manage.
@@ -162,6 +170,14 @@ spec:
                     - max
                     - min
                     type: object
+                  burstSensitivity:
+                    description: |-
+                      BurstSensitivity controls how much burst detection inflates the
+                      recommendation. Expressed as a decimal string multiplied by
+                      log2(burstMagnitude). Default "0.1" gives ~20% boost for magnitude 4,
+                      ~30% for 8, ~40% for 16. Set "0" to disable burst boost entirely
+                      (e.g. for batch jobs). Must be >= 0, max 1.0.
+                    type: string
                   controlledValues:
                     description: |-
                       ControlledValues specifies which resource values to manage.
@@ -493,6 +509,13 @@ spec:
                 description: Canary tracks the canary rollout phase when autoPromote
                   is enabled.
                 properties:
+                  observedGeneration:
+                    description: |-
+                      ObservedGeneration is the policy generation when this canary cycle
+                      started. If the policy spec changes (generation increments), the
+                      canary observation resets so the new configuration is re-validated.
+                    format: int64
+                    type: integer
                   phase:
                     description: |-
                       Phase indicates the current canary state.
