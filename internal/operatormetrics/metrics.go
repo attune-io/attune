@@ -181,6 +181,14 @@ var (
 		},
 		[]string{"namespace", "workload"},
 	)
+
+	BurstFactor = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "kube_rightsize_burst_factor",
+			Help: "Burst detection multiplier applied to recommendations (1.0 = no burst)",
+		},
+		[]string{"namespace", "workload", "container", "resource"},
+	)
 )
 
 // WebhookTimer tracks webhook operation duration and result.
@@ -229,5 +237,6 @@ func init() {
 		BudgetExhaustedTotal,
 		EvictionTotal,
 		InfeasibleSkippedTotal,
+		BurstFactor,
 	)
 }

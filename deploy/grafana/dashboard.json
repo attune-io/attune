@@ -402,8 +402,35 @@
       ]
     },
     {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "min": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1.1 },
+              { "color": "orange", "value": 1.3 }
+            ]
+          }
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+      "id": 120,
+      "title": "Burst Factor",
+      "description": "Burst detection multiplier applied to recommendations (1.0 = no burst detected)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "kube_rightsize_burst_factor{namespace=~\"$namespace\"}",
+          "legendFormat": "{{ workload }}/{{ container }} ({{ resource }})"
+        }
+      ]
+    },
+    {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 40 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 41 },
       "id": 103,
       "title": "Operator Health",
       "type": "row"
