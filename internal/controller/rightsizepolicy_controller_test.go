@@ -4875,3 +4875,60 @@ func TestProgressPercent(t *testing.T) {
 		})
 	}
 }
+
+func TestParseFloat64NonNeg(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		fallback float64
+		want     float64
+	}{
+		{"empty returns fallback", "", 0.5, 0.5},
+		{"valid value", "0.7", 0.5, 0.7},
+		{"zero", "0", 0.5, 0.0},
+		{"exactly one", "1.0", 0.5, 1.0},
+		{"capped above one", "1.5", 0.5, 1.0},
+		{"negative returns fallback", "-0.3", 0.5, 0.5},
+		{"parse error returns fallback", "abc", 0.5, 0.5},
+		{"NaN returns fallback", "NaN", 0.5, 0.5},
+		{"Inf returns fallback", "Inf", 0.5, 0.5},
+		{"-Inf returns fallback", "-Inf", 0.5, 0.5},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseFloat64NonNeg(tt.input, tt.fallback)
+			assert.InDelta(t, tt.want, got, 1e-9)
+		})
+	}
+}
+
+func TestTryEvictionFallback_EvictionDeniedByPDB(t *testing.T) {
+	pod1 := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
+	pod2 := newTestPod("api-server-abc-2", "default", map[string]string{"app": "api-server"})
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.ResizeMethod = rightsizev1alpha1.ResizeMethodInPlaceOrEvict
+
+	clientset := kubefake.NewSimpleClientset(pod1, pod2)
+	// Make eviction fail (simulates PDB denial).
+	clientset.PrependReactor("create", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if action.GetSubresource() == "eviction" {
+			return true, nil, fmt.Errorf("Cannot evict pod as it would violate the pod's disruption budget")
+		}
+		return false, nil, nil
+	})
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(policy, deploy, pod1, pod2).Build()
+	r := &RightSizePolicyReconciler{
+		Client:    fakeClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+	}
+	resizer := resize.NewPodResizer(clientset, ctrl.Log)
+
+	evicted := r.tryEvictionFallback(context.Background(), policy, pod1,
+		"api-server", "app", resizer)
+	assert.False(t, evicted, "should return false when eviction is denied by PDB")
+}
