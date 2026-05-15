@@ -153,7 +153,7 @@ func TestRecommendationEngine_LargeChangeCapped(t *testing.T) {
 		1.2,
 		resource.MustParse("50m"),
 		resource.MustParse("4000m"),
-		50,   // max 50% change
+		50, // max 50% change
 		EngineOpts{IsCPU: true},
 	)
 
@@ -177,7 +177,7 @@ func TestRecommendationEngine_HighVsLowConfidence(t *testing.T) {
 			1.2,
 			resource.MustParse("50m"),
 			resource.MustParse("100000m"),
-			100,  // allow full range of change so filter doesn't mask differences
+			100, // allow full range of change so filter doesn't mask differences
 			EngineOpts{IsCPU: true},
 		)
 	}
