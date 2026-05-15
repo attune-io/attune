@@ -257,6 +257,13 @@ spec:
                     description: Canary configures canary rollout behavior when Mode
                       is Canary.
                     properties:
+                      autoPromote:
+                        description: |-
+                          AutoPromote controls whether the operator automatically promotes the
+                          resize to all pods after the observation period passes without safety
+                          violations. When false (default), the user must manually switch the
+                          mode to Auto to resize the remaining pods.
+                        type: boolean
                       observationPeriod:
                         description: ObservationPeriod is how long to observe canary
                           pods before proceeding.

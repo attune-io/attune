@@ -256,6 +256,13 @@ type CanaryConfig struct {
 
 	// ObservationPeriod is how long to observe canary pods before proceeding.
 	ObservationPeriod metav1.Duration `json:"observationPeriod"`
+
+	// AutoPromote controls whether the operator automatically promotes the
+	// resize to all pods after the observation period passes without safety
+	// violations. When false (default), the user must manually switch the
+	// mode to Auto to resize the remaining pods.
+	// +optional
+	AutoPromote bool `json:"autoPromote,omitempty"`
 }
 
 // ResizeSchedule restricts when resize operations can be applied.
@@ -317,11 +324,29 @@ type RightSizePolicyStatus struct {
 	// +optional
 	ResizeHistory []ResizeHistoryEntry `json:"resizeHistory,omitempty"`
 
+	// Canary tracks the canary rollout phase when autoPromote is enabled.
+	// +optional
+	Canary *CanaryStatus `json:"canary,omitempty"`
+
 	// LastReconcileTime is the timestamp of the most recent reconciliation.
 	// Serves as a heartbeat to confirm the operator is actively evaluating
 	// this policy, even when no state changes occur.
 	// +optional
 	LastReconcileTime *metav1.Time `json:"lastReconcileTime,omitempty"`
+}
+
+// CanaryStatus tracks the canary rollout progression.
+type CanaryStatus struct {
+	// Phase indicates the current canary state.
+	// CanaryInProgress: canary pods resized, observing for safety violations.
+	// CanaryPassed: observation period elapsed with no violations; next reconcile promotes.
+	// FullRollout: all pods are being resized.
+	// +optional
+	Phase string `json:"phase,omitempty"`
+
+	// StartTime is when the canary subset was first resized.
+	// +optional
+	StartTime *metav1.Time `json:"startTime,omitempty"`
 }
 
 // WorkloadStatus summarizes workload counts.

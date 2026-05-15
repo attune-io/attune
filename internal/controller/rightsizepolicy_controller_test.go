@@ -2607,6 +2607,108 @@ func TestReconcile_PrometheusUnavailable(t *testing.T) {
 	assert.Equal(t, "PrometheusUnavailable", updated.Status.Conditions[0].Reason)
 }
 
+// ---------- resolveCanaryPhase ----------
+
+func TestResolveCanaryPhase_InitializesOnFirstCall(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.ModeCanary
+	policy.Spec.UpdateStrategy.Canary = &rightsizev1alpha1.CanaryConfig{
+		Percentage:        20,
+		ObservationPeriod: metav1.Duration{Duration: 5 * time.Minute},
+		AutoPromote:       true,
+	}
+
+	reconciler := &RightSizePolicyReconciler{}
+	mode := reconciler.resolveCanaryPhase(context.Background(), policy, rightsizev1alpha1.ModeCanary)
+
+	assert.Equal(t, rightsizev1alpha1.ModeCanary, mode, "first call should stay in canary mode")
+	require.NotNil(t, policy.Status.Canary)
+	assert.Equal(t, rightsizev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.Phase)
+	assert.NotNil(t, policy.Status.Canary.StartTime)
+}
+
+func TestResolveCanaryPhase_PromotesAfterObservation(t *testing.T) {
+	startTime := metav1.NewTime(time.Now().Add(-10 * time.Minute))
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.ModeCanary
+	policy.Spec.UpdateStrategy.Canary = &rightsizev1alpha1.CanaryConfig{
+		Percentage:        20,
+		ObservationPeriod: metav1.Duration{Duration: 5 * time.Minute},
+		AutoPromote:       true,
+	}
+	policy.Status.Canary = &rightsizev1alpha1.CanaryStatus{
+		Phase:     rightsizev1alpha1.CanaryPhaseInProgress,
+		StartTime: &startTime,
+	}
+	// No reverts in history.
+	policy.Status.ResizeHistory = []rightsizev1alpha1.ResizeHistoryEntry{
+		{Result: rightsizev1alpha1.ResultSuccess, Timestamp: metav1.NewTime(startTime.Add(1 * time.Minute))},
+	}
+
+	reconciler := &RightSizePolicyReconciler{}
+	mode := reconciler.resolveCanaryPhase(context.Background(), policy, rightsizev1alpha1.ModeCanary)
+
+	assert.Equal(t, rightsizev1alpha1.ModeAuto, mode, "should promote to auto after observation passes")
+	assert.Equal(t, rightsizev1alpha1.CanaryPhaseFullRollout, policy.Status.Canary.Phase)
+}
+
+func TestResolveCanaryPhase_WaitsDuringObservation(t *testing.T) {
+	startTime := metav1.NewTime(time.Now().Add(-1 * time.Minute))
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.ModeCanary
+	policy.Spec.UpdateStrategy.Canary = &rightsizev1alpha1.CanaryConfig{
+		Percentage:        20,
+		ObservationPeriod: metav1.Duration{Duration: 5 * time.Minute},
+		AutoPromote:       true,
+	}
+	policy.Status.Canary = &rightsizev1alpha1.CanaryStatus{
+		Phase:     rightsizev1alpha1.CanaryPhaseInProgress,
+		StartTime: &startTime,
+	}
+
+	reconciler := &RightSizePolicyReconciler{}
+	mode := reconciler.resolveCanaryPhase(context.Background(), policy, rightsizev1alpha1.ModeCanary)
+
+	assert.Equal(t, rightsizev1alpha1.ModeCanary, mode, "should stay in canary during observation")
+}
+
+func TestResolveCanaryPhase_BlocksOnRevert(t *testing.T) {
+	startTime := metav1.NewTime(time.Now().Add(-10 * time.Minute))
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.ModeCanary
+	policy.Spec.UpdateStrategy.Canary = &rightsizev1alpha1.CanaryConfig{
+		Percentage:        20,
+		ObservationPeriod: metav1.Duration{Duration: 5 * time.Minute},
+		AutoPromote:       true,
+	}
+	policy.Status.Canary = &rightsizev1alpha1.CanaryStatus{
+		Phase:     rightsizev1alpha1.CanaryPhaseInProgress,
+		StartTime: &startTime,
+	}
+	// Revert happened during observation.
+	policy.Status.ResizeHistory = []rightsizev1alpha1.ResizeHistoryEntry{
+		{Result: rightsizev1alpha1.ResultReverted, Timestamp: metav1.NewTime(startTime.Add(2 * time.Minute))},
+	}
+
+	reconciler := &RightSizePolicyReconciler{}
+	mode := reconciler.resolveCanaryPhase(context.Background(), policy, rightsizev1alpha1.ModeCanary)
+
+	assert.Equal(t, rightsizev1alpha1.ModeCanary, mode, "should block promotion when revert happened")
+	assert.Equal(t, rightsizev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.Phase)
+}
+
+func TestResolveCanaryPhase_FullRolloutStaysAuto(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	policy.Status.Canary = &rightsizev1alpha1.CanaryStatus{
+		Phase: rightsizev1alpha1.CanaryPhaseFullRollout,
+	}
+
+	reconciler := &RightSizePolicyReconciler{}
+	mode := reconciler.resolveCanaryPhase(context.Background(), policy, rightsizev1alpha1.ModeCanary)
+
+	assert.Equal(t, rightsizev1alpha1.ModeAuto, mode, "FullRollout should map to Auto")
+}
+
 // ---------- Reconcile with cooldown active ----------
 
 func TestReconcile_CooldownActive_SkipsResize(t *testing.T) {

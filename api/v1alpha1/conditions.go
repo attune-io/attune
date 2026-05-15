@@ -34,4 +34,13 @@ const (
 	ReasonCooldownActive          = "CooldownActive"
 	ReasonHighRevertRate          = "HighRevertRate"
 	ReasonWorkloadDiscoveryFailed = "WorkloadDiscoveryFailed"
+	ReasonCanaryObserving         = "CanaryObserving"
+	ReasonCanaryPassed            = "CanaryPassed"
+)
+
+// Canary phase constants.
+const (
+	CanaryPhaseInProgress = "CanaryInProgress"
+	CanaryPhasePassed     = "CanaryPassed"
+	CanaryPhaseFullRollout = "FullRollout"
 )

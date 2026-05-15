@@ -836,8 +836,16 @@ func (r *RightSizePolicyReconciler) executeResizes(
 
 	mode := policy.Spec.UpdateStrategy.Mode
 	canaryPct := int32(10)
+	canaryAutoPromote := false
 	if policy.Spec.UpdateStrategy.Canary != nil {
 		canaryPct = policy.Spec.UpdateStrategy.Canary.Percentage
+		canaryAutoPromote = policy.Spec.UpdateStrategy.Canary.AutoPromote
+	}
+
+	// Canary auto-promotion: if all canary pods passed the observation
+	// period without reverts, promote to full rollout.
+	if mode == rightsizev1alpha1.ModeCanary && canaryAutoPromote {
+		mode = r.resolveCanaryPhase(ctx, policy, mode)
 	}
 
 	resizer := resize.NewPodResizer(r.Clientset, logger)
@@ -1339,6 +1347,54 @@ func buildResizeTarget(rec rightsizev1alpha1.ContainerRecommendation) corev1.Res
 		}
 	}
 	return target
+}
+
+// resolveCanaryPhase checks whether canary pods have passed the observation
+// period without reverts. If so, it promotes to FullRollout and returns
+// ModeAuto so selectPodsForResize resizes all pods.
+func (r *RightSizePolicyReconciler) resolveCanaryPhase(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy, currentMode string) string {
+	logger := log.FromContext(ctx)
+	observationPeriod := getObservationPeriod(policy)
+
+	cs := policy.Status.Canary
+
+	// Phase: FullRollout already active from a prior reconcile.
+	if cs != nil && cs.Phase == rightsizev1alpha1.CanaryPhaseFullRollout {
+		return rightsizev1alpha1.ModeAuto
+	}
+
+	// Phase: CanaryInProgress -- check if observation period has elapsed.
+	if cs != nil && cs.Phase == rightsizev1alpha1.CanaryPhaseInProgress && cs.StartTime != nil {
+		elapsed := r.now().Sub(cs.StartTime.Time)
+		if elapsed >= observationPeriod {
+			// Check for reverts during the observation window.
+			hasRevert := false
+			for _, h := range policy.Status.ResizeHistory {
+				if h.Result == rightsizev1alpha1.ResultReverted && h.Timestamp.After(cs.StartTime.Time) {
+					hasRevert = true
+					break
+				}
+			}
+			if hasRevert {
+				logger.Info("Canary observation found reverts, staying in canary mode")
+				return currentMode
+			}
+			logger.Info("Canary observation passed, promoting to full rollout")
+			policy.Status.Canary.Phase = rightsizev1alpha1.CanaryPhaseFullRollout
+			return rightsizev1alpha1.ModeAuto
+		}
+		return currentMode
+	}
+
+	// Phase: not started yet. Initialize canary tracking on the next resize.
+	if cs == nil {
+		now := metav1.Now()
+		policy.Status.Canary = &rightsizev1alpha1.CanaryStatus{
+			Phase:     rightsizev1alpha1.CanaryPhaseInProgress,
+			StartTime: &now,
+		}
+	}
+	return currentMode
 }
 
 // shouldSkipResize runs pre-checks and returns whether to skip the resize
