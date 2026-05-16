@@ -24,12 +24,14 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
+	"github.com/SebTardifLabs/kube-rightsize/internal/metrics"
 )
 
 func TestMergeDefaults_NoDefaults(t *testing.T) {
@@ -228,7 +230,7 @@ func TestFetchDefaults_NamespaceDefaultsDoNotMergeWithClusterDefaults(t *testing
 	nsDefaults := &rightsizev1alpha1.RightSizeNamespaceDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "production-defaults", Namespace: "production"},
 		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			CPU: &rightsizev1alpha1.ResourceConfig{Percentile: 99},
+			CPU: &rightsizev1alpha1.ResourceConfig{Percentile: 99, SafetyMargin: "1.2"},
 			// Memory intentionally omitted: namespace defaults should replace,
 			// not merge with, cluster defaults for this namespace.
 		},
@@ -238,14 +240,61 @@ func TestFetchDefaults_NamespaceDefaultsDoNotMergeWithClusterDefaults(t *testing
 		WithObjects(clusterDefaults, nsDefaults).Build()
 	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
 
-	policy := &rightsizev1alpha1.RightSizePolicy{}
 	defaults := r.fetchDefaults(context.Background(), "production")
 	require.NotNil(t, defaults)
+	assert.Equal(t, int32(99), defaults.Spec.CPU.Percentile)
+	assert.Equal(t, "1.2", defaults.Spec.CPU.SafetyMargin)
+	assert.Nil(t, defaults.Spec.Memory)
+
+	policy := &rightsizev1alpha1.RightSizePolicy{}
 	r.mergeDefaults(policy, defaults)
 
 	assert.Equal(t, int32(99), policy.Spec.CPU.Percentile)
+	assert.Equal(t, "1.2", policy.Spec.CPU.SafetyMargin)
 	assert.Zero(t, policy.Spec.Memory.Percentile)
 	assert.Empty(t, policy.Spec.Memory.SafetyMargin)
+}
+
+func TestMergeDefaults_NamespaceDefaultsUseBuiltInFallbackForOmittedMemory(t *testing.T) {
+	defaults := &rightsizev1alpha1.RightSizeDefaults{
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			CPU: &rightsizev1alpha1.ResourceConfig{Percentile: 99, SafetyMargin: "1.2"},
+		},
+	}
+	r := &RightSizePolicyReconciler{}
+
+	policy := &rightsizev1alpha1.RightSizePolicy{}
+	r.mergeDefaults(policy, defaults)
+
+	assert.Equal(t, int32(99), policy.Spec.CPU.Percentile)
+	assert.Equal(t, "1.2", policy.Spec.CPU.SafetyMargin)
+	assert.Zero(t, policy.Spec.Memory.Percentile)
+	assert.Empty(t, policy.Spec.Memory.SafetyMargin)
+
+	cpuEngine, memEngine := buildRecommendationEngines(policy)
+	require.NotNil(t, cpuEngine)
+	require.NotNil(t, memEngine)
+
+	profile := metrics.UsageProfile{
+		OverallPercentiles: metrics.PercentileSet{
+			P50: 256 * 1024 * 1024,
+			P90: 384 * 1024 * 1024,
+			P95: 512 * 1024 * 1024,
+			P99: 1024 * 1024 * 1024,
+			Max: 1024 * 1024 * 1024,
+		},
+		Confidence: 1.0,
+	}
+	for h := 0; h < 24; h++ {
+		profile.HourlyPercentiles[h] = profile.OverallPercentiles
+	}
+
+	recommended, explanation, changed := memEngine.RecommendWithExplanation(profile, resource.MustParse("512Mi"))
+	assert.True(t, changed)
+	assert.Equal(t, int64(1024*1024*1024), explanation.RawPercentile.Value(), "omitted memory should fall back to the built-in p99 percentile")
+	assert.Equal(t, 1.3, explanation.SafetyMargin, "omitted memory should fall back to the built-in safety margin")
+	assert.Equal(t, int64(1395864372), explanation.AfterSafetyMargin.Value(), "built-in memory safety margin should widen the raw percentile result")
+	assert.Equal(t, recommended.String(), explanation.Final.String())
 }
 
 func TestFetchDefaults_ListError(t *testing.T) {

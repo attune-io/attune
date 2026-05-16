@@ -35,18 +35,6 @@ func (d *RightSizePolicyDefaulter) Default(ctx context.Context, policy *rightsiz
 	timer := operatormetrics.NewWebhookTimer("defaulting")
 	defer timer.Observe()
 	defer func() { timer.RecordResult(err) }()
-	if policy.Spec.CPU.Percentile == 0 {
-		policy.Spec.CPU.Percentile = rightsizev1alpha1.DefaultCPUPercentile
-	}
-	if policy.Spec.CPU.SafetyMargin == "" {
-		policy.Spec.CPU.SafetyMargin = rightsizev1alpha1.DefaultCPUSafetyMargin
-	}
-	if policy.Spec.Memory.Percentile == 0 {
-		policy.Spec.Memory.Percentile = rightsizev1alpha1.DefaultMemoryPercentile
-	}
-	if policy.Spec.Memory.SafetyMargin == "" {
-		policy.Spec.Memory.SafetyMargin = rightsizev1alpha1.DefaultMemorySafetyMargin
-	}
 	if policy.Spec.UpdateStrategy.Mode == "" {
 		policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.DefaultUpdateMode
 	}

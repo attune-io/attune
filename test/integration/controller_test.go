@@ -473,7 +473,6 @@ func TestReconcile_OptOutAnnotationSkipsWorkload(t *testing.T) {
 func TestReconcile_DefaultsMergingFromClusterDefaults(t *testing.T) {
 	namespace := "integration-test"
 
-	// Create a cluster-scoped RightSizeDefaults with CPU percentile 90.
 	defaults := &rightsizev1alpha1.RightSizeDefaults{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "integration-defaults",
@@ -495,7 +494,6 @@ func TestReconcile_DefaultsMergingFromClusterDefaults(t *testing.T) {
 	deploy := newTestDeployment("defaults-app", namespace)
 	require.NoError(t, k8sClient.Create(ctx, deploy))
 
-	// Create a policy with zero percentile/margin (should inherit from defaults).
 	policy := &rightsizev1alpha1.RightSizePolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "policy-defaults",
@@ -512,6 +510,8 @@ func TestReconcile_DefaultsMergingFromClusterDefaults(t *testing.T) {
 				},
 				MinimumDataPoints: 1,
 			},
+			CPU: rightsizev1alpha1.ResourceConfig{},
+			Memory: rightsizev1alpha1.ResourceConfig{},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 				Mode:     "Recommend",
 				Cooldown: &metav1.Duration{Duration: 1 * time.Minute},
@@ -520,8 +520,6 @@ func TestReconcile_DefaultsMergingFromClusterDefaults(t *testing.T) {
 	}
 	require.NoError(t, k8sClient.Create(ctx, policy))
 
-	// The policy should still reconcile successfully (defaults fill in
-	// the missing CPU/Memory config).
 	assert.Eventually(t, func() bool {
 		var fetched rightsizev1alpha1.RightSizePolicy
 		if err := k8sClient.Get(ctx, types.NamespacedName{
@@ -531,6 +529,89 @@ func TestReconcile_DefaultsMergingFromClusterDefaults(t *testing.T) {
 		}
 		return len(fetched.Status.Conditions) > 0
 	}, 30*time.Second, 500*time.Millisecond, "policy with defaults should reconcile")
+}
+
+func TestReconcile_NamespaceDefaultsDoNotMergeClusterResourceFields(t *testing.T) {
+	namespace := "integration-test"
+
+	deploy := newTestDeployment("defaults-app-non-merge", namespace)
+	require.NoError(t, k8sClient.Create(ctx, deploy))
+
+	clusterDefaults := &rightsizev1alpha1.RightSizeDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster-defaults"},
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			CPU: &rightsizev1alpha1.ResourceConfig{
+				Percentile:   90,
+				SafetyMargin: "1.5",
+			},
+			Memory: &rightsizev1alpha1.ResourceConfig{
+				Percentile:   95,
+				SafetyMargin: "1.4",
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, clusterDefaults))
+	defer func() { _ = k8sClient.Delete(ctx, clusterDefaults) }()
+
+	// Namespace defaults intentionally omit memory to prove omitted fields do not
+	// inherit from cluster defaults in webhook-enabled flow.
+	nsDefaults := &rightsizev1alpha1.RightSizeNamespaceDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "namespace-defaults", Namespace: namespace},
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			CPU: &rightsizev1alpha1.ResourceConfig{
+				Percentile:   99,
+				SafetyMargin: "1.2",
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, nsDefaults))
+	defer func() { _ = k8sClient.Delete(ctx, nsDefaults) }()
+
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "policy-namespace-defaults-non-merge",
+			Namespace: namespace,
+		},
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			TargetRef: rightsizev1alpha1.TargetRef{
+				Kind: "Deployment",
+				Name: func() *string { s := "defaults-app-non-merge"; return &s }(),
+			},
+			MetricsSource: rightsizev1alpha1.MetricsSource{
+				Prometheus: &rightsizev1alpha1.PrometheusConfig{
+					Address: "http://prometheus:9090",
+				},
+				MinimumDataPoints: 1,
+			},
+			CPU: rightsizev1alpha1.ResourceConfig{},
+			Memory: rightsizev1alpha1.ResourceConfig{},
+			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+				Mode:     "Recommend",
+				Cooldown: &metav1.Duration{Duration: 1 * time.Minute},
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, policy))
+
+	assert.Eventually(t, func() bool {
+		var fetched rightsizev1alpha1.RightSizePolicy
+		if err := k8sClient.Get(ctx, types.NamespacedName{
+			Name: "policy-namespace-defaults-non-merge", Namespace: namespace,
+		}, &fetched); err != nil {
+			return false
+		}
+		return len(fetched.Status.Conditions) > 0
+	}, 30*time.Second, 500*time.Millisecond, "policy with namespace defaults should reconcile")
+
+	var created rightsizev1alpha1.RightSizePolicy
+	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{
+		Name: "policy-namespace-defaults-non-merge", Namespace: namespace,
+	}, &created))
+	assert.Zero(t, created.Spec.CPU.Percentile, "webhook should not prefill CPU percentile")
+	assert.Empty(t, created.Spec.CPU.SafetyMargin, "webhook should not prefill CPU safety margin")
+	assert.Zero(t, created.Spec.Memory.Percentile, "webhook should not prefill memory percentile")
+	assert.Empty(t, created.Spec.Memory.SafetyMargin, "webhook should not prefill memory safety margin")
+
 }
 
 func TestReconcile_ScheduleGateBlocksResizeOutsideWindow(t *testing.T) {

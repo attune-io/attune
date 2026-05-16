@@ -31,15 +31,17 @@ import (
 	"github.com/SebTardifLabs/kube-rightsize/internal/operatormetrics"
 )
 
-func TestDefault_SetsPercentiles(t *testing.T) {
+func TestDefault_DoesNotPreFillResourceDefaults(t *testing.T) {
 	defaulter := &RightSizePolicyDefaulter{}
 	policy := &rightsizev1alpha1.RightSizePolicy{}
 
 	err := defaulter.Default(context.Background(), policy)
 
 	assert.NoError(t, err)
-	assert.Equal(t, int32(95), policy.Spec.CPU.Percentile)
-	assert.Equal(t, int32(99), policy.Spec.Memory.Percentile)
+	assert.Zero(t, policy.Spec.CPU.Percentile)
+	assert.Empty(t, policy.Spec.CPU.SafetyMargin)
+	assert.Zero(t, policy.Spec.Memory.Percentile)
+	assert.Empty(t, policy.Spec.Memory.SafetyMargin)
 }
 
 func TestDefault_PreservesExisting(t *testing.T) {
@@ -53,9 +55,9 @@ func TestDefault_PreservesExisting(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, int32(90), policy.Spec.CPU.Percentile)
 	assert.Equal(t, "1.5", policy.Spec.CPU.SafetyMargin)
-	// Unset fields should still get defaults
-	assert.Equal(t, int32(99), policy.Spec.Memory.Percentile)
-	assert.Equal(t, "1.3", policy.Spec.Memory.SafetyMargin)
+	// Unset resource fields should remain available for defaults resources to supply.
+	assert.Zero(t, policy.Spec.Memory.Percentile)
+	assert.Empty(t, policy.Spec.Memory.SafetyMargin)
 }
 
 func TestDefault_SetsMode(t *testing.T) {
