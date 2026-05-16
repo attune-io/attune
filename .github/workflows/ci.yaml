@@ -67,6 +67,7 @@ jobs:
               - 'README.md'
               - 'CONTRIBUTING.md'
               - 'docs/**'
+              - 'examples/**'
               - 'mkdocs.yml'
               - 'Makefile'
               - 'hack/verify-doc-defaults.sh'
