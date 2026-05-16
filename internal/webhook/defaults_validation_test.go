@@ -248,6 +248,55 @@ func TestDefaultsValidator_RecordsRejectedMetric(t *testing.T) {
 	assert.Equal(t, 1.0, metric.GetCounter().GetValue())
 }
 
+func TestNamespaceDefaultsValidator_Update(t *testing.T) {
+	v := &RightSizeNamespaceDefaultsValidator{}
+	old := &rightsizev1alpha1.RightSizeNamespaceDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "production"},
+	}
+	updated := &rightsizev1alpha1.RightSizeNamespaceDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "production"},
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			CostPricing: &rightsizev1alpha1.CostPricing{
+				CPUPerCoreHour: "invalid",
+			},
+		},
+	}
+	_, err := v.ValidateUpdate(context.Background(), old, updated)
+	assert.Error(t, err)
+}
+
+func TestNamespaceDefaultsValidator_Delete(t *testing.T) {
+	v := &RightSizeNamespaceDefaultsValidator{}
+	_, err := v.ValidateDelete(context.Background(), &rightsizev1alpha1.RightSizeNamespaceDefaults{})
+	require.NoError(t, err)
+}
+
+func TestNamespaceDefaultsValidator_RecordsMetrics(t *testing.T) {
+	operatormetrics.WebhookValidationTotal.Reset()
+	operatormetrics.WebhookDuration.Reset()
+
+	v := &RightSizeNamespaceDefaultsValidator{}
+	defaults := &rightsizev1alpha1.RightSizeNamespaceDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "production"},
+	}
+
+	_, err := v.ValidateCreate(context.Background(), defaults)
+	require.NoError(t, err)
+
+	counter, err := operatormetrics.WebhookValidationTotal.GetMetricWithLabelValues("namespace_defaults_validate_create", "allowed")
+	require.NoError(t, err)
+	var metric io_prometheus_client.Metric
+	require.NoError(t, counter.Write(&metric))
+	assert.Equal(t, 1.0, metric.GetCounter().GetValue())
+
+	observer, err := operatormetrics.WebhookDuration.GetMetricWithLabelValues("namespace_defaults_validate_create")
+	require.NoError(t, err)
+	h := observer.(prometheus.Histogram)
+	var hMetric io_prometheus_client.Metric
+	require.NoError(t, h.Write(&hMetric))
+	assert.Equal(t, uint64(1), hMetric.GetHistogram().GetSampleCount())
+}
+
 func TestNamespaceDefaultsValidator_InvalidScheduleTimezone(t *testing.T) {
 	v := &RightSizeNamespaceDefaultsValidator{}
 	defaults := &rightsizev1alpha1.RightSizeNamespaceDefaults{
