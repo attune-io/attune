@@ -32,7 +32,11 @@ spec:
 
 !!! tip "Skip the Prometheus address on every policy"
     Create a cluster-scoped `RightSizeDefaults` resource with the Prometheus
-    address and it will apply to all policies:
+    address and it will apply to all policies. If only one namespace should
+    inherit that address, use a namespaced `RightSizeNamespaceDefaults`
+    instead. The repo includes `examples/05-cluster-defaults.yaml` for a
+    cluster-wide setup and `examples/11-namespace-defaults.yaml` for a
+    namespace-only setup.
     ```yaml
     apiVersion: rightsize.io/v1alpha1
     kind: RightSizeDefaults

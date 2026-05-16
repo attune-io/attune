@@ -18,7 +18,10 @@ instructions and may use `kubectl apply -k`.
 | [07-sidecar-exclusion.yaml](07-sidecar-exclusion.yaml) | Skip service mesh sidecars with `excludeContainers` | Recommend |
 
 Start with `01-getting-started.yaml` to see recommendations without touching
-any pods. Promote to `02-canary-rollout.yaml` once you trust the numbers.
+any pods. Promote to `02-canary-rollout.yaml` once you trust the numbers. If
+you want shared Prometheus settings, continue with `05-cluster-defaults.yaml`
+for cluster-wide defaults or `11-namespace-defaults.yaml` for a namespace-only
+setup.
 
 ## Advanced scenario files
 
