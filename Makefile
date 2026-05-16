@@ -68,7 +68,7 @@ verify-helm-rbac: ## Verify Helm chart ClusterRole matches kustomize RBAC
 	@bash hack/verify-helm-rbac.sh
 
 .PHONY: verify-dashboard-metrics
-verify-dashboard-metrics: ## Verify standalone and Helm dashboards cover the same metrics
+verify-dashboard-metrics: ## Verify Helm dashboard stays synced with the standalone source dashboard
 	@bash hack/verify-dashboard-metrics.sh
 
 .PHONY: verify-doc-tool-versions

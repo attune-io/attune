@@ -106,6 +106,7 @@ Run `make verify` before every commit. It covers:
 - Helm lint + template validation
 - Helm chart docs freshness and unit tests
 - CRD manifest freshness (`make manifests` output matches committed files)
+- Grafana dashboard sync (`deploy/grafana/dashboard.json` source and generated Helm dashboard stay aligned)
 - Documentation defaults consistency check
 - govulncheck for known vulnerabilities
 
