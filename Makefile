@@ -152,12 +152,17 @@ test-integration: manifests generate setup-envtest gotestsum ## Run integration 
 		-- -race -count=1 -timeout=15m -tags=integration
 
 .PHONY: test-e2e
-test-e2e: chainsaw ## Run Chainsaw E2E tests (requires a local k3d or Kind cluster)
+test-e2e: chainsaw ## Run Chainsaw E2E tests (requires a pre-provisioned k3d or Kind cluster)
 	$(CHAINSAW) test test/e2e/ --config .chainsaw.yaml
 
 .PHONY: test-e2e-go
-test-e2e-go: ## Run Go E2E tests (requires k3d/Kind cluster with operator + Prometheus)
+test-e2e-go: ## Run Go E2E tests (requires a pre-provisioned k3d/Kind cluster with operator + Prometheus)
 	go test -tags=e2e ./test/e2e-go/... -race -count=1 -timeout=10m -v
+
+.PHONY: test-e2e-smoke
+test-e2e-smoke: chainsaw ## Run a minimal E2E smoke suite (requires a pre-provisioned k3d/Kind cluster with operator + Prometheus)
+	$(CHAINSAW) test test/e2e/oneshot-resize --config .chainsaw.yaml
+	go test -tags=e2e ./test/e2e-go/... -run '^TestE2E_OneShotMode_ResizesOnePod$$' -race -count=1 -timeout=10m -v
 
 .PHONY: test-fuzz
 test-fuzz: ## Run fuzz tests (30 seconds per target)
@@ -169,7 +174,7 @@ test-bench: ## Run benchmark tests
 	go test ./internal/... -bench=. -benchmem -run=^$$ -timeout=5m
 
 .PHONY: test-local
-test-local: test test-integration ## Run all tests with auto-provisioned k3d cluster for E2E
+test-local: test test-integration ## Run unit + integration + Chainsaw E2E + standard Go E2E with an auto-provisioned k3d cluster
 	@cluster_name=kube-rightsize-test; \
 	trap 'k3d cluster delete "$$cluster_name" 2>/dev/null || true' EXIT; \
 	k3d cluster delete "$$cluster_name" 2>/dev/null || true; \
@@ -180,10 +185,25 @@ test-local: test test-integration ## Run all tests with auto-provisioned k3d clu
 	$(MAKE) docker-build IMG=kube-rightsize:test; \
 	k3d image import kube-rightsize:test -c "$$cluster_name"; \
 	$(MAKE) _deploy-stack IMG=kube-rightsize:test; \
-	$(MAKE) test-e2e
+	$(MAKE) test-e2e; \
+	$(MAKE) test-e2e-go
+
+.PHONY: test-local-smoke
+test-local-smoke: ## Provision k3d, deploy the operator stack, run the minimal E2E smoke suite, and clean up
+	@cluster_name=krsmoke; \
+	trap 'k3d cluster delete "$$cluster_name" 2>/dev/null || true' EXIT; \
+	k3d cluster delete "$$cluster_name" 2>/dev/null || true; \
+	k3d cluster create "$$cluster_name" \
+		--image rancher/k3s:$(K3S_VERSION) \
+		--k3s-arg "--disable=traefik,servicelb@server:*" \
+		--wait --timeout 120s; \
+	$(MAKE) docker-build IMG=kube-rightsize:test; \
+	k3d image import kube-rightsize:test -c "$$cluster_name"; \
+	$(MAKE) _deploy-stack IMG=kube-rightsize:test; \
+	$(MAKE) test-e2e-smoke
 
 .PHONY: test-all
-test-all: test test-integration test-e2e ## Run all tests (E2E requires a pre-provisioned cluster; see CONTRIBUTING.md)
+test-all: test test-integration test-e2e test-e2e-go ## Run all tests (E2E requires a pre-provisioned cluster with operator + Prometheus; see CONTRIBUTING.md)
 
 ##@ Build
 

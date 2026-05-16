@@ -69,13 +69,35 @@ behaves correctly.
 make k3d-create
 make k3d-deploy IMG=kube-rightsize:e2e
 make test-e2e
+make test-e2e-go
 make k3d-delete
 
 # Alternative: Kind (supported, but local-only and not the default CI path)
 make kind-create
 make kind-deploy IMG=kube-rightsize:e2e
 make test-e2e
+make test-e2e-go
 make kind-delete
+```
+
+### Fast smoke check
+
+Use this when you want to verify that the local end-to-end flow basically works
+without running the full E2E suites:
+
+```bash
+make test-local-smoke
+```
+
+This target provisions a disposable k3d cluster, deploys cert-manager,
+Prometheus, and the operator, then runs:
+- `test/e2e/oneshot-resize` in Chainsaw
+- `TestE2E_OneShotMode_ResizesOnePod` in `test/e2e-go/`
+
+For a pre-provisioned cluster, the equivalent minimal smoke suite is:
+
+```bash
+make test-e2e-smoke
 ```
 
 ### Test scenarios
@@ -146,7 +168,7 @@ Fuzz targets are defined in `internal/recommendation/fuzz_test.go`.
 Run everything in one command:
 
 ```bash
-make test-all      # unit + integration + E2E (requires local cluster)
+make test-all      # unit + integration + Chainsaw E2E + Go E2E (requires local cluster)
 ```
 
 Or run each tier separately:
@@ -154,7 +176,9 @@ Or run each tier separately:
 ```bash
 make test              # unit tests only
 make test-integration  # integration tests (envtest)
-make test-e2e          # E2E tests (requires local k3d or Kind cluster)
+make test-e2e          # Chainsaw E2E (requires local k3d or Kind cluster)
+make test-e2e-go       # Go E2E (requires local k3d or Kind cluster with Prometheus)
+make test-e2e-smoke    # one Chainsaw scenario + one Go E2E smoke test
 ```
 
 For a full local validation including lint, helm, and CRD freshness:

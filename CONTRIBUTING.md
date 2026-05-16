@@ -55,25 +55,39 @@ make test-integration
 make k3d-create                           # create k3d cluster
 make k3d-deploy IMG=kube-rightsize:e2e    # build, load, deploy
 make test-e2e                             # run Chainsaw E2E scenarios
+make test-e2e-go                          # run standard Go E2E scenarios
 make k3d-delete                           # clean up
 
 # Alternative: Kind (supported, but local-only and not the default CI path)
 make kind-create                          # create Kind cluster
 make kind-deploy IMG=kube-rightsize:e2e   # build, load, deploy
 make test-e2e                             # run Chainsaw E2E scenarios
+make test-e2e-go                          # run standard Go E2E scenarios
 make kind-delete                          # clean up
 
-# All tests in sequence (unit + integration + E2E)
+# All tests in sequence (unit + integration + Chainsaw + Go E2E)
 # NOTE: E2E requires a cluster with the operator deployed (see above).
 # Unit and integration tests run without any cluster.
 make test-all
 
-# Single command: auto-provisions k3d cluster, deploys, runs everything, cleans up
+# Single command: auto-provisions k3d, deploys, runs unit + integration +
+# Chainsaw E2E + standard Go E2E, then cleans up
 make test-local
+
+# Fast end-to-end smoke check: auto-provisions k3d, deploys, runs one
+# Chainsaw scenario + one Go E2E test, then cleans up
+make test-local-smoke
 ```
 
-`make test-e2e` works with either a k3d or Kind cluster, as long as the
-operator is already deployed.
+`make test-e2e`, `make test-e2e-go`, and `make test-e2e-smoke` work with
+an already deployed k3d or Kind cluster.
+
+`make test-local` does not include nightly-only Go E2E coverage. To include
+those longer scenarios, run:
+
+```bash
+E2E_NIGHTLY=true make test-e2e-go
+```
 
 **Important:** `make k3d-deploy` and `make kind-deploy` mutate
 `config/manager/kustomization.yaml`. Before committing, always restore it:
@@ -146,22 +160,42 @@ chart or workflow is wrong.
 
 ## CI Runners
 
-CI runs on self-hosted runners (3 org-level runners in `SebTardifLabs`).
-Runners are background processes that must be restarted after a machine reboot:
+CI uses a shared pool of 3 org-level self-hosted runners in `SebTardifLabs`.
+The pool is managed through systemd services. Check the shared pool with:
 
 ```bash
-for i in 1 2 3; do
-  cd ~/actions-runner-pool/runner-$i && nohup ./run.sh &
-done
+systemctl status \
+  actions.runner.SebTardifLabs.pool-1.service \
+  actions.runner.SebTardifLabs.pool-2.service \
+  actions.runner.SebTardifLabs.pool-3.service \
+  --no-pager
 ```
 
-Check runner health:
+The shared pool services are:
+- `actions.runner.SebTardifLabs.pool-1.service`
+- `actions.runner.SebTardifLabs.pool-2.service`
+- `actions.runner.SebTardifLabs.pool-3.service`
+
+To inspect whether the pool is merely idle or actively executing jobs, also check:
+
+```bash
+ps -o pid,ppid,%cpu,etime,cmd -C Runner.Listener -C Runner.Worker
+```
+
+Interpretation:
+- `Runner.Listener` present = runner service is up on this machine
+- `Runner.Worker` present = a runner is actively executing a job
+- listeners up with no workers = pool is idle, not down
+
+The GitHub org runner API is still useful as supporting evidence:
+
 ```bash
 gh api orgs/SebTardifLabs/actions/runners \
   --jq '.runners[] | "\(.name): \(.status)"'
 ```
 
-If runners are offline, CI jobs will queue indefinitely.
+But treat it as secondary to local service state and active worker processes.
+If the shared pool is actually offline, CI jobs will queue indefinitely.
 
 ## Pull Request Process
 

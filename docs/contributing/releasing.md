@@ -10,7 +10,14 @@ chart version and `appVersion` are kept in sync in `charts/kube-rightsize/Chart.
 Update `CHANGELOG.md` with the new version's changes. Ensure all tests pass:
 
 ```bash
-make test-all
+make verify
+```
+
+If you also want to exercise the local real-cluster end-to-end paths before a
+release, run:
+
+```bash
+make test-local
 ```
 
 ### 2. Tag the release

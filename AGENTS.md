@@ -17,6 +17,7 @@ controller-runtime v0.24.1, Kubebuilder v4, K8s API v0.36.1.
 - Test (integration): `make test-integration`
 - Test (E2E Chainsaw): `NO_COLOR=1 make test-e2e` (requires k3d cluster; NO_COLOR prevents raw ANSI codes in agent output)
 - Test (E2E Go): `make test-e2e-go` (requires k3d cluster with operator + Prometheus)
+- Test (E2E smoke): `make test-e2e-smoke` (requires deployed k3d/Kind cluster with operator + Prometheus)
 - Test (fuzz): `make test-fuzz`
 - Test (bench): `make test-bench`
 - Lint: `make lint`
@@ -34,6 +35,7 @@ controller-runtime v0.24.1, Kubebuilder v4, K8s API v0.36.1.
 - Local cluster (k3d): `make k3d-create && make k3d-deploy IMG=kube-rightsize:e2e`
 - Local cluster (Kind): `make kind-create && make kind-deploy IMG=kube-rightsize:e2e`
 - Full local test (auto-provisions k3d): `make test-local`
+- Local smoke test (auto-provisions k3d): `make test-local-smoke`
 - E2E tests: `make test-e2e` (requires local cluster with operator deployed)
 
 ## Structure
