@@ -7,7 +7,6 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        docker_config="/tmp/docker-ci-config"
-        mkdir -p "$docker_config"
+        docker_config="$(mktemp -d "${RUNNER_TEMP:-/tmp}/docker-ci-config.XXXXXX")"
         printf '{}' > "$docker_config/config.json"
         printf 'DOCKER_CONFIG=%s\n' "$docker_config" >> "$GITHUB_ENV"
