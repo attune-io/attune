@@ -247,3 +247,60 @@ func TestDefaultsValidator_RecordsRejectedMetric(t *testing.T) {
 	require.NoError(t, counter.Write(&metric))
 	assert.Equal(t, 1.0, metric.GetCounter().GetValue())
 }
+
+func TestNamespaceDefaultsValidator_InvalidScheduleTimezone(t *testing.T) {
+	v := &RightSizeNamespaceDefaultsValidator{}
+	defaults := &rightsizev1alpha1.RightSizeNamespaceDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "production"},
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{
+				Schedule: &rightsizev1alpha1.ResizeSchedule{
+					Timezone: "Invalid/Zone",
+				},
+			},
+		},
+	}
+	_, err := v.ValidateCreate(context.Background(), defaults)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "timezone")
+}
+
+func TestNamespaceDefaultsValidator_PrometheusAddressSSRF(t *testing.T) {
+	v := &RightSizeNamespaceDefaultsValidator{}
+	defaults := &rightsizev1alpha1.RightSizeNamespaceDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "production"},
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			MetricsSource: &rightsizev1alpha1.MetricsSource{
+				Prometheus: &rightsizev1alpha1.PrometheusConfig{
+					Address: "http://127.0.0.1:9090",
+				},
+			},
+		},
+	}
+	_, err := v.ValidateCreate(context.Background(), defaults)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "metricsSource.prometheus.address")
+}
+
+func TestNamespaceDefaultsValidator_RecordsRejectedMetric(t *testing.T) {
+	operatormetrics.WebhookValidationTotal.Reset()
+
+	v := &RightSizeNamespaceDefaultsValidator{}
+	defaults := &rightsizev1alpha1.RightSizeNamespaceDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "production"},
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			CostPricing: &rightsizev1alpha1.CostPricing{
+				CPUPerCoreHour: "invalid",
+			},
+		},
+	}
+
+	_, err := v.ValidateCreate(context.Background(), defaults)
+	require.Error(t, err)
+
+	counter, err := operatormetrics.WebhookValidationTotal.GetMetricWithLabelValues("namespace_defaults_validate_create", "rejected")
+	require.NoError(t, err)
+	var metric io_prometheus_client.Metric
+	require.NoError(t, counter.Write(&metric))
+	assert.Equal(t, 1.0, metric.GetCounter().GetValue())
+}

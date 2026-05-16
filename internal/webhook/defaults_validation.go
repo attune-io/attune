@@ -31,6 +31,9 @@ import (
 // RightSizeDefaultsValidator validates RightSizeDefaults resources.
 type RightSizeDefaultsValidator struct{}
 
+// RightSizeNamespaceDefaultsValidator validates RightSizeNamespaceDefaults resources.
+type RightSizeNamespaceDefaultsValidator struct{}
+
 // ValidateCreate validates a new RightSizeDefaults.
 func (v *RightSizeDefaultsValidator) ValidateCreate(_ context.Context, defaults *rightsizev1alpha1.RightSizeDefaults) (admission.Warnings, error) {
 	timer := operatormetrics.NewWebhookTimer("defaults_validate_create")
@@ -56,27 +59,55 @@ func (v *RightSizeDefaultsValidator) ValidateDelete(_ context.Context, _ *rights
 
 //nolint:unparam // warnings return kept for symmetry with RightSizePolicyValidator.validate
 func (v *RightSizeDefaultsValidator) validate(defaults *rightsizev1alpha1.RightSizeDefaults) (admission.Warnings, error) {
+	return validateDefaultsSpec(defaults.Spec)
+}
+
+// ValidateCreate validates a new RightSizeNamespaceDefaults.
+func (v *RightSizeNamespaceDefaultsValidator) ValidateCreate(_ context.Context, defaults *rightsizev1alpha1.RightSizeNamespaceDefaults) (admission.Warnings, error) {
+	timer := operatormetrics.NewWebhookTimer("namespace_defaults_validate_create")
+	defer timer.Observe()
+	w, err := validateDefaultsSpec(defaults.Spec)
+	timer.RecordResult(err)
+	return w, err
+}
+
+// ValidateUpdate validates an updated RightSizeNamespaceDefaults.
+func (v *RightSizeNamespaceDefaultsValidator) ValidateUpdate(_ context.Context, _, defaults *rightsizev1alpha1.RightSizeNamespaceDefaults) (admission.Warnings, error) {
+	timer := operatormetrics.NewWebhookTimer("namespace_defaults_validate_update")
+	defer timer.Observe()
+	w, err := validateDefaultsSpec(defaults.Spec)
+	timer.RecordResult(err)
+	return w, err
+}
+
+// ValidateDelete validates a RightSizeNamespaceDefaults deletion (always succeeds).
+func (v *RightSizeNamespaceDefaultsValidator) ValidateDelete(_ context.Context, _ *rightsizev1alpha1.RightSizeNamespaceDefaults) (admission.Warnings, error) {
+	return nil, nil
+}
+
+//nolint:unparam // warnings return kept for symmetry with RightSizePolicyValidator.validate
+func validateDefaultsSpec(spec rightsizev1alpha1.RightSizeDefaultsSpec) (admission.Warnings, error) {
 	// Validate Prometheus address if provided (SSRF prevention).
-	if defaults.Spec.MetricsSource != nil &&
-		defaults.Spec.MetricsSource.Prometheus != nil &&
-		defaults.Spec.MetricsSource.Prometheus.Address != "" {
-		if err := ValidatePrometheusAddress(defaults.Spec.MetricsSource.Prometheus.Address); err != nil {
+	if spec.MetricsSource != nil &&
+		spec.MetricsSource.Prometheus != nil &&
+		spec.MetricsSource.Prometheus.Address != "" {
+		if err := ValidatePrometheusAddress(spec.MetricsSource.Prometheus.Address); err != nil {
 			return nil, fmt.Errorf("metricsSource.prometheus.address: %w", err)
 		}
 	}
 
 	// Validate schedule fields if present.
-	if defaults.Spec.UpdateStrategy != nil && defaults.Spec.UpdateStrategy.Schedule != nil {
-		if err := validateSchedule(defaults.Spec.UpdateStrategy.Schedule); err != nil {
+	if spec.UpdateStrategy != nil && spec.UpdateStrategy.Schedule != nil {
+		if err := validateSchedule(spec.UpdateStrategy.Schedule); err != nil {
 			return nil, err
 		}
 	}
 
-	if defaults.Spec.CostPricing != nil {
-		if err := validatePositiveFloat("costPricing.cpuPerCoreHour", defaults.Spec.CostPricing.CPUPerCoreHour); err != nil {
+	if spec.CostPricing != nil {
+		if err := validatePositiveFloat("costPricing.cpuPerCoreHour", spec.CostPricing.CPUPerCoreHour); err != nil {
 			return nil, err
 		}
-		if err := validatePositiveFloat("costPricing.memoryPerGiBHour", defaults.Spec.CostPricing.MemoryPerGiBHour); err != nil {
+		if err := validatePositiveFloat("costPricing.memoryPerGiBHour", spec.CostPricing.MemoryPerGiBHour); err != nil {
 			return nil, err
 		}
 	}

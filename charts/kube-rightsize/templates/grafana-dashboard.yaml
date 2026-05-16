@@ -118,7 +118,7 @@ data:
         {
           "type": "timeseries",
           "title": "Webhook Validation Rate",
-          "description": "Covers RightSizePolicy (validate_create, validate_update, defaulting) and RightSizeDefaults (defaults_validate_create, defaults_validate_update) webhooks.",
+          "description": "Covers RightSizePolicy (validate_create, validate_update, defaulting), RightSizeDefaults (defaults_validate_create, defaults_validate_update), and RightSizeNamespaceDefaults (namespace_defaults_validate_create, namespace_defaults_validate_update) webhooks.",
           "gridPos": { "h": 8, "w": 12, "x": 0, "y": 30 },
           "targets": [{ "expr": "sum by (operation, result) (rate(kube_rightsize_webhook_validation_total[5m]))", "legendFormat": "{{`{{operation}}`}} {{`{{result}}`}}" }]
         },

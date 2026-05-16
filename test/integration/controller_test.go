@@ -170,6 +170,20 @@ func TestMain(m *testing.M) {
 		panic("failed to setup webhook: " + err.Error())
 	}
 
+	err = ctrl.NewWebhookManagedBy(mgr, &rightsizev1alpha1.RightSizeDefaults{}).
+		WithValidator(&webhook.RightSizeDefaultsValidator{}).
+		Complete()
+	if err != nil {
+		panic("failed to setup defaults webhook: " + err.Error())
+	}
+
+	err = ctrl.NewWebhookManagedBy(mgr, &rightsizev1alpha1.RightSizeNamespaceDefaults{}).
+		WithValidator(&webhook.RightSizeNamespaceDefaultsValidator{}).
+		Complete()
+	if err != nil {
+		panic("failed to setup namespace defaults webhook: " + err.Error())
+	}
+
 	go func() {
 		if err := mgr.Start(ctx); err != nil {
 			panic("manager failed to start: " + err.Error())
@@ -684,6 +698,27 @@ func TestWebhook_AcceptsValidSchedule(t *testing.T) {
 
 	err := k8sClient.Create(ctx, policy)
 	assert.NoError(t, err, "webhook should accept valid schedule")
+}
+
+func TestNamespaceDefaultsWebhook_RejectsInvalidScheduleTimezone(t *testing.T) {
+	defaults := &rightsizev1alpha1.RightSizeNamespaceDefaults{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "ns-defaults-bad-tz",
+			Namespace: "integration-test",
+		},
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{
+				Mode: "Recommend",
+				Schedule: &rightsizev1alpha1.ResizeSchedule{
+					Timezone: "Invalid/Timezone",
+				},
+			},
+		},
+	}
+
+	err := k8sClient.Create(ctx, defaults)
+	require.Error(t, err, "namespace defaults webhook should reject invalid timezone")
+	assert.Contains(t, err.Error(), "timezone")
 }
 
 func TestReconcile_BearerTokenSecretWiredToCollector(t *testing.T) {

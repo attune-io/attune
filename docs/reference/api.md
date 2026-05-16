@@ -223,10 +223,12 @@ true recoverability.
 
 ### Webhook validation
 
-`RightSizeDefaults` has a validating webhook that rejects invalid
-`costPricing` values. If `cpuPerCoreHour` or `memoryPerGiBHour` is set,
-the webhook validates that each is a parseable positive float. Invalid
-values (e.g., `"banana"`, `"-0.5"`) are rejected at admission time.
+`RightSizeDefaults` and `RightSizeNamespaceDefaults` both have validating
+webhooks that reject invalid `costPricing`, schedule, and Prometheus
+address values. If `cpuPerCoreHour` or `memoryPerGiBHour` is set, the
+webhook validates that each is a parseable positive float. Invalid values
+(e.g., `"banana"`, `"-0.5"`), invalid schedule settings, and blocked
+Prometheus addresses are rejected at admission time.
 
 ---
 

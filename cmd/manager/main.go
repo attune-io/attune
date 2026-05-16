@@ -147,6 +147,12 @@ func main() {
 			setupLog.Error(err, "unable to create webhook", "webhook", "RightSizeDefaults")
 			os.Exit(1)
 		}
+		if err = ctrl.NewWebhookManagedBy(mgr, &rightsizev1alpha1.RightSizeNamespaceDefaults{}).
+			WithValidator(&webhook.RightSizeNamespaceDefaultsValidator{}).
+			Complete(); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "RightSizeNamespaceDefaults")
+			os.Exit(1)
+		}
 	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {

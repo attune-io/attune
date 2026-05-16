@@ -53,6 +53,21 @@ tests:
           path: webhooks[1].rules[0].resources[0]
           value: rightsizedefaults
 
+  - it: should include RightSizeNamespaceDefaults validation webhook
+    set:
+      webhooks.enabled: true
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: webhooks[2].name
+          value: validation-namespace-defaults.rightsize.io
+      - equal:
+          path: webhooks[2].clientConfig.service.path
+          value: /validate-rightsize-io-v1alpha1-rightsizenamespacedefaults
+      - equal:
+          path: webhooks[2].rules[0].resources[0]
+          value: rightsizenamespacedefaults
+
   - it: should set cert-manager annotation
     set:
       webhooks.enabled: true

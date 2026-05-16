@@ -47,7 +47,7 @@ Total number of webhook admission decisions.
 
 | Label | Description |
 |-------|-------------|
-| `operation` | `validate_create`, `validate_update`, `defaulting`, `defaults_validate_create`, or `defaults_validate_update` |
+| `operation` | `validate_create`, `validate_update`, `defaulting`, `defaults_validate_create`, `defaults_validate_update`, `namespace_defaults_validate_create`, or `namespace_defaults_validate_update` |
 | `result` | `allowed` or `rejected` |
 
 ### kube_rightsize_schedule_skipped_total
@@ -194,7 +194,7 @@ Duration of webhook validation and defaulting operations.
 
 | Label | Description |
 |-------|-------------|
-| `operation` | `validate_create`, `validate_update`, `defaulting`, `defaults_validate_create`, or `defaults_validate_update` |
+| `operation` | `validate_create`, `validate_update`, `defaulting`, `defaults_validate_create`, `defaults_validate_update`, `namespace_defaults_validate_create`, or `namespace_defaults_validate_update` |
 
 ## Example PromQL queries
 
