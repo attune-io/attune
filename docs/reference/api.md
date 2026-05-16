@@ -272,3 +272,7 @@ If a namespace has a RightSizeNamespaceDefaults, the controller uses it
 instead of the cluster-scoped RightSizeDefaults for all policies in that
 namespace. Fields not specified in the namespace defaults are NOT inherited
 from cluster defaults; they use the policy's own defaults.
+
+If multiple defaults objects exist at the same scope, selection is
+deterministic: the controller uses the object with the lexicographically
+smallest `metadata.name`.

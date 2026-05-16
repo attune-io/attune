@@ -15,7 +15,9 @@ values for metrics source, resource config, and update strategy.
 per-namespace defaults for policies in the same namespace. If a namespace
 has a `RightSizeNamespaceDefaults`, the controller uses it instead of the
 cluster-scoped `RightSizeDefaults`. Fields omitted there fall back to the
-policy's own built-in defaults, not the cluster defaults.
+policy's own built-in defaults, not the cluster defaults. If multiple
+defaults objects exist at one scope, the controller deterministically picks
+the lexicographically smallest `metadata.name`.
 
 ## Update modes
 

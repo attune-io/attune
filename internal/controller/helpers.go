@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -540,10 +541,16 @@ func consecutiveReverts(history []rightsizev1alpha1.ResizeHistoryEntry) int {
 // fetchDefaults fetches the effective defaults for a policy by checking
 // namespace-scoped RightSizeNamespaceDefaults first, then falling back to
 // cluster-scoped RightSizeDefaults. Returns nil if neither exists.
+//
+// If multiple defaults objects exist at the same scope, selection is
+// deterministic: the lexicographically smallest metadata.name wins.
 func (r *RightSizePolicyReconciler) fetchDefaults(ctx context.Context, namespace string) *rightsizev1alpha1.RightSizeDefaults {
 	// Check namespace-scoped defaults first.
 	var nsList rightsizev1alpha1.RightSizeNamespaceDefaultsList
-	if err := r.List(ctx, &nsList, client.InNamespace(namespace), client.Limit(1)); err == nil && len(nsList.Items) > 0 {
+	if err := r.List(ctx, &nsList, client.InNamespace(namespace)); err == nil && len(nsList.Items) > 0 {
+		sort.Slice(nsList.Items, func(i, j int) bool {
+			return nsList.Items[i].Name < nsList.Items[j].Name
+		})
 		// Convert to RightSizeDefaults so callers don't need to know the source.
 		nsDefaults := nsList.Items[0]
 		return &rightsizev1alpha1.RightSizeDefaults{
@@ -554,13 +561,16 @@ func (r *RightSizePolicyReconciler) fetchDefaults(ctx context.Context, namespace
 
 	// Fall back to cluster-scoped defaults.
 	var clusterList rightsizev1alpha1.RightSizeDefaultsList
-	if err := r.List(ctx, &clusterList, client.Limit(1)); err != nil {
+	if err := r.List(ctx, &clusterList); err != nil {
 		log.FromContext(ctx).Error(err, "Failed to list RightSizeDefaults")
 		return nil
 	}
 	if len(clusterList.Items) == 0 {
 		return nil
 	}
+	sort.Slice(clusterList.Items, func(i, j int) bool {
+		return clusterList.Items[i].Name < clusterList.Items[j].Name
+	})
 	return &clusterList.Items[0]
 }
 

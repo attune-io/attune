@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"sort"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -262,30 +263,87 @@ func TestFetchDefaults_ListError(t *testing.T) {
 	assert.Nil(t, result, "fetchDefaults should return nil when List fails")
 }
 
-func TestFetchDefaults_UsesBoundedLists(t *testing.T) {
+func TestFetchDefaults_SelectsLexicographicallySmallestClusterDefault(t *testing.T) {
 	scheme := testScheme()
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
-		WithInterceptorFuncs(interceptor.Funcs{
-			List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
-				listOpts := &client.ListOptions{}
-				for _, opt := range opts {
-					opt.ApplyToList(listOpts)
-				}
-				assert.Equal(t, int64(1), listOpts.Limit, "fetchDefaults should bound list calls to a single item")
-				return c.List(ctx, list, opts...)
+		WithObjects(
+			&rightsizev1alpha1.RightSizeDefaults{
+				ObjectMeta: metav1.ObjectMeta{Name: "zeta-defaults"},
+				Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+					CPU: &rightsizev1alpha1.ResourceConfig{Percentile: 99},
+				},
 			},
-		}).
-		WithObjects(&rightsizev1alpha1.RightSizeDefaults{
-			ObjectMeta: metav1.ObjectMeta{Name: "cluster-defaults"},
-			Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-				CPU: &rightsizev1alpha1.ResourceConfig{Percentile: 90},
+			&rightsizev1alpha1.RightSizeDefaults{
+				ObjectMeta: metav1.ObjectMeta{Name: "alpha-defaults"},
+				Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+					CPU: &rightsizev1alpha1.ResourceConfig{Percentile: 90},
+				},
 			},
-		}).
+		).
 		Build()
-	// No namespace defaults exist, so fetchDefaults will hit both list paths.
+	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+
+	for i := 0; i < 10; i++ {
+		result := r.fetchDefaults(context.Background(), "default")
+		require.NotNil(t, result)
+		assert.Equal(t, "alpha-defaults", result.Name)
+		assert.Equal(t, int32(90), result.Spec.CPU.Percentile)
+	}
+}
+
+func TestFetchDefaults_SelectsLexicographicallySmallestNamespaceDefault(t *testing.T) {
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(
+			&rightsizev1alpha1.RightSizeDefaults{
+				ObjectMeta: metav1.ObjectMeta{Name: "cluster-defaults"},
+				Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+					CPU: &rightsizev1alpha1.ResourceConfig{Percentile: 80},
+				},
+			},
+			&rightsizev1alpha1.RightSizeNamespaceDefaults{
+				ObjectMeta: metav1.ObjectMeta{Name: "zeta-defaults", Namespace: "production"},
+				Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+					CPU: &rightsizev1alpha1.ResourceConfig{Percentile: 99},
+				},
+			},
+			&rightsizev1alpha1.RightSizeNamespaceDefaults{
+				ObjectMeta: metav1.ObjectMeta{Name: "alpha-defaults", Namespace: "production"},
+				Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+					CPU: &rightsizev1alpha1.ResourceConfig{Percentile: 95},
+				},
+			},
+		).
+		Build()
+	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+
+	for i := 0; i < 10; i++ {
+		result := r.fetchDefaults(context.Background(), "production")
+		require.NotNil(t, result)
+		assert.Equal(t, "alpha-defaults", result.Name)
+		assert.Equal(t, int32(95), result.Spec.CPU.Percentile)
+	}
+}
+
+func TestFetchDefaults_DoesNotDependOnListOrder(t *testing.T) {
+	scheme := testScheme()
+	listOrder := []string{"gamma-defaults", "alpha-defaults", "beta-defaults"}
+	sort.SliceStable(listOrder, func(i, j int) bool { return i > j })
+
+	objects := make([]client.Object, 0, len(listOrder))
+	for idx, name := range listOrder {
+		objects = append(objects, &rightsizev1alpha1.RightSizeDefaults{
+			ObjectMeta: metav1.ObjectMeta{Name: name},
+			Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+				CPU: &rightsizev1alpha1.ResourceConfig{Percentile: int32(90 + idx)},
+			},
+		})
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
 	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
 
 	result := r.fetchDefaults(context.Background(), "default")
 	require.NotNil(t, result)
-	assert.Equal(t, int32(90), result.Spec.CPU.Percentile)
+	assert.Equal(t, "alpha-defaults", result.Name)
 }
