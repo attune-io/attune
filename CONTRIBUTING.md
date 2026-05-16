@@ -55,14 +55,14 @@ make test-integration
 make k3d-create                           # create k3d cluster
 make k3d-deploy IMG=kube-rightsize:e2e    # build, load, deploy
 make test-e2e                             # run Chainsaw E2E scenarios
-make test-e2e-go                          # run standard Go E2E scenarios
+make test-e2e-go                          # run full Go E2E suite
 make k3d-delete                           # clean up
 
 # Alternative: Kind (supported, but local-only and not the default CI path)
 make kind-create                          # create Kind cluster
 make kind-deploy IMG=kube-rightsize:e2e   # build, load, deploy
 make test-e2e                             # run Chainsaw E2E scenarios
-make test-e2e-go                          # run standard Go E2E scenarios
+make test-e2e-go                          # run full Go E2E suite
 make kind-delete                          # clean up
 
 # All tests in sequence (unit + integration + Chainsaw + Go E2E)
@@ -71,7 +71,7 @@ make kind-delete                          # clean up
 make test-all
 
 # Single command: auto-provisions k3d, deploys, runs unit + integration +
-# Chainsaw E2E + standard Go E2E, then cleans up
+# Chainsaw E2E + full Go E2E suite, then cleans up
 make test-local
 
 # Fast end-to-end smoke check: auto-provisions k3d, deploys, runs one
@@ -82,12 +82,9 @@ make test-local-smoke
 `make test-e2e`, `make test-e2e-go`, and `make test-e2e-smoke` work with
 an already deployed k3d or Kind cluster.
 
-`make test-local` does not include nightly-only Go E2E coverage. To include
-those longer scenarios, run:
-
-```bash
-E2E_NIGHTLY=true make test-e2e-go
-```
+`make test-local` includes the full Go E2E suite. Expect longer runtime than
+`make test-local-smoke`, because the longer Prometheus warm-up scenarios now run
+in the standard `make test-e2e-go` target and regular CI.
 
 **Important:** `make k3d-deploy` and `make kind-deploy` mutate
 `config/manager/kustomization.yaml`. Before committing, always restore it:

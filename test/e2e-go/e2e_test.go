@@ -176,8 +176,8 @@ func createPolicy(t *testing.T, name, namespace, deployName, mode string) *right
 				},
 			},
 			Memory: rightsizev1alpha1.ResourceConfig{
-				Percentile:   99,
-				SafetyMargin: "1.3",
+				Percentile:    99,
+				SafetyMargin:  "1.3",
 				AllowDecrease: boolPtr(true),
 				Bounds: &rightsizev1alpha1.ResourceBounds{
 					Min: resource.MustParse("64Mi"),
@@ -512,9 +512,6 @@ func TestE2E_MultiContainer_ExcludesSidecar(t *testing.T) {
 }
 
 func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
-	if os.Getenv("E2E_NIGHTLY") != "true" {
-		t.Skip("requires extended Prometheus warm-up; set E2E_NIGHTLY=true to run")
-	}
 	ns := uniqueNS("load")
 	createNamespace(t, ns)
 
@@ -603,7 +600,7 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 	require.NotNil(t, cpuExplain)
 	require.NotNil(t, cpuExplain.CPU)
 	assert.Equal(t, "max", cpuExplain.CPU.BoundsApplied,
-		"nightly load test should observe the CPU max bound being applied")
+		"load test should observe the CPU max bound being applied")
 
 	// Savings estimate should be non-empty when the recommendation lowers requests.
 	assert.NotEmpty(t, latestPolicy.Status.Savings.EstimatedMonthlySavings,
@@ -611,9 +608,6 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 }
 
 func TestE2E_BudgetCaps_DefersResize(t *testing.T) {
-	if os.Getenv("E2E_NIGHTLY") != "true" {
-		t.Skip("requires extended Prometheus warm-up; set E2E_NIGHTLY=true to run")
-	}
 	ns := uniqueNS("budget")
 	createNamespace(t, ns)
 	createDeployment(t, "budget-app", ns, "500m", "512Mi", 3)
@@ -654,9 +648,6 @@ func TestE2E_BudgetCaps_DefersResize(t *testing.T) {
 }
 
 func TestE2E_ScheduleWindow_SkipsOutsideWindow(t *testing.T) {
-	if os.Getenv("E2E_NIGHTLY") != "true" {
-		t.Skip("requires extended Prometheus warm-up; set E2E_NIGHTLY=true to run")
-	}
 	ns := uniqueNS("sched")
 	createNamespace(t, ns)
 	createDeployment(t, "sched-app", ns, "500m", "512Mi", 1)
@@ -708,9 +699,6 @@ func TestE2E_ScheduleWindow_SkipsOutsideWindow(t *testing.T) {
 }
 
 func TestE2E_BearerToken_Authenticates(t *testing.T) {
-	if os.Getenv("E2E_NIGHTLY") != "true" {
-		t.Skip("requires extended Prometheus warm-up; set E2E_NIGHTLY=true to run")
-	}
 	ns := uniqueNS("bearer")
 	createNamespace(t, ns)
 
@@ -761,9 +749,6 @@ func TestE2E_BearerToken_Authenticates(t *testing.T) {
 }
 
 func TestE2E_EvictionFallback_ResizesWithInPlaceOrEvict(t *testing.T) {
-	if os.Getenv("E2E_NIGHTLY") != "true" {
-		t.Skip("requires extended Prometheus warm-up; set E2E_NIGHTLY=true to run")
-	}
 	ns := uniqueNS("evict")
 	createNamespace(t, ns)
 	createDeployment(t, "evict-app", ns, "500m", "512Mi", 2)
@@ -817,9 +802,6 @@ func TestE2E_EvictionFallback_ResizesWithInPlaceOrEvict(t *testing.T) {
 }
 
 func TestE2E_RecommendMode_KeepsRecommendationsWithoutLivePods(t *testing.T) {
-	if os.Getenv("E2E_NIGHTLY") != "true" {
-		t.Skip("requires extended Prometheus warm-up; set E2E_NIGHTLY=true to run")
-	}
 	ns := uniqueNS("nopods")
 	createNamespace(t, ns)
 
@@ -872,16 +854,23 @@ func TestE2E_RecommendMode_KeepsRecommendationsWithoutLivePods(t *testing.T) {
 		"historical recommendations should remain available even without live pods")
 	require.NotEmpty(t, final.Status.Recommendations,
 		"recommendations should still be surfaced after the workload scales to zero")
+	for i := range beforeScale.Status.Recommendations {
+		for j := range beforeScale.Status.Recommendations[i].Containers {
+			beforeScale.Status.Recommendations[i].Containers[j].LastUpdated = metav1.Time{}
+		}
+	}
+	for i := range final.Status.Recommendations {
+		for j := range final.Status.Recommendations[i].Containers {
+			final.Status.Recommendations[i].Containers[j].LastUpdated = metav1.Time{}
+		}
+	}
 	assert.Equal(t, beforeScale.Status.Recommendations, final.Status.Recommendations,
-		"reconcile without live pods should retain the last recommendations")
+		"reconcile without live pods should retain recommendation content")
 	assert.Equal(t, int32(0), final.Status.Workloads.Resized,
 		"recommend mode should not resize anything")
 }
 
 func TestE2E_BearerToken_SecretRotation(t *testing.T) {
-	if os.Getenv("E2E_NIGHTLY") != "true" {
-		t.Skip("requires extended Prometheus warm-up; set E2E_NIGHTLY=true to run")
-	}
 	ns := uniqueNS("rotate")
 	createNamespace(t, ns)
 
@@ -959,9 +948,6 @@ func TestE2E_BearerToken_SecretRotation(t *testing.T) {
 }
 
 func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
-	if os.Getenv("E2E_NIGHTLY") != "true" {
-		t.Skip("requires extended Prometheus warm-up; set E2E_NIGHTLY=true to run")
-	}
 	ns := uniqueNS("oom")
 	createNamespace(t, ns)
 

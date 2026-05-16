@@ -15,13 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Burst detection now influences recommendations via logarithmic safety-margin boost
 - Canary auto-promotion: when `autoPromote: true`, the operator automatically promotes to full fleet resize after the observation period passes without safety violations
 - VPA conflict detection E2E test (Chainsaw scenario with inline CRD)
-- OOMKill safety revert E2E test (nightly Go E2E, uses stress-ng for reliable OOMKill trigger)
+- OOMKill safety revert Go E2E test (uses stress-ng for reliable OOMKill trigger)
 - Helm values schema validation (`values.schema.json`) for catching typos at install time
 - Pending workloads column in `kubectl rightsize status` output
 - Secret name and key context in Prometheus auth failure messages
-- Nightly E2E tests for bearer-token Secret rotation and recommendations without live pods
+- Go E2E tests for bearer-token Secret rotation and recommendations without live pods
 - Structured-output test coverage for kubectl plugin (`-o json`, `-o yaml`)
-- Documentation for running nightly-only Go E2E scenarios locally
+- Documentation for running the full Go E2E suite locally
 
 ### Changed
 

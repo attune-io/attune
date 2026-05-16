@@ -157,7 +157,7 @@ test-e2e: chainsaw ## Run Chainsaw E2E tests (requires a pre-provisioned k3d or 
 
 .PHONY: test-e2e-go
 test-e2e-go: ## Run Go E2E tests (requires a pre-provisioned k3d/Kind cluster with operator + Prometheus)
-	go test -tags=e2e ./test/e2e-go/... -race -count=1 -timeout=10m -v
+	go test -tags=e2e ./test/e2e-go/... -race -count=1 -timeout=15m -v
 
 .PHONY: test-e2e-smoke
 test-e2e-smoke: chainsaw ## Run a minimal E2E smoke suite (requires a pre-provisioned k3d/Kind cluster with operator + Prometheus)
@@ -174,7 +174,7 @@ test-bench: ## Run benchmark tests
 	go test ./internal/... -bench=. -benchmem -run=^$$ -timeout=5m
 
 .PHONY: test-local
-test-local: test test-integration ## Run unit + integration + Chainsaw E2E + standard Go E2E with an auto-provisioned k3d cluster
+test-local: test test-integration ## Run unit + integration + Chainsaw E2E + Go E2E with an auto-provisioned k3d cluster
 	@cluster_name=kube-rightsize-test; \
 	trap 'k3d cluster delete "$$cluster_name" 2>/dev/null || true' EXIT; \
 	k3d cluster delete "$$cluster_name" 2>/dev/null || true; \
