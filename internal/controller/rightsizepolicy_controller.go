@@ -311,6 +311,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	var workloadsWithRecs int32
 	var globalMaxDataPoints int
 	var totalQueryErrors int
+	queryErrorTypes := make(map[string]struct{})
 	conflictDetector := conflict.NewDetector(logger)
 
 	// List HPAs in the namespace for conflict detection (once for all workloads).
@@ -366,8 +367,11 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 
 		// Step 4: Compute recommendations from historical metrics.
-		rec, qErrors, dataPoints, err := r.computeRecommendations(ctx, &policy, workload, collector)
+		rec, qErrors, failedMetricTypes, dataPoints, err := r.computeRecommendations(ctx, &policy, workload, collector)
 		totalQueryErrors += qErrors
+		for _, metricType := range failedMetricTypes {
+			queryErrorTypes[metricType] = struct{}{}
+		}
 		if dataPoints > globalMaxDataPoints {
 			globalMaxDataPoints = dataPoints
 		}
@@ -449,12 +453,29 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	policy.Status.Workloads.Pending = pending
 
 	// Set Ready condition.
+	blockedDataTypes := "CPU and/or memory"
+	_, cpuFailed := queryErrorTypes["CPU"]
+	_, memoryFailed := queryErrorTypes["memory"]
+	switch {
+	case cpuFailed && memoryFailed:
+		blockedDataTypes = "CPU and memory"
+	case cpuFailed:
+		blockedDataTypes = "CPU"
+	case memoryFailed:
+		blockedDataTypes = "memory"
+	}
+
 	if workloadsWithRecs > 0 {
+		message := fmt.Sprintf("Watching %d workloads, %d with recommendations", len(workloads), workloadsWithRecs)
+		if totalQueryErrors > 0 {
+			message = fmt.Sprintf("%s; Prometheus query errors (%d) prevented %s data collection for part of the recommendation set, check operator logs",
+				message, totalQueryErrors, blockedDataTypes)
+		}
 		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
 			Type:               rightsizev1alpha1.ConditionReady,
 			Status:             metav1.ConditionTrue,
 			Reason:             rightsizev1alpha1.ReasonMonitoring,
-			Message:            fmt.Sprintf("Watching %d workloads, %d with recommendations", len(workloads), workloadsWithRecs),
+			Message:            message,
 			ObservedGeneration: policy.Generation,
 		})
 	} else {
@@ -464,7 +485,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			progressPercent(globalMaxDataPoints, int(minimumDP)))
 		if totalQueryErrors > 0 {
 			reason = rightsizev1alpha1.ReasonPrometheusUnavailable
-			message = fmt.Sprintf("Prometheus query errors (%d) prevented CPU and/or memory data collection; check operator logs", totalQueryErrors)
+			message = fmt.Sprintf("Prometheus query errors (%d) prevented %s data collection; check operator logs", totalQueryErrors, blockedDataTypes)
 		}
 		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
 			Type:               rightsizev1alpha1.ConditionReady,
@@ -519,11 +540,11 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 	policy *rightsizev1alpha1.RightSizePolicy,
 	workload client.Object,
 	collector rsmetrics.MetricsCollector,
-) (rec *rightsizev1alpha1.WorkloadRecommendation, queryErrors int, maxDataPoints int, err error) {
+) (rec *rightsizev1alpha1.WorkloadRecommendation, queryErrors int, failedMetricTypes []string, maxDataPoints int, err error) {
 	logger := log.FromContext(ctx)
 	containers := r.getContainers(workload)
 	if len(containers) == 0 {
-		return nil, 0, 0, nil
+		return nil, 0, nil, 0, nil
 	}
 
 	historyWindow := r.parseHistoryWindow(policy)
@@ -545,9 +566,11 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 	memSamplesByContainer, memErr := queryMetricsGrouped(ctx, collector, policy.Namespace, podPrefix, "memory", start, now, defaultPrometheusStep)
 	if cpuErr {
 		queryErrors++
+		failedMetricTypes = append(failedMetricTypes, "CPU")
 	}
 	if memErr {
 		queryErrors++
+		failedMetricTypes = append(failedMetricTypes, "memory")
 	}
 
 	var containerRecs []rightsizev1alpha1.ContainerRecommendation
@@ -671,12 +694,12 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 	}
 
 	if len(containerRecs) == 0 {
-		return nil, queryErrors, maxDataPoints, nil
+		return nil, queryErrors, failedMetricTypes, maxDataPoints, nil
 	}
 
 	return &rightsizev1alpha1.WorkloadRecommendation{
 		Containers: containerRecs,
-	}, queryErrors, maxDataPoints, nil
+	}, queryErrors, failedMetricTypes, maxDataPoints, nil
 }
 
 // buildCollectorOptions constructs CollectorOptions from the given PrometheusConfig,

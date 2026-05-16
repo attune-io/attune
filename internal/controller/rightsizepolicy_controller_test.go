@@ -1007,7 +1007,7 @@ func TestComputeRecommendations_HappyPath(t *testing.T) {
 		},
 	}
 
-	rec, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
+	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
 	require.Len(t, rec.Containers, 1)
@@ -1027,7 +1027,7 @@ func TestComputeRecommendations_InsufficientDataPoints(t *testing.T) {
 		},
 	}
 
-	rec, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
+	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
 	assert.NoError(t, err)
 	assert.Nil(t, rec) // No recommendation because data points are insufficient
 }
@@ -1043,10 +1043,32 @@ func TestComputeRecommendations_QueryError(t *testing.T) {
 		},
 	}
 
-	rec, qErrors, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
+	rec, qErrors, failedMetricTypes, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
 	assert.NoError(t, err)
 	assert.Nil(t, rec)
 	assert.Greater(t, qErrors, 0, "query failures should be counted")
+	assert.ElementsMatch(t, []string{"CPU", "memory"}, failedMetricTypes)
+}
+
+func TestComputeRecommendations_PartialQueryErrorTracksFailedMetricType(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	deploy := newTestDeployment("api-server", "default", nil)
+	reconciler := newReconcilerWithClient()
+
+	mc := &mockCollector{
+		queryRangeGroupedFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) (map[string][]rsmetrics.Sample, error) {
+			if strings.Contains(query, "memory_working_set_bytes") {
+				return nil, fmt.Errorf("memory query failed")
+			}
+			return map[string][]rsmetrics.Sample{"main": generateSamples(200, 0.1)}, nil
+		},
+	}
+
+	rec, qErrors, failedMetricTypes, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
+	require.NoError(t, err)
+	require.NotNil(t, rec)
+	assert.Equal(t, 1, qErrors)
+	assert.Equal(t, []string{"memory"}, failedMetricTypes)
 }
 
 func TestComputeRecommendations_EmptyContainers(t *testing.T) {
@@ -1063,7 +1085,7 @@ func TestComputeRecommendations_EmptyContainers(t *testing.T) {
 
 	mc := &mockCollector{}
 
-	rec, _, _, err := reconciler.computeRecommendations(context.Background(), policy, emptyDeploy, mc)
+	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, emptyDeploy, mc)
 	assert.NoError(t, err)
 	assert.Nil(t, rec)
 }
@@ -1083,7 +1105,7 @@ func TestComputeRecommendations_AllowDecreaseBlocked(t *testing.T) {
 		},
 	}
 
-	rec, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
+	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
 	require.Len(t, rec.Containers, 1)
@@ -1117,7 +1139,7 @@ func TestComputeRecommendations_RequestsOnly(t *testing.T) {
 				},
 			}
 
-			rec, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
+			rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
 			require.NoError(t, err)
 			require.NotNil(t, rec)
 			require.Len(t, rec.Containers, 1)
@@ -1157,7 +1179,7 @@ func TestComputeRecommendations_RequestsAndLimits(t *testing.T) {
 		},
 	}
 
-	rec, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
+	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
 	require.Len(t, rec.Containers, 1)
@@ -1202,7 +1224,7 @@ func TestComputeRecommendations_BatchesQueriesPerWorkload(t *testing.T) {
 		},
 	}
 
-	rec, qErrors, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
+	rec, qErrors, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
 	assert.Zero(t, qErrors)
@@ -1230,7 +1252,7 @@ func TestComputeRecommendations_UsesPodLevelSeriesWithoutExtraQuery(t *testing.T
 		},
 	}
 
-	rec, qErrors, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
+	rec, qErrors, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
 	assert.Zero(t, qErrors)
@@ -1250,7 +1272,7 @@ func TestComputeRecommendations_PopulatesExplanation(t *testing.T) {
 		},
 	}
 
-	rec, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
+	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
 	require.Len(t, rec.Containers, 1)
@@ -2784,6 +2806,41 @@ func TestReconcile_PrometheusQueryErrorsMentionBlockedDataTypes(t *testing.T) {
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
 
 	reconciler, fakeClient := newReconcilerForReconcile(&mockCollector{
+		queryRangeGroupedFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) (map[string][]rsmetrics.Sample, error) {
+			if strings.Contains(query, "memory_working_set_bytes") {
+				return nil, fmt.Errorf("memory query failed")
+			}
+			return map[string][]rsmetrics.Sample{"main": generateSamples(200, 0.1)}, nil
+		},
+	}, policy, deploy)
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
+	}
+
+	result, err := reconciler.Reconcile(context.Background(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, reconciler.parseCooldown(policy), result.RequeueAfter)
+
+	var updated rightsizev1alpha1.RightSizePolicy
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "test-policy", Namespace: "default",
+	}, &updated))
+	cond := meta.FindStatusCondition(updated.Status.Conditions, rightsizev1alpha1.ConditionReady)
+	require.NotNil(t, cond)
+	assert.Equal(t, metav1.ConditionTrue, cond.Status)
+	assert.Equal(t, rightsizev1alpha1.ReasonMonitoring, cond.Reason)
+	assert.Contains(t, cond.Message, "Watching 1 workloads, 1 with recommendations")
+	assert.Contains(t, cond.Message, "Prometheus query errors (1)")
+	assert.Contains(t, cond.Message, "memory data collection")
+	assert.NotContains(t, cond.Message, "CPU and/or memory")
+}
+
+func TestReconcile_PrometheusQueryErrorsMentionCPUAndMemoryWhenBothFail(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+
+	reconciler, fakeClient := newReconcilerForReconcile(&mockCollector{
 		queryRangeGroupedFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) (map[string][]rsmetrics.Sample, error) {
 			return nil, fmt.Errorf("connection refused")
 		},
@@ -2803,9 +2860,10 @@ func TestReconcile_PrometheusQueryErrorsMentionBlockedDataTypes(t *testing.T) {
 	}, &updated))
 	cond := meta.FindStatusCondition(updated.Status.Conditions, rightsizev1alpha1.ConditionReady)
 	require.NotNil(t, cond)
+	assert.Equal(t, metav1.ConditionFalse, cond.Status)
 	assert.Equal(t, rightsizev1alpha1.ReasonPrometheusUnavailable, cond.Reason)
 	assert.Contains(t, cond.Message, "Prometheus query errors (2)")
-	assert.Contains(t, cond.Message, "CPU and/or memory data collection")
+	assert.Contains(t, cond.Message, "CPU and memory data collection")
 }
 
 // ---------- resolveCanaryPhase ----------
@@ -3996,7 +4054,7 @@ func TestComputeRecommendations_ExcludeContainers(t *testing.T) {
 		},
 	}
 
-	rec, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
+	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
 
@@ -4018,7 +4076,7 @@ func TestComputeRecommendations_ExcludeAllContainers(t *testing.T) {
 		},
 	}
 
-	rec, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
+	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
 	assert.NoError(t, err)
 	assert.Nil(t, rec, "all containers excluded, should return nil")
 }
