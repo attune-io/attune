@@ -250,9 +250,17 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, fmt.Errorf("fetching RightSizePolicy: %w", err)
 	}
 
-	// Merge cluster-scoped defaults into the policy.
-	// Fetch defaults once and reuse for Prometheus address and cost pricing.
-	defaults := r.fetchDefaults(ctx, policy.Namespace)
+	// Merge defaults into the policy. Namespace-scoped defaults take precedence,
+	// and defaults lookup failures fail closed rather than silently falling back
+	// to another scope.
+	defaults, err := r.fetchDefaults(ctx, policy.Namespace)
+	if err != nil {
+		logger.Error(err, "Failed to fetch defaults")
+		operatormetrics.ReconcileErrorsTotal.WithLabelValues("fetch_defaults").Inc()
+		r.setFailedCondition(ctx, &policy, rightsizev1alpha1.ReasonInvalidConfig,
+			fmt.Sprintf("Failed to fetch defaults: %v", err))
+		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
+	}
 	r.mergeDefaults(&policy, defaults)
 
 	// Step 2: Resolve Prometheus address and config from spec or RightSizeDefaults.

@@ -543,10 +543,13 @@ func consecutiveReverts(history []rightsizev1alpha1.ResizeHistoryEntry) int {
 //
 // If multiple defaults objects exist at the same scope, selection is
 // deterministic: the lexicographically smallest metadata.name wins.
-func (r *RightSizePolicyReconciler) fetchDefaults(ctx context.Context, namespace string) *rightsizev1alpha1.RightSizeDefaults {
+func (r *RightSizePolicyReconciler) fetchDefaults(ctx context.Context, namespace string) (*rightsizev1alpha1.RightSizeDefaults, error) {
 	// Check namespace-scoped defaults first.
 	var nsList rightsizev1alpha1.RightSizeNamespaceDefaultsList
-	if err := r.List(ctx, &nsList, client.InNamespace(namespace)); err == nil && len(nsList.Items) > 0 {
+	if err := r.List(ctx, &nsList, client.InNamespace(namespace)); err != nil {
+		return nil, fmt.Errorf("listing RightSizeNamespaceDefaults in %s: %w", namespace, err)
+	}
+	if len(nsList.Items) > 0 {
 		nsDefaults := nsList.Items[0]
 		for i := 1; i < len(nsList.Items); i++ {
 			if nsList.Items[i].Name < nsDefaults.Name {
@@ -557,17 +560,16 @@ func (r *RightSizePolicyReconciler) fetchDefaults(ctx context.Context, namespace
 		return &rightsizev1alpha1.RightSizeDefaults{
 			ObjectMeta: nsDefaults.ObjectMeta,
 			Spec:       nsDefaults.Spec,
-		}
+		}, nil
 	}
 
 	// Fall back to cluster-scoped defaults.
 	var clusterList rightsizev1alpha1.RightSizeDefaultsList
 	if err := r.List(ctx, &clusterList); err != nil {
-		log.FromContext(ctx).Error(err, "Failed to list RightSizeDefaults")
-		return nil
+		return nil, fmt.Errorf("listing RightSizeDefaults: %w", err)
 	}
 	if len(clusterList.Items) == 0 {
-		return nil
+		return nil, nil
 	}
 	clusterDefaults := &clusterList.Items[0]
 	for i := 1; i < len(clusterList.Items); i++ {
@@ -575,7 +577,7 @@ func (r *RightSizePolicyReconciler) fetchDefaults(ctx context.Context, namespace
 			clusterDefaults = &clusterList.Items[i]
 		}
 	}
-	return clusterDefaults
+	return clusterDefaults, nil
 }
 
 // mergeDefaults merges values from RightSizeDefaults into the policy where

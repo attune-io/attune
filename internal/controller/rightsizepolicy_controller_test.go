@@ -323,6 +323,14 @@ func newReconcilerForReconcile(mc rsmetrics.MetricsCollector, objects ...client.
 	}, fakeClient
 }
 
+func newReconcilerForReconcileWithClient(mc rsmetrics.MetricsCollector, c client.Client, scheme *runtime.Scheme) *RightSizePolicyReconciler {
+	return &RightSizePolicyReconciler{
+		Client:         c,
+		Scheme:         scheme,
+		MetricsFactory: mockMetricsFactory(mc),
+	}
+}
+
 // newResizeReconciler creates a reconciler with both a controller-runtime
 // fake client and a typed clientset for resize tests.
 func newResizeReconciler(pod *corev1.Pod, objects ...client.Object) (*RightSizePolicyReconciler, client.Client) {
@@ -3942,6 +3950,50 @@ func TestReconcile_DiscoverWorkloadsError(t *testing.T) {
 	assert.Equal(t, metav1.ConditionFalse, cond.Status)
 	assert.Equal(t, rightsizev1alpha1.ReasonWorkloadDiscoveryFailed, cond.Reason)
 	assert.Contains(t, cond.Message, "Failed to discover workloads")
+}
+
+func TestReconcile_FetchDefaultsErrorFailsClosed(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.MetricsSource.Prometheus = nil
+	clusterDefaults := &rightsizev1alpha1.RightSizeDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster-defaults"},
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			MetricsSource: &rightsizev1alpha1.MetricsSource{
+				Prometheus: &rightsizev1alpha1.PrometheusConfig{Address: "http://prometheus.default.svc:9090"},
+			},
+			CPU: &rightsizev1alpha1.ResourceConfig{Percentile: 90},
+		},
+	}
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+
+	scheme := testScheme()
+	failingClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(policy, clusterDefaults, deploy).
+		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
+		WithInterceptorFuncs(interceptor.Funcs{
+			List: func(ctx context.Context, cw client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+				if _, ok := list.(*rightsizev1alpha1.RightSizeNamespaceDefaultsList); ok {
+					return fmt.Errorf("simulated namespace defaults API failure")
+				}
+				return cw.List(ctx, list, opts...)
+			},
+		}).
+		Build()
+	reconciler := newReconcilerForReconcileWithClient(&mockCollector{}, failingClient, scheme)
+
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"}}
+	result, err := reconciler.Reconcile(context.Background(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, 1*time.Minute, result.RequeueAfter)
+
+	var updated rightsizev1alpha1.RightSizePolicy
+	require.NoError(t, failingClient.Get(context.Background(), req.NamespacedName, &updated))
+	cond := meta.FindStatusCondition(updated.Status.Conditions, rightsizev1alpha1.ConditionReady)
+	require.NotNil(t, cond)
+	assert.Equal(t, metav1.ConditionFalse, cond.Status)
+	assert.Equal(t, rightsizev1alpha1.ReasonInvalidConfig, cond.Reason)
+	assert.Contains(t, cond.Message, "Failed to fetch defaults")
+	assert.Contains(t, cond.Message, "simulated namespace defaults API failure")
 }
 
 // ---------- Reconcile with AutoRevert checking safety observations ----------

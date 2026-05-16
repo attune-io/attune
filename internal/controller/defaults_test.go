@@ -58,7 +58,8 @@ func TestMergeDefaults_NoDefaults(t *testing.T) {
 		},
 	}
 
-	defaults := r.fetchDefaults(context.Background(), "default")
+	defaults, err := r.fetchDefaults(context.Background(), "default")
+	require.NoError(t, err)
 	r.mergeDefaults(policy, defaults)
 
 	// Nothing should change when no defaults exist.
@@ -101,7 +102,8 @@ func TestMergeDefaults_CPUPercentileMerged(t *testing.T) {
 		},
 	}
 
-	fetchedDefaults := r.fetchDefaults(context.Background(), "default")
+	fetchedDefaults, err := r.fetchDefaults(context.Background(), "default")
+	require.NoError(t, err)
 	r.mergeDefaults(policy, fetchedDefaults)
 
 	assert.Equal(t, int32(95), policy.Spec.CPU.Percentile)
@@ -142,7 +144,8 @@ func TestMergeDefaults_SafetyMarginMerged(t *testing.T) {
 		},
 	}
 
-	fetchedDefaults := r.fetchDefaults(context.Background(), "default")
+	fetchedDefaults, err := r.fetchDefaults(context.Background(), "default")
+	require.NoError(t, err)
 	r.mergeDefaults(policy, fetchedDefaults)
 
 	assert.Equal(t, int32(90), policy.Spec.CPU.Percentile)
@@ -182,7 +185,8 @@ func TestMergeDefaults_PolicyTakesPrecedence(t *testing.T) {
 		},
 	}
 
-	fetchedDefaults := r.fetchDefaults(context.Background(), "default")
+	fetchedDefaults, err := r.fetchDefaults(context.Background(), "default")
+	require.NoError(t, err)
 	r.mergeDefaults(policy, fetchedDefaults)
 
 	// Policy values take precedence over defaults.
@@ -209,12 +213,14 @@ func TestFetchDefaults_NamespaceScopedOverridesCluster(t *testing.T) {
 	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
 
 	// Namespace with a RightSizeNamespaceDefaults should use it.
-	result := r.fetchDefaults(context.Background(), "production")
+	result, err := r.fetchDefaults(context.Background(), "production")
+	require.NoError(t, err)
 	assert.NotNil(t, result)
 	assert.Equal(t, int32(99), result.Spec.CPU.Percentile)
 
 	// Namespace without RightSizeNamespaceDefaults falls back to cluster.
-	result = r.fetchDefaults(context.Background(), "staging")
+	result, err = r.fetchDefaults(context.Background(), "staging")
+	require.NoError(t, err)
 	assert.NotNil(t, result)
 	assert.Equal(t, int32(90), result.Spec.CPU.Percentile)
 }
@@ -240,7 +246,8 @@ func TestFetchDefaults_NamespaceDefaultsDoNotMergeWithClusterDefaults(t *testing
 		WithObjects(clusterDefaults, nsDefaults).Build()
 	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
 
-	defaults := r.fetchDefaults(context.Background(), "production")
+	defaults, err := r.fetchDefaults(context.Background(), "production")
+	require.NoError(t, err)
 	require.NotNil(t, defaults)
 	assert.Equal(t, int32(99), defaults.Spec.CPU.Percentile)
 	assert.Equal(t, "1.2", defaults.Spec.CPU.SafetyMargin)
@@ -307,9 +314,11 @@ func TestFetchDefaults_ListError(t *testing.T) {
 		}).Build()
 	r := &RightSizePolicyReconciler{Client: errClient, Scheme: scheme}
 
-	// Both namespace and cluster List calls fail; fetchDefaults returns nil.
-	result := r.fetchDefaults(context.Background(), "default")
-	assert.Nil(t, result, "fetchDefaults should return nil when List fails")
+	// Both namespace and cluster List calls fail; fetchDefaults should return an error.
+	result, err := r.fetchDefaults(context.Background(), "default")
+	assert.Nil(t, result, "fetchDefaults should not return defaults when List fails")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "listing RightSizeNamespaceDefaults")
 }
 
 func TestFetchDefaults_SelectsLexicographicallySmallestClusterDefault(t *testing.T) {
@@ -333,7 +342,8 @@ func TestFetchDefaults_SelectsLexicographicallySmallestClusterDefault(t *testing
 	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
 
 	for i := 0; i < 10; i++ {
-		result := r.fetchDefaults(context.Background(), "default")
+		result, err := r.fetchDefaults(context.Background(), "default")
+		require.NoError(t, err)
 		require.NotNil(t, result)
 		assert.Equal(t, "alpha-defaults", result.Name)
 		assert.Equal(t, int32(90), result.Spec.CPU.Percentile)
@@ -367,7 +377,8 @@ func TestFetchDefaults_SelectsLexicographicallySmallestNamespaceDefault(t *testi
 	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
 
 	for i := 0; i < 10; i++ {
-		result := r.fetchDefaults(context.Background(), "production")
+		result, err := r.fetchDefaults(context.Background(), "production")
+		require.NoError(t, err)
 		require.NotNil(t, result)
 		assert.Equal(t, "alpha-defaults", result.Name)
 		assert.Equal(t, int32(95), result.Spec.CPU.Percentile)
@@ -392,7 +403,8 @@ func TestFetchDefaults_DoesNotDependOnListOrder(t *testing.T) {
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
 	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
 
-	result := r.fetchDefaults(context.Background(), "default")
+	result, err := r.fetchDefaults(context.Background(), "default")
+	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.Equal(t, "alpha-defaults", result.Name)
 }
