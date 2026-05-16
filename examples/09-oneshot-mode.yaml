@@ -3,6 +3,9 @@
 # The safest automated mode. Each cycle resizes at most one pod,
 # then waits for the cooldown before touching another. Ideal for
 # StatefulSets or workloads where you want human-speed rollout.
+#
+# Apply:
+#   kubectl apply -f examples/09-oneshot-mode.yaml
 apiVersion: rightsize.io/v1alpha1
 kind: RightSizePolicy
 metadata:

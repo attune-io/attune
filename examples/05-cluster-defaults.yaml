@@ -5,7 +5,7 @@
 # policies only need to specify what differs from the defaults.
 #
 # Apply:
-#   kubectl apply -f 05-cluster-defaults.yaml
+#   kubectl apply -f examples/05-cluster-defaults.yaml
 ---
 apiVersion: rightsize.io/v1alpha1
 kind: RightSizeDefaults

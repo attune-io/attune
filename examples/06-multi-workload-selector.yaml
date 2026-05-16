@@ -5,7 +5,7 @@
 # The operator discovers matching workloads automatically.
 #
 # Apply:
-#   kubectl apply -f 06-multi-workload-selector.yaml
+#   kubectl apply -f examples/06-multi-workload-selector.yaml
 ---
 apiVersion: rightsize.io/v1alpha1
 kind: RightSizePolicy

@@ -5,7 +5,7 @@
 # authenticated endpoints.
 #
 # Apply:
-#   kubectl apply -f 13-multi-datasource.yaml
+#   kubectl apply -f examples/13-multi-datasource.yaml
 ---
 # Example 1: Grafana Mimir with tenant ID header
 apiVersion: rightsize.io/v1alpha1

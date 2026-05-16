@@ -5,7 +5,7 @@
 # increase per cycle to prevent cluster-wide spikes.
 #
 # Apply:
-#   kubectl apply -f 12-scheduled-auto-mode.yaml
+#   kubectl apply -f examples/12-scheduled-auto-mode.yaml
 ---
 apiVersion: rightsize.io/v1alpha1
 kind: RightSizePolicy

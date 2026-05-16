@@ -7,7 +7,7 @@
 # Precedence: policy spec > namespace defaults > cluster defaults
 #
 # Apply:
-#   kubectl apply -f 11-namespace-defaults.yaml
+#   kubectl apply -f examples/11-namespace-defaults.yaml
 ---
 apiVersion: rightsize.io/v1alpha1
 kind: RightSizeNamespaceDefaults

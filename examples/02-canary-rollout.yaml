@@ -6,7 +6,7 @@
 # pod becomes unhealthy (OOMKilled, CPU-throttled, restart spikes, NotReady).
 #
 # Apply:
-#   kubectl apply -f 02-canary-rollout.yaml
+#   kubectl apply -f examples/02-canary-rollout.yaml
 #
 # Watch progress:
 #   kubectl rightsize status -n production

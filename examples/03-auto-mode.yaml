@@ -5,7 +5,7 @@
 # operator's recommendations (e.g., after weeks of Canary mode).
 #
 # Apply:
-#   kubectl apply -f 03-auto-mode.yaml
+#   kubectl apply -f examples/03-auto-mode.yaml
 ---
 apiVersion: rightsize.io/v1alpha1
 kind: RightSizePolicy

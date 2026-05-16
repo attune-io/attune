@@ -9,7 +9,7 @@
 # for future runs.
 #
 # Apply:
-#   kubectl apply -f 10-cronjob-policy.yaml
+#   kubectl apply -f examples/10-cronjob-policy.yaml
 #
 # Check recommendations:
 #   kubectl rightsize recommendations -n batch-jobs

@@ -8,7 +8,7 @@
 # Pair this policy with an HPA targeting the same deployment.
 #
 # Apply:
-#   kubectl apply -f 04-hpa-coexistence.yaml
+#   kubectl apply -f examples/04-hpa-coexistence.yaml
 ---
 apiVersion: rightsize.io/v1alpha1
 kind: RightSizePolicy

@@ -10,7 +10,7 @@
 #   - kube-rightsize operator installed (helm install kube-rightsize ...)
 #
 # Apply:
-#   kubectl apply -f 01-getting-started.yaml
+#   kubectl apply -f examples/01-getting-started.yaml
 #
 # Check recommendations:
 #   kubectl get rightsizepolicies -n my-app

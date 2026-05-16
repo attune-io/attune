@@ -4,6 +4,9 @@
 # Prometheus and populates status.workloads.discovered, but does not
 # generate recommendations or resize anything. Switch to Recommend
 # once you've confirmed the operator can reach your metrics.
+#
+# Apply:
+#   kubectl apply -f examples/08-observe-mode.yaml
 apiVersion: rightsize.io/v1alpha1
 kind: RightSizePolicy
 metadata:

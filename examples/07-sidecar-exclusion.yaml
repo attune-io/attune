@@ -5,7 +5,7 @@
 # Use excludeContainers to skip them entirely.
 #
 # Apply:
-#   kubectl apply -f 07-sidecar-exclusion.yaml
+#   kubectl apply -f examples/07-sidecar-exclusion.yaml
 #
 # Verify:
 #   kubectl get rsp web-with-sidecars -n production

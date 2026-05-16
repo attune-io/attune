@@ -1,9 +1,9 @@
 # Examples
 
 Working examples for kube-rightsize, from a single policy to full production
-setups. Standalone `.yaml` files can be applied directly with
-`kubectl apply -f`, while directory-based scenarios include their own
-instructions and may use `kubectl apply -k`.
+setups. Standalone `.yaml` files can be applied directly from the repo root
+with `kubectl apply -f examples/<file>.yaml`, while directory-based scenarios
+include their own instructions and may use `kubectl apply -k`.
 
 ## Quick-start files
 
