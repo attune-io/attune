@@ -329,6 +329,9 @@ jobs:
     timeout-minutes: 45
     needs: [changes, lint, test-unit]
     if: needs.changes.outputs.go == 'true'
+    env:
+      K3D_CLUSTER_NAME: e2e-${{ github.run_id }}-${{ github.run_attempt }}
+      KUBECONFIG: ${{ runner.temp }}/kube-rightsize-e2e-${{ github.run_id }}-${{ github.run_attempt }}.kubeconfig
     steps:
       - uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2
         with:
@@ -386,11 +389,14 @@ jobs:
         shell: bash -Eeuo pipefail -x {0}
         run: |
           export PATH="$HOME/.local/bin:$PATH"
-          k3d cluster delete e2e 2>/dev/null || true
-          k3d cluster create e2e \
+          k3d cluster create "$K3D_CLUSTER_NAME" \
             --image ${{ env.K3S_IMAGE }} \
+            --kubeconfig-update-default=false \
+            --kubeconfig-switch-context=false \
             --k3s-arg "--disable=traefik,servicelb@server:*" \
             --wait --timeout 120s
+          k3d kubeconfig write "$K3D_CLUSTER_NAME" --output "$KUBECONFIG"
+          chmod 600 "$KUBECONFIG"
 
       - name: Wait for node Ready
         shell: bash -Eeuo pipefail -x {0}
@@ -406,7 +412,7 @@ jobs:
             quay.io/jetstack/cert-manager-controller:${{ env.CERT_MANAGER_VERSION }} \
             quay.io/jetstack/cert-manager-webhook:${{ env.CERT_MANAGER_VERSION }} \
             quay.io/jetstack/cert-manager-cainjector:${{ env.CERT_MANAGER_VERSION }} \
-            -c e2e
+            -c "$K3D_CLUSTER_NAME"
 
       - name: Install cert-manager
         shell: bash -Eeuo pipefail -x {0}
@@ -420,7 +426,7 @@ jobs:
         shell: bash -Eeuo pipefail -x {0}
         run: |
           export PATH="$HOME/.local/bin:$PATH"
-          k3d image import ${{ env.PROMETHEUS_IMAGE }} -c e2e
+          k3d image import ${{ env.PROMETHEUS_IMAGE }} -c "$K3D_CLUSTER_NAME"
 
       - name: Install Prometheus
         shell: bash -Eeuo pipefail -x {0}
@@ -439,7 +445,7 @@ jobs:
         run: |
           export PATH="$HOME/.local/bin:$PATH"
           make docker-build IMG=kube-rightsize:e2e
-          k3d image import kube-rightsize:e2e -c e2e
+          k3d image import kube-rightsize:e2e -c "$K3D_CLUSTER_NAME"
 
       - name: Install operator via Helm
         shell: bash -Eeuo pipefail -x {0}
@@ -483,7 +489,8 @@ jobs:
         shell: bash -Eeuo pipefail {0}
         run: |
           export PATH="$HOME/.local/bin:$PATH"
-          k3d cluster delete e2e 2>/dev/null || true
+          k3d cluster delete "$K3D_CLUSTER_NAME" 2>/dev/null || true
+          rm -f "$KUBECONFIG"
 
   crd-freshness:
     name: CRD Freshness Check
