@@ -854,18 +854,31 @@ func TestE2E_RecommendMode_KeepsRecommendationsWithoutLivePods(t *testing.T) {
 		"historical recommendations should remain available even without live pods")
 	require.NotEmpty(t, final.Status.Recommendations,
 		"recommendations should still be surfaced after the workload scales to zero")
-	for i := range beforeScale.Status.Recommendations {
-		for j := range beforeScale.Status.Recommendations[i].Containers {
-			beforeScale.Status.Recommendations[i].Containers[j].LastUpdated = metav1.Time{}
-		}
-	}
-	for i := range final.Status.Recommendations {
-		for j := range final.Status.Recommendations[i].Containers {
-			final.Status.Recommendations[i].Containers[j].LastUpdated = metav1.Time{}
-		}
-	}
-	assert.Equal(t, beforeScale.Status.Recommendations, final.Status.Recommendations,
-		"reconcile without live pods should retain recommendation content")
+	assert.Equal(t, beforeScale.Status.Workloads.WithRecommendations, final.Status.Workloads.WithRecommendations,
+		"reconcile without live pods should keep the same number of surfaced recommendations")
+	require.Len(t, final.Status.Recommendations, len(beforeScale.Status.Recommendations),
+		"reconcile without live pods should keep surfaced recommendations for the discovered workload")
+
+	// The history window keeps advancing after scale-to-zero, so the exact
+	// recommendation values may legitimately change on the next reconcile. The
+	// contract here is that the same workload and container remain surfaced with
+	// current template resources and explanation details.
+	beforeRec := beforeScale.Status.Recommendations[0]
+	finalRec := final.Status.Recommendations[0]
+	assert.Equal(t, beforeRec.Workload, finalRec.Workload,
+		"recommendation should still belong to the scaled-to-zero workload")
+	assert.Equal(t, beforeRec.Kind, finalRec.Kind,
+		"recommendation should preserve workload kind")
+	require.Len(t, finalRec.Containers, len(beforeRec.Containers),
+		"recommendation should still include the discovered containers")
+	assert.Equal(t, beforeRec.Containers[0].Name, finalRec.Containers[0].Name,
+		"recommendation should still target the same container")
+	assert.Equal(t, beforeRec.Containers[0].Current, finalRec.Containers[0].Current,
+		"scale-to-zero should not change the workload template resources")
+	assert.Greater(t, finalRec.Containers[0].DataPoints, int32(0),
+		"historical Prometheus samples should continue to back the retained recommendation")
+	assert.NotNil(t, finalRec.Containers[0].Explanation,
+		"retained recommendation should keep estimator details for explain output")
 	assert.Equal(t, int32(0), final.Status.Workloads.Resized,
 		"recommend mode should not resize anything")
 }
