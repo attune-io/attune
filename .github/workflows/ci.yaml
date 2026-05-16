@@ -177,7 +177,8 @@ jobs:
         shell: bash -Eeuo pipefail {0}
         run: |
           command -v yamllint || pip install --break-system-packages yamllint 2>/dev/null
-          cat > /tmp/yamllint-config.yaml <<'EOF'
+          yamllint_config="${RUNNER_TEMP:-/tmp}/yamllint-${GITHUB_RUN_ID}-${GITHUB_JOB}.yaml"
+          cat > "$yamllint_config" <<'EOF'
           extends: default
           rules:
             line-length:
@@ -188,7 +189,7 @@ jobs:
               spaces: 2
               indent-sequences: whatever
           EOF
-          yamllint -c /tmp/yamllint-config.yaml \
+          yamllint -c "$yamllint_config" \
             config/ charts/kube-rightsize/Chart.yaml charts/kube-rightsize/values.yaml charts/kube-rightsize/ci/
 
   test-unit:
