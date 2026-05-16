@@ -1,0 +1,13 @@
+name: Setup clean Docker config
+description: Configure a clean DOCKER_CONFIG for self-hosted Docker jobs
+runs:
+  using: composite
+  steps:
+    - name: Configure clean Docker config
+      shell: bash
+      run: |
+        set -euo pipefail
+        docker_config="/tmp/docker-ci-config"
+        mkdir -p "$docker_config"
+        printf '{}' > "$docker_config/config.json"
+        printf 'DOCKER_CONFIG=%s\n' "$docker_config" >> "$GITHUB_ENV"

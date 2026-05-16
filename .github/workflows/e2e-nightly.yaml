@@ -88,10 +88,6 @@ jobs:
       SELECTED_SUITE: ${{ needs.prepare-matrix.outputs.suite }}
       CLUSTER_NAME: e2e-${{ matrix.k8s-version }}-${{ github.run_id }}-${{ github.run_attempt }}
       KUBECONFIG: ${{ github.workspace }}/.kubeconfig-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.k8s-version }}-${{ needs.prepare-matrix.outputs.suite }}
-      # Override Docker config to avoid broken credsStore on WSL self-hosted
-      # runners (Docker Desktop sets credsStore: desktop.exe which fails when
-      # vsock is unavailable).
-      DOCKER_CONFIG: /tmp/docker-ci-config
     strategy:
       max-parallel: 1
       fail-fast: false
@@ -103,8 +99,7 @@ jobs:
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - name: Configure Docker for CI
-        run: mkdir -p "$DOCKER_CONFIG" && echo '{}' > "$DOCKER_CONFIG/config.json"
+      - uses: ./.github/actions/setup-clean-docker-config
 
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:

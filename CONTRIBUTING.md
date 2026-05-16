@@ -194,6 +194,12 @@ gh api orgs/SebTardifLabs/actions/runners \
 But treat it as secondary to local service state and active worker processes.
 If the shared pool is actually offline, CI jobs will queue indefinitely.
 
+Docker-using jobs on these self-hosted runners must use the shared
+`./.github/actions/setup-clean-docker-config` composite action before any
+`docker`, `buildx`, or Trivy step that reads container registry credentials.
+It forces a clean `DOCKER_CONFIG` and avoids Docker Desktop `credsStore`
+failures that can otherwise break OCI access on WSL-based runners.
+
 ## Pull Request Process
 
 1. Fork the repository and create a branch from `main`
