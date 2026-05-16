@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -548,11 +547,13 @@ func (r *RightSizePolicyReconciler) fetchDefaults(ctx context.Context, namespace
 	// Check namespace-scoped defaults first.
 	var nsList rightsizev1alpha1.RightSizeNamespaceDefaultsList
 	if err := r.List(ctx, &nsList, client.InNamespace(namespace)); err == nil && len(nsList.Items) > 0 {
-		sort.Slice(nsList.Items, func(i, j int) bool {
-			return nsList.Items[i].Name < nsList.Items[j].Name
-		})
-		// Convert to RightSizeDefaults so callers don't need to know the source.
 		nsDefaults := nsList.Items[0]
+		for i := 1; i < len(nsList.Items); i++ {
+			if nsList.Items[i].Name < nsDefaults.Name {
+				nsDefaults = nsList.Items[i]
+			}
+		}
+		// Convert to RightSizeDefaults so callers don't need to know the source.
 		return &rightsizev1alpha1.RightSizeDefaults{
 			ObjectMeta: nsDefaults.ObjectMeta,
 			Spec:       nsDefaults.Spec,
@@ -568,10 +569,13 @@ func (r *RightSizePolicyReconciler) fetchDefaults(ctx context.Context, namespace
 	if len(clusterList.Items) == 0 {
 		return nil
 	}
-	sort.Slice(clusterList.Items, func(i, j int) bool {
-		return clusterList.Items[i].Name < clusterList.Items[j].Name
-	})
-	return &clusterList.Items[0]
+	clusterDefaults := &clusterList.Items[0]
+	for i := 1; i < len(clusterList.Items); i++ {
+		if clusterList.Items[i].Name < clusterDefaults.Name {
+			clusterDefaults = &clusterList.Items[i]
+		}
+	}
+	return clusterDefaults
 }
 
 // mergeDefaults merges values from RightSizeDefaults into the policy where
