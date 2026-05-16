@@ -25,6 +25,9 @@ spec:
     - jsonPath: .status.workloads.discovered
       name: Workloads
       type: integer
+    - jsonPath: .status.workloads.withRecommendations
+      name: Recs
+      type: integer
     - jsonPath: .status.workloads.resized
       name: Resized
       type: integer

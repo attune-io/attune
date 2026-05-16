@@ -566,6 +566,7 @@ type SavingsStatus struct {
 // +kubebuilder:resource:shortName=rsp,categories={rightsize}
 // +kubebuilder:printcolumn:name="Mode",type=string,JSONPath=`.spec.updateStrategy.mode`
 // +kubebuilder:printcolumn:name="Workloads",type=integer,JSONPath=`.status.workloads.discovered`
+// +kubebuilder:printcolumn:name="Recs",type=integer,JSONPath=`.status.workloads.withRecommendations`
 // +kubebuilder:printcolumn:name="Resized",type=integer,JSONPath=`.status.workloads.resized`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`

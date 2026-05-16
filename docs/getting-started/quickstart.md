@@ -68,19 +68,22 @@ kubectl get rightsizepolicy my-app -o wide
 Right after applying, the policy will be collecting data:
 
 ```text
-NAME     MODE        WORKLOADS   RESIZED   READY              AGE
-my-app   Recommend   1           0         InsufficientData   5m
+NAME     MODE        WORKLOADS   RECS   RESIZED   READY   AGE   CPU SAVED   MEM SAVED
+my-app   Recommend   1           0      0         False   5m    0           0
 ```
 
-> **Note:** With the default `minimumDataPoints: 48`, the operator needs ~2 days of
+> **Note:** `READY=False` here means the policy is still in the `InsufficientData`
+> phase. Check `.status.conditions` to see the reason and progress message.
+>
+> With the default `minimumDataPoints: 48`, the operator needs ~2 days of
 > hourly Prometheus samples before generating recommendations. To see results faster
 > during evaluation, set `minimumDataPoints: 24` (1 day of data).
 
 After enough data has accumulated:
 
 ```text
-NAME     MODE        WORKLOADS   RESIZED   READY   AGE   CPU SAVED   MEM SAVED
-my-app   Recommend   1           0         True    7d    200m        256Mi
+NAME     MODE        WORKLOADS   RECS   RESIZED   READY   AGE   CPU SAVED   MEM SAVED
+my-app   Recommend   1           1      0         True    7d    200m        256Mi
 ```
 
 ## 3. Review recommendations

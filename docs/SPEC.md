@@ -317,6 +317,7 @@ x-kubernetes-validations:
 ```go
 // +kubebuilder:printcolumn:name="Mode",type=string,JSONPath=`.spec.updateStrategy.mode`
 // +kubebuilder:printcolumn:name="Workloads",type=integer,JSONPath=`.status.workloads.discovered`
+// +kubebuilder:printcolumn:name="Recs",type=integer,JSONPath=`.status.workloads.withRecommendations`
 // +kubebuilder:printcolumn:name="Resized",type=integer,JSONPath=`.status.workloads.resized`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
@@ -326,12 +327,12 @@ x-kubernetes-validations:
 
 ```
 $ kubectl get rightsizepolicies
-NAME            MODE        WORKLOADS   RESIZED   READY   AGE
-api-services    Canary      3           2         True    7d
+NAME            MODE        WORKLOADS   RECS   RESIZED   READY   AGE
+api-services    Canary      3           3      2         True    7d
 
 $ kubectl get rightsizepolicies -o wide
-NAME            MODE        WORKLOADS   RESIZED   READY   AGE   CPU SAVED   MEM SAVED
-api-services    Canary      3           2         True    7d    1050m       696Mi
+NAME            MODE        WORKLOADS   RECS   RESIZED   READY   AGE   CPU SAVED   MEM SAVED
+api-services    Canary      3           3      2         True    7d    1050m       696Mi
 ```
 
 ### 3.3 RightSizeDefaults (Cluster-Scoped, Optional)

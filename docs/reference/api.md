@@ -146,7 +146,7 @@ kubectl get rsp
 ```
 
 ```text
-NAME     MODE        WORKLOADS   RESIZED   READY   AGE
+NAME     MODE        WORKLOADS   RECS   RESIZED   READY   AGE
 ```
 
 Pass `-o wide` to include `CPU Saved` and `Mem Saved` columns.

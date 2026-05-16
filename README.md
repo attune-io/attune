@@ -97,8 +97,8 @@ kubectl apply -f policy.yaml
 
 ```bash
 kubectl get rightsizepolicies -n production
-# NAME            MODE        WORKLOADS   RESIZED   READY              AGE
-# api-services    Recommend   3           0         InsufficientData   5m
+# NAME            MODE        WORKLOADS   RECS   RESIZED   READY   AGE
+# api-services    Recommend   3           0      0         False   5m
 ```
 
 > **Note:** The default `minimumDataPoints: 48` requires ~2 days of hourly
