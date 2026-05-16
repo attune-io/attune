@@ -159,7 +159,7 @@ const (
 // bounded at maxCollectors entries.
 func (r *RightSizePolicyReconciler) getOrCreateCollector(config *rightsizev1alpha1.PrometheusConfig, opts *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
 	cacheKey := collectorCacheKey(config, opts)
-	now := time.Now()
+	now := r.now()
 
 	if cached, ok := r.collectors.Load(cacheKey); ok {
 		entry := cached.(*collectorEntry)
@@ -558,7 +558,7 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 	historyWindow := r.parseHistoryWindow(policy)
 	minimumDataPoints := r.getMinimumDataPoints(policy)
 
-	now := time.Now()
+	now := r.now()
 	start := now.Add(-historyWindow)
 	podPrefix := r.getPodPrefix(workload)
 
@@ -1635,7 +1635,7 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 }
 
 // errNotReady is a sentinel error indicating the pod's observation period hasn't elapsed yet.
-var errNotReady = fmt.Errorf("observation period not elapsed")
+var errNotReady = errors.New("observation period not elapsed")
 
 // parseResizeRecords extracts safety.ResizeRecords from a pod's tracking
 // annotations, one per resized container. Returns errNotReady if the

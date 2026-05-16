@@ -348,7 +348,7 @@ func (r *RightSizePolicyReconciler) markResizeTime(ctx context.Context, policy *
 	if policy.Annotations == nil {
 		policy.Annotations = make(map[string]string)
 	}
-	policy.Annotations[lastResizeAnnotation] = time.Now().UTC().Format(time.RFC3339)
+	policy.Annotations[lastResizeAnnotation] = r.now().UTC().Format(time.RFC3339)
 	return r.Patch(ctx, policy, patch)
 }
 
