@@ -2888,11 +2888,15 @@ func TestGetContainers_NoNativeSidecars(t *testing.T) {
 // ---------- mergeDefaults (more paths) ----------
 
 func TestMergeDefaults_MergesAllFields(t *testing.T) {
+	queryStep := metav1.Duration{Duration: 30 * time.Second}
 	defaults := &rightsizev1alpha1.RightSizeDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "cluster-defaults"},
 		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
 			CPU:    &rightsizev1alpha1.ResourceConfig{Percentile: 90, SafetyMargin: "1.5"},
 			Memory: &rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.4"},
+			MetricsSource: &rightsizev1alpha1.MetricsSource{
+				QueryStep: &queryStep,
+			},
 			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{
 				Mode: rightsizev1alpha1.UpdateModeAuto,
 			},
@@ -2912,6 +2916,32 @@ func TestMergeDefaults_MergesAllFields(t *testing.T) {
 	assert.Equal(t, int32(95), policy.Spec.Memory.Percentile)
 	assert.Equal(t, "1.4", policy.Spec.Memory.SafetyMargin)
 	assert.Equal(t, rightsizev1alpha1.UpdateModeAuto, policy.Spec.UpdateStrategy.Mode)
+	require.NotNil(t, policy.Spec.MetricsSource.QueryStep)
+	assert.Equal(t, 30*time.Second, policy.Spec.MetricsSource.QueryStep.Duration)
+}
+
+func TestMergeDefaults_QueryStepPolicyOverrides(t *testing.T) {
+	defaultStep := metav1.Duration{Duration: 30 * time.Second}
+	defaults := &rightsizev1alpha1.RightSizeDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster-defaults"},
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			MetricsSource: &rightsizev1alpha1.MetricsSource{
+				QueryStep: &defaultStep,
+			},
+		},
+	}
+	r := newReconcilerWithClient(defaults)
+
+	policyStep := metav1.Duration{Duration: 1 * time.Minute}
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+	}
+	policy.Spec.MetricsSource.QueryStep = &policyStep
+
+	r.mergeDefaults(policy, defaults)
+
+	// Policy-level value should NOT be overwritten.
+	assert.Equal(t, 1*time.Minute, policy.Spec.MetricsSource.QueryStep.Duration)
 }
 
 func TestMergeDefaults_PolicyOverridesDefaults(t *testing.T) {

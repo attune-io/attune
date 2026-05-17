@@ -619,6 +619,11 @@ func (r *RightSizePolicyReconciler) mergeDefaults(policy *rightsizev1alpha1.Righ
 		policy.Spec.Memory.SafetyMargin = spec.Memory.SafetyMargin
 	}
 
+	// Merge MetricsSource QueryStep
+	if policy.Spec.MetricsSource.QueryStep == nil && spec.MetricsSource != nil && spec.MetricsSource.QueryStep != nil {
+		policy.Spec.MetricsSource.QueryStep = spec.MetricsSource.QueryStep
+	}
+
 	// Merge UpdateStrategy mode
 	if policy.Spec.UpdateStrategy.Mode == "" && spec.UpdateStrategy != nil {
 		policy.Spec.UpdateStrategy.Mode = spec.UpdateStrategy.Mode
