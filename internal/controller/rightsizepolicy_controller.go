@@ -263,6 +263,16 @@ func collectorCacheKey(config *rightsizev1alpha1.PrometheusConfig, opts *rsmetri
 		sum := sha256.Sum256([]byte(opts.BearerToken))
 		key += fmt.Sprintf("|bearer:%x", sum[:8])
 	}
+	if opts != nil && len(opts.QueryParameters) > 0 {
+		sortedKeys := make([]string, 0, len(opts.QueryParameters))
+		for k := range opts.QueryParameters {
+			sortedKeys = append(sortedKeys, k)
+		}
+		slices.Sort(sortedKeys)
+		for _, k := range sortedKeys {
+			key += fmt.Sprintf("|qp:%s=%s", k, opts.QueryParameters[k])
+		}
+	}
 	return key
 }
 
@@ -777,13 +787,14 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 // buildCollectorOptions constructs CollectorOptions from the given PrometheusConfig,
 // including headers, TLS settings, and Secret-backed bearer token resolution.
 func (r *RightSizePolicyReconciler) buildCollectorOptions(ctx context.Context, namespace string, config *rightsizev1alpha1.PrometheusConfig) (*rsmetrics.CollectorOptions, error) {
-	if config.Headers == nil && config.BearerTokenSecret == nil &&
+	if config.Headers == nil && config.QueryParameters == nil && config.BearerTokenSecret == nil &&
 		(config.TLS == nil || !config.TLS.InsecureSkipVerify) {
 		return nil, nil
 	}
 
 	opts := &rsmetrics.CollectorOptions{
-		Headers: config.Headers,
+		Headers:         config.Headers,
+		QueryParameters: config.QueryParameters,
 	}
 	if config.TLS != nil {
 		opts.InsecureSkipVerify = config.TLS.InsecureSkipVerify

@@ -136,6 +136,12 @@ type PrometheusConfig struct {
 	// +optional
 	Headers map[string]string `json:"headers,omitempty"`
 
+	// QueryParameters are appended to every query request URL.
+	// Use for backend-specific settings such as Thanos deduplication
+	// (e.g. {"dedup": "true", "partial_response": "true"}).
+	// +optional
+	QueryParameters map[string]string `json:"queryParameters,omitempty"`
+
 	// BearerTokenSecret references a Kubernetes Secret containing a bearer
 	// token for authenticating with managed Prometheus services.
 	// +optional

@@ -125,6 +125,9 @@ var errEmptyInstantQuery = errors.New("empty result from instant query")
 type CollectorOptions struct {
 	// Headers are added to every HTTP request (e.g. "X-Scope-OrgID" for Mimir).
 	Headers map[string]string
+	// QueryParameters are appended to every query request URL
+	// (e.g. "dedup=true" for Thanos Query).
+	QueryParameters map[string]string
 	// BearerToken is sent as "Authorization: Bearer <token>".
 	BearerToken string
 	// InsecureSkipVerify disables TLS certificate verification.
@@ -159,6 +162,24 @@ func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if t.bearerToken != "" {
 		clone.Header.Set("Authorization", "Bearer "+t.bearerToken)
 	}
+	return t.base.RoundTrip(clone)
+}
+
+// queryParamTransport wraps an http.RoundTripper and appends extra URL query
+// parameters to every request. Used for backend-specific settings like Thanos
+// deduplication ("dedup=true") or partial response ("partial_response=true").
+type queryParamTransport struct {
+	base   http.RoundTripper
+	params map[string]string
+}
+
+func (t *queryParamTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	clone := req.Clone(req.Context())
+	q := clone.URL.Query()
+	for k, v := range t.params {
+		q.Set(k, v)
+	}
+	clone.URL.RawQuery = q.Encode()
 	return t.base.RoundTrip(clone)
 }
 
@@ -200,6 +221,11 @@ func NewPrometheusCollectorWithOptions(address string, logger logr.Logger, opts 
 			return nil, fmt.Errorf("parsing prometheus address: %w", err)
 		}
 		rt = &headerTransport{base: rt, headers: opts.Headers, bearerToken: opts.BearerToken, baseURL: parsedAddress}
+	}
+
+	// Wrap with query parameter injection if needed (Thanos, VictoriaMetrics).
+	if opts != nil && len(opts.QueryParameters) > 0 {
+		rt = &queryParamTransport{base: rt, params: opts.QueryParameters}
 	}
 
 	client, err := promapi.NewClient(promapi.Config{

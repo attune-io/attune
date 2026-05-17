@@ -532,6 +532,29 @@ func TestHeaderTransport_PreservesHeadersOnSameOriginRedirect(t *testing.T) {
 	assert.Equal(t, "Bearer my-secret-token", finalHeaders.Get("Authorization"))
 }
 
+func TestQueryParamTransport_AppendsParams(t *testing.T) {
+	var gotURL string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotURL = r.URL.String()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	rt := &queryParamTransport{
+		base:   http.DefaultTransport,
+		params: map[string]string{"dedup": "true", "partial_response": "true"},
+	}
+
+	req, _ := http.NewRequest("GET", server.URL+"/api/v1/query?query=up", nil)
+	resp, err := rt.RoundTrip(req)
+	require.NoError(t, err)
+	resp.Body.Close()
+
+	assert.Contains(t, gotURL, "dedup=true")
+	assert.Contains(t, gotURL, "partial_response=true")
+	assert.Contains(t, gotURL, "query=up", "original query param should be preserved")
+}
+
 func TestNewPrometheusCollectorWithOptions_InsecureSkipVerify(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

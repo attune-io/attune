@@ -263,6 +263,14 @@ spec:
                           Use for tenant IDs (e.g. "X-Scope-OrgID" for Mimir), API keys,
                           or other auth headers required by the backend.
                         type: object
+                      queryParameters:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          QueryParameters are appended to every query request URL.
+                          Use for backend-specific settings such as Thanos deduplication
+                          (e.g. {"dedup": "true", "partial_response": "true"}).
+                        type: object
                       tls:
                         description: TLS configures TLS settings for the connection.
                         properties:
