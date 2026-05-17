@@ -110,6 +110,54 @@ func TestValidate_CanaryModeWithoutConfig(t *testing.T) {
 	assert.Empty(t, warnings)
 }
 
+func TestValidate_CanaryObservationPeriodNegative(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeCanary
+	policy.Spec.UpdateStrategy.Canary = &rightsizev1alpha1.CanaryConfig{
+		Percentage:        10,
+		ObservationPeriod: metav1.Duration{Duration: -time.Minute},
+	}
+
+	warnings, err := validator.ValidateCreate(context.Background(), policy)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "must be non-negative")
+	assert.Empty(t, warnings)
+}
+
+func TestValidate_CanaryObservationPeriodTooShort(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeCanary
+	policy.Spec.UpdateStrategy.Canary = &rightsizev1alpha1.CanaryConfig{
+		Percentage:        10,
+		ObservationPeriod: metav1.Duration{Duration: 30 * time.Second},
+	}
+
+	warnings, err := validator.ValidateCreate(context.Background(), policy)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "must be at least 1m")
+	assert.Empty(t, warnings)
+}
+
+func TestValidate_CanaryObservationPeriodZeroWarns(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeCanary
+	policy.Spec.UpdateStrategy.Canary = &rightsizev1alpha1.CanaryConfig{
+		Percentage:        10,
+		ObservationPeriod: metav1.Duration{Duration: 0},
+	}
+
+	warnings, err := validator.ValidateCreate(context.Background(), policy)
+
+	assert.NoError(t, err)
+	require.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0], "promoted immediately")
+}
+
 func TestValidate_NoTargetRef(t *testing.T) {
 	validator := &RightSizePolicyValidator{}
 	policy := validPolicy()

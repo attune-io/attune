@@ -81,6 +81,20 @@ func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizeP
 		return warnings, fmt.Errorf("updateStrategy.canary is required when mode is Canary")
 	}
 
+	// Validate canary observation period has a minimum floor.
+	if policy.Spec.UpdateStrategy.Canary != nil {
+		op := policy.Spec.UpdateStrategy.Canary.ObservationPeriod.Duration
+		if op < 0 {
+			return warnings, fmt.Errorf("updateStrategy.canary.observationPeriod must be non-negative, got %s", op)
+		}
+		if op > 0 && op < time.Minute {
+			return warnings, fmt.Errorf("updateStrategy.canary.observationPeriod must be at least 1m, got %s", op)
+		}
+		if op == 0 {
+			warnings = append(warnings, "updateStrategy.canary.observationPeriod is 0; canary pods will be promoted immediately with no safety observation")
+		}
+	}
+
 	// targetRef must have name or selector
 	if (policy.Spec.TargetRef.Name == nil || *policy.Spec.TargetRef.Name == "") && policy.Spec.TargetRef.Selector == nil {
 		return warnings, fmt.Errorf("targetRef must specify either name or selector")
