@@ -1401,27 +1401,31 @@ func samplesForContainer(grouped map[string][]rsmetrics.Sample, container string
 	return grouped[""]
 }
 
+// toAPIRecommendationExplanation converts an internal explanation to the API
+// type. The explanation parameter is passed by value (already a copy) and is
+// not referenced after this call, so quantities are assigned directly without
+// redundant DeepCopy.
 func toAPIRecommendationExplanation(explanation recommendation.RecommendationExplanation) *rightsizev1alpha1.ResourceRecommendationExplanation {
 	return &rightsizev1alpha1.ResourceRecommendationExplanation{
-		RawPercentile:     explanation.RawPercentile.DeepCopy(),
+		RawPercentile:     explanation.RawPercentile,
 		SafetyMargin:      explanation.SafetyMargin,
-		AfterSafetyMargin: explanation.AfterSafetyMargin.DeepCopy(),
+		AfterSafetyMargin: explanation.AfterSafetyMargin,
 		BurstFactor:       explanation.BurstFactor,
-		AfterBurst:        explanation.AfterBurst.DeepCopy(),
+		AfterBurst:        explanation.AfterBurst,
 		Confidence:        explanation.Confidence,
 		ConfidenceFactor:  explanation.ConfidenceFactor,
-		AfterConfidence:   explanation.AfterConfidence.DeepCopy(),
+		AfterConfidence:   explanation.AfterConfidence,
 		Bounds: rightsizev1alpha1.ResourceBounds{
-			Min: explanation.MinBound.DeepCopy(),
-			Max: explanation.MaxBound.DeepCopy(),
+			Min: explanation.MinBound,
+			Max: explanation.MaxBound,
 		},
 		BoundsApplied:       explanation.BoundsApplied,
-		AfterBounds:         explanation.AfterBounds.DeepCopy(),
+		AfterBounds:         explanation.AfterBounds,
 		MinChangePercent:    explanation.MinChangePercent,
 		MaxChangePercent:    explanation.MaxChangePercent,
 		ChangeFilterApplied: explanation.ChangeFilterApplied,
-		AfterChangeFilter:   explanation.AfterChangeFilter.DeepCopy(),
-		Final:               explanation.Final.DeepCopy(),
+		AfterChangeFilter:   explanation.AfterChangeFilter,
+		Final:               explanation.Final,
 		FinalAdjustment:     explanation.FinalAdjustment,
 	}
 }

@@ -120,11 +120,16 @@ spec:
                     - RequestsAndLimits
                     type: string
                   percentile:
-                    description: Percentile is the usage percentile to target for
-                      recommendations.
+                    description: |-
+                      Percentile is the usage percentile to target for recommendations.
+                      Must be one of: 50, 90, 95, 99.
+                    enum:
+                    - 0
+                    - 50
+                    - 90
+                    - 95
+                    - 99
                     format: int32
-                    maximum: 99
-                    minimum: 50
                     type: integer
                   safetyMargin:
                     description: |-
@@ -193,11 +198,16 @@ spec:
                     - RequestsAndLimits
                     type: string
                   percentile:
-                    description: Percentile is the usage percentile to target for
-                      recommendations.
+                    description: |-
+                      Percentile is the usage percentile to target for recommendations.
+                      Must be one of: 50, 90, 95, 99.
+                    enum:
+                    - 0
+                    - 50
+                    - 90
+                    - 95
+                    - 99
                     format: int32
-                    maximum: 99
-                    minimum: 50
                     type: integer
                   safetyMargin:
                     description: |-
