@@ -79,7 +79,7 @@ in-place resize. It exists to make VPA obsolete by delivering:
 | Component | Version | Purpose |
 |-----------|---------|---------|
 | Kubebuilder | v4.14.0 | Project scaffolding, Makefile, CRD generation |
-| controller-runtime | v0.24.0 | Controller lifecycle, reconciliation, caching, webhooks |
+| controller-runtime | v0.24.1 | Controller lifecycle, reconciliation, caching, webhooks |
 | client-go | v0.36.x | K8s API access, `/resize` subresource calls |
 | k8s.io/api | v0.36.x | K8s type definitions |
 | k8s.io/apimachinery | v0.36.x | Resource quantities, conditions, meta types |
@@ -110,7 +110,7 @@ The official Prometheus Go client for querying (not exposing metrics). Returns t
 go 1.26
 
 # Core
-sigs.k8s.io/controller-runtime          v0.24.0
+sigs.k8s.io/controller-runtime          v0.24.1
 k8s.io/client-go                        v0.36.x
 k8s.io/api                              v0.36.x
 k8s.io/apimachinery                     v0.36.x
@@ -217,7 +217,7 @@ spec:
     maxCpuChangePercent: 50   # default: 50
     maxMemoryChangePercent: 30 # default: 30
     # Cooldown between resize cycles
-    cooldown: 1h              # default: 1h, min: 5m
+    cooldown: 1h              # default: 1h, min: 1m
     # Automatic revert on OOMKill or excessive CPU throttle
     autoRevert: true          # default: true
 
