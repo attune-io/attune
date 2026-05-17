@@ -29,14 +29,12 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+
+	"github.com/SebTardifLabs/kube-rightsize/internal/throttle"
 )
 
-// ThrottleChecker queries Prometheus for CPU throttle ratio.
-type ThrottleChecker interface {
-	// GetThrottleRatio returns the CPU throttle ratio (0.0-1.0) for a container.
-	// Returns 0.0 if data is unavailable.
-	GetThrottleRatio(ctx context.Context, namespace, pod, container string) (float64, error)
-}
+// ThrottleChecker is an alias for throttle.Checker for backward compatibility.
+type ThrottleChecker = throttle.Checker
 
 // DefaultThrottleThreshold is the fraction of CPU periods that are throttled
 // above which the safety monitor triggers a revert (50%).

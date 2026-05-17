@@ -21,6 +21,8 @@ import (
 	"time"
 
 	"golang.org/x/time/rate"
+
+	"github.com/SebTardifLabs/kube-rightsize/internal/throttle"
 )
 
 // RateLimitedCollector wraps a MetricsCollector with rate limiting.
@@ -63,10 +65,7 @@ func (c *RateLimitedCollector) Query(ctx context.Context, query string, ts time.
 // safety.ThrottleChecker. Returns 0.0 if the inner collector does not
 // support throttle queries.
 func (c *RateLimitedCollector) GetThrottleRatio(ctx context.Context, namespace, pod, container string) (float64, error) {
-	type throttleChecker interface {
-		GetThrottleRatio(ctx context.Context, namespace, pod, container string) (float64, error)
-	}
-	if tc, ok := c.inner.(throttleChecker); ok {
+	if tc, ok := c.inner.(throttle.Checker); ok {
 		if err := c.limiter.Wait(ctx); err != nil {
 			return 0, err
 		}
