@@ -859,6 +859,18 @@ func TestE2E_RecommendMode_KeepsRecommendationsWithoutLivePods(t *testing.T) {
 	require.Len(t, final.Status.Recommendations, len(beforeScale.Status.Recommendations),
 		"reconcile without live pods should keep surfaced recommendations for the discovered workload")
 
+	// Zero out LastUpdated to avoid flaky timestamp comparisons.
+	for i := range beforeScale.Status.Recommendations {
+		for j := range beforeScale.Status.Recommendations[i].Containers {
+			beforeScale.Status.Recommendations[i].Containers[j].LastUpdated = metav1.Time{}
+		}
+	}
+	for i := range final.Status.Recommendations {
+		for j := range final.Status.Recommendations[i].Containers {
+			final.Status.Recommendations[i].Containers[j].LastUpdated = metav1.Time{}
+		}
+	}
+
 	// The history window keeps advancing after scale-to-zero, so the exact
 	// recommendation values may legitimately change on the next reconcile. The
 	// contract here is that the same workload and container remain surfaced with
