@@ -179,6 +179,16 @@ func (d *Detector) CheckHPAConflict(hpas []autoscalingv2.HorizontalPodAutoscaler
 	return nil
 }
 
+// FindMatchingHPA returns the HPA that targets the given workload, or nil.
+func (d *Detector) FindMatchingHPA(hpas []autoscalingv2.HorizontalPodAutoscaler, workloadName, workloadKind string) *autoscalingv2.HorizontalPodAutoscaler {
+	for i := range hpas {
+		if hpas[i].Spec.ScaleTargetRef.Name == workloadName && hpas[i].Spec.ScaleTargetRef.Kind == workloadKind {
+			return &hpas[i]
+		}
+	}
+	return nil
+}
+
 // ListVPAs fetches all VPAs in the namespace once for efficient conflict checking.
 // Returns nil if the VPA CRD is not installed.
 func (d *Detector) ListVPAs(ctx context.Context, c client.Client, namespace string) *unstructured.UnstructuredList {

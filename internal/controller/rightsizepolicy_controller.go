@@ -75,6 +75,11 @@ const (
 	annotationOriginalMemoryLimitPrefix  = "rightsize.io/original-memory-limit."
 	annotationOriginalRestartCountPrefix = "rightsize.io/original-restart-count."
 
+	// HPA auto-tune annotations.
+	annotationHPAAutoTune       = "rightsize.io/auto-tune"
+	annotationHPAOriginalCPU    = "rightsize.io/original-target-cpu"
+	annotationHPAOriginalMemory = "rightsize.io/original-target-memory"
+
 	// defaultHistoryWindow is the default history window if not specified.
 	defaultHistoryWindow = 7 * 24 * time.Hour
 
@@ -104,7 +109,7 @@ const (
 //+kubebuilder:rbac:groups="",resources=pods/resize,verbs=update;patch
 //+kubebuilder:rbac:groups="",resources=pods/eviction,verbs=create
 //+kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=get;list;watch;create;patch
-//+kubebuilder:rbac:groups=autoscaling,resources=horizontalpodautoscalers,verbs=get;list;watch
+//+kubebuilder:rbac:groups=autoscaling,resources=horizontalpodautoscalers,verbs=get;list;watch;update;patch
 //+kubebuilder:rbac:groups=autoscaling.k8s.io,resources=verticalpodautoscalers,verbs=get;list;watch
 //+kubebuilder:rbac:groups=monitoring.coreos.com,resources=prometheuses,verbs=get;list
 //+kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
@@ -503,6 +508,16 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		if resizedCount > 0 {
 			policy.Status.Workloads.Resized = safeInt32(resizedCount)
 			policy.Status.ResizeHistory = appendHistory(policy.Status.ResizeHistory, history, 20)
+			// Auto-tune HPA targets if any workload was resized.
+			for _, rec := range recommendations {
+				for _, c := range rec.Containers {
+					if c.Current.CPURequest.Equal(c.Recommended.CPURequest) {
+						continue
+					}
+					r.adjustHPATargets(ctx, hpaList.Items, rec.Workload, rec.Kind,
+						c.Current.CPURequest, c.Recommended.CPURequest)
+				}
+			}
 		}
 	}
 	if isResizeMode(mode) && !withinWindow {
@@ -1858,6 +1873,69 @@ func parseResizeRecords(pod *corev1.Pod, observationPeriod time.Duration, now ti
 		return nil, errNotReady
 	}
 	return records, nil
+}
+
+// adjustHPATargets checks for HPAs with the auto-tune annotation and adjusts
+// their resource-based target utilization to maintain the same absolute resource
+// threshold after a resize changes the request baseline.
+func (r *RightSizePolicyReconciler) adjustHPATargets(
+	ctx context.Context,
+	hpas []autoscalingv2.HorizontalPodAutoscaler,
+	workloadName, workloadKind string,
+	oldCPURequest, newCPURequest resource.Quantity,
+) {
+	logger := log.FromContext(ctx)
+	for i := range hpas {
+		hpa := &hpas[i]
+		if hpa.Spec.ScaleTargetRef.Name != workloadName || hpa.Spec.ScaleTargetRef.Kind != workloadKind {
+			continue
+		}
+		if hpa.Annotations == nil || hpa.Annotations[annotationHPAAutoTune] != "true" {
+			continue
+		}
+		if oldCPURequest.IsZero() || newCPURequest.IsZero() || oldCPURequest.Equal(newCPURequest) {
+			continue
+		}
+
+		for j := range hpa.Spec.Metrics {
+			m := &hpa.Spec.Metrics[j]
+			if m.Type != autoscalingv2.ResourceMetricSourceType || m.Resource == nil {
+				continue
+			}
+			if m.Resource.Name != corev1.ResourceCPU || m.Resource.Target.Type != autoscalingv2.UtilizationMetricType || m.Resource.Target.AverageUtilization == nil {
+				continue
+			}
+			oldTarget := *m.Resource.Target.AverageUtilization
+			// newTarget = oldTarget * (oldRequest / newRequest), capped at 100.
+			newTarget := int32(float64(oldTarget) * float64(oldCPURequest.MilliValue()) / float64(newCPURequest.MilliValue()))
+			if newTarget > 100 {
+				newTarget = 100
+			}
+			if newTarget < 1 {
+				newTarget = 1
+			}
+			if newTarget == oldTarget {
+				continue
+			}
+
+			// Store original target for rollback if not already stored.
+			if hpa.Annotations[annotationHPAOriginalCPU] == "" {
+				if hpa.Annotations == nil {
+					hpa.Annotations = make(map[string]string)
+				}
+				hpa.Annotations[annotationHPAOriginalCPU] = strconv.FormatInt(int64(oldTarget), 10)
+			}
+			logger.Info("Auto-tuning HPA CPU target after resize",
+				"hpa", hpa.Name, "workload", workloadName,
+				"oldTarget", oldTarget, "newTarget", newTarget,
+				"oldRequest", oldCPURequest.String(), "newRequest", newCPURequest.String())
+			m.Resource.Target.AverageUtilization = &newTarget
+			if err := r.Update(ctx, hpa); err != nil {
+				logger.Error(err, "Failed to update HPA target", "hpa", hpa.Name)
+			}
+			break
+		}
+	}
 }
 
 // exportRecommendationConfigMaps creates or updates ConfigMaps with

@@ -69,6 +69,8 @@ rules:
   verbs:
   - get
   - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - autoscaling.k8s.io

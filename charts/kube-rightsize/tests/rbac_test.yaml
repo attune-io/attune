@@ -47,7 +47,24 @@ tests:
             verbs:
               - get
               - list
+              - patch
+              - update
               - watch
+
+  - it: should include configmap permissions for recommendation export
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - ""
+            resources:
+              - configmaps
+            verbs:
+              - create
+              - delete
+              - get
+              - update
 
   - it: should include node read permissions for capacity pre-check
     asserts:

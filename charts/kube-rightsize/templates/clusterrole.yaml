@@ -88,7 +88,7 @@ rules:
       - watch
       - create
       - patch
-  # HPA: read-only (conflict detection)
+  # HPA: read + write (conflict detection + auto-tune)
   - apiGroups:
       - autoscaling
     resources:
@@ -96,6 +96,8 @@ rules:
     verbs:
       - get
       - list
+      - patch
+      - update
       - watch
   # VPA: read-only (conflict detection)
   - apiGroups:
