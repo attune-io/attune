@@ -212,7 +212,7 @@ spec:
     # mode-specific config (for Canary and Auto):
     canary:
       percentage: 10          # % of pods to resize first
-      observationPeriod: 30m  # monitor canary pods for this long
+      observationPeriod: 30m  # monitor canary pods for this long (minimum: 1m)
     # Maximum change per reconciliation cycle
     maxCpuChangePercent: 50   # default: 50
     maxMemoryChangePercent: 30 # default: 30

@@ -62,7 +62,7 @@ spec:
     mode: Recommend            # Observe | Recommend | OneShot | Canary | Auto
     canary:                    # required when mode is Canary
       percentage: 10           # % of pods to resize first
-      observationPeriod: 30m   # watch canary pods before proceeding
+      observationPeriod: 30m   # watch canary pods before proceeding (minimum: 1m)
       autoPromote: true        # promote to full fleet after safe observation (default: false)
     maxCpuChangePercent: 50    # max CPU change per cycle (default: 50)
     maxMemoryChangePercent: 30 # max memory change per cycle (default: 30)
