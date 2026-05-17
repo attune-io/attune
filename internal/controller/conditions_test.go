@@ -37,7 +37,7 @@ import (
 func TestSetResizingCondition_InProgress(t *testing.T) {
 	policy := &rightsizev1alpha1.RightSizePolicy{
 		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{Mode: "Auto"},
+			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{Mode: rightsizev1alpha1.UpdateModeAuto},
 		},
 		Status: rightsizev1alpha1.RightSizePolicyStatus{
 			Workloads: rightsizev1alpha1.WorkloadStatus{Resized: 2},
@@ -55,7 +55,7 @@ func TestSetResizingCondition_InProgress(t *testing.T) {
 func TestSetResizingCondition_CooldownActive(t *testing.T) {
 	policy := &rightsizev1alpha1.RightSizePolicy{
 		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{Mode: "Auto"},
+			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{Mode: rightsizev1alpha1.UpdateModeAuto},
 		},
 	}
 	r := &RightSizePolicyReconciler{}
@@ -70,7 +70,7 @@ func TestSetResizingCondition_CooldownActive(t *testing.T) {
 func TestSetResizingCondition_Idle(t *testing.T) {
 	policy := &rightsizev1alpha1.RightSizePolicy{
 		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{Mode: "Auto"},
+			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{Mode: rightsizev1alpha1.UpdateModeAuto},
 		},
 	}
 	r := &RightSizePolicyReconciler{}
@@ -85,7 +85,7 @@ func TestSetResizingCondition_Idle(t *testing.T) {
 func TestSetResizingCondition_ObserveMode_NoCondition(t *testing.T) {
 	policy := &rightsizev1alpha1.RightSizePolicy{
 		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{Mode: "Observe"},
+			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{Mode: rightsizev1alpha1.UpdateModeObserve},
 		},
 	}
 	r := &RightSizePolicyReconciler{}
@@ -101,11 +101,11 @@ func TestSetDegradedCondition_HighRevertRate(t *testing.T) {
 	policy := &rightsizev1alpha1.RightSizePolicy{
 		Status: rightsizev1alpha1.RightSizePolicyStatus{
 			ResizeHistory: []rightsizev1alpha1.ResizeHistoryEntry{
-				{Result: "Reverted"},
-				{Result: "Reverted"},
-				{Result: "Success"},
-				{Result: "Reverted"},
-				{Result: "Reverted"},
+				{Result: rightsizev1alpha1.ResizeResultReverted},
+				{Result: rightsizev1alpha1.ResizeResultReverted},
+				{Result: rightsizev1alpha1.ResizeResultSuccess},
+				{Result: rightsizev1alpha1.ResizeResultReverted},
+				{Result: rightsizev1alpha1.ResizeResultReverted},
 			},
 		},
 	}
@@ -122,11 +122,11 @@ func TestSetDegradedCondition_LowRevertRate(t *testing.T) {
 	policy := &rightsizev1alpha1.RightSizePolicy{
 		Status: rightsizev1alpha1.RightSizePolicyStatus{
 			ResizeHistory: []rightsizev1alpha1.ResizeHistoryEntry{
-				{Result: "Success"},
-				{Result: "Success"},
-				{Result: "Reverted"},
-				{Result: "Success"},
-				{Result: "Success"},
+				{Result: rightsizev1alpha1.ResizeResultSuccess},
+				{Result: rightsizev1alpha1.ResizeResultSuccess},
+				{Result: rightsizev1alpha1.ResizeResultReverted},
+				{Result: rightsizev1alpha1.ResizeResultSuccess},
+				{Result: rightsizev1alpha1.ResizeResultSuccess},
 			},
 		},
 	}
@@ -155,13 +155,13 @@ func TestConsecutiveReverts(t *testing.T) {
 		want    int
 	}{
 		{"empty", nil, 0},
-		{"no reverts", []rightsizev1alpha1.ResizeHistoryEntry{{Result: "Success"}}, 0},
-		{"one revert", []rightsizev1alpha1.ResizeHistoryEntry{{Result: "Reverted"}}, 1},
+		{"no reverts", []rightsizev1alpha1.ResizeHistoryEntry{{Result: rightsizev1alpha1.ResizeResultSuccess}}, 0},
+		{"one revert", []rightsizev1alpha1.ResizeHistoryEntry{{Result: rightsizev1alpha1.ResizeResultReverted}}, 1},
 		{"three consecutive", []rightsizev1alpha1.ResizeHistoryEntry{
-			{Result: "Success"}, {Result: "Reverted"}, {Result: "Reverted"}, {Result: "Reverted"},
+			{Result: rightsizev1alpha1.ResizeResultSuccess}, {Result: rightsizev1alpha1.ResizeResultReverted}, {Result: rightsizev1alpha1.ResizeResultReverted}, {Result: rightsizev1alpha1.ResizeResultReverted},
 		}, 3},
 		{"broken by success", []rightsizev1alpha1.ResizeHistoryEntry{
-			{Result: "Reverted"}, {Result: "Success"}, {Result: "Reverted"},
+			{Result: rightsizev1alpha1.ResizeResultReverted}, {Result: rightsizev1alpha1.ResizeResultSuccess}, {Result: rightsizev1alpha1.ResizeResultReverted},
 		}, 1},
 	}
 	for _, tt := range tests {
@@ -197,7 +197,7 @@ func TestGetEffectiveCooldown_TwoReverts(t *testing.T) {
 		},
 		Status: rightsizev1alpha1.RightSizePolicyStatus{
 			ResizeHistory: []rightsizev1alpha1.ResizeHistoryEntry{
-				{Result: "Reverted"}, {Result: "Reverted"},
+				{Result: rightsizev1alpha1.ResizeResultReverted}, {Result: rightsizev1alpha1.ResizeResultReverted},
 			},
 		},
 	}
@@ -216,12 +216,12 @@ func TestGetEffectiveCooldown_CappedAt16x(t *testing.T) {
 		},
 		Status: rightsizev1alpha1.RightSizePolicyStatus{
 			ResizeHistory: []rightsizev1alpha1.ResizeHistoryEntry{
-				{Result: "Reverted"},
-				{Result: "Reverted"},
-				{Result: "Reverted"},
-				{Result: "Reverted"},
-				{Result: "Reverted"},
-				{Result: "Reverted"},
+				{Result: rightsizev1alpha1.ResizeResultReverted},
+				{Result: rightsizev1alpha1.ResizeResultReverted},
+				{Result: rightsizev1alpha1.ResizeResultReverted},
+				{Result: rightsizev1alpha1.ResizeResultReverted},
+				{Result: rightsizev1alpha1.ResizeResultReverted},
+				{Result: rightsizev1alpha1.ResizeResultReverted},
 			},
 		},
 	}

@@ -67,7 +67,7 @@ func TestDefault_SetsMode(t *testing.T) {
 	err := defaulter.Default(context.Background(), policy)
 
 	assert.NoError(t, err)
-	assert.Equal(t, "Recommend", policy.Spec.UpdateStrategy.Mode)
+	assert.Equal(t, rightsizev1alpha1.UpdateModeRecommend, policy.Spec.UpdateStrategy.Mode)
 	assert.Equal(t, int32(50), policy.Spec.UpdateStrategy.MaxCPUChangePercent)
 	assert.Equal(t, int32(30), policy.Spec.UpdateStrategy.MaxMemoryChangePercent)
 }

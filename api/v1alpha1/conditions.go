@@ -36,8 +36,5 @@ const (
 	ReasonWorkloadDiscoveryFailed = "WorkloadDiscoveryFailed"
 )
 
-// Canary phase constants.
-const (
-	CanaryPhaseInProgress  = "CanaryInProgress"
-	CanaryPhaseFullRollout = "FullRollout"
-)
+// CanaryPhaseInProgress and CanaryPhaseFullRollout are now typed constants
+// defined in rightsizepolicy_types.go as CanaryPhase values.

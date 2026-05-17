@@ -418,7 +418,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 	// Observe mode: collect data and track progress but don't surface
 	// recommendations. This gives a zero-footprint data-collection phase.
-	if policy.Spec.UpdateStrategy.Mode != rightsizev1alpha1.ModeObserve {
+	if policy.Spec.UpdateStrategy.Mode != rightsizev1alpha1.UpdateModeObserve {
 		policy.Status.Recommendations = recommendations
 		policy.Status.Savings = r.computeSavings(policy.Namespace, recommendations, defaults)
 	}
@@ -842,7 +842,7 @@ func (r *RightSizePolicyReconciler) discoverPrometheus(ctx context.Context) stri
 }
 
 // selectPodsForResize selects pods eligible for resize based on the update mode.
-func selectPodsForResize(pods []corev1.Pod, mode string, canaryPercentage int32) []corev1.Pod {
+func selectPodsForResize(pods []corev1.Pod, mode rightsizev1alpha1.UpdateMode, canaryPercentage int32) []corev1.Pod {
 	var eligible []corev1.Pod
 	for _, p := range pods {
 		if resize.IsEligibleForResize(&p) {
@@ -854,9 +854,9 @@ func selectPodsForResize(pods []corev1.Pod, mode string, canaryPercentage int32)
 	}
 
 	switch mode {
-	case rightsizev1alpha1.ModeOneShot:
+	case rightsizev1alpha1.UpdateModeOneShot:
 		return eligible[:1]
-	case rightsizev1alpha1.ModeCanary:
+	case rightsizev1alpha1.UpdateModeCanary:
 		count := int(canaryPercentage) * len(eligible) / 100
 		if count < 1 {
 			count = 1
@@ -865,7 +865,7 @@ func selectPodsForResize(pods []corev1.Pod, mode string, canaryPercentage int32)
 			count = len(eligible)
 		}
 		return eligible[:count]
-	case rightsizev1alpha1.ModeAuto:
+	case rightsizev1alpha1.UpdateModeAuto:
 		return eligible // resize all in Auto mode
 	default:
 		return nil
@@ -897,7 +897,7 @@ func (r *RightSizePolicyReconciler) executeResizes(
 
 	// Canary auto-promotion: if all canary pods passed the observation
 	// period without reverts, promote to full rollout.
-	if mode == rightsizev1alpha1.ModeCanary && canaryAutoPromote {
+	if mode == rightsizev1alpha1.UpdateModeCanary && canaryAutoPromote {
 		mode = r.resolveCanaryPhase(ctx, policy, mode)
 	}
 
@@ -1059,7 +1059,7 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 		return []rightsizev1alpha1.ResizeHistoryEntry{
 			{
 				Timestamp: now, Workload: workloadName, Container: containerRec.Name,
-				Resource: "cpu+memory", Method: "Eviction", Result: rightsizev1alpha1.ResultSuccess,
+				Resource: "cpu+memory", Method: "Eviction", Result: rightsizev1alpha1.ResizeResultSuccess,
 			},
 		}
 	}
@@ -1104,7 +1104,7 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 			"pod", pod.Name, "container", containerRec.Name)
 		var entries []rightsizev1alpha1.ResizeHistoryEntry
 		for _, res := range results {
-			entries = append(entries, newHistoryEntry(now, workloadName, containerRec.Name, res, rightsizev1alpha1.ResultFailed))
+			entries = append(entries, newHistoryEntry(now, workloadName, containerRec.Name, res, rightsizev1alpha1.ResizeResultFailed))
 			operatormetrics.ResizeTotal.WithLabelValues(pod.Namespace, workloadName, res.Resource, "failed").Inc()
 		}
 		if r.Recorder != nil {
@@ -1118,9 +1118,9 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 
 	var history []rightsizev1alpha1.ResizeHistoryEntry
 	for _, res := range results {
-		result := rightsizev1alpha1.ResultSuccess
+		result := rightsizev1alpha1.ResizeResultSuccess
 		if !res.Success {
-			result = rightsizev1alpha1.ResultFailed
+			result = rightsizev1alpha1.ResizeResultFailed
 		}
 		history = append(history, newHistoryEntry(now, workloadName, containerRec.Name, res, result))
 		if res.Success {
@@ -1167,12 +1167,12 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 			}
 		}
 		if r.Recorder != nil {
-			r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, rightsizev1alpha1.ResultReverted, "revert",
+			r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, string(rightsizev1alpha1.ResizeResultReverted), "revert",
 				"Reverted resize on %s/%s: %s", workloadName, containerRec.Name, reason)
 		}
 		for i := range history {
 			if history[i].Workload == workloadName && history[i].Container == containerRec.Name {
-				history[i].Result = rightsizev1alpha1.ResultReverted
+				history[i].Result = rightsizev1alpha1.ResizeResultReverted
 			}
 		}
 	}
@@ -1423,7 +1423,7 @@ func buildResizeTarget(rec rightsizev1alpha1.ContainerRecommendation) corev1.Res
 // resolveCanaryPhase checks whether canary pods have passed the observation
 // period without reverts. If so, it promotes to FullRollout and returns
 // ModeAuto so selectPodsForResize resizes all pods.
-func (r *RightSizePolicyReconciler) resolveCanaryPhase(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy, currentMode string) string {
+func (r *RightSizePolicyReconciler) resolveCanaryPhase(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy, currentMode rightsizev1alpha1.UpdateMode) rightsizev1alpha1.UpdateMode {
 	logger := log.FromContext(ctx)
 	observationPeriod := getObservationPeriod(policy)
 
@@ -1442,7 +1442,7 @@ func (r *RightSizePolicyReconciler) resolveCanaryPhase(ctx context.Context, poli
 
 	// Phase: FullRollout already active from a prior reconcile.
 	if cs != nil && cs.Phase == rightsizev1alpha1.CanaryPhaseFullRollout {
-		return rightsizev1alpha1.ModeAuto
+		return rightsizev1alpha1.UpdateModeAuto
 	}
 
 	// Phase: CanaryInProgress -- check if observation period has elapsed.
@@ -1452,7 +1452,7 @@ func (r *RightSizePolicyReconciler) resolveCanaryPhase(ctx context.Context, poli
 			// Check for reverts during the observation window.
 			hasRevert := false
 			for _, h := range policy.Status.ResizeHistory {
-				if h.Result == rightsizev1alpha1.ResultReverted && h.Timestamp.After(cs.StartTime.Time) {
+				if h.Result == rightsizev1alpha1.ResizeResultReverted && h.Timestamp.After(cs.StartTime.Time) {
 					hasRevert = true
 					break
 				}
@@ -1465,7 +1465,7 @@ func (r *RightSizePolicyReconciler) resolveCanaryPhase(ctx context.Context, poli
 			logger.Info("Canary observation passed, promoting to full rollout",
 				"policy", policy.Name, "observationPeriod", observationPeriod)
 			policy.Status.Canary.Phase = rightsizev1alpha1.CanaryPhaseFullRollout
-			return rightsizev1alpha1.ModeAuto
+			return rightsizev1alpha1.UpdateModeAuto
 		}
 		return currentMode
 	}
@@ -1618,14 +1618,14 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 				workloadName := pod.Annotations[annotationResizedWorkload]
 				operatormetrics.RevertsTotal.WithLabelValues(pod.Namespace, workloadName, verdict.Reason).Inc()
 				if r.Recorder != nil {
-					r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, rightsizev1alpha1.ResultReverted, "revert",
+					r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, string(rightsizev1alpha1.ResizeResultReverted), "revert",
 						"Safety observation reverted resize on pod %s/%s: %s", pod.Name, record.Container, verdict.Message)
 				}
 				// Mark matching history entries as reverted so status reflects the revert.
 				for i := range policy.Status.ResizeHistory {
 					h := &policy.Status.ResizeHistory[i]
-					if h.Workload == workloadName && h.Container == record.Container && h.Result == rightsizev1alpha1.ResultSuccess {
-						h.Result = rightsizev1alpha1.ResultReverted
+					if h.Workload == workloadName && h.Container == record.Container && h.Result == rightsizev1alpha1.ResizeResultSuccess {
+						h.Result = rightsizev1alpha1.ResizeResultReverted
 					}
 				}
 			}

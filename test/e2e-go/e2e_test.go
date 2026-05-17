@@ -148,7 +148,7 @@ func createDeployment(t *testing.T, name, namespace string, cpuReq, memReq strin
 	return deploy
 }
 
-func createPolicy(t *testing.T, name, namespace, deployName, mode string) *rightsizev1alpha1.RightSizePolicy {
+func createPolicy(t *testing.T, name, namespace, deployName string, mode rightsizev1alpha1.UpdateMode) *rightsizev1alpha1.RightSizePolicy {
 	t.Helper()
 	policy := &rightsizev1alpha1.RightSizePolicy{
 		ObjectMeta: metav1.ObjectMeta{
@@ -282,7 +282,7 @@ func TestE2E_PolicyDiscovery(t *testing.T) {
 	createDeployment(t, "test-app", ns, "250m", "256Mi", 1)
 	waitForDeploymentReady(t, "test-app", ns, 60*time.Second)
 
-	createPolicy(t, "test-policy", ns, "test-app", "Recommend")
+	createPolicy(t, "test-policy", ns, "test-app", rightsizev1alpha1.UpdateModeRecommend)
 	waitForPolicyDiscovered(t, "test-policy", ns, 90*time.Second)
 
 	var policy rightsizev1alpha1.RightSizePolicy
@@ -296,7 +296,7 @@ func TestE2E_AutoMode_ResizesRunningPod(t *testing.T) {
 	createDeployment(t, "auto-app", ns, "500m", "512Mi", 1)
 	waitForDeploymentReady(t, "auto-app", ns, 60*time.Second)
 
-	createPolicy(t, "auto-policy", ns, "auto-app", "Auto")
+	createPolicy(t, "auto-policy", ns, "auto-app", rightsizev1alpha1.UpdateModeAuto)
 
 	// Wait for resize to complete (pod resources should change).
 	waitForResize(t, "auto-policy", ns, 3*time.Minute)
@@ -332,7 +332,7 @@ func TestE2E_OneShotMode_ResizesOnePod(t *testing.T) {
 	createDeployment(t, "oneshot-app", ns, "500m", "512Mi", 2)
 	waitForDeploymentReady(t, "oneshot-app", ns, 60*time.Second)
 
-	createPolicy(t, "oneshot-policy", ns, "oneshot-app", "OneShot")
+	createPolicy(t, "oneshot-policy", ns, "oneshot-app", rightsizev1alpha1.UpdateModeOneShot)
 
 	waitForResize(t, "oneshot-policy", ns, 3*time.Minute)
 
@@ -385,7 +385,7 @@ func TestE2E_SafetyRevert_RestartSpike(t *testing.T) {
 	require.NoError(t, k8sClient.Create(ctx, deploy))
 	waitForDeploymentReady(t, "revert-app", ns, 60*time.Second)
 
-	policy := createPolicy(t, "revert-policy", ns, "revert-app", "Auto")
+	policy := createPolicy(t, "revert-policy", ns, "revert-app", rightsizev1alpha1.UpdateModeAuto)
 
 	// Wait for initial resize.
 	waitForResize(t, "revert-policy", ns, 3*time.Minute)
@@ -472,7 +472,7 @@ func TestE2E_MultiContainer_ExcludesSidecar(t *testing.T) {
 			},
 			ExcludeContainers: []string{"istio-proxy"},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Mode: "Auto", Cooldown: &metav1.Duration{Duration: time.Minute},
+				Mode: rightsizev1alpha1.UpdateModeAuto, Cooldown: &metav1.Duration{Duration: time.Minute},
 				AutoRevert: true, MaxCPUChangePercent: 100, MaxMemoryChangePercent: 100,
 			},
 		},
@@ -558,7 +558,7 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 	require.NoError(t, k8sClient.Create(ctx, deploy))
 	waitForDeploymentReady(t, "load-app", ns, 120*time.Second)
 
-	loadPolicy := createPolicy(t, "load-policy", ns, "load-app", "Recommend")
+	loadPolicy := createPolicy(t, "load-policy", ns, "load-app", rightsizev1alpha1.UpdateModeRecommend)
 	maxCPU, err := resource.ParseQuantity("800m")
 	require.NoError(t, err)
 	require.NoError(t, retry.RetryOnConflict(retry.DefaultRetry, func() error {
@@ -627,7 +627,7 @@ func TestE2E_BudgetCaps_DefersResize(t *testing.T) {
 			CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.2"},
 			Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, SafetyMargin: "1.3"},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Mode:                   "Auto",
+				Mode:                   rightsizev1alpha1.UpdateModeAuto,
 				Cooldown:               &metav1.Duration{Duration: time.Minute},
 				MaxTotalCPUIncrease:    &tightBudget,
 				MaxCPUChangePercent:    100,
@@ -676,7 +676,7 @@ func TestE2E_ScheduleWindow_SkipsOutsideWindow(t *testing.T) {
 			CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.2"},
 			Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, SafetyMargin: "1.3"},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Mode:                   "Auto",
+				Mode:                   rightsizev1alpha1.UpdateModeAuto,
 				Cooldown:               &metav1.Duration{Duration: time.Minute},
 				MaxCPUChangePercent:    100,
 				MaxMemoryChangePercent: 100,
@@ -731,7 +731,7 @@ func TestE2E_BearerToken_Authenticates(t *testing.T) {
 			CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.2"},
 			Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, SafetyMargin: "1.3"},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Mode:     "Recommend",
+				Mode:     rightsizev1alpha1.UpdateModeRecommend,
 				Cooldown: &metav1.Duration{Duration: time.Minute},
 			},
 		},
@@ -780,10 +780,10 @@ func TestE2E_EvictionFallback_ResizesWithInPlaceOrEvict(t *testing.T) {
 				},
 			},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Mode:                   "Auto",
+				Mode:                   rightsizev1alpha1.UpdateModeAuto,
 				Cooldown:               &metav1.Duration{Duration: time.Minute},
 				AutoRevert:             true,
-				ResizeMethod:           "InPlaceOrEvict",
+				ResizeMethod:           rightsizev1alpha1.ResizeMethodInPlaceOrEvict,
 				MaxCPUChangePercent:    100,
 				MaxMemoryChangePercent: 100,
 			},
@@ -809,7 +809,7 @@ func TestE2E_RecommendMode_KeepsRecommendationsWithoutLivePods(t *testing.T) {
 	createDeployment(t, "nopods-app", ns, "250m", "256Mi", 1)
 	waitForDeploymentReady(t, "nopods-app", ns, 60*time.Second)
 
-	createPolicy(t, "nopods-policy", ns, "nopods-app", "Recommend")
+	createPolicy(t, "nopods-policy", ns, "nopods-app", rightsizev1alpha1.UpdateModeRecommend)
 	waitForPolicyDiscovered(t, "nopods-policy", ns, 2*time.Minute)
 
 	// Wait until recommendations appear.
@@ -928,7 +928,7 @@ func TestE2E_BearerToken_SecretRotation(t *testing.T) {
 			CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.2"},
 			Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, SafetyMargin: "1.3"},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Mode:     "Recommend",
+				Mode:     rightsizev1alpha1.UpdateModeRecommend,
 				Cooldown: &metav1.Duration{Duration: time.Minute},
 			},
 		},
@@ -1040,7 +1040,7 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 				Bounds:           &rightsizev1alpha1.ResourceBounds{Min: resource.MustParse("8Mi"), Max: resource.MustParse("512Mi")},
 			},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Mode:                   "Auto",
+				Mode:                   rightsizev1alpha1.UpdateModeAuto,
 				Cooldown:               &metav1.Duration{Duration: 1 * time.Minute},
 				AutoRevert:             true,
 				MaxCPUChangePercent:    100,
@@ -1119,7 +1119,7 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 			return false, nil
 		}
 		for _, h := range p.Status.ResizeHistory {
-			if h.Result == rightsizev1alpha1.ResultReverted {
+			if h.Result == rightsizev1alpha1.ResizeResultReverted {
 				t.Logf("Revert detected: workload=%s container=%s resource=%s", h.Workload, h.Container, h.Resource)
 				return true, nil
 			}
@@ -1132,7 +1132,7 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 	hasRevert := false
 	for i, h := range finalPolicy.Status.ResizeHistory {
 		t.Logf("  [%d] workload=%s container=%s resource=%s result=%s", i, h.Workload, h.Container, h.Resource, h.Result)
-		if h.Result == rightsizev1alpha1.ResultReverted {
+		if h.Result == rightsizev1alpha1.ResizeResultReverted {
 			hasRevert = true
 		}
 	}

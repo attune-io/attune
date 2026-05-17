@@ -18,19 +18,13 @@ package v1alpha1
 
 import "k8s.io/apimachinery/pkg/api/resource"
 
-// Update strategy modes.
+// Update strategy mode aliases for backward compatibility.
 const (
-	ModeRecommend = "Recommend"
-	ModeObserve   = "Observe"
-	ModeOneShot   = "OneShot"
-	ModeCanary    = "Canary"
-	ModeAuto      = "Auto"
-)
-
-// Resize method options.
-const (
-	ResizeMethodInPlaceOnly    = "InPlaceOnly"
-	ResizeMethodInPlaceOrEvict = "InPlaceOrEvict"
+	ModeRecommend = UpdateModeRecommend
+	ModeObserve   = UpdateModeObserve
+	ModeOneShot   = UpdateModeOneShot
+	ModeCanary    = UpdateModeCanary
+	ModeAuto      = UpdateModeAuto
 )
 
 // Controlled values options.
@@ -39,11 +33,11 @@ const (
 	ControlledRequestsAndLimits = "RequestsAndLimits"
 )
 
-// Resize result values.
+// Resize result aliases for backward compatibility.
 const (
-	ResultSuccess  = "Success"
-	ResultFailed   = "Failed"
-	ResultReverted = "Reverted"
+	ResultSuccess  = ResizeResultSuccess
+	ResultFailed   = ResizeResultFailed
+	ResultReverted = ResizeResultReverted
 )
 
 // Default values for RightSizePolicy fields. These are the single source
@@ -54,7 +48,7 @@ const (
 	DefaultCPUSafetyMargin              = "1.2"
 	DefaultMemoryPercentile       int32 = 99
 	DefaultMemorySafetyMargin           = "1.3"
-	DefaultUpdateMode                   = ModeRecommend
+	DefaultUpdateMode                   = UpdateModeRecommend
 	DefaultMaxCPUChangePercent    int32 = 50
 	DefaultMaxMemoryChangePercent int32 = 30
 	DefaultWeight                 int32 = 100

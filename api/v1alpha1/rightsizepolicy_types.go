@@ -21,6 +21,42 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// UpdateMode defines the operating mode of a RightSizePolicy.
+type UpdateMode string
+
+const (
+	UpdateModeObserve   UpdateMode = "Observe"
+	UpdateModeRecommend UpdateMode = "Recommend"
+	UpdateModeOneShot   UpdateMode = "OneShot"
+	UpdateModeCanary    UpdateMode = "Canary"
+	UpdateModeAuto      UpdateMode = "Auto"
+)
+
+// ResizeMethodType defines the resize fallback strategy.
+type ResizeMethodType string
+
+const (
+	ResizeMethodInPlaceOnly    ResizeMethodType = "InPlaceOnly"
+	ResizeMethodInPlaceOrEvict ResizeMethodType = "InPlaceOrEvict"
+)
+
+// CanaryPhase defines the canary rollout state.
+type CanaryPhase string
+
+const (
+	CanaryPhaseInProgress  CanaryPhase = "CanaryInProgress"
+	CanaryPhaseFullRollout CanaryPhase = "FullRollout"
+)
+
+// ResizeResult defines the outcome of a resize operation.
+type ResizeResult string
+
+const (
+	ResizeResultSuccess  ResizeResult = "Success"
+	ResizeResultFailed   ResizeResult = "Failed"
+	ResizeResultReverted ResizeResult = "Reverted"
+)
+
 // RightSizePolicySpec defines the desired state of RightSizePolicy.
 type RightSizePolicySpec struct {
 	// TargetRef identifies the workload(s) to be rightsized.
@@ -189,7 +225,7 @@ type UpdateStrategy struct {
 	//   Observe: collects metrics and tracks data points but does not surface recommendations or savings.
 	// Start with Recommend in production and promote after reviewing status.
 	// +kubebuilder:validation:Enum=Observe;Recommend;OneShot;Canary;Auto
-	Mode string `json:"mode"`
+	Mode UpdateMode `json:"mode"`
 
 	// Canary configures canary rollout behavior when Mode is Canary.
 	// +optional
@@ -224,7 +260,7 @@ type UpdateStrategy struct {
 	// +kubebuilder:default=InPlaceOnly
 	// +kubebuilder:validation:Enum=InPlaceOnly;InPlaceOrEvict
 	// +optional
-	ResizeMethod string `json:"resizeMethod,omitempty"`
+	ResizeMethod ResizeMethodType `json:"resizeMethod,omitempty"`
 
 	// Schedule restricts when resize operations can occur. Recommendations
 	// are always computed; only resize execution is gated. If omitted,
@@ -349,7 +385,7 @@ type CanaryStatus struct {
 	// CanaryInProgress: canary pods resized, observing for safety violations.
 	// FullRollout: observation passed with no violations, all pods are being resized.
 	// +optional
-	Phase string `json:"phase,omitempty"`
+	Phase CanaryPhase `json:"phase,omitempty"`
 
 	// StartTime is when the canary subset was first resized.
 	// +optional
@@ -537,7 +573,7 @@ type ResizeHistoryEntry struct {
 
 	// Result is the outcome of the resize operation.
 	// +kubebuilder:validation:Enum=Success;Failed;Reverted
-	Result string `json:"result"`
+	Result ResizeResult `json:"result"`
 }
 
 // SavingsStatus summarizes estimated resource savings.

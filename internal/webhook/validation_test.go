@@ -49,7 +49,7 @@ func validPolicy() *rightsizev1alpha1.RightSizePolicy {
 				SafetyMargin: "1.3",
 			},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Mode: "Recommend",
+				Mode: rightsizev1alpha1.UpdateModeRecommend,
 			},
 		},
 	}
@@ -100,7 +100,7 @@ func TestValidate_MemoryBoundsInvalid(t *testing.T) {
 func TestValidate_CanaryModeWithoutConfig(t *testing.T) {
 	validator := &RightSizePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.UpdateStrategy.Mode = "Canary"
+	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeCanary
 	policy.Spec.UpdateStrategy.Canary = nil
 
 	warnings, err := validator.ValidateCreate(context.Background(), policy)

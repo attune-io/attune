@@ -37,7 +37,7 @@ func makeHistoryEntry(workload string, ts time.Time) rightsizev1alpha1.ResizeHis
 		From:      "500m",
 		To:        "250m",
 		Method:    "InPlace",
-		Result:    "Success",
+		Result:    rightsizev1alpha1.ResizeResultSuccess,
 	}
 }
 

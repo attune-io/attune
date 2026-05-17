@@ -289,7 +289,7 @@ func newTestPolicy(name, namespace, deploymentName string) *rightsizev1alpha1.Ri
 				},
 			},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Mode: "Recommend",
+				Mode: rightsizev1alpha1.UpdateModeRecommend,
 				// Minimum valid cooldown (webhook rejects < 1m).
 				// MinCooldown=1s on the reconciler is a separate runtime floor.
 				Cooldown: &metav1.Duration{Duration: 1 * time.Minute},
@@ -623,7 +623,7 @@ func TestReconcile_ScheduleGateBlocksResizeOutsideWindow(t *testing.T) {
 	// Policy with a schedule window of 02:00-06:00 on Wednesdays only.
 	// Set mode to Auto so resize execution would be attempted (but blocked by schedule).
 	policy := newTestPolicy("policy-schedule", namespace, "schedule-app")
-	policy.Spec.UpdateStrategy.Mode = "Auto"
+	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeAuto
 	policy.Spec.UpdateStrategy.Schedule = &rightsizev1alpha1.ResizeSchedule{
 		Windows:    []rightsizev1alpha1.TimeWindow{{Start: "02:00", End: "06:00"}},
 		DaysOfWeek: []string{"Wednesday"},
@@ -789,7 +789,7 @@ func TestNamespaceDefaultsWebhook_RejectsInvalidScheduleTimezone(t *testing.T) {
 		},
 		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
 			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{
-				Mode: "Recommend",
+				Mode: rightsizev1alpha1.UpdateModeRecommend,
 				Schedule: &rightsizev1alpha1.ResizeSchedule{
 					Timezone: "Invalid/Timezone",
 				},

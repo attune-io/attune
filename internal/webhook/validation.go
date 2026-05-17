@@ -77,7 +77,7 @@ func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizeP
 	}
 
 	// Canary config required when mode is Canary
-	if policy.Spec.UpdateStrategy.Mode == rightsizev1alpha1.ModeCanary && policy.Spec.UpdateStrategy.Canary == nil {
+	if policy.Spec.UpdateStrategy.Mode == rightsizev1alpha1.UpdateModeCanary && policy.Spec.UpdateStrategy.Canary == nil {
 		return warnings, fmt.Errorf("updateStrategy.canary is required when mode is Canary")
 	}
 

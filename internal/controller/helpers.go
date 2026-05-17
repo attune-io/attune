@@ -53,12 +53,12 @@ const (
 )
 
 // isResizeMode returns true if the policy mode performs actual pod resizes.
-func isResizeMode(mode string) bool {
-	return mode == rightsizev1alpha1.ModeOneShot || mode == rightsizev1alpha1.ModeCanary || mode == rightsizev1alpha1.ModeAuto
+func isResizeMode(mode rightsizev1alpha1.UpdateMode) bool {
+	return mode == rightsizev1alpha1.UpdateModeOneShot || mode == rightsizev1alpha1.UpdateModeCanary || mode == rightsizev1alpha1.UpdateModeAuto
 }
 
 // newHistoryEntry creates a ResizeHistoryEntry from a resize result.
-func newHistoryEntry(now metav1.Time, workload, container string, res resize.ResizeResult, result string) rightsizev1alpha1.ResizeHistoryEntry {
+func newHistoryEntry(now metav1.Time, workload, container string, res resize.ResizeResult, result rightsizev1alpha1.ResizeResult) rightsizev1alpha1.ResizeHistoryEntry {
 	return rightsizev1alpha1.ResizeHistoryEntry{
 		Timestamp: now,
 		Workload:  workload,
@@ -416,7 +416,7 @@ func (r *RightSizePolicyReconciler) setDegradedCondition(policy *rightsizev1alph
 	recent := history[len(history)-window:]
 	reverts := 0
 	for _, entry := range recent {
-		if entry.Result == rightsizev1alpha1.ResultReverted {
+		if entry.Result == rightsizev1alpha1.ResizeResultReverted {
 			reverts++
 		}
 	}
@@ -528,7 +528,7 @@ func checkQuotaHeadroom(quota corev1.ResourceQuota, current, target corev1.Resou
 func consecutiveReverts(history []rightsizev1alpha1.ResizeHistoryEntry) int {
 	count := 0
 	for i := len(history) - 1; i >= 0; i-- {
-		if history[i].Result == rightsizev1alpha1.ResultReverted {
+		if history[i].Result == rightsizev1alpha1.ResizeResultReverted {
 			count++
 		} else {
 			break
