@@ -999,6 +999,49 @@ func TestGetOrCreateCollector_ConcurrentAccess(t *testing.T) {
 	assert.LessOrEqual(t, stored, 15, "cache should not grow unbounded")
 }
 
+// closableMockCollector wraps mockCollector and implements io.Closer so
+// we can verify that evicted collectors have Close() called.
+type closableMockCollector struct {
+	mockCollector
+	closed bool
+}
+
+func (c *closableMockCollector) Close() error {
+	c.closed = true
+	return nil
+}
+
+func TestGetOrCreateCollector_EvictionClosesCollector(t *testing.T) {
+	closable := &closableMockCollector{}
+
+	now := time.Now()
+	reconciler := &RightSizePolicyReconciler{
+		CollectorTTL: time.Millisecond,
+		MetricsFactory: func(_ string, _ *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
+			return &mockCollector{}, nil
+		},
+	}
+	reconciler.SetNowFunc(func() time.Time { return now })
+
+	// Seed the cache with the closable collector at "now".
+	reconciler.collectors.Store("http://old:9090", &collectorEntry{
+		collector: closable,
+		lastUsed:  now,
+	})
+
+	// Advance time past the TTL so the entry becomes stale.
+	now = now.Add(2 * time.Millisecond)
+
+	// Requesting a different address triggers eviction of stale entries.
+	_, err := reconciler.getOrCreateCollector(
+		&rightsizev1alpha1.PrometheusConfig{Address: "http://new:9090"}, nil,
+	)
+	require.NoError(t, err)
+
+	assert.True(t, closable.closed,
+		"Close() should be called on evicted collector that implements io.Closer")
+}
+
 // ---------- computeRecommendations ----------
 
 func TestComputeRecommendations_HappyPath(t *testing.T) {

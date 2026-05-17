@@ -21,6 +21,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"strconv"
 	"strings"
@@ -185,6 +186,9 @@ func (r *RightSizePolicyReconciler) getOrCreateCollector(config *rightsizev1alph
 		entry := value.(*collectorEntry)
 		if now.Sub(entry.lastUsed) > ttl {
 			r.collectors.Delete(key)
+			if closer, ok := entry.collector.(io.Closer); ok {
+				_ = closer.Close()
+			}
 		}
 		return true
 	})

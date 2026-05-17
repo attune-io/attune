@@ -61,8 +61,19 @@ type MetricsCollector interface {
 
 // PrometheusCollector implements MetricsCollector using the Prometheus HTTP API.
 type PrometheusCollector struct {
-	api    promv1.API
-	logger logr.Logger
+	api       promv1.API
+	logger    logr.Logger
+	transport *http.Transport
+}
+
+// Close releases resources held by the collector. It closes idle HTTP
+// connections on the underlying transport to prevent connection leaks
+// when the collector is evicted from the cache.
+func (c *PrometheusCollector) Close() error {
+	if c.transport != nil {
+		c.transport.CloseIdleConnections()
+	}
+	return nil
 }
 
 // ssrfSafeTransport returns an http.RoundTripper that resolves hostnames
@@ -164,12 +175,15 @@ func NewPrometheusCollector(address string, logger logr.Logger, transport ...htt
 // bearer token auth, and TLS settings for Prometheus-compatible backends.
 func NewPrometheusCollectorWithOptions(address string, logger logr.Logger, opts *CollectorOptions, transport ...http.RoundTripper) (*PrometheusCollector, error) {
 	var rt http.RoundTripper
+	var httpTransport *http.Transport
 	if len(transport) > 0 && transport[0] != nil {
 		rt = transport[0]
+		httpTransport, _ = rt.(*http.Transport)
 	} else {
 		base := ssrfSafeTransport()
+		httpTransport, _ = base.(*http.Transport)
 		if opts != nil && opts.InsecureSkipVerify {
-			if httpTransport, ok := base.(*http.Transport); ok {
+			if httpTransport != nil {
 				if httpTransport.TLSClientConfig == nil {
 					httpTransport.TLSClientConfig = &tls.Config{} //nolint:gosec // user-configured
 				}
@@ -196,8 +210,9 @@ func NewPrometheusCollectorWithOptions(address string, logger logr.Logger, opts 
 		return nil, fmt.Errorf("creating prometheus client: %w", err)
 	}
 	return &PrometheusCollector{
-		api:    promv1.NewAPI(client),
-		logger: logger,
+		api:       promv1.NewAPI(client),
+		logger:    logger,
+		transport: httpTransport,
 	}, nil
 }
 
