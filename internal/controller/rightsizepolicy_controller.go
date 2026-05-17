@@ -1947,9 +1947,12 @@ func (r *RightSizePolicyReconciler) applyStartupBoosts(
 					if c.Resources.Requests.Cpu().Cmp(boostedCPU) >= 0 {
 						continue // already at or above boosted level
 					}
-					target := corev1.ResourceRequirements{
-						Requests: corev1.ResourceList{corev1.ResourceCPU: boostedCPU},
+					// Include current memory request so mergeResources does not drop it.
+					reqs := corev1.ResourceList{corev1.ResourceCPU: boostedCPU}
+					if memReq, ok := c.Resources.Requests[corev1.ResourceMemory]; ok {
+						reqs[corev1.ResourceMemory] = memReq
 					}
+					target := corev1.ResourceRequirements{Requests: reqs}
 					if _, boostErr := resizer.ResizePod(ctx, pod, c.Name, target); boostErr != nil {
 						logger.Error(boostErr, "Failed to apply startup CPU boost", "pod", pod.Name, "container", c.Name)
 						continue
@@ -1986,9 +1989,12 @@ func (r *RightSizePolicyReconciler) applyStartupBoosts(
 						if !ok {
 							continue
 						}
-						target := corev1.ResourceRequirements{
-							Requests: corev1.ResourceList{corev1.ResourceCPU: recCPU},
+						// Include current memory request so mergeResources does not drop it.
+						expiryReqs := corev1.ResourceList{corev1.ResourceCPU: recCPU}
+						if memReq, ok := c.Resources.Requests[corev1.ResourceMemory]; ok {
+							expiryReqs[corev1.ResourceMemory] = memReq
 						}
+						target := corev1.ResourceRequirements{Requests: expiryReqs}
 						if _, boostErr := resizer.ResizePod(ctx, pod, c.Name, target); boostErr != nil {
 							logger.Error(boostErr, "Failed to reduce startup boost", "pod", pod.Name, "container", c.Name)
 						} else {

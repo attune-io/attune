@@ -5814,7 +5814,10 @@ func TestApplyStartupBoosts_AppliesBoostToNewPod(t *testing.T) {
 				{
 					Name: "main",
 					Resources: corev1.ResourceRequirements{
-						Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m")},
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("100m"),
+							corev1.ResourceMemory: resource.MustParse("128Mi"),
+						},
 					},
 				},
 			},
@@ -5849,12 +5852,17 @@ func TestApplyStartupBoosts_AppliesBoostToNewPod(t *testing.T) {
 
 	r.applyStartupBoosts(context.Background(), policy, podsByWorkload, recs, resizer)
 
-	// Verify resize was attempted via clientset actions.
+	// Verify resize was attempted via clientset actions and memory request preserved.
 	actions := clientset.Actions()
 	var foundResize bool
 	for _, a := range actions {
 		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
 			foundResize = true
+			updatedPod := a.(k8stesting.UpdateAction).GetObject().(*corev1.Pod)
+			reqs := updatedPod.Spec.Containers[0].Resources.Requests
+			assert.True(t, reqs.Cpu().Cmp(resource.MustParse("100m")) > 0, "CPU should be boosted above 100m")
+			memReq := reqs[corev1.ResourceMemory]
+			assert.Equal(t, resource.MustParse("128Mi"), memReq, "memory request should be preserved")
 			break
 		}
 	}
@@ -6022,7 +6030,10 @@ func TestApplyStartupBoosts_ExpiresBoostAfterDuration(t *testing.T) {
 				{
 					Name: "main",
 					Resources: corev1.ResourceRequirements{
-						Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("600m")}, // boosted
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("600m"), // boosted
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
 					},
 				},
 			},
