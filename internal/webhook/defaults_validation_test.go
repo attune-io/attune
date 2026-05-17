@@ -54,6 +54,25 @@ func TestDefaultsValidator_ValidPricing(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestDefaultsValidator_MemoryStartupBoostWarning(t *testing.T) {
+	v := &RightSizeDefaultsValidator{}
+	defaults := &rightsizev1alpha1.RightSizeDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			Memory: &rightsizev1alpha1.ResourceConfig{
+				StartupBoost: &rightsizev1alpha1.StartupBoost{
+					Multiplier: "2.0",
+					Duration:   metav1.Duration{Duration: 60000000000}, // 1m
+				},
+			},
+		},
+	}
+	warnings, err := v.ValidateCreate(context.Background(), defaults)
+	require.NoError(t, err)
+	require.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0], "memory.startupBoost has no effect")
+}
+
 func TestDefaultsValidator_InvalidCPUPrice(t *testing.T) {
 	v := &RightSizeDefaultsValidator{}
 	defaults := &rightsizev1alpha1.RightSizeDefaults{

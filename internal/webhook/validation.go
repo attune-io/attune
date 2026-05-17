@@ -140,6 +140,11 @@ func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizeP
 		}
 	}
 
+	// Warn if memory startup boost is set (only CPU boost is implemented).
+	if policy.Spec.Memory.StartupBoost != nil {
+		warnings = append(warnings, "memory.startupBoost has no effect; startup boost only applies to CPU resources")
+	}
+
 	// Validate cooldown has a minimum floor to prevent resource exhaustion via tight reconciliation loops.
 	if policy.Spec.UpdateStrategy.Cooldown != nil {
 		cd := policy.Spec.UpdateStrategy.Cooldown.Duration

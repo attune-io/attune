@@ -85,7 +85,6 @@ func (v *RightSizeNamespaceDefaultsValidator) ValidateDelete(_ context.Context, 
 	return nil, nil
 }
 
-//nolint:unparam // warnings return kept for symmetry with RightSizePolicyValidator.validate
 func validateDefaultsSpec(spec rightsizev1alpha1.RightSizeDefaultsSpec) (admission.Warnings, error) {
 	// Validate Prometheus address if provided (SSRF prevention).
 	if spec.MetricsSource != nil &&
@@ -112,7 +111,13 @@ func validateDefaultsSpec(spec rightsizev1alpha1.RightSizeDefaultsSpec) (admissi
 		}
 	}
 
-	return nil, nil
+	// Warn if memory startup boost is set (only CPU boost is implemented).
+	var warnings admission.Warnings
+	if spec.Memory != nil && spec.Memory.StartupBoost != nil {
+		warnings = append(warnings, "memory.startupBoost has no effect; startup boost only applies to CPU resources")
+	}
+
+	return warnings, nil
 }
 
 func validatePositiveFloat(field, value string) error {

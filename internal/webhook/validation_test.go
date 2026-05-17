@@ -198,6 +198,21 @@ func TestValidate_SafetyMarginBelowOneWarns(t *testing.T) {
 	assert.Contains(t, warnings[0], "reduce resources below the target percentile")
 }
 
+func TestValidate_MemoryStartupBoostWarning(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.Memory.StartupBoost = &rightsizev1alpha1.StartupBoost{
+		Multiplier: "2.0",
+		Duration:   metav1.Duration{Duration: 1 * time.Minute},
+	}
+
+	warnings, err := validator.ValidateCreate(context.Background(), policy)
+
+	assert.NoError(t, err)
+	require.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0], "memory.startupBoost has no effect")
+}
+
 func TestValidateUpdate_ValidPolicy(t *testing.T) {
 	validator := &RightSizePolicyValidator{}
 	old := validPolicy()
