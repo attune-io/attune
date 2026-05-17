@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"time"
 
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
@@ -99,6 +100,17 @@ func validateDefaultsSpec(spec rightsizev1alpha1.RightSizeDefaultsSpec) (admissi
 	if spec.UpdateStrategy != nil && spec.UpdateStrategy.Schedule != nil {
 		if err := validateSchedule(spec.UpdateStrategy.Schedule); err != nil {
 			return nil, err
+		}
+	}
+
+	// Validate queryStep bounds (10s to 1h).
+	if spec.MetricsSource != nil && spec.MetricsSource.QueryStep != nil {
+		qs := spec.MetricsSource.QueryStep.Duration
+		if qs < 10*time.Second {
+			return nil, fmt.Errorf("metricsSource.queryStep must be at least 10s, got %s", qs)
+		}
+		if qs > time.Hour {
+			return nil, fmt.Errorf("metricsSource.queryStep must be at most 1h, got %s", qs)
 		}
 	}
 

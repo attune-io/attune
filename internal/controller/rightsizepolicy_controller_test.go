@@ -782,6 +782,33 @@ func TestGetMinimumDataPoints_Custom(t *testing.T) {
 	assert.Equal(t, int32(42), r.getMinimumDataPoints(policy))
 }
 
+func TestGetQueryStep_Default(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	policy := &rightsizev1alpha1.RightSizePolicy{}
+	assert.Equal(t, 5*time.Minute, r.getQueryStep(policy))
+}
+
+func TestGetQueryStep_Custom(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	policy := &rightsizev1alpha1.RightSizePolicy{}
+	policy.Spec.MetricsSource.QueryStep = &metav1.Duration{Duration: 30 * time.Second}
+	assert.Equal(t, 30*time.Second, r.getQueryStep(policy))
+}
+
+func TestGetQueryStep_ClampedTooSmall(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	policy := &rightsizev1alpha1.RightSizePolicy{}
+	policy.Spec.MetricsSource.QueryStep = &metav1.Duration{Duration: 1 * time.Second}
+	assert.Equal(t, 10*time.Second, r.getQueryStep(policy))
+}
+
+func TestGetQueryStep_ClampedTooLarge(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	policy := &rightsizev1alpha1.RightSizePolicy{}
+	policy.Spec.MetricsSource.QueryStep = &metav1.Duration{Duration: 2 * time.Hour}
+	assert.Equal(t, 1*time.Hour, r.getQueryStep(policy))
+}
+
 func TestIsRollingOut_StatefulSetStable(t *testing.T) {
 	r := &RightSizePolicyReconciler{}
 	replicas := int32(3)

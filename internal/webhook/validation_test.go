@@ -213,6 +213,38 @@ func TestValidate_MemoryStartupBoostWarning(t *testing.T) {
 	assert.Contains(t, warnings[0], "memory.startupBoost has no effect")
 }
 
+func TestValidate_QueryStepTooSmall(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.MetricsSource.QueryStep = &metav1.Duration{Duration: 5 * time.Second}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "queryStep must be at least 10s")
+}
+
+func TestValidate_QueryStepTooLarge(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.MetricsSource.QueryStep = &metav1.Duration{Duration: 2 * time.Hour}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "queryStep must be at most 1h")
+}
+
+func TestValidate_QueryStepValid(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.MetricsSource.QueryStep = &metav1.Duration{Duration: 30 * time.Second}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+
+	assert.NoError(t, err)
+}
+
 func TestValidateUpdate_ValidPolicy(t *testing.T) {
 	validator := &RightSizePolicyValidator{}
 	old := validPolicy()

@@ -604,7 +604,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		if remaining < 0 {
 			remaining = 0
 		}
-		eta := time.Duration(remaining) * defaultPrometheusStep
+		eta := time.Duration(remaining) * r.getQueryStep(&policy)
 		message := fmt.Sprintf("Collecting data: %d/%d data points (%d%%), ~%s remaining",
 			globalMaxDataPoints, minimumDP,
 			progressPercent(globalMaxDataPoints, int(minimumDP)),
@@ -688,8 +688,9 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 		excludeSet[name] = true
 	}
 
-	cpuSamplesByContainer, cpuErr := queryMetricsGrouped(ctx, collector, policy.Namespace, podPrefix, "cpu", start, now, defaultPrometheusStep)
-	memSamplesByContainer, memErr := queryMetricsGrouped(ctx, collector, policy.Namespace, podPrefix, "memory", start, now, defaultPrometheusStep)
+	queryStep := r.getQueryStep(policy)
+	cpuSamplesByContainer, cpuErr := queryMetricsGrouped(ctx, collector, policy.Namespace, podPrefix, "cpu", start, now, queryStep)
+	memSamplesByContainer, memErr := queryMetricsGrouped(ctx, collector, policy.Namespace, podPrefix, "memory", start, now, queryStep)
 	if cpuErr {
 		queryErrors++
 		failedMetricTypes = append(failedMetricTypes, "CPU")

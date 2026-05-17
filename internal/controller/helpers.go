@@ -149,6 +149,21 @@ func (r *RightSizePolicyReconciler) getMinimumDataPoints(policy *rightsizev1alph
 	return defaultMinimumDataPoints
 }
 
+// getQueryStep returns the query step interval from the policy or the default (5m).
+func (r *RightSizePolicyReconciler) getQueryStep(policy *rightsizev1alpha1.RightSizePolicy) time.Duration {
+	if policy.Spec.MetricsSource.QueryStep != nil {
+		qs := policy.Spec.MetricsSource.QueryStep.Duration
+		if qs < 10*time.Second {
+			qs = 10 * time.Second
+		}
+		if qs > time.Hour {
+			qs = time.Hour
+		}
+		return qs
+	}
+	return defaultPrometheusStep
+}
+
 // parseCooldown returns the cooldown duration from the policy's update strategy.
 func (r *RightSizePolicyReconciler) parseCooldown(policy *rightsizev1alpha1.RightSizePolicy) time.Duration {
 	if policy.Spec.UpdateStrategy.Cooldown != nil {

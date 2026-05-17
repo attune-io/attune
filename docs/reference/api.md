@@ -38,6 +38,7 @@ spec:
         insecureSkipVerify: false
     historyWindow: 168h                    # lookback window (default: 168h)
     minimumDataPoints: 48                  # min samples before recommending (default: 48)
+    queryStep: 5m                          # Prometheus range query step interval (default: 5m)
 
   # CPU recommendation parameters.
   cpu:
@@ -177,6 +178,7 @@ spec:
       address: http://prometheus-server.monitoring:80
     historyWindow: 168h
     minimumDataPoints: 48
+    queryStep: 5m
   cpu:              # same structure as RightSizePolicy.spec.cpu
     percentile: 95
     safetyMargin: "1.2"

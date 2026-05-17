@@ -121,6 +121,12 @@ type MetricsSource struct {
 	// +kubebuilder:default=48
 	// +kubebuilder:validation:Minimum=1
 	MinimumDataPoints int32 `json:"minimumDataPoints,omitempty"`
+
+	// QueryStep is the step interval for Prometheus range queries and ETA
+	// calculations. Should match your Prometheus scrape interval for
+	// accurate time estimates. Minimum 10s, maximum 1h. Default 5m.
+	// +optional
+	QueryStep *metav1.Duration `json:"queryStep,omitempty"`
 }
 
 // PrometheusConfig configures a Prometheus-compatible metrics source.

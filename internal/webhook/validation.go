@@ -176,6 +176,17 @@ func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizeP
 		}
 	}
 
+	// Validate queryStep bounds (10s to 1h).
+	if policy.Spec.MetricsSource.QueryStep != nil {
+		qs := policy.Spec.MetricsSource.QueryStep.Duration
+		if qs < 10*time.Second {
+			return warnings, fmt.Errorf("metricsSource.queryStep must be at least 10s, got %s", qs)
+		}
+		if qs > time.Hour {
+			return warnings, fmt.Errorf("metricsSource.queryStep must be at most 1h, got %s", qs)
+		}
+	}
+
 	// Validate Prometheus address URL scheme if specified.
 	if policy.Spec.MetricsSource.Prometheus != nil && policy.Spec.MetricsSource.Prometheus.Address != "" {
 		if err := ValidatePrometheusAddress(policy.Spec.MetricsSource.Prometheus.Address); err != nil {

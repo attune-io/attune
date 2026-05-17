@@ -329,6 +329,12 @@ spec:
                     required:
                     - address
                     type: object
+                  queryStep:
+                    description: |-
+                      QueryStep is the step interval for Prometheus range queries and ETA
+                      calculations. Should match your Prometheus scrape interval for
+                      accurate time estimates. Minimum 10s, maximum 1h. Default 5m.
+                    type: string
                 type: object
               updateStrategy:
                 description: UpdateStrategy configures default update strategy settings.
