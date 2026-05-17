@@ -1275,10 +1275,16 @@ func (r *RightSizePolicyReconciler) tryEvictionFallback(
 	logger := log.FromContext(ctx)
 
 	// Safety: never evict the last replica. Count running pods for this workload.
+	selectorLabels := r.getPodSelectorLabels(workload)
+	if len(selectorLabels) == 0 {
+		logger.Info("Skipping eviction fallback: workload has no pod selector labels",
+			"pod", pod.Name, "workload", workloadName)
+		return false
+	}
 	var podList corev1.PodList
 	if err := r.List(ctx, &podList,
 		client.InNamespace(pod.Namespace),
-		client.MatchingLabels(r.getPodSelectorLabels(workload)),
+		client.MatchingLabels(selectorLabels),
 	); err != nil {
 		logger.Error(err, "Cannot list pods for eviction safety check, skipping eviction")
 		return false

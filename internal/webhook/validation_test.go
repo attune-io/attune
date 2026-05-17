@@ -155,7 +155,7 @@ func TestValidate_CanaryObservationPeriodZeroWarns(t *testing.T) {
 
 	assert.NoError(t, err)
 	require.Len(t, warnings, 1)
-	assert.Contains(t, warnings[0], "promoted immediately")
+	assert.Contains(t, warnings[0], "default observation period")
 }
 
 func TestValidate_NoTargetRef(t *testing.T) {

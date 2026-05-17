@@ -91,7 +91,7 @@ func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizeP
 			return warnings, fmt.Errorf("updateStrategy.canary.observationPeriod must be at least 1m, got %s", op)
 		}
 		if op == 0 {
-			warnings = append(warnings, "updateStrategy.canary.observationPeriod is 0; canary pods will be promoted immediately with no safety observation")
+			warnings = append(warnings, "updateStrategy.canary.observationPeriod is 0; the default observation period will be used")
 		}
 	}
 
