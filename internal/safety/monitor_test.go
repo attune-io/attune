@@ -232,7 +232,7 @@ func TestCheckPod(t *testing.T) {
 			}
 
 			monitor := NewMonitor(fakeClient, testr.New(t))
-			verdict, err := monitor.CheckPod(context.Background(), tt.record)
+			verdict, err := monitor.CheckPod(context.Background(), tt.record, now)
 			require.NoError(t, err)
 
 			assert.Equal(t, tt.wantSafe, verdict.Safe, "safe mismatch")
@@ -469,7 +469,7 @@ func TestCheckPod_ContainerNotMatched(t *testing.T) {
 		ResizedAt: time.Now().Add(-1 * time.Hour),
 	}
 
-	verdict, err := monitor.CheckPod(context.Background(), record)
+	verdict, err := monitor.CheckPod(context.Background(), record, time.Now())
 	require.NoError(t, err)
 	assert.True(t, verdict.Safe, "pod with unmatched container should be considered safe")
 }
@@ -497,7 +497,7 @@ func TestCheckPod_NoPodReadyCondition(t *testing.T) {
 		RestartCount: 0,
 	}
 
-	verdict, err := monitor.CheckPod(context.Background(), record)
+	verdict, err := monitor.CheckPod(context.Background(), record, time.Now())
 	require.NoError(t, err)
 	assert.True(t, verdict.Safe, "pod with no Ready condition should be considered safe")
 }
@@ -546,7 +546,7 @@ func TestCheckPod_ThrottleDetected(t *testing.T) {
 		RestartCount: 0,
 	}
 
-	verdict, err := monitor.CheckPod(context.Background(), record)
+	verdict, err := monitor.CheckPod(context.Background(), record, time.Now())
 	require.NoError(t, err)
 	assert.False(t, verdict.Safe)
 	assert.Equal(t, "throttle", verdict.Reason)
@@ -584,7 +584,7 @@ func TestCheckPod_ThrottleBelowThreshold(t *testing.T) {
 		RestartCount: 0,
 	}
 
-	verdict, err := monitor.CheckPod(context.Background(), record)
+	verdict, err := monitor.CheckPod(context.Background(), record, time.Now())
 	require.NoError(t, err)
 	assert.True(t, verdict.Safe)
 }
@@ -615,7 +615,7 @@ func TestCheckPod_NoThrottleChecker(t *testing.T) {
 		RestartCount: 0,
 	}
 
-	verdict, err := monitor.CheckPod(context.Background(), record)
+	verdict, err := monitor.CheckPod(context.Background(), record, time.Now())
 	require.NoError(t, err)
 	assert.True(t, verdict.Safe)
 }

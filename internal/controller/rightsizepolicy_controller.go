@@ -1242,7 +1242,7 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 			ObservationEnd:    observationEnd,
 			RestartCount:      restartCount,
 		}
-		verdict, err := monitor.CheckPod(ctx, record)
+		verdict, err := monitor.CheckPod(ctx, record, now.Time)
 		if err != nil {
 			logger.Error(err, "Safety check failed, deferring to observation cycle", "pod", pod.Name)
 			return history, true
@@ -1626,7 +1626,7 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 
 		var revertFailed bool
 		for _, record := range records {
-			verdict, err := monitor.CheckPod(ctx, record)
+			verdict, err := monitor.CheckPod(ctx, record, r.now())
 			if err != nil {
 				logger.Error(err, "Safety observation check failed", "pod", pod.Name, "container", record.Container)
 				operatormetrics.ReconcileErrorsTotal.WithLabelValues("safety_observation").Inc()
@@ -1663,8 +1663,16 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 		if revertFailed {
 			continue
 		}
-		removeTrackingAnnotations(pod)
-		if updateErr := r.Update(ctx, pod); updateErr != nil {
+		// Re-fetch the pod to get the current resourceVersion. RevertPod calls
+		// UpdateResize which bumps the version; using the stale pod would produce
+		// a guaranteed 409 Conflict on the annotation update.
+		var freshPod corev1.Pod
+		if err := r.Get(ctx, client.ObjectKeyFromObject(pod), &freshPod); err != nil {
+			logger.Error(err, "Failed to re-fetch pod for annotation cleanup", "pod", pod.Name)
+			continue
+		}
+		removeTrackingAnnotations(&freshPod)
+		if updateErr := r.Update(ctx, &freshPod); updateErr != nil {
 			logger.Error(updateErr, "Failed to remove resize tracking annotations", "pod", pod.Name)
 		}
 	}

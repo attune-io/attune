@@ -93,7 +93,7 @@ func (m *Monitor) WithThrottleChecker(checker ThrottleChecker, threshold float64
 //  2. OOMKill events that occurred after the resize.
 //  3. Restart count increases of 2 or more since the resize.
 //  4. Pod Ready condition.
-func (m *Monitor) CheckPod(ctx context.Context, record ResizeRecord) (SafetyVerdict, error) {
+func (m *Monitor) CheckPod(ctx context.Context, record ResizeRecord, now time.Time) (SafetyVerdict, error) {
 	pod, err := m.client.CoreV1().Pods(record.Namespace).Get(ctx, record.PodName, metav1.GetOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
@@ -132,7 +132,7 @@ func (m *Monitor) CheckPod(ctx context.Context, record ResizeRecord) (SafetyVerd
 
 	// Check for CPU throttling via Prometheus (if checker is configured).
 	if m.throttleChecker != nil {
-		ratio, err := m.throttleChecker.GetThrottleRatio(ctx, record.Namespace, record.PodName, record.Container, time.Now())
+		ratio, err := m.throttleChecker.GetThrottleRatio(ctx, record.Namespace, record.PodName, record.Container, now)
 		if err != nil {
 			m.logger.Error(err, "Safety throttle check failed, skipping throttle detection",
 				"pod", record.PodName, "namespace", record.Namespace, "container", record.Container)
