@@ -2889,16 +2889,42 @@ func TestGetContainers_NoNativeSidecars(t *testing.T) {
 
 func TestMergeDefaults_MergesAllFields(t *testing.T) {
 	queryStep := metav1.Duration{Duration: 30 * time.Second}
+	historyWindow := metav1.Duration{Duration: 48 * time.Hour}
+	cooldown := metav1.Duration{Duration: 30 * time.Minute}
+	autoRevert := true
+	controlledValues := "RequestsAndLimits"
+	burstSensitivity := "0.2"
+	allowDecrease := true
 	defaults := &rightsizev1alpha1.RightSizeDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "cluster-defaults"},
 		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			CPU:    &rightsizev1alpha1.ResourceConfig{Percentile: 90, SafetyMargin: "1.5"},
-			Memory: &rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.4"},
+			CPU: &rightsizev1alpha1.ResourceConfig{
+				Percentile:       90,
+				SafetyMargin:     "1.5",
+				ControlledValues: &controlledValues,
+				BurstSensitivity: &burstSensitivity,
+				Bounds: &rightsizev1alpha1.ResourceBounds{
+					Min: resource.MustParse("100m"),
+					Max: resource.MustParse("8"),
+				},
+			},
+			Memory: &rightsizev1alpha1.ResourceConfig{
+				Percentile:    95,
+				SafetyMargin:  "1.4",
+				AllowDecrease: &allowDecrease,
+			},
 			MetricsSource: &rightsizev1alpha1.MetricsSource{
-				QueryStep: &queryStep,
+				QueryStep:         &queryStep,
+				HistoryWindow:     &historyWindow,
+				MinimumDataPoints: 24,
 			},
 			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{
-				Mode: rightsizev1alpha1.UpdateModeAuto,
+				Mode:                   rightsizev1alpha1.UpdateModeAuto,
+				Cooldown:               &cooldown,
+				AutoRevert:             &autoRevert,
+				ResizeMethod:           rightsizev1alpha1.ResizeMethodInPlaceOrEvict,
+				MaxCPUChangePercent:    80,
+				MaxMemoryChangePercent: 60,
 			},
 		},
 	}
@@ -2911,13 +2937,38 @@ func TestMergeDefaults_MergesAllFields(t *testing.T) {
 
 	r.mergeDefaults(policy, defaults)
 
+	// CPU
 	assert.Equal(t, int32(90), policy.Spec.CPU.Percentile)
 	assert.Equal(t, "1.5", policy.Spec.CPU.SafetyMargin)
+	require.NotNil(t, policy.Spec.CPU.ControlledValues)
+	assert.Equal(t, "RequestsAndLimits", *policy.Spec.CPU.ControlledValues)
+	require.NotNil(t, policy.Spec.CPU.BurstSensitivity)
+	assert.Equal(t, "0.2", *policy.Spec.CPU.BurstSensitivity)
+	require.NotNil(t, policy.Spec.CPU.Bounds)
+	assert.Equal(t, resource.MustParse("100m"), policy.Spec.CPU.Bounds.Min)
+
+	// Memory
 	assert.Equal(t, int32(95), policy.Spec.Memory.Percentile)
 	assert.Equal(t, "1.4", policy.Spec.Memory.SafetyMargin)
-	assert.Equal(t, rightsizev1alpha1.UpdateModeAuto, policy.Spec.UpdateStrategy.Mode)
+	require.NotNil(t, policy.Spec.Memory.AllowDecrease)
+	assert.True(t, *policy.Spec.Memory.AllowDecrease)
+
+	// MetricsSource
 	require.NotNil(t, policy.Spec.MetricsSource.QueryStep)
 	assert.Equal(t, 30*time.Second, policy.Spec.MetricsSource.QueryStep.Duration)
+	require.NotNil(t, policy.Spec.MetricsSource.HistoryWindow)
+	assert.Equal(t, 48*time.Hour, policy.Spec.MetricsSource.HistoryWindow.Duration)
+	assert.Equal(t, int32(24), policy.Spec.MetricsSource.MinimumDataPoints)
+
+	// UpdateStrategy
+	assert.Equal(t, rightsizev1alpha1.UpdateModeAuto, policy.Spec.UpdateStrategy.Mode)
+	require.NotNil(t, policy.Spec.UpdateStrategy.Cooldown)
+	assert.Equal(t, 30*time.Minute, policy.Spec.UpdateStrategy.Cooldown.Duration)
+	require.NotNil(t, policy.Spec.UpdateStrategy.AutoRevert)
+	assert.True(t, *policy.Spec.UpdateStrategy.AutoRevert)
+	assert.Equal(t, rightsizev1alpha1.ResizeMethodInPlaceOrEvict, policy.Spec.UpdateStrategy.ResizeMethod)
+	assert.Equal(t, int32(80), policy.Spec.UpdateStrategy.MaxCPUChangePercent)
+	assert.Equal(t, int32(60), policy.Spec.UpdateStrategy.MaxMemoryChangePercent)
 }
 
 func TestMergeDefaults_QueryStepPolicyOverrides(t *testing.T) {

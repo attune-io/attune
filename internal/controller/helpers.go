@@ -604,29 +604,72 @@ func (r *RightSizePolicyReconciler) mergeDefaults(policy *rightsizev1alpha1.Righ
 	spec := defaults.Spec
 
 	// Merge CPU config
-	if policy.Spec.CPU.Percentile == 0 && spec.CPU != nil {
-		policy.Spec.CPU.Percentile = spec.CPU.Percentile
-	}
-	if policy.Spec.CPU.SafetyMargin == "" && spec.CPU != nil {
-		policy.Spec.CPU.SafetyMargin = spec.CPU.SafetyMargin
-	}
+	mergeResourceConfig(&policy.Spec.CPU, spec.CPU)
 
 	// Merge Memory config
-	if policy.Spec.Memory.Percentile == 0 && spec.Memory != nil {
-		policy.Spec.Memory.Percentile = spec.Memory.Percentile
-	}
-	if policy.Spec.Memory.SafetyMargin == "" && spec.Memory != nil {
-		policy.Spec.Memory.SafetyMargin = spec.Memory.SafetyMargin
+	mergeResourceConfig(&policy.Spec.Memory, spec.Memory)
+
+	// Merge MetricsSource
+	if spec.MetricsSource != nil {
+		if policy.Spec.MetricsSource.HistoryWindow == nil && spec.MetricsSource.HistoryWindow != nil {
+			policy.Spec.MetricsSource.HistoryWindow = spec.MetricsSource.HistoryWindow
+		}
+		if policy.Spec.MetricsSource.MinimumDataPoints == 0 && spec.MetricsSource.MinimumDataPoints > 0 {
+			policy.Spec.MetricsSource.MinimumDataPoints = spec.MetricsSource.MinimumDataPoints
+		}
+		if policy.Spec.MetricsSource.QueryStep == nil && spec.MetricsSource.QueryStep != nil {
+			policy.Spec.MetricsSource.QueryStep = spec.MetricsSource.QueryStep
+		}
 	}
 
-	// Merge MetricsSource QueryStep
-	if policy.Spec.MetricsSource.QueryStep == nil && spec.MetricsSource != nil && spec.MetricsSource.QueryStep != nil {
-		policy.Spec.MetricsSource.QueryStep = spec.MetricsSource.QueryStep
+	// Merge UpdateStrategy
+	if spec.UpdateStrategy != nil {
+		if policy.Spec.UpdateStrategy.Mode == "" {
+			policy.Spec.UpdateStrategy.Mode = spec.UpdateStrategy.Mode
+		}
+		if policy.Spec.UpdateStrategy.Cooldown == nil && spec.UpdateStrategy.Cooldown != nil {
+			policy.Spec.UpdateStrategy.Cooldown = spec.UpdateStrategy.Cooldown
+		}
+		if policy.Spec.UpdateStrategy.AutoRevert == nil && spec.UpdateStrategy.AutoRevert != nil {
+			policy.Spec.UpdateStrategy.AutoRevert = spec.UpdateStrategy.AutoRevert
+		}
+		if policy.Spec.UpdateStrategy.ResizeMethod == "" && spec.UpdateStrategy.ResizeMethod != "" {
+			policy.Spec.UpdateStrategy.ResizeMethod = spec.UpdateStrategy.ResizeMethod
+		}
+		if policy.Spec.UpdateStrategy.MaxCPUChangePercent == 0 && spec.UpdateStrategy.MaxCPUChangePercent > 0 {
+			policy.Spec.UpdateStrategy.MaxCPUChangePercent = spec.UpdateStrategy.MaxCPUChangePercent
+		}
+		if policy.Spec.UpdateStrategy.MaxMemoryChangePercent == 0 && spec.UpdateStrategy.MaxMemoryChangePercent > 0 {
+			policy.Spec.UpdateStrategy.MaxMemoryChangePercent = spec.UpdateStrategy.MaxMemoryChangePercent
+		}
 	}
+}
 
-	// Merge UpdateStrategy mode
-	if policy.Spec.UpdateStrategy.Mode == "" && spec.UpdateStrategy != nil {
-		policy.Spec.UpdateStrategy.Mode = spec.UpdateStrategy.Mode
+// mergeResourceConfig merges default resource config values into the policy.
+func mergeResourceConfig(policy *rightsizev1alpha1.ResourceConfig, defaults *rightsizev1alpha1.ResourceConfig) {
+	if defaults == nil {
+		return
+	}
+	if policy.Percentile == 0 {
+		policy.Percentile = defaults.Percentile
+	}
+	if policy.SafetyMargin == "" {
+		policy.SafetyMargin = defaults.SafetyMargin
+	}
+	if policy.Bounds == nil && defaults.Bounds != nil {
+		policy.Bounds = defaults.Bounds
+	}
+	if policy.ControlledValues == nil && defaults.ControlledValues != nil {
+		policy.ControlledValues = defaults.ControlledValues
+	}
+	if policy.BurstSensitivity == nil && defaults.BurstSensitivity != nil {
+		policy.BurstSensitivity = defaults.BurstSensitivity
+	}
+	if policy.AllowDecrease == nil && defaults.AllowDecrease != nil {
+		policy.AllowDecrease = defaults.AllowDecrease
+	}
+	if policy.StartupBoost == nil && defaults.StartupBoost != nil {
+		policy.StartupBoost = defaults.StartupBoost
 	}
 }
 
