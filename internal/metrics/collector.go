@@ -88,6 +88,9 @@ func ssrfSafeTransport() http.RoundTripper {
 			}
 			return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
 		},
+		ResponseHeaderTimeout: 30 * time.Second,
+		IdleConnTimeout:       90 * time.Second,
+		MaxIdleConnsPerHost:   10,
 	}
 }
 
