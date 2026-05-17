@@ -76,9 +76,8 @@ const (
 	annotationOriginalRestartCountPrefix = "rightsize.io/original-restart-count."
 
 	// HPA auto-tune annotations.
-	annotationHPAAutoTune       = "rightsize.io/auto-tune"
-	annotationHPAOriginalCPU    = "rightsize.io/original-target-cpu"
-	annotationHPAOriginalMemory = "rightsize.io/original-target-memory"
+	annotationHPAAutoTune    = "rightsize.io/auto-tune"
+	annotationHPAOriginalCPU = "rightsize.io/original-target-cpu"
 
 	// Startup boost annotation.
 	annotationStartupBoostAt = "rightsize.io/startup-boost-at"
