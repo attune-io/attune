@@ -4765,7 +4765,7 @@ func TestTryEvictionFallback_EvictsWhenMultipleReplicas(t *testing.T) {
 	}
 	resizer := resize.NewPodResizer(clientset, ctrl.Log)
 
-	evicted := r.tryEvictionFallback(context.Background(), policy, pod1,
+	evicted := r.tryEvictionFallback(context.Background(), policy, pod1, deploy,
 		"api-server", "app", resizer)
 	assert.True(t, evicted, "should evict when multiple replicas exist")
 
@@ -4796,7 +4796,7 @@ func TestTryEvictionFallback_SkipsLastReplica(t *testing.T) {
 	}
 	resizer := resize.NewPodResizer(clientset, ctrl.Log)
 
-	evicted := r.tryEvictionFallback(context.Background(), policy, pod,
+	evicted := r.tryEvictionFallback(context.Background(), policy, pod, deploy,
 		"api-server", "app", resizer)
 	assert.False(t, evicted, "should NOT evict the last replica")
 }
@@ -4843,7 +4843,7 @@ func TestResizeContainer_InfeasiblePodEvictedDirectly(t *testing.T) {
 		},
 	}
 
-	entries, resized := r.resizeContainer(context.Background(), policy, pod1,
+	entries, resized := r.resizeContainer(context.Background(), policy, pod1, deploy,
 		"api-server", containerRec, resizer, nil, metav1.Now())
 	assert.True(t, resized, "infeasible pod should be evicted")
 	require.Len(t, entries, 1)
@@ -4909,7 +4909,7 @@ func TestResizeContainer_InfeasiblePodSkippedWithInPlaceOnly(t *testing.T) {
 		},
 	}
 
-	entries, resized := r.resizeContainer(context.Background(), policy, pod,
+	entries, resized := r.resizeContainer(context.Background(), policy, pod, deploy,
 		"api-server", containerRec, resizer, nil, metav1.Now())
 	assert.False(t, resized, "infeasible pod with InPlaceOnly should not be resized")
 	assert.Empty(t, entries, "should produce no history entries")
@@ -5240,7 +5240,7 @@ func TestTryEvictionFallback_EvictionDeniedByPDB(t *testing.T) {
 	}
 	resizer := resize.NewPodResizer(clientset, ctrl.Log)
 
-	evicted := r.tryEvictionFallback(context.Background(), policy, pod1,
+	evicted := r.tryEvictionFallback(context.Background(), policy, pod1, deploy,
 		"api-server", "app", resizer)
 	assert.False(t, evicted, "should return false when eviction is denied by PDB")
 }
