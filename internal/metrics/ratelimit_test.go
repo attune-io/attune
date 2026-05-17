@@ -128,7 +128,7 @@ type mockThrottleCollector struct {
 	throttleRatio float64
 }
 
-func (m *mockThrottleCollector) GetThrottleRatio(_ context.Context, _, _, _ string) (float64, error) {
+func (m *mockThrottleCollector) GetThrottleRatio(_ context.Context, _, _, _ string, _ time.Time) (float64, error) {
 	m.throttleCalls++
 	return m.throttleRatio, nil
 }
@@ -137,7 +137,7 @@ func TestRateLimitedCollector_GetThrottleRatio_Delegates(t *testing.T) {
 	inner := &mockThrottleCollector{throttleRatio: 0.75}
 	rl := NewRateLimitedCollector(inner, 10, 20)
 
-	ratio, err := rl.GetThrottleRatio(context.Background(), "ns", "pod", "container")
+	ratio, err := rl.GetThrottleRatio(context.Background(), "ns", "pod", "container", time.Now())
 	require.NoError(t, err)
 	assert.InDelta(t, 0.75, ratio, 0.001)
 	assert.Equal(t, 1, inner.throttleCalls)
@@ -147,7 +147,7 @@ func TestRateLimitedCollector_GetThrottleRatio_InnerNotThrottleChecker(t *testin
 	inner := &mockCollector{} // does NOT implement ThrottleChecker
 	rl := NewRateLimitedCollector(inner, 10, 20)
 
-	ratio, err := rl.GetThrottleRatio(context.Background(), "ns", "pod", "container")
+	ratio, err := rl.GetThrottleRatio(context.Background(), "ns", "pod", "container", time.Now())
 	require.NoError(t, err)
 	assert.InDelta(t, 0.0, ratio, 0.001)
 }
@@ -159,7 +159,7 @@ func TestRateLimitedCollector_GetThrottleRatio_CancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := rl.GetThrottleRatio(ctx, "ns", "pod", "container")
+	_, err := rl.GetThrottleRatio(ctx, "ns", "pod", "container", time.Now())
 	assert.Error(t, err)
 	assert.Equal(t, 0, inner.throttleCalls)
 }

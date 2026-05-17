@@ -512,7 +512,7 @@ type mockThrottleChecker struct {
 	gotCtr string
 }
 
-func (m *mockThrottleChecker) GetThrottleRatio(_ context.Context, ns, pod, ctr string) (float64, error) {
+func (m *mockThrottleChecker) GetThrottleRatio(_ context.Context, ns, pod, ctr string, _ time.Time) (float64, error) {
 	m.gotNS = ns
 	m.gotPod = pod
 	m.gotCtr = ctr

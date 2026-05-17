@@ -359,7 +359,7 @@ func TestGetThrottleRatio_EscapesInput(t *testing.T) {
 	require.NoError(t, err)
 
 	// Use names with special characters that need escaping.
-	_, err = collector.GetThrottleRatio(context.Background(), `ns"with"quotes`, `pod\with\backslash`, `container"both`)
+	_, err = collector.GetThrottleRatio(context.Background(), `ns"with"quotes`, `pod\with\backslash`, `container"both`, time.Now())
 	require.NoError(t, err)
 
 	// Verify the query has escaped values.
@@ -379,7 +379,7 @@ func TestGetThrottleRatio_EmptyResultReturnsZero(t *testing.T) {
 	collector, err := NewPrometheusCollector(server.URL, logr.Discard(), http.DefaultTransport)
 	require.NoError(t, err)
 
-	ratio, err := collector.GetThrottleRatio(context.Background(), "default", "pod-1", "app")
+	ratio, err := collector.GetThrottleRatio(context.Background(), "default", "pod-1", "app", time.Now())
 	require.NoError(t, err)
 	assert.Zero(t, ratio)
 }

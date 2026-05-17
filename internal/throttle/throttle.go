@@ -18,11 +18,14 @@ limitations under the License.
 // to avoid import cycles between metrics and safety packages.
 package throttle
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // Checker queries Prometheus for CPU throttle ratio.
 type Checker interface {
-	// GetThrottleRatio returns the CPU throttle ratio (0.0-1.0) for a container.
-	// Returns 0.0 if data is unavailable.
-	GetThrottleRatio(ctx context.Context, namespace, pod, container string) (float64, error)
+	// GetThrottleRatio returns the CPU throttle ratio (0.0-1.0) for a container
+	// at the given timestamp. Returns 0.0 if data is unavailable.
+	GetThrottleRatio(ctx context.Context, namespace, pod, container string, ts time.Time) (float64, error)
 }

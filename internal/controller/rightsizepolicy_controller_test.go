@@ -4374,7 +4374,7 @@ type mockThrottleCollector struct {
 	throttleRatio float64
 }
 
-func (m *mockThrottleCollector) GetThrottleRatio(_ context.Context, _, _, _ string) (float64, error) {
+func (m *mockThrottleCollector) GetThrottleRatio(_ context.Context, _, _, _ string, _ time.Time) (float64, error) {
 	return m.throttleRatio, nil
 }
 

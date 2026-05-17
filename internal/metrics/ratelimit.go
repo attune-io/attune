@@ -64,12 +64,12 @@ func (c *RateLimitedCollector) Query(ctx context.Context, query string, ts time.
 // GetThrottleRatio delegates to the inner collector if it implements
 // safety.ThrottleChecker. Returns 0.0 if the inner collector does not
 // support throttle queries.
-func (c *RateLimitedCollector) GetThrottleRatio(ctx context.Context, namespace, pod, container string) (float64, error) {
+func (c *RateLimitedCollector) GetThrottleRatio(ctx context.Context, namespace, pod, container string, ts time.Time) (float64, error) {
 	if tc, ok := c.inner.(throttle.Checker); ok {
 		if err := c.limiter.Wait(ctx); err != nil {
 			return 0, err
 		}
-		return tc.GetThrottleRatio(ctx, namespace, pod, container)
+		return tc.GetThrottleRatio(ctx, namespace, pod, container, ts)
 	}
 	return 0, nil
 }

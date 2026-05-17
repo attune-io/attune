@@ -132,7 +132,7 @@ func (m *Monitor) CheckPod(ctx context.Context, record ResizeRecord) (SafetyVerd
 
 	// Check for CPU throttling via Prometheus (if checker is configured).
 	if m.throttleChecker != nil {
-		ratio, err := m.throttleChecker.GetThrottleRatio(ctx, record.Namespace, record.PodName, record.Container)
+		ratio, err := m.throttleChecker.GetThrottleRatio(ctx, record.Namespace, record.PodName, record.Container, time.Now())
 		if err != nil {
 			m.logger.Error(err, "Safety throttle check failed, skipping throttle detection",
 				"pod", record.PodName, "namespace", record.Namespace, "container", record.Container)
