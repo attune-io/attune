@@ -123,7 +123,13 @@ type RightSizePolicyReconciler struct {
 	CollectorTTL   time.Duration // how long unused collectors stay cached (default: 10m)
 	nowFunc        atomic.Pointer[func() time.Time]
 	collectors     sync.Map // map[string]*collectorEntry cache
-	gaugeKeys      sync.Map // map[string][]gaugeKey — previously set gauge label combos per policy
+	// gaugeKeys tracks which Prometheus gauge label combinations each policy
+	// set on its last reconcile. On the next reconcile, only these specific
+	// keys are deleted (not the entire namespace), preventing cross-policy
+	// gauge interference. This map is in-memory only; after operator restart
+	// it starts empty, so gauges from workloads that disappeared during the
+	// restart persist until the owning policy's next reconcile refreshes them.
+	gaugeKeys sync.Map // map[string][]gaugeKey
 }
 
 // gaugeKey identifies a specific gauge label combination set by a policy.

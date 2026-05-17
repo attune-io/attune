@@ -104,10 +104,17 @@ func TestMain(m *testing.M) {
 		CRDDirectoryPaths: []string{
 			filepath.Join("..", "..", "config", "crd", "bases"),
 		},
-		ErrorIfCRDPathMissing: true,
+		ErrorIfCRDPathMissing:   true,
+		ControlPlaneStartTimeout: 60 * time.Second,
+		ControlPlaneStopTimeout:  20 * time.Second,
 		WebhookInstallOptions: envtest.WebhookInstallOptions{
 			Paths: []string{filepath.Join("testdata")},
 		},
+	}
+
+	// Pipe API server and etcd logs to test output when debugging.
+	if os.Getenv("KUBEBUILDER_ATTACH_CONTROL_PLANE_OUTPUT") == "true" {
+		testEnv.AttachControlPlaneOutput = true
 	}
 
 	cfg, err := testEnv.Start()
