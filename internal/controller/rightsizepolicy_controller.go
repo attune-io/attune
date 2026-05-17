@@ -1954,6 +1954,13 @@ func (r *RightSizePolicyReconciler) applyStartupBoosts(
 					logger.Info("Applied startup CPU boost",
 						"pod", pod.Name, "container", c.Name,
 						"boostedCPU", boostedCPU.String(), "steadyState", recCPU.String())
+					// Re-fetch from API server after ResizePod bumps resourceVersion.
+					freshPod, getErr := r.Clientset.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
+					if getErr != nil {
+						logger.Error(getErr, "Failed to re-fetch pod after startup boost resize", "pod", pod.Name)
+						break
+					}
+					*pod = *freshPod
 				}
 				// Mark the pod with boost timestamp.
 				if pod.Annotations == nil {
@@ -1985,6 +1992,13 @@ func (r *RightSizePolicyReconciler) applyStartupBoosts(
 							logger.Info("Startup boost expired, reduced to steady-state",
 								"pod", pod.Name, "container", c.Name, "cpu", recCPU.String())
 						}
+						// Re-fetch from API server after ResizePod.
+						freshPod, getErr := r.Clientset.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
+						if getErr != nil {
+							logger.Error(getErr, "Failed to re-fetch pod after boost expiry resize", "pod", pod.Name)
+							break
+						}
+						*pod = *freshPod
 					}
 					delete(pod.Annotations, annotationStartupBoostAt)
 					if updateErr := r.Update(ctx, pod); updateErr != nil {

@@ -28,6 +28,9 @@ spec:
       address: "http://prometheus:9090"   # Prometheus-compatible URL
       headers:                            # optional: custom HTTP headers
         X-Scope-OrgID: "my-tenant"        # e.g., Mimir tenant ID
+      queryParameters:                    # optional: URL params for Thanos/VictoriaMetrics
+        dedup: "true"                     # e.g., Thanos deduplication
+        partial_response: "true"
       bearerTokenSecret:                  # optional: auth from Secret
         name: prometheus-token
         key: token
@@ -41,6 +44,9 @@ spec:
     percentile: 95             # target percentile: 50, 90, 95, or 99
     safetyMargin: "1.2"        # multiplier for headroom (1.2 = 20%)
     burstSensitivity: "0.1"   # burst boost multiplier (0 = disabled, max 1.0)
+    startupBoost:              # optional: temporary CPU boost for cold starts
+      multiplier: "3.0"        # scale factor for startup CPU (1.1-10.0)
+      duration: 2m             # boost window after pod creation (>= 10s)
     bounds:                    # optional: min/max clamps
       min: "50m"
       max: "4000m"
@@ -72,6 +78,8 @@ spec:
     maxConcurrentResizes: 1    # parallel pod resizes per cycle (default: 1, max: 50)
     maxTotalCpuIncrease: "2000m"    # max aggregate CPU increase per cycle (default: unlimited)
     maxTotalMemoryIncrease: "4Gi"   # max aggregate memory increase per cycle (default: unlimited)
+    export:                         # optional: export recommendations to ConfigMaps
+      configMap: true               # creates <policy>-<workload>-recommendations ConfigMap
     schedule:                       # optional: restrict when resizes can occur
       windows:
         - start: "02:00"           # HH:MM (24-hour)
