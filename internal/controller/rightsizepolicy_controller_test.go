@@ -476,6 +476,41 @@ func TestReconcile_MissingPolicyReturnsNoError(t *testing.T) {
 	assert.Equal(t, ctrl.Result{}, result)
 }
 
+func TestReconcile_MissingPolicyCleansGauges(t *testing.T) {
+	reconciler := newReconcilerWithClient()
+
+	// Seed gauges for namespace "default" as if a prior reconcile set them.
+	operatormetrics.RecommendationCPU.WithLabelValues("default", "api-server", "main").Set(0.5)
+	operatormetrics.RecommendationMemory.WithLabelValues("default", "api-server", "main").Set(512 * 1024 * 1024)
+	operatormetrics.Confidence.WithLabelValues("default", "api-server", "main").Set(0.9)
+	operatormetrics.BurstFactor.WithLabelValues("default", "api-server", "main", "cpu").Set(1.2)
+
+	// Verify gauges are set.
+	require.InDelta(t, 0.5, promtestutil.ToFloat64(
+		operatormetrics.RecommendationCPU.WithLabelValues("default", "api-server", "main")), 1e-9)
+
+	// Reconcile a missing policy in "default" namespace.
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      "deleted-policy",
+			Namespace: "default",
+		},
+	}
+	result, err := reconciler.Reconcile(context.Background(), req)
+	require.NoError(t, err)
+	assert.Equal(t, ctrl.Result{}, result)
+
+	// Gauges for "default" namespace should be cleaned up.
+	assert.Equal(t, 0, promtestutil.CollectAndCount(operatormetrics.RecommendationCPU),
+		"recommendation CPU gauges should be cleaned after policy deletion")
+	assert.Equal(t, 0, promtestutil.CollectAndCount(operatormetrics.RecommendationMemory),
+		"recommendation memory gauges should be cleaned after policy deletion")
+	assert.Equal(t, 0, promtestutil.CollectAndCount(operatormetrics.Confidence),
+		"confidence gauges should be cleaned after policy deletion")
+	assert.Equal(t, 0, promtestutil.CollectAndCount(operatormetrics.BurstFactor),
+		"burst factor gauges should be cleaned after policy deletion")
+}
+
 func TestReconcile_NoMatchingWorkloadsSetsInsufficientData(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	mc := &mockCollector{}
@@ -1045,6 +1080,49 @@ func TestGetOrCreateCollector_EvictionClosesCollector(t *testing.T) {
 
 	assert.True(t, closable.closed,
 		"Close() should be called on evicted collector that implements io.Closer")
+}
+
+func TestGetOrCreateCollector_ConcurrentRaceClosesUnused(t *testing.T) {
+	var mu sync.Mutex
+	var created []*closableMockCollector
+
+	reconciler := &RightSizePolicyReconciler{
+		CollectorTTL: collectorTTL,
+		MetricsFactory: func(_ string, _ *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
+			c := &closableMockCollector{}
+			mu.Lock()
+			created = append(created, c)
+			mu.Unlock()
+			return c, nil
+		},
+	}
+
+	// All goroutines race to create the same address.
+	const goroutines = 10
+	var wg sync.WaitGroup
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := reconciler.getOrCreateCollector(
+				&rightsizev1alpha1.PrometheusConfig{Address: "http://race:9090"}, nil)
+			assert.NoError(t, err)
+		}()
+	}
+	wg.Wait()
+
+	// Exactly one collector should survive; all others should be closed.
+	mu.Lock()
+	defer mu.Unlock()
+	require.GreaterOrEqual(t, len(created), 1, "at least one collector must be created")
+
+	var openCount int
+	for _, c := range created {
+		if !c.closed {
+			openCount++
+		}
+	}
+	assert.Equal(t, 1, openCount, "exactly one collector should remain open; race losers must be closed")
 }
 
 // ---------- computeRecommendations ----------
@@ -5243,4 +5321,44 @@ func TestTryEvictionFallback_EvictionDeniedByPDB(t *testing.T) {
 	evicted := r.tryEvictionFallback(context.Background(), policy, pod1, deploy,
 		"api-server", "app", resizer)
 	assert.False(t, evicted, "should return false when eviction is denied by PDB")
+}
+
+func TestTryEvictionFallback_NilSelectorSkipsEviction(t *testing.T) {
+	pod := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
+	// Create a deployment with nil Selector to exercise the nil-guard.
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "api-server", Namespace: "default"},
+		Spec: appsv1.DeploymentSpec{
+			Selector: nil,
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{Name: "main", Image: "nginx:latest"}},
+				},
+			},
+		},
+	}
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.ResizeMethod = rightsizev1alpha1.ResizeMethodInPlaceOrEvict
+
+	clientset := kubefake.NewSimpleClientset(pod)
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(policy, deploy, pod).Build()
+	r := &RightSizePolicyReconciler{
+		Client:    fakeClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+	}
+	resizer := resize.NewPodResizer(clientset, ctrl.Log)
+
+	evicted := r.tryEvictionFallback(context.Background(), policy, pod, deploy,
+		"api-server", "main", resizer)
+	assert.False(t, evicted, "should skip eviction when workload has nil selector")
+
+	// Verify no eviction was attempted.
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "create" && a.GetResource().Resource == "pods" && a.GetSubresource() == "eviction" {
+			t.Error("eviction should not be attempted when selector is nil")
+		}
+	}
 }
