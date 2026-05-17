@@ -485,6 +485,11 @@ func TestReconcile_MissingPolicyCleansGauges(t *testing.T) {
 	operatormetrics.Confidence.WithLabelValues("default", "api-server", "main").Set(0.9)
 	operatormetrics.BurstFactor.WithLabelValues("default", "api-server", "main", "cpu").Set(1.2)
 
+	// Simulate a prior reconcile that tracked these gauge keys.
+	reconciler.gaugeKeys.Store("default/deleted-policy", []gaugeKey{
+		{Namespace: "default", Workload: "api-server", Container: "main"},
+	})
+
 	// Verify gauges are set.
 	require.InDelta(t, 0.5, promtestutil.ToFloat64(
 		operatormetrics.RecommendationCPU.WithLabelValues("default", "api-server", "main")), 1e-9)
@@ -500,7 +505,7 @@ func TestReconcile_MissingPolicyCleansGauges(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, ctrl.Result{}, result)
 
-	// Gauges for "default" namespace should be cleaned up.
+	// Gauges for this policy should be cleaned up.
 	assert.Equal(t, 0, promtestutil.CollectAndCount(operatormetrics.RecommendationCPU),
 		"recommendation CPU gauges should be cleaned after policy deletion")
 	assert.Equal(t, 0, promtestutil.CollectAndCount(operatormetrics.RecommendationMemory),

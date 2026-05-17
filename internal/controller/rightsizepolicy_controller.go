@@ -29,7 +29,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -124,6 +123,14 @@ type RightSizePolicyReconciler struct {
 	CollectorTTL   time.Duration // how long unused collectors stay cached (default: 10m)
 	nowFunc        atomic.Pointer[func() time.Time]
 	collectors     sync.Map // map[string]*collectorEntry cache
+	gaugeKeys      sync.Map // map[string][]gaugeKey — previously set gauge label combos per policy
+}
+
+// gaugeKey identifies a specific gauge label combination set by a policy.
+type gaugeKey struct {
+	Namespace string
+	Workload  string
+	Container string
 }
 
 // SetNowFunc sets an injectable clock for testing. Safe for concurrent use.
@@ -263,13 +270,17 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	if err := r.Get(ctx, req.NamespacedName, &policy); err != nil {
 		if apierrors.IsNotFound(err) {
 			logger.Info("RightSizePolicy resource not found, likely deleted")
-			// Clean up gauges for this namespace so deleted policies
-			// don't leave phantom metrics.
-			nsLabels := prometheus.Labels{"namespace": req.Namespace}
-			operatormetrics.RecommendationCPU.DeletePartialMatch(nsLabels)
-			operatormetrics.RecommendationMemory.DeletePartialMatch(nsLabels)
-			operatormetrics.Confidence.DeletePartialMatch(nsLabels)
-			operatormetrics.BurstFactor.DeletePartialMatch(nsLabels)
+			// Clean up gauge values this policy previously set.
+			deletedPolicyKey := req.Namespace + "/" + req.Name
+			if prev, ok := r.gaugeKeys.LoadAndDelete(deletedPolicyKey); ok {
+				for _, gk := range prev.([]gaugeKey) {
+					operatormetrics.RecommendationCPU.DeleteLabelValues(gk.Namespace, gk.Workload, gk.Container)
+					operatormetrics.RecommendationMemory.DeleteLabelValues(gk.Namespace, gk.Workload, gk.Container)
+					operatormetrics.Confidence.DeleteLabelValues(gk.Namespace, gk.Workload, gk.Container)
+					operatormetrics.BurstFactor.DeleteLabelValues(gk.Namespace, gk.Workload, gk.Container, "cpu")
+					operatormetrics.BurstFactor.DeleteLabelValues(gk.Namespace, gk.Workload, gk.Container, "memory")
+				}
+			}
 			return ctrl.Result{}, nil
 		}
 		operatormetrics.ReconcileErrorsTotal.WithLabelValues("fetch").Inc()
@@ -360,14 +371,20 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	// List policies in the namespace for conflict detection (once for all workloads).
 	policyList := conflictDetector.ListPolicies(ctx, r.Client, policy.Namespace)
 
-	// Clear all recommendation gauges for this namespace before the workload
-	// loop. Workloads that no longer match the selector (deleted, label change)
-	// would otherwise retain stale gauge values indefinitely.
-	nsLabels := prometheus.Labels{"namespace": policy.Namespace}
-	operatormetrics.RecommendationCPU.DeletePartialMatch(nsLabels)
-	operatormetrics.RecommendationMemory.DeletePartialMatch(nsLabels)
-	operatormetrics.Confidence.DeletePartialMatch(nsLabels)
-	operatormetrics.BurstFactor.DeletePartialMatch(nsLabels)
+	// Clear gauge values that THIS policy previously set. Using per-policy
+	// tracking instead of namespace-wide DeletePartialMatch avoids wiping
+	// gauges belonging to other policies in the same namespace.
+	policyKey := policy.Namespace + "/" + policy.Name
+	if prev, ok := r.gaugeKeys.Load(policyKey); ok {
+		for _, gk := range prev.([]gaugeKey) {
+			operatormetrics.RecommendationCPU.DeleteLabelValues(gk.Namespace, gk.Workload, gk.Container)
+			operatormetrics.RecommendationMemory.DeleteLabelValues(gk.Namespace, gk.Workload, gk.Container)
+			operatormetrics.Confidence.DeleteLabelValues(gk.Namespace, gk.Workload, gk.Container)
+			operatormetrics.BurstFactor.DeleteLabelValues(gk.Namespace, gk.Workload, gk.Container, "cpu")
+			operatormetrics.BurstFactor.DeleteLabelValues(gk.Namespace, gk.Workload, gk.Container, "memory")
+		}
+	}
+	var currentGaugeKeys []gaugeKey
 
 	for _, workload := range workloads {
 		workloadName := workload.GetName()
@@ -424,6 +441,19 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			workloadsWithRecs++
 		}
 	}
+
+	// Build gauge keys from recommendations so the next reconcile can clean
+	// up only its own stale entries without affecting other policies.
+	for _, rec := range recommendations {
+		for _, c := range rec.Containers {
+			currentGaugeKeys = append(currentGaugeKeys, gaugeKey{
+				Namespace: policy.Namespace,
+				Workload:  rec.Workload,
+				Container: c.Name,
+			})
+		}
+	}
+	r.gaugeKeys.Store(policyKey, currentGaugeKeys)
 
 	// Step 8: Update status fields.
 	nowMeta := metav1.NewTime(r.now())
@@ -991,44 +1021,47 @@ func (r *RightSizePolicyReconciler) executeResizes(
 
 		var workloadResized int32 // atomic for concurrent access
 		for _, pod := range selectedPods {
-			for _, containerRec := range rec.Containers {
-				// Check per-cycle budget caps before resizing (under lock).
-				budgetMu.Lock()
-				if cpuBudget >= 0 || memBudget >= 0 {
-					cpuIncrease := containerRec.Recommended.CPURequest.MilliValue() - containerRec.Current.CPURequest.MilliValue()
-					memIncrease := containerRec.Recommended.MemoryRequest.Value() - containerRec.Current.MemoryRequest.Value()
-					if cpuIncrease < 0 {
-						cpuIncrease = 0
-					}
-					if memIncrease < 0 {
-						memIncrease = 0
-					}
-					if (cpuBudget >= 0 && cpuIncrease > cpuBudget) ||
-						(memBudget >= 0 && memIncrease > memBudget) {
-						budgetMu.Unlock()
-						logger.Info("Budget exhausted, deferring resize to next cycle",
-							"pod", pod.Name, "container", containerRec.Name)
-						operatormetrics.BudgetExhaustedTotal.WithLabelValues(policy.Namespace, policy.Name).Inc()
-						if r.Recorder != nil {
-							r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "BudgetExhausted", "resize",
-								"Resize deferred for pod %s container %s: per-cycle budget exhausted",
-								pod.Name, containerRec.Name)
+			// Capture loop variables for the goroutine.
+			pod, workloadName := pod, rec.Workload
+
+			wg.Add(1)
+			sem <- struct{}{} // acquire semaphore
+			go func() {
+				defer wg.Done()
+				defer func() { <-sem }() // release semaphore
+
+				// Containers within the same pod must resize sequentially.
+				// Each UpdateResize bumps resourceVersion; using a stale copy
+				// for the next container causes a 409 Conflict.
+				for _, containerRec := range rec.Containers {
+					// Check per-cycle budget caps before resizing (under lock).
+					budgetMu.Lock()
+					if cpuBudget >= 0 || memBudget >= 0 {
+						cpuIncrease := containerRec.Recommended.CPURequest.MilliValue() - containerRec.Current.CPURequest.MilliValue()
+						memIncrease := containerRec.Recommended.MemoryRequest.Value() - containerRec.Current.MemoryRequest.Value()
+						if cpuIncrease < 0 {
+							cpuIncrease = 0
 						}
-						continue
+						if memIncrease < 0 {
+							memIncrease = 0
+						}
+						if (cpuBudget >= 0 && cpuIncrease > cpuBudget) ||
+							(memBudget >= 0 && memIncrease > memBudget) {
+							budgetMu.Unlock()
+							logger.Info("Budget exhausted, deferring resize to next cycle",
+								"pod", pod.Name, "container", containerRec.Name)
+							operatormetrics.BudgetExhaustedTotal.WithLabelValues(policy.Namespace, policy.Name).Inc()
+							if r.Recorder != nil {
+								r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "BudgetExhausted", "resize",
+									"Resize deferred for pod %s container %s: per-cycle budget exhausted",
+									pod.Name, containerRec.Name)
+							}
+							continue
+						}
+						cpuBudget -= cpuIncrease
+						memBudget -= memIncrease
 					}
-					cpuBudget -= cpuIncrease
-					memBudget -= memIncrease
-				}
-				budgetMu.Unlock()
-
-				// Capture loop variables for the goroutine.
-				pod, containerRec, workloadName := pod, containerRec, rec.Workload
-
-				wg.Add(1)
-				sem <- struct{}{} // acquire semaphore
-				go func() {
-					defer wg.Done()
-					defer func() { <-sem }() // release semaphore
+					budgetMu.Unlock()
 
 					entries, resized := r.resizeContainer(ctx, policy, &pod, matchedWorkload, workloadName, containerRec, resizer, monitor, now)
 					historyMu.Lock()
@@ -1036,9 +1069,15 @@ func (r *RightSizePolicyReconciler) executeResizes(
 					historyMu.Unlock()
 					if resized {
 						atomic.AddInt32(&workloadResized, 1)
+						// Re-fetch pod from API server to get fresh resourceVersion
+						// for the next container's UpdateResize call.
+						freshPod, err := r.Clientset.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
+						if err == nil {
+							pod = *freshPod
+						}
 					}
-				}()
-			}
+				}
+			}()
 		}
 		wg.Wait() // wait for all pods in this workload before moving to the next
 		if atomic.LoadInt32(&workloadResized) > 0 {
