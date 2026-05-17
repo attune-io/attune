@@ -263,6 +263,13 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	if err := r.Get(ctx, req.NamespacedName, &policy); err != nil {
 		if apierrors.IsNotFound(err) {
 			logger.Info("RightSizePolicy resource not found, likely deleted")
+			// Clean up gauges for this namespace so deleted policies
+			// don't leave phantom metrics.
+			nsLabels := prometheus.Labels{"namespace": req.Namespace}
+			operatormetrics.RecommendationCPU.DeletePartialMatch(nsLabels)
+			operatormetrics.RecommendationMemory.DeletePartialMatch(nsLabels)
+			operatormetrics.Confidence.DeletePartialMatch(nsLabels)
+			operatormetrics.BurstFactor.DeletePartialMatch(nsLabels)
 			return ctrl.Result{}, nil
 		}
 		operatormetrics.ReconcileErrorsTotal.WithLabelValues("fetch").Inc()
@@ -353,16 +360,18 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	// List policies in the namespace for conflict detection (once for all workloads).
 	policyList := conflictDetector.ListPolicies(ctx, r.Client, policy.Namespace)
 
+	// Clear all recommendation gauges for this namespace before the workload
+	// loop. Workloads that no longer match the selector (deleted, label change)
+	// would otherwise retain stale gauge values indefinitely.
+	nsLabels := prometheus.Labels{"namespace": policy.Namespace}
+	operatormetrics.RecommendationCPU.DeletePartialMatch(nsLabels)
+	operatormetrics.RecommendationMemory.DeletePartialMatch(nsLabels)
+	operatormetrics.Confidence.DeletePartialMatch(nsLabels)
+	operatormetrics.BurstFactor.DeletePartialMatch(nsLabels)
+
 	for _, workload := range workloads {
 		workloadName := workload.GetName()
 		workloadKind := workload.GetObjectKind().GroupVersionKind().Kind
-
-		// Clear stale recommendation gauges for this workload before re-setting.
-		// Containers that were removed or excluded won't be re-set.
-		wlLabels := prometheus.Labels{"namespace": policy.Namespace, "workload": workloadName}
-		operatormetrics.RecommendationCPU.DeletePartialMatch(wlLabels)
-		operatormetrics.RecommendationMemory.DeletePartialMatch(wlLabels)
-		operatormetrics.Confidence.DeletePartialMatch(wlLabels)
 
 		// Step 5: Check for opt-out annotation.
 		workloadMeta := metav1.ObjectMeta{Annotations: workload.GetAnnotations()}
