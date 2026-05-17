@@ -2211,6 +2211,51 @@ func TestParseResizeRecords_MalformedRestartCount(t *testing.T) {
 	assert.Contains(t, err.Error(), "parsing original restart count for app")
 }
 
+func TestRemoveTrackingAnnotations(t *testing.T) {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-pod",
+			Namespace: "default",
+			Labels: map[string]string{
+				"app":                  "test",
+				"rightsize.io/tracked": "true",
+				"unrelated":            "keep",
+			},
+			Annotations: map[string]string{
+				"rightsize.io/resized-at":                      "2026-01-01T00:00:00Z",
+				"rightsize.io/resized-workload":                "api-server",
+				"rightsize.io/resized-containers":              "main,sidecar",
+				"rightsize.io/original-cpu-request.main":       "500m",
+				"rightsize.io/original-memory-request.main":    "512Mi",
+				"rightsize.io/original-cpu-limit.main":         "1000m",
+				"rightsize.io/original-memory-limit.main":      "1Gi",
+				"rightsize.io/original-restart-count.main":     "0",
+				"rightsize.io/original-cpu-request.sidecar":    "100m",
+				"rightsize.io/original-memory-request.sidecar": "64Mi",
+				"rightsize.io/original-cpu-limit.sidecar":      "200m",
+				"rightsize.io/original-memory-limit.sidecar":   "128Mi",
+				"rightsize.io/original-restart-count.sidecar":  "2",
+				"unrelated-annotation":                         "keep",
+			},
+		},
+	}
+
+	removeTrackingAnnotations(pod)
+
+	// Tracking label should be removed.
+	_, hasTracked := pod.Labels["rightsize.io/tracked"]
+	assert.False(t, hasTracked, "tracked label should be removed")
+	assert.Equal(t, "keep", pod.Labels["unrelated"], "unrelated labels should be preserved")
+
+	// All tracking annotations should be removed.
+	for key := range pod.Annotations {
+		assert.False(t, strings.HasPrefix(key, "rightsize.io/"),
+			"tracking annotation %q should be removed", key)
+	}
+	assert.Equal(t, "keep", pod.Annotations["unrelated-annotation"],
+		"unrelated annotations should be preserved")
+}
+
 // safetyTestDeploy is the deployment used by safety observation tests.
 // Declared at package level so tests can pass it as the workloads arg
 // to checkPendingSafetyObservations.
@@ -5152,6 +5197,110 @@ func TestExecuteResizes_ConcurrentResizes(t *testing.T) {
 		map[string][]corev1.Pod{"api-server": {*pod1, *pod2}}, nil)
 	assert.Equal(t, 1, count, "workload should count as resized once")
 	assert.NotEmpty(t, history, "should produce resize history entries")
+}
+
+func TestExecuteResizes_MultiContainerSequential(t *testing.T) {
+	// A pod with two containers should be resized sequentially,
+	// re-fetching the pod between each to avoid stale resourceVersion.
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "api-server-abc-1", Namespace: "default",
+			Labels: map[string]string{"app": "api-server"},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{Name: "main", Image: "nginx", Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("500m"),
+						corev1.ResourceMemory: resource.MustParse("256Mi"),
+					},
+				}},
+				{Name: "sidecar", Image: "envoy", Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("100m"),
+						corev1.ResourceMemory: resource.MustParse("64Mi"),
+					},
+				}},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "main", Ready: true, RestartCount: 0},
+				{Name: "sidecar", Ready: true, RestartCount: 0},
+			},
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod).Build()
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+	reconciler := &RightSizePolicyReconciler{
+		Client:    fakeClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeOneShot
+
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "api-server",
+			Kind:     "Deployment",
+			Containers: []rightsizev1alpha1.ContainerRecommendation{
+				{
+					Name: "main",
+					Current: rightsizev1alpha1.ResourceValues{
+						CPURequest: resource.MustParse("500m"), MemoryRequest: resource.MustParse("256Mi"),
+					},
+					Recommended: rightsizev1alpha1.ResourceValues{
+						CPURequest: resource.MustParse("750m"), MemoryRequest: resource.MustParse("384Mi"),
+					},
+				},
+				{
+					Name: "sidecar",
+					Current: rightsizev1alpha1.ResourceValues{
+						CPURequest: resource.MustParse("100m"), MemoryRequest: resource.MustParse("64Mi"),
+					},
+					Recommended: rightsizev1alpha1.ResourceValues{
+						CPURequest: resource.MustParse("200m"), MemoryRequest: resource.MustParse("128Mi"),
+					},
+				},
+			},
+		},
+	}
+
+	count, _ := reconciler.executeResizes(context.Background(), policy,
+		[]client.Object{deploy}, recommendations,
+		map[string][]corev1.Pod{"api-server": {*pod}}, nil)
+	assert.Equal(t, 1, count, "workload should be resized")
+
+	// Both containers should have UpdateResize called.
+	// In tests, the kubefake and controller-runtime fake are separate stores,
+	// so the second container's annotation persistence may conflict. We verify
+	// correctness by checking that UpdateResize was called for both containers
+	// via the clientset actions.
+	resizedContainers := make(map[string]bool)
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			updated := a.(k8stesting.UpdateAction).GetObject().(*corev1.Pod)
+			for _, c := range updated.Spec.Containers {
+				if c.Name == "main" && c.Resources.Requests.Cpu().MilliValue() == 750 {
+					resizedContainers["main"] = true
+				}
+				if c.Name == "sidecar" && c.Resources.Requests.Cpu().MilliValue() == 200 {
+					resizedContainers["sidecar"] = true
+				}
+			}
+		}
+	}
+	assert.True(t, resizedContainers["main"], "main container should have UpdateResize called")
+	assert.True(t, resizedContainers["sidecar"], "sidecar container should have UpdateResize called")
 }
 
 func TestReconcile_NowFuncControlsScheduleGate(t *testing.T) {

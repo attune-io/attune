@@ -1074,6 +1074,10 @@ func (r *RightSizePolicyReconciler) executeResizes(
 						freshPod, err := r.Clientset.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
 						if err == nil {
 							pod = *freshPod
+						} else {
+							logger.Error(err, "Failed to re-fetch pod after container resize, remaining containers will be deferred",
+								"pod", pod.Name)
+							break
 						}
 					}
 				}
