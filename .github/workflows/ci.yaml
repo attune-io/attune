@@ -360,9 +360,19 @@ jobs:
           kubeconfig_path="${RUNNER_TEMP:-/tmp}/${KUBECONFIG_BASENAME}"
           printf 'KUBECONFIG=%s\n' "$kubeconfig_path" >> "$GITHUB_ENV"
 
-      - name: Docker cleanup (prevent containerd lease errors)
+      - name: Cleanup stale k3d clusters and Docker resources
         shell: bash -Eeuo pipefail -x {0}
         run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          for cluster in $(k3d cluster list -o json 2>/dev/null | jq -r '.[].name // empty'); do
+            started=$(docker inspect --format '{{.State.StartedAt}}' "k3d-${cluster}-server-0" 2>/dev/null) || continue
+            started_epoch=$(date -d "$started" +%s 2>/dev/null) || continue
+            age=$(( $(date +%s) - started_epoch ))
+            if (( age > 3600 )); then
+              echo "Deleting stale k3d cluster '$cluster' (age: ${age}s)"
+              k3d cluster delete "$cluster" || true
+            fi
+          done
           docker builder prune -f || true
           docker system prune -f || true
 
@@ -395,12 +405,23 @@ jobs:
         shell: bash -Eeuo pipefail -x {0}
         run: |
           export PATH="$HOME/.local/bin:$PATH"
-          k3d cluster create "$K3D_CLUSTER_NAME" \
-            --image ${{ env.K3S_IMAGE }} \
-            --kubeconfig-update-default=false \
-            --kubeconfig-switch-context=false \
-            --k3s-arg "--disable=traefik,servicelb@server:*" \
-            --wait --timeout 120s
+          for attempt in 1 2 3; do
+            if k3d cluster create "$K3D_CLUSTER_NAME" \
+              --image ${{ env.K3S_IMAGE }} \
+              --kubeconfig-update-default=false \
+              --kubeconfig-switch-context=false \
+              --k3s-arg "--disable=traefik,servicelb@server:*" \
+              --wait --timeout 120s; then
+              break
+            fi
+            echo "::warning::k3d cluster create attempt $attempt failed, retrying in 10s..."
+            k3d cluster delete "$K3D_CLUSTER_NAME" 2>/dev/null || true
+            sleep 10
+            if (( attempt == 3 )); then
+              echo "::error::k3d cluster creation failed after 3 attempts"
+              exit 1
+            fi
+          done
           k3d kubeconfig write "$K3D_CLUSTER_NAME" --output "$KUBECONFIG"
           chmod 600 "$KUBECONFIG"
 
