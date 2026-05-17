@@ -562,9 +562,15 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		})
 	} else {
 		reason := rightsizev1alpha1.ReasonInsufficientData
-		message := fmt.Sprintf("Collecting data: %d/%d data points (%d%%)",
+		remaining := int(minimumDP) - globalMaxDataPoints
+		if remaining < 0 {
+			remaining = 0
+		}
+		eta := time.Duration(remaining) * defaultPrometheusStep
+		message := fmt.Sprintf("Collecting data: %d/%d data points (%d%%), ~%s remaining",
 			globalMaxDataPoints, minimumDP,
-			progressPercent(globalMaxDataPoints, int(minimumDP)))
+			progressPercent(globalMaxDataPoints, int(minimumDP)),
+			eta.Truncate(time.Minute))
 		if totalQueryErrors > 0 {
 			reason = rightsizev1alpha1.ReasonPrometheusUnavailable
 			message = fmt.Sprintf("Prometheus query errors (%d) prevented %s data collection; check operator logs", totalQueryErrors, blockedDataTypes)
