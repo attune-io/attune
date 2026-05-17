@@ -110,6 +110,7 @@ const (
 //+kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=services,verbs=get
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+//+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;create;update;delete
 //+kubebuilder:rbac:groups="",resources=resourcequotas;limitranges,verbs=get;list;watch
 
 // RightSizePolicyReconciler reconciles a RightSizePolicy object.
@@ -486,6 +487,11 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	if policy.Spec.UpdateStrategy.Mode != rightsizev1alpha1.UpdateModeObserve {
 		policy.Status.Recommendations = recommendations
 		policy.Status.Savings = r.computeSavings(policy.Namespace, recommendations, defaults)
+	}
+
+	// Export recommendations to ConfigMaps for GitOps workflows if configured.
+	if policy.Spec.UpdateStrategy.Export != nil && policy.Spec.UpdateStrategy.Export.ConfigMap && len(recommendations) > 0 {
+		r.exportRecommendationConfigMaps(ctx, &policy, recommendations)
 	}
 
 	// Step 9: Execute resizes if mode allows.
@@ -1852,6 +1858,69 @@ func parseResizeRecords(pod *corev1.Pod, observationPeriod time.Duration, now ti
 		return nil, errNotReady
 	}
 	return records, nil
+}
+
+// exportRecommendationConfigMaps creates or updates ConfigMaps with
+// recommendation data for GitOps workflows.
+func (r *RightSizePolicyReconciler) exportRecommendationConfigMaps(
+	ctx context.Context,
+	policy *rightsizev1alpha1.RightSizePolicy,
+	recommendations []rightsizev1alpha1.WorkloadRecommendation,
+) {
+	logger := log.FromContext(ctx)
+	for _, rec := range recommendations {
+		cmName := fmt.Sprintf("%s-%s-recommendations", policy.Name, rec.Workload)
+		data := map[string]string{
+			"workload": rec.Workload,
+			"kind":     rec.Kind,
+		}
+		for _, c := range rec.Containers {
+			prefix := c.Name + "."
+			data[prefix+"cpu-request"] = c.Recommended.CPURequest.String()
+			data[prefix+"memory-request"] = c.Recommended.MemoryRequest.String()
+			if !c.Recommended.CPULimit.IsZero() {
+				data[prefix+"cpu-limit"] = c.Recommended.CPULimit.String()
+			}
+			if !c.Recommended.MemoryLimit.IsZero() {
+				data[prefix+"memory-limit"] = c.Recommended.MemoryLimit.String()
+			}
+			data[prefix+"confidence"] = fmt.Sprintf("%.2f", c.Confidence)
+		}
+		data["last-updated"] = r.now().UTC().Format(time.RFC3339)
+
+		cm := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      cmName,
+				Namespace: policy.Namespace,
+				Labels: map[string]string{
+					"rightsize.io/policy":   policy.Name,
+					"rightsize.io/workload": rec.Workload,
+				},
+			},
+			Data: data,
+		}
+		if err := ctrl.SetControllerReference(policy, cm, r.Scheme); err != nil {
+			logger.Error(err, "Failed to set owner reference on recommendation ConfigMap", "configmap", cmName)
+			continue
+		}
+
+		var existing corev1.ConfigMap
+		if err := r.Get(ctx, client.ObjectKeyFromObject(cm), &existing); err != nil {
+			if apierrors.IsNotFound(err) {
+				if createErr := r.Create(ctx, cm); createErr != nil {
+					logger.Error(createErr, "Failed to create recommendation ConfigMap", "configmap", cmName)
+				}
+			} else {
+				logger.Error(err, "Failed to check recommendation ConfigMap", "configmap", cmName)
+			}
+			continue
+		}
+		existing.Data = data
+		existing.Labels = cm.Labels
+		if updateErr := r.Update(ctx, &existing); updateErr != nil {
+			logger.Error(updateErr, "Failed to update recommendation ConfigMap", "configmap", cmName)
+		}
+	}
 }
 
 // SetupWithManager sets up the controller with the Manager.

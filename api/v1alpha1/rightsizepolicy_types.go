@@ -295,6 +295,21 @@ type UpdateStrategy struct {
 	// Decreases do not consume budget. Default: unlimited.
 	// +optional
 	MaxTotalMemoryIncrease *resource.Quantity `json:"maxTotalMemoryIncrease,omitempty"`
+
+	// Export configures how recommendations are exported for external
+	// consumption (e.g. GitOps workflows with ArgoCD or Flux).
+	// +optional
+	Export *ExportConfig `json:"export,omitempty"`
+}
+
+// ExportConfig controls recommendation export to external systems.
+type ExportConfig struct {
+	// ConfigMap enables exporting recommendations to ConfigMaps.
+	// One ConfigMap per workload is created, named
+	// "<policy>-<workload>-recommendations", with an owner reference
+	// to the policy for automatic cleanup.
+	// +optional
+	ConfigMap bool `json:"configMap,omitempty"`
 }
 
 // CanaryConfig defines canary rollout parameters.

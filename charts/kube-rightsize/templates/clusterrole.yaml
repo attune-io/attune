@@ -130,6 +130,16 @@ rules:
       - services
     verbs:
       - get
+  # ConfigMaps: recommendation export for GitOps workflows
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - create
+      - delete
+      - get
+      - update
   # Secrets: read-only (bearer token for Prometheus auth)
   - apiGroups:
       - ""
