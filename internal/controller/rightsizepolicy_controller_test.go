@@ -1990,7 +1990,7 @@ func TestParseResizeRecords_MultiContainer(t *testing.T) {
 		}},
 	}
 
-	records, err := parseResizeRecords(pod, 5*time.Minute)
+	records, err := parseResizeRecords(pod, 5*time.Minute, time.Now())
 	require.NoError(t, err)
 	require.Len(t, records, 2)
 	assert.Equal(t, "app", records[0].Container)
@@ -2029,7 +2029,7 @@ func TestParseResizeRecords_RestoresLimits(t *testing.T) {
 		}},
 	}
 
-	records, err := parseResizeRecords(pod, 5*time.Minute)
+	records, err := parseResizeRecords(pod, 5*time.Minute, time.Now())
 	require.NoError(t, err)
 	require.Len(t, records, 1)
 	// Requests restored from annotations.
@@ -2064,7 +2064,7 @@ func TestParseResizeRecords_NoLimitAnnotations(t *testing.T) {
 		}},
 	}
 
-	records, err := parseResizeRecords(pod, 5*time.Minute)
+	records, err := parseResizeRecords(pod, 5*time.Minute, time.Now())
 	require.NoError(t, err)
 	require.Len(t, records, 1)
 	assert.True(t, records[0].OriginalResources.Requests.Cpu().Equal(resource.MustParse("100m")))
@@ -2085,7 +2085,7 @@ func TestParseResizeRecords_MissingCPUAnnotation(t *testing.T) {
 		},
 	}
 
-	_, err := parseResizeRecords(pod, 5*time.Minute)
+	_, err := parseResizeRecords(pod, 5*time.Minute, time.Now())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "parsing original CPU for app")
 }
@@ -2100,7 +2100,7 @@ func TestParseResizeRecords_InvalidTimestamp(t *testing.T) {
 		},
 	}
 
-	_, err := parseResizeRecords(pod, 5*time.Minute)
+	_, err := parseResizeRecords(pod, 5*time.Minute, time.Now())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "parsing resized-at annotation")
 }
@@ -2123,7 +2123,7 @@ func TestParseResizeRecords_MalformedRestartCount(t *testing.T) {
 		}},
 	}
 
-	_, err := parseResizeRecords(pod, 5*time.Minute)
+	_, err := parseResizeRecords(pod, 5*time.Minute, time.Now())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "parsing original restart count for app")
 }

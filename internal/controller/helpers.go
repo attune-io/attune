@@ -323,7 +323,7 @@ func (r *RightSizePolicyReconciler) isCooldownActive(policy *rightsizev1alpha1.R
 		return false
 	}
 	cooldown := r.getEffectiveCooldown(policy)
-	return time.Since(last) < cooldown
+	return r.now().Sub(last) < cooldown
 }
 
 // getEffectiveCooldown returns the cooldown with exponential backoff applied

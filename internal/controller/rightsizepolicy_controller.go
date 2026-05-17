@@ -110,7 +110,7 @@ const (
 //+kubebuilder:rbac:groups=monitoring.coreos.com,resources=prometheuses,verbs=get;list
 //+kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=services,verbs=get
-//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+//+kubebuilder:rbac:groups="",resources=secrets,verbs=get
 //+kubebuilder:rbac:groups="",resources=resourcequotas;limitranges,verbs=get;list;watch
 
 // RightSizePolicyReconciler reconciles a RightSizePolicy object.
@@ -249,7 +249,7 @@ func collectorCacheKey(config *rightsizev1alpha1.PrometheusConfig, opts *rsmetri
 
 // Reconcile is the main reconciliation loop for RightSizePolicy resources.
 func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	startTime := time.Now()
+	startTime := r.now()
 	logger := log.FromContext(ctx)
 
 	// Step 1: Fetch the RightSizePolicy CR.
@@ -1094,7 +1094,7 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 			"pod", pod.Name, "container", containerRec.Name)
 	}
 
-	resizeStart := time.Now()
+	resizeStart := r.now()
 	results, err := resizer.ResizePod(ctx, pod, containerRec.Name, target)
 	if err != nil {
 		// Attempt eviction fallback if configured.
@@ -1592,7 +1592,7 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 			continue
 		}
 
-		records, err := parseResizeRecords(pod, observationPeriod)
+		records, err := parseResizeRecords(pod, observationPeriod, r.now())
 		if err != nil {
 			if !errors.Is(err, errNotReady) {
 				logger.Error(err, "Failed to parse resize records", "pod", pod.Name)
@@ -1653,7 +1653,7 @@ var errNotReady = errors.New("observation period not elapsed")
 // parseResizeRecords extracts safety.ResizeRecords from a pod's tracking
 // annotations, one per resized container. Returns errNotReady if the
 // observation period hasn't elapsed or the pod has no tracking annotations.
-func parseResizeRecords(pod *corev1.Pod, observationPeriod time.Duration) ([]safety.ResizeRecord, error) {
+func parseResizeRecords(pod *corev1.Pod, observationPeriod time.Duration, now time.Time) ([]safety.ResizeRecord, error) {
 	resizedAtStr, ok := pod.Annotations[annotationResizedAt]
 	if !ok {
 		return nil, errNotReady
@@ -1664,7 +1664,7 @@ func parseResizeRecords(pod *corev1.Pod, observationPeriod time.Duration) ([]saf
 		return nil, fmt.Errorf("parsing resized-at annotation: %w", err)
 	}
 
-	if time.Since(resizedAt) < observationPeriod {
+	if now.Sub(resizedAt) < observationPeriod {
 		return nil, errNotReady
 	}
 
