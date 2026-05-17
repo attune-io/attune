@@ -29,6 +29,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -5515,4 +5516,209 @@ func TestTryEvictionFallback_NilSelectorSkipsEviction(t *testing.T) {
 			t.Error("eviction should not be attempted when selector is nil")
 		}
 	}
+}
+
+func TestExportRecommendationConfigMaps_CreatesConfigMap(t *testing.T) {
+	scheme := testScheme()
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-policy",
+			Namespace: "default",
+			UID:       "abc-123",
+		},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(policy).Build()
+	r := &RightSizePolicyReconciler{
+		Client: fakeClient,
+		Scheme: scheme,
+	}
+	r.SetNowFunc(func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) })
+
+	recs := []rightsizev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "my-app",
+			Kind:     "Deployment",
+			Containers: []rightsizev1alpha1.ContainerRecommendation{
+				{
+					Name:       "main",
+					Confidence: 0.95,
+					Recommended: rightsizev1alpha1.ResourceValues{
+						CPURequest:    resource.MustParse("250m"),
+						MemoryRequest: resource.MustParse("256Mi"),
+					},
+				},
+			},
+		},
+	}
+
+	r.exportRecommendationConfigMaps(context.Background(), policy, recs)
+
+	var cm corev1.ConfigMap
+	err := fakeClient.Get(context.Background(), client.ObjectKey{
+		Namespace: "default",
+		Name:      "test-policy-my-app-recommendations",
+	}, &cm)
+	require.NoError(t, err)
+	assert.Equal(t, "my-app", cm.Data["workload"])
+	assert.Equal(t, "Deployment", cm.Data["kind"])
+	assert.Equal(t, "250m", cm.Data["main.cpu-request"])
+	assert.Equal(t, "256Mi", cm.Data["main.memory-request"])
+	assert.Equal(t, "0.95", cm.Data["main.confidence"])
+	assert.Equal(t, "test-policy", cm.Labels["rightsize.io/policy"])
+}
+
+func TestExportRecommendationConfigMaps_UpdatesExisting(t *testing.T) {
+	scheme := testScheme()
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-policy",
+			Namespace: "default",
+			UID:       "abc-123",
+		},
+	}
+	existingCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-policy-my-app-recommendations",
+			Namespace: "default",
+		},
+		Data: map[string]string{"main.cpu-request": "100m"},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(policy, existingCM).Build()
+	r := &RightSizePolicyReconciler{
+		Client: fakeClient,
+		Scheme: scheme,
+	}
+	r.SetNowFunc(func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) })
+
+	recs := []rightsizev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "my-app",
+			Kind:     "Deployment",
+			Containers: []rightsizev1alpha1.ContainerRecommendation{
+				{
+					Name:       "main",
+					Confidence: 0.99,
+					Recommended: rightsizev1alpha1.ResourceValues{
+						CPURequest:    resource.MustParse("500m"),
+						MemoryRequest: resource.MustParse("512Mi"),
+					},
+				},
+			},
+		},
+	}
+
+	r.exportRecommendationConfigMaps(context.Background(), policy, recs)
+
+	var cm corev1.ConfigMap
+	err := fakeClient.Get(context.Background(), client.ObjectKey{
+		Namespace: "default",
+		Name:      "test-policy-my-app-recommendations",
+	}, &cm)
+	require.NoError(t, err)
+	assert.Equal(t, "500m", cm.Data["main.cpu-request"])
+	assert.Equal(t, "0.99", cm.Data["main.confidence"])
+}
+
+func TestAdjustHPATargets_ScalesTargetUtilization(t *testing.T) {
+	scheme := testScheme()
+	oldTarget := int32(80)
+	hpas := []autoscalingv2.HorizontalPodAutoscaler{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "my-app-hpa",
+				Namespace: "default",
+				Annotations: map[string]string{
+					annotationHPAAutoTune: "true",
+				},
+			},
+			Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+				ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+					Kind: "Deployment",
+					Name: "my-app",
+				},
+				Metrics: []autoscalingv2.MetricSpec{
+					{
+						Type: autoscalingv2.ResourceMetricSourceType,
+						Resource: &autoscalingv2.ResourceMetricSource{
+							Name: corev1.ResourceCPU,
+							Target: autoscalingv2.MetricTarget{
+								Type:               autoscalingv2.UtilizationMetricType,
+								AverageUtilization: &oldTarget,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&hpas[0]).Build()
+	r := &RightSizePolicyReconciler{
+		Client: fakeClient,
+		Scheme: scheme,
+	}
+
+	// CPU went from 200m to 400m, so target should halve: 80 * (200/400) = 40.
+	r.adjustHPATargets(context.Background(), hpas, "my-app", "Deployment",
+		resource.MustParse("200m"), resource.MustParse("400m"))
+
+	var hpa autoscalingv2.HorizontalPodAutoscaler
+	err := fakeClient.Get(context.Background(), client.ObjectKey{
+		Namespace: "default",
+		Name:      "my-app-hpa",
+	}, &hpa)
+	require.NoError(t, err)
+	require.NotNil(t, hpa.Spec.Metrics[0].Resource.Target.AverageUtilization)
+	assert.Equal(t, int32(40), *hpa.Spec.Metrics[0].Resource.Target.AverageUtilization)
+	assert.Equal(t, "80", hpa.Annotations[annotationHPAOriginalCPU])
+}
+
+func TestAdjustHPATargets_SkipsWithoutAnnotation(t *testing.T) {
+	scheme := testScheme()
+	oldTarget := int32(80)
+	hpas := []autoscalingv2.HorizontalPodAutoscaler{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "my-app-hpa",
+				Namespace: "default",
+				// No auto-tune annotation.
+			},
+			Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+				ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+					Kind: "Deployment",
+					Name: "my-app",
+				},
+				Metrics: []autoscalingv2.MetricSpec{
+					{
+						Type: autoscalingv2.ResourceMetricSourceType,
+						Resource: &autoscalingv2.ResourceMetricSource{
+							Name: corev1.ResourceCPU,
+							Target: autoscalingv2.MetricTarget{
+								Type:               autoscalingv2.UtilizationMetricType,
+								AverageUtilization: &oldTarget,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&hpas[0]).Build()
+	r := &RightSizePolicyReconciler{
+		Client: fakeClient,
+		Scheme: scheme,
+	}
+
+	r.adjustHPATargets(context.Background(), hpas, "my-app", "Deployment",
+		resource.MustParse("200m"), resource.MustParse("400m"))
+
+	var hpa autoscalingv2.HorizontalPodAutoscaler
+	err := fakeClient.Get(context.Background(), client.ObjectKey{
+		Namespace: "default",
+		Name:      "my-app-hpa",
+	}, &hpa)
+	require.NoError(t, err)
+	// Target should be unchanged since no annotation.
+	assert.Equal(t, int32(80), *hpa.Spec.Metrics[0].Resource.Target.AverageUtilization)
 }
