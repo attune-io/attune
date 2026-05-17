@@ -19,13 +19,11 @@ package webhook
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	io_prometheus_client "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
 	"github.com/SebTardifLabs/kube-rightsize/internal/operatormetrics"
@@ -60,16 +58,18 @@ func TestDefault_PreservesExisting(t *testing.T) {
 	assert.Empty(t, policy.Spec.Memory.SafetyMargin)
 }
 
-func TestDefault_SetsMode(t *testing.T) {
+func TestDefault_DoesNotSetMode(t *testing.T) {
 	defaulter := &RightSizePolicyDefaulter{}
 	policy := &rightsizev1alpha1.RightSizePolicy{}
 
 	err := defaulter.Default(context.Background(), policy)
 
 	assert.NoError(t, err)
-	assert.Equal(t, rightsizev1alpha1.UpdateModeRecommend, policy.Spec.UpdateStrategy.Mode)
-	assert.Equal(t, int32(50), policy.Spec.UpdateStrategy.MaxCPUChangePercent)
-	assert.Equal(t, int32(30), policy.Spec.UpdateStrategy.MaxMemoryChangePercent)
+	// Mode is NOT set by the webhook; it's deferred to the controller's
+	// applyBuiltInDefaults so that RightSizeDefaults can override it.
+	assert.Empty(t, policy.Spec.UpdateStrategy.Mode)
+	assert.Nil(t, policy.Spec.UpdateStrategy.MaxCPUChangePercent)
+	assert.Nil(t, policy.Spec.UpdateStrategy.MaxMemoryChangePercent)
 }
 
 func TestDefault_SetsWeight(t *testing.T) {
@@ -82,64 +82,22 @@ func TestDefault_SetsWeight(t *testing.T) {
 	assert.Equal(t, int32(100), policy.Spec.Weight)
 }
 
-func TestDefault_SetsControlledValues(t *testing.T) {
+func TestDefault_DoesNotSetControllerDefaultedFields(t *testing.T) {
 	defaulter := &RightSizePolicyDefaulter{}
 	policy := &rightsizev1alpha1.RightSizePolicy{}
 
 	err := defaulter.Default(context.Background(), policy)
 
 	require.NoError(t, err)
-	require.NotNil(t, policy.Spec.CPU.ControlledValues)
-	assert.Equal(t, "RequestsOnly", *policy.Spec.CPU.ControlledValues)
-	require.NotNil(t, policy.Spec.Memory.ControlledValues)
-	assert.Equal(t, "RequestsOnly", *policy.Spec.Memory.ControlledValues)
-}
-
-func TestDefault_SetsHistoryWindow(t *testing.T) {
-	defaulter := &RightSizePolicyDefaulter{}
-	policy := &rightsizev1alpha1.RightSizePolicy{}
-
-	err := defaulter.Default(context.Background(), policy)
-
-	require.NoError(t, err)
-	require.NotNil(t, policy.Spec.MetricsSource.HistoryWindow)
-	assert.Equal(t, 168*time.Hour, policy.Spec.MetricsSource.HistoryWindow.Duration)
-}
-
-func TestDefault_SetsCooldown(t *testing.T) {
-	defaulter := &RightSizePolicyDefaulter{}
-	policy := &rightsizev1alpha1.RightSizePolicy{}
-
-	err := defaulter.Default(context.Background(), policy)
-
-	require.NoError(t, err)
-	require.NotNil(t, policy.Spec.UpdateStrategy.Cooldown)
-	assert.Equal(t, 1*time.Hour, policy.Spec.UpdateStrategy.Cooldown.Duration)
-}
-
-func TestDefault_PreservesExistingControlledValues(t *testing.T) {
-	defaulter := &RightSizePolicyDefaulter{}
-	policy := &rightsizev1alpha1.RightSizePolicy{}
-	cv := "RequestsAndLimits"
-	policy.Spec.CPU.ControlledValues = &cv
-
-	err := defaulter.Default(context.Background(), policy)
-
-	require.NoError(t, err)
-	assert.Equal(t, "RequestsAndLimits", *policy.Spec.CPU.ControlledValues)
-}
-
-func TestDefault_PreservesExistingCooldown(t *testing.T) {
-	defaulter := &RightSizePolicyDefaulter{}
-	policy := &rightsizev1alpha1.RightSizePolicy{}
-	policy.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: 30 * time.Minute}
-
-	err := defaulter.Default(context.Background(), policy)
-
-	require.NoError(t, err)
-	require.NotNil(t, policy.Spec.UpdateStrategy.Cooldown)
-	assert.Equal(t, 30*time.Minute, policy.Spec.UpdateStrategy.Cooldown.Duration,
-		"defaulter should not overwrite a pre-existing cooldown")
+	// All these fields are deferred to the controller's applyBuiltInDefaults
+	// so that RightSizeDefaults/RightSizeNamespaceDefaults can override them.
+	assert.Nil(t, policy.Spec.CPU.ControlledValues)
+	assert.Nil(t, policy.Spec.Memory.ControlledValues)
+	assert.Nil(t, policy.Spec.MetricsSource.HistoryWindow)
+	assert.Nil(t, policy.Spec.UpdateStrategy.Cooldown)
+	assert.Nil(t, policy.Spec.UpdateStrategy.AutoRevert)
+	assert.Nil(t, policy.Spec.MetricsSource.MinimumDataPoints)
+	assert.Empty(t, policy.Spec.UpdateStrategy.ResizeMethod)
 }
 
 func TestDefault_RecordsWebhookMetrics(t *testing.T) {

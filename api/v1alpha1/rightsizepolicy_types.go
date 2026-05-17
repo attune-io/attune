@@ -118,9 +118,11 @@ type MetricsSource struct {
 
 	// MinimumDataPoints is the minimum number of data points required
 	// before generating recommendations. Minimum 1, default 48 (2 days).
-	// +kubebuilder:default=48
+	// Defaults to 48 if not set (applied by the controller so that
+	// RightSizeDefaults cluster configuration can override it).
 	// +kubebuilder:validation:Minimum=1
-	MinimumDataPoints int32 `json:"minimumDataPoints,omitempty"`
+	// +optional
+	MinimumDataPoints *int32 `json:"minimumDataPoints,omitempty"`
 
 	// QueryStep is the step interval for Prometheus range queries and ETA
 	// calculations. Should match your Prometheus scrape interval for
@@ -260,24 +262,31 @@ type UpdateStrategy struct {
 	//   Auto: resizes all eligible pods each cycle.
 	//   Observe: collects metrics and tracks data points but does not surface recommendations or savings.
 	// Start with Recommend in production and promote after reviewing status.
+	// Defaults to Recommend if not set (applied by the controller, not the webhook,
+	// so that RightSizeDefaults cluster configuration can override it).
 	// +kubebuilder:validation:Enum=Observe;Recommend;OneShot;Canary;Auto
-	Mode UpdateMode `json:"mode"`
+	// +optional
+	Mode UpdateMode `json:"mode,omitempty"`
 
 	// Canary configures canary rollout behavior when Mode is Canary.
 	// +optional
 	Canary *CanaryConfig `json:"canary,omitempty"`
 
 	// MaxCPUChangePercent is the maximum allowed CPU change percentage per operation.
-	// +kubebuilder:default=50
+	// Defaults to 50 if not set (applied by the controller so that
+	// RightSizeDefaults cluster configuration can override it).
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=100
-	MaxCPUChangePercent int32 `json:"maxCpuChangePercent,omitempty"`
+	// +optional
+	MaxCPUChangePercent *int32 `json:"maxCpuChangePercent,omitempty"`
 
 	// MaxMemoryChangePercent is the maximum allowed memory change percentage per operation.
-	// +kubebuilder:default=30
+	// Defaults to 30 if not set (applied by the controller so that
+	// RightSizeDefaults cluster configuration can override it).
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=100
-	MaxMemoryChangePercent int32 `json:"maxMemoryChangePercent,omitempty"`
+	// +optional
+	MaxMemoryChangePercent *int32 `json:"maxMemoryChangePercent,omitempty"`
 
 	// Cooldown is the minimum time between successive resize operations.
 	// Defaults to 1h if not specified.
@@ -285,7 +294,9 @@ type UpdateStrategy struct {
 	Cooldown *metav1.Duration `json:"cooldown,omitempty"`
 
 	// AutoRevert automatically reverts changes if degradation is detected.
-	// +kubebuilder:default=true
+	// Defaults to true if not set (applied by the controller so that
+	// RightSizeDefaults cluster configuration can override it).
+	// +optional
 	AutoRevert *bool `json:"autoRevert,omitempty"`
 
 	// ResizeMethod controls what happens when an in-place resize fails.
@@ -293,7 +304,8 @@ type UpdateStrategy struct {
 	//   InPlaceOrEvict: fall back to pod eviction if in-place resize
 	//   fails or is marked Infeasible by kubelet. Evictions respect
 	//   PodDisruptionBudgets and never evict the last replica.
-	// +kubebuilder:default=InPlaceOnly
+	// Defaults to InPlaceOnly if not set (applied by the controller so that
+	// RightSizeDefaults cluster configuration can override it).
 	// +kubebuilder:validation:Enum=InPlaceOnly;InPlaceOrEvict
 	// +optional
 	ResizeMethod ResizeMethodType `json:"resizeMethod,omitempty"`

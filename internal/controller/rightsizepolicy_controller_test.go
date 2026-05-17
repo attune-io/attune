@@ -161,7 +161,7 @@ func newTestPolicy(name, namespace string) *rightsizev1alpha1.RightSizePolicy {
 				Prometheus: &rightsizev1alpha1.PrometheusConfig{
 					Address: "http://prometheus:9090",
 				},
-				MinimumDataPoints: 48,
+				MinimumDataPoints: int32Ptr(48),
 			},
 			CPU: rightsizev1alpha1.ResourceConfig{
 				Percentile:   95,
@@ -778,7 +778,7 @@ func TestGetMinimumDataPoints_Default(t *testing.T) {
 func TestGetMinimumDataPoints_Custom(t *testing.T) {
 	r := &RightSizePolicyReconciler{}
 	policy := &rightsizev1alpha1.RightSizePolicy{}
-	policy.Spec.MetricsSource.MinimumDataPoints = 42
+	policy.Spec.MetricsSource.MinimumDataPoints = int32Ptr(42)
 	assert.Equal(t, int32(42), r.getMinimumDataPoints(policy))
 }
 
@@ -2916,15 +2916,15 @@ func TestMergeDefaults_MergesAllFields(t *testing.T) {
 			MetricsSource: &rightsizev1alpha1.MetricsSource{
 				QueryStep:         &queryStep,
 				HistoryWindow:     &historyWindow,
-				MinimumDataPoints: 24,
+				MinimumDataPoints: int32Ptr(24),
 			},
 			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{
 				Mode:                   rightsizev1alpha1.UpdateModeAuto,
 				Cooldown:               &cooldown,
 				AutoRevert:             &autoRevert,
 				ResizeMethod:           rightsizev1alpha1.ResizeMethodInPlaceOrEvict,
-				MaxCPUChangePercent:    80,
-				MaxMemoryChangePercent: 60,
+				MaxCPUChangePercent:    int32Ptr(80),
+				MaxMemoryChangePercent: int32Ptr(60),
 			},
 		},
 	}
@@ -2958,7 +2958,8 @@ func TestMergeDefaults_MergesAllFields(t *testing.T) {
 	assert.Equal(t, 30*time.Second, policy.Spec.MetricsSource.QueryStep.Duration)
 	require.NotNil(t, policy.Spec.MetricsSource.HistoryWindow)
 	assert.Equal(t, 48*time.Hour, policy.Spec.MetricsSource.HistoryWindow.Duration)
-	assert.Equal(t, int32(24), policy.Spec.MetricsSource.MinimumDataPoints)
+	require.NotNil(t, policy.Spec.MetricsSource.MinimumDataPoints)
+	assert.Equal(t, int32(24), *policy.Spec.MetricsSource.MinimumDataPoints)
 
 	// UpdateStrategy
 	assert.Equal(t, rightsizev1alpha1.UpdateModeAuto, policy.Spec.UpdateStrategy.Mode)
@@ -2967,8 +2968,100 @@ func TestMergeDefaults_MergesAllFields(t *testing.T) {
 	require.NotNil(t, policy.Spec.UpdateStrategy.AutoRevert)
 	assert.True(t, *policy.Spec.UpdateStrategy.AutoRevert)
 	assert.Equal(t, rightsizev1alpha1.ResizeMethodInPlaceOrEvict, policy.Spec.UpdateStrategy.ResizeMethod)
-	assert.Equal(t, int32(80), policy.Spec.UpdateStrategy.MaxCPUChangePercent)
-	assert.Equal(t, int32(60), policy.Spec.UpdateStrategy.MaxMemoryChangePercent)
+	require.NotNil(t, policy.Spec.UpdateStrategy.MaxCPUChangePercent)
+	assert.Equal(t, int32(80), *policy.Spec.UpdateStrategy.MaxCPUChangePercent)
+	require.NotNil(t, policy.Spec.UpdateStrategy.MaxMemoryChangePercent)
+	assert.Equal(t, int32(60), *policy.Spec.UpdateStrategy.MaxMemoryChangePercent)
+}
+
+func TestApplyBuiltInDefaults_FillsAllFields(t *testing.T) {
+	r := newReconcilerWithClient()
+	// Create a policy with ALL fields unset (no webhook defaults, no cluster defaults).
+	policy := &rightsizev1alpha1.RightSizePolicy{}
+
+	r.applyBuiltInDefaults(policy)
+
+	// Every field should now have a built-in default value.
+	assert.Equal(t, rightsizev1alpha1.DefaultUpdateMode, policy.Spec.UpdateStrategy.Mode)
+	require.NotNil(t, policy.Spec.UpdateStrategy.MaxCPUChangePercent)
+	assert.Equal(t, rightsizev1alpha1.DefaultMaxCPUChangePercent, *policy.Spec.UpdateStrategy.MaxCPUChangePercent)
+	require.NotNil(t, policy.Spec.UpdateStrategy.MaxMemoryChangePercent)
+	assert.Equal(t, rightsizev1alpha1.DefaultMaxMemoryChangePercent, *policy.Spec.UpdateStrategy.MaxMemoryChangePercent)
+	require.NotNil(t, policy.Spec.UpdateStrategy.Cooldown)
+	assert.Equal(t, time.Hour, policy.Spec.UpdateStrategy.Cooldown.Duration)
+	require.NotNil(t, policy.Spec.UpdateStrategy.AutoRevert)
+	assert.True(t, *policy.Spec.UpdateStrategy.AutoRevert)
+	assert.Equal(t, rightsizev1alpha1.DefaultResizeMethod, policy.Spec.UpdateStrategy.ResizeMethod)
+	require.NotNil(t, policy.Spec.MetricsSource.MinimumDataPoints)
+	assert.Equal(t, rightsizev1alpha1.DefaultMinimumDataPoints, *policy.Spec.MetricsSource.MinimumDataPoints)
+	require.NotNil(t, policy.Spec.MetricsSource.HistoryWindow)
+	assert.Equal(t, 168*time.Hour, policy.Spec.MetricsSource.HistoryWindow.Duration)
+	require.NotNil(t, policy.Spec.CPU.ControlledValues)
+	assert.Equal(t, rightsizev1alpha1.DefaultControlledValues, *policy.Spec.CPU.ControlledValues)
+	require.NotNil(t, policy.Spec.Memory.ControlledValues)
+	assert.Equal(t, rightsizev1alpha1.DefaultControlledValues, *policy.Spec.Memory.ControlledValues)
+}
+
+func TestApplyBuiltInDefaults_PreservesUserValues(t *testing.T) {
+	r := newReconcilerWithClient()
+	// Create a policy with explicit user values.
+	policy := &rightsizev1alpha1.RightSizePolicy{}
+	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeAuto
+	policy.Spec.UpdateStrategy.MaxCPUChangePercent = int32Ptr(80)
+	policy.Spec.UpdateStrategy.MaxMemoryChangePercent = int32Ptr(60)
+	autoRevert := false
+	policy.Spec.UpdateStrategy.AutoRevert = &autoRevert
+	policy.Spec.UpdateStrategy.ResizeMethod = rightsizev1alpha1.ResizeMethodInPlaceOrEvict
+	policy.Spec.MetricsSource.MinimumDataPoints = int32Ptr(24)
+	policy.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: 30 * time.Minute}
+	policy.Spec.MetricsSource.HistoryWindow = &metav1.Duration{Duration: 48 * time.Hour}
+
+	r.applyBuiltInDefaults(policy)
+
+	// User values should be preserved, not overwritten.
+	assert.Equal(t, rightsizev1alpha1.UpdateModeAuto, policy.Spec.UpdateStrategy.Mode)
+	assert.Equal(t, int32(80), *policy.Spec.UpdateStrategy.MaxCPUChangePercent)
+	assert.Equal(t, int32(60), *policy.Spec.UpdateStrategy.MaxMemoryChangePercent)
+	assert.False(t, *policy.Spec.UpdateStrategy.AutoRevert)
+	assert.Equal(t, rightsizev1alpha1.ResizeMethodInPlaceOrEvict, policy.Spec.UpdateStrategy.ResizeMethod)
+	assert.Equal(t, int32(24), *policy.Spec.MetricsSource.MinimumDataPoints)
+	assert.Equal(t, 30*time.Minute, policy.Spec.UpdateStrategy.Cooldown.Duration)
+	assert.Equal(t, 48*time.Hour, policy.Spec.MetricsSource.HistoryWindow.Duration)
+}
+
+func TestMergeDefaults_ClusterDefaultsTakeEffect(t *testing.T) {
+	// This is the #267 regression test: verify that cluster defaults actually
+	// override built-in defaults when the webhook does not pre-fill fields.
+	cooldown := metav1.Duration{Duration: 30 * time.Minute}
+	autoRevert := false
+	defaults := &rightsizev1alpha1.RightSizeDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster-defaults"},
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{
+				Mode:                   rightsizev1alpha1.UpdateModeAuto,
+				Cooldown:               &cooldown,
+				AutoRevert:             &autoRevert,
+				ResizeMethod:           rightsizev1alpha1.ResizeMethodInPlaceOrEvict,
+				MaxCPUChangePercent:    int32Ptr(80),
+				MaxMemoryChangePercent: int32Ptr(60),
+			},
+		},
+	}
+	r := newReconcilerWithClient(defaults)
+
+	// Policy with ALL fields unset (as if no webhook defaulting occurred).
+	policy := &rightsizev1alpha1.RightSizePolicy{}
+
+	r.mergeDefaults(policy, defaults)
+	r.applyBuiltInDefaults(policy)
+
+	// Cluster defaults should take effect.
+	assert.Equal(t, rightsizev1alpha1.UpdateModeAuto, policy.Spec.UpdateStrategy.Mode)
+	assert.Equal(t, 30*time.Minute, policy.Spec.UpdateStrategy.Cooldown.Duration)
+	assert.False(t, *policy.Spec.UpdateStrategy.AutoRevert)
+	assert.Equal(t, rightsizev1alpha1.ResizeMethodInPlaceOrEvict, policy.Spec.UpdateStrategy.ResizeMethod)
+	assert.Equal(t, int32(80), *policy.Spec.UpdateStrategy.MaxCPUChangePercent)
+	assert.Equal(t, int32(60), *policy.Spec.UpdateStrategy.MaxMemoryChangePercent)
 }
 
 func TestMergeDefaults_QueryStepPolicyOverrides(t *testing.T) {

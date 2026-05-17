@@ -272,10 +272,11 @@ spec:
                       Defaults to 7d (168h) if not specified.
                     type: string
                   minimumDataPoints:
-                    default: 48
                     description: |-
                       MinimumDataPoints is the minimum number of data points required
                       before generating recommendations. Minimum 1, default 48 (2 days).
+                      Defaults to 48 if not set (applied by the controller so that
+                      RightSizeDefaults cluster configuration can override it).
                     format: int32
                     minimum: 1
                     type: integer
@@ -340,9 +341,10 @@ spec:
                 description: UpdateStrategy configures default update strategy settings.
                 properties:
                   autoRevert:
-                    default: true
-                    description: AutoRevert automatically reverts changes if degradation
-                      is detected.
+                    description: |-
+                      AutoRevert automatically reverts changes if degradation is detected.
+                      Defaults to true if not set (applied by the controller so that
+                      RightSizeDefaults cluster configuration can override it).
                     type: boolean
                   canary:
                     description: Canary configures canary rollout behavior when Mode
@@ -398,17 +400,19 @@ spec:
                     minimum: 1
                     type: integer
                   maxCpuChangePercent:
-                    default: 50
-                    description: MaxCPUChangePercent is the maximum allowed CPU change
-                      percentage per operation.
+                    description: |-
+                      MaxCPUChangePercent is the maximum allowed CPU change percentage per operation.
+                      Defaults to 50 if not set (applied by the controller so that
+                      RightSizeDefaults cluster configuration can override it).
                     format: int32
                     maximum: 100
                     minimum: 1
                     type: integer
                   maxMemoryChangePercent:
-                    default: 30
-                    description: MaxMemoryChangePercent is the maximum allowed memory
-                      change percentage per operation.
+                    description: |-
+                      MaxMemoryChangePercent is the maximum allowed memory change percentage per operation.
+                      Defaults to 30 if not set (applied by the controller so that
+                      RightSizeDefaults cluster configuration can override it).
                     format: int32
                     maximum: 100
                     minimum: 1
@@ -444,6 +448,8 @@ spec:
                         Auto: resizes all eligible pods each cycle.
                         Observe: collects metrics and tracks data points but does not surface recommendations or savings.
                       Start with Recommend in production and promote after reviewing status.
+                      Defaults to Recommend if not set (applied by the controller, not the webhook,
+                      so that RightSizeDefaults cluster configuration can override it).
                     enum:
                     - Observe
                     - Recommend
@@ -452,13 +458,14 @@ spec:
                     - Auto
                     type: string
                   resizeMethod:
-                    default: InPlaceOnly
                     description: |-
                       ResizeMethod controls what happens when an in-place resize fails.
                         InPlaceOnly (default): skip the pod and retry next cycle.
                         InPlaceOrEvict: fall back to pod eviction if in-place resize
                         fails or is marked Infeasible by kubelet. Evictions respect
                         PodDisruptionBudgets and never evict the last replica.
+                      Defaults to InPlaceOnly if not set (applied by the controller so that
+                      RightSizeDefaults cluster configuration can override it).
                     enum:
                     - InPlaceOnly
                     - InPlaceOrEvict
@@ -505,8 +512,6 @@ spec:
                           type: object
                         type: array
                     type: object
-                required:
-                - mode
                 type: object
             type: object
         type: object

@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -143,8 +144,8 @@ func (r *RightSizePolicyReconciler) parseHistoryWindow(policy *rightsizev1alpha1
 
 // getMinimumDataPoints returns the minimum data points threshold from the policy.
 func (r *RightSizePolicyReconciler) getMinimumDataPoints(policy *rightsizev1alpha1.RightSizePolicy) int32 {
-	if policy.Spec.MetricsSource.MinimumDataPoints > 0 {
-		return policy.Spec.MetricsSource.MinimumDataPoints
+	if policy.Spec.MetricsSource.MinimumDataPoints != nil && *policy.Spec.MetricsSource.MinimumDataPoints > 0 {
+		return *policy.Spec.MetricsSource.MinimumDataPoints
 	}
 	return defaultMinimumDataPoints
 }
@@ -595,6 +596,52 @@ func (r *RightSizePolicyReconciler) fetchDefaults(ctx context.Context, namespace
 	return clusterDefaults, nil
 }
 
+// applyBuiltInDefaults fills any fields still unset after mergeDefaults
+// with the operator's built-in default values. This runs AFTER mergeDefaults
+// so that cluster-wide RightSizeDefaults take precedence over built-ins.
+//
+// After this function returns, every field is guaranteed non-nil/non-zero.
+func (r *RightSizePolicyReconciler) applyBuiltInDefaults(policy *rightsizev1alpha1.RightSizePolicy) {
+	if policy.Spec.UpdateStrategy.Mode == "" {
+		policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.DefaultUpdateMode
+	}
+	if policy.Spec.UpdateStrategy.MaxCPUChangePercent == nil {
+		v := rightsizev1alpha1.DefaultMaxCPUChangePercent
+		policy.Spec.UpdateStrategy.MaxCPUChangePercent = &v
+	}
+	if policy.Spec.UpdateStrategy.MaxMemoryChangePercent == nil {
+		v := rightsizev1alpha1.DefaultMaxMemoryChangePercent
+		policy.Spec.UpdateStrategy.MaxMemoryChangePercent = &v
+	}
+	if policy.Spec.UpdateStrategy.Cooldown == nil {
+		d, _ := time.ParseDuration(rightsizev1alpha1.DefaultCooldown)
+		policy.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: d}
+	}
+	if policy.Spec.UpdateStrategy.AutoRevert == nil {
+		v := rightsizev1alpha1.DefaultAutoRevert
+		policy.Spec.UpdateStrategy.AutoRevert = &v
+	}
+	if policy.Spec.UpdateStrategy.ResizeMethod == "" {
+		policy.Spec.UpdateStrategy.ResizeMethod = rightsizev1alpha1.DefaultResizeMethod
+	}
+	if policy.Spec.MetricsSource.MinimumDataPoints == nil {
+		v := rightsizev1alpha1.DefaultMinimumDataPoints
+		policy.Spec.MetricsSource.MinimumDataPoints = &v
+	}
+	if policy.Spec.MetricsSource.HistoryWindow == nil {
+		d, _ := time.ParseDuration(rightsizev1alpha1.DefaultHistoryWindow)
+		policy.Spec.MetricsSource.HistoryWindow = &metav1.Duration{Duration: d}
+	}
+	if policy.Spec.CPU.ControlledValues == nil {
+		cv := rightsizev1alpha1.DefaultControlledValues
+		policy.Spec.CPU.ControlledValues = &cv
+	}
+	if policy.Spec.Memory.ControlledValues == nil {
+		cv := rightsizev1alpha1.DefaultControlledValues
+		policy.Spec.Memory.ControlledValues = &cv
+	}
+}
+
 // mergeDefaults merges values from RightSizeDefaults into the policy where
 // the policy has not specified its own values.
 func (r *RightSizePolicyReconciler) mergeDefaults(policy *rightsizev1alpha1.RightSizePolicy, defaults *rightsizev1alpha1.RightSizeDefaults) {
@@ -602,6 +649,9 @@ func (r *RightSizePolicyReconciler) mergeDefaults(policy *rightsizev1alpha1.Righ
 		return
 	}
 	spec := defaults.Spec
+
+	// Track which fields are inherited for debug logging.
+	var inherited []string
 
 	// Merge CPU config
 	mergeResourceConfig(&policy.Spec.CPU, spec.CPU)
@@ -613,12 +663,15 @@ func (r *RightSizePolicyReconciler) mergeDefaults(policy *rightsizev1alpha1.Righ
 	if spec.MetricsSource != nil {
 		if policy.Spec.MetricsSource.HistoryWindow == nil && spec.MetricsSource.HistoryWindow != nil {
 			policy.Spec.MetricsSource.HistoryWindow = spec.MetricsSource.HistoryWindow
+			inherited = append(inherited, "historyWindow")
 		}
-		if policy.Spec.MetricsSource.MinimumDataPoints == 0 && spec.MetricsSource.MinimumDataPoints > 0 {
+		if policy.Spec.MetricsSource.MinimumDataPoints == nil && spec.MetricsSource.MinimumDataPoints != nil {
 			policy.Spec.MetricsSource.MinimumDataPoints = spec.MetricsSource.MinimumDataPoints
+			inherited = append(inherited, "minimumDataPoints")
 		}
 		if policy.Spec.MetricsSource.QueryStep == nil && spec.MetricsSource.QueryStep != nil {
 			policy.Spec.MetricsSource.QueryStep = spec.MetricsSource.QueryStep
+			inherited = append(inherited, "queryStep")
 		}
 	}
 
@@ -626,22 +679,34 @@ func (r *RightSizePolicyReconciler) mergeDefaults(policy *rightsizev1alpha1.Righ
 	if spec.UpdateStrategy != nil {
 		if policy.Spec.UpdateStrategy.Mode == "" {
 			policy.Spec.UpdateStrategy.Mode = spec.UpdateStrategy.Mode
+			inherited = append(inherited, "mode")
 		}
 		if policy.Spec.UpdateStrategy.Cooldown == nil && spec.UpdateStrategy.Cooldown != nil {
 			policy.Spec.UpdateStrategy.Cooldown = spec.UpdateStrategy.Cooldown
+			inherited = append(inherited, "cooldown")
 		}
 		if policy.Spec.UpdateStrategy.AutoRevert == nil && spec.UpdateStrategy.AutoRevert != nil {
 			policy.Spec.UpdateStrategy.AutoRevert = spec.UpdateStrategy.AutoRevert
+			inherited = append(inherited, "autoRevert")
 		}
 		if policy.Spec.UpdateStrategy.ResizeMethod == "" && spec.UpdateStrategy.ResizeMethod != "" {
 			policy.Spec.UpdateStrategy.ResizeMethod = spec.UpdateStrategy.ResizeMethod
+			inherited = append(inherited, "resizeMethod")
 		}
-		if policy.Spec.UpdateStrategy.MaxCPUChangePercent == 0 && spec.UpdateStrategy.MaxCPUChangePercent > 0 {
+		if policy.Spec.UpdateStrategy.MaxCPUChangePercent == nil && spec.UpdateStrategy.MaxCPUChangePercent != nil {
 			policy.Spec.UpdateStrategy.MaxCPUChangePercent = spec.UpdateStrategy.MaxCPUChangePercent
+			inherited = append(inherited, "maxCpuChangePercent")
 		}
-		if policy.Spec.UpdateStrategy.MaxMemoryChangePercent == 0 && spec.UpdateStrategy.MaxMemoryChangePercent > 0 {
+		if policy.Spec.UpdateStrategy.MaxMemoryChangePercent == nil && spec.UpdateStrategy.MaxMemoryChangePercent != nil {
 			policy.Spec.UpdateStrategy.MaxMemoryChangePercent = spec.UpdateStrategy.MaxMemoryChangePercent
+			inherited = append(inherited, "maxMemoryChangePercent")
 		}
+	}
+
+	if len(inherited) > 0 {
+		ctrl.Log.V(1).Info("Merged cluster defaults into policy",
+			"defaultsName", defaults.Name,
+			"fieldsInherited", inherited)
 	}
 }
 

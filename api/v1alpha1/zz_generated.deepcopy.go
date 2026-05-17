@@ -151,6 +151,11 @@ func (in *MetricsSource) DeepCopyInto(out *MetricsSource) {
 		*out = new(v1.Duration)
 		**out = **in
 	}
+	if in.MinimumDataPoints != nil {
+		in, out := &in.MinimumDataPoints, &out.MinimumDataPoints
+		*out = new(int32)
+		**out = **in
+	}
 	if in.QueryStep != nil {
 		in, out := &in.QueryStep, &out.QueryStep
 		*out = new(v1.Duration)
@@ -741,6 +746,16 @@ func (in *UpdateStrategy) DeepCopyInto(out *UpdateStrategy) {
 	if in.Canary != nil {
 		in, out := &in.Canary, &out.Canary
 		*out = new(CanaryConfig)
+		**out = **in
+	}
+	if in.MaxCPUChangePercent != nil {
+		in, out := &in.MaxCPUChangePercent, &out.MaxCPUChangePercent
+		*out = new(int32)
+		**out = **in
+	}
+	if in.MaxMemoryChangePercent != nil {
+		in, out := &in.MaxMemoryChangePercent, &out.MaxMemoryChangePercent
+		*out = new(int32)
 		**out = **in
 	}
 	if in.Cooldown != nil {

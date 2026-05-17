@@ -291,7 +291,13 @@ func (r *RightSizePolicyReconciler) getPodPrefix(workload client.Object) string 
 // it falls back to the pod-level query and returns samples under the empty
 // string key.
 func queryMetricsGrouped(ctx context.Context, collector rsmetrics.MetricsCollector, namespace, podPrefix, metric string, start, end time.Time, step time.Duration) (map[string][]rsmetrics.Sample, bool) {
+	logger := log.FromContext(ctx)
 	query := buildPrometheusQuery(namespace, podPrefix, "", metric)
+
+	logger.V(1).Info("Querying Prometheus",
+		"metric", metric, "query", query,
+		"start", start.Format(time.RFC3339), "end", end.Format(time.RFC3339),
+		"step", step)
 
 	queryType := metric + "_grouped"
 	queryStart := time.Now()
@@ -299,9 +305,26 @@ func queryMetricsGrouped(ctx context.Context, collector rsmetrics.MetricsCollect
 	operatormetrics.PrometheusQueryDuration.WithLabelValues(queryType).Observe(time.Since(queryStart).Seconds())
 	if err != nil {
 		operatormetrics.PrometheusQueryErrors.WithLabelValues(namespace, queryType).Inc()
-		log.FromContext(ctx).Error(err, "Failed to query grouped metrics", "metric", metric, "query", query)
+		logger.Error(err, "Failed to query grouped metrics", "metric", metric, "query", query)
 		return map[string][]rsmetrics.Sample{}, true
 	}
+
+	// V(1): log when query succeeds but returns no data.
+	totalSamples := 0
+	for _, samples := range grouped {
+		totalSamples += len(samples)
+	}
+	if totalSamples == 0 {
+		logger.V(1).Info("Prometheus query returned no data",
+			"metric", metric, "query", query)
+	}
+	// V(2): log per-container sample counts.
+	for container, samples := range grouped {
+		logger.V(2).Info("Prometheus query samples",
+			"metric", metric, "container", container,
+			"sampleCount", len(samples))
+	}
+
 	return grouped, false
 }
 

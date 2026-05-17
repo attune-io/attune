@@ -164,7 +164,7 @@ func createPolicy(t *testing.T, name, namespace, deployName string, mode rightsi
 				Prometheus: &rightsizev1alpha1.PrometheusConfig{
 					Address: promAddr,
 				},
-				MinimumDataPoints: 1,
+				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 			},
 			CPU: rightsizev1alpha1.ResourceConfig{
@@ -188,8 +188,8 @@ func createPolicy(t *testing.T, name, namespace, deployName string, mode rightsi
 				Mode:                   mode,
 				Cooldown:               &metav1.Duration{Duration: time.Minute},
 				AutoRevert:             boolPtr(true),
-				MaxCPUChangePercent:    100,
-				MaxMemoryChangePercent: 100,
+				MaxCPUChangePercent:    int32Ptr(100),
+				MaxMemoryChangePercent: int32Ptr(100),
 			},
 		},
 	}
@@ -458,7 +458,7 @@ func TestE2E_MultiContainer_ExcludesSidecar(t *testing.T) {
 			TargetRef: rightsizev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
 			MetricsSource: rightsizev1alpha1.MetricsSource{
 				Prometheus:        &rightsizev1alpha1.PrometheusConfig{Address: promAddr},
-				MinimumDataPoints: 1,
+				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 			},
 			CPU: rightsizev1alpha1.ResourceConfig{
@@ -473,7 +473,7 @@ func TestE2E_MultiContainer_ExcludesSidecar(t *testing.T) {
 			ExcludeContainers: []string{"istio-proxy"},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 				Mode: rightsizev1alpha1.UpdateModeAuto, Cooldown: &metav1.Duration{Duration: time.Minute},
-				AutoRevert: boolPtr(true), MaxCPUChangePercent: 100, MaxMemoryChangePercent: 100,
+				AutoRevert: boolPtr(true), MaxCPUChangePercent: int32Ptr(100), MaxMemoryChangePercent: int32Ptr(100),
 			},
 		},
 	}
@@ -621,7 +621,7 @@ func TestE2E_BudgetCaps_DefersResize(t *testing.T) {
 			TargetRef: rightsizev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
 			MetricsSource: rightsizev1alpha1.MetricsSource{
 				Prometheus:        &rightsizev1alpha1.PrometheusConfig{Address: promAddr},
-				MinimumDataPoints: 1,
+				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 			},
 			CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.2"},
@@ -630,8 +630,8 @@ func TestE2E_BudgetCaps_DefersResize(t *testing.T) {
 				Mode:                   rightsizev1alpha1.UpdateModeAuto,
 				Cooldown:               &metav1.Duration{Duration: time.Minute},
 				MaxTotalCPUIncrease:    &tightBudget,
-				MaxCPUChangePercent:    100,
-				MaxMemoryChangePercent: 100,
+				MaxCPUChangePercent:    int32Ptr(100),
+				MaxMemoryChangePercent: int32Ptr(100),
 			},
 		},
 	}
@@ -670,7 +670,7 @@ func TestE2E_ScheduleWindow_SkipsOutsideWindow(t *testing.T) {
 			TargetRef: rightsizev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
 			MetricsSource: rightsizev1alpha1.MetricsSource{
 				Prometheus:        &rightsizev1alpha1.PrometheusConfig{Address: promAddr},
-				MinimumDataPoints: 1,
+				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 			},
 			CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.2"},
@@ -678,8 +678,8 @@ func TestE2E_ScheduleWindow_SkipsOutsideWindow(t *testing.T) {
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 				Mode:                   rightsizev1alpha1.UpdateModeAuto,
 				Cooldown:               &metav1.Duration{Duration: time.Minute},
-				MaxCPUChangePercent:    100,
-				MaxMemoryChangePercent: 100,
+				MaxCPUChangePercent:    int32Ptr(100),
+				MaxMemoryChangePercent: int32Ptr(100),
 				Schedule: &rightsizev1alpha1.ResizeSchedule{
 					DaysOfWeek: excludedDays,
 					Windows:    []rightsizev1alpha1.TimeWindow{{Start: "00:00", End: "23:59"}},
@@ -725,7 +725,7 @@ func TestE2E_BearerToken_Authenticates(t *testing.T) {
 						Key:  "token",
 					},
 				},
-				MinimumDataPoints: 1,
+				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 			},
 			CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.2"},
@@ -761,7 +761,7 @@ func TestE2E_EvictionFallback_ResizesWithInPlaceOrEvict(t *testing.T) {
 			TargetRef: rightsizev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
 			MetricsSource: rightsizev1alpha1.MetricsSource{
 				Prometheus:        &rightsizev1alpha1.PrometheusConfig{Address: promAddr},
-				MinimumDataPoints: 1,
+				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 			},
 			CPU: rightsizev1alpha1.ResourceConfig{
@@ -784,8 +784,8 @@ func TestE2E_EvictionFallback_ResizesWithInPlaceOrEvict(t *testing.T) {
 				Cooldown:               &metav1.Duration{Duration: time.Minute},
 				AutoRevert:             boolPtr(true),
 				ResizeMethod:           rightsizev1alpha1.ResizeMethodInPlaceOrEvict,
-				MaxCPUChangePercent:    100,
-				MaxMemoryChangePercent: 100,
+				MaxCPUChangePercent:    int32Ptr(100),
+				MaxMemoryChangePercent: int32Ptr(100),
 			},
 		},
 	}
@@ -922,7 +922,7 @@ func TestE2E_BearerToken_SecretRotation(t *testing.T) {
 						Key:  "token",
 					},
 				},
-				MinimumDataPoints: 1,
+				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 			},
 			CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.2"},
@@ -1023,7 +1023,7 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 			TargetRef: rightsizev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
 			MetricsSource: rightsizev1alpha1.MetricsSource{
 				Prometheus:        &rightsizev1alpha1.PrometheusConfig{Address: promAddr},
-				MinimumDataPoints: 1,
+				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 			},
 			CPU: rightsizev1alpha1.ResourceConfig{
@@ -1043,8 +1043,8 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 				Mode:                   rightsizev1alpha1.UpdateModeAuto,
 				Cooldown:               &metav1.Duration{Duration: 1 * time.Minute},
 				AutoRevert:             boolPtr(true),
-				MaxCPUChangePercent:    100,
-				MaxMemoryChangePercent: 100,
+				MaxCPUChangePercent:    int32Ptr(100),
+				MaxMemoryChangePercent: int32Ptr(100),
 				Canary: &rightsizev1alpha1.CanaryConfig{
 					Percentage:        100,
 					ObservationPeriod: metav1.Duration{Duration: time.Minute},

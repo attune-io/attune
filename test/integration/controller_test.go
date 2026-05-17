@@ -277,7 +277,7 @@ func newTestPolicy(name, namespace, deploymentName string) *rightsizev1alpha1.Ri
 				Prometheus: &rightsizev1alpha1.PrometheusConfig{
 					Address: "http://prometheus:9090",
 				},
-				MinimumDataPoints: 1,
+				MinimumDataPoints: int32Ptr(1),
 			},
 			CPU: rightsizev1alpha1.ResourceConfig{
 				Percentile:   95,
@@ -421,7 +421,7 @@ func TestReconcile_LabelSelectorTargetsMultipleWorkloads(t *testing.T) {
 				Prometheus: &rightsizev1alpha1.PrometheusConfig{
 					Address: "http://prometheus:9090",
 				},
-				MinimumDataPoints: 1,
+				MinimumDataPoints: int32Ptr(1),
 			},
 			CPU: rightsizev1alpha1.ResourceConfig{
 				Percentile:   95,
@@ -515,7 +515,7 @@ func TestReconcile_DefaultsMergingFromClusterDefaults(t *testing.T) {
 				Prometheus: &rightsizev1alpha1.PrometheusConfig{
 					Address: "http://prometheus:9090",
 				},
-				MinimumDataPoints: 1,
+				MinimumDataPoints: int32Ptr(1),
 			},
 			CPU: rightsizev1alpha1.ResourceConfig{},
 			Memory: rightsizev1alpha1.ResourceConfig{},
@@ -588,7 +588,7 @@ func TestReconcile_NamespaceDefaultsDoNotMergeClusterResourceFields(t *testing.T
 				Prometheus: &rightsizev1alpha1.PrometheusConfig{
 					Address: "http://prometheus:9090",
 				},
-				MinimumDataPoints: 1,
+				MinimumDataPoints: int32Ptr(1),
 			},
 			CPU: rightsizev1alpha1.ResourceConfig{},
 			Memory: rightsizev1alpha1.ResourceConfig{},
@@ -715,7 +715,7 @@ func TestReconcile_ConcurrentResizesFieldProcessedWithoutRaces(t *testing.T) {
 				Prometheus: &rightsizev1alpha1.PrometheusConfig{
 					Address: "http://prometheus:9090",
 				},
-				MinimumDataPoints: 1,
+				MinimumDataPoints: int32Ptr(1),
 			},
 			CPU: rightsizev1alpha1.ResourceConfig{
 				Percentile:   95,

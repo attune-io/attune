@@ -55,6 +55,9 @@ const (
 	DefaultControlledValues             = ControlledRequestsOnly
 	DefaultHistoryWindow                = "168h"
 	DefaultCooldown                     = "1h"
+	DefaultResizeMethod                 = ResizeMethodInPlaceOnly
+	DefaultMinimumDataPoints      int32 = 48
+	DefaultAutoRevert                   = true
 )
 
 // Default resource bounds applied when a policy does not specify explicit bounds.

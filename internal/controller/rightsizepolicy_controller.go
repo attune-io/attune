@@ -323,6 +323,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 	}
 	r.mergeDefaults(&policy, defaults)
+	r.applyBuiltInDefaults(&policy)
 
 	// Step 2: Resolve Prometheus address and config from spec or RightSizeDefaults.
 	promConfig, err := r.resolvePrometheusConfig(ctx, &policy, defaults)
@@ -791,6 +792,43 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 			rec.Explanation = explanation
 		}
 
+		// V(1): log per-container recommendation summary.
+		cpuChanged := !rec.Recommended.CPURequest.Equal(rec.Current.CPURequest)
+		memChanged := !rec.Recommended.MemoryRequest.Equal(rec.Current.MemoryRequest)
+		logger.V(1).Info("Computed recommendation",
+			"container", containerName,
+			"cpuCurrent", rec.Current.CPURequest.String(),
+			"cpuRecommended", rec.Recommended.CPURequest.String(),
+			"cpuChanged", cpuChanged,
+			"memCurrent", rec.Current.MemoryRequest.String(),
+			"memRecommended", rec.Recommended.MemoryRequest.String(),
+			"memChanged", memChanged,
+			"confidence", rec.Confidence)
+
+		// V(2): log full recommendation chain if explanation is available.
+		if explanation.CPU != nil {
+			logger.V(2).Info("CPU recommendation chain",
+				"container", containerName,
+				"rawPercentile", explanation.CPU.RawPercentile.String(),
+				"afterMargin", explanation.CPU.AfterSafetyMargin.String(),
+				"burstFactor", explanation.CPU.BurstFactor,
+				"afterConfidence", explanation.CPU.AfterConfidence.String(),
+				"boundsApplied", explanation.CPU.BoundsApplied,
+				"changeFilter", explanation.CPU.ChangeFilterApplied,
+				"final", explanation.CPU.Final.String())
+		}
+		if explanation.Memory != nil {
+			logger.V(2).Info("Memory recommendation chain",
+				"container", containerName,
+				"rawPercentile", explanation.Memory.RawPercentile.String(),
+				"afterMargin", explanation.Memory.AfterSafetyMargin.String(),
+				"burstFactor", explanation.Memory.BurstFactor,
+				"afterConfidence", explanation.Memory.AfterConfidence.String(),
+				"boundsApplied", explanation.Memory.BoundsApplied,
+				"changeFilter", explanation.Memory.ChangeFilterApplied,
+				"final", explanation.Memory.Final.String())
+		}
+
 		// Scale limits proportionally if ControlledValues is RequestsAndLimits.
 		cpuControlled := rightsizev1alpha1.ControlledRequestsOnly
 		if policy.Spec.CPU.ControlledValues != nil {
@@ -1080,6 +1118,9 @@ func (r *RightSizePolicyReconciler) executeResizes(
 			continue
 		}
 		selectedPods := selectPodsForResize(pods, mode, canaryPct)
+		logger.V(1).Info("Pod selection for resize",
+			"workload", rec.Workload, "total", len(pods),
+			"selected", len(selectedPods), "mode", mode)
 		if len(selectedPods) == 0 {
 			continue
 		}
@@ -1525,8 +1566,16 @@ func buildRecommendationEngines(policy *rightsizev1alpha1.RightSizePolicy) (cpuE
 	}
 
 	// Defense-in-depth: clamp maxChangePercent to [1, 100] even if webhook is bypassed.
-	maxCPUChange := min(max(float64(policy.Spec.UpdateStrategy.MaxCPUChangePercent), 1), 100)
-	maxMemChange := min(max(float64(policy.Spec.UpdateStrategy.MaxMemoryChangePercent), 1), 100)
+	maxCPUPct := rightsizev1alpha1.DefaultMaxCPUChangePercent
+	if policy.Spec.UpdateStrategy.MaxCPUChangePercent != nil {
+		maxCPUPct = *policy.Spec.UpdateStrategy.MaxCPUChangePercent
+	}
+	maxMemPct := rightsizev1alpha1.DefaultMaxMemoryChangePercent
+	if policy.Spec.UpdateStrategy.MaxMemoryChangePercent != nil {
+		maxMemPct = *policy.Spec.UpdateStrategy.MaxMemoryChangePercent
+	}
+	maxCPUChange := min(max(float64(maxCPUPct), 1), 100)
+	maxMemChange := min(max(float64(maxMemPct), 1), 100)
 
 	// Parse per-resource burst sensitivity; nil means default (0.1).
 	cpuOpts := recommendation.EngineOpts{IsCPU: true}
@@ -2156,6 +2205,9 @@ func (r *RightSizePolicyReconciler) exportRecommendationConfigMaps(
 		existing.Labels = cm.Labels
 		if updateErr := r.Update(ctx, &existing); updateErr != nil {
 			logger.Error(updateErr, "Failed to update recommendation ConfigMap", "configmap", cmName)
+		} else {
+			logger.V(1).Info("Exported recommendations to ConfigMap",
+				"configMap", cmName, "workload", rec.Workload)
 		}
 	}
 }

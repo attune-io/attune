@@ -33,13 +33,11 @@ check_default "minimumDataPoints (Go)" \
   "defaultMinimumDataPoints.*= 48" \
   "internal/controller/rightsizepolicy_controller.go"
 
-# CRD schemas (generated, should say default: 48)
-check_default "minimumDataPoints (CRD policy)" \
-  "default: 48" \
-  "config/crd/bases/rightsize.io_rightsizepolicies.yaml"
-check_default "minimumDataPoints (CRD defaults)" \
-  "default: 48" \
-  "config/crd/bases/rightsize.io_rightsizedefaults.yaml"
+# Go defaults.go (canonical source; CRD no longer has +kubebuilder:default
+# because defaulting moved to controller for RightSizeDefaults compatibility)
+check_default "minimumDataPoints (defaults.go)" \
+  "DefaultMinimumDataPoints.*= 48" \
+  "api/v1alpha1/defaults.go"
 
 # Docs that state the default
 check_default "minimumDataPoints (API ref)" \
