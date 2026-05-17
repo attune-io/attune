@@ -69,5 +69,9 @@ func (d *RightSizePolicyDefaulter) Default(ctx context.Context, policy *rightsiz
 		}
 		policy.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: d}
 	}
+	if policy.Spec.UpdateStrategy.AutoRevert == nil {
+		t := true
+		policy.Spec.UpdateStrategy.AutoRevert = &t
+	}
 	return nil
 }

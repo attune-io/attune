@@ -313,7 +313,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	// Check pending safety observations from previous resizes before computing
 	// new recommendations. Uses already-discovered workloads for provenance.
-	if policy.Spec.UpdateStrategy.AutoRevert {
+	if autoRevertEnabled(policy.Spec.UpdateStrategy) {
 		r.checkPendingSafetyObservations(ctx, &policy, collector, workloads)
 	}
 
@@ -541,7 +541,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	// Step 10: Requeue after cooldown, or sooner if safety observations are pending.
 	cooldown := r.parseCooldown(&policy)
 	requeueAfter := cooldown
-	if policy.Spec.UpdateStrategy.AutoRevert && policy.Status.Workloads.Resized > 0 {
+	if autoRevertEnabled(policy.Spec.UpdateStrategy) && policy.Status.Workloads.Resized > 0 {
 		obs := getObservationPeriod(&policy)
 		if obs < requeueAfter {
 			requeueAfter = obs
@@ -1214,7 +1214,7 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 		return history, false
 	}
 
-	if policy.Spec.UpdateStrategy.AutoRevert {
+	if autoRevertEnabled(policy.Spec.UpdateStrategy) {
 		observationEnd := now.Add(getObservationPeriod(policy))
 		record := safety.ResizeRecord{
 			PodName:           pod.Name,

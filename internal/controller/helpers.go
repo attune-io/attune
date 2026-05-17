@@ -723,6 +723,12 @@ func (r *RightSizePolicyReconciler) newSafetyMonitor(logger logr.Logger, collect
 	return monitor
 }
 
+// autoRevertEnabled returns true when the policy's AutoRevert setting is nil
+// (defaulting to true) or explicitly set to true.
+func autoRevertEnabled(s rightsizev1alpha1.UpdateStrategy) bool {
+	return s.AutoRevert == nil || *s.AutoRevert
+}
+
 // getObservationPeriod returns the safety observation period from the policy's
 // canary config, falling back to defaultObservationPeriod.
 func getObservationPeriod(policy *rightsizev1alpha1.RightSizePolicy) time.Duration {

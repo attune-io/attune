@@ -72,6 +72,11 @@ func stringPtr(s string) *string {
 	return &s
 }
 
+// boolPtr returns a pointer to a bool.
+func boolPtr(b bool) *bool {
+	return &b
+}
+
 // newTestDeployment creates a Deployment for testing.
 func newTestDeployment(name, namespace string, labels map[string]string) *appsv1.Deployment {
 	return &appsv1.Deployment{
@@ -3234,7 +3239,7 @@ func TestExecuteResizes_AutoRevert_SafeVerdictNoRevert(t *testing.T) {
 
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeAuto
-	policy.Spec.UpdateStrategy.AutoRevert = true
+	policy.Spec.UpdateStrategy.AutoRevert = boolPtr(true)
 
 	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
 		newResizeRecommendation("api-server", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),
@@ -4043,7 +4048,7 @@ func TestReconcile_FetchDefaultsErrorFailsClosed(t *testing.T) {
 
 func TestReconcile_AutoRevertCallsSafetyObservations(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.AutoRevert = true
+	policy.Spec.UpdateStrategy.AutoRevert = boolPtr(true)
 
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
 	pod := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
@@ -4342,7 +4347,7 @@ func TestExecuteResizes_EmitsResizedEvent(t *testing.T) {
 
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeAuto
-	policy.Spec.UpdateStrategy.AutoRevert = false
+	policy.Spec.UpdateStrategy.AutoRevert = boolPtr(false)
 
 	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
 		newResizeRecommendation("api-server", "500m", "256Mi", "500m", "256Mi", "250m", "128Mi", "250m", "128Mi"),
@@ -4383,7 +4388,7 @@ func TestExecuteResizes_ThrottleTriggersRevert(t *testing.T) {
 
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeAuto
-	policy.Spec.UpdateStrategy.AutoRevert = true
+	policy.Spec.UpdateStrategy.AutoRevert = boolPtr(true)
 
 	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
 		newResizeRecommendation("api-server", "500m", "256Mi", "500m", "256Mi", "250m", "128Mi", "250m", "128Mi"),

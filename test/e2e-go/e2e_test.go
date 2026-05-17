@@ -187,7 +187,7 @@ func createPolicy(t *testing.T, name, namespace, deployName string, mode rightsi
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 				Mode:                   mode,
 				Cooldown:               &metav1.Duration{Duration: time.Minute},
-				AutoRevert:             true,
+				AutoRevert:             boolPtr(true),
 				MaxCPUChangePercent:    100,
 				MaxMemoryChangePercent: 100,
 			},
@@ -473,7 +473,7 @@ func TestE2E_MultiContainer_ExcludesSidecar(t *testing.T) {
 			ExcludeContainers: []string{"istio-proxy"},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 				Mode: rightsizev1alpha1.UpdateModeAuto, Cooldown: &metav1.Duration{Duration: time.Minute},
-				AutoRevert: true, MaxCPUChangePercent: 100, MaxMemoryChangePercent: 100,
+				AutoRevert: boolPtr(true), MaxCPUChangePercent: 100, MaxMemoryChangePercent: 100,
 			},
 		},
 	}
@@ -782,7 +782,7 @@ func TestE2E_EvictionFallback_ResizesWithInPlaceOrEvict(t *testing.T) {
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 				Mode:                   rightsizev1alpha1.UpdateModeAuto,
 				Cooldown:               &metav1.Duration{Duration: time.Minute},
-				AutoRevert:             true,
+				AutoRevert:             boolPtr(true),
 				ResizeMethod:           rightsizev1alpha1.ResizeMethodInPlaceOrEvict,
 				MaxCPUChangePercent:    100,
 				MaxMemoryChangePercent: 100,
@@ -1042,7 +1042,7 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 				Mode:                   rightsizev1alpha1.UpdateModeAuto,
 				Cooldown:               &metav1.Duration{Duration: 1 * time.Minute},
-				AutoRevert:             true,
+				AutoRevert:             boolPtr(true),
 				MaxCPUChangePercent:    100,
 				MaxMemoryChangePercent: 100,
 				Canary: &rightsizev1alpha1.CanaryConfig{

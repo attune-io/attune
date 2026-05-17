@@ -250,7 +250,7 @@ type UpdateStrategy struct {
 
 	// AutoRevert automatically reverts changes if degradation is detected.
 	// +kubebuilder:default=true
-	AutoRevert bool `json:"autoRevert,omitempty"`
+	AutoRevert *bool `json:"autoRevert,omitempty"`
 
 	// ResizeMethod controls what happens when an in-place resize fails.
 	//   InPlaceOnly (default): skip the pod and retry next cycle.

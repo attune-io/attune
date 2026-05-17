@@ -700,6 +700,11 @@ func (in *UpdateStrategy) DeepCopyInto(out *UpdateStrategy) {
 		*out = new(v1.Duration)
 		**out = **in
 	}
+	if in.AutoRevert != nil {
+		in, out := &in.AutoRevert, &out.AutoRevert
+		*out = new(bool)
+		**out = **in
+	}
 	if in.Schedule != nil {
 		in, out := &in.Schedule, &out.Schedule
 		*out = new(ResizeSchedule)
