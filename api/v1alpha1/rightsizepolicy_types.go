@@ -609,7 +609,7 @@ type ResizeHistoryEntry struct {
 	Container string `json:"container"`
 
 	// Resource is the resource type that was resized.
-	// +kubebuilder:validation:Enum=cpu;memory
+	// +kubebuilder:validation:Enum=cpu;memory;cpu+memory
 	Resource string `json:"resource"`
 
 	// From is the previous resource value.
@@ -619,7 +619,7 @@ type ResizeHistoryEntry struct {
 	To string `json:"to"`
 
 	// Method is the resize method used.
-	// +kubebuilder:validation:Enum=InPlace
+	// +kubebuilder:validation:Enum=InPlace;Eviction
 	Method string `json:"method"`
 
 	// Result is the outcome of the resize operation.

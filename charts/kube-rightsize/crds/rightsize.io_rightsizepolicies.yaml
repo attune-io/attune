@@ -1101,12 +1101,14 @@ spec:
                       description: Method is the resize method used.
                       enum:
                       - InPlace
+                      - Eviction
                       type: string
                     resource:
                       description: Resource is the resource type that was resized.
                       enum:
                       - cpu
                       - memory
+                      - cpu+memory
                       type: string
                     result:
                       description: Result is the outcome of the resize operation.
