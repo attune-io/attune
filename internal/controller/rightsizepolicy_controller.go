@@ -2041,16 +2041,24 @@ func (r *RightSizePolicyReconciler) adjustHPATargets(
 			if m.Resource.Name != corev1.ResourceCPU || m.Resource.Target.Type != autoscalingv2.UtilizationMetricType || m.Resource.Target.AverageUtilization == nil {
 				continue
 			}
-			oldTarget := *m.Resource.Target.AverageUtilization
-			// newTarget = oldTarget * (oldRequest / newRequest), capped at 100.
-			newTarget := int32(float64(oldTarget) * float64(oldCPURequest.MilliValue()) / float64(newCPURequest.MilliValue()))
+			currentTarget := *m.Resource.Target.AverageUtilization
+			// Use the stored original target (from first adjustment) to avoid
+			// progressive drift on subsequent cycles.
+			baseTarget := currentTarget
+			if stored := hpa.Annotations[annotationHPAOriginalCPU]; stored != "" {
+				if v, parseErr := strconv.ParseInt(stored, 10, 32); parseErr == nil {
+					baseTarget = int32(v)
+				}
+			}
+			// newTarget = baseTarget * (oldRequest / newRequest), capped at 100.
+			newTarget := int32(float64(baseTarget) * float64(oldCPURequest.MilliValue()) / float64(newCPURequest.MilliValue()))
 			if newTarget > 100 {
 				newTarget = 100
 			}
 			if newTarget < 1 {
 				newTarget = 1
 			}
-			if newTarget == oldTarget {
+			if newTarget == currentTarget {
 				adjusted = true // no change needed but metric was found
 				break
 			}
@@ -2060,11 +2068,11 @@ func (r *RightSizePolicyReconciler) adjustHPATargets(
 				if hpa.Annotations == nil {
 					hpa.Annotations = make(map[string]string)
 				}
-				hpa.Annotations[annotationHPAOriginalCPU] = strconv.FormatInt(int64(oldTarget), 10)
+				hpa.Annotations[annotationHPAOriginalCPU] = strconv.FormatInt(int64(currentTarget), 10)
 			}
 			logger.Info("Auto-tuning HPA CPU target after resize",
 				"hpa", hpa.Name, "workload", workloadName,
-				"oldTarget", oldTarget, "newTarget", newTarget,
+				"currentTarget", currentTarget, "newTarget", newTarget,
 				"oldRequest", oldCPURequest.String(), "newRequest", newCPURequest.String())
 			m.Resource.Target.AverageUtilization = &newTarget
 			if err := r.Update(ctx, hpa); err != nil {

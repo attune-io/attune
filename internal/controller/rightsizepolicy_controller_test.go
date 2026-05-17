@@ -5811,6 +5811,144 @@ func TestApplyStartupBoosts_SkipsPodOutsideWindow(t *testing.T) {
 	}
 }
 
+func TestAdjustHPATargets_IdempotentOnSecondCall(t *testing.T) {
+	scheme := testScheme()
+	origTarget := int32(80)
+	hpas := []autoscalingv2.HorizontalPodAutoscaler{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "my-app-hpa",
+				Namespace: "default",
+				Annotations: map[string]string{
+					annotationHPAAutoTune: "true",
+				},
+			},
+			Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+				ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+					Kind: "Deployment",
+					Name: "my-app",
+				},
+				Metrics: []autoscalingv2.MetricSpec{
+					{
+						Type: autoscalingv2.ResourceMetricSourceType,
+						Resource: &autoscalingv2.ResourceMetricSource{
+							Name: corev1.ResourceCPU,
+							Target: autoscalingv2.MetricTarget{
+								Type:               autoscalingv2.UtilizationMetricType,
+								AverageUtilization: &origTarget,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&hpas[0]).Build()
+	r := &RightSizePolicyReconciler{
+		Client: fakeClient,
+		Scheme: scheme,
+	}
+
+	// First call: 200m -> 400m, target should halve: 80 * (200/400) = 40.
+	r.adjustHPATargets(context.Background(), hpas, "my-app", "Deployment",
+		resource.MustParse("200m"), resource.MustParse("400m"))
+
+	// Re-fetch the HPA to get updated state.
+	var hpa autoscalingv2.HorizontalPodAutoscaler
+	err := fakeClient.Get(context.Background(), client.ObjectKey{
+		Namespace: "default",
+		Name:      "my-app-hpa",
+	}, &hpa)
+	require.NoError(t, err)
+	require.Equal(t, int32(40), *hpa.Spec.Metrics[0].Resource.Target.AverageUtilization)
+
+	// Second call with same args (e.g., canary promote). Target should stay 40.
+	updatedHPAs := []autoscalingv2.HorizontalPodAutoscaler{hpa}
+	r.adjustHPATargets(context.Background(), updatedHPAs, "my-app", "Deployment",
+		resource.MustParse("200m"), resource.MustParse("400m"))
+
+	err = fakeClient.Get(context.Background(), client.ObjectKey{
+		Namespace: "default",
+		Name:      "my-app-hpa",
+	}, &hpa)
+	require.NoError(t, err)
+	// Should be 40 (idempotent), not 20 (double-adjusted).
+	assert.Equal(t, int32(40), *hpa.Spec.Metrics[0].Resource.Target.AverageUtilization)
+}
+
+func TestApplyStartupBoosts_ExpiresBoostAfterDuration(t *testing.T) {
+	scheme := testScheme()
+	now := time.Date(2026, 1, 1, 0, 5, 0, 0, time.UTC) // 5 minutes after boost
+	boostTime := now.Add(-3 * time.Minute)             // boosted 3 min ago
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			CPU: rightsizev1alpha1.ResourceConfig{
+				StartupBoost: &rightsizev1alpha1.StartupBoost{
+					Multiplier: "3.0",
+					Duration:   metav1.Duration{Duration: 2 * time.Minute}, // 2 min duration, expired
+				},
+			},
+		},
+	}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "my-app-xyz",
+			Namespace:         "default",
+			CreationTimestamp: metav1.NewTime(boostTime),
+			Annotations: map[string]string{
+				annotationStartupBoostAt: boostTime.UTC().Format(time.RFC3339), // boost was applied
+			},
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("600m")}, // boosted
+					},
+				},
+			},
+		},
+	}
+	clientset := kubefake.NewSimpleClientset(pod)
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod).Build()
+	r := &RightSizePolicyReconciler{
+		Client:    fakeClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+	}
+	r.SetNowFunc(func() time.Time { return now })
+
+	logger := ctrl.Log.WithName("test")
+	resizer := resize.NewPodResizer(clientset, logger)
+	recs := []rightsizev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "my-app",
+			Kind:     "Deployment",
+			Containers: []rightsizev1alpha1.ContainerRecommendation{
+				{Name: "main", Recommended: rightsizev1alpha1.ResourceValues{CPURequest: resource.MustParse("200m")}},
+			},
+		},
+	}
+	podsByWorkload := map[string][]corev1.Pod{"my-app": {*pod}}
+
+	r.applyStartupBoosts(context.Background(), policy, podsByWorkload, recs, resizer)
+
+	// Verify a resize action was taken (reducing back to steady-state).
+	actions := clientset.Actions()
+	var foundResize bool
+	for _, a := range actions {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			foundResize = true
+			break
+		}
+	}
+	assert.True(t, foundResize, "expected a resize action for boost expiry")
+}
+
 func TestAdjustHPATargets_SkipsWithoutAnnotation(t *testing.T) {
 	scheme := testScheme()
 	oldTarget := int32(80)

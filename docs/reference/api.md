@@ -134,7 +134,7 @@ spec:
 
 `ResourceRecommendationExplanation` contains the intermediate fields emitted by
 the estimator chain: `rawPercentile`, `safetyMargin`, `afterSafetyMargin`,
-`confidence`, `confidenceFactor`, `afterConfidence`, `bounds`,
+`burstFactor`, `afterBurst`, `confidence`, `confidenceFactor`, `afterConfidence`, `bounds`,
 `boundsApplied`, `afterBounds`, `minChangePercent`, `maxChangePercent`,
 `changeFilterApplied`, `afterChangeFilter`, `final`, and optional
 `finalAdjustment`.
