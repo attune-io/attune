@@ -333,7 +333,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	logger.Info("Discovered workloads", "count", len(workloads))
 
 	if len(workloads) == 0 {
-		earlyNow := metav1.Now()
+		earlyNow := metav1.NewTime(r.now())
 		policy.Status.LastReconcileTime = &earlyNow
 		policy.Status.Workloads = rightsizev1alpha1.WorkloadStatus{}
 		r.setFailedCondition(ctx, &policy, rightsizev1alpha1.ReasonInsufficientData, "No matching workloads found")
@@ -426,7 +426,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	// Step 8: Update status fields.
-	nowMeta := metav1.Now()
+	nowMeta := metav1.NewTime(r.now())
 	policy.Status.LastReconcileTime = &nowMeta
 	minimumDP := r.getMinimumDataPoints(&policy)
 	policy.Status.Workloads = rightsizev1alpha1.WorkloadStatus{
@@ -925,7 +925,7 @@ func (r *RightSizePolicyReconciler) executeResizes(
 
 	var totalResized int
 	var history []rightsizev1alpha1.ResizeHistoryEntry
-	now := metav1.Now()
+	now := metav1.NewTime(r.now())
 
 	// Per-cycle budget caps. Protected by budgetMu for concurrent access.
 	var budgetMu sync.Mutex
@@ -1158,6 +1158,15 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 			corev1.ResourceCPU:    containerRec.Current.CPURequest.DeepCopy(),
 			corev1.ResourceMemory: containerRec.Current.MemoryRequest.DeepCopy(),
 		},
+	}
+	if !containerRec.Current.CPULimit.IsZero() || !containerRec.Current.MemoryLimit.IsZero() {
+		originalResources.Limits = make(corev1.ResourceList)
+		if !containerRec.Current.CPULimit.IsZero() {
+			originalResources.Limits[corev1.ResourceCPU] = containerRec.Current.CPULimit.DeepCopy()
+		}
+		if !containerRec.Current.MemoryLimit.IsZero() {
+			originalResources.Limits[corev1.ResourceMemory] = containerRec.Current.MemoryLimit.DeepCopy()
+		}
 	}
 
 	var restartCount int32
@@ -1499,7 +1508,7 @@ func (r *RightSizePolicyReconciler) resolveCanaryPhase(ctx context.Context, poli
 
 	// Phase: not started yet. Initialize canary tracking on the next resize.
 	if cs == nil {
-		now := metav1.Now()
+		now := metav1.NewTime(r.now())
 		policy.Status.Canary = &rightsizev1alpha1.CanaryStatus{
 			Phase:              rightsizev1alpha1.CanaryPhaseInProgress,
 			StartTime:          &now,
@@ -1663,16 +1672,16 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 		if revertFailed {
 			continue
 		}
-		// Re-fetch the pod to get the current resourceVersion. RevertPod calls
-		// UpdateResize which bumps the version; using the stale pod would produce
-		// a guaranteed 409 Conflict on the annotation update.
-		var freshPod corev1.Pod
-		if err := r.Get(ctx, client.ObjectKeyFromObject(pod), &freshPod); err != nil {
-			logger.Error(err, "Failed to re-fetch pod for annotation cleanup", "pod", pod.Name)
+		// Re-fetch directly from API server (not informer cache) to get
+		// fresh resourceVersion after UpdateResize. The cache may not have
+		// the watch event yet, causing a 409 Conflict on annotation update.
+		freshPod, getErr := r.Clientset.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
+		if getErr != nil {
+			logger.Error(getErr, "Failed to re-fetch pod for annotation cleanup", "pod", pod.Name)
 			continue
 		}
-		removeTrackingAnnotations(&freshPod)
-		if updateErr := r.Update(ctx, &freshPod); updateErr != nil {
+		removeTrackingAnnotations(freshPod)
+		if updateErr := r.Update(ctx, freshPod); updateErr != nil {
 			logger.Error(updateErr, "Failed to remove resize tracking annotations", "pod", pod.Name)
 		}
 	}
