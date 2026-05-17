@@ -119,10 +119,10 @@ type RightSizePolicyReconciler struct {
 	MetricsFactory MetricsCollectorFactory
 	Clientset      kubernetes.Interface // for resize subresource calls
 	Recorder       events.EventRecorder
-	MinCooldown    time.Duration    // minimum cooldown floor (default: 1m)
-	CollectorTTL time.Duration // how long unused collectors stay cached (default: 10m)
-	nowFunc      atomic.Pointer[func() time.Time]
-	collectors   sync.Map // map[string]*collectorEntry cache
+	MinCooldown    time.Duration // minimum cooldown floor (default: 1m)
+	CollectorTTL   time.Duration // how long unused collectors stay cached (default: 10m)
+	nowFunc        atomic.Pointer[func() time.Time]
+	collectors     sync.Map // map[string]*collectorEntry cache
 }
 
 // SetNowFunc sets an injectable clock for testing. Safe for concurrent use.
