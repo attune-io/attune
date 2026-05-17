@@ -137,6 +137,8 @@ rules:
       - secrets
     verbs:
       - get
+      - list
+      - watch
   # ResourceQuotas and LimitRanges: read-only (pre-resize compatibility checks)
   - apiGroups:
       - ""
