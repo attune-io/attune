@@ -5050,8 +5050,8 @@ func TestReconcile_NowFuncControlsScheduleGate(t *testing.T) {
 		Client:    fakeClient,
 		Scheme:    scheme,
 		Clientset: clientset,
-		NowFunc:   func() time.Time { return outsideWindow },
 	}
+	r.SetNowFunc(func() time.Time { return outsideWindow })
 
 	result := r.now()
 	assert.Equal(t, outsideWindow, result)
@@ -5060,7 +5060,7 @@ func TestReconcile_NowFuncControlsScheduleGate(t *testing.T) {
 
 	// Wednesday 03:00 UTC -- inside the window.
 	insideWindow := time.Date(2026, 1, 7, 3, 0, 0, 0, time.UTC)
-	r.NowFunc = func() time.Time { return insideWindow }
+	r.SetNowFunc(func() time.Time { return insideWindow })
 	assert.True(t, isWithinResizeWindow(policy.Spec.UpdateStrategy.Schedule, r.now()),
 		"03:00 should be inside 02:00-06:00 window")
 }

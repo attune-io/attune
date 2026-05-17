@@ -633,8 +633,8 @@ func TestReconcile_ScheduleGateBlocksResizeOutsideWindow(t *testing.T) {
 	// Set NowFunc to Monday 10:00 -- outside the Wednesday 02:00-06:00 window.
 	// The reconciler should still compute recommendations but skip resize execution.
 	monday := time.Date(2026, 1, 5, 10, 0, 0, 0, time.UTC) // Monday
-	testReconciler.NowFunc = func() time.Time { return monday }
-	defer func() { testReconciler.NowFunc = nil }()
+	testReconciler.SetNowFunc(func() time.Time { return monday })
+	defer testReconciler.SetNowFunc(nil)
 
 	// The policy should reconcile and discover the workload.
 	assert.Eventually(t, func() bool {
@@ -652,7 +652,7 @@ func TestReconcile_ScheduleGateBlocksResizeOutsideWindow(t *testing.T) {
 
 	// Switch to Wednesday 03:00 -- inside the window.
 	wednesday := time.Date(2026, 1, 7, 3, 0, 0, 0, time.UTC) // Wednesday
-	testReconciler.NowFunc = func() time.Time { return wednesday }
+	testReconciler.SetNowFunc(func() time.Time { return wednesday })
 
 	// Force a re-reconcile by updating the policy annotation.
 	var fetched rightsizev1alpha1.RightSizePolicy
