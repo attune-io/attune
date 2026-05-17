@@ -80,6 +80,9 @@ const (
 	annotationHPAOriginalCPU    = "rightsize.io/original-target-cpu"
 	annotationHPAOriginalMemory = "rightsize.io/original-target-memory"
 
+	// Startup boost annotation.
+	annotationStartupBoostAt = "rightsize.io/startup-boost-at"
+
 	// defaultHistoryWindow is the default history window if not specified.
 	defaultHistoryWindow = 7 * 24 * time.Hour
 
@@ -520,6 +523,19 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			}
 		}
 	}
+	// Apply startup CPU boosts for newly created pods if configured.
+	if policy.Spec.CPU.StartupBoost != nil && r.Clientset != nil && len(recommendations) > 0 {
+		var allPods []corev1.Pod
+		for _, w := range workloads {
+			pods, err := r.getPodsForWorkload(ctx, w)
+			if err == nil {
+				allPods = append(allPods, pods...)
+			}
+		}
+		resizer := resize.NewPodResizer(r.Clientset, logger)
+		r.applyStartupBoosts(ctx, &policy, allPods, recommendations, resizer)
+	}
+
 	if isResizeMode(mode) && !withinWindow {
 		logger.Info("Outside resize window, skipping resize")
 		operatormetrics.ScheduleSkippedTotal.WithLabelValues(policy.Namespace, policy.Name).Inc()
@@ -1873,6 +1889,112 @@ func parseResizeRecords(pod *corev1.Pod, observationPeriod time.Duration, now ti
 		return nil, errNotReady
 	}
 	return records, nil
+}
+
+// applyStartupBoosts checks for recently created pods that need a temporary
+// CPU boost. Pods within the boost duration that don't have the boost annotation
+// get inflated CPU; pods with an expired boost get reduced to steady-state.
+func (r *RightSizePolicyReconciler) applyStartupBoosts(
+	ctx context.Context,
+	policy *rightsizev1alpha1.RightSizePolicy,
+	pods []corev1.Pod,
+	recommendations []rightsizev1alpha1.WorkloadRecommendation,
+	resizer *resize.PodResizer,
+) {
+	boostConfig := policy.Spec.CPU.StartupBoost
+	if boostConfig == nil || r.Clientset == nil {
+		return
+	}
+	logger := log.FromContext(ctx)
+	multiplier, err := strconv.ParseFloat(boostConfig.Multiplier, 64)
+	if err != nil || multiplier <= 1 {
+		return
+	}
+	boostDuration := boostConfig.Duration.Duration
+	now := r.now()
+
+	// Build a map of recommended CPU per container for quick lookup.
+	recMap := make(map[string]resource.Quantity) // "workload/container" -> recommended CPU
+	for _, rec := range recommendations {
+		for _, c := range rec.Containers {
+			recMap[rec.Workload+"/"+c.Name] = c.Recommended.CPURequest
+		}
+	}
+
+	for i := range pods {
+		pod := &pods[i]
+		if pod.Status.Phase != corev1.PodRunning {
+			continue
+		}
+		workloadName := pod.Labels["app"]
+		if workloadName == "" {
+			continue
+		}
+
+		boostAtStr := pod.Annotations[annotationStartupBoostAt]
+		podAge := now.Sub(pod.CreationTimestamp.Time)
+
+		if boostAtStr == "" && podAge < boostDuration {
+			// New pod within boost window: apply boosted CPU.
+			for _, c := range pod.Spec.Containers {
+				recCPU, ok := recMap[workloadName+"/"+c.Name]
+				if !ok {
+					continue
+				}
+				boostedMillis := int64(float64(recCPU.MilliValue()) * multiplier)
+				boostedCPU := *resource.NewMilliQuantity(boostedMillis, resource.DecimalSI)
+				if c.Resources.Requests.Cpu().Cmp(boostedCPU) >= 0 {
+					continue // already at or above boosted level
+				}
+				target := corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceCPU: boostedCPU},
+				}
+				if _, err := resizer.ResizePod(ctx, pod, c.Name, target); err != nil {
+					logger.Error(err, "Failed to apply startup CPU boost", "pod", pod.Name, "container", c.Name)
+					continue
+				}
+				logger.Info("Applied startup CPU boost",
+					"pod", pod.Name, "container", c.Name,
+					"boostedCPU", boostedCPU.String(), "steadyState", recCPU.String())
+			}
+			// Mark the pod with boost timestamp.
+			if pod.Annotations == nil {
+				pod.Annotations = make(map[string]string)
+			}
+			pod.Annotations[annotationStartupBoostAt] = now.UTC().Format(time.RFC3339)
+			if updateErr := r.Update(ctx, pod); updateErr != nil {
+				logger.Error(updateErr, "Failed to persist startup boost annotation", "pod", pod.Name)
+			}
+		} else if boostAtStr != "" {
+			// Boost was applied: check if it should expire.
+			boostAt, parseErr := time.Parse(time.RFC3339, boostAtStr)
+			if parseErr != nil {
+				continue
+			}
+			if now.Sub(boostAt) >= boostDuration {
+				// Boost expired: resize back to steady-state.
+				for _, c := range pod.Spec.Containers {
+					recCPU, ok := recMap[workloadName+"/"+c.Name]
+					if !ok {
+						continue
+					}
+					target := corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{corev1.ResourceCPU: recCPU},
+					}
+					if _, err := resizer.ResizePod(ctx, pod, c.Name, target); err != nil {
+						logger.Error(err, "Failed to reduce startup boost", "pod", pod.Name, "container", c.Name)
+					} else {
+						logger.Info("Startup boost expired, reduced to steady-state",
+							"pod", pod.Name, "container", c.Name, "cpu", recCPU.String())
+					}
+				}
+				delete(pod.Annotations, annotationStartupBoostAt)
+				if updateErr := r.Update(ctx, pod); updateErr != nil {
+					logger.Error(updateErr, "Failed to remove startup boost annotation", "pod", pod.Name)
+				}
+			}
+		}
+	}
 }
 
 // adjustHPATargets checks for HPAs with the auto-tune annotation and adjusts

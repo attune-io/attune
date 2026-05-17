@@ -208,6 +208,30 @@ type ResourceConfig struct {
 	// Only applicable to memory resources.
 	// +optional
 	AllowDecrease *bool `json:"allowDecrease,omitempty"`
+
+	// StartupBoost temporarily increases CPU requests for newly created or
+	// restarted pods to accelerate JVM/.NET class loading, JIT compilation,
+	// and cache warming. After the duration expires (or the container reaches
+	// Ready), the CPU is reduced to the steady-state recommendation.
+	// Only applies to CPU resources.
+	// +optional
+	StartupBoost *StartupBoost `json:"startupBoost,omitempty"`
+}
+
+// StartupBoost configures temporary CPU inflation for cold-start optimization.
+type StartupBoost struct {
+	// Multiplier scales the recommended CPU request during startup.
+	// For example, "3.0" means 3x the steady-state recommendation.
+	// Must be > 1.0 and <= 10.0.
+	// +kubebuilder:validation:Required
+	Multiplier string `json:"multiplier"`
+
+	// Duration is the maximum time the boost remains active after pod
+	// creation or container restart. The boost is removed when the
+	// container reaches Ready or this duration expires, whichever comes first.
+	// Must be >= 10s.
+	// +kubebuilder:validation:Required
+	Duration metav1.Duration `json:"duration"`
 }
 
 // ResourceBounds defines the minimum and maximum resource values.

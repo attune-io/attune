@@ -120,6 +120,26 @@ func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizeP
 		return warnings, err
 	}
 
+	// Validate CPU startup boost if configured.
+	if sb := policy.Spec.CPU.StartupBoost; sb != nil {
+		m, err := strconv.ParseFloat(sb.Multiplier, 64)
+		if err != nil {
+			return warnings, fmt.Errorf("cpu.startupBoost.multiplier %q is not a valid number: %w", sb.Multiplier, err)
+		}
+		if math.IsNaN(m) || math.IsInf(m, 0) {
+			return warnings, fmt.Errorf("cpu.startupBoost.multiplier must be a finite number, got %s", sb.Multiplier)
+		}
+		if m <= 1 {
+			return warnings, fmt.Errorf("cpu.startupBoost.multiplier must be > 1.0, got %s", sb.Multiplier)
+		}
+		if m > 10 {
+			return warnings, fmt.Errorf("cpu.startupBoost.multiplier must be <= 10.0, got %s", sb.Multiplier)
+		}
+		if sb.Duration.Duration < 10*time.Second {
+			return warnings, fmt.Errorf("cpu.startupBoost.duration must be at least 10s, got %s", sb.Duration.Duration)
+		}
+	}
+
 	// Validate cooldown has a minimum floor to prevent resource exhaustion via tight reconciliation loops.
 	if policy.Spec.UpdateStrategy.Cooldown != nil {
 		cd := policy.Spec.UpdateStrategy.Cooldown.Duration

@@ -138,6 +138,31 @@ spec:
                       target percentile). Must be a positive number, max 10.0. Values below
                       1.0 reduce resources below the percentile and generate a warning.
                     type: string
+                  startupBoost:
+                    description: |-
+                      StartupBoost temporarily increases CPU requests for newly created or
+                      restarted pods to accelerate JVM/.NET class loading, JIT compilation,
+                      and cache warming. After the duration expires (or the container reaches
+                      Ready), the CPU is reduced to the steady-state recommendation.
+                      Only applies to CPU resources.
+                    properties:
+                      duration:
+                        description: |-
+                          Duration is the maximum time the boost remains active after pod
+                          creation or container restart. The boost is removed when the
+                          container reaches Ready or this duration expires, whichever comes first.
+                          Must be >= 10s.
+                        type: string
+                      multiplier:
+                        description: |-
+                          Multiplier scales the recommended CPU request during startup.
+                          For example, "3.0" means 3x the steady-state recommendation.
+                          Must be > 1.0 and <= 10.0.
+                        type: string
+                    required:
+                    - duration
+                    - multiplier
+                    type: object
                 type: object
               excludeContainers:
                 description: |-
@@ -216,6 +241,31 @@ spec:
                       target percentile). Must be a positive number, max 10.0. Values below
                       1.0 reduce resources below the percentile and generate a warning.
                     type: string
+                  startupBoost:
+                    description: |-
+                      StartupBoost temporarily increases CPU requests for newly created or
+                      restarted pods to accelerate JVM/.NET class loading, JIT compilation,
+                      and cache warming. After the duration expires (or the container reaches
+                      Ready), the CPU is reduced to the steady-state recommendation.
+                      Only applies to CPU resources.
+                    properties:
+                      duration:
+                        description: |-
+                          Duration is the maximum time the boost remains active after pod
+                          creation or container restart. The boost is removed when the
+                          container reaches Ready or this duration expires, whichever comes first.
+                          Must be >= 10s.
+                        type: string
+                      multiplier:
+                        description: |-
+                          Multiplier scales the recommended CPU request during startup.
+                          For example, "3.0" means 3x the steady-state recommendation.
+                          Must be > 1.0 and <= 10.0.
+                        type: string
+                    required:
+                    - duration
+                    - multiplier
+                    type: object
                 type: object
               metricsSource:
                 description: MetricsSource configures where and how to collect metrics.
