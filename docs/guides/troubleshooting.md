@@ -350,6 +350,35 @@ The operator enforces a minimum cooldown of 1 minute regardless of the
 configured `cooldown` value. Setting `cooldown: 10s` effectively becomes
 `cooldown: 1m`. This prevents accidental resource churn.
 
+## Enabling debug logs
+
+The operator supports multiple log verbosity levels. By default it runs
+at `info` level. To enable debug logging:
+
+```bash
+# Enable debug logs (V(1): queries, pod selection, cache, recommendations)
+helm upgrade kube-rightsize kube-rightsize/kube-rightsize \
+  --set logging.level=debug
+
+# Enable verbose trace logs (V(2): per-sample data, full recommendation chain)
+helm upgrade kube-rightsize kube-rightsize/kube-rightsize \
+  --set logging.level=2
+```
+
+You can also switch to human-readable text format for local debugging:
+
+```bash
+helm upgrade kube-rightsize kube-rightsize/kube-rightsize \
+  --set logging.level=debug --set logging.format=text
+```
+
+Revert to normal after debugging:
+
+```bash
+helm upgrade kube-rightsize kube-rightsize/kube-rightsize \
+  --set logging.level=info
+```
+
 ## Debug commands
 
 Operator logs:

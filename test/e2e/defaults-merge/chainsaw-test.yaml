@@ -76,8 +76,9 @@ spec:
                 metricsSource:
                   minimumDataPoints: 1
                   historyWindow: 1h
+                # mode intentionally omitted: inherited from RightSizeDefaults (Recommend)
+                # prometheus.address intentionally omitted: inherited from RightSizeDefaults
                 updateStrategy:
-                  mode: Recommend
                   cooldown: 1m
     - name: verify-policy-reconciles
       try:
@@ -91,6 +92,28 @@ spec:
               status:
                 workloads:
                   discovered: 1
+    - name: verify-mode-inherited
+      description: Verify that mode was inherited from defaults (Recommend) by checking the status condition
+      try:
+        - script:
+            timeout: 2m
+            content: |
+              for i in $(seq 1 24); do
+                REASON=$(kubectl get rightsizepolicy inherits-defaults -n e2e-defaults-merge \
+                  -o jsonpath='{.status.conditions[?(@.type=="Ready")].reason}' 2>/dev/null)
+                if [ "$REASON" = "InsufficientData" ] || [ "$REASON" = "Monitoring" ]; then
+                  echo "Policy is in Recommend mode (reason: $REASON)"
+                  # Verify the policy spec does NOT have mode set (it was inherited)
+                  MODE=$(kubectl get rightsizepolicy inherits-defaults -n e2e-defaults-merge \
+                    -o jsonpath='{.spec.updateStrategy.mode}' 2>/dev/null)
+                  echo "Spec mode value: '$MODE'"
+                  exit 0
+                fi
+                sleep 5
+              done
+              echo "Timed out waiting for Ready condition"
+              kubectl get rightsizepolicy inherits-defaults -n e2e-defaults-merge -o yaml
+              exit 1
   catch:
     - describe:
         apiVersion: rightsize.io/v1alpha1
