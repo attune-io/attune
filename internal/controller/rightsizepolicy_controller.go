@@ -207,7 +207,13 @@ func (r *RightSizePolicyReconciler) getOrCreateCollector(config *rightsizev1alph
 		return nil, err
 	}
 	entry := &collectorEntry{collector: collector, lastUsed: now}
-	actual, _ := r.collectors.LoadOrStore(cacheKey, entry)
+	actual, loaded := r.collectors.LoadOrStore(cacheKey, entry)
+	if loaded {
+		// Another goroutine won the race; close our unused collector's transport.
+		if closer, ok := collector.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}
 	return actual.(*collectorEntry).collector, nil
 }
 
@@ -1015,7 +1021,7 @@ func (r *RightSizePolicyReconciler) executeResizes(
 					defer wg.Done()
 					defer func() { <-sem }() // release semaphore
 
-					entries, resized := r.resizeContainer(ctx, policy, &pod, workloadName, containerRec, resizer, monitor, now)
+					entries, resized := r.resizeContainer(ctx, policy, &pod, matchedWorkload, workloadName, containerRec, resizer, monitor, now)
 					historyMu.Lock()
 					history = append(history, entries...)
 					historyMu.Unlock()
@@ -1041,6 +1047,7 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 	ctx context.Context,
 	policy *rightsizev1alpha1.RightSizePolicy,
 	pod *corev1.Pod,
+	workload client.Object,
 	workloadName string,
 	containerRec rightsizev1alpha1.ContainerRecommendation,
 	resizer *resize.PodResizer,
@@ -1073,7 +1080,7 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 		if policy.Spec.UpdateStrategy.ResizeMethod == rightsizev1alpha1.ResizeMethodInPlaceOrEvict {
 			logger.Info("Pod resize is Infeasible, attempting eviction fallback",
 				"pod", pod.Name, "container", containerRec.Name)
-			if evicted := r.tryEvictionFallback(ctx, policy, pod, workloadName, containerRec.Name, resizer); evicted {
+			if evicted := r.tryEvictionFallback(ctx, policy, pod, workload, workloadName, containerRec.Name, resizer); evicted {
 				return evictionHistory(), true
 			}
 		} else {
@@ -1099,7 +1106,7 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 	if err != nil {
 		// Attempt eviction fallback if configured.
 		if policy.Spec.UpdateStrategy.ResizeMethod == rightsizev1alpha1.ResizeMethodInPlaceOrEvict {
-			if evicted := r.tryEvictionFallback(ctx, policy, pod, workloadName, containerRec.Name, resizer); evicted {
+			if evicted := r.tryEvictionFallback(ctx, policy, pod, workload, workloadName, containerRec.Name, resizer); evicted {
 				return evictionHistory(), true
 			}
 		}
@@ -1252,6 +1259,7 @@ func (r *RightSizePolicyReconciler) tryEvictionFallback(
 	ctx context.Context,
 	policy *rightsizev1alpha1.RightSizePolicy,
 	pod *corev1.Pod,
+	workload client.Object,
 	workloadName, containerName string,
 	resizer *resize.PodResizer,
 ) bool {
@@ -1261,7 +1269,7 @@ func (r *RightSizePolicyReconciler) tryEvictionFallback(
 	var podList corev1.PodList
 	if err := r.List(ctx, &podList,
 		client.InNamespace(pod.Namespace),
-		client.MatchingLabels(pod.Labels),
+		client.MatchingLabels(r.getPodSelectorLabels(workload)),
 	); err != nil {
 		logger.Error(err, "Cannot list pods for eviction safety check, skipping eviction")
 		return false
