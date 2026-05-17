@@ -122,7 +122,7 @@ spec:
                   percentile:
                     description: |-
                       Percentile is the usage percentile to target for recommendations.
-                      Must be one of: 50, 90, 95, 99.
+                      Supported values: 50, 90, 95, 99. Omit or set to 0 to use the default.
                     enum:
                     - 0
                     - 50
@@ -200,7 +200,7 @@ spec:
                   percentile:
                     description: |-
                       Percentile is the usage percentile to target for recommendations.
-                      Must be one of: 50, 90, 95, 99.
+                      Supported values: 50, 90, 95, 99. Omit or set to 0 to use the default.
                     enum:
                     - 0
                     - 50

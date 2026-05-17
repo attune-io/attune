@@ -165,7 +165,7 @@ type TLSConfig struct {
 // ResourceConfig defines resource recommendation parameters.
 type ResourceConfig struct {
 	// Percentile is the usage percentile to target for recommendations.
-	// Must be one of: 50, 90, 95, 99.
+	// Supported values: 50, 90, 95, 99. Omit or set to 0 to use the default.
 	// +kubebuilder:validation:Enum=0;50;90;95;99
 	// +optional
 	Percentile int32 `json:"percentile,omitempty"`
