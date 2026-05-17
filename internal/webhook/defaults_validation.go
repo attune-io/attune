@@ -58,7 +58,6 @@ func (v *RightSizeDefaultsValidator) ValidateDelete(_ context.Context, _ *rights
 	return nil, nil
 }
 
-//nolint:unparam // warnings return kept for symmetry with RightSizePolicyValidator.validate
 func (v *RightSizeDefaultsValidator) validate(defaults *rightsizev1alpha1.RightSizeDefaults) (admission.Warnings, error) {
 	return validateDefaultsSpec(defaults.Spec)
 }

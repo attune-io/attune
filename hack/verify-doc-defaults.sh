@@ -108,6 +108,14 @@ check_default "cooldown (README)" \
   '[Cc]ooldown' \
   "README.md"
 
+# --- queryStep default = 5m ---
+check_default "queryStep (Go)" \
+  "defaultPrometheusStep = 5 \* time.Minute" \
+  "internal/controller/rightsizepolicy_controller.go"
+check_default "queryStep (API ref)" \
+  "queryStep: 5m" \
+  "docs/reference/api.md"
+
 # --- collectorTTL default = 10m ---
 check_default "collectorTTL (Go)" \
   'collectorTTL = 10 \* time.Minute' \

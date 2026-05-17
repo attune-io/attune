@@ -73,6 +73,50 @@ func TestDefaultsValidator_MemoryStartupBoostWarning(t *testing.T) {
 	assert.Contains(t, warnings[0], "memory.startupBoost has no effect")
 }
 
+func TestDefaultsValidator_QueryStepTooSmall(t *testing.T) {
+	v := &RightSizeDefaultsValidator{}
+	defaults := &rightsizev1alpha1.RightSizeDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			MetricsSource: &rightsizev1alpha1.MetricsSource{
+				QueryStep: &metav1.Duration{Duration: 5000000000}, // 5s
+			},
+		},
+	}
+	_, err := v.ValidateCreate(context.Background(), defaults)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "queryStep must be at least 10s")
+}
+
+func TestDefaultsValidator_QueryStepTooLarge(t *testing.T) {
+	v := &RightSizeDefaultsValidator{}
+	defaults := &rightsizev1alpha1.RightSizeDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			MetricsSource: &rightsizev1alpha1.MetricsSource{
+				QueryStep: &metav1.Duration{Duration: 7200000000000}, // 2h
+			},
+		},
+	}
+	_, err := v.ValidateCreate(context.Background(), defaults)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "queryStep must be at most 1h")
+}
+
+func TestDefaultsValidator_QueryStepValid(t *testing.T) {
+	v := &RightSizeDefaultsValidator{}
+	defaults := &rightsizev1alpha1.RightSizeDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			MetricsSource: &rightsizev1alpha1.MetricsSource{
+				QueryStep: &metav1.Duration{Duration: 60000000000}, // 1m
+			},
+		},
+	}
+	_, err := v.ValidateCreate(context.Background(), defaults)
+	require.NoError(t, err)
+}
+
 func TestDefaultsValidator_InvalidCPUPrice(t *testing.T) {
 	v := &RightSizeDefaultsValidator{}
 	defaults := &rightsizev1alpha1.RightSizeDefaults{

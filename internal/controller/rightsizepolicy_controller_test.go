@@ -802,6 +802,13 @@ func TestGetQueryStep_ClampedTooSmall(t *testing.T) {
 	assert.Equal(t, 10*time.Second, r.getQueryStep(policy))
 }
 
+func TestGetQueryStep_Zero(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	policy := &rightsizev1alpha1.RightSizePolicy{}
+	policy.Spec.MetricsSource.QueryStep = &metav1.Duration{Duration: 0}
+	assert.Equal(t, 10*time.Second, r.getQueryStep(policy))
+}
+
 func TestGetQueryStep_ClampedTooLarge(t *testing.T) {
 	r := &RightSizePolicyReconciler{}
 	policy := &rightsizev1alpha1.RightSizePolicy{}
