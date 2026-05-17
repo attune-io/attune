@@ -1047,7 +1047,7 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 				MaxMemoryChangePercent: 100,
 				Canary: &rightsizev1alpha1.CanaryConfig{
 					Percentage:        100,
-					ObservationPeriod: metav1.Duration{Duration: 30 * time.Second},
+					ObservationPeriod: metav1.Duration{Duration: time.Minute},
 				},
 			},
 		},
