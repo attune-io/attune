@@ -3,7 +3,10 @@ kind: Test
 metadata:
   name: webhook-defaulting
 spec:
-  description: Verify that the mutating webhook applies defaults to a minimal policy
+  description: >-
+    Verify that the mutating webhook applies the weight default and that
+    the API server accepts a minimal policy with all other fields omitted
+    (those are defaulted by the controller at reconcile time, not the webhook).
   timeouts:
     apply: 30s
     assert: 30s
@@ -37,9 +40,7 @@ spec:
                   percentile: 95
                 memory:
                   percentile: 99
-                updateStrategy:
-                  mode: Recommend
-    - name: verify-defaults-applied
+    - name: verify-webhook-default-applied
       try:
         - assert:
             resource:
@@ -49,14 +50,8 @@ spec:
                 name: minimal-policy
                 namespace: e2e-webhook-defaulting
               spec:
-                cpu:
-                  controlledValues: RequestsOnly
-                memory:
-                  controlledValues: RequestsOnly
-                updateStrategy:
-                  cooldown: 1h0m0s
-                metricsSource:
-                  historyWindow: 168h0m0s
+                # Weight is the only field the webhook still defaults.
+                weight: 100
   catch:
     - describe:
         apiVersion: rightsize.io/v1alpha1

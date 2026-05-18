@@ -654,10 +654,10 @@ func (r *RightSizePolicyReconciler) mergeDefaults(policy *rightsizev1alpha1.Righ
 	var inherited []string
 
 	// Merge CPU config
-	mergeResourceConfig(&policy.Spec.CPU, spec.CPU)
+	inherited = append(inherited, mergeResourceConfig(&policy.Spec.CPU, spec.CPU, "cpu")...)
 
 	// Merge Memory config
-	mergeResourceConfig(&policy.Spec.Memory, spec.Memory)
+	inherited = append(inherited, mergeResourceConfig(&policy.Spec.Memory, spec.Memory, "memory")...)
 
 	// Merge MetricsSource
 	if spec.MetricsSource != nil {
@@ -711,31 +711,40 @@ func (r *RightSizePolicyReconciler) mergeDefaults(policy *rightsizev1alpha1.Righ
 }
 
 // mergeResourceConfig merges default resource config values into the policy.
-func mergeResourceConfig(policy *rightsizev1alpha1.ResourceConfig, defaults *rightsizev1alpha1.ResourceConfig) {
+func mergeResourceConfig(policy *rightsizev1alpha1.ResourceConfig, defaults *rightsizev1alpha1.ResourceConfig, prefix string) []string {
 	if defaults == nil {
-		return
+		return nil
 	}
-	if policy.Percentile == 0 {
+	var inherited []string
+	if policy.Percentile == 0 && defaults.Percentile != 0 {
 		policy.Percentile = defaults.Percentile
+		inherited = append(inherited, prefix+".percentile")
 	}
-	if policy.SafetyMargin == "" {
+	if policy.SafetyMargin == "" && defaults.SafetyMargin != "" {
 		policy.SafetyMargin = defaults.SafetyMargin
+		inherited = append(inherited, prefix+".safetyMargin")
 	}
 	if policy.Bounds == nil && defaults.Bounds != nil {
 		policy.Bounds = defaults.Bounds
+		inherited = append(inherited, prefix+".bounds")
 	}
 	if policy.ControlledValues == nil && defaults.ControlledValues != nil {
 		policy.ControlledValues = defaults.ControlledValues
+		inherited = append(inherited, prefix+".controlledValues")
 	}
 	if policy.BurstSensitivity == nil && defaults.BurstSensitivity != nil {
 		policy.BurstSensitivity = defaults.BurstSensitivity
+		inherited = append(inherited, prefix+".burstSensitivity")
 	}
 	if policy.AllowDecrease == nil && defaults.AllowDecrease != nil {
 		policy.AllowDecrease = defaults.AllowDecrease
+		inherited = append(inherited, prefix+".allowDecrease")
 	}
 	if policy.StartupBoost == nil && defaults.StartupBoost != nil {
 		policy.StartupBoost = defaults.StartupBoost
+		inherited = append(inherited, prefix+".startupBoost")
 	}
+	return inherited
 }
 
 // isWithinResizeWindow returns true if the current time falls within the

@@ -3015,6 +3015,9 @@ func TestApplyBuiltInDefaults_PreservesUserValues(t *testing.T) {
 	policy.Spec.MetricsSource.MinimumDataPoints = int32Ptr(24)
 	policy.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: 30 * time.Minute}
 	policy.Spec.MetricsSource.HistoryWindow = &metav1.Duration{Duration: 48 * time.Hour}
+	cv := rightsizev1alpha1.ControlledRequestsAndLimits
+	policy.Spec.CPU.ControlledValues = &cv
+	policy.Spec.Memory.ControlledValues = &cv
 
 	r.applyBuiltInDefaults(policy)
 
@@ -3027,6 +3030,8 @@ func TestApplyBuiltInDefaults_PreservesUserValues(t *testing.T) {
 	assert.Equal(t, int32(24), *policy.Spec.MetricsSource.MinimumDataPoints)
 	assert.Equal(t, 30*time.Minute, policy.Spec.UpdateStrategy.Cooldown.Duration)
 	assert.Equal(t, 48*time.Hour, policy.Spec.MetricsSource.HistoryWindow.Duration)
+	assert.Equal(t, rightsizev1alpha1.ControlledRequestsAndLimits, *policy.Spec.CPU.ControlledValues)
+	assert.Equal(t, rightsizev1alpha1.ControlledRequestsAndLimits, *policy.Spec.Memory.ControlledValues)
 }
 
 func TestMergeDefaults_ClusterDefaultsTakeEffect(t *testing.T) {
@@ -3062,6 +3067,45 @@ func TestMergeDefaults_ClusterDefaultsTakeEffect(t *testing.T) {
 	assert.Equal(t, rightsizev1alpha1.ResizeMethodInPlaceOrEvict, policy.Spec.UpdateStrategy.ResizeMethod)
 	assert.Equal(t, int32(80), *policy.Spec.UpdateStrategy.MaxCPUChangePercent)
 	assert.Equal(t, int32(60), *policy.Spec.UpdateStrategy.MaxMemoryChangePercent)
+}
+
+func TestMergeAndApplyDefaults_PartialClusterDefaults(t *testing.T) {
+	// Admin sets only Mode and MaxCPUChangePercent; everything else nil.
+	// After mergeDefaults + applyBuiltInDefaults, the inherited fields must
+	// be preserved and the rest must get built-in defaults.
+	defaults := &rightsizev1alpha1.RightSizeDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "partial-defaults"},
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{
+				Mode:                rightsizev1alpha1.UpdateModeAuto,
+				MaxCPUChangePercent: int32Ptr(80),
+			},
+		},
+	}
+	r := newReconcilerWithClient(defaults)
+	policy := &rightsizev1alpha1.RightSizePolicy{}
+
+	r.mergeDefaults(policy, defaults)
+	// Verify partial state before applyBuiltInDefaults.
+	assert.Equal(t, rightsizev1alpha1.UpdateModeAuto, policy.Spec.UpdateStrategy.Mode)
+	require.NotNil(t, policy.Spec.UpdateStrategy.MaxCPUChangePercent)
+	assert.Equal(t, int32(80), *policy.Spec.UpdateStrategy.MaxCPUChangePercent)
+	assert.Nil(t, policy.Spec.UpdateStrategy.MaxMemoryChangePercent,
+		"should still be nil before applyBuiltInDefaults")
+	assert.Nil(t, policy.Spec.UpdateStrategy.AutoRevert)
+
+	r.applyBuiltInDefaults(policy)
+	// Inherited values preserved.
+	assert.Equal(t, rightsizev1alpha1.UpdateModeAuto, policy.Spec.UpdateStrategy.Mode)
+	assert.Equal(t, int32(80), *policy.Spec.UpdateStrategy.MaxCPUChangePercent)
+	// Built-in defaults fill the rest.
+	require.NotNil(t, policy.Spec.UpdateStrategy.MaxMemoryChangePercent)
+	assert.Equal(t, rightsizev1alpha1.DefaultMaxMemoryChangePercent, *policy.Spec.UpdateStrategy.MaxMemoryChangePercent)
+	require.NotNil(t, policy.Spec.UpdateStrategy.AutoRevert)
+	assert.True(t, *policy.Spec.UpdateStrategy.AutoRevert)
+	assert.Equal(t, rightsizev1alpha1.DefaultResizeMethod, policy.Spec.UpdateStrategy.ResizeMethod)
+	require.NotNil(t, policy.Spec.MetricsSource.MinimumDataPoints)
+	assert.Equal(t, rightsizev1alpha1.DefaultMinimumDataPoints, *policy.Spec.MetricsSource.MinimumDataPoints)
 }
 
 func TestMergeDefaults_QueryStepPolicyOverrides(t *testing.T) {
