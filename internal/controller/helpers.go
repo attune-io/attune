@@ -603,11 +603,13 @@ func (r *RightSizePolicyReconciler) fetchDefaults(ctx context.Context, namespace
 	return clusterDefaults, nil
 }
 
-// applyBuiltInDefaults fills any fields still unset after mergeDefaults
-// with the operator's built-in default values. This runs AFTER mergeDefaults
-// so that cluster-wide RightSizeDefaults take precedence over built-ins.
+// applyBuiltInDefaults fills strategy and metrics fields still unset after
+// mergeDefaults with the operator's built-in default values. This runs AFTER
+// mergeDefaults so that cluster-wide RightSizeDefaults take precedence.
 //
-// After this function returns, every field is guaranteed non-nil/non-zero.
+// Per-resource fields (Percentile, SafetyMargin, Bounds, BurstSensitivity)
+// are NOT set here; they are handled defensively at their usage sites in
+// buildRecommendationEngines.
 func (r *RightSizePolicyReconciler) applyBuiltInDefaults(policy *rightsizev1alpha1.RightSizePolicy) {
 	if policy.Spec.UpdateStrategy.Mode == "" {
 		policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.DefaultUpdateMode
