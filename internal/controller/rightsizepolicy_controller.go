@@ -767,6 +767,23 @@ func (r *RightSizePolicyReconciler) handleDeletion(ctx context.Context, policy *
 		deleteGaugeKeys(prev.([]gaugeKey))
 	}
 
+	// Clean namespace-level savings gauges if this is the last policy in the namespace.
+	var policyList rightsizev1alpha1.RightSizePolicyList
+	if listErr := r.List(ctx, &policyList, client.InNamespace(policy.Namespace)); listErr == nil {
+		// Count remaining policies (exclude the one being deleted).
+		remaining := 0
+		for i := range policyList.Items {
+			if policyList.Items[i].Name != policy.Name {
+				remaining++
+			}
+		}
+		if remaining == 0 {
+			operatormetrics.SavingsCPU.DeleteLabelValues(policy.Namespace)
+			operatormetrics.SavingsMemory.DeleteLabelValues(policy.Namespace)
+			operatormetrics.SavingsEstimatedMonthly.DeleteLabelValues(policy.Namespace)
+		}
+	}
+
 	// Remove the finalizer to allow garbage collection.
 	patch := client.MergeFrom(policy.DeepCopy())
 	controllerutil.RemoveFinalizer(policy, finalizerName)
@@ -2038,6 +2055,7 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 				logger.V(1).Info("Throttle check deferred (within grace period), keeping observation",
 					"pod", pod.Name, "container", record.Container)
 				throttlePending = true
+				operatormetrics.ThrottleDeferredTotal.WithLabelValues(pod.Namespace, trackedWorkload).Inc()
 			}
 
 			if !verdict.Safe {
@@ -2366,8 +2384,8 @@ func (r *RightSizePolicyReconciler) boostResizeAndRefetch(
 	targetCPU resource.Quantity,
 ) (*corev1.Pod, error) {
 	reqs := corev1.ResourceList{corev1.ResourceCPU: targetCPU}
-	if idx := findContainerIndex(pod, containerName); idx >= 0 {
-		if memReq, ok := pod.Spec.Containers[idx].Resources.Requests[corev1.ResourceMemory]; ok {
+	if c := findContainerByName(pod, containerName); c != nil {
+		if memReq, ok := c.Resources.Requests[corev1.ResourceMemory]; ok {
 			reqs[corev1.ResourceMemory] = memReq
 		}
 	}
@@ -2385,15 +2403,20 @@ func (r *RightSizePolicyReconciler) boostResizeAndRefetch(
 	return freshPod, nil
 }
 
-// findContainerIndex returns the index of the named container in pod.Spec.Containers.
-// Returns -1 if not found.
-func findContainerIndex(pod *corev1.Pod, name string) int {
-	for i, c := range pod.Spec.Containers {
-		if c.Name == name {
-			return i
+// findContainerByName searches both regular and init containers for the named
+// container and returns a pointer to it, or nil if not found.
+func findContainerByName(pod *corev1.Pod, name string) *corev1.Container {
+	for i := range pod.Spec.InitContainers {
+		if pod.Spec.InitContainers[i].Name == name {
+			return &pod.Spec.InitContainers[i]
 		}
 	}
-	return -1
+	for i := range pod.Spec.Containers {
+		if pod.Spec.Containers[i].Name == name {
+			return &pod.Spec.Containers[i]
+		}
+	}
+	return nil
 }
 
 // their resource-based target utilization to maintain the same absolute resource

@@ -42,6 +42,14 @@ var (
 		[]string{"namespace", "workload", "reason"},
 	)
 
+	ThrottleDeferredTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "kube_rightsize_throttle_deferred_total",
+			Help: "Total number of throttle safety checks deferred due to grace period",
+		},
+		[]string{"namespace", "workload"},
+	)
+
 	RecommendationCPU = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "kube_rightsize_recommendation_cpu_cores",
@@ -220,6 +228,7 @@ func init() {
 	metrics.Registry.MustRegister(
 		ResizeTotal,
 		RevertsTotal,
+		ThrottleDeferredTotal,
 		RecommendationCPU,
 		RecommendationMemory,
 		SavingsCPU,
