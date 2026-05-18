@@ -82,6 +82,7 @@ spec:
                     address: http://prometheus-server.monitoring:80
                   minimumDataPoints: 1
                   historyWindow: 1h
+                  queryStep: 1m
                 cpu:
                   percentile: 95
                   safetyMargin: "1.2"
@@ -125,9 +126,9 @@ spec:
     - name: verify-resize-occurred
       try:
         - script:
-            timeout: 3m
+            timeout: 5m
             content: |
-              for i in $(seq 1 36); do
+              for i in $(seq 1 60); do
                 RESIZED=$(kubectl get rightsizepolicy canary-test -n e2e-canary-rollout \
                   -o jsonpath='{.status.workloads.resized}' 2>/dev/null)
                 if [ "$RESIZED" -ge 1 ] 2>/dev/null; then

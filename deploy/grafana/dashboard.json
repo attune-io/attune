@@ -284,6 +284,10 @@
         {
           "expr": "sum by (policy) (rate(kube_rightsize_budget_exhausted_total[$__rate_interval]))",
           "legendFormat": "budget-exhausted {{ policy }}"
+        },
+        {
+          "expr": "sum by (workload) (rate(kube_rightsize_throttle_deferred_total[$__rate_interval]))",
+          "legendFormat": "throttle-deferred {{ workload }}"
         }
       ]
     },

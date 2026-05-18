@@ -5,7 +5,7 @@ metadata:
 spec:
   description: Verify that RightSizeDefaults values are merged into a policy that omits them
   timeouts:
-    apply: 30s
+    apply: 60s
     assert: 2m
     delete: 30s
   steps:

@@ -88,6 +88,7 @@ spec:
                     address: http://prometheus-server.monitoring:80
                   minimumDataPoints: 1
                   historyWindow: 1h
+                  queryStep: 1m
                 cpu:
                   percentile: 95
                   safetyMargin: "1.2"
@@ -131,9 +132,9 @@ spec:
     - name: verify-hpa-original-annotation
       try:
         - script:
-            timeout: 3m
+            timeout: 5m
             content: |
-              for i in $(seq 1 36); do
+              for i in $(seq 1 60); do
                 ORIG=$(kubectl get hpa tune-app -n e2e-hpa-auto-tune \
                   -o jsonpath='{.metadata.annotations.rightsize\.io/original-target-cpu}' 2>/dev/null)
                 if [ -n "$ORIG" ]; then

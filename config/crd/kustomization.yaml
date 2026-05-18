@@ -4,3 +4,4 @@ kind: Kustomization
 resources:
   - bases/rightsize.io_rightsizepolicies.yaml
   - bases/rightsize.io_rightsizedefaults.yaml
+  - bases/rightsize.io_rightsizenamespacedefaults.yaml
