@@ -69,6 +69,14 @@ If the ratio exceeds 50% (configurable via `DefaultThrottleThreshold`), the
 resize is reverted. A high throttle ratio after a CPU reduction means the
 new allocation is too low.
 
+!!! note "Throttle grace period"
+    The throttle check is skipped for the first 5 minutes after a resize
+    because the Prometheus `rate(...[5m])` window still contains pre-resize
+    data. If the configured `observationPeriod` is shorter than 5 minutes,
+    the operator automatically extends observation until the throttle check
+    can execute. This prevents false-positive reverts on containers that
+    were heavily throttled before upscaling.
+
 **Mitigation**: increase `cpu.safetyMargin` or raise `cpu.bounds.min`.
 
 ### Pod NotReady
