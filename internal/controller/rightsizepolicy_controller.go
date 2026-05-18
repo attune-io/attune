@@ -2272,7 +2272,10 @@ func (r *RightSizePolicyReconciler) applyStartupBoosts(
 					}
 					refreshed, err := r.boostResizeAndRefetch(ctx, resizer, pod, c.Name, boostedCPU)
 					if err != nil {
-						logger.Error(err, "Failed to apply startup CPU boost", "pod", pod.Name, "container", c.Name)
+						logger.Error(err, "Failed to apply startup CPU boost",
+							"pod", pod.Name, "container", c.Name,
+							"boostedCPU", boostedCPU.String(),
+							"currentCPU", c.Resources.Requests.Cpu().String())
 						if refreshed == nil {
 							break // re-fetch failed, stop processing containers
 						}
@@ -2317,7 +2320,10 @@ func (r *RightSizePolicyReconciler) applyStartupBoosts(
 						}
 						refreshed, err := r.boostResizeAndRefetch(ctx, resizer, pod, c.Name, recCPU)
 						if err != nil {
-							logger.Error(err, "Failed to reduce startup boost", "pod", pod.Name, "container", c.Name)
+							logger.Error(err, "Failed to reduce startup boost",
+								"pod", pod.Name, "container", c.Name,
+								"targetCPU", recCPU.String(),
+								"currentCPU", c.Resources.Requests.Cpu().String())
 							boostReduceFailed = true
 							if refreshed == nil {
 								break // re-fetch failed
@@ -2454,7 +2460,30 @@ func (r *RightSizePolicyReconciler) adjustHPATargets(
 				"currentTarget", currentTarget, "newTarget", newTarget,
 				"oldRequest", oldCPURequest.String(), "newRequest", newCPURequest.String())
 			m.Resource.Target.AverageUtilization = &newTarget
-			if err := r.Update(ctx, hpa); err != nil {
+			// Re-fetch the HPA to get a fresh resourceVersion. The HPA list
+			// was fetched at the start of Reconcile and the HPA controller
+			// may have updated it since then (e.g., during concurrent resizes).
+			var fresh autoscalingv2.HorizontalPodAutoscaler
+			if getErr := r.Get(ctx, types.NamespacedName{Name: hpa.Name, Namespace: hpa.Namespace}, &fresh); getErr != nil {
+				logger.Error(getErr, "Failed to re-fetch HPA for target update", "hpa", hpa.Name)
+				break
+			}
+			// Apply our changes to the fresh copy.
+			if fresh.Annotations == nil {
+				fresh.Annotations = make(map[string]string)
+			}
+			for k, v := range hpa.Annotations {
+				fresh.Annotations[k] = v
+			}
+			for fj := range fresh.Spec.Metrics {
+				fm := &fresh.Spec.Metrics[fj]
+				if fm.Type == autoscalingv2.ResourceMetricSourceType && fm.Resource != nil &&
+					fm.Resource.Name == corev1.ResourceCPU && fm.Resource.Target.AverageUtilization != nil {
+					fm.Resource.Target.AverageUtilization = &newTarget
+					break
+				}
+			}
+			if err := r.Update(ctx, &fresh); err != nil {
 				logger.Error(err, "Failed to update HPA target", "hpa", hpa.Name)
 			}
 			adjusted = true
