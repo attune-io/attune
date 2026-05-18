@@ -32,6 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `kube_rightsize_throttle_deferred_total` metric now appears in the Grafana dashboard (was the only unvisualized operator metric)
+- `RightSizeNamespaceDefaults` CRD missing from `config/crd/kustomization.yaml`; kustomize deployments now include it
 - Bearer-token cache prefix collision when one Prometheus address is a prefix of another
 - `make test-local` now cleans up the k3d cluster even on mid-run failures
 - Gitleaks PATH resolution on self-hosted runners
