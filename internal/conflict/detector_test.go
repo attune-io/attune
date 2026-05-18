@@ -764,3 +764,55 @@ func TestCheckPolicyConflictInMemory_MalformedSelector(t *testing.T) {
 		map[string]string{"app": "web", "zone": "us-east-1"}, "current", 100)
 	assert.Nil(t, result, "malformed selector should be skipped, not treated as a match")
 }
+
+func TestFindMatchingHPA(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+
+	hpas := []autoscalingv2.HorizontalPodAutoscaler{
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "web-hpa"},
+			Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+				ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+					Kind: "Deployment",
+					Name: "web",
+				},
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "api-hpa"},
+			Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+				ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+					Kind: "Deployment",
+					Name: "api",
+				},
+			},
+		},
+	}
+
+	tests := []struct {
+		name     string
+		workload string
+		kind     string
+		wantName string
+	}{
+		{"match first", "web", "Deployment", "web-hpa"},
+		{"match second", "api", "Deployment", "api-hpa"},
+		{"wrong name", "db", "Deployment", ""},
+		{"wrong kind", "web", "StatefulSet", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := detector.FindMatchingHPA(hpas, tc.workload, tc.kind)
+			if tc.wantName == "" {
+				assert.Nil(t, result)
+			} else {
+				assert.NotNil(t, result)
+				assert.Equal(t, tc.wantName, result.Name)
+			}
+		})
+	}
+
+	t.Run("empty list", func(t *testing.T) {
+		assert.Nil(t, detector.FindMatchingHPA(nil, "web", "Deployment"))
+	})
+}
