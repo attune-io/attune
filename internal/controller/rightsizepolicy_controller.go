@@ -2015,27 +2015,19 @@ func (r *RightSizePolicyReconciler) applyStartupBoosts(
 					if c.Resources.Requests.Cpu().Cmp(boostedCPU) >= 0 {
 						continue // already at or above boosted level
 					}
-					// Include current memory request so mergeResources does not drop it.
-					reqs := corev1.ResourceList{corev1.ResourceCPU: boostedCPU}
-					if memReq, ok := c.Resources.Requests[corev1.ResourceMemory]; ok {
-						reqs[corev1.ResourceMemory] = memReq
-					}
-					target := corev1.ResourceRequirements{Requests: reqs}
-					if _, boostErr := resizer.ResizePod(ctx, pod, c.Name, target); boostErr != nil {
-						logger.Error(boostErr, "Failed to apply startup CPU boost", "pod", pod.Name, "container", c.Name)
+					refreshed, err := r.boostResizeAndRefetch(ctx, resizer, pod, c.Name, boostedCPU)
+					if err != nil {
+						logger.Error(err, "Failed to apply startup CPU boost", "pod", pod.Name, "container", c.Name)
+						if refreshed == nil {
+							break // re-fetch failed, stop processing containers
+						}
 						continue
 					}
 					boostedAny = true
 					logger.Info("Applied startup CPU boost",
 						"pod", pod.Name, "container", c.Name,
 						"boostedCPU", boostedCPU.String(), "steadyState", recCPU.String())
-					// Re-fetch from API server after ResizePod bumps resourceVersion.
-					freshPod, getErr := r.Clientset.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
-					if getErr != nil {
-						logger.Error(getErr, "Failed to re-fetch pod after startup boost resize", "pod", pod.Name)
-						break
-					}
-					*pod = *freshPod
+					*pod = *refreshed
 				}
 				// Only mark the pod with boost timestamp if at least one
 				// resize succeeded. Without this guard, a failed boost
@@ -2062,25 +2054,17 @@ func (r *RightSizePolicyReconciler) applyStartupBoosts(
 						if !ok {
 							continue
 						}
-						// Include current memory request so mergeResources does not drop it.
-						expiryReqs := corev1.ResourceList{corev1.ResourceCPU: recCPU}
-						if memReq, ok := c.Resources.Requests[corev1.ResourceMemory]; ok {
-							expiryReqs[corev1.ResourceMemory] = memReq
+						refreshed, err := r.boostResizeAndRefetch(ctx, resizer, pod, c.Name, recCPU)
+						if err != nil {
+							logger.Error(err, "Failed to reduce startup boost", "pod", pod.Name, "container", c.Name)
+							if refreshed == nil {
+								break // re-fetch failed
+							}
+							continue
 						}
-						target := corev1.ResourceRequirements{Requests: expiryReqs}
-						if _, boostErr := resizer.ResizePod(ctx, pod, c.Name, target); boostErr != nil {
-							logger.Error(boostErr, "Failed to reduce startup boost", "pod", pod.Name, "container", c.Name)
-						} else {
-							logger.Info("Startup boost expired, reduced to steady-state",
-								"pod", pod.Name, "container", c.Name, "cpu", recCPU.String())
-						}
-						// Re-fetch from API server after ResizePod.
-						freshPod, getErr := r.Clientset.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
-						if getErr != nil {
-							logger.Error(getErr, "Failed to re-fetch pod after boost expiry resize", "pod", pod.Name)
-							break
-						}
-						*pod = *freshPod
+						logger.Info("Startup boost expired, reduced to steady-state",
+							"pod", pod.Name, "container", c.Name, "cpu", recCPU.String())
+						*pod = *refreshed
 					}
 					delete(pod.Annotations, annotationStartupBoostAt)
 					if updateErr := r.Update(ctx, pod); updateErr != nil {
@@ -2093,6 +2077,44 @@ func (r *RightSizePolicyReconciler) applyStartupBoosts(
 }
 
 // adjustHPATargets checks for HPAs with the auto-tune annotation and adjusts
+// boostResizeAndRefetch resizes a single container's CPU to targetCPU
+// (preserving the current memory request) and re-fetches the pod from the API
+// server. On resize failure it returns the error with a nil pod. On re-fetch
+// failure it returns the error with a nil pod (caller should break the
+// container loop). On success it returns the refreshed pod.
+func (r *RightSizePolicyReconciler) boostResizeAndRefetch(
+	ctx context.Context,
+	resizer *resize.PodResizer,
+	pod *corev1.Pod,
+	containerName string,
+	targetCPU resource.Quantity,
+) (*corev1.Pod, error) {
+	reqs := corev1.ResourceList{corev1.ResourceCPU: targetCPU}
+	if memReq, ok := pod.Spec.Containers[findContainerIndex(pod, containerName)].Resources.Requests[corev1.ResourceMemory]; ok {
+		reqs[corev1.ResourceMemory] = memReq
+	}
+	target := corev1.ResourceRequirements{Requests: reqs}
+	if _, err := resizer.ResizePod(ctx, pod, containerName, target); err != nil {
+		return nil, err
+	}
+	freshPod, err := r.Clientset.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("re-fetch after boost resize: %w", err)
+	}
+	return freshPod, nil
+}
+
+// findContainerIndex returns the index of the named container in pod.Spec.Containers.
+// Returns 0 if not found (caller should have validated the name exists).
+func findContainerIndex(pod *corev1.Pod, name string) int {
+	for i, c := range pod.Spec.Containers {
+		if c.Name == name {
+			return i
+		}
+	}
+	return 0
+}
+
 // their resource-based target utilization to maintain the same absolute resource
 // threshold after a resize changes the request baseline.
 func (r *RightSizePolicyReconciler) adjustHPATargets(
