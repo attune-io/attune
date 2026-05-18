@@ -115,6 +115,25 @@ clientset.CoreV1().Pods(ns).UpdateResize(ctx, name, pod, metav1.UpdateOptions{})
 Run `make manifests` after changing CRD types or RBAC markers. Run
 `make generate` after changing API types. Commit the generated output.
 
+### RBAC markers and the controller-runtime cache
+
+Any resource accessed via the controller-runtime client (`r.Get()`, `r.List()`,
+`r.Update()`) goes through the informer cache by default. The cache needs
+`list` and `watch` RBAC to start its reflector. If you add a new `r.Get()`
+call for a resource type, check:
+
+1. Does the RBAC marker include `list` and `watch`? If not, add them.
+2. Is the resource in `DisableFor` (`cmd/manager/main.go`)? If yes,
+   it bypasses the cache and only needs `get`.
+
+After changing RBAC markers, update **three places**:
+- The kubebuilder marker in `internal/controller/`
+- `config/rbac/role.yaml` (run `make manifests`)
+- `charts/kube-rightsize/templates/clusterrole.yaml` + its test
+
+Currently, Secrets are the only resource in `DisableFor` (get-only is safe).
+All other resources accessed via the client need `list`/`watch`.
+
 ### Adding a new defaultable field
 
 Fields that should be overridable by `RightSizeDefaults` must use
