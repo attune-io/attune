@@ -139,7 +139,7 @@ rules:
       - services
     verbs:
       - get
-  # ConfigMaps: recommendation export for GitOps workflows
+  # ConfigMaps: recommendation export for GitOps workflows (list/watch for cache)
   - apiGroups:
       - ""
     resources:
@@ -148,7 +148,9 @@ rules:
       - create
       - delete
       - get
+      - list
       - update
+      - watch
   # Secrets: get-only (bearer token for Prometheus auth; no informer cache)
   - apiGroups:
       - ""

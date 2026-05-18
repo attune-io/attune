@@ -64,7 +64,9 @@ tests:
               - create
               - delete
               - get
+              - list
               - update
+              - watch
 
   - it: should include node read permissions for capacity pre-check
     asserts:
