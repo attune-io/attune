@@ -1715,20 +1715,27 @@ func (r *RightSizePolicyReconciler) shouldSkipResize(
 	if pod.Spec.NodeName != "" {
 		var node corev1.Node
 		if err := r.Get(ctx, types.NamespacedName{Name: pod.Spec.NodeName}, &node); err == nil {
-			totalCPU := int64(0)
-			totalMem := int64(0)
-			for _, c := range slices.Concat(pod.Spec.InitContainers, pod.Spec.Containers) {
-				if c.Name == containerRec.Name {
-					totalCPU += target.Requests.Cpu().MilliValue()
-					totalMem += target.Requests.Memory().Value()
-				} else {
-					totalCPU += c.Resources.Requests.Cpu().MilliValue()
-					totalMem += c.Resources.Requests.Memory().Value()
+			// Skip the check if node allocatable is not yet populated (node
+			// initializing, kubelet race). Treating unknown as zero would
+			// silently block all resizes with no user-visible signal.
+			if len(node.Status.Allocatable) == 0 {
+				// noop: skip allocatable check
+			} else {
+				totalCPU := int64(0)
+				totalMem := int64(0)
+				for _, c := range slices.Concat(pod.Spec.InitContainers, pod.Spec.Containers) {
+					if c.Name == containerRec.Name {
+						totalCPU += target.Requests.Cpu().MilliValue()
+						totalMem += target.Requests.Memory().Value()
+					} else {
+						totalCPU += c.Resources.Requests.Cpu().MilliValue()
+						totalMem += c.Resources.Requests.Memory().Value()
+					}
 				}
-			}
-			if totalCPU > node.Status.Allocatable.Cpu().MilliValue() ||
-				totalMem > node.Status.Allocatable.Memory().Value() {
-				return true, "total pod requests would exceed node allocatable"
+				if totalCPU > node.Status.Allocatable.Cpu().MilliValue() ||
+					totalMem > node.Status.Allocatable.Memory().Value() {
+					return true, "total pod requests would exceed node allocatable"
+				}
 			}
 		}
 	}
@@ -1997,6 +2004,7 @@ func (r *RightSizePolicyReconciler) applyStartupBoosts(
 
 			if boostAtStr == "" && podAge < boostDuration {
 				// New pod within boost window: apply boosted CPU.
+				boostedAny := false
 				for _, c := range pod.Spec.Containers {
 					recCPU, ok := recMap[c.Name]
 					if !ok {
@@ -2017,6 +2025,7 @@ func (r *RightSizePolicyReconciler) applyStartupBoosts(
 						logger.Error(boostErr, "Failed to apply startup CPU boost", "pod", pod.Name, "container", c.Name)
 						continue
 					}
+					boostedAny = true
 					logger.Info("Applied startup CPU boost",
 						"pod", pod.Name, "container", c.Name,
 						"boostedCPU", boostedCPU.String(), "steadyState", recCPU.String())
@@ -2028,13 +2037,17 @@ func (r *RightSizePolicyReconciler) applyStartupBoosts(
 					}
 					*pod = *freshPod
 				}
-				// Mark the pod with boost timestamp.
-				if pod.Annotations == nil {
-					pod.Annotations = make(map[string]string)
-				}
-				pod.Annotations[annotationStartupBoostAt] = now.UTC().Format(time.RFC3339)
-				if updateErr := r.Update(ctx, pod); updateErr != nil {
-					logger.Error(updateErr, "Failed to persist startup boost annotation", "pod", pod.Name)
+				// Only mark the pod with boost timestamp if at least one
+				// resize succeeded. Without this guard, a failed boost
+				// would trigger a spurious expiry resize on the next reconcile.
+				if boostedAny {
+					if pod.Annotations == nil {
+						pod.Annotations = make(map[string]string)
+					}
+					pod.Annotations[annotationStartupBoostAt] = now.UTC().Format(time.RFC3339)
+					if updateErr := r.Update(ctx, pod); updateErr != nil {
+						logger.Error(updateErr, "Failed to persist startup boost annotation", "pod", pod.Name)
+					}
 				}
 			} else if boostAtStr != "" {
 				// Boost was applied: check if it should expire.
