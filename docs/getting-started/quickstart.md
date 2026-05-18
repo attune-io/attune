@@ -25,6 +25,8 @@ spec:
   targetRef:
     kind: Deployment
     name: my-app
+  cpu: {}
+  memory: {}
   metricsSource:
     prometheus:
       address: http://prometheus-server.monitoring:80

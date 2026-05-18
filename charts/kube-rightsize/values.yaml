@@ -99,8 +99,7 @@ grafanaDashboard:
 
 # -- Webhook configuration (requires cert-manager installed in the cluster)
 webhooks:
-  # -- Enable admission webhooks for defaulting and validation.
-  # -- Requires cert-manager to be installed for TLS certificate provisioning.
+  # -- Enable admission webhooks for defaulting and validation. Requires cert-manager to be installed for TLS certificate provisioning.
   enabled: true
 
 # -- NetworkPolicy configuration for operator ingress and egress ports
