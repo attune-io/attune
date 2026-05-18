@@ -5237,8 +5237,16 @@ func TestResizeContainer_InfeasiblePodEvictedDirectly(t *testing.T) {
 		},
 	}
 
-	entries, resized := r.resizeContainer(context.Background(), policy, pod1, deploy,
-		"api-server", containerRec, resizer, nil, metav1.Now())
+	entries, resized := r.resizeContainer(context.Background(), resizeParams{
+		Policy:       policy,
+		Pod:          pod1,
+		Workload:     deploy,
+		WorkloadName: "api-server",
+		ContainerRec: containerRec,
+		Resizer:      resizer,
+		Monitor:      nil,
+		Now:          metav1.Now(),
+	})
 	assert.True(t, resized, "infeasible pod should be evicted")
 	require.Len(t, entries, 1)
 	assert.Equal(t, "Eviction", entries[0].Method)
@@ -5303,8 +5311,16 @@ func TestResizeContainer_InfeasiblePodSkippedWithInPlaceOnly(t *testing.T) {
 		},
 	}
 
-	entries, resized := r.resizeContainer(context.Background(), policy, pod, deploy,
-		"api-server", containerRec, resizer, nil, metav1.Now())
+	entries, resized := r.resizeContainer(context.Background(), resizeParams{
+		Policy:       policy,
+		Pod:          pod,
+		Workload:     deploy,
+		WorkloadName: "api-server",
+		ContainerRec: containerRec,
+		Resizer:      resizer,
+		Monitor:      nil,
+		Now:          metav1.Now(),
+	})
 	assert.False(t, resized, "infeasible pod with InPlaceOnly should not be resized")
 	assert.Empty(t, entries, "should produce no history entries")
 

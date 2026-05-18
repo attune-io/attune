@@ -1180,7 +1180,16 @@ func (r *RightSizePolicyReconciler) executeResizes(
 					}
 					budgetMu.Unlock()
 
-					entries, resized := r.resizeContainer(ctx, policy, &pod, matchedWorkload, workloadName, containerRec, resizer, monitor, now)
+					entries, resized := r.resizeContainer(ctx, resizeParams{
+						Policy:       policy,
+						Pod:          &pod,
+						Workload:     matchedWorkload,
+						WorkloadName: workloadName,
+						ContainerRec: containerRec,
+						Resizer:      resizer,
+						Monitor:      monitor,
+						Now:          now,
+					})
 					historyMu.Lock()
 					history = append(history, entries...)
 					historyMu.Unlock()
@@ -1212,18 +1221,27 @@ func (r *RightSizePolicyReconciler) executeResizes(
 // resizeContainer performs a single container resize on a pod, including
 // skip checks, the resize call, annotation persistence, and safety checks.
 // Returns the history entries produced and whether the resize counted as successful.
+// resizeParams groups parameters for resizeContainer, reducing the function
+// signature from 9 parameters to 2 (ctx + params).
+type resizeParams struct {
+	Policy       *rightsizev1alpha1.RightSizePolicy
+	Pod          *corev1.Pod
+	Workload     client.Object
+	WorkloadName string
+	ContainerRec rightsizev1alpha1.ContainerRecommendation
+	Resizer      *resize.PodResizer
+	Monitor      *safety.Monitor
+	Now          metav1.Time
+}
+
 func (r *RightSizePolicyReconciler) resizeContainer(
 	ctx context.Context,
-	policy *rightsizev1alpha1.RightSizePolicy,
-	pod *corev1.Pod,
-	workload client.Object,
-	workloadName string,
-	containerRec rightsizev1alpha1.ContainerRecommendation,
-	resizer *resize.PodResizer,
-	monitor *safety.Monitor,
-	now metav1.Time,
+	p resizeParams,
 ) ([]rightsizev1alpha1.ResizeHistoryEntry, bool) {
 	logger := log.FromContext(ctx)
+	policy, pod, workload, workloadName := p.Policy, p.Pod, p.Workload, p.WorkloadName
+	containerRec, resizer, monitor, now := p.ContainerRec, p.Resizer, p.Monitor, p.Now
+
 	target := buildResizeTarget(containerRec)
 
 	skip, reason := r.shouldSkipResize(ctx, policy, pod, containerRec, target)
