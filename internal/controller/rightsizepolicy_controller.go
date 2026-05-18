@@ -389,8 +389,9 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	// Check pending safety observations from previous resizes before computing
 	// new recommendations. Uses already-discovered workloads for provenance.
+	var safetyObservationsPending bool
 	if autoRevertEnabled(policy.Spec.UpdateStrategy) {
-		r.checkPendingSafetyObservations(ctx, &policy, collector, workloads)
+		safetyObservationsPending = r.checkPendingSafetyObservations(ctx, &policy, collector, workloads)
 	}
 
 	logger.Info("Discovered workloads", "count", len(workloads))
@@ -707,7 +708,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	// Step 10: Requeue after cooldown, or sooner if safety observations are pending.
 	cooldown := r.parseCooldown(&policy)
 	requeueAfter := cooldown
-	if autoRevertEnabled(policy.Spec.UpdateStrategy) && policy.Status.Workloads.Resized > 0 {
+	if autoRevertEnabled(policy.Spec.UpdateStrategy) && (policy.Status.Workloads.Resized > 0 || safetyObservationsPending) {
 		obs := getObservationPeriod(&policy)
 		if obs < requeueAfter {
 			requeueAfter = obs
@@ -1976,10 +1977,10 @@ func (r *RightSizePolicyReconciler) shouldSkipResize(
 // annotated with tracking annotations. For each pod whose observation period
 // has elapsed, it runs a safety check. Unsafe pods are reverted to their
 // original resource values and the annotations are removed.
-func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy, collector rsmetrics.MetricsCollector, workloads []client.Object) {
+func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy, collector rsmetrics.MetricsCollector, workloads []client.Object) (observationsPending bool) {
 	logger := log.FromContext(ctx)
 	if r.Clientset == nil {
-		return
+		return false
 	}
 
 	// List only pods with the tracking label (set during resize).
@@ -2067,6 +2068,7 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 		// annotations so the next reconciliation retries or completes the
 		// deferred throttle check.
 		if revertFailed || throttlePending {
+			observationsPending = true
 			continue
 		}
 		// Re-fetch directly from API server (not informer cache) to get
@@ -2082,6 +2084,7 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 			logger.Error(updateErr, "Failed to remove resize tracking annotations", "pod", pod.Name)
 		}
 	}
+	return observationsPending
 }
 
 // errNotReady is a sentinel error indicating the pod's observation period hasn't elapsed yet.
