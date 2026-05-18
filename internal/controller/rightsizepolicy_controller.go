@@ -2023,7 +2023,7 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 			continue
 		}
 
-		var revertFailed bool
+		var revertFailed, throttlePending bool
 		for _, record := range records {
 			verdict, err := monitor.CheckPod(ctx, record, r.now())
 			if err != nil {
@@ -2031,6 +2031,12 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 				operatormetrics.ReconcileErrorsTotal.WithLabelValues("safety_observation").Inc()
 				revertFailed = true
 				continue
+			}
+
+			if verdict.ThrottleDeferred {
+				logger.V(1).Info("Throttle check deferred (within grace period), keeping observation",
+					"pod", pod.Name, "container", record.Container)
+				throttlePending = true
 			}
 
 			if !verdict.Safe {
@@ -2056,9 +2062,11 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 			}
 		}
 
-		// Only remove tracking annotations if all reverts succeeded.
-		// If any failed, keep annotations so the next reconciliation retries.
-		if revertFailed {
+		// Only remove tracking annotations if all reverts succeeded and no
+		// throttle checks are still pending. If either condition holds, keep
+		// annotations so the next reconciliation retries or completes the
+		// deferred throttle check.
+		if revertFailed || throttlePending {
 			continue
 		}
 		// Re-fetch directly from API server (not informer cache) to get

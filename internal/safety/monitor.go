@@ -59,6 +59,11 @@ type SafetyVerdict struct {
 	Safe    bool
 	Reason  string // "oomkill", "throttle", "restart", "notready", ""
 	Message string
+	// ThrottleDeferred is true when the throttle check was skipped because the
+	// resize happened less than 5 minutes ago (the Prometheus rate window still
+	// contains pre-resize data). The caller should keep observing the pod so the
+	// throttle check runs on a subsequent reconciliation.
+	ThrottleDeferred bool
 }
 
 // Monitor watches resized pods for safety violations.
@@ -136,18 +141,25 @@ func (m *Monitor) CheckPod(ctx context.Context, record ResizeRecord, now time.Ti
 	// A false-positive throttle revert on a just-upscaled container would
 	// create an infinite resize→revert loop for the pods most in need of
 	// more CPU.
+	var throttleDeferred bool
 	throttleGrace := 5 * time.Minute
-	if m.throttleChecker != nil && now.Sub(record.ResizedAt) >= throttleGrace {
-		ratio, err := m.throttleChecker.GetThrottleRatio(ctx, record.Namespace, record.PodName, record.Container, now)
-		if err != nil {
-			m.logger.Error(err, "Safety throttle check failed, skipping throttle detection",
-				"pod", record.PodName, "namespace", record.Namespace, "container", record.Container)
-		} else if ratio > m.throttleThreshold {
-			return SafetyVerdict{
-				Safe:    false,
-				Reason:  "throttle",
-				Message: fmt.Sprintf("container %s in pod %s/%s has %.0f%% CPU throttle ratio (threshold %.0f%%)", record.Container, record.Namespace, record.PodName, ratio*100, m.throttleThreshold*100),
-			}, nil
+	if m.throttleChecker != nil {
+		if now.Sub(record.ResizedAt) >= throttleGrace {
+			ratio, err := m.throttleChecker.GetThrottleRatio(ctx, record.Namespace, record.PodName, record.Container, now)
+			if err != nil {
+				m.logger.Error(err, "Safety throttle check failed, skipping throttle detection",
+					"pod", record.PodName, "namespace", record.Namespace, "container", record.Container)
+			} else if ratio > m.throttleThreshold {
+				return SafetyVerdict{
+					Safe:    false,
+					Reason:  "throttle",
+					Message: fmt.Sprintf("container %s in pod %s/%s has %.0f%% CPU throttle ratio (threshold %.0f%%)", record.Container, record.Namespace, record.PodName, ratio*100, m.throttleThreshold*100),
+				}, nil
+			}
+		} else {
+			// Grace period not yet elapsed; signal the caller to keep observing
+			// so the throttle check runs on a future reconciliation.
+			throttleDeferred = true
 		}
 	}
 
@@ -165,7 +177,7 @@ func (m *Monitor) CheckPod(ctx context.Context, record ResizeRecord, now time.Ti
 		}
 	}
 
-	return SafetyVerdict{Safe: true}, nil
+	return SafetyVerdict{Safe: true, ThrottleDeferred: throttleDeferred}, nil
 }
 
 // RevertPod resizes the pod back to its original resources using the /resize

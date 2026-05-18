@@ -594,6 +594,73 @@ func TestCheckPod_ThrottleSkippedDuringGracePeriod(t *testing.T) {
 	verdict, err := monitor.CheckPod(context.Background(), record, time.Now())
 	require.NoError(t, err)
 	assert.True(t, verdict.Safe, "should skip throttle check during grace period")
+	assert.True(t, verdict.ThrottleDeferred, "should signal throttle was deferred")
+}
+
+func TestCheckPod_ThrottleDeferredFalseAfterGrace(t *testing.T) {
+	// After the grace period, ThrottleDeferred should be false (throttle was checked).
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "web-0", Namespace: "default"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "app", RestartCount: 0},
+			},
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+
+	clientset := fake.NewSimpleClientset(pod)
+	monitor := NewMonitor(clientset, testr.New(t))
+	monitor.WithThrottleChecker(&mockThrottleChecker{ratio: 0.3}, 0.5)
+
+	record := ResizeRecord{
+		PodName:      "web-0",
+		Namespace:    "default",
+		Container:    "app",
+		ResizedAt:    time.Now().Add(-6 * time.Minute), // >5m, grace elapsed
+		RestartCount: 0,
+	}
+
+	verdict, err := monitor.CheckPod(context.Background(), record, time.Now())
+	require.NoError(t, err)
+	assert.True(t, verdict.Safe)
+	assert.False(t, verdict.ThrottleDeferred, "throttle was checked, not deferred")
+}
+
+func TestCheckPod_ThrottleDeferredFalseNoChecker(t *testing.T) {
+	// Without a throttle checker, ThrottleDeferred should always be false.
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "web-0", Namespace: "default"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "app", RestartCount: 0},
+			},
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+
+	clientset := fake.NewSimpleClientset(pod)
+	monitor := NewMonitor(clientset, testr.New(t))
+	// No throttle checker configured.
+
+	record := ResizeRecord{
+		PodName:      "web-0",
+		Namespace:    "default",
+		Container:    "app",
+		ResizedAt:    time.Now().Add(-30 * time.Second), // within grace window
+		RestartCount: 0,
+	}
+
+	verdict, err := monitor.CheckPod(context.Background(), record, time.Now())
+	require.NoError(t, err)
+	assert.True(t, verdict.Safe)
+	assert.False(t, verdict.ThrottleDeferred, "no checker means no deferral")
 }
 
 func TestCheckPod_ThrottleBelowThreshold(t *testing.T) {
