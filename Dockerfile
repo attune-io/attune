@@ -1,7 +1,10 @@
 # syntax=docker/dockerfile:1
 
-# Build stage
-FROM golang:1.26@sha256:2981696eed011d747340d7252620932677929cce7d2d539602f56a8d7e9b660b AS builder
+# Build stage: use BUILDPLATFORM so Go runs natively even for cross-arch builds.
+FROM --platform=$BUILDPLATFORM golang:1.26@sha256:2981696eed011d747340d7252620932677929cce7d2d539602f56a8d7e9b660b AS builder
+
+ARG TARGETOS
+ARG TARGETARCH
 
 WORKDIR /workspace
 
@@ -14,13 +17,15 @@ COPY cmd/ cmd/
 COPY api/ api/
 COPY internal/ internal/
 
-# Build with cache mounts for iterative speed
+# Build with cache mounts for iterative speed.
+# Cross-compile via GOOS/GOARCH instead of running the entire compiler under
+# QEMU emulation (orders of magnitude faster for linux/arm64 builds).
 ARG VERSION=dev
 ARG COMMIT=none
 ARG DATE=unknown
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    CGO_ENABLED=0 GOOS=linux go build \
+    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} go build \
     -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" \
     -o manager ./cmd/manager/
 
