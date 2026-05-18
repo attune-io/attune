@@ -706,6 +706,7 @@ func (r *RightSizePolicyReconciler) handleDeletion(ctx context.Context, policy *
 		return ctrl.Result{}, fmt.Errorf("listing tracked pods for cleanup: %w", err)
 	}
 
+	var cleanupErrs []error
 	for i := range podList.Items {
 		pod := &podList.Items[i]
 		if pod.Annotations[annotationPolicy] != policy.Name {
@@ -713,14 +714,18 @@ func (r *RightSizePolicyReconciler) handleDeletion(ctx context.Context, policy *
 		}
 		removeTrackingAnnotations(pod)
 		delete(pod.Annotations, annotationStartupBoostAt)
-		delete(pod.Annotations, annotationPolicy)
 		if err := r.Update(ctx, pod); err != nil {
 			if apierrors.IsNotFound(err) {
 				continue
 			}
-			return ctrl.Result{}, fmt.Errorf("cleaning pod %s annotations: %w", pod.Name, err)
+			logger.Error(err, "Failed to clean pod annotations", "pod", pod.Name)
+			cleanupErrs = append(cleanupErrs, fmt.Errorf("cleaning pod %s: %w", pod.Name, err))
+			continue
 		}
 		logger.Info("Cleaned tracking annotations from pod", "pod", pod.Name)
+	}
+	if len(cleanupErrs) > 0 {
+		return ctrl.Result{}, errors.Join(cleanupErrs...)
 	}
 
 	// Clean Prometheus gauge values this policy set.

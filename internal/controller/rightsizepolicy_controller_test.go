@@ -32,6 +32,7 @@ import (
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -696,6 +697,139 @@ func TestHandleDeletion_SkipsWithoutFinalizer(t *testing.T) {
 	result, err := reconciler.handleDeletion(context.Background(), policy)
 	require.NoError(t, err)
 	assert.Equal(t, ctrl.Result{}, result, "should return immediately without finalizer")
+}
+
+func TestHandleDeletion_ListErrorRetainsFinalizer(t *testing.T) {
+	now := metav1.Now()
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "my-policy",
+			Namespace:         "default",
+			Finalizers:        []string{finalizerName},
+			DeletionTimestamp: &now,
+		},
+	}
+
+	scheme := testScheme()
+	failingClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithInterceptorFuncs(interceptor.Funcs{
+			List: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) error {
+				return fmt.Errorf("simulated API server error")
+			},
+		}).Build()
+
+	reconciler := &RightSizePolicyReconciler{Client: failingClient, Scheme: scheme}
+	_, err := reconciler.handleDeletion(context.Background(), policy)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "listing tracked pods")
+	assert.Contains(t, policy.Finalizers, finalizerName,
+		"finalizer must remain so controller retries cleanup")
+}
+
+func TestHandleDeletion_ContinuesOnPodUpdateError(t *testing.T) {
+	now := metav1.Now()
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "my-policy",
+			Namespace:         "default",
+			Finalizers:        []string{finalizerName},
+			DeletionTimestamp: &now,
+		},
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			TargetRef: rightsizev1alpha1.TargetRef{Kind: "Deployment", Name: stringPtr("app")},
+		},
+	}
+
+	// Two managed pods: first will fail on Update, second should still be cleaned.
+	pod1 := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "pod-fail", Namespace: "default",
+			Labels:      map[string]string{labelTracked: "true"},
+			Annotations: map[string]string{annotationPolicy: "my-policy", annotationResizedAt: "2025-01-01T00:00:00Z"},
+		},
+		Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "main", Image: "nginx"}}},
+	}
+	pod2 := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "pod-ok", Namespace: "default",
+			Labels:      map[string]string{labelTracked: "true"},
+			Annotations: map[string]string{annotationPolicy: "my-policy", annotationResizedAt: "2025-01-01T00:00:00Z"},
+		},
+		Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "main", Image: "nginx"}}},
+	}
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(policy, pod1, pod2).
+		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Update: func(ctx context.Context, cw client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				if pod, ok := obj.(*corev1.Pod); ok && pod.Name == "pod-fail" {
+					return fmt.Errorf("simulated conflict")
+				}
+				return cw.Update(ctx, obj, opts...)
+			},
+		}).Build()
+
+	reconciler := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	_, err := reconciler.handleDeletion(context.Background(), policy)
+	require.Error(t, err, "should return error for failed pod cleanup")
+	assert.Contains(t, err.Error(), "pod-fail")
+
+	// pod2 should still be cleaned despite pod1's failure.
+	var cleaned corev1.Pod
+	getErr := fakeClient.Get(context.Background(), types.NamespacedName{Name: "pod-ok", Namespace: "default"}, &cleaned)
+	require.NoError(t, getErr)
+	assert.Empty(t, cleaned.Annotations[annotationPolicy], "pod-ok should be cleaned despite pod-fail error")
+	assert.Empty(t, cleaned.Labels[labelTracked], "pod-ok tracked label should be removed")
+
+	// Finalizer should still be present (error returned, retry needed).
+	assert.Contains(t, policy.Finalizers, finalizerName,
+		"finalizer must remain so controller retries for pod-fail")
+}
+
+func TestHandleDeletion_PodDeletedBetweenListAndUpdate(t *testing.T) {
+	now := metav1.Now()
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "my-policy",
+			Namespace:         "default",
+			Finalizers:        []string{finalizerName},
+			DeletionTimestamp: &now,
+		},
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			TargetRef: rightsizev1alpha1.TargetRef{Kind: "Deployment", Name: stringPtr("app")},
+		},
+	}
+
+	vanishingPod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "vanishing-pod", Namespace: "default",
+			Labels:      map[string]string{labelTracked: "true"},
+			Annotations: map[string]string{annotationPolicy: "my-policy", annotationResizedAt: "2025-01-01T00:00:00Z"},
+		},
+		Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "main", Image: "nginx"}}},
+	}
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(policy, vanishingPod).
+		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Update: func(ctx context.Context, cw client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				if _, ok := obj.(*corev1.Pod); ok {
+					return apierrors.NewNotFound(corev1.Resource("pods"), obj.GetName())
+				}
+				return cw.Update(ctx, obj, opts...)
+			},
+		}).Build()
+
+	reconciler := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	result, err := reconciler.handleDeletion(context.Background(), policy)
+	require.NoError(t, err, "IsNotFound on pod update should not cause error")
+	assert.Equal(t, ctrl.Result{}, result)
+	assert.NotContains(t, policy.Finalizers, finalizerName,
+		"finalizer should be removed even if pod vanished")
 }
 
 func TestReconcile_NoMatchingWorkloadsSetsInsufficientData(t *testing.T) {
