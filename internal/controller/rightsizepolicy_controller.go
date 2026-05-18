@@ -1718,9 +1718,7 @@ func (r *RightSizePolicyReconciler) shouldSkipResize(
 			// Skip the check if node allocatable is not yet populated (node
 			// initializing, kubelet race). Treating unknown as zero would
 			// silently block all resizes with no user-visible signal.
-			if len(node.Status.Allocatable) == 0 {
-				// noop: skip allocatable check
-			} else {
+			if len(node.Status.Allocatable) > 0 {
 				totalCPU := int64(0)
 				totalMem := int64(0)
 				for _, c := range slices.Concat(pod.Spec.InitContainers, pod.Spec.Containers) {
@@ -1830,8 +1828,7 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 					revertFailed = true
 					continue
 				}
-				workloadName := pod.Annotations[annotationResizedWorkload]
-				operatormetrics.RevertsTotal.WithLabelValues(pod.Namespace, workloadName, verdict.Reason).Inc()
+				operatormetrics.RevertsTotal.WithLabelValues(pod.Namespace, trackedWorkload, verdict.Reason).Inc()
 				if r.Recorder != nil {
 					r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, string(rightsizev1alpha1.ResizeResultReverted), "revert",
 						"Safety observation reverted resize on pod %s/%s: %s", pod.Name, record.Container, verdict.Message)
@@ -1839,7 +1836,7 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 				// Mark matching history entries as reverted so status reflects the revert.
 				for i := range policy.Status.ResizeHistory {
 					h := &policy.Status.ResizeHistory[i]
-					if h.Workload == workloadName && h.Container == record.Container && h.Result == rightsizev1alpha1.ResizeResultSuccess {
+					if h.Workload == trackedWorkload && h.Container == record.Container && h.Result == rightsizev1alpha1.ResizeResultSuccess {
 						h.Result = rightsizev1alpha1.ResizeResultReverted
 					}
 				}

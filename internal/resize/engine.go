@@ -33,6 +33,13 @@ import (
 // MethodInPlace is the resize method for in-place pod resize.
 const MethodInPlace = "InPlace"
 
+// Pod resize condition type and reason constants matching kubelet's condition names.
+const (
+	condPodResizeInProgress = "PodResizeInProgress"
+	condPodResizePending    = "PodResizePending"
+	reasonInfeasible        = "Infeasible"
+)
+
 // ResizeResult represents the outcome of a resize operation.
 type ResizeResult struct {
 	PodName   string
@@ -187,10 +194,10 @@ func IsEligibleForResize(pod *corev1.Pod) bool {
 			continue
 		}
 		condType := string(cond.Type)
-		if condType == "PodResizeInProgress" {
+		if condType == condPodResizeInProgress {
 			return false
 		}
-		if condType == "PodResizePending" && cond.Reason != "Infeasible" {
+		if condType == condPodResizePending && cond.Reason != reasonInfeasible {
 			return false
 		}
 	}
@@ -201,9 +208,9 @@ func IsEligibleForResize(pod *corev1.Pod) bool {
 // as Infeasible, meaning it cannot be completed in-place on the current node.
 func IsResizeInfeasible(pod *corev1.Pod) bool {
 	for _, cond := range pod.Status.Conditions {
-		if string(cond.Type) == "PodResizePending" &&
+		if string(cond.Type) == condPodResizePending &&
 			cond.Status == corev1.ConditionTrue &&
-			cond.Reason == "Infeasible" {
+			cond.Reason == reasonInfeasible {
 			return true
 		}
 	}
