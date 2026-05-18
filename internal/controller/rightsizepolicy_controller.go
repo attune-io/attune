@@ -2237,6 +2237,11 @@ func (r *RightSizePolicyReconciler) applyStartupBoosts(
 					}
 					boostedMillis := int64(float64(recCPU.MilliValue()) * multiplier)
 					boostedCPU := *resource.NewMilliQuantity(boostedMillis, resource.DecimalSI)
+					// Cap at the container's CPU limit to avoid requests > limits
+					// rejection from the API server.
+					if cpuLim, hasLim := c.Resources.Limits[corev1.ResourceCPU]; hasLim && boostedCPU.Cmp(cpuLim) > 0 {
+						boostedCPU = cpuLim.DeepCopy()
+					}
 					if c.Resources.Requests.Cpu().Cmp(boostedCPU) >= 0 {
 						continue // already at or above boosted level
 					}
@@ -2304,6 +2309,7 @@ func (r *RightSizePolicyReconciler) applyStartupBoosts(
 				}
 				if now.Sub(boostAt) >= boostDuration {
 					// Boost expired: resize back to steady-state.
+					var boostReduceFailed bool
 					for _, c := range pod.Spec.Containers {
 						recCPU, ok := recMap[c.Name]
 						if !ok {
@@ -2312,6 +2318,7 @@ func (r *RightSizePolicyReconciler) applyStartupBoosts(
 						refreshed, err := r.boostResizeAndRefetch(ctx, resizer, pod, c.Name, recCPU)
 						if err != nil {
 							logger.Error(err, "Failed to reduce startup boost", "pod", pod.Name, "container", c.Name)
+							boostReduceFailed = true
 							if refreshed == nil {
 								break // re-fetch failed
 							}
@@ -2321,9 +2328,16 @@ func (r *RightSizePolicyReconciler) applyStartupBoosts(
 							"pod", pod.Name, "container", c.Name, "cpu", recCPU.String())
 						*pod = *refreshed
 					}
-					delete(pod.Annotations, annotationStartupBoostAt)
+					// Only remove the boost annotation if all containers were
+					// successfully reduced. If any failed, keep the annotation
+					// so the next reconciliation retries. Without this guard, a
+					// transient failure would leave the pod permanently at
+					// boosted CPU with no future expiry attempt.
+					if !boostReduceFailed {
+						delete(pod.Annotations, annotationStartupBoostAt)
+					}
 					if updateErr := r.Update(ctx, pod); updateErr != nil {
-						logger.Error(updateErr, "Failed to remove startup boost annotation", "pod", pod.Name)
+						logger.Error(updateErr, "Failed to update pod after startup boost expiry", "pod", pod.Name)
 					}
 				}
 			}

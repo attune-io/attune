@@ -6810,6 +6810,175 @@ func TestApplyStartupBoosts_SkipsWhenExceedsNodeAllocatable(t *testing.T) {
 	}
 }
 
+func TestApplyStartupBoosts_CapsAtCPULimit(t *testing.T) {
+	// When the boosted CPU (3x 200m = 600m) exceeds the container's CPU limit
+	// (500m), the boost should be capped at the limit to avoid API rejection
+	// from requests > limits.
+	scheme := testScheme()
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			CPU: rightsizev1alpha1.ResourceConfig{
+				StartupBoost: &rightsizev1alpha1.StartupBoost{
+					Multiplier: "3.0",
+					Duration:   metav1.Duration{Duration: 2 * time.Minute},
+				},
+			},
+		},
+	}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "limited-app-abc",
+			Namespace:         "default",
+			CreationTimestamp: metav1.NewTime(now.Add(-30 * time.Second)),
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("100m"),
+							corev1.ResourceMemory: resource.MustParse("128Mi"),
+						},
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("500m"),
+							corev1.ResourceMemory: resource.MustParse("512Mi"),
+						},
+					},
+				},
+			},
+		},
+	}
+	clientset := kubefake.NewSimpleClientset(pod)
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod).Build()
+	r := &RightSizePolicyReconciler{
+		Client:    fakeClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+	}
+	r.SetNowFunc(func() time.Time { return now })
+
+	resizer := resize.NewPodResizer(clientset, ctrl.Log)
+	recs := []rightsizev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "limited-app",
+			Kind:     "Deployment",
+			Containers: []rightsizev1alpha1.ContainerRecommendation{
+				{
+					Name:        "main",
+					Recommended: rightsizev1alpha1.ResourceValues{CPURequest: resource.MustParse("200m")},
+				},
+			},
+		},
+	}
+	podsByWorkload := map[string][]corev1.Pod{"limited-app": {*pod}}
+
+	r.applyStartupBoosts(context.Background(), policy, podsByWorkload, recs, resizer)
+
+	// Verify resize was attempted and CPU was capped at the limit (500m).
+	var foundResize bool
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			foundResize = true
+			updatedPod := a.(k8stesting.UpdateAction).GetObject().(*corev1.Pod)
+			cpuReq := updatedPod.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
+			cpuLim := resource.MustParse("500m")
+			assert.True(t, cpuReq.Cmp(cpuLim) <= 0,
+				"boosted CPU request (%s) should not exceed limit (500m)", cpuReq.String())
+			assert.True(t, cpuReq.Cmp(resource.MustParse("100m")) > 0,
+				"CPU should be boosted above the original 100m")
+			break
+		}
+	}
+	assert.True(t, foundResize, "expected a resize action for capped startup boost")
+}
+
+func TestApplyStartupBoosts_ExpiryKeepsAnnotationOnFailure(t *testing.T) {
+	// When steady-state resize fails during boost expiry, the boost annotation
+	// should be kept so the next reconciliation retries. Without this,
+	// a transient failure leaves the pod permanently at boosted CPU.
+	scheme := testScheme()
+	now := time.Date(2026, 1, 1, 0, 5, 0, 0, time.UTC)
+	boostAt := now.Add(-3 * time.Minute) // boost applied 3min ago, duration 2min => expired
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "boost-expire-pod",
+			Namespace: "default",
+			Annotations: map[string]string{
+				annotationStartupBoostAt: boostAt.UTC().Format(time.RFC3339),
+			},
+			Labels:            map[string]string{labelTracked: "true"},
+			CreationTimestamp: metav1.NewTime(boostAt.Add(-30 * time.Second)),
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("600m"), // boosted
+							corev1.ResourceMemory: resource.MustParse("128Mi"),
+						},
+					},
+				},
+			},
+		},
+	}
+	clientset := kubefake.NewSimpleClientset(pod)
+	// Make UpdateResize fail to simulate transient error.
+	clientset.PrependReactor("update", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if action.GetSubresource() == "resize" {
+			return true, nil, fmt.Errorf("simulated resize failure")
+		}
+		return false, nil, nil
+	})
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod).Build()
+	r := &RightSizePolicyReconciler{
+		Client:    fakeClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+	}
+	r.SetNowFunc(func() time.Time { return now })
+
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			CPU: rightsizev1alpha1.ResourceConfig{
+				StartupBoost: &rightsizev1alpha1.StartupBoost{
+					Multiplier: "3.0",
+					Duration:   metav1.Duration{Duration: 2 * time.Minute},
+				},
+			},
+		},
+	}
+	recs := []rightsizev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "boost-expire",
+			Kind:     "Deployment",
+			Containers: []rightsizev1alpha1.ContainerRecommendation{
+				{Name: "main", Recommended: rightsizev1alpha1.ResourceValues{CPURequest: resource.MustParse("200m")}},
+			},
+		},
+	}
+	resizer := resize.NewPodResizer(clientset, ctrl.Log)
+	podsByWorkload := map[string][]corev1.Pod{"boost-expire": {*pod}}
+
+	r.applyStartupBoosts(context.Background(), policy, podsByWorkload, recs, resizer)
+
+	// Verify the boost annotation is still present (not removed after failure).
+	var updated corev1.Pod
+	err := fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "boost-expire-pod", Namespace: "default",
+	}, &updated)
+	require.NoError(t, err)
+	_, has := updated.Annotations[annotationStartupBoostAt]
+	assert.True(t, has, "boost annotation should be kept when resize fails so next reconcile retries")
+}
+
 func TestStartupBoost_SkippedInObserveMode(t *testing.T) {
 	// Verify that the reconcile-level guard prevents startup boosts when
 	// the policy mode is Observe or Recommend.
