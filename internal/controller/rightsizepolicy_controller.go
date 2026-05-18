@@ -250,7 +250,8 @@ func collectorConfigPrefix(address string, headers map[string]string, tlsConfig 
 	}
 	slices.Sort(keys)
 	for _, k := range keys {
-		key += "|h:" + k + "=" + headers[k]
+		sum := sha256.Sum256([]byte(headers[k]))
+		key += fmt.Sprintf("|h:%s=%x", k, sum[:8])
 	}
 	return key
 }
@@ -795,38 +796,47 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 		// V(1): log per-container recommendation summary.
 		cpuChanged := !rec.Recommended.CPURequest.Equal(rec.Current.CPURequest)
 		memChanged := !rec.Recommended.MemoryRequest.Equal(rec.Current.MemoryRequest)
+		cpuChangeFilter, memChangeFilter := "", ""
+		if explanation.CPU != nil {
+			cpuChangeFilter = explanation.CPU.ChangeFilterApplied
+		}
+		if explanation.Memory != nil {
+			memChangeFilter = explanation.Memory.ChangeFilterApplied
+		}
 		logger.V(1).Info("Computed recommendation",
 			"container", containerName,
-			"cpuCurrent", rec.Current.CPURequest.String(),
-			"cpuRecommended", rec.Recommended.CPURequest.String(),
+			"cpuCurrent", &rec.Current.CPURequest,
+			"cpuRecommended", &rec.Recommended.CPURequest,
 			"cpuChanged", cpuChanged,
-			"memCurrent", rec.Current.MemoryRequest.String(),
-			"memRecommended", rec.Recommended.MemoryRequest.String(),
+			"cpuChangeFilter", cpuChangeFilter,
+			"memCurrent", &rec.Current.MemoryRequest,
+			"memRecommended", &rec.Recommended.MemoryRequest,
 			"memChanged", memChanged,
+			"memChangeFilter", memChangeFilter,
 			"confidence", rec.Confidence)
 
 		// V(2): log full recommendation chain if explanation is available.
 		if explanation.CPU != nil {
 			logger.V(2).Info("CPU recommendation chain",
 				"container", containerName,
-				"rawPercentile", explanation.CPU.RawPercentile.String(),
-				"afterMargin", explanation.CPU.AfterSafetyMargin.String(),
+				"rawPercentile", &explanation.CPU.RawPercentile,
+				"afterMargin", &explanation.CPU.AfterSafetyMargin,
 				"burstFactor", explanation.CPU.BurstFactor,
-				"afterConfidence", explanation.CPU.AfterConfidence.String(),
+				"afterConfidence", &explanation.CPU.AfterConfidence,
 				"boundsApplied", explanation.CPU.BoundsApplied,
 				"changeFilter", explanation.CPU.ChangeFilterApplied,
-				"final", explanation.CPU.Final.String())
+				"final", &explanation.CPU.Final)
 		}
 		if explanation.Memory != nil {
 			logger.V(2).Info("Memory recommendation chain",
 				"container", containerName,
-				"rawPercentile", explanation.Memory.RawPercentile.String(),
-				"afterMargin", explanation.Memory.AfterSafetyMargin.String(),
+				"rawPercentile", &explanation.Memory.RawPercentile,
+				"afterMargin", &explanation.Memory.AfterSafetyMargin,
 				"burstFactor", explanation.Memory.BurstFactor,
-				"afterConfidence", explanation.Memory.AfterConfidence.String(),
+				"afterConfidence", &explanation.Memory.AfterConfidence,
 				"boundsApplied", explanation.Memory.BoundsApplied,
 				"changeFilter", explanation.Memory.ChangeFilterApplied,
-				"final", explanation.Memory.Final.String())
+				"final", &explanation.Memory.Final)
 		}
 
 		// Scale limits proportionally if ControlledValues is RequestsAndLimits.

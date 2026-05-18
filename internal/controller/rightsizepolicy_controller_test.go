@@ -1555,8 +1555,9 @@ func TestCollectorCacheKey_WithOptions(t *testing.T) {
 	assert.Contains(t, key, "http://prom:9090")
 	assert.Contains(t, key, "|bearer:")
 	assert.Contains(t, key, "|insecure")
-	assert.Contains(t, key, "|h:X-Scope-OrgID=tenant-1")
-	assert.NotContains(t, key, "tok")
+	assert.Contains(t, key, "|h:X-Scope-OrgID=")
+	assert.NotContains(t, key, "tenant-1") // header value should be hashed
+	assert.NotContains(t, key, "tok")      // bearer token should be hashed
 }
 
 func TestCollectorCacheKey_DeterministicWithMultipleHeaders(t *testing.T) {
@@ -1569,8 +1570,13 @@ func TestCollectorCacheKey_DeterministicWithMultipleHeaders(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		assert.Equal(t, key1, collectorCacheKey(config, opts), "cache key must be deterministic on iteration %d", i)
 	}
-	// Verify sorted order: A before M before Z.
-	assert.Contains(t, key1, "|h:A-Header=a|h:M-Header=m|h:Z-Header=z")
+	// Verify sorted order: A before M before Z (values are now SHA-256 hashed).
+	assert.Contains(t, key1, "|h:A-Header=")
+	assert.Contains(t, key1, "|h:M-Header=")
+	assert.Contains(t, key1, "|h:Z-Header=")
+	// Hashed values should NOT contain the raw header value.
+	assert.NotContains(t, key1, "=a|")
+	assert.NotContains(t, key1, "=z")
 }
 
 func TestCollectorCacheKey_DifferentConfigsDifferentKeys(t *testing.T) {

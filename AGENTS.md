@@ -113,6 +113,25 @@ clientset.CoreV1().Pods(ns).UpdateResize(ctx, name, pod, metav1.UpdateOptions{})
 Run `make manifests` after changing CRD types or RBAC markers. Run
 `make generate` after changing API types. Commit the generated output.
 
+### Adding a new defaultable field
+
+Fields that should be overridable by `RightSizeDefaults` must use
+pointer types (`*int32`, `*bool`, `*metav1.Duration`) so nil=unset
+is distinguishable from zero/false. Update all 6 locations:
+
+1. `api/v1alpha1/rightsizepolicy_types.go` - Add `*T` field with
+   `json:"name,omitempty"` and `// +optional`
+2. `api/v1alpha1/defaults.go` - Add `DefaultXxx` constant
+3. `internal/controller/helpers.go` `applyBuiltInDefaults()` - Add
+   nil check + default assignment
+4. `internal/controller/helpers.go` `mergeDefaults()` - Add merge
+   clause with `inherited` tracking
+5. `internal/webhook/validation.go` - Add validation if needed
+6. Run `make manifests && make generate` to regenerate CRD + deepcopy
+
+If the field also belongs in `RightSizeDefaults`, add it to
+`api/v1alpha1/rightsizedefaults_types.go` as well.
+
 ## Testing
 
 - Framework: `testify` (assert/require)

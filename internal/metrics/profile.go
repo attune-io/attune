@@ -59,6 +59,10 @@ func BuildProfile(samples []Sample) UsageProfile {
 
 	minTime, maxTime := samples[0].Timestamp, samples[0].Timestamp
 	for _, s := range samples {
+		// Filter out NaN/Inf samples that can corrupt percentile computation.
+		if math.IsNaN(s.Value) || math.IsInf(s.Value, 0) {
+			continue
+		}
 		hour := s.Timestamp.Hour()
 		hourBuckets[hour] = append(hourBuckets[hour], s.Value)
 		allValues = append(allValues, s.Value)
@@ -72,7 +76,7 @@ func BuildProfile(samples []Sample) UsageProfile {
 	}
 
 	profile := UsageProfile{
-		DataPoints: len(samples),
+		DataPoints: len(allValues),
 	}
 
 	// Calculate time span in days.

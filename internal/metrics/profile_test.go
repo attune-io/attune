@@ -17,6 +17,7 @@ limitations under the License.
 package metrics
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -189,4 +190,25 @@ func TestBuildProfile_BurstMagnitude(t *testing.T) {
 
 	assert.True(t, profile.BurstDetected)
 	assert.Greater(t, profile.BurstMagnitude, 3.0)
+}
+
+func TestBuildProfile_NaNInfFiltered(t *testing.T) {
+	// Mix valid samples with NaN and Inf. The profile should only
+	// contain valid values; NaN/Inf must not corrupt percentiles.
+	samples := []Sample{
+		{Timestamp: makeTimestamp(0, 0, 0), Value: 100},
+		{Timestamp: makeTimestamp(0, 1, 0), Value: math.NaN()},
+		{Timestamp: makeTimestamp(0, 2, 0), Value: 200},
+		{Timestamp: makeTimestamp(0, 3, 0), Value: math.Inf(1)},
+		{Timestamp: makeTimestamp(0, 4, 0), Value: 300},
+		{Timestamp: makeTimestamp(0, 5, 0), Value: math.Inf(-1)},
+		{Timestamp: makeTimestamp(0, 6, 0), Value: 400},
+	}
+
+	profile := BuildProfile(samples)
+
+	// Only 4 valid samples should be counted.
+	assert.Equal(t, 4, profile.DataPoints)
+	assert.False(t, math.IsNaN(profile.OverallPercentiles.P99))
+	assert.False(t, math.IsInf(profile.OverallPercentiles.P99, 0))
 }

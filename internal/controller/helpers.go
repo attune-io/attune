@@ -646,6 +646,7 @@ func (r *RightSizePolicyReconciler) applyBuiltInDefaults(policy *rightsizev1alph
 // the policy has not specified its own values.
 func (r *RightSizePolicyReconciler) mergeDefaults(policy *rightsizev1alpha1.RightSizePolicy, defaults *rightsizev1alpha1.RightSizeDefaults) {
 	if defaults == nil {
+		ctrl.Log.V(1).Info("No cluster defaults configured, using built-in values only")
 		return
 	}
 	spec := defaults.Spec
@@ -707,6 +708,9 @@ func (r *RightSizePolicyReconciler) mergeDefaults(policy *rightsizev1alpha1.Righ
 		ctrl.Log.V(1).Info("Merged cluster defaults into policy",
 			"defaultsName", defaults.Name,
 			"fieldsInherited", inherited)
+	} else {
+		ctrl.Log.V(1).Info("All policy fields already set, no defaults applied",
+			"defaultsName", defaults.Name)
 	}
 }
 
