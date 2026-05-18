@@ -563,10 +563,18 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		if resizedCount > 0 {
 			policy.Status.Workloads.Resized = safeInt32(resizedCount)
 			policy.Status.ResizeHistory = appendHistory(policy.Status.ResizeHistory, history, 20)
-			// Auto-tune HPA targets using aggregate CPU across all
-			// containers per workload so multi-container workloads get
-			// a single correct ratio instead of the last container's ratio.
+			// Auto-tune HPA targets only for workloads that were actually
+			// resized, using aggregate CPU across all containers.
+			resizedWorkloads := make(map[string]bool, len(history))
+			for _, h := range history {
+				if h.Result == rightsizev1alpha1.ResizeResultSuccess {
+					resizedWorkloads[h.Workload] = true
+				}
+			}
 			for _, rec := range recommendations {
+				if !resizedWorkloads[rec.Workload] {
+					continue
+				}
 				var totalOldCPU, totalNewCPU int64
 				for _, c := range rec.Containers {
 					totalOldCPU += c.Current.CPURequest.MilliValue()
@@ -1190,7 +1198,6 @@ func (r *RightSizePolicyReconciler) executeResizes(
 		logger.V(1).Info("Could not pre-fetch ResourceQuotas", "error", err)
 	}
 	checks := &resizePreChecks{
-		nodeCache:   make(map[string]*corev1.Node),
 		limitRanges: limitRanges.Items,
 		quotas:      quotas.Items,
 	}
@@ -1860,8 +1867,9 @@ func (r *RightSizePolicyReconciler) resolveCanaryPhase(ctx context.Context, poli
 
 // resizePreChecks holds per-cycle cached data for shouldSkipResize,
 // avoiding redundant API calls when checking many pods in the same namespace.
+// nodeCache uses sync.Map for safe concurrent access when MaxConcurrentResizes > 1.
 type resizePreChecks struct {
-	nodeCache   map[string]*corev1.Node
+	nodeCache   sync.Map // string -> *corev1.Node
 	limitRanges []corev1.LimitRange
 	quotas      []corev1.ResourceQuota
 }
@@ -1877,11 +1885,12 @@ func (r *RightSizePolicyReconciler) shouldSkipResize(
 	target corev1.ResourceRequirements,
 	checks *resizePreChecks,
 ) (skip bool, reason string) {
-	// Already at target (search both regular and init containers).
+	// Already at target (compare against clamped target, not raw recommendation,
+	// so requests clamped to limits are correctly detected as no-ops).
 	for _, c := range slices.Concat(pod.Spec.InitContainers, pod.Spec.Containers) {
 		if c.Name == containerRec.Name {
-			if c.Resources.Requests.Cpu().MilliValue() == containerRec.Recommended.CPURequest.MilliValue() &&
-				c.Resources.Requests.Memory().Value() == containerRec.Recommended.MemoryRequest.Value() {
+			if c.Resources.Requests.Cpu().MilliValue() == target.Requests.Cpu().MilliValue() &&
+				c.Resources.Requests.Memory().Value() == target.Requests.Memory().Value() {
 				return true, ""
 			}
 			break
@@ -1892,15 +1901,15 @@ func (r *RightSizePolicyReconciler) shouldSkipResize(
 	if pod.Spec.NodeName != "" {
 		var node *corev1.Node
 		if checks != nil {
-			cached, ok := checks.nodeCache[pod.Spec.NodeName]
-			if !ok {
+			if cached, ok := checks.nodeCache.Load(pod.Spec.NodeName); ok {
+				node, _ = cached.(*corev1.Node)
+			} else {
 				var n corev1.Node
 				if err := r.Get(ctx, types.NamespacedName{Name: pod.Spec.NodeName}, &n); err == nil {
-					cached = &n
+					node = &n
 				}
-				checks.nodeCache[pod.Spec.NodeName] = cached
+				checks.nodeCache.Store(pod.Spec.NodeName, node)
 			}
-			node = cached
 		} else {
 			var n corev1.Node
 			if err := r.Get(ctx, types.NamespacedName{Name: pod.Spec.NodeName}, &n); err == nil {
