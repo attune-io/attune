@@ -643,6 +643,44 @@ func TestValidate_ScheduleOvernightWindowValid(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestValidate_CPUStartupBoost(t *testing.T) {
+	tests := []struct {
+		name       string
+		multiplier string
+		duration   time.Duration
+		wantErr    string
+	}{
+		{name: "valid", multiplier: "2.0", duration: 30 * time.Second},
+		{name: "not a number", multiplier: "abc", duration: 30 * time.Second, wantErr: "not a valid number"},
+		{name: "NaN", multiplier: "NaN", duration: 30 * time.Second, wantErr: "finite number"},
+		{name: "Inf", multiplier: "Inf", duration: 30 * time.Second, wantErr: "finite number"},
+		{name: "-Inf", multiplier: "-Inf", duration: 30 * time.Second, wantErr: "finite number"},
+		{name: "too low", multiplier: "0.5", duration: 30 * time.Second, wantErr: "must be > 1.0"},
+		{name: "exactly 1", multiplier: "1.0", duration: 30 * time.Second, wantErr: "must be > 1.0"},
+		{name: "too high", multiplier: "11.0", duration: 30 * time.Second, wantErr: "must be <= 10.0"},
+		{name: "duration too short", multiplier: "2.0", duration: 5 * time.Second, wantErr: "at least 10s"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			validator := &RightSizePolicyValidator{}
+			policy := validPolicy()
+			policy.Spec.CPU.StartupBoost = &rightsizev1alpha1.StartupBoost{
+				Multiplier: tc.multiplier,
+				Duration:   metav1.Duration{Duration: tc.duration},
+			}
+
+			_, err := validator.ValidateCreate(context.Background(), policy)
+			if tc.wantErr == "" {
+				assert.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantErr)
+			}
+		})
+	}
+}
+
 func TestValidateDelete_AlwaysSucceeds(t *testing.T) {
 	validator := &RightSizePolicyValidator{}
 	policy := validPolicy()

@@ -636,6 +636,71 @@ func TestEvictPod_CallsEvictionAPI(t *testing.T) {
 	assert.True(t, found, "Eviction action was not recorded on the fake client")
 }
 
+func TestResizePod_InitContainer(t *testing.T) {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "job-0", Namespace: "batch"},
+		Spec: corev1.PodSpec{
+			InitContainers: []corev1.Container{
+				{
+					Name: "init-sidecar",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("100m"),
+							corev1.ResourceMemory: resource.MustParse("64Mi"),
+						},
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("200m"),
+							corev1.ResourceMemory: resource.MustParse("128Mi"),
+						},
+					},
+				},
+			},
+			Containers: []corev1.Container{
+				{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("500m"),
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+	}
+
+	fakeClient := fake.NewSimpleClientset(pod)
+	fakeClient.PrependReactor("update", "pods", resizeReactor)
+
+	resizer := NewPodResizer(fakeClient, testr.New(t))
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("250m"),
+			corev1.ResourceMemory: resource.MustParse("128Mi"),
+		},
+	}
+
+	results, err := resizer.ResizePod(context.Background(), pod, "init-sidecar", target)
+	require.NoError(t, err)
+	assert.NotEmpty(t, results)
+
+	// Verify the UpdateResize action targeted InitContainers, not Containers.
+	for _, action := range fakeClient.Actions() {
+		if action.GetVerb() == "update" && action.GetSubresource() == "resize" {
+			updatedPod := action.(k8stesting.UpdateAction).GetObject().(*corev1.Pod)
+			gotCPU := updatedPod.Spec.InitContainers[0].Resources.Requests[corev1.ResourceCPU]
+			assert.True(t, gotCPU.Equal(resource.MustParse("250m")),
+				"expected init container cpu request 250m, got %s", gotCPU.String())
+			// Ensure regular container was NOT modified.
+			mainCPU := updatedPod.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
+			assert.True(t, mainCPU.Equal(resource.MustParse("500m")),
+				"main container should not be modified, got %s", mainCPU.String())
+			break
+		}
+	}
+}
+
 func TestEvictPod_ReturnsErrorOnFailure(t *testing.T) {
 	pod := newTestPod("worker-1", "default", "app", "100m", "128Mi", "200m", "256Mi")
 	fakeClient := fake.NewSimpleClientset(pod)
