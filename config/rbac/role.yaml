@@ -19,7 +19,6 @@ rules:
   - limitranges
   - nodes
   - resourcequotas
-  - secrets
   verbs:
   - get
   - list
@@ -49,6 +48,7 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - secrets
   - services
   verbs:
   - get

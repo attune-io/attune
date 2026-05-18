@@ -116,7 +116,7 @@ const (
 //+kubebuilder:rbac:groups=monitoring.coreos.com,resources=prometheuses,verbs=get;list
 //+kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=services,verbs=get
-//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+//+kubebuilder:rbac:groups="",resources=secrets,verbs=get
 //+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;create;update;delete
 //+kubebuilder:rbac:groups="",resources=resourcequotas;limitranges,verbs=get;list;watch
 
@@ -507,7 +507,9 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	mode := policy.Spec.UpdateStrategy.Mode
 	cooldownActive := r.isCooldownActive(&policy)
 	withinWindow := isWithinResizeWindow(policy.Spec.UpdateStrategy.Schedule, r.now())
+	resizesAttempted := false
 	if isResizeMode(mode) && !cooldownActive && withinWindow {
+		resizesAttempted = true
 		resizedCount, history := r.executeResizes(ctx, &policy, workloads, recommendations, nil, collector)
 		if resizedCount > 0 {
 			policy.Status.Workloads.Resized = safeInt32(resizedCount)
@@ -550,9 +552,9 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	// Preserve the Resized count from a concurrent reconcile that may have
 	// already updated the status. Without this, a stale snapshot from this
-	// reconcile overwrites the count to 0. This applies both when cooldown
-	// is active and when executeResizes returns 0 (pods already at target).
-	if isResizeMode(mode) && policy.Status.Workloads.Resized == 0 {
+	// reconcile overwrites the count to 0. Only re-fetch when executeResizes
+	// was actually called (not when cooldown or schedule skipped the resize).
+	if resizesAttempted && policy.Status.Workloads.Resized == 0 {
 		var latest rightsizev1alpha1.RightSizePolicy
 		if err := r.Get(ctx, types.NamespacedName{Name: policy.Name, Namespace: policy.Namespace}, &latest); err == nil {
 			if latest.Status.Workloads.Resized > 0 {

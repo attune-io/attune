@@ -142,15 +142,13 @@ rules:
       - delete
       - get
       - update
-  # Secrets: read-only (bearer token for Prometheus auth)
+  # Secrets: get-only (bearer token for Prometheus auth; no informer cache)
   - apiGroups:
       - ""
     resources:
       - secrets
     verbs:
       - get
-      - list
-      - watch
   # ResourceQuotas and LimitRanges: read-only (pre-resize compatibility checks)
   - apiGroups:
       - ""

@@ -122,7 +122,7 @@ tests:
               - list
               - watch
 
-  - it: should include secret read permissions for bearer token
+  - it: should include secret get-only permissions for bearer token
     asserts:
       - contains:
           path: rules
@@ -133,8 +133,6 @@ tests:
               - secrets
             verbs:
               - get
-              - list
-              - watch
 
   - it: should include resourcequotas and limitranges read permissions
     asserts:

@@ -6267,3 +6267,61 @@ func TestAdjustHPATargets_SkipsWithoutAnnotation(t *testing.T) {
 	// Target should be unchanged since no annotation.
 	assert.Equal(t, int32(80), *hpa.Spec.Metrics[0].Resource.Target.AverageUtilization)
 }
+
+func TestBuildRecommendationEngines_NilMaxChangePercent(t *testing.T) {
+	// Exercise the defense-in-depth nil fallback: when MaxCPUChangePercent
+	// and MaxMemoryChangePercent are nil (bypassing applyBuiltInDefaults),
+	// the function should fall back to DefaultMaxCPUChangePercent and
+	// DefaultMaxMemoryChangePercent.
+	policy := &rightsizev1alpha1.RightSizePolicy{}
+	policy.Spec.UpdateStrategy.MaxCPUChangePercent = nil
+	policy.Spec.UpdateStrategy.MaxMemoryChangePercent = nil
+
+	cpuEngine, memEngine := buildRecommendationEngines(policy)
+
+	// Use RecommendWithExplanation to inspect the maxChangePercent embedded
+	// in each engine via the explanation struct.
+	cpuProfile := rsmetrics.UsageProfile{
+		OverallPercentiles: rsmetrics.PercentileSet{P50: 500, P95: 800, Max: 1000},
+		DataPoints:         100,
+		Confidence:         1.0,
+	}
+	_, cpuExpl, _ := cpuEngine.RecommendWithExplanation(cpuProfile, resource.MustParse("500m"))
+	assert.Equal(t, float64(rightsizev1alpha1.DefaultMaxCPUChangePercent), cpuExpl.MaxChangePercent)
+
+	memProfile := rsmetrics.UsageProfile{
+		OverallPercentiles: rsmetrics.PercentileSet{P50: 256, P95: 512, Max: 1024},
+		DataPoints:         100,
+		Confidence:         1.0,
+	}
+	_, memExpl, _ := memEngine.RecommendWithExplanation(memProfile, resource.MustParse("256Mi"))
+	assert.Equal(t, float64(rightsizev1alpha1.DefaultMaxMemoryChangePercent), memExpl.MaxChangePercent)
+}
+
+func TestBuildRecommendationEngines_ExplicitMaxChangePercent(t *testing.T) {
+	// When MaxCPUChangePercent and MaxMemoryChangePercent are set explicitly,
+	// the engine should use those values instead of the defaults.
+	policy := &rightsizev1alpha1.RightSizePolicy{}
+	cpuPct := int32(75)
+	memPct := int32(40)
+	policy.Spec.UpdateStrategy.MaxCPUChangePercent = &cpuPct
+	policy.Spec.UpdateStrategy.MaxMemoryChangePercent = &memPct
+
+	cpuEngine, memEngine := buildRecommendationEngines(policy)
+
+	cpuProfile := rsmetrics.UsageProfile{
+		OverallPercentiles: rsmetrics.PercentileSet{P50: 500, P95: 800, Max: 1000},
+		DataPoints:         100,
+		Confidence:         1.0,
+	}
+	_, cpuExpl, _ := cpuEngine.RecommendWithExplanation(cpuProfile, resource.MustParse("500m"))
+	assert.Equal(t, float64(75), cpuExpl.MaxChangePercent)
+
+	memProfile := rsmetrics.UsageProfile{
+		OverallPercentiles: rsmetrics.PercentileSet{P50: 256, P95: 512, Max: 1024},
+		DataPoints:         100,
+		Confidence:         1.0,
+	}
+	_, memExpl, _ := memEngine.RecommendWithExplanation(memProfile, resource.MustParse("256Mi"))
+	assert.Equal(t, float64(40), memExpl.MaxChangePercent)
+}
