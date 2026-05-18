@@ -6325,3 +6325,111 @@ func TestBuildRecommendationEngines_ExplicitMaxChangePercent(t *testing.T) {
 	_, memExpl, _ := memEngine.RecommendWithExplanation(memProfile, resource.MustParse("256Mi"))
 	assert.Equal(t, float64(40), memExpl.MaxChangePercent)
 }
+
+func TestShouldSkipResize_LimitRangeViolation(t *testing.T) {
+	scheme := testScheme()
+	// LimitRange requiring at least 100m CPU.
+	lr := &corev1.LimitRange{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-lr", Namespace: "default"},
+		Spec: corev1.LimitRangeSpec{
+			Limits: []corev1.LimitRangeItem{
+				{
+					Type: corev1.LimitTypeContainer,
+					Min: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("100m"),
+					},
+				},
+			},
+		},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(lr).Build()
+	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+
+	policy := &rightsizev1alpha1.RightSizePolicy{}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pod", Namespace: "default"},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{Name: "app", Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("200m"),
+						corev1.ResourceMemory: resource.MustParse("128Mi"),
+					},
+				}},
+			},
+		},
+	}
+	containerRec := rightsizev1alpha1.ContainerRecommendation{
+		Name: "app",
+		Current: rightsizev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("200m"),
+			MemoryRequest: resource.MustParse("128Mi"),
+		},
+		Recommended: rightsizev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("50m"), // below LimitRange min
+			MemoryRequest: resource.MustParse("128Mi"),
+		},
+	}
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("50m"),
+			corev1.ResourceMemory: resource.MustParse("128Mi"),
+		},
+	}
+
+	skip, reason := r.shouldSkipResize(context.Background(), policy, pod, containerRec, target)
+	assert.True(t, skip)
+	assert.Contains(t, reason, "quota/limitrange violation")
+	assert.Contains(t, reason, "below LimitRange minimum")
+}
+
+func TestShouldSkipResize_QuotaHeadroomExceeded(t *testing.T) {
+	scheme := testScheme()
+	// ResourceQuota with only 300m CPU headroom (hard=1000m, used=700m).
+	quota := &corev1.ResourceQuota{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-quota", Namespace: "default"},
+		Status: corev1.ResourceQuotaStatus{
+			Hard: corev1.ResourceList{corev1.ResourceRequestsCPU: resource.MustParse("1000m")},
+			Used: corev1.ResourceList{corev1.ResourceRequestsCPU: resource.MustParse("700m")},
+		},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(quota).Build()
+	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+
+	policy := &rightsizev1alpha1.RightSizePolicy{}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pod", Namespace: "default"},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{Name: "app", Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("200m"),
+						corev1.ResourceMemory: resource.MustParse("128Mi"),
+					},
+				}},
+			},
+		},
+	}
+	containerRec := rightsizev1alpha1.ContainerRecommendation{
+		Name: "app",
+		Current: rightsizev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("200m"),
+			MemoryRequest: resource.MustParse("128Mi"),
+		},
+		Recommended: rightsizev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("900m"), // increase of 700m, only 300m headroom
+			MemoryRequest: resource.MustParse("128Mi"),
+		},
+	}
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("900m"),
+			corev1.ResourceMemory: resource.MustParse("128Mi"),
+		},
+	}
+
+	skip, reason := r.shouldSkipResize(context.Background(), policy, pod, containerRec, target)
+	assert.True(t, skip)
+	assert.Contains(t, reason, "quota/limitrange violation")
+	assert.Contains(t, reason, "would exceed ResourceQuota")
+}

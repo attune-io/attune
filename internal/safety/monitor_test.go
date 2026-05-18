@@ -27,6 +27,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 )
@@ -618,4 +619,83 @@ func TestCheckPod_NoThrottleChecker(t *testing.T) {
 	verdict, err := monitor.CheckPod(context.Background(), record, time.Now())
 	require.NoError(t, err)
 	assert.True(t, verdict.Safe)
+}
+
+func TestCheckPod_ThrottleQueryError(t *testing.T) {
+	// When the throttle checker returns an error (e.g., Prometheus down),
+	// the monitor should fail open: treat the pod as safe and log the error.
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "web-0", Namespace: "default"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "app", RestartCount: 0},
+			},
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+
+	clientset := fake.NewSimpleClientset(pod)
+	monitor := NewMonitor(clientset, testr.New(t))
+	checker := &mockThrottleChecker{err: assert.AnError}
+	monitor.WithThrottleChecker(checker, 0.5)
+
+	record := ResizeRecord{
+		PodName:      "web-0",
+		Namespace:    "default",
+		Container:    "app",
+		ResizedAt:    time.Now().Add(-1 * time.Minute),
+		RestartCount: 0,
+	}
+
+	verdict, err := monitor.CheckPod(context.Background(), record, time.Now())
+	require.NoError(t, err)
+	assert.True(t, verdict.Safe, "should fail open when throttle check errors")
+}
+
+func TestRevertPod_UpdateResizeError(t *testing.T) {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pod", Namespace: "default"},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "app",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("750m"),
+							corev1.ResourceMemory: resource.MustParse("512Mi"),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	clientset := fake.NewSimpleClientset(pod)
+	clientset.PrependReactor("update", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if action.GetSubresource() == "resize" {
+			return true, nil, assert.AnError
+		}
+		return false, nil, nil
+	})
+
+	monitor := NewMonitor(clientset, testr.New(t))
+	record := ResizeRecord{
+		PodName:   "test-pod",
+		Namespace: "default",
+		Container: "app",
+		OriginalResources: corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("500m"),
+				corev1.ResourceMemory: resource.MustParse("256Mi"),
+			},
+		},
+		ResizedAt: time.Now().Add(-1 * time.Minute),
+	}
+
+	err := monitor.RevertPod(context.Background(), record)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "reverting resize for pod")
 }
