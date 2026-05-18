@@ -536,7 +536,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	mode := policy.Spec.UpdateStrategy.Mode
 	cooldownActive := r.isCooldownActive(&policy)
 	withinWindow := isWithinResizeWindow(policy.Spec.UpdateStrategy.Schedule, r.now())
-	resizesAttempted := false
+	var newResizedCount int
 
 	// Build podsByWorkload once so both executeResizes and applyStartupBoosts
 	// can reuse it, avoiding duplicate getPodsForWorkload calls per cycle.
@@ -556,8 +556,8 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	if isResizeMode(mode) && !cooldownActive && withinWindow {
-		resizesAttempted = true
 		resizedCount, history := r.executeResizes(ctx, &policy, workloads, recommendations, podsByWorkload, collector)
+		newResizedCount = resizedCount
 		// Always record history entries (including immediate reverts) so
 		// the escalation mechanisms (consecutiveReverts, Degraded condition,
 		// exponential backoff) work for all revert reasons.
@@ -608,19 +608,19 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 	}
 
-	// Preserve the Resized count from a concurrent reconcile that may have
-	// already updated the status. Without this, a stale snapshot from this
-	// reconcile overwrites the count to 0. Only re-fetch when executeResizes
-	// was actually called (not when cooldown or schedule skipped the resize).
-	if resizesAttempted && policy.Status.Workloads.Resized == 0 {
-		var latest rightsizev1alpha1.RightSizePolicy
-		if err := r.Get(ctx, types.NamespacedName{Name: policy.Name, Namespace: policy.Namespace}, &latest); err == nil {
-			if latest.Status.Workloads.Resized > 0 {
-				policy.Status.Workloads.Resized = latest.Status.Workloads.Resized
-				if len(latest.Status.ResizeHistory) > len(policy.Status.ResizeHistory) {
-					policy.Status.ResizeHistory = latest.Status.ResizeHistory
-				}
+	// Derive the Resized count from history to self-heal from race conditions
+	// where a concurrent reconcile overwrote Resized to 0 after a successful
+	// resize. The resize history is preserved through races because
+	// updateStatusWithRetry keeps the longer history on conflict retry.
+	if isResizeMode(mode) && policy.Status.Workloads.Resized == 0 {
+		resizedWorkloads := make(map[string]bool)
+		for _, h := range policy.Status.ResizeHistory {
+			if h.Result == rightsizev1alpha1.ResizeResultSuccess {
+				resizedWorkloads[h.Workload] = true
 			}
+		}
+		if derived := safeInt32(len(resizedWorkloads)); derived > policy.Status.Workloads.Resized {
+			policy.Status.Workloads.Resized = derived
 		}
 	}
 	if isResizeMode(mode) && cooldownActive {
@@ -698,8 +698,10 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	// Mark resize time AFTER status is written (avoids resourceVersion conflict
-	// between metadata and status subresource updates).
-	if policy.Status.Workloads.Resized > 0 {
+	// between metadata and status subresource updates). Only set when a new
+	// resize actually happened this cycle (not when Resized was derived from
+	// history), to avoid resetting the cooldown timer spuriously.
+	if newResizedCount > 0 {
 		if err := r.markResizeTime(ctx, &policy); err != nil {
 			return ctrl.Result{}, fmt.Errorf("marking resize time: %w", err)
 		}
