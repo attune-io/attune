@@ -122,10 +122,106 @@ func validateDefaultsSpec(spec rightsizev1alpha1.RightSizeDefaultsSpec) (admissi
 		}
 	}
 
-	// Warn if memory startup boost is set (only CPU boost is implemented).
+	// Validate CPU resource config fields.
 	var warnings admission.Warnings
-	if spec.Memory != nil && spec.Memory.StartupBoost != nil {
-		warnings = append(warnings, "memory.startupBoost has no effect; startup boost only applies to CPU resources")
+	if spec.CPU != nil {
+		if w, err := validateResourceConfigFields("cpu", spec.CPU); err != nil {
+			return warnings, err
+		} else {
+			warnings = append(warnings, w...)
+		}
+	}
+
+	// Validate memory resource config fields.
+	if spec.Memory != nil {
+		if w, err := validateResourceConfigFields("memory", spec.Memory); err != nil {
+			return warnings, err
+		} else {
+			warnings = append(warnings, w...)
+		}
+		if spec.Memory.StartupBoost != nil {
+			warnings = append(warnings, "memory.startupBoost has no effect; startup boost only applies to CPU resources")
+		}
+	}
+
+	// Validate cooldown minimum floor.
+	if spec.UpdateStrategy != nil && spec.UpdateStrategy.Cooldown != nil {
+		cd := spec.UpdateStrategy.Cooldown.Duration
+		if cd < 0 {
+			return warnings, fmt.Errorf("updateStrategy.cooldown must be non-negative, got %s", cd)
+		}
+		if cd > 0 && cd < time.Minute {
+			return warnings, fmt.Errorf("updateStrategy.cooldown must be at least 1m to prevent excessive reconciliation, got %s", cd)
+		}
+	}
+
+	// Validate historyWindow bounds.
+	if spec.MetricsSource != nil && spec.MetricsSource.HistoryWindow != nil {
+		hw := spec.MetricsSource.HistoryWindow.Duration
+		if hw < time.Hour {
+			return warnings, fmt.Errorf("metricsSource.historyWindow must be at least 1h, got %s", hw)
+		}
+		if hw > 720*time.Hour {
+			return warnings, fmt.Errorf("metricsSource.historyWindow must be at most 720h (30d), got %s", hw)
+		}
+	}
+
+	return warnings, nil
+}
+
+// validateResourceConfigFields validates fields that are shared between
+// policy and defaults ResourceConfig. The prefix (e.g. "cpu", "memory")
+// is used in error messages.
+func validateResourceConfigFields(prefix string, rc *rightsizev1alpha1.ResourceConfig) (admission.Warnings, error) {
+	var warnings admission.Warnings
+
+	// SafetyMargin
+	if w, err := validateSafetyMargin(prefix, rc.SafetyMargin); err != nil {
+		return warnings, err
+	} else if w != "" {
+		warnings = append(warnings, w)
+	}
+
+	// BurstSensitivity
+	if err := validateBurstSensitivity(prefix, rc.BurstSensitivity); err != nil {
+		return warnings, err
+	}
+
+	// Percentile
+	supportedPercentiles := map[int32]bool{50: true, 90: true, 95: true, 99: true}
+	if p := rc.Percentile; p != 0 && !supportedPercentiles[p] {
+		return warnings, fmt.Errorf("%s.percentile %d is not supported; must be one of: 50, 90, 95, 99", prefix, p)
+	}
+
+	// Bounds
+	if rc.Bounds != nil {
+		if rc.Bounds.Min.Cmp(rc.Bounds.Max) > 0 {
+			return warnings, fmt.Errorf("%s.bounds.min (%s) must be <= %s.bounds.max (%s)",
+				prefix, rc.Bounds.Min.String(), prefix, rc.Bounds.Max.String())
+		}
+	}
+
+	// StartupBoost (only valid for CPU, but validate format for both)
+	if sb := rc.StartupBoost; sb != nil {
+		m, err := strconv.ParseFloat(sb.Multiplier, 64)
+		if err != nil {
+			return warnings, fmt.Errorf("%s.startupBoost.multiplier %q is not a valid number: %w", prefix, sb.Multiplier, err)
+		}
+		if math.IsNaN(m) || math.IsInf(m, 0) {
+			return warnings, fmt.Errorf("%s.startupBoost.multiplier must be a finite number, got %s", prefix, sb.Multiplier)
+		}
+		if m <= 1 {
+			return warnings, fmt.Errorf("%s.startupBoost.multiplier must be > 1.0, got %s", prefix, sb.Multiplier)
+		}
+		if m > 10 {
+			return warnings, fmt.Errorf("%s.startupBoost.multiplier must be <= 10.0, got %s", prefix, sb.Multiplier)
+		}
+		if sb.Duration.Duration < 10*time.Second {
+			return warnings, fmt.Errorf("%s.startupBoost.duration must be at least 10s, got %s", prefix, sb.Duration.Duration)
+		}
+		if sb.Duration.Duration > 1*time.Hour {
+			return warnings, fmt.Errorf("%s.startupBoost.duration must be at most 1h, got %s", prefix, sb.Duration.Duration)
+		}
 	}
 
 	return warnings, nil
