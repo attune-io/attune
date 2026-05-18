@@ -6830,6 +6830,77 @@ func TestApplyStartupBoosts_ExpiresBoostAfterDuration(t *testing.T) {
 	assert.True(t, foundResize, "expected a resize action for boost expiry")
 }
 
+func TestApplyStartupBoosts_MalformedAnnotationSkipsGracefully(t *testing.T) {
+	scheme := testScheme()
+	now := time.Date(2026, 1, 1, 0, 5, 0, 0, time.UTC)
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			CPU: rightsizev1alpha1.ResourceConfig{
+				StartupBoost: &rightsizev1alpha1.StartupBoost{
+					Multiplier: "3.0",
+					Duration:   metav1.Duration{Duration: 2 * time.Minute},
+				},
+			},
+		},
+	}
+	// Pod has a malformed boost timestamp annotation.
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "my-app-xyz",
+			Namespace:         "default",
+			CreationTimestamp: metav1.NewTime(now.Add(-10 * time.Minute)),
+			Annotations: map[string]string{
+				annotationStartupBoostAt: "not-a-valid-timestamp",
+			},
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("600m"),
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
+					},
+				},
+			},
+		},
+	}
+	clientset := kubefake.NewSimpleClientset(pod)
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod).Build()
+	r := &RightSizePolicyReconciler{
+		Client:    fakeClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+	}
+	r.SetNowFunc(func() time.Time { return now })
+
+	logger := ctrl.Log.WithName("test")
+	resizer := resize.NewPodResizer(clientset, logger)
+	recs := []rightsizev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "my-app",
+			Kind:     "Deployment",
+			Containers: []rightsizev1alpha1.ContainerRecommendation{
+				{Name: "main", Recommended: rightsizev1alpha1.ResourceValues{CPURequest: resource.MustParse("200m")}},
+			},
+		},
+	}
+	podsByWorkload := map[string][]corev1.Pod{"my-app": {*pod}}
+
+	// Should not panic and should not attempt any resize.
+	r.applyStartupBoosts(context.Background(), policy, podsByWorkload, recs, resizer)
+
+	actions := clientset.Actions()
+	for _, a := range actions {
+		assert.NotEqual(t, "resize", a.GetSubresource(),
+			"no resize should be attempted for a pod with malformed boost annotation")
+	}
+}
+
 func TestApplyStartupBoosts_SkipsWhenExceedsNodeAllocatable(t *testing.T) {
 	scheme := testScheme()
 	now := time.Date(2026, 1, 1, 0, 0, 30, 0, time.UTC)

@@ -2387,6 +2387,8 @@ func (r *RightSizePolicyReconciler) applyStartupBoosts(
 				// Boost was applied: check if it should expire.
 				boostAt, parseErr := time.Parse(time.RFC3339, boostAtStr)
 				if parseErr != nil {
+					logger.Error(parseErr, "Malformed startup boost annotation, skipping expiry check",
+						"pod", pod.Name, "value", boostAtStr)
 					continue
 				}
 				if now.Sub(boostAt) >= boostDuration {
