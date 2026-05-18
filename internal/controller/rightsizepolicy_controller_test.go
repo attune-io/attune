@@ -1007,6 +1007,13 @@ func TestScaleLimits(t *testing.T) {
 			newReq:     "250m",
 			wantLim:    "0",
 		},
+		{
+			name:       "negative ratio falls back to newReq",
+			currentReq: "-500m",
+			currentLim: "1000m",
+			newReq:     "250m",
+			wantLim:    "250m",
+		},
 	}
 
 	for _, tt := range tests {
@@ -1136,6 +1143,11 @@ func TestGetPodRegex(t *testing.T) {
 			name:     "DaemonSet uses pod hash pattern",
 			workload: &appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: "node-agent"}},
 			want:     "node-agent-[a-z0-9]{5}",
+		},
+		{
+			name:     "Job uses prefix match fallback",
+			workload: &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "data-migrate"}},
+			want:     "data-migrate.*",
 		},
 	}
 
