@@ -1540,13 +1540,51 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 		}
 	}
 
+	if reason, err := r.persistResizeAnnotations(ctx, pod, containerRec, policy.Name, workloadName, now, restartCount); err != nil {
+		revert(reason)
+		return history, false
+	}
+
+	record := safety.ResizeRecord{
+		PodName:           pod.Name,
+		Namespace:         pod.Namespace,
+		Container:         containerRec.Name,
+		OriginalResources: originalResources,
+		NewResources:      target,
+		ResizedAt:         now.Time,
+		RestartCount:      restartCount,
+	}
+	if reason, err := r.runImmediateSafetyCheck(ctx, policy, monitor, record); err != nil {
+		return history, true
+	} else if reason != "" {
+		revert(reason)
+		return history, false
+	}
+
+	return history, true
+}
+
+// persistResizeAnnotations re-fetches the pod from the API server (to get a
+// fresh resourceVersion after the in-place resize) and writes the tracking
+// annotations that mark the pod as resized. On failure it returns a non-empty
+// revert reason so the caller can revert the resize.
+func (r *RightSizePolicyReconciler) persistResizeAnnotations(
+	ctx context.Context,
+	pod *corev1.Pod,
+	containerRec rightsizev1alpha1.ContainerRecommendation,
+	policyName string,
+	workloadName string,
+	now metav1.Time,
+	restartCount int32,
+) (revertReason string, err error) {
+	logger := log.FromContext(ctx)
+
 	// Re-fetch directly from API server (not informer cache) to get
 	// fresh resourceVersion after UpdateResize. See #37.
 	freshPod, getErr := r.Clientset.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
 	if getErr != nil {
 		logger.Error(getErr, "Failed to re-fetch pod after resize, reverting to avoid untracked resize", "pod", pod.Name)
-		revert("re-fetch-failed")
-		return history, false
+		return "re-fetch-failed", getErr
 	}
 
 	freshPod.Annotations = ensureAnnotations(freshPod.Annotations)
@@ -1556,7 +1594,7 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 		freshPod.Labels = make(map[string]string)
 	}
 	freshPod.Labels[labelTracked] = "true"
-	freshPod.Annotations[annotationPolicy] = policy.Name
+	freshPod.Annotations[annotationPolicy] = policyName
 	appendResizedContainer(freshPod, containerRec.Name)
 	freshPod.Annotations[annotationOriginalCPUPrefix+containerRec.Name] = containerRec.Current.CPURequest.String()
 	freshPod.Annotations[annotationOriginalMemoryPrefix+containerRec.Name] = containerRec.Current.MemoryRequest.String()
@@ -1570,36 +1608,40 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 
 	if updateErr := r.Update(ctx, freshPod); updateErr != nil {
 		logger.Error(updateErr, "Failed to persist resize tracking annotations, reverting resize", "pod", pod.Name)
-		revert("annotation-persist-failed")
-		return history, false
+		return "annotation-persist-failed", updateErr
 	}
+	return "", nil
+}
 
-	if autoRevertEnabled(policy.Spec.UpdateStrategy) {
-		observationEnd := now.Add(getObservationPeriod(policy))
-		record := safety.ResizeRecord{
-			PodName:           pod.Name,
-			Namespace:         pod.Namespace,
-			Container:         containerRec.Name,
-			OriginalResources: originalResources,
-			NewResources:      target,
-			ResizedAt:         now.Time,
-			ObservationEnd:    observationEnd,
-			RestartCount:      restartCount,
-		}
-		verdict, err := monitor.CheckPod(ctx, record, now.Time)
-		if err != nil {
-			logger.Error(err, "Safety check failed, deferring to observation cycle", "pod", pod.Name)
-			return history, true
-		}
-		if !verdict.Safe {
-			logger.Info("Safety violation detected, reverting",
-				"pod", pod.Name, "reason", verdict.Reason)
-			revert(verdict.Reason)
-			return history, false
-		}
+// runImmediateSafetyCheck performs an immediate safety check on a freshly
+// resized pod. If auto-revert is not enabled it returns ("", nil). A non-nil
+// error means the check itself failed (the caller should defer to the
+// observation cycle). A non-empty revertReason means the pod is unsafe and
+// should be reverted.
+func (r *RightSizePolicyReconciler) runImmediateSafetyCheck(
+	ctx context.Context,
+	policy *rightsizev1alpha1.RightSizePolicy,
+	monitor *safety.Monitor,
+	record safety.ResizeRecord,
+) (revertReason string, err error) {
+	if !autoRevertEnabled(policy.Spec.UpdateStrategy) {
+		return "", nil
 	}
+	record.ObservationEnd = record.ResizedAt.Add(getObservationPeriod(policy))
 
-	return history, true
+	logger := log.FromContext(ctx)
+	verdict, checkErr := monitor.CheckPod(ctx, record, record.ResizedAt)
+	if checkErr != nil {
+		logger.Error(checkErr, "Safety check failed, deferring to observation cycle",
+			"pod", record.PodName)
+		return "", checkErr
+	}
+	if !verdict.Safe {
+		logger.Info("Safety violation detected, reverting",
+			"pod", record.PodName, "reason", verdict.Reason)
+		return verdict.Reason, nil
+	}
+	return "", nil
 }
 
 // tryEvictionFallback attempts to evict a pod as a fallback when in-place
