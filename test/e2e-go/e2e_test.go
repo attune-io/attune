@@ -242,20 +242,29 @@ func forcePolicyReconcile(t *testing.T, name, namespace string, timeout time.Dur
 		lastReconcile = before.Status.LastReconcileTime.Time
 	}
 
-	annotationResourceVersion := ""
+	// Toggle a spec field to force a generation change. The
+	// specOrDeletePredicate filters annotation-only metadata updates,
+	// so an annotation change alone won't trigger reconciliation.
+	specResourceVersion := ""
 	require.NoError(t, retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		var policy rightsizev1alpha1.RightSizePolicy
 		if err := k8sClient.Get(ctx, key, &policy); err != nil {
 			return err
 		}
-		if policy.Annotations == nil {
-			policy.Annotations = make(map[string]string)
+		cd := time.Minute
+		if policy.Spec.UpdateStrategy.Cooldown != nil {
+			cd = policy.Spec.UpdateStrategy.Cooldown.Duration
 		}
-		policy.Annotations["e2e-force-reconcile"] = time.Now().Format(time.RFC3339Nano)
+		if cd.Truncate(time.Second)%2 == 0 {
+			cd += time.Second
+		} else {
+			cd -= time.Second
+		}
+		policy.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: cd}
 		if err := k8sClient.Update(ctx, &policy); err != nil {
 			return err
 		}
-		annotationResourceVersion = policy.ResourceVersion
+		specResourceVersion = policy.ResourceVersion
 		return nil
 	}))
 
@@ -264,7 +273,7 @@ func forcePolicyReconcile(t *testing.T, name, namespace string, timeout time.Dur
 		if err := k8sClient.Get(ctx, key, &latest); err != nil {
 			return false, nil
 		}
-		if latest.ResourceVersion == annotationResourceVersion || latest.Status.LastReconcileTime == nil {
+		if latest.ResourceVersion == specResourceVersion || latest.Status.LastReconcileTime == nil {
 			return false, nil
 		}
 		if lastReconcile.IsZero() {
