@@ -531,9 +531,27 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	cooldownActive := r.isCooldownActive(&policy)
 	withinWindow := isWithinResizeWindow(policy.Spec.UpdateStrategy.Schedule, r.now())
 	resizesAttempted := false
+
+	// Build podsByWorkload once so both executeResizes and applyStartupBoosts
+	// can reuse it, avoiding duplicate getPodsForWorkload calls per cycle.
+	var podsByWorkload map[string][]corev1.Pod
+	needPods := isResizeMode(mode) && ((!cooldownActive && withinWindow) ||
+		(policy.Spec.CPU.StartupBoost != nil && r.Clientset != nil && len(recommendations) > 0))
+	if needPods {
+		podsByWorkload = make(map[string][]corev1.Pod, len(workloads))
+		for _, w := range workloads {
+			pods, err := r.getPodsForWorkload(ctx, w)
+			if err != nil {
+				logger.Error(err, "Failed to get pods for workload", "workload", w.GetName())
+				continue
+			}
+			podsByWorkload[w.GetName()] = pods
+		}
+	}
+
 	if isResizeMode(mode) && !cooldownActive && withinWindow {
 		resizesAttempted = true
-		resizedCount, history := r.executeResizes(ctx, &policy, workloads, recommendations, nil, collector)
+		resizedCount, history := r.executeResizes(ctx, &policy, workloads, recommendations, podsByWorkload, collector)
 		if resizedCount > 0 {
 			policy.Status.Workloads.Resized = safeInt32(resizedCount)
 			policy.Status.ResizeHistory = appendHistory(policy.Status.ResizeHistory, history, 20)
@@ -553,15 +571,6 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	// Only in resize modes (Auto, OneShot, Canary); Observe and Recommend
 	// modes must not modify pod resources.
 	if isResizeMode(mode) && policy.Spec.CPU.StartupBoost != nil && r.Clientset != nil && len(recommendations) > 0 {
-		podsByWorkload := make(map[string][]corev1.Pod, len(workloads))
-		for _, w := range workloads {
-			pods, err := r.getPodsForWorkload(ctx, w)
-			if err != nil {
-				logger.Error(err, "Failed to get pods for startup boost", "workload", w.GetName())
-				continue
-			}
-			podsByWorkload[w.GetName()] = pods
-		}
 		resizer := resize.NewPodResizer(r.Clientset, logger)
 		r.applyStartupBoosts(ctx, &policy, podsByWorkload, recommendations, resizer)
 	}
@@ -2226,8 +2235,10 @@ func (r *RightSizePolicyReconciler) boostResizeAndRefetch(
 	targetCPU resource.Quantity,
 ) (*corev1.Pod, error) {
 	reqs := corev1.ResourceList{corev1.ResourceCPU: targetCPU}
-	if memReq, ok := pod.Spec.Containers[findContainerIndex(pod, containerName)].Resources.Requests[corev1.ResourceMemory]; ok {
-		reqs[corev1.ResourceMemory] = memReq
+	if idx := findContainerIndex(pod, containerName); idx >= 0 {
+		if memReq, ok := pod.Spec.Containers[idx].Resources.Requests[corev1.ResourceMemory]; ok {
+			reqs[corev1.ResourceMemory] = memReq
+		}
 	}
 	target := corev1.ResourceRequirements{Requests: reqs}
 	if _, err := resizer.ResizePod(ctx, pod, containerName, target); err != nil {
@@ -2244,14 +2255,14 @@ func (r *RightSizePolicyReconciler) boostResizeAndRefetch(
 }
 
 // findContainerIndex returns the index of the named container in pod.Spec.Containers.
-// Returns 0 if not found (caller should have validated the name exists).
+// Returns -1 if not found.
 func findContainerIndex(pod *corev1.Pod, name string) int {
 	for i, c := range pod.Spec.Containers {
 		if c.Name == name {
 			return i
 		}
 	}
-	return 0
+	return -1
 }
 
 // their resource-based target utilization to maintain the same absolute resource
