@@ -3915,6 +3915,107 @@ func TestReconcile_CooldownActive_SkipsResize(t *testing.T) {
 	assert.Equal(t, int32(0), updated.Status.Workloads.Resized)
 }
 
+// ---------- History-based Resized count derivation ----------
+
+func TestReconcile_HistoryBasedResizedDerivation(t *testing.T) {
+	now := metav1.Now()
+
+	tests := []struct {
+		name        string
+		mode        rightsizev1alpha1.UpdateMode
+		history     []rightsizev1alpha1.ResizeHistoryEntry
+		wantResized int32
+	}{
+		{
+			name: "derives Resized from distinct successful workloads",
+			mode: rightsizev1alpha1.UpdateModeOneShot,
+			history: []rightsizev1alpha1.ResizeHistoryEntry{
+				{Workload: "api-server", Result: rightsizev1alpha1.ResizeResultSuccess, Timestamp: now},
+				{Workload: "worker", Result: rightsizev1alpha1.ResizeResultSuccess, Timestamp: now},
+			},
+			wantResized: 2,
+		},
+		{
+			name: "only failed and reverted entries leave Resized at 0",
+			mode: rightsizev1alpha1.UpdateModeOneShot,
+			history: []rightsizev1alpha1.ResizeHistoryEntry{
+				{Workload: "api-server", Result: rightsizev1alpha1.ResizeResultFailed, Timestamp: now},
+				{Workload: "worker", Result: rightsizev1alpha1.ResizeResultReverted, Timestamp: now},
+			},
+			wantResized: 0,
+		},
+		{
+			name: "duplicate workload entries counted as one",
+			mode: rightsizev1alpha1.UpdateModeOneShot,
+			history: []rightsizev1alpha1.ResizeHistoryEntry{
+				{Workload: "api-server", Result: rightsizev1alpha1.ResizeResultSuccess, Timestamp: now},
+				{Workload: "api-server", Result: rightsizev1alpha1.ResizeResultSuccess, Timestamp: now},
+				{Workload: "api-server", Result: rightsizev1alpha1.ResizeResultFailed, Timestamp: now},
+			},
+			wantResized: 1,
+		},
+		{
+			name:        "empty history leaves Resized at 0",
+			mode:        rightsizev1alpha1.UpdateModeOneShot,
+			history:     nil,
+			wantResized: 0,
+		},
+		{
+			name: "Recommend mode skips derivation entirely",
+			mode: rightsizev1alpha1.UpdateModeRecommend,
+			history: []rightsizev1alpha1.ResizeHistoryEntry{
+				{Workload: "api-server", Result: rightsizev1alpha1.ResizeResultSuccess, Timestamp: now},
+			},
+			wantResized: 0,
+		},
+		{
+			name: "Observe mode skips derivation entirely",
+			mode: rightsizev1alpha1.UpdateModeObserve,
+			history: []rightsizev1alpha1.ResizeHistoryEntry{
+				{Workload: "api-server", Result: rightsizev1alpha1.ResizeResultSuccess, Timestamp: now},
+			},
+			wantResized: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			policy := newTestPolicy("test-policy", "default")
+			policy.Spec.UpdateStrategy.Mode = tt.mode
+			// Set cooldown annotation so resize execution is skipped;
+			// this isolates the history-based derivation path.
+			if isResizeMode(tt.mode) {
+				policy.Annotations = map[string]string{
+					lastResizeAnnotation: time.Now().UTC().Format(time.RFC3339),
+				}
+			}
+			policy.Status.ResizeHistory = tt.history
+
+			deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+			pod := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
+
+			mc := &mockCollector{
+				queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+					return generateSamples(200, 0.1), nil
+				},
+			}
+			reconciler, fakeClient := newReconcilerForReconcile(mc, policy, deploy, pod)
+
+			_, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+				NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
+			})
+			require.NoError(t, err)
+
+			var updated rightsizev1alpha1.RightSizePolicy
+			require.NoError(t, fakeClient.Get(context.Background(),
+				types.NamespacedName{Name: "test-policy", Namespace: "default"}, &updated))
+
+			assert.Equal(t, tt.wantResized, updated.Status.Workloads.Resized,
+				"Resized count should match derived value from history")
+		})
+	}
+}
+
 // ---------- Reconcile with opt-out annotation ----------
 
 func TestSafeInt32_Normal(t *testing.T) {
@@ -7457,12 +7558,14 @@ func TestSpecOrDeletePredicate_Update(t *testing.T) {
 	p := specOrDeletePredicate{}
 
 	tests := []struct {
-		name   string
-		oldGen int64
-		newGen int64
-		oldDel *metav1.Time
-		newDel *metav1.Time
-		want   bool
+		name     string
+		oldGen   int64
+		newGen   int64
+		oldDel   *metav1.Time
+		newDel   *metav1.Time
+		oldAnnot map[string]string
+		newAnnot map[string]string
+		want     bool
 	}{
 		{
 			name:   "spec change (generation bump) triggers reconcile",
@@ -7486,6 +7589,13 @@ func TestSpecOrDeletePredicate_Update(t *testing.T) {
 			oldDel: &now, newDel: &now,
 			want: false,
 		},
+		{
+			name:   "annotation-only change (same generation) filtered out",
+			oldGen: 1, newGen: 1,
+			oldAnnot: map[string]string{"rightsize.io/last-resize-time": "2024-01-01T00:00:00Z"},
+			newAnnot: map[string]string{"rightsize.io/last-resize-time": "2024-01-01T01:00:00Z"},
+			want:     false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -7494,10 +7604,16 @@ func TestSpecOrDeletePredicate_Update(t *testing.T) {
 			if tt.oldDel != nil {
 				old.SetDeletionTimestamp(tt.oldDel)
 			}
+			if tt.oldAnnot != nil {
+				old.SetAnnotations(tt.oldAnnot)
+			}
 			new := &rightsizev1alpha1.RightSizePolicy{}
 			new.SetGeneration(tt.newGen)
 			if tt.newDel != nil {
 				new.SetDeletionTimestamp(tt.newDel)
+			}
+			if tt.newAnnot != nil {
+				new.SetAnnotations(tt.newAnnot)
 			}
 			got := p.Update(event.UpdateEvent{ObjectOld: old, ObjectNew: new})
 			assert.Equal(t, tt.want, got)

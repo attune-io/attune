@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Reconcile predicate filters out self-triggered status and metadata updates, reducing kube-apiserver load by eliminating 2-3x reconcile amplification per cycle
 - Recommendations no longer require live pods; historical Prometheus data is sufficient for recommend-only flows
 - Secret-backed bearer tokens are refreshed on every reconcile instead of being cached until TTL expiry
 - Collector cache identity uses hashed token values instead of plain presence markers
@@ -32,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Status race condition where concurrent reconciles could reset `status.workloads.resized` to 0 after a successful resize; Resized count is now derived from resize history entries which survive optimistic concurrency conflicts
 - `kube_rightsize_throttle_deferred_total` metric now appears in the Grafana dashboard (was the only unvisualized operator metric)
 - `RightSizeNamespaceDefaults` CRD missing from `config/crd/kustomization.yaml`; kustomize deployments now include it
 - Bearer-token cache prefix collision when one Prometheus address is a prefix of another
