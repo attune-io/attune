@@ -618,6 +618,72 @@ func TestHandleDeletion_CleansAnnotationsAndGauges(t *testing.T) {
 		"finalizer should be removed after cleanup")
 }
 
+func TestHandleDeletion_CleansNamespaceSavingsGauges(t *testing.T) {
+	now := metav1.Now()
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "only-policy",
+			Namespace:         "default",
+			Finalizers:        []string{finalizerName},
+			DeletionTimestamp: &now,
+		},
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			TargetRef: rightsizev1alpha1.TargetRef{Kind: "Deployment", Name: stringPtr("app")},
+			MetricsSource: rightsizev1alpha1.MetricsSource{
+				Prometheus: &rightsizev1alpha1.PrometheusConfig{Address: "http://prom:9090"},
+			},
+		},
+	}
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(policy).
+		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
+		Build()
+
+	reconciler := &RightSizePolicyReconciler{
+		Client: fakeClient,
+		Scheme: scheme,
+	}
+
+	// Seed per-workload gauge keys so handleDeletion can clean them.
+	operatormetrics.RecommendationCPU.WithLabelValues("default", "app", "main").Set(0.5)
+	reconciler.gaugeKeys.Store("default/only-policy", []gaugeKey{
+		{Namespace: "default", Workload: "app", Container: "main"},
+	})
+
+	// Seed namespace-level savings gauges.
+	operatormetrics.SavingsCPU.WithLabelValues("default").Set(1.0)
+	operatormetrics.SavingsMemory.WithLabelValues("default").Set(1024)
+	operatormetrics.SavingsEstimatedMonthly.WithLabelValues("default").Set(42.5)
+
+	// Verify gauges are populated before deletion.
+	require.Equal(t, 1, promtestutil.CollectAndCount(operatormetrics.SavingsCPU),
+		"savings CPU gauge should exist before deletion")
+	require.Equal(t, 1, promtestutil.CollectAndCount(operatormetrics.SavingsMemory),
+		"savings memory gauge should exist before deletion")
+	require.Equal(t, 1, promtestutil.CollectAndCount(operatormetrics.SavingsEstimatedMonthly),
+		"savings estimated monthly gauge should exist before deletion")
+
+	result, err := reconciler.handleDeletion(context.Background(), policy)
+	require.NoError(t, err)
+	assert.Equal(t, ctrl.Result{}, result)
+
+	// Namespace-level savings gauges should be deleted (not just zeroed)
+	// because this was the last policy in the namespace.
+	assert.Equal(t, 0, promtestutil.CollectAndCount(operatormetrics.SavingsCPU),
+		"savings CPU gauge should be deleted after last policy removal")
+	assert.Equal(t, 0, promtestutil.CollectAndCount(operatormetrics.SavingsMemory),
+		"savings memory gauge should be deleted after last policy removal")
+	assert.Equal(t, 0, promtestutil.CollectAndCount(operatormetrics.SavingsEstimatedMonthly),
+		"savings estimated monthly gauge should be deleted after last policy removal")
+
+	// Finalizer should be removed.
+	assert.NotContains(t, policy.Finalizers, finalizerName,
+		"finalizer should be removed after cleanup")
+}
+
 func TestHandleDeletion_SkipsPodsFromOtherPolicy(t *testing.T) {
 	now := metav1.Now()
 	policy := &rightsizev1alpha1.RightSizePolicy{
