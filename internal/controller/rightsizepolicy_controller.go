@@ -42,9 +42,12 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
 	"github.com/SebTardifLabs/kube-rightsize/internal/conflict"
@@ -2669,9 +2672,36 @@ func (r *RightSizePolicyReconciler) exportRecommendationConfigMaps(
 	}
 }
 
+// specOrDeletePredicate filters out reconcile triggers caused by the
+// controller's own status updates and annotation patches. Without this,
+// every status update (updateStatusWithRetry) and metadata patch
+// (markResizeTime, addFinalizer) produces an Update event that re-enqueues
+// the policy, causing 2-3x reconcile amplification per cycle. Only spec
+// changes (generation bump) and deletion (DeletionTimestamp set) trigger
+// new reconciles. Timer-based requeues bypass predicates entirely.
+type specOrDeletePredicate struct {
+	predicate.Funcs
+}
+
+func (specOrDeletePredicate) Update(e event.UpdateEvent) bool {
+	if e.ObjectOld == nil || e.ObjectNew == nil {
+		return false
+	}
+	// Generation change means the spec was modified by a user/webhook.
+	if e.ObjectNew.GetGeneration() != e.ObjectOld.GetGeneration() {
+		return true
+	}
+	// DeletionTimestamp was just set: the object is being deleted and the
+	// finalizer handler needs to run before Kubernetes can remove it.
+	if !e.ObjectNew.GetDeletionTimestamp().IsZero() && e.ObjectOld.GetDeletionTimestamp().IsZero() {
+		return true
+	}
+	return false
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *RightSizePolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&rightsizev1alpha1.RightSizePolicy{}).
+		For(&rightsizev1alpha1.RightSizePolicy{}, builder.WithPredicates(specOrDeletePredicate{})).
 		Complete(r)
 }

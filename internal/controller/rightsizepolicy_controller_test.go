@@ -48,6 +48,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
 	"github.com/SebTardifLabs/kube-rightsize/internal/conflict"
@@ -7449,4 +7450,63 @@ func TestFindContainerByName_InitShadowsRegular(t *testing.T) {
 	c := findContainerByName(pod, "shared-name")
 	require.NotNil(t, c)
 	assert.Equal(t, "init-image", c.Image, "init container should be returned when names collide")
+}
+
+func TestSpecOrDeletePredicate_Update(t *testing.T) {
+	now := metav1.Now()
+	p := specOrDeletePredicate{}
+
+	tests := []struct {
+		name   string
+		oldGen int64
+		newGen int64
+		oldDel *metav1.Time
+		newDel *metav1.Time
+		want   bool
+	}{
+		{
+			name:   "spec change (generation bump) triggers reconcile",
+			oldGen: 1, newGen: 2,
+			want: true,
+		},
+		{
+			name:   "status-only update (same generation) filtered out",
+			oldGen: 1, newGen: 1,
+			want: false,
+		},
+		{
+			name:   "deletion timestamp set triggers reconcile",
+			oldGen: 1, newGen: 1,
+			newDel: &now,
+			want:   true,
+		},
+		{
+			name:   "already deleting (both have timestamp) filtered out",
+			oldGen: 1, newGen: 1,
+			oldDel: &now, newDel: &now,
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			old := &rightsizev1alpha1.RightSizePolicy{}
+			old.SetGeneration(tt.oldGen)
+			if tt.oldDel != nil {
+				old.SetDeletionTimestamp(tt.oldDel)
+			}
+			new := &rightsizev1alpha1.RightSizePolicy{}
+			new.SetGeneration(tt.newGen)
+			if tt.newDel != nil {
+				new.SetDeletionTimestamp(tt.newDel)
+			}
+			got := p.Update(event.UpdateEvent{ObjectOld: old, ObjectNew: new})
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestSpecOrDeletePredicate_NilObjects(t *testing.T) {
+	p := specOrDeletePredicate{}
+	assert.False(t, p.Update(event.UpdateEvent{ObjectOld: nil, ObjectNew: &rightsizev1alpha1.RightSizePolicy{}}))
+	assert.False(t, p.Update(event.UpdateEvent{ObjectOld: &rightsizev1alpha1.RightSizePolicy{}, ObjectNew: nil}))
 }
