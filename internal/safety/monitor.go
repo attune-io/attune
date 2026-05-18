@@ -131,7 +131,13 @@ func (m *Monitor) CheckPod(ctx context.Context, record ResizeRecord, now time.Ti
 	}
 
 	// Check for CPU throttling via Prometheus (if checker is configured).
-	if m.throttleChecker != nil {
+	// Skip when the resize happened less than 5 minutes ago because the
+	// Prometheus rate(…[5m]) window still contains 100% pre-resize data.
+	// A false-positive throttle revert on a just-upscaled container would
+	// create an infinite resize→revert loop for the pods most in need of
+	// more CPU.
+	throttleGrace := 5 * time.Minute
+	if m.throttleChecker != nil && now.Sub(record.ResizedAt) >= throttleGrace {
 		ratio, err := m.throttleChecker.GetThrottleRatio(ctx, record.Namespace, record.PodName, record.Container, now)
 		if err != nil {
 			m.logger.Error(err, "Safety throttle check failed, skipping throttle detection",

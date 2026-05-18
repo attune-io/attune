@@ -557,9 +557,14 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	if isResizeMode(mode) && !cooldownActive && withinWindow {
 		resizesAttempted = true
 		resizedCount, history := r.executeResizes(ctx, &policy, workloads, recommendations, podsByWorkload, collector)
+		// Always record history entries (including immediate reverts) so
+		// the escalation mechanisms (consecutiveReverts, Degraded condition,
+		// exponential backoff) work for all revert reasons.
+		if len(history) > 0 {
+			policy.Status.ResizeHistory = appendHistory(policy.Status.ResizeHistory, history, 20)
+		}
 		if resizedCount > 0 {
 			policy.Status.Workloads.Resized = safeInt32(resizedCount)
-			policy.Status.ResizeHistory = appendHistory(policy.Status.ResizeHistory, history, 20)
 			// Auto-tune HPA targets only for workloads that were actually
 			// resized, using aggregate CPU across all containers.
 			resizedWorkloads := make(map[string]bool, len(history))

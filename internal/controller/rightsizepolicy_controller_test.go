@@ -5089,7 +5089,11 @@ func (m *mockThrottleCollector) GetThrottleRatio(_ context.Context, _, _, _ stri
 	return m.throttleRatio, nil
 }
 
-func TestExecuteResizes_ThrottleTriggersRevert(t *testing.T) {
+func TestExecuteResizes_ThrottleNotRevertedDuringGracePeriod(t *testing.T) {
+	// The immediate post-resize safety check should NOT revert for throttle
+	// because the Prometheus rate(…[5m]) window still contains 100% pre-resize
+	// data. Throttle reverts should only happen during deferred observations
+	// (>5 minutes after resize). See safety/monitor.go throttleGrace.
 	pod := newResizePod("api-server", "500m", "256Mi", "500m", "256Mi")
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
 	reconciler, _ := newResizeReconciler(pod, deploy)
@@ -5107,36 +5111,19 @@ func TestExecuteResizes_ThrottleTriggersRevert(t *testing.T) {
 	workloads := []client.Object{deploy}
 
 	// Collector reports 60% throttle (above 50% threshold).
+	// Despite this, the immediate check should skip the throttle evaluation
+	// because the resize just happened (within the 5-minute grace period).
 	collector := &mockThrottleCollector{throttleRatio: 0.6}
 
 	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), collector)
-	// The resize should succeed then immediately revert due to throttle.
-	assert.Equal(t, 0, count, "should be 0 after revert")
+	// Resize should succeed and NOT be immediately reverted.
+	assert.Equal(t, 1, count, "resize should succeed without immediate throttle revert")
 
-	// History should show reverted entries.
-	reverted := false
+	// History should show success, not revert.
 	for _, h := range history {
-		if h.Result == rightsizev1alpha1.ResizeResultReverted {
-			reverted = true
-			break
-		}
+		assert.NotEqual(t, rightsizev1alpha1.ResizeResultReverted, h.Result,
+			"should not have a throttle revert within the grace period")
 	}
-	assert.True(t, reverted, "expected at least one Reverted history entry")
-
-	// Check for the Reverted event mentioning throttle.
-	foundRevert := false
-	for {
-		select {
-		case event := <-recorder.Events:
-			if strings.Contains(event, "Reverted") && strings.Contains(event, "throttle") {
-				foundRevert = true
-			}
-		default:
-			goto done
-		}
-	}
-done:
-	assert.True(t, foundRevert, "expected a Reverted event mentioning throttle")
 }
 
 // ---------- annotation persistence and RestartCount capture (#27) ----------

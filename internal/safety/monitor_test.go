@@ -543,7 +543,7 @@ func TestCheckPod_ThrottleDetected(t *testing.T) {
 		PodName:      "web-0",
 		Namespace:    "default",
 		Container:    "app",
-		ResizedAt:    time.Now().Add(-1 * time.Minute),
+		ResizedAt:    time.Now().Add(-6 * time.Minute), // >5m grace period
 		RestartCount: 0,
 	}
 
@@ -557,6 +557,43 @@ func TestCheckPod_ThrottleDetected(t *testing.T) {
 	assert.Equal(t, "default", checker.gotNS)
 	assert.Equal(t, "web-0", checker.gotPod)
 	assert.Equal(t, "app", checker.gotCtr)
+}
+
+func TestCheckPod_ThrottleSkippedDuringGracePeriod(t *testing.T) {
+	// When a resize happened less than 5 minutes ago, the throttle check
+	// should be skipped because the Prometheus rate(…[5m]) window still
+	// contains 100% pre-resize data. Without this grace period, containers
+	// that were heavily throttled (the ones most in need of upscaling)
+	// would be immediately reverted in an infinite loop.
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "web-0", Namespace: "default"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "app", RestartCount: 0},
+			},
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+
+	clientset := fake.NewSimpleClientset(pod)
+	monitor := NewMonitor(clientset, testr.New(t))
+	checker := &mockThrottleChecker{ratio: 0.9} // Very high throttle
+	monitor.WithThrottleChecker(checker, 0.5)
+
+	record := ResizeRecord{
+		PodName:      "web-0",
+		Namespace:    "default",
+		Container:    "app",
+		ResizedAt:    time.Now().Add(-30 * time.Second), // 30s ago, within grace
+		RestartCount: 0,
+	}
+
+	verdict, err := monitor.CheckPod(context.Background(), record, time.Now())
+	require.NoError(t, err)
+	assert.True(t, verdict.Safe, "should skip throttle check during grace period")
 }
 
 func TestCheckPod_ThrottleBelowThreshold(t *testing.T) {
@@ -581,7 +618,7 @@ func TestCheckPod_ThrottleBelowThreshold(t *testing.T) {
 		PodName:      "web-0",
 		Namespace:    "default",
 		Container:    "app",
-		ResizedAt:    time.Now().Add(-1 * time.Minute),
+		ResizedAt:    time.Now().Add(-6 * time.Minute), // >5m grace period
 		RestartCount: 0,
 	}
 
@@ -646,7 +683,7 @@ func TestCheckPod_ThrottleQueryError(t *testing.T) {
 		PodName:      "web-0",
 		Namespace:    "default",
 		Container:    "app",
-		ResizedAt:    time.Now().Add(-1 * time.Minute),
+		ResizedAt:    time.Now().Add(-6 * time.Minute), // >5m grace period so throttle check runs
 		RestartCount: 0,
 	}
 
