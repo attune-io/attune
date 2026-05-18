@@ -659,6 +659,7 @@ func TestValidate_CPUStartupBoost(t *testing.T) {
 		{name: "exactly 1", multiplier: "1.0", duration: 30 * time.Second, wantErr: "must be > 1.0"},
 		{name: "too high", multiplier: "11.0", duration: 30 * time.Second, wantErr: "must be <= 10.0"},
 		{name: "duration too short", multiplier: "2.0", duration: 5 * time.Second, wantErr: "at least 10s"},
+		{name: "duration too long", multiplier: "2.0", duration: 2 * time.Hour, wantErr: "at most 1h"},
 	}
 
 	for _, tc := range tests {

@@ -138,6 +138,9 @@ func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizeP
 		if sb.Duration.Duration < 10*time.Second {
 			return warnings, fmt.Errorf("cpu.startupBoost.duration must be at least 10s, got %s", sb.Duration.Duration)
 		}
+		if sb.Duration.Duration > 1*time.Hour {
+			return warnings, fmt.Errorf("cpu.startupBoost.duration must be at most 1h, got %s", sb.Duration.Duration)
+		}
 	}
 
 	// Warn if memory startup boost is set (only CPU boost is implemented).

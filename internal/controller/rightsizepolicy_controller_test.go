@@ -5458,6 +5458,41 @@ func TestBuildResizeTarget_PartialLimits(t *testing.T) {
 	assert.False(t, hasMemLimit, "Memory limit should not be set when zero in recommendation")
 }
 
+func TestBuildResizeTarget_ClampsRequestsToLimits(t *testing.T) {
+	rec := rightsizev1alpha1.ContainerRecommendation{
+		Name: "main",
+		Recommended: rightsizev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("600m"),
+			MemoryRequest: resource.MustParse("1Gi"),
+			CPULimit:      resource.MustParse("500m"),  // Limit < Request
+			MemoryLimit:   resource.MustParse("512Mi"), // Limit < Request
+		},
+	}
+	target := buildResizeTarget(rec)
+	// Requests should be clamped to limits.
+	assert.Equal(t, resource.MustParse("500m"), target.Requests[corev1.ResourceCPU],
+		"CPU request should be clamped to limit")
+	assert.Equal(t, resource.MustParse("512Mi"), target.Requests[corev1.ResourceMemory],
+		"Memory request should be clamped to limit")
+}
+
+func TestBuildResizeTarget_NoClampsWhenRequestsBelowLimits(t *testing.T) {
+	rec := rightsizev1alpha1.ContainerRecommendation{
+		Name: "main",
+		Recommended: rightsizev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("200m"),
+			MemoryRequest: resource.MustParse("256Mi"),
+			CPULimit:      resource.MustParse("500m"),
+			MemoryLimit:   resource.MustParse("512Mi"),
+		},
+	}
+	target := buildResizeTarget(rec)
+	assert.Equal(t, resource.MustParse("200m"), target.Requests[corev1.ResourceCPU],
+		"CPU request should not be modified when below limit")
+	assert.Equal(t, resource.MustParse("256Mi"), target.Requests[corev1.ResourceMemory],
+		"Memory request should not be modified when below limit")
+}
+
 func TestTryEvictionFallback_EvictsWhenMultipleReplicas(t *testing.T) {
 	pod1 := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
 	pod2 := newTestPod("api-server-abc-2", "default", map[string]string{"app": "api-server"})

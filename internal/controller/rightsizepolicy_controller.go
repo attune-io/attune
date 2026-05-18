@@ -555,14 +555,19 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		if resizedCount > 0 {
 			policy.Status.Workloads.Resized = safeInt32(resizedCount)
 			policy.Status.ResizeHistory = appendHistory(policy.Status.ResizeHistory, history, 20)
-			// Auto-tune HPA targets if any workload was resized.
+			// Auto-tune HPA targets using aggregate CPU across all
+			// containers per workload so multi-container workloads get
+			// a single correct ratio instead of the last container's ratio.
 			for _, rec := range recommendations {
+				var totalOldCPU, totalNewCPU int64
 				for _, c := range rec.Containers {
-					if c.Current.CPURequest.Equal(c.Recommended.CPURequest) {
-						continue
-					}
+					totalOldCPU += c.Current.CPURequest.MilliValue()
+					totalNewCPU += c.Recommended.CPURequest.MilliValue()
+				}
+				if totalOldCPU != totalNewCPU {
 					r.adjustHPATargets(ctx, hpaList.Items, rec.Workload, rec.Kind,
-						c.Current.CPURequest, c.Recommended.CPURequest)
+						*resource.NewMilliQuantity(totalOldCPU, resource.DecimalSI),
+						*resource.NewMilliQuantity(totalNewCPU, resource.DecimalSI))
 				}
 			}
 		}
@@ -1738,7 +1743,27 @@ func buildResizeTarget(rec rightsizev1alpha1.ContainerRecommendation) corev1.Res
 			target.Limits[corev1.ResourceMemory] = rec.Recommended.MemoryLimit.DeepCopy()
 		}
 	}
+	// Clamp requests to not exceed limits. When ControlledValues is
+	// RequestsOnly, limits stay at current values and a growing request
+	// can exceed them, causing the API server to reject the resize.
+	clampRequestsToLimits(&target)
 	return target
+}
+
+// clampRequestsToLimits ensures requests do not exceed limits for each resource.
+// When a limit is present and the request exceeds it, the request is capped
+// at the limit value to prevent API server rejection.
+func clampRequestsToLimits(target *corev1.ResourceRequirements) {
+	if target.Limits == nil {
+		return
+	}
+	for _, res := range []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory} {
+		lim, hasLim := target.Limits[res]
+		req, hasReq := target.Requests[res]
+		if hasLim && hasReq && req.Cmp(lim) > 0 {
+			target.Requests[res] = lim.DeepCopy()
+		}
+	}
 }
 
 // resolveCanaryPhase checks whether canary pods have passed the observation
@@ -2097,6 +2122,10 @@ func (r *RightSizePolicyReconciler) applyStartupBoosts(
 		return
 	}
 	boostDuration := boostConfig.Duration.Duration
+	// Defense-in-depth: clamp to 1h even if the webhook was bypassed.
+	if boostDuration > time.Hour {
+		boostDuration = time.Hour
+	}
 	now := r.now()
 
 	for _, rec := range recommendations {
