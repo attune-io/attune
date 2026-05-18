@@ -87,13 +87,19 @@ or label names have been relabeled.
 **Cause**: Not enough Prometheus data points to generate recommendations.
 The default minimum is 48 (about 2 days of hourly samples).
 
-**Fix**: Wait for more data to accumulate, or lower `minimumDataPoints` for
-faster (but less confident) recommendations:
+**Fix**: Wait for more data to accumulate, or adjust these settings:
+
+- **`minimumDataPoints`**: Lower for faster (but less confident) recommendations.
+- **`historyWindow`**: If too short (e.g. `1h`), Prometheus may not have enough
+  samples within the window. The default is `168h` (7 days). Ensure the window
+  is long enough for your scrape interval to produce at least `minimumDataPoints`
+  data points.
 
 ```yaml
 spec:
   metricsSource:
-    minimumDataPoints: 48  # ~2 days of hourly data
+    minimumDataPoints: 48   # ~2 days of hourly data
+    historyWindow: 168h     # query the last 7 days of metrics
 ```
 
 ### CooldownActive
