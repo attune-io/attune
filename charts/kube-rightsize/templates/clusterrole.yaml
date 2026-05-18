@@ -132,13 +132,15 @@ rules:
       - get
       - list
       - watch
-  # Services: read-only (Prometheus auto-discovery via well-known service names)
+  # Services: Prometheus auto-discovery via well-known service names (list/watch for cache)
   - apiGroups:
       - ""
     resources:
       - services
     verbs:
       - get
+      - list
+      - watch
   # ConfigMaps: recommendation export for GitOps workflows (list/watch for cache)
   - apiGroups:
       - ""

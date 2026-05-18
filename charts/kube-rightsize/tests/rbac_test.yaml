@@ -93,6 +93,8 @@ tests:
               - services
             verbs:
               - get
+              - list
+              - watch
 
   - it: should include finalizer update permissions
     asserts:
