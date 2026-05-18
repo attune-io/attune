@@ -2913,6 +2913,10 @@ func TestMergeDefaults_MergesAllFields(t *testing.T) {
 					Min: resource.MustParse("100m"),
 					Max: resource.MustParse("8"),
 				},
+				StartupBoost: &rightsizev1alpha1.StartupBoost{
+					Multiplier: "3.0",
+					Duration:   metav1.Duration{Duration: 2 * time.Minute},
+				},
 			},
 			Memory: &rightsizev1alpha1.ResourceConfig{
 				Percentile:    95,
@@ -2952,6 +2956,9 @@ func TestMergeDefaults_MergesAllFields(t *testing.T) {
 	assert.Equal(t, "0.2", *policy.Spec.CPU.BurstSensitivity)
 	require.NotNil(t, policy.Spec.CPU.Bounds)
 	assert.Equal(t, resource.MustParse("100m"), policy.Spec.CPU.Bounds.Min)
+	require.NotNil(t, policy.Spec.CPU.StartupBoost)
+	assert.Equal(t, "3.0", policy.Spec.CPU.StartupBoost.Multiplier)
+	assert.Equal(t, 2*time.Minute, policy.Spec.CPU.StartupBoost.Duration.Duration)
 
 	// Memory
 	assert.Equal(t, int32(95), policy.Spec.Memory.Percentile)
