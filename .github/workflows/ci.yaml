@@ -36,6 +36,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       go: ${{ steps.filter.outputs.go }}
+      go-source: ${{ steps.filter.outputs.go-source }}
       helm: ${{ steps.filter.outputs.helm }}
       yaml: ${{ steps.filter.outputs.yaml }}
       docs: ${{ steps.filter.outputs.docs }}
@@ -54,6 +55,12 @@ jobs:
               - 'go.sum'
               - 'Makefile'
               - 'Dockerfile'
+              - '.github/workflows/ci.yaml'
+            go-source:
+              - '**/*.go'
+              - 'go.mod'
+              - 'go.sum'
+              - 'Makefile'
               - '.github/workflows/ci.yaml'
             helm:
               - 'charts/**'
@@ -323,12 +330,15 @@ jobs:
           retention-days: 7
 
   # Single-version E2E on every push/PR. Full K8s version matrix runs nightly.
+  # Skipped for Dockerfile-only changes (e.g. Dependabot base-image bumps)
+  # because build + unit tests already verify the new image compiles. The
+  # nightly E2E matrix (e2e-nightly.yaml) catches any runtime regressions.
   test-e2e:
     name: E2E Tests
     runs-on: self-hosted
     timeout-minutes: 45
     needs: [changes, lint, test-unit]
-    if: needs.changes.outputs.go == 'true'
+    if: needs.changes.outputs.go-source == 'true'
     env:
       K3D_CLUSTER_NAME: e2e-${{ github.run_id }}-${{ github.run_attempt }}
       KUBECONFIG_BASENAME: kube-rightsize-e2e-${{ github.run_id }}-${{ github.run_attempt }}.kubeconfig
