@@ -2228,6 +2228,20 @@ func (r *RightSizePolicyReconciler) applyStartupBoosts(
 	}
 	now := r.now()
 
+	// Pre-fetch LimitRanges and ResourceQuotas once for all pods.
+	var limitRanges corev1.LimitRangeList
+	if listErr := r.List(ctx, &limitRanges, client.InNamespace(policy.Namespace)); listErr != nil {
+		logger.V(1).Info("Could not pre-fetch LimitRanges for startup boost", "error", listErr)
+	}
+	var quotas corev1.ResourceQuotaList
+	if listErr := r.List(ctx, &quotas, client.InNamespace(policy.Namespace)); listErr != nil {
+		logger.V(1).Info("Could not pre-fetch ResourceQuotas for startup boost", "error", listErr)
+	}
+	checks := &resizePreChecks{
+		limitRanges: limitRanges.Items,
+		quotas:      quotas.Items,
+	}
+
 	for _, rec := range recommendations {
 		pods := podsByWorkload[rec.Workload]
 		// Build per-container recommendation map for this workload.
@@ -2282,7 +2296,7 @@ func (r *RightSizePolicyReconciler) applyStartupBoosts(
 							corev1.ResourceMemory: c.Resources.Requests.Memory().DeepCopy(),
 						},
 					}
-					if skip, reason := r.shouldSkipResize(ctx, policy, pod, boostRec, boostTarget, nil); skip {
+					if skip, reason := r.shouldSkipResize(ctx, policy, pod, boostRec, boostTarget, checks); skip {
 						logger.Info("Skipping startup boost: "+reason,
 							"pod", pod.Name, "container", c.Name,
 							"boostedCPU", boostedCPU.String())
@@ -2334,6 +2348,25 @@ func (r *RightSizePolicyReconciler) applyStartupBoosts(
 					for _, c := range pod.Spec.Containers {
 						recCPU, ok := recMap[c.Name]
 						if !ok {
+							continue
+						}
+						// Pre-check: verify the steady-state target doesn't
+						// violate LimitRange or quota constraints.
+						expireRec := rightsizev1alpha1.ContainerRecommendation{
+							Name: c.Name,
+							Recommended: rightsizev1alpha1.ResourceValues{
+								CPURequest: recCPU.DeepCopy(),
+							},
+						}
+						expireTarget := corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU: recCPU.DeepCopy(),
+							},
+						}
+						if skip, reason := r.shouldSkipResize(ctx, policy, pod, expireRec, expireTarget, checks); skip {
+							logger.Info("Skipping boost expiry reduction: "+reason,
+								"pod", pod.Name, "container", c.Name,
+								"targetCPU", recCPU.String())
 							continue
 						}
 						refreshed, err := r.boostResizeAndRefetch(ctx, resizer, pod, c.Name, recCPU)
