@@ -217,6 +217,80 @@ func TestGetConditionReason(t *testing.T) {
 	}
 }
 
+func TestGetConditionMessage(t *testing.T) {
+	tests := []struct {
+		name          string
+		obj           unstructured.Unstructured
+		conditionType string
+		want          string
+	}{
+		{
+			name: "returns message for matching condition",
+			obj: unstructured.Unstructured{
+				Object: map[string]interface{}{
+					"status": map[string]interface{}{
+						"conditions": []interface{}{
+							map[string]interface{}{
+								"type":    "Ready",
+								"status":  "False",
+								"message": "Waiting for metrics data",
+							},
+						},
+					},
+				},
+			},
+			conditionType: "Ready",
+			want:          "Waiting for metrics data",
+		},
+		{
+			name: "returns empty when condition not found",
+			obj: unstructured.Unstructured{
+				Object: map[string]interface{}{
+					"status": map[string]interface{}{
+						"conditions": []interface{}{},
+					},
+				},
+			},
+			conditionType: "Degraded",
+			want:          "",
+		},
+		{
+			name: "returns empty when no conditions field",
+			obj: unstructured.Unstructured{
+				Object: map[string]interface{}{
+					"status": map[string]interface{}{},
+				},
+			},
+			conditionType: "Ready",
+			want:          "",
+		},
+		{
+			name: "returns empty when message field missing",
+			obj: unstructured.Unstructured{
+				Object: map[string]interface{}{
+					"status": map[string]interface{}{
+						"conditions": []interface{}{
+							map[string]interface{}{
+								"type":   "Ready",
+								"status": "True",
+							},
+						},
+					},
+				},
+			},
+			conditionType: "Ready",
+			want:          "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := getConditionMessage(tt.obj, tt.conditionType)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestPrintHistory(t *testing.T) {
 	policy := &unstructured.Unstructured{
 		Object: map[string]interface{}{
