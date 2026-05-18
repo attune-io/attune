@@ -51,8 +51,9 @@ type EngineOpts struct {
 	BurstSensitivity *float64
 }
 
-// defaultBurstSensitivity is used when BurstSensitivity is nil.
-const defaultBurstSensitivity = 0.1
+// DefaultBurstSensitivity is the default burst sensitivity used when
+// BurstSensitivity is nil.
+const DefaultBurstSensitivity = 0.1
 
 // NewEngine creates a new RecommendationEngine with the specified parameters.
 func NewEngine(percentile int, safetyMargin float64, minBound, maxBound resource.Quantity,
@@ -62,7 +63,7 @@ func NewEngine(percentile int, safetyMargin float64, minBound, maxBound resource
 	if len(opts) > 0 {
 		opt = opts[0]
 	}
-	bs := defaultBurstSensitivity
+	bs := DefaultBurstSensitivity
 	if opt.BurstSensitivity != nil {
 		bs = *opt.BurstSensitivity
 		if bs < 0 {

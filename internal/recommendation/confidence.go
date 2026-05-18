@@ -24,33 +24,28 @@ import (
 	"github.com/SebTardifLabs/kube-rightsize/internal/metrics"
 )
 
-// ConfidenceEstimator widens the recommendation when data confidence is low.
-// When confidence is high (near 1.0), the adjustment is small. When confidence
-// is low, recommendations are inflated to be conservative, avoiding under-provisioning.
+// confidenceEstimator widens the recommendation when data confidence is low.
+// Used only in unit tests; the production path inlines this logic in
+// RecommendWithExplanation.
 //
 // Formula: result = inner * (1 + multiplier / max(confidence, 0.1)) ^ exponent
-type ConfidenceEstimator struct {
-	// Multiplier controls how much low confidence inflates the result.
-	// Default: 1.0.
-	Multiplier float64
-	// Exponent controls the steepness of the confidence curve.
-	// Default: 2.0.
-	Exponent float64
-	// Inner is the wrapped estimator whose result is adjusted.
-	Inner Estimator
+type confidenceEstimator struct {
+	multiplier float64
+	exponent   float64
+	inner      estimator
 }
 
 // Estimate delegates to the inner estimator and then applies the confidence
 // adjustment formula. Low confidence values are floored at 0.1 to prevent
 // division by zero or extreme inflation.
-func (e *ConfidenceEstimator) Estimate(profile metrics.UsageProfile, current resource.Quantity) resource.Quantity {
-	inner := e.Inner.Estimate(profile, current)
+func (e *confidenceEstimator) Estimate(profile metrics.UsageProfile, current resource.Quantity) resource.Quantity {
+	inner := e.inner.Estimate(profile, current)
 
-	multiplier := e.Multiplier
+	multiplier := e.multiplier
 	if multiplier == 0 {
 		multiplier = 1.0
 	}
-	exponent := e.Exponent
+	exponent := e.exponent
 	if exponent == 0 {
 		exponent = 2.0
 	}

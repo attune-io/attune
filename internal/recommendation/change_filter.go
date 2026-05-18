@@ -24,26 +24,21 @@ import (
 	"github.com/SebTardifLabs/kube-rightsize/internal/metrics"
 )
 
-// ChangeFilter rejects changes that are too small (below MinChangePercent)
-// or caps changes that are too large (above MaxChangePercent). This prevents
-// thrashing from tiny adjustments and dangerous large swings.
-type ChangeFilter struct {
-	// MinChangePercent is the minimum percentage change required for the
-	// recommendation to differ from current (e.g. 10 means 10%).
-	MinChangePercent float64
-	// MaxChangePercent is the maximum percentage change allowed per
-	// recommendation (e.g. 50 means 50%).
-	MaxChangePercent float64
-	// Inner is the wrapped estimator whose result is filtered.
-	Inner Estimator
+// changeFilter rejects changes that are too small (below minChangePercent)
+// or caps changes that are too large (above maxChangePercent). Used only in
+// unit tests; the production path inlines this logic in RecommendWithExplanation.
+type changeFilter struct {
+	minChangePercent float64
+	maxChangePercent float64
+	inner            estimator
 }
 
 // Estimate delegates to the inner estimator and then applies change
 // filtering. If the change is below MinChangePercent, the current value
 // is returned unchanged. If the change exceeds MaxChangePercent, it is
 // capped at MaxChangePercent in the appropriate direction.
-func (e *ChangeFilter) Estimate(profile metrics.UsageProfile, current resource.Quantity) resource.Quantity {
-	recommended := e.Inner.Estimate(profile, current)
+func (e *changeFilter) Estimate(profile metrics.UsageProfile, current resource.Quantity) resource.Quantity {
+	recommended := e.inner.Estimate(profile, current)
 
 	currentMillis := float64(current.MilliValue())
 	recommendedMillis := float64(recommended.MilliValue())
@@ -56,13 +51,13 @@ func (e *ChangeFilter) Estimate(profile metrics.UsageProfile, current resource.Q
 	changePct := math.Abs(recommendedMillis-currentMillis) / currentMillis * 100
 
 	// Below minimum threshold: return current unchanged.
-	if changePct < e.MinChangePercent {
+	if changePct < e.minChangePercent {
 		return current.DeepCopy()
 	}
 
 	// Above maximum threshold: cap the change.
-	if changePct > e.MaxChangePercent {
-		maxDelta := currentMillis * e.MaxChangePercent / 100
+	if changePct > e.maxChangePercent {
+		maxDelta := currentMillis * e.maxChangePercent / 100
 		var capped float64
 		if recommendedMillis > currentMillis {
 			capped = currentMillis + maxDelta

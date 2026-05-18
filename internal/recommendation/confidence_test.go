@@ -84,10 +84,10 @@ func TestConfidenceEstimator(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			e := &ConfidenceEstimator{
-				Multiplier: tt.multiplier,
-				Exponent:   tt.exponent,
-				Inner:      &stubEstimator{value: baseValue},
+			e := &confidenceEstimator{
+				multiplier: tt.multiplier,
+				exponent:   tt.exponent,
+				inner:      &stubEstimator{value: baseValue},
 			}
 			profile := metrics.UsageProfile{Confidence: tt.confidence}
 			result := e.Estimate(profile, resource.MustParse("500m"))

@@ -105,9 +105,6 @@ const (
 
 	// defaultObservationPeriod is the default safety observation window after resize.
 	defaultObservationPeriod = 5 * time.Minute
-
-	// defaultBurstSensitivity is used when burstSensitivity is not set in the policy.
-	defaultBurstSensitivity = 0.1
 )
 
 //+kubebuilder:rbac:groups=rightsize.io,resources=rightsizepolicies,verbs=get;list;watch;patch
@@ -1746,12 +1743,12 @@ func buildRecommendationEngines(policy *rightsizev1alpha1.RightSizePolicy) (cpuE
 	// Parse per-resource burst sensitivity; nil means default (0.1).
 	cpuOpts := recommendation.EngineOpts{IsCPU: true}
 	if policy.Spec.CPU.BurstSensitivity != nil {
-		bs := parseFloat64NonNeg(*policy.Spec.CPU.BurstSensitivity, defaultBurstSensitivity)
+		bs := parseFloat64NonNeg(*policy.Spec.CPU.BurstSensitivity, recommendation.DefaultBurstSensitivity)
 		cpuOpts.BurstSensitivity = &bs
 	}
 	memOpts := recommendation.EngineOpts{}
 	if policy.Spec.Memory.BurstSensitivity != nil {
-		bs := parseFloat64NonNeg(*policy.Spec.Memory.BurstSensitivity, defaultBurstSensitivity)
+		bs := parseFloat64NonNeg(*policy.Spec.Memory.BurstSensitivity, recommendation.DefaultBurstSensitivity)
 		memOpts.BurstSensitivity = &bs
 	}
 

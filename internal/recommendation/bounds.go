@@ -22,28 +22,26 @@ import (
 	"github.com/SebTardifLabs/kube-rightsize/internal/metrics"
 )
 
-// BoundsEstimator clamps the result from the inner estimator to
-// user-defined minimum and maximum values. Values below Min are raised
-// to Min; values above Max are lowered to Max.
-type BoundsEstimator struct {
-	// Min is the floor for recommended values.
-	Min resource.Quantity
-	// Max is the ceiling for recommended values.
-	Max resource.Quantity
-	// Inner is the wrapped estimator whose result is clamped.
-	Inner Estimator
+// boundsEstimator clamps the result from the inner estimator to
+// user-defined minimum and maximum values. Values below min are raised
+// to min; values above max are lowered to max. Used only in unit tests;
+// the production path inlines this logic in RecommendWithExplanation.
+type boundsEstimator struct {
+	min   resource.Quantity
+	max   resource.Quantity
+	inner estimator
 }
 
 // Estimate delegates to the inner estimator and clamps the result to the
 // configured [Min, Max] range.
-func (e *BoundsEstimator) Estimate(profile metrics.UsageProfile, current resource.Quantity) resource.Quantity {
-	inner := e.Inner.Estimate(profile, current)
+func (e *boundsEstimator) Estimate(profile metrics.UsageProfile, current resource.Quantity) resource.Quantity {
+	inner := e.inner.Estimate(profile, current)
 
-	if inner.Cmp(e.Min) < 0 {
-		return e.Min.DeepCopy()
+	if inner.Cmp(e.min) < 0 {
+		return e.min.DeepCopy()
 	}
-	if inner.Cmp(e.Max) > 0 {
-		return e.Max.DeepCopy()
+	if inner.Cmp(e.max) > 0 {
+		return e.max.DeepCopy()
 	}
 
 	return inner

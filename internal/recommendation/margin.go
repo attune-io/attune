@@ -22,19 +22,18 @@ import (
 	"github.com/SebTardifLabs/kube-rightsize/internal/metrics"
 )
 
-// MarginEstimator wraps another estimator and multiplies the result by a
-// safety factor to provide headroom above the estimated usage.
-type MarginEstimator struct {
-	// Factor is the safety multiplier (e.g. 1.2 for 20% headroom).
-	Factor float64
-	// Inner is the wrapped estimator whose result is scaled.
-	Inner Estimator
+// marginEstimator wraps another estimator and multiplies the result by a
+// safety factor to provide headroom above the estimated usage. Used only in
+// unit tests; the production path inlines this logic in RecommendWithExplanation.
+type marginEstimator struct {
+	factor float64
+	inner  estimator
 }
 
 // Estimate delegates to the inner estimator and multiplies the result by
 // the configured safety factor.
-func (e *MarginEstimator) Estimate(profile metrics.UsageProfile, current resource.Quantity) resource.Quantity {
-	inner := e.Inner.Estimate(profile, current)
+func (e *marginEstimator) Estimate(profile metrics.UsageProfile, current resource.Quantity) resource.Quantity {
+	inner := e.inner.Estimate(profile, current)
 
-	return scaleQuantity(inner, e.Factor)
+	return scaleQuantity(inner, e.factor)
 }

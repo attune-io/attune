@@ -27,9 +27,12 @@ import (
 	"github.com/SebTardifLabs/kube-rightsize/internal/metrics"
 )
 
-// Estimator computes a recommended resource quantity based on a usage profile
-// and the current resource allocation.
-type Estimator interface {
+// estimator computes a recommended resource quantity based on a usage profile
+// and the current resource allocation. Individual estimator decorators exist
+// for focused unit testing of each algorithm step. The production path is
+// RecommendationEngine.RecommendWithExplanation which inlines the chain for
+// explanation tracking.
+type estimator interface {
 	Estimate(profile metrics.UsageProfile, current resource.Quantity) resource.Quantity
 }
 

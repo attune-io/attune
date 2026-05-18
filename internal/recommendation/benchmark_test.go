@@ -52,7 +52,7 @@ func BenchmarkFullChain(b *testing.B) {
 
 func BenchmarkMarginEstimator(b *testing.B) {
 	inner := &PercentileEstimator{Percentile: 95}
-	est := &MarginEstimator{Factor: 1.2, Inner: inner}
+	est := &marginEstimator{factor: 1.2, inner: inner}
 	profile := buildBenchProfile()
 	current := resource.MustParse("500m")
 
@@ -64,8 +64,8 @@ func BenchmarkMarginEstimator(b *testing.B) {
 
 func BenchmarkConfidenceEstimator(b *testing.B) {
 	inner := &PercentileEstimator{Percentile: 95}
-	margin := &MarginEstimator{Factor: 1.2, Inner: inner}
-	est := &ConfidenceEstimator{Multiplier: 1.0, Exponent: 2.0, Inner: margin}
+	margin := &marginEstimator{factor: 1.2, inner: inner}
+	est := &confidenceEstimator{multiplier: 1.0, exponent: 2.0, inner: margin}
 	profile := buildBenchProfile()
 	current := resource.MustParse("500m")
 

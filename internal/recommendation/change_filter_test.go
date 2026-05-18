@@ -86,10 +86,10 @@ func TestChangeFilter(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			e := &ChangeFilter{
-				MinChangePercent: tt.minPct,
-				MaxChangePercent: tt.maxPct,
-				Inner:            &stubEstimator{value: resource.MustParse(tt.innerValue)},
+			e := &changeFilter{
+				minChangePercent: tt.minPct,
+				maxChangePercent: tt.maxPct,
+				inner:            &stubEstimator{value: resource.MustParse(tt.innerValue)},
 			}
 			profile := metrics.UsageProfile{Confidence: 0.95}
 			current := resource.MustParse(tt.current)
@@ -103,10 +103,10 @@ func TestChangeFilter_BinarySIMemoryCapping(t *testing.T) {
 	// Current: 512Mi, inner recommends 1024Mi (100% increase), max 50%.
 	// Expected: 512Mi + 50% = 768Mi.
 	innerValue := resource.MustParse("1024Mi")
-	e := &ChangeFilter{
-		MinChangePercent: 10,
-		MaxChangePercent: 50,
-		Inner:            &stubEstimator{value: innerValue},
+	e := &changeFilter{
+		minChangePercent: 10,
+		maxChangePercent: 50,
+		inner:            &stubEstimator{value: innerValue},
 	}
 	current := resource.MustParse("512Mi")
 	result := e.Estimate(metrics.UsageProfile{Confidence: 0.95}, current)
@@ -124,10 +124,10 @@ func TestChangeFilter_BinarySIMemoryDecreaseCapping(t *testing.T) {
 	// Current: 1Gi, inner recommends 256Mi (75% decrease), max 50%.
 	// Expected: 1Gi - 50% = 512Mi.
 	innerValue := resource.MustParse("256Mi")
-	e := &ChangeFilter{
-		MinChangePercent: 10,
-		MaxChangePercent: 50,
-		Inner:            &stubEstimator{value: innerValue},
+	e := &changeFilter{
+		minChangePercent: 10,
+		maxChangePercent: 50,
+		inner:            &stubEstimator{value: innerValue},
 	}
 	current := resource.MustParse("1Gi")
 	result := e.Estimate(metrics.UsageProfile{Confidence: 0.95}, current)
@@ -140,10 +140,10 @@ func TestChangeFilter_BinarySIMemoryDecreaseCapping(t *testing.T) {
 
 func TestChangeFilter_ZeroCurrent(t *testing.T) {
 	innerValue := resource.MustParse("500m")
-	e := &ChangeFilter{
-		MinChangePercent: 10,
-		MaxChangePercent: 50,
-		Inner:            &stubEstimator{value: innerValue},
+	e := &changeFilter{
+		minChangePercent: 10,
+		maxChangePercent: 50,
+		inner:            &stubEstimator{value: innerValue},
 	}
 	current := resource.MustParse("0")
 	result := e.Estimate(metrics.UsageProfile{Confidence: 0.95}, current)
