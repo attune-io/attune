@@ -6319,6 +6319,31 @@ func TestApplyStartupBoosts_SkipsWhenExceedsNodeAllocatable(t *testing.T) {
 	}
 }
 
+func TestStartupBoost_SkippedInObserveMode(t *testing.T) {
+	// Verify that the reconcile-level guard prevents startup boosts when
+	// the policy mode is Observe or Recommend.
+	for _, mode := range []rightsizev1alpha1.UpdateMode{
+		rightsizev1alpha1.UpdateModeObserve,
+		rightsizev1alpha1.UpdateModeRecommend,
+	} {
+		t.Run(string(mode), func(t *testing.T) {
+			assert.False(t, isResizeMode(mode),
+				"mode %s must not be a resize mode (startup boosts should be skipped)", mode)
+		})
+	}
+	// Positive check: Auto, OneShot, and Canary are resize modes.
+	for _, mode := range []rightsizev1alpha1.UpdateMode{
+		rightsizev1alpha1.UpdateModeAuto,
+		rightsizev1alpha1.UpdateModeOneShot,
+		rightsizev1alpha1.UpdateModeCanary,
+	} {
+		t.Run(string(mode), func(t *testing.T) {
+			assert.True(t, isResizeMode(mode),
+				"mode %s must be a resize mode (startup boosts should fire)", mode)
+		})
+	}
+}
+
 func TestAdjustHPATargets_SkipsWithoutAnnotation(t *testing.T) {
 	scheme := testScheme()
 	oldTarget := int32(80)

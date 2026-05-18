@@ -526,7 +526,9 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 	}
 	// Apply startup CPU boosts for newly created pods if configured.
-	if policy.Spec.CPU.StartupBoost != nil && r.Clientset != nil && len(recommendations) > 0 {
+	// Only in resize modes (Auto, OneShot, Canary); Observe and Recommend
+	// modes must not modify pod resources.
+	if isResizeMode(mode) && policy.Spec.CPU.StartupBoost != nil && r.Clientset != nil && len(recommendations) > 0 {
 		podsByWorkload := make(map[string][]corev1.Pod, len(workloads))
 		for _, w := range workloads {
 			pods, err := r.getPodsForWorkload(ctx, w)
