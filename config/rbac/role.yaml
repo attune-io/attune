@@ -127,6 +127,12 @@ rules:
 - apiGroups:
   - rightsize.io
   resources:
+  - rightsizepolicies/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - rightsize.io
+  resources:
   - rightsizepolicies/status
   verbs:
   - get

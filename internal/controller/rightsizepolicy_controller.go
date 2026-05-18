@@ -43,6 +43,7 @@ import (
 	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
@@ -82,6 +83,14 @@ const (
 	// Startup boost annotation.
 	annotationStartupBoostAt = "rightsize.io/startup-boost-at"
 
+	// annotationPolicy records which RightSizePolicy manages a pod, enabling
+	// targeted cleanup when the policy is deleted.
+	annotationPolicy = "rightsize.io/policy"
+
+	// finalizerName is the finalizer added to RightSizePolicy resources to
+	// ensure pod annotations are cleaned up before the policy is deleted.
+	finalizerName = "rightsize.io/cleanup"
+
 	// defaultHistoryWindow is the default history window if not specified.
 	defaultHistoryWindow = 7 * 24 * time.Hour
 
@@ -103,6 +112,7 @@ const (
 
 //+kubebuilder:rbac:groups=rightsize.io,resources=rightsizepolicies,verbs=get;list;watch;patch
 //+kubebuilder:rbac:groups=rightsize.io,resources=rightsizepolicies/status,verbs=get;update
+//+kubebuilder:rbac:groups=rightsize.io,resources=rightsizepolicies/finalizers,verbs=update
 //+kubebuilder:rbac:groups=rightsize.io,resources=rightsizedefaults,verbs=get;list;watch
 //+kubebuilder:rbac:groups=rightsize.io,resources=rightsizenamespacedefaults,verbs=get;list;watch
 //+kubebuilder:rbac:groups=apps,resources=deployments;statefulsets;daemonsets,verbs=get;list;watch
@@ -315,6 +325,20 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 		operatormetrics.ReconcileErrorsTotal.WithLabelValues("fetch").Inc()
 		return ctrl.Result{}, fmt.Errorf("fetching RightSizePolicy: %w", err)
+	}
+
+	// Handle deletion: clean up pod annotations before allowing garbage collection.
+	if !policy.DeletionTimestamp.IsZero() {
+		return r.handleDeletion(ctx, &policy)
+	}
+
+	// Ensure finalizer is present so we get a chance to clean up on deletion.
+	if !controllerutil.ContainsFinalizer(&policy, finalizerName) {
+		patch := client.MergeFrom(policy.DeepCopy())
+		controllerutil.AddFinalizer(&policy, finalizerName)
+		if err := r.Patch(ctx, &policy, patch); err != nil {
+			return ctrl.Result{}, fmt.Errorf("adding finalizer: %w", err)
+		}
 	}
 
 	// Merge defaults into the policy. Namespace-scoped defaults take precedence,
@@ -660,6 +684,60 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	logger.Info("Reconciliation complete, requeueing", "requeueAfter", requeueAfter)
 	operatormetrics.ReconcileDuration.WithLabelValues("rightsizepolicy").Observe(time.Since(startTime).Seconds())
 	return ctrl.Result{RequeueAfter: requeueAfter}, nil
+}
+
+// handleDeletion cleans up pod annotations and Prometheus gauges when a
+// RightSizePolicy is being deleted. Only pods tagged with annotationPolicy
+// matching this policy's name are cleaned. After cleanup, the finalizer is
+// removed so Kubernetes can garbage-collect the resource.
+func (r *RightSizePolicyReconciler) handleDeletion(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+
+	if !controllerutil.ContainsFinalizer(policy, finalizerName) {
+		return ctrl.Result{}, nil
+	}
+
+	// List tracked pods in the policy's namespace.
+	var podList corev1.PodList
+	if err := r.List(ctx, &podList,
+		client.InNamespace(policy.Namespace),
+		client.MatchingLabels{labelTracked: "true"},
+	); err != nil {
+		return ctrl.Result{}, fmt.Errorf("listing tracked pods for cleanup: %w", err)
+	}
+
+	for i := range podList.Items {
+		pod := &podList.Items[i]
+		if pod.Annotations[annotationPolicy] != policy.Name {
+			continue
+		}
+		removeTrackingAnnotations(pod)
+		delete(pod.Annotations, annotationStartupBoostAt)
+		delete(pod.Annotations, annotationPolicy)
+		if err := r.Update(ctx, pod); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return ctrl.Result{}, fmt.Errorf("cleaning pod %s annotations: %w", pod.Name, err)
+		}
+		logger.Info("Cleaned tracking annotations from pod", "pod", pod.Name)
+	}
+
+	// Clean Prometheus gauge values this policy set.
+	policyKey := policy.Namespace + "/" + policy.Name
+	if prev, ok := r.gaugeKeys.LoadAndDelete(policyKey); ok {
+		deleteGaugeKeys(prev.([]gaugeKey))
+	}
+
+	// Remove the finalizer to allow garbage collection.
+	patch := client.MergeFrom(policy.DeepCopy())
+	controllerutil.RemoveFinalizer(policy, finalizerName)
+	if err := r.Patch(ctx, policy, patch); err != nil {
+		return ctrl.Result{}, fmt.Errorf("removing finalizer: %w", err)
+	}
+
+	logger.Info("Completed deletion cleanup for policy", "policy", policy.Name)
+	return ctrl.Result{}, nil
 }
 
 // computeRecommendations generates resource recommendations for all containers
@@ -1402,6 +1480,7 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 		freshPod.Labels = make(map[string]string)
 	}
 	freshPod.Labels[labelTracked] = "true"
+	freshPod.Annotations[annotationPolicy] = policy.Name
 	appendResizedContainer(freshPod, containerRec.Name)
 	freshPod.Annotations[annotationOriginalCPUPrefix+containerRec.Name] = containerRec.Current.CPURequest.String()
 	freshPod.Annotations[annotationOriginalMemoryPrefix+containerRec.Name] = containerRec.Current.MemoryRequest.String()
@@ -2079,6 +2158,11 @@ func (r *RightSizePolicyReconciler) applyStartupBoosts(
 						pod.Annotations = make(map[string]string)
 					}
 					pod.Annotations[annotationStartupBoostAt] = now.UTC().Format(time.RFC3339)
+					pod.Annotations[annotationPolicy] = policy.Name
+					if pod.Labels == nil {
+						pod.Labels = make(map[string]string)
+					}
+					pod.Labels[labelTracked] = "true"
 					if updateErr := r.Update(ctx, pod); updateErr != nil {
 						logger.Error(updateErr, "Failed to persist startup boost annotation", "pod", pod.Name)
 					}

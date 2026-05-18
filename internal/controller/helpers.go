@@ -91,6 +91,7 @@ func removeTrackingAnnotations(pod *corev1.Pod) {
 	delete(pod.Annotations, annotationResizedAt)
 	delete(pod.Annotations, annotationResizedContainers)
 	delete(pod.Annotations, annotationResizedWorkload)
+	delete(pod.Annotations, annotationPolicy)
 	delete(pod.Labels, labelTracked)
 }
 

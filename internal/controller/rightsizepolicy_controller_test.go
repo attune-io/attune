@@ -517,6 +517,187 @@ func TestReconcile_MissingPolicyCleansGauges(t *testing.T) {
 		"burst factor gauges should be cleaned after policy deletion")
 }
 
+func TestReconcile_AddsFinalizer(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	mc := &mockCollector{}
+	reconciler, fakeClient := newReconcilerForReconcile(mc, policy)
+
+	req := ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
+	}
+	_, err := reconciler.Reconcile(context.Background(), req)
+	require.NoError(t, err)
+
+	var updated rightsizev1alpha1.RightSizePolicy
+	err = fakeClient.Get(context.Background(), req.NamespacedName, &updated)
+	require.NoError(t, err)
+	assert.Contains(t, updated.Finalizers, finalizerName,
+		"finalizer should be added on first reconcile")
+}
+
+func TestHandleDeletion_CleansAnnotationsAndGauges(t *testing.T) {
+	now := metav1.Now()
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "my-policy",
+			Namespace:         "default",
+			Finalizers:        []string{finalizerName},
+			DeletionTimestamp: &now,
+		},
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			TargetRef: rightsizev1alpha1.TargetRef{Kind: "Deployment", Name: stringPtr("app")},
+			MetricsSource: rightsizev1alpha1.MetricsSource{
+				Prometheus: &rightsizev1alpha1.PrometheusConfig{Address: "http://prom:9090"},
+			},
+		},
+	}
+
+	// Pod managed by this policy.
+	managedPod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "app-abc",
+			Namespace: "default",
+			Labels:    map[string]string{labelTracked: "true"},
+			Annotations: map[string]string{
+				annotationPolicy:                        "my-policy",
+				annotationResizedAt:                     "2025-01-01T00:00:00Z",
+				annotationResizedWorkload:               "app",
+				annotationResizedContainers:             "main",
+				annotationOriginalCPUPrefix + "main":    "100m",
+				annotationOriginalMemoryPrefix + "main": "128Mi",
+				annotationStartupBoostAt:                "2025-01-01T00:00:00Z",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{Name: "main", Image: "nginx"}},
+		},
+	}
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(policy, managedPod).
+		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
+		Build()
+
+	reconciler := &RightSizePolicyReconciler{
+		Client: fakeClient,
+		Scheme: scheme,
+	}
+
+	// Seed gauge keys.
+	operatormetrics.RecommendationCPU.WithLabelValues("default", "app", "main").Set(0.5)
+	reconciler.gaugeKeys.Store("default/my-policy", []gaugeKey{
+		{Namespace: "default", Workload: "app", Container: "main"},
+	})
+
+	result, err := reconciler.handleDeletion(context.Background(), policy)
+	require.NoError(t, err)
+	assert.Equal(t, ctrl.Result{}, result)
+
+	// Pod should be cleaned.
+	var pod corev1.Pod
+	err = fakeClient.Get(context.Background(), types.NamespacedName{Name: "app-abc", Namespace: "default"}, &pod)
+	require.NoError(t, err)
+	assert.Empty(t, pod.Annotations[annotationPolicy], "annotationPolicy should be removed")
+	assert.Empty(t, pod.Annotations[annotationResizedAt], "annotationResizedAt should be removed")
+	assert.Empty(t, pod.Annotations[annotationResizedWorkload], "annotationResizedWorkload should be removed")
+	assert.Empty(t, pod.Annotations[annotationResizedContainers], "annotationResizedContainers should be removed")
+	assert.Empty(t, pod.Annotations[annotationStartupBoostAt], "annotationStartupBoostAt should be removed")
+	assert.Empty(t, pod.Annotations[annotationOriginalCPUPrefix+"main"], "original CPU annotation should be removed")
+	assert.Empty(t, pod.Annotations[annotationOriginalMemoryPrefix+"main"], "original memory annotation should be removed")
+	assert.Empty(t, pod.Labels[labelTracked], "labelTracked should be removed")
+
+	// Gauges should be cleaned.
+	_, loaded := reconciler.gaugeKeys.Load("default/my-policy")
+	assert.False(t, loaded, "gauge keys should be deleted")
+
+	// Finalizer should be removed.
+	assert.NotContains(t, policy.Finalizers, finalizerName,
+		"finalizer should be removed after cleanup")
+}
+
+func TestHandleDeletion_SkipsPodsFromOtherPolicy(t *testing.T) {
+	now := metav1.Now()
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "my-policy",
+			Namespace:         "default",
+			Finalizers:        []string{finalizerName},
+			DeletionTimestamp: &now,
+		},
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			TargetRef: rightsizev1alpha1.TargetRef{Kind: "Deployment", Name: stringPtr("app")},
+			MetricsSource: rightsizev1alpha1.MetricsSource{
+				Prometheus: &rightsizev1alpha1.PrometheusConfig{Address: "http://prom:9090"},
+			},
+		},
+	}
+
+	// Pod managed by a DIFFERENT policy.
+	otherPod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "other-app-xyz",
+			Namespace: "default",
+			Labels:    map[string]string{labelTracked: "true"},
+			Annotations: map[string]string{
+				annotationPolicy:          "other-policy",
+				annotationResizedAt:       "2025-01-01T00:00:00Z",
+				annotationResizedWorkload: "other-app",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{Name: "main", Image: "nginx"}},
+		},
+	}
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(policy, otherPod).
+		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
+		Build()
+
+	reconciler := &RightSizePolicyReconciler{
+		Client: fakeClient,
+		Scheme: scheme,
+	}
+
+	result, err := reconciler.handleDeletion(context.Background(), policy)
+	require.NoError(t, err)
+	assert.Equal(t, ctrl.Result{}, result)
+
+	// Other policy's pod should NOT be touched.
+	var pod corev1.Pod
+	err = fakeClient.Get(context.Background(), types.NamespacedName{Name: "other-app-xyz", Namespace: "default"}, &pod)
+	require.NoError(t, err)
+	assert.Equal(t, "other-policy", pod.Annotations[annotationPolicy],
+		"other policy's annotation should be untouched")
+	assert.Equal(t, "true", pod.Labels[labelTracked],
+		"other policy's tracked label should be untouched")
+	assert.Equal(t, "2025-01-01T00:00:00Z", pod.Annotations[annotationResizedAt],
+		"other policy's resize timestamp should be untouched")
+}
+
+func TestHandleDeletion_SkipsWithoutFinalizer(t *testing.T) {
+	now := metav1.Now()
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "my-policy",
+			Namespace:         "default",
+			DeletionTimestamp: &now,
+			// No finalizer -- handleDeletion should be a no-op.
+		},
+	}
+
+	// Build reconciler without seeding the deleted policy into the client
+	// (fake client rejects deletionTimestamp without finalizers).
+	reconciler := newReconcilerWithClient()
+	result, err := reconciler.handleDeletion(context.Background(), policy)
+	require.NoError(t, err)
+	assert.Equal(t, ctrl.Result{}, result, "should return immediately without finalizer")
+}
+
 func TestReconcile_NoMatchingWorkloadsSetsInsufficientData(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	mc := &mockCollector{}

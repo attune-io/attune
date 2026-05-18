@@ -22,6 +22,13 @@ rules:
     verbs:
       - get
       - update
+  # Finalizers: allow the controller to manage the cleanup finalizer
+  - apiGroups:
+      - rightsize.io
+    resources:
+      - rightsizepolicies/finalizers
+    verbs:
+      - update
   # RightSizeDefaults: read-only (cluster and namespace scoped)
   - apiGroups:
       - rightsize.io

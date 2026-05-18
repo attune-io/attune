@@ -92,6 +92,18 @@ tests:
             verbs:
               - get
 
+  - it: should include finalizer update permissions
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - rightsize.io
+            resources:
+              - rightsizepolicies/finalizers
+            verbs:
+              - update
+
   - it: should include namespace defaults read permissions
     asserts:
       - contains:
