@@ -384,45 +384,45 @@ func TestWorkload_BuildPrometheusQuery(t *testing.T) {
 	tests := []struct {
 		name      string
 		namespace string
-		podPrefix string
+		podRegex  string
 		container string
 		metric    string
 		want      string
 	}{
 		{
-			name:      "cpu metric without container",
+			name:      "cpu metric with deployment regex",
 			namespace: "prod",
-			podPrefix: "my-app",
+			podRegex:  "my-app-[a-z0-9]+-[a-z0-9]{5}",
 			metric:    "cpu",
-			want:      `rate(container_cpu_usage_seconds_total{namespace="prod",pod=~"my-app.*"}[5m])`,
+			want:      `rate(container_cpu_usage_seconds_total{namespace="prod",pod=~"my-app-[a-z0-9]+-[a-z0-9]{5}"}[5m])`,
 		},
 		{
-			name:      "cpu metric with container",
+			name:      "cpu metric with container filter",
 			namespace: "prod",
-			podPrefix: "my-app",
+			podRegex:  "my-app-[a-z0-9]+-[a-z0-9]{5}",
 			container: "web",
 			metric:    "cpu",
-			want:      `rate(container_cpu_usage_seconds_total{namespace="prod",pod=~"my-app.*",container="web"}[5m])`,
+			want:      `rate(container_cpu_usage_seconds_total{namespace="prod",pod=~"my-app-[a-z0-9]+-[a-z0-9]{5}",container="web"}[5m])`,
 		},
 		{
-			name:      "memory metric without container",
+			name:      "memory metric with statefulset regex",
 			namespace: "staging",
-			podPrefix: "worker",
+			podRegex:  "worker-[0-9]+",
 			metric:    "memory",
-			want:      `container_memory_working_set_bytes{namespace="staging",pod=~"worker.*"}`,
+			want:      `container_memory_working_set_bytes{namespace="staging",pod=~"worker-[0-9]+"}`,
 		},
 		{
-			name:      "memory metric with container",
+			name:      "memory metric with container filter",
 			namespace: "staging",
-			podPrefix: "worker",
+			podRegex:  "worker-[0-9]+",
 			container: "main",
 			metric:    "memory",
-			want:      `container_memory_working_set_bytes{namespace="staging",pod=~"worker.*",container="main"}`,
+			want:      `container_memory_working_set_bytes{namespace="staging",pod=~"worker-[0-9]+",container="main"}`,
 		},
 		{
 			name:      "unknown metric returns empty",
 			namespace: "ns",
-			podPrefix: "p",
+			podRegex:  "p.*",
 			metric:    "disk",
 			want:      "",
 		},
@@ -430,7 +430,7 @@ func TestWorkload_BuildPrometheusQuery(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := buildPrometheusQuery(tt.namespace, tt.podPrefix, tt.container, tt.metric)
+			got := buildPrometheusQuery(tt.namespace, tt.podRegex, tt.container, tt.metric)
 			assert.Equal(t, tt.want, got)
 		})
 	}

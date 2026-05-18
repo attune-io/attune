@@ -452,14 +452,14 @@ func TestGetPodsForWorkload_ReturnsMatchingPods(t *testing.T) {
 }
 
 func TestBuildPrometheusQuery_CPU(t *testing.T) {
-	query := buildPrometheusQuery("production", "api-server", "main", "cpu")
-	expected := `rate(container_cpu_usage_seconds_total{namespace="production",pod=~"api-server.*",container="main"}[5m])`
+	query := buildPrometheusQuery("production", "api-server-[a-z0-9]+-[a-z0-9]{5}", "main", "cpu")
+	expected := `rate(container_cpu_usage_seconds_total{namespace="production",pod=~"api-server-[a-z0-9]+-[a-z0-9]{5}",container="main"}[5m])`
 	assert.Equal(t, expected, query)
 }
 
 func TestBuildPrometheusQuery_Memory(t *testing.T) {
-	query := buildPrometheusQuery("production", "api-server", "main", "memory")
-	expected := `container_memory_working_set_bytes{namespace="production",pod=~"api-server.*",container="main"}`
+	query := buildPrometheusQuery("production", "api-server-[a-z0-9]+-[a-z0-9]{5}", "main", "memory")
+	expected := `container_memory_working_set_bytes{namespace="production",pod=~"api-server-[a-z0-9]+-[a-z0-9]{5}",container="main"}`
 	assert.Equal(t, expected, query)
 }
 
@@ -891,16 +891,16 @@ func TestIsRollingOut_DeploymentMidRollout(t *testing.T) {
 }
 
 func TestBuildPrometheusQuery_FallbackNoContainer(t *testing.T) {
-	query := buildPrometheusQuery("default", "api-server", "", "cpu")
+	query := buildPrometheusQuery("default", "api-server-[a-z0-9]+-[a-z0-9]{5}", "", "cpu")
 	assert.Contains(t, query, `namespace="default"`)
-	assert.Contains(t, query, `pod=~"api-server.*"`)
+	assert.Contains(t, query, `pod=~"api-server-[a-z0-9]+-[a-z0-9]{5}"`)
 	assert.NotContains(t, query, `container=`)
 }
 
 func TestBuildPrometheusQuery_MemoryFallbackNoContainer(t *testing.T) {
-	query := buildPrometheusQuery("default", "api-server", "", "memory")
+	query := buildPrometheusQuery("default", "api-server-[a-z0-9]+-[a-z0-9]{5}", "", "memory")
 	assert.Contains(t, query, `namespace="default"`)
-	assert.Contains(t, query, `pod=~"api-server.*"`)
+	assert.Contains(t, query, `pod=~"api-server-[a-z0-9]+-[a-z0-9]{5}"`)
 	assert.NotContains(t, query, `container=`)
 }
 
@@ -1047,11 +1047,37 @@ func TestGetContainers_StatefulSet(t *testing.T) {
 	assert.Equal(t, "db", containers[0].Name)
 }
 
-func TestGetPodPrefix(t *testing.T) {
+func TestGetPodRegex(t *testing.T) {
 	r := &RightSizePolicyReconciler{}
-	dep := &appsv1.Deployment{}
-	dep.Name = "api-server"
-	assert.Equal(t, "api-server", r.getPodPrefix(dep))
+
+	tests := []struct {
+		name     string
+		workload client.Object
+		want     string
+	}{
+		{
+			name:     "Deployment uses RS hash + pod hash pattern",
+			workload: &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "api-server"}},
+			want:     "api-server-[a-z0-9]+-[a-z0-9]{5}",
+		},
+		{
+			name:     "StatefulSet uses ordinal pattern",
+			workload: &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: "redis"}},
+			want:     "redis-[0-9]+",
+		},
+		{
+			name:     "DaemonSet uses pod hash pattern",
+			workload: &appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: "node-agent"}},
+			want:     "node-agent-[a-z0-9]{5}",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := r.getPodRegex(tt.workload)
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }
 
 func TestParseHistoryWindow_Default(t *testing.T) {
@@ -4732,19 +4758,21 @@ func TestEscapePromQL(t *testing.T) {
 }
 
 func TestBuildPrometheusQuery_EscapesSpecialChars(t *testing.T) {
-	query := buildPrometheusQuery(`ns"test`, `pod"prefix`, `con"tainer`, "cpu")
+	// Namespace and container are escaped by buildPrometheusQuery.
+	// Pod regex is pre-built and passed through as-is.
+	query := buildPrometheusQuery(`ns"test`, `pod-regex-[a-z]+`, `con"tainer`, "cpu")
 	assert.Contains(t, query, `ns\"test`)
-	assert.Contains(t, query, `pod\"prefix`)
+	assert.Contains(t, query, `pod-regex-[a-z]+`)
 	assert.Contains(t, query, `con\"tainer`)
 }
 
-func TestBuildPrometheusQuery_EscapesRegexInPodPrefix(t *testing.T) {
-	query := buildPrometheusQuery("default", "my.app", "main", "cpu")
-	// The dot in "my.app" is regex-escaped then PromQL-string-escaped:
-	// "." → "\." (regex) → "\\." (PromQL string). PromQL parser reverses
-	// the string escaping back to "\." which RE2 treats as a literal dot.
-	assert.Contains(t, query, `my\\.app`)
-	assert.NotContains(t, query, `my.app.*`)
+func TestGetPodRegex_EscapesSpecialCharsInName(t *testing.T) {
+	// The dot in "my.app" should be regex-escaped then PromQL-string-escaped
+	// by getPodRegex so the PromQL regex matches a literal dot.
+	r := &RightSizePolicyReconciler{}
+	dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "my.app"}}
+	regex := r.getPodRegex(dep)
+	assert.Equal(t, `my\\.app-[a-z0-9]+-[a-z0-9]{5}`, regex)
 }
 
 // ---------- listWorkloadsBySelector invalid selector ----------

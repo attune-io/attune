@@ -280,9 +280,29 @@ func (r *RightSizePolicyReconciler) isRollingOut(workload client.Object) bool {
 	return false
 }
 
-// getPodPrefix derives the pod name prefix from a workload.
-func (r *RightSizePolicyReconciler) getPodPrefix(workload client.Object) string {
-	return workload.GetName()
+// getPodRegex returns a PromQL regex that matches pods belonging to the given
+// workload. It uses kind-specific suffix patterns to avoid matching pods from
+// similarly-named workloads (e.g., "my-app" vs "my-app-v2").
+//
+// Patterns by kind:
+//   - Deployment: <name>-<replicaset-hash>-<pod-hash>
+//   - StatefulSet: <name>-<ordinal>
+//   - DaemonSet: <name>-<pod-hash>
+//   - Job: <name>-<pod-hash>
+//   - CronJob: <name>-<timestamp>-<pod-hash>
+func (r *RightSizePolicyReconciler) getPodRegex(workload client.Object) string {
+	name := rsmetrics.EscapePromQLRegex(workload.GetName())
+	switch workload.(type) {
+	case *appsv1.Deployment:
+		return name + "-[a-z0-9]+-[a-z0-9]{5}"
+	case *appsv1.StatefulSet:
+		return name + "-[0-9]+"
+	case *appsv1.DaemonSet:
+		return name + "-[a-z0-9]{5}"
+	default:
+		// Jobs, CronJobs, and unknown kinds: fall back to prefix match.
+		return name + ".*"
+	}
 }
 
 // queryMetricsGrouped queries Prometheus once per metric for the whole
@@ -290,9 +310,9 @@ func (r *RightSizePolicyReconciler) getPodPrefix(workload client.Object) string 
 // by container client-side. If the grouped query returns no labeled series,
 // it falls back to the pod-level query and returns samples under the empty
 // string key.
-func queryMetricsGrouped(ctx context.Context, collector rsmetrics.MetricsCollector, namespace, podPrefix, metric string, start, end time.Time, step time.Duration) (map[string][]rsmetrics.Sample, bool) {
+func queryMetricsGrouped(ctx context.Context, collector rsmetrics.MetricsCollector, namespace, podRegex, metric string, start, end time.Time, step time.Duration) (map[string][]rsmetrics.Sample, bool) {
 	logger := log.FromContext(ctx)
-	query := buildPrometheusQuery(namespace, podPrefix, "", metric)
+	query := buildPrometheusQuery(namespace, podRegex, "", metric)
 
 	logger.V(1).Info("Querying Prometheus",
 		"metric", metric, "query", query,
@@ -329,10 +349,10 @@ func queryMetricsGrouped(ctx context.Context, collector rsmetrics.MetricsCollect
 }
 
 // buildPrometheusQuery generates a PromQL query for the given metric type.
+// podRegex is a pre-built PromQL regex (already escaped) that matches pod names.
 // If container is empty, the query matches pod-level metrics (no container filter).
-func buildPrometheusQuery(namespace, podPrefix, container, metric string) string {
+func buildPrometheusQuery(namespace, podRegex, container, metric string) string {
 	ns := rsmetrics.EscapePromQL(namespace)
-	pp := rsmetrics.EscapePromQLRegex(podPrefix)
 
 	containerFilter := ""
 	if container != "" {
@@ -342,13 +362,13 @@ func buildPrometheusQuery(namespace, podPrefix, container, metric string) string
 	switch metric {
 	case "cpu":
 		return fmt.Sprintf(
-			`rate(container_cpu_usage_seconds_total{namespace="%s",pod=~"%s.*"%s}[5m])`,
-			ns, pp, containerFilter,
+			`rate(container_cpu_usage_seconds_total{namespace="%s",pod=~"%s"%s}[5m])`,
+			ns, podRegex, containerFilter,
 		)
 	case "memory":
 		return fmt.Sprintf(
-			`container_memory_working_set_bytes{namespace="%s",pod=~"%s.*"%s}`,
-			ns, pp, containerFilter,
+			`container_memory_working_set_bytes{namespace="%s",pod=~"%s"%s}`,
+			ns, podRegex, containerFilter,
 		)
 	default:
 		return ""

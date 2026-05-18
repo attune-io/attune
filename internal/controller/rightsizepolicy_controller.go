@@ -812,14 +812,14 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 
 	now := r.now()
 	start := now.Add(-historyWindow)
-	podPrefix := r.getPodPrefix(workload)
+	podRegex := r.getPodRegex(workload)
 
 	queryStep := r.getQueryStep(policy)
 	if queryStep != defaultPrometheusStep {
 		logger.V(1).Info("Using custom query step", "queryStep", queryStep)
 	}
-	cpuSamplesByContainer, cpuErr := queryMetricsGrouped(ctx, collector, policy.Namespace, podPrefix, "cpu", start, now, queryStep)
-	memSamplesByContainer, memErr := queryMetricsGrouped(ctx, collector, policy.Namespace, podPrefix, "memory", start, now, queryStep)
+	cpuSamplesByContainer, cpuErr := queryMetricsGrouped(ctx, collector, policy.Namespace, podRegex, "cpu", start, now, queryStep)
+	memSamplesByContainer, memErr := queryMetricsGrouped(ctx, collector, policy.Namespace, podRegex, "memory", start, now, queryStep)
 	if cpuErr {
 		queryErrors++
 		failedMetricTypes = append(failedMetricTypes, "CPU")
