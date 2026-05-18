@@ -1496,7 +1496,7 @@ func TestComputeRecommendations_HappyPath(t *testing.T) {
 		},
 	}
 
-	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
+	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
 	require.Len(t, rec.Containers, 1)
@@ -1516,7 +1516,7 @@ func TestComputeRecommendations_InsufficientDataPoints(t *testing.T) {
 		},
 	}
 
-	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
+	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil)
 	assert.NoError(t, err)
 	assert.Nil(t, rec) // No recommendation because data points are insufficient
 }
@@ -1532,7 +1532,7 @@ func TestComputeRecommendations_QueryError(t *testing.T) {
 		},
 	}
 
-	rec, qErrors, failedMetricTypes, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
+	rec, qErrors, failedMetricTypes, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil)
 	assert.NoError(t, err)
 	assert.Nil(t, rec)
 	assert.Greater(t, qErrors, 0, "query failures should be counted")
@@ -1553,7 +1553,7 @@ func TestComputeRecommendations_PartialQueryErrorTracksFailedMetricType(t *testi
 		},
 	}
 
-	rec, qErrors, failedMetricTypes, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
+	rec, qErrors, failedMetricTypes, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
 	assert.Equal(t, 1, qErrors)
@@ -1574,7 +1574,7 @@ func TestComputeRecommendations_EmptyContainers(t *testing.T) {
 
 	mc := &mockCollector{}
 
-	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, emptyDeploy, mc)
+	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, emptyDeploy, mc, nil, nil, nil)
 	assert.NoError(t, err)
 	assert.Nil(t, rec)
 }
@@ -1594,7 +1594,7 @@ func TestComputeRecommendations_AllowDecreaseBlocked(t *testing.T) {
 		},
 	}
 
-	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
+	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
 	require.Len(t, rec.Containers, 1)
@@ -1628,7 +1628,7 @@ func TestComputeRecommendations_RequestsOnly(t *testing.T) {
 				},
 			}
 
-			rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
+			rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil)
 			require.NoError(t, err)
 			require.NotNil(t, rec)
 			require.Len(t, rec.Containers, 1)
@@ -1668,7 +1668,7 @@ func TestComputeRecommendations_RequestsAndLimits(t *testing.T) {
 		},
 	}
 
-	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
+	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
 	require.Len(t, rec.Containers, 1)
@@ -1713,7 +1713,7 @@ func TestComputeRecommendations_BatchesQueriesPerWorkload(t *testing.T) {
 		},
 	}
 
-	rec, qErrors, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
+	rec, qErrors, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
 	assert.Zero(t, qErrors)
@@ -1741,7 +1741,7 @@ func TestComputeRecommendations_UsesPodLevelSeriesWithoutExtraQuery(t *testing.T
 		},
 	}
 
-	rec, qErrors, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
+	rec, qErrors, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
 	assert.Zero(t, qErrors)
@@ -1761,7 +1761,7 @@ func TestComputeRecommendations_PopulatesExplanation(t *testing.T) {
 		},
 	}
 
-	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
+	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
 	require.Len(t, rec.Containers, 1)
@@ -4865,7 +4865,7 @@ func TestComputeRecommendations_ExcludeContainers(t *testing.T) {
 		},
 	}
 
-	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
+	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
 
@@ -4887,7 +4887,7 @@ func TestComputeRecommendations_ExcludeAllContainers(t *testing.T) {
 		},
 	}
 
-	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc)
+	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil)
 	assert.NoError(t, err)
 	assert.Nil(t, rec, "all containers excluded, should return nil")
 }
@@ -6855,7 +6855,7 @@ func TestShouldSkipResize_LimitRangeViolation(t *testing.T) {
 		},
 	}
 
-	skip, reason := r.shouldSkipResize(context.Background(), policy, pod, containerRec, target)
+	skip, reason := r.shouldSkipResize(context.Background(), policy, pod, containerRec, target, nil)
 	assert.True(t, skip)
 	assert.Contains(t, reason, "quota/limitrange violation")
 	assert.Contains(t, reason, "below LimitRange minimum")
@@ -6906,7 +6906,7 @@ func TestShouldSkipResize_QuotaHeadroomExceeded(t *testing.T) {
 		},
 	}
 
-	skip, reason := r.shouldSkipResize(context.Background(), policy, pod, containerRec, target)
+	skip, reason := r.shouldSkipResize(context.Background(), policy, pod, containerRec, target, nil)
 	assert.True(t, skip)
 	assert.Contains(t, reason, "quota/limitrange violation")
 	assert.Contains(t, reason, "would exceed ResourceQuota")

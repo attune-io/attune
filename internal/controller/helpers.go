@@ -460,43 +460,49 @@ func (r *RightSizePolicyReconciler) checkQuotaCompatibility(ctx context.Context,
 	var limitRangeList corev1.LimitRangeList
 	if err := r.List(ctx, &limitRangeList, client.InNamespace(namespace)); err != nil {
 		logger.V(1).Info("Could not list LimitRanges", "error", err)
-	} else {
-		for _, lr := range limitRangeList.Items {
-			for _, item := range lr.Spec.Limits {
-				if item.Type != corev1.LimitTypeContainer {
-					continue
+	}
+
+	var quotaList corev1.ResourceQuotaList
+	if err := r.List(ctx, &quotaList, client.InNamespace(namespace)); err != nil {
+		logger.V(1).Info("Could not list ResourceQuotas", "error", err)
+	}
+
+	return checkQuotaCompatibilityFromLists(limitRangeList.Items, quotaList.Items, currentResources, target)
+}
+
+// checkQuotaCompatibilityFromLists validates that the target resources respect
+// pre-fetched LimitRange and ResourceQuota constraints. This avoids redundant
+// API calls when multiple pods are checked in the same namespace.
+func checkQuotaCompatibilityFromLists(limitRanges []corev1.LimitRange, quotas []corev1.ResourceQuota, currentResources, target corev1.ResourceRequirements) error {
+	for _, lr := range limitRanges {
+		for _, item := range lr.Spec.Limits {
+			if item.Type != corev1.LimitTypeContainer {
+				continue
+			}
+			if minCPU, ok := item.Min[corev1.ResourceCPU]; ok {
+				if target.Requests.Cpu().Cmp(minCPU) < 0 {
+					return fmt.Errorf("CPU request %s below LimitRange minimum %s", target.Requests.Cpu().String(), minCPU.String())
 				}
-				if minCPU, ok := item.Min[corev1.ResourceCPU]; ok {
-					if target.Requests.Cpu().Cmp(minCPU) < 0 {
-						return fmt.Errorf("CPU request %s below LimitRange minimum %s", target.Requests.Cpu().String(), minCPU.String())
-					}
+			}
+			if minMem, ok := item.Min[corev1.ResourceMemory]; ok {
+				if target.Requests.Memory().Cmp(minMem) < 0 {
+					return fmt.Errorf("memory request %s below LimitRange minimum %s", target.Requests.Memory().String(), minMem.String())
 				}
-				if minMem, ok := item.Min[corev1.ResourceMemory]; ok {
-					if target.Requests.Memory().Cmp(minMem) < 0 {
-						return fmt.Errorf("memory request %s below LimitRange minimum %s", target.Requests.Memory().String(), minMem.String())
-					}
+			}
+			if maxCPU, ok := item.Max[corev1.ResourceCPU]; ok {
+				if target.Requests.Cpu().Cmp(maxCPU) > 0 {
+					return fmt.Errorf("CPU request %s exceeds LimitRange maximum %s", target.Requests.Cpu().String(), maxCPU.String())
 				}
-				if maxCPU, ok := item.Max[corev1.ResourceCPU]; ok {
-					if target.Requests.Cpu().Cmp(maxCPU) > 0 {
-						return fmt.Errorf("CPU request %s exceeds LimitRange maximum %s", target.Requests.Cpu().String(), maxCPU.String())
-					}
-				}
-				if maxMem, ok := item.Max[corev1.ResourceMemory]; ok {
-					if target.Requests.Memory().Cmp(maxMem) > 0 {
-						return fmt.Errorf("memory request %s exceeds LimitRange maximum %s", target.Requests.Memory().String(), maxMem.String())
-					}
+			}
+			if maxMem, ok := item.Max[corev1.ResourceMemory]; ok {
+				if target.Requests.Memory().Cmp(maxMem) > 0 {
+					return fmt.Errorf("memory request %s exceeds LimitRange maximum %s", target.Requests.Memory().String(), maxMem.String())
 				}
 			}
 		}
 	}
 
-	// Check ResourceQuota: verify the delta won't exceed quota headroom.
-	var quotaList corev1.ResourceQuotaList
-	if err := r.List(ctx, &quotaList, client.InNamespace(namespace)); err != nil {
-		logger.V(1).Info("Could not list ResourceQuotas", "error", err)
-		return nil
-	}
-	for _, quota := range quotaList.Items {
+	for _, quota := range quotas {
 		if err := checkQuotaHeadroom(quota, currentResources, target); err != nil {
 			return err
 		}

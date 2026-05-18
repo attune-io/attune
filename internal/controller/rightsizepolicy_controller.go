@@ -435,6 +435,14 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 	var currentGaugeKeys []gaugeKey
 
+	// Build recommendation engines and exclude set once; they depend only
+	// on the policy spec, not the workload.
+	cpuEngine, memEngine := buildRecommendationEngines(&policy)
+	excludeSet := make(map[string]bool, len(policy.Spec.ExcludeContainers))
+	for _, name := range policy.Spec.ExcludeContainers {
+		excludeSet[name] = true
+	}
+
 	for _, workload := range workloads {
 		workloadName := workload.GetName()
 		workloadKind := workload.GetObjectKind().GroupVersionKind().Kind
@@ -469,7 +477,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 
 		// Step 4: Compute recommendations from historical metrics.
-		rec, qErrors, failedMetricTypes, dataPoints, err := r.computeRecommendations(ctx, &policy, workload, collector)
+		rec, qErrors, failedMetricTypes, dataPoints, err := r.computeRecommendations(ctx, &policy, workload, collector, cpuEngine, memEngine, excludeSet)
 		totalQueryErrors += qErrors
 		for _, metricType := range failedMetricTypes {
 			queryErrorTypes[metricType] = struct{}{}
@@ -768,11 +776,24 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 	policy *rightsizev1alpha1.RightSizePolicy,
 	workload client.Object,
 	collector rsmetrics.MetricsCollector,
+	cpuEngine, memEngine *recommendation.RecommendationEngine,
+	excludeSet map[string]bool,
 ) (rec *rightsizev1alpha1.WorkloadRecommendation, queryErrors int, failedMetricTypes []string, maxDataPoints int, err error) {
 	logger := log.FromContext(ctx)
 	containers := r.getContainers(workload)
 	if len(containers) == 0 {
 		return nil, 0, nil, 0, nil
+	}
+
+	// Fallback: build engines if not pre-built (used in tests).
+	if cpuEngine == nil || memEngine == nil {
+		cpuEngine, memEngine = buildRecommendationEngines(policy)
+	}
+	if excludeSet == nil {
+		excludeSet = make(map[string]bool, len(policy.Spec.ExcludeContainers))
+		for _, name := range policy.Spec.ExcludeContainers {
+			excludeSet[name] = true
+		}
 	}
 
 	historyWindow := r.parseHistoryWindow(policy)
@@ -781,14 +802,6 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 	now := r.now()
 	start := now.Add(-historyWindow)
 	podPrefix := r.getPodPrefix(workload)
-
-	cpuEngine, memEngine := buildRecommendationEngines(policy)
-
-	// Build excludeContainers set for O(1) lookup.
-	excludeSet := make(map[string]bool, len(policy.Spec.ExcludeContainers))
-	for _, name := range policy.Spec.ExcludeContainers {
-		excludeSet[name] = true
-	}
 
 	queryStep := r.getQueryStep(policy)
 	if queryStep != defaultPrometheusStep {
@@ -1166,6 +1179,22 @@ func (r *RightSizePolicyReconciler) executeResizes(
 	resizer := resize.NewPodResizer(r.Clientset, logger)
 	monitor := r.newSafetyMonitor(logger, collector)
 
+	// Pre-fetch namespace-scoped resources once to avoid redundant API
+	// calls across all pods during resize pre-checks.
+	var limitRanges corev1.LimitRangeList
+	if err := r.List(ctx, &limitRanges, client.InNamespace(policy.Namespace)); err != nil {
+		logger.V(1).Info("Could not pre-fetch LimitRanges", "error", err)
+	}
+	var quotas corev1.ResourceQuotaList
+	if err := r.List(ctx, &quotas, client.InNamespace(policy.Namespace)); err != nil {
+		logger.V(1).Info("Could not pre-fetch ResourceQuotas", "error", err)
+	}
+	checks := &resizePreChecks{
+		nodeCache:   make(map[string]*corev1.Node),
+		limitRanges: limitRanges.Items,
+		quotas:      quotas.Items,
+	}
+
 	var totalResized int
 	var history []rightsizev1alpha1.ResizeHistoryEntry
 	now := metav1.NewTime(r.now())
@@ -1191,19 +1220,18 @@ func (r *RightSizePolicyReconciler) executeResizes(
 	var historyMu sync.Mutex
 	var wg sync.WaitGroup
 
+	// Pre-build name→Object map for O(1) workload lookups.
+	workloadMap := make(map[string]client.Object, len(workloads))
+	for _, w := range workloads {
+		workloadMap[w.GetName()] = w
+	}
+
 	for _, rec := range recommendations {
 		if ctx.Err() != nil {
 			logger.Info("Context cancelled, aborting remaining resizes")
 			break
 		}
-		// Find the matching workload
-		var matchedWorkload client.Object
-		for _, w := range workloads {
-			if w.GetName() == rec.Workload {
-				matchedWorkload = w
-				break
-			}
-		}
+		matchedWorkload := workloadMap[rec.Workload]
 		if matchedWorkload == nil {
 			continue
 		}
@@ -1288,6 +1316,7 @@ func (r *RightSizePolicyReconciler) executeResizes(
 						Resizer:      resizer,
 						Monitor:      monitor,
 						Now:          now,
+						Checks:       checks,
 					})
 					historyMu.Lock()
 					history = append(history, entries...)
@@ -1331,6 +1360,7 @@ type resizeParams struct {
 	Resizer      *resize.PodResizer
 	Monitor      *safety.Monitor
 	Now          metav1.Time
+	Checks       *resizePreChecks
 }
 
 func (r *RightSizePolicyReconciler) resizeContainer(
@@ -1343,7 +1373,7 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 
 	target := buildResizeTarget(containerRec)
 
-	skip, reason := r.shouldSkipResize(ctx, policy, pod, containerRec, target)
+	skip, reason := r.shouldSkipResize(ctx, policy, pod, containerRec, target, p.Checks)
 	if skip {
 		if reason != "" {
 			logger.Info("Skipping resize: "+reason,
@@ -1828,6 +1858,14 @@ func (r *RightSizePolicyReconciler) resolveCanaryPhase(ctx context.Context, poli
 	return currentMode
 }
 
+// resizePreChecks holds per-cycle cached data for shouldSkipResize,
+// avoiding redundant API calls when checking many pods in the same namespace.
+type resizePreChecks struct {
+	nodeCache   map[string]*corev1.Node
+	limitRanges []corev1.LimitRange
+	quotas      []corev1.ResourceQuota
+}
+
 // shouldSkipResize runs pre-checks and returns whether to skip the resize
 // and an optional reason string. An empty reason with skip=true means the
 // pod already matches the recommendation (no log needed).
@@ -1837,6 +1875,7 @@ func (r *RightSizePolicyReconciler) shouldSkipResize(
 	pod *corev1.Pod,
 	containerRec rightsizev1alpha1.ContainerRecommendation,
 	target corev1.ResourceRequirements,
+	checks *resizePreChecks,
 ) (skip bool, reason string) {
 	// Already at target (search both regular and init containers).
 	for _, c := range slices.Concat(pod.Spec.InitContainers, pod.Spec.Containers) {
@@ -1849,29 +1888,40 @@ func (r *RightSizePolicyReconciler) shouldSkipResize(
 		}
 	}
 
-	// Node allocatable exceeded.
+	// Node allocatable exceeded (use cached node data when available).
 	if pod.Spec.NodeName != "" {
-		var node corev1.Node
-		if err := r.Get(ctx, types.NamespacedName{Name: pod.Spec.NodeName}, &node); err == nil {
-			// Skip the check if node allocatable is not yet populated (node
-			// initializing, kubelet race). Treating unknown as zero would
-			// silently block all resizes with no user-visible signal.
-			if len(node.Status.Allocatable) > 0 {
-				totalCPU := int64(0)
-				totalMem := int64(0)
-				for _, c := range slices.Concat(pod.Spec.InitContainers, pod.Spec.Containers) {
-					if c.Name == containerRec.Name {
-						totalCPU += target.Requests.Cpu().MilliValue()
-						totalMem += target.Requests.Memory().Value()
-					} else {
-						totalCPU += c.Resources.Requests.Cpu().MilliValue()
-						totalMem += c.Resources.Requests.Memory().Value()
-					}
+		var node *corev1.Node
+		if checks != nil {
+			cached, ok := checks.nodeCache[pod.Spec.NodeName]
+			if !ok {
+				var n corev1.Node
+				if err := r.Get(ctx, types.NamespacedName{Name: pod.Spec.NodeName}, &n); err == nil {
+					cached = &n
 				}
-				if totalCPU > node.Status.Allocatable.Cpu().MilliValue() ||
-					totalMem > node.Status.Allocatable.Memory().Value() {
-					return true, "total pod requests would exceed node allocatable"
+				checks.nodeCache[pod.Spec.NodeName] = cached
+			}
+			node = cached
+		} else {
+			var n corev1.Node
+			if err := r.Get(ctx, types.NamespacedName{Name: pod.Spec.NodeName}, &n); err == nil {
+				node = &n
+			}
+		}
+		if node != nil && len(node.Status.Allocatable) > 0 {
+			totalCPU := int64(0)
+			totalMem := int64(0)
+			for _, c := range slices.Concat(pod.Spec.InitContainers, pod.Spec.Containers) {
+				if c.Name == containerRec.Name {
+					totalCPU += target.Requests.Cpu().MilliValue()
+					totalMem += target.Requests.Memory().Value()
+				} else {
+					totalCPU += c.Resources.Requests.Cpu().MilliValue()
+					totalMem += c.Resources.Requests.Memory().Value()
 				}
+			}
+			if totalCPU > node.Status.Allocatable.Cpu().MilliValue() ||
+				totalMem > node.Status.Allocatable.Memory().Value() {
+				return true, "total pod requests would exceed node allocatable"
 			}
 		}
 	}
@@ -1883,8 +1933,14 @@ func (r *RightSizePolicyReconciler) shouldSkipResize(
 			corev1.ResourceMemory: containerRec.Current.MemoryRequest.DeepCopy(),
 		},
 	}
-	if err := r.checkQuotaCompatibility(ctx, pod.Namespace, currentRes, target); err != nil {
-		return true, "quota/limitrange violation: " + err.Error()
+	if checks != nil {
+		if err := checkQuotaCompatibilityFromLists(checks.limitRanges, checks.quotas, currentRes, target); err != nil {
+			return true, "quota/limitrange violation: " + err.Error()
+		}
+	} else {
+		if err := r.checkQuotaCompatibility(ctx, pod.Namespace, currentRes, target); err != nil {
+			return true, "quota/limitrange violation: " + err.Error()
+		}
 	}
 
 	// QoS class change.
@@ -2177,7 +2233,7 @@ func (r *RightSizePolicyReconciler) applyStartupBoosts(
 							corev1.ResourceMemory: c.Resources.Requests.Memory().DeepCopy(),
 						},
 					}
-					if skip, reason := r.shouldSkipResize(ctx, policy, pod, boostRec, boostTarget); skip {
+					if skip, reason := r.shouldSkipResize(ctx, policy, pod, boostRec, boostTarget, nil); skip {
 						logger.Info("Skipping startup boost: "+reason,
 							"pod", pod.Name, "container", c.Name,
 							"boostedCPU", boostedCPU.String())
