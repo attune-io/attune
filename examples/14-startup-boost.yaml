@@ -1,0 +1,54 @@
+---
+# Startup Boost: temporary CPU boost for cold-start workloads.
+#
+# Some applications (JVMs, ML model loaders, interpreted runtimes) need
+# significantly more CPU during startup than at steady state. Rather than
+# over-provisioning permanently, startupBoost applies a temporary CPU
+# multiplier that expires after a configurable duration.
+#
+# How it works:
+#   1. When the operator detects a new pod (within the boost duration
+#      window), it resizes the pod's CPU request to
+#      `recommended_cpu * multiplier`.
+#   2. Once the duration expires, the operator resizes back to the
+#      steady-state recommendation.
+#   3. If the boosted CPU would exceed the container's CPU limit or the
+#      node's allocatable CPU, the boost is capped automatically.
+#
+# Prerequisites:
+#   - Kubernetes 1.33+ with In-Place Pod Resize enabled
+#   - Prometheus reachable at the address below
+#   - kube-rightsize operator installed
+#
+# Apply:
+#   kubectl apply -f examples/14-startup-boost.yaml
+apiVersion: rightsize.io/v1alpha1
+kind: RightSizePolicy
+metadata:
+  name: jvm-api
+  namespace: production
+spec:
+  targetRef:
+    kind: Deployment
+    name: jvm-api
+  metricsSource:
+    prometheus:
+      address: http://prometheus-server.monitoring:80
+  cpu:
+    percentile: 95
+    safetyMargin: "1.2"
+    startupBoost:
+      multiplier: "3.0"   # 3x the steady-state recommendation during startup
+      duration: 2m         # boost expires 2 minutes after pod creation
+    bounds:
+      min: "100m"
+      max: "8000m"
+  memory:
+    percentile: 99
+    safetyMargin: "1.3"
+    bounds:
+      min: "256Mi"
+      max: "16Gi"
+  updateStrategy:
+    mode: Auto
+    cooldown: 1h
