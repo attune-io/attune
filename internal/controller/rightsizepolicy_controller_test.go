@@ -2851,7 +2851,11 @@ func TestCheckPendingSafetyObservations_NotElapsed(t *testing.T) {
 
 	reconciler, fakeClient := newSafetyTestReconciler(pod)
 
-	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
+	pending := reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
+
+	// Must report pending so the reconciler requeues at the observation
+	// interval instead of the (much longer) cooldown.
+	assert.True(t, pending, "should report observations pending when observation period not elapsed")
 
 	// Verify annotations are still present (observation period not elapsed).
 	var updated corev1.Pod
