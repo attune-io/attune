@@ -38,6 +38,15 @@ helm install kube-rightsize \
 
 ### Upgrading
 
+!!! important "CRDs are not updated by `helm upgrade`"
+    Helm's `crds/` directory only installs CRDs on `helm install`.
+    Before upgrading, apply the latest CRDs manually:
+
+    ```bash
+    kubectl apply --server-side --force-conflicts -f \
+      https://github.com/SebTardifLabs/kube-rightsize/releases/latest/download/crds.yaml
+    ```
+
 ```bash
 helm upgrade kube-rightsize \
   oci://ghcr.io/sebtardiflabs/charts/kube-rightsize \

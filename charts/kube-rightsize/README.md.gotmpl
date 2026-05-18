@@ -20,10 +20,17 @@ helm install kube-rightsize oci://ghcr.io/sebtardiflabs/charts/kube-rightsize \
 
 ## CRDs
 
-This chart automatically installs the required CRDs:
+This chart installs the required CRDs on `helm install`:
 - `rightsizepolicies.rightsize.io`
 - `rightsizedefaults.rightsize.io`
 - `rightsizenamespacedefaults.rightsize.io`
+
+> **Note:** Helm does not update CRDs on `helm upgrade`.
+> Before upgrading, apply the latest CRDs manually:
+> ```bash
+> kubectl apply --server-side --force-conflicts -f \
+>   https://github.com/SebTardifLabs/kube-rightsize/releases/latest/download/crds.yaml
+> ```
 
 ## Prometheus Configuration
 
