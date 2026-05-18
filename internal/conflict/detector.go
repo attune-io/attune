@@ -260,11 +260,16 @@ func (d *Detector) CheckPolicyConflictInMemory(policyList *unstructured.Unstruct
 		}
 
 		otherWeight, _, _ := unstructured.NestedInt64(policy.Object, "spec", "weight")
-		if otherWeight > int64(currentWeight) {
+		// Defer to a policy with strictly higher weight. At equal weight,
+		// use lexicographic name ordering as a deterministic tiebreaker so
+		// exactly one policy wins and the other defers, avoiding redundant
+		// resizes and 409 Conflict errors from the API server.
+		if otherWeight > int64(currentWeight) ||
+			(otherWeight == int64(currentWeight) && policy.GetName() < currentPolicyName) {
 			return &Conflict{
 				Type: ConflictPolicy,
 				Name: policy.GetName(),
-				Message: fmt.Sprintf("RightSizePolicy %s has higher weight (%d > %d) for %s/%s; deferring",
+				Message: fmt.Sprintf("RightSizePolicy %s has higher weight or priority (%d vs %d) for %s/%s; deferring",
 					policy.GetName(), otherWeight, currentWeight, workloadKind, workloadName),
 			}
 		}

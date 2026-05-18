@@ -511,7 +511,7 @@ func TestCheckPolicyConflictInMemory_HigherWeightConflicts(t *testing.T) {
 	assert.NotNil(t, result)
 	assert.Equal(t, ConflictPolicy, result.Type)
 	assert.Equal(t, "high-priority", result.Name)
-	assert.Contains(t, result.Message, "higher weight (200 > 100)")
+	assert.Contains(t, result.Message, "higher weight or priority (200 vs 100)")
 }
 
 func TestCheckPolicyConflictInMemory_LowerWeightNoConflict(t *testing.T) {
@@ -528,6 +528,19 @@ func TestCheckPolicyConflictInMemory_EqualWeightNoConflict(t *testing.T) {
 	list := &unstructured.UnstructuredList{Items: []unstructured.Unstructured{other}}
 
 	assert.Nil(t, detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment", nil, "current", 100))
+}
+
+func TestCheckPolicyConflictInMemory_EqualWeightTiebreaker(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+	// "alpha" < "zeta" lexicographically, so "alpha" wins the tiebreaker
+	// and "zeta" (current) should defer.
+	other := newPolicy("alpha", "Deployment", "my-app", 100)
+	list := &unstructured.UnstructuredList{Items: []unstructured.Unstructured{other}}
+
+	result := detector.CheckPolicyConflictInMemory(list, "my-app", "Deployment", nil, "zeta", 100)
+	assert.NotNil(t, result)
+	assert.Equal(t, ConflictPolicy, result.Type)
+	assert.Equal(t, "alpha", result.Name)
 }
 
 func TestCheckPolicyConflictInMemory_DifferentWorkload(t *testing.T) {
