@@ -147,6 +147,17 @@ type gaugeKey struct {
 	Container string
 }
 
+// deleteGaugeKeys removes recommendation gauge values for the given keys.
+func deleteGaugeKeys(keys []gaugeKey) {
+	for _, gk := range keys {
+		operatormetrics.RecommendationCPU.DeleteLabelValues(gk.Namespace, gk.Workload, gk.Container)
+		operatormetrics.RecommendationMemory.DeleteLabelValues(gk.Namespace, gk.Workload, gk.Container)
+		operatormetrics.Confidence.DeleteLabelValues(gk.Namespace, gk.Workload, gk.Container)
+		operatormetrics.BurstFactor.DeleteLabelValues(gk.Namespace, gk.Workload, gk.Container, "cpu")
+		operatormetrics.BurstFactor.DeleteLabelValues(gk.Namespace, gk.Workload, gk.Container, "memory")
+	}
+}
+
 // SetNowFunc sets an injectable clock for testing. Safe for concurrent use.
 func (r *RightSizePolicyReconciler) SetNowFunc(fn func() time.Time) {
 	if fn == nil {
@@ -298,13 +309,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			// Clean up gauge values this policy previously set.
 			deletedPolicyKey := req.Namespace + "/" + req.Name
 			if prev, ok := r.gaugeKeys.LoadAndDelete(deletedPolicyKey); ok {
-				for _, gk := range prev.([]gaugeKey) {
-					operatormetrics.RecommendationCPU.DeleteLabelValues(gk.Namespace, gk.Workload, gk.Container)
-					operatormetrics.RecommendationMemory.DeleteLabelValues(gk.Namespace, gk.Workload, gk.Container)
-					operatormetrics.Confidence.DeleteLabelValues(gk.Namespace, gk.Workload, gk.Container)
-					operatormetrics.BurstFactor.DeleteLabelValues(gk.Namespace, gk.Workload, gk.Container, "cpu")
-					operatormetrics.BurstFactor.DeleteLabelValues(gk.Namespace, gk.Workload, gk.Container, "memory")
-				}
+				deleteGaugeKeys(prev.([]gaugeKey))
 			}
 			return ctrl.Result{}, nil
 		}
@@ -402,13 +407,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	// gauges belonging to other policies in the same namespace.
 	policyKey := policy.Namespace + "/" + policy.Name
 	if prev, ok := r.gaugeKeys.Load(policyKey); ok {
-		for _, gk := range prev.([]gaugeKey) {
-			operatormetrics.RecommendationCPU.DeleteLabelValues(gk.Namespace, gk.Workload, gk.Container)
-			operatormetrics.RecommendationMemory.DeleteLabelValues(gk.Namespace, gk.Workload, gk.Container)
-			operatormetrics.Confidence.DeleteLabelValues(gk.Namespace, gk.Workload, gk.Container)
-			operatormetrics.BurstFactor.DeleteLabelValues(gk.Namespace, gk.Workload, gk.Container, "cpu")
-			operatormetrics.BurstFactor.DeleteLabelValues(gk.Namespace, gk.Workload, gk.Container, "memory")
-		}
+		deleteGaugeKeys(prev.([]gaugeKey))
 	}
 	var currentGaugeKeys []gaugeKey
 
