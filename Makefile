@@ -209,11 +209,11 @@ test-all: test test-integration test-e2e test-e2e-go ## Run all tests (E2E requi
 
 .PHONY: build
 build: manifests generate ## Build operator binary
-	go build -ldflags="$(LDFLAGS)" -o bin/manager ./cmd/manager/
+	go build -trimpath -ldflags="$(LDFLAGS)" -o bin/manager ./cmd/manager/
 
 .PHONY: build-plugin
 build-plugin: ## Build kubectl-rightsize plugin
-	go build -ldflags="$(LDFLAGS)" -o bin/kubectl-rightsize ./cmd/kubectl-rightsize/
+	go build -trimpath -ldflags="$(LDFLAGS)" -o bin/kubectl-rightsize ./cmd/kubectl-rightsize/
 
 .PHONY: run
 run: manifests generate ## Run operator locally against the configured cluster

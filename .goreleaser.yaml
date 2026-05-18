@@ -6,6 +6,8 @@ builds:
     binary: manager
     goos: [linux]
     goarch: [amd64, arm64]
+    flags:
+      - -trimpath
     ldflags:
       - -s -w
       - -X main.version={{.Version}}
@@ -16,6 +18,8 @@ builds:
     binary: kubectl-rightsize
     goos: [linux, darwin]
     goarch: [amd64, arm64]
+    flags:
+      - -trimpath
     ldflags:
       - -s -w
       - -X main.version={{.Version}}
