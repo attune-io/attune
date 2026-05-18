@@ -33,6 +33,7 @@ setup.
 | [11-namespace-defaults.yaml](11-namespace-defaults.yaml) | Namespace-scoped defaults layered over cluster defaults | Mixed |
 | [12-scheduled-auto-mode.yaml](12-scheduled-auto-mode.yaml) | Auto mode limited to maintenance windows with per-cycle budgets | Auto |
 | [13-multi-datasource.yaml](13-multi-datasource.yaml) | Mimir, Thanos, bearer-token auth, and TLS examples | Recommend |
+| [14-startup-boost.yaml](14-startup-boost.yaml) | Temporary CPU boost for cold-start workloads (JVMs, ML models) | Auto |
 
 ## Composite scenarios
 
