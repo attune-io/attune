@@ -19,11 +19,13 @@ package webhook
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	io_prometheus_client "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
@@ -415,4 +417,231 @@ func TestNamespaceDefaultsValidator_RecordsRejectedMetric(t *testing.T) {
 	var metric io_prometheus_client.Metric
 	require.NoError(t, counter.Write(&metric))
 	assert.Equal(t, 1.0, metric.GetCounter().GetValue())
+}
+
+func TestDefaultsValidate_SafetyMarginInvalid(t *testing.T) {
+	tests := []struct {
+		name    string
+		cpu     string
+		memory  string
+		wantErr string
+	}{
+		{"NaN CPU", "NaN", "1.3", "must be a finite number"},
+		{"negative CPU", "-0.5", "1.3", "must be positive"},
+		{"CPU exceeds max", "15.0", "1.3", "cpu.safetyMargin must be <= 10.0"},
+		{"NaN memory", "1.2", "NaN", "must be a finite number"},
+		{"negative memory", "1.2", "-1.5", "must be positive"},
+		{"memory exceeds max", "1.2", "100.0", "memory.safetyMargin must be <= 10.0"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			v := &RightSizeDefaultsValidator{}
+			defaults := &rightsizev1alpha1.RightSizeDefaults{
+				ObjectMeta: metav1.ObjectMeta{Name: "default"},
+				Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+					CPU: &rightsizev1alpha1.ResourceConfig{
+						Percentile:   95,
+						SafetyMargin: tc.cpu,
+					},
+					Memory: &rightsizev1alpha1.ResourceConfig{
+						Percentile:   99,
+						SafetyMargin: tc.memory,
+					},
+				},
+			}
+
+			_, err := v.ValidateCreate(context.Background(), defaults)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
+func TestDefaultsValidate_UnsupportedPercentile(t *testing.T) {
+	tests := []struct {
+		name       string
+		resource   string
+		percentile int32
+		wantErr    string
+	}{
+		{"CPU percentile 75", "cpu", 75, "cpu.percentile 75"},
+		{"memory percentile 80", "memory", 80, "memory.percentile 80"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			v := &RightSizeDefaultsValidator{}
+			defaults := &rightsizev1alpha1.RightSizeDefaults{
+				ObjectMeta: metav1.ObjectMeta{Name: "default"},
+				Spec:       rightsizev1alpha1.RightSizeDefaultsSpec{},
+			}
+			rc := &rightsizev1alpha1.ResourceConfig{Percentile: tc.percentile}
+			if tc.resource == "cpu" {
+				defaults.Spec.CPU = rc
+			} else {
+				defaults.Spec.Memory = rc
+			}
+
+			_, err := v.ValidateCreate(context.Background(), defaults)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
+func TestDefaultsValidate_BoundsMinExceedsMax(t *testing.T) {
+	tests := []struct {
+		name     string
+		resource string
+		min      string
+		max      string
+		wantErr  string
+	}{
+		{"CPU min > max", "cpu", "2", "1", "cpu.bounds.min"},
+		{"memory min > max", "memory", "2Gi", "1Gi", "memory.bounds.min"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			v := &RightSizeDefaultsValidator{}
+			defaults := &rightsizev1alpha1.RightSizeDefaults{
+				ObjectMeta: metav1.ObjectMeta{Name: "default"},
+				Spec:       rightsizev1alpha1.RightSizeDefaultsSpec{},
+			}
+			rc := &rightsizev1alpha1.ResourceConfig{
+				Bounds: &rightsizev1alpha1.ResourceBounds{
+					Min: resource.MustParse(tc.min),
+					Max: resource.MustParse(tc.max),
+				},
+			}
+			if tc.resource == "cpu" {
+				defaults.Spec.CPU = rc
+			} else {
+				defaults.Spec.Memory = rc
+			}
+
+			_, err := v.ValidateCreate(context.Background(), defaults)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+			assert.Contains(t, err.Error(), "must be <=")
+		})
+	}
+}
+
+func TestDefaultsValidate_BurstSensitivityInvalid(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		wantErr string
+	}{
+		{"negative", "-0.1", "non-negative"},
+		{"exceeds max", "1.5", "<= 1.0"},
+		{"not a number", "abc", "not a valid number"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			v := &RightSizeDefaultsValidator{}
+			defaults := &rightsizev1alpha1.RightSizeDefaults{
+				ObjectMeta: metav1.ObjectMeta{Name: "default"},
+				Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+					CPU: &rightsizev1alpha1.ResourceConfig{
+						BurstSensitivity: &tc.value,
+					},
+				},
+			}
+
+			_, err := v.ValidateCreate(context.Background(), defaults)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
+func TestDefaultsValidate_StartupBoostInvalid(t *testing.T) {
+	tests := []struct {
+		name       string
+		multiplier string
+		duration   time.Duration
+		wantErr    string
+	}{
+		{"multiplier exactly 1", "1.0", 30 * time.Second, "must be > 1.0"},
+		{"multiplier below 1", "0.5", 30 * time.Second, "must be > 1.0"},
+		{"multiplier exceeds max", "11.0", 30 * time.Second, "must be <= 10.0"},
+		{"duration too short", "2.0", 5 * time.Second, "at least 10s"},
+		{"duration too long", "2.0", 2 * time.Hour, "at most 1h"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			v := &RightSizeDefaultsValidator{}
+			defaults := &rightsizev1alpha1.RightSizeDefaults{
+				ObjectMeta: metav1.ObjectMeta{Name: "default"},
+				Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+					CPU: &rightsizev1alpha1.ResourceConfig{
+						StartupBoost: &rightsizev1alpha1.StartupBoost{
+							Multiplier: tc.multiplier,
+							Duration:   metav1.Duration{Duration: tc.duration},
+						},
+					},
+				},
+			}
+
+			_, err := v.ValidateCreate(context.Background(), defaults)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
+func TestDefaultsValidate_CooldownInvalid(t *testing.T) {
+	tests := []struct {
+		name     string
+		cooldown time.Duration
+		wantErr  string
+	}{
+		{"sub-minute cooldown", 30 * time.Second, "cooldown must be at least 1m"},
+		{"negative cooldown", -5 * time.Minute, "cooldown must be non-negative"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			v := &RightSizeDefaultsValidator{}
+			defaults := &rightsizev1alpha1.RightSizeDefaults{
+				ObjectMeta: metav1.ObjectMeta{Name: "default"},
+				Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+					UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{
+						Cooldown: &metav1.Duration{Duration: tc.cooldown},
+					},
+				},
+			}
+
+			_, err := v.ValidateCreate(context.Background(), defaults)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
+func TestDefaultsValidate_HistoryWindowInvalid(t *testing.T) {
+	tests := []struct {
+		name    string
+		window  time.Duration
+		wantErr string
+	}{
+		{"below minimum", 30 * time.Minute, "historyWindow must be at least 1h"},
+		{"above maximum", 1000 * time.Hour, "historyWindow must be at most 720h"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			v := &RightSizeDefaultsValidator{}
+			defaults := &rightsizev1alpha1.RightSizeDefaults{
+				ObjectMeta: metav1.ObjectMeta{Name: "default"},
+				Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+					MetricsSource: &rightsizev1alpha1.MetricsSource{
+						HistoryWindow: &metav1.Duration{Duration: tc.window},
+					},
+				},
+			}
+
+			_, err := v.ValidateCreate(context.Background(), defaults)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
 }
