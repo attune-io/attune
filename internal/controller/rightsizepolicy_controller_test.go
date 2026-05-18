@@ -6241,6 +6241,84 @@ func TestApplyStartupBoosts_ExpiresBoostAfterDuration(t *testing.T) {
 	assert.True(t, foundResize, "expected a resize action for boost expiry")
 }
 
+func TestApplyStartupBoosts_SkipsWhenExceedsNodeAllocatable(t *testing.T) {
+	scheme := testScheme()
+	now := time.Date(2026, 1, 1, 0, 0, 30, 0, time.UTC)
+	// Node with only 1 CPU allocatable.
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "node-1"},
+		Status: corev1.NodeStatus{
+			Allocatable: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("1"),
+				corev1.ResourceMemory: resource.MustParse("4Gi"),
+			},
+		},
+	}
+	// Pod consuming 500m, boost multiplier 3x = 1500m which exceeds node's 1 CPU.
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "my-app-1", Namespace: "default",
+			CreationTimestamp: metav1.NewTime(now.Add(-10 * time.Second)),
+		},
+		Spec: corev1.PodSpec{
+			NodeName: "node-1",
+			Containers: []corev1.Container{
+				{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("500m"),
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node, pod).Build()
+	clientset := kubefake.NewSimpleClientset(pod)
+	resizer := resize.NewPodResizer(clientset, ctrl.Log)
+
+	r := &RightSizePolicyReconciler{
+		Client:    fakeClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+	}
+	r.SetNowFunc(func() time.Time { return now })
+
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			CPU: rightsizev1alpha1.ResourceConfig{
+				StartupBoost: &rightsizev1alpha1.StartupBoost{
+					Multiplier: "3.0",
+					Duration:   metav1.Duration{Duration: 2 * time.Minute},
+				},
+			},
+		},
+	}
+	recs := []rightsizev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "my-app",
+			Kind:     "Deployment",
+			Containers: []rightsizev1alpha1.ContainerRecommendation{
+				{Name: "main", Recommended: rightsizev1alpha1.ResourceValues{CPURequest: resource.MustParse("500m")}},
+			},
+		},
+	}
+	podsByWorkload := map[string][]corev1.Pod{"my-app": {*pod}}
+
+	r.applyStartupBoosts(context.Background(), policy, podsByWorkload, recs, resizer)
+
+	// Verify no resize action was taken (boost would exceed node allocatable).
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			t.Fatal("expected no resize action when boost exceeds node allocatable")
+		}
+	}
+}
+
 func TestAdjustHPATargets_SkipsWithoutAnnotation(t *testing.T) {
 	scheme := testScheme()
 	oldTarget := int32(80)

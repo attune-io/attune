@@ -2030,6 +2030,31 @@ func (r *RightSizePolicyReconciler) applyStartupBoosts(
 					if c.Resources.Requests.Cpu().Cmp(boostedCPU) >= 0 {
 						continue // already at or above boosted level
 					}
+					// Safety check: verify the boosted target does not violate
+					// node allocatable, ResourceQuota, LimitRange, or QoS class.
+					boostRec := rightsizev1alpha1.ContainerRecommendation{
+						Name: c.Name,
+						Current: rightsizev1alpha1.ResourceValues{
+							CPURequest:    c.Resources.Requests.Cpu().DeepCopy(),
+							MemoryRequest: c.Resources.Requests.Memory().DeepCopy(),
+						},
+						Recommended: rightsizev1alpha1.ResourceValues{
+							CPURequest:    boostedCPU.DeepCopy(),
+							MemoryRequest: c.Resources.Requests.Memory().DeepCopy(),
+						},
+					}
+					boostTarget := corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    boostedCPU,
+							corev1.ResourceMemory: c.Resources.Requests.Memory().DeepCopy(),
+						},
+					}
+					if skip, reason := r.shouldSkipResize(ctx, policy, pod, boostRec, boostTarget); skip {
+						logger.Info("Skipping startup boost: "+reason,
+							"pod", pod.Name, "container", c.Name,
+							"boostedCPU", boostedCPU.String())
+						continue
+					}
 					refreshed, err := r.boostResizeAndRefetch(ctx, resizer, pod, c.Name, boostedCPU)
 					if err != nil {
 						logger.Error(err, "Failed to apply startup CPU boost", "pod", pod.Name, "container", c.Name)
