@@ -2079,9 +2079,10 @@ func (r *RightSizePolicyReconciler) applyStartupBoosts(
 // adjustHPATargets checks for HPAs with the auto-tune annotation and adjusts
 // boostResizeAndRefetch resizes a single container's CPU to targetCPU
 // (preserving the current memory request) and re-fetches the pod from the API
-// server. On resize failure it returns the error with a nil pod. On re-fetch
-// failure it returns the error with a nil pod (caller should break the
-// container loop). On success it returns the refreshed pod.
+// server. On resize failure it returns (original pod, err) so the caller can
+// continue to the next container. On re-fetch failure it returns (nil, err),
+// signaling the caller should break the container loop. On success it returns
+// the refreshed pod.
 func (r *RightSizePolicyReconciler) boostResizeAndRefetch(
 	ctx context.Context,
 	resizer *resize.PodResizer,
@@ -2095,7 +2096,10 @@ func (r *RightSizePolicyReconciler) boostResizeAndRefetch(
 	}
 	target := corev1.ResourceRequirements{Requests: reqs}
 	if _, err := resizer.ResizePod(ctx, pod, containerName, target); err != nil {
-		return nil, err
+		// Return the original pod (non-nil) so the caller knows this is a
+		// resize failure (continue to next container), not a re-fetch failure
+		// (break the loop). A nil pod signals an unrecoverable re-fetch error.
+		return pod, err
 	}
 	freshPod, err := r.Clientset.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
 	if err != nil {
