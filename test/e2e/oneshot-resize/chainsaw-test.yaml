@@ -145,6 +145,6 @@ spec:
         kind: Deployment
         namespace: e2e-oneshot-resize
     - podLogs:
-        namespace: e2e-oneshot-resize
-        selector: app=test-app
+        namespace: kube-rightsize-system
+        selector: app.kubernetes.io/name=kube-rightsize
 

@@ -119,6 +119,6 @@ spec:
         kind: Deployment
         namespace: e2e-recommend-mode
     - podLogs:
-        namespace: e2e-recommend-mode
-        selector: app=test-app
+        namespace: kube-rightsize-system
+        selector: app.kubernetes.io/name=kube-rightsize
 

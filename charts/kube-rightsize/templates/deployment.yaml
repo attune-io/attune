@@ -16,7 +16,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       labels:
-        {{- include "kube-rightsize.labels" . | nindent 8 }}
+        {{- include "kube-rightsize.selectorLabels" . | nindent 8 }}
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:

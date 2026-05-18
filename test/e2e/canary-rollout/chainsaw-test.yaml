@@ -149,6 +149,6 @@ spec:
         kind: Deployment
         namespace: e2e-canary-rollout
     - podLogs:
-        namespace: e2e-canary-rollout
-        selector: app=canary-app
+        namespace: kube-rightsize-system
+        selector: app.kubernetes.io/name=kube-rightsize
 
