@@ -81,6 +81,18 @@ to pod eviction after an in-place resize fails or is marked Infeasible.
 | `workload` | Workload name |
 | `result` | `success` or `denied` |
 
+### kube_rightsize_throttle_deferred_total
+
+Total number of throttle safety checks deferred because the Prometheus rate
+window grace period has not elapsed. Incremented when a pod's observation
+period is shorter than 5 minutes, meaning there is not yet enough data for
+a reliable throttle check.
+
+| Label | Description |
+|-------|-------------|
+| `namespace` | Workload namespace |
+| `workload` | Workload name |
+
 ### kube_rightsize_infeasible_skipped_total
 
 Total pods skipped because kubelet marked the in-place resize as
