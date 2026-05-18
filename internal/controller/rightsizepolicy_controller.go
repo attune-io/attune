@@ -1916,7 +1916,11 @@ func (r *RightSizePolicyReconciler) shouldSkipResize(
 		if node != nil && len(node.Status.Allocatable) > 0 {
 			totalCPU := int64(0)
 			totalMem := int64(0)
-			for _, c := range slices.Concat(pod.Spec.InitContainers, pod.Spec.Containers) {
+			// Only count containers that consume resources at runtime:
+			// native sidecars (restartPolicy=Always) + regular containers.
+			// Completed traditional init containers are not running.
+			running := append(nativeSidecars(pod.Spec.InitContainers), pod.Spec.Containers...)
+			for _, c := range running {
 				if c.Name == containerRec.Name {
 					totalCPU += target.Requests.Cpu().MilliValue()
 					totalMem += target.Requests.Memory().Value()
