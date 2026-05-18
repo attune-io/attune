@@ -21,6 +21,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
@@ -601,4 +602,53 @@ func TestSSRFSafeTransport_BlocksLoopback(t *testing.T) {
 	_, err = collector.Query(context.Background(), "up", time.Now())
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "SSRF blocked")
+}
+
+func TestClose_NilTransport(t *testing.T) {
+	c := &PrometheusCollector{logger: logr.Discard()}
+	assert.NoError(t, c.Close())
+}
+
+func TestClose_WithTransport(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(cannedInstantResponse()))
+	}))
+	defer server.Close()
+
+	collector, err := NewPrometheusCollector(server.URL, logr.Discard(), http.DefaultTransport)
+	require.NoError(t, err)
+
+	// Make a query to establish an idle connection.
+	_, _ = collector.Query(context.Background(), "up", time.Now())
+
+	assert.NoError(t, collector.Close())
+}
+
+func TestSameOrigin_BothNil(t *testing.T) {
+	assert.False(t, sameOrigin(nil, nil))
+}
+
+func TestSameOrigin_OneNil(t *testing.T) {
+	u, _ := url.Parse("http://example.com")
+	assert.False(t, sameOrigin(u, nil))
+	assert.False(t, sameOrigin(nil, u))
+}
+
+func TestSameOrigin_SameSchemeAndHost(t *testing.T) {
+	a, _ := url.Parse("http://example.com/path1")
+	b, _ := url.Parse("http://example.com/path2")
+	assert.True(t, sameOrigin(a, b))
+}
+
+func TestSameOrigin_DifferentScheme(t *testing.T) {
+	a, _ := url.Parse("http://example.com")
+	b, _ := url.Parse("https://example.com")
+	assert.False(t, sameOrigin(a, b))
+}
+
+func TestSameOrigin_DifferentHost(t *testing.T) {
+	a, _ := url.Parse("http://a.example.com")
+	b, _ := url.Parse("http://b.example.com")
+	assert.False(t, sameOrigin(a, b))
 }

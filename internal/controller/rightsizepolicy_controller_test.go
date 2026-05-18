@@ -7388,3 +7388,65 @@ func TestShouldSkipResize_QuotaHeadroomExceeded(t *testing.T) {
 	assert.Contains(t, reason, "quota/limitrange violation")
 	assert.Contains(t, reason, "would exceed ResourceQuota")
 }
+
+func TestFindContainerByName_RegularContainer(t *testing.T) {
+	pod := &corev1.Pod{
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{Name: "app"},
+				{Name: "sidecar"},
+			},
+		},
+	}
+	c := findContainerByName(pod, "sidecar")
+	require.NotNil(t, c)
+	assert.Equal(t, "sidecar", c.Name)
+}
+
+func TestFindContainerByName_InitContainer(t *testing.T) {
+	pod := &corev1.Pod{
+		Spec: corev1.PodSpec{
+			InitContainers: []corev1.Container{
+				{Name: "init-setup"},
+			},
+			Containers: []corev1.Container{
+				{Name: "app"},
+			},
+		},
+	}
+	c := findContainerByName(pod, "init-setup")
+	require.NotNil(t, c)
+	assert.Equal(t, "init-setup", c.Name)
+}
+
+func TestFindContainerByName_NotFound(t *testing.T) {
+	pod := &corev1.Pod{
+		Spec: corev1.PodSpec{
+			InitContainers: []corev1.Container{
+				{Name: "init-setup"},
+			},
+			Containers: []corev1.Container{
+				{Name: "app"},
+			},
+		},
+	}
+	assert.Nil(t, findContainerByName(pod, "missing"))
+}
+
+func TestFindContainerByName_InitShadowsRegular(t *testing.T) {
+	// If a name exists in both init and regular containers, init wins
+	// because it is searched first.
+	pod := &corev1.Pod{
+		Spec: corev1.PodSpec{
+			InitContainers: []corev1.Container{
+				{Name: "shared-name", Image: "init-image"},
+			},
+			Containers: []corev1.Container{
+				{Name: "shared-name", Image: "regular-image"},
+			},
+		},
+	}
+	c := findContainerByName(pod, "shared-name")
+	require.NotNil(t, c)
+	assert.Equal(t, "init-image", c.Image, "init container should be returned when names collide")
+}
