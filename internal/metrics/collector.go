@@ -355,8 +355,13 @@ func EscapePromQL(s string) string {
 // escaping. Used for values interpolated into =~ regex matchers to prevent
 // unintended pattern matching (e.g., "." matching any character).
 func EscapePromQLRegex(s string) string {
+	// Step 1: Escape regex metacharacters with a single backslash.
+	// This must happen BEFORE PromQL string escaping so the backslashes
+	// introduced here get doubled in step 2.
+	//
+	// Order matters: escape existing backslashes first to avoid re-escaping
+	// the backslashes we introduce for other metacharacters.
 	s = strings.ReplaceAll(s, `\`, `\\`)
-	s = strings.ReplaceAll(s, `"`, `\"`)
 	s = strings.ReplaceAll(s, `.`, `\.`)
 	s = strings.ReplaceAll(s, `+`, `\+`)
 	s = strings.ReplaceAll(s, `*`, `\*`)
@@ -370,5 +375,12 @@ func EscapePromQLRegex(s string) string {
 	s = strings.ReplaceAll(s, `|`, `\|`)
 	s = strings.ReplaceAll(s, `^`, `\^`)
 	s = strings.ReplaceAll(s, `$`, `\$`)
+
+	// Step 2: PromQL string escaping. Double all backslashes and escape
+	// quotes so the result is valid inside a PromQL "..." string literal.
+	// PromQL uses Go-style string escaping where only \\, \", \n, \t etc.
+	// are recognized; bare \. or \+ would cause a parse error.
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
 	return s
 }

@@ -390,12 +390,12 @@ func TestEscapePromQLRegex(t *testing.T) {
 		expected string
 	}{
 		{"simple", "simple"},
-		{`with.dot`, `with\.dot`},
-		{`a+b*c?d`, `a\+b\*c\?d`},
-		{`(group)[class]{brace}`, `\(group\)\[class\]\{brace\}`},
-		{`pipe|or`, `pipe\|or`},
-		{`^start$end`, `\^start\$end`},
-		{`quote"and\backslash`, `quote\"and\\backslash`},
+		{`with.dot`, `with\\.dot`},
+		{`a+b*c?d`, `a\\+b\\*c\\?d`},
+		{`(group)[class]{brace}`, `\\(group\\)\\[class\\]\\{brace\\}`},
+		{`pipe|or`, `pipe\\|or`},
+		{`^start$end`, `\\^start\\$end`},
+		{`quote"and\backslash`, `quote\"and\\\\backslash`},
 		{"", ""},
 	}
 	for _, tt := range tests {

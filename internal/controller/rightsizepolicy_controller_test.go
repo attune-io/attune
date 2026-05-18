@@ -4273,8 +4273,10 @@ func TestBuildPrometheusQuery_EscapesSpecialChars(t *testing.T) {
 
 func TestBuildPrometheusQuery_EscapesRegexInPodPrefix(t *testing.T) {
 	query := buildPrometheusQuery("default", "my.app", "main", "cpu")
-	// The dot in "my.app" should be escaped as "my\.app" in the regex matcher.
-	assert.Contains(t, query, `my\.app`)
+	// The dot in "my.app" is regex-escaped then PromQL-string-escaped:
+	// "." → "\." (regex) → "\\." (PromQL string). PromQL parser reverses
+	// the string escaping back to "\." which RE2 treats as a literal dot.
+	assert.Contains(t, query, `my\\.app`)
 	assert.NotContains(t, query, `my.app.*`)
 }
 
