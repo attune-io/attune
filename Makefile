@@ -319,6 +319,11 @@ build-installer: manifests kustomize ## Generate install manifest for release
 	cd config/manager && $(KUSTOMIZE) edit set image controller=$(IMG)
 	$(KUSTOMIZE) build config/default > dist/install.yaml
 
+.PHONY: build-crds
+build-crds: manifests ## Generate standalone CRDs bundle for manual upgrades
+	mkdir -p dist
+	cat charts/kube-rightsize/crds/*.yaml > dist/crds.yaml
+
 ##@ Tools
 
 # Version-aware tool installs: embed version in binary filename so a version
