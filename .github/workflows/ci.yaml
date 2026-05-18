@@ -61,7 +61,6 @@ jobs:
               - 'go.mod'
               - 'go.sum'
               - 'Makefile'
-              - '.github/workflows/ci.yaml'
             helm:
               - 'charts/**'
             yaml:
@@ -330,9 +329,9 @@ jobs:
           retention-days: 7
 
   # Single-version E2E on every push/PR. Full K8s version matrix runs nightly.
-  # Skipped for Dockerfile-only changes (e.g. Dependabot base-image bumps)
-  # because build + unit tests already verify the new image compiles. The
-  # nightly E2E matrix (e2e-nightly.yaml) catches any runtime regressions.
+  # Skipped for Dockerfile-only and workflow-only changes (e.g. Dependabot
+  # base-image or action version bumps) because build + unit tests already
+  # verify compilation. The nightly E2E matrix catches runtime regressions.
   test-e2e:
     name: E2E Tests
     runs-on: self-hosted
