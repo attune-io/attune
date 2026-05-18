@@ -113,7 +113,7 @@ kubectl rightsize recommendations -n production
 
 ### Watch for degradation
 
-The operator sets a `Degraded` condition when the revert rate exceeds 50%.
+The operator sets a `Degraded` condition when 3 or more of the last 5 resizes are reverted.
 Monitor this with:
 
 ```bash

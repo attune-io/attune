@@ -341,6 +341,29 @@ schedule:
 Valid values: `Monday`, `Tuesday`, `Wednesday`, `Thursday`, `Friday`,
 `Saturday`, `Sunday`.
 
+## Deleting a policy
+
+When you delete a `RightSizePolicy`, the operator uses a
+`rightsize.io/cleanup` finalizer to clean up before the resource is
+garbage-collected:
+
+1. **Annotations removed**: all tracking annotations (`rightsize.io/resized-at`,
+   `rightsize.io/policy`, etc.) and the `rightsize.io/tracked` label are
+   removed from pods managed by that policy.
+2. **Resources retained**: pods keep their current (resized) CPU and memory
+   values. The operator does not revert resources to pre-resize values.
+3. **Gauges cleaned**: Prometheus gauge metrics for the policy are removed.
+4. **Finalizer removed**: only after cleanup succeeds. If a pod update
+   fails, the finalizer remains and the controller retries on the next
+   reconcile cycle.
+
+If the policy appears stuck in `Terminating`, check the operator logs for
+pod update errors during cleanup:
+
+```bash
+kubectl logs -n kube-rightsize-system deploy/kube-rightsize-controller-manager | grep "deletion cleanup"
+```
+
 ## Known limitations
 
 ### Maximum Prometheus addresses

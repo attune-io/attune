@@ -66,9 +66,16 @@ observation and revert tracking:
 | `rightsize.io/original-cpu-request.<container>` | CPU request before the resize (per container) |
 | `rightsize.io/original-memory-request.<container>` | Memory request before the resize (per container) |
 | `rightsize.io/original-restart-count.<container>` | Container restart count at resize time (per container) |
+| `rightsize.io/original-cpu-limit.<container>` | CPU limit before the resize (when limit is non-zero) |
+| `rightsize.io/original-memory-limit.<container>` | Memory limit before the resize (when limit is non-zero) |
+| `rightsize.io/policy` | Name of the RightSizePolicy managing this pod (used for finalizer cleanup) |
+| `rightsize.io/startup-boost-at` | RFC 3339 timestamp when a startup CPU boost was applied |
 
 These annotations are removed once the safety observation period completes
-(regardless of whether the resize is kept or reverted).
+(regardless of whether the resize is kept or reverted). When a policy is
+deleted, the `rightsize.io/cleanup` finalizer removes all tracking
+annotations from managed pods before allowing garbage collection. Pods
+keep their current (resized) resource values; only annotations are cleaned.
 
 When multiple containers in the same pod are resized in the same cycle,
 each container gets its own set of per-container annotations (e.g.,

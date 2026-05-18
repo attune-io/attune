@@ -147,7 +147,7 @@ The Prometheus address is resolved in order:
 5. Auto-discovery: well-known service names (`prometheus-server`,
    `prometheus-kube-prometheus-prometheus`) in common namespaces
 
-If all four fail, the policy enters `PrometheusUnavailable` status.
+If all five fail, the policy enters `PrometheusUnavailable` status.
 
 ## Conflict detection
 

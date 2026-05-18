@@ -51,6 +51,8 @@ controller-runtime v0.24.1, Kubebuilder v4, K8s API v0.36.1.
 - `internal/conflict/` - HPA conflict detection
 - `internal/webhook/` - Admission webhooks (defaulting + validation)
 - `internal/operatormetrics/` - Operator-level Prometheus metrics (init-registered)
+- `internal/validation/` - Shared validation (Prometheus address SSRF checks)
+- `internal/throttle/` - Shared throttle checker interface (breaks import cycle)
 - `config/` - Kustomize manifests (CRDs, RBAC, manager deployment)
 - `charts/kube-rightsize/` - Helm chart with cert-manager webhook support
 - `test/integration/` - envtest-based integration tests

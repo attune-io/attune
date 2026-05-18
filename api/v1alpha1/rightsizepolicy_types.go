@@ -237,7 +237,7 @@ type StartupBoost struct {
 	// Duration is the maximum time the boost remains active after pod
 	// creation or container restart. The boost is removed when the
 	// container reaches Ready or this duration expires, whichever comes first.
-	// Must be >= 10s.
+	// Must be >= 10s and <= 1h.
 	// +kubebuilder:validation:Required
 	Duration metav1.Duration `json:"duration"`
 }

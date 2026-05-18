@@ -59,7 +59,7 @@ spec:
     burstSensitivity: "0.1"   # burst boost multiplier (0 = disabled, max 1.0)
     startupBoost:              # optional: temporary CPU boost for cold starts
       multiplier: "3.0"        # scale factor for startup CPU (1.1-10.0)
-      duration: 2m             # boost window after pod creation (>= 10s)
+      duration: 2m             # boost window after pod creation (10s-1h)
     bounds:                    # optional: min/max clamps
       min: "50m"
       max: "4000m"
