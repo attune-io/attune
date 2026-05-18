@@ -4202,6 +4202,90 @@ func TestCheckPendingSafetyObservations_ThrottleDeferredKeepsAnnotations(t *test
 	assert.True(t, has, "annotations should be KEPT because throttle check was deferred")
 }
 
+func TestCheckPendingSafetyObservations_ThrottleDeferredLifecycle(t *testing.T) {
+	// Full lifecycle: observation period (1 min) < throttle grace (5 min).
+	// Pass 1 (T=2min): throttle deferred, annotations kept.
+	// Pass 2 (T=6min): throttle grace elapsed, high throttle detected, pod reverted.
+	resizeTime := time.Now().Add(-6 * time.Minute) // set to 6min ago for clock injection
+	resizedAt := resizeTime.UTC().Format(time.RFC3339)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "lifecycle-pod",
+			Namespace: "default",
+			Labels:    map[string]string{"rightsize.io/tracked": "true"},
+			Annotations: map[string]string{
+				"rightsize.io/resized-at":                   resizedAt,
+				"rightsize.io/resized-workload":             "api-server",
+				"rightsize.io/resized-containers":           "main",
+				"rightsize.io/original-cpu-request.main":    "500m",
+				"rightsize.io/original-memory-request.main": "512Mi",
+				"rightsize.io/policy":                       "test-policy",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  "main",
+					Image: "nginx",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("250m"),
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "main", RestartCount: 0},
+			},
+		},
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Canary = &rightsizev1alpha1.CanaryConfig{
+		Percentage:        33,
+		ObservationPeriod: metav1.Duration{Duration: 1 * time.Minute},
+	}
+
+	reconciler, fakeClient := newSafetyTestReconciler(pod)
+	collector := &mockThrottleCollector{throttleRatio: 0.9} // very high throttle
+
+	// Pass 1: Set clock to 2 minutes after resize (within throttle grace).
+	reconciler.SetNowFunc(func() time.Time { return resizeTime.Add(2 * time.Minute) })
+
+	pending := reconciler.checkPendingSafetyObservations(context.Background(), policy, collector, safetyWorkloads())
+	assert.True(t, pending, "pass 1: should report observations pending (throttle deferred)")
+
+	var pass1Pod corev1.Pod
+	err := fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "lifecycle-pod", Namespace: "default",
+	}, &pass1Pod)
+	require.NoError(t, err)
+	_, has := pass1Pod.Annotations["rightsize.io/resized-at"]
+	assert.True(t, has, "pass 1: annotations should be kept")
+
+	// Pass 2: Advance clock to 6 minutes after resize (past throttle grace).
+	reconciler.SetNowFunc(func() time.Time { return resizeTime.Add(6 * time.Minute) })
+
+	pending = reconciler.checkPendingSafetyObservations(context.Background(), policy, collector, safetyWorkloads())
+	assert.False(t, pending, "pass 2: should not report pending (throttle check completed)")
+
+	// Verify the pod was reverted (UpdateResize called with original resources).
+	var foundResize bool
+	for _, a := range reconciler.Clientset.(*kubefake.Clientset).Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			foundResize = true
+		}
+	}
+	assert.True(t, foundResize, "pass 2: pod should be reverted due to high throttle")
+}
+
 func TestCheckPendingSafetyObservations_NilClientset(t *testing.T) {
 	reconciler := &RightSizePolicyReconciler{}
 	policy := newTestPolicy("test-policy", "default")
