@@ -13,8 +13,8 @@ kubectl get rsp <name> -o jsonpath='{.status.conditions}' | jq .
 **Symptom**: Ready condition is `False` with reason `PrometheusUnavailable`.
 
 **Cause**: No Prometheus address could be resolved. The operator checks
-(in order): policy spec, RightSizeDefaults, Prometheus Operator CRD,
-well-known service names. All four failed.
+(in order): policy spec, RightSizeNamespaceDefaults, RightSizeDefaults,
+Prometheus Operator CRD, well-known service names. All five failed.
 
 If the condition message includes `Cannot resolve Prometheus config: SSRF blocked`,
 the configured address points at `localhost`, `127.0.0.1`, `::1`, or a
