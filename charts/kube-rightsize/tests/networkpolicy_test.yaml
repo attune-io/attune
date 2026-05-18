@@ -96,7 +96,7 @@ tests:
               - port: 9090
                 protocol: TCP
 
-  - it: should render empty ingress list when metrics and webhooks are disabled
+  - it: should always allow health probe ingress on port 8081
     set:
       networkPolicy:
         enabled: true
@@ -105,6 +105,9 @@ tests:
       webhooks:
         enabled: false
     asserts:
-      - equal:
+      - contains:
           path: spec.ingress
-          value: []
+          content:
+            ports:
+              - port: 8081
+                protocol: TCP

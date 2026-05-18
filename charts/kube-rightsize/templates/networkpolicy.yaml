@@ -13,8 +13,11 @@ spec:
   policyTypes:
     - Ingress
     - Egress
-  {{- if or .Values.webhooks.enabled .Values.metrics.enabled }}
   ingress:
+    # Health probes (liveness/readiness on port 8081, required by kubelet)
+    - ports:
+        - port: 8081
+          protocol: TCP
     {{- if .Values.webhooks.enabled }}
     # Webhook server port
     - ports:
@@ -27,10 +30,6 @@ spec:
         - port: {{ .Values.metrics.port }}
           protocol: TCP
     {{- end }}
-  {{- else }}
-  # Deny all ingress when webhook and metrics endpoints are disabled
-  ingress: []
-  {{- end }}
   egress:
     # Kubernetes API server
     - ports:
