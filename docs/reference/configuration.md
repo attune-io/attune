@@ -85,6 +85,7 @@ This page documents every value in the Helm chart's `values.yaml`.
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `networkPolicy.enabled` | bool | `true` | Enable a NetworkPolicy restricting operator pod traffic to DNS, K8s API, Prometheus, and metrics/health/webhook ports. |
+| `networkPolicy.prometheusPort` | int | `9090` | TCP port allowed for egress to Prometheus backend pods. Must match the Prometheus pod port, not the Service port. |
 
 ## Collector Cache
 

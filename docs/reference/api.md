@@ -28,7 +28,7 @@ metadata:
 spec:
   # Target workload(s) to right-size.
   targetRef:
-    kind: Deployment            # Deployment | StatefulSet | DaemonSet
+    kind: Deployment            # Deployment | StatefulSet | DaemonSet | CronJob | Job
     name: my-app                # optional: target a specific workload
     selector:                   # optional: target by label selector
       matchLabels:
@@ -139,10 +139,10 @@ spec:
 | `resizeHistory[].timestamp` | `Time` | When the resize occurred |
 | `resizeHistory[].workload` | `string` | Resized workload name |
 | `resizeHistory[].container` | `string` | Resized container name |
-| `resizeHistory[].resource` | `string` | `cpu` or `memory` |
+| `resizeHistory[].resource` | `string` | `cpu`, `memory`, or `cpu+memory` |
 | `resizeHistory[].from` | `string` | Previous value |
 | `resizeHistory[].to` | `string` | New value |
-| `resizeHistory[].method` | `string` | `InPlace` |
+| `resizeHistory[].method` | `string` | `InPlace` or `Eviction` |
 | `resizeHistory[].result` | `string` | `Success`, `Failed`, or `Reverted` |
 
 `ResourceRecommendationExplanation` contains the intermediate fields emitted by
