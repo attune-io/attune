@@ -102,6 +102,12 @@ This page documents every value in the Helm chart's `values.yaml`.
 |-----|------|---------|-------------|
 | `collectorTTL` | string | `"10m"` | How long unused Prometheus collectors stay cached before eviction. Maps to the `--collector-ttl` manager flag. Increase if policies frequently rotate Prometheus addresses; decrease in memory-constrained environments. |
 
+## Reconcile Concurrency
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `maxConcurrentReconciles` | int/string | `""` (1) | Maximum number of RightSizePolicy reconciles running in parallel. Maps to the `--max-concurrent-reconciles` manager flag. The default (1) processes policies sequentially. Increase for clusters with many policies to reduce reconcile queue latency. Auto-set by `clusterSize` preset (small=1, medium=2, large=4, xlarge=8). The Prometheus rate limiter (`prometheusQPS`) is shared across all goroutines, so concurrent reconciles won't overwhelm Prometheus. |
+
 ## Logging
 
 | Key | Type | Default | Description |

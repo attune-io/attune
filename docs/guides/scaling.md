@@ -41,6 +41,7 @@ value always overrides the preset.
 | `resources.limits.memory` | 256Mi | 512Mi | 2Gi | 4Gi |
 | `prometheusQPS` | 10 | 20 | 40 | 80 |
 | `prometheusBurst` | 20 | 40 | 80 | 160 |
+| `maxConcurrentReconciles` | 1 | 2 | 4 | 8 |
 | `replicaCount` | 1 | 1 | 2 | 2 |
 
 The "workloads" count means the number of Deployments, StatefulSets, and
@@ -83,20 +84,31 @@ internally).
 
 ### What breaks first
 
-1. **Prometheus query rate** (most common). Symptom: reconcile queue grows,
-   `kube_rightsize_reconcile_duration_seconds` P99 increases. Fix: increase
-   `prometheusQPS` and `prometheusBurst`.
+1. **Reconcile throughput** (most common at scale). By default the controller
+   processes one RightSizePolicy at a time. With hundreds of policies, the
+   work queue grows and recommendations become stale. Symptom:
+   `workqueue_depth` is consistently > 0,
+   `workqueue_longest_running_processor_seconds` climbs. Fix: increase
+   `maxConcurrentReconciles` (or set a `clusterSize` preset). The Prometheus
+   rate limiter is shared across all goroutines, so concurrent reconciles
+   won't overwhelm Prometheus.
 
-2. **Operator memory**. Symptom: OOMKilled pods. Fix: increase
+2. **Prometheus query rate**. Symptom: reconcile queue grows,
+   `kube_rightsize_reconcile_duration_seconds` P99 increases. Fix: increase
+   `prometheusQPS` and `prometheusBurst`. This works in tandem with
+   `maxConcurrentReconciles`: more goroutines can issue queries in parallel,
+   but they share the same QPS budget.
+
+3. **Operator memory**. Symptom: OOMKilled pods. Fix: increase
    `resources.limits.memory`. Memory usage is roughly proportional to the
    total number of pods across all targeted workloads.
 
-3. **Prometheus server load**. Symptom: slow or timed-out Prometheus
+4. **Prometheus server load**. Symptom: slow or timed-out Prometheus
    queries, high memory on Prometheus itself. Fix: reduce `historyWindow`
    and increase `queryStep` on the CRDs. Consider Prometheus recording
    rules or Thanos query federation.
 
-4. **API server pressure**. Symptom: throttled API requests, slow pod list
+5. **API server pressure**. Symptom: throttled API requests, slow pod list
    responses. Fix: this is rarely the bottleneck since the operator uses
    informer caches. If you see it, check that your API server is
    appropriately sized.
