@@ -44,10 +44,10 @@ spec:
                             restartPolicy: NotRequired
                         resources:
                           requests:
-                            cpu: 2000m
+                            cpu: 500m
                             memory: 256Mi
                           limits:
-                            cpu: 4000m
+                            cpu: 1000m
                             memory: 512Mi
         - apply:
             resource:
