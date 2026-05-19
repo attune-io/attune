@@ -309,6 +309,7 @@ func TestPrintHistory(t *testing.T) {
 						"resource":  "cpu",
 						"from":      "500m",
 						"to":        "250m",
+						"method":    "InPlace",
 						"result":    "Success",
 					},
 					map[string]interface{}{
@@ -318,6 +319,7 @@ func TestPrintHistory(t *testing.T) {
 						"resource":  "memory",
 						"from":      "512Mi",
 						"to":        "384Mi",
+						"method":    "InPlace",
 						"result":    "Reverted",
 					},
 					map[string]interface{}{
@@ -325,6 +327,7 @@ func TestPrintHistory(t *testing.T) {
 						"workload":  "my-deploy",
 						"container": "app",
 						"resource":  "cpu+memory",
+						"method":    "Eviction",
 						"result":    "Evicted",
 					},
 				},
@@ -360,6 +363,8 @@ func TestPrintHistory(t *testing.T) {
 	assert.Contains(t, output, "my-deploy")
 	assert.Contains(t, output, "500m")
 	assert.Contains(t, output, "250m")
+	assert.Contains(t, output, "InPlace")
+	assert.Contains(t, output, "Eviction")
 	assert.Contains(t, output, "Success")
 	assert.Contains(t, output, "Reverted")
 	assert.Contains(t, output, "Evicted")

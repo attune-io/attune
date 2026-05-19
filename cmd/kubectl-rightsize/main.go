@@ -605,7 +605,7 @@ func printHistory(ctx context.Context, dynClient dynamic.Interface, namespace st
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 3, ' ', 0)
-	fmt.Fprintln(w, "NAMESPACE\tPOLICY\tTIMESTAMP\tWORKLOAD\tCONTAINER\tRESOURCE\tFROM\tTO\tRESULT")
+	fmt.Fprintln(w, "NAMESPACE\tPOLICY\tTIMESTAMP\tWORKLOAD\tCONTAINER\tRESOURCE\tFROM\tTO\tMETHOD\tRESULT")
 
 	var hasEntries bool
 	for _, item := range list.Items {
@@ -627,6 +627,7 @@ func printHistory(ctx context.Context, dynClient dynamic.Interface, namespace st
 			resource, _ := entry["resource"].(string)
 			from, _ := entry["from"].(string)
 			to, _ := entry["to"].(string)
+			method, _ := entry["method"].(string)
 			result, _ := entry["result"].(string)
 
 			if t, parseErr := time.Parse(time.RFC3339, ts); parseErr == nil {
@@ -634,8 +635,8 @@ func printHistory(ctx context.Context, dynClient dynamic.Interface, namespace st
 			}
 
 			hasEntries = true
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-				ns, policyName, ts, workload, container, resource, from, to, result)
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				ns, policyName, ts, workload, container, resource, from, to, method, result)
 		}
 	}
 

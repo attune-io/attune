@@ -90,6 +90,7 @@ kubectl rightsize history -n production
 | RESOURCE | `cpu`, `memory`, or `cpu+memory` |
 | FROM | Previous resource value |
 | TO | New resource value |
+| METHOD | `InPlace` or `Eviction` |
 | RESULT | `Success`, `Failed`, `Reverted`, or `Evicted` |
 
 ### version
