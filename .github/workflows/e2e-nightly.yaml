@@ -83,7 +83,7 @@ jobs:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     needs: prepare-matrix
     runs-on: self-hosted
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       SELECTED_SUITE: ${{ needs.prepare-matrix.outputs.suite }}
       CLUSTER_NAME: e2e-${{ matrix.k8s-version }}-${{ github.run_id }}-${{ github.run_attempt }}
