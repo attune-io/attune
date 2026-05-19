@@ -20,6 +20,7 @@ Thumbs.db
 
 # Test
 coverage.out
+cover.out
 test-results/
 *.test
 site/

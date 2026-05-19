@@ -24,6 +24,6 @@ feature: [Report a vulnerability](https://github.com/SebTardifLabs/kube-rightsiz
   using keyless signing (Sigstore OIDC)
 - SBOMs are generated for every release (SPDX format)
 - Dependencies are scanned weekly with Trivy and govulncheck
-- CodeQL analysis runs on every PR and weekly
+- Static analysis via golangci-lint (50+ linters) runs on every push
 - The operator runs as non-root with a read-only root filesystem
 - RBAC permissions follow least-privilege principles

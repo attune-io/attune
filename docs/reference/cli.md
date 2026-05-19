@@ -136,3 +136,8 @@ typically set via the Helm chart `values.yaml` rather than directly.
 | `--zap-encoder` | `json` | Log format: `json` (default) or `console` (human-readable) |
 | `--zap-stacktrace-level` | `error` | Minimum level for automatic stacktrace capture |
 | `--zap-devel` | `false` | Enable development mode (console encoder, debug level, stacktrace on warn) |
+| `--prometheus-qps` | `10` | Maximum Prometheus queries per second across all policies |
+| `--prometheus-burst` | `20` | Maximum burst of Prometheus queries above the QPS limit |
+| `--prometheus-timeout` | `5m` | Maximum time for all Prometheus queries in a single reconciliation |
+| `--max-concurrent-reconciles` | `1` | Number of policies reconciled concurrently |
+| `--watch-namespaces` | (all) | Comma-separated list of namespaces to watch (empty = all namespaces) |

@@ -251,7 +251,7 @@ undeploy: ## Undeploy operator from the cluster
 
 # k3d settings (lightweight, fast startup)
 K3D_CLUSTER_NAME ?= kube-rightsize
-K3S_VERSION ?= v1.33.11-k3s1
+K3S_VERSION ?= v1.35.4-k3s1
 
 # Kind settings (upstream K8s, production-accurate)
 KIND_CLUSTER_NAME ?= kube-rightsize

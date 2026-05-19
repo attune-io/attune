@@ -23,7 +23,7 @@ set -euo pipefail
 
 # ── Configuration ────────────────────────────────────────────────────────────
 CLUSTER_NAME="kube-rightsize-demo"
-K3S_VERSION="v1.33.11-k3s1"
+K3S_VERSION="v1.35.4-k3s1"
 IMG="kube-rightsize:demo"
 SKIP_CLUSTER="${SKIP_CLUSTER:-false}"
 NO_CLEANUP="${NO_CLEANUP:-false}"
