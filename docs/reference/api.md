@@ -136,6 +136,9 @@ spec:
 | `savings.memoryRequestReduction` | `string` | Total memory request reduction (e.g. "2Gi") |
 | `savings.memoryRequestTotal` | `string` | Total current memory requests across all workloads (e.g. "2Gi") |
 | `savings.estimatedMonthlySavings` | `string` | Estimated monthly cost savings |
+| `savings.cpuRequestIncrease` | `string` | Total CPU increase for under-provisioned workloads (e.g. "500m") |
+| `savings.memoryRequestIncrease` | `string` | Total memory increase for under-provisioned workloads (e.g. "512Mi") |
+| `savings.estimatedMonthlyCostIncrease` | `string` | Estimated monthly cost increase for under-provisioned workloads |
 | `resizeHistory[].timestamp` | `Time` | When the resize occurred |
 | `resizeHistory[].workload` | `string` | Resized workload name |
 | `resizeHistory[].container` | `string` | Resized container name |
@@ -171,6 +174,25 @@ NAME     MODE        WORKLOADS   RECS   RESIZED   READY   AGE
 ```
 
 Pass `-o wide` to include `CPU Saved` and `Mem Saved` columns.
+
+### Kubernetes Events
+
+The operator emits Kubernetes events on the `RightSizePolicy` object.
+View them with `kubectl describe rightsizepolicy <name>` or
+`kubectl get events --field-selector involvedObject.kind=RightSizePolicy`.
+
+| Event Reason | Type | Description |
+|---|---|---|
+| `RecommendationsReady` | Normal | First recommendations became available (transitions from 0 to >0 workloads with data) |
+| `Resized` | Normal | A container was successfully resized in-place |
+| `DecreaseSuppressed` | Normal | A CPU or memory decrease was blocked by `allowDecrease=false` |
+| `ScheduleSkipped` | Normal | Resize was skipped because the current time is outside the configured schedule window |
+| `ResizeFailed` | Warning | An in-place resize API call failed |
+| `BudgetExhausted` | Warning | The per-reconcile resize budget was exhausted before all workloads could be resized |
+| `InfeasibleBlocked` | Warning | A resize was blocked because it would exceed node capacity |
+| `ResizeSkipped` | Warning | A resize was skipped (e.g. pod in bad state, rolling out) |
+| `Reverted` | Warning | A resize was reverted due to safety observation failure (OOMKill, CPU throttle, restarts) |
+| `Evicted` | Warning | A pod was evicted as a fallback when in-place resize was not possible |
 
 ---
 

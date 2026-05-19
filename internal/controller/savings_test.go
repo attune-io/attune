@@ -173,6 +173,11 @@ func TestComputeSavings_NoReduction(t *testing.T) {
 	// Recommended >= current for both resources: no savings.
 	assert.Empty(t, savings.CPURequestReduction)
 	assert.Empty(t, savings.MemoryRequestReduction)
+
+	// All containers are under-provisioned: increase fields should be set.
+	assert.Equal(t, "100m", savings.CPURequestIncrease)
+	assert.Equal(t, "256Mi", savings.MemoryRequestIncrease)
+	assert.NotEmpty(t, savings.EstimatedMonthlyCostIncrease)
 }
 
 func TestComputeSavings_Mixed(t *testing.T) {

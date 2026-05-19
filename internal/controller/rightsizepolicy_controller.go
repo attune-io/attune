@@ -1053,9 +1053,11 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 			cpuAllowDecrease := policy.Spec.CPU.AllowDecrease != nil && *policy.Spec.CPU.AllowDecrease
 			if !cpuAllowDecrease && cpuRec.Cmp(currentCPUReq) < 0 {
 				if r.Recorder != nil {
+					// Use a deterministic message (no fluctuating recommendation value)
+					// so K8s event deduplication merges repeated occurrences into count++.
 					r.Recorder.Eventf(policy, nil, corev1.EventTypeNormal, "DecreaseSuppressed", "recommend",
-						"CPU decrease from %s to %s blocked by allowDecrease=false for container %s",
-						currentCPUReq.String(), cpuRec.String(), containerName)
+						"CPU decrease blocked by allowDecrease=false for container %s (current: %s)",
+						containerName, currentCPUReq.String())
 				}
 				cpuRec = currentCPUReq.DeepCopy()
 				cpuExplain.Final = cpuRec.DeepCopy()
@@ -1073,8 +1075,8 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 			if !allowDecrease && memRec.Cmp(currentMemReq) < 0 {
 				if r.Recorder != nil {
 					r.Recorder.Eventf(policy, nil, corev1.EventTypeNormal, "DecreaseSuppressed", "recommend",
-						"Memory decrease from %s to %s blocked by allowDecrease=false for container %s",
-						currentMemReq.String(), memRec.String(), containerName)
+						"Memory decrease blocked by allowDecrease=false for container %s (current: %s)",
+						containerName, currentMemReq.String())
 				}
 				memRec = currentMemReq.DeepCopy()
 				memExplain.Final = memRec.DeepCopy()
