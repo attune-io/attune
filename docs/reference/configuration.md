@@ -262,7 +262,7 @@ All fields from `RightSizeDefaults` are available in
 | `metricsSource` | `prometheus.address`, `prometheus.headers`, `prometheus.queryParameters`, `prometheus.bearerTokenSecret`, `prometheus.tls`, `historyWindow`, `minimumDataPoints`, `queryStep` |
 | `cpu` | `percentile`, `safetyMargin`, `bounds`, `controlledValues`, `burstSensitivity`, `allowDecrease`, `startupBoost` |
 | `memory` | Same as `cpu` |
-| `updateStrategy` | `mode`, `cooldown`, `autoRevert`, `resizeMethod`, `maxCpuChangePercent`, `maxMemoryChangePercent`, `maxConcurrentResizes`, `maxTotalCpuIncrease`, `maxTotalMemoryIncrease`, `schedule`, `export` |
+| `updateStrategy` | `mode`, `cooldown`, `autoRevert`, `resizeMethod`, `maxCpuChangePercent`, `maxMemoryChangePercent`, `maxConcurrentResizes`, `maxTotalCpuIncrease`, `maxTotalMemoryIncrease`, `schedule`, `export`, `canary` |
 | `costPricing` | `cpuPerCoreHour`, `memoryPerGiBHour` |
 
 ## Status Conditions
