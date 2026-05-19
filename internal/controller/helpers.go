@@ -221,21 +221,23 @@ func (r *RightSizePolicyReconciler) computeSavings(namespace string, recommendat
 	}
 	if totalCPUSaved > 0 {
 		savings.CPURequestReduction = resource.NewMilliQuantity(totalCPUSaved, resource.DecimalSI).String()
-		operatormetrics.SavingsCPU.WithLabelValues(namespace).Set(float64(totalCPUSaved) / 1000.0)
 	}
 	if totalMemSaved > 0 {
 		savings.MemoryRequestReduction = resource.NewQuantity(totalMemSaved, resource.BinarySI).String()
-		operatormetrics.SavingsMemory.WithLabelValues(namespace).Set(float64(totalMemSaved))
 	}
 
-	// Compute estimated monthly cost savings.
-	if totalCPUSaved > 0 || totalMemSaved > 0 {
-		cpuPrice, memPrice := getCostPricing(defaults)
-		cpuCoresSaved := float64(totalCPUSaved) / 1000.0
-		memGiBSaved := float64(totalMemSaved) / (1024 * 1024 * 1024)
-		monthlySavings := (cpuCoresSaved*cpuPrice + memGiBSaved*memPrice) * hoursPerMonth
+	// Always update gauges so they reset to zero when savings disappear.
+	// Without this, stale values persist until the policy is deleted.
+	cpuCoresSaved := float64(totalCPUSaved) / 1000.0
+	memGiBSaved := float64(totalMemSaved) / (1024 * 1024 * 1024)
+	operatormetrics.SavingsCPU.WithLabelValues(namespace).Set(cpuCoresSaved)
+	operatormetrics.SavingsMemory.WithLabelValues(namespace).Set(float64(totalMemSaved))
+
+	cpuPrice, memPrice := getCostPricing(defaults)
+	monthlySavings := (cpuCoresSaved*cpuPrice + memGiBSaved*memPrice) * hoursPerMonth
+	operatormetrics.SavingsEstimatedMonthly.WithLabelValues(namespace).Set(monthlySavings)
+	if monthlySavings > 0 {
 		savings.EstimatedMonthlySavings = fmt.Sprintf("$%.2f", monthlySavings)
-		operatormetrics.SavingsEstimatedMonthly.WithLabelValues(namespace).Set(monthlySavings)
 	}
 
 	return savings

@@ -1192,7 +1192,7 @@ func (r *RightSizePolicyReconciler) discoverPrometheus(ctx context.Context) stri
 	const promDiscoveryCacheTTL = 5 * time.Minute
 
 	r.discoveredPromMu.Lock()
-	if r.discoveredPromAddr != "" && r.now().Sub(r.discoveredPromTime) < promDiscoveryCacheTTL {
+	if !r.discoveredPromTime.IsZero() && r.now().Sub(r.discoveredPromTime) < promDiscoveryCacheTTL {
 		addr := r.discoveredPromAddr
 		r.discoveredPromMu.Unlock()
 		return addr
@@ -1244,6 +1244,9 @@ func (r *RightSizePolicyReconciler) discoverPrometheus(ctx context.Context) stri
 		}
 	}
 
+	// Cache negative result to avoid repeated API calls when no Prometheus
+	// is found (common during initial setup or in staging environments).
+	r.cacheDiscoveredPrometheus("")
 	return ""
 }
 
