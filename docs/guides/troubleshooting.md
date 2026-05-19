@@ -364,6 +364,27 @@ pod update errors during cleanup:
 kubectl logs -n kube-rightsize-system deploy/kube-rightsize-controller-manager | grep "deletion cleanup"
 ```
 
+## Large cluster performance
+
+### Stale recommendations (slow reconciliation)
+
+If `workqueue_depth` is consistently > 0 and
+`workqueue_longest_running_processor_seconds` climbs, the operator cannot
+keep up with the reconcile queue. Solutions (in order of impact):
+
+1. **Increase `maxConcurrentReconciles`** (or use a `clusterSize` preset).
+2. **Scope with `--watch-namespaces`** to reduce informer cache size.
+3. Policies targeting many workloads via label selector now process up to
+   10 workloads in parallel per reconcile cycle.
+
+See the [Scaling Guide](scaling.md) for tuning details and preset values.
+
+### High memory usage
+
+If the operator pod is OOMKilled or uses unexpectedly high memory, the
+informer cache may be caching too many objects. Use `--watch-namespaces`
+to limit the cache to the namespaces where your policies exist.
+
 ## Known limitations
 
 ### Maximum Prometheus addresses
