@@ -116,6 +116,46 @@ These values are used to compute `status.savings.estimatedMonthlySavings`
 on each `RightSizePolicy`. Adjust for your cloud provider or reserved
 instance pricing.
 
+### Inheritable UpdateStrategy Fields
+
+All `updateStrategy` fields in `RightSizeDefaults` are inherited by policies
+that do not set them explicitly. Policy-level values always take precedence.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `mode` | string | `Recommend` | `Recommend`, `Auto`, `Observe`, `OneShot` |
+| `cooldown` | duration | `1h` | Minimum time between resizes |
+| `autoRevert` | bool | `true` | Revert unsafe resizes automatically |
+| `resizeMethod` | string | `InPlaceOnly` | `InPlaceOnly` or `InPlaceOrEvict` |
+| `maxCpuChangePercent` | int32 | `50` | Max CPU change per resize (%) |
+| `maxMemoryChangePercent` | int32 | `30` | Max memory change per resize (%) |
+| `maxConcurrentResizes` | int32 | `1` | Max pods to resize simultaneously |
+| `maxTotalCpuIncrease` | quantity | (none) | Max aggregate CPU increase per cycle |
+| `maxTotalMemoryIncrease` | quantity | (none) | Max aggregate memory increase per cycle |
+| `schedule` | object | (none) | Time windows, days of week, timezone |
+| `export` | object | (none) | Metrics export configuration |
+
+Example: set a cluster-wide maintenance window and budget cap via
+`RightSizeDefaults`, then individual policies inherit them unless overridden:
+
+```yaml
+apiVersion: rightsize.io/v1alpha1
+kind: RightSizeDefaults
+metadata:
+  name: cluster-defaults
+spec:
+  updateStrategy:
+    mode: Auto
+    cooldown: 30m
+    maxTotalCpuIncrease: "2000m"
+    schedule:
+      windows:
+        - start: "02:00"
+          end: "06:00"
+      daysOfWeek: [Monday, Tuesday, Wednesday, Thursday, Friday]
+      timezone: UTC
+```
+
 ### Status Conditions
 
 The controller sets these conditions on each `RightSizePolicy`:
