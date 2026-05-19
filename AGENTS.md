@@ -153,6 +153,22 @@ is distinguishable from zero/false. Update all 6 locations:
 If the field also belongs in `RightSizeDefaults`, add it to
 `api/v1alpha1/rightsizedefaults_types.go` as well.
 
+### Helm values.yaml comments (helm-docs format)
+
+`helm-docs` reads `# --` comments from `values.yaml` to generate README
+parameter tables. Multi-line descriptions must use `# --` only on the
+first line; continuation lines use `#` without `--`:
+
+```yaml
+# -- First line of the description.
+# Continuation text on the second line.
+# More continuation text.
+someValue: "default"
+```
+
+Using `# --` on every line causes helm-docs to treat each line as a
+separate parameter description, producing garbled output.
+
 ## Testing
 
 - Framework: `testify` (assert/require)
