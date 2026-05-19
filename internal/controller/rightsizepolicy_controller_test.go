@@ -7737,6 +7737,8 @@ func TestSetReadyCondition(t *testing.T) {
 		totalQueryErrors  int
 		queryErrorTypes   map[string]struct{}
 		maxDataPoints     int
+		promTimedOut      bool
+		promTimeout       time.Duration
 		wantStatus        metav1.ConditionStatus
 		wantReason        string
 		wantMsgContains   string
@@ -7771,6 +7773,16 @@ func TestSetReadyCondition(t *testing.T) {
 			wantMsgContains:   "CPU and memory data collection",
 		},
 		{
+			name:              "ready with recommendations and prometheus timeout",
+			workloadCount:     10,
+			workloadsWithRecs: 5,
+			queryErrorTypes:   map[string]struct{}{},
+			promTimedOut:      true,
+			wantStatus:        metav1.ConditionTrue,
+			wantReason:        rightsizev1alpha1.ReasonMonitoring,
+			wantMsgContains:   "Prometheus query timeout exceeded",
+		},
+		{
 			name:              "not ready collecting data",
 			workloadCount:     2,
 			workloadsWithRecs: 0,
@@ -7801,16 +7813,29 @@ func TestSetReadyCondition(t *testing.T) {
 			wantReason:        rightsizev1alpha1.ReasonInsufficientData,
 			wantMsgContains:   "100/48 data points (99%)",
 		},
+		{
+			name:              "not ready prometheus timeout with no recommendations",
+			workloadCount:     5,
+			workloadsWithRecs: 0,
+			queryErrorTypes:   map[string]struct{}{},
+			promTimedOut:      true,
+			promTimeout:       5 * time.Minute,
+			wantStatus:        metav1.ConditionFalse,
+			wantReason:        rightsizev1alpha1.ReasonPrometheusUnavailable,
+			wantMsgContains:   "Prometheus query timeout exceeded after 5m0s",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := &RightSizePolicyReconciler{}
+			r := &RightSizePolicyReconciler{
+				PrometheusTimeout: tt.promTimeout,
+			}
 			policy := &rightsizev1alpha1.RightSizePolicy{}
 			policy.Generation = 5
 
 			r.setReadyCondition(policy, tt.workloadCount, tt.workloadsWithRecs,
-				tt.totalQueryErrors, tt.queryErrorTypes, tt.maxDataPoints, false)
+				tt.totalQueryErrors, tt.queryErrorTypes, tt.maxDataPoints, tt.promTimedOut)
 
 			cond := meta.FindStatusCondition(policy.Status.Conditions, rightsizev1alpha1.ConditionReady)
 			require.NotNil(t, cond, "Ready condition must be set")
