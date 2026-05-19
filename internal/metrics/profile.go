@@ -53,19 +53,16 @@ func BuildProfile(samples []Sample) UsageProfile {
 		return UsageProfile{}
 	}
 
-	// Bucket samples by hour of day.
-	hourBuckets := [24][]float64{}
-	allValues := make([]float64, 0, len(samples))
-
+	var hourCounts [24]int
 	minTime, maxTime := samples[0].Timestamp, samples[0].Timestamp
+	validCount := 0
 	for _, s := range samples {
 		// Filter out NaN/Inf samples that can corrupt percentile computation.
 		if math.IsNaN(s.Value) || math.IsInf(s.Value, 0) {
 			continue
 		}
-		hour := s.Timestamp.Hour()
-		hourBuckets[hour] = append(hourBuckets[hour], s.Value)
-		allValues = append(allValues, s.Value)
+		validCount++
+		hourCounts[s.Timestamp.Hour()]++
 
 		if s.Timestamp.Before(minTime) {
 			minTime = s.Timestamp
@@ -74,9 +71,34 @@ func BuildProfile(samples []Sample) UsageProfile {
 			maxTime = s.Timestamp
 		}
 	}
+	if validCount == 0 {
+		return UsageProfile{}
+	}
+
+	// Pre-size buckets exactly once to avoid repeated slice growth while
+	// building the profile for recommendation hot paths.
+	hourBuckets := [24][]float64{}
+	for h, count := range hourCounts {
+		if count > 0 {
+			hourBuckets[h] = make([]float64, count)
+		}
+	}
+	allValues := make([]float64, validCount)
+	var hourOffsets [24]int
+	allOffset := 0
+	for _, s := range samples {
+		if math.IsNaN(s.Value) || math.IsInf(s.Value, 0) {
+			continue
+		}
+		hour := s.Timestamp.Hour()
+		hourBuckets[hour][hourOffsets[hour]] = s.Value
+		hourOffsets[hour]++
+		allValues[allOffset] = s.Value
+		allOffset++
+	}
 
 	profile := UsageProfile{
-		DataPoints: len(allValues),
+		DataPoints: validCount,
 	}
 
 	// Calculate time span in days.
