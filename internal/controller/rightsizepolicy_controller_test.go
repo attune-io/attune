@@ -70,6 +70,11 @@ func int32Ptr(i int32) *int32 {
 	return &i
 }
 
+func quantityPtr(s string) *resource.Quantity {
+	q := resource.MustParse(s)
+	return &q
+}
+
 // stringPtr returns a pointer to a string.
 func stringPtr(s string) *string {
 	return &s
@@ -3359,6 +3364,13 @@ func TestMergeDefaults_MergesAllFields(t *testing.T) {
 				ResizeMethod:           rightsizev1alpha1.ResizeMethodInPlaceOrEvict,
 				MaxCPUChangePercent:    int32Ptr(80),
 				MaxMemoryChangePercent: int32Ptr(60),
+				MaxConcurrentResizes:   5,
+				MaxTotalCPUIncrease:    quantityPtr("2000m"),
+				MaxTotalMemoryIncrease: quantityPtr("4Gi"),
+				Schedule: &rightsizev1alpha1.ResizeSchedule{
+					DaysOfWeek: []string{"Monday", "Wednesday", "Friday"},
+					Windows:    []rightsizev1alpha1.TimeWindow{{Start: "02:00", End: "06:00"}},
+				},
 			},
 		},
 	}
@@ -3409,6 +3421,13 @@ func TestMergeDefaults_MergesAllFields(t *testing.T) {
 	assert.Equal(t, int32(80), *policy.Spec.UpdateStrategy.MaxCPUChangePercent)
 	require.NotNil(t, policy.Spec.UpdateStrategy.MaxMemoryChangePercent)
 	assert.Equal(t, int32(60), *policy.Spec.UpdateStrategy.MaxMemoryChangePercent)
+	assert.Equal(t, int32(5), policy.Spec.UpdateStrategy.MaxConcurrentResizes)
+	require.NotNil(t, policy.Spec.UpdateStrategy.MaxTotalCPUIncrease)
+	assert.Equal(t, resource.MustParse("2000m"), *policy.Spec.UpdateStrategy.MaxTotalCPUIncrease)
+	require.NotNil(t, policy.Spec.UpdateStrategy.MaxTotalMemoryIncrease)
+	assert.Equal(t, resource.MustParse("4Gi"), *policy.Spec.UpdateStrategy.MaxTotalMemoryIncrease)
+	require.NotNil(t, policy.Spec.UpdateStrategy.Schedule)
+	assert.Equal(t, []string{"Monday", "Wednesday", "Friday"}, policy.Spec.UpdateStrategy.Schedule.DaysOfWeek)
 }
 
 func TestApplyBuiltInDefaults_FillsAllFields(t *testing.T) {

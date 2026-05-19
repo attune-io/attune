@@ -711,6 +711,26 @@ func (r *RightSizePolicyReconciler) mergeDefaults(policy *rightsizev1alpha1.Righ
 			policy.Spec.UpdateStrategy.MaxMemoryChangePercent = spec.UpdateStrategy.MaxMemoryChangePercent
 			inherited = append(inherited, "maxMemoryChangePercent")
 		}
+		if policy.Spec.UpdateStrategy.MaxConcurrentResizes == 0 && spec.UpdateStrategy.MaxConcurrentResizes != 0 {
+			policy.Spec.UpdateStrategy.MaxConcurrentResizes = spec.UpdateStrategy.MaxConcurrentResizes
+			inherited = append(inherited, "maxConcurrentResizes")
+		}
+		if policy.Spec.UpdateStrategy.MaxTotalCPUIncrease == nil && spec.UpdateStrategy.MaxTotalCPUIncrease != nil {
+			policy.Spec.UpdateStrategy.MaxTotalCPUIncrease = spec.UpdateStrategy.MaxTotalCPUIncrease
+			inherited = append(inherited, "maxTotalCpuIncrease")
+		}
+		if policy.Spec.UpdateStrategy.MaxTotalMemoryIncrease == nil && spec.UpdateStrategy.MaxTotalMemoryIncrease != nil {
+			policy.Spec.UpdateStrategy.MaxTotalMemoryIncrease = spec.UpdateStrategy.MaxTotalMemoryIncrease
+			inherited = append(inherited, "maxTotalMemoryIncrease")
+		}
+		if policy.Spec.UpdateStrategy.Schedule == nil && spec.UpdateStrategy.Schedule != nil {
+			policy.Spec.UpdateStrategy.Schedule = spec.UpdateStrategy.Schedule
+			inherited = append(inherited, "schedule")
+		}
+		if policy.Spec.UpdateStrategy.Export == nil && spec.UpdateStrategy.Export != nil {
+			policy.Spec.UpdateStrategy.Export = spec.UpdateStrategy.Export
+			inherited = append(inherited, "export")
+		}
 	}
 
 	if len(inherited) > 0 {

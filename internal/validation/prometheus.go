@@ -61,8 +61,8 @@ func PrometheusAddress(address string) error {
 	// Private IPs (10.x, 172.16.x, 192.168.x) are NOT blocked because Prometheus
 	// typically runs on a ClusterIP service inside the cluster.
 	if ip := net.ParseIP(hostname); ip != nil {
-		if ip.IsLoopback() || ip.IsLinkLocalUnicast() ||
-			ip.Equal(net.ParseIP("fd00:ec2::254")) {
+		if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() ||
+			ip.IsLinkLocalMulticast() || ip.Equal(net.ParseIP("fd00:ec2::254")) {
 			return fmt.Errorf("address must not target loopback/metadata IP %q", hostname)
 		}
 	}

@@ -57,6 +57,11 @@ func TestPrometheusAddress_BlockedLinkLocal(t *testing.T) {
 	assert.Error(t, PrometheusAddress("http://[fe80::1]:9090"))
 }
 
+func TestPrometheusAddress_BlockedUnspecified(t *testing.T) {
+	assert.Error(t, PrometheusAddress("http://0.0.0.0:9090"))
+	assert.Error(t, PrometheusAddress("http://[::]:9090"))
+}
+
 func TestPrometheusAddress_BadScheme(t *testing.T) {
 	assert.Error(t, PrometheusAddress("ftp://prometheus:9090"))
 }
