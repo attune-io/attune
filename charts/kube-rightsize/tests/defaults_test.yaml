@@ -1,0 +1,100 @@
+suite: defaults tests
+templates:
+  - templates/defaults.yaml
+tests:
+  - it: should not render when defaults.enabled is false
+    set:
+      defaults:
+        enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render RightSizeDefaults with default values
+    set:
+      defaults:
+        enabled: true
+    asserts:
+      - isKind:
+          of: RightSizeDefaults
+      - equal:
+          path: spec.updateStrategy.mode
+          value: Recommend
+      - equal:
+          path: spec.updateStrategy.autoRevert
+          value: true
+      - equal:
+          path: spec.updateStrategy.resizeMethod
+          value: InPlaceOnly
+      - equal:
+          path: spec.updateStrategy.maxConcurrentResizes
+          value: 1
+
+  - it: should render maxCpuChangePercent and maxMemoryChangePercent
+    set:
+      defaults:
+        enabled: true
+        updateStrategy:
+          maxCpuChangePercent: 25
+          maxMemoryChangePercent: 50
+    asserts:
+      - equal:
+          path: spec.updateStrategy.maxCpuChangePercent
+          value: 25
+      - equal:
+          path: spec.updateStrategy.maxMemoryChangePercent
+          value: 50
+
+  - it: should render export.configMap as boolean
+    set:
+      defaults:
+        enabled: true
+        updateStrategy:
+          export:
+            configMap: true
+    asserts:
+      - equal:
+          path: spec.updateStrategy.export.configMap
+          value: true
+
+  - it: should render schedule windows
+    set:
+      defaults:
+        enabled: true
+        updateStrategy:
+          schedule:
+            windows:
+              - start: "02:00"
+                end: "06:00"
+            daysOfWeek:
+              - Monday
+              - Wednesday
+            timezone: US/Eastern
+    asserts:
+      - equal:
+          path: spec.updateStrategy.schedule.windows[0].start
+          value: "02:00"
+      - equal:
+          path: spec.updateStrategy.schedule.windows[0].end
+          value: "06:00"
+      - equal:
+          path: spec.updateStrategy.schedule.daysOfWeek[0]
+          value: Monday
+      - equal:
+          path: spec.updateStrategy.schedule.timezone
+          value: US/Eastern
+
+  - it: should render budget caps
+    set:
+      defaults:
+        enabled: true
+        updateStrategy:
+          maxTotalCpuIncrease: "2000m"
+          maxTotalMemoryIncrease: "4Gi"
+    asserts:
+      - equal:
+          path: spec.updateStrategy.maxTotalCpuIncrease
+          value: "2000m"
+      - equal:
+          path: spec.updateStrategy.maxTotalMemoryIncrease
+          value: "4Gi"

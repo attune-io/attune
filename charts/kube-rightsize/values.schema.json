@@ -254,8 +254,8 @@
                   "items": {
                     "type": "object",
                     "properties": {
-                      "start": { "type": "string", "pattern": "^[0-2][0-9]:[0-5][0-9]$" },
-                      "end": { "type": "string", "pattern": "^[0-2][0-9]:[0-5][0-9]$" }
+                      "start": { "type": "string", "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$" },
+                      "end": { "type": "string", "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$" }
                     },
                     "required": ["start", "end"]
                   }
@@ -298,9 +298,10 @@
               "additionalProperties": false,
               "description": "Export recommendations to a ConfigMap",
               "properties": {
-                "configMapName": {
-                  "type": "string",
-                  "description": "Name of the ConfigMap to export recommendations to"
+                "configMap": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Enable exporting recommendations to ConfigMaps (one per workload)"
                 }
               }
             }
