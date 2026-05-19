@@ -74,3 +74,4 @@ nav:
       - Development: contributing/development.md
       - Testing: contributing/testing.md
       - Releasing: contributing/releasing.md
+      - Adding Workload Types: contributing/adding-workload-types.md
