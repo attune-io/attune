@@ -210,8 +210,15 @@ func TestComputeSavings_Mixed(t *testing.T) {
 
 	savings := r.computeSavings("default", recommendations, nil)
 	// Only the first container saves CPU: 500m - 150m = 350m.
-	// The second container increases CPU, which is not counted.
+	// The second container increases CPU, which is not counted as savings.
 	assert.Equal(t, "350m", savings.CPURequestReduction)
 	// No memory savings.
 	assert.Empty(t, savings.MemoryRequestReduction)
+
+	// The second container increases CPU: 300m - 100m = 200m.
+	assert.Equal(t, "200m", savings.CPURequestIncrease)
+	// No memory increase.
+	assert.Empty(t, savings.MemoryRequestIncrease)
+	// Cost increase should be computed.
+	assert.NotEmpty(t, savings.EstimatedMonthlyCostIncrease)
 }

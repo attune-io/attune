@@ -193,6 +193,7 @@ const (
 // computeSavings calculates the aggregate resource savings across all recommendations.
 func (r *RightSizePolicyReconciler) computeSavings(namespace string, recommendations []rightsizev1alpha1.WorkloadRecommendation, defaults *rightsizev1alpha1.RightSizeDefaults) rightsizev1alpha1.SavingsStatus {
 	var totalCPUSaved, totalMemSaved int64
+	var totalCPUIncrease, totalMemIncrease int64
 	var totalCPU, totalMem int64
 
 	for _, rec := range recommendations {
@@ -203,11 +204,15 @@ func (r *RightSizePolicyReconciler) computeSavings(namespace string, recommendat
 			cpuDiff := c.Current.CPURequest.MilliValue() - c.Recommended.CPURequest.MilliValue()
 			if cpuDiff > 0 {
 				totalCPUSaved += cpuDiff
+			} else if cpuDiff < 0 {
+				totalCPUIncrease += -cpuDiff
 			}
 
 			memDiff := c.Current.MemoryRequest.Value() - c.Recommended.MemoryRequest.Value()
 			if memDiff > 0 {
 				totalMemSaved += memDiff
+			} else if memDiff < 0 {
+				totalMemIncrease += -memDiff
 			}
 		}
 	}
@@ -225,6 +230,12 @@ func (r *RightSizePolicyReconciler) computeSavings(namespace string, recommendat
 	if totalMemSaved > 0 {
 		savings.MemoryRequestReduction = resource.NewQuantity(totalMemSaved, resource.BinarySI).String()
 	}
+	if totalCPUIncrease > 0 {
+		savings.CPURequestIncrease = resource.NewMilliQuantity(totalCPUIncrease, resource.DecimalSI).String()
+	}
+	if totalMemIncrease > 0 {
+		savings.MemoryRequestIncrease = resource.NewQuantity(totalMemIncrease, resource.BinarySI).String()
+	}
 
 	// Always update gauges so they reset to zero when savings disappear.
 	// Without this, stale values persist until the policy is deleted.
@@ -238,6 +249,14 @@ func (r *RightSizePolicyReconciler) computeSavings(namespace string, recommendat
 	operatormetrics.SavingsEstimatedMonthly.WithLabelValues(namespace).Set(monthlySavings)
 	if monthlySavings > 0 {
 		savings.EstimatedMonthlySavings = fmt.Sprintf("$%.2f", monthlySavings)
+	}
+
+	// Cost increase for under-provisioned workloads.
+	cpuCoresIncrease := float64(totalCPUIncrease) / 1000.0
+	memGiBIncrease := float64(totalMemIncrease) / (1024 * 1024 * 1024)
+	monthlyCostIncrease := (cpuCoresIncrease*cpuPrice + memGiBIncrease*memPrice) * hoursPerMonth
+	if monthlyCostIncrease > 0 {
+		savings.EstimatedMonthlyCostIncrease = fmt.Sprintf("$%.2f", monthlyCostIncrease)
 	}
 
 	return savings

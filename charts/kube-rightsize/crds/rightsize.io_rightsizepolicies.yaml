@@ -1147,6 +1147,11 @@ spec:
               savings:
                 description: Savings summarizes estimated resource savings.
                 properties:
+                  cpuRequestIncrease:
+                    description: |-
+                      CPURequestIncrease is the total CPU request increase for under-provisioned
+                      workloads (e.g. "500m"). Empty when all recommendations are decreases.
+                    type: string
                   cpuRequestReduction:
                     description: CPURequestReduction is the total CPU request reduction
                       (e.g. "200m").
@@ -1155,10 +1160,20 @@ spec:
                     description: CPURequestTotal is the total current CPU requests
                       across all workloads (e.g. "2000m").
                     type: string
+                  estimatedMonthlyCostIncrease:
+                    description: |-
+                      EstimatedMonthlyCostIncrease is the estimated monthly cost increase for
+                      under-provisioned workloads based on configured or default pricing (e.g. "$5.00").
+                    type: string
                   estimatedMonthlySavings:
                     description: |-
                       EstimatedMonthlySavings is the estimated monthly cost savings based on
                       configured or default pricing (e.g. "$12.50").
+                    type: string
+                  memoryRequestIncrease:
+                    description: |-
+                      MemoryRequestIncrease is the total memory request increase for under-provisioned
+                      workloads (e.g. "512Mi"). Empty when all recommendations are decreases.
                     type: string
                   memoryRequestReduction:
                     description: MemoryRequestReduction is the total memory request

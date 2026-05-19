@@ -658,6 +658,21 @@ type SavingsStatus struct {
 	// EstimatedMonthlySavings is the estimated monthly cost savings based on
 	// configured or default pricing (e.g. "$12.50").
 	EstimatedMonthlySavings string `json:"estimatedMonthlySavings,omitempty"`
+
+	// CPURequestIncrease is the total CPU request increase for under-provisioned
+	// workloads (e.g. "500m"). Empty when all recommendations are decreases.
+	// +optional
+	CPURequestIncrease string `json:"cpuRequestIncrease,omitempty"`
+
+	// MemoryRequestIncrease is the total memory request increase for under-provisioned
+	// workloads (e.g. "512Mi"). Empty when all recommendations are decreases.
+	// +optional
+	MemoryRequestIncrease string `json:"memoryRequestIncrease,omitempty"`
+
+	// EstimatedMonthlyCostIncrease is the estimated monthly cost increase for
+	// under-provisioned workloads based on configured or default pricing (e.g. "$5.00").
+	// +optional
+	EstimatedMonthlyCostIncrease string `json:"estimatedMonthlyCostIncrease,omitempty"`
 }
 
 // +kubebuilder:object:root=true
