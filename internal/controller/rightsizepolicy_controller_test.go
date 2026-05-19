@@ -1738,6 +1738,30 @@ func TestComputeRecommendations_AllowDecreaseBlocked(t *testing.T) {
 		"memory should not decrease below current when AllowDecrease is nil, got %s", rec.Containers[0].Recommended.MemoryRequest.String())
 }
 
+func TestComputeRecommendations_CPUAllowDecreaseBlocked(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	// CPU AllowDecrease is nil (default) — CPU decreases should be clamped.
+
+	deploy := newTestDeployment("api-server", "default", nil)
+	reconciler := newReconcilerWithClient()
+
+	// Return very low CPU usage to produce a recommendation lower than current (500m).
+	mc := &mockCollector{
+		queryRangeFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return generateSamples(200, 0.001), nil
+		},
+	}
+
+	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil)
+	require.NoError(t, err)
+	require.NotNil(t, rec)
+	require.Len(t, rec.Containers, 1)
+
+	// CPU should be clamped to current (500m) since AllowDecrease is nil.
+	assert.True(t, rec.Containers[0].Recommended.CPURequest.Cmp(resource.MustParse("500m")) >= 0,
+		"CPU should not decrease below current when AllowDecrease is nil, got %s", rec.Containers[0].Recommended.CPURequest.String())
+}
+
 func TestComputeRecommendations_RequestsOnly(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	// ControlledValues defaults to RequestsOnly when nil.
@@ -3430,6 +3454,11 @@ func TestMergeDefaults_MergesAllFields(t *testing.T) {
 					DaysOfWeek: []string{"Monday", "Wednesday", "Friday"},
 					Windows:    []rightsizev1alpha1.TimeWindow{{Start: "02:00", End: "06:00"}},
 				},
+				Canary: &rightsizev1alpha1.CanaryConfig{
+					Percentage:        10,
+					AutoPromote:       true,
+					ObservationPeriod: metav1.Duration{Duration: 5 * time.Minute},
+				},
 			},
 		},
 	}
@@ -3487,6 +3516,10 @@ func TestMergeDefaults_MergesAllFields(t *testing.T) {
 	assert.Equal(t, resource.MustParse("4Gi"), *policy.Spec.UpdateStrategy.MaxTotalMemoryIncrease)
 	require.NotNil(t, policy.Spec.UpdateStrategy.Schedule)
 	assert.Equal(t, []string{"Monday", "Wednesday", "Friday"}, policy.Spec.UpdateStrategy.Schedule.DaysOfWeek)
+	require.NotNil(t, policy.Spec.UpdateStrategy.Canary)
+	assert.Equal(t, int32(10), policy.Spec.UpdateStrategy.Canary.Percentage)
+	assert.True(t, policy.Spec.UpdateStrategy.Canary.AutoPromote)
+	assert.Equal(t, 5*time.Minute, policy.Spec.UpdateStrategy.Canary.ObservationPeriod.Duration)
 }
 
 func TestApplyBuiltInDefaults_FillsAllFields(t *testing.T) {

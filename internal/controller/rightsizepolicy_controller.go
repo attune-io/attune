@@ -1038,6 +1038,13 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 		// Compute CPU recommendation.
 		if cpuProfile.DataPoints >= int(minimumDataPoints) {
 			cpuRec, cpuExplain, _ := cpuEngine.RecommendWithExplanation(cpuProfile, currentCPUReq)
+			// Enforce AllowDecrease: skip CPU decreases unless explicitly allowed.
+			cpuAllowDecrease := policy.Spec.CPU.AllowDecrease != nil && *policy.Spec.CPU.AllowDecrease
+			if !cpuAllowDecrease && cpuRec.Cmp(currentCPUReq) < 0 {
+				cpuRec = currentCPUReq.DeepCopy()
+				cpuExplain.Final = cpuRec.DeepCopy()
+				cpuExplain.FinalAdjustment = "CPU decrease blocked by allowDecrease=false"
+			}
 			rec.Recommended.CPURequest = cpuRec
 			explanation.CPU = toAPIRecommendationExplanation(cpuExplain)
 		}

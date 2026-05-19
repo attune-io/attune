@@ -507,6 +507,42 @@ func TestCheckQuotaCompatibility_MemoryQuotaExceeded(t *testing.T) {
 	assert.Contains(t, err.Error(), "exceed ResourceQuota")
 }
 
+func TestCheckQuotaCompatibility_LimitsAboveMaximum(t *testing.T) {
+	lr := &corev1.LimitRange{
+		ObjectMeta: metav1.ObjectMeta{Name: "limits", Namespace: "default"},
+		Spec: corev1.LimitRangeSpec{
+			Limits: []corev1.LimitRangeItem{
+				{
+					Type: corev1.LimitTypeContainer,
+					Max: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("2"),
+						corev1.ResourceMemory: resource.MustParse("2Gi"),
+					},
+				},
+			},
+		},
+	}
+	scheme := testScheme()
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(lr).Build()
+	r := &RightSizePolicyReconciler{Client: c}
+
+	// Requests are within bounds, but limits exceed the LimitRange max.
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("1"),
+			corev1.ResourceMemory: resource.MustParse("1Gi"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("3"),
+			corev1.ResourceMemory: resource.MustParse("3Gi"),
+		},
+	}
+	err := r.checkQuotaCompatibility(context.Background(), "default", zeroCurrent, target)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "limit")
+	assert.Contains(t, err.Error(), "exceeds LimitRange maximum")
+}
+
 // ---------- EstimatedMonthlySavings ----------
 
 func TestComputeSavings_EstimatedMonthlySavings(t *testing.T) {

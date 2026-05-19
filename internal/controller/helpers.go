@@ -501,6 +501,21 @@ func checkQuotaCompatibilityFromLists(limitRanges []corev1.LimitRange, quotas []
 					return fmt.Errorf("memory request %s exceeds LimitRange maximum %s", target.Requests.Memory().String(), maxMem.String())
 				}
 			}
+			// Also validate limits against LimitRange maximums. When
+			// ControlledValues=RequestsAndLimits the controller scales
+			// limits proportionally, which can exceed LimitRange bounds.
+			if target.Limits != nil {
+				if maxCPU, ok := item.Max[corev1.ResourceCPU]; ok {
+					if limCPU := target.Limits.Cpu(); limCPU != nil && limCPU.Cmp(maxCPU) > 0 {
+						return fmt.Errorf("CPU limit %s exceeds LimitRange maximum %s", limCPU.String(), maxCPU.String())
+					}
+				}
+				if maxMem, ok := item.Max[corev1.ResourceMemory]; ok {
+					if limMem := target.Limits.Memory(); limMem != nil && limMem.Cmp(maxMem) > 0 {
+						return fmt.Errorf("memory limit %s exceeds LimitRange maximum %s", limMem.String(), maxMem.String())
+					}
+				}
+			}
 		}
 	}
 
@@ -732,6 +747,10 @@ func (r *RightSizePolicyReconciler) mergeDefaults(policy *rightsizev1alpha1.Righ
 		if policy.Spec.UpdateStrategy.Export == nil && spec.UpdateStrategy.Export != nil {
 			policy.Spec.UpdateStrategy.Export = spec.UpdateStrategy.Export
 			inherited = append(inherited, "export")
+		}
+		if policy.Spec.UpdateStrategy.Canary == nil && spec.UpdateStrategy.Canary != nil {
+			policy.Spec.UpdateStrategy.Canary = spec.UpdateStrategy.Canary
+			inherited = append(inherited, "canary")
 		}
 	}
 
