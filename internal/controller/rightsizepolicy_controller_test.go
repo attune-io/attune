@@ -5335,6 +5335,22 @@ func TestDiscoverPrometheus_WellKnownService(t *testing.T) {
 	assert.Equal(t, "http://prometheus-server.monitoring:9090", addr)
 }
 
+func TestDiscoverPrometheus_WellKnownService_CustomPort(t *testing.T) {
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "prometheus-server",
+			Namespace: "monitoring",
+		},
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{{Port: 80}},
+		},
+	}
+	reconciler := newReconcilerWithClient(svc)
+
+	addr := reconciler.discoverPrometheus(context.Background())
+	assert.Equal(t, "http://prometheus-server.monitoring:80", addr)
+}
+
 func TestDiscoverPrometheus_NoServiceFound(t *testing.T) {
 	reconciler := newReconcilerWithClient()
 

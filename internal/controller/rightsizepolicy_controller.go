@@ -1140,7 +1140,11 @@ func (r *RightSizePolicyReconciler) discoverPrometheus(ctx context.Context) stri
 	for _, svc := range wellKnown {
 		var service corev1.Service
 		if err := r.Get(ctx, types.NamespacedName{Namespace: svc.namespace, Name: svc.name}, &service); err == nil {
-			addr := fmt.Sprintf("http://%s.%s:%d", svc.name, svc.namespace, 9090)
+			port := int64(9090)
+			if len(service.Spec.Ports) > 0 {
+				port = int64(service.Spec.Ports[0].Port)
+			}
+			addr := fmt.Sprintf("http://%s.%s:%d", svc.name, svc.namespace, port)
 			logger.V(1).Info("Found well-known Prometheus service", "address", addr)
 			return addr
 		}

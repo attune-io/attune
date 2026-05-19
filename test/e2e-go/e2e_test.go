@@ -668,7 +668,7 @@ func TestE2E_ScheduleWindow_SkipsOutsideWindow(t *testing.T) {
 
 	// Build a daysOfWeek list that excludes today.
 	allDays := []string{"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"}
-	today := time.Now().Weekday().String()
+	today := time.Now().UTC().Weekday().String()
 	var excludedDays []string
 	for _, d := range allDays {
 		if d != today {
