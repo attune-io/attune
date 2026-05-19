@@ -1738,6 +1738,33 @@ func TestComputeRecommendations_AllowDecreaseBlocked(t *testing.T) {
 		"memory should not decrease below current when AllowDecrease is nil, got %s", rec.Containers[0].Recommended.MemoryRequest.String())
 }
 
+func TestComputeRecommendations_CPUAllowDecreaseNilAllowsDecrease(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	// CPU AllowDecrease is nil (default) — CPU decreases should be allowed.
+	require.Nil(t, policy.Spec.CPU.AllowDecrease)
+	// Use 4000m current request with 200m actual usage (0.2 cores). With 500
+	// data points (good confidence), the recommendation should be well under 4000m.
+	deploy := newTestDeployment("api-server", "default", nil)
+	deploy.Spec.Template.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU] = resource.MustParse("4000m")
+	reconciler := newReconcilerWithClient()
+
+	mc := &mockCollector{
+		queryRangeFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return generateSamples(500, 0.2), nil
+		},
+	}
+
+	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil)
+	require.NoError(t, err)
+	require.NotNil(t, rec)
+	require.Len(t, rec.Containers, 1)
+
+	// CPU should decrease below current (4000m) when AllowDecrease is nil (defaults to true for CPU).
+	cpuRec := rec.Containers[0].Recommended.CPURequest
+	assert.True(t, cpuRec.Cmp(resource.MustParse("4000m")) < 0,
+		"CPU should decrease below current when AllowDecrease is nil, got %s", cpuRec.String())
+}
+
 func TestComputeRecommendations_CPUAllowDecreaseBlocked(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	// Explicitly disable CPU decreases. nil defaults to true for CPU.

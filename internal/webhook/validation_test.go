@@ -171,6 +171,22 @@ func TestValidate_NoTargetRef(t *testing.T) {
 	assert.Empty(t, warnings)
 }
 
+func TestValidate_NameAndSelectorBothSet(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	name := "my-app"
+	policy.Spec.TargetRef.Name = &name
+	policy.Spec.TargetRef.Selector = &metav1.LabelSelector{
+		MatchLabels: map[string]string{"app": "my-app"},
+	}
+
+	warnings, err := validator.ValidateCreate(context.Background(), policy)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not both")
+	assert.Empty(t, warnings)
+}
+
 func TestValidate_MemoryDecreaseWarning(t *testing.T) {
 	validator := &RightSizePolicyValidator{}
 	policy := validPolicy()

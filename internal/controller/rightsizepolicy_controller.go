@@ -1053,16 +1053,15 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 			// allowed) because CPU throttle is detected by the safety monitor.
 			cpuAllowDecrease := policy.Spec.CPU.AllowDecrease == nil || *policy.Spec.CPU.AllowDecrease
 			if !cpuAllowDecrease && cpuRec.Cmp(currentCPUReq) < 0 {
+				unclampedCPU := cpuRec.String()
 				if r.Recorder != nil {
-					// Use a deterministic message (no fluctuating recommendation value)
-					// so K8s event deduplication merges repeated occurrences into count++.
 					r.Recorder.Eventf(policy, nil, corev1.EventTypeNormal, "DecreaseSuppressed", "recommend",
 						"CPU decrease blocked by allowDecrease=false for container %s (current: %s)",
 						containerName, currentCPUReq.String())
 				}
 				cpuRec = currentCPUReq.DeepCopy()
 				cpuExplain.Final = cpuRec.DeepCopy()
-				cpuExplain.FinalAdjustment = fmt.Sprintf("CPU decrease from %s to %s blocked by allowDecrease=false", currentCPUReq.String(), cpuRec.String())
+				cpuExplain.FinalAdjustment = fmt.Sprintf("CPU decrease from %s to %s blocked by allowDecrease=false", currentCPUReq.String(), unclampedCPU)
 			}
 			rec.Recommended.CPURequest = cpuRec
 			explanation.CPU = toAPIRecommendationExplanation(cpuExplain)
@@ -1074,6 +1073,7 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 			// Enforce AllowDecrease: skip memory decreases unless explicitly allowed.
 			allowDecrease := policy.Spec.Memory.AllowDecrease != nil && *policy.Spec.Memory.AllowDecrease
 			if !allowDecrease && memRec.Cmp(currentMemReq) < 0 {
+				unclampedMem := memRec.String()
 				if r.Recorder != nil {
 					r.Recorder.Eventf(policy, nil, corev1.EventTypeNormal, "DecreaseSuppressed", "recommend",
 						"Memory decrease blocked by allowDecrease=false for container %s (current: %s)",
@@ -1081,7 +1081,7 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 				}
 				memRec = currentMemReq.DeepCopy()
 				memExplain.Final = memRec.DeepCopy()
-				memExplain.FinalAdjustment = fmt.Sprintf("memory decrease from %s to %s blocked by allowDecrease=false", currentMemReq.String(), memRec.String())
+				memExplain.FinalAdjustment = fmt.Sprintf("memory decrease from %s to %s blocked by allowDecrease=false", currentMemReq.String(), unclampedMem)
 			}
 			rec.Recommended.MemoryRequest = memRec
 			explanation.Memory = toAPIRecommendationExplanation(memExplain)
