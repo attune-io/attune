@@ -657,11 +657,7 @@ func (r *RightSizePolicyReconciler) processWorkloads(
 	// cancellation to all workers if the parent context is cancelled.
 	var mu sync.Mutex
 	g, gCtx := errgroup.WithContext(ctx)
-	workers := maxWorkloadWorkers
-	if len(workloads) < workers {
-		workers = len(workloads)
-	}
-	g.SetLimit(workers)
+	g.SetLimit(maxWorkloadWorkers)
 
 	for _, workload := range workloads {
 		g.Go(func() error {
@@ -693,7 +689,13 @@ func (r *RightSizePolicyReconciler) processWorkloads(
 			}
 
 			rec, qErrors, failedMetricTypes, dataPoints, err := r.computeRecommendations(gCtx, policy, workload, collector, cpuEngine, memEngine, excludeSet)
+			// Log and record metrics outside the lock (both are goroutine-safe).
+			if err != nil {
+				logger.Error(err, "Failed to compute recommendations", "workload", workloadName)
+				operatormetrics.ReconcileErrorsTotal.WithLabelValues("compute_recommendations").Inc()
+			}
 
+			// Single critical section for result aggregation.
 			mu.Lock()
 			result.totalQueryErrors += qErrors
 			for _, metricType := range failedMetricTypes {
@@ -702,13 +704,7 @@ func (r *RightSizePolicyReconciler) processWorkloads(
 			if dataPoints > result.maxDataPoints {
 				result.maxDataPoints = dataPoints
 			}
-			if err != nil {
-				mu.Unlock()
-				logger.Error(err, "Failed to compute recommendations", "workload", workloadName)
-				operatormetrics.ReconcileErrorsTotal.WithLabelValues("compute_recommendations").Inc()
-				return nil
-			}
-			if rec != nil {
+			if err == nil && rec != nil {
 				rec.Workload = workloadName
 				rec.Kind = workloadKind
 				result.recommendations = append(result.recommendations, *rec)

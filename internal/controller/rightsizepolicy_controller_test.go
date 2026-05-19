@@ -7895,3 +7895,83 @@ func TestProcessWorkloads_Parallel(t *testing.T) {
 	assert.Greater(t, peakInflight.Load(), int32(1),
 		"expected concurrent queries (peak inflight > 1)")
 }
+
+func TestProcessWorkloads_ParallelPartialFailure(t *testing.T) {
+	// Verify that partial query failures don't corrupt results under
+	// concurrent access. Even-numbered workloads return errors; odd succeed.
+	var inflight atomic.Int32
+	var peakInflight atomic.Int32
+
+	now := time.Now()
+	samples := make([]rsmetrics.Sample, 60)
+	for i := range samples {
+		samples[i] = rsmetrics.Sample{
+			Timestamp: now.Add(-time.Duration(60-i) * 5 * time.Minute),
+			Value:     0.1,
+		}
+	}
+	grouped := map[string][]rsmetrics.Sample{"main": samples}
+
+	// Track which workloads should fail based on query content.
+	// Each workload's pod regex contains its name, so we can match on it.
+	collector := &mockCollector{
+		queryRangeGroupedFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) (map[string][]rsmetrics.Sample, error) {
+			cur := inflight.Add(1)
+			for {
+				peak := peakInflight.Load()
+				if cur <= peak || peakInflight.CompareAndSwap(peak, cur) {
+					break
+				}
+			}
+			time.Sleep(5 * time.Millisecond)
+			inflight.Add(-1)
+
+			// Fail queries for even-numbered workloads.
+			for i := 0; i < 20; i += 2 {
+				if strings.Contains(query, fmt.Sprintf("deploy-%d-", i)) {
+					return nil, fmt.Errorf("prometheus timeout for %d", i)
+				}
+			}
+			return grouped, nil
+		},
+	}
+
+	const numWorkloads = 20
+	objs := make([]runtime.Object, 0, numWorkloads)
+	workloads := make([]client.Object, 0, numWorkloads)
+	for i := range numWorkloads {
+		name := fmt.Sprintf("deploy-%d", i)
+		dep := newTestDeployment(name, "default", map[string]string{"app": name})
+		objs = append(objs, dep)
+		workloads = append(workloads, dep)
+	}
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithRuntimeObjects(objs...).
+		Build()
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.TargetRef.Name = nil
+	policy.Spec.TargetRef.Selector = &metav1.LabelSelector{}
+
+	r := &RightSizePolicyReconciler{
+		Client:         fakeClient,
+		Scheme:         scheme,
+		MetricsFactory: mockMetricsFactory(collector),
+	}
+	r.SetNowFunc(func() time.Time { return now })
+
+	result := r.processWorkloads(context.Background(), policy, workloads, collector)
+
+	// Odd-numbered workloads (10 of 20) should succeed.
+	assert.Equal(t, int32(10), result.workloadsWithRecs,
+		"only odd-numbered workloads should have recommendations")
+	assert.Len(t, result.recommendations, 10)
+	// Even-numbered workloads fail both CPU and memory queries.
+	assert.Greater(t, result.totalQueryErrors, 0, "should have query errors")
+	// Verify parallelism still occurred despite failures.
+	assert.Greater(t, peakInflight.Load(), int32(1),
+		"expected concurrent queries even with partial failures")
+}
