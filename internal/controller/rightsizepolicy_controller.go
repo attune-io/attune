@@ -478,8 +478,16 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 	}
 
+	// Pre-fetch namespace-scoped LimitRanges and ResourceQuotas once so both
+	// executeResizes and applyStartupBoosts can reuse them without duplicate
+	// API calls.
+	var preChecks *resizePreChecks
+	if needPods {
+		preChecks = r.buildResizePreChecks(ctx, &policy)
+	}
+
 	if isResizeMode(mode) && !cooldownActive && withinWindow {
-		resizedCount, history := r.executeResizes(ctx, &policy, workloads, recommendations, podsByWorkload, collector)
+		resizedCount, history := r.executeResizes(ctx, &policy, workloads, recommendations, podsByWorkload, collector, preChecks)
 		newResizedCount = resizedCount
 		// Always record history entries (including immediate reverts) so
 		// the escalation mechanisms (consecutiveReverts, Degraded condition,
@@ -519,7 +527,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	// modes must not modify pod resources.
 	if isResizeMode(mode) && policy.Spec.CPU.StartupBoost != nil && r.Clientset != nil && len(recommendations) > 0 {
 		resizer := resize.NewPodResizer(r.Clientset, logger)
-		r.applyStartupBoosts(ctx, &policy, podsByWorkload, recommendations, resizer)
+		r.applyStartupBoosts(ctx, &policy, podsByWorkload, recommendations, resizer, preChecks)
 	}
 
 	if isResizeMode(mode) && !withinWindow {
@@ -1247,6 +1255,7 @@ func (r *RightSizePolicyReconciler) executeResizes(
 	recommendations []rightsizev1alpha1.WorkloadRecommendation,
 	podsByWorkload map[string][]corev1.Pod,
 	collector rsmetrics.MetricsCollector,
+	checks *resizePreChecks,
 ) (int, []rightsizev1alpha1.ResizeHistoryEntry) {
 	logger := log.FromContext(ctx)
 	if r.Clientset == nil {
@@ -1270,21 +1279,6 @@ func (r *RightSizePolicyReconciler) executeResizes(
 
 	resizer := resize.NewPodResizer(r.Clientset, logger)
 	monitor := r.newSafetyMonitor(logger, collector)
-
-	// Pre-fetch namespace-scoped resources once to avoid redundant API
-	// calls across all pods during resize pre-checks.
-	var limitRanges corev1.LimitRangeList
-	if err := r.List(ctx, &limitRanges, client.InNamespace(policy.Namespace)); err != nil {
-		logger.Info("Could not pre-fetch LimitRanges, quota pre-checks skipped", "error", err)
-	}
-	var quotas corev1.ResourceQuotaList
-	if err := r.List(ctx, &quotas, client.InNamespace(policy.Namespace)); err != nil {
-		logger.Info("Could not pre-fetch ResourceQuotas, quota pre-checks skipped", "error", err)
-	}
-	checks := &resizePreChecks{
-		limitRanges: limitRanges.Items,
-		quotas:      quotas.Items,
-	}
 
 	var totalResized int
 	var history []rightsizev1alpha1.ResizeHistoryEntry
@@ -2000,6 +1994,25 @@ type resizePreChecks struct {
 	quotas      []corev1.ResourceQuota
 }
 
+// buildResizePreChecks pre-fetches namespace-scoped LimitRanges and
+// ResourceQuotas so that both executeResizes and applyStartupBoosts can
+// share the data without duplicate API calls.
+func (r *RightSizePolicyReconciler) buildResizePreChecks(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy) *resizePreChecks {
+	logger := log.FromContext(ctx)
+	var limitRanges corev1.LimitRangeList
+	if err := r.List(ctx, &limitRanges, client.InNamespace(policy.Namespace)); err != nil {
+		logger.Info("Could not pre-fetch LimitRanges, quota pre-checks skipped", "error", err)
+	}
+	var quotas corev1.ResourceQuotaList
+	if err := r.List(ctx, &quotas, client.InNamespace(policy.Namespace)); err != nil {
+		logger.Info("Could not pre-fetch ResourceQuotas, quota pre-checks skipped", "error", err)
+	}
+	return &resizePreChecks{
+		limitRanges: limitRanges.Items,
+		quotas:      quotas.Items,
+	}
+}
+
 // shouldSkipResize runs pre-checks and returns whether to skip the resize
 // and an optional reason string. An empty reason with skip=true means the
 // pod already matches the recommendation (no log needed).
@@ -2322,6 +2335,7 @@ func (r *RightSizePolicyReconciler) applyStartupBoosts(
 	podsByWorkload map[string][]corev1.Pod,
 	recommendations []rightsizev1alpha1.WorkloadRecommendation,
 	resizer *resize.PodResizer,
+	checks *resizePreChecks,
 ) {
 	boostConfig := policy.Spec.CPU.StartupBoost
 	if boostConfig == nil || r.Clientset == nil {
@@ -2338,20 +2352,6 @@ func (r *RightSizePolicyReconciler) applyStartupBoosts(
 		boostDuration = time.Hour
 	}
 	now := r.now()
-
-	// Pre-fetch LimitRanges and ResourceQuotas once for all pods.
-	var limitRanges corev1.LimitRangeList
-	if listErr := r.List(ctx, &limitRanges, client.InNamespace(policy.Namespace)); listErr != nil {
-		logger.V(1).Info("Could not pre-fetch LimitRanges for startup boost", "error", listErr)
-	}
-	var quotas corev1.ResourceQuotaList
-	if listErr := r.List(ctx, &quotas, client.InNamespace(policy.Namespace)); listErr != nil {
-		logger.V(1).Info("Could not pre-fetch ResourceQuotas for startup boost", "error", listErr)
-	}
-	checks := &resizePreChecks{
-		limitRanges: limitRanges.Items,
-		quotas:      quotas.Items,
-	}
 
 	for _, rec := range recommendations {
 		pods := podsByWorkload[rec.Workload]

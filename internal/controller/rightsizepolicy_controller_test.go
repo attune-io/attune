@@ -2902,7 +2902,7 @@ func TestExecuteResizes_NoClientset(t *testing.T) {
 	reconciler := &RightSizePolicyReconciler{}
 	policy := newTestPolicy("test-policy", "default")
 
-	count, history := reconciler.executeResizes(context.Background(), policy, nil, nil, nil, nil)
+	count, history := reconciler.executeResizes(context.Background(), policy, nil, nil, nil, nil, nil)
 	assert.Equal(t, 0, count)
 	assert.Nil(t, history)
 }
@@ -2920,7 +2920,7 @@ func TestExecuteResizes_SuccessfulResize(t *testing.T) {
 	}
 
 	workloads := []client.Object{deploy}
-	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil)
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil, nil)
 	assert.Equal(t, 1, count)
 	require.Len(t, history, 2, "expect one cpu + one memory history entry")
 	assert.Equal(t, "api-server", history[0].Workload)
@@ -2947,7 +2947,7 @@ func TestExecuteResizes_ContextCancelledAbortsRemaining(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	count, history := reconciler.executeResizes(ctx, policy, workloads, recommendations, podMap("api-server", pod), nil)
+	count, history := reconciler.executeResizes(ctx, policy, workloads, recommendations, podMap("api-server", pod), nil, nil)
 	assert.Equal(t, 0, count, "no resizes should complete with cancelled context")
 	assert.Empty(t, history, "no history entries with cancelled context")
 }
@@ -2966,7 +2966,7 @@ func TestExecuteResizes_SkipsMatchingResources(t *testing.T) {
 	}
 
 	workloads := []client.Object{deploy}
-	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil)
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil, nil)
 	assert.Equal(t, 0, count)
 	assert.Empty(t, history)
 }
@@ -2984,7 +2984,7 @@ func TestExecuteResizes_NoMatchingWorkload(t *testing.T) {
 	}
 
 	workloads := []client.Object{deploy}
-	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, nil, nil)
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, nil, nil, nil)
 	assert.Equal(t, 0, count)
 	assert.Empty(t, history)
 }
@@ -4074,7 +4074,7 @@ func TestExecuteResizes_SkipsQoSChange(t *testing.T) {
 	}
 
 	workloads := []client.Object{deploy}
-	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil)
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil, nil)
 	assert.Equal(t, 0, count)
 	assert.Empty(t, history)
 }
@@ -4096,7 +4096,7 @@ func TestExecuteResizes_QoSBlocked_EmitsResizeSkippedEvent(t *testing.T) {
 	}
 	workloads := []client.Object{deploy}
 
-	count, _ := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil)
+	count, _ := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil, nil)
 	assert.Equal(t, 0, count)
 
 	select {
@@ -4129,7 +4129,7 @@ func TestExecuteResizes_ResizeError(t *testing.T) {
 	}
 
 	workloads := []client.Object{deploy}
-	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil)
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil, nil)
 	assert.Equal(t, 0, count)
 	assert.NotEmpty(t, history)
 	assert.Equal(t, rightsizev1alpha1.ResizeResultFailed, history[0].Result)
@@ -4158,7 +4158,7 @@ func TestExecuteResizes_ResizeError_EmitsResizeFailedEvent(t *testing.T) {
 	}
 	workloads := []client.Object{deploy}
 
-	count, _ := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil)
+	count, _ := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil, nil)
 	assert.Equal(t, 0, count)
 
 	select {
@@ -4184,7 +4184,7 @@ func TestExecuteResizes_AutoRevert_SafeVerdictNoRevert(t *testing.T) {
 	}
 
 	workloads := []client.Object{deploy}
-	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil)
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil, nil)
 
 	// Resize was attempted. The safety check runs immediately but with a
 	// fake clientset the pod won't have conditions set, so CheckPod will
@@ -5302,7 +5302,7 @@ func TestExecuteResizes_SkipsWhenExceedsNodeCapacity(t *testing.T) {
 	}
 
 	workloads := []client.Object{deploy}
-	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil)
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil, nil)
 	assert.Equal(t, 0, count, "resize should be skipped when total requests exceed node allocatable")
 	assert.Empty(t, history)
 }
@@ -5332,7 +5332,7 @@ func TestExecuteResizes_ProceedsWhenWithinNodeCapacity(t *testing.T) {
 	}
 
 	workloads := []client.Object{deploy}
-	count, _ := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil)
+	count, _ := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil, nil)
 	assert.Equal(t, 1, count, "resize should proceed when within node capacity")
 }
 
@@ -5486,7 +5486,7 @@ func TestExecuteResizes_EmitsResizedEvent(t *testing.T) {
 	}
 	workloads := []client.Object{deploy}
 
-	count, _ := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil)
+	count, _ := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil, nil)
 	assert.Equal(t, 1, count)
 
 	// Drain the event channel and check for a Resized event.
@@ -5536,7 +5536,7 @@ func TestExecuteResizes_ThrottleNotRevertedDuringGracePeriod(t *testing.T) {
 	// because the resize just happened (within the 5-minute grace period).
 	collector := &mockThrottleCollector{throttleRatio: 0.6}
 
-	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), collector)
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), collector, nil)
 	// Resize should succeed and NOT be immediately reverted.
 	assert.Equal(t, 1, count, "resize should succeed without immediate throttle revert")
 
@@ -5576,7 +5576,7 @@ func TestExecuteResizes_PersistsAnnotations(t *testing.T) {
 	}
 
 	workloads := []client.Object{deploy}
-	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil)
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil, nil)
 	require.Equal(t, 1, count, "resize should succeed")
 	require.NotEmpty(t, history)
 	assert.Equal(t, rightsizev1alpha1.ResizeResultSuccess, history[0].Result)
@@ -5613,7 +5613,7 @@ func TestExecuteResizes_CapturesZeroRestartCount(t *testing.T) {
 	}
 
 	workloads := []client.Object{deploy}
-	count, _ := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil)
+	count, _ := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil, nil)
 	require.Equal(t, 1, count)
 
 	var updated corev1.Pod
@@ -5639,7 +5639,7 @@ func TestExecuteResizes_PreservesExistingPodAnnotations(t *testing.T) {
 	}
 
 	workloads := []client.Object{deploy}
-	count, _ := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil)
+	count, _ := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil, nil)
 	require.Equal(t, 1, count)
 
 	var updated corev1.Pod
@@ -5685,7 +5685,7 @@ func TestExecuteResizes_RevertsOnAnnotationUpdateFailure(t *testing.T) {
 	}
 
 	workloads := []client.Object{deploy}
-	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil)
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil, nil)
 
 	// The resize should have been reverted because annotation update failed.
 	assert.Equal(t, 0, count, "net resized count should be 0 after revert")
@@ -5779,7 +5779,7 @@ func TestExecuteResizes_RevertsOnReFetchFailure(t *testing.T) {
 	}
 
 	workloads := []client.Object{deploy}
-	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil)
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil, nil)
 
 	assert.Equal(t, 0, count, "net resized count should be 0 after revert")
 
@@ -6122,7 +6122,7 @@ func TestExecuteResizes_BudgetCapsDefersExcessiveIncrease(t *testing.T) {
 	}
 
 	count, _ := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
-		recommendations, podMap("api-server", pod), nil)
+		recommendations, podMap("api-server", pod), nil, nil)
 	assert.Equal(t, 0, count, "resize should be deferred when CPU increase exceeds budget")
 }
 
@@ -6143,7 +6143,7 @@ func TestExecuteResizes_BudgetCapsAllowsWithinBudget(t *testing.T) {
 	}
 
 	count, _ := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
-		recommendations, podMap("api-server", pod), nil)
+		recommendations, podMap("api-server", pod), nil, nil)
 	assert.Equal(t, 1, count, "resize should proceed when within budget")
 }
 
@@ -6164,7 +6164,7 @@ func TestExecuteResizes_BudgetCapsDecreasesFree(t *testing.T) {
 	}
 
 	count, _ := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
-		recommendations, podMap("api-server", pod), nil)
+		recommendations, podMap("api-server", pod), nil, nil)
 	assert.Equal(t, 1, count, "decreases should not consume budget")
 }
 
@@ -6185,7 +6185,7 @@ func TestExecuteResizes_BudgetCapsMemory(t *testing.T) {
 	}
 
 	count, _ := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
-		recommendations, podMap("api-server", pod), nil)
+		recommendations, podMap("api-server", pod), nil, nil)
 	assert.Equal(t, 0, count, "resize should be deferred when memory increase exceeds budget")
 }
 
@@ -6205,7 +6205,7 @@ func TestExecuteResizes_BudgetCapsExactlyEqualsPasses(t *testing.T) {
 	}
 
 	count, _ := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
-		recommendations, podMap("api-server", pod), nil)
+		recommendations, podMap("api-server", pod), nil, nil)
 	assert.Equal(t, 1, count, "increase exactly equal to budget should proceed")
 }
 
@@ -6236,7 +6236,7 @@ func TestExecuteResizes_ConcurrentResizes(t *testing.T) {
 
 	count, history := reconciler.executeResizes(context.Background(), policy,
 		[]client.Object{deploy}, recommendations,
-		map[string][]corev1.Pod{"api-server": {*pod1, *pod2}}, nil)
+		map[string][]corev1.Pod{"api-server": {*pod1, *pod2}}, nil, nil)
 	assert.Equal(t, 1, count, "workload should count as resized once")
 	assert.NotEmpty(t, history, "should produce resize history entries")
 }
@@ -6319,7 +6319,7 @@ func TestExecuteResizes_MultiContainerSequential(t *testing.T) {
 
 	count, _ := reconciler.executeResizes(context.Background(), policy,
 		[]client.Object{deploy}, recommendations,
-		map[string][]corev1.Pod{"api-server": {*pod}}, nil)
+		map[string][]corev1.Pod{"api-server": {*pod}}, nil, nil)
 	assert.Equal(t, 1, count, "workload should be resized")
 
 	// Both containers should have UpdateResize called.
@@ -6776,7 +6776,7 @@ func TestApplyStartupBoosts_AppliesBoostToNewPod(t *testing.T) {
 	}
 	podsByWorkload := map[string][]corev1.Pod{"my-app": {*pod}}
 
-	r.applyStartupBoosts(context.Background(), policy, podsByWorkload, recs, resizer)
+	r.applyStartupBoosts(context.Background(), policy, podsByWorkload, recs, resizer, nil)
 
 	// Verify resize was attempted via clientset actions and memory request preserved.
 	actions := clientset.Actions()
@@ -6849,7 +6849,7 @@ func TestApplyStartupBoosts_SkipsPodOutsideWindow(t *testing.T) {
 	}
 	podsByWorkload := map[string][]corev1.Pod{"my-app": {*pod}}
 
-	r.applyStartupBoosts(context.Background(), policy, podsByWorkload, recs, resizer)
+	r.applyStartupBoosts(context.Background(), policy, podsByWorkload, recs, resizer, nil)
 
 	// Verify no resize action was taken.
 	actions := clientset.Actions()
@@ -6987,7 +6987,7 @@ func TestApplyStartupBoosts_ExpiresBoostAfterDuration(t *testing.T) {
 	}
 	podsByWorkload := map[string][]corev1.Pod{"my-app": {*pod}}
 
-	r.applyStartupBoosts(context.Background(), policy, podsByWorkload, recs, resizer)
+	r.applyStartupBoosts(context.Background(), policy, podsByWorkload, recs, resizer, nil)
 
 	// Verify a resize action was taken (reducing back to steady-state).
 	actions := clientset.Actions()
@@ -7063,7 +7063,7 @@ func TestApplyStartupBoosts_MalformedAnnotationSkipsGracefully(t *testing.T) {
 	podsByWorkload := map[string][]corev1.Pod{"my-app": {*pod}}
 
 	// Should not panic and should not attempt any resize.
-	r.applyStartupBoosts(context.Background(), policy, podsByWorkload, recs, resizer)
+	r.applyStartupBoosts(context.Background(), policy, podsByWorkload, recs, resizer, nil)
 
 	actions := clientset.Actions()
 	for _, a := range actions {
@@ -7140,7 +7140,7 @@ func TestApplyStartupBoosts_SkipsWhenExceedsNodeAllocatable(t *testing.T) {
 	}
 	podsByWorkload := map[string][]corev1.Pod{"my-app": {*pod}}
 
-	r.applyStartupBoosts(context.Background(), policy, podsByWorkload, recs, resizer)
+	r.applyStartupBoosts(context.Background(), policy, podsByWorkload, recs, resizer, nil)
 
 	// Verify no resize action was taken (boost would exceed node allocatable).
 	for _, a := range clientset.Actions() {
@@ -7216,7 +7216,7 @@ func TestApplyStartupBoosts_CapsAtCPULimit(t *testing.T) {
 	}
 	podsByWorkload := map[string][]corev1.Pod{"limited-app": {*pod}}
 
-	r.applyStartupBoosts(context.Background(), policy, podsByWorkload, recs, resizer)
+	r.applyStartupBoosts(context.Background(), policy, podsByWorkload, recs, resizer, nil)
 
 	// Verify resize was attempted and CPU was capped at the limit (500m).
 	var foundResize bool
@@ -7307,7 +7307,7 @@ func TestApplyStartupBoosts_ExpiryKeepsAnnotationOnFailure(t *testing.T) {
 	resizer := resize.NewPodResizer(clientset, ctrl.Log)
 	podsByWorkload := map[string][]corev1.Pod{"boost-expire": {*pod}}
 
-	r.applyStartupBoosts(context.Background(), policy, podsByWorkload, recs, resizer)
+	r.applyStartupBoosts(context.Background(), policy, podsByWorkload, recs, resizer, nil)
 
 	// Verify the boost annotation is still present (not removed after failure).
 	var updated corev1.Pod
