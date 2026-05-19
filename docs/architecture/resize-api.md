@@ -173,11 +173,11 @@ stateDiagram-v2
 |----------|----------|----------|
 | **IsEligibleForResize** | `resize.IsEligibleForResize()` | `internal/resize/engine.go` |
 | **IsResizeInfeasible** | `resize.IsResizeInfeasible()` | `internal/resize/engine.go` |
-| **Pre-checks** | `shouldSkipResize()` | `internal/controller/rightsizepolicy_controller.go` |
+| **Pre-checks** | `shouldSkipResize()` | `internal/controller/resize.go` |
 | **Resize method** | `policy.Spec.UpdateStrategy.ResizeMethod` | CRD field |
-| **Last replica guard** | `tryEvictionFallback()` | `internal/controller/rightsizepolicy_controller.go` |
+| **Last replica guard** | `tryEvictionFallback()` | `internal/controller/safety.go` |
 | **ResizePod** | `resizer.ResizePod()` | `internal/resize/engine.go` |
-| **Safety observation** | `checkPendingSafetyObservations()` | `internal/controller/rightsizepolicy_controller.go` |
+| **Safety observation** | `checkPendingSafetyObservations()` | `internal/controller/safety.go` |
 | **Revert** | `safety.Monitor.RevertPod()` | `internal/safety/monitor.go` |
 
 ### Key behaviors
