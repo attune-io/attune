@@ -2728,12 +2728,18 @@ func (r *RightSizePolicyReconciler) adjustHPATargets(
 				logger.Error(getErr, "Failed to re-fetch HPA for target update", "hpa", hpa.Name)
 				break
 			}
-			// Apply our changes to the fresh copy.
+			// Apply only our operator annotations to the fresh copy.
+			// Copying ALL annotations from the stale hpa would overwrite
+			// annotations set by other controllers (ArgoCD, Flux, etc.)
+			// between the initial List and this re-fetch.
 			if fresh.Annotations == nil {
 				fresh.Annotations = make(map[string]string)
 			}
-			for k, v := range hpa.Annotations {
-				fresh.Annotations[k] = v
+			if v, ok := hpa.Annotations[annotationHPAAutoTune]; ok {
+				fresh.Annotations[annotationHPAAutoTune] = v
+			}
+			if v, ok := hpa.Annotations[annotationHPAOriginalCPU]; ok {
+				fresh.Annotations[annotationHPAOriginalCPU] = v
 			}
 			for fj := range fresh.Spec.Metrics {
 				fm := &fresh.Spec.Metrics[fj]

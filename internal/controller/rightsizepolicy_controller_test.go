@@ -6806,6 +6806,71 @@ func TestAdjustHPATargets_ScalesTargetUtilization(t *testing.T) {
 	assert.Equal(t, "80", hpa.Annotations[annotationHPAOriginalCPU])
 }
 
+func TestAdjustHPATargets_PreservesThirdPartyAnnotations(t *testing.T) {
+	scheme := testScheme()
+	oldTarget := int32(80)
+
+	// The stale HPA from the initial List has only our annotation.
+	staleHPA := autoscalingv2.HorizontalPodAutoscaler{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-app-hpa",
+			Namespace: "default",
+			Annotations: map[string]string{
+				annotationHPAAutoTune: "true",
+			},
+		},
+		Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+			ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+				Kind: "Deployment",
+				Name: "my-app",
+			},
+			Metrics: []autoscalingv2.MetricSpec{
+				{
+					Type: autoscalingv2.ResourceMetricSourceType,
+					Resource: &autoscalingv2.ResourceMetricSource{
+						Name: corev1.ResourceCPU,
+						Target: autoscalingv2.MetricTarget{
+							Type:               autoscalingv2.UtilizationMetricType,
+							AverageUtilization: &oldTarget,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// The "fresh" HPA in the cluster has a third-party annotation added
+	// by ArgoCD between the initial List and the re-fetch.
+	freshHPA := staleHPA.DeepCopy()
+	freshHPA.Annotations["argocd.argoproj.io/managed-by"] = "argo-controller"
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(freshHPA).Build()
+	r := &RightSizePolicyReconciler{
+		Client: fakeClient,
+		Scheme: scheme,
+	}
+
+	r.adjustHPATargets(context.Background(), []autoscalingv2.HorizontalPodAutoscaler{staleHPA},
+		"my-app", "Deployment",
+		resource.MustParse("200m"), resource.MustParse("400m"))
+
+	var hpa autoscalingv2.HorizontalPodAutoscaler
+	err := fakeClient.Get(context.Background(), client.ObjectKey{
+		Namespace: "default",
+		Name:      "my-app-hpa",
+	}, &hpa)
+	require.NoError(t, err)
+
+	// Our annotations should be set.
+	assert.Equal(t, "true", hpa.Annotations[annotationHPAAutoTune])
+	assert.Equal(t, "80", hpa.Annotations[annotationHPAOriginalCPU])
+
+	// Third-party annotation must survive (the bug was that the stale
+	// copy's annotations overwrote the fresh copy, dropping this).
+	assert.Equal(t, "argo-controller", hpa.Annotations["argocd.argoproj.io/managed-by"],
+		"third-party annotations must not be overwritten by stale HPA copy")
+}
+
 func TestApplyStartupBoosts_AppliesBoostToNewPod(t *testing.T) {
 	scheme := testScheme()
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
