@@ -457,6 +457,14 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	queryErrorTypes := wpResult.queryErrorTypes
 	hpaList := wpResult.hpaList
 
+	// Emit event when recommendations first become available.
+	previousWithRecs := policy.Status.Workloads.WithRecommendations
+	if previousWithRecs == 0 && workloadsWithRecs > 0 && r.Recorder != nil {
+		r.Recorder.Eventf(&policy, nil, corev1.EventTypeNormal, "RecommendationsReady", "recommend",
+			"First recommendations available: %d of %d workloads have sizing data",
+			workloadsWithRecs, len(workloads))
+	}
+
 	// Step 8: Update status fields.
 	nowMeta := metav1.NewTime(r.now())
 	policy.Status.LastReconcileTime = &nowMeta
@@ -1044,6 +1052,11 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 			// Enforce AllowDecrease: skip CPU decreases unless explicitly allowed.
 			cpuAllowDecrease := policy.Spec.CPU.AllowDecrease != nil && *policy.Spec.CPU.AllowDecrease
 			if !cpuAllowDecrease && cpuRec.Cmp(currentCPUReq) < 0 {
+				if r.Recorder != nil {
+					r.Recorder.Eventf(policy, nil, corev1.EventTypeNormal, "DecreaseSuppressed", "recommend",
+						"CPU decrease from %s to %s blocked by allowDecrease=false for container %s",
+						currentCPUReq.String(), cpuRec.String(), containerName)
+				}
 				cpuRec = currentCPUReq.DeepCopy()
 				cpuExplain.Final = cpuRec.DeepCopy()
 				cpuExplain.FinalAdjustment = "CPU decrease blocked by allowDecrease=false"
@@ -1058,6 +1071,11 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 			// Enforce AllowDecrease: skip memory decreases unless explicitly allowed.
 			allowDecrease := policy.Spec.Memory.AllowDecrease != nil && *policy.Spec.Memory.AllowDecrease
 			if !allowDecrease && memRec.Cmp(currentMemReq) < 0 {
+				if r.Recorder != nil {
+					r.Recorder.Eventf(policy, nil, corev1.EventTypeNormal, "DecreaseSuppressed", "recommend",
+						"Memory decrease from %s to %s blocked by allowDecrease=false for container %s",
+						currentMemReq.String(), memRec.String(), containerName)
+				}
 				memRec = currentMemReq.DeepCopy()
 				memExplain.Final = memRec.DeepCopy()
 				memExplain.FinalAdjustment = "memory decrease blocked by allowDecrease=false"
