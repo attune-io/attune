@@ -148,6 +148,11 @@ type RightSizePolicyReconciler struct {
 	// it starts empty, so gauges from workloads that disappeared during the
 	// restart persist until the owning policy's next reconcile refreshes them.
 	gaugeKeys sync.Map // map[string][]gaugeKey
+
+	// discoveredPromMu guards the cached Prometheus auto-discovery result.
+	discoveredPromMu   sync.Mutex
+	discoveredPromAddr string
+	discoveredPromTime time.Time
 }
 
 // gaugeKey identifies a specific gauge label combination set by a policy.
@@ -1107,6 +1112,16 @@ func (r *RightSizePolicyReconciler) readSecretKey(ctx context.Context, namespace
 // by checking for the Prometheus Operator's Prometheus CRD, then falling back
 // to well-known service names.
 func (r *RightSizePolicyReconciler) discoverPrometheus(ctx context.Context) string {
+	const promDiscoveryCacheTTL = 5 * time.Minute
+
+	r.discoveredPromMu.Lock()
+	if r.discoveredPromAddr != "" && time.Since(r.discoveredPromTime) < promDiscoveryCacheTTL {
+		addr := r.discoveredPromAddr
+		r.discoveredPromMu.Unlock()
+		return addr
+	}
+	r.discoveredPromMu.Unlock()
+
 	logger := log.FromContext(ctx)
 
 	// Try Prometheus Operator CRD: monitoring.coreos.com/v1 Prometheus
@@ -1127,6 +1142,7 @@ func (r *RightSizePolicyReconciler) discoverPrometheus(ctx context.Context) stri
 			port = p
 		}
 		addr := fmt.Sprintf("http://prometheus-%s.%s:%d", name, ns, port)
+		r.cacheDiscoveredPrometheus(addr)
 		return addr
 	}
 
@@ -1146,11 +1162,19 @@ func (r *RightSizePolicyReconciler) discoverPrometheus(ctx context.Context) stri
 			}
 			addr := fmt.Sprintf("http://%s.%s:%d", svc.name, svc.namespace, port)
 			logger.V(1).Info("Found well-known Prometheus service", "address", addr)
+			r.cacheDiscoveredPrometheus(addr)
 			return addr
 		}
 	}
 
 	return ""
+}
+
+func (r *RightSizePolicyReconciler) cacheDiscoveredPrometheus(addr string) {
+	r.discoveredPromMu.Lock()
+	r.discoveredPromAddr = addr
+	r.discoveredPromTime = r.now()
+	r.discoveredPromMu.Unlock()
 }
 
 // selectPodsForResize selects pods eligible for resize based on the update mode.

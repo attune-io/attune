@@ -5377,6 +5377,28 @@ func TestDiscoverPrometheus_NoServiceFound(t *testing.T) {
 	assert.Empty(t, addr, "should return empty when no Prometheus service is found")
 }
 
+func TestDiscoverPrometheus_CachedResult(t *testing.T) {
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "prometheus-server",
+			Namespace: "monitoring",
+		},
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{{Port: 80}},
+		},
+	}
+	reconciler := newReconcilerWithClient(svc)
+
+	// First call discovers and caches.
+	addr1 := reconciler.discoverPrometheus(context.Background())
+	assert.Equal(t, "http://prometheus-server.monitoring:80", addr1)
+
+	// Second call returns cached result even after the service is deleted.
+	require.NoError(t, reconciler.Delete(context.Background(), svc))
+	addr2 := reconciler.discoverPrometheus(context.Background())
+	assert.Equal(t, addr1, addr2, "should return cached address")
+}
+
 func TestDiscoverPrometheus_OperatorCRD_DefaultPort(t *testing.T) {
 	prom := &unstructured.Unstructured{}
 	prom.SetGroupVersionKind(schema.GroupVersionKind{
