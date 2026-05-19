@@ -210,6 +210,67 @@ tests:
               cpu: 1000m
               memory: 1Gi
 
+  # --- maxConcurrentReconciles ---
+
+  - it: should not pass max-concurrent-reconciles when empty (default)
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --max-concurrent-reconciles=
+          any: true
+
+  - it: should pass explicit max-concurrent-reconciles
+    set:
+      maxConcurrentReconciles: 4
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --max-concurrent-reconciles=4
+
+  - it: should apply max-concurrent-reconciles from medium preset
+    set:
+      clusterSize: medium
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --max-concurrent-reconciles=2
+
+  - it: should apply max-concurrent-reconciles from xlarge preset
+    set:
+      clusterSize: xlarge
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --max-concurrent-reconciles=8
+
+  # --- watchNamespaces ---
+
+  - it: should not pass watch-namespaces when empty (default)
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --watch-namespaces=
+          any: true
+
+  - it: should pass watch-namespaces as comma-separated list
+    set:
+      watchNamespaces:
+        - production
+        - staging
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --watch-namespaces=production,staging
+
+  - it: should pass single watch-namespace
+    set:
+      watchNamespaces:
+        - my-namespace
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --watch-namespaces=my-namespace
+
   - it: should let explicit values override large preset
     set:
       clusterSize: large
