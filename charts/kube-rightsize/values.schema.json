@@ -280,6 +280,29 @@
             "maxTotalMemoryIncrease": {
               "type": "string",
               "description": "Per-cycle memory increase budget (e.g. 4Gi)"
+            },
+            "maxCpuChangePercent": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "description": "Maximum CPU change per resize as a percentage of current request"
+            },
+            "maxMemoryChangePercent": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "description": "Maximum memory change per resize as a percentage of current request"
+            },
+            "export": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "Export recommendations to a ConfigMap",
+              "properties": {
+                "configMapName": {
+                  "type": "string",
+                  "description": "Name of the ConfigMap to export recommendations to"
+                }
+              }
             }
           }
         }
@@ -325,8 +348,10 @@
       "additionalProperties": false,
       "properties": {
         "level": {
-          "type": "string",
-          "enum": ["debug", "info", "warn", "error"],
+          "oneOf": [
+            { "type": "string", "enum": ["debug", "info", "warn", "error"] },
+            { "type": "integer", "minimum": 0, "maximum": 10, "description": "Numeric V-level for verbose logging (e.g. 2 for trace)" }
+          ],
           "default": "info"
         },
         "format": {

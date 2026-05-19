@@ -38,4 +38,14 @@ spec:
     {{- with .Values.defaults.updateStrategy.maxTotalMemoryIncrease }}
     maxTotalMemoryIncrease: {{ . }}
     {{- end }}
+    {{- with .Values.defaults.updateStrategy.maxCpuChangePercent }}
+    maxCpuChangePercent: {{ . }}
+    {{- end }}
+    {{- with .Values.defaults.updateStrategy.maxMemoryChangePercent }}
+    maxMemoryChangePercent: {{ . }}
+    {{- end }}
+    {{- with .Values.defaults.updateStrategy.export }}
+    export:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
 {{- end }}
