@@ -64,6 +64,7 @@ func main() {
 	var collectorTTL time.Duration
 	var prometheusQPS float64
 	var prometheusBurst int
+	var maxConcurrentReconciles int
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metrics endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the health probe endpoint binds to.")
@@ -78,6 +79,8 @@ func main() {
 		"Maximum Prometheus queries per second. Increase for large clusters with many policies.")
 	flag.IntVar(&prometheusBurst, "prometheus-burst", 20,
 		"Maximum burst for Prometheus query throttle.")
+	flag.IntVar(&maxConcurrentReconciles, "max-concurrent-reconciles", 1,
+		"Maximum number of RightSizePolicy reconciles running in parallel. Increase for large clusters with many policies.")
 
 	opts := zap.Options{
 		Development: false,
@@ -97,6 +100,10 @@ func main() {
 	}
 	if prometheusBurst <= 0 {
 		setupLog.Error(fmt.Errorf("got %d", prometheusBurst), "prometheus-burst must be positive")
+		os.Exit(1)
+	}
+	if maxConcurrentReconciles <= 0 {
+		setupLog.Error(fmt.Errorf("got %d", maxConcurrentReconciles), "max-concurrent-reconciles must be positive")
 		os.Exit(1)
 	}
 
@@ -136,11 +143,12 @@ func main() {
 
 	// Setup the RightSizePolicyReconciler with a real Prometheus metrics factory and clientset.
 	if err = (&controller.RightSizePolicyReconciler{
-		Client:       mgr.GetClient(),
-		Scheme:       mgr.GetScheme(),
-		Clientset:    clientset,
-		Recorder:     mgr.GetEventRecorder("kube-rightsize"),
-		CollectorTTL: collectorTTL,
+		Client:                  mgr.GetClient(),
+		Scheme:                  mgr.GetScheme(),
+		Clientset:               clientset,
+		Recorder:                mgr.GetEventRecorder("kube-rightsize"),
+		CollectorTTL:            collectorTTL,
+		MaxConcurrentReconciles: maxConcurrentReconciles,
 		MetricsFactory: func(address string, opts *metrics.CollectorOptions) (metrics.MetricsCollector, error) {
 			collector, err := metrics.NewPrometheusCollectorWithOptions(address, ctrl.Log.WithName("prometheus"), opts)
 			if err != nil {

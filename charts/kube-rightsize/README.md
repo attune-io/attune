@@ -42,6 +42,7 @@ helm install kube-rightsize oci://ghcr.io/sebtardiflabs/charts/kube-rightsize \
 | logging | object | `{"format":"json","level":"info"}` | Logging configuration |
 | logging.format | string | `"json"` | Log format (json, text) |
 | logging.level | string | `"info"` | Log level (debug, info, warn, error) |
+| maxConcurrentReconciles | string | `""` | Maximum number of RightSizePolicy reconciles running in parallel. Increase for large clusters with many policies (e.g. 4 for 200+ policies). |
 | metrics | object | `{"enabled":true,"port":8080,"serviceMonitor":{"additionalLabels":{},"enabled":false,"interval":"30s"}}` | Metrics endpoint |
 | metrics.serviceMonitor.additionalLabels | object | `{}` | Additional labels for the ServiceMonitor |
 | metrics.serviceMonitor.enabled | bool | `false` | Create a ServiceMonitor for Prometheus Operator |

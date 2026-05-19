@@ -309,6 +309,11 @@
       "default": "10m",
       "description": "Cache TTL for unused Prometheus connections (Go duration, e.g. 10m, 1h30m)"
     },
+    "maxConcurrentReconciles": {
+      "type": ["integer", "string"],
+      "default": "",
+      "description": "Maximum number of RightSizePolicy reconciles running in parallel. Auto-set by clusterSize preset if empty."
+    },
     "logging": {
       "type": "object",
       "additionalProperties": false,

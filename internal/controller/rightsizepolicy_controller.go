@@ -44,6 +44,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	crcontroller "sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -133,14 +134,15 @@ const (
 // RightSizePolicyReconciler reconciles a RightSizePolicy object.
 type RightSizePolicyReconciler struct {
 	client.Client
-	Scheme         *runtime.Scheme
-	MetricsFactory MetricsCollectorFactory
-	Clientset      kubernetes.Interface // for resize subresource calls
-	Recorder       events.EventRecorder
-	MinCooldown    time.Duration // minimum cooldown floor (default: 1m)
-	CollectorTTL   time.Duration // how long unused collectors stay cached (default: 10m)
-	nowFunc        atomic.Pointer[func() time.Time]
-	collectors     sync.Map // map[string]*collectorEntry cache
+	Scheme                  *runtime.Scheme
+	MetricsFactory          MetricsCollectorFactory
+	Clientset               kubernetes.Interface // for resize subresource calls
+	Recorder                events.EventRecorder
+	MinCooldown             time.Duration // minimum cooldown floor (default: 1m)
+	CollectorTTL            time.Duration // how long unused collectors stay cached (default: 10m)
+	MaxConcurrentReconciles int           // max parallel reconcile goroutines (default: 1)
+	nowFunc                 atomic.Pointer[func() time.Time]
+	collectors              sync.Map // map[string]*collectorEntry cache
 	// gaugeKeys tracks which Prometheus gauge label combinations each policy
 	// set on its last reconcile. On the next reconcile, only these specific
 	// keys are deleted (not the entire namespace), preventing cross-policy
@@ -2760,7 +2762,12 @@ func (specOrDeletePredicate) Update(e event.UpdateEvent) bool {
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *RightSizePolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	maxConcurrent := r.MaxConcurrentReconciles
+	if maxConcurrent <= 0 {
+		maxConcurrent = 1
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&rightsizev1alpha1.RightSizePolicy{}, builder.WithPredicates(specOrDeletePredicate{})).
+		WithOptions(crcontroller.Options{MaxConcurrentReconciles: maxConcurrent}).
 		Complete(r)
 }

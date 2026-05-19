@@ -106,6 +106,22 @@ default (20), use the preset value. Otherwise use the explicit value.
 {{- end }}
 {{- end }}
 
+{{/*
+Resolve maxConcurrentReconciles: if clusterSize is set and
+maxConcurrentReconciles is empty (default), use the preset value.
+*/}}
+{{- define "kube-rightsize.maxConcurrentReconciles" -}}
+{{- if and .Values.clusterSize (not .Values.maxConcurrentReconciles) }}
+  {{- if eq .Values.clusterSize "small" }}1
+  {{- else if eq .Values.clusterSize "medium" }}2
+  {{- else if eq .Values.clusterSize "large" }}4
+  {{- else if eq .Values.clusterSize "xlarge" }}8
+  {{- else }}{{ .Values.maxConcurrentReconciles }}
+  {{- end }}
+{{- else }}{{ .Values.maxConcurrentReconciles }}
+{{- end }}
+{{- end }}
+
 {{- define "kube-rightsize.resources" -}}
 {{- if .Values.resources }}
 {{- toYaml .Values.resources }}

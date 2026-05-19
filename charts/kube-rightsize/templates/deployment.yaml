@@ -55,6 +55,10 @@ spec:
             {{- if .Values.collectorTTL }}
             - --collector-ttl={{ .Values.collectorTTL }}
             {{- end }}
+            {{- $mcr := include "kube-rightsize.maxConcurrentReconciles" . | trim }}
+            {{- if $mcr }}
+            - --max-concurrent-reconciles={{ $mcr }}
+            {{- end }}
             {{- with .Values.logging }}
             {{- if .level }}
             - --zap-log-level={{ .level }}

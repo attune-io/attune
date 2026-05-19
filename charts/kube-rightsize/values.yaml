@@ -148,6 +148,10 @@ prometheusBurst: 20
 # -- Collector cache TTL for unused Prometheus connections (Go duration, e.g. "10m", "1h")
 collectorTTL: "10m"
 
+# -- Maximum number of RightSizePolicy reconciles running in parallel.
+# Increase for large clusters with many policies (e.g. 4 for 200+ policies).
+maxConcurrentReconciles: ""
+
 # -- Logging configuration
 logging:
   # -- Log level (debug, info, warn, error)
