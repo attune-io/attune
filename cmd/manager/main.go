@@ -41,6 +41,7 @@ import (
 	"github.com/SebTardifLabs/kube-rightsize/internal/controller"
 	"github.com/SebTardifLabs/kube-rightsize/internal/metrics"
 	_ "github.com/SebTardifLabs/kube-rightsize/internal/operatormetrics"
+	"github.com/SebTardifLabs/kube-rightsize/internal/transform"
 	"github.com/SebTardifLabs/kube-rightsize/internal/webhook"
 )
 
@@ -154,6 +155,15 @@ func main() {
 			}
 			setupLog.Info("Namespace-scoped caching enabled", "namespaces", watchNamespaces)
 		}
+	}
+
+	// Strip unused fields from cached Pods to reduce informer memory at scale.
+	// See internal/transform/pod.go for the list of preserved vs stripped fields.
+	if mgrOpts.Cache.ByObject == nil {
+		mgrOpts.Cache.ByObject = make(map[client.Object]cache.ByObject)
+	}
+	mgrOpts.Cache.ByObject[&corev1.Pod{}] = cache.ByObject{
+		Transform: transform.StripPodFields,
 	}
 
 	// When webhooks are disabled, point the webhook server at a non-existent port
