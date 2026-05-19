@@ -472,12 +472,21 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	// Build podsByWorkload once so both executeResizes and applyStartupBoosts
 	// can reuse it, avoiding duplicate getPodsForWorkload calls per cycle.
+	// Only pre-fetch pods for workloads that have recommendations, not all
+	// discovered workloads (the fallback in executeResizes handles misses).
 	var podsByWorkload map[string][]corev1.Pod
 	needPods := isResizeMode(mode) && ((!cooldownActive && withinWindow) ||
 		(policy.Spec.CPU.StartupBoost != nil && r.Clientset != nil && len(recommendations) > 0))
 	if needPods {
-		podsByWorkload = make(map[string][]corev1.Pod, len(workloads))
+		recWorkloads := make(map[string]bool, len(recommendations))
+		for _, rec := range recommendations {
+			recWorkloads[rec.Workload] = true
+		}
+		podsByWorkload = make(map[string][]corev1.Pod, len(recWorkloads))
 		for _, w := range workloads {
+			if !recWorkloads[w.GetName()] {
+				continue
+			}
 			pods, err := r.getPodsForWorkload(ctx, w)
 			if err != nil {
 				logger.Error(err, "Failed to get pods for workload", "workload", w.GetName())

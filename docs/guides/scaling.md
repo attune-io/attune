@@ -96,7 +96,9 @@ internally).
    Within each policy, workloads are processed in parallel (up to 10
    concurrent workers). This means a single policy targeting 200 Deployments
    via label selector issues Prometheus queries concurrently instead of
-   serially, reducing recommendation latency from minutes to seconds.
+   serially, reducing recommendation latency from minutes to seconds. The
+   worker count is fixed; actual throughput is bounded by the Prometheus
+   QPS rate limiter, not goroutine count.
 
 2. **Prometheus query rate**. Symptom: reconcile queue grows,
    `kube_rightsize_reconcile_duration_seconds` P99 increases. Fix: increase

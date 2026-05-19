@@ -153,7 +153,7 @@ that do not set them explicitly. Policy-level values always take precedence.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `mode` | string | `Recommend` | `Recommend`, `Auto`, `Observe`, `OneShot` |
+| `mode` | string | `Recommend` | `Observe`, `Recommend`, `OneShot`, `Canary`, `Auto` |
 | `cooldown` | duration | `1h` | Minimum time between resizes |
 | `autoRevert` | bool | `true` | Revert unsafe resizes automatically |
 | `resizeMethod` | string | `InPlaceOnly` | `InPlaceOnly` or `InPlaceOrEvict` |
