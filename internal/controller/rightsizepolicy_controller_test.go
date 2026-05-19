@@ -1813,10 +1813,13 @@ func TestComputeRecommendations_BatchesQueriesPerWorkload(t *testing.T) {
 	})
 	reconciler := newReconcilerWithClient()
 
+	var mu sync.Mutex
 	calls := make(map[string]int)
 	mc := &mockCollector{
 		queryRangeGroupedFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) (map[string][]rsmetrics.Sample, error) {
+			mu.Lock()
 			calls[query]++
+			mu.Unlock()
 			return map[string][]rsmetrics.Sample{
 				"main":    generateSamples(200, 0.1),
 				"sidecar": generateSamples(200, 0.05),

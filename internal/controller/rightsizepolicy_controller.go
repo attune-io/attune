@@ -947,8 +947,21 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 	if queryStep != defaultPrometheusStep {
 		logger.V(1).Info("Using custom query step", "queryStep", queryStep)
 	}
-	cpuSamplesByContainer, cpuErr := queryMetricsGrouped(ctx, collector, policy.Namespace, podRegex, "cpu", start, now, queryStep)
-	memSamplesByContainer, memErr := queryMetricsGrouped(ctx, collector, policy.Namespace, podRegex, "memory", start, now, queryStep)
+	// Run CPU and memory queries concurrently. They are independent PromQL
+	// expressions against the same Prometheus instance. The rate limiter
+	// provides backpressure, so concurrent queries are safe.
+	var cpuSamplesByContainer, memSamplesByContainer map[string][]rsmetrics.Sample
+	var cpuErr, memErr bool
+	var qg errgroup.Group
+	qg.Go(func() error {
+		cpuSamplesByContainer, cpuErr = queryMetricsGrouped(ctx, collector, policy.Namespace, podRegex, "cpu", start, now, queryStep)
+		return nil
+	})
+	qg.Go(func() error {
+		memSamplesByContainer, memErr = queryMetricsGrouped(ctx, collector, policy.Namespace, podRegex, "memory", start, now, queryStep)
+		return nil
+	})
+	_ = qg.Wait()
 	if cpuErr {
 		queryErrors++
 		failedMetricTypes = append(failedMetricTypes, "CPU")
