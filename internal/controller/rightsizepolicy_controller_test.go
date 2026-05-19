@@ -1740,7 +1740,8 @@ func TestComputeRecommendations_AllowDecreaseBlocked(t *testing.T) {
 
 func TestComputeRecommendations_CPUAllowDecreaseBlocked(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
-	// CPU AllowDecrease is nil (default) — CPU decreases should be clamped.
+	// Explicitly disable CPU decreases. nil defaults to true for CPU.
+	policy.Spec.CPU.AllowDecrease = boolPtr(false)
 
 	deploy := newTestDeployment("api-server", "default", nil)
 	reconciler := newReconcilerWithClient()
@@ -1757,9 +1758,9 @@ func TestComputeRecommendations_CPUAllowDecreaseBlocked(t *testing.T) {
 	require.NotNil(t, rec)
 	require.Len(t, rec.Containers, 1)
 
-	// CPU should be clamped to current (500m) since AllowDecrease is nil.
+	// CPU should be clamped to current (500m) since AllowDecrease is explicitly false.
 	assert.True(t, rec.Containers[0].Recommended.CPURequest.Cmp(resource.MustParse("500m")) >= 0,
-		"CPU should not decrease below current when AllowDecrease is nil, got %s", rec.Containers[0].Recommended.CPURequest.String())
+		"CPU should not decrease below current when AllowDecrease is false, got %s", rec.Containers[0].Recommended.CPURequest.String())
 }
 
 func TestComputeRecommendations_RequestsOnly(t *testing.T) {

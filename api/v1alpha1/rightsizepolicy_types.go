@@ -213,7 +213,8 @@ type ResourceConfig struct {
 	BurstSensitivity *string `json:"burstSensitivity,omitempty"`
 
 	// AllowDecrease controls whether the resource value can be decreased.
-	// Only applicable to memory resources.
+	// For CPU: nil defaults to true (decreases allowed, throttle detected by safety monitor).
+	// For memory: nil defaults to false (decreases blocked to prevent OOMKill).
 	// +optional
 	AllowDecrease *bool `json:"allowDecrease,omitempty"`
 

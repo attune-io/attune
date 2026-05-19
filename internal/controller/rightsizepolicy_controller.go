@@ -1049,8 +1049,9 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 		// Compute CPU recommendation.
 		if cpuProfile.DataPoints >= int(minimumDataPoints) {
 			cpuRec, cpuExplain, _ := cpuEngine.RecommendWithExplanation(cpuProfile, currentCPUReq)
-			// Enforce AllowDecrease: skip CPU decreases unless explicitly allowed.
-			cpuAllowDecrease := policy.Spec.CPU.AllowDecrease != nil && *policy.Spec.CPU.AllowDecrease
+			// Enforce AllowDecrease: for CPU, nil defaults to true (decreases
+			// allowed) because CPU throttle is detected by the safety monitor.
+			cpuAllowDecrease := policy.Spec.CPU.AllowDecrease == nil || *policy.Spec.CPU.AllowDecrease
 			if !cpuAllowDecrease && cpuRec.Cmp(currentCPUReq) < 0 {
 				if r.Recorder != nil {
 					// Use a deterministic message (no fluctuating recommendation value)
@@ -1061,7 +1062,7 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 				}
 				cpuRec = currentCPUReq.DeepCopy()
 				cpuExplain.Final = cpuRec.DeepCopy()
-				cpuExplain.FinalAdjustment = "CPU decrease blocked by allowDecrease=false"
+				cpuExplain.FinalAdjustment = fmt.Sprintf("CPU decrease from %s to %s blocked by allowDecrease=false", currentCPUReq.String(), cpuRec.String())
 			}
 			rec.Recommended.CPURequest = cpuRec
 			explanation.CPU = toAPIRecommendationExplanation(cpuExplain)
@@ -1080,7 +1081,7 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 				}
 				memRec = currentMemReq.DeepCopy()
 				memExplain.Final = memRec.DeepCopy()
-				memExplain.FinalAdjustment = "memory decrease blocked by allowDecrease=false"
+				memExplain.FinalAdjustment = fmt.Sprintf("memory decrease from %s to %s blocked by allowDecrease=false", currentMemReq.String(), memRec.String())
 			}
 			rec.Recommended.MemoryRequest = memRec
 			explanation.Memory = toAPIRecommendationExplanation(memExplain)

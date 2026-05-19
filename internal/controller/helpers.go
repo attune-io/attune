@@ -894,9 +894,10 @@ func parseHHMM(s string) int {
 	return h*60 + m
 }
 
-// updateStatusWithRetry performs a status update with a retry on conflict.
-// If the first attempt fails with a conflict, it re-fetches the policy,
-// re-applies the status fields, and retries once.
+// updateStatusWithRetry performs a status update with up to 4 attempts
+// (3 retries + 1 final) on conflict. On each conflict it re-fetches the
+// policy and re-applies the saved status fields, preserving the higher
+// Resized count from concurrent reconciles.
 func (r *RightSizePolicyReconciler) updateStatusWithRetry(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy, key types.NamespacedName) error {
 	const maxRetries = 3
 	logger := log.FromContext(ctx)
