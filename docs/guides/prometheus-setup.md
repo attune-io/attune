@@ -134,7 +134,8 @@ in common namespaces:
 | `prometheus` | `prometheus-server` |
 | `kube-prometheus-stack` | `prometheus-kube-prometheus-prometheus` |
 
-If found, port 9090 is assumed.
+If found, the actual port from the Service spec is used (falls back to 9090
+if no ports are defined).
 
 !!! warning "Service port vs process port"
     The Prometheus *process* listens on port 9090, but the Helm chart's
