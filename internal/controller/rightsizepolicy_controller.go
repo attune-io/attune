@@ -480,9 +480,12 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	if policy.Spec.UpdateStrategy.Mode == rightsizev1alpha1.UpdateModeObserve {
 		logger.V(1).Info("Observe mode: recommendations computed but not surfaced in status",
 			"workloadsWithRecs", len(recommendations))
+		// Reset savings gauges in Observe mode so they don't show stale values.
+		updateSavingsGauges(policy.Namespace, nil, nil)
 	} else {
 		policy.Status.Recommendations = recommendations
-		policy.Status.Savings = r.computeSavings(policy.Namespace, recommendations, defaults)
+		policy.Status.Savings = r.computeSavings(recommendations, defaults)
+		updateSavingsGauges(policy.Namespace, recommendations, defaults)
 	}
 
 	// Export recommendations to ConfigMaps for GitOps workflows if configured.

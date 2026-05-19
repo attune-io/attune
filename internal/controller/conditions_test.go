@@ -570,7 +570,7 @@ func TestComputeSavings_EstimatedMonthlySavings(t *testing.T) {
 		},
 	}
 
-	savings := r.computeSavings("default", recommendations, nil)
+	savings := r.computeSavings(recommendations, nil)
 	assert.NotEmpty(t, savings.EstimatedMonthlySavings)
 	// 0.5 cores * $0.031/hr * 730 hrs + 0.5 GiB * $0.004/hr * 730 hrs
 	// = $11.315 + $1.46 = $12.78
@@ -613,7 +613,7 @@ func TestComputeSavings_CustomCostPricing(t *testing.T) {
 		},
 	}
 
-	savings := r.computeSavings("default", recommendations, defaults)
+	savings := r.computeSavings(recommendations, defaults)
 	// 0.5 cores * $0.10/hr * 730 hrs + 0.5 GiB * $0.01/hr * 730 hrs
 	// = $36.50 + $3.65 = $40.15
 	assert.Equal(t, "$40.15", savings.EstimatedMonthlySavings)

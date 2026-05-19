@@ -191,7 +191,7 @@ const (
 )
 
 // computeSavings calculates the aggregate resource savings across all recommendations.
-func (r *RightSizePolicyReconciler) computeSavings(namespace string, recommendations []rightsizev1alpha1.WorkloadRecommendation, defaults *rightsizev1alpha1.RightSizeDefaults) rightsizev1alpha1.SavingsStatus {
+func (r *RightSizePolicyReconciler) computeSavings(recommendations []rightsizev1alpha1.WorkloadRecommendation, defaults *rightsizev1alpha1.RightSizeDefaults) rightsizev1alpha1.SavingsStatus {
 	var totalCPUSaved, totalMemSaved int64
 	var totalCPUIncrease, totalMemIncrease int64
 	var totalCPU, totalMem int64
@@ -237,21 +237,15 @@ func (r *RightSizePolicyReconciler) computeSavings(namespace string, recommendat
 		savings.MemoryRequestIncrease = resource.NewQuantity(totalMemIncrease, resource.BinarySI).String()
 	}
 
-	// Always update gauges so they reset to zero when savings disappear.
-	// Without this, stale values persist until the policy is deleted.
+	cpuPrice, memPrice := getCostPricing(defaults)
+
 	cpuCoresSaved := float64(totalCPUSaved) / 1000.0
 	memGiBSaved := float64(totalMemSaved) / (1024 * 1024 * 1024)
-	operatormetrics.SavingsCPU.WithLabelValues(namespace).Set(cpuCoresSaved)
-	operatormetrics.SavingsMemory.WithLabelValues(namespace).Set(float64(totalMemSaved))
-
-	cpuPrice, memPrice := getCostPricing(defaults)
 	monthlySavings := (cpuCoresSaved*cpuPrice + memGiBSaved*memPrice) * hoursPerMonth
-	operatormetrics.SavingsEstimatedMonthly.WithLabelValues(namespace).Set(monthlySavings)
 	if monthlySavings > 0 {
 		savings.EstimatedMonthlySavings = fmt.Sprintf("$%.2f", monthlySavings)
 	}
 
-	// Cost increase for under-provisioned workloads.
 	cpuCoresIncrease := float64(totalCPUIncrease) / 1000.0
 	memGiBIncrease := float64(totalMemIncrease) / (1024 * 1024 * 1024)
 	monthlyCostIncrease := (cpuCoresIncrease*cpuPrice + memGiBIncrease*memPrice) * hoursPerMonth
@@ -260,6 +254,34 @@ func (r *RightSizePolicyReconciler) computeSavings(namespace string, recommendat
 	}
 
 	return savings
+}
+
+// updateSavingsGauges publishes savings metrics to Prometheus gauges.
+// Called from Reconcile after computeSavings. Separated so computeSavings
+// remains a pure function that tests can call without registering collectors.
+func updateSavingsGauges(namespace string, recommendations []rightsizev1alpha1.WorkloadRecommendation, defaults *rightsizev1alpha1.RightSizeDefaults) {
+	var totalCPUSaved, totalMemSaved int64
+	for _, rec := range recommendations {
+		for _, c := range rec.Containers {
+			cpuDiff := c.Current.CPURequest.MilliValue() - c.Recommended.CPURequest.MilliValue()
+			if cpuDiff > 0 {
+				totalCPUSaved += cpuDiff
+			}
+			memDiff := c.Current.MemoryRequest.Value() - c.Recommended.MemoryRequest.Value()
+			if memDiff > 0 {
+				totalMemSaved += memDiff
+			}
+		}
+	}
+
+	cpuCoresSaved := float64(totalCPUSaved) / 1000.0
+	memGiBSaved := float64(totalMemSaved) / (1024 * 1024 * 1024)
+	operatormetrics.SavingsCPU.WithLabelValues(namespace).Set(cpuCoresSaved)
+	operatormetrics.SavingsMemory.WithLabelValues(namespace).Set(float64(totalMemSaved))
+
+	cpuPrice, memPrice := getCostPricing(defaults)
+	monthlySavings := (cpuCoresSaved*cpuPrice + memGiBSaved*memPrice) * hoursPerMonth
+	operatormetrics.SavingsEstimatedMonthly.WithLabelValues(namespace).Set(monthlySavings)
 }
 
 // getCostPricing reads pricing from RightSizeDefaults, falling back to defaults.
