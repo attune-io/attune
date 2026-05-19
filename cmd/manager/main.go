@@ -68,6 +68,7 @@ func main() {
 	var prometheusBurst int
 	var maxConcurrentReconciles int
 	var watchNamespaces string
+	var prometheusTimeout time.Duration
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metrics endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the health probe endpoint binds to.")
@@ -87,6 +88,9 @@ func main() {
 	flag.StringVar(&watchNamespaces, "watch-namespaces", "",
 		"Comma-separated list of namespaces to watch. Empty means all namespaces (cluster-scoped). "+
 			"Reduces informer cache memory on large clusters where policies exist in a few namespaces.")
+	flag.DurationVar(&prometheusTimeout, "prometheus-timeout", 5*time.Minute,
+		"Maximum time allowed for Prometheus queries during a single reconciliation cycle. "+
+			"If exceeded, partial results are used and the status condition indicates the timeout.")
 
 	opts := zap.Options{
 		Development: false,
@@ -110,6 +114,10 @@ func main() {
 	}
 	if maxConcurrentReconciles <= 0 {
 		setupLog.Error(fmt.Errorf("got %d", maxConcurrentReconciles), "max-concurrent-reconciles must be positive")
+		os.Exit(1)
+	}
+	if prometheusTimeout <= 0 {
+		setupLog.Error(fmt.Errorf("got %s", prometheusTimeout), "prometheus-timeout must be positive")
 		os.Exit(1)
 	}
 
@@ -175,6 +183,7 @@ func main() {
 		Recorder:                mgr.GetEventRecorder("kube-rightsize"),
 		CollectorTTL:            collectorTTL,
 		MaxConcurrentReconciles: maxConcurrentReconciles,
+		PrometheusTimeout:       prometheusTimeout,
 		MetricsFactory: func(address string, opts *metrics.CollectorOptions) (metrics.MetricsCollector, error) {
 			collector, err := metrics.NewPrometheusCollectorWithOptions(address, ctrl.Log.WithName("prometheus"), opts)
 			if err != nil {

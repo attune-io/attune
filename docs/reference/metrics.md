@@ -208,6 +208,71 @@ Duration of webhook validation and defaulting operations.
 |-------|-------------|
 | `operation` | `validate_create`, `validate_update`, `defaulting`, `defaults_validate_create`, `defaults_validate_update`, `namespace_defaults_validate_create`, or `namespace_defaults_validate_update` |
 
+## Controller-runtime Workqueue Metrics
+
+These metrics are auto-registered by controller-runtime for the
+`RightSizePolicy` reconciler workqueue. They are critical for diagnosing
+reconcile backlog and throughput at scale.
+
+### workqueue_depth
+
+Current depth of the reconcile workqueue (number of items waiting to be
+processed).
+
+| Label | Description |
+|-------|-------------|
+| `name` | Queue name (e.g. `rightsizepolicy`) |
+
+### workqueue_adds_total
+
+Total number of items added to the workqueue.
+
+| Label | Description |
+|-------|-------------|
+| `name` | Queue name |
+
+### workqueue_queue_duration_seconds
+
+Time an item spends waiting in the queue before being processed (histogram).
+
+| Label | Description |
+|-------|-------------|
+| `name` | Queue name |
+
+### workqueue_work_duration_seconds
+
+Time spent processing an item from the queue (histogram).
+
+| Label | Description |
+|-------|-------------|
+| `name` | Queue name |
+
+### workqueue_retries_total
+
+Total number of item retries (requeue after error).
+
+| Label | Description |
+|-------|-------------|
+| `name` | Queue name |
+
+### workqueue_longest_running_processor_seconds
+
+Duration of the longest currently running processor (gauge). A sustained
+high value indicates a stuck or very slow reconciliation.
+
+| Label | Description |
+|-------|-------------|
+| `name` | Queue name |
+
+### workqueue_unfinished_work_seconds
+
+Time that unfinished work has been in progress (gauge). Complements
+`longest_running_processor_seconds` by measuring aggregate backlog age.
+
+| Label | Description |
+|-------|-------------|
+| `name` | Queue name |
+
 ## Example PromQL queries
 
 Total successful resizes in the last 24 hours:
@@ -247,4 +312,22 @@ Prometheus query error rate:
 
 ```promql
 sum(rate(kube_rightsize_prometheus_query_errors_total[5m]))
+```
+
+Reconcile queue depth (backlog indicator):
+
+```promql
+workqueue_depth{name="rightsizepolicy"}
+```
+
+Average time items wait in the queue before processing:
+
+```promql
+histogram_quantile(0.99, rate(workqueue_queue_duration_seconds_bucket{name="rightsizepolicy"}[5m]))
+```
+
+Reconcile throughput (items processed per second):
+
+```promql
+rate(workqueue_adds_total{name="rightsizepolicy"}[5m])
 ```

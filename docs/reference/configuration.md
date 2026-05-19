@@ -102,6 +102,12 @@ This page documents every value in the Helm chart's `values.yaml`.
 |-----|------|---------|-------------|
 | `collectorTTL` | string | `"10m"` | How long unused Prometheus collectors stay cached before eviction. Maps to the `--collector-ttl` manager flag. Increase if policies frequently rotate Prometheus addresses; decrease in memory-constrained environments. |
 
+## Prometheus Query Timeout
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `prometheusTimeout` | string | `"5m"` | Maximum time allowed for Prometheus queries during a single reconciliation cycle. Maps to the `--prometheus-timeout` manager flag. If exceeded, the reconciler uses partial results and surfaces the timeout in the policy's status condition. Increase for clusters with slow Prometheus instances or very large numbers of workloads per policy. |
+
 ## Namespace Scoping
 
 | Key | Type | Default | Description |
@@ -185,6 +191,77 @@ spec:
       daysOfWeek: [Monday, Tuesday, Wednesday, Thursday, Friday]
       timezone: UTC
 ```
+
+## CRD Configuration (RightSizeNamespaceDefaults)
+
+`RightSizeNamespaceDefaults` provides namespace-scoped default values that
+override cluster-scoped `RightSizeDefaults`. Policies in the same namespace
+inherit these values unless they specify their own.
+
+**Precedence order:** policy spec > namespace defaults > cluster defaults > built-in defaults
+
+The spec is identical to `RightSizeDefaults` (all fields in
+`RightSizeDefaultsSpec` are available). When multiple
+`RightSizeNamespaceDefaults` objects exist in the same namespace, the
+lexicographically smallest `metadata.name` wins.
+
+### Use case
+
+Different environments often need different right-sizing parameters.
+Production namespaces may use higher safety margins and conservative
+modes, while staging namespaces can be more aggressive:
+
+```yaml
+apiVersion: rightsize.io/v1alpha1
+kind: RightSizeNamespaceDefaults
+metadata:
+  name: production-defaults
+  namespace: production
+spec:
+  cpu:
+    percentile: 99
+    safetyMargin: "1.3"
+  memory:
+    percentile: 99
+    safetyMargin: "1.5"
+    allowDecrease: false
+  updateStrategy:
+    mode: Canary
+    cooldown: 2h
+    autoRevert: true
+---
+apiVersion: rightsize.io/v1alpha1
+kind: RightSizeNamespaceDefaults
+metadata:
+  name: staging-defaults
+  namespace: staging
+spec:
+  cpu:
+    percentile: 95
+    safetyMargin: "1.1"
+  memory:
+    percentile: 95
+    safetyMargin: "1.2"
+  updateStrategy:
+    mode: Auto
+    cooldown: 30m
+```
+
+See the full example in
+[`examples/11-namespace-defaults.yaml`](https://github.com/SebTardifLabs/kube-rightsize/blob/main/examples/11-namespace-defaults.yaml).
+
+### Available Fields
+
+All fields from `RightSizeDefaults` are available in
+`RightSizeNamespaceDefaults`:
+
+| Section | Fields |
+|---------|--------|
+| `metricsSource` | `prometheus.address`, `historyWindow`, `minimumDataPoints`, `queryStep` |
+| `cpu` | `percentile`, `safetyMargin`, `bounds`, `controlledValues`, `burstSensitivity`, `allowDecrease`, `startupBoost` |
+| `memory` | Same as `cpu` |
+| `updateStrategy` | `mode`, `cooldown`, `autoRevert`, `resizeMethod`, `maxCpuChangePercent`, `maxMemoryChangePercent`, `maxConcurrentResizes`, `maxTotalCpuIncrease`, `maxTotalMemoryIncrease`, `schedule`, `export` |
+| `costPricing` | `cpuPerCoreHour`, `memoryPerGiBHour` |
 
 ### Status Conditions
 

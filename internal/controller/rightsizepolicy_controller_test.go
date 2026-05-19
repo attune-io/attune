@@ -7810,7 +7810,7 @@ func TestSetReadyCondition(t *testing.T) {
 			policy.Generation = 5
 
 			r.setReadyCondition(policy, tt.workloadCount, tt.workloadsWithRecs,
-				tt.totalQueryErrors, tt.queryErrorTypes, tt.maxDataPoints)
+				tt.totalQueryErrors, tt.queryErrorTypes, tt.maxDataPoints, false)
 
 			cond := meta.FindStatusCondition(policy.Status.Conditions, rightsizev1alpha1.ConditionReady)
 			require.NotNil(t, cond, "Ready condition must be set")

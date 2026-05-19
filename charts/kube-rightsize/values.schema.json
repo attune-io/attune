@@ -333,6 +333,12 @@
       "default": "10m",
       "description": "Cache TTL for unused Prometheus connections (Go duration, e.g. 10m, 1h30m)"
     },
+    "prometheusTimeout": {
+      "type": "string",
+      "pattern": "^([0-9]+(ns|us|ms|s|m|h))+$",
+      "default": "5m",
+      "description": "Maximum time for Prometheus queries per reconciliation cycle (Go duration, e.g. 5m, 10m)"
+    },
     "maxConcurrentReconciles": {
       "type": ["integer", "string"],
       "minimum": 1,

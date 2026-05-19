@@ -148,6 +148,7 @@ type RightSizePolicyReconciler struct {
 	MinCooldown             time.Duration // minimum cooldown floor (default: 1m)
 	CollectorTTL            time.Duration // how long unused collectors stay cached (default: 10m)
 	MaxConcurrentReconciles int           // max parallel reconcile goroutines (default: 1)
+	PrometheusTimeout       time.Duration // max time for Prometheus queries per reconcile (default: 5m)
 	nowFunc                 atomic.Pointer[func() time.Time]
 	collectors              sync.Map // map[string]*collectorEntry cache
 	// gaugeKeys tracks which Prometheus gauge label combinations each policy
@@ -433,8 +434,22 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{RequeueAfter: r.parseCooldown(&policy)}, nil
 	}
 
-	// Step 4-8: Process each workload.
-	wpResult := r.processWorkloads(ctx, &policy, workloads, collector)
+	// Step 4-8: Process each workload with a timeout to prevent indefinite
+	// stalls when Prometheus is unresponsive.
+	promTimeout := r.PrometheusTimeout
+	if promTimeout <= 0 {
+		promTimeout = 5 * time.Minute
+	}
+	workloadCtx, workloadCancel := context.WithTimeout(ctx, promTimeout)
+	defer workloadCancel()
+	wpResult := r.processWorkloads(workloadCtx, &policy, workloads, collector)
+	promTimedOut := workloadCtx.Err() == context.DeadlineExceeded
+	if promTimedOut {
+		logger.Info("Prometheus query timeout exceeded, using partial results",
+			"timeout", promTimeout,
+			"workloadsProcessed", wpResult.workloadsWithRecs,
+			"workloadsTotal", len(workloads))
+	}
 	recommendations := wpResult.recommendations
 	workloadsWithRecs := wpResult.workloadsWithRecs
 	globalMaxDataPoints := wpResult.maxDataPoints
@@ -584,7 +599,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	policy.Status.Workloads.Pending = pending
 
 	// Set Ready condition.
-	r.setReadyCondition(&policy, len(workloads), workloadsWithRecs, totalQueryErrors, queryErrorTypes, globalMaxDataPoints)
+	r.setReadyCondition(&policy, len(workloads), workloadsWithRecs, totalQueryErrors, queryErrorTypes, globalMaxDataPoints, promTimedOut)
 
 	// Set Resizing condition.
 	r.setResizingCondition(&policy, cooldownActive)
@@ -753,6 +768,7 @@ func (r *RightSizePolicyReconciler) setReadyCondition(
 	totalQueryErrors int,
 	queryErrorTypes map[string]struct{},
 	maxDataPoints int,
+	promTimedOut bool,
 ) {
 	blockedDataTypes := "CPU and/or memory"
 	_, cpuFailed := queryErrorTypes["CPU"]
@@ -771,6 +787,9 @@ func (r *RightSizePolicyReconciler) setReadyCondition(
 		if totalQueryErrors > 0 {
 			message = fmt.Sprintf("%s; Prometheus query errors (%d) prevented %s data collection for part of the recommendation set, check operator logs",
 				message, totalQueryErrors, blockedDataTypes)
+		}
+		if promTimedOut {
+			message += "; Prometheus query timeout exceeded, some workloads may have incomplete data"
 		}
 		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
 			Type:               rightsizev1alpha1.ConditionReady,
@@ -793,7 +812,10 @@ func (r *RightSizePolicyReconciler) setReadyCondition(
 		maxDataPoints, minimumDP,
 		progressPercent(maxDataPoints, int(minimumDP)),
 		eta.Truncate(time.Minute))
-	if totalQueryErrors > 0 {
+	if promTimedOut {
+		reason = rightsizev1alpha1.ReasonPrometheusUnavailable
+		message = fmt.Sprintf("Prometheus query timeout exceeded after %s; some workloads may not have been queried", r.PrometheusTimeout)
+	} else if totalQueryErrors > 0 {
 		reason = rightsizev1alpha1.ReasonPrometheusUnavailable
 		message = fmt.Sprintf("Prometheus query errors (%d) prevented %s data collection; check operator logs", totalQueryErrors, blockedDataTypes)
 	}
@@ -810,6 +832,8 @@ func (r *RightSizePolicyReconciler) setReadyCondition(
 // RightSizePolicy is being deleted. Only pods tagged with annotationPolicy
 // matching this policy's name are cleaned. After cleanup, the finalizer is
 // removed so Kubernetes can garbage-collect the resource.
+//
+//nolint:unparam // ctrl.Result is always zero but the signature matches controller-runtime convention
 func (r *RightSizePolicyReconciler) handleDeletion(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 

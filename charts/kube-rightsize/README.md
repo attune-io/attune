@@ -21,7 +21,7 @@ helm install kube-rightsize oci://ghcr.io/sebtardiflabs/charts/kube-rightsize \
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | affinity | object | `{}` | Affinity rules |
-| clusterSize | string | `""` | See docs/guides/scaling.md for what each preset configures. |
+| clusterSize | string | `""` | Cluster size preset: sets resources, rate limits, and replica count. Valid values: small, medium, large, xlarge, or "" (no preset). Any explicitly set value overrides the preset. See docs/guides/scaling.md for details. |
 | collectorTTL | string | `"10m"` | Collector cache TTL for unused Prometheus connections (Go duration, e.g. "10m", "1h") |
 | defaults | object | `{"enabled":false,"updateStrategy":{"autoRevert":true,"cooldown":"1h","maxConcurrentResizes":1,"mode":"Recommend","resizeMethod":"InPlaceOnly"}}` | Cluster-wide defaults (creates a RightSizeDefaults CR) |
 | defaults.enabled | bool | `false` | Create a RightSizeDefaults resource with the values below |
@@ -56,16 +56,17 @@ helm install kube-rightsize oci://ghcr.io/sebtardiflabs/charts/kube-rightsize \
 | podSecurityContext | object | `{"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}}` | Pod security context |
 | priorityClassName | string | `""` | Priority class name for the operator pod (recommended: system-cluster-critical for production) |
 | prometheusBurst | int | `20` | Prometheus query burst allowance. |
-| prometheusQPS | int | `10` | Higher values reduce reconcile latency but increase Prometheus load. |
+| prometheusQPS | int | `10` | Prometheus query rate limit (queries per second). Higher values reduce reconcile latency but increase Prometheus load. |
+| prometheusTimeout | string | `"5m"` | Maximum time allowed for Prometheus queries during a single reconciliation cycle (Go duration). If exceeded, partial results are used and the status condition indicates the timeout. |
 | replicaCount | int | `1` | Number of operator replicas (use 2 for HA with leader election) |
-| resources | or "small" if clusterSize is also empty | `{}` | . Set explicit values for production. |
+| resources | object | `{}` | Operator pod resources. When empty, defaults are derived from clusterSize (or "small" if clusterSize is also empty). Set explicit values for production. |
 | securityContext | object | `{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true,"runAsGroup":65532,"runAsNonRoot":true,"runAsUser":65532}` | Container security context |
 | serviceAccount.annotations | object | `{}` | Annotations to add to the ServiceAccount |
 | serviceAccount.create | bool | `true` | Create a ServiceAccount |
 | serviceAccount.name | string | `""` | ServiceAccount name (generated if not set) |
 | tolerations | list | `[]` | Tolerations |
 | topologySpreadConstraints | list | `[]` | Topology spread constraints |
-| watchNamespaces | list | `[]` | Cluster-scoped resources (Nodes, RightSizeDefaults) are always watched. |
+| watchNamespaces | list | `[]` | Namespaces to watch for RightSizePolicy resources. Empty means all namespaces (cluster-scoped). Set this to reduce informer cache memory on large clusters where policies exist in only a few namespaces. Cluster-scoped resources (Nodes, RightSizeDefaults) are always watched regardless. |
 | webhooks | object | `{"enabled":true}` | Webhook configuration (requires cert-manager installed in the cluster) |
 | webhooks.enabled | bool | `true` | Enable admission webhooks for defaulting and validation. Requires cert-manager to be installed for TLS certificate provisioning. |
 

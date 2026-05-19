@@ -76,6 +76,20 @@ tests:
           path: spec.template.spec.containers[0].args
           content: --collector-ttl=1h30m
 
+  - it: should pass prometheus-timeout arg with default value
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --prometheus-timeout=5m
+
+  - it: should pass custom prometheus-timeout arg
+    set:
+      prometheusTimeout: "10m"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --prometheus-timeout=10m
+
   - it: should disable metrics server when metrics disabled
     set:
       metrics.enabled: false

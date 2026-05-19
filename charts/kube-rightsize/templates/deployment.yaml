@@ -55,6 +55,9 @@ spec:
             {{- if .Values.collectorTTL }}
             - --collector-ttl={{ .Values.collectorTTL }}
             {{- end }}
+            {{- if .Values.prometheusTimeout }}
+            - --prometheus-timeout={{ .Values.prometheusTimeout }}
+            {{- end }}
             {{- $mcr := include "kube-rightsize.maxConcurrentReconciles" . | trim }}
             {{- if $mcr }}
             - --max-concurrent-reconciles={{ $mcr }}
