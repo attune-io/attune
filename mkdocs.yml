@@ -68,6 +68,8 @@ nav:
       - Algorithm: architecture/algorithm.md
       - Resize API: architecture/resize-api.md
       - Safety: architecture/safety.md
+  - Community:
+      - CNCF Landscape: community/cncf-landscape.md
   - Contributing:
       - Development: contributing/development.md
       - Testing: contributing/testing.md
