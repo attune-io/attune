@@ -57,7 +57,7 @@ helm install kube-rightsize oci://ghcr.io/sebtardiflabs/charts/kube-rightsize \
 | priorityClassName | string | `""` | Priority class name for the operator pod (recommended: system-cluster-critical for production) |
 | prometheusBurst | int | `20` | Prometheus query burst allowance. |
 | prometheusQPS | int | `10` | Prometheus query rate limit (queries per second). Higher values reduce reconcile latency but increase Prometheus load. |
-| prometheusTimeout | string | `"5m"` | Maximum time allowed for Prometheus queries during a single reconciliation cycle (Go duration). If exceeded, partial results are used and the status condition indicates the timeout. |
+| prometheusTimeout | string | `"5m"` | Maximum time for workload processing (including Prometheus queries) per reconciliation cycle (Go duration). If exceeded, partial results are used and the status condition indicates the timeout. |
 | replicaCount | int | `1` | Number of operator replicas (use 2 for HA with leader election) |
 | resources | object | `{}` | Operator pod resources. When empty, defaults are derived from clusterSize (or "small" if clusterSize is also empty). Set explicit values for production. |
 | securityContext | object | `{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true,"runAsGroup":65532,"runAsNonRoot":true,"runAsUser":65532}` | Container security context |

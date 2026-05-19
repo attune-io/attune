@@ -326,7 +326,7 @@ Average time items wait in the queue before processing:
 histogram_quantile(0.99, rate(workqueue_queue_duration_seconds_bucket{name="rightsizepolicy"}[5m]))
 ```
 
-Reconcile throughput (items processed per second):
+Reconcile enqueue rate (items added to queue per second):
 
 ```promql
 rate(workqueue_adds_total{name="rightsizepolicy"}[5m])

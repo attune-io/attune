@@ -7824,6 +7824,18 @@ func TestSetReadyCondition(t *testing.T) {
 			wantReason:        rightsizev1alpha1.ReasonPrometheusUnavailable,
 			wantMsgContains:   "Prometheus query timeout exceeded after 5m0s",
 		},
+		{
+			name:              "ready with timeout and query errors combined",
+			workloadCount:     10,
+			workloadsWithRecs: 3,
+			totalQueryErrors:  4,
+			queryErrorTypes:   map[string]struct{}{"CPU": {}},
+			promTimedOut:      true,
+			promTimeout:       5 * time.Minute,
+			wantStatus:        metav1.ConditionTrue,
+			wantReason:        rightsizev1alpha1.ReasonMonitoring,
+			wantMsgContains:   "Prometheus query timeout exceeded",
+		},
 	}
 
 	for _, tt := range tests {
@@ -7835,7 +7847,7 @@ func TestSetReadyCondition(t *testing.T) {
 			policy.Generation = 5
 
 			r.setReadyCondition(policy, tt.workloadCount, tt.workloadsWithRecs,
-				tt.totalQueryErrors, tt.queryErrorTypes, tt.maxDataPoints, tt.promTimedOut)
+				tt.totalQueryErrors, tt.queryErrorTypes, tt.maxDataPoints, tt.promTimedOut, tt.promTimeout)
 
 			cond := meta.FindStatusCondition(policy.Status.Conditions, rightsizev1alpha1.ConditionReady)
 			require.NotNil(t, cond, "Ready condition must be set")

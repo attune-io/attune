@@ -447,7 +447,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	if promTimedOut {
 		logger.Info("Prometheus query timeout exceeded, using partial results",
 			"timeout", promTimeout,
-			"workloadsProcessed", wpResult.workloadsWithRecs,
+			"workloadsWithRecommendations", wpResult.workloadsWithRecs,
 			"workloadsTotal", len(workloads))
 	}
 	recommendations := wpResult.recommendations
@@ -599,7 +599,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	policy.Status.Workloads.Pending = pending
 
 	// Set Ready condition.
-	r.setReadyCondition(&policy, len(workloads), workloadsWithRecs, totalQueryErrors, queryErrorTypes, globalMaxDataPoints, promTimedOut)
+	r.setReadyCondition(&policy, len(workloads), workloadsWithRecs, totalQueryErrors, queryErrorTypes, globalMaxDataPoints, promTimedOut, promTimeout)
 
 	// Set Resizing condition.
 	r.setResizingCondition(&policy, cooldownActive)
@@ -769,6 +769,7 @@ func (r *RightSizePolicyReconciler) setReadyCondition(
 	queryErrorTypes map[string]struct{},
 	maxDataPoints int,
 	promTimedOut bool,
+	effectiveTimeout time.Duration,
 ) {
 	blockedDataTypes := "CPU and/or memory"
 	_, cpuFailed := queryErrorTypes["CPU"]
@@ -814,7 +815,7 @@ func (r *RightSizePolicyReconciler) setReadyCondition(
 		eta.Truncate(time.Minute))
 	if promTimedOut {
 		reason = rightsizev1alpha1.ReasonPrometheusUnavailable
-		message = fmt.Sprintf("Prometheus query timeout exceeded after %s; some workloads may not have been queried", r.PrometheusTimeout)
+		message = fmt.Sprintf("Prometheus query timeout exceeded after %s; some workloads may not have been queried", effectiveTimeout)
 	} else if totalQueryErrors > 0 {
 		reason = rightsizev1alpha1.ReasonPrometheusUnavailable
 		message = fmt.Sprintf("Prometheus query errors (%d) prevented %s data collection; check operator logs", totalQueryErrors, blockedDataTypes)

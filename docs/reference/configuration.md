@@ -106,7 +106,7 @@ This page documents every value in the Helm chart's `values.yaml`.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `prometheusTimeout` | string | `"5m"` | Maximum time allowed for Prometheus queries during a single reconciliation cycle. Maps to the `--prometheus-timeout` manager flag. If exceeded, the reconciler uses partial results and surfaces the timeout in the policy's status condition. Increase for clusters with slow Prometheus instances or very large numbers of workloads per policy. |
+| `prometheusTimeout` | string | `"5m"` | Maximum time allowed for workload processing (including Prometheus queries) during a single reconciliation cycle. Maps to the `--prometheus-timeout` manager flag. If exceeded, the reconciler uses partial results and surfaces the timeout in the policy's status condition. Increase for clusters with slow Prometheus instances or very large numbers of workloads per policy. |
 
 ## Namespace Scoping
 

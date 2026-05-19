@@ -144,7 +144,7 @@ prometheusBurst: 20
 # -- Collector cache TTL for unused Prometheus connections (Go duration, e.g. "10m", "1h")
 collectorTTL: "10m"
 
-# -- Maximum time allowed for Prometheus queries during a single reconciliation cycle (Go duration). If exceeded, partial results are used and the status condition indicates the timeout.
+# -- Maximum time for workload processing (including Prometheus queries) per reconciliation cycle (Go duration). If exceeded, partial results are used and the status condition indicates the timeout.
 prometheusTimeout: "5m"
 
 # -- Maximum number of RightSizePolicy reconciles running in parallel.

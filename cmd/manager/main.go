@@ -89,7 +89,7 @@ func main() {
 		"Comma-separated list of namespaces to watch. Empty means all namespaces (cluster-scoped). "+
 			"Reduces informer cache memory on large clusters where policies exist in a few namespaces.")
 	flag.DurationVar(&prometheusTimeout, "prometheus-timeout", 5*time.Minute,
-		"Maximum time allowed for Prometheus queries during a single reconciliation cycle. "+
+		"Maximum time allowed for workload processing (including Prometheus queries) during a single reconciliation cycle. "+
 			"If exceeded, partial results are used and the status condition indicates the timeout.")
 
 	opts := zap.Options{
