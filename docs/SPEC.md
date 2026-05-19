@@ -283,6 +283,14 @@ status:
       to: "150m"
       method: InPlace
       result: Success
+    - timestamp: "2026-01-15T09:05:00Z"
+      workload: worker
+      container: app
+      resource: cpu+memory
+      from: ""
+      to: ""
+      method: Eviction
+      result: Evicted
 ```
 
 #### CRD Validation (CEL Rules)
@@ -792,7 +800,7 @@ kube_rightsize_savings_cpu_cores_total{namespace}
 kube_rightsize_savings_memory_bytes_total{namespace}
 
 # Resize operations
-kube_rightsize_resize_total{namespace, workload, resource, result}  # result: success|failed|reverted
+kube_rightsize_resize_total{namespace, workload, resource, result}  # result: success|failed|reverted (resource may be cpu|memory|eviction)
 kube_rightsize_resize_duration_seconds{namespace, workload}
 
 # Safety

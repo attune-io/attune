@@ -320,6 +320,13 @@ func TestPrintHistory(t *testing.T) {
 						"to":        "384Mi",
 						"result":    "Reverted",
 					},
+					map[string]interface{}{
+						"timestamp": "2026-05-10T14:00:00Z",
+						"workload":  "my-deploy",
+						"container": "app",
+						"resource":  "cpu+memory",
+						"result":    "Evicted",
+					},
 				},
 			},
 		},
@@ -355,6 +362,7 @@ func TestPrintHistory(t *testing.T) {
 	assert.Contains(t, output, "250m")
 	assert.Contains(t, output, "Success")
 	assert.Contains(t, output, "Reverted")
+	assert.Contains(t, output, "Evicted")
 }
 
 func TestPrintHistory_NoHistory(t *testing.T) {

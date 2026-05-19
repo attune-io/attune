@@ -87,7 +87,7 @@ kubectl rightsize history -n production
 | TIMESTAMP | When the resize occurred |
 | WORKLOAD | Name of the resized workload |
 | CONTAINER | Container that was resized |
-| RESOURCE | `cpu` or `memory` |
+| RESOURCE | `cpu`, `memory`, or `cpu+memory` |
 | FROM | Previous resource value |
 | TO | New resource value |
 | RESULT | `Success`, `Failed`, `Reverted`, or `Evicted` |

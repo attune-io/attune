@@ -135,6 +135,39 @@ func (r *RightSizePolicyReconciler) executeResizes(
 	if policy.Spec.UpdateStrategy.MaxTotalMemoryIncrease != nil {
 		memBudget = policy.Spec.UpdateStrategy.MaxTotalMemoryIncrease.Value()
 	}
+	reserveBudget := func(cpuIncrease, memIncrease int64) bool {
+		budgetMu.Lock()
+		defer budgetMu.Unlock()
+
+		budgetExceeded := (cpuBudget >= 0 && cpuIncrease > cpuBudget) ||
+			(memBudget >= 0 && memIncrease > memBudget)
+		if budgetExceeded {
+			return false
+		}
+		if cpuBudget >= 0 {
+			cpuBudget -= cpuIncrease
+		}
+		if memBudget >= 0 {
+			memBudget -= memIncrease
+		}
+		return true
+	}
+	refundBudget := func(cpuRefund, memRefund int64) {
+		budgetMu.Lock()
+		defer budgetMu.Unlock()
+
+		if cpuBudget >= 0 {
+			cpuBudget += cpuRefund
+		}
+		if memBudget >= 0 {
+			memBudget += memRefund
+		}
+	}
+	removeInPlaceSuccessHistory := func(entries []rightsizev1alpha1.ResizeHistoryEntry) []rightsizev1alpha1.ResizeHistoryEntry {
+		return slices.DeleteFunc(entries, func(entry rightsizev1alpha1.ResizeHistoryEntry) bool {
+			return entry.Method == "InPlace" && entry.Result == rightsizev1alpha1.ResizeResultSuccess
+		})
+	}
 
 	// Concurrency control: semaphore limits parallel resize calls.
 	concurrency := int(policy.Spec.UpdateStrategy.MaxConcurrentResizes)
@@ -200,6 +233,10 @@ func (r *RightSizePolicyReconciler) executeResizes(
 				defer wg.Done()
 				defer func() { <-sem }() // release semaphore
 
+				var podHistory []rightsizev1alpha1.ResizeHistoryEntry
+				var podReservedCPU, podReservedMem int64
+				podResized := false
+
 				// Containers within the same pod must resize sequentially.
 				// Each UpdateResize bumps resourceVersion; using a stale copy
 				// for the next container causes a 409 Conflict.
@@ -209,19 +246,7 @@ func (r *RightSizePolicyReconciler) executeResizes(
 
 					// Reserve budget before resizing so concurrent goroutines cannot
 					// overspend the cap. Refund it below if the resize did not stick.
-					budgetMu.Lock()
-					budgetExceeded := (cpuBudget >= 0 && cpuIncrease > cpuBudget) ||
-						(memBudget >= 0 && memIncrease > memBudget)
-					if !budgetExceeded {
-						if cpuBudget >= 0 {
-							cpuBudget -= cpuIncrease
-						}
-						if memBudget >= 0 {
-							memBudget -= memIncrease
-						}
-					}
-					budgetMu.Unlock()
-					if budgetExceeded {
+					if !reserveBudget(cpuIncrease, memIncrease) {
 						logger.Info("Budget exhausted, deferring resize to next cycle",
 							"pod", pod.Name, "container", containerRec.Name)
 						operatormetrics.BudgetExhaustedTotal.WithLabelValues(policy.Namespace, policy.Name).Inc()
@@ -244,32 +269,22 @@ func (r *RightSizePolicyReconciler) executeResizes(
 						Now:          now,
 						Checks:       checks,
 					})
-					historyMu.Lock()
-					history = append(history, entries...)
-					historyMu.Unlock()
 					if outcome == resizeOutcomeNone {
-						budgetMu.Lock()
-						if cpuBudget >= 0 {
-							cpuBudget += cpuIncrease
-						}
-						if memBudget >= 0 {
-							memBudget += memIncrease
-						}
-						budgetMu.Unlock()
+						podHistory = append(podHistory, entries...)
+						refundBudget(cpuIncrease, memIncrease)
 						continue
 					}
 					if outcome == resizeOutcomeEvicted {
-						budgetMu.Lock()
-						if cpuBudget >= 0 {
-							cpuBudget += cpuIncrease
-						}
-						if memBudget >= 0 {
-							memBudget += memIncrease
-						}
-						budgetMu.Unlock()
+						refundBudget(cpuIncrease+podReservedCPU, memIncrease+podReservedMem)
+						podHistory = removeInPlaceSuccessHistory(podHistory)
+						podHistory = append(podHistory, entries...)
+						podResized = false
 						break
 					}
-					atomic.AddInt32(&workloadResized, 1)
+					podHistory = append(podHistory, entries...)
+					podReservedCPU += cpuIncrease
+					podReservedMem += memIncrease
+					podResized = true
 					// Re-fetch pod from API server to get fresh resourceVersion
 					// for the next container's UpdateResize call.
 					freshPod, err := r.Clientset.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
@@ -280,6 +295,14 @@ func (r *RightSizePolicyReconciler) executeResizes(
 							"pod", pod.Name)
 						break
 					}
+				}
+				if len(podHistory) > 0 {
+					historyMu.Lock()
+					history = append(history, podHistory...)
+					historyMu.Unlock()
+				}
+				if podResized {
+					atomic.AddInt32(&workloadResized, 1)
 				}
 			}()
 		}

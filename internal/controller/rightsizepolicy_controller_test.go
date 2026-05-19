@@ -6553,6 +6553,116 @@ func TestExecuteResizes_EvictionDoesNotConsumeBudgetNeededByNextPod(t *testing.T
 	assert.True(t, succeeded, "the next pod should still resize successfully in the same cycle")
 }
 
+func TestExecuteResizes_MixedOutcomePodDoesNotLeakSuccessOrBudget(t *testing.T) {
+	apiPod1 := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
+	apiPod1.Name = "api-server-abc-1"
+	apiPod1.Spec.Containers = append(apiPod1.Spec.Containers, corev1.Container{
+		Name:  "sidecar",
+		Image: "busybox",
+		Resources: corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("100m"),
+				corev1.ResourceMemory: resource.MustParse("64Mi"),
+			},
+			Limits: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("100m"),
+				corev1.ResourceMemory: resource.MustParse("64Mi"),
+			},
+		},
+	})
+	apiPod2 := apiPod1.DeepCopy()
+	apiPod2.Name = "api-server-abc-2"
+	workerPod := newResizePod("worker", "200m", "256Mi", "200m", "256Mi")
+	workerPod.Name = "worker-abc-1"
+
+	apiDeploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	workerDeploy := newTestDeployment("worker", "default", map[string]string{"app": "worker"})
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(apiDeploy, workerDeploy, apiPod1, apiPod2, workerPod).Build()
+	clientset := kubefake.NewSimpleClientset(apiPod1.DeepCopy(), apiPod2.DeepCopy(), workerPod.DeepCopy())
+	clientset.PrependReactor("update", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if action.GetSubresource() != "resize" {
+			return false, nil, nil
+		}
+		updated := action.(k8stesting.UpdateAction).GetObject().(*corev1.Pod)
+		if updated.Name != apiPod1.Name {
+			return false, nil, nil
+		}
+		for _, c := range updated.Spec.Containers {
+			if c.Name == "sidecar" && c.Resources.Requests.Cpu().MilliValue() == 200 {
+				return true, nil, fmt.Errorf("simulated sidecar resize failure")
+			}
+		}
+		return false, nil, nil
+	})
+	reconciler := &RightSizePolicyReconciler{
+		Client:    fakeClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeAuto
+	policy.Spec.UpdateStrategy.ResizeMethod = rightsizev1alpha1.ResizeMethodInPlaceOrEvict
+	policy.Spec.UpdateStrategy.MaxConcurrentResizes = 1
+	cpuBudget := resource.MustParse("400m")
+	policy.Spec.UpdateStrategy.MaxTotalCPUIncrease = &cpuBudget
+
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "api-server",
+			Kind:     "Deployment",
+			Containers: []rightsizev1alpha1.ContainerRecommendation{
+				{
+					Name: "main",
+					Current: rightsizev1alpha1.ResourceValues{
+						CPURequest: resource.MustParse("200m"), MemoryRequest: resource.MustParse("256Mi"),
+					},
+					Recommended: rightsizev1alpha1.ResourceValues{
+						CPURequest: resource.MustParse("500m"), MemoryRequest: resource.MustParse("256Mi"),
+					},
+				},
+				{
+					Name: "sidecar",
+					Current: rightsizev1alpha1.ResourceValues{
+						CPURequest: resource.MustParse("100m"), MemoryRequest: resource.MustParse("64Mi"),
+					},
+					Recommended: rightsizev1alpha1.ResourceValues{
+						CPURequest: resource.MustParse("200m"), MemoryRequest: resource.MustParse("64Mi"),
+					},
+				},
+			},
+		},
+		newResizeRecommendation("worker", "200m", "256Mi", "200m", "256Mi", "500m", "256Mi", "500m", "256Mi"),
+	}
+
+	count, history := reconciler.executeResizes(context.Background(), policy,
+		[]client.Object{apiDeploy, workerDeploy}, recommendations,
+		map[string][]corev1.Pod{"api-server": {*apiPod1}, "worker": {*workerPod}}, nil, nil)
+
+	assert.Equal(t, 1, count, "only the worker workload should count as resized after api-server falls back to eviction")
+
+	apiSuccesses := 0
+	workerSuccesses := 0
+	apiEvictions := 0
+	for _, h := range history {
+		if h.Workload == "api-server" && h.Method == "InPlace" && h.Result == rightsizev1alpha1.ResizeResultSuccess {
+			apiSuccesses++
+		}
+		if h.Workload == "worker" && h.Method == "InPlace" && h.Result == rightsizev1alpha1.ResizeResultSuccess {
+			workerSuccesses++
+		}
+		if h.Workload == "api-server" && h.Method == "Eviction" && h.Result == rightsizev1alpha1.ResizeResultEvicted {
+			apiEvictions++
+		}
+	}
+	assert.Equal(t, 0, apiSuccesses, "eviction fallback should clear earlier in-place success history for the same pod")
+	assert.Equal(t, 2, workerSuccesses, "worker workload should still resize after api-server refunds its reserved budget")
+	assert.Equal(t, 1, apiEvictions, "api-server should record the fallback eviction explicitly")
+}
+
 func TestExecuteResizes_BudgetCapsRevertDoesNotConsumeBudget(t *testing.T) {
 	pod1 := newResizePodWithStatus("api-server", "200m", "256Mi", "200m", "256Mi", 0)
 	pod1.Name = "api-server-abc-1"

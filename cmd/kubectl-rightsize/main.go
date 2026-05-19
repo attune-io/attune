@@ -60,7 +60,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "  savings           Show estimated CPU/memory savings per policy")
 		fmt.Fprintln(os.Stderr, "  recommendations   Show per-container sizing recommendations")
 		fmt.Fprintln(os.Stderr, "  explain           Show recommendation reasoning for one policy")
-		fmt.Fprintln(os.Stderr, "  history           Show resize history (timestamp, from/to, result)")
+		fmt.Fprintln(os.Stderr, "  history           Show resize history (including eviction fallbacks)")
 		fmt.Fprintln(os.Stderr, "  version           Print plugin version")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Flags:")
@@ -643,6 +643,6 @@ func printHistory(ctx context.Context, dynClient dynamic.Interface, namespace st
 		fmt.Fprintf(os.Stderr, "Error flushing output: %v\n", err)
 	}
 	if !hasEntries {
-		fmt.Fprintf(os.Stderr, "\nNo resize history found. Resizes are recorded in Canary, OneShot, and Auto modes.\n")
+		fmt.Fprintf(os.Stderr, "\nNo resize history found. In-place resizes and eviction fallbacks are recorded in Canary, OneShot, and Auto modes.\n")
 	}
 }
