@@ -5893,6 +5893,19 @@ func (f *failOnPodUpdateClient) Update(ctx context.Context, obj client.Object, o
 	return f.Client.Update(ctx, obj, opts...)
 }
 
+type failOnNamedPodUpdateClient struct {
+	client.Client
+	failPodName string
+}
+
+func (f *failOnNamedPodUpdateClient) Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
+	if pod, ok := obj.(*corev1.Pod); ok && pod.Name == f.failPodName {
+		f.failPodName = ""
+		return fmt.Errorf("simulated annotation update failure")
+	}
+	return f.Client.Update(ctx, obj, opts...)
+}
+
 func TestExecuteResizes_RevertsOnReFetchFailure(t *testing.T) {
 	pod := newResizePodWithStatus("api-server", "500m", "512Mi", "1000m", "1Gi", 0)
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
@@ -6359,6 +6372,139 @@ func TestExecuteResizes_BudgetCapsExactlyEqualsPasses(t *testing.T) {
 	count, _ := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
 		recommendations, podMap("api-server", pod), nil, nil)
 	assert.Equal(t, 1, count, "increase exactly equal to budget should proceed")
+}
+
+func TestExecuteResizes_BudgetCapsClampedTargetUsesAppliedIncrease(t *testing.T) {
+	pod := newResizePod("api-server", "500m", "256Mi", "600m", "256Mi")
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	reconciler, _ := newResizeReconciler(pod, deploy)
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeAuto
+	cpuBudget := resource.MustParse("100m")
+	policy.Spec.UpdateStrategy.MaxTotalCPUIncrease = &cpuBudget
+
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("api-server", "500m", "256Mi", "600m", "256Mi", "800m", "256Mi", "600m", "256Mi"),
+	}
+
+	count, _ := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
+		recommendations, podMap("api-server", pod), nil, nil)
+	assert.Equal(t, 1, count, "budget should use the clamped applied increase, not the raw recommendation delta")
+}
+
+func TestExecuteResizes_BudgetCapsSkipDoesNotConsumeBudget(t *testing.T) {
+	pod1 := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
+	pod1.Name = "api-server-abc-1"
+	pod1.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU] = resource.MustParse("500m")
+	pod2 := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
+	pod2.Name = "api-server-abc-2"
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod1, pod2).Build()
+	clientset := kubefake.NewSimpleClientset(pod1.DeepCopy(), pod2.DeepCopy())
+	reconciler := &RightSizePolicyReconciler{
+		Client:    fakeClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeAuto
+	cpuBudget := resource.MustParse("300m")
+	policy.Spec.UpdateStrategy.MaxTotalCPUIncrease = &cpuBudget
+
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("api-server", "200m", "256Mi", "0", "0", "500m", "256Mi", "0", "0"),
+	}
+
+	count, _ := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
+		recommendations, podMap("api-server", pod1, pod2), nil, nil)
+	assert.Equal(t, 1, count, "a skipped pod should not consume budget needed by another pod")
+}
+
+func TestExecuteResizes_BudgetCapsResizeFailureDoesNotConsumeBudget(t *testing.T) {
+	pod1 := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
+	pod1.Name = "api-server-abc-1"
+	pod2 := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
+	pod2.Name = "api-server-abc-2"
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod1, pod2).Build()
+	clientset := kubefake.NewSimpleClientset(pod1.DeepCopy(), pod2.DeepCopy())
+	failedPod := pod1.Name
+	clientset.PrependReactor("update", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if action.GetSubresource() != "resize" {
+			return false, nil, nil
+		}
+		updated := action.(k8stesting.UpdateAction).GetObject().(*corev1.Pod)
+		if updated.Name == failedPod {
+			failedPod = ""
+			return true, nil, fmt.Errorf("simulated resize failure")
+		}
+		return false, nil, nil
+	})
+	reconciler := &RightSizePolicyReconciler{
+		Client:    fakeClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeAuto
+	cpuBudget := resource.MustParse("300m")
+	policy.Spec.UpdateStrategy.MaxTotalCPUIncrease = &cpuBudget
+
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("api-server", "200m", "256Mi", "0", "0", "500m", "256Mi", "0", "0"),
+	}
+
+	count, history := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
+		recommendations, map[string][]corev1.Pod{"api-server": {*pod1, *pod2}}, nil, nil)
+	assert.Equal(t, 1, count, "a failed resize should not consume budget needed by another pod")
+	require.NotEmpty(t, history)
+	assert.Contains(t, []rightsizev1alpha1.ResizeResult{history[0].Result}, rightsizev1alpha1.ResizeResultFailed)
+}
+
+func TestExecuteResizes_BudgetCapsRevertDoesNotConsumeBudget(t *testing.T) {
+	pod1 := newResizePodWithStatus("api-server", "200m", "256Mi", "200m", "256Mi", 0)
+	pod1.Name = "api-server-abc-1"
+	pod2 := newResizePodWithStatus("api-server", "200m", "256Mi", "200m", "256Mi", 0)
+	pod2.Name = "api-server-abc-2"
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod1, pod2).Build()
+	clientset := kubefake.NewSimpleClientset(pod1.DeepCopy(), pod2.DeepCopy())
+	wrappedClient := &failOnNamedPodUpdateClient{Client: fakeClient, failPodName: pod1.Name}
+	reconciler := &RightSizePolicyReconciler{
+		Client:    wrappedClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeAuto
+	cpuBudget := resource.MustParse("300m")
+	policy.Spec.UpdateStrategy.MaxTotalCPUIncrease = &cpuBudget
+
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("api-server", "200m", "256Mi", "0", "0", "500m", "256Mi", "0", "0"),
+	}
+
+	count, history := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
+		recommendations, map[string][]corev1.Pod{"api-server": {*pod1, *pod2}}, nil, nil)
+	assert.Equal(t, 1, count, "a reverted resize should not consume budget needed by another pod")
+	reverted := false
+	for _, h := range history {
+		if h.Result == rightsizev1alpha1.ResizeResultReverted {
+			reverted = true
+			break
+		}
+	}
+	assert.True(t, reverted, "history should contain a reverted entry for the failed first pod")
 }
 
 func TestExecuteResizes_ConcurrentResizes(t *testing.T) {

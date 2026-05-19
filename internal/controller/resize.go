@@ -68,6 +68,26 @@ func selectPodsForResize(pods []corev1.Pod, mode rightsizev1alpha1.UpdateMode, c
 	}
 }
 
+// budgetIncrease returns the positive live-pod request increase needed to
+// reach the clamped resize target. Decreases do not consume per-cycle budget.
+func budgetIncrease(pod *corev1.Pod, containerName string, target corev1.ResourceRequirements) (cpuMilli int64, memBytes int64) {
+	for _, c := range slices.Concat(pod.Spec.InitContainers, pod.Spec.Containers) {
+		if c.Name != containerName {
+			continue
+		}
+		cpuMilli = target.Requests.Cpu().MilliValue() - c.Resources.Requests.Cpu().MilliValue()
+		memBytes = target.Requests.Memory().Value() - c.Resources.Requests.Memory().Value()
+		if cpuMilli < 0 {
+			cpuMilli = 0
+		}
+		if memBytes < 0 {
+			memBytes = 0
+		}
+		return cpuMilli, memBytes
+	}
+	return 0, 0
+}
+
 // executeResizes performs the actual pod resizes for all workloads with recommendations.
 func (r *RightSizePolicyReconciler) executeResizes(
 	ctx context.Context,
@@ -184,34 +204,34 @@ func (r *RightSizePolicyReconciler) executeResizes(
 				// Each UpdateResize bumps resourceVersion; using a stale copy
 				// for the next container causes a 409 Conflict.
 				for _, containerRec := range rec.Containers {
-					// Check per-cycle budget caps before resizing (under lock).
+					target := buildResizeTarget(containerRec)
+					cpuIncrease, memIncrease := budgetIncrease(&pod, containerRec.Name, target)
+
+					// Reserve budget before resizing so concurrent goroutines cannot
+					// overspend the cap. Refund it below if the resize did not stick.
 					budgetMu.Lock()
-					if cpuBudget >= 0 || memBudget >= 0 {
-						cpuIncrease := containerRec.Recommended.CPURequest.MilliValue() - containerRec.Current.CPURequest.MilliValue()
-						memIncrease := containerRec.Recommended.MemoryRequest.Value() - containerRec.Current.MemoryRequest.Value()
-						if cpuIncrease < 0 {
-							cpuIncrease = 0
+					budgetExceeded := (cpuBudget >= 0 && cpuIncrease > cpuBudget) ||
+						(memBudget >= 0 && memIncrease > memBudget)
+					if !budgetExceeded {
+						if cpuBudget >= 0 {
+							cpuBudget -= cpuIncrease
 						}
-						if memIncrease < 0 {
-							memIncrease = 0
+						if memBudget >= 0 {
+							memBudget -= memIncrease
 						}
-						if (cpuBudget >= 0 && cpuIncrease > cpuBudget) ||
-							(memBudget >= 0 && memIncrease > memBudget) {
-							budgetMu.Unlock()
-							logger.Info("Budget exhausted, deferring resize to next cycle",
-								"pod", pod.Name, "container", containerRec.Name)
-							operatormetrics.BudgetExhaustedTotal.WithLabelValues(policy.Namespace, policy.Name).Inc()
-							if r.Recorder != nil {
-								r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "BudgetExhausted", "resize",
-									"Resize deferred for pod %s container %s: per-cycle budget exhausted",
-									pod.Name, containerRec.Name)
-							}
-							continue
-						}
-						cpuBudget -= cpuIncrease
-						memBudget -= memIncrease
 					}
 					budgetMu.Unlock()
+					if budgetExceeded {
+						logger.Info("Budget exhausted, deferring resize to next cycle",
+							"pod", pod.Name, "container", containerRec.Name)
+						operatormetrics.BudgetExhaustedTotal.WithLabelValues(policy.Namespace, policy.Name).Inc()
+						if r.Recorder != nil {
+							r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "BudgetExhausted", "resize",
+								"Resize deferred for pod %s container %s: per-cycle budget exhausted",
+								pod.Name, containerRec.Name)
+						}
+						continue
+					}
 
 					entries, resized := r.resizeContainer(ctx, resizeParams{
 						Policy:       policy,
@@ -227,18 +247,27 @@ func (r *RightSizePolicyReconciler) executeResizes(
 					historyMu.Lock()
 					history = append(history, entries...)
 					historyMu.Unlock()
-					if resized {
-						atomic.AddInt32(&workloadResized, 1)
-						// Re-fetch pod from API server to get fresh resourceVersion
-						// for the next container's UpdateResize call.
-						freshPod, err := r.Clientset.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
-						if err == nil {
-							pod = *freshPod
-						} else {
-							logger.Error(err, "Failed to re-fetch pod after container resize, remaining containers will be deferred",
-								"pod", pod.Name)
-							break
+					if !resized {
+						budgetMu.Lock()
+						if cpuBudget >= 0 {
+							cpuBudget += cpuIncrease
 						}
+						if memBudget >= 0 {
+							memBudget += memIncrease
+						}
+						budgetMu.Unlock()
+						continue
+					}
+					atomic.AddInt32(&workloadResized, 1)
+					// Re-fetch pod from API server to get fresh resourceVersion
+					// for the next container's UpdateResize call.
+					freshPod, err := r.Clientset.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
+					if err == nil {
+						pod = *freshPod
+					} else {
+						logger.Error(err, "Failed to re-fetch pod after container resize, remaining containers will be deferred",
+							"pod", pod.Name)
+						break
 					}
 				}
 			}()
