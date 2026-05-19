@@ -95,9 +95,14 @@ func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizeP
 		}
 	}
 
-	// targetRef must have name or selector
-	if (policy.Spec.TargetRef.Name == nil || *policy.Spec.TargetRef.Name == "") && policy.Spec.TargetRef.Selector == nil {
+	// targetRef must have name or selector, but not both.
+	hasName := policy.Spec.TargetRef.Name != nil && *policy.Spec.TargetRef.Name != ""
+	hasSelector := policy.Spec.TargetRef.Selector != nil
+	if !hasName && !hasSelector {
 		return warnings, fmt.Errorf("targetRef must specify either name or selector")
+	}
+	if hasName && hasSelector {
+		return warnings, fmt.Errorf("targetRef must specify name or selector, not both")
 	}
 
 	// Validate safetyMargin is a valid positive float.

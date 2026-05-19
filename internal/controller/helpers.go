@@ -879,27 +879,31 @@ func parseHHMM(s string) int {
 // If the first attempt fails with a conflict, it re-fetches the policy,
 // re-applies the status fields, and retries once.
 func (r *RightSizePolicyReconciler) updateStatusWithRetry(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy, key types.NamespacedName) error {
-	err := r.Status().Update(ctx, policy)
-	if err == nil {
-		return nil
-	}
-	if !apierrors.IsConflict(err) {
-		return err
-	}
-
-	// Conflict: re-fetch and retry, preserving the higher Resized count.
-	// A concurrent reconcile may have already set Resized > 0; we must not
-	// overwrite it with 0 from our stale snapshot.
+	const maxRetries = 3
 	logger := log.FromContext(ctx)
-	logger.Info("Status update conflict, retrying")
-	savedStatus := policy.Status.DeepCopy()
-	if fetchErr := r.Get(ctx, key, policy); fetchErr != nil {
-		return fetchErr
-	}
-	fetchedResized := policy.Status.Workloads.Resized
-	policy.Status = *savedStatus
-	if fetchedResized > policy.Status.Workloads.Resized {
-		policy.Status.Workloads.Resized = fetchedResized
+
+	for attempt := range maxRetries {
+		err := r.Status().Update(ctx, policy)
+		if err == nil {
+			return nil
+		}
+		if !apierrors.IsConflict(err) {
+			return err
+		}
+
+		// Conflict: re-fetch and retry, preserving the higher Resized count.
+		// A concurrent reconcile may have already set Resized > 0; we must not
+		// overwrite it with 0 from our stale snapshot.
+		logger.Info("Status update conflict, retrying", "attempt", attempt+1, "maxRetries", maxRetries)
+		savedStatus := policy.Status.DeepCopy()
+		if fetchErr := r.Get(ctx, key, policy); fetchErr != nil {
+			return fetchErr
+		}
+		fetchedResized := policy.Status.Workloads.Resized
+		policy.Status = *savedStatus
+		if fetchedResized > policy.Status.Workloads.Resized {
+			policy.Status.Workloads.Resized = fetchedResized
+		}
 	}
 	return r.Status().Update(ctx, policy)
 }
