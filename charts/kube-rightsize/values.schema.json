@@ -335,6 +335,7 @@
     },
     "maxConcurrentReconciles": {
       "type": ["integer", "string"],
+      "minimum": 1,
       "default": "",
       "description": "Maximum number of RightSizePolicy reconciles running in parallel. Auto-set by clusterSize preset if empty."
     },

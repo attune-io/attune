@@ -29,6 +29,9 @@ tests:
       - equal:
           path: spec.updateStrategy.maxConcurrentResizes
           value: 1
+      - equal:
+          path: spec.updateStrategy.cooldown
+          value: "1h"
 
   - it: should render autoRevert false when explicitly disabled
     set:
