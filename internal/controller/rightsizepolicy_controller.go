@@ -469,7 +469,10 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 	// Observe mode: collect data and track progress but don't surface
 	// recommendations. This gives a zero-footprint data-collection phase.
-	if policy.Spec.UpdateStrategy.Mode != rightsizev1alpha1.UpdateModeObserve {
+	if policy.Spec.UpdateStrategy.Mode == rightsizev1alpha1.UpdateModeObserve {
+		logger.V(1).Info("Observe mode: recommendations computed but not surfaced in status",
+			"workloadsWithRecs", len(recommendations))
+	} else {
 		policy.Status.Recommendations = recommendations
 		policy.Status.Savings = r.computeSavings(policy.Namespace, recommendations, defaults)
 	}
@@ -2430,6 +2433,8 @@ func (r *RightSizePolicyReconciler) applyStartupBoosts(
 	logger := log.FromContext(ctx)
 	multiplier, err := strconv.ParseFloat(boostConfig.Multiplier, 64)
 	if err != nil || multiplier <= 1 {
+		logger.V(1).Info("Startup boost multiplier invalid or <= 1, skipping boost",
+			"multiplier", boostConfig.Multiplier, "parseError", err)
 		return
 	}
 	boostDuration := boostConfig.Duration.Duration
@@ -2807,7 +2812,15 @@ func (r *RightSizePolicyReconciler) exportRecommendationConfigMaps(
 			continue
 		}
 		existing.Data = data
-		existing.Labels = cm.Labels
+		// Merge operator labels into existing labels instead of replacing
+		// all labels. This preserves labels set by users, GitOps tools, or
+		// other controllers.
+		if existing.Labels == nil {
+			existing.Labels = make(map[string]string)
+		}
+		for k, v := range cm.Labels {
+			existing.Labels[k] = v
+		}
 		if updateErr := r.Update(ctx, &existing); updateErr != nil {
 			logger.Error(updateErr, "Failed to update recommendation ConfigMap", "configmap", cmName)
 		} else {
