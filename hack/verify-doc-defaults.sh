@@ -157,7 +157,7 @@ check_default "memPricing (calculator)" \
 
 # --- prometheusTimeout: Go code, values.yaml, configuration.md ---
 check_default "prometheusTimeout (Go default)" \
-  '5 \* time.Minute' \
+  'promTimeout = 5 \* time.Minute' \
   "internal/controller/rightsizepolicy_controller.go"
 check_default "prometheusTimeout (values.yaml)" \
   'prometheusTimeout: "5m"' \
