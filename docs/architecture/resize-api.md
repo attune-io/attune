@@ -68,7 +68,7 @@ observation and revert tracking:
 | `rightsize.io/original-restart-count.<container>` | Container restart count at resize time (per container) |
 | `rightsize.io/original-cpu-limit.<container>` | CPU limit before the resize (when limit is non-zero) |
 | `rightsize.io/original-memory-limit.<container>` | Memory limit before the resize (when limit is non-zero) |
-| `rightsize.io/policy` | Name of the RightSizePolicy managing this pod (used for finalizer cleanup) |
+| `rightsize.io/policy` | Name of the RightSizePolicy managing this pod (used for safety observation provenance checks and finalizer cleanup) |
 | `rightsize.io/startup-boost-at` | RFC 3339 timestamp when a startup CPU boost was applied |
 
 These annotations are removed once the safety observation period completes

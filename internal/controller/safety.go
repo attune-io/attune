@@ -165,12 +165,8 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 		// Provenance check: only process pods owned by this policy AND whose
 		// tracked workload matches this policy's targets. Prevents cross-policy
 		// interference and spoofed annotations from triggering reverts.
-		policyAnn := pod.Annotations[annotationPolicy]
-		if policyAnn != "" && policyAnn != policy.Name {
-			continue
-		}
-		trackedWorkload := pod.Annotations[annotationResizedWorkload]
-		if trackedWorkload == "" || !workloadNames[trackedWorkload] {
+		trackedWorkload, ok := trackedWorkloadForPolicy(pod, policy.Name, workloadNames)
+		if !ok {
 			continue
 		}
 
@@ -250,6 +246,19 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 		}
 	}
 	return observationsPending
+}
+
+func trackedWorkloadForPolicy(pod *corev1.Pod, policyName string, workloadNames map[string]bool) (string, bool) {
+	if pod.Annotations[annotationPolicy] != policyName {
+		return "", false
+	}
+
+	trackedWorkload := pod.Annotations[annotationResizedWorkload]
+	if trackedWorkload == "" || !workloadNames[trackedWorkload] {
+		return "", false
+	}
+
+	return trackedWorkload, true
 }
 
 // errNotReady is a sentinel error indicating the pod's observation period hasn't elapsed yet.

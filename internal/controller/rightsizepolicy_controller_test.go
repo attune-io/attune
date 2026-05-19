@@ -2885,6 +2885,7 @@ func TestCheckPendingSafetyObservations_ObservationElapsed(t *testing.T) {
 				"rightsize.io/resized-containers":           "main",
 				"rightsize.io/original-cpu-request.main":    "500m",
 				"rightsize.io/original-memory-request.main": "512Mi",
+				"rightsize.io/policy":                       "test-policy",
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -2943,6 +2944,7 @@ func TestCheckPendingSafetyObservations_MalformedAnnotation(t *testing.T) {
 				"rightsize.io/resized-containers":           "main",
 				"rightsize.io/original-cpu-request.main":    "not-a-quantity", // malformed
 				"rightsize.io/original-memory-request.main": "512Mi",
+				"rightsize.io/policy":                       "test-policy",
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -2972,6 +2974,89 @@ func TestCheckPendingSafetyObservations_MalformedAnnotation(t *testing.T) {
 	assert.True(t, hasResizedAt, "annotations should remain after parse error")
 }
 
+func TestCheckPendingSafetyObservations_MissingPolicyAnnotationIgnored(t *testing.T) {
+	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "missing-policy-pod",
+			Namespace: "default",
+			Labels:    map[string]string{"rightsize.io/tracked": "true"},
+			Annotations: map[string]string{
+				"rightsize.io/resized-at":                   resizedAt,
+				"rightsize.io/resized-workload":             "api-server",
+				"rightsize.io/resized-containers":           "main",
+				"rightsize.io/original-cpu-request.main":    "500m",
+				"rightsize.io/original-memory-request.main": "512Mi",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{Name: "main", Image: "nginx"}},
+		},
+		Status: corev1.PodStatus{
+			Phase:             corev1.PodRunning,
+			Conditions:        []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionFalse}},
+			ContainerStatuses: []corev1.ContainerStatus{{Name: "main", RestartCount: 0}},
+		},
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	reconciler, fakeClient := newSafetyTestReconciler(pod)
+
+	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
+
+	var updated corev1.Pod
+	err := fakeClient.Get(context.Background(), types.NamespacedName{Name: "missing-policy-pod", Namespace: "default"}, &updated)
+	require.NoError(t, err)
+	_, has := updated.Annotations[annotationResizedAt]
+	assert.True(t, has, "pod without policy annotation should be ignored")
+
+	for _, a := range reconciler.Clientset.(*kubefake.Clientset).Actions() {
+		assert.False(t, a.GetVerb() == "update" && a.GetSubresource() == "resize", "ignored pod must not be reverted")
+	}
+}
+
+func TestCheckPendingSafetyObservations_MismatchedPolicyAnnotationIgnored(t *testing.T) {
+	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "other-policy-pod",
+			Namespace: "default",
+			Labels:    map[string]string{"rightsize.io/tracked": "true"},
+			Annotations: map[string]string{
+				"rightsize.io/resized-at":                   resizedAt,
+				"rightsize.io/resized-workload":             "api-server",
+				"rightsize.io/resized-containers":           "main",
+				"rightsize.io/original-cpu-request.main":    "500m",
+				"rightsize.io/original-memory-request.main": "512Mi",
+				"rightsize.io/policy":                       "other-policy",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{Name: "main", Image: "nginx"}},
+		},
+		Status: corev1.PodStatus{
+			Phase:             corev1.PodRunning,
+			Conditions:        []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionFalse}},
+			ContainerStatuses: []corev1.ContainerStatus{{Name: "main", RestartCount: 0}},
+		},
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	reconciler, fakeClient := newSafetyTestReconciler(pod)
+
+	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
+
+	var updated corev1.Pod
+	err := fakeClient.Get(context.Background(), types.NamespacedName{Name: "other-policy-pod", Namespace: "default"}, &updated)
+	require.NoError(t, err)
+	_, has := updated.Annotations[annotationResizedAt]
+	assert.True(t, has, "pod owned by another policy should be ignored")
+
+	for _, a := range reconciler.Clientset.(*kubefake.Clientset).Actions() {
+		assert.False(t, a.GetVerb() == "update" && a.GetSubresource() == "resize", "pod owned by another policy must not be reverted")
+	}
+}
+
 func TestCheckPendingSafetyObservations_NotElapsed(t *testing.T) {
 	// Just resized -- observation period has NOT elapsed yet.
 	resizedAt := time.Now().UTC().Format(time.RFC3339)
@@ -2986,6 +3071,7 @@ func TestCheckPendingSafetyObservations_NotElapsed(t *testing.T) {
 				"rightsize.io/resized-containers":           "main",
 				"rightsize.io/original-cpu-request.main":    "500m",
 				"rightsize.io/original-memory-request.main": "512Mi",
+				"rightsize.io/policy":                       "test-policy",
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -4410,6 +4496,7 @@ func TestCheckPendingSafetyObservations_MalformedTimestamp(t *testing.T) {
 				"rightsize.io/resized-containers":           "main",
 				"rightsize.io/original-cpu-request.main":    "500m",
 				"rightsize.io/original-memory-request.main": "512Mi",
+				"rightsize.io/policy":                       "test-policy",
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -4451,6 +4538,7 @@ func TestCheckPendingSafetyObservations_MalformedMemoryAnnotation(t *testing.T) 
 				"rightsize.io/resized-containers":           "main",
 				"rightsize.io/original-cpu-request.main":    "500m",
 				"rightsize.io/original-memory-request.main": "not-a-quantity",
+				"rightsize.io/policy":                       "test-policy",
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -4493,6 +4581,7 @@ func TestCheckPendingSafetyObservations_CustomObservationPeriod(t *testing.T) {
 				"rightsize.io/resized-containers":           "main",
 				"rightsize.io/original-cpu-request.main":    "500m",
 				"rightsize.io/original-memory-request.main": "512Mi",
+				"rightsize.io/policy":                       "test-policy",
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -4557,6 +4646,7 @@ func TestCheckPendingSafetyObservations_ThrottleDeferredKeepsAnnotations(t *test
 				"rightsize.io/resized-containers":           "main",
 				"rightsize.io/original-cpu-request.main":    "500m",
 				"rightsize.io/original-memory-request.main": "512Mi",
+				"rightsize.io/policy":                       "test-policy",
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -4713,6 +4803,7 @@ func TestCheckPendingSafetyObservations_UnsafeVerdictReverts(t *testing.T) {
 				"rightsize.io/resized-containers":           "main",
 				"rightsize.io/original-cpu-request.main":    "500m",
 				"rightsize.io/original-memory-request.main": "512Mi",
+				"rightsize.io/policy":                       "test-policy",
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -4782,6 +4873,7 @@ func TestCheckPendingSafetyObservations_UnsafeVerdictMarksHistoryReverted(t *tes
 				"rightsize.io/resized-containers":           "main",
 				"rightsize.io/original-cpu-request.main":    "500m",
 				"rightsize.io/original-memory-request.main": "512Mi",
+				"rightsize.io/policy":                       "test-policy",
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -4854,6 +4946,7 @@ func TestCheckPendingSafetyObservations_UnsafeVerdictEmitsEvent(t *testing.T) {
 				"rightsize.io/resized-containers":           "main",
 				"rightsize.io/original-cpu-request.main":    "500m",
 				"rightsize.io/original-memory-request.main": "512Mi",
+				"rightsize.io/policy":                       "test-policy",
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -4913,6 +5006,7 @@ func TestCheckPendingSafetyObservations_RestartCountParsed(t *testing.T) {
 				"rightsize.io/original-cpu-request.main":    "500m",
 				"rightsize.io/original-memory-request.main": "512Mi",
 				"rightsize.io/original-restart-count":       "3",
+				"rightsize.io/policy":                       "test-policy",
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -4970,6 +5064,7 @@ func TestCheckPendingSafetyObservations_RestartCountExceeded(t *testing.T) {
 				"rightsize.io/original-cpu-request.main":    "500m",
 				"rightsize.io/original-memory-request.main": "512Mi",
 				"rightsize.io/original-restart-count":       "3",
+				"rightsize.io/policy":                       "test-policy",
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -5027,6 +5122,7 @@ func TestCheckPendingSafetyObservations_InvalidRestartCount(t *testing.T) {
 				"rightsize.io/original-cpu-request.main":    "500m",
 				"rightsize.io/original-memory-request.main": "512Mi",
 				"rightsize.io/original-restart-count":       "not-a-number",
+				"rightsize.io/policy":                       "test-policy",
 			},
 		},
 		Spec: corev1.PodSpec{
