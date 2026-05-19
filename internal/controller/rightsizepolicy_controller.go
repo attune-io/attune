@@ -415,7 +415,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			// resized, using aggregate CPU across all containers.
 			resizedWorkloads := make(map[string]bool, len(history))
 			for _, h := range history {
-				if h.Result == rightsizev1alpha1.ResizeResultSuccess {
+				if h.Method == "InPlace" && h.Result == rightsizev1alpha1.ResizeResultSuccess {
 					resizedWorkloads[h.Workload] = true
 				}
 			}
@@ -460,7 +460,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	if isResizeMode(mode) && policy.Status.Workloads.Resized == 0 {
 		resizedWorkloads := make(map[string]bool)
 		for _, h := range policy.Status.ResizeHistory {
-			if h.Result == rightsizev1alpha1.ResizeResultSuccess {
+			if h.Method == "InPlace" && h.Result == rightsizev1alpha1.ResizeResultSuccess {
 				resizedWorkloads[h.Workload] = true
 			}
 		}

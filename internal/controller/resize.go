@@ -233,7 +233,7 @@ func (r *RightSizePolicyReconciler) executeResizes(
 						continue
 					}
 
-					entries, resized := r.resizeContainer(ctx, resizeParams{
+					entries, outcome := r.resizeContainer(ctx, resizeParams{
 						Policy:       policy,
 						Pod:          &pod,
 						Workload:     matchedWorkload,
@@ -247,7 +247,7 @@ func (r *RightSizePolicyReconciler) executeResizes(
 					historyMu.Lock()
 					history = append(history, entries...)
 					historyMu.Unlock()
-					if !resized {
+					if outcome == resizeOutcomeNone {
 						budgetMu.Lock()
 						if cpuBudget >= 0 {
 							cpuBudget += cpuIncrease
@@ -257,6 +257,17 @@ func (r *RightSizePolicyReconciler) executeResizes(
 						}
 						budgetMu.Unlock()
 						continue
+					}
+					if outcome == resizeOutcomeEvicted {
+						budgetMu.Lock()
+						if cpuBudget >= 0 {
+							cpuBudget += cpuIncrease
+						}
+						if memBudget >= 0 {
+							memBudget += memIncrease
+						}
+						budgetMu.Unlock()
+						break
 					}
 					atomic.AddInt32(&workloadResized, 1)
 					// Re-fetch pod from API server to get fresh resourceVersion
@@ -281,9 +292,6 @@ func (r *RightSizePolicyReconciler) executeResizes(
 	return totalResized, history
 }
 
-// resizeContainer performs a single container resize on a pod, including
-// skip checks, the resize call, annotation persistence, and safety checks.
-// Returns the history entries produced and whether the resize counted as successful.
 // resizeParams groups parameters for resizeContainer, reducing the function
 // signature from 9 parameters to 2 (ctx + params).
 type resizeParams struct {
@@ -298,10 +306,24 @@ type resizeParams struct {
 	Checks       *resizePreChecks
 }
 
+// resizeOutcome tells executeResizes whether a container resize succeeded
+// in-place, fell back to eviction, or did not stick.
+type resizeOutcome int
+
+const (
+	resizeOutcomeNone resizeOutcome = iota
+	resizeOutcomeInPlace
+	resizeOutcomeEvicted
+)
+
+// resizeContainer performs a single container resize on a pod, including
+// skip checks, the resize call, annotation persistence, and safety checks.
+// It returns the history entries produced and the outcome so callers can
+// distinguish in-place success, eviction fallback, and no-op/failure.
 func (r *RightSizePolicyReconciler) resizeContainer(
 	ctx context.Context,
 	p resizeParams,
-) ([]rightsizev1alpha1.ResizeHistoryEntry, bool) {
+) ([]rightsizev1alpha1.ResizeHistoryEntry, resizeOutcome) {
 	logger := log.FromContext(ctx)
 	policy, pod, workload, workloadName := p.Policy, p.Pod, p.Workload, p.WorkloadName
 	containerRec, resizer, monitor, now := p.ContainerRec, p.Resizer, p.Monitor, p.Now
@@ -314,14 +336,14 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 			logger.Info("Skipping resize: "+reason,
 				"pod", pod.Name, "container", containerRec.Name)
 		}
-		return nil, false
+		return nil, resizeOutcomeNone
 	}
 
 	evictionHistory := func() []rightsizev1alpha1.ResizeHistoryEntry {
 		return []rightsizev1alpha1.ResizeHistoryEntry{
 			{
 				Timestamp: now, Workload: workloadName, Container: containerRec.Name,
-				Resource: "cpu+memory", Method: "Eviction", Result: rightsizev1alpha1.ResizeResultSuccess,
+				Resource: "cpu+memory", Method: "Eviction", Result: rightsizev1alpha1.ResizeResultEvicted,
 			},
 		}
 	}
@@ -332,7 +354,7 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 			logger.Info("Pod resize is Infeasible, attempting eviction fallback",
 				"pod", pod.Name, "container", containerRec.Name)
 			if evicted := r.tryEvictionFallback(ctx, policy, pod, workload, workloadName, containerRec.Name, resizer); evicted {
-				return evictionHistory(), true
+				return evictionHistory(), resizeOutcomeEvicted
 			}
 		} else {
 			logger.Info("Pod resize is Infeasible and resizeMethod is InPlaceOnly, skipping",
@@ -344,7 +366,7 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 					pod.Name)
 			}
 		}
-		return nil, false
+		return nil, resizeOutcomeNone
 	}
 
 	if resize.WouldRestartContainer(pod, containerRec.Name) {
@@ -358,7 +380,7 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 		// Attempt eviction fallback if configured.
 		if policy.Spec.UpdateStrategy.ResizeMethod == rightsizev1alpha1.ResizeMethodInPlaceOrEvict {
 			if evicted := r.tryEvictionFallback(ctx, policy, pod, workload, workloadName, containerRec.Name, resizer); evicted {
-				return evictionHistory(), true
+				return evictionHistory(), resizeOutcomeEvicted
 			}
 		}
 
@@ -373,7 +395,7 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 			r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "ResizeFailed", "resize",
 				"Failed to resize pod %s container %s: %v", pod.Name, containerRec.Name, err)
 		}
-		return entries, false
+		return entries, resizeOutcomeNone
 	}
 
 	operatormetrics.ResizeDuration.WithLabelValues(pod.Namespace, workloadName).Observe(time.Since(resizeStart).Seconds())
@@ -450,7 +472,7 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 
 	if reason, err := r.persistResizeAnnotations(ctx, pod, containerRec, policy.Name, workloadName, now, restartCount); err != nil {
 		revert(reason)
-		return history, false
+		return history, resizeOutcomeNone
 	}
 
 	record := safety.ResizeRecord{
@@ -463,13 +485,13 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 		RestartCount:      restartCount,
 	}
 	if reason, err := r.runImmediateSafetyCheck(ctx, policy, monitor, record); err != nil {
-		return history, true
+		return history, resizeOutcomeInPlace
 	} else if reason != "" {
 		revert(reason)
-		return history, false
+		return history, resizeOutcomeNone
 	}
 
-	return history, true
+	return history, resizeOutcomeInPlace
 }
 
 // persistResizeAnnotations re-fetches the pod from the API server (to get a
@@ -593,16 +615,29 @@ func (r *RightSizePolicyReconciler) resolveCanaryPhase(ctx context.Context, poli
 	if cs != nil && cs.Phase == rightsizev1alpha1.CanaryPhaseInProgress && cs.StartTime != nil {
 		elapsed := r.now().Sub(cs.StartTime.Time)
 		if elapsed >= observationPeriod {
-			// Check for reverts during the observation window.
+			// Check for reverts during the observation window and require at least
+			// one successful in-place resize before promoting.
 			hasRevert := false
+			hasSuccessfulInPlaceResize := false
 			for _, h := range policy.Status.ResizeHistory {
-				if h.Result == rightsizev1alpha1.ResizeResultReverted && h.Timestamp.After(cs.StartTime.Time) {
+				if !h.Timestamp.After(cs.StartTime.Time) {
+					continue
+				}
+				if h.Result == rightsizev1alpha1.ResizeResultReverted {
 					hasRevert = true
 					break
+				}
+				if h.Method == "InPlace" && h.Result == rightsizev1alpha1.ResizeResultSuccess {
+					hasSuccessfulInPlaceResize = true
 				}
 			}
 			if hasRevert {
 				logger.Info("Canary observation found reverts, staying in canary mode",
+					"policy", policy.Name, "observationPeriod", observationPeriod)
+				return currentMode
+			}
+			if !hasSuccessfulInPlaceResize {
+				logger.Info("Canary observation has no successful in-place resize yet, staying in canary mode",
 					"policy", policy.Name, "observationPeriod", observationPeriod)
 				return currentMode
 			}

@@ -146,7 +146,7 @@ spec:
 | `resizeHistory[].from` | `string` | Previous value |
 | `resizeHistory[].to` | `string` | New value |
 | `resizeHistory[].method` | `string` | `InPlace` or `Eviction` |
-| `resizeHistory[].result` | `string` | `Success`, `Failed`, or `Reverted` |
+| `resizeHistory[].result` | `string` | `Success`, `Failed`, `Reverted`, or `Evicted` |
 
 `ResourceRecommendationExplanation` contains the intermediate fields emitted by
 the estimator chain: `rawPercentile`, `safetyMargin`, `afterSafetyMargin`,

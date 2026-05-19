@@ -55,6 +55,7 @@ const (
 	ResizeResultSuccess  ResizeResult = "Success"
 	ResizeResultFailed   ResizeResult = "Failed"
 	ResizeResultReverted ResizeResult = "Reverted"
+	ResizeResultEvicted  ResizeResult = "Evicted"
 )
 
 // RightSizePolicySpec defines the desired state of RightSizePolicy.
@@ -636,7 +637,7 @@ type ResizeHistoryEntry struct {
 	Method string `json:"method"`
 
 	// Result is the outcome of the resize operation.
-	// +kubebuilder:validation:Enum=Success;Failed;Reverted
+	// +kubebuilder:validation:Enum=Success;Failed;Reverted;Evicted
 	Result ResizeResult `json:"result"`
 }
 

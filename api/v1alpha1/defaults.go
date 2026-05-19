@@ -38,6 +38,7 @@ const (
 	ResultSuccess  = ResizeResultSuccess
 	ResultFailed   = ResizeResultFailed
 	ResultReverted = ResizeResultReverted
+	ResultEvicted  = ResizeResultEvicted
 )
 
 // Default values for RightSizePolicy fields. These are the single source

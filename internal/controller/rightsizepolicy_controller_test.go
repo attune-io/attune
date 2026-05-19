@@ -3934,7 +3934,7 @@ func TestResolveCanaryPhase_PromotesAfterObservation(t *testing.T) {
 	}
 	// No reverts in history.
 	policy.Status.ResizeHistory = []rightsizev1alpha1.ResizeHistoryEntry{
-		{Result: rightsizev1alpha1.ResizeResultSuccess, Timestamp: metav1.NewTime(startTime.Add(1 * time.Minute))},
+		{Method: "InPlace", Result: rightsizev1alpha1.ResizeResultSuccess, Timestamp: metav1.NewTime(startTime.Add(1 * time.Minute))},
 	}
 
 	reconciler := &RightSizePolicyReconciler{}
@@ -3942,6 +3942,30 @@ func TestResolveCanaryPhase_PromotesAfterObservation(t *testing.T) {
 
 	assert.Equal(t, rightsizev1alpha1.UpdateModeAuto, mode, "should promote to auto after observation passes")
 	assert.Equal(t, rightsizev1alpha1.CanaryPhaseFullRollout, policy.Status.Canary.Phase)
+}
+
+func TestResolveCanaryPhase_EvictionDoesNotPromoteCanary(t *testing.T) {
+	startTime := metav1.NewTime(time.Now().Add(-10 * time.Minute))
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeCanary
+	policy.Spec.UpdateStrategy.Canary = &rightsizev1alpha1.CanaryConfig{
+		Percentage:        20,
+		ObservationPeriod: metav1.Duration{Duration: 5 * time.Minute},
+		AutoPromote:       true,
+	}
+	policy.Status.Canary = &rightsizev1alpha1.CanaryStatus{
+		Phase:     rightsizev1alpha1.CanaryPhaseInProgress,
+		StartTime: &startTime,
+	}
+	policy.Status.ResizeHistory = []rightsizev1alpha1.ResizeHistoryEntry{
+		{Method: "Eviction", Result: rightsizev1alpha1.ResizeResultEvicted, Timestamp: metav1.NewTime(startTime.Add(1 * time.Minute))},
+	}
+
+	reconciler := &RightSizePolicyReconciler{}
+	mode := reconciler.resolveCanaryPhase(context.Background(), policy, rightsizev1alpha1.UpdateModeCanary)
+
+	assert.Equal(t, rightsizev1alpha1.UpdateModeCanary, mode, "eviction-only history should not count as a successful canary resize")
+	assert.Equal(t, rightsizev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.Phase)
 }
 
 func TestResolveCanaryPhase_WaitsDuringObservation(t *testing.T) {
@@ -4043,6 +4067,9 @@ func TestResolveCanaryPhase_NoResetWhenGenerationMatches(t *testing.T) {
 		StartTime:          &startTime,
 		ObservedGeneration: 2,
 	}
+	policy.Status.ResizeHistory = []rightsizev1alpha1.ResizeHistoryEntry{
+		{Method: "InPlace", Result: rightsizev1alpha1.ResizeResultSuccess, Timestamp: metav1.NewTime(startTime.Add(1 * time.Minute))},
+	}
 
 	reconciler := &RightSizePolicyReconciler{}
 	mode := reconciler.resolveCanaryPhase(context.Background(), policy, rightsizev1alpha1.UpdateModeCanary)
@@ -4098,20 +4125,29 @@ func TestReconcile_HistoryBasedResizedDerivation(t *testing.T) {
 		wantResized int32
 	}{
 		{
-			name: "derives Resized from distinct successful workloads",
+			name: "derives Resized from distinct successful in-place workloads",
 			mode: rightsizev1alpha1.UpdateModeOneShot,
 			history: []rightsizev1alpha1.ResizeHistoryEntry{
-				{Workload: "api-server", Result: rightsizev1alpha1.ResizeResultSuccess, Timestamp: now},
-				{Workload: "worker", Result: rightsizev1alpha1.ResizeResultSuccess, Timestamp: now},
+				{Workload: "api-server", Method: "InPlace", Result: rightsizev1alpha1.ResizeResultSuccess, Timestamp: now},
+				{Workload: "worker", Method: "InPlace", Result: rightsizev1alpha1.ResizeResultSuccess, Timestamp: now},
 			},
 			wantResized: 2,
+		},
+		{
+			name: "evicted workloads do not count as resized",
+			mode: rightsizev1alpha1.UpdateModeOneShot,
+			history: []rightsizev1alpha1.ResizeHistoryEntry{
+				{Workload: "api-server", Method: "Eviction", Result: rightsizev1alpha1.ResizeResultEvicted, Timestamp: now},
+				{Workload: "worker", Method: "Eviction", Result: rightsizev1alpha1.ResizeResultEvicted, Timestamp: now},
+			},
+			wantResized: 0,
 		},
 		{
 			name: "only failed and reverted entries leave Resized at 0",
 			mode: rightsizev1alpha1.UpdateModeOneShot,
 			history: []rightsizev1alpha1.ResizeHistoryEntry{
-				{Workload: "api-server", Result: rightsizev1alpha1.ResizeResultFailed, Timestamp: now},
-				{Workload: "worker", Result: rightsizev1alpha1.ResizeResultReverted, Timestamp: now},
+				{Workload: "api-server", Method: "InPlace", Result: rightsizev1alpha1.ResizeResultFailed, Timestamp: now},
+				{Workload: "worker", Method: "InPlace", Result: rightsizev1alpha1.ResizeResultReverted, Timestamp: now},
 			},
 			wantResized: 0,
 		},
@@ -4119,9 +4155,9 @@ func TestReconcile_HistoryBasedResizedDerivation(t *testing.T) {
 			name: "duplicate workload entries counted as one",
 			mode: rightsizev1alpha1.UpdateModeOneShot,
 			history: []rightsizev1alpha1.ResizeHistoryEntry{
-				{Workload: "api-server", Result: rightsizev1alpha1.ResizeResultSuccess, Timestamp: now},
-				{Workload: "api-server", Result: rightsizev1alpha1.ResizeResultSuccess, Timestamp: now},
-				{Workload: "api-server", Result: rightsizev1alpha1.ResizeResultFailed, Timestamp: now},
+				{Workload: "api-server", Method: "InPlace", Result: rightsizev1alpha1.ResizeResultSuccess, Timestamp: now},
+				{Workload: "api-server", Method: "InPlace", Result: rightsizev1alpha1.ResizeResultSuccess, Timestamp: now},
+				{Workload: "api-server", Method: "InPlace", Result: rightsizev1alpha1.ResizeResultFailed, Timestamp: now},
 			},
 			wantResized: 1,
 		},
@@ -4135,7 +4171,7 @@ func TestReconcile_HistoryBasedResizedDerivation(t *testing.T) {
 			name: "Recommend mode skips derivation entirely",
 			mode: rightsizev1alpha1.UpdateModeRecommend,
 			history: []rightsizev1alpha1.ResizeHistoryEntry{
-				{Workload: "api-server", Result: rightsizev1alpha1.ResizeResultSuccess, Timestamp: now},
+				{Workload: "api-server", Method: "InPlace", Result: rightsizev1alpha1.ResizeResultSuccess, Timestamp: now},
 			},
 			wantResized: 0,
 		},
@@ -4143,7 +4179,7 @@ func TestReconcile_HistoryBasedResizedDerivation(t *testing.T) {
 			name: "Observe mode skips derivation entirely",
 			mode: rightsizev1alpha1.UpdateModeObserve,
 			history: []rightsizev1alpha1.ResizeHistoryEntry{
-				{Workload: "api-server", Result: rightsizev1alpha1.ResizeResultSuccess, Timestamp: now},
+				{Workload: "api-server", Method: "InPlace", Result: rightsizev1alpha1.ResizeResultSuccess, Timestamp: now},
 			},
 			wantResized: 0,
 		},
@@ -6162,7 +6198,7 @@ func TestResizeContainer_InfeasiblePodEvictedDirectly(t *testing.T) {
 		},
 	}
 
-	entries, resized := r.resizeContainer(context.Background(), resizeParams{
+	entries, outcome := r.resizeContainer(context.Background(), resizeParams{
 		Policy:       policy,
 		Pod:          pod1,
 		Workload:     deploy,
@@ -6172,9 +6208,10 @@ func TestResizeContainer_InfeasiblePodEvictedDirectly(t *testing.T) {
 		Monitor:      nil,
 		Now:          metav1.Now(),
 	})
-	assert.True(t, resized, "infeasible pod should be evicted")
+	assert.Equal(t, resizeOutcomeEvicted, outcome, "infeasible pod should be evicted")
 	require.Len(t, entries, 1)
 	assert.Equal(t, "Eviction", entries[0].Method)
+	assert.Equal(t, rightsizev1alpha1.ResizeResultEvicted, entries[0].Result)
 
 	// Verify an eviction was actually issued, not a resize attempt.
 	var evictions int
@@ -6236,7 +6273,7 @@ func TestResizeContainer_InfeasiblePodSkippedWithInPlaceOnly(t *testing.T) {
 		},
 	}
 
-	entries, resized := r.resizeContainer(context.Background(), resizeParams{
+	entries, outcome := r.resizeContainer(context.Background(), resizeParams{
 		Policy:       policy,
 		Pod:          pod,
 		Workload:     deploy,
@@ -6246,7 +6283,7 @@ func TestResizeContainer_InfeasiblePodSkippedWithInPlaceOnly(t *testing.T) {
 		Monitor:      nil,
 		Now:          metav1.Now(),
 	})
-	assert.False(t, resized, "infeasible pod with InPlaceOnly should not be resized")
+	assert.Equal(t, resizeOutcomeNone, outcome, "infeasible pod with InPlaceOnly should not be resized")
 	assert.Empty(t, entries, "should produce no history entries")
 
 	// Verify InfeasibleBlocked event was emitted.
@@ -6466,6 +6503,54 @@ func TestExecuteResizes_BudgetCapsResizeFailureDoesNotConsumeBudget(t *testing.T
 	assert.Equal(t, 1, count, "a failed resize should not consume budget needed by another pod")
 	require.NotEmpty(t, history)
 	assert.Contains(t, []rightsizev1alpha1.ResizeResult{history[0].Result}, rightsizev1alpha1.ResizeResultFailed)
+}
+
+func TestExecuteResizes_EvictionDoesNotConsumeBudgetNeededByNextPod(t *testing.T) {
+	pod1 := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
+	pod1.Name = "api-server-abc-1"
+	pod1.Status.Conditions = append(pod1.Status.Conditions, corev1.PodCondition{
+		Type:   "PodResizePending",
+		Status: corev1.ConditionTrue,
+		Reason: "Infeasible",
+	})
+	pod2 := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
+	pod2.Name = "api-server-abc-2"
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod1, pod2).Build()
+	clientset := kubefake.NewSimpleClientset(pod1.DeepCopy(), pod2.DeepCopy())
+	reconciler := &RightSizePolicyReconciler{
+		Client:    fakeClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeAuto
+	policy.Spec.UpdateStrategy.ResizeMethod = rightsizev1alpha1.ResizeMethodInPlaceOrEvict
+	cpuBudget := resource.MustParse("300m")
+	policy.Spec.UpdateStrategy.MaxTotalCPUIncrease = &cpuBudget
+
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("api-server", "200m", "256Mi", "0", "0", "500m", "256Mi", "0", "0"),
+	}
+
+	count, history := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
+		recommendations, map[string][]corev1.Pod{"api-server": {*pod1, *pod2}}, nil, nil)
+	assert.Equal(t, 1, count, "eviction fallback should not consume budget needed by the next pod")
+	evicted := false
+	succeeded := false
+	for _, h := range history {
+		if h.Result == rightsizev1alpha1.ResizeResultEvicted {
+			evicted = true
+		}
+		if h.Method == "InPlace" && h.Result == rightsizev1alpha1.ResizeResultSuccess {
+			succeeded = true
+		}
+	}
+	assert.True(t, evicted, "history should record the fallback eviction explicitly")
+	assert.True(t, succeeded, "the next pod should still resize successfully in the same cycle")
 }
 
 func TestExecuteResizes_BudgetCapsRevertDoesNotConsumeBudget(t *testing.T) {

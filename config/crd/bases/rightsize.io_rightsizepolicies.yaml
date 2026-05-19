@@ -1123,6 +1123,7 @@ spec:
                       - Success
                       - Failed
                       - Reverted
+                      - Evicted
                       type: string
                     timestamp:
                       description: Timestamp is when the resize operation occurred.

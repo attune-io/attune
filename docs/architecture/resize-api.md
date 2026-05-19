@@ -199,12 +199,13 @@ stateDiagram-v2
   replica of a workload, even if the PDB would allow it. This prevents
   complete service outage during resize.
 
-- **Evicted pods get correct resources from the template.** When a pod is
-  evicted, the workload controller (Deployment, StatefulSet) creates a
-  replacement pod from the current PodTemplate. If the operator has already
-  updated the Deployment template via a previous resize cycle, the new pod
-  starts with the recommended resources. No safety observation is needed
-  for evicted pods since they are replaced, not modified.
+- **Eviction fallback restarts the pod from the current template.** When a pod
+  is evicted, the workload controller (Deployment, StatefulSet) creates a
+  replacement pod from the current PodTemplate. kube-rightsize does not patch
+  workload templates as part of eviction fallback, so the replacement pod may
+  come back with the original resources until a later in-place resize succeeds.
+  Evicted pods are recorded separately from successful in-place resizes and do
+  not enter the safety observation path.
 
 - **Fail-open schedule.** If the configured timezone is invalid,
   `isWithinResizeWindow` returns `true` (allows resize) rather than silently
