@@ -75,14 +75,18 @@ func TestStripPodFields(t *testing.T) {
 			},
 			InitContainers: []corev1.Container{
 				{
-					Name:  "init",
-					Image: "busybox",
+					Name:          "native-sidecar",
+					Image:         "envoy",
+					RestartPolicy: ptrTo(corev1.ContainerRestartPolicyAlways),
 					Resources: corev1.ResourceRequirements{
 						Requests: corev1.ResourceList{
 							corev1.ResourceCPU: resource.MustParse("100m"),
 						},
 					},
 				},
+			},
+			EphemeralContainers: []corev1.EphemeralContainer{
+				{EphemeralContainerCommon: corev1.EphemeralContainerCommon{Name: "debug"}},
 			},
 		},
 		Status: corev1.PodStatus{
@@ -130,11 +134,13 @@ func TestStripPodFields(t *testing.T) {
 	assert.Nil(t, c.ReadinessProbe)
 	assert.Nil(t, c.Ports)
 
-	// Init container preserved fields.
+	// Init container preserved fields (native sidecar detection needs RestartPolicy).
 	require.Len(t, stripped.Spec.InitContainers, 1)
 	ic := stripped.Spec.InitContainers[0]
-	assert.Equal(t, "init", ic.Name)
+	assert.Equal(t, "native-sidecar", ic.Name)
 	assert.Equal(t, resource.MustParse("100m"), ic.Resources.Requests[corev1.ResourceCPU])
+	require.NotNil(t, ic.RestartPolicy, "RestartPolicy must survive stripping for native sidecar detection")
+	assert.Equal(t, corev1.ContainerRestartPolicyAlways, *ic.RestartPolicy)
 
 	// Init container stripped fields.
 	assert.Empty(t, ic.Image)
@@ -142,7 +148,7 @@ func TestStripPodFields(t *testing.T) {
 	// Pod-level stripped fields.
 	assert.Nil(t, stripped.ManagedFields)
 	assert.Nil(t, stripped.Spec.Volumes)
-	assert.Nil(t, stripped.Spec.EphemeralContainers)
+	assert.Nil(t, stripped.Spec.EphemeralContainers, "ephemeral containers should be stripped even when populated")
 }
 
 func TestStripPodFields_NonPodObject(t *testing.T) {
@@ -161,3 +167,5 @@ func TestStripPodFields_NilContainers(t *testing.T) {
 	stripped := result.(*corev1.Pod)
 	assert.Equal(t, "empty-pod", stripped.Name)
 }
+
+func ptrTo[T any](v T) *T { return &v }

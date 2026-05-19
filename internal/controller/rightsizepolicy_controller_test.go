@@ -1671,6 +1671,29 @@ func TestComputeRecommendations_PartialQueryErrorTracksFailedMetricType(t *testi
 	assert.Equal(t, []string{"memory"}, failedMetricTypes)
 }
 
+func TestComputeRecommendations_ContextCancelledDuringParallelQueries(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	deploy := newTestDeployment("api-server", "default", nil)
+	reconciler := newReconcilerWithClient()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	var queryCalls atomic.Int32
+	mc := &mockCollector{
+		queryRangeGroupedFunc: func(qctx context.Context, query string, _, _ time.Time, _ time.Duration) (map[string][]rsmetrics.Sample, error) {
+			queryCalls.Add(1)
+			// Simulate slow query: wait for context cancellation.
+			cancel() // Cancel as soon as first query starts.
+			<-qctx.Done()
+			return nil, qctx.Err()
+		},
+	}
+
+	rec, qErrors, _, _, err := reconciler.computeRecommendations(ctx, policy, deploy, mc, nil, nil, nil)
+	assert.NoError(t, err)
+	assert.Nil(t, rec)
+	assert.Equal(t, 2, qErrors, "both queries should report failure when context is cancelled")
+}
+
 func TestComputeRecommendations_EmptyContainers(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	emptyDeploy := &appsv1.Deployment{
