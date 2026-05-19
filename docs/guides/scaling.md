@@ -110,8 +110,14 @@ internally).
 
 5. **API server pressure**. Symptom: throttled API requests, slow pod list
    responses. Fix: this is rarely the bottleneck since the operator uses
-   informer caches. If you see it, check that your API server is
-   appropriately sized.
+   informer caches. See [API Server Pressure](#api-server-pressure) below
+   for details.
+
+6. **Informer cache memory**. Symptom: operator memory grows linearly with
+   cluster size even for namespaces without policies. Fix: use
+   `watchNamespaces` to limit the operator to only the namespaces that
+   have RightSizePolicy resources. See
+   [Namespace Scoping](#namespace-scoping) below.
 
 ### Diagnosing with metrics
 
@@ -139,6 +145,110 @@ a 1-hour cooldown:
 | 500 | ~2,000 | Low (< 1% of a typical Prometheus) |
 | 5,000 | ~20,000 | Moderate (ensure Prometheus has 4+ cores, 8Gi+ memory) |
 | 10,000+ | ~40,000+ | Significant (use recording rules or Thanos) |
+
+## API Server Pressure
+
+### Client-side rate limiting is disabled by default
+
+The operator uses controller-runtime v0.24.x, which sets the Kubernetes
+client's QPS to `-1` (disabled). This means there is **no client-side
+rate limiting**. All API server throttling is handled by Kubernetes
+[API Priority and Fairness](https://kubernetes.io/docs/concepts/cluster-administration/flow-control/)
+(APF), which is GA since Kubernetes 1.29.
+
+This is intentional and matches the direction of the ecosystem. Operators
+like cert-manager explicitly recommend disabling client-side limiting on
+clusters with APF enabled.
+
+### Per-reconcile API call budget
+
+Most reads go through the informer cache (zero API calls). Writes happen
+only during resize phases:
+
+| Phase | API calls | Notes |
+|-------|-----------|-------|
+| Read-only (cached) | 0 | Get/List via informer cache |
+| Status update | 1-2 per policy | Direct write to status subresource |
+| Per pod resize | ~5-6 calls | UpdateResize + annotation persist + re-fetch |
+| Safety observation | 1-2 per tracked pod | Direct get + update |
+
+At steady state (Recommend mode, 1-hour cooldown), a cluster with 500
+policies generates roughly 500-1000 API writes per hour, which is
+negligible for any production API server.
+
+### Cloud provider APF limits
+
+| Provider | Mutating inflight | Total inflight | Notes |
+|----------|-------------------|----------------|-------|
+| AKS | 200 (standard) / 50 (free) | 600 / 150 | Scales with SKU tier |
+| GKE | 200 | 600 | Control plane auto-scales |
+| EKS | 200 | 600 | Multiple HA API servers |
+
+The operator lands in the `global-default` APF priority level unless you
+create a custom `FlowSchema`. For most deployments, the default allocation
+is more than sufficient.
+
+### When to add a custom FlowSchema
+
+If the operator is deployed outside `kube-system` and you want guaranteed
+API server capacity, create a `FlowSchema` that assigns its service account
+to a dedicated priority level:
+
+```yaml
+apiVersion: flowcontrol.apiserver.k8s.io/v1
+kind: FlowSchema
+metadata:
+  name: kube-rightsize
+spec:
+  priorityLevelConfiguration:
+    name: workload-high
+  matchingPrecedence: 1000
+  rules:
+    - subjects:
+        - kind: ServiceAccount
+          serviceAccount:
+            name: kube-rightsize
+            namespace: kube-rightsize-system
+      resourceRules:
+        - verbs: ["*"]
+          apiGroups: ["*"]
+          resources: ["*"]
+```
+
+## Namespace Scoping
+
+By default, the operator watches all namespaces for RightSizePolicy
+resources. On large clusters (10,000+ namespaces) where policies exist in
+only a few namespaces, this wastes informer cache memory watching
+namespaces that will never have policies.
+
+Set `watchNamespaces` to limit the operator to specific namespaces:
+
+```yaml
+watchNamespaces:
+  - production
+  - staging
+  - team-alpha
+```
+
+Or via CLI flag:
+
+```bash
+--watch-namespaces=production,staging,team-alpha
+```
+
+**Behavior:**
+
+- When empty (default): watches all namespaces (cluster-scoped)
+- When set: only watches the listed namespaces for namespace-scoped
+  resources (Pods, Deployments, HPAs, RightSizePolicies, etc.)
+- Cluster-scoped resources (Nodes, RightSizeDefaults) are always watched
+  regardless of this setting
+- Requires a restart to change the namespace list
+
+**Memory impact:** On a 10,000-namespace cluster with policies in 50
+namespaces, setting `watchNamespaces` reduces informer cache memory by
+roughly 99% for namespace-scoped resources (Pods, Deployments, HPAs).
 
 ## HA Deployment
 

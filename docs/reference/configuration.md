@@ -102,6 +102,21 @@ This page documents every value in the Helm chart's `values.yaml`.
 |-----|------|---------|-------------|
 | `collectorTTL` | string | `"10m"` | How long unused Prometheus collectors stay cached before eviction. Maps to the `--collector-ttl` manager flag. Increase if policies frequently rotate Prometheus addresses; decrease in memory-constrained environments. |
 
+## Namespace Scoping
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `watchNamespaces` | list | `[]` | Namespaces to watch for RightSizePolicy resources. Empty list means all namespaces (cluster-scoped). Maps to the `--watch-namespaces` manager flag. Set this on large clusters where policies exist in only a few namespaces to dramatically reduce informer cache memory. Cluster-scoped resources (Nodes, RightSizeDefaults) are always watched regardless. Requires a pod restart to change. |
+
+Example:
+
+```yaml
+watchNamespaces:
+  - production
+  - staging
+  - team-alpha
+```
+
 ## Reconcile Concurrency
 
 | Key | Type | Default | Description |

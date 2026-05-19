@@ -152,6 +152,12 @@ collectorTTL: "10m"
 # Increase for large clusters with many policies (e.g. 4 for 200+ policies).
 maxConcurrentReconciles: ""
 
+# -- Namespaces to watch for RightSizePolicy resources. Empty list means all
+# -- namespaces (cluster-scoped). Set this to reduce informer cache memory on
+# -- large clusters where policies only exist in a few namespaces.
+# -- Cluster-scoped resources (Nodes, RightSizeDefaults) are always watched.
+watchNamespaces: []
+
 # -- Logging configuration
 logging:
   # -- Log level (debug, info, warn, error)

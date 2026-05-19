@@ -20,6 +20,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 	_ "time/tzdata" // Embed IANA timezone database for distroless containers.
 
@@ -29,6 +30,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -65,6 +67,7 @@ func main() {
 	var prometheusQPS float64
 	var prometheusBurst int
 	var maxConcurrentReconciles int
+	var watchNamespaces string
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metrics endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the health probe endpoint binds to.")
@@ -81,6 +84,9 @@ func main() {
 		"Maximum burst for Prometheus query throttle.")
 	flag.IntVar(&maxConcurrentReconciles, "max-concurrent-reconciles", 1,
 		"Maximum number of RightSizePolicy reconciles running in parallel. Increase for large clusters with many policies.")
+	flag.StringVar(&watchNamespaces, "watch-namespaces", "",
+		"Comma-separated list of namespaces to watch. Empty means all namespaces (cluster-scoped). "+
+			"Reduces informer cache memory on large clusters where policies exist in a few namespaces.")
 
 	opts := zap.Options{
 		Development: false,
@@ -120,6 +126,26 @@ func main() {
 				DisableFor: []client.Object{&corev1.Secret{}},
 			},
 		},
+	}
+
+	// Namespace-scoped caching: when --watch-namespaces is set, only watch
+	// the listed namespaces for namespace-scoped resources (Pods, Deployments,
+	// HPAs, RightSizePolicies, etc.). Cluster-scoped resources (Nodes,
+	// RightSizeDefaults) are always watched regardless.
+	if watchNamespaces != "" {
+		nsMap := make(map[string]cache.Config)
+		for _, ns := range strings.Split(watchNamespaces, ",") {
+			ns = strings.TrimSpace(ns)
+			if ns != "" {
+				nsMap[ns] = cache.Config{}
+			}
+		}
+		if len(nsMap) > 0 {
+			mgrOpts.Cache = cache.Options{
+				DefaultNamespaces: nsMap,
+			}
+			setupLog.Info("Namespace-scoped caching enabled", "namespaces", watchNamespaces)
+		}
 	}
 
 	// When webhooks are disabled, point the webhook server at a non-existent port

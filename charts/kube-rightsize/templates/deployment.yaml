@@ -59,6 +59,9 @@ spec:
             {{- if $mcr }}
             - --max-concurrent-reconciles={{ $mcr }}
             {{- end }}
+            {{- if .Values.watchNamespaces }}
+            - --watch-namespaces={{ join "," .Values.watchNamespaces }}
+            {{- end }}
             {{- with .Values.logging }}
             {{- if .level }}
             - --zap-log-level={{ .level }}

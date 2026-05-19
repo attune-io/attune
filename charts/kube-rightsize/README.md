@@ -65,6 +65,7 @@ helm install kube-rightsize oci://ghcr.io/sebtardiflabs/charts/kube-rightsize \
 | serviceAccount.name | string | `""` | ServiceAccount name (generated if not set) |
 | tolerations | list | `[]` | Tolerations |
 | topologySpreadConstraints | list | `[]` | Topology spread constraints |
+| watchNamespaces | list | `[]` | Cluster-scoped resources (Nodes, RightSizeDefaults) are always watched. |
 | webhooks | object | `{"enabled":true}` | Webhook configuration (requires cert-manager installed in the cluster) |
 | webhooks.enabled | bool | `true` | Enable admission webhooks for defaulting and validation. Requires cert-manager to be installed for TLS certificate provisioning. |
 

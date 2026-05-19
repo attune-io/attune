@@ -314,6 +314,12 @@
       "default": "",
       "description": "Maximum number of RightSizePolicy reconciles running in parallel. Auto-set by clusterSize preset if empty."
     },
+    "watchNamespaces": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "Namespaces to watch for RightSizePolicy resources. Empty means all namespaces. Reduces informer cache memory on large clusters."
+    },
     "logging": {
       "type": "object",
       "additionalProperties": false,
