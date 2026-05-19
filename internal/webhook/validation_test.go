@@ -321,6 +321,36 @@ func TestValidate_SubMinuteCooldownRejected(t *testing.T) {
 	assert.Contains(t, err.Error(), "cooldown must be at least 1m")
 }
 
+func TestValidate_NegativeBudgetCaps(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+
+	t.Run("negative maxTotalCpuIncrease", func(t *testing.T) {
+		policy := validPolicy()
+		neg := resource.MustParse("-100m")
+		policy.Spec.UpdateStrategy.MaxTotalCPUIncrease = &neg
+		_, err := validator.ValidateCreate(context.Background(), policy)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "maxTotalCpuIncrease must be non-negative")
+	})
+
+	t.Run("negative maxTotalMemoryIncrease", func(t *testing.T) {
+		policy := validPolicy()
+		neg := resource.MustParse("-1Mi")
+		policy.Spec.UpdateStrategy.MaxTotalMemoryIncrease = &neg
+		_, err := validator.ValidateCreate(context.Background(), policy)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "maxTotalMemoryIncrease must be non-negative")
+	})
+
+	t.Run("zero budget is valid", func(t *testing.T) {
+		policy := validPolicy()
+		zero := resource.MustParse("0")
+		policy.Spec.UpdateStrategy.MaxTotalCPUIncrease = &zero
+		_, err := validator.ValidateCreate(context.Background(), policy)
+		assert.NoError(t, err)
+	})
+}
+
 func TestValidate_SafetyMarginExceedsMax(t *testing.T) {
 	tests := []struct {
 		name    string

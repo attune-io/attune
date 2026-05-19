@@ -1220,11 +1220,11 @@ func (r *RightSizePolicyReconciler) executeResizes(
 	// calls across all pods during resize pre-checks.
 	var limitRanges corev1.LimitRangeList
 	if err := r.List(ctx, &limitRanges, client.InNamespace(policy.Namespace)); err != nil {
-		logger.V(1).Info("Could not pre-fetch LimitRanges", "error", err)
+		logger.Info("Could not pre-fetch LimitRanges, quota pre-checks skipped", "error", err)
 	}
 	var quotas corev1.ResourceQuotaList
 	if err := r.List(ctx, &quotas, client.InNamespace(policy.Namespace)); err != nil {
-		logger.V(1).Info("Could not pre-fetch ResourceQuotas", "error", err)
+		logger.Info("Could not pre-fetch ResourceQuotas, quota pre-checks skipped", "error", err)
 	}
 	checks := &resizePreChecks{
 		limitRanges: limitRanges.Items,

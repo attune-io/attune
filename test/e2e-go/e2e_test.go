@@ -622,7 +622,7 @@ func TestE2E_BudgetCaps_DefersResize(t *testing.T) {
 	createDeployment(t, "budget-app", ns, "100m", "512Mi", 3)
 	waitForDeploymentReady(t, "budget-app", ns, 60*time.Second)
 
-	tightBudget := resource.MustParse("200m")
+	tightBudget := resource.MustParse("150m")
 	deployName := "budget-app"
 	policy := &rightsizev1alpha1.RightSizePolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "budget-policy", Namespace: ns},
@@ -649,15 +649,32 @@ func TestE2E_BudgetCaps_DefersResize(t *testing.T) {
 	// Wait for at least one reconcile cycle.
 	waitForPolicyDiscovered(t, "budget-policy", ns, 2*time.Minute)
 
-	// With a 200m CPU budget and ~142m increase per pod (100m -> 242m),
+	// With a 150m CPU budget and ~142m increase per pod (100m -> 242m),
 	// at most one pod can be resized per cycle. Wait for at least one resize.
 	waitForResize(t, "budget-policy", ns, 3*time.Minute)
 
 	var p rightsizev1alpha1.RightSizePolicy
 	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "budget-policy", Namespace: ns}, &p))
 	assert.Equal(t, int32(1), p.Status.Workloads.Discovered)
-	assert.GreaterOrEqual(t, p.Status.Workloads.Resized, int32(1),
-		"budget-capped policy should still resize at least one workload")
+
+	// Verify at pod level: with 150m budget and 142m per pod, at most 1
+	// pod should be resized in the first cycle. Count pods still at 100m.
+	var podList corev1.PodList
+	require.NoError(t, k8sClient.List(ctx, &podList,
+		client.InNamespace(ns),
+		client.MatchingLabels{"app": "budget-app"}))
+	unreszied := 0
+	for _, pod := range podList.Items {
+		for _, c := range pod.Spec.Containers {
+			if c.Name == "app" {
+				if cpu := c.Resources.Requests[corev1.ResourceCPU]; cpu.MilliValue() <= 100 {
+					unreszied++
+				}
+			}
+		}
+	}
+	assert.GreaterOrEqual(t, unreszied, 1,
+		"budget should prevent all 3 pods from being resized in one cycle")
 }
 
 func TestE2E_ScheduleWindow_SkipsOutsideWindow(t *testing.T) {
@@ -703,6 +720,19 @@ func TestE2E_ScheduleWindow_SkipsOutsideWindow(t *testing.T) {
 	require.NoError(t, k8sClient.Create(ctx, policy))
 
 	waitForPolicyDiscovered(t, "sched-policy", ns, 2*time.Minute)
+
+	// Wait for a recommendation to be computed, proving the operator has data
+	// and the only thing blocking resize is the schedule.
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
+		var pol rightsizev1alpha1.RightSizePolicy
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "sched-policy", Namespace: ns}, &pol); err != nil {
+			return false, nil
+		}
+		return pol.Status.Workloads.WithRecommendations > 0, nil
+	}))
+
+	// Force a reconcile after recommendation is available.
+	forcePolicyReconcile(t, "sched-policy", ns, 2*time.Minute)
 
 	// Today is excluded from the schedule, so no resizes should occur.
 	var p rightsizev1alpha1.RightSizePolicy

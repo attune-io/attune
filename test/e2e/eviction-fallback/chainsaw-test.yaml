@@ -3,7 +3,7 @@ kind: Test
 metadata:
   name: eviction-fallback
 spec:
-  description: Verify that a RightSizePolicy with resizeMethod InPlaceOrEvict is accepted and discovers workloads
+  description: Verify that a RightSizePolicy with resizeMethod InPlaceOrEvict accepts the field and resizes pods (in-place path; eviction fallback requires Infeasible pods)
   timeouts:
     apply: 30s
     assert: 2m

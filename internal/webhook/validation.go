@@ -159,6 +159,14 @@ func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizeP
 		}
 	}
 
+	// Validate budget caps are non-negative.
+	if q := policy.Spec.UpdateStrategy.MaxTotalCPUIncrease; q != nil && q.MilliValue() < 0 {
+		return warnings, fmt.Errorf("updateStrategy.maxTotalCpuIncrease must be non-negative, got %s", q)
+	}
+	if q := policy.Spec.UpdateStrategy.MaxTotalMemoryIncrease; q != nil && q.Value() < 0 {
+		return warnings, fmt.Errorf("updateStrategy.maxTotalMemoryIncrease must be non-negative, got %s", q)
+	}
+
 	// Validate percentile values are in the supported set.
 	supportedPercentiles := map[int32]bool{50: true, 90: true, 95: true, 99: true}
 	if p := policy.Spec.CPU.Percentile; p != 0 && !supportedPercentiles[p] {

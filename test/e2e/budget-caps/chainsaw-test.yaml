@@ -77,7 +77,7 @@ spec:
                   cooldown: 1m
                   maxCpuChangePercent: 100
                   maxMemoryChangePercent: 100
-                  maxTotalCpuIncrease: "2000m"
+                  maxTotalCpuIncrease: "150m"
                   maxTotalMemoryIncrease: 4Gi
     - name: verify-deployment-ready
       try:
