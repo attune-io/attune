@@ -3,6 +3,18 @@
 This guide walks you through creating a RightSizePolicy, reviewing its
 recommendations, and promoting to Canary mode, all in about five minutes.
 
+!!! tip "Interactive demo"
+    Want to see the full flow on a real cluster first? Run the automated
+    demo script that provisions a k3d cluster, deploys a sample workload,
+    and shows recommendations appearing in real time:
+
+    ```bash
+    ./hack/demo.sh
+    ```
+
+    The script cleans up automatically on exit. Use `--no-cleanup` to keep
+    the cluster for exploration.
+
 !!! info "Prerequisites"
     Make sure the operator is installed before proceeding. See
     [Installation](installation.md) for Helm and raw manifest options.

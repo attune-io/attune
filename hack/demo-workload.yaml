@@ -1,0 +1,49 @@
+# Demo workload: a Deployment that uses ~100m CPU and ~80Mi memory
+# but is provisioned with 500m CPU and 512Mi memory (typical over-provisioning).
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo-app
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-api
+  namespace: demo-app
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: web-api
+  template:
+    metadata:
+      labels:
+        app: web-api
+    spec:
+      containers:
+        - name: api
+          image: registry.k8s.io/e2e-test-images/resource-consumer:1.13
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          ports:
+            - containerPort: 8080
+          # resource-consumer exposes /ConsumeCPU and /ConsumeMem endpoints
+          # The demo script uses these to generate predictable load.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-api
+  namespace: demo-app
+spec:
+  selector:
+    app: web-api
+  ports:
+    - port: 80
+      targetPort: 8080
