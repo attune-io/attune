@@ -101,21 +101,36 @@ kubectl get rightsizepolicies -n production
 # api-services    Recommend   3           0      0         False   5m
 ```
 
-> **Note:** The default `minimumDataPoints: 48` requires ~2 days of hourly
-> Prometheus samples before recommendations appear. For faster evaluation,
-> set `metricsSource.minimumDataPoints: 24` (1 day) or increase to 168
-> (7 days) for higher confidence. See the
-> [quickstart guide](docs/getting-started/quickstart.md) for details.
+After data accumulates (~1-2 days with default settings), recommendations appear:
 
 ```bash
-kubectl get rightsizepolicies api-services -n production -o yaml
-# status.recommendations shows per-container recommendations with savings estimates
+kubectl get rightsizepolicies -n production
+# NAME            MODE        WORKLOADS   RECS   RESIZED   READY   AGE
+# api-services    Recommend   3           3      0         True    2d
+
+kubectl rightsize recommendations -n production
+# NAMESPACE    POLICY         WORKLOAD     CONTAINER   CPU REQ   CPU REC   MEM REQ   MEM REC   CONFIDENCE
+# production   api-services   api-server   app         500m      320m      512Mi     384Mi     92.0%
+# production   api-services   worker       main        1000m     480m      2Gi       1.2Gi     88.5%
+# production   api-services   frontend     nginx       250m      120m      256Mi     180Mi     95.1%
+
+kubectl rightsize savings -n production
+# NAMESPACE    POLICY         CPU SAVED   MEM SAVED   EST. MONTHLY
+# production   api-services   830m        1012Mi      $72.40
 ```
 
-> **Upgrading?** Review the [changelog](CHANGELOG.md) for breaking metric label changes and default changes such as `minimumDataPoints`.
+> **Note:** The default `minimumDataPoints: 48` requires ~2 days of hourly
+> Prometheus samples. For faster evaluation, set
+> `metricsSource.minimumDataPoints: 24` (1 day). See the
+> [quickstart guide](docs/getting-started/quickstart.md) for details.
+
+> **Upgrading?** Review the [changelog](CHANGELOG.md) for breaking changes.
 >
-> **Helm installs:** If you use restrictive cluster networking, review the chart's generated [Helm README](charts/kube-rightsize/README.md#networkpolicy) before installing with the default `networkPolicy.enabled=true`. The policy allows webhook ingress on `9443`, metrics ingress on the configured `metrics.port` (default `8080`), DNS egress, Kubernetes API egress on `443`, and Prometheus egress on `networkPolicy.prometheusPort` (default `9090`).
->
+> **Helm installs:** If you use restrictive cluster networking, review the
+> chart's [Helm README](charts/kube-rightsize/README.md#networkpolicy)
+> before installing with `networkPolicy.enabled=true` (the default). The
+> policy allows webhook, metrics, DNS, API server, and Prometheus egress
+> on `networkPolicy.prometheusPort` (default `9090`).
 ### Upgrade to Canary Mode
 
 Once you trust the recommendations, switch to Canary mode to apply changes
@@ -211,58 +226,54 @@ The dashboard includes:
 
 ## Features
 
-- **In-place resize**: Adjusts CPU and memory on running pods via the K8s 1.33+
-  `/resize` subresource. No evictions, no rolling restarts.
-- **Graduated rollout**: Five modes from zero-risk observation to full automation:
+### Safety
+
+- **Auto-revert**: Automatically restores original resources on OOMKill,
+  CPU throttle, restart spikes, or pod NotReady.
+- **Graduated rollout**: Five modes from zero-risk to full automation:
   Observe, Recommend, OneShot, Canary, Auto.
-- **Auto-revert**: Automatically restores original resources if a resized pod gets
-  OOMKilled, CPU-throttled, experiences restart spikes, or becomes NotReady.
-- **HPA coexistence**: Right-sizes the base resource request without interfering
-  with HPA's percentage-based scaling decisions.
-- **Confidence scaling**: Recommendations widen automatically when data is sparse,
-  becoming more precise as data accumulates.
-- **Time-of-day awareness**: Uses hourly usage profiles so recommendations cover
-  the busiest hour, not just the average.
-- **Always-bounded recommendations**: Resource bounds (`min`/`max`) can be set
-  per-policy. When omitted, safe defaults apply (CPU: 50m-4000m, Memory: 64Mi-8Gi).
-- **Sidecar exclusion**: Skip specific containers (e.g., `istio-proxy`,
-  `linkerd-proxy`) from recommendations and resizes via `excludeContainers`.
-- **Node capacity guard**: Validates that total pod resource requests after resize
-  will not exceed node allocatable, preventing eviction.
-- **Prometheus auto-discovery**: Finds Prometheus automatically via the Prometheus
-  Operator CRD or well-known service names when no explicit address is configured.
-- **Conflict detection**: Detects and warns about VPA, other RightSizePolicy, or
-  active Deployment rollouts targeting the same workload.
-- **Cost savings estimation**: Computes `EstimatedMonthlySavings` based on
-  configurable pricing (default: $0.031/vCPU-hr, $0.004/GiB-hr). Visible via
-  `kubectl rightsize savings` and the Grafana dashboard.
-- **LimitRange/ResourceQuota guard**: Skips resizes that would violate namespace
-  LimitRange constraints or exceed ResourceQuota headroom.
-- **Degraded condition**: Sets `Degraded` with reason `HighRevertRate` when 3+
-  of the last 5 resizes are reverted, signaling parameters need adjustment.
-- **Exponential backoff**: Cooldown doubles per consecutive revert (capped at
-  16x), preventing repeated failed resizes.
-- **Kubernetes Events**: Emits `Normal/Resized` and `Warning/Reverted` events
-  on the policy, visible via `kubectl describe`.
-- **Concurrent pod processing**: `maxConcurrentResizes` enables parallel pod
-  resizes within a reconcile cycle for reduced latency at scale.
-- **Multi-data-source support**: Works with Thanos, VictoriaMetrics, Grafana
-  Mimir, and managed Prometheus services. Custom headers, bearer token auth
-  from Secrets, and TLS configuration available on `PrometheusConfig`.
+- **Node capacity guard**: Validates post-resize requests fit within node
+  allocatable before applying changes.
+- **LimitRange/ResourceQuota guard**: Skips resizes that would violate
+  namespace constraints or exceed quota headroom.
+- **Exponential backoff**: Cooldown doubles per consecutive revert
+  (capped at 16x). Degraded condition flags workloads needing tuning.
+
+### Intelligence
+
+- **Confidence scaling**: Conservative when data is sparse, precise as it
+  accumulates. No premature optimization.
+- **Time-of-day awareness**: Hourly usage profiles ensure recommendations
+  cover peak hours, not just the average.
+- **HPA coexistence**: Adjusts base resource requests without interfering
+  with HPA's percentage-based scaling. No death spirals.
+- **Always-bounded**: Resource bounds (`min`/`max`) per-policy with safe
+  defaults (CPU: 50m-4000m, Memory: 64Mi-8Gi).
+
+### Operations
+
+- **In-place resize**: Adjusts CPU and memory on running pods via the
+  K8s 1.33+ `/resize` subresource. No evictions, no restarts.
+- **Cost savings estimation**: Per-workload `EstimatedMonthlySavings` in
+  status, CLI (`kubectl rightsize savings`), and Grafana dashboard.
 - **Scheduled resize windows**: Restrict resizes to specific time windows
-  and days of the week via `updateStrategy.schedule`. Supports timezones
-  and overnight windows. Recommendations compute continuously regardless.
-- **Per-cycle budget caps**: `maxTotalCpuIncrease` and `maxTotalMemoryIncrease`
-  limit aggregate resource increases per reconcile cycle, preventing cluster-wide
-  spikes when many pods need scaling up.
-- **Eviction fallback**: Optional `resizeMethod: InPlaceOrEvict` falls back to
-  pod eviction when in-place resize fails. Respects PDBs and never evicts
-  the last replica. Default `InPlaceOnly` preserves current zero-disruption behavior.
-- **Batch workload support**: Targets CronJobs and Jobs for recommend-only
-  right-sizing based on historical usage of completed pods.
-- **Namespace-scoped defaults**: `RightSizeNamespaceDefaults` provides
-  per-namespace defaults that override the cluster-scoped `RightSizeDefaults`,
-  enabling different configurations for production vs staging.
+  and days of the week. Recommendations compute continuously regardless.
+- **Per-cycle budget caps**: Limit aggregate CPU/memory increases per
+  reconcile cycle, preventing cluster-wide spikes.
+- **Concurrent pod processing**: Parallel pod resizes within a cycle for
+  reduced latency at scale.
+
+### Compatibility
+
+- **Multi-data-source**: Thanos, VictoriaMetrics, Grafana Mimir, managed
+  Prometheus. Bearer token auth, custom headers, TLS.
+- **Prometheus auto-discovery**: Finds Prometheus via the Operator CRD or
+  well-known service names when no address is configured.
+- **Batch workloads**: CronJobs and Jobs for recommend-only right-sizing.
+- **Namespace-scoped defaults**: Per-namespace `RightSizeNamespaceDefaults`
+  override cluster-scoped defaults for production vs staging.
+- **Conflict detection**: Warns about VPA, overlapping policies, or active
+  rollouts targeting the same workload.
 
 ## Documentation
 
