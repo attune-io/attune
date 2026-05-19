@@ -553,6 +553,31 @@ func TestMergeResources(t *testing.T) {
 			},
 			wantMemLimit: "2Gi",
 		},
+		{
+			name: "mixed controlledValues: target has only CPU limit, memory limit preserved from current",
+			current: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("500m"),
+					corev1.ResourceMemory: resource.MustParse("256Mi"),
+				},
+				Limits: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("1"),
+					corev1.ResourceMemory: resource.MustParse("512Mi"),
+				},
+			},
+			target: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("250m"),
+					corev1.ResourceMemory: resource.MustParse("200Mi"),
+				},
+				// Only CPU limit set (CPU: RequestsAndLimits, Memory: RequestsOnly)
+				Limits: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("500m"),
+				},
+			},
+			wantCPULimit: "500m",
+			wantMemLimit: "512Mi", // preserved from current, not dropped
+		},
 	}
 
 	for _, tt := range tests {

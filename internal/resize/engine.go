@@ -143,18 +143,26 @@ func mergeResources(current, target corev1.ResourceRequirements) corev1.Resource
 	merged := corev1.ResourceRequirements{
 		Requests: target.Requests.DeepCopy(),
 	}
-	if len(target.Limits) > 0 {
-		merged.Limits = target.Limits.DeepCopy()
+	if len(target.Limits) > 0 || len(current.Limits) > 0 {
+		// Start with current limits to preserve uncontrolled resources (e.g.,
+		// when CPU uses RequestsAndLimits but memory uses RequestsOnly, the
+		// target only has CPU limits; we must carry forward the memory limit).
+		merged.Limits = current.Limits.DeepCopy()
+		if merged.Limits == nil {
+			merged.Limits = corev1.ResourceList{}
+		}
+		// Apply target limits on top.
+		for res, qty := range target.Limits {
+			merged.Limits[res] = qty.DeepCopy()
+		}
 		// Clamp memory limits: K8s forbids in-place memory limit decreases.
 		if currentMemLim, ok := current.Limits[corev1.ResourceMemory]; ok {
-			if targetMemLim, ok := merged.Limits[corev1.ResourceMemory]; ok {
-				if targetMemLim.Cmp(currentMemLim) < 0 {
+			if mergedMemLim, ok := merged.Limits[corev1.ResourceMemory]; ok {
+				if mergedMemLim.Cmp(currentMemLim) < 0 {
 					merged.Limits[corev1.ResourceMemory] = currentMemLim.DeepCopy()
 				}
 			}
 		}
-	} else if len(current.Limits) > 0 {
-		merged.Limits = current.Limits.DeepCopy()
 	}
 	// CPU limits are not clamped: K8s allows in-place CPU limit decreases.
 	return merged
