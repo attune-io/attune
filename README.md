@@ -273,6 +273,7 @@ The dashboard includes:
 | [Quickstart](docs/getting-started/quickstart.md) | Get running in 5 minutes |
 | [Migrating from VPA](docs/guides/migrating-from-vpa.md) | Step-by-step VPA replacement |
 | [HPA Coexistence](docs/guides/hpa-coexistence.md) | Running alongside HPA |
+| [Scaling Guide](docs/guides/scaling.md) | Cluster size presets, tuning, and HA deployment |
 | [Canary Rollout](docs/guides/canary-rollout.md) | Graduated rollout strategy |
 | [CLI Reference](docs/reference/cli.md) | kubectl plugin commands |
 | [API Reference](docs/reference/api.md) | CRD specification |

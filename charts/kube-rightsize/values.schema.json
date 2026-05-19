@@ -285,6 +285,24 @@
         }
       }
     },
+    "clusterSize": {
+      "type": "string",
+      "enum": ["", "small", "medium", "large", "xlarge"],
+      "default": "",
+      "description": "Cluster size preset: sets resources, rate limits, and replica count. Empty means no preset."
+    },
+    "prometheusQPS": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "default": 10,
+      "description": "Prometheus query rate limit (queries per second)"
+    },
+    "prometheusBurst": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "default": 20,
+      "description": "Prometheus query burst allowance"
+    },
     "collectorTTL": {
       "type": "string",
       "pattern": "^([0-9]+(ns|us|ms|s|m|h))+$",

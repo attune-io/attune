@@ -60,3 +60,85 @@ Create the name of the service account to use.
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{/*
+Cluster size preset defaults. Returns nothing if clusterSize is empty.
+Explicit values in values.yaml always override these presets.
+*/}}
+
+{{- define "kube-rightsize.replicaCount" -}}
+{{- if and .Values.clusterSize (or (eq .Values.clusterSize "large") (eq .Values.clusterSize "xlarge")) }}
+{{- if eq (int .Values.replicaCount) 1 }}2{{- else }}{{ .Values.replicaCount }}{{- end }}
+{{- else }}
+{{- .Values.replicaCount }}
+{{- end }}
+{{- end }}
+
+{{/*
+Resolve prometheusQPS: if clusterSize is set and prometheusQPS is at its
+default (10), use the preset value. Otherwise use the explicit value.
+*/}}
+{{- define "kube-rightsize.prometheusQPS" -}}
+{{- if and .Values.clusterSize (eq (.Values.prometheusQPS | toString) "10") }}
+  {{- if eq .Values.clusterSize "small" }}10
+  {{- else if eq .Values.clusterSize "medium" }}20
+  {{- else if eq .Values.clusterSize "large" }}40
+  {{- else if eq .Values.clusterSize "xlarge" }}80
+  {{- else }}{{ .Values.prometheusQPS }}
+  {{- end }}
+{{- else }}{{ .Values.prometheusQPS }}
+{{- end }}
+{{- end }}
+
+{{/*
+Resolve prometheusBurst: if clusterSize is set and prometheusBurst is at its
+default (20), use the preset value. Otherwise use the explicit value.
+*/}}
+{{- define "kube-rightsize.prometheusBurst" -}}
+{{- if and .Values.clusterSize (eq (int .Values.prometheusBurst) 20) }}
+  {{- if eq .Values.clusterSize "small" }}20
+  {{- else if eq .Values.clusterSize "medium" }}40
+  {{- else if eq .Values.clusterSize "large" }}80
+  {{- else if eq .Values.clusterSize "xlarge" }}160
+  {{- else }}{{ .Values.prometheusBurst }}
+  {{- end }}
+{{- else }}{{ .Values.prometheusBurst }}
+{{- end }}
+{{- end }}
+
+{{- define "kube-rightsize.resources" -}}
+{{- if .Values.resources }}
+{{- toYaml .Values.resources }}
+{{- else }}
+  {{- $size := .Values.clusterSize | default "small" }}
+  {{- if eq $size "small" }}
+limits:
+  cpu: 500m
+  memory: 256Mi
+requests:
+  cpu: 100m
+  memory: 128Mi
+  {{- else if eq $size "medium" }}
+limits:
+  cpu: 1000m
+  memory: 512Mi
+requests:
+  cpu: 250m
+  memory: 256Mi
+  {{- else if eq $size "large" }}
+limits:
+  cpu: 2000m
+  memory: 2Gi
+requests:
+  cpu: 500m
+  memory: 512Mi
+  {{- else if eq $size "xlarge" }}
+limits:
+  cpu: 4000m
+  memory: 4Gi
+requests:
+  cpu: 1000m
+  memory: 1Gi
+  {{- end }}
+{{- end }}
+{{- end }}

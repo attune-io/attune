@@ -48,14 +48,9 @@ securityContext:
   runAsUser: 65532
   runAsGroup: 65532
 
-# -- Operator pod resources
-resources:
-  limits:
-    cpu: 500m
-    memory: 256Mi
-  requests:
-    cpu: 100m
-    memory: 128Mi
+# -- Operator pod resources. When empty, defaults are derived from clusterSize
+# -- (or "small" if clusterSize is also empty). Set explicit values for production.
+resources: {}
 
 # -- Priority class name for the operator pod (recommended: system-cluster-critical for production)
 priorityClassName: ""
@@ -135,6 +130,20 @@ defaults:
     # -- Per-cycle budget caps (optional)
     # maxTotalCpuIncrease: "2000m"
     # maxTotalMemoryIncrease: "4Gi"
+
+# -- Cluster size preset: sets resources, rate limits, and replica count in one
+# -- shot. Valid values: small, medium, large, xlarge, or "" (no preset).
+# -- Any explicitly set value below overrides the preset.
+# -- See docs/guides/scaling.md for what each preset configures.
+clusterSize: ""
+
+# -- Prometheus query rate limit (queries per second).
+# -- Controls how fast the operator queries Prometheus for metrics.
+# -- Higher values reduce reconcile latency but increase Prometheus load.
+prometheusQPS: 10
+
+# -- Prometheus query burst allowance.
+prometheusBurst: 20
 
 # -- Collector cache TTL for unused Prometheus connections (Go duration, e.g. "10m", "1h")
 collectorTTL: "10m"

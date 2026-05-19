@@ -5,7 +5,7 @@ metadata:
   labels:
     {{- include "kube-rightsize.labels" . | nindent 4 }}
 spec:
-  replicas: {{ .Values.replicaCount }}
+  replicas: {{ include "kube-rightsize.replicaCount" . }}
   selector:
     matchLabels:
       {{- include "kube-rightsize.selectorLabels" . | nindent 6 }}
@@ -50,6 +50,8 @@ spec:
             - --enable-webhooks=false
             {{- end }}
             {{- end }}
+            - --prometheus-qps={{ include "kube-rightsize.prometheusQPS" . | trim }}
+            - --prometheus-burst={{ include "kube-rightsize.prometheusBurst" . | trim }}
             {{- if .Values.collectorTTL }}
             - --collector-ttl={{ .Values.collectorTTL }}
             {{- end }}
@@ -91,10 +93,8 @@ spec:
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          {{- with .Values.resources }}
           resources:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
+            {{- include "kube-rightsize.resources" . | nindent 12 }}
           {{- if .Values.webhooks.enabled }}
           volumeMounts:
             - name: webhook-certs

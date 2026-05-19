@@ -62,6 +62,8 @@ func main() {
 	var enableLeaderElection bool
 	var enableWebhooks bool
 	var collectorTTL time.Duration
+	var prometheusQPS float64
+	var prometheusBurst int
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metrics endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the health probe endpoint binds to.")
@@ -72,6 +74,10 @@ func main() {
 		"Enable admission webhooks for defaulting and validation.")
 	flag.DurationVar(&collectorTTL, "collector-ttl", 10*time.Minute,
 		"How long unused Prometheus collectors stay cached before eviction.")
+	flag.Float64Var(&prometheusQPS, "prometheus-qps", 10,
+		"Maximum Prometheus queries per second. Increase for large clusters with many policies.")
+	flag.IntVar(&prometheusBurst, "prometheus-burst", 20,
+		"Maximum burst for Prometheus query throttle.")
 
 	opts := zap.Options{
 		Development: false,
@@ -83,6 +89,14 @@ func main() {
 
 	if collectorTTL < 0 {
 		setupLog.Error(fmt.Errorf("got %s", collectorTTL), "collector-ttl must be non-negative")
+		os.Exit(1)
+	}
+	if prometheusQPS <= 0 {
+		setupLog.Error(fmt.Errorf("got %f", prometheusQPS), "prometheus-qps must be positive")
+		os.Exit(1)
+	}
+	if prometheusBurst <= 0 {
+		setupLog.Error(fmt.Errorf("got %d", prometheusBurst), "prometheus-burst must be positive")
 		os.Exit(1)
 	}
 
@@ -132,7 +146,7 @@ func main() {
 			if err != nil {
 				return nil, fmt.Errorf("creating Prometheus collector for %s: %w", address, err)
 			}
-			return metrics.NewRateLimitedCollector(collector, 10, 20), nil
+			return metrics.NewRateLimitedCollector(collector, prometheusQPS, prometheusBurst), nil
 		},
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "RightSizePolicy")

@@ -21,6 +21,7 @@ helm install kube-rightsize oci://ghcr.io/sebtardiflabs/charts/kube-rightsize \
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | affinity | object | `{}` | Affinity rules |
+| clusterSize | string | `""` | See docs/guides/scaling.md for what each preset configures. |
 | collectorTTL | string | `"10m"` | Collector cache TTL for unused Prometheus connections (Go duration, e.g. "10m", "1h") |
 | defaults | object | `{"enabled":false,"updateStrategy":{"autoRevert":true,"cooldown":"1h","maxConcurrentResizes":1,"mode":"Recommend","resizeMethod":"InPlaceOnly"}}` | Cluster-wide defaults (creates a RightSizeDefaults CR) |
 | defaults.enabled | bool | `false` | Create a RightSizeDefaults resource with the values below |
@@ -53,8 +54,10 @@ helm install kube-rightsize oci://ghcr.io/sebtardiflabs/charts/kube-rightsize \
 | podAnnotations | object | `{}` | Pod annotations |
 | podSecurityContext | object | `{"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}}` | Pod security context |
 | priorityClassName | string | `""` | Priority class name for the operator pod (recommended: system-cluster-critical for production) |
+| prometheusBurst | int | `20` | Prometheus query burst allowance. |
+| prometheusQPS | int | `10` | Higher values reduce reconcile latency but increase Prometheus load. |
 | replicaCount | int | `1` | Number of operator replicas (use 2 for HA with leader election) |
-| resources | object | `{"limits":{"cpu":"500m","memory":"256Mi"},"requests":{"cpu":"100m","memory":"128Mi"}}` | Operator pod resources |
+| resources | or "small" if clusterSize is also empty | `{}` | . Set explicit values for production. |
 | securityContext | object | `{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true,"runAsGroup":65532,"runAsNonRoot":true,"runAsUser":65532}` | Container security context |
 | serviceAccount.annotations | object | `{}` | Annotations to add to the ServiceAccount |
 | serviceAccount.create | bool | `true` | Create a ServiceAccount |

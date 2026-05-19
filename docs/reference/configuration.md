@@ -33,14 +33,23 @@ This page documents every value in the Helm chart's `values.yaml`.
 | `securityContext.runAsNonRoot` | bool | `true` | Run container as non-root |
 | `securityContext.runAsUser` | int | `65532` | UID for the container process |
 
+## Cluster Size Presets
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `clusterSize` | string | `""` | Cluster size preset (`small`, `medium`, `large`, `xlarge`, or empty). Sets resources, rate limits, and replica count in one shot. See the [Scaling Guide](../guides/scaling.md) for details. |
+| `prometheusQPS` | number | `10` | Prometheus query rate limit (queries per second). Increase for large clusters with many policies. |
+| `prometheusBurst` | int | `20` | Prometheus query burst allowance. |
+
 ## Resources
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `resources.limits.cpu` | string | `500m` | CPU limit for the operator pod |
-| `resources.limits.memory` | string | `256Mi` | Memory limit for the operator pod |
-| `resources.requests.cpu` | string | `100m` | CPU request for the operator pod |
-| `resources.requests.memory` | string | `128Mi` | Memory request for the operator pod |
+| `resources` | object | `{}` | Operator pod resource requests and limits. When empty, defaults are derived from `clusterSize` (or the `small` tier if `clusterSize` is also empty). |
+| `resources.limits.cpu` | string | (preset) | CPU limit for the operator pod |
+| `resources.limits.memory` | string | (preset) | Memory limit for the operator pod |
+| `resources.requests.cpu` | string | (preset) | CPU request for the operator pod |
+| `resources.requests.memory` | string | (preset) | Memory request for the operator pod |
 
 ## Scheduling
 

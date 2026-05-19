@@ -1,0 +1,22 @@
+# kube-rightsize values for small clusters (up to ~100 workloads)
+#
+# This is the default profile. You can install with no overrides for the
+# same behavior, or use: --set clusterSize=small
+#
+# See docs/guides/scaling.md for details.
+
+clusterSize: small
+
+# Equivalent explicit values (for reference):
+#   replicaCount: 1
+#   resources:
+#     requests: { cpu: 100m, memory: 128Mi }
+#     limits:   { cpu: 500m, memory: 256Mi }
+#   prometheusQPS: 10
+#   prometheusBurst: 20
+
+# Recommended RightSizePolicy CRD settings for small clusters:
+#   cooldown: "1h"
+#   historyWindow: "168h"    # 7 days
+#   queryStep: "5m"
+#   maxConcurrentResizes: 1

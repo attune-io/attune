@@ -96,3 +96,148 @@ tests:
           content:
             name: webhook
           any: true
+
+  # --- Prometheus rate limit args ---
+
+  - it: should pass default prometheus-qps and prometheus-burst args
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --prometheus-qps=10
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --prometheus-burst=20
+
+  - it: should pass explicit prometheus-qps override
+    set:
+      prometheusQPS: 50
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --prometheus-qps=50
+
+  - it: should pass explicit prometheus-burst override
+    set:
+      prometheusBurst: 100
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --prometheus-burst=100
+
+  # --- clusterSize presets ---
+
+  - it: should apply small preset defaults with no clusterSize
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 1
+      - equal:
+          path: spec.template.spec.containers[0].resources
+          value:
+            limits:
+              cpu: 500m
+              memory: 256Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+
+  - it: should apply medium preset values
+    set:
+      clusterSize: medium
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 1
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --prometheus-qps=20
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --prometheus-burst=40
+      - equal:
+          path: spec.template.spec.containers[0].resources
+          value:
+            limits:
+              cpu: 1000m
+              memory: 512Mi
+            requests:
+              cpu: 250m
+              memory: 256Mi
+
+  - it: should apply large preset values with 2 replicas
+    set:
+      clusterSize: large
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 2
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --prometheus-qps=40
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --prometheus-burst=80
+      - equal:
+          path: spec.template.spec.containers[0].resources
+          value:
+            limits:
+              cpu: 2000m
+              memory: 2Gi
+            requests:
+              cpu: 500m
+              memory: 512Mi
+
+  - it: should apply xlarge preset values
+    set:
+      clusterSize: xlarge
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 2
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --prometheus-qps=80
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --prometheus-burst=160
+      - equal:
+          path: spec.template.spec.containers[0].resources
+          value:
+            limits:
+              cpu: 4000m
+              memory: 4Gi
+            requests:
+              cpu: 1000m
+              memory: 1Gi
+
+  - it: should let explicit values override large preset
+    set:
+      clusterSize: large
+      prometheusQPS: 60
+      replicaCount: 3
+      resources:
+        requests:
+          cpu: 999m
+          memory: 999Mi
+        limits:
+          cpu: 3000m
+          memory: 3Gi
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 3
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --prometheus-qps=60
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --prometheus-burst=80
+      - equal:
+          path: spec.template.spec.containers[0].resources
+          value:
+            limits:
+              cpu: 3000m
+              memory: 3Gi
+            requests:
+              cpu: 999m
+              memory: 999Mi
