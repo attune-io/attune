@@ -30,6 +30,17 @@ tests:
           path: spec.updateStrategy.maxConcurrentResizes
           value: 1
 
+  - it: should render autoRevert false when explicitly disabled
+    set:
+      defaults:
+        enabled: true
+        updateStrategy:
+          autoRevert: false
+    asserts:
+      - equal:
+          path: spec.updateStrategy.autoRevert
+          value: false
+
   - it: should render maxCpuChangePercent and maxMemoryChangePercent
     set:
       defaults:

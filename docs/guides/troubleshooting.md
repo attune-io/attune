@@ -297,23 +297,24 @@ updateStrategy:
 **Symptom**: `kubectl apply` fails with:
 ```
 admission webhook "validation.rightsize.io" denied the request:
-updateStrategy.schedule.timezone "US/Eastern" is not a valid IANA timezone
+updateStrategy.schedule.timezone "PST" is not a valid IANA timezone
 ```
 
 **Cause**: The timezone must be a valid IANA timezone name from the
 [tz database](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones).
-Common mistakes include using abbreviations (EST, PST) or Windows-style
-names (US/Eastern).
+Common mistakes include using abbreviations that Go's `time.LoadLocation`
+does not recognize.
 
-**Fix**: Use the full IANA name:
+**Fix**: Use the canonical IANA region/city name:
 
-| Wrong | Correct |
-|-------|---------|
-| `EST` | `America/New_York` |
+| Invalid | Valid alternative |
+|---------|-----------------|
 | `PST` | `America/Los_Angeles` |
-| `CET` | `Europe/Berlin` |
 | `IST` | `Asia/Kolkata` |
-| `US/Eastern` | `America/New_York` |
+
+Note: `US/Eastern`, `EST`, and `CET` are valid IANA timezone links and
+will be accepted, but the canonical forms (`America/New_York`,
+`Europe/Berlin`) are recommended for clarity.
 
 ```bash
 # List all valid timezones on your system:
