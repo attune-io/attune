@@ -171,6 +171,7 @@ type workloadProcessingResult struct {
 	totalQueryErrors  int
 	queryErrorTypes   map[string]struct{}
 	gaugeKeys         []gaugeKey
+	hpaList           autoscalingv2.HorizontalPodAutoscalerList
 }
 
 // deleteGaugeKeys removes recommendation gauge values for the given keys.
@@ -430,12 +431,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	globalMaxDataPoints := wpResult.maxDataPoints
 	totalQueryErrors := wpResult.totalQueryErrors
 	queryErrorTypes := wpResult.queryErrorTypes
-
-	// List HPAs in the namespace for HPA auto-tune after resizes.
-	var hpaList autoscalingv2.HorizontalPodAutoscalerList
-	if err := r.List(ctx, &hpaList, client.InNamespace(policy.Namespace)); err != nil {
-		logger.Error(err, "Failed to list HPAs for auto-tune")
-	}
+	hpaList := wpResult.hpaList
 
 	// Step 8: Update status fields.
 	nowMeta := metav1.NewTime(r.now())
@@ -616,9 +612,10 @@ func (r *RightSizePolicyReconciler) processWorkloads(
 
 	conflictDetector := conflict.NewDetector(logger)
 
-	// List HPAs, VPAs, and policies once for all workloads.
-	var hpaList autoscalingv2.HorizontalPodAutoscalerList
-	if err := r.List(ctx, &hpaList, client.InNamespace(policy.Namespace)); err != nil {
+	// List HPAs, VPAs, and policies once for all workloads. The HPA list is
+	// also returned in the result so Reconcile can reuse it for HPA auto-tune
+	// without a redundant API call.
+	if err := r.List(ctx, &result.hpaList, client.InNamespace(policy.Namespace)); err != nil {
 		logger.Error(err, "Failed to list HPAs for conflict detection")
 	}
 	vpaList := conflictDetector.ListVPAs(ctx, r.Client, policy.Namespace)
@@ -646,7 +643,7 @@ func (r *RightSizePolicyReconciler) processWorkloads(
 			continue
 		}
 
-		if hpaConflict := conflictDetector.CheckHPAConflict(hpaList.Items, workloadName, workloadKind); hpaConflict != nil {
+		if hpaConflict := conflictDetector.CheckHPAConflict(result.hpaList.Items, workloadName, workloadKind); hpaConflict != nil {
 			logger.Info("HPA conflict detected", "workload", workloadName, "hpa", hpaConflict.Name, "message", hpaConflict.Message)
 		}
 

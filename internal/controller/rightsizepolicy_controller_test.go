@@ -7695,3 +7695,96 @@ func TestSpecOrDeletePredicate_NilObjects(t *testing.T) {
 	assert.False(t, p.Update(event.UpdateEvent{ObjectOld: nil, ObjectNew: &rightsizev1alpha1.RightSizePolicy{}}))
 	assert.False(t, p.Update(event.UpdateEvent{ObjectOld: &rightsizev1alpha1.RightSizePolicy{}, ObjectNew: nil}))
 }
+
+func TestSetReadyCondition(t *testing.T) {
+	tests := []struct {
+		name              string
+		workloadCount     int
+		workloadsWithRecs int32
+		totalQueryErrors  int
+		queryErrorTypes   map[string]struct{}
+		maxDataPoints     int
+		wantStatus        metav1.ConditionStatus
+		wantReason        string
+		wantMsgContains   string
+	}{
+		{
+			name:              "ready with recommendations",
+			workloadCount:     3,
+			workloadsWithRecs: 2,
+			queryErrorTypes:   map[string]struct{}{},
+			wantStatus:        metav1.ConditionTrue,
+			wantReason:        rightsizev1alpha1.ReasonMonitoring,
+			wantMsgContains:   "Watching 3 workloads, 2 with recommendations",
+		},
+		{
+			name:              "ready with recommendations and CPU query errors",
+			workloadCount:     5,
+			workloadsWithRecs: 3,
+			totalQueryErrors:  2,
+			queryErrorTypes:   map[string]struct{}{"CPU": {}},
+			wantStatus:        metav1.ConditionTrue,
+			wantReason:        rightsizev1alpha1.ReasonMonitoring,
+			wantMsgContains:   "Prometheus query errors (2) prevented CPU data collection",
+		},
+		{
+			name:              "ready with recommendations and both CPU and memory errors",
+			workloadCount:     4,
+			workloadsWithRecs: 1,
+			totalQueryErrors:  5,
+			queryErrorTypes:   map[string]struct{}{"CPU": {}, "memory": {}},
+			wantStatus:        metav1.ConditionTrue,
+			wantReason:        rightsizev1alpha1.ReasonMonitoring,
+			wantMsgContains:   "CPU and memory data collection",
+		},
+		{
+			name:              "not ready collecting data",
+			workloadCount:     2,
+			workloadsWithRecs: 0,
+			queryErrorTypes:   map[string]struct{}{},
+			maxDataPoints:     10,
+			wantStatus:        metav1.ConditionFalse,
+			wantReason:        rightsizev1alpha1.ReasonInsufficientData,
+			wantMsgContains:   "Collecting data: 10/48 data points",
+		},
+		{
+			name:              "not ready with memory query errors",
+			workloadCount:     1,
+			workloadsWithRecs: 0,
+			totalQueryErrors:  1,
+			queryErrorTypes:   map[string]struct{}{"memory": {}},
+			maxDataPoints:     0,
+			wantStatus:        metav1.ConditionFalse,
+			wantReason:        rightsizev1alpha1.ReasonPrometheusUnavailable,
+			wantMsgContains:   "Prometheus query errors (1) prevented memory data collection",
+		},
+		{
+			name:              "not ready max data points exceeds minimum clamps remaining to 0",
+			workloadCount:     1,
+			workloadsWithRecs: 0,
+			queryErrorTypes:   map[string]struct{}{},
+			maxDataPoints:     100,
+			wantStatus:        metav1.ConditionFalse,
+			wantReason:        rightsizev1alpha1.ReasonInsufficientData,
+			wantMsgContains:   "100/48 data points (99%)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &RightSizePolicyReconciler{}
+			policy := &rightsizev1alpha1.RightSizePolicy{}
+			policy.Generation = 5
+
+			r.setReadyCondition(policy, tt.workloadCount, tt.workloadsWithRecs,
+				tt.totalQueryErrors, tt.queryErrorTypes, tt.maxDataPoints)
+
+			cond := meta.FindStatusCondition(policy.Status.Conditions, rightsizev1alpha1.ConditionReady)
+			require.NotNil(t, cond, "Ready condition must be set")
+			assert.Equal(t, tt.wantStatus, cond.Status)
+			assert.Equal(t, tt.wantReason, cond.Reason)
+			assert.Contains(t, cond.Message, tt.wantMsgContains)
+			assert.Equal(t, int64(5), cond.ObservedGeneration)
+		})
+	}
+}
