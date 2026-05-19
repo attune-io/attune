@@ -22,6 +22,7 @@ import (
 	"math"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -7819,4 +7820,78 @@ func TestSetReadyCondition(t *testing.T) {
 			assert.Equal(t, int64(5), cond.ObservedGeneration)
 		})
 	}
+}
+
+func TestProcessWorkloads_Parallel(t *testing.T) {
+	// Track peak concurrent queries to prove parallelism.
+	var inflight atomic.Int32
+	var peakInflight atomic.Int32
+
+	// Build 60 samples (enough to exceed the default minimumDataPoints of 48).
+	now := time.Now()
+	samples := make([]rsmetrics.Sample, 60)
+	for i := range samples {
+		samples[i] = rsmetrics.Sample{
+			Timestamp: now.Add(-time.Duration(60-i) * 5 * time.Minute),
+			Value:     0.1,
+		}
+	}
+	grouped := map[string][]rsmetrics.Sample{"main": samples}
+
+	collector := &mockCollector{
+		queryRangeGroupedFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) (map[string][]rsmetrics.Sample, error) {
+			cur := inflight.Add(1)
+			// Track the peak concurrency.
+			for {
+				peak := peakInflight.Load()
+				if cur <= peak || peakInflight.CompareAndSwap(peak, cur) {
+					break
+				}
+			}
+			// Simulate query latency to allow goroutines to overlap.
+			time.Sleep(5 * time.Millisecond)
+			inflight.Add(-1)
+			return grouped, nil
+		},
+	}
+
+	// Create 20 deployments to process in parallel.
+	const numWorkloads = 20
+	objs := make([]runtime.Object, 0, numWorkloads)
+	workloads := make([]client.Object, 0, numWorkloads)
+	for i := range numWorkloads {
+		name := fmt.Sprintf("deploy-%d", i)
+		dep := newTestDeployment(name, "default", map[string]string{"app": name})
+		objs = append(objs, dep)
+		workloads = append(workloads, dep)
+	}
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithRuntimeObjects(objs...).
+		Build()
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.TargetRef.Name = nil
+	policy.Spec.TargetRef.Selector = &metav1.LabelSelector{}
+
+	r := &RightSizePolicyReconciler{
+		Client:         fakeClient,
+		Scheme:         scheme,
+		MetricsFactory: mockMetricsFactory(collector),
+	}
+	r.SetNowFunc(func() time.Time { return now })
+
+	result := r.processWorkloads(context.Background(), policy, workloads, collector)
+
+	// All 20 workloads should produce recommendations.
+	assert.Equal(t, int32(numWorkloads), result.workloadsWithRecs,
+		"all workloads should have recommendations")
+	assert.Len(t, result.recommendations, numWorkloads)
+	assert.Equal(t, 0, result.totalQueryErrors)
+
+	// Verify actual concurrency occurred (peak > 1 proves parallelism).
+	assert.Greater(t, peakInflight.Load(), int32(1),
+		"expected concurrent queries (peak inflight > 1)")
 }

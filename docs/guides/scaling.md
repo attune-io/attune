@@ -93,6 +93,11 @@ internally).
    rate limiter is shared across all goroutines, so concurrent reconciles
    won't overwhelm Prometheus.
 
+   Within each policy, workloads are processed in parallel (up to 10
+   concurrent workers). This means a single policy targeting 200 Deployments
+   via label selector issues Prometheus queries concurrently instead of
+   serially, reducing recommendation latency from minutes to seconds.
+
 2. **Prometheus query rate**. Symptom: reconcile queue grows,
    `kube_rightsize_reconcile_duration_seconds` P99 increases. Fix: increase
    `prometheusQPS` and `prometheusBurst`. This works in tandem with

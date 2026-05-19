@@ -29,6 +29,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"golang.org/x/sync/errgroup"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -109,6 +110,12 @@ const (
 
 	// defaultObservationPeriod is the default safety observation window after resize.
 	defaultObservationPeriod = 5 * time.Minute
+
+	// maxWorkloadWorkers is the maximum number of goroutines used to process
+	// workloads in parallel within a single reconcile cycle. The Prometheus
+	// rate limiter provides the real backpressure; this just caps goroutine
+	// count to avoid excessive memory from blocked goroutines.
+	maxWorkloadWorkers = 10
 )
 
 //+kubebuilder:rbac:groups=rightsize.io,resources=rightsizepolicies,verbs=get;list;watch;patch
@@ -607,8 +614,11 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	return ctrl.Result{RequeueAfter: requeueAfter}, nil
 }
 
-// processWorkloads iterates over discovered workloads, checks for conflicts
-// and opt-outs, computes recommendations, and returns the aggregated results.
+// processWorkloads processes discovered workloads in parallel, checking for
+// conflicts and opt-outs, computing recommendations, and returning the
+// aggregated results. Workloads are processed by a bounded worker pool
+// (maxWorkloadWorkers goroutines). The Prometheus rate limiter provides
+// backpressure so workers that exceed the QPS budget block automatically.
 func (r *RightSizePolicyReconciler) processWorkloads(
 	ctx context.Context,
 	policy *rightsizev1alpha1.RightSizePolicy,
@@ -643,55 +653,76 @@ func (r *RightSizePolicyReconciler) processWorkloads(
 		excludeSet[name] = true
 	}
 
-	for _, workload := range workloads {
-		workloadName := workload.GetName()
-		workloadKind := workload.GetObjectKind().GroupVersionKind().Kind
-
-		workloadMeta := metav1.ObjectMeta{Annotations: workload.GetAnnotations()}
-		if conflictDetector.CheckAnnotationOptOut(workloadMeta) {
-			logger.Info("Workload opted out via annotation", "workload", workloadName)
-			continue
-		}
-
-		if hpaConflict := conflictDetector.CheckHPAConflict(result.hpaList.Items, workloadName, workloadKind); hpaConflict != nil {
-			logger.Info("HPA conflict detected", "workload", workloadName, "hpa", hpaConflict.Name, "message", hpaConflict.Message)
-		}
-
-		if vpaConflict := conflictDetector.CheckVPAConflictInMemory(vpaList, workloadName, workloadKind); vpaConflict != nil {
-			logger.Info("VPA conflict detected", "workload", workloadName, "vpa", vpaConflict.Name, "message", vpaConflict.Message)
-		}
-
-		if policyConflict := conflictDetector.CheckPolicyConflictInMemory(policyList, workloadName, workloadKind, workload.GetLabels(), policy.Name, policy.Spec.Weight); policyConflict != nil {
-			logger.Info("Higher-weight policy exists, skipping workload", "workload", workloadName, "policy", policyConflict.Name, "message", policyConflict.Message)
-			continue
-		}
-
-		if r.isRollingOut(workload) {
-			logger.Info("Skipping workload mid-rollout", "workload", workloadName)
-			continue
-		}
-
-		rec, qErrors, failedMetricTypes, dataPoints, err := r.computeRecommendations(ctx, policy, workload, collector, cpuEngine, memEngine, excludeSet)
-		result.totalQueryErrors += qErrors
-		for _, metricType := range failedMetricTypes {
-			result.queryErrorTypes[metricType] = struct{}{}
-		}
-		if dataPoints > result.maxDataPoints {
-			result.maxDataPoints = dataPoints
-		}
-		if err != nil {
-			logger.Error(err, "Failed to compute recommendations", "workload", workloadName)
-			operatormetrics.ReconcileErrorsTotal.WithLabelValues("compute_recommendations").Inc()
-			continue
-		}
-
-		if rec != nil {
-			rec.Workload = workloadName
-			rec.Kind = workloadKind
-			result.recommendations = append(result.recommendations, *rec)
-			result.workloadsWithRecs++
-		}
+	// Process workloads in parallel. The errgroup context propagates
+	// cancellation to all workers if the parent context is cancelled.
+	var mu sync.Mutex
+	g, gCtx := errgroup.WithContext(ctx)
+	workers := maxWorkloadWorkers
+	if len(workloads) < workers {
+		workers = len(workloads)
 	}
+	g.SetLimit(workers)
+
+	for _, workload := range workloads {
+		g.Go(func() error {
+			workloadName := workload.GetName()
+			workloadKind := workload.GetObjectKind().GroupVersionKind().Kind
+
+			workloadMeta := metav1.ObjectMeta{Annotations: workload.GetAnnotations()}
+			if conflictDetector.CheckAnnotationOptOut(workloadMeta) {
+				logger.Info("Workload opted out via annotation", "workload", workloadName)
+				return nil
+			}
+
+			if hpaConflict := conflictDetector.CheckHPAConflict(result.hpaList.Items, workloadName, workloadKind); hpaConflict != nil {
+				logger.Info("HPA conflict detected", "workload", workloadName, "hpa", hpaConflict.Name, "message", hpaConflict.Message)
+			}
+
+			if vpaConflict := conflictDetector.CheckVPAConflictInMemory(vpaList, workloadName, workloadKind); vpaConflict != nil {
+				logger.Info("VPA conflict detected", "workload", workloadName, "vpa", vpaConflict.Name, "message", vpaConflict.Message)
+			}
+
+			if policyConflict := conflictDetector.CheckPolicyConflictInMemory(policyList, workloadName, workloadKind, workload.GetLabels(), policy.Name, policy.Spec.Weight); policyConflict != nil {
+				logger.Info("Higher-weight policy exists, skipping workload", "workload", workloadName, "policy", policyConflict.Name, "message", policyConflict.Message)
+				return nil
+			}
+
+			if r.isRollingOut(workload) {
+				logger.Info("Skipping workload mid-rollout", "workload", workloadName)
+				return nil
+			}
+
+			rec, qErrors, failedMetricTypes, dataPoints, err := r.computeRecommendations(gCtx, policy, workload, collector, cpuEngine, memEngine, excludeSet)
+
+			mu.Lock()
+			result.totalQueryErrors += qErrors
+			for _, metricType := range failedMetricTypes {
+				result.queryErrorTypes[metricType] = struct{}{}
+			}
+			if dataPoints > result.maxDataPoints {
+				result.maxDataPoints = dataPoints
+			}
+			if err != nil {
+				mu.Unlock()
+				logger.Error(err, "Failed to compute recommendations", "workload", workloadName)
+				operatormetrics.ReconcileErrorsTotal.WithLabelValues("compute_recommendations").Inc()
+				return nil
+			}
+			if rec != nil {
+				rec.Workload = workloadName
+				rec.Kind = workloadKind
+				result.recommendations = append(result.recommendations, *rec)
+				result.workloadsWithRecs++
+			}
+			mu.Unlock()
+
+			return nil
+		})
+	}
+
+	// Workers never return errors (they log and continue), but Wait()
+	// propagates context cancellation.
+	_ = g.Wait()
 
 	// Build gauge keys from recommendations.
 	for _, rec := range result.recommendations {
