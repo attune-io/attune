@@ -162,6 +162,17 @@ type gaugeKey struct {
 	Container string
 }
 
+// workloadProcessingResult holds the aggregated results from processing all
+// target workloads in a single reconciliation cycle.
+type workloadProcessingResult struct {
+	recommendations   []rightsizev1alpha1.WorkloadRecommendation
+	workloadsWithRecs int32
+	maxDataPoints     int
+	totalQueryErrors  int
+	queryErrorTypes   map[string]struct{}
+	gaugeKeys         []gaugeKey
+}
+
 // deleteGaugeKeys removes recommendation gauge values for the given keys.
 func deleteGaugeKeys(keys []gaugeKey) {
 	for _, gk := range keys {
@@ -413,110 +424,18 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	// Step 4-8: Process each workload.
-	var recommendations []rightsizev1alpha1.WorkloadRecommendation
-	var workloadsWithRecs int32
-	var globalMaxDataPoints int
-	var totalQueryErrors int
-	queryErrorTypes := make(map[string]struct{})
-	conflictDetector := conflict.NewDetector(logger)
+	wpResult := r.processWorkloads(ctx, &policy, workloads, collector)
+	recommendations := wpResult.recommendations
+	workloadsWithRecs := wpResult.workloadsWithRecs
+	globalMaxDataPoints := wpResult.maxDataPoints
+	totalQueryErrors := wpResult.totalQueryErrors
+	queryErrorTypes := wpResult.queryErrorTypes
 
-	// List HPAs in the namespace for conflict detection (once for all workloads).
+	// List HPAs in the namespace for HPA auto-tune after resizes.
 	var hpaList autoscalingv2.HorizontalPodAutoscalerList
 	if err := r.List(ctx, &hpaList, client.InNamespace(policy.Namespace)); err != nil {
-		logger.Error(err, "Failed to list HPAs for conflict detection")
+		logger.Error(err, "Failed to list HPAs for auto-tune")
 	}
-
-	// List VPAs in the namespace for conflict detection (once for all workloads).
-	vpaList := conflictDetector.ListVPAs(ctx, r.Client, policy.Namespace)
-
-	// List policies in the namespace for conflict detection (once for all workloads).
-	policyList := conflictDetector.ListPolicies(ctx, r.Client, policy.Namespace)
-
-	// Clear gauge values that THIS policy previously set. Using per-policy
-	// tracking instead of namespace-wide DeletePartialMatch avoids wiping
-	// gauges belonging to other policies in the same namespace.
-	policyKey := policy.Namespace + "/" + policy.Name
-	if prev, ok := r.gaugeKeys.Load(policyKey); ok {
-		deleteGaugeKeys(prev.([]gaugeKey))
-	}
-	var currentGaugeKeys []gaugeKey
-
-	// Build recommendation engines and exclude set once; they depend only
-	// on the policy spec, not the workload.
-	cpuEngine, memEngine := buildRecommendationEngines(&policy)
-	excludeSet := make(map[string]bool, len(policy.Spec.ExcludeContainers))
-	for _, name := range policy.Spec.ExcludeContainers {
-		excludeSet[name] = true
-	}
-
-	for _, workload := range workloads {
-		workloadName := workload.GetName()
-		workloadKind := workload.GetObjectKind().GroupVersionKind().Kind
-
-		// Step 5: Check for opt-out annotation.
-		workloadMeta := metav1.ObjectMeta{Annotations: workload.GetAnnotations()}
-		if conflictDetector.CheckAnnotationOptOut(workloadMeta) {
-			logger.Info("Workload opted out via annotation", "workload", workloadName)
-			continue
-		}
-
-		// Check for HPA conflict (log warning, don't block).
-		if hpaConflict := conflictDetector.CheckHPAConflict(hpaList.Items, workloadName, workloadKind); hpaConflict != nil {
-			logger.Info("HPA conflict detected", "workload", workloadName, "hpa", hpaConflict.Name, "message", hpaConflict.Message)
-		}
-
-		// Check for VPA conflict (log warning, don't block).
-		if vpaConflict := conflictDetector.CheckVPAConflictInMemory(vpaList, workloadName, workloadKind); vpaConflict != nil {
-			logger.Info("VPA conflict detected", "workload", workloadName, "vpa", vpaConflict.Name, "message", vpaConflict.Message)
-		}
-
-		// Check for higher-weight policy conflict (skip this workload if outranked).
-		if policyConflict := conflictDetector.CheckPolicyConflictInMemory(policyList, workloadName, workloadKind, workload.GetLabels(), policy.Name, policy.Spec.Weight); policyConflict != nil {
-			logger.Info("Higher-weight policy exists, skipping workload", "workload", workloadName, "policy", policyConflict.Name, "message", policyConflict.Message)
-			continue
-		}
-
-		// Step 6: Check for active rollout.
-		if r.isRollingOut(workload) {
-			logger.Info("Skipping workload mid-rollout", "workload", workloadName)
-			continue
-		}
-
-		// Step 4: Compute recommendations from historical metrics.
-		rec, qErrors, failedMetricTypes, dataPoints, err := r.computeRecommendations(ctx, &policy, workload, collector, cpuEngine, memEngine, excludeSet)
-		totalQueryErrors += qErrors
-		for _, metricType := range failedMetricTypes {
-			queryErrorTypes[metricType] = struct{}{}
-		}
-		if dataPoints > globalMaxDataPoints {
-			globalMaxDataPoints = dataPoints
-		}
-		if err != nil {
-			logger.Error(err, "Failed to compute recommendations", "workload", workloadName)
-			operatormetrics.ReconcileErrorsTotal.WithLabelValues("compute_recommendations").Inc()
-			continue
-		}
-
-		if rec != nil {
-			rec.Workload = workloadName
-			rec.Kind = workloadKind
-			recommendations = append(recommendations, *rec)
-			workloadsWithRecs++
-		}
-	}
-
-	// Build gauge keys from recommendations so the next reconcile can clean
-	// up only its own stale entries without affecting other policies.
-	for _, rec := range recommendations {
-		for _, c := range rec.Containers {
-			currentGaugeKeys = append(currentGaugeKeys, gaugeKey{
-				Namespace: policy.Namespace,
-				Workload:  rec.Workload,
-				Container: c.Name,
-			})
-		}
-	}
-	r.gaugeKeys.Store(policyKey, currentGaugeKeys)
 
 	// Step 8: Update status fields.
 	nowMeta := metav1.NewTime(r.now())
@@ -643,54 +562,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	policy.Status.Workloads.Pending = pending
 
 	// Set Ready condition.
-	blockedDataTypes := "CPU and/or memory"
-	_, cpuFailed := queryErrorTypes["CPU"]
-	_, memoryFailed := queryErrorTypes["memory"]
-	switch {
-	case cpuFailed && memoryFailed:
-		blockedDataTypes = "CPU and memory"
-	case cpuFailed:
-		blockedDataTypes = "CPU"
-	case memoryFailed:
-		blockedDataTypes = "memory"
-	}
-
-	if workloadsWithRecs > 0 {
-		message := fmt.Sprintf("Watching %d workloads, %d with recommendations", len(workloads), workloadsWithRecs)
-		if totalQueryErrors > 0 {
-			message = fmt.Sprintf("%s; Prometheus query errors (%d) prevented %s data collection for part of the recommendation set, check operator logs",
-				message, totalQueryErrors, blockedDataTypes)
-		}
-		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
-			Type:               rightsizev1alpha1.ConditionReady,
-			Status:             metav1.ConditionTrue,
-			Reason:             rightsizev1alpha1.ReasonMonitoring,
-			Message:            message,
-			ObservedGeneration: policy.Generation,
-		})
-	} else {
-		reason := rightsizev1alpha1.ReasonInsufficientData
-		remaining := int(minimumDP) - globalMaxDataPoints
-		if remaining < 0 {
-			remaining = 0
-		}
-		eta := time.Duration(remaining) * r.getQueryStep(&policy)
-		message := fmt.Sprintf("Collecting data: %d/%d data points (%d%%), ~%s remaining",
-			globalMaxDataPoints, minimumDP,
-			progressPercent(globalMaxDataPoints, int(minimumDP)),
-			eta.Truncate(time.Minute))
-		if totalQueryErrors > 0 {
-			reason = rightsizev1alpha1.ReasonPrometheusUnavailable
-			message = fmt.Sprintf("Prometheus query errors (%d) prevented %s data collection; check operator logs", totalQueryErrors, blockedDataTypes)
-		}
-		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
-			Type:               rightsizev1alpha1.ConditionReady,
-			Status:             metav1.ConditionFalse,
-			Reason:             reason,
-			Message:            message,
-			ObservedGeneration: policy.Generation,
-		})
-	}
+	r.setReadyCondition(&policy, len(workloads), workloadsWithRecs, totalQueryErrors, queryErrorTypes, globalMaxDataPoints)
 
 	// Set Resizing condition.
 	r.setResizingCondition(&policy, cooldownActive)
@@ -727,6 +599,168 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	logger.Info("Reconciliation complete, requeueing", "requeueAfter", requeueAfter)
 	operatormetrics.ReconcileDuration.WithLabelValues("rightsizepolicy").Observe(time.Since(startTime).Seconds())
 	return ctrl.Result{RequeueAfter: requeueAfter}, nil
+}
+
+// processWorkloads iterates over discovered workloads, checks for conflicts
+// and opt-outs, computes recommendations, and returns the aggregated results.
+func (r *RightSizePolicyReconciler) processWorkloads(
+	ctx context.Context,
+	policy *rightsizev1alpha1.RightSizePolicy,
+	workloads []client.Object,
+	collector rsmetrics.MetricsCollector,
+) workloadProcessingResult {
+	logger := log.FromContext(ctx)
+	result := workloadProcessingResult{
+		queryErrorTypes: make(map[string]struct{}),
+	}
+
+	conflictDetector := conflict.NewDetector(logger)
+
+	// List HPAs, VPAs, and policies once for all workloads.
+	var hpaList autoscalingv2.HorizontalPodAutoscalerList
+	if err := r.List(ctx, &hpaList, client.InNamespace(policy.Namespace)); err != nil {
+		logger.Error(err, "Failed to list HPAs for conflict detection")
+	}
+	vpaList := conflictDetector.ListVPAs(ctx, r.Client, policy.Namespace)
+	policyList := conflictDetector.ListPolicies(ctx, r.Client, policy.Namespace)
+
+	// Clear gauge values that THIS policy previously set.
+	policyKey := policy.Namespace + "/" + policy.Name
+	if prev, ok := r.gaugeKeys.Load(policyKey); ok {
+		deleteGaugeKeys(prev.([]gaugeKey))
+	}
+
+	cpuEngine, memEngine := buildRecommendationEngines(policy)
+	excludeSet := make(map[string]bool, len(policy.Spec.ExcludeContainers))
+	for _, name := range policy.Spec.ExcludeContainers {
+		excludeSet[name] = true
+	}
+
+	for _, workload := range workloads {
+		workloadName := workload.GetName()
+		workloadKind := workload.GetObjectKind().GroupVersionKind().Kind
+
+		workloadMeta := metav1.ObjectMeta{Annotations: workload.GetAnnotations()}
+		if conflictDetector.CheckAnnotationOptOut(workloadMeta) {
+			logger.Info("Workload opted out via annotation", "workload", workloadName)
+			continue
+		}
+
+		if hpaConflict := conflictDetector.CheckHPAConflict(hpaList.Items, workloadName, workloadKind); hpaConflict != nil {
+			logger.Info("HPA conflict detected", "workload", workloadName, "hpa", hpaConflict.Name, "message", hpaConflict.Message)
+		}
+
+		if vpaConflict := conflictDetector.CheckVPAConflictInMemory(vpaList, workloadName, workloadKind); vpaConflict != nil {
+			logger.Info("VPA conflict detected", "workload", workloadName, "vpa", vpaConflict.Name, "message", vpaConflict.Message)
+		}
+
+		if policyConflict := conflictDetector.CheckPolicyConflictInMemory(policyList, workloadName, workloadKind, workload.GetLabels(), policy.Name, policy.Spec.Weight); policyConflict != nil {
+			logger.Info("Higher-weight policy exists, skipping workload", "workload", workloadName, "policy", policyConflict.Name, "message", policyConflict.Message)
+			continue
+		}
+
+		if r.isRollingOut(workload) {
+			logger.Info("Skipping workload mid-rollout", "workload", workloadName)
+			continue
+		}
+
+		rec, qErrors, failedMetricTypes, dataPoints, err := r.computeRecommendations(ctx, policy, workload, collector, cpuEngine, memEngine, excludeSet)
+		result.totalQueryErrors += qErrors
+		for _, metricType := range failedMetricTypes {
+			result.queryErrorTypes[metricType] = struct{}{}
+		}
+		if dataPoints > result.maxDataPoints {
+			result.maxDataPoints = dataPoints
+		}
+		if err != nil {
+			logger.Error(err, "Failed to compute recommendations", "workload", workloadName)
+			operatormetrics.ReconcileErrorsTotal.WithLabelValues("compute_recommendations").Inc()
+			continue
+		}
+
+		if rec != nil {
+			rec.Workload = workloadName
+			rec.Kind = workloadKind
+			result.recommendations = append(result.recommendations, *rec)
+			result.workloadsWithRecs++
+		}
+	}
+
+	// Build gauge keys from recommendations.
+	for _, rec := range result.recommendations {
+		for _, c := range rec.Containers {
+			result.gaugeKeys = append(result.gaugeKeys, gaugeKey{
+				Namespace: policy.Namespace,
+				Workload:  rec.Workload,
+				Container: c.Name,
+			})
+		}
+	}
+	r.gaugeKeys.Store(policyKey, result.gaugeKeys)
+
+	return result
+}
+
+// setReadyCondition sets the Ready status condition based on whether
+// recommendations were generated and whether Prometheus queries failed.
+func (r *RightSizePolicyReconciler) setReadyCondition(
+	policy *rightsizev1alpha1.RightSizePolicy,
+	workloadCount int,
+	workloadsWithRecs int32,
+	totalQueryErrors int,
+	queryErrorTypes map[string]struct{},
+	maxDataPoints int,
+) {
+	blockedDataTypes := "CPU and/or memory"
+	_, cpuFailed := queryErrorTypes["CPU"]
+	_, memoryFailed := queryErrorTypes["memory"]
+	switch {
+	case cpuFailed && memoryFailed:
+		blockedDataTypes = "CPU and memory"
+	case cpuFailed:
+		blockedDataTypes = "CPU"
+	case memoryFailed:
+		blockedDataTypes = "memory"
+	}
+
+	if workloadsWithRecs > 0 {
+		message := fmt.Sprintf("Watching %d workloads, %d with recommendations", workloadCount, workloadsWithRecs)
+		if totalQueryErrors > 0 {
+			message = fmt.Sprintf("%s; Prometheus query errors (%d) prevented %s data collection for part of the recommendation set, check operator logs",
+				message, totalQueryErrors, blockedDataTypes)
+		}
+		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
+			Type:               rightsizev1alpha1.ConditionReady,
+			Status:             metav1.ConditionTrue,
+			Reason:             rightsizev1alpha1.ReasonMonitoring,
+			Message:            message,
+			ObservedGeneration: policy.Generation,
+		})
+		return
+	}
+
+	minimumDP := r.getMinimumDataPoints(policy)
+	reason := rightsizev1alpha1.ReasonInsufficientData
+	remaining := int(minimumDP) - maxDataPoints
+	if remaining < 0 {
+		remaining = 0
+	}
+	eta := time.Duration(remaining) * r.getQueryStep(policy)
+	message := fmt.Sprintf("Collecting data: %d/%d data points (%d%%), ~%s remaining",
+		maxDataPoints, minimumDP,
+		progressPercent(maxDataPoints, int(minimumDP)),
+		eta.Truncate(time.Minute))
+	if totalQueryErrors > 0 {
+		reason = rightsizev1alpha1.ReasonPrometheusUnavailable
+		message = fmt.Sprintf("Prometheus query errors (%d) prevented %s data collection; check operator logs", totalQueryErrors, blockedDataTypes)
+	}
+	meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
+		Type:               rightsizev1alpha1.ConditionReady,
+		Status:             metav1.ConditionFalse,
+		Reason:             reason,
+		Message:            message,
+		ObservedGeneration: policy.Generation,
+	})
 }
 
 // handleDeletion cleans up pod annotations and Prometheus gauges when a
