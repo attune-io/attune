@@ -39,6 +39,8 @@ spec:
             - --health-probe-bind-address=:8081
             {{- if .Values.metrics.enabled }}
             - --metrics-bind-address=:{{ .Values.metrics.port }}
+            {{- else }}
+            - --metrics-bind-address=0
             {{- end }}
             {{- if .Values.leaderElection.enabled }}
             - --leader-elect

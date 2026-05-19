@@ -76,6 +76,14 @@ tests:
           path: spec.template.spec.containers[0].args
           content: --collector-ttl=1h30m
 
+  - it: should disable metrics server when metrics disabled
+    set:
+      metrics.enabled: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --metrics-bind-address=0
+
   - it: should disable webhooks via flag
     set:
       webhooks.enabled: false

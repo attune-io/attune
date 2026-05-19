@@ -11,7 +11,11 @@ spec:
     {{- if .Values.defaults.updateStrategy.cooldown }}
     cooldown: {{ .Values.defaults.updateStrategy.cooldown }}
     {{- end }}
-    autoRevert: {{ .Values.defaults.updateStrategy.autoRevert | default true }}
+    {{- if kindIs "bool" .Values.defaults.updateStrategy.autoRevert }}
+    autoRevert: {{ .Values.defaults.updateStrategy.autoRevert }}
+    {{- else }}
+    autoRevert: true
+    {{- end }}
     resizeMethod: {{ .Values.defaults.updateStrategy.resizeMethod | default "InPlaceOnly" }}
     maxConcurrentResizes: {{ .Values.defaults.updateStrategy.maxConcurrentResizes | default 1 }}
     {{- with .Values.defaults.updateStrategy.schedule }}
