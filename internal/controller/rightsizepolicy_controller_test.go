@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -84,6 +85,10 @@ func stringPtr(s string) *string {
 // boolPtr returns a pointer to a bool.
 func boolPtr(b bool) *bool {
 	return &b
+}
+
+func ptrCompletionMode(mode batchv1.CompletionMode) *batchv1.CompletionMode {
+	return &mode
 }
 
 // newTestDeployment creates a Deployment for testing.
@@ -1151,9 +1156,24 @@ func TestGetPodRegex(t *testing.T) {
 			want:     "node-agent-[a-z0-9]{5}",
 		},
 		{
-			name:     "Job uses prefix match fallback",
+			name:     "Job uses hash suffix pattern",
 			workload: &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "data-migrate"}},
-			want:     "data-migrate.*",
+			want:     "data-migrate-[a-z0-9]{5}",
+		},
+		{
+			name:     "Indexed Job uses index and hash suffix pattern",
+			workload: &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "data-migrate"}, Spec: batchv1.JobSpec{CompletionMode: ptrCompletionMode(batchv1.IndexedCompletion)}},
+			want:     "data-migrate-[0-9]+-[a-z0-9]{5}",
+		},
+		{
+			name:     "CronJob uses timestamp and hash suffix pattern",
+			workload: &batchv1.CronJob{ObjectMeta: metav1.ObjectMeta{Name: "nightly-report"}},
+			want:     "nightly-report-[0-9]{10}-[a-z0-9]{5}",
+		},
+		{
+			name:     "Indexed CronJob uses timestamp, index, and hash suffix pattern",
+			workload: &batchv1.CronJob{ObjectMeta: metav1.ObjectMeta{Name: "nightly-report"}, Spec: batchv1.CronJobSpec{JobTemplate: batchv1.JobTemplateSpec{Spec: batchv1.JobSpec{CompletionMode: ptrCompletionMode(batchv1.IndexedCompletion)}}}},
+			want:     "nightly-report-[0-9]{10}-[0-9]+-[a-z0-9]{5}",
 		},
 	}
 
@@ -5096,6 +5116,18 @@ func TestGetPodRegex_EscapesSpecialCharsInName(t *testing.T) {
 	dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "my.app"}}
 	regex := r.getPodRegex(dep)
 	assert.Equal(t, `my\\.app-[a-z0-9]+-[a-z0-9]{5}`, regex)
+}
+
+func TestGetPodRegex_BatchPatternsDoNotMatchSimilarlyNamedWorkloads(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+
+	jobRegex := regexp.MustCompile("^" + r.getPodRegex(&batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "data-migrate"}}) + "$")
+	assert.True(t, jobRegex.MatchString("data-migrate-abc12"))
+	assert.False(t, jobRegex.MatchString("data-migrate-v2-abc12"))
+
+	cronRegex := regexp.MustCompile("^" + r.getPodRegex(&batchv1.CronJob{ObjectMeta: metav1.ObjectMeta{Name: "nightly-report"}}) + "$")
+	assert.True(t, cronRegex.MatchString("nightly-report-1716116400-abc12"))
+	assert.False(t, cronRegex.MatchString("nightly-report-v2-1716116400-abc12"))
 }
 
 // ---------- listWorkloadsBySelector invalid selector ----------
