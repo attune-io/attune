@@ -51,6 +51,20 @@ will not work.
       curl -sf http://prometheus-server.monitoring:80/-/healthy
     ```
 
+If the condition message includes `Prometheus query timeout exceeded`, the
+operator's reconcile-level timeout expired before all workload queries
+completed. This typically happens when Prometheus is slow to respond
+(not down, just overloaded) or when a policy targets many workloads.
+
+**Fix**:
+
+1. Increase the timeout: set Helm `prometheusTimeout: "10m"` (or
+   `--prometheus-timeout=10m`).
+2. Reduce per-query cost: decrease `historyWindow` or increase `queryStep`
+   on the RightSizePolicy or RightSizeDefaults.
+3. Check Prometheus health: high query latency often indicates Prometheus
+   itself needs more resources or recording rules.
+
 See the [Prometheus Setup](prometheus-setup.md) guide for full details on
 address resolution and common installations.
 

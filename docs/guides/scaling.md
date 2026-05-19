@@ -112,8 +112,9 @@ internally).
 
 4. **Prometheus server load**. Symptom: slow or timed-out Prometheus
    queries, high memory on Prometheus itself. Fix: reduce `historyWindow`
-   and increase `queryStep` on the CRDs. Consider Prometheus recording
-   rules or Thanos query federation.
+   and increase `queryStep` on the CRDs. Increase `prometheusTimeout`
+   (default 5m) if queries are slow but completing within the timeout.
+   Consider Prometheus recording rules or Thanos query federation.
 
 5. **API server pressure**. Symptom: throttled API requests, slow pod list
    responses. Fix: this is rarely the bottleneck since the operator uses

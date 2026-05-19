@@ -155,6 +155,17 @@ check_default "memPricing (calculator)" \
   'value="0.004"' \
   "docs/savings-calculator.md"
 
+# --- prometheusTimeout: Go code, values.yaml, configuration.md ---
+check_default "prometheusTimeout (Go default)" \
+  '5 \* time.Minute' \
+  "internal/controller/rightsizepolicy_controller.go"
+check_default "prometheusTimeout (values.yaml)" \
+  'prometheusTimeout: "5m"' \
+  "charts/kube-rightsize/values.yaml"
+check_default "prometheusTimeout (configuration.md)" \
+  '"5m"' \
+  "docs/reference/configuration.md"
+
 if [ $rc -ne 0 ]; then
   echo ""
   echo "ERROR: Documentation defaults are inconsistent. Fix the files above."

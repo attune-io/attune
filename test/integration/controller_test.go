@@ -154,11 +154,12 @@ func TestMain(m *testing.M) {
 	}
 
 	testReconciler = &controller.RightSizePolicyReconciler{
-		Client:      mgr.GetClient(),
-		Scheme:      mgr.GetScheme(),
-		Clientset:   clientset,
-		Recorder:    mgr.GetEventRecorder("kube-rightsize-integration"),
-		MinCooldown: time.Second, // fast reconciliation for tests
+		Client:            mgr.GetClient(),
+		Scheme:            mgr.GetScheme(),
+		Clientset:         clientset,
+		Recorder:          mgr.GetEventRecorder("kube-rightsize-integration"),
+		MinCooldown:       time.Second, // fast reconciliation for tests
+		PrometheusTimeout: 30 * time.Second,
 		MetricsFactory: func(address string, _ *metrics.CollectorOptions) (metrics.MetricsCollector, error) {
 			return &syntheticCollector{}, nil
 		},
