@@ -2018,6 +2018,38 @@ func TestCollectorCacheKey_DifferentBearerTokensDifferentKeys(t *testing.T) {
 	assert.NotEqual(t, key1, key2)
 }
 
+func TestCollectorCacheKey_WithQueryParameters(t *testing.T) {
+	config := &rightsizev1alpha1.PrometheusConfig{Address: "http://prom:9090"}
+	opts := &rsmetrics.CollectorOptions{
+		QueryParameters: map[string]string{"step": "30s", "timeout": "10s"},
+	}
+	key := collectorCacheKey(config, opts)
+	assert.Contains(t, key, "|qp:step=30s")
+	assert.Contains(t, key, "|qp:timeout=10s")
+}
+
+func TestCollectorCacheKey_DifferentQueryParametersDifferentKeys(t *testing.T) {
+	config := &rightsizev1alpha1.PrometheusConfig{Address: "http://prom:9090"}
+	key1 := collectorCacheKey(config, &rsmetrics.CollectorOptions{
+		QueryParameters: map[string]string{"step": "30s"},
+	})
+	key2 := collectorCacheKey(config, &rsmetrics.CollectorOptions{
+		QueryParameters: map[string]string{"step": "60s"},
+	})
+	assert.NotEqual(t, key1, key2)
+}
+
+func TestCollectorCacheKey_QueryParametersDeterministic(t *testing.T) {
+	config := &rightsizev1alpha1.PrometheusConfig{Address: "http://prom:9090"}
+	opts := &rsmetrics.CollectorOptions{
+		QueryParameters: map[string]string{"z-param": "z", "a-param": "a", "m-param": "m"},
+	}
+	key1 := collectorCacheKey(config, opts)
+	for i := 0; i < 100; i++ {
+		assert.Equal(t, key1, collectorCacheKey(config, opts), "cache key must be deterministic on iteration %d", i)
+	}
+}
+
 // ---------- buildCollectorOptions ----------
 
 func TestBuildCollectorOptions_NilWhenNoAuthOrTLS(t *testing.T) {
