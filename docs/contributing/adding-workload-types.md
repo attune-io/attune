@@ -20,23 +20,41 @@ Kind string `json:"kind"`
 
 Run `make manifests generate` to regenerate CRDs and deepcopy.
 
-### 2. Workload functions -- add switch arms
+### 2. Workload adapter -- implement the interface
 
-**File:** `internal/controller/workload.go`
+**File:** `internal/controller/workload_adapters.go`
 
-Six functions contain a `switch workload.(type)` over the supported
-kinds. Add a case for the new kind in **all six**:
+Add three things:
 
-| Function | What it does | What to implement |
-|----------|-------------|-------------------|
-| `getWorkloadByName` | Fetch by namespace/name | `r.Get(ctx, key, &obj)` |
-| `listWorkloadsBySelector` | List by label selector | `r.List(ctx, &list, opts...)` |
-| `getPodSelectorLabels` | Pod selector for discovery | Return `.Spec.Selector.MatchLabels` |
-| `getContainers` | Container list for metrics | Return `.Spec.Template.Spec.Containers` |
-| `isRollingOut` | Rolling update detection | Compare `.Status.Replicas` vs `.Status.UpdatedReplicas` |
-| `getPodRegex` | Prometheus pod name regex | Return `name + "-[a-z0-9]+"` (varies by kind) |
+**A) Adapter struct** implementing the `WorkloadAdapter` interface:
 
-Also update `isBatchWorkload()` if the new kind is a batch workload.
+```go
+type rolloutAdapter struct{ *argov1alpha1.Rollout }
+
+func (a *rolloutAdapter) Object() client.Object            { return a.Rollout }
+func (a *rolloutAdapter) PodSelectorLabels() map[string]string { return a.Spec.Selector.MatchLabels }
+func (a *rolloutAdapter) PodSpec() *corev1.PodSpec          { return &a.Spec.Template.Spec }
+func (a *rolloutAdapter) IsRollingOut() bool                { /* kind-specific logic */ }
+func (a *rolloutAdapter) PodNameRegexSuffix() string        { return "-[a-z0-9]+-[a-z0-9]{5}" }
+func (a *rolloutAdapter) IsBatch() bool                     { return false }
+```
+
+**B) Registry entry** in the `workloadKinds` map (for get/list by kind string):
+
+```go
+"Rollout": {
+    newObject: func() client.Object { return &argov1alpha1.Rollout{} },
+    newList:   func() client.ObjectList { return &argov1alpha1.RolloutList{} },
+    extract:   func(list client.ObjectList) []client.Object { /* extract items */ },
+},
+```
+
+**C) Type-switch case** in `newWorkloadAdapter()`:
+
+```go
+case *argov1alpha1.Rollout:
+    return &rolloutAdapter{Rollout: w}
+```
 
 ### 3. RBAC markers
 
@@ -127,10 +145,10 @@ make helm-unittest   # verify the new RBAC test passes
 
 ## Reference: current supported kinds
 
-| Kind | API Group | Batch? | File |
-|------|-----------|--------|------|
-| Deployment | `apps` | No | `workload.go` |
-| StatefulSet | `apps` | No | `workload.go` |
-| DaemonSet | `apps` | No | `workload.go` |
-| CronJob | `batch` | Yes | `workload.go` |
-| Job | `batch` | Yes | `workload.go` |
+| Kind | API Group | Batch? | Adapter file |
+|------|-----------|--------|--------------|
+| Deployment | `apps` | No | `workload_adapters.go` |
+| StatefulSet | `apps` | No | `workload_adapters.go` |
+| DaemonSet | `apps` | No | `workload_adapters.go` |
+| CronJob | `batch` | Yes | `workload_adapters.go` |
+| Job | `batch` | Yes | `workload_adapters.go` |
