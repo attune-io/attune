@@ -32,6 +32,7 @@ This page documents every value in the Helm chart's `values.yaml`.
 | `securityContext.readOnlyRootFilesystem` | bool | `true` | Read-only root filesystem |
 | `securityContext.runAsNonRoot` | bool | `true` | Run container as non-root |
 | `securityContext.runAsUser` | int | `65532` | UID for the container process |
+| `securityContext.runAsGroup` | int | `65532` | GID for the container process |
 
 ## Cluster Size Presets
 
@@ -59,6 +60,7 @@ This page documents every value in the Helm chart's `values.yaml`.
 | `tolerations` | list | `[]` | Tolerations for operator pods |
 | `affinity` | object | `{}` | Affinity rules for operator pods |
 | `topologySpreadConstraints` | list | `[]` | Topology spread constraints for operator pods |
+| `priorityClassName` | string | `""` | Priority class name for the operator pod (recommended: `system-cluster-critical` for production) |
 
 ## Leader election
 
@@ -257,13 +259,13 @@ All fields from `RightSizeDefaults` are available in
 
 | Section | Fields |
 |---------|--------|
-| `metricsSource` | `prometheus.address`, `historyWindow`, `minimumDataPoints`, `queryStep` |
+| `metricsSource` | `prometheus.address`, `prometheus.headers`, `prometheus.queryParameters`, `prometheus.bearerTokenSecret`, `prometheus.tls`, `historyWindow`, `minimumDataPoints`, `queryStep` |
 | `cpu` | `percentile`, `safetyMargin`, `bounds`, `controlledValues`, `burstSensitivity`, `allowDecrease`, `startupBoost` |
 | `memory` | Same as `cpu` |
 | `updateStrategy` | `mode`, `cooldown`, `autoRevert`, `resizeMethod`, `maxCpuChangePercent`, `maxMemoryChangePercent`, `maxConcurrentResizes`, `maxTotalCpuIncrease`, `maxTotalMemoryIncrease`, `schedule`, `export` |
 | `costPricing` | `cpuPerCoreHour`, `memoryPerGiBHour` |
 
-### Status Conditions
+## Status Conditions
 
 The controller sets these conditions on each `RightSizePolicy`:
 
@@ -273,7 +275,7 @@ The controller sets these conditions on each `RightSizePolicy`:
 | `Resizing` | `InProgress`, `Idle`, `CooldownActive` | Active resize operation state (only in resize modes) |
 | `Degraded` | `HighRevertRate` | Set when 3+ of the last 5 resizes were reverted |
 
-### Exponential Backoff
+## Exponential Backoff
 
 When consecutive resizes are reverted, the cooldown doubles per revert
 (capped at 16x). A successful resize resets the multiplier.
