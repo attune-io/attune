@@ -122,7 +122,6 @@ func (r *RightSizePolicyReconciler) tryEvictionFallback(
 	}
 
 	operatormetrics.EvictionTotal.WithLabelValues(pod.Namespace, workloadName, "success").Inc()
-	operatormetrics.ResizeTotal.WithLabelValues(pod.Namespace, workloadName, "eviction", "success").Inc()
 	if r.Recorder != nil {
 		r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "Evicted", "resize",
 			"Evicted pod %s for workload %s container %s: in-place resize failed, falling back to eviction",

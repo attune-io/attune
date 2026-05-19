@@ -51,7 +51,7 @@
           ]
         }
       },
-      "title": "Total Resizes",
+      "title": "Total In-Place Resizes",
       "type": "stat",
       "targets": [
         {
@@ -257,7 +257,7 @@
           "mode": "multi"
         }
       },
-      "title": "Resize Operations by Result",
+      "title": "In-Place Resize Operations by Result",
       "type": "timeseries",
       "targets": [
         {

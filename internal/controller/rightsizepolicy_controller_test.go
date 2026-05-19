@@ -6120,6 +6120,9 @@ func TestTryEvictionFallback_EvictsWhenMultipleReplicas(t *testing.T) {
 	}
 	resizer := resize.NewPodResizer(clientset, ctrl.Log)
 
+	evictionBefore := promtestutil.ToFloat64(operatormetrics.EvictionTotal.WithLabelValues("default", "api-server", "success"))
+	resizeBefore := promtestutil.ToFloat64(operatormetrics.ResizeTotal.WithLabelValues("default", "api-server", "eviction", "success"))
+
 	evicted := r.tryEvictionFallback(context.Background(), policy, pod1, deploy,
 		"api-server", "app", resizer)
 	assert.True(t, evicted, "should evict when multiple replicas exist")
@@ -6132,6 +6135,9 @@ func TestTryEvictionFallback_EvictsWhenMultipleReplicas(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 1, evictions)
+	assert.Equal(t, evictionBefore+1, promtestutil.ToFloat64(operatormetrics.EvictionTotal.WithLabelValues("default", "api-server", "success")))
+	assert.Equal(t, resizeBefore, promtestutil.ToFloat64(operatormetrics.ResizeTotal.WithLabelValues("default", "api-server", "eviction", "success")),
+		"eviction fallback should not increment in-place resize metrics")
 }
 
 func TestTryEvictionFallback_SkipsLastReplica(t *testing.T) {

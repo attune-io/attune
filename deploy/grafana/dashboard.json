@@ -45,7 +45,7 @@
         "graphMode": "none",
         "reduceOptions": { "calcs": ["lastNotNull"] }
       },
-      "title": "Total Resizes",
+      "title": "Total In-Place Resizes",
       "type": "stat",
       "targets": [
         {
@@ -192,7 +192,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
       "id": 5,
       "options": { "tooltip": { "mode": "multi" } },
-      "title": "Resize Operations by Result",
+      "title": "In-Place Resize Operations by Result",
       "type": "timeseries",
       "targets": [
         {

@@ -5,13 +5,13 @@ All metrics are exposed on the operator's metrics endpoint (default port
 
 ### kube_rightsize_resize_total
 
-Total number of resize operations performed.
+Total number of in-place resize operations performed.
 
 | Label | Description |
 |-------|-------------|
 | `namespace` | Workload namespace |
 | `workload` | Workload name |
-| `resource` | `cpu`, `memory`, or `eviction` (when InPlaceOrEvict falls back to eviction) |
+| `resource` | `cpu` or `memory` |
 | `result` | `success`, `failed`, or `reverted` |
 
 ### kube_rightsize_reverts_total
@@ -275,18 +275,24 @@ Time that unfinished work has been in progress (gauge). Complements
 
 ## Example PromQL queries
 
-Total successful resizes in the last 24 hours:
+Total successful in-place resizes in the last 24 hours:
 
 ```promql
 sum(increase(kube_rightsize_resize_total{result="success"}[24h]))
 ```
 
-Revert rate as a percentage:
+Total successful eviction fallbacks in the last 24 hours:
+
+```promql
+sum(increase(kube_rightsize_eviction_total{result="success"}[24h]))
+```
+
+Revert rate as a percentage of successful in-place resizes:
 
 ```promql
 sum(rate(kube_rightsize_reverts_total[1h]))
 /
-sum(rate(kube_rightsize_resize_total[1h]))
+sum(rate(kube_rightsize_resize_total{result="success"}[1h]))
 * 100
 ```
 

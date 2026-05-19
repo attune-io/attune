@@ -800,7 +800,8 @@ kube_rightsize_savings_cpu_cores_total{namespace}
 kube_rightsize_savings_memory_bytes_total{namespace}
 
 # Resize operations
-kube_rightsize_resize_total{namespace, workload, resource, result}  # result: success|failed|reverted (resource may be cpu|memory|eviction)
+kube_rightsize_resize_total{namespace, workload, resource, result}  # in-place only; result: success|failed|reverted, resource: cpu|memory
+kube_rightsize_eviction_total{namespace, workload, result}         # eviction fallback only; result: success|denied
 kube_rightsize_resize_duration_seconds{namespace, workload}
 
 # Safety

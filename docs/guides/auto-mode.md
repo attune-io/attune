@@ -127,7 +127,8 @@ The operator exports metrics for dashboarding:
 - `kube_rightsize_recommendation_cpu_cores` -- Recommended CPU per workload
 - `kube_rightsize_recommendation_memory_bytes` -- Recommended memory per workload
 - `kube_rightsize_confidence` -- Confidence score (0-1) per workload
-- `kube_rightsize_resize_total` -- Total resizes performed
+- `kube_rightsize_resize_total` -- Total successful, failed, and reverted in-place resize operations
+- `kube_rightsize_eviction_total` -- Total eviction fallback attempts when `resizeMethod: InPlaceOrEvict`
 - `kube_rightsize_reverts_total` -- Total reverts (broken down by reason)
 
 Alert on high revert rates:

@@ -136,8 +136,9 @@ The operator exposes metrics on the `/metrics` endpoint:
 | `kube_rightsize_reconcile_duration_seconds` | How long each policy reconcile takes. P99 > 30s means queries are slow. |
 | `kube_rightsize_reconcile_duration_seconds_count` | Total reconciles. Compare with error count. |
 | `kube_rightsize_reconcile_errors_total` | Errors per policy. Prometheus timeouts show here. |
-| `kube_rightsize_resize_total` | Actual resizes performed. |
-| `kube_rightsize_reverts_total` | Reverted resizes (safety mechanism). |
+| `kube_rightsize_resize_total` | Actual in-place resizes performed. |
+| `kube_rightsize_eviction_total` | Eviction fallback attempts when in-place resize is not possible. |
+| `kube_rightsize_reverts_total` | Reverted in-place resizes (safety mechanism). |
 | `workqueue_depth` | Controller work queue depth. Consistently > 0 means the operator can't keep up. |
 | `workqueue_longest_running_processor_seconds` | Longest in-flight reconcile. |
 
