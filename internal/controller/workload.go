@@ -21,8 +21,6 @@ import (
 	"fmt"
 	"time"
 
-	appsv1 "k8s.io/api/apps/v1"
-	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -62,42 +60,15 @@ func (r *RightSizePolicyReconciler) discoverWorkloads(ctx context.Context, polic
 
 // getWorkloadByName fetches a specific workload by kind and name.
 func (r *RightSizePolicyReconciler) getWorkloadByName(ctx context.Context, namespace, kind, name string) (client.Object, error) {
-	key := types.NamespacedName{Namespace: namespace, Name: name}
-
-	switch kind {
-	case "Deployment":
-		obj := &appsv1.Deployment{}
-		if err := r.Get(ctx, key, obj); err != nil {
-			return nil, err
-		}
-		return obj, nil
-	case "StatefulSet":
-		obj := &appsv1.StatefulSet{}
-		if err := r.Get(ctx, key, obj); err != nil {
-			return nil, err
-		}
-		return obj, nil
-	case "DaemonSet":
-		obj := &appsv1.DaemonSet{}
-		if err := r.Get(ctx, key, obj); err != nil {
-			return nil, err
-		}
-		return obj, nil
-	case "CronJob":
-		obj := &batchv1.CronJob{}
-		if err := r.Get(ctx, key, obj); err != nil {
-			return nil, err
-		}
-		return obj, nil
-	case "Job":
-		obj := &batchv1.Job{}
-		if err := r.Get(ctx, key, obj); err != nil {
-			return nil, err
-		}
-		return obj, nil
-	default:
+	wk, ok := workloadKinds[kind]
+	if !ok {
 		return nil, fmt.Errorf("unsupported workload kind: %s", kind)
 	}
+	obj := wk.newObject()
+	if err := r.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, obj); err != nil {
+		return nil, err
+	}
+	return obj, nil
 }
 
 // listWorkloadsBySelector lists workloads matching a label selector.
@@ -112,54 +83,16 @@ func (r *RightSizePolicyReconciler) listWorkloadsBySelector(ctx context.Context,
 		client.MatchingLabelsSelector{Selector: labelSelector},
 	}
 
-	var result []client.Object
-
-	switch kind {
-	case "Deployment":
-		var list appsv1.DeploymentList
-		if err := r.List(ctx, &list, listOpts...); err != nil {
-			return nil, err
-		}
-		for i := range list.Items {
-			result = append(result, &list.Items[i])
-		}
-	case "StatefulSet":
-		var list appsv1.StatefulSetList
-		if err := r.List(ctx, &list, listOpts...); err != nil {
-			return nil, err
-		}
-		for i := range list.Items {
-			result = append(result, &list.Items[i])
-		}
-	case "DaemonSet":
-		var list appsv1.DaemonSetList
-		if err := r.List(ctx, &list, listOpts...); err != nil {
-			return nil, err
-		}
-		for i := range list.Items {
-			result = append(result, &list.Items[i])
-		}
-	case "CronJob":
-		var list batchv1.CronJobList
-		if err := r.List(ctx, &list, listOpts...); err != nil {
-			return nil, err
-		}
-		for i := range list.Items {
-			result = append(result, &list.Items[i])
-		}
-	case "Job":
-		var list batchv1.JobList
-		if err := r.List(ctx, &list, listOpts...); err != nil {
-			return nil, err
-		}
-		for i := range list.Items {
-			result = append(result, &list.Items[i])
-		}
-	default:
+	wk, ok := workloadKinds[kind]
+	if !ok {
 		return nil, fmt.Errorf("unsupported workload kind: %s", kind)
 	}
 
-	return result, nil
+	list := wk.newList()
+	if err := r.List(ctx, list, listOpts...); err != nil {
+		return nil, err
+	}
+	return wk.extract(list), nil
 }
 
 // getPodsForWorkload returns the pods managed by a workload by matching
@@ -183,30 +116,8 @@ func (r *RightSizePolicyReconciler) getPodsForWorkload(ctx context.Context, work
 
 // getPodSelectorLabels extracts the pod selector labels from a workload.
 func (r *RightSizePolicyReconciler) getPodSelectorLabels(workload client.Object) map[string]string {
-	switch w := workload.(type) {
-	case *appsv1.Deployment:
-		if w.Spec.Selector != nil {
-			return w.Spec.Selector.MatchLabels
-		}
-	case *appsv1.StatefulSet:
-		if w.Spec.Selector != nil {
-			return w.Spec.Selector.MatchLabels
-		}
-	case *appsv1.DaemonSet:
-		if w.Spec.Selector != nil {
-			return w.Spec.Selector.MatchLabels
-		}
-	case *batchv1.CronJob:
-		if w.Spec.JobTemplate.Spec.Selector != nil {
-			return w.Spec.JobTemplate.Spec.Selector.MatchLabels
-		}
-		// Fall back to pod template labels for CronJobs without explicit selector.
-		return w.Spec.JobTemplate.Spec.Template.Labels
-	case *batchv1.Job:
-		if w.Spec.Selector != nil {
-			return w.Spec.Selector.MatchLabels
-		}
-		return w.Spec.Template.Labels
+	if a := newWorkloadAdapter(workload); a != nil {
+		return a.PodSelectorLabels()
 	}
 	return nil
 }
@@ -214,19 +125,11 @@ func (r *RightSizePolicyReconciler) getPodSelectorLabels(workload client.Object)
 // getContainers returns the container specs from a workload's pod template,
 // including native sidecar containers (init containers with restartPolicy=Always).
 func (r *RightSizePolicyReconciler) getContainers(workload client.Object) []corev1.Container {
-	var spec *corev1.PodSpec
-	switch w := workload.(type) {
-	case *appsv1.Deployment:
-		spec = &w.Spec.Template.Spec
-	case *appsv1.StatefulSet:
-		spec = &w.Spec.Template.Spec
-	case *appsv1.DaemonSet:
-		spec = &w.Spec.Template.Spec
-	case *batchv1.CronJob:
-		spec = &w.Spec.JobTemplate.Spec.Template.Spec
-	case *batchv1.Job:
-		spec = &w.Spec.Template.Spec
+	a := newWorkloadAdapter(workload)
+	if a == nil {
+		return nil
 	}
+	spec := a.PodSpec()
 	if spec == nil {
 		return nil
 	}
@@ -249,33 +152,16 @@ func nativeSidecars(initContainers []corev1.Container) []corev1.Container {
 // isBatchWorkload returns true for Job and CronJob workloads. These only
 // support Observe/Recommend modes; in-place resize is not applicable.
 func isBatchWorkload(workload client.Object) bool {
-	switch workload.(type) {
-	case *batchv1.CronJob, *batchv1.Job:
-		return true
+	if a := newWorkloadAdapter(workload); a != nil {
+		return a.IsBatch()
 	}
 	return false
 }
 
 // isRollingOut checks if a workload is currently in the middle of a rollout.
 func (r *RightSizePolicyReconciler) isRollingOut(workload client.Object) bool {
-	switch w := workload.(type) {
-	case *appsv1.Deployment:
-		if w.Spec.Replicas != nil && w.Status.UpdatedReplicas < *w.Spec.Replicas {
-			return true
-		}
-		if w.Spec.Replicas != nil && w.Status.AvailableReplicas < *w.Spec.Replicas {
-			return true
-		}
-	case *appsv1.StatefulSet:
-		if w.Spec.Replicas != nil && w.Status.UpdatedReplicas < *w.Spec.Replicas {
-			return true
-		}
-	case *appsv1.DaemonSet:
-		if w.Status.UpdatedNumberScheduled < w.Status.DesiredNumberScheduled {
-			return true
-		}
-	case *batchv1.CronJob, *batchv1.Job:
-		return false // batch workloads don't have rollouts
+	if a := newWorkloadAdapter(workload); a != nil {
+		return a.IsRollingOut()
 	}
 	return false
 }
@@ -292,17 +178,11 @@ func (r *RightSizePolicyReconciler) isRollingOut(workload client.Object) bool {
 //   - CronJob: <name>-<timestamp>-<pod-hash>
 func (r *RightSizePolicyReconciler) getPodRegex(workload client.Object) string {
 	name := rsmetrics.EscapePromQLRegex(workload.GetName())
-	switch workload.(type) {
-	case *appsv1.Deployment:
-		return name + "-[a-z0-9]+-[a-z0-9]{5}"
-	case *appsv1.StatefulSet:
-		return name + "-[0-9]+"
-	case *appsv1.DaemonSet:
-		return name + "-[a-z0-9]{5}"
-	default:
-		// Jobs, CronJobs, and unknown kinds: fall back to prefix match.
-		return name + ".*"
+	if a := newWorkloadAdapter(workload); a != nil {
+		return name + a.PodNameRegexSuffix()
 	}
+	// Unknown kinds: fall back to prefix match.
+	return name + ".*"
 }
 
 // queryMetricsGrouped queries Prometheus once per metric for the whole

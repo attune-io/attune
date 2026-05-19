@@ -378,6 +378,55 @@ func TestWorkload_GetPodSelectorLabels(t *testing.T) {
 	}
 }
 
+// ---------- newWorkloadAdapter ----------
+
+func TestWorkload_NewWorkloadAdapter(t *testing.T) {
+	tests := []struct {
+		name     string
+		obj      client.Object
+		wantType string
+		wantNil  bool
+	}{
+		{"Deployment", &appsv1.Deployment{}, "*controller.deploymentAdapter", false},
+		{"StatefulSet", &appsv1.StatefulSet{}, "*controller.statefulSetAdapter", false},
+		{"DaemonSet", &appsv1.DaemonSet{}, "*controller.daemonSetAdapter", false},
+		{"CronJob", &batchv1.CronJob{}, "*controller.cronJobAdapter", false},
+		{"Job", &batchv1.Job{}, "*controller.jobAdapter", false},
+		{"nil returns nil", nil, "", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := newWorkloadAdapter(tt.obj)
+			if tt.wantNil {
+				assert.Nil(t, a)
+				return
+			}
+			require.NotNil(t, a)
+			assert.Equal(t, tt.obj, a.Object())
+		})
+	}
+}
+
+// ---------- workloadKinds registry ----------
+
+func TestWorkload_RegistryCoversAllKinds(t *testing.T) {
+	kinds := []string{"Deployment", "StatefulSet", "DaemonSet", "CronJob", "Job"}
+	for _, kind := range kinds {
+		t.Run(kind, func(t *testing.T) {
+			wk, ok := workloadKinds[kind]
+			require.True(t, ok, "workloadKinds missing %s", kind)
+			assert.NotNil(t, wk.newObject())
+			assert.NotNil(t, wk.newList())
+		})
+	}
+}
+
+func TestWorkload_RegistryUnsupportedKind(t *testing.T) {
+	_, ok := workloadKinds["ReplicaSet"]
+	assert.False(t, ok)
+}
+
 // ---------- buildPrometheusQuery ----------
 
 func TestWorkload_BuildPrometheusQuery(t *testing.T) {
