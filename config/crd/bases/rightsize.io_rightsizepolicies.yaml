@@ -76,7 +76,8 @@ spec:
                   allowDecrease:
                     description: |-
                       AllowDecrease controls whether the resource value can be decreased.
-                      Only applicable to memory resources.
+                      For CPU: nil defaults to true (decreases allowed, throttle detected by safety monitor).
+                      For memory: nil defaults to false (decreases blocked to prevent OOMKill).
                     type: boolean
                   bounds:
                     description: Bounds defines the minimum and maximum allowed resource
@@ -179,7 +180,8 @@ spec:
                   allowDecrease:
                     description: |-
                       AllowDecrease controls whether the resource value can be decreased.
-                      Only applicable to memory resources.
+                      For CPU: nil defaults to true (decreases allowed, throttle detected by safety monitor).
+                      For memory: nil defaults to false (decreases blocked to prevent OOMKill).
                     type: boolean
                   bounds:
                     description: Bounds defines the minimum and maximum allowed resource

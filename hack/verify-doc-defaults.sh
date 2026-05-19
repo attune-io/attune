@@ -117,7 +117,7 @@ check_default "queryStep (API ref)" \
 # --- collectorTTL default = 10m ---
 check_default "collectorTTL (Go)" \
   'collectorTTL = 10 \* time.Minute' \
-  "internal/controller/rightsizepolicy_controller.go"
+  "internal/controller/prometheus.go"
 check_default "collectorTTL (Helm values)" \
   'collectorTTL: "10m"' \
   "charts/kube-rightsize/values.yaml"
