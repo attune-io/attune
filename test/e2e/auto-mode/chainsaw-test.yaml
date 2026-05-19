@@ -46,10 +46,10 @@ spec:
                             restartPolicy: NotRequired
                         resources:
                           requests:
-                            cpu: 250m
+                            cpu: 500m
                             memory: 256Mi
                           limits:
-                            cpu: 500m
+                            cpu: 1000m
                             memory: 512Mi
         - assert:
             resource:

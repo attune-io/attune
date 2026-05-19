@@ -352,7 +352,7 @@ func TestE2E_OneShotMode_ResizesOnePod(t *testing.T) {
 		"OneShot mode should resize exactly 1 workload")
 }
 
-func TestE2E_SafetyRevert_RestartSpike(t *testing.T) {
+func TestE2E_AutoMode_RecordsResizeHistory(t *testing.T) {
 	ns := uniqueNS("revert")
 	createNamespace(t, ns)
 
@@ -619,10 +619,10 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 func TestE2E_BudgetCaps_DefersResize(t *testing.T) {
 	ns := uniqueNS("budget")
 	createNamespace(t, ns)
-	createDeployment(t, "budget-app", ns, "500m", "512Mi", 3)
+	createDeployment(t, "budget-app", ns, "100m", "512Mi", 3)
 	waitForDeploymentReady(t, "budget-app", ns, 60*time.Second)
 
-	tightBudget := resource.MustParse("1m")
+	tightBudget := resource.MustParse("200m")
 	deployName := "budget-app"
 	policy := &rightsizev1alpha1.RightSizePolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "budget-policy", Namespace: ns},
@@ -649,11 +649,15 @@ func TestE2E_BudgetCaps_DefersResize(t *testing.T) {
 	// Wait for at least one reconcile cycle.
 	waitForPolicyDiscovered(t, "budget-policy", ns, 2*time.Minute)
 
-	// With a 1m CPU budget, at most one pod can be resized per cycle.
-	// Check that the policy reconciled without error.
+	// With a 200m CPU budget and ~142m increase per pod (100m -> 242m),
+	// at most one pod can be resized per cycle. Wait for at least one resize.
+	waitForResize(t, "budget-policy", ns, 3*time.Minute)
+
 	var p rightsizev1alpha1.RightSizePolicy
 	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "budget-policy", Namespace: ns}, &p))
 	assert.Equal(t, int32(1), p.Status.Workloads.Discovered)
+	assert.GreaterOrEqual(t, p.Status.Workloads.Resized, int32(1),
+		"budget-capped policy should still resize at least one workload")
 }
 
 func TestE2E_ScheduleWindow_SkipsOutsideWindow(t *testing.T) {
@@ -815,7 +819,7 @@ func TestE2E_RecommendMode_KeepsRecommendationsWithoutLivePods(t *testing.T) {
 	createNamespace(t, ns)
 
 	// Create a deployment so Prometheus collects metrics.
-	createDeployment(t, "nopods-app", ns, "250m", "256Mi", 1)
+	createDeployment(t, "nopods-app", ns, "500m", "256Mi", 1)
 	waitForDeploymentReady(t, "nopods-app", ns, 60*time.Second)
 
 	createPolicy(t, "nopods-policy", ns, "nopods-app", rightsizev1alpha1.UpdateModeRecommend)
