@@ -1115,7 +1115,7 @@ func (r *RightSizePolicyReconciler) discoverPrometheus(ctx context.Context) stri
 	const promDiscoveryCacheTTL = 5 * time.Minute
 
 	r.discoveredPromMu.Lock()
-	if r.discoveredPromAddr != "" && time.Since(r.discoveredPromTime) < promDiscoveryCacheTTL {
+	if r.discoveredPromAddr != "" && r.now().Sub(r.discoveredPromTime) < promDiscoveryCacheTTL {
 		addr := r.discoveredPromAddr
 		r.discoveredPromMu.Unlock()
 		return addr
