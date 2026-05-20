@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -30,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 
 	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
@@ -965,6 +967,149 @@ func TestPrintRecommendations_CollectingData(t *testing.T) {
 	assert.Contains(t, output, "CONFIDENCE / STATUS")
 	assert.Contains(t, output, "new-policy")
 	assert.Contains(t, output, "Not enough data")
+}
+
+func captureRun(t *testing.T, args []string, buildClient dynamicClientFactory) (int, string, string) {
+	t.Helper()
+	oldStdout := os.Stdout
+	oldStderr := os.Stderr
+	stdoutR, stdoutW, err := os.Pipe()
+	require.NoError(t, err)
+	stderrR, stderrW, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = stdoutW
+	os.Stderr = stderrW
+
+	exitCode := run(args, buildClient)
+
+	require.NoError(t, stdoutW.Close())
+	require.NoError(t, stderrW.Close())
+	os.Stdout = oldStdout
+	os.Stderr = oldStderr
+
+	var stdoutBuf bytes.Buffer
+	_, err = stdoutBuf.ReadFrom(stdoutR)
+	require.NoError(t, err)
+	var stderrBuf bytes.Buffer
+	_, err = stderrBuf.ReadFrom(stderrR)
+	require.NoError(t, err)
+	return exitCode, stdoutBuf.String(), stderrBuf.String()
+}
+
+func fakeDynamicClientFactory(t *testing.T, objects ...runtime.Object) dynamicClientFactory {
+	t.Helper()
+	return func(kubeconfigPath string) (dynamic.Interface, string, error) {
+		scheme := runtime.NewScheme()
+		client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+			map[schema.GroupVersionResource]string{
+				gvr:                  "RightSizePolicyList",
+				namespaceDefaultsGVR: "RightSizeNamespaceDefaultsList",
+				defaultsGVR:          "RightSizeDefaultsList",
+			},
+			objects...)
+		return client, "default", nil
+	}
+}
+
+func failingDynamicClientFactory(err error) dynamicClientFactory {
+	return func(kubeconfigPath string) (dynamic.Interface, string, error) {
+		return nil, "", err
+	}
+}
+
+func TestRun_MainWiring(t *testing.T) {
+	policy := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "rightsize.io/v1alpha1",
+		"kind":       "RightSizePolicy",
+		"metadata": map[string]interface{}{
+			"name":      "api-svc",
+			"namespace": "default",
+		},
+		"spec": map[string]interface{}{
+			"updateStrategy": map[string]interface{}{
+				"mode": "Recommend",
+			},
+		},
+		"status": map[string]interface{}{
+			"conditions": []interface{}{
+				map[string]interface{}{
+					"type":   "Ready",
+					"status": "True",
+					"reason": "Monitoring",
+				},
+			},
+		},
+	}}
+
+	tests := []struct {
+		name         string
+		args         []string
+		factory      dynamicClientFactory
+		wantExitCode int
+		wantStdout   string
+		wantStderr   string
+		wantNoStderr bool
+	}{
+		{
+			name:         "status json succeeds through main wiring",
+			args:         []string{"status", "-o", "json"},
+			factory:      fakeDynamicClientFactory(t, policy),
+			wantExitCode: 0,
+			wantStdout:   "\"kind\": \"RightSizePolicyList\"",
+			wantNoStderr: true,
+		},
+		{
+			name:         "status rejects leftover positional args",
+			args:         []string{"status", "extra"},
+			factory:      fakeDynamicClientFactory(t, policy),
+			wantExitCode: 1,
+			wantStderr:   "status accepts no positional arguments",
+		},
+		{
+			name:         "explain rejects trailing args after policy name",
+			args:         []string{"explain", "api-svc", "extra"},
+			factory:      fakeDynamicClientFactory(t, policy),
+			wantExitCode: 1,
+			wantStderr:   "explain accepts exactly one policy name",
+		},
+		{
+			name:         "savings rejects misleading structured output",
+			args:         []string{"savings", "-o", "json"},
+			factory:      fakeDynamicClientFactory(t, policy),
+			wantExitCode: 1,
+			wantStderr:   "supported only with the status command",
+		},
+		{
+			name:         "unsupported output format returns parse-level validation error",
+			args:         []string{"status", "-o", "table"},
+			factory:      fakeDynamicClientFactory(t, policy),
+			wantExitCode: 1,
+			wantStderr:   "unsupported output format \"table\"",
+		},
+		{
+			name:         "unknown command exits before client construction",
+			args:         []string{"wat"},
+			factory:      failingDynamicClientFactory(fmt.Errorf("should not be called")),
+			wantExitCode: 1,
+			wantStderr:   "Unknown command: wat",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			exitCode, stdout, stderr := captureRun(t, tt.args, tt.factory)
+			assert.Equal(t, tt.wantExitCode, exitCode)
+			if tt.wantStdout != "" {
+				assert.Contains(t, stdout, tt.wantStdout)
+			}
+			if tt.wantStderr != "" {
+				assert.Contains(t, stderr, tt.wantStderr)
+			}
+			if tt.wantNoStderr {
+				assert.Empty(t, stderr)
+			}
+		})
+	}
 }
 
 func TestIsZeroArgCommand(t *testing.T) {

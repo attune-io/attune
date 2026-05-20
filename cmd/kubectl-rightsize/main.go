@@ -74,8 +74,15 @@ type selectedDefaults struct {
 	source   string
 }
 
+type dynamicClientFactory func(kubeconfigPath string) (dynamic.Interface, string, error)
+
 func main() {
-	fs := flag.NewFlagSet("kubectl-rightsize", flag.ExitOnError)
+	os.Exit(run(os.Args[1:], buildDynamicClient))
+}
+
+func run(args []string, buildClient dynamicClientFactory) int {
+	fs := flag.NewFlagSet("kubectl-rightsize", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
 	namespace := fs.String("n", "", "Namespace (defaults to current context namespace)")
 	fs.StringVar(namespace, "namespace", "", "Namespace (defaults to current context namespace)")
 	allNamespaces := fs.Bool("A", false, "List across all namespaces")
@@ -102,72 +109,72 @@ func main() {
 		fmt.Fprintln(os.Stderr, "  For raw RightSizePolicy objects with other commands, use kubectl get rightsizepolicy -o json|yaml.")
 	}
 
-	if len(os.Args) < 2 {
+	if len(args) == 0 {
 		fs.Usage()
-		os.Exit(1)
+		return 1
 	}
 
-	cmd := os.Args[1]
+	remainingArgs := args[1:]
+	cmd := args[0]
 	if cmd == "--help" || cmd == "-h" || cmd == "help" {
 		fs.Usage()
-		return
+		return 0
 	}
 	if cmd == "version" {
 		fmt.Printf("kubectl-rightsize %s\n", version)
-		return
+		return 0
+	}
+	if !isKnownCommand(cmd) {
+		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", cmd)
+		fs.Usage()
+		return 1
 	}
 
-	if err := fs.Parse(os.Args[2:]); err != nil {
-		os.Exit(1)
+	if err := fs.Parse(remainingArgs); err != nil {
+		return 2
 	}
+	parsedArgs := fs.Args()
 	if isZeroArgCommand(cmd) {
-		if err := zeroArgCommandArgs(cmd, fs.Args()); err != nil {
+		if err := zeroArgCommandArgs(cmd, parsedArgs); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+			return 1
 		}
 	}
-
-	// Build client from kubeconfig.
-	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
-	if *kubeconfig != "" {
-		loadingRules.ExplicitPath = *kubeconfig
+	if err := structuredOutputCommandError(cmd, *output); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return 1
 	}
-	configOverrides := &clientcmd.ConfigOverrides{}
-	kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides)
+
+	policyName := ""
+	if cmd == "explain" {
+		name, err := explainPolicyName(parsedArgs)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return 1
+		}
+		policyName = name
+	}
+
+	dynClient, currentNamespace, err := buildClient(*kubeconfig)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return 1
+	}
 
 	if *namespace == "" && !*allNamespaces {
-		ns, _, err := kubeConfig.Namespace()
-		if err != nil || ns == "" {
-			ns = "default"
+		if currentNamespace == "" {
+			currentNamespace = "default"
 		}
-		*namespace = ns
+		*namespace = currentNamespace
 	}
 	if *allNamespaces {
 		*namespace = ""
 	}
 
-	config, err := kubeConfig.ClientConfig()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-
-	dynClient, err := dynamic.NewForConfig(config)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-
 	ctx := context.Background()
-
-	if err := structuredOutputCommandError(cmd, *output); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-
 	if *output == "json" || *output == "yaml" {
 		printStructured(ctx, dynClient, *namespace, *output)
-		return
+		return 0
 	}
 
 	switch cmd {
@@ -178,18 +185,40 @@ func main() {
 	case "recommendations":
 		printRecommendations(ctx, dynClient, *namespace)
 	case "explain":
-		policyName, err := explainPolicyName(fs.Args())
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
 		printExplain(ctx, dynClient, *namespace, policyName)
 	case "history":
 		printHistory(ctx, dynClient, *namespace)
+	}
+	return 0
+}
+
+func buildDynamicClient(kubeconfigPath string) (dynamic.Interface, string, error) {
+	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+	if kubeconfigPath != "" {
+		loadingRules.ExplicitPath = kubeconfigPath
+	}
+	kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, &clientcmd.ConfigOverrides{})
+	currentNamespace, _, err := kubeConfig.Namespace()
+	if err != nil || currentNamespace == "" {
+		currentNamespace = "default"
+	}
+	config, err := kubeConfig.ClientConfig()
+	if err != nil {
+		return nil, "", err
+	}
+	dynClient, err := dynamic.NewForConfig(config)
+	if err != nil {
+		return nil, "", err
+	}
+	return dynClient, currentNamespace, nil
+}
+
+func isKnownCommand(cmd string) bool {
+	switch cmd {
+	case "status", "savings", "recommendations", "explain", "history", "version":
+		return true
 	default:
-		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", cmd)
-		fs.Usage()
-		os.Exit(1)
+		return false
 	}
 }
 
