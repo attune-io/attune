@@ -105,6 +105,17 @@ func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizeP
 		return warnings, fmt.Errorf("targetRef must specify name or selector, not both")
 	}
 
+	// Validate targetRef.kind is a supported workload type.
+	supportedKinds := map[string]bool{
+		"Deployment": true, "StatefulSet": true, "DaemonSet": true,
+		"CronJob": true, "Job": true,
+	}
+	if !supportedKinds[policy.Spec.TargetRef.Kind] {
+		return warnings, fmt.Errorf(
+			"targetRef.kind %q is not supported; must be one of: Deployment, StatefulSet, DaemonSet, CronJob, Job",
+			policy.Spec.TargetRef.Kind)
+	}
+
 	// Validate safetyMargin is a valid positive float.
 	if w, err := validateSafetyMargin("cpu", policy.Spec.CPU.SafetyMargin); err != nil {
 		return warnings, err

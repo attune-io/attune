@@ -171,6 +171,19 @@ func TestValidate_NoTargetRef(t *testing.T) {
 	assert.Empty(t, warnings)
 }
 
+func TestValidate_UnsupportedWorkloadKind(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.TargetRef.Kind = "ReplicaSet"
+
+	warnings, err := validator.ValidateCreate(context.Background(), policy)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not supported")
+	assert.Contains(t, err.Error(), "Deployment")
+	assert.Empty(t, warnings)
+}
+
 func TestValidate_NameAndSelectorBothSet(t *testing.T) {
 	validator := &RightSizePolicyValidator{}
 	policy := validPolicy()

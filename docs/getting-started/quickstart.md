@@ -16,8 +16,9 @@ recommendations, and promoting to Canary mode, all in about five minutes.
     the cluster for exploration.
 
 !!! info "Prerequisites"
-    Make sure the operator is installed before proceeding. See
-    [Installation](installation.md) for Helm and raw manifest options.
+    - **Kubernetes 1.33+** — required for In-Place Pod Resize (GA). Older clusters are not supported.
+    - **Prometheus** — the operator queries `container_cpu_usage_seconds_total` and `container_memory_working_set_bytes`.
+    - **kube-rightsize installed** — see [Installation](installation.md) for Helm and raw manifest options.
 
 ## 1. Create a RightSizePolicy in Recommend mode
 

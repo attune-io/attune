@@ -96,7 +96,7 @@ func (r *RightSizePolicyReconciler) getOrCreateCollector(config *rightsizev1alph
 		return count < maxCollectors
 	})
 	if count >= maxCollectors {
-		return nil, fmt.Errorf("collector cache full (%d entries); refusing new Prometheus address %q", maxCollectors, config.Address)
+		return nil, fmt.Errorf("collector cache full (%d entries); refusing new Prometheus address %q; consolidate policies to use fewer distinct Prometheus addresses, or use a RightSizeDefaults resource to share a single address across all policies", maxCollectors, config.Address)
 	}
 
 	collector, err := r.MetricsFactory(config.Address, opts)
