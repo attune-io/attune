@@ -255,6 +255,7 @@ func (r *RightSizePolicyReconciler) executeResizes(
 						Workload:     matchedWorkload,
 						WorkloadName: workloadName,
 						ContainerRec: containerRec,
+						Target:       target,
 						Resizer:      resizer,
 						Monitor:      monitor,
 						Now:          now,
@@ -314,6 +315,7 @@ type resizeParams struct {
 	Workload     client.Object
 	WorkloadName string
 	ContainerRec rightsizev1alpha1.ContainerRecommendation
+	Target       corev1.ResourceRequirements
 	Resizer      *resize.PodResizer
 	Monitor      *safety.Monitor
 	Now          metav1.Time
@@ -341,8 +343,7 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 	logger := log.FromContext(ctx)
 	policy, pod, workload, workloadName := p.Policy, p.Pod, p.Workload, p.WorkloadName
 	containerRec, resizer, monitor, now := p.ContainerRec, p.Resizer, p.Monitor, p.Now
-
-	target := buildResizeTarget(containerRec)
+	target := p.Target
 
 	skip, reason := r.shouldSkipResize(ctx, policy, pod, containerRec, target, p.Checks)
 	if skip {

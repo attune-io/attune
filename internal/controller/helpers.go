@@ -191,64 +191,77 @@ const (
 	hoursPerMonth         = 730
 )
 
-// computeSavings calculates the aggregate resource savings across all recommendations.
-func (r *RightSizePolicyReconciler) computeSavings(recommendations []rightsizev1alpha1.WorkloadRecommendation, defaults *rightsizev1alpha1.RightSizeDefaults) rightsizev1alpha1.SavingsStatus {
-	var totalCPUSaved, totalMemSaved int64
-	var totalCPUIncrease, totalMemIncrease int64
-	var totalCPU, totalMem int64
+// savingsAccumulator holds accumulated resource diffs across all recommendations.
+type savingsAccumulator struct {
+	totalCPU         int64
+	totalMem         int64
+	totalCPUSaved    int64
+	totalMemSaved    int64
+	totalCPUIncrease int64
+	totalMemIncrease int64
+}
 
+// accumulateSavings iterates over recommendations and accumulates resource diffs.
+func accumulateSavings(recommendations []rightsizev1alpha1.WorkloadRecommendation) savingsAccumulator {
+	var acc savingsAccumulator
 	for _, rec := range recommendations {
 		for _, c := range rec.Containers {
-			totalCPU += c.Current.CPURequest.MilliValue()
-			totalMem += c.Current.MemoryRequest.Value()
+			acc.totalCPU += c.Current.CPURequest.MilliValue()
+			acc.totalMem += c.Current.MemoryRequest.Value()
 
 			cpuDiff := c.Current.CPURequest.MilliValue() - c.Recommended.CPURequest.MilliValue()
 			if cpuDiff > 0 {
-				totalCPUSaved += cpuDiff
+				acc.totalCPUSaved += cpuDiff
 			} else if cpuDiff < 0 {
-				totalCPUIncrease += -cpuDiff
+				acc.totalCPUIncrease += -cpuDiff
 			}
 
 			memDiff := c.Current.MemoryRequest.Value() - c.Recommended.MemoryRequest.Value()
 			if memDiff > 0 {
-				totalMemSaved += memDiff
+				acc.totalMemSaved += memDiff
 			} else if memDiff < 0 {
-				totalMemIncrease += -memDiff
+				acc.totalMemIncrease += -memDiff
 			}
 		}
 	}
+	return acc
+}
+
+// computeSavings calculates the aggregate resource savings across all recommendations.
+func (r *RightSizePolicyReconciler) computeSavings(recommendations []rightsizev1alpha1.WorkloadRecommendation, defaults *rightsizev1alpha1.RightSizeDefaults) rightsizev1alpha1.SavingsStatus {
+	acc := accumulateSavings(recommendations)
 
 	savings := rightsizev1alpha1.SavingsStatus{}
-	if totalCPU > 0 {
-		savings.CPURequestTotal = resource.NewMilliQuantity(totalCPU, resource.DecimalSI).String()
+	if acc.totalCPU > 0 {
+		savings.CPURequestTotal = resource.NewMilliQuantity(acc.totalCPU, resource.DecimalSI).String()
 	}
-	if totalMem > 0 {
-		savings.MemoryRequestTotal = resource.NewQuantity(totalMem, resource.BinarySI).String()
+	if acc.totalMem > 0 {
+		savings.MemoryRequestTotal = resource.NewQuantity(acc.totalMem, resource.BinarySI).String()
 	}
-	if totalCPUSaved > 0 {
-		savings.CPURequestReduction = resource.NewMilliQuantity(totalCPUSaved, resource.DecimalSI).String()
+	if acc.totalCPUSaved > 0 {
+		savings.CPURequestReduction = resource.NewMilliQuantity(acc.totalCPUSaved, resource.DecimalSI).String()
 	}
-	if totalMemSaved > 0 {
-		savings.MemoryRequestReduction = resource.NewQuantity(totalMemSaved, resource.BinarySI).String()
+	if acc.totalMemSaved > 0 {
+		savings.MemoryRequestReduction = resource.NewQuantity(acc.totalMemSaved, resource.BinarySI).String()
 	}
-	if totalCPUIncrease > 0 {
-		savings.CPURequestIncrease = resource.NewMilliQuantity(totalCPUIncrease, resource.DecimalSI).String()
+	if acc.totalCPUIncrease > 0 {
+		savings.CPURequestIncrease = resource.NewMilliQuantity(acc.totalCPUIncrease, resource.DecimalSI).String()
 	}
-	if totalMemIncrease > 0 {
-		savings.MemoryRequestIncrease = resource.NewQuantity(totalMemIncrease, resource.BinarySI).String()
+	if acc.totalMemIncrease > 0 {
+		savings.MemoryRequestIncrease = resource.NewQuantity(acc.totalMemIncrease, resource.BinarySI).String()
 	}
 
 	cpuPrice, memPrice := getCostPricing(defaults)
 
-	cpuCoresSaved := float64(totalCPUSaved) / 1000.0
-	memGiBSaved := float64(totalMemSaved) / (1024 * 1024 * 1024)
+	cpuCoresSaved := float64(acc.totalCPUSaved) / 1000.0
+	memGiBSaved := float64(acc.totalMemSaved) / (1024 * 1024 * 1024)
 	monthlySavings := (cpuCoresSaved*cpuPrice + memGiBSaved*memPrice) * hoursPerMonth
 	if monthlySavings > 0 {
 		savings.EstimatedMonthlySavings = fmt.Sprintf("$%.2f", monthlySavings)
 	}
 
-	cpuCoresIncrease := float64(totalCPUIncrease) / 1000.0
-	memGiBIncrease := float64(totalMemIncrease) / (1024 * 1024 * 1024)
+	cpuCoresIncrease := float64(acc.totalCPUIncrease) / 1000.0
+	memGiBIncrease := float64(acc.totalMemIncrease) / (1024 * 1024 * 1024)
 	monthlyCostIncrease := (cpuCoresIncrease*cpuPrice + memGiBIncrease*memPrice) * hoursPerMonth
 	if monthlyCostIncrease > 0 {
 		savings.EstimatedMonthlyCostIncrease = fmt.Sprintf("$%.2f", monthlyCostIncrease)
@@ -261,24 +274,12 @@ func (r *RightSizePolicyReconciler) computeSavings(recommendations []rightsizev1
 // Called from Reconcile after computeSavings. Separated so computeSavings
 // remains a pure function that tests can call without registering collectors.
 func updateSavingsGauges(namespace string, recommendations []rightsizev1alpha1.WorkloadRecommendation, defaults *rightsizev1alpha1.RightSizeDefaults) {
-	var totalCPUSaved, totalMemSaved int64
-	for _, rec := range recommendations {
-		for _, c := range rec.Containers {
-			cpuDiff := c.Current.CPURequest.MilliValue() - c.Recommended.CPURequest.MilliValue()
-			if cpuDiff > 0 {
-				totalCPUSaved += cpuDiff
-			}
-			memDiff := c.Current.MemoryRequest.Value() - c.Recommended.MemoryRequest.Value()
-			if memDiff > 0 {
-				totalMemSaved += memDiff
-			}
-		}
-	}
+	acc := accumulateSavings(recommendations)
 
-	cpuCoresSaved := float64(totalCPUSaved) / 1000.0
-	memGiBSaved := float64(totalMemSaved) / (1024 * 1024 * 1024)
+	cpuCoresSaved := float64(acc.totalCPUSaved) / 1000.0
+	memGiBSaved := float64(acc.totalMemSaved) / (1024 * 1024 * 1024)
 	operatormetrics.SavingsCPU.WithLabelValues(namespace).Set(cpuCoresSaved)
-	operatormetrics.SavingsMemory.WithLabelValues(namespace).Set(float64(totalMemSaved))
+	operatormetrics.SavingsMemory.WithLabelValues(namespace).Set(float64(acc.totalMemSaved))
 
 	cpuPrice, memPrice := getCostPricing(defaults)
 	monthlySavings := (cpuCoresSaved*cpuPrice + memGiBSaved*memPrice) * hoursPerMonth
