@@ -69,3 +69,21 @@ func TestPrometheusAddress_BadScheme(t *testing.T) {
 func TestPrometheusAddress_NoHost(t *testing.T) {
 	assert.Error(t, PrometheusAddress("http://"))
 }
+
+func TestPrometheusQueryParameters_AllowsBackendSpecificKeys(t *testing.T) {
+	err := PrometheusQueryParameters(map[string]string{
+		"dedup":            "true",
+		"partial_response": "true",
+		"tenant":           "acme",
+	})
+	assert.NoError(t, err)
+}
+
+func TestPrometheusQueryParameters_RejectsReservedKeys(t *testing.T) {
+	tests := []string{"query", "time", "start", "end", "step", "timeout", "QUERY"}
+	for _, key := range tests {
+		err := PrometheusQueryParameters(map[string]string{key: "override"})
+		assert.Error(t, err, "expected reserved key to be rejected: %s", key)
+		assert.Contains(t, err.Error(), "reserved")
+	}
+}

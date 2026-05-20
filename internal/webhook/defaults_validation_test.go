@@ -253,6 +253,25 @@ func TestDefaultsValidator_RecordsMetrics(t *testing.T) {
 	assert.Equal(t, uint64(1), hMetric.GetHistogram().GetSampleCount())
 }
 
+func TestDefaultsValidator_PrometheusQueryParametersReservedRejected(t *testing.T) {
+	v := &RightSizeDefaultsValidator{}
+	defaults := &rightsizev1alpha1.RightSizeDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			MetricsSource: &rightsizev1alpha1.MetricsSource{
+				Prometheus: &rightsizev1alpha1.PrometheusConfig{
+					Address:         "http://prometheus-server.monitoring:80",
+					QueryParameters: map[string]string{"step": "30s"},
+				},
+			},
+		},
+	}
+	_, err := v.ValidateCreate(context.Background(), defaults)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "metricsSource.prometheus.queryParameters")
+	assert.Contains(t, err.Error(), "reserved")
+}
+
 func TestDefaultsValidator_PrometheusAddressSSRF(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -377,6 +396,25 @@ func TestNamespaceDefaultsValidator_InvalidScheduleTimezone(t *testing.T) {
 	_, err := v.ValidateCreate(context.Background(), defaults)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "timezone")
+}
+
+func TestNamespaceDefaultsValidator_PrometheusQueryParametersReservedRejected(t *testing.T) {
+	v := &RightSizeNamespaceDefaultsValidator{}
+	defaults := &rightsizev1alpha1.RightSizeNamespaceDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "production"},
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			MetricsSource: &rightsizev1alpha1.MetricsSource{
+				Prometheus: &rightsizev1alpha1.PrometheusConfig{
+					Address:         "http://prometheus-server.monitoring:80",
+					QueryParameters: map[string]string{"timeout": "5s"},
+				},
+			},
+		},
+	}
+	_, err := v.ValidateCreate(context.Background(), defaults)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "metricsSource.prometheus.queryParameters")
+	assert.Contains(t, err.Error(), "reserved")
 }
 
 func TestNamespaceDefaultsValidator_PrometheusAddressSSRF(t *testing.T) {

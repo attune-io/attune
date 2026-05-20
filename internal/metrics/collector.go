@@ -177,6 +177,9 @@ func (t *queryParamTransport) RoundTrip(req *http.Request) (*http.Response, erro
 	clone := req.Clone(req.Context())
 	q := clone.URL.Query()
 	for k, v := range t.params {
+		if q.Has(k) {
+			continue
+		}
 		q.Set(k, v)
 	}
 	clone.URL.RawQuery = q.Encode()

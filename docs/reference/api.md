@@ -42,7 +42,7 @@ spec:
         X-Scope-OrgID: "my-tenant"        # e.g., Mimir tenant ID
       queryParameters:                    # optional: URL params for Thanos/VictoriaMetrics
         dedup: "true"                     # e.g., Thanos deduplication
-        partial_response: "true"
+        partial_response: "true"          # reserved query keys like query/start/end/step/time/timeout are rejected
       bearerTokenSecret:                  # optional: auth from Secret
         name: prometheus-token
         key: token

@@ -214,10 +214,15 @@ func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizeP
 		}
 	}
 
-	// Validate Prometheus address URL scheme if specified.
-	if policy.Spec.MetricsSource.Prometheus != nil && policy.Spec.MetricsSource.Prometheus.Address != "" {
-		if err := ValidatePrometheusAddress(policy.Spec.MetricsSource.Prometheus.Address); err != nil {
-			return warnings, fmt.Errorf("metricsSource.prometheus.address: %w", err)
+	// Validate Prometheus settings if specified.
+	if prometheus := policy.Spec.MetricsSource.Prometheus; prometheus != nil {
+		if prometheus.Address != "" {
+			if err := ValidatePrometheusAddress(prometheus.Address); err != nil {
+				return warnings, fmt.Errorf("metricsSource.prometheus.address: %w", err)
+			}
+		}
+		if err := validation.PrometheusQueryParameters(prometheus.QueryParameters); err != nil {
+			return warnings, fmt.Errorf("metricsSource.prometheus.queryParameters: %w", err)
 		}
 	}
 

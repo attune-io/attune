@@ -27,6 +27,7 @@ import (
 
 	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
 	"github.com/SebTardifLabs/kube-rightsize/internal/operatormetrics"
+	"github.com/SebTardifLabs/kube-rightsize/internal/validation"
 )
 
 // RightSizeDefaultsValidator validates RightSizeDefaults resources.
@@ -86,12 +87,16 @@ func (v *RightSizeNamespaceDefaultsValidator) ValidateDelete(_ context.Context, 
 }
 
 func validateDefaultsSpec(spec rightsizev1alpha1.RightSizeDefaultsSpec) (admission.Warnings, error) {
-	// Validate Prometheus address if provided (SSRF prevention).
-	if spec.MetricsSource != nil &&
-		spec.MetricsSource.Prometheus != nil &&
-		spec.MetricsSource.Prometheus.Address != "" {
-		if err := ValidatePrometheusAddress(spec.MetricsSource.Prometheus.Address); err != nil {
-			return nil, fmt.Errorf("metricsSource.prometheus.address: %w", err)
+	// Validate Prometheus settings if provided.
+	if spec.MetricsSource != nil && spec.MetricsSource.Prometheus != nil {
+		prometheus := spec.MetricsSource.Prometheus
+		if prometheus.Address != "" {
+			if err := ValidatePrometheusAddress(prometheus.Address); err != nil {
+				return nil, fmt.Errorf("metricsSource.prometheus.address: %w", err)
+			}
+		}
+		if err := validation.PrometheusQueryParameters(prometheus.QueryParameters); err != nil {
+			return nil, fmt.Errorf("metricsSource.prometheus.queryParameters: %w", err)
 		}
 	}
 

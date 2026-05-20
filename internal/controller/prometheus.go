@@ -419,8 +419,11 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 }
 
 // buildCollectorOptions constructs CollectorOptions from the given PrometheusConfig,
-// including headers, TLS settings, and Secret-backed bearer token resolution.
+// including headers, query parameters, TLS settings, and Secret-backed bearer token resolution.
 func (r *RightSizePolicyReconciler) buildCollectorOptions(ctx context.Context, namespace string, config *rightsizev1alpha1.PrometheusConfig) (*rsmetrics.CollectorOptions, error) {
+	if err := validation.PrometheusQueryParameters(config.QueryParameters); err != nil {
+		return nil, err
+	}
 	if config.Headers == nil && config.QueryParameters == nil && config.BearerTokenSecret == nil &&
 		(config.TLS == nil || !config.TLS.InsecureSkipVerify) {
 		return nil, nil

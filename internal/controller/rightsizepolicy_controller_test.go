@@ -2171,6 +2171,30 @@ func TestBuildCollectorOptions_WithHeaders(t *testing.T) {
 	assert.Equal(t, "tenant-1", opts.Headers["X-Scope-OrgID"])
 }
 
+func TestBuildCollectorOptions_WithQueryParameters(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	config := &rightsizev1alpha1.PrometheusConfig{
+		Address:         "http://prom:9090",
+		QueryParameters: map[string]string{"dedup": "true"},
+	}
+	opts, err := r.buildCollectorOptions(context.Background(), "default", config)
+	assert.NoError(t, err)
+	require.NotNil(t, opts)
+	assert.Equal(t, "true", opts.QueryParameters["dedup"])
+}
+
+func TestBuildCollectorOptions_RejectsReservedQueryParameters(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	config := &rightsizev1alpha1.PrometheusConfig{
+		Address:         "http://prom:9090",
+		QueryParameters: map[string]string{"query": "up"},
+	}
+	opts, err := r.buildCollectorOptions(context.Background(), "default", config)
+	assert.Error(t, err)
+	assert.Nil(t, opts)
+	assert.Contains(t, err.Error(), "reserved")
+}
+
 func TestBuildCollectorOptions_WithTLS(t *testing.T) {
 	r := &RightSizePolicyReconciler{}
 	config := &rightsizev1alpha1.PrometheusConfig{

@@ -556,6 +556,31 @@ func TestQueryParamTransport_AppendsParams(t *testing.T) {
 	assert.Contains(t, gotURL, "query=up", "original query param should be preserved")
 }
 
+func TestQueryParamTransport_DoesNotOverrideExistingParams(t *testing.T) {
+	var gotURL string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotURL = r.URL.String()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	rt := &queryParamTransport{
+		base:   http.DefaultTransport,
+		params: map[string]string{"query": "rate(up[5m])", "step": "30s", "dedup": "true"},
+	}
+
+	req, _ := http.NewRequest("GET", server.URL+"/api/v1/query_range?query=up&step=60s", nil)
+	resp, err := rt.RoundTrip(req)
+	require.NoError(t, err)
+	resp.Body.Close()
+
+	assert.Contains(t, gotURL, "query=up")
+	assert.Contains(t, gotURL, "step=60s")
+	assert.NotContains(t, gotURL, "query=rate%28up%5B5m%5D%29")
+	assert.NotContains(t, gotURL, "step=30s")
+	assert.Contains(t, gotURL, "dedup=true")
+}
+
 func TestNewPrometheusCollectorWithOptions_InsecureSkipVerify(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

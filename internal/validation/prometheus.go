@@ -25,6 +25,15 @@ import (
 	"strings"
 )
 
+var reservedPrometheusQueryParameters = map[string]struct{}{
+	"query":   {},
+	"time":    {},
+	"start":   {},
+	"end":     {},
+	"step":    {},
+	"timeout": {},
+}
+
 // PrometheusAddress validates that the Prometheus address is a valid URL
 // with an allowed scheme and blocks SSRF against private/metadata endpoints.
 func PrometheusAddress(address string) error {
@@ -67,5 +76,17 @@ func PrometheusAddress(address string) error {
 		}
 	}
 
+	return nil
+}
+
+// PrometheusQueryParameters rejects parameters that would override
+// operator-controlled Prometheus API request fields.
+func PrometheusQueryParameters(params map[string]string) error {
+	for key := range params {
+		lowerKey := strings.ToLower(key)
+		if _, reserved := reservedPrometheusQueryParameters[lowerKey]; reserved {
+			return fmt.Errorf("query parameter %q is reserved by the Prometheus API and cannot be overridden", key)
+		}
+	}
 	return nil
 }

@@ -481,6 +481,20 @@ func TestValidate_HistoryWindowValid(t *testing.T) {
 	assert.Empty(t, warnings)
 }
 
+func TestValidate_PrometheusQueryParametersReservedRejected(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.MetricsSource.Prometheus = &rightsizev1alpha1.PrometheusConfig{
+		Address:         "http://prometheus:9090",
+		QueryParameters: map[string]string{"query": "up"},
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "metricsSource.prometheus.queryParameters")
+	assert.Contains(t, err.Error(), "reserved")
+}
+
 func TestValidate_PrometheusAddressValid(t *testing.T) {
 	tests := []struct {
 		name    string
