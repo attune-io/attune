@@ -12,9 +12,20 @@ kubectl get rsp <name> -o jsonpath='{.status.conditions}' | jq .
 
 **Symptom**: Ready condition is `False` with reason `PrometheusUnavailable`.
 
-**Cause**: No Prometheus address could be resolved. The operator checks
-(in order): policy spec, RightSizeNamespaceDefaults, RightSizeDefaults,
-Prometheus Operator CRD, well-known service names. All five failed.
+**Cause**: `PrometheusUnavailable` means the controller could not use
+Prometheus for this reconcile. The condition message tells you which step
+failed:
+
+- `Cannot resolve Prometheus config` means address resolution failed. The
+  operator checks (in order): policy spec, RightSizeNamespaceDefaults,
+  RightSizeDefaults, Prometheus Operator CRD, then well-known service names.
+- `Cannot create metrics collector`, `reading secret`, or transport errors
+  like `TLS handshake timeout` mean the address was found but auth, headers,
+  bearer token secret, CA bundle, or TLS setup failed.
+- `Prometheus query timeout exceeded` means the reconcile-level timeout
+  expired before all Prometheus queries completed.
+- `Prometheus query errors (` means Prometheus answered, but one or more
+  metric queries failed. This can still happen when Prometheus is reachable.
 
 If the condition message includes `Cannot resolve Prometheus config: SSRF blocked`,
 the configured address points at `localhost`, `127.0.0.1`, `::1`, or a
@@ -22,7 +33,7 @@ cloud metadata endpoint. Replace it with the in-cluster Prometheus Service
 DNS name or ClusterIP. A local `kubectl port-forward` URL on your workstation
 will not work.
 
-**Fix**:
+**Fix address resolution failures**:
 
 1. Set the address explicitly in a `RightSizeDefaults` resource:
 
@@ -51,12 +62,21 @@ will not work.
       curl -sf http://prometheus-server.monitoring:80/-/healthy
     ```
 
+If the condition message includes `Cannot create metrics collector`,
+`reading secret`, or a transport error like `TLS handshake timeout`,
+verify the credentials and connection details before changing timeouts:
+
+1. Check the referenced Secret exists and contains the expected bearer token.
+2. Re-check custom headers, CA bundle, and `insecureSkipVerify` settings.
+3. Test the exact Prometheus URL from inside the cluster with the same auth
+   mechanism the operator uses.
+
 If the condition message includes `Prometheus query timeout exceeded`, the
 operator's reconcile-level timeout expired before all workload queries
 completed. This typically happens when Prometheus is slow to respond
 (not down, just overloaded) or when a policy targets many workloads.
 
-**Fix**:
+**Fix query timeouts**:
 
 1. Increase the timeout: set Helm `prometheusTimeout: "10m"` (or
    `--prometheus-timeout=10m`).
@@ -64,6 +84,17 @@ completed. This typically happens when Prometheus is slow to respond
    on the RightSizePolicy or RightSizeDefaults.
 3. Check Prometheus health: high query latency often indicates Prometheus
    itself needs more resources or recording rules.
+
+If the condition message includes `Prometheus query errors (`, Prometheus was
+reachable but one or more metric queries still failed.
+
+**Fix query errors**:
+
+1. Check the operator logs for the exact failing query and backend error.
+2. Replay the failing query directly against Prometheus to confirm whether the
+   backend rejects it or returns partial data.
+3. If the backend is overloaded, reduce query cost with a shorter
+   `historyWindow` or a larger `queryStep`.
 
 See the [Prometheus Setup](prometheus-setup.md) guide for full details on
 address resolution and common installations.
