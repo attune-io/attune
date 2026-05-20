@@ -138,11 +138,13 @@ If found, the actual port from the Service spec is used (falls back to 9090
 if no ports are defined).
 
 !!! warning "Service port vs process port"
-    The Prometheus *process* listens on port 9090, but the Helm chart's
+    The Prometheus *process* usually listens on port 9090, but the
     Kubernetes Service may expose a different port (e.g., port 80 in the
-    prometheus-community chart). Auto-discovery uses port 9090; if your
-    Service uses a different port, set the address explicitly in a
-    `RightSizeNamespaceDefaults` or `RightSizeDefaults` resource.
+    prometheus-community chart). Well-known service auto-discovery uses the
+    Service port from the Service spec and only falls back to 9090 when the
+    Service declares no ports. Set the address explicitly only if you use a
+    non-standard Service name or namespace, or if you want to bypass
+    auto-discovery.
 
 ## Common Prometheus installations
 
