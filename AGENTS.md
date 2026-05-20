@@ -176,6 +176,20 @@ someValue: "default"
 Using `# --` on every line causes helm-docs to treat each line as a
 separate parameter description, producing garbled output.
 
+### MkDocs documentation links
+
+MkDocs strict mode rejects relative links that resolve outside the `docs/`
+directory. When referencing files elsewhere in the repo (e.g., `charts/`,
+`scripts/`), use absolute GitHub URLs instead of relative paths:
+
+```markdown
+<!-- BAD: relative path outside docs/ — MkDocs strict mode rejects this -->
+[Helm README](../../charts/kube-rightsize/README.md)
+
+<!-- GOOD: absolute GitHub URL -->
+[Helm README](https://github.com/SebTardifLabs/kube-rightsize/tree/main/charts/kube-rightsize#prometheusrule)
+```
+
 ## Testing
 
 - Framework: `testify` (assert/require)
