@@ -98,6 +98,13 @@ func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizeP
 	// targetRef must have name or selector, but not both.
 	hasName := policy.Spec.TargetRef.Name != nil && *policy.Spec.TargetRef.Name != ""
 	hasSelector := policy.Spec.TargetRef.Selector != nil
+	if hasSelector {
+		sel := policy.Spec.TargetRef.Selector
+		selectorEmpty := len(sel.MatchLabels) == 0 && len(sel.MatchExpressions) == 0
+		if selectorEmpty {
+			return warnings, fmt.Errorf("targetRef.selector must include at least one matchLabels or matchExpressions entry")
+		}
+	}
 	if !hasName && !hasSelector {
 		return warnings, fmt.Errorf("targetRef must specify either name or selector")
 	}

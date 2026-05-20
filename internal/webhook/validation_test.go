@@ -200,6 +200,19 @@ func TestValidate_NameAndSelectorBothSet(t *testing.T) {
 	assert.Empty(t, warnings)
 }
 
+func TestValidate_EmptySelectorRejected(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.TargetRef.Name = nil
+	policy.Spec.TargetRef.Selector = &metav1.LabelSelector{}
+
+	warnings, err := validator.ValidateCreate(context.Background(), policy)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "targetRef.selector must include at least one")
+	assert.Empty(t, warnings)
+}
+
 func TestValidate_MemoryDecreaseWarning(t *testing.T) {
 	validator := &RightSizePolicyValidator{}
 	policy := validPolicy()
