@@ -538,8 +538,8 @@
       "type": "timeseries",
       "targets": [
         {
-          "expr": "sum(rate(kube_rightsize_reconcile_errors_total[$__rate_interval]))",
-          "legendFormat": "errors/s"
+          "expr": "sum by (error_type) (rate(kube_rightsize_reconcile_errors_total[$__rate_interval]))",
+          "legendFormat": "{{ error_type }}"
         }
       ]
     },
