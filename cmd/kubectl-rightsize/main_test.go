@@ -964,6 +964,49 @@ func TestPrintRecommendations_CollectingData(t *testing.T) {
 	assert.Contains(t, output, "Not enough data")
 }
 
+func TestExplainPolicyName(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		wantName string
+		wantErr  string
+	}{
+		{
+			name:    "missing policy name",
+			args:    nil,
+			wantErr: "explain requires a policy name",
+		},
+		{
+			name:     "single policy name",
+			args:     []string{"api-services"},
+			wantName: "api-services",
+		},
+		{
+			name:    "trailing namespace flag rejected",
+			args:    []string{"api-services", "-n", "production"},
+			wantErr: "Put flags before the policy name",
+		},
+		{
+			name:    "multiple positional args rejected",
+			args:    []string{"api-services", "other-policy"},
+			wantErr: "exactly one policy name",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := explainPolicyName(tt.args)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantName, got)
+		})
+	}
+}
+
 func TestPrintExplain(t *testing.T) {
 	policy := &unstructured.Unstructured{
 		Object: map[string]interface{}{

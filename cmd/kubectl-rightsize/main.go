@@ -139,17 +139,29 @@ func main() {
 	case "recommendations":
 		printRecommendations(ctx, dynClient, *namespace)
 	case "explain":
-		if fs.NArg() < 1 {
-			fmt.Fprintln(os.Stderr, "Error: explain requires a policy name")
+		policyName, err := explainPolicyName(fs.Args())
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
-		printExplain(ctx, dynClient, *namespace, fs.Arg(0))
+		printExplain(ctx, dynClient, *namespace, policyName)
 	case "history":
 		printHistory(ctx, dynClient, *namespace)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", cmd)
 		fs.Usage()
 		os.Exit(1)
+	}
+}
+
+func explainPolicyName(args []string) (string, error) {
+	switch len(args) {
+	case 0:
+		return "", fmt.Errorf("explain requires a policy name")
+	case 1:
+		return args[0], nil
+	default:
+		return "", fmt.Errorf("explain accepts exactly one policy name. Put flags before the policy name, for example: kubectl rightsize explain -n production %s", args[0])
 	}
 }
 
