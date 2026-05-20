@@ -155,10 +155,12 @@ panics and edge cases:
 make test-fuzz
 ```
 
-This runs each fuzz target for 30 seconds:
+This runs each fuzz target with a fixed execution budget, which keeps the
+CI run deterministic instead of relying on a wall-clock fuzz deadline:
 
 ```bash
-go test ./internal/recommendation/... -fuzz=. -fuzztime=30s
+go test ./internal/recommendation/... -run='^$' -fuzz=FuzzPercentileEstimator -fuzztime=5000000x
+go test ./internal/recommendation/... -run='^$' -fuzz=FuzzRecommendationEngine -fuzztime=5000000x
 ```
 
 Fuzz targets are defined in `internal/recommendation/fuzz_test.go`.

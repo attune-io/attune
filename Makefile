@@ -169,9 +169,9 @@ test-e2e-smoke: chainsaw ## Run a minimal E2E smoke suite (requires a pre-provis
 	go test -tags=e2e ./test/e2e-go/... -run '^TestE2E_OneShotMode_ResizesOnePod$$' -race -count=1 -timeout=10m -v
 
 .PHONY: test-fuzz
-test-fuzz: ## Run fuzz tests (30 seconds per target)
-	go test ./internal/recommendation/... -run='^$$' -fuzz=FuzzPercentileEstimator -fuzztime=30s
-	go test ./internal/recommendation/... -run='^$$' -fuzz=FuzzRecommendationEngine -fuzztime=30s
+test-fuzz: ## Run fuzz tests (fixed execution budget per target)
+	go test ./internal/recommendation/... -run='^$$' -fuzz=FuzzPercentileEstimator -fuzztime=5000000x
+	go test ./internal/recommendation/... -run='^$$' -fuzz=FuzzRecommendationEngine -fuzztime=5000000x
 
 .PHONY: test-bench
 test-bench: ## Run benchmark tests
