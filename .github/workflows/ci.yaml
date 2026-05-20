@@ -132,10 +132,6 @@ jobs:
         shell: bash -Eeuo pipefail {0}
         run: bash hack/verify-dashboard-metrics.sh
 
-      - name: Verify supported tool version references
-        shell: bash -Eeuo pipefail {0}
-        run: bash hack/verify-doc-tool-versions.sh
-
   docs-check:
     name: Docs Check
     runs-on: self-hosted

@@ -286,6 +286,7 @@ func forcePolicyReconcile(t *testing.T, name, namespace string, timeout time.Dur
 // ---------- Tests ----------
 
 func TestE2E_PolicyDiscovery(t *testing.T) {
+	t.Parallel()
 	ns := uniqueNS("discovery")
 	createNamespace(t, ns)
 	createDeployment(t, "test-app", ns, "250m", "256Mi", 1)
@@ -300,6 +301,7 @@ func TestE2E_PolicyDiscovery(t *testing.T) {
 }
 
 func TestE2E_AutoMode_ResizesRunningPod(t *testing.T) {
+	t.Parallel()
 	ns := uniqueNS("auto")
 	createNamespace(t, ns)
 	createDeployment(t, "auto-app", ns, "500m", "512Mi", 1)
@@ -336,6 +338,7 @@ func TestE2E_AutoMode_ResizesRunningPod(t *testing.T) {
 }
 
 func TestE2E_OneShotMode_ResizesOnePod(t *testing.T) {
+	t.Parallel()
 	ns := uniqueNS("oneshot")
 	createNamespace(t, ns)
 	createDeployment(t, "oneshot-app", ns, "500m", "512Mi", 2)
@@ -353,6 +356,7 @@ func TestE2E_OneShotMode_ResizesOnePod(t *testing.T) {
 }
 
 func TestE2E_AutoMode_RecordsResizeHistory(t *testing.T) {
+	t.Parallel()
 	ns := uniqueNS("revert")
 	createNamespace(t, ns)
 
@@ -409,6 +413,7 @@ func TestE2E_AutoMode_RecordsResizeHistory(t *testing.T) {
 }
 
 func TestE2E_MultiContainer_ExcludesSidecar(t *testing.T) {
+	t.Parallel()
 	ns := uniqueNS("multi")
 	createNamespace(t, ns)
 
@@ -521,6 +526,7 @@ func TestE2E_MultiContainer_ExcludesSidecar(t *testing.T) {
 }
 
 func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
+	t.Parallel()
 	ns := uniqueNS("load")
 	createNamespace(t, ns)
 
@@ -617,6 +623,7 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 }
 
 func TestE2E_BudgetCaps_DefersResize(t *testing.T) {
+	t.Parallel()
 	ns := uniqueNS("budget")
 	createNamespace(t, ns)
 	createDeployment(t, "budget-app", ns, "100m", "512Mi", 3)
@@ -678,6 +685,7 @@ func TestE2E_BudgetCaps_DefersResize(t *testing.T) {
 }
 
 func TestE2E_ScheduleWindow_SkipsOutsideWindow(t *testing.T) {
+	t.Parallel()
 	ns := uniqueNS("sched")
 	createNamespace(t, ns)
 	createDeployment(t, "sched-app", ns, "500m", "512Mi", 1)
@@ -742,6 +750,7 @@ func TestE2E_ScheduleWindow_SkipsOutsideWindow(t *testing.T) {
 }
 
 func TestE2E_BearerToken_Authenticates(t *testing.T) {
+	t.Parallel()
 	ns := uniqueNS("bearer")
 	createNamespace(t, ns)
 
@@ -792,6 +801,7 @@ func TestE2E_BearerToken_Authenticates(t *testing.T) {
 }
 
 func TestE2E_EvictionFallback_ResizesWithInPlaceOrEvict(t *testing.T) {
+	t.Parallel()
 	ns := uniqueNS("evict")
 	createNamespace(t, ns)
 	createDeployment(t, "evict-app", ns, "500m", "512Mi", 2)
@@ -845,6 +855,7 @@ func TestE2E_EvictionFallback_ResizesWithInPlaceOrEvict(t *testing.T) {
 }
 
 func TestE2E_RecommendMode_KeepsRecommendationsWithoutLivePods(t *testing.T) {
+	t.Parallel()
 	ns := uniqueNS("nopods")
 	createNamespace(t, ns)
 
@@ -939,6 +950,7 @@ func TestE2E_RecommendMode_KeepsRecommendationsWithoutLivePods(t *testing.T) {
 }
 
 func TestE2E_BearerToken_SecretRotation(t *testing.T) {
+	t.Parallel()
 	ns := uniqueNS("rotate")
 	createNamespace(t, ns)
 
@@ -1016,6 +1028,7 @@ func TestE2E_BearerToken_SecretRotation(t *testing.T) {
 }
 
 func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
+	t.Parallel()
 	ns := uniqueNS("oom")
 	createNamespace(t, ns)
 
