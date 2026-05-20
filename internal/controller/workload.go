@@ -192,12 +192,16 @@ func (r *RightSizePolicyReconciler) getPodRegex(workload client.Object) string {
 // string key.
 func queryMetricsGrouped(ctx context.Context, collector rsmetrics.MetricsCollector, namespace, podRegex, metric string, start, end time.Time, step time.Duration) (map[string][]rsmetrics.Sample, bool) {
 	logger := log.FromContext(ctx)
+	v1Logger := logger.V(1)
+	v2Logger := logger.V(2)
 	query := buildPrometheusQuery(namespace, podRegex, "", metric)
 
-	logger.V(1).Info("Querying Prometheus",
-		"metric", metric, "query", query,
-		"start", start.Format(time.RFC3339), "end", end.Format(time.RFC3339),
-		"step", step)
+	if v1Logger.Enabled() {
+		v1Logger.Info("Querying Prometheus",
+			"metric", metric, "query", query,
+			"start", start.Format(time.RFC3339), "end", end.Format(time.RFC3339),
+			"step", step)
+	}
 
 	queryType := metric + "_grouped"
 	queryStart := time.Now()
@@ -209,20 +213,24 @@ func queryMetricsGrouped(ctx context.Context, collector rsmetrics.MetricsCollect
 		return map[string][]rsmetrics.Sample{}, true
 	}
 
-	// V(1): log when query succeeds but returns no data.
-	totalSamples := 0
-	for _, samples := range grouped {
-		totalSamples += len(samples)
+	if v1Logger.Enabled() {
+		// V(1): log when query succeeds but returns no data.
+		totalSamples := 0
+		for _, samples := range grouped {
+			totalSamples += len(samples)
+		}
+		if totalSamples == 0 {
+			v1Logger.Info("Prometheus query returned no data",
+				"metric", metric, "query", query)
+		}
 	}
-	if totalSamples == 0 {
-		logger.V(1).Info("Prometheus query returned no data",
-			"metric", metric, "query", query)
-	}
-	// V(2): log per-container sample counts.
-	for container, samples := range grouped {
-		logger.V(2).Info("Prometheus query samples",
-			"metric", metric, "container", container,
-			"sampleCount", len(samples))
+	if v2Logger.Enabled() {
+		// V(2): log per-container sample counts.
+		for container, samples := range grouped {
+			v2Logger.Info("Prometheus query samples",
+				"metric", metric, "container", container,
+				"sampleCount", len(samples))
+		}
 	}
 
 	return grouped, false
