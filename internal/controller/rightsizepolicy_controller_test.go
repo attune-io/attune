@@ -2808,6 +2808,61 @@ func TestParseResizeRecords_MalformedRestartCount(t *testing.T) {
 	assert.Contains(t, err.Error(), "parsing original restart count for app")
 }
 
+func TestParseResizeRecords_MalformedLimitAnnotations(t *testing.T) {
+	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
+	testCases := []struct {
+		name          string
+		podName       string
+		annotations   map[string]string
+		errorContains string
+	}{
+		{
+			name:    "cpu limit",
+			podName: "bad-cpu-limit-pod",
+			annotations: map[string]string{
+				annotationOriginalCPULimitPrefix + "app": "not-a-quantity",
+			},
+			errorContains: "parsing original CPU limit for app",
+		},
+		{
+			name:    "memory limit",
+			podName: "bad-memory-limit-pod",
+			annotations: map[string]string{
+				annotationOriginalMemoryLimitPrefix + "app": "not-a-quantity",
+			},
+			errorContains: "parsing original memory limit for app",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			annotations := map[string]string{
+				annotationResizedAt:                          resizedAt,
+				annotationResizedContainers:                  "app",
+				annotationOriginalCPUPrefix + "app":          "500m",
+				annotationOriginalMemoryPrefix + "app":       "512Mi",
+				annotationOriginalRestartCountPrefix + "app": "0",
+			}
+			for key, value := range tc.annotations {
+				annotations[key] = value
+			}
+
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        tc.podName,
+					Namespace:   "default",
+					Annotations: annotations,
+				},
+				Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "app"}}},
+			}
+
+			_, err := parseResizeRecords(pod, 5*time.Minute, time.Now())
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.errorContains)
+		})
+	}
+}
+
 func TestRemoveTrackingAnnotations(t *testing.T) {
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{

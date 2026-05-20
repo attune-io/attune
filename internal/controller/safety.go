@@ -324,20 +324,24 @@ func parseResizeRecords(pod *corev1.Pod, observationPeriod time.Duration, now ti
 		}
 		// Restore original limits if they were saved (pods that had limits set before resize).
 		if cpuLimStr := pod.Annotations[annotationOriginalCPULimitPrefix+containerName]; cpuLimStr != "" {
-			if cpuLim, err := resource.ParseQuantity(cpuLimStr); err == nil {
-				if origResources.Limits == nil {
-					origResources.Limits = make(corev1.ResourceList)
-				}
-				origResources.Limits[corev1.ResourceCPU] = cpuLim
+			cpuLim, err := resource.ParseQuantity(cpuLimStr)
+			if err != nil {
+				return nil, fmt.Errorf("parsing original CPU limit for %s: %w", containerName, err)
 			}
+			if origResources.Limits == nil {
+				origResources.Limits = make(corev1.ResourceList)
+			}
+			origResources.Limits[corev1.ResourceCPU] = cpuLim
 		}
 		if memLimStr := pod.Annotations[annotationOriginalMemoryLimitPrefix+containerName]; memLimStr != "" {
-			if memLim, err := resource.ParseQuantity(memLimStr); err == nil {
-				if origResources.Limits == nil {
-					origResources.Limits = make(corev1.ResourceList)
-				}
-				origResources.Limits[corev1.ResourceMemory] = memLim
+			memLim, err := resource.ParseQuantity(memLimStr)
+			if err != nil {
+				return nil, fmt.Errorf("parsing original memory limit for %s: %w", containerName, err)
 			}
+			if origResources.Limits == nil {
+				origResources.Limits = make(corev1.ResourceList)
+			}
+			origResources.Limits[corev1.ResourceMemory] = memLim
 		}
 
 		records = append(records, safety.ResizeRecord{
