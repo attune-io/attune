@@ -163,12 +163,6 @@ func (r *RightSizePolicyReconciler) executeResizes(
 			memBudget += memRefund
 		}
 	}
-	removeInPlaceSuccessHistory := func(entries []rightsizev1alpha1.ResizeHistoryEntry) []rightsizev1alpha1.ResizeHistoryEntry {
-		return slices.DeleteFunc(entries, func(entry rightsizev1alpha1.ResizeHistoryEntry) bool {
-			return entry.Method == "InPlace" && entry.Result == rightsizev1alpha1.ResizeResultSuccess
-		})
-	}
-
 	// Concurrency control: semaphore limits parallel resize calls.
 	concurrency := int(policy.Spec.UpdateStrategy.MaxConcurrentResizes)
 	if concurrency <= 0 {
@@ -276,7 +270,7 @@ func (r *RightSizePolicyReconciler) executeResizes(
 					}
 					if outcome == resizeOutcomeEvicted {
 						refundBudget(cpuIncrease+podReservedCPU, memIncrease+podReservedMem)
-						podHistory = removeInPlaceSuccessHistory(podHistory)
+						podHistory = removeSuccessfulInPlaceHistory(podHistory)
 						podHistory = append(podHistory, entries...)
 						podResized = false
 						break

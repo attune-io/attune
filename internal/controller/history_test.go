@@ -146,3 +146,19 @@ func TestIsSuccessfulInPlaceHistory_LegacySuccessCounts(t *testing.T) {
 		Result: rightsizev1alpha1.ResizeResultReverted,
 	}))
 }
+
+func TestRemoveSuccessfulInPlaceHistory_UsesSharedSemantics(t *testing.T) {
+	now := time.Now()
+	entries := []rightsizev1alpha1.ResizeHistoryEntry{
+		{Workload: "legacy-success", Result: rightsizev1alpha1.ResizeResultSuccess, Timestamp: metav1.NewTime(now)},
+		{Workload: "explicit-success", Method: "InPlace", Result: rightsizev1alpha1.ResizeResultSuccess, Timestamp: metav1.NewTime(now)},
+		{Workload: "eviction", Method: "Eviction", Result: rightsizev1alpha1.ResizeResultEvicted, Timestamp: metav1.NewTime(now)},
+		{Workload: "reverted", Method: "InPlace", Result: rightsizev1alpha1.ResizeResultReverted, Timestamp: metav1.NewTime(now)},
+	}
+
+	filtered := removeSuccessfulInPlaceHistory(entries)
+
+	assert.Len(t, filtered, 2)
+	assert.Equal(t, "eviction", filtered[0].Workload)
+	assert.Equal(t, "reverted", filtered[1].Workload)
+}

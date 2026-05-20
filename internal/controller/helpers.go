@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -450,6 +451,10 @@ func normalizeResizeHistoryMethods(history []rightsizev1alpha1.ResizeHistoryEntr
 
 func isSuccessfulInPlaceHistory(entry rightsizev1alpha1.ResizeHistoryEntry) bool {
 	return resizeHistoryMethod(entry) == resize.MethodInPlace && entry.Result == rightsizev1alpha1.ResizeResultSuccess
+}
+
+func removeSuccessfulInPlaceHistory(entries []rightsizev1alpha1.ResizeHistoryEntry) []rightsizev1alpha1.ResizeHistoryEntry {
+	return slices.DeleteFunc(entries, isSuccessfulInPlaceHistory)
 }
 
 // setResizingCondition sets the Resizing condition based on current state.
