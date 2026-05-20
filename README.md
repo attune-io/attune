@@ -109,7 +109,7 @@ kubectl get rightsizepolicies -n production
 # api-services    Recommend   3           3      0         True    2d
 
 kubectl rightsize recommendations -n production
-# NAMESPACE    POLICY         WORKLOAD     CONTAINER   CPU REQ   CPU REC   MEM REQ   MEM REC   CONFIDENCE
+# NAMESPACE    POLICY         WORKLOAD     CONTAINER   CPU REQ   CPU REC   MEM REQ   MEM REC   CONFIDENCE / STATUS
 # production   api-services   api-server   app         500m      320m      512Mi     384Mi     92.0%
 # production   api-services   worker       main        1000m     480m      2Gi       1.2Gi     88.5%
 # production   api-services   frontend     nginx       250m      120m      256Mi     180Mi     95.1%
@@ -179,7 +179,7 @@ Example output:
 NAMESPACE    NAME           MODE      WORKLOADS   PENDING   RESIZED   READY        RESIZING   DEGRADED   AGE
 production   api-services   Canary    3           2         1         Monitoring   -          -          2d
 
-NAMESPACE    POLICY         WORKLOAD     CONTAINER   CPU REQ   CPU REC   MEM REQ   MEM REC   CONFIDENCE
+NAMESPACE    POLICY         WORKLOAD     CONTAINER   CPU REQ   CPU REC   MEM REQ   MEM REC   CONFIDENCE / STATUS
 production   api-services   api-server   app         500m      320m      512Mi     384Mi     92.0%
 ```
 
