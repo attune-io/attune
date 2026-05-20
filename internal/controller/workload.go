@@ -62,7 +62,7 @@ func (r *RightSizePolicyReconciler) discoverWorkloads(ctx context.Context, polic
 func (r *RightSizePolicyReconciler) getWorkloadByName(ctx context.Context, namespace, kind, name string) (client.Object, error) {
 	wk, ok := workloadKinds[kind]
 	if !ok {
-		return nil, fmt.Errorf("unsupported workload kind: %s; supported kinds are: Deployment, StatefulSet, DaemonSet, CronJob, Job", kind)
+		return nil, fmt.Errorf("unsupported workload kind: %s; supported kinds are: %s", kind, rightsizev1alpha1.SupportedTargetKindsCSV)
 	}
 	obj := wk.newObject()
 	if err := r.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, obj); err != nil {
@@ -85,7 +85,7 @@ func (r *RightSizePolicyReconciler) listWorkloadsBySelector(ctx context.Context,
 
 	wk, ok := workloadKinds[kind]
 	if !ok {
-		return nil, fmt.Errorf("unsupported workload kind: %s; supported kinds are: Deployment, StatefulSet, DaemonSet, CronJob, Job", kind)
+		return nil, fmt.Errorf("unsupported workload kind: %s; supported kinds are: %s", kind, rightsizev1alpha1.SupportedTargetKindsCSV)
 	}
 
 	list := wk.newList()

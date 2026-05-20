@@ -58,6 +58,22 @@ const (
 	ResizeResultEvicted  ResizeResult = "Evicted"
 )
 
+// SupportedTargetKindsCSV is the canonical runtime list of workload kinds
+// accepted by RightSizePolicy targetRef.kind. Keep it in sync with the
+// kubebuilder enum on TargetRef.Kind.
+const SupportedTargetKindsCSV = "Deployment, StatefulSet, DaemonSet, CronJob, Job"
+
+// IsSupportedTargetKind reports whether kind is a supported targetRef.kind
+// value at runtime.
+func IsSupportedTargetKind(kind string) bool {
+	switch kind {
+	case "Deployment", "StatefulSet", "DaemonSet", "CronJob", "Job":
+		return true
+	default:
+		return false
+	}
+}
+
 // RightSizePolicySpec defines the desired state of RightSizePolicy.
 type RightSizePolicySpec struct {
 	// TargetRef identifies the workload(s) to be rightsized.
