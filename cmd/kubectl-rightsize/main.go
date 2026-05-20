@@ -37,6 +37,8 @@ import (
 
 var version = "dev"
 
+const structuredOutputUsage = "Output raw RightSizePolicy objects as json or yaml (not command-specific)"
+
 var gvr = schema.GroupVersionResource{
 	Group:    "rightsize.io",
 	Version:  "v1alpha1",
@@ -50,8 +52,8 @@ func main() {
 	allNamespaces := fs.Bool("A", false, "List across all namespaces")
 	fs.BoolVar(allNamespaces, "all-namespaces", false, "List across all namespaces")
 	kubeconfig := fs.String("kubeconfig", "", "Path to kubeconfig file")
-	output := fs.String("o", "", "Output format: json or yaml")
-	fs.StringVar(output, "output", "", "Output format: json or yaml")
+	output := fs.String("o", "", structuredOutputUsage)
+	fs.StringVar(output, "output", "", structuredOutputUsage)
 	fs.Usage = func() {
 		fmt.Fprintln(os.Stderr, "Usage: kubectl rightsize <command> [flags]")
 		fmt.Fprintln(os.Stderr, "")
@@ -65,6 +67,10 @@ func main() {
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Flags:")
 		fs.PrintDefaults()
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "Structured output note:")
+		fmt.Fprintln(os.Stderr, "  -o json|yaml always prints raw RightSizePolicy objects returned by the cluster.")
+		fmt.Fprintln(os.Stderr, "  It is not command-specific output for status, savings, recommendations, or history.")
 	}
 
 	if len(os.Args) < 2 {

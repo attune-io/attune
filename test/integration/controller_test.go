@@ -90,10 +90,10 @@ func (s *syntheticCollector) Query(_ context.Context, _ string, _ time.Time) (fl
 }
 
 var (
-	testEnv      *envtest.Environment
-	k8sClient    client.Client
-	ctx          context.Context
-	cancel       context.CancelFunc
+	testEnv        *envtest.Environment
+	k8sClient      client.Client
+	ctx            context.Context
+	cancel         context.CancelFunc
 	testReconciler *controller.RightSizePolicyReconciler
 )
 
@@ -104,7 +104,7 @@ func TestMain(m *testing.M) {
 		CRDDirectoryPaths: []string{
 			filepath.Join("..", "..", "config", "crd", "bases"),
 		},
-		ErrorIfCRDPathMissing:   true,
+		ErrorIfCRDPathMissing:    true,
 		ControlPlaneStartTimeout: 60 * time.Second,
 		ControlPlaneStopTimeout:  20 * time.Second,
 		WebhookInstallOptions: envtest.WebhookInstallOptions{
@@ -518,7 +518,7 @@ func TestReconcile_DefaultsMergingFromClusterDefaults(t *testing.T) {
 				},
 				MinimumDataPoints: int32Ptr(1),
 			},
-			CPU: rightsizev1alpha1.ResourceConfig{},
+			CPU:    rightsizev1alpha1.ResourceConfig{},
 			Memory: rightsizev1alpha1.ResourceConfig{},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 				Mode:     "Recommend",
@@ -591,7 +591,7 @@ func TestReconcile_NamespaceDefaultsDoNotMergeClusterResourceFields(t *testing.T
 				},
 				MinimumDataPoints: int32Ptr(1),
 			},
-			CPU: rightsizev1alpha1.ResourceConfig{},
+			CPU:    rightsizev1alpha1.ResourceConfig{},
 			Memory: rightsizev1alpha1.ResourceConfig{},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 				Mode:     "Recommend",
@@ -808,6 +808,39 @@ func TestNamespaceDefaultsWebhook_RejectsInvalidScheduleTimezone(t *testing.T) {
 	err := k8sClient.Create(ctx, defaults)
 	require.Error(t, err, "namespace defaults webhook should reject invalid timezone")
 	assert.Contains(t, err.Error(), "timezone")
+}
+
+func TestReconcile_BearerTokenSecretReadFailureSetsPrometheusUnavailable(t *testing.T) {
+	namespace := "integration-test"
+
+	// Create a Deployment for the policy to target.
+	deploy := newTestDeployment("bearer-missing-secret-app", namespace)
+	require.NoError(t, k8sClient.Create(ctx, deploy))
+
+	policy := newTestPolicy("policy-bearer-missing-secret", namespace, "bearer-missing-secret-app")
+	policy.Spec.MetricsSource.Prometheus.BearerTokenSecret = &rightsizev1alpha1.SecretKeyRef{
+		Name: "prom-auth-missing",
+		Key:  "token",
+	}
+	require.NoError(t, k8sClient.Create(ctx, policy))
+
+	assert.Eventually(t, func() bool {
+		var fetched rightsizev1alpha1.RightSizePolicy
+		if err := k8sClient.Get(ctx, types.NamespacedName{
+			Name: "policy-bearer-missing-secret", Namespace: namespace,
+		}, &fetched); err != nil {
+			return false
+		}
+		for _, c := range fetched.Status.Conditions {
+			if c.Type == "Ready" {
+				return c.Reason == "PrometheusUnavailable" &&
+					strings.Contains(c.Message, "prom-auth-missing/token") &&
+					strings.Contains(c.Message, "reading secret integration-test/prom-auth-missing")
+			}
+		}
+		return false
+	}, 30*time.Second, 500*time.Millisecond,
+		"policy with a missing bearerTokenSecret should surface PrometheusUnavailable with the secret reference")
 }
 
 func TestReconcile_BearerTokenSecretWiredToCollector(t *testing.T) {

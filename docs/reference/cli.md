@@ -133,7 +133,7 @@ kubectl rightsize status -A -o yaml
 | `--namespace` | `-n` | Target namespace (defaults to current context) |
 | `--all-namespaces` | `-A` | List across all namespaces |
 | `--kubeconfig` | | Path to kubeconfig file |
-| `--output` | `-o` | Output format: `json` or `yaml` |
+| `--output` | `-o` | Output raw `RightSizePolicy` objects as `json` or `yaml` (not command-specific) |
 
 ## Manager Binary Flags
 

@@ -522,59 +522,112 @@ func TestPrintStatus(t *testing.T) {
 	assert.Contains(t, output, "3           1         2")
 }
 
-func TestPrintStatus_ShowsReadyMessageForActionableFailures(t *testing.T) {
-	policy := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "rightsize.io/v1alpha1",
-			"kind":       "RightSizePolicy",
-			"metadata": map[string]interface{}{
-				"name":              "web-app",
-				"namespace":         "production",
-				"creationTimestamp": "2026-01-01T00:00:00Z",
-			},
-			"spec": map[string]interface{}{
-				"updateStrategy": map[string]interface{}{
-					"mode": "Auto",
-				},
-			},
-			"status": map[string]interface{}{
-				"workloads": map[string]interface{}{
-					"discovered": int64(3),
-					"pending":    int64(1),
-					"resized":    int64(2),
-				},
-				"conditions": []interface{}{
-					map[string]interface{}{
-						"type":    "Ready",
-						"status":  "False",
-						"reason":  "WorkloadDiscoveryFailed",
-						"message": "Failed to discover workloads: unsupported kind FooSet",
-					},
-				},
-			},
+func TestPrintStatus_ReadyContract(t *testing.T) {
+	tests := []struct {
+		name       string
+		reason     string
+		status     string
+		message    string
+		wantOutput string
+	}{
+		{
+			name:       "monitoring reason",
+			reason:     "Monitoring",
+			status:     "True",
+			wantOutput: "Monitoring",
+		},
+		{
+			name:       "insufficient data with message",
+			reason:     "InsufficientData",
+			status:     "False",
+			message:    "Collecting data: 10/48 data points (21%)",
+			wantOutput: "Collecting data: 10/48 data points (21%)",
+		},
+		{
+			name:       "insufficient data without message",
+			reason:     "InsufficientData",
+			status:     "False",
+			wantOutput: "InsufficientData",
+		},
+		{
+			name:       "prometheus unavailable actionable message",
+			reason:     "PrometheusUnavailable",
+			status:     "False",
+			message:    "Cannot create metrics collector: TLS handshake timeout",
+			wantOutput: "Cannot create metrics collector: TLS handshake timeout",
+		},
+		{
+			name:       "invalid config actionable message",
+			reason:     "InvalidConfig",
+			status:     "False",
+			message:    "Failed to fetch defaults: simulated namespace defaults API failure",
+			wantOutput: "Failed to fetch defaults: simulated namespace defaults API failure",
+		},
+		{
+			name:       "workload discovery actionable message",
+			reason:     "WorkloadDiscoveryFailed",
+			status:     "False",
+			message:    "Failed to discover workloads: unsupported kind FooSet",
+			wantOutput: "Failed to discover workloads: unsupported kind FooSet",
 		},
 	}
 
-	scheme := runtime.NewScheme()
-	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
-		map[schema.GroupVersionResource]string{gvr: "RightSizePolicyList"}, policy)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			policy := &unstructured.Unstructured{
+				Object: map[string]interface{}{
+					"apiVersion": "rightsize.io/v1alpha1",
+					"kind":       "RightSizePolicy",
+					"metadata": map[string]interface{}{
+						"name":              "web-app",
+						"namespace":         "production",
+						"creationTimestamp": "2026-01-01T00:00:00Z",
+					},
+					"spec": map[string]interface{}{
+						"updateStrategy": map[string]interface{}{
+							"mode": "Auto",
+						},
+					},
+					"status": map[string]interface{}{
+						"workloads": map[string]interface{}{
+							"discovered": int64(3),
+							"pending":    int64(1),
+							"resized":    int64(2),
+						},
+						"conditions": []interface{}{
+							map[string]interface{}{
+								"type":    "Ready",
+								"status":  tt.status,
+								"reason":  tt.reason,
+								"message": tt.message,
+							},
+						},
+					},
+				},
+			}
 
-	old := os.Stdout
-	r, w, err := os.Pipe()
-	require.NoError(t, err)
-	os.Stdout = w
+			scheme := runtime.NewScheme()
+			dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+				map[schema.GroupVersionResource]string{gvr: "RightSizePolicyList"}, policy)
 
-	printStatus(context.Background(), dynClient, "production")
+			old := os.Stdout
+			r, w, err := os.Pipe()
+			require.NoError(t, err)
+			os.Stdout = w
 
-	w.Close()
-	os.Stdout = old
+			printStatus(context.Background(), dynClient, "production")
 
-	var buf bytes.Buffer
-	_, err = buf.ReadFrom(r)
-	require.NoError(t, err)
-	output := buf.String()
+			w.Close()
+			os.Stdout = old
 
-	assert.Contains(t, output, "Failed to discover workloads: unsupported kind FooSet")
+			var buf bytes.Buffer
+			_, err = buf.ReadFrom(r)
+			require.NoError(t, err)
+			output := buf.String()
+
+			assert.Contains(t, output, tt.wantOutput)
+		})
+	}
 }
 
 func TestPrintStatus_NoPolicies(t *testing.T) {
@@ -638,10 +691,16 @@ func TestPrintStructured_JSON(t *testing.T) {
 	require.NoError(t, err)
 	output := buf.String()
 
-	// Should be valid JSON containing the policy.
-	var parsed interface{}
+	// Should be valid JSON containing the raw policy list.
+	var parsed map[string]interface{}
 	require.NoError(t, json.Unmarshal([]byte(output), &parsed), "output should be valid JSON")
-	assert.Contains(t, output, `"json-test"`)
+	assert.Equal(t, "RightSizePolicyList", parsed["kind"])
+	items, ok := parsed["items"].([]interface{})
+	require.True(t, ok)
+	require.Len(t, items, 1)
+	item, ok := items[0].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, "json-test", item["metadata"].(map[string]interface{})["name"])
 	assert.Contains(t, output, `"Recommend"`)
 }
 
