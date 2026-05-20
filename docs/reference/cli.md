@@ -121,14 +121,16 @@ kubectl rightsize version
 
 ## Structured output
 
-`--output` / `-o` prints the raw `RightSizePolicy` objects returned by the
-cluster as JSON or YAML. The selected command still controls namespace
-resolution, but structured output is not command-specific.
+`--output` / `-o` is supported only with the `status` command and prints the
+raw `RightSizePolicy` objects returned by the cluster as JSON or YAML.
 
 ```bash
 kubectl rightsize status -o json
 kubectl rightsize status -A -o yaml
 ```
+
+For other commands, use the human-oriented plugin output, or fetch raw objects
+with `kubectl get rightsizepolicy -o json|yaml`.
 
 ## Flags
 
@@ -137,7 +139,7 @@ kubectl rightsize status -A -o yaml
 | `--namespace` | `-n` | Target namespace (defaults to current context) |
 | `--all-namespaces` | `-A` | List across all namespaces |
 | `--kubeconfig` | | Path to kubeconfig file |
-| `--output` | `-o` | Output raw `RightSizePolicy` objects as `json` or `yaml` (not command-specific) |
+| `--output` | `-o` | Output raw `RightSizePolicy` objects as `json` or `yaml` (`status` only) |
 
 ## Manager Binary Flags
 

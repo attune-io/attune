@@ -42,7 +42,7 @@ import (
 var version = "dev"
 
 const (
-	structuredOutputUsage = "Output raw RightSizePolicy objects as json or yaml (not command-specific)"
+	structuredOutputUsage = "Output raw RightSizePolicy objects as json or yaml (status only)"
 	sourcePolicy          = "policy"
 	sourceNamespace       = "namespace default"
 	sourceCluster         = "cluster default"
@@ -98,8 +98,8 @@ func main() {
 		fs.PrintDefaults()
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Structured output note:")
-		fmt.Fprintln(os.Stderr, "  -o json|yaml always prints raw RightSizePolicy objects returned by the cluster.")
-		fmt.Fprintln(os.Stderr, "  It is not command-specific output for status, savings, recommendations, or history.")
+		fmt.Fprintln(os.Stderr, "  -o json|yaml is supported only with the status command.")
+		fmt.Fprintln(os.Stderr, "  For raw RightSizePolicy objects with other commands, use kubectl get rightsizepolicy -o json|yaml.")
 	}
 
 	if len(os.Args) < 2 {
@@ -160,7 +160,11 @@ func main() {
 
 	ctx := context.Background()
 
-	// For structured output, fetch and print all policies as JSON/YAML.
+	if err := structuredOutputCommandError(cmd, *output); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
 	if *output == "json" || *output == "yaml" {
 		printStructured(ctx, dynClient, *namespace, *output)
 		return
@@ -214,6 +218,19 @@ func explainPolicyName(args []string) (string, error) {
 	default:
 		return "", fmt.Errorf("explain accepts exactly one policy name. Put flags before the policy name, for example: kubectl rightsize explain -n production %s", args[0])
 	}
+}
+
+func structuredOutputCommandError(cmd, output string) error {
+	if output == "" {
+		return nil
+	}
+	if output != "json" && output != "yaml" {
+		return fmt.Errorf("unsupported output format %q, use json or yaml", output)
+	}
+	if cmd == "status" {
+		return nil
+	}
+	return fmt.Errorf("-o %s is supported only with the status command. For raw RightSizePolicy objects, use kubectl get rightsizepolicy -o %s", output, output)
 }
 
 func fetchPolicies(ctx context.Context, dynClient dynamic.Interface, namespace string) *unstructured.UnstructuredList {

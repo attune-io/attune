@@ -1035,6 +1035,67 @@ func TestZeroArgCommandArgs(t *testing.T) {
 	}
 }
 
+func TestStructuredOutputCommandError(t *testing.T) {
+	tests := []struct {
+		name    string
+		cmd     string
+		output  string
+		wantErr string
+	}{
+		{
+			name:   "empty output allowed",
+			cmd:    "savings",
+			output: "",
+		},
+		{
+			name:   "status supports json",
+			cmd:    "status",
+			output: "json",
+		},
+		{
+			name:   "status supports yaml",
+			cmd:    "status",
+			output: "yaml",
+		},
+		{
+			name:    "reject unsupported format",
+			cmd:     "status",
+			output:  "table",
+			wantErr: "unsupported output format",
+		},
+		{
+			name:    "reject savings json",
+			cmd:     "savings",
+			output:  "json",
+			wantErr: "supported only with the status command",
+		},
+		{
+			name:    "reject explain yaml",
+			cmd:     "explain",
+			output:  "yaml",
+			wantErr: "use kubectl get rightsizepolicy -o yaml",
+		},
+		{
+			name:    "reject history json",
+			cmd:     "history",
+			output:  "json",
+			wantErr: "use kubectl get rightsizepolicy -o json",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := structuredOutputCommandError(tt.cmd, tt.output)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestExplainPolicyName(t *testing.T) {
 	tests := []struct {
 		name     string
