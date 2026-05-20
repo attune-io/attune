@@ -20,9 +20,11 @@ package integration
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -89,13 +91,42 @@ func (s *syntheticCollector) Query(_ context.Context, _ string, _ time.Time) (fl
 	return 0.05, nil
 }
 
+func defaultMetricsFactory(_ string, _ *metrics.CollectorOptions) (metrics.MetricsCollector, error) {
+	return &syntheticCollector{}, nil
+}
+
 var (
 	testEnv        *envtest.Environment
 	k8sClient      client.Client
 	ctx            context.Context
 	cancel         context.CancelFunc
 	testReconciler *controller.RightSizePolicyReconciler
+
+	metricsFactoryMu         sync.RWMutex
+	overriddenMetricsFactory controller.MetricsCollectorFactory
 )
+
+func getMetricsFactoryOverride() controller.MetricsCollectorFactory {
+	metricsFactoryMu.RLock()
+	defer metricsFactoryMu.RUnlock()
+
+	return overriddenMetricsFactory
+}
+
+func setMetricsFactoryOverride(factory controller.MetricsCollectorFactory) {
+	metricsFactoryMu.Lock()
+	defer metricsFactoryMu.Unlock()
+
+	overriddenMetricsFactory = factory
+}
+
+func setMetricsFactoryForTest(t *testing.T, factory controller.MetricsCollectorFactory) {
+	t.Helper()
+	setMetricsFactoryOverride(factory)
+	t.Cleanup(func() {
+		setMetricsFactoryOverride(nil)
+	})
+}
 
 func TestMain(m *testing.M) {
 	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Minute)
@@ -160,8 +191,11 @@ func TestMain(m *testing.M) {
 		Recorder:          mgr.GetEventRecorder("kube-rightsize-integration"),
 		MinCooldown:       time.Second, // fast reconciliation for tests
 		PrometheusTimeout: 30 * time.Second,
-		MetricsFactory: func(address string, _ *metrics.CollectorOptions) (metrics.MetricsCollector, error) {
-			return &syntheticCollector{}, nil
+		MetricsFactory: func(address string, opts *metrics.CollectorOptions) (metrics.MetricsCollector, error) {
+			if factory := getMetricsFactoryOverride(); factory != nil {
+				return factory(address, opts)
+			}
+			return defaultMetricsFactory(address, opts)
 		},
 	}
 	err = testReconciler.SetupWithManager(mgr)
@@ -841,6 +875,43 @@ func TestReconcile_BearerTokenSecretReadFailureSetsPrometheusUnavailable(t *test
 		return false
 	}, 30*time.Second, 500*time.Millisecond,
 		"policy with a missing bearerTokenSecret should surface PrometheusUnavailable with the secret reference")
+}
+
+func TestReconcile_MetricsFactoryFailureSetsPrometheusUnavailable(t *testing.T) {
+	namespace := "integration-test"
+	failingAddress := "http://factory-failure-prometheus:9090"
+	factoryErr := errors.New("synthetic collector factory failure")
+	setMetricsFactoryForTest(t, func(address string, opts *metrics.CollectorOptions) (metrics.MetricsCollector, error) {
+		if address == failingAddress {
+			return nil, factoryErr
+		}
+		return defaultMetricsFactory(address, opts)
+	})
+
+	deploy := newTestDeployment("factory-failure-app", namespace)
+	require.NoError(t, k8sClient.Create(ctx, deploy))
+
+	policy := newTestPolicy("policy-factory-failure", namespace, "factory-failure-app")
+	policy.Spec.MetricsSource.Prometheus.Address = failingAddress
+	require.NoError(t, k8sClient.Create(ctx, policy))
+
+	assert.Eventually(t, func() bool {
+		var fetched rightsizev1alpha1.RightSizePolicy
+		if err := k8sClient.Get(ctx, types.NamespacedName{
+			Name: "policy-factory-failure", Namespace: namespace,
+		}, &fetched); err != nil {
+			return false
+		}
+		for _, c := range fetched.Status.Conditions {
+			if c.Type == "Ready" {
+				return c.Reason == "PrometheusUnavailable" &&
+					strings.Contains(c.Message, "Cannot create metrics collector") &&
+					strings.Contains(c.Message, factoryErr.Error())
+			}
+		}
+		return false
+	}, 30*time.Second, 500*time.Millisecond,
+		"policy with a failing metrics factory should surface PrometheusUnavailable with the factory error")
 }
 
 func TestReconcile_BearerTokenSecretWiredToCollector(t *testing.T) {
