@@ -7028,6 +7028,164 @@ func TestExecuteResizes_MultiContainerSequential(t *testing.T) {
 	assert.True(t, resizedContainers["sidecar"], "sidecar container should have UpdateResize called")
 }
 
+func TestExecuteResizes_MultiContainer_ReFetchFailure(t *testing.T) {
+	// A pod with two containers where the re-fetch after the first container
+	// resize fails. The second container should be skipped (loop breaks),
+	// and the budget consumed by the first container should NOT be refunded.
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "api-server-abc-1", Namespace: "default",
+			Labels: map[string]string{"app": "api-server"},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{Name: "main", Image: "nginx", Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("500m"),
+						corev1.ResourceMemory: resource.MustParse("256Mi"),
+					},
+				}},
+				{Name: "sidecar", Image: "envoy", Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("100m"),
+						corev1.ResourceMemory: resource.MustParse("64Mi"),
+					},
+				}},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "main", Ready: true, RestartCount: 0},
+				{Name: "sidecar", Ready: true, RestartCount: 0},
+			},
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+
+	// Second workload to verify budget is consumed and not refunded.
+	workerPod := newResizePod("worker", "200m", "128Mi", "0", "0")
+	workerPod.Name = "worker-abc-1"
+
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	workerDeploy := newTestDeployment("worker", "default", map[string]string{"app": "worker"})
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(deploy, workerDeploy, pod, workerPod).Build()
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy(), workerPod.DeepCopy())
+
+	// Fail the second clientset Get for pods. With AutoRevert disabled the
+	// Gets are:
+	//   #1 persistResizeAnnotations (success)
+	//   #2 executeResizes re-fetch after first container (FAIL)
+	getCount := 0
+	clientset.PrependReactor("get", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		getCount++
+		if getCount >= 2 {
+			return true, nil, fmt.Errorf("simulated re-fetch failure")
+		}
+		return false, nil, nil
+	})
+
+	autoRevert := false
+	reconciler := &RightSizePolicyReconciler{
+		Client:    fakeClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeAuto
+	policy.Spec.UpdateStrategy.AutoRevert = &autoRevert
+	// Budget: 300m CPU. First container increases by 250m (500m→750m),
+	// leaving 50m. Worker needs 150m (200m→350m) which exceeds remaining.
+	cpuBudget := resource.MustParse("300m")
+	policy.Spec.UpdateStrategy.MaxTotalCPUIncrease = &cpuBudget
+
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "api-server",
+			Kind:     "Deployment",
+			Containers: []rightsizev1alpha1.ContainerRecommendation{
+				{
+					Name: "main",
+					Current: rightsizev1alpha1.ResourceValues{
+						CPURequest: resource.MustParse("500m"), MemoryRequest: resource.MustParse("256Mi"),
+					},
+					Recommended: rightsizev1alpha1.ResourceValues{
+						CPURequest: resource.MustParse("750m"), MemoryRequest: resource.MustParse("384Mi"),
+					},
+				},
+				{
+					Name: "sidecar",
+					Current: rightsizev1alpha1.ResourceValues{
+						CPURequest: resource.MustParse("100m"), MemoryRequest: resource.MustParse("64Mi"),
+					},
+					Recommended: rightsizev1alpha1.ResourceValues{
+						CPURequest: resource.MustParse("200m"), MemoryRequest: resource.MustParse("128Mi"),
+					},
+				},
+			},
+		},
+		newResizeRecommendation("worker", "200m", "128Mi", "0", "0", "350m", "128Mi", "0", "0"),
+	}
+
+	workloads := []client.Object{deploy, workerDeploy}
+	podsByWorkload := map[string][]corev1.Pod{
+		"api-server": {*pod},
+		"worker":     {*workerPod},
+	}
+
+	count, history := reconciler.executeResizes(context.Background(), policy,
+		workloads, recommendations, podsByWorkload, nil, nil)
+
+	// 1. totalResized = 1: the api-server workload was resized (first container
+	//    succeeded), but worker was not (budget exhausted).
+	assert.Equal(t, 1, count, "exactly one workload should be counted as resized")
+
+	// 2. History entries only contain the first container's resize.
+	require.NotEmpty(t, history, "history should contain entries for the resized container")
+	for _, h := range history {
+		assert.Equal(t, "main", h.Container,
+			"only main container should appear in history, got container %q", h.Container)
+		assert.Equal(t, "api-server", h.Workload,
+			"only api-server workload should appear in history, got workload %q", h.Workload)
+	}
+
+	// 3. UpdateResize was only called for main (not sidecar, not worker).
+	resizedContainers := make(map[string]bool)
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			updated := a.(k8stesting.UpdateAction).GetObject().(*corev1.Pod)
+			for _, c := range updated.Spec.Containers {
+				if c.Name == "main" && c.Resources.Requests.Cpu().MilliValue() == 750 {
+					resizedContainers["main"] = true
+				}
+				if c.Name == "sidecar" && c.Resources.Requests.Cpu().MilliValue() == 200 {
+					resizedContainers["sidecar"] = true
+				}
+			}
+			if updated.Name == "worker-abc-1" {
+				resizedContainers["worker"] = true
+			}
+		}
+	}
+	assert.True(t, resizedContainers["main"], "main container should have UpdateResize called")
+	assert.False(t, resizedContainers["sidecar"], "sidecar container should NOT have UpdateResize called")
+	assert.False(t, resizedContainers["worker"], "worker should NOT have UpdateResize called")
+
+	// 4. Budget consumed for main (+250m) and NOT refunded: worker needs
+	//    +150m but only 50m remains, so no worker history entries exist.
+	for _, h := range history {
+		if h.Workload == "worker" {
+			t.Error("worker workload should not appear in history (budget exhausted)")
+		}
+	}
+}
+
 func TestReconcile_NowFuncControlsScheduleGate(t *testing.T) {
 	// A policy with a schedule window of 02:00-06:00 UTC on Wednesdays.
 	// When NowFunc returns a time outside the window, no resize should happen.
