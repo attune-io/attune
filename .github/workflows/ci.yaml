@@ -99,10 +99,16 @@ jobs:
           cache: false
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9.2.0
-        with:
-          version: ${{ env.GOLANGCI_LINT_VERSION }}
-          args: --timeout=5m --allow-serial-runners
+        shell: bash -Eeuo pipefail {0}
+        run: |
+          lint_root=$(mktemp -d "${RUNNER_TEMP:-/tmp}/golangci-lint-${GITHUB_RUN_ID:-local}-${GITHUB_JOB:-lint}-XXXXXX")
+          trap 'rm -rf "$lint_root"' EXIT
+          lint_bindir="$lint_root/bin"
+          lint_cachedir="$lint_root/cache"
+          mkdir -p "$lint_bindir" "$lint_cachedir"
+          GOBIN="$lint_bindir" make golangci-lint LOCALBIN="$lint_bindir"
+          GOLANGCI_LINT_CACHE="$lint_cachedir" \
+            "$lint_bindir/golangci-lint-${{ env.GOLANGCI_LINT_VERSION }}" run --timeout 5m --allow-serial-runners
 
       - name: Check go mod tidy
         shell: bash -Eeuo pipefail {0}
