@@ -60,6 +60,24 @@ spec:
                 namespace: e2e-auto-mode
               status:
                 readyReplicas: 2
+    - name: wait-for-metrics
+      try:
+        - script:
+            timeout: 2m
+            content: |
+              PROM_POD=$(kubectl get pods -n monitoring -l app.kubernetes.io/name=prometheus,app.kubernetes.io/component=server -o name | head -1)
+              NS="e2e-auto-mode"
+              ENCODED_QUERY="container_cpu_usage_seconds_total%7Bnamespace%3D%22${NS}%22%2Ccontainer%21%3D%22%22%7D"
+              for i in $(seq 1 24); do
+                result=$(kubectl exec -n monitoring "$PROM_POD" -- \
+                  wget -qO- "http://localhost:9090/api/v1/query?query=${ENCODED_QUERY}" 2>/dev/null || true)
+                if echo "$result" | grep -q '"result":\[{'; then
+                  echo "cAdvisor metrics available for namespace $NS after ${i}x5s"
+                  exit 0
+                fi
+                sleep 5
+              done
+              echo "WARNING: No cAdvisor metrics for $NS after 120s, proceeding"
     - name: create-policy
       try:
         - apply:

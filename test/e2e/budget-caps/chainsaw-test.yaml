@@ -9,7 +9,7 @@ spec:
     assert: 2m
     delete: 30s
   steps:
-    - name: create-resources
+    - name: create-deployment
       try:
         - apply:
             resource:
@@ -49,6 +49,35 @@ spec:
                           limits:
                             cpu: 200m
                             memory: 256Mi
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: budget-app
+                namespace: e2e-budget-caps
+              status:
+                readyReplicas: 3
+    - name: wait-for-metrics
+      try:
+        - script:
+            timeout: 2m
+            content: |
+              PROM_POD=$(kubectl get pods -n monitoring -l app.kubernetes.io/name=prometheus,app.kubernetes.io/component=server -o name | head -1)
+              NS="e2e-budget-caps"
+              ENCODED_QUERY="container_cpu_usage_seconds_total%7Bnamespace%3D%22${NS}%22%2Ccontainer%21%3D%22%22%7D"
+              for i in $(seq 1 24); do
+                result=$(kubectl exec -n monitoring "$PROM_POD" -- \
+                  wget -qO- "http://localhost:9090/api/v1/query?query=${ENCODED_QUERY}" 2>/dev/null || true)
+                if echo "$result" | grep -q '"result":\[{'; then
+                  echo "cAdvisor metrics available for namespace $NS after ${i}x5s"
+                  exit 0
+                fi
+                sleep 5
+              done
+              echo "WARNING: No cAdvisor metrics for $NS after 120s, proceeding"
+    - name: create-policy
+      try:
         - apply:
             resource:
               apiVersion: rightsize.io/v1alpha1
@@ -80,17 +109,6 @@ spec:
                   maxMemoryChangePercent: 100
                   maxTotalCpuIncrease: "150m"
                   maxTotalMemoryIncrease: 4Gi
-    - name: verify-deployment-ready
-      try:
-        - assert:
-            resource:
-              apiVersion: apps/v1
-              kind: Deployment
-              metadata:
-                name: budget-app
-                namespace: e2e-budget-caps
-              status:
-                readyReplicas: 3
     - name: verify-policy-reconciles
       try:
         - assert:
