@@ -126,6 +126,13 @@ call for a resource type, check:
 2. Is the resource in `DisableFor` (`cmd/manager/main.go`)? If yes,
    it bypasses the cache and only needs `get`.
 
+**When changing a client call's verb** (e.g., `r.Update()` to `r.Patch()`,
+or `r.Get()` to `r.List()`), the RBAC marker must also be updated. The
+code compiles without the RBAC change; the failure only appears at runtime
+as a "forbidden" error, which controller-runtime retries with exponential
+backoff. This silently burns through timeouts and is hard to diagnose
+without reading operator logs.
+
 After changing RBAC markers, update **three places**:
 - The kubebuilder marker in `internal/controller/`
 - `config/rbac/role.yaml` (run `make manifests`)
