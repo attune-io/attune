@@ -27,6 +27,23 @@ check_default() {
   done
 }
 
+check_absent() {
+  local label="$1" pattern="$2"
+  shift 2
+  local files=("$@")
+
+  for f in "${files[@]}"; do
+    if [ ! -f "$REPO_ROOT/$f" ]; then
+      echo "WARN: $f does not exist, skipping"
+      continue
+    fi
+    if grep -q "$pattern" "$REPO_ROOT/$f"; then
+      echo "FAIL: $label: unexpected pattern '$pattern' found in $f"
+      rc=1
+    fi
+  done
+}
+
 # --- minimumDataPoints default = 48 ---
 # Go code (canonical source of truth)
 check_default "minimumDataPoints (Go)" \
@@ -49,6 +66,46 @@ check_default "minimumDataPoints (quickstart)" \
 check_default "minimumDataPoints (README)" \
   "minimumDataPoints: 48" \
   "README.md"
+
+minimum_data_points_crd_files=(
+  "config/crd/bases/rightsize.io_rightsizepolicies.yaml"
+  "config/crd/bases/rightsize.io_rightsizedefaults.yaml"
+  "config/crd/bases/rightsize.io_rightsizenamespacedefaults.yaml"
+  "charts/kube-rightsize/crds/rightsize.io_rightsizepolicies.yaml"
+  "charts/kube-rightsize/crds/rightsize.io_rightsizedefaults.yaml"
+  "charts/kube-rightsize/crds/rightsize.io_rightsizenamespacedefaults.yaml"
+)
+
+check_default "minimumDataPoints timing (Go godoc)" \
+  "48 samples" \
+  "api/v1alpha1/rightsizepolicy_types.go"
+check_default "minimumDataPoints timing (Go godoc)" \
+  "4 hours of data" \
+  "api/v1alpha1/rightsizepolicy_types.go"
+check_default "minimumDataPoints timing (README)" \
+  "4 hours of data" \
+  "README.md"
+check_default "minimumDataPoints timing (Prometheus guide)" \
+  "4 hours of data" \
+  "docs/guides/prometheus-setup.md"
+check_default "minimumDataPoints timing (CRDs)" \
+  "48 samples" \
+  "${minimum_data_points_crd_files[@]}"
+check_default "minimumDataPoints timing (CRDs)" \
+  "4 hours of data" \
+  "${minimum_data_points_crd_files[@]}"
+check_absent "minimumDataPoints stale timing (Go godoc)" \
+  "2 days" \
+  "api/v1alpha1/rightsizepolicy_types.go"
+check_absent "minimumDataPoints stale timing (README)" \
+  "2 days" \
+  "README.md"
+check_absent "minimumDataPoints stale timing (Prometheus guide)" \
+  "2 days" \
+  "docs/guides/prometheus-setup.md"
+check_absent "minimumDataPoints stale timing (CRDs)" \
+  "2 days" \
+  "${minimum_data_points_crd_files[@]}"
 
 # --- CPU percentile default = 95, memory percentile default = 99 ---
 check_default "cpuPercentile (Go)" \
@@ -165,6 +222,29 @@ check_default "prometheusTimeout (values.yaml)" \
 check_default "prometheusTimeout (configuration.md)" \
   '"5m"' \
   "docs/reference/configuration.md"
+
+# --- Ready condition docs consistency ---
+ready_reason_reference_files=(
+  "docs/reference/api.md"
+  "docs/SPEC.md"
+  "docs/reference/cli.md"
+)
+
+for f in "${ready_reason_reference_files[@]}"; do
+  check_default "Ready reasons ($f)" "Monitoring" "$f"
+  check_default "Ready reasons ($f)" "InsufficientData" "$f"
+  check_default "Ready reasons ($f)" "PrometheusUnavailable" "$f"
+  check_default "Ready reasons ($f)" "InvalidConfig" "$f"
+  check_default "Ready reasons ($f)" "WorkloadDiscoveryFailed" "$f"
+done
+
+check_default "Ready troubleshooting section" "^### PrometheusUnavailable" "docs/guides/troubleshooting.md"
+check_default "Ready troubleshooting section" "^### InsufficientData" "docs/guides/troubleshooting.md"
+check_default "Ready troubleshooting section" "^### InvalidConfig" "docs/guides/troubleshooting.md"
+check_default "Ready troubleshooting section" "^### WorkloadDiscoveryFailed" "docs/guides/troubleshooting.md"
+check_default "Prometheus setup condition table" "Ready: False, Reason: InsufficientData" "docs/guides/prometheus-setup.md"
+check_default "Prometheus setup condition meaning" "Prometheus could not be used for this reconcile" "docs/guides/prometheus-setup.md"
+check_absent "Prometheus setup stale condition meaning" "No Prometheus address found" "docs/guides/prometheus-setup.md"
 
 if [ $rc -ne 0 ]; then
   echo ""
