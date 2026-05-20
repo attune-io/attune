@@ -53,11 +53,25 @@ kubectl rightsize savings -n production
 ### recommendations
 
 Shows per-container current vs recommended values with confidence scores.
+When a policy is still collecting data, the last column shows the current
+status message instead.
 
 ```bash
 kubectl rightsize recommendations
 kubectl rightsize recommendations -n production
 ```
+
+| Column | Description |
+|--------|-------------|
+| NAMESPACE | Namespace of the policy |
+| POLICY | Policy name |
+| WORKLOAD | Target workload name |
+| CONTAINER | Container name |
+| CPU REQ | Current CPU request |
+| CPU REC | Recommended CPU request |
+| MEM REQ | Current memory request |
+| MEM REC | Recommended memory request |
+| CONFIDENCE / STATUS | Confidence percentage when recommendations exist, otherwise the current collecting-data status |
 
 ### explain
 

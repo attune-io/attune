@@ -796,6 +796,7 @@ func TestPrintRecommendations(t *testing.T) {
 	require.NoError(t, err)
 	output := buf.String()
 
+	assert.Contains(t, output, "CONFIDENCE / STATUS")
 	assert.Contains(t, output, "web-deploy")
 	assert.Contains(t, output, "app")
 	assert.Contains(t, output, "500m")
@@ -844,6 +845,7 @@ func TestPrintRecommendations_CollectingData(t *testing.T) {
 	require.NoError(t, err)
 	output := buf.String()
 
+	assert.Contains(t, output, "CONFIDENCE / STATUS")
 	assert.Contains(t, output, "new-policy")
 	assert.Contains(t, output, "Not enough data")
 }
