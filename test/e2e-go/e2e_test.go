@@ -1113,6 +1113,11 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 	// Wait for the operator to resize the pod at least once.
 	waitForResize(t, "oom-policy", ns, 3*time.Minute)
 
+	// Memory resize with RestartContainer policy forces a container restart.
+	// Wait for the pod to be ready again before exec'ing the OOM stressor,
+	// otherwise the exec targets a container mid-restart and silently fails.
+	waitForDeploymentReady(t, "oom-app", ns, 120*time.Second)
+
 	// Phase 2: Exec into the running pod to trigger OOM. Using exec keeps the
 	// same pod (no deployment rollout), so the safety monitor can correlate the
 	// OOMKill with its resize record.
