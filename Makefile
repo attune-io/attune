@@ -75,8 +75,12 @@ verify-dashboard-metrics: ## Verify Helm dashboard stays synced with the standal
 verify-doc-tool-versions: ## Verify supported tool version references stay consistent in docs
 	@bash hack/verify-doc-tool-versions.sh
 
+.PHONY: verify-prometheusrule-metrics
+verify-prometheusrule-metrics: ## Verify PrometheusRule alert expressions use real operator metrics
+	@bash hack/verify-prometheusrule-metrics.sh
+
 .PHONY: verify-quick
-verify-quick: lint yaml-lint test helm-lint helm-docs-check helm-unittest verify-boilerplate tidy-check verify-doc-defaults verify-helm-rbac verify-dashboard-metrics verify-doc-tool-versions ## Fast pre-commit checks (no integration tests or govulncheck)
+verify-quick: lint yaml-lint test helm-lint helm-docs-check helm-unittest verify-boilerplate tidy-check verify-doc-defaults verify-helm-rbac verify-dashboard-metrics verify-doc-tool-versions verify-prometheusrule-metrics ## Fast pre-commit checks (no integration tests or govulncheck)
 
 .PHONY: verify
 verify: verify-quick test-integration govulncheck ## Run all CI checks locally (includes integration tests)
