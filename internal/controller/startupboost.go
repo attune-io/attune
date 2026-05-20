@@ -271,3 +271,19 @@ func findContainerByName(pod *corev1.Pod, name string) *corev1.Container {
 	}
 	return nil
 }
+
+// findContainerStatusByName searches both regular and init container statuses
+// for the named container. Returns nil if not found.
+func findContainerStatusByName(pod *corev1.Pod, name string) *corev1.ContainerStatus {
+	for i := range pod.Status.ContainerStatuses {
+		if pod.Status.ContainerStatuses[i].Name == name {
+			return &pod.Status.ContainerStatuses[i]
+		}
+	}
+	for i := range pod.Status.InitContainerStatuses {
+		if pod.Status.InitContainerStatuses[i].Name == name {
+			return &pod.Status.InitContainerStatuses[i]
+		}
+	}
+	return nil
+}

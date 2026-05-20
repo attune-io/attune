@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -300,11 +299,8 @@ func parseResizeRecords(pod *corev1.Pod, observationPeriod time.Duration, now ti
 		}
 
 		var currentResources corev1.ResourceRequirements
-		for _, c := range slices.Concat(pod.Spec.InitContainers, pod.Spec.Containers) {
-			if c.Name == containerName {
-				currentResources = c.Resources
-				break
-			}
+		if c := findContainerByName(pod, containerName); c != nil {
+			currentResources = c.Resources
 		}
 
 		var origRestartCount int32

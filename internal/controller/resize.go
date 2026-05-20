@@ -18,7 +18,6 @@ package controller
 
 import (
 	"context"
-	"slices"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -71,21 +70,19 @@ func selectPodsForResize(pods []corev1.Pod, mode rightsizev1alpha1.UpdateMode, c
 // budgetIncrease returns the positive live-pod request increase needed to
 // reach the clamped resize target. Decreases do not consume per-cycle budget.
 func budgetIncrease(pod *corev1.Pod, containerName string, target corev1.ResourceRequirements) (cpuMilli int64, memBytes int64) {
-	for _, c := range slices.Concat(pod.Spec.InitContainers, pod.Spec.Containers) {
-		if c.Name != containerName {
-			continue
-		}
-		cpuMilli = target.Requests.Cpu().MilliValue() - c.Resources.Requests.Cpu().MilliValue()
-		memBytes = target.Requests.Memory().Value() - c.Resources.Requests.Memory().Value()
-		if cpuMilli < 0 {
-			cpuMilli = 0
-		}
-		if memBytes < 0 {
-			memBytes = 0
-		}
-		return cpuMilli, memBytes
+	c := findContainerByName(pod, containerName)
+	if c == nil {
+		return 0, 0
 	}
-	return 0, 0
+	cpuMilli = target.Requests.Cpu().MilliValue() - c.Resources.Requests.Cpu().MilliValue()
+	memBytes = target.Requests.Memory().Value() - c.Resources.Requests.Memory().Value()
+	if cpuMilli < 0 {
+		cpuMilli = 0
+	}
+	if memBytes < 0 {
+		memBytes = 0
+	}
+	return cpuMilli, memBytes
 }
 
 // executeResizes performs the actual pod resizes for all workloads with recommendations.
@@ -451,11 +448,8 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 	}
 
 	var restartCount int32
-	for _, cs := range slices.Concat(pod.Status.ContainerStatuses, pod.Status.InitContainerStatuses) {
-		if cs.Name == containerRec.Name {
-			restartCount = cs.RestartCount
-			break
-		}
+	if cs := findContainerStatusByName(pod, containerRec.Name); cs != nil {
+		restartCount = cs.RestartCount
 	}
 
 	// revert reverts the resize and marks all history entries as Reverted.
@@ -719,13 +713,10 @@ func (r *RightSizePolicyReconciler) shouldSkipResize(
 ) (skip bool, reason string) {
 	// Already at target (compare against clamped target, not raw recommendation,
 	// so requests clamped to limits are correctly detected as no-ops).
-	for _, c := range slices.Concat(pod.Spec.InitContainers, pod.Spec.Containers) {
-		if c.Name == containerRec.Name {
-			if c.Resources.Requests.Cpu().MilliValue() == target.Requests.Cpu().MilliValue() &&
-				c.Resources.Requests.Memory().Value() == target.Requests.Memory().Value() {
-				return true, ""
-			}
-			break
+	if c := findContainerByName(pod, containerRec.Name); c != nil {
+		if c.Resources.Requests.Cpu().MilliValue() == target.Requests.Cpu().MilliValue() &&
+			c.Resources.Requests.Memory().Value() == target.Requests.Memory().Value() {
+			return true, ""
 		}
 	}
 
