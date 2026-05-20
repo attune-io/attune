@@ -99,7 +99,9 @@ my-app   Recommend   1           0      0         False   5m    0           0
 > that `RightSizeDefaults` and `RightSizeNamespaceDefaults` can override them.
 > That means omitted fields may still look empty in `kubectl get rsp -o yaml`
 > even though the policy is already following the built-in and inherited runtime
-> behavior unless you override those fields.
+> behavior unless you override those fields. Use `kubectl rightsize explain -n
+> <namespace> <policy>` to inspect the effective values for the key
+> controller-applied defaults.
 
 After enough data has accumulated:
 

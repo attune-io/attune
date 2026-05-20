@@ -13,9 +13,13 @@ webhook defaults). All other defaultable fields (`mode`, `controlledValues`,
 `cooldown`, `historyWindow`, `minimumDataPoints`, `queryStep`, `autoRevert`,
 `resizeMethod`, `maxCpuChangePercent`, `maxMemoryChangePercent`) are applied
 by the controller at reconcile time so that cluster-wide `RightSizeDefaults`
-can override them. These fields will appear empty in `kubectl get rsp -o yaml`
-but still control runtime behavior through the controller's built-in and
-inherited defaults unless you override them.
+and namespace-scoped `RightSizeNamespaceDefaults` can override them. These
+fields will appear empty in `kubectl get rsp -o yaml` but still control runtime
+behavior through the controller's built-in and inherited defaults unless you
+override them. Use `kubectl rightsize explain -n <namespace> <policy>` to see
+the effective values for the key controller-applied defaults and whether each
+came from the policy, a namespace default, a cluster default, or the built-in
+default.
 
 ### Spec
 

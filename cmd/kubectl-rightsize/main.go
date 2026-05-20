@@ -26,23 +26,52 @@ import (
 	"text/tabwriter"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/tools/clientcmd"
 	sigsyaml "sigs.k8s.io/yaml"
+
+	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
 )
 
 var version = "dev"
 
-const structuredOutputUsage = "Output raw RightSizePolicy objects as json or yaml (not command-specific)"
+const (
+	structuredOutputUsage = "Output raw RightSizePolicy objects as json or yaml (not command-specific)"
+	sourcePolicy          = "policy"
+	sourceNamespace       = "namespace default"
+	sourceCluster         = "cluster default"
+	sourceBuiltIn         = "built-in default"
+	unsetValue            = "<unset>"
+	defaultQueryStep      = 5 * time.Minute
+)
 
 var gvr = schema.GroupVersionResource{
 	Group:    "rightsize.io",
 	Version:  "v1alpha1",
 	Resource: "rightsizepolicies",
+}
+
+var defaultsGVR = schema.GroupVersionResource{
+	Group:    "rightsize.io",
+	Version:  "v1alpha1",
+	Resource: "rightsizedefaults",
+}
+
+var namespaceDefaultsGVR = schema.GroupVersionResource{
+	Group:    "rightsize.io",
+	Version:  "v1alpha1",
+	Resource: "rightsizenamespacedefaults",
+}
+
+type selectedDefaults struct {
+	defaults *rightsizev1alpha1.RightSizeDefaults
+	source   string
 }
 
 func main() {
@@ -388,13 +417,26 @@ func printExplain(ctx context.Context, dynClient dynamic.Interface, namespace, p
 		os.Exit(1)
 	}
 
+	selected, err := fetchSelectedDefaults(ctx, dynClient, namespace)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error resolving effective values for %s/%s: %v\n", namespace, policyName, err)
+		os.Exit(1)
+	}
+	effective, err := resolveEffectivePolicy(item, selected)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error resolving effective values for %s/%s: %v\n", namespace, policyName, err)
+		os.Exit(1)
+	}
+
 	recs, found, _ := unstructured.NestedSlice(item.Object, "status", "recommendations")
 	if !found || len(recs) == 0 {
 		fmt.Printf("%s/%s has no recommendations yet (%s).\n", namespace, policyName, policyReadyReason(*item))
+		printEffectivePolicySummary(*item, effective, selected)
 		return
 	}
 
 	fmt.Printf("Policy: %s/%s\n", namespace, policyName)
+	printEffectivePolicySummary(*item, effective, selected)
 	for _, r := range recs {
 		rec, ok := r.(map[string]interface{})
 		if !ok {
@@ -419,6 +461,242 @@ func printExplain(ctx context.Context, dynClient dynamic.Interface, namespace, p
 			printResourceExplanation("CPU", current, recommended, explanation)
 			printResourceExplanation("Memory", current, recommended, explanation)
 		}
+	}
+}
+
+func resolveEffectivePolicy(item *unstructured.Unstructured, selected selectedDefaults) (*rightsizev1alpha1.RightSizePolicy, error) {
+	effective := &rightsizev1alpha1.RightSizePolicy{}
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(item.Object, effective); err != nil {
+		return nil, err
+	}
+	mergeDefaultsIntoPolicy(effective, selected.defaults)
+	applyBuiltInDefaults(effective)
+	return effective, nil
+}
+
+func fetchSelectedDefaults(ctx context.Context, dynClient dynamic.Interface, namespace string) (selectedDefaults, error) {
+	namespaceDefaults, err := fetchSingleDefaults(ctx, dynClient, namespaceDefaultsGVR, namespace)
+	if err != nil {
+		return selectedDefaults{}, fmt.Errorf("listing RightSizeNamespaceDefaults in %s: %w", namespace, err)
+	}
+	if namespaceDefaults != nil {
+		return selectedDefaults{defaults: namespaceDefaults, source: sourceNamespace}, nil
+	}
+
+	clusterDefaults, err := fetchSingleDefaults(ctx, dynClient, defaultsGVR, "")
+	if err != nil {
+		return selectedDefaults{}, fmt.Errorf("listing RightSizeDefaults: %w", err)
+	}
+	if clusterDefaults != nil {
+		return selectedDefaults{defaults: clusterDefaults, source: sourceCluster}, nil
+	}
+	return selectedDefaults{source: sourceBuiltIn}, nil
+}
+
+func fetchSingleDefaults(ctx context.Context, dynClient dynamic.Interface, resource schema.GroupVersionResource, namespace string) (*rightsizev1alpha1.RightSizeDefaults, error) {
+	var (
+		list *unstructured.UnstructuredList
+		err  error
+	)
+	if namespace != "" {
+		list, err = dynClient.Resource(resource).Namespace(namespace).List(ctx, metav1.ListOptions{})
+	} else {
+		list, err = dynClient.Resource(resource).List(ctx, metav1.ListOptions{})
+	}
+	if apierrors.IsNotFound(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if len(list.Items) == 0 {
+		return nil, nil
+	}
+
+	selected := &list.Items[0]
+	for i := 1; i < len(list.Items); i++ {
+		if list.Items[i].GetName() < selected.GetName() {
+			selected = &list.Items[i]
+		}
+	}
+
+	defaults := &rightsizev1alpha1.RightSizeDefaults{}
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(selected.Object, defaults); err != nil {
+		return nil, err
+	}
+	return defaults, nil
+}
+
+func printEffectivePolicySummary(item unstructured.Unstructured, effective *rightsizev1alpha1.RightSizePolicy, selected selectedDefaults) {
+	if effective == nil {
+		return
+	}
+
+	var metricsDefaults *rightsizev1alpha1.MetricsSource
+	var updateDefaults *rightsizev1alpha1.UpdateStrategy
+	if selected.defaults != nil {
+		metricsDefaults = selected.defaults.Spec.MetricsSource
+		updateDefaults = selected.defaults.Spec.UpdateStrategy
+	}
+
+	fmt.Println("Effective values:")
+	printEffectiveField("Mode", getNestedString(item, "spec", "updateStrategy", "mode"), string(effective.Spec.UpdateStrategy.Mode), selected, updateDefaults != nil && updateDefaults.Mode != "")
+	printEffectiveField("Cooldown", getNestedString(item, "spec", "updateStrategy", "cooldown"), formatDurationPtr(effective.Spec.UpdateStrategy.Cooldown), selected, updateDefaults != nil && updateDefaults.Cooldown != nil)
+	printEffectiveField("Query step", getNestedString(item, "spec", "metricsSource", "queryStep"), formatDurationPtr(effective.Spec.MetricsSource.QueryStep), selected, metricsDefaults != nil && metricsDefaults.QueryStep != nil)
+	printEffectiveField("Minimum data points", formatInt64Ptr(rawInt64Field(item, "spec", "metricsSource", "minimumDataPoints")), formatInt32Ptr(effective.Spec.MetricsSource.MinimumDataPoints), selected, metricsDefaults != nil && metricsDefaults.MinimumDataPoints != nil)
+	printEffectiveField("Resize method", getNestedString(item, "spec", "updateStrategy", "resizeMethod"), string(effective.Spec.UpdateStrategy.ResizeMethod), selected, updateDefaults != nil && updateDefaults.ResizeMethod != "")
+	printEffectiveField("Max CPU change", formatPercentInt64Ptr(rawInt64Field(item, "spec", "updateStrategy", "maxCpuChangePercent")), formatPercentPtr(effective.Spec.UpdateStrategy.MaxCPUChangePercent), selected, updateDefaults != nil && updateDefaults.MaxCPUChangePercent != nil)
+	printEffectiveField("Max memory change", formatPercentInt64Ptr(rawInt64Field(item, "spec", "updateStrategy", "maxMemoryChangePercent")), formatPercentPtr(effective.Spec.UpdateStrategy.MaxMemoryChangePercent), selected, updateDefaults != nil && updateDefaults.MaxMemoryChangePercent != nil)
+}
+
+func printEffectiveField(label, configured, effective string, selected selectedDefaults, inherited bool) {
+	if effective == "" {
+		return
+	}
+
+	source := sourcePolicy
+	if configured == "" {
+		configured = unsetValue
+		source = effectiveSource(selected, inherited)
+	}
+
+	fmt.Printf("  %s: %s (source: %s, configured: %s)\n", label, effective, source, configured)
+}
+
+func effectiveSource(selected selectedDefaults, inherited bool) string {
+	if inherited {
+		return selected.source
+	}
+	return sourceBuiltIn
+}
+
+func formatDurationPtr(value *metav1.Duration) string {
+	if value == nil {
+		return ""
+	}
+	return value.Duration.String()
+}
+
+func rawInt64Field(item unstructured.Unstructured, fields ...string) *int64 {
+	value, found, err := unstructured.NestedInt64(item.Object, fields...)
+	if err != nil || !found {
+		return nil
+	}
+	return &value
+}
+
+func formatInt64Ptr(value *int64) string {
+	if value == nil {
+		return ""
+	}
+	return strconv.FormatInt(*value, 10)
+}
+
+func formatInt32Ptr(value *int32) string {
+	if value == nil {
+		return ""
+	}
+	return strconv.FormatInt(int64(*value), 10)
+}
+
+func formatPercentPtr(value *int32) string {
+	if value == nil {
+		return ""
+	}
+	return fmt.Sprintf("%d%%", *value)
+}
+
+func formatPercentInt64Ptr(value *int64) string {
+	if value == nil {
+		return ""
+	}
+	return fmt.Sprintf("%d%%", *value)
+}
+
+func applyBuiltInDefaults(policy *rightsizev1alpha1.RightSizePolicy) {
+	if policy.Spec.UpdateStrategy.Mode == "" {
+		policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.DefaultUpdateMode
+	}
+	if policy.Spec.UpdateStrategy.MaxCPUChangePercent == nil {
+		value := rightsizev1alpha1.DefaultMaxCPUChangePercent
+		policy.Spec.UpdateStrategy.MaxCPUChangePercent = &value
+	}
+	if policy.Spec.UpdateStrategy.MaxMemoryChangePercent == nil {
+		value := rightsizev1alpha1.DefaultMaxMemoryChangePercent
+		policy.Spec.UpdateStrategy.MaxMemoryChangePercent = &value
+	}
+	if policy.Spec.UpdateStrategy.Cooldown == nil {
+		duration, _ := time.ParseDuration(rightsizev1alpha1.DefaultCooldown)
+		policy.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: duration}
+	}
+	if policy.Spec.UpdateStrategy.AutoRevert == nil {
+		value := rightsizev1alpha1.DefaultAutoRevert
+		policy.Spec.UpdateStrategy.AutoRevert = &value
+	}
+	if policy.Spec.UpdateStrategy.ResizeMethod == "" {
+		policy.Spec.UpdateStrategy.ResizeMethod = rightsizev1alpha1.DefaultResizeMethod
+	}
+	if policy.Spec.MetricsSource.MinimumDataPoints == nil {
+		value := rightsizev1alpha1.DefaultMinimumDataPoints
+		policy.Spec.MetricsSource.MinimumDataPoints = &value
+	}
+	if policy.Spec.MetricsSource.HistoryWindow == nil {
+		duration, _ := time.ParseDuration(rightsizev1alpha1.DefaultHistoryWindow)
+		policy.Spec.MetricsSource.HistoryWindow = &metav1.Duration{Duration: duration}
+	}
+	if policy.Spec.MetricsSource.QueryStep == nil {
+		policy.Spec.MetricsSource.QueryStep = &metav1.Duration{Duration: defaultQueryStep}
+	}
+}
+
+func mergeDefaultsIntoPolicy(policy *rightsizev1alpha1.RightSizePolicy, defaults *rightsizev1alpha1.RightSizeDefaults) {
+	if defaults == nil {
+		return
+	}
+	mergeMetricsSource(&policy.Spec.MetricsSource, defaults.Spec.MetricsSource)
+	mergeUpdateStrategy(&policy.Spec.UpdateStrategy, defaults.Spec.UpdateStrategy)
+}
+
+func mergeMetricsSource(policy *rightsizev1alpha1.MetricsSource, defaults *rightsizev1alpha1.MetricsSource) {
+	if defaults == nil {
+		return
+	}
+	if policy.HistoryWindow == nil && defaults.HistoryWindow != nil {
+		policy.HistoryWindow = defaults.HistoryWindow.DeepCopy()
+	}
+	if policy.MinimumDataPoints == nil && defaults.MinimumDataPoints != nil {
+		value := *defaults.MinimumDataPoints
+		policy.MinimumDataPoints = &value
+	}
+	if policy.QueryStep == nil && defaults.QueryStep != nil {
+		policy.QueryStep = defaults.QueryStep.DeepCopy()
+	}
+}
+
+func mergeUpdateStrategy(policy *rightsizev1alpha1.UpdateStrategy, defaults *rightsizev1alpha1.UpdateStrategy) {
+	if defaults == nil {
+		return
+	}
+	if policy.Mode == "" {
+		policy.Mode = defaults.Mode
+	}
+	if policy.Cooldown == nil && defaults.Cooldown != nil {
+		policy.Cooldown = defaults.Cooldown.DeepCopy()
+	}
+	if policy.AutoRevert == nil && defaults.AutoRevert != nil {
+		value := *defaults.AutoRevert
+		policy.AutoRevert = &value
+	}
+	if policy.ResizeMethod == "" && defaults.ResizeMethod != "" {
+		policy.ResizeMethod = defaults.ResizeMethod
+	}
+	if policy.MaxCPUChangePercent == nil && defaults.MaxCPUChangePercent != nil {
+		value := *defaults.MaxCPUChangePercent
+		policy.MaxCPUChangePercent = &value
+	}
+	if policy.MaxMemoryChangePercent == nil && defaults.MaxMemoryChangePercent != nil {
+		value := *defaults.MaxMemoryChangePercent
+		policy.MaxMemoryChangePercent = &value
 	}
 }
 

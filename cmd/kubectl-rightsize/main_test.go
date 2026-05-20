@@ -26,10 +26,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
+
+	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
 )
 
 func TestFormatAge(t *testing.T) {
@@ -1142,7 +1145,11 @@ func TestPrintExplain(t *testing.T) {
 
 	scheme := runtime.NewScheme()
 	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
-		map[schema.GroupVersionResource]string{gvr: "RightSizePolicyList"}, policy)
+		map[schema.GroupVersionResource]string{
+			gvr:                  "RightSizePolicyList",
+			namespaceDefaultsGVR: "RightSizeNamespaceDefaultsList",
+			defaultsGVR:          "RightSizeDefaultsList",
+		}, policy)
 
 	old := os.Stdout
 	r, w, err := os.Pipe()
@@ -1191,7 +1198,11 @@ func TestPrintExplain_NoRecommendations(t *testing.T) {
 
 	scheme := runtime.NewScheme()
 	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
-		map[schema.GroupVersionResource]string{gvr: "RightSizePolicyList"}, policy)
+		map[schema.GroupVersionResource]string{
+			gvr:                  "RightSizePolicyList",
+			namespaceDefaultsGVR: "RightSizeNamespaceDefaultsList",
+			defaultsGVR:          "RightSizeDefaultsList",
+		}, policy)
 
 	old := os.Stdout
 	r, w, err := os.Pipe()
@@ -1209,6 +1220,257 @@ func TestPrintExplain_NoRecommendations(t *testing.T) {
 	output := buf.String()
 
 	assert.Contains(t, output, "default/new-policy has no recommendations yet (Not enough data).")
+	assert.Contains(t, output, "Effective values:")
+	assert.Contains(t, output, "Mode: Recommend (source: built-in default, configured: <unset>)")
+}
+
+func TestPrintExplain_ShowsPolicyNamespaceAndBuiltInEffectiveValues(t *testing.T) {
+	cooldown := "30m"
+	queryStep := "10m"
+	minimumDataPoints := int64(120)
+	maxCPUChangePercent := int64(70)
+	policy := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "rightsize.io/v1alpha1",
+		"kind":       "RightSizePolicy",
+		"metadata": map[string]interface{}{
+			"name":      "effective-policy",
+			"namespace": "default",
+		},
+		"spec": map[string]interface{}{
+			"updateStrategy": map[string]interface{}{
+				"mode":                "Auto",
+				"cooldown":            cooldown,
+				"maxCpuChangePercent": maxCPUChangePercent,
+			},
+			"metricsSource": map[string]interface{}{
+				"queryStep":         queryStep,
+				"minimumDataPoints": minimumDataPoints,
+			},
+		},
+		"status": map[string]interface{}{
+			"conditions": []interface{}{
+				map[string]interface{}{
+					"type":   "Ready",
+					"status": "True",
+					"reason": "Monitoring",
+				},
+			},
+		},
+	}}
+
+	nsCooldown := &metav1.Duration{Duration: 45 * time.Minute}
+	nsMode := rightsizev1alpha1.UpdateModeCanary
+	nsResizeMethod := rightsizev1alpha1.ResizeMethodInPlaceOrEvict
+	nsDefaultsObj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&rightsizev1alpha1.RightSizeNamespaceDefaults{
+		TypeMeta:   metav1.TypeMeta{APIVersion: "rightsize.io/v1alpha1", Kind: "RightSizeNamespaceDefaults"},
+		ObjectMeta: metav1.ObjectMeta{Name: "team-defaults", Namespace: "default"},
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{
+				Mode:         nsMode,
+				Cooldown:     nsCooldown,
+				ResizeMethod: nsResizeMethod,
+			},
+		},
+	})
+	require.NoError(t, err)
+	nsDefaults := &unstructured.Unstructured{Object: nsDefaultsObj}
+
+	clusterQueryStep := &metav1.Duration{Duration: 2 * time.Minute}
+	clusterMaxCPU := int32(80)
+	clusterDefaultsObj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&rightsizev1alpha1.RightSizeDefaults{
+		TypeMeta:   metav1.TypeMeta{APIVersion: "rightsize.io/v1alpha1", Kind: "RightSizeDefaults"},
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster-defaults"},
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			MetricsSource:  &rightsizev1alpha1.MetricsSource{QueryStep: clusterQueryStep},
+			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{MaxCPUChangePercent: &clusterMaxCPU},
+		},
+	})
+	require.NoError(t, err)
+	clusterDefaults := &unstructured.Unstructured{Object: clusterDefaultsObj}
+
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{
+			gvr:                  "RightSizePolicyList",
+			namespaceDefaultsGVR: "RightSizeNamespaceDefaultsList",
+			defaultsGVR:          "RightSizeDefaultsList",
+		},
+		policy)
+	_, err = dynClient.Resource(namespaceDefaultsGVR).Namespace("default").Create(context.Background(), nsDefaults, metav1.CreateOptions{})
+	require.NoError(t, err)
+	_, err = dynClient.Resource(defaultsGVR).Create(context.Background(), clusterDefaults, metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	printExplain(context.Background(), dynClient, "default", "effective-policy")
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	output := buf.String()
+
+	assert.Contains(t, output, "Mode: Auto (source: policy, configured: Auto)")
+	assert.Contains(t, output, "Cooldown: 30m0s (source: policy, configured: 30m)")
+	assert.Contains(t, output, "Query step: 10m0s (source: policy, configured: 10m)")
+	assert.Contains(t, output, "Minimum data points: 120 (source: policy, configured: 120)")
+	assert.Contains(t, output, "Resize method: InPlaceOrEvict (source: namespace default, configured: <unset>)")
+	assert.Contains(t, output, "Max CPU change: 70% (source: policy, configured: 70%)")
+	assert.Contains(t, output, "Max memory change: 30% (source: built-in default, configured: <unset>)")
+	assert.NotContains(t, output, "source: cluster default")
+}
+
+func TestPrintExplain_UsesClusterDefaultsWhenNoNamespaceDefaultsExist(t *testing.T) {
+	clusterQueryStep := &metav1.Duration{Duration: 2 * time.Minute}
+	clusterMode := rightsizev1alpha1.UpdateModeAuto
+	clusterResizeMethod := rightsizev1alpha1.ResizeMethodInPlaceOrEvict
+	clusterDefaultsObj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&rightsizev1alpha1.RightSizeDefaults{
+		TypeMeta:   metav1.TypeMeta{APIVersion: "rightsize.io/v1alpha1", Kind: "RightSizeDefaults"},
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster-defaults"},
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			MetricsSource: &rightsizev1alpha1.MetricsSource{QueryStep: clusterQueryStep},
+			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{
+				Mode:         clusterMode,
+				ResizeMethod: clusterResizeMethod,
+			},
+		},
+	})
+	require.NoError(t, err)
+	clusterDefaults := &unstructured.Unstructured{Object: clusterDefaultsObj}
+
+	policy := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "rightsize.io/v1alpha1",
+		"kind":       "RightSizePolicy",
+		"metadata": map[string]interface{}{
+			"name":      "cluster-default-policy",
+			"namespace": "default",
+		},
+		"status": map[string]interface{}{
+			"conditions": []interface{}{
+				map[string]interface{}{
+					"type":    "Ready",
+					"status":  "False",
+					"reason":  "InsufficientData",
+					"message": "Still collecting",
+				},
+			},
+		},
+	}}
+
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{
+			gvr:                  "RightSizePolicyList",
+			namespaceDefaultsGVR: "RightSizeNamespaceDefaultsList",
+			defaultsGVR:          "RightSizeDefaultsList",
+		},
+		policy)
+	_, err = dynClient.Resource(defaultsGVR).Create(context.Background(), clusterDefaults, metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	printExplain(context.Background(), dynClient, "default", "cluster-default-policy")
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	output := buf.String()
+
+	assert.Contains(t, output, "Mode: Auto (source: cluster default, configured: <unset>)")
+	assert.Contains(t, output, "Query step: 2m0s (source: cluster default, configured: <unset>)")
+	assert.Contains(t, output, "Resize method: InPlaceOrEvict (source: cluster default, configured: <unset>)")
+}
+
+func TestPrintExplain_NamespaceDefaultsDoNotInheritMissingFieldsFromClusterDefaults(t *testing.T) {
+	nsMinimumDataPoints := int32(96)
+	nsDefaultsObj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&rightsizev1alpha1.RightSizeNamespaceDefaults{
+		TypeMeta:   metav1.TypeMeta{APIVersion: "rightsize.io/v1alpha1", Kind: "RightSizeNamespaceDefaults"},
+		ObjectMeta: metav1.ObjectMeta{Name: "team-defaults", Namespace: "default"},
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			MetricsSource: &rightsizev1alpha1.MetricsSource{MinimumDataPoints: &nsMinimumDataPoints},
+		},
+	})
+	require.NoError(t, err)
+	nsDefaults := &unstructured.Unstructured{Object: nsDefaultsObj}
+
+	clusterQueryStep := &metav1.Duration{Duration: 1 * time.Minute}
+	clusterMode := rightsizev1alpha1.UpdateModeAuto
+	clusterDefaultsObj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&rightsizev1alpha1.RightSizeDefaults{
+		TypeMeta:   metav1.TypeMeta{APIVersion: "rightsize.io/v1alpha1", Kind: "RightSizeDefaults"},
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster-defaults"},
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			MetricsSource:  &rightsizev1alpha1.MetricsSource{QueryStep: clusterQueryStep},
+			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{Mode: clusterMode},
+		},
+	})
+	require.NoError(t, err)
+	clusterDefaults := &unstructured.Unstructured{Object: clusterDefaultsObj}
+
+	policy := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "rightsize.io/v1alpha1",
+		"kind":       "RightSizePolicy",
+		"metadata": map[string]interface{}{
+			"name":      "fallback-policy",
+			"namespace": "default",
+		},
+		"status": map[string]interface{}{
+			"conditions": []interface{}{
+				map[string]interface{}{
+					"type":    "Ready",
+					"status":  "False",
+					"reason":  "InsufficientData",
+					"message": "Still collecting",
+				},
+			},
+		},
+	}}
+
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{
+			gvr:                  "RightSizePolicyList",
+			namespaceDefaultsGVR: "RightSizeNamespaceDefaultsList",
+			defaultsGVR:          "RightSizeDefaultsList",
+		},
+		policy)
+	_, err = dynClient.Resource(namespaceDefaultsGVR).Namespace("default").Create(context.Background(), nsDefaults, metav1.CreateOptions{})
+	require.NoError(t, err)
+	_, err = dynClient.Resource(defaultsGVR).Create(context.Background(), clusterDefaults, metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	printExplain(context.Background(), dynClient, "default", "fallback-policy")
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	output := buf.String()
+
+	assert.Contains(t, output, "Minimum data points: 96 (source: namespace default, configured: <unset>)")
+	assert.Contains(t, output, "Query step: 5m0s (source: built-in default, configured: <unset>)")
+	assert.Contains(t, output, "Mode: Recommend (source: built-in default, configured: <unset>)")
+	assert.NotContains(t, output, "Query step: 1m0s")
+	assert.NotContains(t, output, "Mode: Auto")
 }
 
 // ---------- policyReadyReason ----------

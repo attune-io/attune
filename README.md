@@ -129,6 +129,10 @@ kubectl rightsize savings -n production
 > `RightSizeNamespaceDefaults` can override them. Those fields may appear empty
 > in `kubectl get rightsizepolicy -o yaml`, but the policy still follows the
 > built-in and inherited runtime behavior unless you override those fields.
+> Use `kubectl rightsize explain -n <namespace> <policy>` to inspect the
+> effective values for the key controller-applied defaults and see whether each
+> one came from the policy, a namespace default, a cluster default, or the
+> built-in default.
 
 > **Upgrading?** Review the [changelog](CHANGELOG.md) for breaking changes.
 >

@@ -77,7 +77,11 @@ kubectl rightsize recommendations -n production
 
 Shows the stored recommendation reasoning for a single policy, including
 percentile selection, safety margin, confidence adjustment, bounds, and
-change filtering for CPU and memory.
+change filtering for CPU and memory. It also prints the effective values for
+key controller-applied defaults such as `mode`, `cooldown`, `queryStep`,
+`minimumDataPoints`, `resizeMethod`, and max change percentages, along with
+whether each value came from the policy, a namespace default, a cluster
+default, or the built-in default.
 
 ```bash
 kubectl rightsize explain -n production api-services
