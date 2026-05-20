@@ -59,7 +59,7 @@ behaves correctly.
 ### Prerequisites
 
 - Docker
-- k3d (`curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash`) **or** Kind (`go install sigs.k8s.io/kind@latest`)
+- `k3d 5.8+ / Kind 0.24+` (see [k3d installation](https://k3d.io/#installation) and [Kind installation](https://kind.sigs.k8s.io/docs/user/quick-start/#installation))
 - Chainsaw (auto-installed by the Makefile)
 
 ### Running E2E tests from scratch

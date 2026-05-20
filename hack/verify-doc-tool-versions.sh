@@ -32,7 +32,14 @@ helm_files=(
   "charts/kube-rightsize/README.md"
 )
 
+cluster_tool_files=(
+  "CONTRIBUTING.md"
+  "docs/contributing/development.md"
+  "docs/contributing/testing.md"
+)
+
 check_literal "Helm support range" '3.16+ or 4.x' "${helm_files[@]}"
+check_literal "k3d/Kind support range" 'k3d 5.8+ / Kind 0.24+' "${cluster_tool_files[@]}"
 
 if [ $rc -ne 0 ]; then
   echo
