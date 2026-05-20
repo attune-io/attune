@@ -68,8 +68,7 @@ func TestComputeSavings_CPUReduction(t *testing.T) {
 	// Memory unchanged.
 	assert.Empty(t, savings.MemoryRequestReduction)
 	// EstimatedMonthlySavings: 0.35 cores * $0.031/hr * 730 hrs = $7.92
-	assert.NotEmpty(t, savings.EstimatedMonthlySavings)
-	assert.Contains(t, savings.EstimatedMonthlySavings, "$")
+	assert.Equal(t, "$7.92", savings.EstimatedMonthlySavings)
 }
 
 func TestComputeSavings_MemoryReduction(t *testing.T) {
@@ -177,7 +176,7 @@ func TestComputeSavings_NoReduction(t *testing.T) {
 	// All containers are under-provisioned: increase fields should be set.
 	assert.Equal(t, "100m", savings.CPURequestIncrease)
 	assert.Equal(t, "256Mi", savings.MemoryRequestIncrease)
-	assert.NotEmpty(t, savings.EstimatedMonthlyCostIncrease)
+	assert.Equal(t, "$2.99", savings.EstimatedMonthlyCostIncrease)
 }
 
 func TestComputeSavings_Mixed(t *testing.T) {
@@ -224,6 +223,6 @@ func TestComputeSavings_Mixed(t *testing.T) {
 	assert.Equal(t, "200m", savings.CPURequestIncrease)
 	// No memory increase.
 	assert.Empty(t, savings.MemoryRequestIncrease)
-	// Cost increase should be computed.
-	assert.NotEmpty(t, savings.EstimatedMonthlyCostIncrease)
+	// Cost increase: 0.2 cores * $0.031/hr * 730 hrs = $4.53
+	assert.Equal(t, "$4.53", savings.EstimatedMonthlyCostIncrease)
 }
