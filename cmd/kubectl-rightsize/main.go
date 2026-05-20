@@ -91,6 +91,12 @@ func main() {
 	if err := fs.Parse(os.Args[2:]); err != nil {
 		os.Exit(1)
 	}
+	if isZeroArgCommand(cmd) {
+		if err := zeroArgCommandArgs(cmd, fs.Args()); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+	}
 
 	// Build client from kubeconfig.
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
@@ -152,6 +158,22 @@ func main() {
 		fs.Usage()
 		os.Exit(1)
 	}
+}
+
+func isZeroArgCommand(cmd string) bool {
+	switch cmd {
+	case "status", "savings", "recommendations", "history":
+		return true
+	default:
+		return false
+	}
+}
+
+func zeroArgCommandArgs(cmd string, args []string) error {
+	if len(args) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%s accepts no positional arguments. Remove %q", cmd, args[0])
 }
 
 func explainPolicyName(args []string) (string, error) {

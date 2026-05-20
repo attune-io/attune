@@ -964,6 +964,74 @@ func TestPrintRecommendations_CollectingData(t *testing.T) {
 	assert.Contains(t, output, "Not enough data")
 }
 
+func TestIsZeroArgCommand(t *testing.T) {
+	tests := []struct {
+		cmd  string
+		want bool
+	}{
+		{cmd: "status", want: true},
+		{cmd: "savings", want: true},
+		{cmd: "recommendations", want: true},
+		{cmd: "history", want: true},
+		{cmd: "explain", want: false},
+		{cmd: "version", want: false},
+	}
+
+	for _, tt := range tests {
+		assert.Equal(t, tt.want, isZeroArgCommand(tt.cmd), tt.cmd)
+	}
+}
+
+func TestZeroArgCommandArgs(t *testing.T) {
+	tests := []struct {
+		name    string
+		cmd     string
+		args    []string
+		wantErr string
+	}{
+		{
+			name: "status accepts no args",
+			cmd:  "status",
+		},
+		{
+			name:    "status rejects positional arg",
+			cmd:     "status",
+			args:    []string{"extra"},
+			wantErr: "status accepts no positional arguments",
+		},
+		{
+			name:    "savings rejects positional arg",
+			cmd:     "savings",
+			args:    []string{"extra"},
+			wantErr: "savings accepts no positional arguments",
+		},
+		{
+			name:    "recommendations rejects positional arg",
+			cmd:     "recommendations",
+			args:    []string{"extra"},
+			wantErr: "recommendations accepts no positional arguments",
+		},
+		{
+			name:    "history rejects positional arg",
+			cmd:     "history",
+			args:    []string{"extra"},
+			wantErr: "history accepts no positional arguments",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := zeroArgCommandArgs(tt.cmd, tt.args)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestExplainPolicyName(t *testing.T) {
 	tests := []struct {
 		name     string
