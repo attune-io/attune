@@ -87,8 +87,13 @@ minimum_data_points_crd_files=(
   "charts/kube-rightsize/crds/rightsize.io_rightsizepolicies.yaml"
   "charts/kube-rightsize/crds/rightsize.io_rightsizedefaults.yaml"
   "charts/kube-rightsize/crds/rightsize.io_rightsizenamespacedefaults.yaml"
-  "$@"
 )
+
+if [ -f "$REPO_ROOT/dist/crds.yaml" ]; then
+  minimum_data_points_crd_files+=("dist/crds.yaml")
+fi
+
+minimum_data_points_crd_files+=("$@")
 
 check_default "minimumDataPoints timing (Go godoc)" \
   "48 samples" \
