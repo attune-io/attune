@@ -741,9 +741,10 @@ func (r *RightSizePolicyReconciler) handleDeletion(ctx context.Context, policy *
 		if pod.Annotations[annotationPolicy] != policy.Name {
 			continue
 		}
+		original := pod.DeepCopy()
 		removeTrackingAnnotations(pod)
 		delete(pod.Annotations, annotationStartupBoostAt)
-		if err := r.Update(ctx, pod); err != nil {
+		if err := r.Patch(ctx, pod, client.MergeFrom(original)); err != nil {
 			if apierrors.IsNotFound(err) {
 				continue
 			}

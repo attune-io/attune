@@ -818,7 +818,7 @@ func TestHandleDeletion_ContinuesOnPodUpdateError(t *testing.T) {
 		},
 	}
 
-	// Two managed pods: first will fail on Update, second should still be cleaned.
+	// Two managed pods: first will fail on Patch, second should still be cleaned.
 	pod1 := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "pod-fail", Namespace: "default",
@@ -841,11 +841,11 @@ func TestHandleDeletion_ContinuesOnPodUpdateError(t *testing.T) {
 		WithObjects(policy, pod1, pod2).
 		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
 		WithInterceptorFuncs(interceptor.Funcs{
-			Update: func(ctx context.Context, cw client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+			Patch: func(ctx context.Context, cw client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
 				if pod, ok := obj.(*corev1.Pod); ok && pod.Name == "pod-fail" {
 					return fmt.Errorf("simulated conflict")
 				}
-				return cw.Update(ctx, obj, opts...)
+				return cw.Patch(ctx, obj, patch, opts...)
 			},
 		}).Build()
 
@@ -866,7 +866,7 @@ func TestHandleDeletion_ContinuesOnPodUpdateError(t *testing.T) {
 		"finalizer must remain so controller retries for pod-fail")
 }
 
-func TestHandleDeletion_PodDeletedBetweenListAndUpdate(t *testing.T) {
+func TestHandleDeletion_PodDeletedBetweenListAndPatch(t *testing.T) {
 	now := metav1.Now()
 	policy := &rightsizev1alpha1.RightSizePolicy{
 		ObjectMeta: metav1.ObjectMeta{
@@ -894,17 +894,17 @@ func TestHandleDeletion_PodDeletedBetweenListAndUpdate(t *testing.T) {
 		WithObjects(policy, vanishingPod).
 		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
 		WithInterceptorFuncs(interceptor.Funcs{
-			Update: func(ctx context.Context, cw client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+			Patch: func(ctx context.Context, cw client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
 				if _, ok := obj.(*corev1.Pod); ok {
 					return apierrors.NewNotFound(corev1.Resource("pods"), obj.GetName())
 				}
-				return cw.Update(ctx, obj, opts...)
+				return cw.Patch(ctx, obj, patch, opts...)
 			},
 		}).Build()
 
 	reconciler := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
 	result, err := reconciler.handleDeletion(context.Background(), policy)
-	require.NoError(t, err, "IsNotFound on pod update should not cause error")
+	require.NoError(t, err, "IsNotFound on pod patch should not cause error")
 	assert.Equal(t, ctrl.Result{}, result)
 	assert.NotContains(t, policy.Finalizers, finalizerName,
 		"finalizer should be removed even if pod vanished")
