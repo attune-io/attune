@@ -300,5 +300,5 @@ metrics:
         staleDuration: 1h    # fire after 1 hour instead of 30m
 ```
 
-See the [Helm chart README](../../charts/kube-rightsize/README.md) for the
+See the [Helm chart README](https://github.com/SebTardifLabs/kube-rightsize/blob/main/charts/kube-rightsize/README.md) for the
 full list of configurable parameters.
