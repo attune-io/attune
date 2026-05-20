@@ -270,13 +270,13 @@ check_default "controller-applied defaults (README)" \
   "controller at reconcile time" \
   "README.md"
 check_default "runtime behavior guidance (README)" \
-  "built-in and inherited runtime behavior" \
+  "built-in and inherited runtime" \
   "README.md"
 check_default "controller-applied defaults (quickstart)" \
   "controller at reconcile time" \
   "docs/getting-started/quickstart.md"
 check_default "runtime behavior guidance (quickstart)" \
-  "built-in and inherited runtime behavior" \
+  "built-in and inherited runtime" \
   "docs/getting-started/quickstart.md"
 
 if [ $rc -ne 0 ]; then
