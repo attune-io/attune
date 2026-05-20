@@ -134,6 +134,24 @@ func TestNormalizeResizeHistoryMethods_FillsMissingMethods(t *testing.T) {
 	assert.Equal(t, "InPlace", history[2].Method)
 }
 
+func TestNormalizeResizeHistoryMethods_IdempotentWhenAllPresent(t *testing.T) {
+	history := []rightsizev1alpha1.ResizeHistoryEntry{
+		{Method: "InPlace", Result: rightsizev1alpha1.ResizeResultSuccess},
+		{Method: "Eviction", Result: rightsizev1alpha1.ResizeResultEvicted},
+		{Method: "InPlace", Result: rightsizev1alpha1.ResizeResultReverted},
+	}
+
+	changed := normalizeResizeHistoryMethods(history)
+
+	assert.False(t, changed, "should report no change when all methods are already set")
+}
+
+func TestResizeHistoryMethod_LegacyFailedDefaultsToInPlace(t *testing.T) {
+	assert.Equal(t, "InPlace", resizeHistoryMethod(rightsizev1alpha1.ResizeHistoryEntry{
+		Result: rightsizev1alpha1.ResizeResultFailed,
+	}))
+}
+
 func TestIsSuccessfulInPlaceHistory_LegacySuccessCounts(t *testing.T) {
 	assert.True(t, isSuccessfulInPlaceHistory(rightsizev1alpha1.ResizeHistoryEntry{
 		Result: rightsizev1alpha1.ResizeResultSuccess,
