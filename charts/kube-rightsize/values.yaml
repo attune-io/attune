@@ -84,6 +84,36 @@ metrics:
     additionalLabels: {}
     # -- Scrape interval
     interval: 30s
+  prometheusRule:
+    # -- Create a PrometheusRule for out-of-the-box alerting.
+    # Requires the Prometheus Operator CRDs (monitoring.coreos.com/v1).
+    enabled: false
+    # -- Additional labels for the PrometheusRule
+    additionalLabels: {}
+    # -- Override default alert rules. Each key matches a rule name;
+    # set enabled: false to disable individual rules.
+    rules:
+      reconcileErrors:
+        enabled: true
+        # -- Error rate threshold (per second, averaged over 5m)
+        threshold: "0"
+        # -- How long the condition must persist before firing
+        for: 10m
+        severity: warning
+      prometheusUnreachable:
+        enabled: true
+        for: 10m
+        severity: warning
+      degraded:
+        enabled: true
+        for: 5m
+        severity: critical
+      reconcileStale:
+        enabled: true
+        # -- Fire when no reconcile completes within this duration
+        staleDuration: 30m
+        for: 5m
+        severity: warning
 
 grafanaDashboard:
   # -- Create a ConfigMap with the Grafana dashboard (auto-discovered by Grafana sidecar)

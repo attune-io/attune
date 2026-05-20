@@ -161,6 +161,65 @@
               "default": "30s"
             }
           }
+        },
+        "prometheusRule": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "additionalLabels": {
+              "type": "object",
+              "additionalProperties": { "type": "string" },
+              "default": {}
+            },
+            "rules": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "reconcileErrors": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": { "type": "boolean", "default": true },
+                    "threshold": { "type": "string", "default": "0" },
+                    "for": { "type": "string", "default": "10m" },
+                    "severity": { "type": "string", "default": "warning" }
+                  }
+                },
+                "prometheusUnreachable": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": { "type": "boolean", "default": true },
+                    "for": { "type": "string", "default": "10m" },
+                    "severity": { "type": "string", "default": "warning" }
+                  }
+                },
+                "degraded": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": { "type": "boolean", "default": true },
+                    "for": { "type": "string", "default": "5m" },
+                    "severity": { "type": "string", "default": "critical" }
+                  }
+                },
+                "reconcileStale": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": { "type": "boolean", "default": true },
+                    "staleDuration": { "type": "string", "default": "30m" },
+                    "for": { "type": "string", "default": "5m" },
+                    "severity": { "type": "string", "default": "warning" }
+                  }
+                }
+              }
+            }
+          }
         }
       }
     },

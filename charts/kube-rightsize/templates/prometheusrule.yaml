@@ -1,0 +1,68 @@
+{{- if and .Values.metrics.enabled .Values.metrics.prometheusRule.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "kube-rightsize.fullname" . }}
+  labels:
+    {{- include "kube-rightsize.labels" . | nindent 4 }}
+    {{- with .Values.metrics.prometheusRule.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: kube-rightsize
+      rules:
+        {{- if .Values.metrics.prometheusRule.rules.reconcileErrors.enabled }}
+        - alert: KubeRightsizeReconcileErrors
+          expr: sum(rate(kube_rightsize_reconcile_errors_total[5m])) > {{ .Values.metrics.prometheusRule.rules.reconcileErrors.threshold }}
+          for: {{ .Values.metrics.prometheusRule.rules.reconcileErrors.for }}
+          labels:
+            severity: {{ .Values.metrics.prometheusRule.rules.reconcileErrors.severity }}
+          annotations:
+            summary: kube-rightsize reconcile errors detected
+            description: >-
+              The kube-rightsize operator is experiencing reconcile errors
+              ({{ "{{ $value | humanize }}" }} errors/sec over 5m).
+              Check the operator logs for details.
+        {{- end }}
+        {{- if .Values.metrics.prometheusRule.rules.prometheusUnreachable.enabled }}
+        - alert: KubeRightsizePrometheusUnreachable
+          expr: sum(rate(kube_rightsize_prometheus_query_errors_total[5m])) > 0
+          for: {{ .Values.metrics.prometheusRule.rules.prometheusUnreachable.for }}
+          labels:
+            severity: {{ .Values.metrics.prometheusRule.rules.prometheusUnreachable.severity }}
+          annotations:
+            summary: kube-rightsize cannot query Prometheus
+            description: >-
+              The kube-rightsize operator has been experiencing Prometheus
+              query errors for {{ .Values.metrics.prometheusRule.rules.prometheusUnreachable.for }}.
+              Verify the Prometheus address and connectivity.
+        {{- end }}
+        {{- if .Values.metrics.prometheusRule.rules.degraded.enabled }}
+        - alert: KubeRightsizeDegraded
+          expr: sum by (namespace, workload) (increase(kube_rightsize_reverts_total[15m])) > 3
+          for: {{ .Values.metrics.prometheusRule.rules.degraded.for }}
+          labels:
+            severity: {{ .Values.metrics.prometheusRule.rules.degraded.severity }}
+          annotations:
+            summary: kube-rightsize workload is degraded (repeated reverts)
+            description: >-
+              Workload {{ "{{ $labels.namespace }}" }}/{{ "{{ $labels.workload }}" }}
+              has been reverted more than 3 times in 15 minutes. The safety
+              monitor is blocking resizes. Investigate the workload for
+              instability.
+        {{- end }}
+        {{- if .Values.metrics.prometheusRule.rules.reconcileStale.enabled }}
+        - alert: KubeRightsizeReconcileStale
+          expr: changes(kube_rightsize_reconcile_duration_seconds_count[{{ .Values.metrics.prometheusRule.rules.reconcileStale.staleDuration }}]) == 0
+          for: {{ .Values.metrics.prometheusRule.rules.reconcileStale.for }}
+          labels:
+            severity: {{ .Values.metrics.prometheusRule.rules.reconcileStale.severity }}
+          annotations:
+            summary: kube-rightsize has not reconciled recently
+            description: >-
+              No successful reconciliation has completed in the last
+              {{ .Values.metrics.prometheusRule.rules.reconcileStale.staleDuration }}.
+              The operator may be stuck, crashed, or unable to process policies.
+        {{- end }}
+{{- end }}

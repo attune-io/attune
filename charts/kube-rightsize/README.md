@@ -43,7 +43,13 @@ helm install kube-rightsize oci://ghcr.io/sebtardiflabs/charts/kube-rightsize \
 | logging.format | string | `"json"` | Log format (json, text) |
 | logging.level | string | `"info"` | Log level (debug, info, warn, error) |
 | maxConcurrentReconciles | string | `""` | Maximum number of RightSizePolicy reconciles running in parallel. Increase for large clusters with many policies (e.g. 4 for 200+ policies). |
-| metrics | object | `{"enabled":true,"port":8080,"serviceMonitor":{"additionalLabels":{},"enabled":false,"interval":"30s"}}` | Metrics endpoint |
+| metrics | object | `{"enabled":true,"port":8080,"prometheusRule":{"additionalLabels":{},"enabled":false,"rules":{"degraded":{"enabled":true,"for":"5m","severity":"critical"},"prometheusUnreachable":{"enabled":true,"for":"10m","severity":"warning"},"reconcileErrors":{"enabled":true,"for":"10m","severity":"warning","threshold":"0"},"reconcileStale":{"enabled":true,"for":"5m","severity":"warning","staleDuration":"30m"}}},"serviceMonitor":{"additionalLabels":{},"enabled":false,"interval":"30s"}}` | Metrics endpoint |
+| metrics.prometheusRule.additionalLabels | object | `{}` | Additional labels for the PrometheusRule |
+| metrics.prometheusRule.enabled | bool | `false` | Create a PrometheusRule for out-of-the-box alerting. Requires the Prometheus Operator CRDs (monitoring.coreos.com/v1). |
+| metrics.prometheusRule.rules | object | `{"degraded":{"enabled":true,"for":"5m","severity":"critical"},"prometheusUnreachable":{"enabled":true,"for":"10m","severity":"warning"},"reconcileErrors":{"enabled":true,"for":"10m","severity":"warning","threshold":"0"},"reconcileStale":{"enabled":true,"for":"5m","severity":"warning","staleDuration":"30m"}}` | Override default alert rules. Each key matches a rule name; set enabled: false to disable individual rules. |
+| metrics.prometheusRule.rules.reconcileErrors.for | string | `"10m"` | How long the condition must persist before firing |
+| metrics.prometheusRule.rules.reconcileErrors.threshold | string | `"0"` | Error rate threshold (per second, averaged over 5m) |
+| metrics.prometheusRule.rules.reconcileStale.staleDuration | string | `"30m"` | Fire when no reconcile completes within this duration |
 | metrics.serviceMonitor.additionalLabels | object | `{}` | Additional labels for the ServiceMonitor |
 | metrics.serviceMonitor.enabled | bool | `false` | Create a ServiceMonitor for Prometheus Operator |
 | metrics.serviceMonitor.interval | string | `"30s"` | Scrape interval |
