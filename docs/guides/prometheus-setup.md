@@ -266,3 +266,39 @@ The dashboard covers resizes, reverts, savings, recommendations, confidence
 scores, reconcile latency, and Prometheus query health. See
 [deploy/grafana/dashboard.json](https://github.com/SebTardifLabs/kube-rightsize/blob/main/deploy/grafana/dashboard.json)
 for the raw JSON.
+
+## Alerting with PrometheusRule
+
+Enable the Helm chart's PrometheusRule to get out-of-the-box alerts:
+
+```bash
+helm upgrade kube-rightsize oci://ghcr.io/sebtardiflabs/charts/kube-rightsize \
+  --set metrics.prometheusRule.enabled=true
+```
+
+This creates four alerts:
+
+| Alert | Fires when | Default severity |
+|-------|-----------|-----------------|
+| `KubeRightsizeReconcileErrors` | Reconcile error rate > 0 sustained for 10m | warning |
+| `KubeRightsizePrometheusUnreachable` | Prometheus query errors sustained for 10m | warning |
+| `KubeRightsizeDegraded` | More than 3 reverts in 15m for a workload | critical |
+| `KubeRightsizeReconcileStale` | No reconcile completes within 30m | warning |
+
+Individual alerts can be disabled or tuned:
+
+```yaml
+metrics:
+  prometheusRule:
+    enabled: true
+    rules:
+      reconcileErrors:
+        severity: critical   # escalate to critical
+      degraded:
+        enabled: false       # disable this alert
+      reconcileStale:
+        staleDuration: 1h    # fire after 1 hour instead of 30m
+```
+
+See the [Helm chart README](../../charts/kube-rightsize/README.md) for the
+full list of configurable parameters.
