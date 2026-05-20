@@ -123,6 +123,12 @@ kubectl rightsize savings -n production
 > hours. With the default `queryStep: 5m`, `minimumDataPoints: 48` needs about
 > 4 hours of data. If you increase `queryStep`, the wall-clock time rises too.
 > See the [quickstart guide](docs/getting-started/quickstart.md) for details.
+>
+> **Effective defaults:** Most defaultable policy fields are applied by the
+> controller at reconcile time so that `RightSizeDefaults` and
+> `RightSizeNamespaceDefaults` can override them. Those fields may appear empty
+> in `kubectl get rightsizepolicy -o yaml`, but they are still active. Use
+> `kubectl rightsize explain <policy>` to inspect effective values.
 
 > **Upgrading?** Review the [changelog](CHANGELOG.md) for breaking changes.
 >

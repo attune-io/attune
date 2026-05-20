@@ -79,8 +79,30 @@ verify-doc-tool-versions: ## Verify supported tool version references stay consi
 verify-prometheusrule-metrics: ## Verify PrometheusRule alert expressions use real operator metrics
 	@bash hack/verify-prometheusrule-metrics.sh
 
+.PHONY: verify-release-artifacts
+verify-release-artifacts: kustomize ## Verify release artifacts generate cleanly and, if present, match current sources
+	@repo_root=$$(pwd); \
+	tmp_dir=$$(mktemp -d); \
+	trap 'rm -rf "$$tmp_dir"' EXIT; \
+	cp -R "$$repo_root"/config "$$tmp_dir"/; \
+	cd "$$tmp_dir"/config/manager && $(KUSTOMIZE) edit set image controller=$(IMG) >/dev/null; \
+	$(KUSTOMIZE) build "$$tmp_dir"/config/default > "$$tmp_dir"/install.yaml; \
+	cat "$$repo_root"/charts/kube-rightsize/crds/*.yaml > "$$tmp_dir"/crds.yaml; \
+	bash "$$repo_root"/hack/verify-doc-defaults.sh "$$tmp_dir"/crds.yaml; \
+	if [ -f "$$repo_root"/dist/install.yaml ] && ! diff -u "$$repo_root"/dist/install.yaml "$$tmp_dir"/install.yaml; then \
+		echo ""; \
+		echo "ERROR: dist/install.yaml is stale. Refresh it with: make build-installer IMG=$(IMG)" >&2; \
+		exit 1; \
+	fi; \
+	if [ -f "$$repo_root"/dist/crds.yaml ] && ! diff -u "$$repo_root"/dist/crds.yaml "$$tmp_dir"/crds.yaml; then \
+		echo ""; \
+		echo "ERROR: dist/crds.yaml is stale. Refresh it with: make build-crds" >&2; \
+		exit 1; \
+	fi; \
+	echo "OK: release artifacts generate cleanly."
+
 .PHONY: verify-quick
-verify-quick: lint yaml-lint test helm-lint helm-docs-check helm-unittest verify-boilerplate tidy-check verify-doc-defaults verify-helm-rbac verify-dashboard-metrics verify-doc-tool-versions verify-prometheusrule-metrics ## Fast pre-commit checks (no integration tests or govulncheck)
+verify-quick: lint yaml-lint test helm-lint helm-docs-check helm-unittest verify-boilerplate tidy-check verify-doc-defaults verify-helm-rbac verify-dashboard-metrics verify-doc-tool-versions verify-prometheusrule-metrics verify-release-artifacts ## Fast pre-commit checks (no integration tests or govulncheck)
 
 .PHONY: verify
 verify: verify-quick test-integration govulncheck ## Run all CI checks locally (includes integration tests)

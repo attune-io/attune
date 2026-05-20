@@ -10,17 +10,28 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 rc=0
 
+resolve_path() {
+  local path="$1"
+  if [[ "$path" = /* ]]; then
+    printf '%s\n' "$path"
+    return
+  fi
+  printf '%s/%s\n' "$REPO_ROOT" "$path"
+}
+
 check_default() {
   local label="$1" pattern="$2"
   shift 2
   local files=("$@")
 
   for f in "${files[@]}"; do
-    if [ ! -f "$REPO_ROOT/$f" ]; then
+    local path
+    path=$(resolve_path "$f")
+    if [ ! -f "$path" ]; then
       echo "WARN: $f does not exist, skipping"
       continue
     fi
-    if ! grep -q "$pattern" "$REPO_ROOT/$f"; then
+    if ! grep -q "$pattern" "$path"; then
       echo "FAIL: $label: pattern '$pattern' not found in $f"
       rc=1
     fi
@@ -33,11 +44,13 @@ check_absent() {
   local files=("$@")
 
   for f in "${files[@]}"; do
-    if [ ! -f "$REPO_ROOT/$f" ]; then
+    local path
+    path=$(resolve_path "$f")
+    if [ ! -f "$path" ]; then
       echo "WARN: $f does not exist, skipping"
       continue
     fi
-    if grep -q "$pattern" "$REPO_ROOT/$f"; then
+    if grep -q "$pattern" "$path"; then
       echo "FAIL: $label: unexpected pattern '$pattern' found in $f"
       rc=1
     fi
@@ -74,6 +87,7 @@ minimum_data_points_crd_files=(
   "charts/kube-rightsize/crds/rightsize.io_rightsizepolicies.yaml"
   "charts/kube-rightsize/crds/rightsize.io_rightsizedefaults.yaml"
   "charts/kube-rightsize/crds/rightsize.io_rightsizenamespacedefaults.yaml"
+  "$@"
 )
 
 check_default "minimumDataPoints timing (Go godoc)" \
@@ -245,6 +259,20 @@ check_default "Ready troubleshooting section" "^### WorkloadDiscoveryFailed" "do
 check_default "Prometheus setup condition table" "Ready: False, Reason: InsufficientData" "docs/guides/prometheus-setup.md"
 check_default "Prometheus setup condition meaning" "Prometheus could not be used for this reconcile" "docs/guides/prometheus-setup.md"
 check_absent "Prometheus setup stale condition meaning" "No Prometheus address found" "docs/guides/prometheus-setup.md"
+
+# --- controller-applied defaults explanation ---
+check_default "controller-applied defaults (README)" \
+  "controller at reconcile time" \
+  "README.md"
+check_default "effective values guidance (README)" \
+  "kubectl rightsize explain <policy>" \
+  "README.md"
+check_default "controller-applied defaults (quickstart)" \
+  "controller at reconcile time" \
+  "docs/getting-started/quickstart.md"
+check_default "effective values guidance (quickstart)" \
+  "kubectl rightsize explain <policy>" \
+  "docs/getting-started/quickstart.md"
 
 if [ $rc -ne 0 ]; then
   echo ""

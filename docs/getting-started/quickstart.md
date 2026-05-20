@@ -94,6 +94,12 @@ my-app   Recommend   1           0      0         False   5m    0           0
 > the default `queryStep: 5m`, `minimumDataPoints: 48` needs about 4 hours of
 > data before recommendations can appear. Lower it for faster evaluation, or
 > raise it for more confidence.
+>
+> Most defaultable fields are applied by the controller at reconcile time so
+> that `RightSizeDefaults` and `RightSizeNamespaceDefaults` can override them.
+> That means omitted fields may still look empty in `kubectl get rsp -o yaml`
+> even though the effective values are already in use. Use
+> `kubectl rightsize explain <policy>` to inspect those effective values.
 
 After enough data has accumulated:
 
