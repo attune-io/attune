@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Collector cache identity uses hashed token values instead of plain presence markers
 - Extracted `buildCollectorOptions` helper from the main `Reconcile` method
 - Documentation now clarifies that `minimumDataPoints` counts Prometheus range-query samples, so wall-clock recommendation timing depends on `queryStep`
+- Reserved Prometheus query parameters (`query`, `start`, `end`, `step`, `time`, `timeout`) are now rejected so operator-managed request keys cannot be overridden
 
 ### Fixed
 

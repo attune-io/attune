@@ -147,7 +147,9 @@ type PrometheusConfig struct {
 
 	// QueryParameters are appended to every query request URL.
 	// Use for backend-specific settings such as Thanos deduplication
-	// (e.g. {"dedup": "true", "partial_response": "true"}).
+	// (e.g. {"dedup": "true", "partial_response": "true"}). Reserved
+	// query keys controlled by the operator (`query`, `start`, `end`, `step`,
+	// `time`, `timeout`) are rejected.
 	// +optional
 	QueryParameters map[string]string `json:"queryParameters,omitempty"`
 
