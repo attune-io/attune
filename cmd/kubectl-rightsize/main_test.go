@@ -370,6 +370,58 @@ func TestPrintHistory(t *testing.T) {
 	assert.Contains(t, output, "Evicted")
 }
 
+func TestPrintHistory_LegacyEntryWithoutMethodDefaultsToInPlace(t *testing.T) {
+	policy := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "rightsize.io/v1alpha1",
+			"kind":       "RightSizePolicy",
+			"metadata": map[string]interface{}{
+				"name":      "legacy-app",
+				"namespace": "default",
+			},
+			"status": map[string]interface{}{
+				"resizeHistory": []interface{}{
+					map[string]interface{}{
+						"timestamp": "2026-05-10T12:00:00Z",
+						"workload":  "legacy-deploy",
+						"container": "app",
+						"resource":  "cpu",
+						"from":      "500m",
+						"to":        "250m",
+						"result":    "Success",
+					},
+				},
+			},
+		},
+	}
+
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{
+			gvr: "RightSizePolicyList",
+		}, policy)
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	printHistory(context.Background(), dynClient, "default")
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	output := buf.String()
+
+	assert.Contains(t, output, "legacy-app")
+	assert.Contains(t, output, "legacy-deploy")
+	assert.Contains(t, output, "InPlace")
+	assert.Contains(t, output, "Success")
+}
+
 func TestPrintHistory_NoHistory(t *testing.T) {
 	policy := &unstructured.Unstructured{
 		Object: map[string]interface{}{

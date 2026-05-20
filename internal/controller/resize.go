@@ -650,7 +650,7 @@ func (r *RightSizePolicyReconciler) resolveCanaryPhase(ctx context.Context, poli
 					hasRevert = true
 					break
 				}
-				if h.Method == "InPlace" && h.Result == rightsizev1alpha1.ResizeResultSuccess {
+				if isSuccessfulInPlaceHistory(h) {
 					hasSuccessfulInPlaceResize = true
 				}
 			}

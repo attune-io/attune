@@ -629,6 +629,13 @@ func printHistory(ctx context.Context, dynClient dynamic.Interface, namespace st
 			to, _ := entry["to"].(string)
 			method, _ := entry["method"].(string)
 			result, _ := entry["result"].(string)
+			if method == "" {
+				if result == "Evicted" {
+					method = "Eviction"
+				} else {
+					method = "InPlace"
+				}
+			}
 
 			if t, parseErr := time.Parse(time.RFC3339, ts); parseErr == nil {
 				ts = t.Local().Format("Jan 02 15:04")

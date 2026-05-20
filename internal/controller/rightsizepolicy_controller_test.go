@@ -4030,6 +4030,30 @@ func TestResolveCanaryPhase_PromotesAfterObservation(t *testing.T) {
 	assert.Equal(t, rightsizev1alpha1.CanaryPhaseFullRollout, policy.Status.Canary.Phase)
 }
 
+func TestResolveCanaryPhase_LegacyHistoryWithoutMethodPromotesCanary(t *testing.T) {
+	startTime := metav1.NewTime(time.Now().Add(-10 * time.Minute))
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeCanary
+	policy.Spec.UpdateStrategy.Canary = &rightsizev1alpha1.CanaryConfig{
+		Percentage:        20,
+		ObservationPeriod: metav1.Duration{Duration: 5 * time.Minute},
+		AutoPromote:       true,
+	}
+	policy.Status.Canary = &rightsizev1alpha1.CanaryStatus{
+		Phase:     rightsizev1alpha1.CanaryPhaseInProgress,
+		StartTime: &startTime,
+	}
+	policy.Status.ResizeHistory = []rightsizev1alpha1.ResizeHistoryEntry{
+		{Result: rightsizev1alpha1.ResizeResultSuccess, Timestamp: metav1.NewTime(startTime.Add(1 * time.Minute))},
+	}
+
+	reconciler := &RightSizePolicyReconciler{}
+	mode := reconciler.resolveCanaryPhase(context.Background(), policy, rightsizev1alpha1.UpdateModeCanary)
+
+	assert.Equal(t, rightsizev1alpha1.UpdateModeAuto, mode, "legacy in-place history without method should still promote canary")
+	assert.Equal(t, rightsizev1alpha1.CanaryPhaseFullRollout, policy.Status.Canary.Phase)
+}
+
 func TestResolveCanaryPhase_EvictionDoesNotPromoteCanary(t *testing.T) {
 	startTime := metav1.NewTime(time.Now().Add(-10 * time.Minute))
 	policy := newTestPolicy("test-policy", "default")
@@ -4227,6 +4251,15 @@ func TestReconcile_HistoryBasedResizedDerivation(t *testing.T) {
 				{Workload: "worker", Method: "Eviction", Result: rightsizev1alpha1.ResizeResultEvicted, Timestamp: now},
 			},
 			wantResized: 0,
+		},
+		{
+			name: "legacy successful history without method still counts as resized",
+			mode: rightsizev1alpha1.UpdateModeOneShot,
+			history: []rightsizev1alpha1.ResizeHistoryEntry{
+				{Workload: "api-server", Result: rightsizev1alpha1.ResizeResultSuccess, Timestamp: now},
+				{Workload: "worker", Result: rightsizev1alpha1.ResizeResultSuccess, Timestamp: now},
+			},
+			wantResized: 2,
 		},
 		{
 			name: "only failed and reverted entries leave Resized at 0",

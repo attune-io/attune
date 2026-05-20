@@ -109,3 +109,40 @@ func TestAppendHistory_NoTruncation(t *testing.T) {
 	result := appendHistory(existing, newEntries, 20)
 	assert.Len(t, result, 5)
 }
+
+func TestResizeHistoryMethod_LegacyDefaults(t *testing.T) {
+	assert.Equal(t, "InPlace", resizeHistoryMethod(rightsizev1alpha1.ResizeHistoryEntry{
+		Result: rightsizev1alpha1.ResizeResultSuccess,
+	}))
+	assert.Equal(t, "Eviction", resizeHistoryMethod(rightsizev1alpha1.ResizeHistoryEntry{
+		Result: rightsizev1alpha1.ResizeResultEvicted,
+	}))
+}
+
+func TestNormalizeResizeHistoryMethods_FillsMissingMethods(t *testing.T) {
+	history := []rightsizev1alpha1.ResizeHistoryEntry{
+		{Result: rightsizev1alpha1.ResizeResultSuccess},
+		{Result: rightsizev1alpha1.ResizeResultEvicted},
+		{Method: "InPlace", Result: rightsizev1alpha1.ResizeResultReverted},
+	}
+
+	changed := normalizeResizeHistoryMethods(history)
+
+	assert.True(t, changed)
+	assert.Equal(t, "InPlace", history[0].Method)
+	assert.Equal(t, "Eviction", history[1].Method)
+	assert.Equal(t, "InPlace", history[2].Method)
+}
+
+func TestIsSuccessfulInPlaceHistory_LegacySuccessCounts(t *testing.T) {
+	assert.True(t, isSuccessfulInPlaceHistory(rightsizev1alpha1.ResizeHistoryEntry{
+		Result: rightsizev1alpha1.ResizeResultSuccess,
+	}))
+	assert.False(t, isSuccessfulInPlaceHistory(rightsizev1alpha1.ResizeHistoryEntry{
+		Result: rightsizev1alpha1.ResizeResultEvicted,
+	}))
+	assert.False(t, isSuccessfulInPlaceHistory(rightsizev1alpha1.ResizeHistoryEntry{
+		Method: "InPlace",
+		Result: rightsizev1alpha1.ResizeResultReverted,
+	}))
+}

@@ -425,6 +425,33 @@ func appendHistory(existing []rightsizev1alpha1.ResizeHistoryEntry,
 	return result
 }
 
+func resizeHistoryMethod(entry rightsizev1alpha1.ResizeHistoryEntry) string {
+	if entry.Method != "" {
+		return entry.Method
+	}
+	if entry.Result == rightsizev1alpha1.ResizeResultEvicted {
+		return "Eviction"
+	}
+	return resize.MethodInPlace
+}
+
+func normalizeResizeHistoryMethods(history []rightsizev1alpha1.ResizeHistoryEntry) bool {
+	changed := false
+	for i := range history {
+		method := resizeHistoryMethod(history[i])
+		if method == history[i].Method {
+			continue
+		}
+		history[i].Method = method
+		changed = true
+	}
+	return changed
+}
+
+func isSuccessfulInPlaceHistory(entry rightsizev1alpha1.ResizeHistoryEntry) bool {
+	return resizeHistoryMethod(entry) == resize.MethodInPlace && entry.Result == rightsizev1alpha1.ResizeResultSuccess
+}
+
 // setResizingCondition sets the Resizing condition based on current state.
 func (r *RightSizePolicyReconciler) setResizingCondition(policy *rightsizev1alpha1.RightSizePolicy, cooldownActive bool) {
 	if !isResizeMode(policy.Spec.UpdateStrategy.Mode) {
