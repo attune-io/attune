@@ -8308,6 +8308,118 @@ func TestShouldSkipResize_QuotaHeadroomExceeded(t *testing.T) {
 	assert.Contains(t, reason, "would exceed ResourceQuota")
 }
 
+func TestShouldSkipResize_NodeAllocatableExceeded(t *testing.T) {
+	scheme := testScheme()
+	// Node with 2000m CPU and 4Gi memory allocatable.
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-node"},
+		Status: corev1.NodeStatus{
+			Allocatable: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("2000m"),
+				corev1.ResourceMemory: resource.MustParse("4Gi"),
+			},
+		},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
+	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+
+	policy := &rightsizev1alpha1.RightSizePolicy{}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pod", Namespace: "default"},
+		Spec: corev1.PodSpec{
+			NodeName: "test-node",
+			Containers: []corev1.Container{
+				{Name: "app", Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("500m"),
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
+					},
+				}},
+				{Name: "sidecar", Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("500m"),
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
+					},
+				}},
+			},
+		},
+	}
+	containerRec := rightsizev1alpha1.ContainerRecommendation{
+		Name: "app",
+		Current: rightsizev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("500m"),
+			MemoryRequest: resource.MustParse("1Gi"),
+		},
+		Recommended: rightsizev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("1600m"),
+			MemoryRequest: resource.MustParse("1Gi"),
+		},
+	}
+	// Total after resize: app=1600m + sidecar=500m = 2100m > node 2000m.
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("1600m"),
+			corev1.ResourceMemory: resource.MustParse("1Gi"),
+		},
+	}
+
+	skip, reason := r.shouldSkipResize(context.Background(), policy, pod, containerRec, target, nil)
+	assert.True(t, skip)
+	assert.Contains(t, reason, "exceed node allocatable")
+}
+
+func TestShouldSkipResize_NodeAllocatableNotExceeded(t *testing.T) {
+	scheme := testScheme()
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-node"},
+		Status: corev1.NodeStatus{
+			Allocatable: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("4000m"),
+				corev1.ResourceMemory: resource.MustParse("8Gi"),
+			},
+		},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
+	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+
+	policy := &rightsizev1alpha1.RightSizePolicy{}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pod", Namespace: "default"},
+		Spec: corev1.PodSpec{
+			NodeName: "test-node",
+			Containers: []corev1.Container{
+				{Name: "app", Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("500m"),
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
+					},
+				}},
+			},
+		},
+	}
+	containerRec := rightsizev1alpha1.ContainerRecommendation{
+		Name: "app",
+		Current: rightsizev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("500m"),
+			MemoryRequest: resource.MustParse("1Gi"),
+		},
+		Recommended: rightsizev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("1000m"),
+			MemoryRequest: resource.MustParse("2Gi"),
+		},
+	}
+	// Total after resize: 1000m < 4000m, 2Gi < 8Gi. Should not skip.
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("1000m"),
+			corev1.ResourceMemory: resource.MustParse("2Gi"),
+		},
+	}
+
+	skip, _ := r.shouldSkipResize(context.Background(), policy, pod, containerRec, target, nil)
+	assert.False(t, skip)
+}
+
 func TestFindContainerByName_RegularContainer(t *testing.T) {
 	pod := &corev1.Pod{
 		Spec: corev1.PodSpec{

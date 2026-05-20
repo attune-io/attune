@@ -413,3 +413,34 @@ func TestRecommendationEngine_ExplainChain(t *testing.T) {
 	assert.Equal(t, "max_change_capped", explanation.ChangeFilterApplied)
 	assert.Equal(t, int64(750), explanation.AfterChangeFilter.MilliValue())
 }
+
+func TestRecommendationEngine_ZeroCurrentBypassesChangeFilter(t *testing.T) {
+	// When the current allocation is 0m (container with no explicit resource
+	// requests), the change filter cannot compute a percentage change and is
+	// skipped entirely. The recommendation should still be bounded by
+	// min/max bounds but not by maxChangePercent.
+	engine := NewEngine(
+		95,
+		1.2,
+		resource.MustParse("50m"),
+		resource.MustParse("4000m"),
+		50, // maxChangePercent = 50%
+		EngineOpts{IsCPU: true},
+	)
+
+	profile := buildRealisticCPUProfile(0.500, 0.95)
+	current := resource.MustParse("0m")
+
+	recommended, explanation, changed := engine.RecommendWithExplanation(profile, current)
+	assert.True(t, changed, "recommendation should differ from zero current")
+	assert.Greater(t, recommended.MilliValue(), int64(0),
+		"recommendation from zero current should be positive")
+	assert.Empty(t, explanation.ChangeFilterApplied,
+		"change filter should be skipped when current is zero")
+	// The recommendation is bounded by max bound (4000m) but not by
+	// maxChangePercent because 50% of 0 is 0 (division by zero avoided).
+	assert.LessOrEqual(t, recommended.MilliValue(), int64(4000),
+		"recommendation should not exceed max bound")
+	assert.GreaterOrEqual(t, recommended.MilliValue(), int64(50),
+		"recommendation should not go below min bound")
+}
