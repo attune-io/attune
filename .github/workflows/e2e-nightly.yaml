@@ -39,6 +39,7 @@ env:
   K3D_VERSION: "v5.8.3"
   CERT_MANAGER_VERSION: "v1.17.2"
   PROMETHEUS_IMAGE: "quay.io/prometheus/prometheus:v3.4.1"
+  PROMETHEUS_CHART_VERSION: "27.22.0"
 
 jobs:
   prepare-matrix:
@@ -221,12 +222,33 @@ jobs:
           helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
           helm repo update
           helm install prometheus prometheus-community/prometheus \
+            --version ${{ env.PROMETHEUS_CHART_VERSION }} \
             --namespace monitoring --create-namespace \
+            --set server.image.repository=quay.io/prometheus/prometheus \
+            --set server.image.tag=v3.4.1 \
             --set server.persistentVolume.enabled=false \
             --set alertmanager.enabled=false \
             --set prometheus-pushgateway.enabled=false \
             --set server.global.scrape_interval=15s \
             --wait --timeout 5m
+
+      - name: Wait for cAdvisor metrics in Prometheus
+        shell: bash -Eeuo pipefail -x {0}
+        run: |
+          echo "Waiting for Prometheus to scrape cAdvisor metrics..."
+          PROM_POD=$(kubectl get pods -n monitoring -l app.kubernetes.io/name=prometheus,app.kubernetes.io/component=server -o name | head -1)
+          for i in $(seq 1 30); do
+            result=$(kubectl exec -n monitoring "$PROM_POD" -- \
+              wget -qO- 'http://localhost:9090/api/v1/query?query=container_cpu_usage_seconds_total' 2>/dev/null || true)
+            if echo "$result" | grep -q '"result":\[{'; then
+              echo "cAdvisor metrics available after ${i}x5s"
+              break
+            fi
+            if [ "$i" -eq 30 ]; then
+              echo "WARNING: cAdvisor metrics not found after 150s, proceeding anyway"
+            fi
+            sleep 5
+          done
 
       - name: Build and load operator image
         shell: bash -Eeuo pipefail -x {0}

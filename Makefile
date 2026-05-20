@@ -277,6 +277,7 @@ _deploy-stack:
 	helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true
 	helm repo update
 	helm install prometheus prometheus-community/prometheus \
+		--version 27.22.0 \
 		--namespace monitoring --create-namespace \
 		--set server.persistentVolume.enabled=false \
 		--set alertmanager.enabled=false \

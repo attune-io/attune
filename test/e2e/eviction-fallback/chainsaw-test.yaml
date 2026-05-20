@@ -65,6 +65,7 @@ spec:
                     address: http://prometheus-server.monitoring:80
                   minimumDataPoints: 1
                   historyWindow: 1h
+                  queryStep: 1m
                 cpu:
                   percentile: 95
                   safetyMargin: "1.2"
