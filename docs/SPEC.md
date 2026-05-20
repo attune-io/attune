@@ -181,8 +181,9 @@ spec:
       #   name: prometheus-token
     # How far back to look for usage patterns
     historyWindow: 168h       # default: 168h (7d), min: 1h, max: 720h
-    # Minimum data points before making recommendations
-    minimumDataPoints: 48     # default: 48 (2 days * 24 hours)
+    # Minimum Prometheus range-query samples before making recommendations
+    minimumDataPoints: 48     # default: 48 (~4h at the default queryStep: 5m)
+    queryStep: 5m             # default: 5m, min: 10s, max: 1h
 
   # Per-resource configuration
   cpu:

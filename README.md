@@ -101,7 +101,7 @@ kubectl get rightsizepolicies -n production
 # api-services    Recommend   3           0      0         False   5m
 ```
 
-After data accumulates (~1-2 days with default settings), recommendations appear:
+After enough data accumulates, recommendations appear:
 
 ```bash
 kubectl get rightsizepolicies -n production
@@ -119,10 +119,10 @@ kubectl rightsize savings -n production
 # production   api-services   830m        1012Mi      $72.40
 ```
 
-> **Note:** The default `minimumDataPoints: 48` requires ~2 days of hourly
-> Prometheus samples. For faster evaluation, set
-> `metricsSource.minimumDataPoints: 24` (1 day). See the
-> [quickstart guide](docs/getting-started/quickstart.md) for details.
+> **Note:** `minimumDataPoints` counts Prometheus range-query samples, not
+> hours. With the default `queryStep: 5m`, `minimumDataPoints: 48` needs about
+> 4 hours of data. If you increase `queryStep`, the wall-clock time rises too.
+> See the [quickstart guide](docs/getting-started/quickstart.md) for details.
 
 > **Upgrading?** Review the [changelog](CHANGELOG.md) for breaking changes.
 >

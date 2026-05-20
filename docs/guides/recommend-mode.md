@@ -65,10 +65,10 @@ The confidence score reflects how much data backs the recommendation:
 
 | Score | Meaning | Action |
 |-------|---------|--------|
-| 0.0 - 0.3 | Very low; less than ~2 days of data | Wait for more data |
+| 0.0 - 0.3 | Very low; sparse recent data | Wait for more data |
 | 0.3 - 0.6 | Moderate; partial coverage | Review manually before acting |
-| 0.6 - 0.8 | Good; roughly a full week of data | Safe to promote to Canary |
-| 0.8 - 1.0 | High; well-covered history window | Safe to promote to Auto |
+| 0.6 - 0.8 | Good; substantial recent coverage | Safe to promote to Canary |
+| 0.8 - 1.0 | High; near-complete history coverage | Safe to promote to Auto |
 
 !!! tip
     Increase `historyWindow` and `minimumDataPoints` for workloads with

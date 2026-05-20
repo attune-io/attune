@@ -235,8 +235,8 @@ When data is sparse (you just deployed the policy, or the workload is new),
 recommendations are automatically inflated to be conservative. As more data
 accumulates, confidence increases and recommendations become more precise.
 
-After 7 days of hourly data (168 data points), confidence reaches 1.0 and the
-recommendation reflects actual observed behavior with minimal padding.
+With a full 7-day history window and the default `queryStep: 5m`, confidence reaches
+1.0 and the recommendation reflects actual observed behavior with minimal padding.
 
 ## Who Is This For?
 
@@ -376,7 +376,7 @@ spec:
 ### 3. Wait for data, then review
 
 ```bash
-# After 1-2 days of data collection
+# After enough data collection for your queryStep
 kubectl rightsize recommendations -n default
 kubectl rightsize savings -n default
 ```

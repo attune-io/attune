@@ -10,7 +10,7 @@
 Fields are defaulted in three layers. Only `weight` and `maxConcurrentResizes`
 appear in the stored spec when omitted by the user (they are CRD schema or
 webhook defaults). All other defaultable fields (`mode`, `controlledValues`,
-`cooldown`, `historyWindow`, `minimumDataPoints`, `autoRevert`,
+`cooldown`, `historyWindow`, `minimumDataPoints`, `queryStep`, `autoRevert`,
 `resizeMethod`, `maxCpuChangePercent`, `maxMemoryChangePercent`) are applied
 by the controller at reconcile time so that cluster-wide `RightSizeDefaults`
 can override them. These fields will appear empty in `kubectl get rsp -o yaml`

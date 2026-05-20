@@ -238,8 +238,9 @@ kubectl get rsp -A
 | `Ready: False, Reason: PrometheusUnavailable` | No Prometheus address found (check resolution chain above) |
 
 If the condition is `InsufficientData`, wait for enough samples to accumulate.
-By default, recommendations need `minimumDataPoints: 48` (about 2 days of
-hourly samples) within the default `historyWindow: 168h`.
+By default, recommendations need `minimumDataPoints: 48` Prometheus range-query
+samples. With the default `queryStep: 5m`, that is about 4 hours of data
+within the default `historyWindow: 168h`.
 
 ## Operator metrics (what kube-rightsize exposes)
 

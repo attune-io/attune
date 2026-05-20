@@ -90,9 +90,10 @@ my-app   Recommend   1           0      0         False   5m    0           0
 > **Note:** `READY=False` here means the policy is still in the `InsufficientData`
 > phase. Check `.status.conditions` to see the reason and progress message.
 >
-> With the default `minimumDataPoints: 48`, the operator needs ~2 days of
-> hourly Prometheus samples before generating recommendations. To see results faster
-> during evaluation, set `minimumDataPoints: 24` (1 day of data).
+> `minimumDataPoints` counts Prometheus range-query samples, not hours. With
+> the default `queryStep: 5m`, `minimumDataPoints: 48` needs about 4 hours of
+> data before recommendations can appear. Lower it for faster evaluation, or
+> raise it for more confidence.
 
 After enough data has accumulated:
 

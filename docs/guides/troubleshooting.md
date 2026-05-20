@@ -99,7 +99,8 @@ or label names have been relabeled.
 **Symptom**: Ready condition is `False` with reason `InsufficientData`.
 
 **Cause**: Not enough Prometheus data points to generate recommendations.
-The default minimum is 48 (about 2 days of hourly samples).
+The default minimum is 48 Prometheus range-query samples. With the default
+`queryStep: 5m`, that is about 4 hours of data.
 
 **Fix**: Wait for more data to accumulate, or adjust these settings:
 
@@ -112,7 +113,7 @@ The default minimum is 48 (about 2 days of hourly samples).
 ```yaml
 spec:
   metricsSource:
-    minimumDataPoints: 48   # ~2 days of hourly data
+    minimumDataPoints: 48   # ~4 hours of data at the default queryStep: 5m
     historyWindow: 168h     # query the last 7 days of metrics
 ```
 

@@ -85,7 +85,7 @@ dataComponent = sqrt(dataPoints / 24)
 confidence    = clamp(min(timeComponent, dataComponent) / 7, 0, 1)
 ```
 
-A full 7 days of hourly data (168 points) yields confidence near 1.0.
+A full 7-day history window at the default `queryStep: 5m` yields confidence near 1.0.
 
 ## 4. Bounds Estimator
 
