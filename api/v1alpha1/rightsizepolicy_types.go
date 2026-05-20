@@ -134,7 +134,8 @@ type MetricsSource struct {
 	HistoryWindow *metav1.Duration `json:"historyWindow,omitempty"`
 
 	// MinimumDataPoints is the minimum number of data points required
-	// before generating recommendations. Minimum 1, default 48 (2 days).
+	// before generating recommendations. Minimum 1, default 48 samples.
+	// With the default queryStep of 5m, 48 samples is about 4 hours of data.
 	// Defaults to 48 if not set (applied by the controller so that
 	// RightSizeDefaults cluster configuration can override it).
 	// +kubebuilder:validation:Minimum=1
