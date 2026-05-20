@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Secret-backed bearer tokens are refreshed on every reconcile instead of being cached until TTL expiry
 - Collector cache identity uses hashed token values instead of plain presence markers
 - Extracted `buildCollectorOptions` helper from the main `Reconcile` method
+- Documentation now clarifies that `minimumDataPoints` counts Prometheus range-query samples, so wall-clock recommendation timing depends on `queryStep`
 
 ### Fixed
 
