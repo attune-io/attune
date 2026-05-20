@@ -191,6 +191,10 @@ separate parameter description, producing garbled output.
 - E2E tests that modify CRs mid-test must use a refetch/retry loop to handle
   optimistic concurrency conflicts (the operator reconciles the same object
   concurrently, causing `the object has been modified` errors on update)
+- Go E2E tests (`test/e2e-go/`) must include `t.Parallel()` as the first line.
+  Every test creates a unique namespace via `uniqueNS()`, so they are fully
+  isolated. Without `t.Parallel()`, 13 tests run sequentially (~12 min);
+  with it, they run concurrently (~2 min, bounded by OOMKill at 127s).
 
 ## Safety
 
