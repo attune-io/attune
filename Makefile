@@ -281,6 +281,7 @@ _deploy-stack:
 		--set server.persistentVolume.enabled=false \
 		--set alertmanager.enabled=false \
 		--set prometheus-pushgateway.enabled=false \
+		--set server.global.scrape_interval=15s \
 		--wait --timeout 3m 2>/dev/null || true
 	@echo "Installing operator via Helm..."
 	helm install kube-rightsize ./charts/kube-rightsize \
