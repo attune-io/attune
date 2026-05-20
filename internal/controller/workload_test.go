@@ -25,6 +25,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -658,4 +659,120 @@ func TestWorkload_GetPodsForWorkload(t *testing.T) {
 			assert.Len(t, pods, tt.wantLen)
 		})
 	}
+}
+
+// ---------- Adapter method coverage ----------
+
+func TestWorkload_AdapterPodSpec(t *testing.T) {
+	cpuReq := corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m")}
+
+	tests := []struct {
+		name string
+		obj  client.Object
+	}{
+		{"Job", &batchv1.Job{
+			Spec: batchv1.JobSpec{
+				Template: corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "worker", Resources: corev1.ResourceRequirements{Requests: cpuReq}}},
+					},
+				},
+			},
+		}},
+		{"CronJob", &batchv1.CronJob{
+			Spec: batchv1.CronJobSpec{
+				JobTemplate: batchv1.JobTemplateSpec{
+					Spec: batchv1.JobSpec{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "cron-worker", Resources: corev1.ResourceRequirements{Requests: cpuReq}}},
+							},
+						},
+					},
+				},
+			},
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := newWorkloadAdapter(tt.obj)
+			require.NotNil(t, a)
+			ps := a.PodSpec()
+			require.NotNil(t, ps)
+			assert.NotEmpty(t, ps.Containers)
+			assert.True(t, a.IsBatch())
+			assert.False(t, a.IsRollingOut())
+			assert.NotEmpty(t, a.PodNameRegexSuffix())
+		})
+	}
+}
+
+func TestWorkload_AdapterPodSelectorLabels(t *testing.T) {
+	tests := []struct {
+		name     string
+		obj      client.Object
+		wantNil  bool
+		wantKeys []string
+	}{
+		{"Job with selector", &batchv1.Job{
+			Spec: batchv1.JobSpec{
+				Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"job": "test"}},
+			},
+		}, false, []string{"job"}},
+		{"Job without selector (falls back to template labels)", &batchv1.Job{
+			Spec: batchv1.JobSpec{
+				Template: corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "worker"}},
+				},
+			},
+		}, false, []string{"app"}},
+		{"CronJob without selector (falls back to template labels)", &batchv1.CronJob{
+			Spec: batchv1.CronJobSpec{
+				JobTemplate: batchv1.JobTemplateSpec{
+					Spec: batchv1.JobSpec{
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "cron"}},
+						},
+					},
+				},
+			},
+		}, false, []string{"app"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := newWorkloadAdapter(tt.obj)
+			require.NotNil(t, a)
+			labels := a.PodSelectorLabels()
+			if tt.wantNil {
+				assert.Nil(t, labels)
+			} else {
+				for _, k := range tt.wantKeys {
+					assert.Contains(t, labels, k)
+				}
+			}
+		})
+	}
+}
+
+func TestWorkload_JobIndexedCompletionRegex(t *testing.T) {
+	indexed := batchv1.IndexedCompletion
+	job := &batchv1.Job{
+		Spec: batchv1.JobSpec{CompletionMode: &indexed},
+	}
+	a := newWorkloadAdapter(job)
+	require.NotNil(t, a)
+	assert.Contains(t, a.PodNameRegexSuffix(), "[0-9]+")
+
+	cronJob := &batchv1.CronJob{
+		Spec: batchv1.CronJobSpec{
+			JobTemplate: batchv1.JobTemplateSpec{
+				Spec: batchv1.JobSpec{CompletionMode: &indexed},
+			},
+		},
+	}
+	ca := newWorkloadAdapter(cronJob)
+	require.NotNil(t, ca)
+	assert.Contains(t, ca.PodNameRegexSuffix(), "[0-9]+")
 }
