@@ -5,7 +5,8 @@
 kube-rightsize is a Kubernetes operator that automatically right-sizes pod
 resource requests and limits using
 [In-Place Pod Resize](https://kubernetes.io/blog/2025/12/19/kubernetes-v1-35-in-place-pod-resize-ga/)
-(GA in Kubernetes 1.33+). No pod restarts. No evictions. No HPA conflicts.
+(GA in Kubernetes 1.33+). In-place by default, optional eviction fallback for
+infeasible resizes, and no HPA conflicts.
 
 ## The Problem
 

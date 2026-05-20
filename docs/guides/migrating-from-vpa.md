@@ -10,7 +10,7 @@ with no downtime.
 |----------|---------------------------|-------|
 | `Off` | **Observe** or **Recommend** | Observe: data collection only. Recommend: collect and write recommendations to status |
 | `Initial` | **OneShot** | Set resources once; kube-rightsize uses in-place resize instead of restart |
-| `Auto` (with eviction) | **Canary** or **Auto** | In-place resize, no evictions |
+| `Auto` (with eviction) | **Canary** or **Auto** | In-place first; add `resizeMethod: InPlaceOrEvict` if you want eviction fallback instead of skipping infeasible pods |
 | `Recommend` (UpdateMode=Off) | **Recommend** | Write recommendations to status without acting |
 
 ## Step-by-step migration

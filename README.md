@@ -13,7 +13,7 @@
 
 kube-rightsize is a Kubernetes operator that automatically right-sizes pod
 resource requests and limits using [In-Place Pod Resize](https://kubernetes.io/blog/2025/12/19/kubernetes-v1-35-in-place-pod-resize-ga/)
-(GA in Kubernetes 1.33+). No pod restarts. No evictions. No HPA conflicts.
+(GA in Kubernetes 1.33+). In-place by default, optional eviction fallback for infeasible resizes, and no HPA conflicts.
 
 ---
 
@@ -152,8 +152,8 @@ HPA coexistence, cluster-wide defaults, and multi-workload selectors.
 ## kubectl Plugin
 
 A `kubectl rightsize` plugin provides quick access to policy status,
-savings, recommendations, and recommendation reasoning without raw YAML
-parsing.
+savings, recommendations, resize history, and recommendation reasoning
+without raw YAML parsing.
 
 ```bash
 # Build the plugin
@@ -166,6 +166,7 @@ sudo cp bin/kubectl-rightsize /usr/local/bin/
 kubectl rightsize status -n production
 kubectl rightsize savings -n production
 kubectl rightsize recommendations -n production
+kubectl rightsize history -n production
 kubectl rightsize explain api-services -n production
 
 # All namespaces
@@ -253,7 +254,9 @@ The dashboard includes:
 ### Operations
 
 - **In-place resize**: Adjusts CPU and memory on running pods via the
-  K8s 1.33+ `/resize` subresource. No evictions, no restarts.
+  K8s 1.33+ `/resize` subresource. The default path is in-place with no
+  restarts. `InPlaceOrEvict` can optionally fall back to eviction when
+  kubelet rejects an in-place resize.
 - **Cost savings estimation**: Per-workload `EstimatedMonthlySavings` in
   status, CLI (`kubectl rightsize savings`), and Grafana dashboard.
 - **Scheduled resize windows**: Restrict resizes to specific time windows
