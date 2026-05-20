@@ -212,3 +212,39 @@ func TestBuildProfile_NaNInfFiltered(t *testing.T) {
 	assert.False(t, math.IsNaN(profile.OverallPercentiles.P99))
 	assert.False(t, math.IsInf(profile.OverallPercentiles.P99, 0))
 }
+
+func TestBuildProfile_TwoPassCountingCorrectness(t *testing.T) {
+	// Verify the two-pass preallocation produces identical results to what
+	// a naive grow-as-you-go implementation would produce. This guards the
+	// optimization in BuildProfile that counts valid samples first, then
+	// preallocates exact-sized slices.
+	samples := []Sample{
+		{Timestamp: makeTimestamp(0, 3, 0), Value: 10},
+		{Timestamp: makeTimestamp(0, 3, 15), Value: 20},
+		{Timestamp: makeTimestamp(0, 3, 30), Value: math.NaN()},
+		{Timestamp: makeTimestamp(0, 9, 0), Value: 50},
+		{Timestamp: makeTimestamp(0, 9, 30), Value: math.Inf(1)},
+		{Timestamp: makeTimestamp(0, 15, 0), Value: 30},
+		{Timestamp: makeTimestamp(0, 15, 15), Value: 40},
+		{Timestamp: makeTimestamp(0, 15, 30), Value: 60},
+	}
+
+	profile := BuildProfile(samples)
+
+	assert.Equal(t, 6, profile.DataPoints, "only valid (non-NaN/Inf) samples should be counted")
+
+	// Hour 3 should have [10, 20].
+	assert.InDelta(t, 15.0, profile.HourlyPercentiles[3].P50, 0.1)
+	assert.InDelta(t, 20.0, profile.HourlyPercentiles[3].Max, 0.01)
+
+	// Hour 9 should have [50] only (Inf filtered).
+	assert.InDelta(t, 50.0, profile.HourlyPercentiles[9].P50, 0.01)
+
+	// Hour 15 should have [30, 40, 60].
+	assert.InDelta(t, 40.0, profile.HourlyPercentiles[15].P50, 0.1)
+	assert.InDelta(t, 60.0, profile.HourlyPercentiles[15].Max, 0.01)
+
+	// Overall percentiles should reflect all 6 valid values: [10,20,30,40,50,60].
+	assert.InDelta(t, 60.0, profile.OverallPercentiles.Max, 0.01)
+	assert.InDelta(t, 35.0, profile.OverallPercentiles.P50, 0.1) // median of [10,20,30,40,50,60]
+}
