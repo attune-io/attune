@@ -174,16 +174,17 @@ The shared pool services are:
 - `actions.runner.SebTardifLabs.pool-2.service`
 - `actions.runner.SebTardifLabs.pool-3.service`
 
-To inspect whether the pool is merely idle or actively executing jobs, also check:
+To inspect raw runner processes on the host, you can also check:
 
 ```bash
 ps -o pid,ppid,%cpu,etime,cmd -C Runner.Listener -C Runner.Worker
 ```
 
 Interpretation:
-- `Runner.Listener` present = runner service is up on this machine
-- `Runner.Worker` present = a runner is actively executing a job
-- listeners up with no workers = pool is idle, not down
+- `Runner.Listener` present = a runner service is up on this machine
+- `Runner.Worker` present = some runner on this machine is actively executing a job
+- this view is host-wide and can include runners from other repos or projects
+- for the shared `SebTardifLabs` pool specifically, prefer `make ci-runner-status`
 
 The GitHub org runner API is still useful as supporting evidence:
 
@@ -192,7 +193,19 @@ gh api orgs/SebTardifLabs/actions/runners \
   --jq '.runners[] | "\(.name): \(.status)"'
 ```
 
-But treat it as secondary to local service state and active worker processes.
+For the common "why is CI queued?" case, use the one-command summary:
+
+```bash
+make ci-runner-status
+```
+
+It prints:
+- queued or in-progress runs for this repo
+- local shared-pool service health with busy/idle state
+- worker processes scoped to the shared `SebTardifLabs` pool
+- org runner status with the `busy` flag
+
+But treat the org API as secondary to local service state and active worker processes.
 If the shared pool is actually offline, CI jobs will queue indefinitely.
 
 Docker-using jobs on these self-hosted runners must use the shared
