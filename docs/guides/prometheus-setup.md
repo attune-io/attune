@@ -48,9 +48,9 @@ flowchart TD
     G -->|found?| H{Yes}
     H --> Z
     G -->|not found| I[Auto-discovery:<br/>well-known service names]
-    G -->|found?| H{Yes}
-    H --> Z
-    G -->|not found| I[PrometheusUnavailable<br/>condition set]
+    I -->|found?| J{Yes}
+    J --> Z
+    I -->|not found| K[PrometheusUnavailable<br/>condition set]
 ```
 
 ### 1. Policy-level address (highest priority)
@@ -237,7 +237,7 @@ kubectl get rsp -A
 |-----------|---------|
 | `Ready: True, Reason: Monitoring` | Prometheus reachable, recommendations computed |
 | `Ready: False, Reason: InsufficientData` | Prometheus reachable but not enough history yet |
-| `Ready: False, Reason: PrometheusUnavailable` | No Prometheus address found (check resolution chain above) |
+| `Ready: False, Reason: PrometheusUnavailable` | Prometheus could not be used for this reconcile. Check the condition message and [Troubleshooting](troubleshooting.md#prometheusunavailable) for address, auth/TLS, timeout, or query failures. |
 
 If the condition is `InsufficientData`, wait for enough samples to accumulate.
 By default, recommendations need `minimumDataPoints: 48` Prometheus range-query

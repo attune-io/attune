@@ -148,6 +148,41 @@ spec:
     historyWindow: 168h     # query the last 7 days of metrics
 ```
 
+### InvalidConfig
+
+**Symptom**: Ready condition is `False` with reason `InvalidConfig`.
+
+**Cause**: The controller could not fetch or apply defaults cleanly before
+continuing. The condition message includes the failing step, such as
+`Failed to fetch defaults: listing RightSizeNamespaceDefaults ...`.
+
+**Fix**:
+
+1. Check whether the operator can list `RightSizeDefaults` and
+   `RightSizeNamespaceDefaults`.
+2. Verify the defaults objects themselves are valid and that only the
+   expected objects exist in the namespace.
+3. Check operator logs for the exact failing API call or validation error.
+
+### WorkloadDiscoveryFailed
+
+**Symptom**: Ready condition is `False` with reason `WorkloadDiscoveryFailed`.
+
+**Cause**: The operator could not resolve the policy's `targetRef` into the
+workloads it should inspect. The condition message includes the failing step,
+for example an unsupported kind, an invalid selector, or a client/list error.
+
+**Fix**:
+
+1. Verify `spec.targetRef.kind` is one of `Deployment`, `StatefulSet`,
+   `DaemonSet`, `CronJob`, or `Job`.
+2. If you use `targetRef.name`, confirm the workload exists in the same
+   namespace as the policy.
+3. If you use `targetRef.selector`, confirm it matches at least one workload
+   and includes real `matchLabels` or `matchExpressions` entries.
+4. Check operator logs for the exact discovery error if the target still
+   looks correct.
+
 ### CooldownActive
 
 **Symptom**: The operator logs "Cooldown active, skipping resize" and no
