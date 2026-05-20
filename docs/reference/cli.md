@@ -27,7 +27,7 @@ kubectl rightsize status -A
 | Column | Description |
 |--------|-------------|
 | PENDING | Workloads with active recommendations that are still awaiting resize |
-| READY | `Monitoring`, `InsufficientData`, `PrometheusUnavailable`, `InvalidConfig`, or `WorkloadDiscoveryFailed` |
+| READY | Current `Ready` reason, or the current `Ready` condition message when `Ready=False` includes actionable details |
 | RESIZING | `InProgress`, `Idle`, `CooldownActive`, or `-` (non-resize modes) |
 | DEGRADED | `HighRevertRate` or `-` |
 
@@ -71,7 +71,7 @@ kubectl rightsize recommendations -n production
 | CPU REC | Recommended CPU request |
 | MEM REQ | Current memory request |
 | MEM REC | Recommended memory request |
-| CONFIDENCE / STATUS | Confidence percentage when recommendations exist, otherwise the current collecting-data status |
+| CONFIDENCE / STATUS | Confidence percentage when recommendations exist, otherwise the current `Ready` message or reason |
 
 ### explain
 

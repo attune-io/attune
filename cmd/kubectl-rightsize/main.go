@@ -174,17 +174,10 @@ func printStatus(ctx context.Context, dynClient dynamic.Interface, namespace str
 		workloads := getNestedInt64(item, "status", "workloads", "discovered")
 		pending := getNestedInt64(item, "status", "workloads", "pending")
 		resized := getNestedInt64(item, "status", "workloads", "resized")
-		ready := getConditionReason(item, "Ready")
+		ready := policyReadyReason(item)
 		resizing := getConditionReason(item, "Resizing")
 		degraded := getConditionReason(item, "Degraded")
 		age := formatAge(item.GetCreationTimestamp().Time)
-
-		// Enrich InsufficientData with the condition message (contains progress info).
-		if ready == "InsufficientData" {
-			if msg := getConditionMessage(item, "Ready"); msg != "" {
-				ready = msg
-			}
-		}
 
 		fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s\t%s\n",
 			ns, name, mode, workloads, pending, resized, ready, resizing, degraded, age)
@@ -476,13 +469,17 @@ func policyReadyReason(item unstructured.Unstructured) string {
 			continue
 		}
 		if t, _ := cond["type"].(string); t == "Ready" {
+			status, _ := cond["status"].(string)
 			reason, _ := cond["reason"].(string)
 			msg, _ := cond["message"].(string)
-			if reason == "InsufficientData" && msg != "" {
+			if status == "False" && msg != "" {
 				return msg
 			}
 			if reason != "" {
 				return reason
+			}
+			if status != "" {
+				return status
 			}
 		}
 	}

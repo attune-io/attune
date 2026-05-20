@@ -522,6 +522,61 @@ func TestPrintStatus(t *testing.T) {
 	assert.Contains(t, output, "3           1         2")
 }
 
+func TestPrintStatus_ShowsReadyMessageForActionableFailures(t *testing.T) {
+	policy := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "rightsize.io/v1alpha1",
+			"kind":       "RightSizePolicy",
+			"metadata": map[string]interface{}{
+				"name":              "web-app",
+				"namespace":         "production",
+				"creationTimestamp": "2026-01-01T00:00:00Z",
+			},
+			"spec": map[string]interface{}{
+				"updateStrategy": map[string]interface{}{
+					"mode": "Auto",
+				},
+			},
+			"status": map[string]interface{}{
+				"workloads": map[string]interface{}{
+					"discovered": int64(3),
+					"pending":    int64(1),
+					"resized":    int64(2),
+				},
+				"conditions": []interface{}{
+					map[string]interface{}{
+						"type":    "Ready",
+						"status":  "False",
+						"reason":  "WorkloadDiscoveryFailed",
+						"message": "Failed to discover workloads: unsupported kind FooSet",
+					},
+				},
+			},
+		},
+	}
+
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{gvr: "RightSizePolicyList"}, policy)
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	printStatus(context.Background(), dynClient, "production")
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	output := buf.String()
+
+	assert.Contains(t, output, "Failed to discover workloads: unsupported kind FooSet")
+}
+
 func TestPrintStatus_NoPolicies(t *testing.T) {
 	scheme := runtime.NewScheme()
 	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
@@ -1009,6 +1064,22 @@ func TestPolicyReadyReason_InsufficientDataWithMessage(t *testing.T) {
 		},
 	}}
 	assert.Equal(t, "No matching workloads found", policyReadyReason(item))
+}
+
+func TestPolicyReadyReason_ActionableFailureWithMessage(t *testing.T) {
+	item := unstructured.Unstructured{Object: map[string]interface{}{
+		"status": map[string]interface{}{
+			"conditions": []interface{}{
+				map[string]interface{}{
+					"type":    "Ready",
+					"status":  "False",
+					"reason":  "PrometheusUnavailable",
+					"message": "Cannot create metrics collector: TLS handshake timeout",
+				},
+			},
+		},
+	}}
+	assert.Equal(t, "Cannot create metrics collector: TLS handshake timeout", policyReadyReason(item))
 }
 
 func TestPolicyReadyReason_OtherReason(t *testing.T) {
