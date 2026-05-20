@@ -111,6 +111,9 @@ func (r *RightSizePolicyReconciler) applyBuiltInDefaults(policy *rightsizev1alph
 		d, _ := time.ParseDuration(rightsizev1alpha1.DefaultHistoryWindow)
 		policy.Spec.MetricsSource.HistoryWindow = &metav1.Duration{Duration: d}
 	}
+	if policy.Spec.MetricsSource.QueryStep == nil {
+		policy.Spec.MetricsSource.QueryStep = &metav1.Duration{Duration: defaultPrometheusStep}
+	}
 	if policy.Spec.CPU.ControlledValues == nil {
 		cv := rightsizev1alpha1.DefaultControlledValues
 		policy.Spec.CPU.ControlledValues = &cv

@@ -3733,6 +3733,8 @@ func TestApplyBuiltInDefaults_FillsAllFields(t *testing.T) {
 	assert.Equal(t, rightsizev1alpha1.DefaultMinimumDataPoints, *policy.Spec.MetricsSource.MinimumDataPoints)
 	require.NotNil(t, policy.Spec.MetricsSource.HistoryWindow)
 	assert.Equal(t, 168*time.Hour, policy.Spec.MetricsSource.HistoryWindow.Duration)
+	require.NotNil(t, policy.Spec.MetricsSource.QueryStep)
+	assert.Equal(t, 5*time.Minute, policy.Spec.MetricsSource.QueryStep.Duration)
 	require.NotNil(t, policy.Spec.CPU.ControlledValues)
 	assert.Equal(t, rightsizev1alpha1.DefaultControlledValues, *policy.Spec.CPU.ControlledValues)
 	require.NotNil(t, policy.Spec.Memory.ControlledValues)
@@ -3752,6 +3754,7 @@ func TestApplyBuiltInDefaults_PreservesUserValues(t *testing.T) {
 	policy.Spec.MetricsSource.MinimumDataPoints = int32Ptr(24)
 	policy.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: 30 * time.Minute}
 	policy.Spec.MetricsSource.HistoryWindow = &metav1.Duration{Duration: 48 * time.Hour}
+	policy.Spec.MetricsSource.QueryStep = &metav1.Duration{Duration: 30 * time.Second}
 	cv := rightsizev1alpha1.ControlledRequestsAndLimits
 	policy.Spec.CPU.ControlledValues = &cv
 	policy.Spec.Memory.ControlledValues = &cv
@@ -3767,6 +3770,7 @@ func TestApplyBuiltInDefaults_PreservesUserValues(t *testing.T) {
 	assert.Equal(t, int32(24), *policy.Spec.MetricsSource.MinimumDataPoints)
 	assert.Equal(t, 30*time.Minute, policy.Spec.UpdateStrategy.Cooldown.Duration)
 	assert.Equal(t, 48*time.Hour, policy.Spec.MetricsSource.HistoryWindow.Duration)
+	assert.Equal(t, 30*time.Second, policy.Spec.MetricsSource.QueryStep.Duration)
 	assert.Equal(t, rightsizev1alpha1.ControlledRequestsAndLimits, *policy.Spec.CPU.ControlledValues)
 	assert.Equal(t, rightsizev1alpha1.ControlledRequestsAndLimits, *policy.Spec.Memory.ControlledValues)
 }
