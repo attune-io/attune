@@ -80,10 +80,10 @@ percentile selection, safety margin, confidence adjustment, bounds, and
 change filtering for CPU and memory.
 
 ```bash
-kubectl rightsize explain api-services -n production
+kubectl rightsize explain -n production api-services
 ```
 
-`explain` requires both a policy name and a single namespace.
+`explain` requires both a policy name and a single namespace. Put flags before the policy name, for example `kubectl rightsize explain -n production api-services`.
 
 ### history
 

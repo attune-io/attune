@@ -269,14 +269,14 @@ check_absent "Prometheus setup stale condition meaning" "No Prometheus address f
 check_default "controller-applied defaults (README)" \
   "controller at reconcile time" \
   "README.md"
-check_default "effective values guidance (README)" \
-  "kubectl rightsize explain <policy>" \
+check_default "runtime behavior guidance (README)" \
+  "built-in and inherited runtime behavior" \
   "README.md"
 check_default "controller-applied defaults (quickstart)" \
   "controller at reconcile time" \
   "docs/getting-started/quickstart.md"
-check_default "effective values guidance (quickstart)" \
-  "kubectl rightsize explain <policy>" \
+check_default "runtime behavior guidance (quickstart)" \
+  "built-in and inherited runtime behavior" \
   "docs/getting-started/quickstart.md"
 
 if [ $rc -ne 0 ]; then

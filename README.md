@@ -127,8 +127,8 @@ kubectl rightsize savings -n production
 > **Effective defaults:** Most defaultable policy fields are applied by the
 > controller at reconcile time so that `RightSizeDefaults` and
 > `RightSizeNamespaceDefaults` can override them. Those fields may appear empty
-> in `kubectl get rightsizepolicy -o yaml`, but they are still active. Use
-> `kubectl rightsize explain <policy>` to inspect effective values.
+> in `kubectl get rightsizepolicy -o yaml`, but the policy still follows the
+> built-in and inherited runtime behavior unless you override those fields.
 
 > **Upgrading?** Review the [changelog](CHANGELOG.md) for breaking changes.
 >
@@ -173,7 +173,7 @@ kubectl rightsize status -n production
 kubectl rightsize savings -n production
 kubectl rightsize recommendations -n production
 kubectl rightsize history -n production
-kubectl rightsize explain api-services -n production
+kubectl rightsize explain -n production api-services
 
 # All namespaces
 kubectl rightsize status -A

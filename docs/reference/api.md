@@ -14,8 +14,8 @@ webhook defaults). All other defaultable fields (`mode`, `controlledValues`,
 `resizeMethod`, `maxCpuChangePercent`, `maxMemoryChangePercent`) are applied
 by the controller at reconcile time so that cluster-wide `RightSizeDefaults`
 can override them. These fields will appear empty in `kubectl get rsp -o yaml`
-but are fully operational. Use `kubectl rightsize explain <policy>` to see the
-effective values.
+but still control runtime behavior through the controller's built-in and
+inherited defaults unless you override them.
 
 ### Spec
 
