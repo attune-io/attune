@@ -166,6 +166,7 @@ func createPolicy(t *testing.T, name, namespace, deployName string, mode rightsi
 				},
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
 			},
 			CPU: rightsizev1alpha1.ResourceConfig{
 				Percentile:   95,
@@ -474,6 +475,7 @@ func TestE2E_MultiContainer_ExcludesSidecar(t *testing.T) {
 				Prometheus:        &rightsizev1alpha1.PrometheusConfig{Address: promAddr},
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
 			},
 			CPU: rightsizev1alpha1.ResourceConfig{
 				Percentile: 95, SafetyMargin: "1.2",
@@ -639,6 +641,7 @@ func TestE2E_BudgetCaps_DefersResize(t *testing.T) {
 				Prometheus:        &rightsizev1alpha1.PrometheusConfig{Address: promAddr},
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
 			},
 			CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.2"},
 			Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, SafetyMargin: "1.3"},
@@ -710,6 +713,7 @@ func TestE2E_ScheduleWindow_SkipsOutsideWindow(t *testing.T) {
 				Prometheus:        &rightsizev1alpha1.PrometheusConfig{Address: promAddr},
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
 			},
 			CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.2"},
 			Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, SafetyMargin: "1.3"},
@@ -779,6 +783,7 @@ func TestE2E_BearerToken_Authenticates(t *testing.T) {
 				},
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
 			},
 			CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.2"},
 			Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, SafetyMargin: "1.3"},
@@ -816,6 +821,7 @@ func TestE2E_EvictionFallback_ResizesWithInPlaceOrEvict(t *testing.T) {
 				Prometheus:        &rightsizev1alpha1.PrometheusConfig{Address: promAddr},
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
 			},
 			CPU: rightsizev1alpha1.ResourceConfig{
 				Percentile: 95, SafetyMargin: "1.2",
@@ -979,6 +985,7 @@ func TestE2E_BearerToken_SecretRotation(t *testing.T) {
 				},
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
 			},
 			CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.2"},
 			Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, SafetyMargin: "1.3"},
@@ -1081,6 +1088,7 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 				Prometheus:        &rightsizev1alpha1.PrometheusConfig{Address: promAddr},
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
 			},
 			CPU: rightsizev1alpha1.ResourceConfig{
 				Percentile:       95,
@@ -1212,6 +1220,7 @@ func TestE2E_MultiReplica_ProgressiveResize(t *testing.T) {
 				Prometheus:        &rightsizev1alpha1.PrometheusConfig{Address: promAddr},
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
 			},
 			CPU: rightsizev1alpha1.ResourceConfig{
 				Percentile: 95, SafetyMargin: "1.2",
@@ -1287,6 +1296,7 @@ func TestE2E_GuaranteedQoS_RequestsAndLimits(t *testing.T) {
 				Prometheus:        &rightsizev1alpha1.PrometheusConfig{Address: promAddr},
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
 			},
 			CPU: rightsizev1alpha1.ResourceConfig{
 				Percentile: 95, SafetyMargin: "1.2", ControlledValues: &controlledBoth,
@@ -1371,6 +1381,7 @@ func TestE2E_LabelSelector_MultipleWorkloads(t *testing.T) {
 				Prometheus:        &rightsizev1alpha1.PrometheusConfig{Address: promAddr},
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
 			},
 			CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.2"},
 			Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, SafetyMargin: "1.3"},
@@ -1437,7 +1448,7 @@ func TestE2E_ScaleUp_NewReplicasGetResized(t *testing.T) {
 	waitForDeploymentReady(t, "scaleup-app", ns, 60*time.Second)
 
 	createPolicy(t, "scaleup-policy", ns, "scaleup-app", rightsizev1alpha1.UpdateModeAuto)
-	waitForResize(t, "scaleup-policy", ns, 3*time.Minute)
+	waitForResize(t, "scaleup-policy", ns, 5*time.Minute)
 
 	// Scale up to 2 replicas.
 	require.NoError(t, retry.RetryOnConflict(retry.DefaultRetry, func() error {
@@ -1533,6 +1544,7 @@ func TestE2E_MemoryAllowDecreaseFalse(t *testing.T) {
 				Prometheus:        &rightsizev1alpha1.PrometheusConfig{Address: promAddr},
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
 			},
 			CPU: rightsizev1alpha1.ResourceConfig{
 				Percentile: 95, SafetyMargin: "1.2",

@@ -401,6 +401,7 @@ _deploy-stack:
 		--set webhooks.enabled=true \
 		--set metrics.enabled=true \
 		--set leaderElection.enabled=false \
+		--set maxConcurrentReconciles=4 \
 		--wait --timeout 3m
 
 .PHONY: k3d-deploy

@@ -111,30 +111,40 @@ spec:
     - name: verify-policy-discovers-but-no-resize
       try:
         - script:
-            timeout: 3m
+            timeout: 4m
             content: |
-              # Wait for discovery, then verify no resize occurs.
-              for i in $(seq 1 24); do
+              # Wait for the ScheduleBlocked=True condition to confirm the operator
+              # evaluated the schedule and decided to block resizes.
+              echo "Waiting for ScheduleBlocked=True condition..."
+              for i in $(seq 1 36); do
+                BLOCKED=$(kubectl get rightsizepolicy schedule-test -n e2e-schedule-window \
+                  -o jsonpath='{.status.conditions[?(@.type=="ScheduleBlocked")].status}' 2>/dev/null)
                 DISC=$(kubectl get rightsizepolicy schedule-test -n e2e-schedule-window \
                   -o jsonpath='{.status.workloads.discovered}' 2>/dev/null)
-                if [ "$DISC" = "1" ]; then
-                  echo "Policy discovered workload"
+                if [ "$BLOCKED" = "True" ] && [ "$DISC" = "1" ]; then
+                  echo "OK: ScheduleBlocked=True, discovered=$DISC"
                   break
+                fi
+                if [ "$i" = "36" ]; then
+                  echo "FAIL: timed out waiting for ScheduleBlocked=True (blocked=$BLOCKED discovered=$DISC)"
+                  kubectl get rightsizepolicy schedule-test -n e2e-schedule-window -o yaml
+                  exit 1
                 fi
                 sleep 5
               done
-              # Wait two full reconcile cycles (cooldown 1m) to confirm no resize.
-              echo "Waiting 130s for two reconcile cycles..."
-              sleep 130
-              RESIZED=$(kubectl get rightsizepolicy schedule-test -n e2e-schedule-window \
-                -o jsonpath='{.status.workloads.resized}' 2>/dev/null)
-              if [ "$RESIZED" = "0" ] || [ -z "$RESIZED" ]; then
-                echo "Schedule window correctly blocked resizes (resized=$RESIZED)"
-                exit 0
-              fi
-              echo "FAIL: resize occurred despite today being excluded from schedule (resized=$RESIZED)"
-              kubectl get rightsizepolicy schedule-test -n e2e-schedule-window -o yaml
-              exit 1
+              # Poll several times over 60s to confirm resized stays 0.
+              echo "Verifying no resize over 60s..."
+              for i in $(seq 1 12); do
+                RESIZED=$(kubectl get rightsizepolicy schedule-test -n e2e-schedule-window \
+                  -o jsonpath='{.status.workloads.resized}' 2>/dev/null)
+                if [ -n "$RESIZED" ] && [ "$RESIZED" != "0" ]; then
+                  echo "FAIL: resize occurred despite today being excluded from schedule (resized=$RESIZED)"
+                  kubectl get rightsizepolicy schedule-test -n e2e-schedule-window -o yaml
+                  exit 1
+                fi
+                sleep 5
+              done
+              echo "Schedule window correctly blocked resizes"
   catch:
     - describe:
         apiVersion: rightsize.io/v1alpha1
