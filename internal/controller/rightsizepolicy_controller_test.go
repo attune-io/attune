@@ -910,7 +910,7 @@ func TestHandleDeletion_PodDeletedBetweenListAndPatch(t *testing.T) {
 		"finalizer should be removed even if pod vanished")
 }
 
-func TestReconcile_NoMatchingWorkloadsSetsInsufficientData(t *testing.T) {
+func TestReconcile_NoMatchingWorkloadsSetsNoWorkloadsFound(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	mc := &mockCollector{}
 	reconciler, fakeClient := newReconcilerForReconcile(mc, policy)
@@ -926,7 +926,7 @@ func TestReconcile_NoMatchingWorkloadsSetsInsufficientData(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotZero(t, result.RequeueAfter)
 
-	// Verify the status was updated with InsufficientData condition.
+	// Verify the status was updated with NoWorkloadsFound condition.
 	var updated rightsizev1alpha1.RightSizePolicy
 	err = fakeClient.Get(context.Background(), types.NamespacedName{
 		Name:      "test-policy",
@@ -937,7 +937,7 @@ func TestReconcile_NoMatchingWorkloadsSetsInsufficientData(t *testing.T) {
 	assert.Len(t, updated.Status.Conditions, 1)
 	assert.Equal(t, "Ready", updated.Status.Conditions[0].Type)
 	assert.Equal(t, metav1.ConditionFalse, updated.Status.Conditions[0].Status)
-	assert.Equal(t, "InsufficientData", updated.Status.Conditions[0].Reason)
+	assert.Equal(t, "NoWorkloadsFound", updated.Status.Conditions[0].Reason)
 }
 
 func TestParseFloat64_Valid(t *testing.T) {
