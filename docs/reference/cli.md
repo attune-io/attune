@@ -8,8 +8,12 @@ reasoning.
 # Build from source
 make build-plugin
 
-# Copy to your PATH
+# Copy to your PATH (system-wide)
 sudo cp bin/kubectl-rightsize /usr/local/bin/
+
+# Or install for the current user only
+install -Dm755 bin/kubectl-rightsize "$HOME/.local/bin/kubectl-rightsize"
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
 ## Commands
