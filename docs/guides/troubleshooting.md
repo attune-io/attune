@@ -582,6 +582,8 @@ kubectl describe rsp <name>
 Check operator metrics:
 
 ```bash
-kubectl -n kube-rightsize-system port-forward svc/kube-rightsize-metrics 8080:8080 &
+kubectl -n kube-rightsize-system port-forward svc/kube-rightsize-metrics 8080:8080 >/tmp/kube-rightsize-metrics-pf.log 2>&1 &
+PF_PID=$!
+trap 'kill "$PF_PID" 2>/dev/null || true' EXIT
 curl -s localhost:8080/metrics | grep kube_rightsize
 ```
