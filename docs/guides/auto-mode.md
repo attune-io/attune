@@ -21,12 +21,12 @@ Before switching to Auto mode:
    ```yaml
    cpu:
      bounds:
-       min: 50m    # never go below 50 millicores
-       max: 4000m  # never exceed 4 cores
+       min: "50m"    # never go below 50 millicores
+       max: "4000m"  # never exceed 4 cores
    memory:
      bounds:
-       min: 64Mi   # never go below 64 MiB
-       max: 8Gi    # never exceed 8 GiB
+       min: "64Mi"   # never go below 64 MiB
+       max: "8Gi"    # never exceed 8 GiB
    ```
 
 ## Creating an Auto-mode policy
@@ -51,15 +51,15 @@ spec:
     percentile: 95
     safetyMargin: "1.2"
     bounds:
-      min: 50m
+      min: "50m"
       max: "4000m"
     controlledValues: RequestsAndLimits
   memory:
     percentile: 99
     safetyMargin: "1.3"
     bounds:
-      min: 64Mi
-      max: 8Gi
+      min: "64Mi"
+      max: "8Gi"
     controlledValues: RequestsAndLimits
   updateStrategy:
     mode: Auto
@@ -139,6 +139,75 @@ Alert on high revert rates:
   annotations:
     summary: "High revert rate for {{ $labels.namespace }}/{{ $labels.workload }}"
 ```
+
+## Scheduled resizes
+
+By default, resizes can occur at any time. Use the `schedule` field to restrict
+resizes to specific time windows and days of the week. Recommendations are always
+computed; only the actual resize execution is gated.
+
+```yaml
+spec:
+  updateStrategy:
+    mode: Auto
+    schedule:
+      windows:
+        - start: "02:00"
+          end: "06:00"
+      daysOfWeek: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+      timezone: "America/New_York"
+```
+
+Key behavior:
+
+- If `daysOfWeek` is omitted, all days are allowed.
+- If `windows` is omitted, all times are allowed (only day filtering applies).
+- Overnight windows work: `start: "22:00", end: "06:00"` wraps past midnight.
+- The `ScheduleBlocked` status condition is set when outside the window.
+- An invalid timezone name fails open (resizes are allowed) to prevent
+  silent lockout from a typo.
+
+Combine scheduling with budget caps for large fleets:
+
+```yaml
+spec:
+  updateStrategy:
+    mode: Auto
+    schedule:
+      windows:
+        - start: "02:00"
+          end: "06:00"
+    maxConcurrentResizes: 10
+    maxTotalCpuIncrease: "2000m"
+    maxTotalMemoryIncrease: "4Gi"
+```
+
+See [`examples/12-scheduled-auto-mode.yaml`](https://github.com/SebTardifLabs/kube-rightsize/blob/main/examples/12-scheduled-auto-mode.yaml) for a complete example.
+
+## Exporting recommendations to ConfigMaps
+
+The `export` feature writes recommendation data to ConfigMaps for external
+consumption (e.g., GitOps workflows with ArgoCD or Flux that apply resource
+patches from CI/CD rather than letting the operator resize directly).
+
+```yaml
+spec:
+  updateStrategy:
+    mode: Recommend  # or Auto
+    export:
+      configMap: true
+```
+
+When enabled, the operator creates one ConfigMap per workload, named
+`<policy>-<workload>-recommendations`, with an owner reference to the policy
+for automatic cleanup. The ConfigMap contains per-container recommended CPU
+and memory values.
+
+This is useful in GitOps workflows where:
+
+1. The operator runs in Recommend mode to compute recommendations.
+2. A CI/CD pipeline reads the ConfigMaps and generates resource patches.
+3. ArgoCD or Flux applies the patches through the normal GitOps flow.
 
 ## Promoting from Recommend or Canary
 

@@ -51,6 +51,7 @@ nav:
       - Recommend Mode: guides/recommend-mode.md
       - Canary Rollout: guides/canary-rollout.md
       - Auto Mode: guides/auto-mode.md
+      - Startup Boost: guides/startup-boost.md
       - HPA Coexistence: guides/hpa-coexistence.md
       - Prometheus Setup: guides/prometheus-setup.md
       - Istio Integration: guides/istio-integration.md
