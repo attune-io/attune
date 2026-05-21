@@ -1533,6 +1533,63 @@ func TestPrintExplain_ShowsPolicyNamespaceAndBuiltInEffectiveValues(t *testing.T
 	assert.NotContains(t, output, "source: cluster default")
 }
 
+func TestPrintExplain_ObservationPeriodFromCanaryShowsConfigured(t *testing.T) {
+	policy := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "rightsize.io/v1alpha1",
+		"kind":       "RightSizePolicy",
+		"metadata": map[string]interface{}{
+			"name":      "canary-obs-policy",
+			"namespace": "default",
+		},
+		"spec": map[string]interface{}{
+			"updateStrategy": map[string]interface{}{
+				"mode": "Canary",
+				"canary": map[string]interface{}{
+					"percentage":        int64(10),
+					"observationPeriod": "10m",
+				},
+			},
+		},
+		"status": map[string]interface{}{
+			"conditions": []interface{}{
+				map[string]interface{}{
+					"type":   "Ready",
+					"status": "True",
+					"reason": "Monitoring",
+				},
+			},
+		},
+	}}
+
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{
+			gvr:                  "RightSizePolicyList",
+			namespaceDefaultsGVR: "RightSizeNamespaceDefaultsList",
+			defaultsGVR:          "RightSizeDefaultsList",
+		},
+		policy)
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	printExplain(context.Background(), dynClient, "default", "canary-obs-policy")
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	output := buf.String()
+
+	// When canary.observationPeriod is set but safetyObservationPeriod is not,
+	// the configured value should show the canary period, not <unset>.
+	assert.Contains(t, output, "Observation period: 10m0s (source: policy, configured: 10m)")
+}
+
 func TestPrintExplain_UsesClusterDefaultsWhenNoNamespaceDefaultsExist(t *testing.T) {
 	clusterQueryStep := &metav1.Duration{Duration: 2 * time.Minute}
 	clusterMode := rightsizev1alpha1.UpdateModeAuto

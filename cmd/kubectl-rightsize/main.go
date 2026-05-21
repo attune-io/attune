@@ -594,7 +594,11 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *righ
 	printEffectiveField("Resize method", getNestedString(item, "spec", "updateStrategy", "resizeMethod"), string(effective.Spec.UpdateStrategy.ResizeMethod), selected, updateDefaults != nil && updateDefaults.ResizeMethod != "")
 	printEffectiveField("Max CPU change", formatPercentInt64Ptr(rawInt64Field(item, "spec", "updateStrategy", "maxCpuChangePercent")), formatPercentPtr(effective.Spec.UpdateStrategy.MaxCPUChangePercent), selected, updateDefaults != nil && updateDefaults.MaxCPUChangePercent != nil)
 	printEffectiveField("Max memory change", formatPercentInt64Ptr(rawInt64Field(item, "spec", "updateStrategy", "maxMemoryChangePercent")), formatPercentPtr(effective.Spec.UpdateStrategy.MaxMemoryChangePercent), selected, updateDefaults != nil && updateDefaults.MaxMemoryChangePercent != nil)
-	printEffectiveField("Observation period", getNestedString(item, "spec", "updateStrategy", "safetyObservationPeriod"), effectiveObservationPeriod(effective), selected, updateDefaults != nil && updateDefaults.SafetyObservationPeriod != nil)
+	obsConfigured := getNestedString(item, "spec", "updateStrategy", "safetyObservationPeriod")
+	if obsConfigured == "" {
+		obsConfigured = getNestedString(item, "spec", "updateStrategy", "canary", "observationPeriod")
+	}
+	printEffectiveField("Observation period", obsConfigured, effectiveObservationPeriod(effective), selected, updateDefaults != nil && updateDefaults.SafetyObservationPeriod != nil)
 }
 
 func printEffectiveField(label, configured, effective string, selected selectedDefaults, inherited bool) {
