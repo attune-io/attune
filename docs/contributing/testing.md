@@ -80,6 +80,15 @@ make test-e2e-go
 make kind-delete
 ```
 
+Before running the E2E suites, verify that your current kubeconfig context points at the cluster you just created and that the API server is reachable:
+
+```bash
+kubectl config current-context
+kubectl cluster-info
+```
+
+If `kubectl cluster-info` fails or still points at an old context, switch contexts before running `make test-e2e` or `make test-e2e-go`.
+
 ### Fast smoke check
 
 Use this when you want to verify that the local end-to-end flow basically works

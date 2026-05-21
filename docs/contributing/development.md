@@ -44,6 +44,15 @@ Install CRDs into the cluster:
 make install
 ```
 
+Before running the operator, verify that your current kubeconfig context points at the cluster you just created and that the API server is reachable:
+
+```bash
+kubectl config current-context
+kubectl cluster-info
+```
+
+If `kubectl cluster-info` fails or points at the wrong cluster, switch contexts before running `make run` or any E2E target.
+
 ## Running the operator locally
 
 Run the operator against the local cluster (uses your current kubeconfig):
