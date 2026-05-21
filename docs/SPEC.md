@@ -649,7 +649,7 @@ To prevent conflicts:
 
 ```
 1. SELECT target pods based on update strategy mode:
-   - OneShot: all pods at once
+   - OneShot: one eligible pod per cycle
    - Canary: canaryPercentage% of pods (round up to at least 1)
    - Auto: canary first, then remaining after observation period
 
