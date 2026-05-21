@@ -7177,8 +7177,9 @@ func TestExecuteResizes_ConcurrentResizes(t *testing.T) {
 }
 
 func TestExecuteResizes_MultiContainerSequential(t *testing.T) {
-	// A pod with two containers should be resized sequentially,
-	// re-fetching the pod between each to avoid stale resourceVersion.
+	// A pod with two containers should be resized sequentially.
+	// persistResizeAnnotations propagates the fresh pod back to the caller
+	// so the second container uses an up-to-date resourceVersion.
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "api-server-abc-1", Namespace: "default",
@@ -7280,10 +7281,12 @@ func TestExecuteResizes_MultiContainerSequential(t *testing.T) {
 	assert.True(t, resizedContainers["sidecar"], "sidecar container should have UpdateResize called")
 }
 
-func TestExecuteResizes_MultiContainer_ReFetchFailure(t *testing.T) {
-	// A pod with two containers where the re-fetch after the first container
-	// resize fails. The second container should be skipped (loop breaks),
-	// and the budget consumed by the first container should NOT be refunded.
+func TestExecuteResizes_MultiContainer_BudgetExhaustion(t *testing.T) {
+	// A pod with two containers where the CPU budget is exhausted after the
+	// first container resize. The second container should be skipped (budget
+	// check returns false), and the budget consumed by the first container
+	// should NOT be refunded. The second workload also exceeds the remaining
+	// budget and is similarly deferred.
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "api-server-abc-1", Namespace: "default",
@@ -7328,19 +7331,6 @@ func TestExecuteResizes_MultiContainer_ReFetchFailure(t *testing.T) {
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
 		WithObjects(deploy, workerDeploy, pod, workerPod).Build()
 	clientset := kubefake.NewSimpleClientset(pod.DeepCopy(), workerPod.DeepCopy())
-
-	// Fail the second clientset Get for pods. With AutoRevert disabled the
-	// Gets are:
-	//   #1 persistResizeAnnotations (success)
-	//   #2 executeResizes re-fetch after first container (FAIL)
-	getCount := 0
-	clientset.PrependReactor("get", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
-		getCount++
-		if getCount >= 2 {
-			return true, nil, fmt.Errorf("simulated re-fetch failure")
-		}
-		return false, nil, nil
-	})
 
 	autoRevert := false
 	reconciler := &RightSizePolicyReconciler{
