@@ -11,7 +11,8 @@ Fields are defaulted in three layers. Only `weight` and `maxConcurrentResizes`
 appear in the stored spec when omitted by the user (they are CRD schema or
 webhook defaults). All other defaultable fields (`mode`, `controlledValues`,
 `cooldown`, `historyWindow`, `minimumDataPoints`, `queryStep`, `rateWindow`, `autoRevert`,
-`resizeMethod`, `maxCpuChangePercent`, `maxMemoryChangePercent`) are applied
+`resizeMethod`, `maxCpuChangePercent`, `maxMemoryChangePercent`,
+`safetyObservationPeriod`) are applied
 by the controller at reconcile time so that cluster-wide `RightSizeDefaults`
 and namespace-scoped `RightSizeNamespaceDefaults` can override them. These
 fields will appear empty in `kubectl get rsp -o yaml` but still control runtime
@@ -92,6 +93,7 @@ spec:
     maxMemoryChangePercent: 30 # max memory change per cycle (default: 30)
     cooldown: 1h               # min time between resize operations (default: 1h)
     autoRevert: true           # revert on safety violation (default: true)
+    safetyObservationPeriod: 5m  # post-resize safety watch period (default: 5m, minimum: 1m)
     resizeMethod: InPlaceOnly  # InPlaceOnly | InPlaceOrEvict (default: InPlaceOnly)
     maxConcurrentResizes: 1    # parallel pod resizes per cycle (default: 1, max: 50)
     maxTotalCpuIncrease: "2000m"    # max aggregate CPU increase per cycle (default: unlimited)

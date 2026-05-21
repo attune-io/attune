@@ -72,7 +72,7 @@ new allocation is too low.
 !!! note "Throttle grace period"
     The throttle check is skipped for the first 5 minutes after a resize
     because the Prometheus `rate(...[5m])` window still contains pre-resize
-    data. If the configured `observationPeriod` is shorter than 5 minutes,
+    data. If the configured `safetyObservationPeriod` is shorter than 5 minutes,
     the operator automatically extends observation until the throttle check
     can execute. This prevents false-positive reverts on containers that
     were heavily throttled before upscaling.
@@ -90,6 +90,28 @@ The pod's Ready condition is `False`, meaning readiness probes are failing.
 **Mitigation**: verify that readiness probes are not sensitive to resource
 allocation changes. Some applications expose health endpoints that degrade
 under CPU throttling.
+
+## Observation period
+
+After a resize, the operator observes the pod for a configurable period
+before concluding the resize is safe. The observation period is configured
+via `updateStrategy.safetyObservationPeriod` (default: 5m, minimum: 1m).
+
+**Precedence**: `safetyObservationPeriod` > `canary.observationPeriod` > 5m default.
+The `safetyObservationPeriod` field applies to all modes (Auto, OneShot, Canary)
+while `canary.observationPeriod` is canary-specific.
+
+### Early critical detection
+
+During the observation period (before it elapses), the operator checks for
+critical events that warrant an immediate revert without waiting for the full
+period. Currently, two conditions trigger early detection:
+
+- **OOMKill**: The container was killed by the OOM killer after the resize.
+- **Excessive restarts**: The container restarted 2+ times since the resize.
+
+Non-critical checks (CPU throttle, Pod NotReady) still wait for the full
+observation period because they may be transient during resource adjustment.
 
 ## Exponential backoff
 
