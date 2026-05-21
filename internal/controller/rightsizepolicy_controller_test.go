@@ -3299,10 +3299,13 @@ func TestExecuteResizes_SkipsStaleRecommendation(t *testing.T) {
 		{Workload: "api-server", Kind: "Deployment", Stale: true},
 	}
 
+	before := promtestutil.ToFloat64(operatormetrics.StaleRecommendationsTotal.WithLabelValues("default", "test-policy"))
 	workloads := []client.Object{deploy}
 	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, nil, nil, nil)
 	assert.Equal(t, 0, count)
 	assert.Empty(t, history)
+	after := promtestutil.ToFloat64(operatormetrics.StaleRecommendationsTotal.WithLabelValues("default", "test-policy"))
+	assert.Equal(t, before+1, after, "StaleRecommendationsTotal should increment with policy labels")
 }
 
 // ---------- listWorkloadsBySelector (StatefulSet + DaemonSet paths) ----------
