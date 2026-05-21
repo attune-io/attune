@@ -770,3 +770,155 @@ func TestSetFailedCondition_RefetchFailure(t *testing.T) {
 	// Conflict on first update, then re-fetch fails -> returns immediately
 	assert.Equal(t, int32(1), updateCalls.Load(), "expected 1 update call when re-fetch fails")
 }
+
+// ---------- setCooldownStatus ----------
+
+func TestSetCooldownStatus_NoReverts(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+				Cooldown: &metav1.Duration{Duration: 10 * time.Minute},
+			},
+		},
+	}
+	r.setCooldownStatus(policy)
+	require.NotNil(t, policy.Status.Cooldown)
+	assert.Equal(t, 10*time.Minute, policy.Status.Cooldown.EffectiveCooldown.Duration)
+	assert.Equal(t, int32(1), policy.Status.Cooldown.BackoffMultiplier)
+	assert.Equal(t, int32(0), policy.Status.Cooldown.ConsecutiveReverts)
+}
+
+func TestSetCooldownStatus_WithReverts(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+				Cooldown: &metav1.Duration{Duration: 10 * time.Minute},
+			},
+		},
+		Status: rightsizev1alpha1.RightSizePolicyStatus{
+			ResizeHistory: []rightsizev1alpha1.ResizeHistoryEntry{
+				{Result: rightsizev1alpha1.ResizeResultReverted},
+				{Result: rightsizev1alpha1.ResizeResultReverted},
+				{Result: rightsizev1alpha1.ResizeResultReverted},
+			},
+		},
+	}
+	r.setCooldownStatus(policy)
+	require.NotNil(t, policy.Status.Cooldown)
+	// 3 reverts = 2^3 = 8x multiplier
+	assert.Equal(t, int32(8), policy.Status.Cooldown.BackoffMultiplier)
+	assert.Equal(t, 80*time.Minute, policy.Status.Cooldown.EffectiveCooldown.Duration)
+	assert.Equal(t, int32(3), policy.Status.Cooldown.ConsecutiveReverts)
+}
+
+func TestSetCooldownStatus_CappedAt16x(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	entries := make([]rightsizev1alpha1.ResizeHistoryEntry, 10)
+	for i := range entries {
+		entries[i].Result = rightsizev1alpha1.ResizeResultReverted
+	}
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+				Cooldown: &metav1.Duration{Duration: time.Hour},
+			},
+		},
+		Status: rightsizev1alpha1.RightSizePolicyStatus{
+			ResizeHistory: entries,
+		},
+	}
+	r.setCooldownStatus(policy)
+	require.NotNil(t, policy.Status.Cooldown)
+	// Capped at 2^4 = 16x
+	assert.Equal(t, int32(16), policy.Status.Cooldown.BackoffMultiplier)
+	assert.Equal(t, 16*time.Hour, policy.Status.Cooldown.EffectiveCooldown.Duration)
+}
+
+// ---------- setScheduleBlockedCondition ----------
+
+func TestSetScheduleBlockedCondition_NoSchedule(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	policy := &rightsizev1alpha1.RightSizePolicy{}
+	r.setScheduleBlockedCondition(policy, true)
+	cond := meta.FindStatusCondition(policy.Status.Conditions, rightsizev1alpha1.ConditionScheduleBlocked)
+	assert.Nil(t, cond, "should not set condition when no schedule")
+}
+
+func TestSetScheduleBlockedCondition_OutsideWindow(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+				Schedule: &rightsizev1alpha1.ResizeSchedule{
+					Windows: []rightsizev1alpha1.TimeWindow{{Start: "02:00", End: "06:00"}},
+				},
+			},
+		},
+	}
+	r.setScheduleBlockedCondition(policy, false)
+	cond := meta.FindStatusCondition(policy.Status.Conditions, rightsizev1alpha1.ConditionScheduleBlocked)
+	require.NotNil(t, cond)
+	assert.Equal(t, metav1.ConditionTrue, cond.Status)
+	assert.Equal(t, rightsizev1alpha1.ReasonOutsideWindow, cond.Reason)
+}
+
+func TestSetScheduleBlockedCondition_InsideWindow(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+				Schedule: &rightsizev1alpha1.ResizeSchedule{
+					Windows: []rightsizev1alpha1.TimeWindow{{Start: "02:00", End: "06:00"}},
+				},
+			},
+		},
+	}
+	r.setScheduleBlockedCondition(policy, true)
+	cond := meta.FindStatusCondition(policy.Status.Conditions, rightsizev1alpha1.ConditionScheduleBlocked)
+	require.NotNil(t, cond)
+	assert.Equal(t, metav1.ConditionFalse, cond.Status)
+	assert.Equal(t, rightsizev1alpha1.ReasonInsideWindow, cond.Reason)
+}
+
+// ---------- getRateWindow ----------
+
+func TestGetRateWindow_DefaultsFallbackToQueryStep(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			MetricsSource: rightsizev1alpha1.MetricsSource{
+				QueryStep: &metav1.Duration{Duration: 15 * time.Minute},
+			},
+		},
+	}
+	got := r.getRateWindow(policy)
+	assert.Equal(t, 15*time.Minute, got)
+}
+
+func TestGetRateWindow_ExplicitValue(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			MetricsSource: rightsizev1alpha1.MetricsSource{
+				RateWindow: &metav1.Duration{Duration: 2 * time.Minute},
+			},
+		},
+	}
+	got := r.getRateWindow(policy)
+	assert.Equal(t, 2*time.Minute, got)
+}
+
+func TestGetRateWindow_ClampedMin(t *testing.T) {
+	r := &RightSizePolicyReconciler{}
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			MetricsSource: rightsizev1alpha1.MetricsSource{
+				RateWindow: &metav1.Duration{Duration: 5 * time.Second},
+			},
+		},
+	}
+	got := r.getRateWindow(policy)
+	assert.Equal(t, 30*time.Second, got, "should clamp to 30s minimum")
+}

@@ -531,6 +531,54 @@ func TestWorkload_FormatPromDuration(t *testing.T) {
 	}
 }
 
+// ---------- ReplicaSet adapter ----------
+
+func TestWorkload_ReplicaSetAdapter(t *testing.T) {
+	rs := &appsv1.ReplicaSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-rs", Namespace: "default"},
+		Spec: appsv1.ReplicaSetSpec{
+			Replicas: int32Ptr(3),
+			Selector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"app": "test"},
+			},
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{Name: "app"}},
+				},
+			},
+		},
+		Status: appsv1.ReplicaSetStatus{ReadyReplicas: 3},
+	}
+
+	a := newWorkloadAdapter(rs)
+	require.NotNil(t, a)
+
+	assert.Equal(t, rs, a.Object(), "Object() returns the ReplicaSet")
+	assert.Equal(t, map[string]string{"app": "test"}, a.PodSelectorLabels())
+	assert.NotNil(t, a.PodSpec())
+	assert.Equal(t, "app", a.PodSpec().Containers[0].Name)
+	assert.False(t, a.IsRollingOut(), "fully ready should not be rolling out")
+	assert.False(t, a.IsBatch())
+	assert.Equal(t, "-[a-z0-9]{5}", a.PodNameRegexSuffix())
+}
+
+func TestWorkload_ReplicaSetAdapter_RollingOut(t *testing.T) {
+	rs := &appsv1.ReplicaSet{
+		Spec:   appsv1.ReplicaSetSpec{Replicas: int32Ptr(5)},
+		Status: appsv1.ReplicaSetStatus{ReadyReplicas: 2},
+	}
+	a := newWorkloadAdapter(rs)
+	require.NotNil(t, a)
+	assert.True(t, a.IsRollingOut(), "should be rolling out when readyReplicas < replicas")
+}
+
+func TestWorkload_ReplicaSetAdapter_NilSelector(t *testing.T) {
+	rs := &appsv1.ReplicaSet{}
+	a := newWorkloadAdapter(rs)
+	require.NotNil(t, a)
+	assert.Nil(t, a.PodSelectorLabels())
+}
+
 // ---------- discoverWorkloads ----------
 
 func TestWorkload_DiscoverWorkloads(t *testing.T) {

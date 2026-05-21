@@ -809,3 +809,55 @@ func TestValidateDelete_AlwaysSucceeds(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Empty(t, warnings)
 }
+
+func TestValidate_BearerTokenSecretCrossNamespace(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.MetricsSource.Prometheus = &rightsizev1alpha1.PrometheusConfig{
+		Address: "http://prometheus:9090",
+		BearerTokenSecret: &rightsizev1alpha1.SecretKeyRef{
+			Name: "other-namespace/my-secret",
+			Key:  "token",
+		},
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "must not contain '/'")
+}
+
+func TestValidate_BearerTokenSecretSameNamespace(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.MetricsSource.Prometheus = &rightsizev1alpha1.PrometheusConfig{
+		Address: "http://prometheus:9090",
+		BearerTokenSecret: &rightsizev1alpha1.SecretKeyRef{
+			Name: "my-secret",
+			Key:  "token",
+		},
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	assert.NoError(t, err)
+}
+
+func TestValidate_RateWindowTooSmall(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.MetricsSource.RateWindow = &metav1.Duration{Duration: 5 * time.Second}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "at least 30s")
+}
+
+func TestValidate_RateWindowExceedsHistoryWindow(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.MetricsSource.HistoryWindow = &metav1.Duration{Duration: time.Hour}
+	policy.Spec.MetricsSource.RateWindow = &metav1.Duration{Duration: 2 * time.Hour}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "must not exceed historyWindow")
+}
