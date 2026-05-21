@@ -1112,6 +1112,7 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 				// Short observation period so the safety monitor checks
 				// quickly after OOMKill instead of waiting the 5m default.
 				Canary: &rightsizev1alpha1.CanaryConfig{
+					Percentage:        1, // minimum required by CRD; ignored in Auto mode
 					ObservationPeriod: metav1.Duration{Duration: time.Minute},
 				},
 			},
