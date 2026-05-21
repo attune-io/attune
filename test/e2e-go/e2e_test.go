@@ -1580,3 +1580,135 @@ func TestE2E_MemoryAllowDecreaseFalse(t *testing.T) {
 	assert.GreaterOrEqual(t, c.Resources.Requests.Memory().Value(), origMem.Value(),
 		"memory should not decrease when allowDecrease is nil (default false), got %s", c.Resources.Requests.Memory().String())
 }
+
+func TestE2E_MultiContainer_SequentialResize(t *testing.T) {
+	t.Parallel()
+	ns := uniqueNS("multiresz")
+	createNamespace(t, ns)
+
+	// Two containers, both eligible for resize (no excludeContainers).
+	// Both start with 500m CPU, which is high for pause containers.
+	// The operator should resize both sequentially, each UpdateResize call
+	// bumping resourceVersion. The *pod = *freshPod propagation (PR #412)
+	// ensures the second resize uses the fresh resourceVersion from the first.
+	// Without it, the second UpdateResize would fail with a conflict on a
+	// real API server (kubefake doesn't validate resourceVersion).
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "multi-resize-app",
+			Namespace: ns,
+			Labels:    map[string]string{"app": "multi-resize-app"},
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: int32Ptr(1),
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "multi-resize-app"}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "multi-resize-app"}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "web",
+							Image: "registry.k8s.io/pause:3.9",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("500m"),
+									corev1.ResourceMemory: resource.MustParse("256Mi"),
+								},
+							},
+						},
+						{
+							Name:  "worker",
+							Image: "registry.k8s.io/pause:3.9",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("500m"),
+									corev1.ResourceMemory: resource.MustParse("256Mi"),
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, deploy))
+	waitForDeploymentReady(t, "multi-resize-app", ns, 60*time.Second)
+
+	deployName := "multi-resize-app"
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "multi-resize-policy", Namespace: ns},
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			TargetRef: rightsizev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
+			MetricsSource: rightsizev1alpha1.MetricsSource{
+				Prometheus:        &rightsizev1alpha1.PrometheusConfig{Address: promAddr},
+				MinimumDataPoints: int32Ptr(1),
+				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
+			},
+			CPU: rightsizev1alpha1.ResourceConfig{
+				Percentile: 95, SafetyMargin: "1.2",
+				Bounds: &rightsizev1alpha1.ResourceBounds{
+					Min: resource.MustParse("50m"),
+					Max: resource.MustParse("4000m"),
+				},
+			},
+			Memory: rightsizev1alpha1.ResourceConfig{
+				Percentile: 99, SafetyMargin: "1.3",
+				AllowDecrease: boolPtr(true),
+				Bounds: &rightsizev1alpha1.ResourceBounds{
+					Min: resource.MustParse("64Mi"),
+					Max: resource.MustParse("8Gi"),
+				},
+			},
+			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+				Mode:                   rightsizev1alpha1.UpdateModeAuto,
+				Cooldown:               &metav1.Duration{Duration: time.Minute},
+				AutoRevert:             boolPtr(true),
+				MaxCPUChangePercent:    int32Ptr(100),
+				MaxMemoryChangePercent: int32Ptr(100),
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, policy))
+
+	waitForResize(t, "multi-resize-policy", ns, 3*time.Minute)
+
+	// Verify both containers were resized.
+	var podList corev1.PodList
+	require.NoError(t, k8sClient.List(ctx, &podList,
+		client.InNamespace(ns),
+		client.MatchingLabels{"app": "multi-resize-app"},
+	))
+	require.NotEmpty(t, podList.Items)
+
+	pod := podList.Items[0]
+	origCPU := resource.MustParse("500m")
+	resizedContainers := 0
+	for _, c := range pod.Spec.Containers {
+		if c.Resources.Requests.Cpu().Cmp(origCPU) != 0 {
+			resizedContainers++
+			t.Logf("container %s resized: cpu=%s mem=%s",
+				c.Name, c.Resources.Requests.Cpu(), c.Resources.Requests.Memory())
+		}
+	}
+	assert.Equal(t, 2, resizedContainers,
+		"both containers should be resized; sequential UpdateResize requires fresh resourceVersion propagation")
+
+	// Verify resize history records both containers.
+	var p rightsizev1alpha1.RightSizePolicy
+	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "multi-resize-policy", Namespace: ns}, &p))
+	historyContainers := make(map[string]bool)
+	for _, h := range p.Status.ResizeHistory {
+		historyContainers[h.Container] = true
+		t.Logf("history: workload=%s container=%s resource=%s result=%s",
+			h.Workload, h.Container, h.Resource, h.Result)
+	}
+	assert.True(t, historyContainers["web"],
+		"resize history should include web container")
+	assert.True(t, historyContainers["worker"],
+		"resize history should include worker container")
+
+	// Verify pod annotations indicate resize tracking.
+	assert.Contains(t, pod.Labels, "rightsize.io/tracked",
+		"resized pod should have tracking label")
+}
