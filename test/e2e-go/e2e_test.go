@@ -1281,7 +1281,6 @@ func TestE2E_GuaranteedQoS_RequestsAndLimits(t *testing.T) {
 	waitForDeploymentReady(t, "qos-app", ns, 60*time.Second)
 
 	controlledBoth := rightsizev1alpha1.ControlledRequestsAndLimits
-	controlledRequestsOnly := rightsizev1alpha1.ControlledRequestsOnly
 	deployName := "qos-app"
 	policy := &rightsizev1alpha1.RightSizePolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "qos-policy", Namespace: ns},
@@ -1297,9 +1296,7 @@ func TestE2E_GuaranteedQoS_RequestsAndLimits(t *testing.T) {
 				Bounds: &rightsizev1alpha1.ResourceBounds{Min: resource.MustParse("50m"), Max: resource.MustParse("4000m")},
 			},
 			Memory: rightsizev1alpha1.ResourceConfig{
-				// Use RequestsOnly for memory to avoid a forced restart that races the test timeout.
-				// The CPU path with RequestsAndLimits is the primary assertion target.
-				Percentile: 99, SafetyMargin: "1.3", AllowDecrease: boolPtr(true), ControlledValues: &controlledRequestsOnly,
+				Percentile: 99, SafetyMargin: "1.3", AllowDecrease: boolPtr(true), ControlledValues: &controlledBoth,
 				Bounds: &rightsizev1alpha1.ResourceBounds{Min: resource.MustParse("64Mi"), Max: resource.MustParse("8Gi")},
 			},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
