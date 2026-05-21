@@ -184,8 +184,8 @@ check_default "cooldown (README)" \
 
 # --- queryStep default = 5m ---
 check_default "queryStep (Go)" \
-  "defaultPrometheusStep = 5 \* time.Minute" \
-  "internal/controller/rightsizepolicy_controller.go"
+  "DefaultQueryStep.*= 5 \* time.Minute" \
+  "api/v1alpha1/defaults.go"
 check_default "queryStep (API ref)" \
   "queryStep: 5m" \
   "docs/reference/api.md"

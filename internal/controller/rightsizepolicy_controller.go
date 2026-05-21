@@ -94,9 +94,6 @@ const (
 	// defaultMinimumDataPoints is the minimum number of data points required.
 	defaultMinimumDataPoints int32 = 48
 
-	// defaultPrometheusStep is the step interval for Prometheus range queries.
-	defaultPrometheusStep = 5 * time.Minute
-
 	// defaultObservationPeriod is the default safety observation window after resize.
 	defaultObservationPeriod = 5 * time.Minute
 

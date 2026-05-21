@@ -37,6 +37,7 @@ import (
 	sigsyaml "sigs.k8s.io/yaml"
 
 	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
+	pkgdefaults "github.com/SebTardifLabs/kube-rightsize/pkg/defaults"
 )
 
 var version = "dev"
@@ -48,7 +49,6 @@ const (
 	sourceCluster         = "cluster default"
 	sourceBuiltIn         = "built-in default"
 	unsetValue            = "<unset>"
-	defaultQueryStep      = 5 * time.Minute
 )
 
 var gvr = schema.GroupVersionResource{
@@ -734,153 +734,11 @@ func formatPercentInt64Ptr(value *int64) string {
 }
 
 func applyBuiltInDefaults(policy *rightsizev1alpha1.RightSizePolicy) {
-	if policy.Spec.UpdateStrategy.Mode == "" {
-		policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.DefaultUpdateMode
-	}
-	if policy.Spec.UpdateStrategy.MaxCPUChangePercent == nil {
-		value := rightsizev1alpha1.DefaultMaxCPUChangePercent
-		policy.Spec.UpdateStrategy.MaxCPUChangePercent = &value
-	}
-	if policy.Spec.UpdateStrategy.MaxMemoryChangePercent == nil {
-		value := rightsizev1alpha1.DefaultMaxMemoryChangePercent
-		policy.Spec.UpdateStrategy.MaxMemoryChangePercent = &value
-	}
-	if policy.Spec.UpdateStrategy.Cooldown == nil {
-		duration, _ := time.ParseDuration(rightsizev1alpha1.DefaultCooldown)
-		policy.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: duration}
-	}
-	if policy.Spec.UpdateStrategy.AutoRevert == nil {
-		value := rightsizev1alpha1.DefaultAutoRevert
-		policy.Spec.UpdateStrategy.AutoRevert = &value
-	}
-	if policy.Spec.UpdateStrategy.ResizeMethod == "" {
-		policy.Spec.UpdateStrategy.ResizeMethod = rightsizev1alpha1.DefaultResizeMethod
-	}
-	if policy.Spec.MetricsSource.MinimumDataPoints == nil {
-		value := rightsizev1alpha1.DefaultMinimumDataPoints
-		policy.Spec.MetricsSource.MinimumDataPoints = &value
-	}
-	if policy.Spec.MetricsSource.HistoryWindow == nil {
-		duration, _ := time.ParseDuration(rightsizev1alpha1.DefaultHistoryWindow)
-		policy.Spec.MetricsSource.HistoryWindow = &metav1.Duration{Duration: duration}
-	}
-	if policy.Spec.MetricsSource.QueryStep == nil {
-		policy.Spec.MetricsSource.QueryStep = &metav1.Duration{Duration: defaultQueryStep}
-	}
-	if policy.Spec.CPU.ControlledValues == nil {
-		cv := rightsizev1alpha1.DefaultControlledValues
-		policy.Spec.CPU.ControlledValues = &cv
-	}
-	if policy.Spec.Memory.ControlledValues == nil {
-		cv := rightsizev1alpha1.DefaultControlledValues
-		policy.Spec.Memory.ControlledValues = &cv
-	}
+	pkgdefaults.ApplyBuiltInDefaults(policy)
 }
 
 func mergeDefaultsIntoPolicy(policy *rightsizev1alpha1.RightSizePolicy, defaults *rightsizev1alpha1.RightSizeDefaults) {
-	if defaults == nil {
-		return
-	}
-	mergeResourceConfig(&policy.Spec.CPU, defaults.Spec.CPU)
-	mergeResourceConfig(&policy.Spec.Memory, defaults.Spec.Memory)
-	mergeMetricsSource(&policy.Spec.MetricsSource, defaults.Spec.MetricsSource)
-	mergeUpdateStrategy(&policy.Spec.UpdateStrategy, defaults.Spec.UpdateStrategy)
-}
-
-func mergeResourceConfig(policy *rightsizev1alpha1.ResourceConfig, defaults *rightsizev1alpha1.ResourceConfig) {
-	if defaults == nil {
-		return
-	}
-	if policy.Percentile == 0 && defaults.Percentile != 0 {
-		policy.Percentile = defaults.Percentile
-	}
-	if policy.SafetyMargin == "" && defaults.SafetyMargin != "" {
-		policy.SafetyMargin = defaults.SafetyMargin
-	}
-	if policy.Bounds == nil && defaults.Bounds != nil {
-		policy.Bounds = defaults.Bounds
-	}
-	if policy.ControlledValues == nil && defaults.ControlledValues != nil {
-		policy.ControlledValues = defaults.ControlledValues
-	}
-	if policy.BurstSensitivity == nil && defaults.BurstSensitivity != nil {
-		policy.BurstSensitivity = defaults.BurstSensitivity
-	}
-	if policy.AllowDecrease == nil && defaults.AllowDecrease != nil {
-		policy.AllowDecrease = defaults.AllowDecrease
-	}
-	if policy.StartupBoost == nil && defaults.StartupBoost != nil {
-		policy.StartupBoost = defaults.StartupBoost
-	}
-}
-
-func mergeMetricsSource(policy *rightsizev1alpha1.MetricsSource, defaults *rightsizev1alpha1.MetricsSource) {
-	if defaults == nil {
-		return
-	}
-	if policy.HistoryWindow == nil && defaults.HistoryWindow != nil {
-		policy.HistoryWindow = defaults.HistoryWindow.DeepCopy()
-	}
-	if policy.MinimumDataPoints == nil && defaults.MinimumDataPoints != nil {
-		value := *defaults.MinimumDataPoints
-		policy.MinimumDataPoints = &value
-	}
-	if policy.QueryStep == nil && defaults.QueryStep != nil {
-		policy.QueryStep = defaults.QueryStep.DeepCopy()
-	}
-	if policy.RateWindow == nil && defaults.RateWindow != nil {
-		policy.RateWindow = defaults.RateWindow.DeepCopy()
-	}
-}
-
-func mergeUpdateStrategy(policy *rightsizev1alpha1.UpdateStrategy, defaults *rightsizev1alpha1.UpdateStrategy) {
-	if defaults == nil {
-		return
-	}
-	if policy.Mode == "" {
-		policy.Mode = defaults.Mode
-	}
-	if policy.Cooldown == nil && defaults.Cooldown != nil {
-		policy.Cooldown = defaults.Cooldown.DeepCopy()
-	}
-	if policy.AutoRevert == nil && defaults.AutoRevert != nil {
-		value := *defaults.AutoRevert
-		policy.AutoRevert = &value
-	}
-	if policy.ResizeMethod == "" && defaults.ResizeMethod != "" {
-		policy.ResizeMethod = defaults.ResizeMethod
-	}
-	if policy.MaxCPUChangePercent == nil && defaults.MaxCPUChangePercent != nil {
-		value := *defaults.MaxCPUChangePercent
-		policy.MaxCPUChangePercent = &value
-	}
-	if policy.MaxMemoryChangePercent == nil && defaults.MaxMemoryChangePercent != nil {
-		value := *defaults.MaxMemoryChangePercent
-		policy.MaxMemoryChangePercent = &value
-	}
-	if policy.SafetyObservationPeriod == nil && defaults.SafetyObservationPeriod != nil {
-		policy.SafetyObservationPeriod = defaults.SafetyObservationPeriod.DeepCopy()
-	}
-	if policy.MaxConcurrentResizes == 0 && defaults.MaxConcurrentResizes != 0 {
-		policy.MaxConcurrentResizes = defaults.MaxConcurrentResizes
-	}
-	if policy.MaxTotalCPUIncrease == nil && defaults.MaxTotalCPUIncrease != nil {
-		v := defaults.MaxTotalCPUIncrease.DeepCopy()
-		policy.MaxTotalCPUIncrease = &v
-	}
-	if policy.MaxTotalMemoryIncrease == nil && defaults.MaxTotalMemoryIncrease != nil {
-		v := defaults.MaxTotalMemoryIncrease.DeepCopy()
-		policy.MaxTotalMemoryIncrease = &v
-	}
-	if policy.Schedule == nil && defaults.Schedule != nil {
-		policy.Schedule = defaults.Schedule
-	}
-	if policy.Export == nil && defaults.Export != nil {
-		policy.Export = defaults.Export
-	}
-	if policy.Canary == nil && defaults.Canary != nil {
-		policy.Canary = defaults.Canary
-	}
+	pkgdefaults.MergeDefaults(policy, defaults)
 }
 
 func printResourceExplanation(resourceName string, current, recommended, explanation map[string]interface{}) {

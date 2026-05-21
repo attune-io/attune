@@ -176,7 +176,7 @@ func (r *RightSizePolicyReconciler) getQueryStep(policy *rightsizev1alpha1.Right
 		}
 		return qs
 	}
-	return defaultPrometheusStep
+	return rightsizev1alpha1.DefaultQueryStep
 }
 
 // getRateWindow returns the rate window from the policy or falls back to queryStep.

@@ -16,7 +16,11 @@ limitations under the License.
 
 package v1alpha1
 
-import "k8s.io/apimachinery/pkg/api/resource"
+import (
+	"time"
+
+	"k8s.io/apimachinery/pkg/api/resource"
+)
 
 // Update strategy mode aliases for backward compatibility.
 const (
@@ -59,6 +63,7 @@ const (
 	DefaultResizeMethod                 = ResizeMethodInPlaceOnly
 	DefaultMinimumDataPoints      int32 = 48
 	DefaultAutoRevert                   = true
+	DefaultQueryStep                    = 5 * time.Minute
 )
 
 // Default resource bounds applied when a policy does not specify explicit bounds.

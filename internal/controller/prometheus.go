@@ -206,7 +206,7 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 	podRegex := r.getPodRegex(workload)
 
 	queryStep := r.getQueryStep(policy)
-	if queryStep != defaultPrometheusStep {
+	if queryStep != rightsizev1alpha1.DefaultQueryStep {
 		logger.V(1).Info("Using custom query step", "queryStep", queryStep)
 	}
 	// Run CPU and memory queries concurrently. They are independent PromQL

@@ -9751,7 +9751,7 @@ func TestReconcile_InsufficientDataRequeuesAtQueryStep(t *testing.T) {
 	assert.NoError(t, err)
 	// With InsufficientData, requeue should be the query step (5m),
 	// not the cooldown (2h).
-	assert.Equal(t, defaultPrometheusStep, result.RequeueAfter,
+	assert.Equal(t, rightsizev1alpha1.DefaultQueryStep, result.RequeueAfter,
 		"InsufficientData should requeue at queryStep interval, not cooldown")
 }
 
