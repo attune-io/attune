@@ -361,6 +361,42 @@ func TestCheckCriticalStatuses_OOMKillBeforeResize(t *testing.T) {
 	assert.Nil(t, v, "OOMKill before resize should not trigger critical detection")
 }
 
+func TestCheckCriticalStatuses_InitContainerOOMKill(t *testing.T) {
+	now := time.Now()
+	oneHourAgo := now.Add(-1 * time.Hour)
+
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "web-0", Namespace: "default"},
+		Status: corev1.PodStatus{
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "app", RestartCount: 0},
+			},
+			InitContainerStatuses: []corev1.ContainerStatus{
+				{
+					Name: "istio-proxy",
+					LastTerminationState: corev1.ContainerState{
+						Terminated: &corev1.ContainerStateTerminated{
+							Reason:     "OOMKilled",
+							FinishedAt: metav1.NewTime(now),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	record := ResizeRecord{
+		PodName:   "web-0",
+		Namespace: "default",
+		Container: "istio-proxy",
+		ResizedAt: oneHourAgo,
+	}
+
+	v := CheckCriticalStatuses(pod, record)
+	require.NotNil(t, v, "OOMKill in init container should trigger critical detection")
+	assert.Equal(t, "oomkill", v.Reason)
+}
+
 func TestRevertPod(t *testing.T) {
 	original := corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{

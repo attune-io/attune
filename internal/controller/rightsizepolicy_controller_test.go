@@ -3836,6 +3836,7 @@ func TestMergeDefaults_MergesAllFields(t *testing.T) {
 					AutoPromote:       true,
 					ObservationPeriod: metav1.Duration{Duration: 5 * time.Minute},
 				},
+				SafetyObservationPeriod: &metav1.Duration{Duration: 3 * time.Minute},
 			},
 		},
 	}
@@ -3897,6 +3898,8 @@ func TestMergeDefaults_MergesAllFields(t *testing.T) {
 	assert.Equal(t, int32(10), policy.Spec.UpdateStrategy.Canary.Percentage)
 	assert.True(t, policy.Spec.UpdateStrategy.Canary.AutoPromote)
 	assert.Equal(t, 5*time.Minute, policy.Spec.UpdateStrategy.Canary.ObservationPeriod.Duration)
+	require.NotNil(t, policy.Spec.UpdateStrategy.SafetyObservationPeriod)
+	assert.Equal(t, 3*time.Minute, policy.Spec.UpdateStrategy.SafetyObservationPeriod.Duration)
 }
 
 func TestApplyBuiltInDefaults_FillsAllFields(t *testing.T) {
