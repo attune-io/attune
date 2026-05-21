@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Top-level `safetyObservationPeriod` field on `UpdateStrategy` for configuring post-resize safety watch duration (default 5m, minimum 1m); takes precedence over `canary.observationPeriod` and works in all modes
+- Early OOMKill and crash loop detection during safety observation period: critical events trigger immediate revert without waiting for the full observation period
+- `kubectl rightsize explain` now displays the effective observation period with source tracking
+- Configurable `rateWindow` field for CPU PromQL queries; no longer hardcoded to `[5m]`, now tracks `queryStep` by default
+- Effective cooldown with backoff multiplier exposed in policy status
+- Recommendation staleness detection with `LastDataTime` and `Stale` fields; stale recommendations block resize execution
+- `StaleRecommendationsTotal` metric for tracking Prometheus degradation
+- `ScheduleBlocked` status condition when outside the configured resize window
+- `SCHEDULE` column in `kubectl rightsize status` output
+- Per-policy namespace/name labels on `ReconcileDuration` metric
+- Per-policy reconcile duration panel in Grafana dashboard (p99/p50 by namespace and policy)
+- ReplicaSet as a supported target workload kind with adapter, RBAC, and Helm clusterrole
+- Cross-namespace Secret reference rejection in webhook validation
+- `KubeRightsizeHighRevertRate` PrometheusRule alert in Helm chart
 - Configurable `burstSensitivity` per resource: controls how much burst detection inflates recommendations (default 0.1, set 0 to disable)
 - Canary auto-promotion resets on spec change: editing a policy restarts the observation cycle so new configuration is re-validated
 - `kube_rightsize_burst_factor` Prometheus metric and Grafana dashboard panel showing burst detection multiplier per workload
@@ -25,6 +39,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Shorter requeue interval during data collection phase for faster initial recommendation generation
+- `canary.percentage` CRD minimum changed from 0 to 1 (a 0% canary is meaningless)
+- `rateWindow` is inheritable via `RightSizeDefaults` and `RightSizeNamespaceDefaults`
+- Deployment-owned ReplicaSets are filtered from target discovery to prevent double-resizing
 - Reconcile predicate filters out self-triggered status and metadata updates, reducing kube-apiserver load by eliminating 2-3x reconcile amplification per cycle
 - Recommendations no longer require live pods; historical Prometheus data is sufficient for recommend-only flows
 - Secret-backed bearer tokens are refreshed on every reconcile instead of being cached until TTL expiry
@@ -35,6 +53,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `kubectl rightsize explain` was missing `safetyObservationPeriod` merge from namespace/cluster defaults, showing wrong effective value
+- `StaleRecommendationsTotal` metric label mismatch between registration and increment
+- E2E test flakes: OOMKill timeout, GuaranteedQoS queryStep, ScaleUp timeout, Chainsaw poll intervals, rateWindow regression with short queryStep
 - Status race condition where concurrent reconciles could reset `status.workloads.resized` to 0 after a successful resize; Resized count is now derived from resize history entries which survive optimistic concurrency conflicts
 - `kube_rightsize_throttle_deferred_total` metric now appears in the Grafana dashboard (was the only unvisualized operator metric)
 - `RightSizeNamespaceDefaults` CRD missing from `config/crd/kustomization.yaml`; kustomize deployments now include it
