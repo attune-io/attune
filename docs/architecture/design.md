@@ -51,7 +51,7 @@ The collector queries `container_cpu_usage_seconds_total` (as a 5m rate) and
 
 Located in `internal/recommendation/`. Implements the
 [estimator chain](algorithm.md) as a pipeline of composable `Estimator`
-interfaces: Percentile, Margin, Confidence, Bounds, and Change Filter.
+interfaces: Percentile, Margin, Burst, Confidence, Bounds, and Change Filter.
 
 The engine accepts a `UsageProfile` (computed from Prometheus samples) and the
 current resource allocation, and returns a recommended `resource.Quantity`.

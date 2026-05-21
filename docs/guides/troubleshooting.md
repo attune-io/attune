@@ -17,8 +17,9 @@ Prometheus for this reconcile. The condition message tells you which step
 failed:
 
 - `Cannot resolve Prometheus config` means address resolution failed. The
-  operator checks (in order): policy spec, RightSizeNamespaceDefaults,
-  RightSizeDefaults, Prometheus Operator CRD, then well-known service names.
+  operator checks (in order): policy spec, one defaults source
+  (`RightSizeNamespaceDefaults` if present, otherwise `RightSizeDefaults`),
+  Prometheus Operator CRD, then well-known service names.
 - `Cannot create metrics collector`, `reading secret`, or transport errors
   like `TLS handshake timeout` mean the address was found but auth, headers,
   bearer token secret, CA bundle, or TLS setup failed.

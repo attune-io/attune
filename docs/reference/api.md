@@ -329,8 +329,8 @@ aggressive settings for staging).
 
 If a namespace has a RightSizeNamespaceDefaults, the controller uses it
 instead of the cluster-scoped RightSizeDefaults for all policies in that
-namespace. Fields not specified in the namespace defaults are NOT inherited
-from cluster defaults; they use the policy's own defaults.
+namespace. Fields not specified in the namespace defaults are not inherited
+from cluster defaults; they fall back to the operator's built-in defaults.
 
 If multiple defaults objects exist at the same scope, selection is
 deterministic: the controller uses the object with the lexicographically

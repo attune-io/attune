@@ -36,21 +36,20 @@ The operator resolves the Prometheus address in this order:
 
 ```mermaid
 flowchart TD
-    A[Policy spec<br/>metricsSource.prometheus.address] -->|set?| B{Yes}
-    B --> Z[Use it]
-    A -->|not set| C[RightSizeNamespaceDefaults<br/>metricsSource.prometheus.address]
-    C -->|set?| D{Yes}
-    D --> Z
-    C -->|not set| E[RightSizeDefaults<br/>metricsSource.prometheus.address]
-    E -->|set?| F{Yes}
-    F --> Z
-    E -->|not set| G[Auto-discovery:<br/>Prometheus Operator CRD]
-    G -->|found?| H{Yes}
-    H --> Z
-    G -->|not found| I[Auto-discovery:<br/>well-known service names]
-    I -->|found?| J{Yes}
-    J --> Z
-    I -->|not found| K[PrometheusUnavailable<br/>condition set]
+    A[Policy spec<br/>metricsSource.prometheus.address] -->|set?| Z[Use it]
+    A -->|not set| B{Namespace defaults exist?}
+    B -->|yes| C[RightSizeNamespaceDefaults<br/>metricsSource.prometheus.address]
+    C --> D{Address set?}
+    D -->|yes| Z
+    D -->|no| G[Auto-discovery:<br/>Prometheus Operator CRD]
+    B -->|no| E[RightSizeDefaults<br/>metricsSource.prometheus.address]
+    E --> F{Address set?}
+    F -->|yes| Z
+    F -->|no| G
+    G -->|found?| Z
+    G -->|not found| H[Auto-discovery:<br/>well-known service names]
+    H -->|found?| Z
+    H -->|not found| I[PrometheusUnavailable<br/>condition set]
 ```
 
 ### 1. Policy-level address (highest priority)
@@ -93,6 +92,11 @@ spec:
 Policies that omit `metricsSource.prometheus.address` inherit from this first.
 Use namespace defaults when different teams or environments need different
 Prometheus backends.
+
+Because the controller resolves a single defaults source per namespace, a
+`RightSizeNamespaceDefaults` object shadows cluster defaults for Prometheus
+config too. If it exists but omits `metricsSource.prometheus.address`, the
+controller falls through to auto-discovery, not to `RightSizeDefaults`.
 
 ### 3. Cluster-wide defaults
 

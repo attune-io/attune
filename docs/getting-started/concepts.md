@@ -15,9 +15,9 @@ values for metrics source, resource config, and update strategy.
 per-namespace defaults for policies in the same namespace. If a namespace
 has a `RightSizeNamespaceDefaults`, the controller uses it instead of the
 cluster-scoped `RightSizeDefaults`. Fields omitted there fall back to the
-policy's own built-in defaults, not the cluster defaults. If multiple
-defaults objects exist at one scope, the controller deterministically picks
-the lexicographically smallest `metadata.name`.
+operator's built-in defaults. If multiple defaults objects exist at one
+scope, the controller deterministically picks the lexicographically
+smallest `metadata.name`.
 
 ## Update modes
 
@@ -55,17 +55,20 @@ wraps the previous one:
 ```mermaid
 flowchart LR
   A[Percentile] --> B[Margin]
-  B --> C[Confidence]
-  C --> D[Bounds]
-  D --> E[Change Filter]
+  B --> C[Burst]
+  C --> D[Confidence]
+  D --> E[Bounds]
+  E --> F[Change Filter]
 ```
 
 1. **Percentile** selects the configured percentile (e.g. p95) from 24 hourly
    buckets and takes the maximum across all hours.
 2. **Margin** multiplies by a safety factor (e.g. 1.2 for 20% headroom).
-3. **Confidence** widens the recommendation when data is sparse.
-4. **Bounds** clamps the result to user-defined min/max values.
-5. **Change Filter** suppresses changes below 10% and caps changes above the
+3. **Burst** applies extra headroom when `max` greatly exceeds the selected
+   percentile.
+4. **Confidence** widens the recommendation when data is sparse.
+5. **Bounds** clamps the result to user-defined min/max values.
+6. **Change Filter** suppresses changes below 10% and caps changes above the
    configured maximum percentage per cycle.
 
 See [Algorithm](../architecture/algorithm.md) for formulas and details.
