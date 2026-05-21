@@ -23,6 +23,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -343,6 +344,10 @@ func (c *PrometheusCollector) GetThrottleRatio(ctx context.Context, namespace, p
 			return 0, nil
 		}
 		return 0, err
+	}
+	// Prometheus returns NaN for 0/0 (both rates zero). Treat as no data.
+	if math.IsNaN(val) || math.IsInf(val, 0) {
+		return 0, nil
 	}
 	return val, nil
 }

@@ -469,23 +469,32 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 			Container:         containerRec.Name,
 			OriginalResources: originalResources,
 		}
+		revertFailed := false
 		if revertErr := monitor.RevertPod(ctx, revertRecord); revertErr != nil {
 			logger.Error(revertErr, "Failed to revert pod after "+reason, "pod", pod.Name)
-			return
+			revertFailed = true
 		}
-		operatormetrics.RevertsTotal.WithLabelValues(pod.Namespace, workloadName, reason).Inc()
-		for _, res := range results {
-			if res.Success {
-				operatormetrics.ResizeTotal.WithLabelValues(pod.Namespace, workloadName, res.Resource, "reverted").Inc()
+		if !revertFailed {
+			operatormetrics.RevertsTotal.WithLabelValues(pod.Namespace, workloadName, reason).Inc()
+			for _, res := range results {
+				if res.Success {
+					operatormetrics.ResizeTotal.WithLabelValues(pod.Namespace, workloadName, res.Resource, "reverted").Inc()
+				}
+			}
+			if r.Recorder != nil {
+				r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, string(rightsizev1alpha1.ResizeResultReverted), "revert",
+					"Reverted resize on %s/%s: %s", workloadName, containerRec.Name, reason)
 			}
 		}
-		if r.Recorder != nil {
-			r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, string(rightsizev1alpha1.ResizeResultReverted), "revert",
-				"Reverted resize on %s/%s: %s", workloadName, containerRec.Name, reason)
+		// Always mark history entries regardless of whether the revert succeeded.
+		// On revert failure, mark as Failed so the resize is not recorded as Success.
+		resultStatus := rightsizev1alpha1.ResizeResultReverted
+		if revertFailed {
+			resultStatus = rightsizev1alpha1.ResizeResultFailed
 		}
 		for i := range history {
 			if history[i].Workload == workloadName && history[i].Container == containerRec.Name {
-				history[i].Result = rightsizev1alpha1.ResizeResultReverted
+				history[i].Result = resultStatus
 			}
 		}
 	}
