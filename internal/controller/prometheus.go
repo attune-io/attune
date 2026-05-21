@@ -69,9 +69,11 @@ func (r *RightSizePolicyReconciler) getOrCreateCollector(config *rightsizev1alph
 	now := r.now()
 
 	if cached, ok := r.collectors.Load(cacheKey); ok {
-		entry := cached.(*collectorEntry)
-		r.collectors.Store(cacheKey, &collectorEntry{collector: entry.collector, lastUsed: now})
-		return entry.collector, nil
+		entry, _ := cached.(*collectorEntry)
+		if entry != nil {
+			r.collectors.Store(cacheKey, &collectorEntry{collector: entry.collector, lastUsed: now})
+			return entry.collector, nil
+		}
 	}
 
 	// Evict stale entries before checking capacity.
@@ -80,7 +82,11 @@ func (r *RightSizePolicyReconciler) getOrCreateCollector(config *rightsizev1alph
 		ttl = collectorTTL
 	}
 	r.collectors.Range(func(key, value any) bool {
-		entry := value.(*collectorEntry)
+		entry, ok := value.(*collectorEntry)
+		if !ok || entry == nil {
+			r.collectors.Delete(key)
+			return true
+		}
 		if now.Sub(entry.lastUsed) > ttl {
 			r.collectors.Delete(key)
 			if closer, ok := entry.collector.(io.Closer); ok {
@@ -111,7 +117,11 @@ func (r *RightSizePolicyReconciler) getOrCreateCollector(config *rightsizev1alph
 			_ = closer.Close()
 		}
 	}
-	return actual.(*collectorEntry).collector, nil
+	stored, _ := actual.(*collectorEntry)
+	if stored == nil {
+		return nil, fmt.Errorf("unexpected nil collector entry for address %q", config.Address)
+	}
+	return stored.collector, nil
 }
 
 func collectorConfigPrefix(address string, headers map[string]string, tlsConfig *rightsizev1alpha1.TLSConfig) string {

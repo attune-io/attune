@@ -213,7 +213,9 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			// Clean up gauge values this policy previously set.
 			deletedPolicyKey := req.Namespace + "/" + req.Name
 			if prev, ok := r.gaugeKeys.LoadAndDelete(deletedPolicyKey); ok {
-				deleteGaugeKeys(prev.([]gaugeKey))
+				if keys, ok := prev.([]gaugeKey); ok {
+					deleteGaugeKeys(keys)
+				}
 			}
 			return ctrl.Result{}, nil
 		}
@@ -256,6 +258,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	promConfig, err := r.resolvePrometheusConfig(ctx, &policy, defaults)
 	if err != nil {
 		logger.Error(err, "Failed to resolve Prometheus config")
+		operatormetrics.ReconcileErrorsTotal.WithLabelValues("prometheus_config").Inc()
 		r.setFailedCondition(ctx, &policy, rightsizev1alpha1.ReasonPrometheusUnavailable,
 			fmt.Sprintf("Cannot resolve Prometheus config: %v", err))
 		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
@@ -265,6 +268,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	collectorOpts, err := r.buildCollectorOptions(ctx, policy.Namespace, promConfig)
 	if err != nil {
 		logger.Error(err, "Failed to build collector options")
+		operatormetrics.ReconcileErrorsTotal.WithLabelValues("collector_options").Inc()
 		r.setFailedCondition(ctx, &policy, rightsizev1alpha1.ReasonPrometheusUnavailable, err.Error())
 		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 	}
@@ -272,6 +276,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	collector, err := r.getOrCreateCollector(promConfig, collectorOpts)
 	if err != nil {
 		logger.Error(err, "Failed to create metrics collector", "address", promConfig.Address)
+		operatormetrics.ReconcileErrorsTotal.WithLabelValues("collector_create").Inc()
 		r.setFailedCondition(ctx, &policy, rightsizev1alpha1.ReasonPrometheusUnavailable,
 			fmt.Sprintf("Cannot create metrics collector: %v", err))
 		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
@@ -552,7 +557,9 @@ func (r *RightSizePolicyReconciler) processWorkloads(
 	// Clear gauge values that THIS policy previously set.
 	policyKey := policy.Namespace + "/" + policy.Name
 	if prev, ok := r.gaugeKeys.Load(policyKey); ok {
-		deleteGaugeKeys(prev.([]gaugeKey))
+		if keys, ok := prev.([]gaugeKey); ok {
+			deleteGaugeKeys(keys)
+		}
 	}
 
 	cpuEngine, memEngine := buildRecommendationEngines(policy)
@@ -761,7 +768,9 @@ func (r *RightSizePolicyReconciler) handleDeletion(ctx context.Context, policy *
 	// Clean Prometheus gauge values this policy set.
 	policyKey := policy.Namespace + "/" + policy.Name
 	if prev, ok := r.gaugeKeys.LoadAndDelete(policyKey); ok {
-		deleteGaugeKeys(prev.([]gaugeKey))
+		if keys, ok := prev.([]gaugeKey); ok {
+			deleteGaugeKeys(keys)
+		}
 	}
 
 	// Clean namespace-level savings gauges if this is the last policy in the namespace.

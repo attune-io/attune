@@ -1387,8 +1387,10 @@ func TestGetOrCreateCollector_CacheHit(t *testing.T) {
 	// Verify lastUsed was refreshed on cache hit.
 	entry, ok := reconciler.collectors.Load("http://prom:9090")
 	require.True(t, ok)
-	assert.True(t, entry.(*collectorEntry).lastUsed.After(before) || entry.(*collectorEntry).lastUsed.Equal(before),
-		"lastUsed should be refreshed to ~now on cache hit, got %v", entry.(*collectorEntry).lastUsed)
+	ce, ok := entry.(*collectorEntry)
+	require.True(t, ok, "cached value should be *collectorEntry")
+	assert.True(t, ce.lastUsed.After(before) || ce.lastUsed.Equal(before),
+		"lastUsed should be refreshed to ~now on cache hit, got %v", ce.lastUsed)
 }
 
 func TestGetOrCreateCollector_CacheMiss(t *testing.T) {

@@ -1,4 +1,4 @@
-The recommendation engine is a chain of five composable estimators. Each
+The recommendation engine is a chain of six composable estimators. Each
 estimator wraps the previous one, processing the result before passing it
 along.
 
@@ -7,9 +7,10 @@ along.
 ```mermaid
 flowchart LR
     A["1. Percentile"] --> B["2. Margin"]
-    B --> C["3. Confidence"]
-    C --> D["4. Bounds"]
-    D --> E["5. Change Filter"]
+    B --> C["3. Burst"]
+    C --> D["4. Confidence"]
+    D --> E["5. Bounds"]
+    E --> F["6. Change Filter"]
 ```
 
 The chain is constructed in `recommendation.NewEngine()` and invoked via
@@ -47,7 +48,15 @@ result = inner * factor
 Typical values: `1.2` (20% headroom) for CPU, `1.3` (30%) for memory.
 The multiplication is done in millicore precision and rounded up.
 
-## 3. Confidence Estimator
+## 3. Burst Estimator
+
+`BuildProfile()` flags bursts when `max > 3x p95`. The burst estimator
+uses `BurstMagnitude` to apply a logarithmic safety-margin boost after the
+base margin and before the confidence adjustment. See the
+[Burst detection](#burst-detection) section below for the full formula and
+sensitivity tuning.
+
+## 4. Confidence Estimator
 
 Widens the recommendation when data confidence is low. High-confidence
 recommendations (near 1.0) pass through with minimal adjustment. Low
@@ -87,7 +96,7 @@ confidence    = clamp(min(timeComponent, dataComponent) / 7, 0, 1)
 
 A full 7-day history window at the default `queryStep: 5m` yields confidence near 1.0.
 
-## 4. Bounds Estimator
+## 5. Bounds Estimator
 
 Clamps the result to user-defined minimum and maximum values:
 
@@ -98,7 +107,7 @@ result = clamp(inner, min, max)
 This ensures recommendations never drop below a safe floor (e.g. `50m` CPU)
 or exceed a known capacity ceiling (e.g. `4000m` CPU).
 
-## 5. Change Filter
+## 6. Change Filter
 
 Prevents thrashing from tiny adjustments and dangerous large swings:
 
