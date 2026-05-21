@@ -3469,6 +3469,7 @@ func TestIsBatchWorkload(t *testing.T) {
 	assert.False(t, isBatchWorkload(&appsv1.Deployment{}))
 	assert.False(t, isBatchWorkload(&appsv1.StatefulSet{}))
 	assert.False(t, isBatchWorkload(&appsv1.DaemonSet{}))
+	assert.False(t, isBatchWorkload(&appsv1.ReplicaSet{}))
 }
 
 func TestListWorkloadsBySelector_CronJobs(t *testing.T) {

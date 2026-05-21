@@ -103,6 +103,7 @@ func TestWorkload_IsBatchWorkload(t *testing.T) {
 		{"DaemonSet", &appsv1.DaemonSet{}, false},
 		{"Job", &batchv1.Job{}, true},
 		{"CronJob", &batchv1.CronJob{}, true},
+		{"ReplicaSet", &appsv1.ReplicaSet{}, false},
 	}
 
 	for _, tt := range tests {
