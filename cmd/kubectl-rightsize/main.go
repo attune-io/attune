@@ -711,14 +711,51 @@ func applyBuiltInDefaults(policy *rightsizev1alpha1.RightSizePolicy) {
 	if policy.Spec.MetricsSource.QueryStep == nil {
 		policy.Spec.MetricsSource.QueryStep = &metav1.Duration{Duration: defaultQueryStep}
 	}
+	if policy.Spec.CPU.ControlledValues == nil {
+		cv := rightsizev1alpha1.DefaultControlledValues
+		policy.Spec.CPU.ControlledValues = &cv
+	}
+	if policy.Spec.Memory.ControlledValues == nil {
+		cv := rightsizev1alpha1.DefaultControlledValues
+		policy.Spec.Memory.ControlledValues = &cv
+	}
 }
 
 func mergeDefaultsIntoPolicy(policy *rightsizev1alpha1.RightSizePolicy, defaults *rightsizev1alpha1.RightSizeDefaults) {
 	if defaults == nil {
 		return
 	}
+	mergeResourceConfig(&policy.Spec.CPU, defaults.Spec.CPU)
+	mergeResourceConfig(&policy.Spec.Memory, defaults.Spec.Memory)
 	mergeMetricsSource(&policy.Spec.MetricsSource, defaults.Spec.MetricsSource)
 	mergeUpdateStrategy(&policy.Spec.UpdateStrategy, defaults.Spec.UpdateStrategy)
+}
+
+func mergeResourceConfig(policy *rightsizev1alpha1.ResourceConfig, defaults *rightsizev1alpha1.ResourceConfig) {
+	if defaults == nil {
+		return
+	}
+	if policy.Percentile == 0 && defaults.Percentile != 0 {
+		policy.Percentile = defaults.Percentile
+	}
+	if policy.SafetyMargin == "" && defaults.SafetyMargin != "" {
+		policy.SafetyMargin = defaults.SafetyMargin
+	}
+	if policy.Bounds == nil && defaults.Bounds != nil {
+		policy.Bounds = defaults.Bounds
+	}
+	if policy.ControlledValues == nil && defaults.ControlledValues != nil {
+		policy.ControlledValues = defaults.ControlledValues
+	}
+	if policy.BurstSensitivity == nil && defaults.BurstSensitivity != nil {
+		policy.BurstSensitivity = defaults.BurstSensitivity
+	}
+	if policy.AllowDecrease == nil && defaults.AllowDecrease != nil {
+		policy.AllowDecrease = defaults.AllowDecrease
+	}
+	if policy.StartupBoost == nil && defaults.StartupBoost != nil {
+		policy.StartupBoost = defaults.StartupBoost
+	}
 }
 
 func mergeMetricsSource(policy *rightsizev1alpha1.MetricsSource, defaults *rightsizev1alpha1.MetricsSource) {
@@ -734,6 +771,9 @@ func mergeMetricsSource(policy *rightsizev1alpha1.MetricsSource, defaults *right
 	}
 	if policy.QueryStep == nil && defaults.QueryStep != nil {
 		policy.QueryStep = defaults.QueryStep.DeepCopy()
+	}
+	if policy.RateWindow == nil && defaults.RateWindow != nil {
+		policy.RateWindow = defaults.RateWindow.DeepCopy()
 	}
 }
 
@@ -764,6 +804,26 @@ func mergeUpdateStrategy(policy *rightsizev1alpha1.UpdateStrategy, defaults *rig
 	}
 	if policy.SafetyObservationPeriod == nil && defaults.SafetyObservationPeriod != nil {
 		policy.SafetyObservationPeriod = defaults.SafetyObservationPeriod.DeepCopy()
+	}
+	if policy.MaxConcurrentResizes == 0 && defaults.MaxConcurrentResizes != 0 {
+		policy.MaxConcurrentResizes = defaults.MaxConcurrentResizes
+	}
+	if policy.MaxTotalCPUIncrease == nil && defaults.MaxTotalCPUIncrease != nil {
+		v := defaults.MaxTotalCPUIncrease.DeepCopy()
+		policy.MaxTotalCPUIncrease = &v
+	}
+	if policy.MaxTotalMemoryIncrease == nil && defaults.MaxTotalMemoryIncrease != nil {
+		v := defaults.MaxTotalMemoryIncrease.DeepCopy()
+		policy.MaxTotalMemoryIncrease = &v
+	}
+	if policy.Schedule == nil && defaults.Schedule != nil {
+		policy.Schedule = defaults.Schedule
+	}
+	if policy.Export == nil && defaults.Export != nil {
+		policy.Export = defaults.Export
+	}
+	if policy.Canary == nil && defaults.Canary != nil {
+		policy.Canary = defaults.Canary
 	}
 }
 

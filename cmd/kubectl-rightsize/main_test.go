@@ -1807,3 +1807,162 @@ func TestPolicyReadyReason_InsufficientDataNoMessage(t *testing.T) {
 	}}
 	assert.Equal(t, "InsufficientData", policyReadyReason(item))
 }
+
+// ---------- mergeDefaultsIntoPolicy parity with controller ----------
+
+func TestMergeDefaultsIntoPolicy_AllFieldsInherited(t *testing.T) {
+	allowDecrease := true
+	burstSensitivity := "0.2"
+	cv := "RequestsAndLimits"
+	boostMultiplier := "3.0"
+	boostDuration := metav1.Duration{Duration: 2 * time.Minute}
+
+	defaults := &rightsizev1alpha1.RightSizeDefaults{
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			CPU: &rightsizev1alpha1.ResourceConfig{
+				Percentile:       90,
+				SafetyMargin:     "1.5",
+				ControlledValues: &cv,
+				BurstSensitivity: &burstSensitivity,
+				AllowDecrease:    &allowDecrease,
+				StartupBoost:     &rightsizev1alpha1.StartupBoost{Multiplier: boostMultiplier, Duration: boostDuration},
+			},
+			Memory: &rightsizev1alpha1.ResourceConfig{
+				Percentile:       99,
+				SafetyMargin:     "1.4",
+				ControlledValues: &cv,
+			},
+			MetricsSource: &rightsizev1alpha1.MetricsSource{
+				HistoryWindow:     &metav1.Duration{Duration: 336 * time.Hour},
+				MinimumDataPoints: ptrInt32(96),
+				QueryStep:         &metav1.Duration{Duration: 10 * time.Minute},
+				RateWindow:        &metav1.Duration{Duration: 15 * time.Minute},
+			},
+			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{
+				Mode:                    rightsizev1alpha1.UpdateModeAuto,
+				Cooldown:                &metav1.Duration{Duration: 30 * time.Minute},
+				AutoRevert:              ptrBool(false),
+				ResizeMethod:            rightsizev1alpha1.ResizeMethodInPlaceOrEvict,
+				MaxCPUChangePercent:     ptrInt32(80),
+				MaxMemoryChangePercent:  ptrInt32(40),
+				SafetyObservationPeriod: &metav1.Duration{Duration: 10 * time.Minute},
+				MaxConcurrentResizes:    5,
+				Schedule:                &rightsizev1alpha1.ResizeSchedule{Timezone: "UTC"},
+				Export:                  &rightsizev1alpha1.ExportConfig{ConfigMap: true},
+				Canary:                  &rightsizev1alpha1.CanaryConfig{Percentage: 10, ObservationPeriod: metav1.Duration{Duration: 5 * time.Minute}},
+			},
+		},
+	}
+
+	policy := &rightsizev1alpha1.RightSizePolicy{}
+	mergeDefaultsIntoPolicy(policy, defaults)
+
+	// CPU resource config
+	assert.Equal(t, int32(90), policy.Spec.CPU.Percentile)
+	assert.Equal(t, "1.5", policy.Spec.CPU.SafetyMargin)
+	require.NotNil(t, policy.Spec.CPU.ControlledValues)
+	assert.Equal(t, "RequestsAndLimits", *policy.Spec.CPU.ControlledValues)
+	require.NotNil(t, policy.Spec.CPU.BurstSensitivity)
+	assert.Equal(t, "0.2", *policy.Spec.CPU.BurstSensitivity)
+	require.NotNil(t, policy.Spec.CPU.AllowDecrease)
+	assert.True(t, *policy.Spec.CPU.AllowDecrease)
+	require.NotNil(t, policy.Spec.CPU.StartupBoost)
+	assert.Equal(t, "3.0", policy.Spec.CPU.StartupBoost.Multiplier)
+
+	// Memory resource config
+	assert.Equal(t, int32(99), policy.Spec.Memory.Percentile)
+	assert.Equal(t, "1.4", policy.Spec.Memory.SafetyMargin)
+	require.NotNil(t, policy.Spec.Memory.ControlledValues)
+	assert.Equal(t, "RequestsAndLimits", *policy.Spec.Memory.ControlledValues)
+
+	// MetricsSource
+	require.NotNil(t, policy.Spec.MetricsSource.HistoryWindow)
+	assert.Equal(t, 336*time.Hour, policy.Spec.MetricsSource.HistoryWindow.Duration)
+	require.NotNil(t, policy.Spec.MetricsSource.MinimumDataPoints)
+	assert.Equal(t, int32(96), *policy.Spec.MetricsSource.MinimumDataPoints)
+	require.NotNil(t, policy.Spec.MetricsSource.QueryStep)
+	assert.Equal(t, 10*time.Minute, policy.Spec.MetricsSource.QueryStep.Duration)
+	require.NotNil(t, policy.Spec.MetricsSource.RateWindow)
+	assert.Equal(t, 15*time.Minute, policy.Spec.MetricsSource.RateWindow.Duration)
+
+	// UpdateStrategy
+	assert.Equal(t, rightsizev1alpha1.UpdateModeAuto, policy.Spec.UpdateStrategy.Mode)
+	require.NotNil(t, policy.Spec.UpdateStrategy.Cooldown)
+	assert.Equal(t, 30*time.Minute, policy.Spec.UpdateStrategy.Cooldown.Duration)
+	require.NotNil(t, policy.Spec.UpdateStrategy.AutoRevert)
+	assert.False(t, *policy.Spec.UpdateStrategy.AutoRevert)
+	assert.Equal(t, rightsizev1alpha1.ResizeMethodInPlaceOrEvict, policy.Spec.UpdateStrategy.ResizeMethod)
+	require.NotNil(t, policy.Spec.UpdateStrategy.MaxCPUChangePercent)
+	assert.Equal(t, int32(80), *policy.Spec.UpdateStrategy.MaxCPUChangePercent)
+	require.NotNil(t, policy.Spec.UpdateStrategy.MaxMemoryChangePercent)
+	assert.Equal(t, int32(40), *policy.Spec.UpdateStrategy.MaxMemoryChangePercent)
+	require.NotNil(t, policy.Spec.UpdateStrategy.SafetyObservationPeriod)
+	assert.Equal(t, 10*time.Minute, policy.Spec.UpdateStrategy.SafetyObservationPeriod.Duration)
+	assert.Equal(t, int32(5), policy.Spec.UpdateStrategy.MaxConcurrentResizes)
+	require.NotNil(t, policy.Spec.UpdateStrategy.Schedule)
+	assert.Equal(t, "UTC", policy.Spec.UpdateStrategy.Schedule.Timezone)
+	require.NotNil(t, policy.Spec.UpdateStrategy.Export)
+	assert.True(t, policy.Spec.UpdateStrategy.Export.ConfigMap)
+	require.NotNil(t, policy.Spec.UpdateStrategy.Canary)
+	assert.Equal(t, int32(10), policy.Spec.UpdateStrategy.Canary.Percentage)
+}
+
+func TestMergeDefaultsIntoPolicy_PolicyFieldsNotOverwritten(t *testing.T) {
+	cv := "RequestsAndLimits"
+	defaults := &rightsizev1alpha1.RightSizeDefaults{
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			CPU: &rightsizev1alpha1.ResourceConfig{
+				Percentile:       50,
+				SafetyMargin:     "2.0",
+				ControlledValues: &cv,
+			},
+			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{
+				Mode:                 rightsizev1alpha1.UpdateModeAuto,
+				MaxConcurrentResizes: 10,
+			},
+			MetricsSource: &rightsizev1alpha1.MetricsSource{
+				RateWindow: &metav1.Duration{Duration: 20 * time.Minute},
+			},
+		},
+	}
+
+	policyCV := "RequestsOnly"
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			CPU: rightsizev1alpha1.ResourceConfig{
+				Percentile:       95,
+				SafetyMargin:     "1.2",
+				ControlledValues: &policyCV,
+			},
+			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+				Mode:                 rightsizev1alpha1.UpdateModeRecommend,
+				MaxConcurrentResizes: 3,
+			},
+			MetricsSource: rightsizev1alpha1.MetricsSource{
+				RateWindow: &metav1.Duration{Duration: 5 * time.Minute},
+			},
+		},
+	}
+	mergeDefaultsIntoPolicy(policy, defaults)
+
+	// Policy fields should be preserved.
+	assert.Equal(t, int32(95), policy.Spec.CPU.Percentile)
+	assert.Equal(t, "1.2", policy.Spec.CPU.SafetyMargin)
+	assert.Equal(t, "RequestsOnly", *policy.Spec.CPU.ControlledValues)
+	assert.Equal(t, rightsizev1alpha1.UpdateModeRecommend, policy.Spec.UpdateStrategy.Mode)
+	assert.Equal(t, int32(3), policy.Spec.UpdateStrategy.MaxConcurrentResizes)
+	assert.Equal(t, 5*time.Minute, policy.Spec.MetricsSource.RateWindow.Duration)
+}
+
+func TestApplyBuiltInDefaults_SetsControlledValues(t *testing.T) {
+	policy := &rightsizev1alpha1.RightSizePolicy{}
+	applyBuiltInDefaults(policy)
+
+	require.NotNil(t, policy.Spec.CPU.ControlledValues)
+	assert.Equal(t, rightsizev1alpha1.DefaultControlledValues, *policy.Spec.CPU.ControlledValues)
+	require.NotNil(t, policy.Spec.Memory.ControlledValues)
+	assert.Equal(t, rightsizev1alpha1.DefaultControlledValues, *policy.Spec.Memory.ControlledValues)
+}
+
+func ptrInt32(v int32) *int32 { return &v }
+func ptrBool(v bool) *bool    { return &v }

@@ -8627,6 +8627,110 @@ func TestAdjustHPATargets_SkipsWithoutAnnotation(t *testing.T) {
 	assert.Equal(t, int32(80), *hpa.Spec.Metrics[0].Resource.Target.AverageUtilization)
 }
 
+func TestAdjustHPATargets_GetErrorDoesNotCrash(t *testing.T) {
+	scheme := testScheme()
+	oldTarget := int32(80)
+	// HPA in the slice but NOT registered with the fake client, so Get returns NotFound.
+	hpas := []autoscalingv2.HorizontalPodAutoscaler{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "ghost-hpa",
+				Namespace: "default",
+				Annotations: map[string]string{
+					annotationHPAAutoTune: "true",
+				},
+			},
+			Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+				ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+					Kind: "Deployment",
+					Name: "my-app",
+				},
+				Metrics: []autoscalingv2.MetricSpec{
+					{
+						Type: autoscalingv2.ResourceMetricSourceType,
+						Resource: &autoscalingv2.ResourceMetricSource{
+							Name: corev1.ResourceCPU,
+							Target: autoscalingv2.MetricTarget{
+								Type:               autoscalingv2.UtilizationMetricType,
+								AverageUtilization: &oldTarget,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Empty client: HPA does not exist, Get will fail.
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	r := &RightSizePolicyReconciler{
+		Client: fakeClient,
+		Scheme: scheme,
+	}
+
+	// Should not panic; logs the Get error and moves on.
+	r.adjustHPATargets(context.Background(), hpas, "my-app", "Deployment",
+		resource.MustParse("200m"), resource.MustParse("400m"))
+}
+
+func TestAdjustHPATargets_UpdateErrorPreservesOriginal(t *testing.T) {
+	scheme := testScheme()
+	oldTarget := int32(80)
+	hpa := autoscalingv2.HorizontalPodAutoscaler{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "conflict-hpa",
+			Namespace: "default",
+			Annotations: map[string]string{
+				annotationHPAAutoTune: "true",
+			},
+		},
+		Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+			ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+				Kind: "Deployment",
+				Name: "my-app",
+			},
+			Metrics: []autoscalingv2.MetricSpec{
+				{
+					Type: autoscalingv2.ResourceMetricSourceType,
+					Resource: &autoscalingv2.ResourceMetricSource{
+						Name: corev1.ResourceCPU,
+						Target: autoscalingv2.MetricTarget{
+							Type:               autoscalingv2.UtilizationMetricType,
+							AverageUtilization: &oldTarget,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Inject an Update error.
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&hpa).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Update: func(_ context.Context, _ client.WithWatch, _ client.Object, _ ...client.UpdateOption) error {
+				return fmt.Errorf("simulated conflict")
+			},
+		}).Build()
+	r := &RightSizePolicyReconciler{
+		Client: fakeClient,
+		Scheme: scheme,
+	}
+
+	// Should not panic; logs the Update error.
+	r.adjustHPATargets(context.Background(), []autoscalingv2.HorizontalPodAutoscaler{hpa},
+		"my-app", "Deployment",
+		resource.MustParse("200m"), resource.MustParse("400m"))
+
+	// The stored HPA should still have the original target since update failed.
+	var storedHPA autoscalingv2.HorizontalPodAutoscaler
+	err := fakeClient.Get(context.Background(), client.ObjectKey{
+		Namespace: "default",
+		Name:      "conflict-hpa",
+	}, &storedHPA)
+	require.NoError(t, err)
+	assert.Equal(t, int32(80), *storedHPA.Spec.Metrics[0].Resource.Target.AverageUtilization)
+}
+
 func TestBuildRecommendationEngines_NilMaxChangePercent(t *testing.T) {
 	// Exercise the defense-in-depth nil fallback: when MaxCPUChangePercent
 	// and MaxMemoryChangePercent are nil (bypassing applyBuiltInDefaults),
