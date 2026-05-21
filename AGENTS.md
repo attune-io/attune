@@ -101,6 +101,15 @@ ctrl.NewWebhookManagedBy(mgr, &rightsizev1alpha1.RightSizeDefaults{}).
     Complete()
 ```
 
+### CRD schema vs webhook validation
+
+Kubebuilder markers like `+kubebuilder:validation:Minimum=1` generate
+OpenAPI schema constraints in the CRD. These are enforced by the API
+server at admission time, **before** webhooks run. A zero value that
+violates a CRD-level `minimum` is rejected even if the webhook would
+accept it. When writing tests that create CRs, always respect CRD-level
+constraints; webhook-level logic cannot override them.
+
 ### Pod resize
 
 The `/resize` subresource is not available via the controller-runtime client.
