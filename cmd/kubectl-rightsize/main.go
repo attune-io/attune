@@ -22,6 +22,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"strconv"
 	"text/tabwriter"
 	"time"
@@ -90,6 +91,8 @@ func run(args []string, buildClient dynamicClientFactory) int {
 	kubeconfig := fs.String("kubeconfig", "", "Path to kubeconfig file")
 	output := fs.String("o", "", structuredOutputUsage)
 	fs.StringVar(output, "output", "", structuredOutputUsage)
+	watch := fs.Bool("w", false, "Watch mode: refresh status every 10 seconds (status command only)")
+	fs.BoolVar(watch, "watch", false, "Watch mode: refresh status every 10 seconds (status command only)")
 	fs.Usage = func() {
 		fmt.Fprintln(os.Stderr, "Usage: kubectl rightsize <command> [flags]")
 		fmt.Fprintln(os.Stderr, "")
@@ -144,6 +147,10 @@ func run(args []string, buildClient dynamicClientFactory) int {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		return 1
 	}
+	if *watch && cmd != "status" {
+		fmt.Fprintf(os.Stderr, "Error: --watch is supported only with the status command\n")
+		return 1
+	}
 
 	policyName := ""
 	if cmd == "explain" {
@@ -179,7 +186,11 @@ func run(args []string, buildClient dynamicClientFactory) int {
 
 	switch cmd {
 	case "status":
-		printStatus(ctx, dynClient, *namespace)
+		if *watch {
+			watchStatus(ctx, dynClient, *namespace)
+		} else {
+			printStatus(ctx, dynClient, *namespace)
+		}
 	case "savings":
 		printSavings(ctx, dynClient, *namespace)
 	case "recommendations":
@@ -301,6 +312,24 @@ func printStatus(ctx context.Context, dynClient dynamic.Interface, namespace str
 
 	if err := w.Flush(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error flushing output: %v\n", err)
+	}
+}
+
+func watchStatus(ctx context.Context, dynClient dynamic.Interface, namespace string) {
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
+	defer stop()
+
+	for {
+		// Clear screen and move cursor to top-left.
+		fmt.Print("\033[2J\033[H")
+		printStatus(ctx, dynClient, namespace)
+		fmt.Printf("\nLast refresh: %s  (Ctrl+C to stop)\n", time.Now().Format("15:04:05"))
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(10 * time.Second):
+		}
 	}
 }
 

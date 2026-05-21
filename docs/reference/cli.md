@@ -26,7 +26,12 @@ Shows all policies with their conditions, workload counts, and age.
 kubectl rightsize status
 kubectl rightsize status -n production
 kubectl rightsize status -A
+kubectl rightsize status --watch          # live-refresh every 10s
 ```
+
+| Flag | Description |
+|------|-------------|
+| `-w`, `--watch` | Continuously refresh the status table every 10 seconds. Press Ctrl+C to stop. Useful during initial data collection to track progress without manually re-running the command. |
 
 | Column | Description |
 |--------|-------------|
@@ -144,6 +149,7 @@ with `kubectl get rightsizepolicy -o json|yaml`.
 | `--all-namespaces` | `-A` | List across all namespaces |
 | `--kubeconfig` | | Path to kubeconfig file |
 | `--output` | `-o` | Output raw `RightSizePolicy` objects as `json` or `yaml` (`status` only) |
+| `--watch` | `-w` | Continuously refresh status every 10 seconds (`status` only) |
 
 ## Manager Binary Flags
 

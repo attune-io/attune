@@ -1093,6 +1093,13 @@ func TestRun_MainWiring(t *testing.T) {
 			wantExitCode: 1,
 			wantStderr:   "Unknown command: wat",
 		},
+		{
+			name:         "watch flag rejected for non-status command",
+			args:         []string{"savings", "--watch"},
+			factory:      fakeDynamicClientFactory(t, policy),
+			wantExitCode: 1,
+			wantStderr:   "--watch is supported only with the status command",
+		},
 	}
 
 	for _, tt := range tests {
