@@ -156,6 +156,10 @@ func (r *RightSizePolicyReconciler) mergeDefaults(policy *rightsizev1alpha1.Righ
 			policy.Spec.MetricsSource.QueryStep = spec.MetricsSource.QueryStep
 			inherited = append(inherited, "queryStep")
 		}
+		if policy.Spec.MetricsSource.RateWindow == nil && spec.MetricsSource.RateWindow != nil {
+			policy.Spec.MetricsSource.RateWindow = spec.MetricsSource.RateWindow
+			inherited = append(inherited, "rateWindow")
+		}
 	}
 
 	// Merge UpdateStrategy
