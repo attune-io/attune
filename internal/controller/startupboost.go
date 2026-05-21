@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
+	"github.com/SebTardifLabs/kube-rightsize/internal/operatormetrics"
 	"github.com/SebTardifLabs/kube-rightsize/internal/resize"
 )
 
@@ -122,6 +123,7 @@ func (r *RightSizePolicyReconciler) applyStartupBoosts(
 					}
 					refreshed, err := r.boostResizeAndRefetch(ctx, resizer, pod, c.Name, boostedCPU)
 					if err != nil {
+						operatormetrics.StartupBoostTotal.WithLabelValues(pod.Namespace, rec.Workload, "failed").Inc()
 						logger.Error(err, "Failed to apply startup CPU boost",
 							"pod", pod.Name, "container", c.Name,
 							"boostedCPU", boostedCPU.String(),
@@ -132,6 +134,7 @@ func (r *RightSizePolicyReconciler) applyStartupBoosts(
 						continue
 					}
 					boostedAny = true
+					operatormetrics.StartupBoostTotal.WithLabelValues(pod.Namespace, rec.Workload, "applied").Inc()
 					logger.Info("Applied startup CPU boost",
 						"pod", pod.Name, "container", c.Name,
 						"boostedCPU", boostedCPU.String(), "steadyState", recCPU.String())
@@ -191,6 +194,7 @@ func (r *RightSizePolicyReconciler) applyStartupBoosts(
 						}
 						refreshed, err := r.boostResizeAndRefetch(ctx, resizer, pod, c.Name, recCPU)
 						if err != nil {
+							operatormetrics.StartupBoostTotal.WithLabelValues(pod.Namespace, rec.Workload, "failed").Inc()
 							logger.Error(err, "Failed to reduce startup boost",
 								"pod", pod.Name, "container", c.Name,
 								"targetCPU", recCPU.String(),
@@ -201,6 +205,7 @@ func (r *RightSizePolicyReconciler) applyStartupBoosts(
 							}
 							continue
 						}
+						operatormetrics.StartupBoostTotal.WithLabelValues(pod.Namespace, rec.Workload, "expired").Inc()
 						logger.Info("Startup boost expired, reduced to steady-state",
 							"pod", pod.Name, "container", c.Name, "cpu", recCPU.String())
 						*pod = *refreshed

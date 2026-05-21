@@ -197,6 +197,14 @@ var (
 		},
 		[]string{"namespace", "workload", "container", "resource"},
 	)
+
+	StartupBoostTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "kube_rightsize_startup_boost_total",
+			Help: "Total startup boost lifecycle events (applied, expired, failed)",
+		},
+		[]string{"namespace", "workload", "action"},
+	)
 )
 
 // WebhookTimer tracks webhook operation duration and result.
@@ -247,5 +255,6 @@ func init() {
 		EvictionTotal,
 		InfeasibleSkippedTotal,
 		BurstFactor,
+		StartupBoostTotal,
 	)
 }
