@@ -53,6 +53,7 @@ controller-runtime v0.24.1, Kubebuilder v4, K8s API v0.36.1.
 - `internal/operatormetrics/` - Operator-level Prometheus metrics (init-registered)
 - `internal/validation/` - Shared validation (Prometheus address SSRF checks)
 - `internal/throttle/` - Shared throttle checker interface (breaks import cycle)
+- `pkg/defaults/` - Shared default-value and merge logic (used by controller + kubectl plugin)
 - `config/` - Kustomize manifests (CRDs, RBAC, manager deployment)
 - `charts/kube-rightsize/` - Helm chart with cert-manager webhook support
 - `test/integration/` - envtest-based integration tests
@@ -154,20 +155,18 @@ All other resources accessed via the client need `list`/`watch`.
 
 Fields that should be overridable by `RightSizeDefaults` must use
 pointer types (`*int32`, `*bool`, `*metav1.Duration`) so nil=unset
-is distinguishable from zero/false. Update all 8 locations:
+is distinguishable from zero/false. Update all 7 locations:
 
 1. `api/v1alpha1/rightsizepolicy_types.go` - Add `*T` field with
    `json:"name,omitempty"` and `// +optional`
 2. `api/v1alpha1/defaults.go` - Add `DefaultXxx` constant
-3. `internal/controller/helpers.go` `applyBuiltInDefaults()` - Add
+3. `pkg/defaults/defaults.go` `ApplyBuiltInDefaults()` - Add
    nil check + default assignment
-4. `internal/controller/helpers.go` `mergeDefaults()` - Add merge
-   clause with `inherited` tracking
+4. `pkg/defaults/defaults.go` `MergeDefaults()` - Add merge
+   clause (covers both controller and kubectl plugin)
 5. `internal/webhook/validation.go` - Add validation if needed
 6. Run `make manifests && make generate` to regenerate CRD + deepcopy
-7. `cmd/kubectl-rightsize/main.go` `mergeUpdateStrategy()` - Add
-   merge clause so `explain` inherits from namespace/cluster defaults
-8. `cmd/kubectl-rightsize/main.go` `printEffectiveValues()` - Add
+7. `cmd/kubectl-rightsize/main.go` `printEffectiveValues()` - Add
    display line so `kubectl rightsize explain` shows the field
 
 If the field also belongs in `RightSizeDefaults`, add it to
