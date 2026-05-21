@@ -91,6 +91,9 @@ This counter increments each time a startup boost is applied. Use it to
 track how often boosts fire and whether the duration is calibrated correctly
 (if boosts expire before Ready, duration may be too short).
 
+The pre-built [Grafana dashboard](https://github.com/SebTardifLabs/kube-rightsize/blob/main/deploy/grafana/dashboard.json)
+includes a Startup Boost panel that visualizes this metric.
+
 ## Limitations
 
 - StartupBoost only applies to **CPU**. Memory startup spikes are handled

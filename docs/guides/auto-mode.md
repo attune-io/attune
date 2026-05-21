@@ -183,6 +183,7 @@ spec:
 ```
 
 See [`examples/12-scheduled-auto-mode.yaml`](https://github.com/SebTardifLabs/kube-rightsize/blob/main/examples/12-scheduled-auto-mode.yaml) for a complete example.
+If resizes are blocked unexpectedly, see the [troubleshooting guide](troubleshooting.md) for schedule-specific diagnostics.
 
 ## Exporting recommendations to ConfigMaps
 
