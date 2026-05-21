@@ -358,8 +358,8 @@ Global defaults to avoid repetition across many RightSizePolicy resources.
 Namespace-scoped defaults reuse the same spec as `RightSizeDefaults` but apply
 only within one namespace. If a `RightSizeNamespaceDefaults` exists for the
 policy namespace, the controller uses it instead of cluster-scoped
-`RightSizeDefaults`. Fields omitted there fall back to the policy's own
-built-in defaults, not cluster defaults.
+`RightSizeDefaults`. Fields omitted there fall back to cluster defaults,
+then to the built-in defaults.
 
 ```yaml
 apiVersion: rightsize.io/v1alpha1

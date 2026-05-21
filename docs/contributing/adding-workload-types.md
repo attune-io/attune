@@ -14,7 +14,7 @@ Add the new kind to the `kubebuilder:validation:Enum` marker on
 `TargetRef.Kind`:
 
 ```go
-// +kubebuilder:validation:Enum=Deployment;StatefulSet;DaemonSet;CronJob;Job;Rollout
+// +kubebuilder:validation:Enum=Deployment;StatefulSet;DaemonSet;CronJob;Job;ReplicaSet
 Kind string `json:"kind"`
 ```
 

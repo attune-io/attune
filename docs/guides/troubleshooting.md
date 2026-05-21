@@ -175,7 +175,7 @@ for example an unsupported kind, an invalid selector, or a client/list error.
 **Fix**:
 
 1. Verify `spec.targetRef.kind` is one of `Deployment`, `StatefulSet`,
-   `DaemonSet`, `CronJob`, or `Job`.
+   `DaemonSet`, `CronJob`, `Job`, or `ReplicaSet`.
 2. If you use `targetRef.name`, confirm the workload exists in the same
    namespace as the policy.
 3. If you use `targetRef.selector`, confirm it matches at least one workload
