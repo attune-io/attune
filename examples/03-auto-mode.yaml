@@ -44,3 +44,4 @@ spec:
     maxMemoryChangePercent: 20
     cooldown: 4h
     autoRevert: true
+    # safetyObservationPeriod: 5m  # how long to watch each pod after resize (default: 5m, min: 1m)
