@@ -208,7 +208,7 @@ Use the `PORT(S)` column value, not 9090.
 ### Step 2: Verify cadvisor metrics exist
 
 ```bash
-kubectl run prom-check --image=curlimages/curl --restart=Never --rm -it -- \
+kubectl run prom-check --image=curlimages/curl --restart=Never --rm --attach --command -- \
   curl -s 'http://prometheus-server.monitoring:80/api/v1/query?query=container_cpu_usage_seconds_total' \
   | head -c 200
 ```
@@ -221,7 +221,7 @@ You should see `"status":"success"` with result data. If you see
 Replace `<namespace>` and `<pod-prefix>` with a real workload:
 
 ```bash
-kubectl run prom-check --image=curlimages/curl --restart=Never --rm -it -- \
+kubectl run prom-check --image=curlimages/curl --restart=Never --rm --attach --command -- \
   curl -s 'http://prometheus-server.monitoring:80/api/v1/query?query=rate(container_cpu_usage_seconds_total{namespace="<namespace>",pod=~"<pod-prefix>.*"}[5m])'
 ```
 

@@ -58,7 +58,7 @@ will not work.
 3. Test connectivity from inside the cluster:
 
     ```bash
-    kubectl run prom-test --image=curlimages/curl --restart=Never --rm -it -- \
+    kubectl run prom-test --image=curlimages/curl --restart=Never --rm --attach --command -- \
       curl -sf http://prometheus-server.monitoring:80/-/healthy
     ```
 
@@ -112,7 +112,7 @@ or label names have been relabeled.
 1. Verify cadvisor metrics exist in Prometheus:
 
     ```bash
-    kubectl run prom-check --image=curlimages/curl --restart=Never --rm -it -- \
+    kubectl run prom-check --image=curlimages/curl --restart=Never --rm --attach --command -- \
       curl -s 'http://prometheus-server.monitoring:80/api/v1/query?query=container_cpu_usage_seconds_total' \
       | head -c 200
     ```
