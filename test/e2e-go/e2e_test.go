@@ -1097,7 +1097,7 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 			},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 				Mode:                   rightsizev1alpha1.UpdateModeAuto,
-				Cooldown:               &metav1.Duration{Duration: 10 * time.Minute},
+				Cooldown:               &metav1.Duration{Duration: time.Minute},
 				AutoRevert:             boolPtr(true),
 				MaxCPUChangePercent:    int32Ptr(100),
 				MaxMemoryChangePercent: int32Ptr(100),
