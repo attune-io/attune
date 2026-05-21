@@ -106,6 +106,17 @@ func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizeP
 		}
 	}
 
+	// Validate safetyObservationPeriod has a minimum floor.
+	if policy.Spec.UpdateStrategy.SafetyObservationPeriod != nil {
+		sop := policy.Spec.UpdateStrategy.SafetyObservationPeriod.Duration
+		if sop < 0 {
+			return warnings, fmt.Errorf("updateStrategy.safetyObservationPeriod must be non-negative, got %s", sop)
+		}
+		if sop > 0 && sop < time.Minute {
+			return warnings, fmt.Errorf("updateStrategy.safetyObservationPeriod must be at least 1m, got %s", sop)
+		}
+	}
+
 	// targetRef must have name or selector, but not both.
 	hasName := policy.Spec.TargetRef.Name != nil && *policy.Spec.TargetRef.Name != ""
 	hasSelector := policy.Spec.TargetRef.Selector != nil

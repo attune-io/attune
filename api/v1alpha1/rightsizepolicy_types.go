@@ -366,6 +366,13 @@ type UpdateStrategy struct {
 	// +optional
 	MaxTotalMemoryIncrease *resource.Quantity `json:"maxTotalMemoryIncrease,omitempty"`
 
+	// SafetyObservationPeriod is how long to observe a pod after resize before
+	// concluding the resize is safe. Applies to all modes (Auto, OneShot, Canary).
+	// Takes precedence over canary.observationPeriod when set. Must be >= 1m.
+	// Defaults to 5m if neither this nor canary.observationPeriod is set.
+	// +optional
+	SafetyObservationPeriod *metav1.Duration `json:"safetyObservationPeriod,omitempty"`
+
 	// Export configures how recommendations are exported for external
 	// consumption (e.g. GitOps workflows with ArgoCD or Flux).
 	// +optional

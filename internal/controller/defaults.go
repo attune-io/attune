@@ -212,6 +212,10 @@ func (r *RightSizePolicyReconciler) mergeDefaults(policy *rightsizev1alpha1.Righ
 			policy.Spec.UpdateStrategy.Canary = spec.UpdateStrategy.Canary
 			inherited = append(inherited, "canary")
 		}
+		if policy.Spec.UpdateStrategy.SafetyObservationPeriod == nil && spec.UpdateStrategy.SafetyObservationPeriod != nil {
+			policy.Spec.UpdateStrategy.SafetyObservationPeriod = spec.UpdateStrategy.SafetyObservationPeriod
+			inherited = append(inherited, "safetyObservationPeriod")
+		}
 	}
 
 	if len(inherited) > 0 {

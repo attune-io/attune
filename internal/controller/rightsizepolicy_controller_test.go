@@ -2599,6 +2599,20 @@ func TestRequeueShortenedByObservationPeriod(t *testing.T) {
 	policyNoCanary := newTestPolicy("test-policy2", "default")
 	assert.Equal(t, defaultObservationPeriod, getObservationPeriod(policyNoCanary))
 
+	// Test that safetyObservationPeriod takes precedence over canary.
+	policySOP := newTestPolicy("test-policy3", "default")
+	policySOP.Spec.UpdateStrategy.SafetyObservationPeriod = &metav1.Duration{Duration: 3 * time.Minute}
+	policySOP.Spec.UpdateStrategy.Canary = &rightsizev1alpha1.CanaryConfig{
+		ObservationPeriod: metav1.Duration{Duration: 2 * time.Minute},
+	}
+	assert.Equal(t, 3*time.Minute, getObservationPeriod(policySOP),
+		"safetyObservationPeriod should take precedence over canary.observationPeriod")
+
+	// Test that safetyObservationPeriod works without canary config.
+	policySOP2 := newTestPolicy("test-policy4", "default")
+	policySOP2.Spec.UpdateStrategy.SafetyObservationPeriod = &metav1.Duration{Duration: 90 * time.Second}
+	assert.Equal(t, 90*time.Second, getObservationPeriod(policySOP2))
+
 	// Test the min(cooldown, observationPeriod) requeue logic directly.
 	// When AutoRevert is true and resizes occurred, the reconciler
 	// uses min(cooldown, observationPeriod) as requeue interval
@@ -3181,6 +3195,132 @@ func TestCheckPendingSafetyObservations_NotElapsed(t *testing.T) {
 	require.NoError(t, err)
 	_, hasResizedAt := updated.Annotations["rightsize.io/resized-at"]
 	assert.True(t, hasResizedAt, "annotations should remain when observation period not elapsed")
+}
+
+func TestCheckPendingSafetyObservations_EarlyCriticalOOMKill(t *testing.T) {
+	// Pod was resized very recently (observation period NOT elapsed) but has
+	// already been OOMKilled. The early critical detection should catch this
+	// and trigger a revert immediately.
+	resizedAt := time.Now().UTC().Add(-10 * time.Second).Format(time.RFC3339)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "oom-pod",
+			Namespace: "default",
+			Labels:    map[string]string{"rightsize.io/tracked": "true"},
+			Annotations: map[string]string{
+				"rightsize.io/resized-at":                   resizedAt,
+				"rightsize.io/resized-workload":             "api-server",
+				"rightsize.io/resized-containers":           "main",
+				"rightsize.io/original-cpu-request.main":    "500m",
+				"rightsize.io/original-memory-request.main": "512Mi",
+				"rightsize.io/policy":                       "test-policy",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  "main",
+					Image: "nginx",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("250m"),
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{
+					Name: "main",
+					LastTerminationState: corev1.ContainerState{
+						Terminated: &corev1.ContainerStateTerminated{
+							Reason:     "OOMKilled",
+							FinishedAt: metav1.NewTime(time.Now()),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.AutoRevert = boolPtr(true)
+
+	reconciler, _ := newSafetyTestReconciler(pod)
+
+	pending := reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
+	assert.True(t, pending, "should still report pending (for annotation cleanup)")
+
+	// Verify UpdateResize was called to revert the pod.
+	var foundResize bool
+	for _, a := range reconciler.Clientset.(*kubefake.Clientset).Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			foundResize = true
+		}
+	}
+	assert.True(t, foundResize, "OOMKill during observation period should trigger early revert")
+}
+
+func TestCheckPendingSafetyObservations_EarlyCriticalHealthySkipped(t *testing.T) {
+	// Pod was resized recently and is healthy. Early critical check should
+	// NOT trigger a revert even though the observation period hasn't elapsed.
+	resizedAt := time.Now().UTC().Add(-10 * time.Second).Format(time.RFC3339)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "healthy-pod",
+			Namespace: "default",
+			Labels:    map[string]string{"rightsize.io/tracked": "true"},
+			Annotations: map[string]string{
+				"rightsize.io/resized-at":                   resizedAt,
+				"rightsize.io/resized-workload":             "api-server",
+				"rightsize.io/resized-containers":           "main",
+				"rightsize.io/original-cpu-request.main":    "500m",
+				"rightsize.io/original-memory-request.main": "512Mi",
+				"rightsize.io/policy":                       "test-policy",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  "main",
+					Image: "nginx",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("250m"),
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "main", RestartCount: 0},
+			},
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.AutoRevert = boolPtr(true)
+
+	reconciler, _ := newSafetyTestReconciler(pod)
+
+	pending := reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
+	assert.True(t, pending, "should report pending (observation period not elapsed)")
+
+	// Verify NO revert was triggered.
+	for _, a := range reconciler.Clientset.(*kubefake.Clientset).Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			t.Fatal("healthy pod during observation period should NOT trigger a revert")
+		}
+	}
 }
 
 // ---------- isCooldownActive parse error ----------

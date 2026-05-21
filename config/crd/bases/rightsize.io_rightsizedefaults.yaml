@@ -481,6 +481,13 @@ spec:
                     - InPlaceOnly
                     - InPlaceOrEvict
                     type: string
+                  safetyObservationPeriod:
+                    description: |-
+                      SafetyObservationPeriod is how long to observe a pod after resize before
+                      concluding the resize is safe. Applies to all modes (Auto, OneShot, Canary).
+                      Takes precedence over canary.observationPeriod when set. Must be >= 1m.
+                      Defaults to 5m if neither this nor canary.observationPeriod is set.
+                    type: string
                   schedule:
                     description: |-
                       Schedule restricts when resize operations can occur. Recommendations

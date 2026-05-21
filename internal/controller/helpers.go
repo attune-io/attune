@@ -591,9 +591,12 @@ func autoRevertEnabled(s rightsizev1alpha1.UpdateStrategy) bool {
 	return s.AutoRevert == nil || *s.AutoRevert
 }
 
-// getObservationPeriod returns the safety observation period from the policy's
-// canary config, falling back to defaultObservationPeriod.
+// getObservationPeriod returns the safety observation period using the
+// precedence: safetyObservationPeriod > canary.observationPeriod > default (5m).
 func getObservationPeriod(policy *rightsizev1alpha1.RightSizePolicy) time.Duration {
+	if policy.Spec.UpdateStrategy.SafetyObservationPeriod != nil && policy.Spec.UpdateStrategy.SafetyObservationPeriod.Duration > 0 {
+		return policy.Spec.UpdateStrategy.SafetyObservationPeriod.Duration
+	}
 	if policy.Spec.UpdateStrategy.Canary != nil && policy.Spec.UpdateStrategy.Canary.ObservationPeriod.Duration > 0 {
 		return policy.Spec.UpdateStrategy.Canary.ObservationPeriod.Duration
 	}

@@ -813,6 +813,11 @@ func (in *UpdateStrategy) DeepCopyInto(out *UpdateStrategy) {
 		x := (*in).DeepCopy()
 		*out = &x
 	}
+	if in.SafetyObservationPeriod != nil {
+		in, out := &in.SafetyObservationPeriod, &out.SafetyObservationPeriod
+		*out = new(v1.Duration)
+		**out = **in
+	}
 	if in.Export != nil {
 		in, out := &in.Export, &out.Export
 		*out = new(ExportConfig)

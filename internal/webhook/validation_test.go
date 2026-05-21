@@ -190,6 +190,41 @@ func TestValidate_CanaryObservationPeriodZeroWarns(t *testing.T) {
 	assert.Contains(t, warnings[0], "default observation period")
 }
 
+func TestValidate_SafetyObservationPeriodTooShort(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.SafetyObservationPeriod = &metav1.Duration{Duration: 30 * time.Second}
+
+	warnings, err := validator.ValidateCreate(context.Background(), policy)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "safetyObservationPeriod must be at least 1m")
+	assert.Empty(t, warnings)
+}
+
+func TestValidate_SafetyObservationPeriodNegative(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.SafetyObservationPeriod = &metav1.Duration{Duration: -1 * time.Second}
+
+	warnings, err := validator.ValidateCreate(context.Background(), policy)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "safetyObservationPeriod must be non-negative")
+	assert.Empty(t, warnings)
+}
+
+func TestValidate_SafetyObservationPeriodValid(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.SafetyObservationPeriod = &metav1.Duration{Duration: 2 * time.Minute}
+
+	warnings, err := validator.ValidateCreate(context.Background(), policy)
+
+	assert.NoError(t, err)
+	assert.Empty(t, warnings)
+}
+
 func TestValidate_NoTargetRef(t *testing.T) {
 	validator := &RightSizePolicyValidator{}
 	policy := validPolicy()
