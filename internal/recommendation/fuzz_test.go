@@ -76,7 +76,7 @@ func FuzzPercentileEstimator(f *testing.F) {
 			profile.HourlyPercentiles[h] = profile.OverallPercentiles
 		}
 
-		est := &PercentileEstimator{Percentile: percentile}
+		est := &PercentileEstimator{Percentile: percentile, IsCPU: true}
 		current := resource.MustParse("500m")
 		result := est.Estimate(profile, current)
 
@@ -101,7 +101,7 @@ func FuzzRecommendationEngine(f *testing.F) {
 		}
 
 		engine := NewEngine(percentile, margin,
-			resource.MustParse("10m"), resource.MustParse("100000m"), 100)
+			resource.MustParse("10m"), resource.MustParse("100000m"), 100, EngineOpts{IsCPU: true})
 
 		profile := buildTestProfile(usage)
 		currentQ := resource.NewMilliQuantity(int64(current*1000), resource.DecimalSI)
