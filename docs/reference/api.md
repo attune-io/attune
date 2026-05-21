@@ -66,7 +66,7 @@ spec:
       duration: 2m             # boost window after pod creation (10s-1h)
     bounds:                    # optional: min/max clamps
       min: "50m"
-      max: "4000m"
+      max: "4000m"               # upper limit: 256 cores
     controlledValues: RequestsAndLimits  # RequestsOnly | RequestsAndLimits
 
   # Memory recommendation parameters.
@@ -76,7 +76,7 @@ spec:
     burstSensitivity: "0.1"
     bounds:
       min: "64Mi"
-      max: "8Gi"
+      max: "8Gi"                 # upper limit: 16Ti
     controlledValues: RequestsAndLimits
     allowDecrease: false       # prevent memory decreases (recommended)
 
