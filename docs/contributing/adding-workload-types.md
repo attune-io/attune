@@ -152,3 +152,4 @@ make helm-unittest   # verify the new RBAC test passes
 | DaemonSet | `apps` | No | `workload_adapters.go` |
 | CronJob | `batch` | Yes | `workload_adapters.go` |
 | Job | `batch` | Yes | `workload_adapters.go` |
+| ReplicaSet | `apps` | No | `workload_adapters.go` |
