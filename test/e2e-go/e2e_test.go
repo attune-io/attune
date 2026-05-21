@@ -1097,14 +1097,10 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 			},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 				Mode:                   rightsizev1alpha1.UpdateModeAuto,
-				Cooldown:               &metav1.Duration{Duration: 1 * time.Minute},
+				Cooldown:               &metav1.Duration{Duration: 10 * time.Minute},
 				AutoRevert:             boolPtr(true),
 				MaxCPUChangePercent:    int32Ptr(100),
 				MaxMemoryChangePercent: int32Ptr(100),
-				Canary: &rightsizev1alpha1.CanaryConfig{
-					Percentage:        100,
-					ObservationPeriod: metav1.Duration{Duration: time.Minute},
-				},
 			},
 		},
 	}
@@ -1135,7 +1131,7 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 			SubResource("exec").
 			VersionedParams(&corev1.PodExecOptions{
 				Container: "app",
-				Command:   []string{"/stress-ng", "--vm", "1", "--vm-bytes", "256M", "--timeout", "120"},
+				Command:   []string{"/stress-ng", "--vm", "1", "--vm-bytes", "1G", "--timeout", "120"},
 				Stdout:    true,
 				Stderr:    true,
 			}, scheme.ParameterCodec)
@@ -1250,7 +1246,8 @@ func TestE2E_GuaranteedQoS_RequestsAndLimits(t *testing.T) {
 	ns := uniqueNS("qos")
 	createNamespace(t, ns)
 
-	// Guaranteed QoS: requests = limits.
+	// Guaranteed QoS: requests = limits. Use moderate initial resources to
+	// avoid starving the k3d node (2000m was too large, causing timeouts).
 	deploy := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{Name: "qos-app", Namespace: ns, Labels: map[string]string{"app": "qos-app"}},
 		Spec: appsv1.DeploymentSpec{
@@ -1264,12 +1261,12 @@ func TestE2E_GuaranteedQoS_RequestsAndLimits(t *testing.T) {
 						Image: "registry.k8s.io/pause:3.9",
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{
-								corev1.ResourceCPU:    resource.MustParse("2000m"),
-								corev1.ResourceMemory: resource.MustParse("1Gi"),
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("256Mi"),
 							},
 							Limits: corev1.ResourceList{
-								corev1.ResourceCPU:    resource.MustParse("2000m"),
-								corev1.ResourceMemory: resource.MustParse("1Gi"),
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("256Mi"),
 							},
 						},
 					}},
@@ -1325,9 +1322,9 @@ func TestE2E_GuaranteedQoS_RequestsAndLimits(t *testing.T) {
 	assert.Equal(t, c.Resources.Requests.Memory().Value(), c.Resources.Limits.Memory().Value(),
 		"memory requests and limits should match after resize (Guaranteed QoS)")
 
-	// At least one resource should have changed from the heavily overprovisioned initial values.
-	origCPU := resource.MustParse("2000m")
-	origMem := resource.MustParse("1Gi")
+	// At least one resource should have changed from the initial values.
+	origCPU := resource.MustParse("500m")
+	origMem := resource.MustParse("256Mi")
 	assert.True(t, c.Resources.Requests.Cpu().Cmp(origCPU) != 0 || c.Resources.Requests.Memory().Cmp(origMem) != 0,
 		"at least one resource should have changed, cpu=%s mem=%s", c.Resources.Requests.Cpu().String(), c.Resources.Requests.Memory().String())
 }
