@@ -599,6 +599,25 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *righ
 		obsConfigured = getNestedString(item, "spec", "updateStrategy", "canary", "observationPeriod")
 	}
 	printEffectiveField("Observation period", obsConfigured, effectiveObservationPeriod(effective), selected, updateDefaults != nil && updateDefaults.SafetyObservationPeriod != nil)
+	printEffectiveField("Auto revert", formatBoolField(item, "spec", "updateStrategy", "autoRevert"), formatBoolPtr(effective.Spec.UpdateStrategy.AutoRevert), selected, updateDefaults != nil && updateDefaults.AutoRevert != nil)
+	printEffectiveField("Max concurrent resizes", formatInt64Field(item, "spec", "updateStrategy", "maxConcurrentResizes"), formatInt32Val(effective.Spec.UpdateStrategy.MaxConcurrentResizes), selected, updateDefaults != nil && updateDefaults.MaxConcurrentResizes != 0)
+	printEffectiveField("Rate window", getNestedString(item, "spec", "metricsSource", "rateWindow"), formatDurationPtr(effective.Spec.MetricsSource.RateWindow), selected, metricsDefaults != nil && metricsDefaults.RateWindow != nil)
+
+	var cpuDefaults, memDefaults *rightsizev1alpha1.ResourceConfig
+	if selected.defaults != nil {
+		cpuDefaults = selected.defaults.Spec.CPU
+		memDefaults = selected.defaults.Spec.Memory
+	}
+
+	fmt.Println("  CPU:")
+	printEffectiveField("  Percentile", formatInt64Field(item, "spec", "cpu", "percentile"), formatInt32Val(effective.Spec.CPU.Percentile), selected, cpuDefaults != nil && cpuDefaults.Percentile != 0)
+	printEffectiveField("  Safety margin", getNestedString(item, "spec", "cpu", "safetyMargin"), effective.Spec.CPU.SafetyMargin, selected, cpuDefaults != nil && cpuDefaults.SafetyMargin != "")
+	printEffectiveField("  Controlled values", getNestedString(item, "spec", "cpu", "controlledValues"), formatStringPtr(effective.Spec.CPU.ControlledValues), selected, cpuDefaults != nil && cpuDefaults.ControlledValues != nil)
+
+	fmt.Println("  Memory:")
+	printEffectiveField("  Percentile", formatInt64Field(item, "spec", "memory", "percentile"), formatInt32Val(effective.Spec.Memory.Percentile), selected, memDefaults != nil && memDefaults.Percentile != 0)
+	printEffectiveField("  Safety margin", getNestedString(item, "spec", "memory", "safetyMargin"), effective.Spec.Memory.SafetyMargin, selected, memDefaults != nil && memDefaults.SafetyMargin != "")
+	printEffectiveField("  Controlled values", getNestedString(item, "spec", "memory", "controlledValues"), formatStringPtr(effective.Spec.Memory.ControlledValues), selected, memDefaults != nil && memDefaults.ControlledValues != nil)
 }
 
 func printEffectiveField(label, configured, effective string, selected selectedDefaults, inherited bool) {
@@ -668,6 +687,43 @@ func formatPercentPtr(value *int32) string {
 		return ""
 	}
 	return fmt.Sprintf("%d%%", *value)
+}
+
+func formatBoolPtr(value *bool) string {
+	if value == nil {
+		return ""
+	}
+	return strconv.FormatBool(*value)
+}
+
+func formatBoolField(obj unstructured.Unstructured, fields ...string) string {
+	val, found, err := unstructured.NestedBool(obj.Object, fields...)
+	if err != nil || !found {
+		return ""
+	}
+	return strconv.FormatBool(val)
+}
+
+func formatInt64Field(obj unstructured.Unstructured, fields ...string) string {
+	val, found, err := unstructured.NestedInt64(obj.Object, fields...)
+	if err != nil || !found {
+		return ""
+	}
+	return strconv.FormatInt(val, 10)
+}
+
+func formatInt32Val(value int32) string {
+	if value == 0 {
+		return ""
+	}
+	return strconv.FormatInt(int64(value), 10)
+}
+
+func formatStringPtr(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func formatPercentInt64Ptr(value *int64) string {

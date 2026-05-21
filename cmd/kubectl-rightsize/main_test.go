@@ -1808,6 +1808,56 @@ func TestPolicyReadyReason_InsufficientDataNoMessage(t *testing.T) {
 	assert.Equal(t, "InsufficientData", policyReadyReason(item))
 }
 
+// ---------- printEffectivePolicySummary smoke test ----------
+
+func TestPrintEffectivePolicySummary_DoesNotPanic(t *testing.T) {
+	cv := "RequestsOnly"
+	autoRevert := true
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			CPU: rightsizev1alpha1.ResourceConfig{
+				Percentile:       95,
+				SafetyMargin:     "1.2",
+				ControlledValues: &cv,
+			},
+			Memory: rightsizev1alpha1.ResourceConfig{
+				Percentile:   99,
+				SafetyMargin: "1.3",
+			},
+			MetricsSource: rightsizev1alpha1.MetricsSource{
+				QueryStep:  &metav1.Duration{Duration: 5 * time.Minute},
+				RateWindow: &metav1.Duration{Duration: 10 * time.Minute},
+			},
+			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+				Mode:                 rightsizev1alpha1.UpdateModeAuto,
+				Cooldown:             &metav1.Duration{Duration: time.Hour},
+				AutoRevert:           &autoRevert,
+				MaxConcurrentResizes: 5,
+			},
+		},
+	}
+	item := unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{
+			"updateStrategy": map[string]interface{}{
+				"mode": "Auto",
+			},
+		},
+	}}
+	// Should not panic with nil defaults.
+	printEffectivePolicySummary(item, policy, selectedDefaults{})
+
+	// Should not panic with non-nil defaults.
+	defaults := &rightsizev1alpha1.RightSizeDefaults{
+		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			CPU:            &rightsizev1alpha1.ResourceConfig{Percentile: 90},
+			Memory:         &rightsizev1alpha1.ResourceConfig{Percentile: 95},
+			MetricsSource:  &rightsizev1alpha1.MetricsSource{},
+			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{Mode: rightsizev1alpha1.UpdateModeAuto},
+		},
+	}
+	printEffectivePolicySummary(item, policy, selectedDefaults{defaults: defaults, source: "cluster"})
+}
+
 // ---------- mergeDefaultsIntoPolicy parity with controller ----------
 
 func TestMergeDefaultsIntoPolicy_AllFieldsInherited(t *testing.T) {
