@@ -78,15 +78,14 @@ spec:
 
 The safety monitor watches each resized pod for an observation period before
 declaring the resize successful. The default is 5 minutes. To configure it,
-set `canary.observationPeriod` (this field is shared across all resize modes):
+set `safetyObservationPeriod`:
 
 ```yaml
 spec:
   updateStrategy:
     mode: Auto
     autoRevert: true
-    canary:
-      observationPeriod: 10m  # safety watch window after each resize
+    safetyObservationPeriod: 10m  # safety watch window after each resize
 ```
 
 ### Safety margin guidance
