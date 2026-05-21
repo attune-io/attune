@@ -16,6 +16,7 @@ RUN go mod download
 COPY cmd/ cmd/
 COPY api/ api/
 COPY internal/ internal/
+COPY pkg/ pkg/
 
 # Build with cache mounts for iterative speed.
 # Cross-compile via GOOS/GOARCH instead of running the entire compiler under
