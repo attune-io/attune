@@ -530,7 +530,7 @@ func TestMergeResources(t *testing.T) {
 			wantLimitsNil: true,
 		},
 		{
-			name: "memory limit decrease clamped to current",
+			name: "memory limit decrease allowed when target explicitly sets limit",
 			current: corev1.ResourceRequirements{
 				Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("512Mi")},
 				Limits:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("1Gi")},
@@ -539,7 +539,19 @@ func TestMergeResources(t *testing.T) {
 				Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("256Mi")},
 				Limits:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("512Mi")},
 			},
-			wantMemLimit: "1Gi", // clamped: 512Mi < 1Gi
+			wantMemLimit: "512Mi", // target explicitly set limit, no clamp
+		},
+		{
+			name: "memory limit decrease clamped when target does not set limit",
+			current: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("512Mi")},
+				Limits:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("1Gi")},
+			},
+			target: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("256Mi")},
+				// No limits in target: limit carried forward from current, clamped.
+			},
+			wantMemLimit: "1Gi", // clamped: carried-forward limit not decreased
 		},
 		{
 			name: "memory limit increase allowed",

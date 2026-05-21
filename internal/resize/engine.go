@@ -155,11 +155,19 @@ func mergeResources(current, target corev1.ResourceRequirements) corev1.Resource
 		for res, qty := range target.Limits {
 			merged.Limits[res] = qty.DeepCopy()
 		}
-		// Clamp memory limits: K8s forbids in-place memory limit decreases.
-		if currentMemLim, ok := current.Limits[corev1.ResourceMemory]; ok {
-			if mergedMemLim, ok := merged.Limits[corev1.ResourceMemory]; ok {
-				if mergedMemLim.Cmp(currentMemLim) < 0 {
-					merged.Limits[corev1.ResourceMemory] = currentMemLim.DeepCopy()
+		// Clamp memory limits: K8s forbids in-place memory limit decreases
+		// unless the container has RestartContainer resize policy for memory.
+		// Skip the clamp when the target explicitly set the memory limit
+		// (e.g., ControlledValues=RequestsAndLimits), because the caller
+		// intentionally set it and clamping would break Guaranteed QoS
+		// (requests != limits).
+		_, targetSetMemLimit := target.Limits[corev1.ResourceMemory]
+		if !targetSetMemLimit {
+			if currentMemLim, ok := current.Limits[corev1.ResourceMemory]; ok {
+				if mergedMemLim, ok := merged.Limits[corev1.ResourceMemory]; ok {
+					if mergedMemLim.Cmp(currentMemLim) < 0 {
+						merged.Limits[corev1.ResourceMemory] = currentMemLim.DeepCopy()
+					}
 				}
 			}
 		}
