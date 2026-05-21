@@ -15,8 +15,8 @@ spec:
             content: |
               METRICS_IP=$(kubectl get svc kube-rightsize-metrics -n kube-rightsize-system -o jsonpath='{.spec.clusterIP}')
               METRICS_PORT=$(kubectl get svc kube-rightsize-metrics -n kube-rightsize-system -o jsonpath='{.spec.ports[0].port}')
-              kubectl run metrics-check --image=curlimages/curl --restart=Never --rm -it \
-                -- curl -sf "http://${METRICS_IP}:${METRICS_PORT}/metrics" > /tmp/e2e-metrics.txt 2>&1
+              kubectl run metrics-check --image=curlimages/curl --restart=Never --rm --attach --command -- \
+                curl -sf "http://${METRICS_IP}:${METRICS_PORT}/metrics" > /tmp/e2e-metrics.txt 2>&1
               # Verify operator-specific metrics are present
               grep -q 'kube_rightsize_reconcile_duration_seconds' /tmp/e2e-metrics.txt
               grep -q 'kube_rightsize_resize_total' /tmp/e2e-metrics.txt
