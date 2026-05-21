@@ -139,6 +139,9 @@ spec:
 | `recommendations[].containers[].confidence` | `float64` | Confidence score (0-1) |
 | `recommendations[].containers[].dataPoints` | `int32` | Prometheus samples used |
 | `recommendations[].containers[].lastUpdated` | `Time` | Last recommendation timestamp |
+| `recommendations[].stale` | `bool` | `true` when Prometheus returned no fresh data; resize is blocked until fresh data arrives |
+| `recommendations[].lastDataTime` | `Time` | Timestamp of the most recent Prometheus data point |
+| `recommendations[].dataAge` | `Duration` | Age of the freshest Prometheus data relative to the query time |
 | `savings.cpuRequestReduction` | `string` | Total CPU request reduction (e.g. "1200m") |
 | `savings.cpuRequestTotal` | `string` | Total current CPU requests across all workloads (e.g. "2000m") |
 | `savings.memoryRequestReduction` | `string` | Total memory request reduction (e.g. "2Gi") |
@@ -170,6 +173,7 @@ the estimator chain: `rawPercentile`, `safetyMargin`, `afterSafetyMargin`,
 | `Ready` | `Monitoring`, `InsufficientData`, `PrometheusUnavailable`, `InvalidConfig`, `WorkloadDiscoveryFailed` | Overall health |
 | `Resizing` | `InProgress`, `Idle`, `CooldownActive` | Active resize operation state |
 | `Degraded` | `HighRevertRate` | High revert rate detected (3+ of last 5 reverted) |
+| `ScheduleBlocked` | `OutsideWindow`, `InsideWindow` | Whether the current time is within the configured resize schedule window |
 
 ### Print columns
 
