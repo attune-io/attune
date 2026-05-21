@@ -8608,6 +8608,94 @@ func TestShouldSkipResize_NodeAllocatableNotExceeded(t *testing.T) {
 	assert.False(t, skip)
 }
 
+func TestShouldSkipResize_AlreadyAtTarget(t *testing.T) {
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+
+	policy := &rightsizev1alpha1.RightSizePolicy{}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pod", Namespace: "default"},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{Name: "app", Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("500m"),
+						corev1.ResourceMemory: resource.MustParse("256Mi"),
+					},
+				}},
+			},
+		},
+	}
+	containerRec := rightsizev1alpha1.ContainerRecommendation{
+		Name: "app",
+		Current: rightsizev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("500m"),
+			MemoryRequest: resource.MustParse("256Mi"),
+		},
+	}
+	// Target matches current pod resources exactly.
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("500m"),
+			corev1.ResourceMemory: resource.MustParse("256Mi"),
+		},
+	}
+
+	skip, reason := r.shouldSkipResize(context.Background(), policy, pod, containerRec, target, nil)
+	assert.True(t, skip, "should skip when pod already matches target")
+	assert.Empty(t, reason, "reason should be empty for already-at-target skip")
+}
+
+func TestShouldSkipResize_QoSClassChange(t *testing.T) {
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+	}
+	// Guaranteed pod: requests == limits for all resources.
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pod", Namespace: "default"},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{Name: "app", Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("500m"),
+						corev1.ResourceMemory: resource.MustParse("256Mi"),
+					},
+					Limits: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("500m"),
+						corev1.ResourceMemory: resource.MustParse("256Mi"),
+					},
+				}},
+			},
+		},
+		Status: corev1.PodStatus{
+			QOSClass: corev1.PodQOSGuaranteed,
+		},
+	}
+	containerRec := rightsizev1alpha1.ContainerRecommendation{
+		Name: "app",
+		Current: rightsizev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("500m"),
+			MemoryRequest: resource.MustParse("256Mi"),
+		},
+	}
+	// Target changes only requests without matching limits, breaking Guaranteed QoS.
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("300m"),
+			corev1.ResourceMemory: resource.MustParse("128Mi"),
+		},
+	}
+
+	skip, reason := r.shouldSkipResize(context.Background(), policy, pod, containerRec, target, nil)
+	assert.True(t, skip, "should skip when resize would change QoS class")
+	assert.Contains(t, reason, "QoS class")
+}
+
 func TestFindContainerByName_RegularContainer(t *testing.T) {
 	pod := &corev1.Pod{
 		Spec: corev1.PodSpec{
