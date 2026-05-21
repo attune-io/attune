@@ -9426,3 +9426,49 @@ func TestProcessWorkloads_ParallelPartialFailure(t *testing.T) {
 	assert.Greater(t, peakInflight.Load(), int32(1),
 		"expected concurrent queries even with partial failures")
 }
+
+func TestReconcile_InsufficientDataRequeuesAtQueryStep(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	// Use a long cooldown to make the difference obvious.
+	policy.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: 2 * time.Hour}
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	pod := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
+
+	mc := &mockCollector{
+		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return generateSamples(20, 0.1), nil // 20 samples, below 48 threshold
+		},
+	}
+	reconciler, _ := newReconcilerForReconcile(mc, policy, deploy, pod)
+
+	result, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
+	})
+	assert.NoError(t, err)
+	// With InsufficientData, requeue should be the query step (5m),
+	// not the cooldown (2h).
+	assert.Equal(t, defaultPrometheusStep, result.RequeueAfter,
+		"InsufficientData should requeue at queryStep interval, not cooldown")
+}
+
+func TestReconcile_SufficientDataRequeuesAtCooldown(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: 2 * time.Hour}
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	pod := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
+
+	mc := &mockCollector{
+		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return generateSamples(200, 0.1), nil // 200 samples, above 48 threshold
+		},
+	}
+	reconciler, _ := newReconcilerForReconcile(mc, policy, deploy, pod)
+
+	result, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
+	})
+	assert.NoError(t, err)
+	// With sufficient data, requeue should be the full cooldown.
+	assert.Equal(t, 2*time.Hour, result.RequeueAfter,
+		"sufficient data should requeue at cooldown interval")
+}

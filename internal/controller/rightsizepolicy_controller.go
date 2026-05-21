@@ -525,13 +525,22 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 	}
 
-	// Step 10: Requeue after cooldown, or sooner if safety observations are pending.
+	// Step 10: Requeue after cooldown, or sooner if safety observations are pending
+	// or data collection is still in progress.
 	cooldown := r.parseCooldown(&policy)
 	requeueAfter := cooldown
 	if autoRevertEnabled(policy.Spec.UpdateStrategy) && (policy.Status.Workloads.Resized > 0 || safetyObservationsPending) {
 		obs := getObservationPeriod(&policy)
 		if obs < requeueAfter {
 			requeueAfter = obs
+		}
+	}
+	// During data collection, use a shorter interval so new policies bootstrap
+	// faster. The cooldown is designed to space out resizes, not data collection.
+	if readyCond := meta.FindStatusCondition(policy.Status.Conditions, rightsizev1alpha1.ConditionReady); readyCond != nil && readyCond.Reason == rightsizev1alpha1.ReasonInsufficientData {
+		dataInterval := r.getQueryStep(&policy)
+		if dataInterval < requeueAfter {
+			requeueAfter = dataInterval
 		}
 	}
 	logger.Info("Reconciliation complete, requeueing", "requeueAfter", requeueAfter)
