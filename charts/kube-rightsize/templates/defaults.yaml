@@ -6,6 +6,22 @@ metadata:
   labels:
     {{- include "kube-rightsize.labels" . | nindent 4 }}
 spec:
+  {{- with .Values.defaults.metricsSource }}
+  metricsSource:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.defaults.cpu }}
+  cpu:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.defaults.memory }}
+  memory:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.defaults.costPricing }}
+  costPricing:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   updateStrategy:
     mode: {{ .Values.defaults.updateStrategy.mode | default "Recommend" }}
     {{- if .Values.defaults.updateStrategy.cooldown }}

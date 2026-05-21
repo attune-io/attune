@@ -329,6 +329,12 @@ docker-build: ## Build container image
 docker-push: ## Push container image
 	docker push $(IMG)
 
+PLATFORMS ?= linux/amd64,linux/arm64
+
+.PHONY: docker-buildx
+docker-buildx: ## Build and push multi-arch container image
+	docker buildx build --platform $(PLATFORMS) --push -t $(IMG) .
+
 ##@ Deployment
 
 .PHONY: install
