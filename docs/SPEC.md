@@ -162,7 +162,7 @@ spec:
   # Which workloads to target
   targetRef:
     # Option A: specific workload
-    kind: Deployment          # Deployment | StatefulSet | DaemonSet
+    kind: Deployment          # Deployment | StatefulSet | DaemonSet | CronJob | Job | ReplicaSet
     name: api-server          # optional; omit to match by selector
     # Option B: label selector (matches all matching workloads in namespace)
     selector:
@@ -173,36 +173,41 @@ spec:
   metricsSource:
     prometheus:
       address: http://prometheus-server.monitoring:80
-      # Optional: custom TLS and auth
-      # tlsConfig:
-      #   secretRef:
-      #     name: prometheus-tls
-      # bearerTokenSecretRef:
-      #   name: prometheus-token
+      headers:
+        X-Scope-OrgID: tenant-a
+      queryParameters:
+        dedup: "true"
+      # Optional: auth and TLS settings
+      bearerTokenSecret:
+        name: prometheus-token
+        key: token
+      tls:
+        insecureSkipVerify: false
     # How far back to look for usage patterns
     historyWindow: 168h       # default: 168h (7d), min: 1h, max: 720h
     # Minimum Prometheus range-query samples before making recommendations
     minimumDataPoints: 48     # default: 48 (~4h at the default queryStep: 5m)
     queryStep: 5m             # default: 5m, min: 10s, max: 1h
+    rateWindow: 5m            # default: queryStep, min: 30s, max: historyWindow
 
   # Per-resource configuration
   cpu:
     # Algorithm parameters
-    percentile: 95            # default: 95, range: 50-99
+    percentile: 95            # supported: 50, 90, 95, 99
     safetyMargin: "1.2"       # default: 1.2 (20% headroom above percentile)
-    # Hard bounds (REQUIRED -- never let recommendations go unbounded)
+    # Optional hard bounds
     bounds:
-      min: "50m"              # required
-      max: "4000m"            # required
+      min: "50m"
+      max: "4000m"
     # Optional: control what is adjusted
     controlledValues: RequestsAndLimits  # RequestsOnly | RequestsAndLimits
 
   memory:
-    percentile: 99            # default: 99 (more conservative for OOM risk)
+    percentile: 99            # supported: 50, 90, 95, 99
     safetyMargin: "1.3"       # default: 1.3 (30% headroom)
     bounds:
-      min: "64Mi"             # required
-      max: "8Gi"              # required
+      min: "64Mi"
+      max: "8Gi"
     controlledValues: RequestsAndLimits
     # Memory-specific safety
     allowDecrease: false      # default: false (OOM risk), set true only when confident
