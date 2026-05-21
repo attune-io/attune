@@ -64,6 +64,8 @@ spec:
 
 Use this when different namespaces use different Prometheus instances.
 
+If you configure `metricsSource.prometheus.bearerTokenSecret`, the Secret must live in the same namespace as the `RightSizePolicy`. Cross-namespace Secret references are rejected.
+
 !!! warning "Use an in-cluster address"
     The operator validates `metricsSource.prometheus.address` to block
     loopback and cloud metadata endpoints. `http://127.0.0.1:9090`,

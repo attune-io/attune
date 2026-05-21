@@ -66,7 +66,7 @@ If the condition message includes `Cannot create metrics collector`,
 `reading secret`, or a transport error like `TLS handshake timeout`,
 verify the credentials and connection details before changing timeouts:
 
-1. Check the referenced Secret exists and contains the expected bearer token.
+1. Check the referenced Secret exists in the policy namespace and contains the expected bearer token.
 2. Re-check custom headers, CA bundle, and `insecureSkipVerify` settings.
 3. Test the exact Prometheus URL from inside the cluster with the same auth
    mechanism the operator uses.
