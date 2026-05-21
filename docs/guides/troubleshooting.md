@@ -474,6 +474,47 @@ If the operator pod is OOMKilled or uses unexpectedly high memory, the
 informer cache may be caching too many objects. Use `--watch-namespaces`
 to limit the cache to the namespaces where your policies exist.
 
+## Resizes skipped due to stale recommendations
+
+When Prometheus does not return fresh data during a reconcile cycle, the
+operator marks the recommendation as **stale** and skips the resize to avoid
+acting on outdated metrics. You will see this in the operator logs:
+
+```
+Skipping resize for workload with stale recommendation  workload=my-app
+```
+
+The `kube_rightsize_stale_recommendations_total` counter increments each
+time this happens. Common causes:
+
+1. **Prometheus is temporarily unavailable** or responding slowly.
+2. **The `historyWindow` is too short** for the workload's scrape interval,
+   so range queries return no data.
+3. **Pod label changes** caused the PromQL regex to stop matching.
+
+To diagnose, enable debug logging and check the Prometheus query results:
+
+```bash
+kubectl logs -n kube-rightsize-system deploy/kube-rightsize-controller-manager \
+  | grep -E "stale|Prometheus query returned no data"
+```
+
+Resizes resume automatically once fresh data is available.
+
+## Deployment-owned ReplicaSet targeting
+
+If a `RightSizePolicy` targets a ReplicaSet that is owned by a Deployment,
+the operator rejects it with an error:
+
+```
+ReplicaSet my-ns/my-rs is owned by a Deployment; target the Deployment instead
+```
+
+Deployment-owned ReplicaSets are also automatically filtered from
+selector-based discovery to prevent double-resizing (the Deployment and its
+child ReplicaSet would both match). To right-size the workload, target the
+parent Deployment instead.
+
 ## Known limitations
 
 ### Maximum Prometheus addresses

@@ -195,7 +195,7 @@ func (r *RightSizePolicyReconciler) executeResizes(
 		// based on outdated data.
 		if rec.Stale {
 			logger.Info("Skipping resize for workload with stale recommendation", "workload", rec.Workload)
-			operatormetrics.StaleRecommendationsTotal.WithLabelValues(policy.Namespace, rec.Workload).Inc()
+			operatormetrics.StaleRecommendationsTotal.WithLabelValues(policy.Namespace, policy.Name).Inc()
 			continue
 		}
 
