@@ -280,7 +280,7 @@ func printStatus(ctx context.Context, dynClient dynamic.Interface, namespace str
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 3, ' ', 0)
-	fmt.Fprintln(w, "NAMESPACE\tNAME\tMODE\tWORKLOADS\tPENDING\tRESIZED\tREADY\tRESIZING\tDEGRADED\tAGE")
+	fmt.Fprintln(w, "NAMESPACE\tNAME\tMODE\tWORKLOADS\tPENDING\tRESIZED\tREADY\tRESIZING\tDEGRADED\tSCHEDULE\tAGE")
 
 	for _, item := range list.Items {
 		ns := item.GetNamespace()
@@ -292,10 +292,11 @@ func printStatus(ctx context.Context, dynClient dynamic.Interface, namespace str
 		ready := policyReadyReason(item)
 		resizing := getConditionReason(item, "Resizing")
 		degraded := getConditionReason(item, "Degraded")
+		schedule := getConditionReason(item, "ScheduleBlocked")
 		age := formatAge(item.GetCreationTimestamp().Time)
 
-		fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s\t%s\n",
-			ns, name, mode, workloads, pending, resized, ready, resizing, degraded, age)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t%s\n",
+			ns, name, mode, workloads, pending, resized, ready, resizing, degraded, schedule, age)
 	}
 
 	if err := w.Flush(); err != nil {
