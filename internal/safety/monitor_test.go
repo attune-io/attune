@@ -302,7 +302,7 @@ func TestCheckCriticalStatuses_ExcessiveRestarts(t *testing.T) {
 	assert.Equal(t, "restart", v.Reason)
 }
 
-func TestCheckCriticalStatuses_Healthy(t *testing.T) {
+func TestCheckCriticalStatuses_NotReadyIsNotCritical(t *testing.T) {
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "web-0", Namespace: "default"},
 		Status: corev1.PodStatus{
