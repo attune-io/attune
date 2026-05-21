@@ -285,16 +285,9 @@ func (r *RightSizePolicyReconciler) executeResizes(
 					podReservedCPU += cpuIncrease
 					podReservedMem += memIncrease
 					podResized = true
-					// Re-fetch pod from API server to get fresh resourceVersion
-					// for the next container's UpdateResize call.
-					freshPod, err := r.Clientset.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
-					if err == nil {
-						pod = *freshPod
-					} else {
-						logger.Error(err, "Failed to re-fetch pod after container resize, remaining containers will be deferred",
-							"pod", pod.Name)
-						break
-					}
+					// The pod variable is already updated by persistResizeAnnotations
+					// with a fresh resourceVersion and annotations, so no additional
+					// API Get is needed for the next container's UpdateResize call.
 				}
 				if len(podHistory) > 0 {
 					historyMu.Lock()
@@ -569,6 +562,10 @@ func (r *RightSizePolicyReconciler) persistResizeAnnotations(
 		logger.Error(updateErr, "Failed to persist resize tracking annotations, reverting resize", "pod", pod.Name)
 		return "annotation-persist-failed", updateErr
 	}
+	// Propagate the fresh pod (with updated resourceVersion and annotations)
+	// back to the caller so subsequent container resizes on the same pod
+	// do not need an additional API Get.
+	*pod = *freshPod
 	return "", nil
 }
 
