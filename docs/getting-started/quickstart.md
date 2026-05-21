@@ -94,7 +94,23 @@ my-app   Recommend   1           0      0         False   5m    0           0
 > the default `queryStep: 5m`, `minimumDataPoints: 48` needs about 4 hours of
 > data before recommendations can appear. Lower it for faster evaluation, or
 > raise it for more confidence.
->
+
+!!! tip "Quick evaluation"
+
+    For a faster first look (~1 hour instead of ~4 hours), set
+    `minimumDataPoints: 12` in your policy:
+
+    ```yaml
+    spec:
+      metricsSource:
+        prometheus:
+          address: http://prometheus-server.monitoring:80
+        minimumDataPoints: 12    # ~1 hour at the default queryStep: 5m
+    ```
+
+    After validating that recommendations look reasonable, remove
+    `minimumDataPoints` to use the default (48) for production accuracy.
+
 > Most defaultable fields are applied by the controller at reconcile time so
 > that `RightSizeDefaults` and `RightSizeNamespaceDefaults` can override them.
 > That means omitted fields may still look empty in `kubectl get rsp -o yaml`
