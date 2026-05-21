@@ -6321,6 +6321,63 @@ func (f *failOnNamedPodUpdateClient) Update(ctx context.Context, obj client.Obje
 	return f.Client.Update(ctx, obj, opts...)
 }
 
+func TestExecuteResizes_RevertFailureMarksHistoryAsFailed(t *testing.T) {
+	pod := newResizePodWithStatus("api-server", "500m", "512Mi", "1000m", "1Gi", 3)
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+
+	scheme := testScheme()
+	allObjects := []client.Object{deploy, pod}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(allObjects...).Build()
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+
+	// Wrap the controller-runtime fake client to fail on Pod Update
+	// (annotation persistence), which triggers the revert path.
+	wrappedClient := &failOnPodUpdateClient{Client: fakeClient}
+
+	// Also make the revert's UpdateResize fail. The first UpdateResize call
+	// (the original resize) should succeed, but the second one (the revert)
+	// should fail.
+	resizeCallCount := 0
+	clientset.PrependReactor("update", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		updateAction, ok := action.(k8stesting.UpdateAction)
+		if !ok || updateAction.GetSubresource() != "resize" {
+			return false, nil, nil
+		}
+		resizeCallCount++
+		if resizeCallCount >= 2 {
+			// Fail the revert resize call.
+			return true, nil, fmt.Errorf("simulated revert failure")
+		}
+		return false, nil, nil
+	})
+
+	reconciler := &RightSizePolicyReconciler{
+		Client:    wrappedClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeOneShot
+
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("api-server", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),
+	}
+
+	workloads := []client.Object{deploy}
+	_, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil, nil)
+
+	// History should show Failed (not Reverted or Success) because both
+	// annotation persist and revert failed.
+	require.NotEmpty(t, history)
+	for _, h := range history {
+		if h.Workload == "api-server" {
+			assert.Equal(t, rightsizev1alpha1.ResizeResultFailed, h.Result,
+				"history should be Failed when revert also fails, got %s", h.Result)
+		}
+	}
+}
+
 func TestExecuteResizes_RevertsOnReFetchFailure(t *testing.T) {
 	pod := newResizePodWithStatus("api-server", "500m", "512Mi", "1000m", "1Gi", 0)
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
