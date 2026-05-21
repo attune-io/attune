@@ -403,6 +403,7 @@ type ResizeSchedule struct {
 	// DaysOfWeek restricts resizes to specific days. Values: Monday through Sunday.
 	// If omitted, all days are allowed.
 	// +optional
+	// +kubebuilder:validation:items:Enum=Monday;Tuesday;Wednesday;Thursday;Friday;Saturday;Sunday
 	DaysOfWeek []string `json:"daysOfWeek,omitempty"`
 
 	// Timezone for interpreting window start/end times. Must be a valid

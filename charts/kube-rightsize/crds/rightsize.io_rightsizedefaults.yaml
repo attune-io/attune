@@ -485,6 +485,14 @@ spec:
                           DaysOfWeek restricts resizes to specific days. Values: Monday through Sunday.
                           If omitted, all days are allowed.
                         items:
+                          enum:
+                          - Monday
+                          - Tuesday
+                          - Wednesday
+                          - Thursday
+                          - Friday
+                          - Saturday
+                          - Sunday
                           type: string
                         type: array
                       timezone:

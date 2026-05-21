@@ -112,16 +112,32 @@ func appendResizedContainer(pod *corev1.Pod, containerName string) {
 // the status subresource. Errors from the status update are logged but not
 // returned, since the caller typically returns a requeue result regardless.
 func (r *RightSizePolicyReconciler) setFailedCondition(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy, reason, message string) {
-	meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
-		Type:               rightsizev1alpha1.ConditionReady,
-		Status:             metav1.ConditionFalse,
-		Reason:             reason,
-		Message:            message,
-		ObservedGeneration: policy.Generation,
-	})
-	if err := r.Status().Update(ctx, policy); err != nil {
-		log.FromContext(ctx).Error(err, "Failed to update status")
+	logger := log.FromContext(ctx)
+	key := types.NamespacedName{Name: policy.Name, Namespace: policy.Namespace}
+
+	for attempt := range 3 {
+		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
+			Type:               rightsizev1alpha1.ConditionReady,
+			Status:             metav1.ConditionFalse,
+			Reason:             reason,
+			Message:            message,
+			ObservedGeneration: policy.Generation,
+		})
+		err := r.Status().Update(ctx, policy)
+		if err == nil {
+			return
+		}
+		if !apierrors.IsConflict(err) {
+			logger.Error(err, "Failed to update status")
+			return
+		}
+		logger.Info("setFailedCondition conflict, retrying", "attempt", attempt+1)
+		if fetchErr := r.Get(ctx, key, policy); fetchErr != nil {
+			logger.Error(fetchErr, "Failed to re-fetch policy for status retry")
+			return
+		}
 	}
+	logger.Error(fmt.Errorf("exhausted retries"), "Failed to set failed condition after retries", "reason", reason)
 }
 
 // parseHistoryWindow parses the history window duration from the policy.

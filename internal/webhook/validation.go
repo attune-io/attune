@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/resource"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
@@ -60,19 +61,29 @@ func (v *RightSizePolicyValidator) ValidateDelete(ctx context.Context, policy *r
 func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizePolicy) (admission.Warnings, error) {
 	var warnings admission.Warnings
 
-	// CPU bounds: min must be <= max
+	// CPU bounds: min must be <= max, and max capped at 256 cores.
 	if policy.Spec.CPU.Bounds != nil {
 		if policy.Spec.CPU.Bounds.Min.Cmp(policy.Spec.CPU.Bounds.Max) > 0 {
 			return warnings, fmt.Errorf("cpu.bounds.min (%s) must be <= cpu.bounds.max (%s)",
 				policy.Spec.CPU.Bounds.Min.String(), policy.Spec.CPU.Bounds.Max.String())
 		}
+		maxCPU := resource.MustParse("256")
+		if policy.Spec.CPU.Bounds.Max.Cmp(maxCPU) > 0 {
+			return warnings, fmt.Errorf("cpu.bounds.max (%s) exceeds the maximum allowed value of 256 cores",
+				policy.Spec.CPU.Bounds.Max.String())
+		}
 	}
 
-	// Memory bounds: min must be <= max
+	// Memory bounds: min must be <= max, and max capped at 16Ti.
 	if policy.Spec.Memory.Bounds != nil {
 		if policy.Spec.Memory.Bounds.Min.Cmp(policy.Spec.Memory.Bounds.Max) > 0 {
 			return warnings, fmt.Errorf("memory.bounds.min (%s) must be <= memory.bounds.max (%s)",
 				policy.Spec.Memory.Bounds.Min.String(), policy.Spec.Memory.Bounds.Max.String())
+		}
+		maxMemory := resource.MustParse("16Ti")
+		if policy.Spec.Memory.Bounds.Max.Cmp(maxMemory) > 0 {
+			return warnings, fmt.Errorf("memory.bounds.max (%s) exceeds the maximum allowed value of 16Ti",
+				policy.Spec.Memory.Bounds.Max.String())
 		}
 	}
 
