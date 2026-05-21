@@ -1529,6 +1529,7 @@ func TestPrintExplain_ShowsPolicyNamespaceAndBuiltInEffectiveValues(t *testing.T
 	assert.Contains(t, output, "Resize method: InPlaceOrEvict (source: namespace default, configured: <unset>)")
 	assert.Contains(t, output, "Max CPU change: 70% (source: policy, configured: 70%)")
 	assert.Contains(t, output, "Max memory change: 30% (source: built-in default, configured: <unset>)")
+	assert.Contains(t, output, "Observation period: 5m0s (source: built-in default, configured: <unset>)")
 	assert.NotContains(t, output, "source: cluster default")
 }
 

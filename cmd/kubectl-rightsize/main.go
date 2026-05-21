@@ -594,6 +594,7 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *righ
 	printEffectiveField("Resize method", getNestedString(item, "spec", "updateStrategy", "resizeMethod"), string(effective.Spec.UpdateStrategy.ResizeMethod), selected, updateDefaults != nil && updateDefaults.ResizeMethod != "")
 	printEffectiveField("Max CPU change", formatPercentInt64Ptr(rawInt64Field(item, "spec", "updateStrategy", "maxCpuChangePercent")), formatPercentPtr(effective.Spec.UpdateStrategy.MaxCPUChangePercent), selected, updateDefaults != nil && updateDefaults.MaxCPUChangePercent != nil)
 	printEffectiveField("Max memory change", formatPercentInt64Ptr(rawInt64Field(item, "spec", "updateStrategy", "maxMemoryChangePercent")), formatPercentPtr(effective.Spec.UpdateStrategy.MaxMemoryChangePercent), selected, updateDefaults != nil && updateDefaults.MaxMemoryChangePercent != nil)
+	printEffectiveField("Observation period", getNestedString(item, "spec", "updateStrategy", "safetyObservationPeriod"), effectiveObservationPeriod(effective), selected, updateDefaults != nil && updateDefaults.SafetyObservationPeriod != nil)
 }
 
 func printEffectiveField(label, configured, effective string, selected selectedDefaults, inherited bool) {
@@ -615,6 +616,18 @@ func effectiveSource(selected selectedDefaults, inherited bool) string {
 		return selected.source
 	}
 	return sourceBuiltIn
+}
+
+// effectiveObservationPeriod computes the observation period using the
+// precedence: safetyObservationPeriod > canary.observationPeriod > 5m default.
+func effectiveObservationPeriod(policy *rightsizev1alpha1.RightSizePolicy) string {
+	if policy.Spec.UpdateStrategy.SafetyObservationPeriod != nil && policy.Spec.UpdateStrategy.SafetyObservationPeriod.Duration > 0 {
+		return policy.Spec.UpdateStrategy.SafetyObservationPeriod.Duration.String()
+	}
+	if policy.Spec.UpdateStrategy.Canary != nil && policy.Spec.UpdateStrategy.Canary.ObservationPeriod.Duration > 0 {
+		return policy.Spec.UpdateStrategy.Canary.ObservationPeriod.Duration.String()
+	}
+	return (5 * time.Minute).String()
 }
 
 func formatDurationPtr(value *metav1.Duration) string {
@@ -744,6 +757,9 @@ func mergeUpdateStrategy(policy *rightsizev1alpha1.UpdateStrategy, defaults *rig
 	if policy.MaxMemoryChangePercent == nil && defaults.MaxMemoryChangePercent != nil {
 		value := *defaults.MaxMemoryChangePercent
 		policy.MaxMemoryChangePercent = &value
+	}
+	if policy.SafetyObservationPeriod == nil && defaults.SafetyObservationPeriod != nil {
+		policy.SafetyObservationPeriod = defaults.SafetyObservationPeriod.DeepCopy()
 	}
 }
 
