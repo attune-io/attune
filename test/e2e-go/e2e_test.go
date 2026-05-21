@@ -1199,3 +1199,363 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 	}
 	assert.True(t, hasRevert, "resize history should contain a Reverted entry after OOMKill")
 }
+
+func TestE2E_MultiReplica_ProgressiveResize(t *testing.T) {
+	t.Parallel()
+	ns := uniqueNS("multi-rep")
+	createNamespace(t, ns)
+	createDeployment(t, "multi-rep-app", ns, "500m", "512Mi", 3)
+	waitForDeploymentReady(t, "multi-rep-app", ns, 120*time.Second)
+
+	deployName := "multi-rep-app"
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "multi-rep-policy", Namespace: ns},
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			TargetRef: rightsizev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
+			MetricsSource: rightsizev1alpha1.MetricsSource{
+				Prometheus:        &rightsizev1alpha1.PrometheusConfig{Address: promAddr},
+				MinimumDataPoints: int32Ptr(1),
+				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+			},
+			CPU: rightsizev1alpha1.ResourceConfig{
+				Percentile: 95, SafetyMargin: "1.2",
+				Bounds: &rightsizev1alpha1.ResourceBounds{Min: resource.MustParse("50m"), Max: resource.MustParse("4000m")},
+			},
+			Memory: rightsizev1alpha1.ResourceConfig{
+				Percentile: 99, SafetyMargin: "1.3", AllowDecrease: boolPtr(true),
+				Bounds: &rightsizev1alpha1.ResourceBounds{Min: resource.MustParse("64Mi"), Max: resource.MustParse("8Gi")},
+			},
+			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+				Mode: rightsizev1alpha1.UpdateModeAuto, Cooldown: &metav1.Duration{Duration: time.Minute},
+				MaxConcurrentResizes:   1,
+				AutoRevert:             boolPtr(true),
+				MaxCPUChangePercent:    int32Ptr(100),
+				MaxMemoryChangePercent: int32Ptr(100),
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, policy))
+
+	waitForResize(t, "multi-rep-policy", ns, 3*time.Minute)
+
+	// Verify at least one pod was resized and the deployment stayed available.
+	var deploy appsv1.Deployment
+	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "multi-rep-app", Namespace: ns}, &deploy))
+	assert.GreaterOrEqual(t, deploy.Status.ReadyReplicas, int32(1),
+		"at least one replica should remain ready during progressive resize")
+}
+
+func TestE2E_GuaranteedQoS_RequestsAndLimits(t *testing.T) {
+	t.Parallel()
+	ns := uniqueNS("qos")
+	createNamespace(t, ns)
+
+	// Guaranteed QoS: requests = limits.
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "qos-app", Namespace: ns, Labels: map[string]string{"app": "qos-app"}},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: int32Ptr(1),
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "qos-app"}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "qos-app"}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:  "app",
+						Image: "registry.k8s.io/pause:3.9",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("2000m"),
+								corev1.ResourceMemory: resource.MustParse("1Gi"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("2000m"),
+								corev1.ResourceMemory: resource.MustParse("1Gi"),
+							},
+						},
+					}},
+				},
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, deploy))
+	waitForDeploymentReady(t, "qos-app", ns, 60*time.Second)
+
+	controlledBoth := rightsizev1alpha1.ControlledRequestsAndLimits
+	controlledRequestsOnly := rightsizev1alpha1.ControlledRequestsOnly
+	deployName := "qos-app"
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "qos-policy", Namespace: ns},
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			TargetRef: rightsizev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
+			MetricsSource: rightsizev1alpha1.MetricsSource{
+				Prometheus:        &rightsizev1alpha1.PrometheusConfig{Address: promAddr},
+				MinimumDataPoints: int32Ptr(1),
+				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+			},
+			CPU: rightsizev1alpha1.ResourceConfig{
+				Percentile: 95, SafetyMargin: "1.2", ControlledValues: &controlledBoth,
+				Bounds: &rightsizev1alpha1.ResourceBounds{Min: resource.MustParse("50m"), Max: resource.MustParse("4000m")},
+			},
+			Memory: rightsizev1alpha1.ResourceConfig{
+				// Use RequestsOnly for memory to avoid a forced restart that races the test timeout.
+				// The CPU path with RequestsAndLimits is the primary assertion target.
+				Percentile: 99, SafetyMargin: "1.3", AllowDecrease: boolPtr(true), ControlledValues: &controlledRequestsOnly,
+				Bounds: &rightsizev1alpha1.ResourceBounds{Min: resource.MustParse("64Mi"), Max: resource.MustParse("8Gi")},
+			},
+			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+				Mode: rightsizev1alpha1.UpdateModeAuto, Cooldown: &metav1.Duration{Duration: time.Minute},
+				AutoRevert: boolPtr(true), MaxCPUChangePercent: int32Ptr(100), MaxMemoryChangePercent: int32Ptr(100),
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, policy))
+
+	// Guaranteed QoS with memory resize forces a container restart, so allow
+	// extra time for the resize + restart + readiness cycle.
+	waitForResize(t, "qos-policy", ns, 5*time.Minute)
+
+	// Re-fetch pods after resize (the pod may have restarted from memory resize).
+	waitForDeploymentReady(t, "qos-app", ns, 120*time.Second)
+
+	var podList corev1.PodList
+	require.NoError(t, k8sClient.List(ctx, &podList, client.InNamespace(ns), client.MatchingLabels{"app": "qos-app"}))
+	require.NotEmpty(t, podList.Items)
+	c := podList.Items[0].Spec.Containers[0]
+
+	// Requests and limits should still match (Guaranteed QoS preserved).
+	assert.Equal(t, c.Resources.Requests.Cpu().MilliValue(), c.Resources.Limits.Cpu().MilliValue(),
+		"CPU requests and limits should match after resize (Guaranteed QoS)")
+	assert.Equal(t, c.Resources.Requests.Memory().Value(), c.Resources.Limits.Memory().Value(),
+		"memory requests and limits should match after resize (Guaranteed QoS)")
+
+	// At least one resource should have changed from the heavily overprovisioned initial values.
+	origCPU := resource.MustParse("2000m")
+	origMem := resource.MustParse("1Gi")
+	assert.True(t, c.Resources.Requests.Cpu().Cmp(origCPU) != 0 || c.Resources.Requests.Memory().Cmp(origMem) != 0,
+		"at least one resource should have changed, cpu=%s mem=%s", c.Resources.Requests.Cpu().String(), c.Resources.Requests.Memory().String())
+}
+
+func TestE2E_LabelSelector_MultipleWorkloads(t *testing.T) {
+	t.Parallel()
+	ns := uniqueNS("selector")
+	createNamespace(t, ns)
+
+	// Two matching deployments.
+	for _, name := range []string{"api-svc", "worker-svc"} {
+		deploy := &appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, Labels: map[string]string{"app": name, "team": "platform"}},
+			Spec: appsv1.DeploymentSpec{
+				Replicas: int32Ptr(1),
+				Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": name}},
+				Template: corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": name, "team": "platform"}},
+					Spec: corev1.PodSpec{Containers: []corev1.Container{{
+						Name: "app", Image: "registry.k8s.io/pause:3.9",
+						Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("500m"), corev1.ResourceMemory: resource.MustParse("256Mi"),
+						}},
+					}}},
+				},
+			},
+		}
+		require.NoError(t, k8sClient.Create(ctx, deploy))
+	}
+	// One non-matching deployment.
+	createDeployment(t, "unrelated-svc", ns, "100m", "128Mi", 1)
+	waitForDeploymentReady(t, "api-svc", ns, 60*time.Second)
+	waitForDeploymentReady(t, "worker-svc", ns, 60*time.Second)
+	waitForDeploymentReady(t, "unrelated-svc", ns, 60*time.Second)
+
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "selector-policy", Namespace: ns},
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			TargetRef: rightsizev1alpha1.TargetRef{
+				Kind:     "Deployment",
+				Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"team": "platform"}},
+			},
+			MetricsSource: rightsizev1alpha1.MetricsSource{
+				Prometheus:        &rightsizev1alpha1.PrometheusConfig{Address: promAddr},
+				MinimumDataPoints: int32Ptr(1),
+				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+			},
+			CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.2"},
+			Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, SafetyMargin: "1.3"},
+			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+				Mode: rightsizev1alpha1.UpdateModeRecommend, Cooldown: &metav1.Duration{Duration: time.Minute},
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, policy))
+
+	waitForPolicyDiscovered(t, "selector-policy", ns, 2*time.Minute)
+
+	var p rightsizev1alpha1.RightSizePolicy
+	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "selector-policy", Namespace: ns}, &p))
+	assert.Equal(t, int32(2), p.Status.Workloads.Discovered,
+		"selector should discover exactly the 2 matching deployments")
+}
+
+func TestE2E_PolicyDeletion_CleansUpAnnotations(t *testing.T) {
+	t.Parallel()
+	ns := uniqueNS("cleanup")
+	createNamespace(t, ns)
+	createDeployment(t, "cleanup-app", ns, "500m", "512Mi", 1)
+	waitForDeploymentReady(t, "cleanup-app", ns, 60*time.Second)
+
+	policy := createPolicy(t, "cleanup-policy", ns, "cleanup-app", rightsizev1alpha1.UpdateModeAuto)
+
+	// Wait for resize so tracking annotations are set on the pod.
+	waitForResize(t, "cleanup-policy", ns, 3*time.Minute)
+
+	// Verify annotations exist before deletion.
+	var podsBefore corev1.PodList
+	require.NoError(t, k8sClient.List(ctx, &podsBefore, client.InNamespace(ns), client.MatchingLabels{"app": "cleanup-app"}))
+	require.NotEmpty(t, podsBefore.Items)
+	assert.Contains(t, podsBefore.Items[0].Labels, "rightsize.io/tracked",
+		"pod should have tracking label before policy deletion")
+
+	// Delete the policy.
+	require.NoError(t, k8sClient.Delete(ctx, policy))
+
+	// Wait for the finalizer to complete (policy fully gone).
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 3*time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
+		var p rightsizev1alpha1.RightSizePolicy
+		err := k8sClient.Get(ctx, types.NamespacedName{Name: "cleanup-policy", Namespace: ns}, &p)
+		return err != nil, nil // gone when Get fails
+	}), "timed out waiting for policy deletion")
+
+	// Verify tracking annotations and labels are cleaned up from the pod.
+	var podsAfter corev1.PodList
+	require.NoError(t, k8sClient.List(ctx, &podsAfter, client.InNamespace(ns), client.MatchingLabels{"app": "cleanup-app"}))
+	require.NotEmpty(t, podsAfter.Items)
+	pod := podsAfter.Items[0]
+	assert.NotContains(t, pod.Labels, "rightsize.io/tracked",
+		"tracking label should be removed after policy deletion")
+	assert.NotContains(t, pod.Annotations, "rightsize.io/policy",
+		"policy annotation should be removed after policy deletion")
+}
+
+func TestE2E_ScaleUp_NewReplicasGetResized(t *testing.T) {
+	t.Parallel()
+	ns := uniqueNS("scaleup")
+	createNamespace(t, ns)
+	createDeployment(t, "scaleup-app", ns, "500m", "512Mi", 1)
+	waitForDeploymentReady(t, "scaleup-app", ns, 60*time.Second)
+
+	createPolicy(t, "scaleup-policy", ns, "scaleup-app", rightsizev1alpha1.UpdateModeAuto)
+	waitForResize(t, "scaleup-policy", ns, 3*time.Minute)
+
+	// Scale up to 2 replicas.
+	require.NoError(t, retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		var deploy appsv1.Deployment
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "scaleup-app", Namespace: ns}, &deploy); err != nil {
+			return err
+		}
+		deploy.Spec.Replicas = int32Ptr(2)
+		return k8sClient.Update(ctx, &deploy)
+	}))
+	waitForDeploymentReady(t, "scaleup-app", ns, 120*time.Second)
+
+	// Force a reconcile so the operator sees the new pod.
+	forcePolicyReconcile(t, "scaleup-policy", ns, 2*time.Minute)
+
+	// Wait for the second pod to be resized (give it a couple of cycles).
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
+		var podList corev1.PodList
+		if err := k8sClient.List(ctx, &podList, client.InNamespace(ns), client.MatchingLabels{"app": "scaleup-app"}); err != nil {
+			return false, nil
+		}
+		resizedCount := 0
+		origCPU := resource.MustParse("500m")
+		for _, pod := range podList.Items {
+			if pod.Status.Phase != corev1.PodRunning {
+				continue
+			}
+			for _, c := range pod.Spec.Containers {
+				if c.Name == "app" && c.Resources.Requests.Cpu().Cmp(origCPU) != 0 {
+					resizedCount++
+				}
+			}
+		}
+		return resizedCount >= 2, nil
+	}), "both replicas should eventually be resized")
+}
+
+func TestE2E_ConcurrentPolicies_SameNamespace(t *testing.T) {
+	t.Parallel()
+	ns := uniqueNS("concurrent")
+	createNamespace(t, ns)
+	createDeployment(t, "api-app", ns, "500m", "512Mi", 1)
+	createDeployment(t, "worker-app", ns, "250m", "256Mi", 1)
+	waitForDeploymentReady(t, "api-app", ns, 60*time.Second)
+	waitForDeploymentReady(t, "worker-app", ns, 60*time.Second)
+
+	createPolicy(t, "api-policy", ns, "api-app", rightsizev1alpha1.UpdateModeRecommend)
+	createPolicy(t, "worker-policy", ns, "worker-app", rightsizev1alpha1.UpdateModeRecommend)
+
+	waitForPolicyDiscovered(t, "api-policy", ns, 2*time.Minute)
+	waitForPolicyDiscovered(t, "worker-policy", ns, 2*time.Minute)
+
+	// Verify each policy sees only its own workload.
+	var apiPolicy rightsizev1alpha1.RightSizePolicy
+	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "api-policy", Namespace: ns}, &apiPolicy))
+	assert.Equal(t, int32(1), apiPolicy.Status.Workloads.Discovered)
+	if len(apiPolicy.Status.Recommendations) > 0 {
+		assert.Equal(t, "api-app", apiPolicy.Status.Recommendations[0].Workload)
+	}
+
+	var workerPolicy rightsizev1alpha1.RightSizePolicy
+	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "worker-policy", Namespace: ns}, &workerPolicy))
+	assert.Equal(t, int32(1), workerPolicy.Status.Workloads.Discovered)
+	if len(workerPolicy.Status.Recommendations) > 0 {
+		assert.Equal(t, "worker-app", workerPolicy.Status.Recommendations[0].Workload)
+	}
+}
+
+func TestE2E_MemoryAllowDecreaseFalse(t *testing.T) {
+	t.Parallel()
+	ns := uniqueNS("nodecrease")
+	createNamespace(t, ns)
+
+	// High memory request (512Mi) but pause container uses ~0 memory.
+	createDeployment(t, "nodecrease-app", ns, "500m", "512Mi", 1)
+	waitForDeploymentReady(t, "nodecrease-app", ns, 60*time.Second)
+
+	deployName := "nodecrease-app"
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "nodecrease-policy", Namespace: ns},
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			TargetRef: rightsizev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
+			MetricsSource: rightsizev1alpha1.MetricsSource{
+				Prometheus:        &rightsizev1alpha1.PrometheusConfig{Address: promAddr},
+				MinimumDataPoints: int32Ptr(1),
+				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+			},
+			CPU: rightsizev1alpha1.ResourceConfig{
+				Percentile: 95, SafetyMargin: "1.2",
+				Bounds: &rightsizev1alpha1.ResourceBounds{Min: resource.MustParse("50m"), Max: resource.MustParse("4000m")},
+			},
+			Memory: rightsizev1alpha1.ResourceConfig{
+				Percentile: 99, SafetyMargin: "1.3",
+				// AllowDecrease intentionally NOT set (nil), so the default false applies.
+				Bounds: &rightsizev1alpha1.ResourceBounds{Min: resource.MustParse("64Mi"), Max: resource.MustParse("8Gi")},
+			},
+			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+				Mode: rightsizev1alpha1.UpdateModeAuto, Cooldown: &metav1.Duration{Duration: time.Minute},
+				AutoRevert: boolPtr(true), MaxCPUChangePercent: int32Ptr(100), MaxMemoryChangePercent: int32Ptr(100),
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, policy))
+
+	waitForResize(t, "nodecrease-policy", ns, 3*time.Minute)
+
+	var podList corev1.PodList
+	require.NoError(t, k8sClient.List(ctx, &podList, client.InNamespace(ns), client.MatchingLabels{"app": "nodecrease-app"}))
+	require.NotEmpty(t, podList.Items)
+	c := podList.Items[0].Spec.Containers[0]
+
+	origMem := resource.MustParse("512Mi")
+	assert.GreaterOrEqual(t, c.Resources.Requests.Memory().Value(), origMem.Value(),
+		"memory should not decrease when allowDecrease is nil (default false), got %s", c.Resources.Requests.Memory().String())
+}
