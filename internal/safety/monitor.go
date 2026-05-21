@@ -92,6 +92,40 @@ func (m *Monitor) WithThrottleChecker(checker ThrottleChecker, threshold float64
 	return m
 }
 
+// CheckCriticalStatuses checks a pod's container statuses for critical safety
+// events (OOMKill and excessive restarts) that warrant an immediate revert.
+// Returns a non-nil SafetyVerdict if a critical issue is found.
+// This is used both by CheckPod (full observation) and for early detection
+// during the observation period.
+func CheckCriticalStatuses(pod *corev1.Pod, record ResizeRecord) *SafetyVerdict {
+	for _, cs := range slices.Concat(pod.Status.ContainerStatuses, pod.Status.InitContainerStatuses) {
+		if cs.Name != record.Container {
+			continue
+		}
+
+		// Check for OOMKill that happened after the resize.
+		if cs.LastTerminationState.Terminated != nil &&
+			cs.LastTerminationState.Terminated.Reason == "OOMKilled" &&
+			cs.LastTerminationState.Terminated.FinishedAt.After(record.ResizedAt) {
+			return &SafetyVerdict{
+				Safe:    false,
+				Reason:  "oomkill",
+				Message: fmt.Sprintf("container %s in pod %s/%s was OOMKilled after resize", record.Container, record.Namespace, record.PodName),
+			}
+		}
+
+		// Check for excessive restarts since the resize.
+		if cs.RestartCount >= record.RestartCount+2 {
+			return &SafetyVerdict{
+				Safe:    false,
+				Reason:  "restart",
+				Message: fmt.Sprintf("container %s in pod %s/%s restarted %d times since resize (was %d)", record.Container, record.Namespace, record.PodName, cs.RestartCount, record.RestartCount),
+			}
+		}
+	}
+	return nil
+}
+
 // CheckPod evaluates the current state of a pod that was previously resized
 // and returns a SafetyVerdict. It checks, in order:
 //  1. Pod existence (deleted pods are considered safe).
@@ -107,32 +141,9 @@ func (m *Monitor) CheckPod(ctx context.Context, record ResizeRecord, now time.Ti
 		return SafetyVerdict{}, fmt.Errorf("getting pod %s/%s: %w", record.Namespace, record.PodName, err)
 	}
 
-	// Search both regular and init container statuses (native sidecars
-	// report status in InitContainerStatuses).
-	for _, cs := range slices.Concat(pod.Status.ContainerStatuses, pod.Status.InitContainerStatuses) {
-		if cs.Name != record.Container {
-			continue
-		}
-
-		// Check for OOMKill that happened after the resize.
-		if cs.LastTerminationState.Terminated != nil &&
-			cs.LastTerminationState.Terminated.Reason == "OOMKilled" &&
-			cs.LastTerminationState.Terminated.FinishedAt.After(record.ResizedAt) {
-			return SafetyVerdict{
-				Safe:    false,
-				Reason:  "oomkill",
-				Message: fmt.Sprintf("container %s in pod %s/%s was OOMKilled after resize", record.Container, record.Namespace, record.PodName),
-			}, nil
-		}
-
-		// Check for excessive restarts since the resize.
-		if cs.RestartCount >= record.RestartCount+2 {
-			return SafetyVerdict{
-				Safe:    false,
-				Reason:  "restart",
-				Message: fmt.Sprintf("container %s in pod %s/%s restarted %d times since resize (was %d)", record.Container, record.Namespace, record.PodName, cs.RestartCount, record.RestartCount),
-			}, nil
-		}
+	// Critical checks: OOMKill and excessive restarts.
+	if v := CheckCriticalStatuses(pod, record); v != nil {
+		return *v, nil
 	}
 
 	// Check for CPU throttling via Prometheus (if checker is configured).

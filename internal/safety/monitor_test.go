@@ -242,6 +242,125 @@ func TestCheckPod(t *testing.T) {
 	}
 }
 
+// ---------- CheckCriticalStatuses ----------
+
+func TestCheckCriticalStatuses_OOMKill(t *testing.T) {
+	now := time.Now()
+	oneHourAgo := now.Add(-1 * time.Hour)
+
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "web-0", Namespace: "default"},
+		Status: corev1.PodStatus{
+			ContainerStatuses: []corev1.ContainerStatus{
+				{
+					Name: "app",
+					LastTerminationState: corev1.ContainerState{
+						Terminated: &corev1.ContainerStateTerminated{
+							Reason:     "OOMKilled",
+							FinishedAt: metav1.NewTime(now),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	record := ResizeRecord{
+		PodName:   "web-0",
+		Namespace: "default",
+		Container: "app",
+		ResizedAt: oneHourAgo,
+	}
+
+	v := CheckCriticalStatuses(pod, record)
+	require.NotNil(t, v)
+	assert.False(t, v.Safe)
+	assert.Equal(t, "oomkill", v.Reason)
+}
+
+func TestCheckCriticalStatuses_ExcessiveRestarts(t *testing.T) {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "web-0", Namespace: "default"},
+		Status: corev1.PodStatus{
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "app", RestartCount: 5},
+			},
+		},
+	}
+
+	record := ResizeRecord{
+		PodName:      "web-0",
+		Namespace:    "default",
+		Container:    "app",
+		ResizedAt:    time.Now().Add(-1 * time.Hour),
+		RestartCount: 3,
+	}
+
+	v := CheckCriticalStatuses(pod, record)
+	require.NotNil(t, v)
+	assert.False(t, v.Safe)
+	assert.Equal(t, "restart", v.Reason)
+}
+
+func TestCheckCriticalStatuses_Healthy(t *testing.T) {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "web-0", Namespace: "default"},
+		Status: corev1.PodStatus{
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "app", RestartCount: 0},
+			},
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionFalse},
+			},
+		},
+	}
+
+	record := ResizeRecord{
+		PodName:      "web-0",
+		Namespace:    "default",
+		Container:    "app",
+		ResizedAt:    time.Now().Add(-30 * time.Second),
+		RestartCount: 0,
+	}
+
+	// Healthy pod (even if not ready) should return nil -- critical-only
+	// checks don't look at readiness.
+	v := CheckCriticalStatuses(pod, record)
+	assert.Nil(t, v)
+}
+
+func TestCheckCriticalStatuses_OOMKillBeforeResize(t *testing.T) {
+	twoHoursAgo := time.Now().Add(-2 * time.Hour)
+	oneHourAgo := time.Now().Add(-1 * time.Hour)
+
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "web-0", Namespace: "default"},
+		Status: corev1.PodStatus{
+			ContainerStatuses: []corev1.ContainerStatus{
+				{
+					Name: "app",
+					LastTerminationState: corev1.ContainerState{
+						Terminated: &corev1.ContainerStateTerminated{
+							Reason:     "OOMKilled",
+							FinishedAt: metav1.NewTime(twoHoursAgo),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	record := ResizeRecord{
+		PodName:   "web-0",
+		Namespace: "default",
+		Container: "app",
+		ResizedAt: oneHourAgo,
+	}
+
+	v := CheckCriticalStatuses(pod, record)
+	assert.Nil(t, v, "OOMKill before resize should not trigger critical detection")
+}
+
 func TestRevertPod(t *testing.T) {
 	original := corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{

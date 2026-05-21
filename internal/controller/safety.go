@@ -172,9 +172,31 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 		records, err := parseResizeRecords(pod, observationPeriod, r.now())
 		if err != nil {
 			if errors.Is(err, errNotReady) {
-				// Observation period hasn't elapsed yet. Mark pending so
-				// the reconciler requeues at the observation interval
-				// instead of the (much longer) cooldown.
+				// Observation period hasn't elapsed yet. Check for critical
+				// events (OOMKill, crash loops) immediately without waiting.
+				if earlyRecords, buildErr := buildResizeRecords(pod, observationPeriod); buildErr == nil {
+					for _, record := range earlyRecords {
+						if v := safety.CheckCriticalStatuses(pod, record); v != nil {
+							logger.Info("Critical safety event detected during observation period, reverting early",
+								"pod", pod.Name, "container", record.Container, "reason", v.Reason)
+							if revertErr := monitor.RevertPod(ctx, record); revertErr != nil {
+								logger.Error(revertErr, "Failed to revert pod during early critical check", "pod", pod.Name)
+								continue
+							}
+							operatormetrics.RevertsTotal.WithLabelValues(pod.Namespace, trackedWorkload, v.Reason).Inc()
+							if r.Recorder != nil {
+								r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, string(rightsizev1alpha1.ResizeResultReverted), "revert",
+									"Early safety detection reverted resize on pod %s/%s: %s", pod.Name, record.Container, v.Message)
+							}
+							for j := range policy.Status.ResizeHistory {
+								h := &policy.Status.ResizeHistory[j]
+								if h.Workload == trackedWorkload && h.Container == record.Container && h.Result == rightsizev1alpha1.ResizeResultSuccess {
+									h.Result = rightsizev1alpha1.ResizeResultReverted
+								}
+							}
+						}
+					}
+				}
 				logger.V(1).Info("Safety observation pending, period not yet elapsed",
 					"pod", pod.Name, "observationPeriod", observationPeriod)
 				observationsPending = true
@@ -265,10 +287,11 @@ func trackedWorkloadForPolicy(pod *corev1.Pod, policyName string, workloadNames 
 // errNotReady is a sentinel error indicating the pod's observation period hasn't elapsed yet.
 var errNotReady = errors.New("observation period not elapsed")
 
-// parseResizeRecords extracts safety.ResizeRecords from a pod's tracking
-// annotations, one per resized container. Returns errNotReady if the
-// observation period hasn't elapsed or the pod has no tracking annotations.
-func parseResizeRecords(pod *corev1.Pod, observationPeriod time.Duration, now time.Time) ([]safety.ResizeRecord, error) {
+// buildResizeRecords extracts safety.ResizeRecords from a pod's tracking
+// annotations, one per resized container. Unlike parseResizeRecords, it does
+// NOT check whether the observation period has elapsed. Returns errNotReady
+// only if the pod has no tracking annotations.
+func buildResizeRecords(pod *corev1.Pod, observationPeriod time.Duration) ([]safety.ResizeRecord, error) {
 	resizedAtStr, ok := pod.Annotations[annotationResizedAt]
 	if !ok {
 		return nil, errNotReady
@@ -277,10 +300,6 @@ func parseResizeRecords(pod *corev1.Pod, observationPeriod time.Duration, now ti
 	resizedAt, err := time.Parse(time.RFC3339, resizedAtStr)
 	if err != nil {
 		return nil, fmt.Errorf("parsing resized-at annotation: %w", err)
-	}
-
-	if now.Sub(resizedAt) < observationPeriod {
-		return nil, errNotReady
 	}
 
 	containerNames := strings.Split(pod.Annotations[annotationResizedContainers], ",")
@@ -355,6 +374,21 @@ func parseResizeRecords(pod *corev1.Pod, observationPeriod time.Duration, now ti
 	}
 
 	if len(records) == 0 {
+		return nil, errNotReady
+	}
+	return records, nil
+}
+
+// parseResizeRecords extracts safety.ResizeRecords from a pod's tracking
+// annotations, one per resized container. Returns errNotReady if the
+// observation period hasn't elapsed or the pod has no tracking annotations.
+func parseResizeRecords(pod *corev1.Pod, observationPeriod time.Duration, now time.Time) ([]safety.ResizeRecord, error) {
+	records, err := buildResizeRecords(pod, observationPeriod)
+	if err != nil {
+		return nil, err
+	}
+	// All records share the same resizedAt; check the first.
+	if now.Sub(records[0].ResizedAt) < observationPeriod {
 		return nil, errNotReady
 	}
 	return records, nil
