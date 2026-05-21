@@ -431,6 +431,68 @@ func TestWorkload_RegistryUnsupportedKind(t *testing.T) {
 	assert.False(t, ok)
 }
 
+// ---------- isDeploymentOwned ----------
+
+func TestWorkload_IsDeploymentOwned(t *testing.T) {
+	tests := []struct {
+		name string
+		obj  client.Object
+		want bool
+	}{
+		{
+			name: "standalone ReplicaSet",
+			obj:  &appsv1.ReplicaSet{},
+			want: false,
+		},
+		{
+			name: "Deployment-owned ReplicaSet",
+			obj: &appsv1.ReplicaSet{
+				ObjectMeta: metav1.ObjectMeta{
+					OwnerReferences: []metav1.OwnerReference{
+						{APIVersion: "apps/v1", Kind: "Deployment", Name: "my-deploy"},
+					},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "other owner",
+			obj: &appsv1.ReplicaSet{
+				ObjectMeta: metav1.ObjectMeta{
+					OwnerReferences: []metav1.OwnerReference{
+						{APIVersion: "argoproj.io/v1alpha1", Kind: "Rollout", Name: "my-rollout"},
+					},
+				},
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, isDeploymentOwned(tt.obj))
+		})
+	}
+}
+
+func TestWorkload_FilterStandaloneReplicaSets(t *testing.T) {
+	standalone := &appsv1.ReplicaSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "standalone-rs"},
+	}
+	owned := &appsv1.ReplicaSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "deploy-owned-rs",
+			OwnerReferences: []metav1.OwnerReference{
+				{APIVersion: "apps/v1", Kind: "Deployment", Name: "my-deploy"},
+			},
+		},
+	}
+
+	result := filterStandaloneReplicaSets([]client.Object{standalone, owned})
+	require.Len(t, result, 1)
+	assert.Equal(t, "standalone-rs", result[0].GetName())
+}
+
 // ---------- buildPrometheusQuery ----------
 
 func TestWorkload_BuildPrometheusQuery(t *testing.T) {

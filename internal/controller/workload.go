@@ -68,6 +68,10 @@ func (r *RightSizePolicyReconciler) getWorkloadByName(ctx context.Context, names
 	if err := r.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, obj); err != nil {
 		return nil, err
 	}
+	// Reject Deployment-owned ReplicaSets to prevent double-resizing.
+	if kind == "ReplicaSet" && isDeploymentOwned(obj) {
+		return nil, fmt.Errorf("ReplicaSet %s/%s is owned by a Deployment; target the Deployment instead", namespace, name)
+	}
 	return obj, nil
 }
 
@@ -92,7 +96,12 @@ func (r *RightSizePolicyReconciler) listWorkloadsBySelector(ctx context.Context,
 	if err := r.List(ctx, list, listOpts...); err != nil {
 		return nil, err
 	}
-	return wk.extract(list), nil
+	extracted := wk.extract(list)
+	// Filter out Deployment-owned ReplicaSets to prevent double-resizing.
+	if kind == "ReplicaSet" {
+		extracted = filterStandaloneReplicaSets(extracted)
+	}
+	return extracted, nil
 }
 
 // getPodsForWorkload returns the pods managed by a workload by matching
@@ -234,6 +243,29 @@ func queryMetricsGrouped(ctx context.Context, collector rsmetrics.MetricsCollect
 	}
 
 	return grouped, false
+}
+
+// isDeploymentOwned returns true if the object has an ownerReference with
+// kind=Deployment in the apps/v1 group.
+func isDeploymentOwned(obj client.Object) bool {
+	for _, ref := range obj.GetOwnerReferences() {
+		if ref.Kind == "Deployment" && (ref.APIVersion == "apps/v1" || ref.APIVersion == "apps/v1beta1" || ref.APIVersion == "apps/v1beta2") {
+			return true
+		}
+	}
+	return false
+}
+
+// filterStandaloneReplicaSets removes Deployment-owned ReplicaSets from the list,
+// returning only standalone ReplicaSets that are directly managed by users.
+func filterStandaloneReplicaSets(objects []client.Object) []client.Object {
+	result := make([]client.Object, 0, len(objects))
+	for _, obj := range objects {
+		if !isDeploymentOwned(obj) {
+			result = append(result, obj)
+		}
+	}
+	return result
 }
 
 // buildPrometheusQuery generates a PromQL query for the given metric type.

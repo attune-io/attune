@@ -191,6 +191,14 @@ func (r *RightSizePolicyReconciler) executeResizes(
 			continue
 		}
 
+		// Skip workloads with stale recommendations to avoid resizing
+		// based on outdated data.
+		if rec.Stale {
+			logger.Info("Skipping resize for workload with stale recommendation", "workload", rec.Workload)
+			operatormetrics.StaleRecommendationsTotal.WithLabelValues(policy.Namespace, rec.Workload).Inc()
+			continue
+		}
+
 		pods := podsByWorkload[rec.Workload]
 		if pods == nil {
 			var err error

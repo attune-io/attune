@@ -3287,6 +3287,24 @@ func TestExecuteResizes_NoMatchingWorkload(t *testing.T) {
 	assert.Empty(t, history)
 }
 
+func TestExecuteResizes_SkipsStaleRecommendation(t *testing.T) {
+	deploy := newTestDeployment("api-server", "default", nil)
+	reconciler := newReconcilerWithClient(deploy)
+	reconciler.Clientset = kubefake.NewSimpleClientset()
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeOneShot
+
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		{Workload: "api-server", Kind: "Deployment", Stale: true},
+	}
+
+	workloads := []client.Object{deploy}
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, nil, nil, nil)
+	assert.Equal(t, 0, count)
+	assert.Empty(t, history)
+}
+
 // ---------- listWorkloadsBySelector (StatefulSet + DaemonSet paths) ----------
 
 func TestListWorkloadsBySelector_StatefulSets(t *testing.T) {

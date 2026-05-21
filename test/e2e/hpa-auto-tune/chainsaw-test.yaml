@@ -118,6 +118,7 @@ spec:
                   minimumDataPoints: 1
                   historyWindow: 1h
                   queryStep: 1m
+                  rateWindow: 5m
                 cpu:
                   percentile: 95
                   safetyMargin: "1.2"
