@@ -244,7 +244,17 @@ func main() {
 		}
 	}
 
-	setupLog.Info("starting manager", "version", version, "commit", commit, "date", date)
+	setupLog.Info("starting manager",
+		"version", version, "commit", commit, "date", date,
+		"webhooks", enableWebhooks,
+		"leaderElection", enableLeaderElection,
+		"maxConcurrentReconciles", maxConcurrentReconciles,
+		"collectorTTL", collectorTTL.String(),
+		"prometheusQPS", prometheusQPS,
+		"prometheusBurst", prometheusBurst,
+		"prometheusTimeout", prometheusTimeout.String(),
+		"watchNamespaces", watchNamespaces,
+	)
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
