@@ -1487,23 +1487,32 @@ func TestE2E_ConcurrentPolicies_SameNamespace(t *testing.T) {
 	createPolicy(t, "api-policy", ns, "api-app", rightsizev1alpha1.UpdateModeRecommend)
 	createPolicy(t, "worker-policy", ns, "worker-app", rightsizev1alpha1.UpdateModeRecommend)
 
-	waitForPolicyDiscovered(t, "api-policy", ns, 2*time.Minute)
-	waitForPolicyDiscovered(t, "worker-policy", ns, 2*time.Minute)
+	// Wait for recommendations (not just discovery) so we can assert workload names.
+	waitForRecommendations := func(policyName string) {
+		t.Helper()
+		require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
+			var p rightsizev1alpha1.RightSizePolicy
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: policyName, Namespace: ns}, &p); err != nil {
+				return false, nil
+			}
+			return len(p.Status.Recommendations) > 0, nil
+		}), "timed out waiting for recommendations on %s", policyName)
+	}
+	waitForRecommendations("api-policy")
+	waitForRecommendations("worker-policy")
 
 	// Verify each policy sees only its own workload.
 	var apiPolicy rightsizev1alpha1.RightSizePolicy
 	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "api-policy", Namespace: ns}, &apiPolicy))
 	assert.Equal(t, int32(1), apiPolicy.Status.Workloads.Discovered)
-	if len(apiPolicy.Status.Recommendations) > 0 {
-		assert.Equal(t, "api-app", apiPolicy.Status.Recommendations[0].Workload)
-	}
+	require.NotEmpty(t, apiPolicy.Status.Recommendations, "api-policy should have recommendations")
+	assert.Equal(t, "api-app", apiPolicy.Status.Recommendations[0].Workload)
 
 	var workerPolicy rightsizev1alpha1.RightSizePolicy
 	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "worker-policy", Namespace: ns}, &workerPolicy))
 	assert.Equal(t, int32(1), workerPolicy.Status.Workloads.Discovered)
-	if len(workerPolicy.Status.Recommendations) > 0 {
-		assert.Equal(t, "worker-app", workerPolicy.Status.Recommendations[0].Workload)
-	}
+	require.NotEmpty(t, workerPolicy.Status.Recommendations, "worker-policy should have recommendations")
+	assert.Equal(t, "worker-app", workerPolicy.Status.Recommendations[0].Workload)
 }
 
 func TestE2E_MemoryAllowDecreaseFalse(t *testing.T) {
