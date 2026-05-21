@@ -164,8 +164,9 @@ type PrometheusConfig struct {
 	Address string `json:"address"`
 
 	// Headers are custom HTTP headers added to every query request.
-	// Use for tenant IDs (e.g. "X-Scope-OrgID" for Mimir), API keys,
-	// or other auth headers required by the backend.
+	// Use for non-secret tenant or routing headers (e.g. "X-Scope-OrgID"
+	// for Mimir). Do not put credentials here; use BearerTokenSecret for
+	// authentication tokens.
 	// +optional
 	Headers map[string]string `json:"headers,omitempty"`
 

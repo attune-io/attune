@@ -43,7 +43,7 @@ spec:
   metricsSource:
     prometheus:
       address: "http://prometheus:9090"   # Prometheus-compatible URL
-      headers:                            # optional: custom HTTP headers
+      headers:                            # optional: non-secret tenant or routing headers
         X-Scope-OrgID: "my-tenant"        # e.g., Mimir tenant ID
       queryParameters:                    # optional: URL params for Thanos/VictoriaMetrics
         dedup: "true"                     # e.g., Thanos deduplication
