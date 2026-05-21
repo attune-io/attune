@@ -113,6 +113,15 @@ Infeasible and `resizeMethod` is `InPlaceOnly` (no eviction fallback).
 | `namespace` | Workload namespace |
 | `workload` | Workload name |
 
+### kube_rightsize_stale_recommendations_total
+
+Total times recommendations were marked stale due to Prometheus data gaps.
+
+| Label | Description |
+|-------|-------------|
+| `namespace` | Policy namespace |
+| `policy` | Policy name |
+
 ## Gauges
 
 ### kube_rightsize_recommendation_cpu_cores
@@ -201,15 +210,6 @@ Duration of each reconciliation loop.
 | Label | Description |
 |-------|-------------|
 | `controller` | Controller name |
-| `namespace` | Policy namespace |
-| `policy` | Policy name |
-
-### kube_rightsize_stale_recommendations_total
-
-Total times recommendations were marked stale due to Prometheus data gaps.
-
-| Label | Description |
-|-------|-------------|
 | `namespace` | Policy namespace |
 | `policy` | Policy name |
 
