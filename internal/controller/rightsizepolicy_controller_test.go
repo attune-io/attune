@@ -7531,6 +7531,138 @@ func TestExportRecommendationConfigMaps_UpdatesExisting(t *testing.T) {
 	assert.Equal(t, "0.99", cm.Data["main.confidence"])
 }
 
+func TestExportRecommendationConfigMaps_CreateFailure(t *testing.T) {
+	scheme := testScheme()
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default", UID: "abc-123"},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(policy).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: func(_ context.Context, _ client.WithWatch, _ client.Object, _ ...client.CreateOption) error {
+				return fmt.Errorf("simulated create failure")
+			},
+		}).Build()
+	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r.SetNowFunc(func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) })
+
+	recs := []rightsizev1alpha1.WorkloadRecommendation{
+		{Workload: "my-app", Kind: "Deployment", Containers: []rightsizev1alpha1.ContainerRecommendation{
+			{Name: "main", Confidence: 0.95, Recommended: rightsizev1alpha1.ResourceValues{
+				CPURequest: resource.MustParse("250m"), MemoryRequest: resource.MustParse("256Mi"),
+			}},
+		}},
+	}
+
+	// Should not panic; the error is logged and the function continues.
+	r.exportRecommendationConfigMaps(context.Background(), policy, recs)
+
+	var cm corev1.ConfigMap
+	err := fakeClient.Get(context.Background(), client.ObjectKey{Namespace: "default", Name: "test-policy-my-app-recommendations"}, &cm)
+	assert.True(t, apierrors.IsNotFound(err), "ConfigMap should not exist after create failure")
+}
+
+func TestExportRecommendationConfigMaps_GetFailure(t *testing.T) {
+	scheme := testScheme()
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default", UID: "abc-123"},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(policy).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(_ context.Context, _ client.WithWatch, key client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
+				if _, ok := obj.(*corev1.ConfigMap); ok {
+					return fmt.Errorf("simulated API server error")
+				}
+				return nil
+			},
+		}).Build()
+	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r.SetNowFunc(func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) })
+
+	recs := []rightsizev1alpha1.WorkloadRecommendation{
+		{Workload: "my-app", Kind: "Deployment", Containers: []rightsizev1alpha1.ContainerRecommendation{
+			{Name: "main", Confidence: 0.90, Recommended: rightsizev1alpha1.ResourceValues{
+				CPURequest: resource.MustParse("100m"), MemoryRequest: resource.MustParse("128Mi"),
+			}},
+		}},
+	}
+
+	// Should not panic; the error is logged and the function continues.
+	r.exportRecommendationConfigMaps(context.Background(), policy, recs)
+}
+
+func TestExportRecommendationConfigMaps_UpdateFailure(t *testing.T) {
+	scheme := testScheme()
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default", UID: "abc-123"},
+	}
+	existingCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy-my-app-recommendations", Namespace: "default"},
+		Data:       map[string]string{"old-key": "old-value"},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(policy, existingCM).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Update: func(_ context.Context, _ client.WithWatch, obj client.Object, _ ...client.UpdateOption) error {
+				if _, ok := obj.(*corev1.ConfigMap); ok {
+					return fmt.Errorf("simulated update failure")
+				}
+				return nil
+			},
+		}).Build()
+	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r.SetNowFunc(func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) })
+
+	recs := []rightsizev1alpha1.WorkloadRecommendation{
+		{Workload: "my-app", Kind: "Deployment", Containers: []rightsizev1alpha1.ContainerRecommendation{
+			{Name: "main", Confidence: 0.85, Recommended: rightsizev1alpha1.ResourceValues{
+				CPURequest: resource.MustParse("300m"), MemoryRequest: resource.MustParse("384Mi"),
+			}},
+		}},
+	}
+
+	// Should not panic; the error is logged and the function continues.
+	r.exportRecommendationConfigMaps(context.Background(), policy, recs)
+
+	// The existing ConfigMap should still have old data since the update failed.
+	var cm corev1.ConfigMap
+	err := fakeClient.Get(context.Background(), client.ObjectKey{Namespace: "default", Name: "test-policy-my-app-recommendations"}, &cm)
+	require.NoError(t, err)
+	assert.Equal(t, "old-value", cm.Data["old-key"])
+}
+
+func TestExportRecommendationConfigMaps_PreservesExistingLabels(t *testing.T) {
+	scheme := testScheme()
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default", UID: "abc-123"},
+	}
+	existingCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-policy-my-app-recommendations", Namespace: "default",
+			Labels: map[string]string{"custom-label": "keep-me"},
+		},
+		Data: map[string]string{"main.cpu-request": "100m"},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(policy, existingCM).Build()
+	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r.SetNowFunc(func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) })
+
+	recs := []rightsizev1alpha1.WorkloadRecommendation{
+		{Workload: "my-app", Kind: "Deployment", Containers: []rightsizev1alpha1.ContainerRecommendation{
+			{Name: "main", Confidence: 0.92, Recommended: rightsizev1alpha1.ResourceValues{
+				CPURequest: resource.MustParse("400m"), MemoryRequest: resource.MustParse("512Mi"),
+			}},
+		}},
+	}
+
+	r.exportRecommendationConfigMaps(context.Background(), policy, recs)
+
+	var cm corev1.ConfigMap
+	err := fakeClient.Get(context.Background(), client.ObjectKey{Namespace: "default", Name: "test-policy-my-app-recommendations"}, &cm)
+	require.NoError(t, err)
+	assert.Equal(t, "400m", cm.Data["main.cpu-request"], "data should be updated")
+	assert.Equal(t, "keep-me", cm.Labels["custom-label"], "existing labels should be preserved")
+	assert.Equal(t, "test-policy", cm.Labels["rightsize.io/policy"], "operator labels should be set")
+}
+
 func TestAdjustHPATargets_ScalesTargetUtilization(t *testing.T) {
 	scheme := testScheme()
 	oldTarget := int32(80)
@@ -8645,6 +8777,163 @@ func TestShouldSkipResize_AlreadyAtTarget(t *testing.T) {
 	skip, reason := r.shouldSkipResize(context.Background(), policy, pod, containerRec, target, nil)
 	assert.True(t, skip, "should skip when pod already matches target")
 	assert.Empty(t, reason, "reason should be empty for already-at-target skip")
+}
+
+func TestShouldSkipResize_PreChecksLimitRange(t *testing.T) {
+	scheme := testScheme()
+	// No objects in the client; LimitRange is passed via pre-fetched checks.
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+
+	policy := &rightsizev1alpha1.RightSizePolicy{}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pod", Namespace: "default"},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{Name: "app", Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("200m"),
+						corev1.ResourceMemory: resource.MustParse("128Mi"),
+					},
+				}},
+			},
+		},
+	}
+	containerRec := rightsizev1alpha1.ContainerRecommendation{
+		Name: "app",
+		Current: rightsizev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("200m"),
+			MemoryRequest: resource.MustParse("128Mi"),
+		},
+	}
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("50m"),
+			corev1.ResourceMemory: resource.MustParse("128Mi"),
+		},
+	}
+	checks := &resizePreChecks{
+		limitRanges: []corev1.LimitRange{
+			{Spec: corev1.LimitRangeSpec{
+				Limits: []corev1.LimitRangeItem{
+					{Type: corev1.LimitTypeContainer, Min: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("100m"),
+					}},
+				},
+			}},
+		},
+	}
+
+	skip, reason := r.shouldSkipResize(context.Background(), policy, pod, containerRec, target, checks)
+	assert.True(t, skip, "should skip when target violates pre-fetched LimitRange")
+	assert.Contains(t, reason, "quota/limitrange violation")
+}
+
+func TestShouldSkipResize_NodeCacheHit(t *testing.T) {
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+
+	policy := &rightsizev1alpha1.RightSizePolicy{}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pod", Namespace: "default"},
+		Spec: corev1.PodSpec{
+			NodeName: "test-node",
+			Containers: []corev1.Container{
+				{Name: "app", Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("500m"),
+						corev1.ResourceMemory: resource.MustParse("256Mi"),
+					},
+				}},
+			},
+		},
+	}
+	containerRec := rightsizev1alpha1.ContainerRecommendation{
+		Name: "app",
+		Current: rightsizev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("500m"),
+			MemoryRequest: resource.MustParse("256Mi"),
+		},
+	}
+	// Target exceeds node allocatable.
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("5000m"),
+			corev1.ResourceMemory: resource.MustParse("256Mi"),
+		},
+	}
+	// Pre-populate the node cache.
+	checks := &resizePreChecks{}
+	cachedNode := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-node"},
+		Status: corev1.NodeStatus{
+			Allocatable: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("4000m"),
+				corev1.ResourceMemory: resource.MustParse("8Gi"),
+			},
+		},
+	}
+	checks.nodeCache.Store("test-node", cachedNode)
+
+	skip, reason := r.shouldSkipResize(context.Background(), policy, pod, containerRec, target, checks)
+	assert.True(t, skip, "should skip when target exceeds cached node allocatable")
+	assert.Contains(t, reason, "exceed node allocatable")
+}
+
+func TestShouldSkipResize_NodeCacheMiss(t *testing.T) {
+	scheme := testScheme()
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-node"},
+		Status: corev1.NodeStatus{
+			Allocatable: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("2000m"),
+				corev1.ResourceMemory: resource.MustParse("4Gi"),
+			},
+		},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
+	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+
+	policy := &rightsizev1alpha1.RightSizePolicy{}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pod", Namespace: "default"},
+		Spec: corev1.PodSpec{
+			NodeName: "test-node",
+			Containers: []corev1.Container{
+				{Name: "app", Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("500m"),
+						corev1.ResourceMemory: resource.MustParse("256Mi"),
+					},
+				}},
+			},
+		},
+	}
+	containerRec := rightsizev1alpha1.ContainerRecommendation{
+		Name: "app",
+		Current: rightsizev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("500m"),
+			MemoryRequest: resource.MustParse("256Mi"),
+		},
+	}
+	// Target within node allocatable.
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("1000m"),
+			corev1.ResourceMemory: resource.MustParse("1Gi"),
+		},
+	}
+	// Empty cache; node should be fetched and stored.
+	checks := &resizePreChecks{}
+
+	skip, _ := r.shouldSkipResize(context.Background(), policy, pod, containerRec, target, checks)
+	assert.False(t, skip, "should not skip when target fits in node allocatable")
+
+	// Verify the node was cached.
+	cached, ok := checks.nodeCache.Load("test-node")
+	assert.True(t, ok, "node should be cached after miss")
+	assert.NotNil(t, cached, "cached node should not be nil")
 }
 
 func TestShouldSkipResize_QoSClassChange(t *testing.T) {
