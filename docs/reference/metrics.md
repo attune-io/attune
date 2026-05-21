@@ -39,7 +39,7 @@ Total number of reconciliation errors by type.
 
 | Label | Description |
 |-------|-------------|
-| `error_type` | `fetch`, `discover_workloads`, `get_pods`, `compute_recommendations`, `status_update`, or `safety_observation` |
+| `error_type` | `fetch`, `fetch_defaults`, `prometheus_config`, `collector_options`, `collector_create`, `discover_workloads`, `get_pods`, `compute_recommendations`, `status_update`, or `safety_observation` |
 
 ### kube_rightsize_webhook_validation_total
 
@@ -92,6 +92,16 @@ a reliable throttle check.
 |-------|-------------|
 | `namespace` | Workload namespace |
 | `workload` | Workload name |
+
+### kube_rightsize_startup_boost_total
+
+Total startup boost lifecycle events (boost applied, expired, or failed).
+
+| Label | Description |
+|-------|-------------|
+| `namespace` | Workload namespace |
+| `workload` | Workload name |
+| `action` | `applied`, `expired`, or `failed` |
 
 ### kube_rightsize_infeasible_skipped_total
 

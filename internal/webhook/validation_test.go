@@ -97,6 +97,38 @@ func TestValidate_MemoryBoundsInvalid(t *testing.T) {
 	assert.Empty(t, warnings)
 }
 
+func TestValidate_CPUBoundsMaxExceedsUpperLimit(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.CPU.Bounds = &rightsizev1alpha1.ResourceBounds{
+		Min: resource.MustParse("100m"),
+		Max: resource.MustParse("512"),
+	}
+
+	warnings, err := validator.ValidateCreate(context.Background(), policy)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "cpu.bounds.max")
+	assert.Contains(t, err.Error(), "exceeds the maximum allowed value of 256 cores")
+	assert.Empty(t, warnings)
+}
+
+func TestValidate_MemoryBoundsMaxExceedsUpperLimit(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.Memory.Bounds = &rightsizev1alpha1.ResourceBounds{
+		Min: resource.MustParse("64Mi"),
+		Max: resource.MustParse("32Ti"),
+	}
+
+	warnings, err := validator.ValidateCreate(context.Background(), policy)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "memory.bounds.max")
+	assert.Contains(t, err.Error(), "exceeds the maximum allowed value of 16Ti")
+	assert.Empty(t, warnings)
+}
+
 func TestValidate_CanaryModeWithoutConfig(t *testing.T) {
 	validator := &RightSizePolicyValidator{}
 	policy := validPolicy()
