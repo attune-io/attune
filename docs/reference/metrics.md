@@ -201,6 +201,17 @@ Duration of each reconciliation loop.
 | Label | Description |
 |-------|-------------|
 | `controller` | Controller name |
+| `namespace` | Policy namespace |
+| `policy` | Policy name |
+
+### kube_rightsize_stale_recommendations_total
+
+Total times recommendations were marked stale due to Prometheus data gaps.
+
+| Label | Description |
+|-------|-------------|
+| `namespace` | Policy namespace |
+| `policy` | Policy name |
 
 ### kube_rightsize_prometheus_query_duration_seconds
 

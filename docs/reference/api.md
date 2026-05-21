@@ -10,7 +10,7 @@
 Fields are defaulted in three layers. Only `weight` and `maxConcurrentResizes`
 appear in the stored spec when omitted by the user (they are CRD schema or
 webhook defaults). All other defaultable fields (`mode`, `controlledValues`,
-`cooldown`, `historyWindow`, `minimumDataPoints`, `queryStep`, `autoRevert`,
+`cooldown`, `historyWindow`, `minimumDataPoints`, `queryStep`, `rateWindow`, `autoRevert`,
 `resizeMethod`, `maxCpuChangePercent`, `maxMemoryChangePercent`) are applied
 by the controller at reconcile time so that cluster-wide `RightSizeDefaults`
 and namespace-scoped `RightSizeNamespaceDefaults` can override them. These
@@ -32,7 +32,7 @@ metadata:
 spec:
   # Target workload(s) to right-size.
   targetRef:
-    kind: Deployment            # Deployment | StatefulSet | DaemonSet | CronJob | Job
+    kind: Deployment            # Deployment | StatefulSet | DaemonSet | CronJob | Job | ReplicaSet
     name: my-app                # optional: target a specific workload
     selector:                   # optional: target by label selector
       matchLabels:
@@ -55,6 +55,7 @@ spec:
     historyWindow: 168h                    # lookback window (default: 168h)
     minimumDataPoints: 48                  # min samples before recommending (default: 48)
     queryStep: 5m                          # Prometheus range query step interval (default: 5m)
+    rateWindow: 5m                         # PromQL rate() window for CPU queries (default: queryStep)
 
   # CPU recommendation parameters.
   cpu:
@@ -117,7 +118,10 @@ spec:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `conditions` | `[]Condition` | Standard Kubernetes conditions (Ready, Resizing, Degraded) |
+| `conditions` | `[]Condition` | Standard Kubernetes conditions (Ready, Resizing, Degraded, ScheduleBlocked) |
+| `cooldown.effectiveCooldown` | `Duration` | Current cooldown including exponential backoff |
+| `cooldown.backoffMultiplier` | `int32` | Current backoff multiplier (1, 2, 4, 8, or 16) |
+| `cooldown.consecutiveReverts` | `int32` | Number of consecutive reverts driving the backoff |
 | `workloads.discovered` | `int32` | Number of workloads matching the target |
 | `workloads.withRecommendations` | `int32` | Workloads with active recommendations |
 | `workloads.resized` | `int32` | Workloads that have been resized |
@@ -217,6 +221,7 @@ spec:
     historyWindow: 168h
     minimumDataPoints: 48
     queryStep: 5m
+    rateWindow: 5m
   cpu:              # same structure as RightSizePolicy.spec.cpu
     percentile: 95
     safetyMargin: "1.2"
