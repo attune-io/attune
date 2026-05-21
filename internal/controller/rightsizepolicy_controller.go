@@ -485,6 +485,12 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	// Expose effective cooldown status with backoff details.
 	r.setCooldownStatus(&policy)
+	if policy.Status.Cooldown != nil && policy.Status.Cooldown.BackoffMultiplier > 1 {
+		logger.V(1).Info("Cooldown backoff active",
+			"multiplier", policy.Status.Cooldown.BackoffMultiplier,
+			"effectiveCooldown", policy.Status.Cooldown.EffectiveCooldown.Duration,
+			"consecutiveReverts", policy.Status.Cooldown.ConsecutiveReverts)
+	}
 
 	// Pending = workloads with recommendations that have not been resized yet.
 	pending := workloadsWithRecs - policy.Status.Workloads.Resized
