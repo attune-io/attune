@@ -317,6 +317,13 @@ multiple entries in `.status.resizeHistory` show `result: Reverted`.
 violations. The controller applies exponential backoff (2x cooldown per
 consecutive revert, capped at 16x).
 
+Check the current backoff state:
+
+```bash
+kubectl get rsp <name> -o jsonpath='{.status.cooldown}'
+# Example: {"backoffMultiplier":8,"consecutiveReverts":3,"effectiveCooldown":"8h0m0s"}
+```
+
 **Fix**: Investigate the revert reasons:
 
 ```bash
