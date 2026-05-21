@@ -18,13 +18,28 @@ spec:
               POD=$(kubectl get pods -n kube-rightsize-system -l app.kubernetes.io/name=kube-rightsize \
                 -o jsonpath='{.items[0].metadata.name}')
               echo "Operator pod: ${POD}"
-              # Port-forward and curl from localhost
-              kubectl port-forward -n kube-rightsize-system "pod/${POD}" 18081:8081 &
+              # Port-forward and poll until the local endpoint is ready.
+              kubectl port-forward -n kube-rightsize-system "pod/${POD}" 18081:8081 >/tmp/health-port-forward.log 2>&1 &
               PF_PID=$!
-              sleep 2
+              for i in $(seq 1 30); do
+                if curl -sf http://localhost:18081/healthz >/dev/null 2>&1; then
+                  break
+                fi
+                if ! kill -0 "$PF_PID" 2>/dev/null; then
+                  echo "port-forward exited before probes became reachable"
+                  cat /tmp/health-port-forward.log
+                  exit 1
+                fi
+                if [ "$i" -eq 30 ]; then
+                  echo "timed out waiting for health endpoint"
+                  cat /tmp/health-port-forward.log
+                  exit 1
+                fi
+                sleep 1
+              done
               curl -sf http://localhost:18081/healthz && echo "healthz OK"
               curl -sf http://localhost:18081/readyz && echo "readyz OK"
-              kill $PF_PID 2>/dev/null || true
+              kill "$PF_PID" 2>/dev/null || true
               echo "Health probes OK"
       catch:
         - script:
