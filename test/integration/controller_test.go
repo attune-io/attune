@@ -367,7 +367,7 @@ func TestReconcile_CreatesPolicy_BecomesReady(t *testing.T) {
 	}, 30*time.Second, 500*time.Millisecond, "policy should have conditions set")
 }
 
-func TestReconcile_PolicyWithNoWorkloads_SetsInsufficientData(t *testing.T) {
+func TestReconcile_PolicyWithNoWorkloads_SetsNoWorkloadsFound(t *testing.T) {
 
 	namespace := "integration-test"
 
@@ -376,7 +376,7 @@ func TestReconcile_PolicyWithNoWorkloads_SetsInsufficientData(t *testing.T) {
 	err := k8sClient.Create(ctx, policy)
 	require.NoError(t, err, "failed to create policy")
 
-	// Status condition should be InsufficientData.
+	// Status condition should be NoWorkloadsFound (not InsufficientData).
 	assert.Eventually(t, func() bool {
 		var fetched rightsizev1alpha1.RightSizePolicy
 		if err := k8sClient.Get(ctx, types.NamespacedName{
@@ -386,12 +386,12 @@ func TestReconcile_PolicyWithNoWorkloads_SetsInsufficientData(t *testing.T) {
 			return false
 		}
 		for _, c := range fetched.Status.Conditions {
-			if c.Type == "Ready" && c.Reason == "InsufficientData" {
+			if c.Type == "Ready" && c.Reason == "NoWorkloadsFound" {
 				return true
 			}
 		}
 		return false
-	}, 30*time.Second, 500*time.Millisecond, "policy should have InsufficientData condition")
+	}, 30*time.Second, 500*time.Millisecond, "policy should have NoWorkloadsFound condition")
 }
 
 func TestReconcile_DeletedPolicy_NoError(t *testing.T) {

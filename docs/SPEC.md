@@ -391,7 +391,7 @@ spec:
 
 | Condition Type | Reasons | Description |
 |---------------|---------|-------------|
-| `Ready` | `Monitoring`, `InsufficientData`, `PrometheusUnavailable`, `InvalidConfig`, `WorkloadDiscoveryFailed` | Overall health |
+| `Ready` | `Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `PrometheusUnavailable`, `InvalidConfig`, `WorkloadDiscoveryFailed` | Overall health |
 | `Resizing` | `InProgress`, `Idle`, `CooldownActive` | Active resize operation |
 | `Degraded` | `HighRevertRate` | Some resizes failing |
 

@@ -31,7 +31,7 @@ kubectl rightsize status -A
 | Column | Description |
 |--------|-------------|
 | PENDING | Workloads with active recommendations that are still awaiting resize |
-| READY | Current `Ready` reason (`Monitoring`, `InsufficientData`, `PrometheusUnavailable`, `InvalidConfig`, or `WorkloadDiscoveryFailed`), or the current `Ready` condition message when `Ready=False` includes actionable details |
+| READY | Current `Ready` reason (`Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `PrometheusUnavailable`, `InvalidConfig`, or `WorkloadDiscoveryFailed`), or the current `Ready` condition message when `Ready=False` includes actionable details |
 | RESIZING | `InProgress`, `Idle`, `CooldownActive`, or `-` (non-resize modes) |
 | DEGRADED | `HighRevertRate` or `-` |
 

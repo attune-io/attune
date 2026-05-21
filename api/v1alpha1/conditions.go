@@ -34,6 +34,7 @@ const (
 	ReasonIdle                    = "Idle"
 	ReasonCooldownActive          = "CooldownActive"
 	ReasonHighRevertRate          = "HighRevertRate"
+	ReasonNoWorkloadsFound        = "NoWorkloadsFound"
 	ReasonWorkloadDiscoveryFailed = "WorkloadDiscoveryFailed"
 	ReasonOutsideWindow           = "OutsideWindow"
 	ReasonInsideWindow            = "InsideWindow"

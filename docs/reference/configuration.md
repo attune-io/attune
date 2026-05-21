@@ -271,7 +271,7 @@ The controller sets these conditions on each `RightSizePolicy`:
 
 | Condition | Reasons | Description |
 |-----------|---------|-------------|
-| `Ready` | `Monitoring`, `InsufficientData`, `PrometheusUnavailable`, `InvalidConfig`, `WorkloadDiscoveryFailed` | Overall health |
+| `Ready` | `Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `PrometheusUnavailable`, `InvalidConfig`, `WorkloadDiscoveryFailed` | Overall health |
 | `Resizing` | `InProgress`, `Idle`, `CooldownActive` | Active resize operation state (only in resize modes) |
 | `Degraded` | `HighRevertRate` | Set when 3+ of the last 5 resizes were reverted |
 

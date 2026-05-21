@@ -1746,20 +1746,20 @@ func TestPolicyReadyReason_NoConditions(t *testing.T) {
 	assert.Equal(t, "Pending", policyReadyReason(item))
 }
 
-func TestPolicyReadyReason_InsufficientDataWithMessage(t *testing.T) {
+func TestPolicyReadyReason_NoWorkloadsFoundWithMessage(t *testing.T) {
 	item := unstructured.Unstructured{Object: map[string]interface{}{
 		"status": map[string]interface{}{
 			"conditions": []interface{}{
 				map[string]interface{}{
 					"type":    "Ready",
 					"status":  "False",
-					"reason":  "InsufficientData",
-					"message": "No matching workloads found",
+					"reason":  "NoWorkloadsFound",
+					"message": "No matching workloads found; check that targetRef name or selector matches an existing workload in this namespace",
 				},
 			},
 		},
 	}}
-	assert.Equal(t, "No matching workloads found", policyReadyReason(item))
+	assert.Equal(t, "No matching workloads found; check that targetRef name or selector matches an existing workload in this namespace", policyReadyReason(item))
 }
 
 func TestPolicyReadyReason_ActionableFailureWithMessage(t *testing.T) {

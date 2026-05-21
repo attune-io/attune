@@ -172,7 +172,7 @@ the estimator chain: `rawPercentile`, `safetyMargin`, `afterSafetyMargin`,
 
 | Type | Reasons | Description |
 |------|---------|-------------|
-| `Ready` | `Monitoring`, `InsufficientData`, `PrometheusUnavailable`, `InvalidConfig`, `WorkloadDiscoveryFailed` | Overall health |
+| `Ready` | `Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `PrometheusUnavailable`, `InvalidConfig`, `WorkloadDiscoveryFailed` | Overall health |
 | `Resizing` | `InProgress`, `Idle`, `CooldownActive` | Active resize operation state |
 | `Degraded` | `HighRevertRate` | High revert rate detected (3+ of last 5 reverted) |
 | `ScheduleBlocked` | `OutsideWindow`, `InsideWindow` | Whether the current time is within the configured resize schedule window |

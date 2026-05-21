@@ -302,7 +302,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		earlyNow := metav1.NewTime(r.now())
 		policy.Status.LastReconcileTime = &earlyNow
 		policy.Status.Workloads = rightsizev1alpha1.WorkloadStatus{}
-		r.setFailedCondition(ctx, &policy, rightsizev1alpha1.ReasonInsufficientData, "No matching workloads found")
+		r.setFailedCondition(ctx, &policy, rightsizev1alpha1.ReasonNoWorkloadsFound, "No matching workloads found; check that targetRef name or selector matches an existing workload in this namespace")
 		return ctrl.Result{RequeueAfter: r.parseCooldown(&policy)}, nil
 	}
 

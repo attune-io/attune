@@ -126,6 +126,32 @@ or label names have been relabeled.
    check that the `namespace`, `pod`, and `container` label names match.
    Some Prometheus configurations relabel these.
 
+### NoWorkloadsFound
+
+**Symptom**: Ready condition is `False` with reason `NoWorkloadsFound`.
+
+**Cause**: The policy's `targetRef` does not match any workloads in the
+namespace. This is usually a typo in the workload name or an incorrect
+`kind` (e.g., targeting a `Deployment` when the workload is a `StatefulSet`).
+
+**Fix**:
+
+1. Verify the workload exists:
+
+    ```bash
+    kubectl get deploy,sts,ds -n <namespace>
+    ```
+
+2. Check the `targetRef.name` spelling in your policy. If using a label
+   selector, verify the labels exist on the target workload:
+
+    ```bash
+    kubectl get deploy <name> -n <namespace> --show-labels
+    ```
+
+3. Ensure the `targetRef.kind` matches the workload type (`Deployment`,
+   `StatefulSet`, `DaemonSet`, `ReplicaSet`, `Job`, or `CronJob`).
+
 ### InsufficientData
 
 **Symptom**: Ready condition is `False` with reason `InsufficientData`.
