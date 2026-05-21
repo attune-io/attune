@@ -114,33 +114,39 @@ make test-e2e-smoke
 | Directory | Mode | What it verifies |
 |-----------|-------------|------------------|
 | `test/e2e/recommend-mode/` | Recommend | Discovers workloads, reaches InsufficientData |
-| `test/e2e/observe-mode/` | Observe | Reaches condition, no resizes performed |
-| `test/e2e/oneshot-resize/` | OneShot | Reaches InsufficientData (no Prometheus) |
-| `test/e2e/canary-rollout/` | Canary | Canary config accepted, reaches InsufficientData |
-| `test/e2e/auto-mode/` | Auto | Discovers workloads, reaches InsufficientData |
-| `test/e2e/statefulset-target/` | StatefulSet | Discovers StatefulSet workload |
-| `test/e2e/daemonset-target/` | DaemonSet | Discovers DaemonSet workload |
-| `test/e2e/cronjob-target/` | CronJob | Discovers CronJob workload (recommend-only) |
-| `test/e2e/job-target/` | Job | Discovers standalone Job workload (recommend-only) |
-| `test/e2e/opt-out/` | (cross-cutting) | `rightsize.io/skip` annotation respected |
+| `test/e2e/observe-mode/` | Observe | Reaches InsufficientData without resizing pods |
+| `test/e2e/oneshot-resize/` | OneShot | Discovers a workload and performs a one-shot resize |
+| `test/e2e/canary-rollout/` | Canary | Performs a canary resize on a rollout-managed deployment |
+| `test/e2e/auto-mode/` | Auto | Discovers workloads and performs automatic resizes |
+| `test/e2e/bootstrap-progress/` | Recommend | Reports InsufficientData progress and ETA while metrics bootstrap |
+| `test/e2e/statefulset-target/` | StatefulSet | Discovers a StatefulSet workload |
+| `test/e2e/daemonset-target/` | DaemonSet | Discovers a DaemonSet workload |
+| `test/e2e/cronjob-target/` | CronJob | Discovers a CronJob workload (recommend-only) |
+| `test/e2e/job-target/` | Job | Discovers a standalone Job workload (recommend-only) |
+| `test/e2e/opt-out/` | (cross-cutting) | `rightsize.io/skip` annotation is respected |
 | `test/e2e/exclude-containers/` | (cross-cutting) | `excludeContainers` skips sidecars |
 | `test/e2e/multi-selector/` | (cross-cutting) | Label selector matches multiple deployments |
-| `test/e2e/eviction-fallback/` | (cross-cutting) | InPlaceOrEvict policy accepted, discovers workloads |
-| `test/e2e/schedule-window/` | (cross-cutting) | Schedule windows, daysOfWeek, timezone accepted |
-| `test/e2e/budget-caps/` | (cross-cutting) | maxTotalCpuIncrease/maxTotalMemoryIncrease accepted |
-| `test/e2e/concurrent-resize/` | (cross-cutting) | maxConcurrentResizes accepted, discovers workloads |
+| `test/e2e/eviction-fallback/` | (cross-cutting) | InPlaceOrEvict is accepted and still resizes workloads (in-place path) |
+| `test/e2e/schedule-window/` | (cross-cutting) | Schedule windows block resizes outside the allowed time |
+| `test/e2e/budget-caps/` | (cross-cutting) | Budget caps are accepted and the policy still resizes workloads |
+| `test/e2e/concurrent-resize/` | (cross-cutting) | `maxConcurrentResizes` is accepted and workloads still resize |
 | `test/e2e/namespace-defaults/` | (cross-cutting) | RightSizeNamespaceDefaults overrides cluster defaults |
-| `test/e2e/defaults-merge/` | (cross-cutting) | RightSizeDefaults values merged into policy |
+| `test/e2e/defaults-merge/` | (cross-cutting) | RightSizeDefaults values are inherited by a policy that omits them |
 | `test/e2e/hpa-conflict/` | (cross-cutting) | HPA conflict is warning-only, policy still reconciles |
-| `test/e2e/policy-weight/` | (cross-cutting) | Higher-weight policy outranks lower-weight on same workload |
-| `test/e2e/requests-only/` | (cross-cutting) | controlledValues RequestsOnly accepted, discovers workload |
-| `test/e2e/prometheus-unreachable/` | (cross-cutting) | Handles unreachable Prometheus gracefully |
-| `test/e2e/grafana-dashboard/` | (helm) | Dashboard ConfigMap renders with grafanaDashboard.enabled |
+| `test/e2e/vpa-conflict/` | (cross-cutting) | VPA conflict is warning-only, policy still reconciles |
+| `test/e2e/hpa-auto-tune/` | (cross-cutting) | Auto-tunes HPA CPU target utilization when annotated |
+| `test/e2e/policy-weight/` | (cross-cutting) | Higher-weight policy outranks lower-weight on the same workload |
+| `test/e2e/requests-only/` | (cross-cutting) | `controlledValues: RequestsOnly` is accepted and discovers workloads |
+| `test/e2e/query-parameters/` | (cross-cutting) | Prometheus query parameters are accepted without breaking queries |
+| `test/e2e/startup-boost/` | (cross-cutting) | CPU startup boost is applied to new pods |
+| `test/e2e/configmap-export/` | (cross-cutting) | Recommendations are exported to a ConfigMap |
+| `test/e2e/prometheus-unreachable/` | (cross-cutting) | Handles unreachable Prometheus gracefully without crashing |
+| `test/e2e/grafana-dashboard/` | (helm) | Dashboard ConfigMap renders with `grafanaDashboard.enabled` |
 | `test/e2e/health-probes/` | (infra) | Liveness and readiness probes pass |
-| `test/e2e/metrics-endpoint/` | (infra) | Prometheus metrics endpoint exposed |
+| `test/e2e/metrics-endpoint/` | (infra) | Prometheus metrics endpoint is exposed |
 | `test/e2e/webhook-defaulting/` | (webhook) | Mutating webhook applies defaults |
-| `test/e2e/webhook-validation/` | (webhook) | Rejects invalid safety margin, negative cooldown |
-| `test/e2e/webhook-schedule-validation/` | (webhook) | Rejects invalid timezone, day, window time |
+| `test/e2e/webhook-validation/` | (webhook) | Rejects invalid safety margin and negative cooldown |
+| `test/e2e/webhook-schedule-validation/` | (webhook) | Rejects invalid timezone, day, and window time |
 | `test/e2e/defaults-validation/` | (webhook) | Rejects invalid RightSizeDefaults |
 
 ### Writing new E2E tests
@@ -179,7 +185,9 @@ Fuzz targets are defined in `internal/recommendation/fuzz_test.go`.
 Run everything in one command:
 
 ```bash
-make test-all      # unit + integration + Chainsaw E2E + Go E2E (requires local cluster)
+make test-all         # all tiers against a pre-provisioned cluster with operator + Prometheus
+make test-local       # provisions k3d, deploys the stack, then runs all tiers
+make test-local-smoke # provisions k3d, deploys the stack, then runs the smoke suite only
 ```
 
 Or run each tier separately:
