@@ -18,16 +18,22 @@ package controller
 
 import (
 	"context"
+	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
 )
@@ -617,4 +623,150 @@ func TestComputeSavings_CustomCostPricing(t *testing.T) {
 	// 0.5 cores * $0.10/hr * 730 hrs + 0.5 GiB * $0.01/hr * 730 hrs
 	// = $36.50 + $3.65 = $40.15
 	assert.Equal(t, "$40.15", savings.EstimatedMonthlySavings)
+}
+
+// ---------- setFailedCondition conflict retry ----------
+
+func TestSetFailedCondition_SuccessOnFirstAttempt(t *testing.T) {
+	scheme := testScheme()
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(policy).
+		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
+		Build()
+	r := &RightSizePolicyReconciler{Client: c, Scheme: scheme}
+
+	r.setFailedCondition(context.Background(), policy, rightsizev1alpha1.ReasonInvalidConfig, "bad config")
+
+	cond := meta.FindStatusCondition(policy.Status.Conditions, rightsizev1alpha1.ConditionReady)
+	require.NotNil(t, cond)
+	assert.Equal(t, metav1.ConditionFalse, cond.Status)
+	assert.Equal(t, rightsizev1alpha1.ReasonInvalidConfig, cond.Reason)
+	assert.Equal(t, "bad config", cond.Message)
+}
+
+func TestSetFailedCondition_ConflictRetrySucceeds(t *testing.T) {
+	scheme := testScheme()
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(policy).
+		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
+		Build()
+
+	var updateCalls atomic.Int32
+	wrappedClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(policy).
+		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
+		WithInterceptorFuncs(interceptor.Funcs{
+			SubResourceUpdate: func(ctx context.Context, cl client.Client, subResourceName string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+				call := updateCalls.Add(1)
+				if call == 1 {
+					return apierrors.NewConflict(schema.GroupResource{Group: "rightsize.sebtardif.com", Resource: "rightsizepolicies"}, "test-policy", fmt.Errorf("conflict"))
+				}
+				return cl.Status().Update(ctx, obj, opts...)
+			},
+			Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				return c.Get(ctx, key, obj, opts...)
+			},
+		}).
+		Build()
+
+	r := &RightSizePolicyReconciler{Client: wrappedClient, Scheme: scheme}
+	r.setFailedCondition(context.Background(), policy, rightsizev1alpha1.ReasonInvalidConfig, "retry test")
+
+	assert.Equal(t, int32(2), updateCalls.Load(), "expected 2 update calls (1 conflict + 1 success)")
+
+	cond := meta.FindStatusCondition(policy.Status.Conditions, rightsizev1alpha1.ConditionReady)
+	require.NotNil(t, cond)
+	assert.Equal(t, metav1.ConditionFalse, cond.Status)
+	assert.Equal(t, rightsizev1alpha1.ReasonInvalidConfig, cond.Reason)
+}
+
+func TestSetFailedCondition_ExhaustedRetries(t *testing.T) {
+	scheme := testScheme()
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(policy).
+		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
+		Build()
+
+	var updateCalls atomic.Int32
+	wrappedClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(policy).
+		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
+		WithInterceptorFuncs(interceptor.Funcs{
+			SubResourceUpdate: func(_ context.Context, _ client.Client, _ string, _ client.Object, _ ...client.SubResourceUpdateOption) error {
+				updateCalls.Add(1)
+				return apierrors.NewConflict(schema.GroupResource{Group: "rightsize.sebtardif.com", Resource: "rightsizepolicies"}, "test-policy", fmt.Errorf("conflict"))
+			},
+			Get: func(ctx context.Context, _ client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				return c.Get(ctx, key, obj, opts...)
+			},
+		}).
+		Build()
+
+	r := &RightSizePolicyReconciler{Client: wrappedClient, Scheme: scheme}
+	r.setFailedCondition(context.Background(), policy, rightsizev1alpha1.ReasonInvalidConfig, "exhausted test")
+
+	// 3 attempts in the for loop, all return conflict
+	assert.Equal(t, int32(3), updateCalls.Load(), "expected 3 update attempts before exhaustion")
+}
+
+func TestSetFailedCondition_NonConflictError(t *testing.T) {
+	scheme := testScheme()
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+	}
+
+	var updateCalls atomic.Int32
+	wrappedClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(policy).
+		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
+		WithInterceptorFuncs(interceptor.Funcs{
+			SubResourceUpdate: func(_ context.Context, _ client.Client, _ string, _ client.Object, _ ...client.SubResourceUpdateOption) error {
+				updateCalls.Add(1)
+				return fmt.Errorf("connection refused")
+			},
+		}).
+		Build()
+
+	r := &RightSizePolicyReconciler{Client: wrappedClient, Scheme: scheme}
+	r.setFailedCondition(context.Background(), policy, rightsizev1alpha1.ReasonInvalidConfig, "non-conflict test")
+
+	// Non-conflict error should not retry
+	assert.Equal(t, int32(1), updateCalls.Load(), "expected exactly 1 update call for non-conflict error")
+}
+
+func TestSetFailedCondition_RefetchFailure(t *testing.T) {
+	scheme := testScheme()
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+	}
+
+	var updateCalls atomic.Int32
+	wrappedClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(policy).
+		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
+		WithInterceptorFuncs(interceptor.Funcs{
+			SubResourceUpdate: func(_ context.Context, _ client.Client, _ string, _ client.Object, _ ...client.SubResourceUpdateOption) error {
+				updateCalls.Add(1)
+				return apierrors.NewConflict(schema.GroupResource{Group: "rightsize.sebtardif.com", Resource: "rightsizepolicies"}, "test-policy", fmt.Errorf("conflict"))
+			},
+			Get: func(_ context.Context, _ client.WithWatch, _ client.ObjectKey, _ client.Object, _ ...client.GetOption) error {
+				return fmt.Errorf("API server unreachable")
+			},
+		}).
+		Build()
+
+	r := &RightSizePolicyReconciler{Client: wrappedClient, Scheme: scheme}
+	r.setFailedCondition(context.Background(), policy, rightsizev1alpha1.ReasonInvalidConfig, "refetch failure test")
+
+	// Conflict on first update, then re-fetch fails -> returns immediately
+	assert.Equal(t, int32(1), updateCalls.Load(), "expected 1 update call when re-fetch fails")
 }
