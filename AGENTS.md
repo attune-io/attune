@@ -209,6 +209,12 @@ directory. When referencing files elsewhere in the repo (e.g., `charts/`,
   Every test creates a unique namespace via `uniqueNS()`, so they are fully
   isolated. Without `t.Parallel()`, 13 tests run sequentially (~12 min);
   with it, they run concurrently (~2 min, bounded by OOMKill at 127s).
+- E2E test policies must use `Cooldown: 1m` (the minimum). The operator requeues
+  after the cooldown period, even during the data collection phase (InsufficientData).
+  A longer cooldown (e.g., 10m) means the operator won't retry for 10 minutes if
+  the first reconcile finds no Prometheus data, causing `waitForResize` timeouts.
+  This was the root cause of the `TestE2E_OOMKill_TriggersRevert` flaky test
+  (failed in 6/8 CI runs, fixed in 523292a).
 
 ## Safety
 
