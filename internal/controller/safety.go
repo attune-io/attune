@@ -175,6 +175,8 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 				// Observation period hasn't elapsed yet. Mark pending so
 				// the reconciler requeues at the observation interval
 				// instead of the (much longer) cooldown.
+				logger.V(1).Info("Safety observation pending, period not yet elapsed",
+					"pod", pod.Name, "observationPeriod", observationPeriod)
 				observationsPending = true
 			} else {
 				logger.Error(err, "Failed to parse resize records", "pod", pod.Name)
