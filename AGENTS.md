@@ -154,7 +154,7 @@ All other resources accessed via the client need `list`/`watch`.
 
 Fields that should be overridable by `RightSizeDefaults` must use
 pointer types (`*int32`, `*bool`, `*metav1.Duration`) so nil=unset
-is distinguishable from zero/false. Update all 6 locations:
+is distinguishable from zero/false. Update all 8 locations:
 
 1. `api/v1alpha1/rightsizepolicy_types.go` - Add `*T` field with
    `json:"name,omitempty"` and `// +optional`
@@ -165,6 +165,10 @@ is distinguishable from zero/false. Update all 6 locations:
    clause with `inherited` tracking
 5. `internal/webhook/validation.go` - Add validation if needed
 6. Run `make manifests && make generate` to regenerate CRD + deepcopy
+7. `cmd/kubectl-rightsize/main.go` `mergeUpdateStrategy()` - Add
+   merge clause so `explain` inherits from namespace/cluster defaults
+8. `cmd/kubectl-rightsize/main.go` `printEffectiveValues()` - Add
+   display line so `kubectl rightsize explain` shows the field
 
 If the field also belongs in `RightSizeDefaults`, add it to
 `api/v1alpha1/rightsizedefaults_types.go` as well.
