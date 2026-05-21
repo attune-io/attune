@@ -670,17 +670,17 @@ func TestE2E_BudgetCaps_DefersResize(t *testing.T) {
 	require.NoError(t, k8sClient.List(ctx, &podList,
 		client.InNamespace(ns),
 		client.MatchingLabels{"app": "budget-app"}))
-	unreszied := 0
+	unresized := 0
 	for _, pod := range podList.Items {
 		for _, c := range pod.Spec.Containers {
 			if c.Name == "app" {
 				if cpu := c.Resources.Requests[corev1.ResourceCPU]; cpu.MilliValue() <= 100 {
-					unreszied++
+					unresized++
 				}
 			}
 		}
 	}
-	assert.GreaterOrEqual(t, unreszied, 1,
+	assert.GreaterOrEqual(t, unresized, 1,
 		"budget should prevent all 3 pods from being resized in one cycle")
 }
 
