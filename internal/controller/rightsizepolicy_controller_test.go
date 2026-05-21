@@ -464,13 +464,13 @@ func TestGetPodsForWorkload_ReturnsMatchingPods(t *testing.T) {
 }
 
 func TestBuildPrometheusQuery_CPU(t *testing.T) {
-	query := buildPrometheusQuery("production", "api-server-[a-z0-9]+-[a-z0-9]{5}", "main", "cpu")
+	query := buildPrometheusQuery("production", "api-server-[a-z0-9]+-[a-z0-9]{5}", "main", "cpu", 5*time.Minute)
 	expected := `rate(container_cpu_usage_seconds_total{namespace="production",pod=~"api-server-[a-z0-9]+-[a-z0-9]{5}",container="main"}[5m])`
 	assert.Equal(t, expected, query)
 }
 
 func TestBuildPrometheusQuery_Memory(t *testing.T) {
-	query := buildPrometheusQuery("production", "api-server-[a-z0-9]+-[a-z0-9]{5}", "main", "memory")
+	query := buildPrometheusQuery("production", "api-server-[a-z0-9]+-[a-z0-9]{5}", "main", "memory", 5*time.Minute)
 	expected := `container_memory_working_set_bytes{namespace="production",pod=~"api-server-[a-z0-9]+-[a-z0-9]{5}",container="main"}`
 	assert.Equal(t, expected, query)
 }
@@ -969,14 +969,14 @@ func TestIsRollingOut_DeploymentMidRollout(t *testing.T) {
 }
 
 func TestBuildPrometheusQuery_FallbackNoContainer(t *testing.T) {
-	query := buildPrometheusQuery("default", "api-server-[a-z0-9]+-[a-z0-9]{5}", "", "cpu")
+	query := buildPrometheusQuery("default", "api-server-[a-z0-9]+-[a-z0-9]{5}", "", "cpu", 5*time.Minute)
 	assert.Contains(t, query, `namespace="default"`)
 	assert.Contains(t, query, `pod=~"api-server-[a-z0-9]+-[a-z0-9]{5}"`)
 	assert.NotContains(t, query, `container=`)
 }
 
 func TestBuildPrometheusQuery_MemoryFallbackNoContainer(t *testing.T) {
-	query := buildPrometheusQuery("default", "api-server-[a-z0-9]+-[a-z0-9]{5}", "", "memory")
+	query := buildPrometheusQuery("default", "api-server-[a-z0-9]+-[a-z0-9]{5}", "", "memory", 5*time.Minute)
 	assert.Contains(t, query, `namespace="default"`)
 	assert.Contains(t, query, `pod=~"api-server-[a-z0-9]+-[a-z0-9]{5}"`)
 	assert.NotContains(t, query, `container=`)
@@ -3330,7 +3330,7 @@ func TestListWorkloadsBySelector_UnsupportedKind(t *testing.T) {
 	r := newReconcilerWithClient()
 
 	selector := &metav1.LabelSelector{MatchLabels: map[string]string{"app": "test"}}
-	_, err := r.listWorkloadsBySelector(context.Background(), "default", "ReplicaSet", selector)
+	_, err := r.listWorkloadsBySelector(context.Background(), "default", "ConfigMap", selector)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported workload kind")
 }
@@ -3498,14 +3498,14 @@ func TestListWorkloadsBySelector_Jobs(t *testing.T) {
 }
 
 func TestDiscoverWorkloads_UnsupportedKind(t *testing.T) {
-	name := "my-replicaset"
+	name := "my-configmap"
 	r := newReconcilerWithClient()
 
 	policy := &rightsizev1alpha1.RightSizePolicy{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
 		Spec: rightsizev1alpha1.RightSizePolicySpec{
 			TargetRef: rightsizev1alpha1.TargetRef{
-				Kind: "ReplicaSet",
+				Kind: "ConfigMap",
 				Name: &name,
 			},
 		},
@@ -5327,7 +5327,7 @@ func TestGetPodsForWorkload_EmptySelectorLabels(t *testing.T) {
 // ---------- buildPrometheusQuery unknown metric ----------
 
 func TestBuildPrometheusQuery_UnknownMetric(t *testing.T) {
-	query := buildPrometheusQuery("default", "api-server", "main", "disk")
+	query := buildPrometheusQuery("default", "api-server", "main", "disk", 5*time.Minute)
 	assert.Empty(t, query)
 }
 
@@ -5353,7 +5353,7 @@ func TestEscapePromQL(t *testing.T) {
 func TestBuildPrometheusQuery_EscapesSpecialChars(t *testing.T) {
 	// Namespace and container are escaped by buildPrometheusQuery.
 	// Pod regex is pre-built and passed through as-is.
-	query := buildPrometheusQuery(`ns"test`, `pod-regex-[a-z]+`, `con"tainer`, "cpu")
+	query := buildPrometheusQuery(`ns"test`, `pod-regex-[a-z]+`, `con"tainer`, "cpu", 5*time.Minute)
 	assert.Contains(t, query, `ns\"test`)
 	assert.Contains(t, query, `pod-regex-[a-z]+`)
 	assert.Contains(t, query, `con\"tainer`)
@@ -5473,7 +5473,7 @@ func TestReconcile_BearerTokenSecretReadErrorIncludesSecretRef(t *testing.T) {
 
 func TestReconcile_DiscoverWorkloadsError(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.TargetRef.Kind = "ReplicaSet"
+	policy.Spec.TargetRef.Kind = "ConfigMap"
 
 	mc := &mockCollector{}
 	reconciler, fakeClient := newReconcilerForReconcile(mc, policy)

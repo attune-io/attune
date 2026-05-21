@@ -341,6 +341,13 @@ spec:
                       calculations. Should match your Prometheus scrape interval for
                       accurate time estimates. Minimum 10s, maximum 1h. Default 5m.
                     type: string
+                  rateWindow:
+                    description: |-
+                      RateWindow is the window used in the PromQL rate() function for CPU
+                      queries. Defaults to queryStep if not set. Must be >= 30s and <= historyWindow.
+                      Advanced users may set this independently to control CPU rate smoothing
+                      (e.g. a short rateWindow for responsive tracking with a longer queryStep).
+                    type: string
                 type: object
               updateStrategy:
                 description: UpdateStrategy configures default update strategy settings.

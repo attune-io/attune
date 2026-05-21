@@ -61,13 +61,13 @@ const (
 // SupportedTargetKindsCSV is the canonical runtime list of workload kinds
 // accepted by RightSizePolicy targetRef.kind. Keep it in sync with the
 // kubebuilder enum on TargetRef.Kind.
-const SupportedTargetKindsCSV = "Deployment, StatefulSet, DaemonSet, CronJob, Job"
+const SupportedTargetKindsCSV = "Deployment, StatefulSet, DaemonSet, CronJob, Job, ReplicaSet"
 
 // IsSupportedTargetKind reports whether kind is a supported targetRef.kind
 // value at runtime.
 func IsSupportedTargetKind(kind string) bool {
 	switch kind {
-	case "Deployment", "StatefulSet", "DaemonSet", "CronJob", "Job":
+	case "Deployment", "StatefulSet", "DaemonSet", "CronJob", "Job", "ReplicaSet":
 		return true
 	default:
 		return false
@@ -110,7 +110,7 @@ type RightSizePolicySpec struct {
 // TargetRef identifies the target workload(s).
 type TargetRef struct {
 	// Kind is the kind of the target resource.
-	// +kubebuilder:validation:Enum=Deployment;StatefulSet;DaemonSet;CronJob;Job
+	// +kubebuilder:validation:Enum=Deployment;StatefulSet;DaemonSet;CronJob;Job;ReplicaSet
 	Kind string `json:"kind"`
 
 	// Name is the name of a specific target resource.
@@ -147,6 +147,13 @@ type MetricsSource struct {
 	// accurate time estimates. Minimum 10s, maximum 1h. Default 5m.
 	// +optional
 	QueryStep *metav1.Duration `json:"queryStep,omitempty"`
+
+	// RateWindow is the window used in the PromQL rate() function for CPU
+	// queries. Defaults to queryStep if not set. Must be >= 30s and <= historyWindow.
+	// Advanced users may set this independently to control CPU rate smoothing
+	// (e.g. a short rateWindow for responsive tracking with a longer queryStep).
+	// +optional
+	RateWindow *metav1.Duration `json:"rateWindow,omitempty"`
 }
 
 // PrometheusConfig configures a Prometheus-compatible metrics source.
@@ -425,6 +432,21 @@ type TimeWindow struct {
 	End string `json:"end"`
 }
 
+// CooldownStatus exposes the effective cooldown with exponential backoff details.
+type CooldownStatus struct {
+	// EffectiveCooldown is the current cooldown duration including backoff.
+	// +optional
+	EffectiveCooldown *metav1.Duration `json:"effectiveCooldown,omitempty"`
+
+	// BackoffMultiplier is the current backoff multiplier (1, 2, 4, 8, or 16).
+	// +optional
+	BackoffMultiplier int32 `json:"backoffMultiplier,omitempty"`
+
+	// ConsecutiveReverts is the number of consecutive reverts driving the backoff.
+	// +optional
+	ConsecutiveReverts int32 `json:"consecutiveReverts,omitempty"`
+}
+
 // RightSizePolicyStatus defines the observed state of RightSizePolicy.
 type RightSizePolicyStatus struct {
 	// Conditions represent the latest available observations of the policy's state.
@@ -438,6 +460,10 @@ type RightSizePolicyStatus struct {
 	// Workloads summarizes workload discovery and resize counts.
 	// +optional
 	Workloads WorkloadStatus `json:"workloads,omitempty"`
+
+	// Cooldown exposes the effective cooldown including exponential backoff.
+	// +optional
+	Cooldown *CooldownStatus `json:"cooldown,omitempty"`
 
 	// Recommendations contains per-workload resource recommendations.
 	// +kubebuilder:validation:MaxItems=500
@@ -518,6 +544,17 @@ type WorkloadRecommendation struct {
 
 	// Containers contains per-container recommendations.
 	Containers []ContainerRecommendation `json:"containers"`
+
+	// LastDataTime is the timestamp when Prometheus last returned non-empty
+	// data for this workload. Used for staleness detection.
+	// +optional
+	LastDataTime *metav1.Time `json:"lastDataTime,omitempty"`
+
+	// Stale indicates the recommendation is based on cached data because
+	// Prometheus did not return fresh data during the most recent query.
+	// Resizes are not executed with stale recommendations.
+	// +optional
+	Stale bool `json:"stale,omitempty"`
 }
 
 // ContainerRecommendation contains recommendations for a single container.

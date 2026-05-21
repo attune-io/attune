@@ -52,6 +52,25 @@ spec:
               monitor is blocking resizes. Investigate the workload for
               instability.
         {{- end }}
+        {{- if .Values.metrics.prometheusRule.rules.highRevertRate.enabled }}
+        - alert: KubeRightsizeHighRevertRate
+          expr: >-
+            (
+              sum(increase(kube_rightsize_reverts_total[1h]))
+              /
+              clamp_min(sum(increase(kube_rightsize_resize_total[1h])), 1)
+            ) > {{ .Values.metrics.prometheusRule.rules.highRevertRate.threshold }}
+          for: {{ .Values.metrics.prometheusRule.rules.highRevertRate.for }}
+          labels:
+            severity: {{ .Values.metrics.prometheusRule.rules.highRevertRate.severity }}
+          annotations:
+            summary: kube-rightsize high revert rate detected
+            description: >-
+              More than {{ "{{ $value | humanizePercentage }}" }} of resize
+              operations were reverted in the last hour. This indicates the
+              operator's recommendations may be causing instability. Review
+              safety margins and workload behavior.
+        {{- end }}
         {{- if .Values.metrics.prometheusRule.rules.reconcileStale.enabled }}
         - alert: KubeRightsizeReconcileStale
           expr: changes(kube_rightsize_reconcile_duration_seconds_count[{{ .Values.metrics.prometheusRule.rules.reconcileStale.staleDuration }}]) == 0

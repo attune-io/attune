@@ -18,9 +18,10 @@ package v1alpha1
 
 // Condition type constants for RightSizePolicy.
 const (
-	ConditionReady    = "Ready"
-	ConditionResizing = "Resizing"
-	ConditionDegraded = "Degraded"
+	ConditionReady           = "Ready"
+	ConditionResizing        = "Resizing"
+	ConditionDegraded        = "Degraded"
+	ConditionScheduleBlocked = "ScheduleBlocked"
 )
 
 // Condition reason constants for RightSizePolicy.
@@ -34,6 +35,8 @@ const (
 	ReasonCooldownActive          = "CooldownActive"
 	ReasonHighRevertRate          = "HighRevertRate"
 	ReasonWorkloadDiscoveryFailed = "WorkloadDiscoveryFailed"
+	ReasonOutsideWindow           = "OutsideWindow"
+	ReasonInsideWindow            = "InsideWindow"
 )
 
 // CanaryPhaseInProgress and CanaryPhaseFullRollout are now typed constants

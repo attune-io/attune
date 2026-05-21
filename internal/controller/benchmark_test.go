@@ -29,19 +29,19 @@ import (
 
 func BenchmarkBuildPrometheusQuery_CPU(b *testing.B) {
 	for b.Loop() {
-		buildPrometheusQuery("production", "api-server-7f8c9d", "web-container", "cpu")
+		buildPrometheusQuery("production", "api-server-7f8c9d", "web-container", "cpu", 5*time.Minute)
 	}
 }
 
 func BenchmarkBuildPrometheusQuery_Memory(b *testing.B) {
 	for b.Loop() {
-		buildPrometheusQuery("production", "api-server-7f8c9d", "web-container", "memory")
+		buildPrometheusQuery("production", "api-server-7f8c9d", "web-container", "memory", 5*time.Minute)
 	}
 }
 
 func BenchmarkBuildPrometheusQuery_SpecialChars(b *testing.B) {
 	for b.Loop() {
-		buildPrometheusQuery("my-ns.test", "pod+name.v2[0]", "container(1)", "cpu")
+		buildPrometheusQuery("my-ns.test", "pod+name.v2[0]", "container(1)", "cpu", 5*time.Minute)
 	}
 }
 

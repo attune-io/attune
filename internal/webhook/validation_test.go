@@ -206,7 +206,7 @@ func TestValidate_NoTargetRef(t *testing.T) {
 func TestValidate_UnsupportedWorkloadKind(t *testing.T) {
 	validator := &RightSizePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.TargetRef.Kind = "ReplicaSet"
+	policy.Spec.TargetRef.Kind = "ConfigMap"
 
 	warnings, err := validator.ValidateCreate(context.Background(), policy)
 

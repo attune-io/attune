@@ -108,6 +108,13 @@ metrics:
         enabled: true
         for: 5m
         severity: critical
+      highRevertRate:
+        enabled: true
+        # -- Revert rate threshold (fraction, e.g. 0.5 = 50%)
+        threshold: "0.5"
+        # -- How long the condition must persist before firing
+        for: 15m
+        severity: critical
       reconcileStale:
         enabled: true
         # -- Fire when no reconcile completes within this duration

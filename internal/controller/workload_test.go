@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -393,6 +394,7 @@ func TestWorkload_NewWorkloadAdapter(t *testing.T) {
 		{"DaemonSet", &appsv1.DaemonSet{}, "*controller.daemonSetAdapter", false},
 		{"CronJob", &batchv1.CronJob{}, "*controller.cronJobAdapter", false},
 		{"Job", &batchv1.Job{}, "*controller.jobAdapter", false},
+		{"ReplicaSet", &appsv1.ReplicaSet{}, "*controller.replicaSetAdapter", false},
 		{"nil returns nil", nil, "", true},
 	}
 
@@ -412,7 +414,7 @@ func TestWorkload_NewWorkloadAdapter(t *testing.T) {
 // ---------- workloadKinds registry ----------
 
 func TestWorkload_RegistryCoversAllKinds(t *testing.T) {
-	kinds := []string{"Deployment", "StatefulSet", "DaemonSet", "CronJob", "Job"}
+	kinds := []string{"Deployment", "StatefulSet", "DaemonSet", "CronJob", "Job", "ReplicaSet"}
 	for _, kind := range kinds {
 		t.Run(kind, func(t *testing.T) {
 			wk, ok := workloadKinds[kind]
@@ -424,64 +426,107 @@ func TestWorkload_RegistryCoversAllKinds(t *testing.T) {
 }
 
 func TestWorkload_RegistryUnsupportedKind(t *testing.T) {
-	_, ok := workloadKinds["ReplicaSet"]
+	_, ok := workloadKinds["ConfigMap"]
 	assert.False(t, ok)
 }
 
 // ---------- buildPrometheusQuery ----------
 
 func TestWorkload_BuildPrometheusQuery(t *testing.T) {
+	defaultWindow := 5 * time.Minute
 	tests := []struct {
-		name      string
-		namespace string
-		podRegex  string
-		container string
-		metric    string
-		want      string
+		name       string
+		namespace  string
+		podRegex   string
+		container  string
+		metric     string
+		rateWindow time.Duration
+		want       string
 	}{
 		{
-			name:      "cpu metric with deployment regex",
-			namespace: "prod",
-			podRegex:  "my-app-[a-z0-9]+-[a-z0-9]{5}",
-			metric:    "cpu",
-			want:      `rate(container_cpu_usage_seconds_total{namespace="prod",pod=~"my-app-[a-z0-9]+-[a-z0-9]{5}"}[5m])`,
+			name:       "cpu metric with deployment regex",
+			namespace:  "prod",
+			podRegex:   "my-app-[a-z0-9]+-[a-z0-9]{5}",
+			metric:     "cpu",
+			rateWindow: defaultWindow,
+			want:       `rate(container_cpu_usage_seconds_total{namespace="prod",pod=~"my-app-[a-z0-9]+-[a-z0-9]{5}"}[5m])`,
 		},
 		{
-			name:      "cpu metric with container filter",
-			namespace: "prod",
-			podRegex:  "my-app-[a-z0-9]+-[a-z0-9]{5}",
-			container: "web",
-			metric:    "cpu",
-			want:      `rate(container_cpu_usage_seconds_total{namespace="prod",pod=~"my-app-[a-z0-9]+-[a-z0-9]{5}",container="web"}[5m])`,
+			name:       "cpu metric with container filter",
+			namespace:  "prod",
+			podRegex:   "my-app-[a-z0-9]+-[a-z0-9]{5}",
+			container:  "web",
+			metric:     "cpu",
+			rateWindow: defaultWindow,
+			want:       `rate(container_cpu_usage_seconds_total{namespace="prod",pod=~"my-app-[a-z0-9]+-[a-z0-9]{5}",container="web"}[5m])`,
 		},
 		{
-			name:      "memory metric with statefulset regex",
-			namespace: "staging",
-			podRegex:  "worker-[0-9]+",
-			metric:    "memory",
-			want:      `container_memory_working_set_bytes{namespace="staging",pod=~"worker-[0-9]+"}`,
+			name:       "cpu metric with 15m rate window",
+			namespace:  "prod",
+			podRegex:   "my-app-.*",
+			metric:     "cpu",
+			rateWindow: 15 * time.Minute,
+			want:       `rate(container_cpu_usage_seconds_total{namespace="prod",pod=~"my-app-.*"}[15m])`,
 		},
 		{
-			name:      "memory metric with container filter",
-			namespace: "staging",
-			podRegex:  "worker-[0-9]+",
-			container: "main",
-			metric:    "memory",
-			want:      `container_memory_working_set_bytes{namespace="staging",pod=~"worker-[0-9]+",container="main"}`,
+			name:       "cpu metric with 1h rate window",
+			namespace:  "prod",
+			podRegex:   "app-.*",
+			metric:     "cpu",
+			rateWindow: time.Hour,
+			want:       `rate(container_cpu_usage_seconds_total{namespace="prod",pod=~"app-.*"}[1h])`,
 		},
 		{
-			name:      "unknown metric returns empty",
-			namespace: "ns",
-			podRegex:  "p.*",
-			metric:    "disk",
-			want:      "",
+			name:       "memory metric with statefulset regex",
+			namespace:  "staging",
+			podRegex:   "worker-[0-9]+",
+			metric:     "memory",
+			rateWindow: defaultWindow,
+			want:       `container_memory_working_set_bytes{namespace="staging",pod=~"worker-[0-9]+"}`,
+		},
+		{
+			name:       "memory metric with container filter",
+			namespace:  "staging",
+			podRegex:   "worker-[0-9]+",
+			container:  "main",
+			metric:     "memory",
+			rateWindow: defaultWindow,
+			want:       `container_memory_working_set_bytes{namespace="staging",pod=~"worker-[0-9]+",container="main"}`,
+		},
+		{
+			name:       "unknown metric returns empty",
+			namespace:  "ns",
+			podRegex:   "p.*",
+			metric:     "disk",
+			rateWindow: defaultWindow,
+			want:       "",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := buildPrometheusQuery(tt.namespace, tt.podRegex, tt.container, tt.metric)
+			got := buildPrometheusQuery(tt.namespace, tt.podRegex, tt.container, tt.metric, tt.rateWindow)
 			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestWorkload_FormatPromDuration(t *testing.T) {
+	tests := []struct {
+		d    time.Duration
+		want string
+	}{
+		{5 * time.Minute, "5m"},
+		{15 * time.Minute, "15m"},
+		{time.Hour, "1h"},
+		{2 * time.Hour, "2h"},
+		{90 * time.Second, "90s"},
+		{0, "5m"},
+		{-1, "5m"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.want, func(t *testing.T) {
+			assert.Equal(t, tt.want, formatPromDuration(tt.d))
 		})
 	}
 }

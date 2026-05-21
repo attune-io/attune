@@ -190,11 +190,11 @@ func (r *RightSizePolicyReconciler) getPodRegex(workload client.Object) string {
 // by container client-side. If the grouped query returns no labeled series,
 // it falls back to the pod-level query and returns samples under the empty
 // string key.
-func queryMetricsGrouped(ctx context.Context, collector rsmetrics.MetricsCollector, namespace, podRegex, metric string, start, end time.Time, step time.Duration) (map[string][]rsmetrics.Sample, bool) {
+func queryMetricsGrouped(ctx context.Context, collector rsmetrics.MetricsCollector, namespace, podRegex, metric string, start, end time.Time, step, rateWindow time.Duration) (map[string][]rsmetrics.Sample, bool) {
 	logger := log.FromContext(ctx)
 	v1Logger := logger.V(1)
 	v2Logger := logger.V(2)
-	query := buildPrometheusQuery(namespace, podRegex, "", metric)
+	query := buildPrometheusQuery(namespace, podRegex, "", metric, rateWindow)
 
 	if v1Logger.Enabled() {
 		v1Logger.Info("Querying Prometheus",
@@ -239,7 +239,7 @@ func queryMetricsGrouped(ctx context.Context, collector rsmetrics.MetricsCollect
 // buildPrometheusQuery generates a PromQL query for the given metric type.
 // podRegex is a pre-built PromQL regex (already escaped) that matches pod names.
 // If container is empty, the query matches pod-level metrics (no container filter).
-func buildPrometheusQuery(namespace, podRegex, container, metric string) string {
+func buildPrometheusQuery(namespace, podRegex, container, metric string, rateWindow time.Duration) string {
 	ns := rsmetrics.EscapePromQL(namespace)
 
 	containerFilter := ""
@@ -247,11 +247,14 @@ func buildPrometheusQuery(namespace, podRegex, container, metric string) string 
 		containerFilter = fmt.Sprintf(`,container="%s"`, rsmetrics.EscapePromQL(container))
 	}
 
+	// Format rate window for PromQL (e.g., "5m", "15m", "2m30s").
+	rw := formatPromDuration(rateWindow)
+
 	switch metric {
 	case "cpu":
 		return fmt.Sprintf(
-			`rate(container_cpu_usage_seconds_total{namespace="%s",pod=~"%s"%s}[5m])`,
-			ns, podRegex, containerFilter,
+			`rate(container_cpu_usage_seconds_total{namespace="%s",pod=~"%s"%s}[%s])`,
+			ns, podRegex, containerFilter, rw,
 		)
 	case "memory":
 		return fmt.Sprintf(
@@ -261,4 +264,19 @@ func buildPrometheusQuery(namespace, podRegex, container, metric string) string 
 	default:
 		return ""
 	}
+}
+
+// formatPromDuration formats a Go duration as a PromQL duration string.
+// PromQL accepts "Nm" for minutes, "Ns" for seconds, "Nh" for hours.
+func formatPromDuration(d time.Duration) string {
+	if d <= 0 {
+		return "5m"
+	}
+	if d >= time.Hour && d%time.Hour == 0 {
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	}
+	if d >= time.Minute && d%time.Minute == 0 {
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
+	return fmt.Sprintf("%ds", int(d.Seconds()))
 }

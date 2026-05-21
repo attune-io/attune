@@ -207,6 +207,16 @@
                     "severity": { "type": "string", "default": "critical" }
                   }
                 },
+                "highRevertRate": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": { "type": "boolean", "default": true },
+                    "threshold": { "type": "string", "default": "0.5" },
+                    "for": { "type": "string", "default": "15m" },
+                    "severity": { "type": "string", "default": "critical" }
+                  }
+                },
                 "reconcileStale": {
                   "type": "object",
                   "additionalProperties": false,

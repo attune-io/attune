@@ -228,6 +228,21 @@ func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizeP
 		}
 	}
 
+	// Validate rateWindow bounds (30s to historyWindow).
+	if policy.Spec.MetricsSource.RateWindow != nil {
+		rw := policy.Spec.MetricsSource.RateWindow.Duration
+		if rw < 30*time.Second {
+			return warnings, fmt.Errorf("metricsSource.rateWindow must be at least 30s, got %s", rw)
+		}
+		maxWindow := 168 * time.Hour // default history window
+		if policy.Spec.MetricsSource.HistoryWindow != nil {
+			maxWindow = policy.Spec.MetricsSource.HistoryWindow.Duration
+		}
+		if rw > maxWindow {
+			return warnings, fmt.Errorf("metricsSource.rateWindow (%s) must not exceed historyWindow (%s)", rw, maxWindow)
+		}
+	}
+
 	// Validate Prometheus settings if specified.
 	if prometheus := policy.Spec.MetricsSource.Prometheus; prometheus != nil {
 		if prometheus.Address != "" {
@@ -237,6 +252,14 @@ func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizeP
 		}
 		if err := validation.PrometheusQueryParameters(prometheus.QueryParameters); err != nil {
 			return warnings, fmt.Errorf("metricsSource.prometheus.queryParameters: %w", err)
+		}
+		// Reject bearer token secret names containing "/" to prevent
+		// cross-namespace secret references. The secret is always read
+		// from the policy's own namespace.
+		if prometheus.BearerTokenSecret != nil {
+			if strings.Contains(prometheus.BearerTokenSecret.Name, "/") {
+				return warnings, fmt.Errorf("metricsSource.prometheus.bearerTokenSecret.name must not contain '/'; secrets are read from the policy's namespace")
+			}
 		}
 	}
 

@@ -212,15 +212,16 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 	// Run CPU and memory queries concurrently. They are independent PromQL
 	// expressions against the same Prometheus instance. The rate limiter
 	// provides backpressure, so concurrent queries are safe.
+	rateWindow := r.getRateWindow(policy)
 	var cpuSamplesByContainer, memSamplesByContainer map[string][]rsmetrics.Sample
 	var cpuErr, memErr bool
 	var qg errgroup.Group
 	qg.Go(func() error {
-		cpuSamplesByContainer, cpuErr = queryMetricsGrouped(ctx, collector, policy.Namespace, podRegex, "cpu", start, now, queryStep)
+		cpuSamplesByContainer, cpuErr = queryMetricsGrouped(ctx, collector, policy.Namespace, podRegex, "cpu", start, now, queryStep, rateWindow)
 		return nil
 	})
 	qg.Go(func() error {
-		memSamplesByContainer, memErr = queryMetricsGrouped(ctx, collector, policy.Namespace, podRegex, "memory", start, now, queryStep)
+		memSamplesByContainer, memErr = queryMetricsGrouped(ctx, collector, policy.Namespace, podRegex, "memory", start, now, queryStep, rateWindow)
 		return nil
 	})
 	_ = qg.Wait()
@@ -423,8 +424,10 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 		return nil, queryErrors, failedMetricTypes, maxDataPoints, nil
 	}
 
+	lastDataTime := metav1.NewTime(now)
 	return &rightsizev1alpha1.WorkloadRecommendation{
-		Containers: containerRecs,
+		Containers:   containerRecs,
+		LastDataTime: &lastDataTime,
 	}, queryErrors, failedMetricTypes, maxDataPoints, nil
 }
 
@@ -449,6 +452,8 @@ func (r *RightSizePolicyReconciler) buildCollectorOptions(ctx context.Context, n
 	if config.BearerTokenSecret != nil {
 		secretName := config.BearerTokenSecret.Name
 		secretKey := config.BearerTokenSecret.Key
+		// Security: only read Secrets in the policy's own namespace to prevent
+		// cross-namespace Secret access if the operator is compromised.
 		token, err := r.readSecretKey(ctx, namespace, secretName, secretKey)
 		if err != nil {
 			return nil, fmt.Errorf("cannot read bearer token secret %s/%s: %w", secretName, secretKey, err)

@@ -345,6 +345,13 @@ spec:
                       calculations. Should match your Prometheus scrape interval for
                       accurate time estimates. Minimum 10s, maximum 1h. Default 5m.
                     type: string
+                  rateWindow:
+                    description: |-
+                      RateWindow is the window used in the PromQL rate() function for CPU
+                      queries. Defaults to queryStep if not set. Must be >= 30s and <= historyWindow.
+                      Advanced users may set this independently to control CPU rate smoothing
+                      (e.g. a short rateWindow for responsive tracking with a longer queryStep).
+                    type: string
                 type: object
               targetRef:
                 description: TargetRef identifies the workload(s) to be rightsized.
@@ -357,6 +364,7 @@ spec:
                     - DaemonSet
                     - CronJob
                     - Job
+                    - ReplicaSet
                     type: string
                   name:
                     description: Name is the name of a specific target resource.
@@ -696,6 +704,25 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              cooldown:
+                description: Cooldown exposes the effective cooldown including exponential
+                  backoff.
+                properties:
+                  backoffMultiplier:
+                    description: BackoffMultiplier is the current backoff multiplier
+                      (1, 2, 4, 8, or 16).
+                    format: int32
+                    type: integer
+                  consecutiveReverts:
+                    description: ConsecutiveReverts is the number of consecutive reverts
+                      driving the backoff.
+                    format: int32
+                    type: integer
+                  effectiveCooldown:
+                    description: EffectiveCooldown is the current cooldown duration
+                      including backoff.
+                    type: string
+                type: object
               lastReconcileTime:
                 description: |-
                   LastReconcileTime is the timestamp of the most recent reconciliation.
@@ -1094,6 +1121,18 @@ spec:
                       description: Kind is the kind of the workload (e.g. Deployment,
                         StatefulSet).
                       type: string
+                    lastDataTime:
+                      description: |-
+                        LastDataTime is the timestamp when Prometheus last returned non-empty
+                        data for this workload. Used for staleness detection.
+                      format: date-time
+                      type: string
+                    stale:
+                      description: |-
+                        Stale indicates the recommendation is based on cached data because
+                        Prometheus did not return fresh data during the most recent query.
+                        Resizes are not executed with stale recommendations.
+                      type: boolean
                     workload:
                       description: Workload is the name of the workload.
                       type: string

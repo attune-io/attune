@@ -114,6 +114,18 @@ var workloadKinds = map[string]workloadKind{
 			return out
 		},
 	},
+	"ReplicaSet": {
+		newObject: func() client.Object { return &appsv1.ReplicaSet{} },
+		newList:   func() client.ObjectList { return &appsv1.ReplicaSetList{} },
+		extract: func(list client.ObjectList) []client.Object {
+			dl := list.(*appsv1.ReplicaSetList)
+			out := make([]client.Object, len(dl.Items))
+			for i := range dl.Items {
+				out[i] = &dl.Items[i]
+			}
+			return out
+		},
+	},
 }
 
 // newWorkloadAdapter wraps a client.Object in the appropriate WorkloadAdapter.
@@ -130,6 +142,8 @@ func newWorkloadAdapter(obj client.Object) WorkloadAdapter {
 		return &cronJobAdapter{CronJob: w}
 	case *batchv1.Job:
 		return &jobAdapter{Job: w}
+	case *appsv1.ReplicaSet:
+		return &replicaSetAdapter{ReplicaSet: w}
 	default:
 		return nil
 	}
@@ -275,3 +289,31 @@ func (a *jobAdapter) PodNameRegexSuffix() string {
 }
 
 func (a *jobAdapter) IsBatch() bool { return true }
+
+// --- ReplicaSet ---
+
+type replicaSetAdapter struct{ *appsv1.ReplicaSet }
+
+func (a *replicaSetAdapter) Object() client.Object { return a.ReplicaSet }
+
+func (a *replicaSetAdapter) PodSelectorLabels() map[string]string {
+	if a.Spec.Selector != nil {
+		return a.Spec.Selector.MatchLabels
+	}
+	return nil
+}
+
+func (a *replicaSetAdapter) PodSpec() *corev1.PodSpec {
+	return &a.Spec.Template.Spec
+}
+
+func (a *replicaSetAdapter) IsRollingOut() bool {
+	if a.Spec.Replicas != nil && a.Status.ReadyReplicas < *a.Spec.Replicas {
+		return true
+	}
+	return false
+}
+
+func (a *replicaSetAdapter) PodNameRegexSuffix() string { return "-[a-z0-9]{5}" }
+
+func (a *replicaSetAdapter) IsBatch() bool { return false }

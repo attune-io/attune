@@ -179,6 +179,22 @@ func (r *RightSizePolicyReconciler) getQueryStep(policy *rightsizev1alpha1.Right
 	return defaultPrometheusStep
 }
 
+// getRateWindow returns the rate window from the policy or falls back to queryStep.
+func (r *RightSizePolicyReconciler) getRateWindow(policy *rightsizev1alpha1.RightSizePolicy) time.Duration {
+	if policy.Spec.MetricsSource.RateWindow != nil {
+		rw := policy.Spec.MetricsSource.RateWindow.Duration
+		if rw < 30*time.Second {
+			rw = 30 * time.Second
+		}
+		hw := r.parseHistoryWindow(policy)
+		if rw > hw {
+			rw = hw
+		}
+		return rw
+	}
+	return r.getQueryStep(policy)
+}
+
 // parseCooldown returns the cooldown duration from the policy's update strategy.
 func (r *RightSizePolicyReconciler) parseCooldown(policy *rightsizev1alpha1.RightSizePolicy) time.Duration {
 	if policy.Spec.UpdateStrategy.Cooldown != nil {
@@ -229,6 +245,24 @@ func (r *RightSizePolicyReconciler) getEffectiveCooldown(policy *rightsizev1alph
 	}
 	multiplier := 1 << reverts // 2^N
 	return base * time.Duration(multiplier)
+}
+
+// setCooldownStatus populates the CooldownStatus on the policy with the
+// effective cooldown, backoff multiplier, and consecutive revert count.
+func (r *RightSizePolicyReconciler) setCooldownStatus(policy *rightsizev1alpha1.RightSizePolicy) {
+	base := r.parseCooldown(policy)
+	reverts := consecutiveReverts(policy.Status.ResizeHistory)
+	capped := reverts
+	if capped > maxBackoffDoublings {
+		capped = maxBackoffDoublings
+	}
+	multiplier := int32(1 << capped) // 2^N
+	effective := base * time.Duration(multiplier)
+	policy.Status.Cooldown = &rightsizev1alpha1.CooldownStatus{
+		EffectiveCooldown:  &metav1.Duration{Duration: effective},
+		BackoffMultiplier:  multiplier,
+		ConsecutiveReverts: safeInt32(reverts),
+	}
 }
 
 // markResizeTime sets the last-resize-time annotation on the policy using a
@@ -316,6 +350,34 @@ func (r *RightSizePolicyReconciler) setResizingCondition(policy *rightsizev1alph
 			Status:             metav1.ConditionFalse,
 			Reason:             rightsizev1alpha1.ReasonIdle,
 			Message:            "No resizes needed",
+			ObservedGeneration: policy.Generation,
+		})
+	}
+}
+
+// setScheduleBlockedCondition sets or removes the ScheduleBlocked condition
+// based on whether a resize schedule is configured and whether the current
+// time falls within the allowed window.
+func (r *RightSizePolicyReconciler) setScheduleBlockedCondition(policy *rightsizev1alpha1.RightSizePolicy, withinWindow bool) {
+	if policy.Spec.UpdateStrategy.Schedule == nil || len(policy.Spec.UpdateStrategy.Schedule.Windows) == 0 {
+		meta.RemoveStatusCondition(&policy.Status.Conditions, rightsizev1alpha1.ConditionScheduleBlocked)
+		return
+	}
+
+	if !withinWindow {
+		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
+			Type:               rightsizev1alpha1.ConditionScheduleBlocked,
+			Status:             metav1.ConditionTrue,
+			Reason:             rightsizev1alpha1.ReasonOutsideWindow,
+			Message:            "Resizes deferred: current time is outside the configured schedule window",
+			ObservedGeneration: policy.Generation,
+		})
+	} else {
+		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
+			Type:               rightsizev1alpha1.ConditionScheduleBlocked,
+			Status:             metav1.ConditionFalse,
+			Reason:             rightsizev1alpha1.ReasonInsideWindow,
+			Message:            "Current time is within the resize schedule window",
 			ObservedGeneration: policy.Generation,
 		})
 	}

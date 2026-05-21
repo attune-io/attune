@@ -20,7 +20,7 @@ tests:
           path: spec.groups[0].name
           value: kube-rightsize
 
-  - it: should include all four default alerts
+  - it: should include all five default alerts
     set:
       metrics:
         enabled: true
@@ -29,7 +29,7 @@ tests:
     asserts:
       - lengthEqual:
           path: spec.groups[0].rules
-          count: 4
+          count: 5
 
   - it: should disable individual rules
     set:
@@ -45,7 +45,7 @@ tests:
     asserts:
       - lengthEqual:
           path: spec.groups[0].rules
-          count: 2
+          count: 3
 
   - it: should apply additional labels
     set:

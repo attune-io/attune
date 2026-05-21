@@ -112,7 +112,7 @@ const (
 //+kubebuilder:rbac:groups=rightsize.io,resources=rightsizepolicies/finalizers,verbs=update
 //+kubebuilder:rbac:groups=rightsize.io,resources=rightsizedefaults,verbs=get;list;watch
 //+kubebuilder:rbac:groups=rightsize.io,resources=rightsizenamespacedefaults,verbs=get;list;watch
-//+kubebuilder:rbac:groups=apps,resources=deployments;statefulsets;daemonsets,verbs=get;list;watch
+//+kubebuilder:rbac:groups=apps,resources=deployments;statefulsets;daemonsets;replicasets,verbs=get;list;watch
 //+kubebuilder:rbac:groups=batch,resources=cronjobs;jobs,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;update;patch
 //+kubebuilder:rbac:groups="",resources=pods/resize,verbs=update;patch
@@ -461,6 +461,9 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 	}
 
+	// Set ScheduleBlocked condition when a schedule is configured.
+	r.setScheduleBlockedCondition(&policy, withinWindow)
+
 	// Derive the Resized count from history to self-heal from race conditions
 	// where a concurrent reconcile overwrote Resized to 0 after a successful
 	// resize. The resize history is preserved through races because
@@ -479,6 +482,9 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	if isResizeMode(mode) && cooldownActive {
 		logger.Info("Cooldown active, skipping resize")
 	}
+
+	// Expose effective cooldown status with backoff details.
+	r.setCooldownStatus(&policy)
 
 	// Pending = workloads with recommendations that have not been resized yet.
 	pending := workloadsWithRecs - policy.Status.Workloads.Resized
@@ -523,7 +529,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 	}
 	logger.Info("Reconciliation complete, requeueing", "requeueAfter", requeueAfter)
-	operatormetrics.ReconcileDuration.WithLabelValues("rightsizepolicy").Observe(time.Since(startTime).Seconds())
+	operatormetrics.ReconcileDuration.WithLabelValues("rightsizepolicy", policy.Namespace, policy.Name).Observe(time.Since(startTime).Seconds())
 	return ctrl.Result{RequeueAfter: requeueAfter}, nil
 }
 

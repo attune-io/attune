@@ -121,7 +121,7 @@ var (
 			Help:    "Duration of reconciliation loops",
 			Buckets: prometheus.DefBuckets,
 		},
-		[]string{"controller"},
+		[]string{"controller", "namespace", "policy"},
 	)
 
 	PrometheusQueryDuration = prometheus.NewHistogramVec(
@@ -205,6 +205,14 @@ var (
 		},
 		[]string{"namespace", "workload", "action"},
 	)
+
+	StaleRecommendationsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "kube_rightsize_stale_recommendations_total",
+			Help: "Total times recommendations were marked stale due to Prometheus data gaps",
+		},
+		[]string{"namespace", "policy"},
+	)
 )
 
 // WebhookTimer tracks webhook operation duration and result.
@@ -256,5 +264,6 @@ func init() {
 		InfeasibleSkippedTotal,
 		BurstFactor,
 		StartupBoostTotal,
+		StaleRecommendationsTotal,
 	)
 }
