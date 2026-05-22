@@ -157,7 +157,9 @@ jobs:
 
       - name: Install MkDocs
         shell: bash -Eeuo pipefail {0}
-        run: python3 -m pip install --user --break-system-packages mkdocs-material
+        run: |
+          python3 -m pip install --user --break-system-packages mkdocs-material
+          echo "$(python3 -m site --user-base)/bin" >> "$GITHUB_PATH"
 
       - name: Build docs site
         shell: bash -Eeuo pipefail {0}
@@ -186,7 +188,10 @@ jobs:
       - name: YAML lint
         shell: bash -Eeuo pipefail {0}
         run: |
-          command -v yamllint || python3 -m pip install --break-system-packages yamllint 2>/dev/null
+          if ! command -v yamllint &>/dev/null; then
+            python3 -m pip install --user --break-system-packages yamllint 2>/dev/null
+            export PATH="$(python3 -m site --user-base)/bin:$PATH"
+          fi
           yamllint_config="${RUNNER_TEMP:-/tmp}/yamllint-${GITHUB_RUN_ID}-${GITHUB_JOB}.yaml"
           cat > "$yamllint_config" <<'EOF'
           extends: default

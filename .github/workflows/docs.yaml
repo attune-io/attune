@@ -26,7 +26,9 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Install MkDocs
-        run: python3 -m pip install --user --break-system-packages mkdocs-material
+        run: |
+          python3 -m pip install --user --break-system-packages mkdocs-material
+          echo "$(python3 -m site --user-base)/bin" >> "$GITHUB_PATH"
 
       - name: Build site
         run: make docs-build
