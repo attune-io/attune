@@ -77,7 +77,7 @@ type selectedDefaults struct {
 	source   string
 }
 
-type dynamicClientFactory func(kubeconfigPath string) (dynamic.Interface, string, error)
+type dynamicClientFactory func(kubeconfigPath, context string) (dynamic.Interface, string, error)
 
 func main() {
 	os.Exit(run(os.Args[1:], buildDynamicClient))
@@ -97,6 +97,8 @@ func run(args []string, buildClient dynamicClientFactory) int {
 	fs.BoolVar(watch, "watch", false, "Watch mode: refresh status every 10 seconds (status command only)")
 	sortBy := fs.String("sort-by", "", "Sort output: name, namespace, savings, age (status/savings commands)")
 	filter := fs.String("filter", "", "Filter policies by Ready condition reason: degraded, pending, collecting, ready, noworkloads (status command)")
+	contexts := fs.String("contexts", "", "Comma-separated kubeconfig contexts to query (multi-cluster)")
+	allContexts := fs.Bool("all-contexts", false, "Query all contexts in kubeconfig (multi-cluster)")
 	fs.Usage = func() {
 		fmt.Fprintln(os.Stderr, "Usage: kubectl rightsize <command> [flags]")
 		fmt.Fprintln(os.Stderr, "")
@@ -165,6 +167,22 @@ func run(args []string, buildClient dynamicClientFactory) int {
 		return 1
 	}
 
+	isMultiCtx := *allContexts || *contexts != ""
+	if isMultiCtx {
+		if cmd == "explain" || cmd == "preview" {
+			fmt.Fprintf(os.Stderr, "Error: %s requires a single cluster context; remove --contexts/--all-contexts\n", cmd)
+			return 1
+		}
+		if *output != "" {
+			fmt.Fprintf(os.Stderr, "Error: -o %s is not supported with --contexts or --all-contexts\n", *output)
+			return 1
+		}
+		if *watch {
+			fmt.Fprintf(os.Stderr, "Error: --watch is not supported with --contexts or --all-contexts\n")
+			return 1
+		}
+	}
+
 	policyName := ""
 	if cmd == "explain" || cmd == "preview" {
 		name, err := policyNameArg(cmd, parsedArgs)
@@ -175,7 +193,33 @@ func run(args []string, buildClient dynamicClientFactory) int {
 		policyName = name
 	}
 
-	dynClient, currentNamespace, err := buildClient(*kubeconfig)
+	ctx := context.Background()
+
+	// Multi-cluster mode: fetch from all requested contexts and render.
+	if isMultiCtx {
+		ctxList, err := resolveContexts(*kubeconfig, *contexts, *allContexts)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return 1
+		}
+		items, warnings := fetchMultiCluster(ctx, *kubeconfig, ctxList, *namespace, *allNamespaces, buildClient)
+		for _, w := range warnings {
+			fmt.Fprintf(os.Stderr, "WARNING: %s\n", w)
+		}
+		switch cmd {
+		case "status":
+			printStatusItems(items, *sortBy, *filter)
+		case "savings":
+			printSavingsItems(items, *sortBy)
+		case "recommendations":
+			printRecommendationsItems(items)
+		case "history":
+			printHistoryItems(items)
+		}
+		return 0
+	}
+
+	dynClient, currentNamespace, err := buildClient(*kubeconfig, "")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		return 1
@@ -190,8 +234,6 @@ func run(args []string, buildClient dynamicClientFactory) int {
 	if *allNamespaces {
 		*namespace = ""
 	}
-
-	ctx := context.Background()
 	if *output == "json" || *output == "yaml" {
 		printStructured(ctx, dynClient, *namespace, *output)
 		return 0
@@ -218,12 +260,16 @@ func run(args []string, buildClient dynamicClientFactory) int {
 	return 0
 }
 
-func buildDynamicClient(kubeconfigPath string) (dynamic.Interface, string, error) {
+func buildDynamicClient(kubeconfigPath, contextOverride string) (dynamic.Interface, string, error) {
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
 	if kubeconfigPath != "" {
 		loadingRules.ExplicitPath = kubeconfigPath
 	}
-	kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, &clientcmd.ConfigOverrides{})
+	overrides := &clientcmd.ConfigOverrides{}
+	if contextOverride != "" {
+		overrides.CurrentContext = contextOverride
+	}
+	kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, overrides)
 	currentNamespace, _, err := kubeConfig.Namespace()
 	if err != nil || currentNamespace == "" {
 		currentNamespace = "default"
@@ -303,22 +349,29 @@ func fetchPolicies(ctx context.Context, dynClient dynamic.Interface, namespace s
 
 func printStatus(ctx context.Context, dynClient dynamic.Interface, namespace, sortByFlag, filterFlag string) {
 	list := fetchPolicies(ctx, dynClient, namespace)
+	printStatusItems(list.Items, sortByFlag, filterFlag)
+}
 
-	if len(list.Items) == 0 {
+func printStatusItems(allItems []unstructured.Unstructured, sortByFlag, filterFlag string) {
+	if len(allItems) == 0 {
 		fmt.Println("No RightSizePolicies found.")
 		return
 	}
 
-	items := list.Items
-	items = filterPolicies(items, filterFlag)
+	items := filterPolicies(allItems, filterFlag)
 	if len(items) == 0 {
 		fmt.Println("No RightSizePolicies match the filter.")
 		return
 	}
 	sortPolicies(items, sortByFlag)
 
+	showCluster := hasClusterAnnotation(items)
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 3, ' ', 0)
-	fmt.Fprintln(w, "NAMESPACE\tNAME\tMODE\tWORKLOADS\tPENDING\tRESIZED\tREADY\tRESIZING\tDEGRADED\tSCHEDULE\tCANARY\tAGE")
+	if showCluster {
+		fmt.Fprintln(w, "CLUSTER\tNAMESPACE\tNAME\tMODE\tWORKLOADS\tPENDING\tRESIZED\tREADY\tRESIZING\tDEGRADED\tSCHEDULE\tCANARY\tAGE")
+	} else {
+		fmt.Fprintln(w, "NAMESPACE\tNAME\tMODE\tWORKLOADS\tPENDING\tRESIZED\tREADY\tRESIZING\tDEGRADED\tSCHEDULE\tCANARY\tAGE")
+	}
 
 	for _, item := range items {
 		ns := item.GetNamespace()
@@ -334,8 +387,13 @@ func printStatus(ctx context.Context, dynClient dynamic.Interface, namespace, so
 		canary := formatCanaryStatus(item)
 		age := formatAge(item.GetCreationTimestamp().Time)
 
-		fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\n",
-			ns, name, mode, workloads, pending, resized, ready, resizing, degraded, schedule, canary, age)
+		if showCluster {
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				itemCluster(item), ns, name, mode, workloads, pending, resized, ready, resizing, degraded, schedule, canary, age)
+		} else {
+			fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				ns, name, mode, workloads, pending, resized, ready, resizing, degraded, schedule, canary, age)
+		}
 	}
 
 	if err := w.Flush(); err != nil {
@@ -343,12 +401,16 @@ func printStatus(ctx context.Context, dynClient dynamic.Interface, namespace, so
 	}
 
 	// Show per-workload errors when present.
-	for _, item := range list.Items {
+	for _, item := range allItems {
 		errors, found, _ := unstructured.NestedSlice(item.Object, "status", "workloadErrors")
 		if !found || len(errors) == 0 {
 			continue
 		}
-		fmt.Fprintf(os.Stderr, "\nWorkload errors for %s/%s:\n", item.GetNamespace(), item.GetName())
+		prefix := ""
+		if showCluster {
+			prefix = fmt.Sprintf("[%s] ", itemCluster(item))
+		}
+		fmt.Fprintf(os.Stderr, "\n%sWorkload errors for %s/%s:\n", prefix, item.GetNamespace(), item.GetName())
 		for _, e := range errors {
 			entry, ok := e.(map[string]interface{})
 			if !ok {
@@ -381,17 +443,24 @@ func watchStatus(ctx context.Context, dynClient dynamic.Interface, namespace, so
 
 func printSavings(ctx context.Context, dynClient dynamic.Interface, namespace, sortByFlag string) {
 	list := fetchPolicies(ctx, dynClient, namespace)
+	printSavingsItems(list.Items, sortByFlag)
+}
 
-	if len(list.Items) == 0 {
+func printSavingsItems(items []unstructured.Unstructured, sortByFlag string) {
+	if len(items) == 0 {
 		fmt.Println("No RightSizePolicies found.")
 		return
 	}
 
-	items := list.Items
 	sortPolicies(items, sortByFlag)
+	showCluster := hasClusterAnnotation(items)
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 3, ' ', 0)
-	fmt.Fprintln(w, "NAMESPACE\tNAME\tCPU SAVED\tMEMORY SAVED\t% SAVED\tEST. MONTHLY")
+	if showCluster {
+		fmt.Fprintln(w, "CLUSTER\tNAMESPACE\tNAME\tCPU SAVED\tMEMORY SAVED\t% SAVED\tEST. MONTHLY")
+	} else {
+		fmt.Fprintln(w, "NAMESPACE\tNAME\tCPU SAVED\tMEMORY SAVED\t% SAVED\tEST. MONTHLY")
+	}
 
 	var totalCPUMillis, totalCPUTotalMillis, totalMemBytes int64
 	var totalMonthlyCents int64
@@ -430,8 +499,13 @@ func printSavings(ctx context.Context, dynClient dynamic.Interface, namespace, s
 		}
 		pctSaved := savingsPercent(cpuSaved, cpuTotal)
 
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
-			ns, name, cpuSaved, memSaved, pctSaved, estMonthly)
+		if showCluster {
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				itemCluster(item), ns, name, cpuSaved, memSaved, pctSaved, estMonthly)
+		} else {
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+				ns, name, cpuSaved, memSaved, pctSaved, estMonthly)
+		}
 	}
 
 	// Print totals row when at least one policy has savings data.
@@ -449,9 +523,13 @@ func printSavings(ctx context.Context, dynClient dynamic.Interface, namespace, s
 		if totalMonthlyCents > 0 {
 			totalMonthly = fmt.Sprintf("$%.2f", float64(totalMonthlyCents)/100.0)
 		}
-		fmt.Fprintln(w, "\t\t\t\t\t")
-		fmt.Fprintf(w, "\tTOTAL\t%s\t%s\t%s\t%s\n",
-			totalCPU, totalMem, totalPct, totalMonthly)
+		ec := ""
+		if showCluster {
+			ec = "\t"
+		}
+		fmt.Fprintln(w, ec+"\t\t\t\t\t")
+		fmt.Fprintf(w, "%s\tTOTAL\t%s\t%s\t%s\t%s\n",
+			ec, totalCPU, totalMem, totalPct, totalMonthly)
 	}
 
 	if err := w.Flush(); err != nil {
@@ -503,24 +581,38 @@ func getConditionReason(obj unstructured.Unstructured, conditionType string) str
 
 func printRecommendations(ctx context.Context, dynClient dynamic.Interface, namespace string) {
 	list := fetchPolicies(ctx, dynClient, namespace)
+	printRecommendationsItems(list.Items)
+}
 
-	if len(list.Items) == 0 {
+func printRecommendationsItems(items []unstructured.Unstructured) {
+	if len(items) == 0 {
 		fmt.Println("No RightSizePolicies found.")
 		return
 	}
 
+	showCluster := hasClusterAnnotation(items)
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 3, ' ', 0)
-	fmt.Fprintln(w, "NAMESPACE\tPOLICY\tWORKLOAD\tCONTAINER\tCPU REQ\tCPU REC\tMEM REQ\tMEM REC\tCONFIDENCE / STATUS")
+	if showCluster {
+		fmt.Fprintln(w, "CLUSTER\tNAMESPACE\tPOLICY\tWORKLOAD\tCONTAINER\tCPU REQ\tCPU REC\tMEM REQ\tMEM REC\tCONFIDENCE / STATUS")
+	} else {
+		fmt.Fprintln(w, "NAMESPACE\tPOLICY\tWORKLOAD\tCONTAINER\tCPU REQ\tCPU REC\tMEM REQ\tMEM REC\tCONFIDENCE / STATUS")
+	}
 
 	var collecting int
-	for _, item := range list.Items {
+	for _, item := range items {
 		ns := item.GetNamespace()
 		policyName := item.GetName()
+		cluster := itemCluster(item)
 		recs, found, _ := unstructured.NestedSlice(item.Object, "status", "recommendations")
 		if !found || len(recs) == 0 {
 			collecting++
-			fmt.Fprintf(w, "%s\t%s\t-\t-\t-\t-\t-\t-\t%s\n",
-				ns, policyName, policyReadyReason(item))
+			if showCluster {
+				fmt.Fprintf(w, "%s\t%s\t%s\t-\t-\t-\t-\t-\t-\t%s\n",
+					cluster, ns, policyName, policyReadyReason(item))
+			} else {
+				fmt.Fprintf(w, "%s\t%s\t-\t-\t-\t-\t-\t-\t%s\n",
+					ns, policyName, policyReadyReason(item))
+			}
 			continue
 		}
 
@@ -548,8 +640,13 @@ func printRecommendations(ctx context.Context, dynClient dynamic.Interface, name
 				curMem, _ := current["memoryRequest"].(string)
 				recMem, _ := recommended["memoryRequest"].(string)
 
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%.1f%%\n",
-					ns, policyName, workload, name, curCPU, recCPU, curMem, recMem, confidence*100)
+				if showCluster {
+					fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%.1f%%\n",
+						cluster, ns, policyName, workload, name, curCPU, recCPU, curMem, recMem, confidence*100)
+				} else {
+					fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%.1f%%\n",
+						ns, policyName, workload, name, curCPU, recCPU, curMem, recMem, confidence*100)
+				}
 			}
 		}
 	}
@@ -1163,19 +1260,28 @@ func formatAge(created time.Time) string {
 
 func printHistory(ctx context.Context, dynClient dynamic.Interface, namespace string) {
 	list := fetchPolicies(ctx, dynClient, namespace)
+	printHistoryItems(list.Items)
+}
 
-	if len(list.Items) == 0 {
+func printHistoryItems(items []unstructured.Unstructured) {
+	if len(items) == 0 {
 		fmt.Println("No RightSizePolicies found.")
 		return
 	}
 
+	showCluster := hasClusterAnnotation(items)
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 3, ' ', 0)
-	fmt.Fprintln(w, "NAMESPACE\tPOLICY\tTIMESTAMP\tWORKLOAD\tCONTAINER\tRESOURCE\tFROM\tTO\tMETHOD\tRESULT\tREASON")
+	if showCluster {
+		fmt.Fprintln(w, "CLUSTER\tNAMESPACE\tPOLICY\tTIMESTAMP\tWORKLOAD\tCONTAINER\tRESOURCE\tFROM\tTO\tMETHOD\tRESULT\tREASON")
+	} else {
+		fmt.Fprintln(w, "NAMESPACE\tPOLICY\tTIMESTAMP\tWORKLOAD\tCONTAINER\tRESOURCE\tFROM\tTO\tMETHOD\tRESULT\tREASON")
+	}
 
 	var hasEntries bool
-	for _, item := range list.Items {
+	for _, item := range items {
 		ns := item.GetNamespace()
 		policyName := item.GetName()
+		cluster := itemCluster(item)
 		history, found, _ := unstructured.NestedSlice(item.Object, "status", "resizeHistory")
 		if !found {
 			continue
@@ -1189,7 +1295,7 @@ func printHistory(ctx context.Context, dynClient dynamic.Interface, namespace st
 			ts, _ := entry["timestamp"].(string)
 			workload, _ := entry["workload"].(string)
 			container, _ := entry["container"].(string)
-			resource, _ := entry["resource"].(string)
+			histResource, _ := entry["resource"].(string)
 			from, _ := entry["from"].(string)
 			to, _ := entry["to"].(string)
 			method, _ := entry["method"].(string)
@@ -1212,8 +1318,13 @@ func printHistory(ctx context.Context, dynClient dynamic.Interface, namespace st
 			}
 
 			hasEntries = true
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-				ns, policyName, ts, workload, container, resource, from, to, method, result, reason)
+			if showCluster {
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+					cluster, ns, policyName, ts, workload, container, histResource, from, to, method, result, reason)
+			} else {
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+					ns, policyName, ts, workload, container, histResource, from, to, method, result, reason)
+			}
 		}
 	}
 

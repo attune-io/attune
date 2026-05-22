@@ -847,14 +847,14 @@ func TestFilterPolicies_EmptyFilterReturnsAll(t *testing.T) {
 }
 
 func TestRun_FilterFlagRejectedForNonStatus(t *testing.T) {
-	code := run([]string{"savings", "--filter", "degraded"}, func(string) (dynamic.Interface, string, error) {
+	code := run([]string{"savings", "--filter", "degraded"}, func(string, string) (dynamic.Interface, string, error) {
 		return nil, "default", nil
 	})
 	assert.Equal(t, 1, code)
 }
 
 func TestRun_SortByFlagRejectedForHistory(t *testing.T) {
-	code := run([]string{"history", "--sort-by", "name"}, func(string) (dynamic.Interface, string, error) {
+	code := run([]string{"history", "--sort-by", "name"}, func(string, string) (dynamic.Interface, string, error) {
 		return nil, "default", nil
 	})
 	assert.Equal(t, 1, code)
@@ -1274,7 +1274,7 @@ func captureRun(t *testing.T, args []string, buildClient dynamicClientFactory) (
 
 func fakeDynamicClientFactory(t *testing.T, objects ...runtime.Object) dynamicClientFactory {
 	t.Helper()
-	return func(kubeconfigPath string) (dynamic.Interface, string, error) {
+	return func(kubeconfigPath, context string) (dynamic.Interface, string, error) {
 		scheme := runtime.NewScheme()
 		client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
 			map[schema.GroupVersionResource]string{
@@ -1288,7 +1288,7 @@ func fakeDynamicClientFactory(t *testing.T, objects ...runtime.Object) dynamicCl
 }
 
 func failingDynamicClientFactory(err error) dynamicClientFactory {
-	return func(kubeconfigPath string) (dynamic.Interface, string, error) {
+	return func(kubeconfigPath, context string) (dynamic.Interface, string, error) {
 		return nil, "", err
 	}
 }
