@@ -259,11 +259,39 @@ All fields from `RightSizeDefaults` are available in
 
 | Section | Fields |
 |---------|--------|
-| `metricsSource` | `prometheus.address`, `prometheus.headers`, `prometheus.queryParameters`, `prometheus.bearerTokenSecret`, `prometheus.tls`, `historyWindow`, `minimumDataPoints`, `queryStep`, `rateWindow` |
+| `metricsSource` | `prometheus.address`, `prometheus.headers`, `prometheus.queryParameters`, `prometheus.bearerTokenSecret`, `prometheus.tls`, `datadog.site`, `datadog.apiKeySecretRef`, `cloudwatch.region`, `cloudwatch.clusterName`, `cloudwatch.roleArn`, `historyWindow`, `minimumDataPoints`, `queryStep`, `rateWindow` |
 | `cpu` | `percentile`, `safetyMargin`, `bounds`, `controlledValues`, `burstSensitivity`, `allowDecrease`, `startupBoost` |
 | `memory` | Same as `cpu` |
 | `updateStrategy` | `mode`, `cooldown`, `autoRevert`, `resizeMethod`, `maxCpuChangePercent`, `maxMemoryChangePercent`, `maxConcurrentResizes`, `maxTotalCpuIncrease`, `maxTotalMemoryIncrease`, `schedule`, `export`, `canary` |
 | `costPricing` | `cpuPerCoreHour`, `memoryPerGiBHour` |
+
+## Alternative Metrics Sources
+
+By default, kube-rightsize queries Prometheus for CPU and memory usage data.
+The CRD also supports Datadog and CloudWatch Container Insights as
+alternative metrics sources. **At most one** of `prometheus`, `datadog`, or
+`cloudwatch` may be set per policy.
+
+> **Note**: Datadog and CloudWatch backends are defined in the CRD but not
+> yet implemented. Setting these fields allows forward-compatible policy
+> definitions; the controller will report an error condition until the
+> backend is available.
+
+### Datadog
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `metricsSource.datadog.site` | string | `datadoghq.com` | Datadog site (e.g., `datadoghq.eu`, `us5.datadoghq.com`, `ddog-gov.com`) |
+| `metricsSource.datadog.apiKeySecretRef.name` | string | (required) | Name of the Secret containing the Datadog API key |
+| `metricsSource.datadog.apiKeySecretRef.key` | string | (required) | Key within the Secret that holds the API key |
+
+### CloudWatch Container Insights
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `metricsSource.cloudwatch.region` | string | (required) | AWS region (e.g., `us-east-1`) |
+| `metricsSource.cloudwatch.clusterName` | string | (required) | EKS cluster name for Container Insights metric filtering |
+| `metricsSource.cloudwatch.roleArn` | string | `""` | Optional IAM role ARN for cross-account access (IRSA/Pod Identity used if empty) |
 
 ## Status Conditions
 

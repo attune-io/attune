@@ -153,6 +153,27 @@ kubectl rightsize history -n production
 | RESULT | `Success`, `Failed`, `Reverted`, or `Evicted` |
 | REASON | Why a resize was reverted or failed (`oomkill`, `restart`, `notready`, `throttle`, etc.). Shows `-` for successful resizes. |
 
+### wizard
+
+Interactive guided workflow for creating and promoting policies. No flags
+to memorize; the wizard walks through each decision.
+
+```bash
+kubectl rightsize wizard                # create a new policy
+kubectl rightsize wizard promote        # promote an existing policy's mode
+```
+
+**Create flow**: selects namespace, workload kind, workload name,
+auto-detects Prometheus, asks for CPU/memory percentiles and starting mode,
+then offers to apply directly or save the YAML to a file.
+
+**Promote flow**: lists existing policies with their current mode and
+status, shows the recommendation summary, and updates the mode after
+confirmation.
+
+The wizard does not support multi-cluster mode (`--all-contexts` /
+`--contexts`).
+
 ### version
 
 Shows the plugin version. Works without cluster access.
@@ -185,6 +206,8 @@ with `kubectl get rightsizepolicy -o json|yaml`.
 | `--watch` | `-w` | Continuously refresh status every 10 seconds (`status` only) |
 | `--sort-by` | | Sort output: `name`, `namespace`, `savings`, `age` (`status` and `savings` only) |
 | `--filter` | | Filter by condition: `degraded`, `pending`, `collecting`, `ready`, `noworkloads` (`status` only) |
+| `--all-contexts` | | Query all kubeconfig contexts and merge results (`status`, `savings`, `recommendations`, `history` only) |
+| `--contexts` | | Comma-separated list of specific kubeconfig contexts to query (same commands as `--all-contexts`) |
 
 ## Manager Binary Flags
 
