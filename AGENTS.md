@@ -128,6 +128,17 @@ nearly always hits a 409 Conflict from the stale `resourceVersion`. The retry
 loop re-fetches the pod and reapplies the resource changes on each attempt.
 See `internal/resize/engine.go` `ResizePod()`.
 
+**K8s v1.33 memory limit restriction:** Kubernetes v1.33 forbids decreasing a
+container's memory limit in-place when the resize policy is `NotRequired` (the
+default). The API server rejects with "memory limits cannot be decreased unless
+resizePolicy is RestartContainer". The operator handles this via
+`ClampMemoryLimitForPolicy` in `internal/resize/engine.go`, which preserves
+the current memory limit when a decrease would be rejected. This clamp must be
+applied **before** the QoS preservation check in `resizeContainer`, not after;
+otherwise a Guaranteed QoS pod passes the QoS check with the unclamped target
+but then has its limit preserved by the clamp, breaking requests == limits.
+K8s v1.34+ relaxed this restriction.
+
 ### Code generation
 
 Run `make manifests` after changing CRD types or RBAC markers. Run
