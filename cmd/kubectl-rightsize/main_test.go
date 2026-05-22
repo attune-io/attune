@@ -877,9 +877,9 @@ func TestPrintSavings_MultiplePoliciesShowTotals(t *testing.T) {
 	output := buf.String()
 
 	assert.Contains(t, output, "TOTAL")
-	assert.Contains(t, output, "500m")    // 350m + 150m
-	assert.Contains(t, output, "192Mi")   // 128Mi + 64Mi
-	assert.Contains(t, output, "$18.00")  // $12.78 + $5.22
+	assert.Contains(t, output, "500m")   // 350m + 150m
+	assert.Contains(t, output, "192Mi")  // 128Mi + 64Mi
+	assert.Contains(t, output, "$18.00") // $12.78 + $5.22
 }
 
 func TestParseDollarCents(t *testing.T) {
