@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/util/retry"
 )
 
 // MethodInPlace is the resize method for in-place pod resize.
@@ -73,35 +74,42 @@ func NewPodResizer(client kubernetes.Interface, logger logr.Logger) *PodResizer 
 func (r *PodResizer) ResizePod(ctx context.Context, pod *corev1.Pod, container string,
 	target corev1.ResourceRequirements,
 ) ([]ResizeResult, error) {
-	idx, isInit := findContainer(pod, container)
-	if idx == -1 {
+	if idx, _ := findContainer(pod, container); idx == -1 {
 		return nil, fmt.Errorf("container %q not found in pod %s/%s", container, pod.Namespace, pod.Name)
 	}
 
-	// Re-fetch the pod to get the latest resourceVersion. Between the
-	// caller's last fetch and now, the kubelet or another controller may
-	// have updated the pod (e.g., applying a prior container's resize,
-	// updating status conditions). Using a stale resourceVersion causes
-	// a 409 Conflict from the API server.
-	fresh, fetchErr := r.client.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
-	if fetchErr != nil {
-		return nil, fmt.Errorf("re-fetching pod %s/%s before resize: %w", pod.Namespace, pod.Name, fetchErr)
-	}
-
+	// Retry loop handles 409 Conflict errors that occur when the kubelet
+	// or another controller updates the pod (status conditions, container
+	// statuses) between our Get and UpdateResize, bumping resourceVersion.
+	// This is common during sequential multi-container resizes where the
+	// kubelet applies the first container's resize before we submit the second.
 	var current corev1.ResourceRequirements
-	updated := fresh.DeepCopy()
-	if isInit {
-		current = fresh.Spec.InitContainers[idx].Resources
-		updated.Spec.InitContainers[idx].Resources = mergeResources(current, target)
-	} else {
-		current = fresh.Spec.Containers[idx].Resources
-		updated.Spec.Containers[idx].Resources = mergeResources(current, target)
-	}
+	err := retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		fresh, fetchErr := r.client.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
+		if fetchErr != nil {
+			return fmt.Errorf("re-fetching pod %s/%s before resize: %w", pod.Namespace, pod.Name, fetchErr)
+		}
 
-	r.logger.V(1).Info("resizing pod", "pod", pod.Name, "namespace", pod.Namespace,
-		"container", container, "method", MethodInPlace)
+		idx, isInit := findContainer(fresh, container)
+		if idx == -1 {
+			return fmt.Errorf("container %q not found in pod %s/%s", container, pod.Namespace, pod.Name)
+		}
 
-	_, err := r.client.CoreV1().Pods(pod.Namespace).UpdateResize(ctx, pod.Name, updated, metav1.UpdateOptions{})
+		updated := fresh.DeepCopy()
+		if isInit {
+			current = fresh.Spec.InitContainers[idx].Resources
+			updated.Spec.InitContainers[idx].Resources = mergeResources(current, target)
+		} else {
+			current = fresh.Spec.Containers[idx].Resources
+			updated.Spec.Containers[idx].Resources = mergeResources(current, target)
+		}
+
+		r.logger.V(1).Info("resizing pod", "pod", pod.Name, "namespace", pod.Namespace,
+			"container", container, "method", MethodInPlace)
+
+		_, updateErr := r.client.CoreV1().Pods(pod.Namespace).UpdateResize(ctx, pod.Name, updated, metav1.UpdateOptions{})
+		return updateErr
+	})
 	if err != nil {
 		return []ResizeResult{
 			{PodName: pod.Name, Container: container, Resource: "cpu", Method: MethodInPlace, Success: false, Error: err},
