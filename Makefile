@@ -223,9 +223,14 @@ lint: golangci-lint ## Run golangci-lint
 
 .PHONY: yaml-lint
 yaml-lint: ## Lint YAML files (mirrors CI)
-	@command -v yamllint >/dev/null 2>&1 || { echo "Installing yamllint..."; pip install --user --break-system-packages yamllint 2>/dev/null || pip install --user yamllint; }
-	@yamllint -d '{extends: default, rules: {line-length: {max: 200}, truthy: {check-keys: false}, indentation: {spaces: 2, indent-sequences: whatever}}}' \
-		config/ charts/kube-rightsize/Chart.yaml charts/kube-rightsize/values.yaml charts/kube-rightsize/ci/
+	@command -v yamllint >/dev/null 2>&1 || python3 -c "import yamllint" 2>/dev/null || { echo "Installing yamllint..."; python3 -m pip install --user --break-system-packages yamllint 2>/dev/null || python3 -m pip install --user yamllint; }
+	@if command -v yamllint >/dev/null 2>&1; then \
+		yamllint -d '{extends: default, rules: {line-length: {max: 200}, truthy: {check-keys: false}, indentation: {spaces: 2, indent-sequences: whatever}}}' \
+			config/ charts/kube-rightsize/Chart.yaml charts/kube-rightsize/values.yaml charts/kube-rightsize/ci/; \
+	else \
+		python3 -m yamllint -d '{extends: default, rules: {line-length: {max: 200}, truthy: {check-keys: false}, indentation: {spaces: 2, indent-sequences: whatever}}}' \
+			config/ charts/kube-rightsize/Chart.yaml charts/kube-rightsize/values.yaml charts/kube-rightsize/ci/; \
+	fi
 
 .PHONY: lint-fix
 lint-fix: golangci-lint ## Run golangci-lint with auto-fix
