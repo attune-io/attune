@@ -805,24 +805,36 @@ func TestClampMemoryLimitForPolicy(t *testing.T) {
 			targetMemLim:   "",
 			expectedMemLim: "",
 		},
+		{
+			name: "container has no current memory limit",
+			resizePolicy: []corev1.ContainerResizePolicy{
+				{ResourceName: corev1.ResourceMemory, RestartPolicy: corev1.NotRequired},
+			},
+			currentMemLim:  "",
+			targetMemLim:   "512Mi",
+			expectedMemLim: "512Mi",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			resources := corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceMemory: resource.MustParse("256Mi"),
+				},
+			}
+			if tt.currentMemLim != "" {
+				resources.Limits = corev1.ResourceList{
+					corev1.ResourceMemory: resource.MustParse(tt.currentMemLim),
+				}
+			}
 			pod := &corev1.Pod{
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
 						{
 							Name:         "app",
 							ResizePolicy: tt.resizePolicy,
-							Resources: corev1.ResourceRequirements{
-								Requests: corev1.ResourceList{
-									corev1.ResourceMemory: resource.MustParse("256Mi"),
-								},
-								Limits: corev1.ResourceList{
-									corev1.ResourceMemory: resource.MustParse(tt.currentMemLim),
-								},
-							},
+							Resources:    resources,
 						},
 					},
 				},
