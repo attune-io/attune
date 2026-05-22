@@ -78,13 +78,23 @@ func (r *PodResizer) ResizePod(ctx context.Context, pod *corev1.Pod, container s
 		return nil, fmt.Errorf("container %q not found in pod %s/%s", container, pod.Namespace, pod.Name)
 	}
 
+	// Re-fetch the pod to get the latest resourceVersion. Between the
+	// caller's last fetch and now, the kubelet or another controller may
+	// have updated the pod (e.g., applying a prior container's resize,
+	// updating status conditions). Using a stale resourceVersion causes
+	// a 409 Conflict from the API server.
+	fresh, fetchErr := r.client.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
+	if fetchErr != nil {
+		return nil, fmt.Errorf("re-fetching pod %s/%s before resize: %w", pod.Namespace, pod.Name, fetchErr)
+	}
+
 	var current corev1.ResourceRequirements
-	updated := pod.DeepCopy()
+	updated := fresh.DeepCopy()
 	if isInit {
-		current = pod.Spec.InitContainers[idx].Resources
+		current = fresh.Spec.InitContainers[idx].Resources
 		updated.Spec.InitContainers[idx].Resources = mergeResources(current, target)
 	} else {
-		current = pod.Spec.Containers[idx].Resources
+		current = fresh.Spec.Containers[idx].Resources
 		updated.Spec.Containers[idx].Resources = mergeResources(current, target)
 	}
 
