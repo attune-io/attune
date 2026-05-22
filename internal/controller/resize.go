@@ -834,7 +834,7 @@ func (r *RightSizePolicyReconciler) shouldSkipResize(
 		if r.Recorder != nil {
 			r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "ResizeSkipped", "resize",
 				"Skipping resize for pod %s container %s: would change QoS class from Guaranteed. "+
-					"Set controlledValues: RequestsAndLimits to resize Guaranteed pods",
+					"Use controlledValues: RequestsAndLimits, or on K8s v1.33 set resizePolicy to RestartContainer for memory",
 				pod.Name, containerRec.Name)
 		}
 		return true, "would change QoS class"
