@@ -364,7 +364,15 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 	// to the API server. Without this, a Guaranteed QoS pod could pass
 	// the QoS check with the unclamped target but then have its memory
 	// limit preserved by the resize engine, breaking requests == limits.
+	preClamped := target.DeepCopy()
 	target = resize.ClampMemoryLimitForPolicy(pod, containerRec.Name, target)
+	if memLim, ok := preClamped.Limits[corev1.ResourceMemory]; ok {
+		if clampedLim, cok := target.Limits[corev1.ResourceMemory]; cok && !memLim.Equal(clampedLim) {
+			logger.Info("Memory limit decrease clamped by resize policy",
+				"pod", pod.Name, "container", containerRec.Name,
+				"requestedLimit", memLim.String(), "clampedLimit", clampedLim.String())
+		}
+	}
 
 	skip, reason := r.shouldSkipResize(ctx, policy, pod, containerRec, target, p.Checks)
 	if skip {

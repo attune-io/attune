@@ -88,7 +88,11 @@ jobs:
           # containerd image store (Docker Desktop v29+). Fall back to
           # build+save when buildx is not available on the runner.
           if docker buildx version &>/dev/null; then
+            # Explicit --platform avoids empty BUILDPLATFORM on some
+            # buildx/docker-driver configurations.
+            SCAN_PLATFORM="linux/$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')"
             docker buildx build \
+              --platform "$SCAN_PLATFORM" \
               --output "type=docker,dest=$scan_tar" \
               -t kube-rightsize:scan .
           else
