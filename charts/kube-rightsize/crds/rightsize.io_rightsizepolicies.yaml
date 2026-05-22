@@ -1168,6 +1168,13 @@ spec:
                       - InPlace
                       - Eviction
                       type: string
+                    reason:
+                      description: |-
+                        Reason explains why the resize was reverted or failed.
+                        Only populated when Result is Reverted or Failed.
+                        Values include: oomkill, restart, notready, throttle,
+                        annotation-conflict, immediate-safety-check.
+                      type: string
                     resource:
                       description: Resource is the resource type that was resized.
                       enum:

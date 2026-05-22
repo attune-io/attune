@@ -704,6 +704,13 @@ type ResizeHistoryEntry struct {
 	// Result is the outcome of the resize operation.
 	// +kubebuilder:validation:Enum=Success;Failed;Reverted;Evicted
 	Result ResizeResult `json:"result"`
+
+	// Reason explains why the resize was reverted or failed.
+	// Only populated when Result is Reverted or Failed.
+	// Values include: oomkill, restart, notready, throttle,
+	// annotation-conflict, immediate-safety-check.
+	// +optional
+	Reason string `json:"reason,omitempty"`
 }
 
 // SavingsStatus summarizes estimated resource savings.

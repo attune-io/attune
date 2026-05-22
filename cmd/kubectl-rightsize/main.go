@@ -990,7 +990,7 @@ func printHistory(ctx context.Context, dynClient dynamic.Interface, namespace st
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 3, ' ', 0)
-	fmt.Fprintln(w, "NAMESPACE\tPOLICY\tTIMESTAMP\tWORKLOAD\tCONTAINER\tRESOURCE\tFROM\tTO\tMETHOD\tRESULT")
+	fmt.Fprintln(w, "NAMESPACE\tPOLICY\tTIMESTAMP\tWORKLOAD\tCONTAINER\tRESOURCE\tFROM\tTO\tMETHOD\tRESULT\tREASON")
 
 	var hasEntries bool
 	for _, item := range list.Items {
@@ -1026,9 +1026,14 @@ func printHistory(ctx context.Context, dynClient dynamic.Interface, namespace st
 				ts = t.Local().Format("Jan 02 15:04")
 			}
 
+			reason, _ := entry["reason"].(string)
+			if reason == "" {
+				reason = "-"
+			}
+
 			hasEntries = true
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-				ns, policyName, ts, workload, container, resource, from, to, method, result)
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				ns, policyName, ts, workload, container, resource, from, to, method, result, reason)
 		}
 	}
 

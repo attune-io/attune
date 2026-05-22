@@ -119,6 +119,7 @@ kubectl rightsize history -n production
 | TO | New resource value |
 | METHOD | `InPlace` or `Eviction` |
 | RESULT | `Success`, `Failed`, `Reverted`, or `Evicted` |
+| REASON | Why a resize was reverted or failed (`oomkill`, `restart`, `notready`, `throttle`, etc.). Shows `-` for successful resizes. |
 
 ### version
 

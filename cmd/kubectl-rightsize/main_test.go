@@ -326,6 +326,7 @@ func TestPrintHistory(t *testing.T) {
 						"to":        "384Mi",
 						"method":    "InPlace",
 						"result":    "Reverted",
+						"reason":    "oomkill",
 					},
 					map[string]interface{}{
 						"timestamp": "2026-05-10T14:00:00Z",
@@ -373,6 +374,8 @@ func TestPrintHistory(t *testing.T) {
 	assert.Contains(t, output, "Success")
 	assert.Contains(t, output, "Reverted")
 	assert.Contains(t, output, "Evicted")
+	assert.Contains(t, output, "oomkill")
+	assert.Contains(t, output, "REASON")
 }
 
 func TestPrintHistory_LegacyEntryWithoutMethodDefaultsToInPlace(t *testing.T) {

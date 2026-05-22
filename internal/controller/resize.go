@@ -488,6 +488,7 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 		for i := range history {
 			if history[i].Workload == workloadName && history[i].Container == containerRec.Name {
 				history[i].Result = resultStatus
+				history[i].Reason = reason
 			}
 		}
 	}
