@@ -96,12 +96,16 @@ func (r *PodResizer) ResizePod(ctx context.Context, pod *corev1.Pod, container s
 		}
 
 		updated := fresh.DeepCopy()
+		// Clamp the target memory limit when the container's resize policy
+		// for memory is NotRequired (or absent, which defaults to NotRequired).
+		// K8s v1.33 forbids in-place memory limit decreases with NotRequired.
+		adjustedTarget := clampMemoryLimitForPolicy(fresh, container, target)
 		if isInit {
 			current = fresh.Spec.InitContainers[idx].Resources
-			updated.Spec.InitContainers[idx].Resources = mergeResources(current, target)
+			updated.Spec.InitContainers[idx].Resources = mergeResources(current, adjustedTarget)
 		} else {
 			current = fresh.Spec.Containers[idx].Resources
-			updated.Spec.Containers[idx].Resources = mergeResources(current, target)
+			updated.Spec.Containers[idx].Resources = mergeResources(current, adjustedTarget)
 		}
 
 		r.logger.V(1).Info("resizing pod", "pod", pod.Name, "namespace", pod.Namespace,
@@ -262,6 +266,49 @@ func (r *PodResizer) EvictPod(ctx context.Context, pod *corev1.Pod) error {
 			Namespace: pod.Namespace,
 		},
 	})
+}
+
+// clampMemoryLimitForPolicy prevents memory limit decreases when the
+// container's resize policy for memory is NotRequired (or absent, which
+// defaults to NotRequired). Kubernetes v1.33 rejects in-place memory limit
+// decreases unless the resize policy is RestartContainer.
+func clampMemoryLimitForPolicy(pod *corev1.Pod, container string, target corev1.ResourceRequirements) corev1.ResourceRequirements {
+	if len(target.Limits) == 0 {
+		return target
+	}
+	targetMemLim, hasTargetMem := target.Limits[corev1.ResourceMemory]
+	if !hasTargetMem {
+		return target
+	}
+
+	// Find the container and check if memory resize policy allows in-place decrease.
+	for _, c := range slices.Concat(pod.Spec.InitContainers, pod.Spec.Containers) {
+		if c.Name != container {
+			continue
+		}
+		memPolicyAllowsDecrease := false
+		for _, rp := range c.ResizePolicy {
+			if rp.ResourceName == corev1.ResourceMemory && rp.RestartPolicy == corev1.RestartContainer {
+				memPolicyAllowsDecrease = true
+				break
+			}
+		}
+		if memPolicyAllowsDecrease {
+			return target
+		}
+		// Policy is NotRequired (or absent): clamp memory limit to not decrease.
+		currentMemLim, ok := c.Resources.Limits[corev1.ResourceMemory]
+		if !ok {
+			return target
+		}
+		if targetMemLim.Cmp(currentMemLim) < 0 {
+			adjusted := target.DeepCopy()
+			adjusted.Limits[corev1.ResourceMemory] = currentMemLim.DeepCopy()
+			return *adjusted
+		}
+		return target
+	}
+	return target
 }
 
 // WouldRestartContainer returns true if resizing the named container would

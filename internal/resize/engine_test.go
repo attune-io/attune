@@ -753,3 +753,103 @@ func TestEvictPod_ReturnsErrorOnFailure(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "eviction denied by PDB")
 }
+
+func TestClampMemoryLimitForPolicy(t *testing.T) {
+	tests := []struct {
+		name           string
+		resizePolicy   []corev1.ContainerResizePolicy
+		currentMemLim  string
+		targetMemLim   string
+		expectedMemLim string
+	}{
+		{
+			name: "NotRequired prevents memory limit decrease",
+			resizePolicy: []corev1.ContainerResizePolicy{
+				{ResourceName: corev1.ResourceMemory, RestartPolicy: corev1.NotRequired},
+			},
+			currentMemLim:  "1Gi",
+			targetMemLim:   "64Mi",
+			expectedMemLim: "1Gi",
+		},
+		{
+			name:           "no resize policy defaults to NotRequired, prevents decrease",
+			resizePolicy:   nil,
+			currentMemLim:  "1Gi",
+			targetMemLim:   "64Mi",
+			expectedMemLim: "1Gi",
+		},
+		{
+			name: "RestartContainer allows memory limit decrease",
+			resizePolicy: []corev1.ContainerResizePolicy{
+				{ResourceName: corev1.ResourceMemory, RestartPolicy: corev1.RestartContainer},
+			},
+			currentMemLim:  "1Gi",
+			targetMemLim:   "64Mi",
+			expectedMemLim: "64Mi",
+		},
+		{
+			name: "memory limit increase is always allowed",
+			resizePolicy: []corev1.ContainerResizePolicy{
+				{ResourceName: corev1.ResourceMemory, RestartPolicy: corev1.NotRequired},
+			},
+			currentMemLim:  "64Mi",
+			targetMemLim:   "1Gi",
+			expectedMemLim: "1Gi",
+		},
+		{
+			name: "no target memory limit is a no-op",
+			resizePolicy: []corev1.ContainerResizePolicy{
+				{ResourceName: corev1.ResourceMemory, RestartPolicy: corev1.NotRequired},
+			},
+			currentMemLim:  "1Gi",
+			targetMemLim:   "",
+			expectedMemLim: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pod := &corev1.Pod{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:         "app",
+							ResizePolicy: tt.resizePolicy,
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceMemory: resource.MustParse("256Mi"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceMemory: resource.MustParse(tt.currentMemLim),
+								},
+							},
+						},
+					},
+				},
+			}
+
+			target := corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("100m"),
+					corev1.ResourceMemory: resource.MustParse("64Mi"),
+				},
+			}
+			if tt.targetMemLim != "" {
+				target.Limits = corev1.ResourceList{
+					corev1.ResourceMemory: resource.MustParse(tt.targetMemLim),
+				}
+			}
+
+			result := clampMemoryLimitForPolicy(pod, "app", target)
+
+			if tt.expectedMemLim == "" {
+				assert.Empty(t, result.Limits)
+			} else {
+				expected := resource.MustParse(tt.expectedMemLim)
+				actual := result.Limits[corev1.ResourceMemory]
+				assert.True(t, expected.Equal(actual),
+					"expected memory limit %s, got %s", expected.String(), actual.String())
+			}
+		})
+	}
+}

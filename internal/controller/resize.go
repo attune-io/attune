@@ -18,12 +18,14 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -530,6 +532,11 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 // fresh resourceVersion after the in-place resize) and writes the tracking
 // annotations that mark the pod as resized. On failure it returns a non-empty
 // revert reason so the caller can revert the resize.
+//
+// The update is retried on conflict because the kubelet concurrently updates
+// pod status (conditions, containerStatuses) after a resize, bumping
+// resourceVersion. In multi-container pods the second container's annotation
+// persist races with the kubelet's status write from the first resize.
 func (r *RightSizePolicyReconciler) persistResizeAnnotations(
 	ctx context.Context,
 	pod *corev1.Pod,
@@ -541,42 +548,51 @@ func (r *RightSizePolicyReconciler) persistResizeAnnotations(
 ) (revertReason string, err error) {
 	logger := log.FromContext(ctx)
 
-	// Re-fetch directly from API server (not informer cache) to get
-	// fresh resourceVersion after UpdateResize. See #37.
-	freshPod, getErr := r.Clientset.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
-	if getErr != nil {
-		logger.Error(getErr, "Failed to re-fetch pod after resize, reverting to avoid untracked resize", "pod", pod.Name)
-		return "re-fetch-failed", getErr
-	}
+	const maxRetries = 3
+	for attempt := range maxRetries {
+		// Re-fetch directly from API server (not informer cache) to get
+		// fresh resourceVersion after UpdateResize. See #37.
+		freshPod, getErr := r.Clientset.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
+		if getErr != nil {
+			logger.Error(getErr, "Failed to re-fetch pod after resize, reverting to avoid untracked resize", "pod", pod.Name)
+			return "re-fetch-failed", getErr
+		}
 
-	freshPod.Annotations = ensureAnnotations(freshPod.Annotations)
-	freshPod.Annotations[annotationResizedAt] = now.UTC().Format(time.RFC3339)
-	freshPod.Annotations[annotationResizedWorkload] = workloadName
-	if freshPod.Labels == nil {
-		freshPod.Labels = make(map[string]string)
-	}
-	freshPod.Labels[labelTracked] = "true"
-	freshPod.Annotations[annotationPolicy] = policyName
-	appendResizedContainer(freshPod, containerRec.Name)
-	freshPod.Annotations[annotationOriginalCPUPrefix+containerRec.Name] = containerRec.Current.CPURequest.String()
-	freshPod.Annotations[annotationOriginalMemoryPrefix+containerRec.Name] = containerRec.Current.MemoryRequest.String()
-	if !containerRec.Current.CPULimit.IsZero() {
-		freshPod.Annotations[annotationOriginalCPULimitPrefix+containerRec.Name] = containerRec.Current.CPULimit.String()
-	}
-	if !containerRec.Current.MemoryLimit.IsZero() {
-		freshPod.Annotations[annotationOriginalMemoryLimitPrefix+containerRec.Name] = containerRec.Current.MemoryLimit.String()
-	}
-	freshPod.Annotations[annotationOriginalRestartCountPrefix+containerRec.Name] = strconv.FormatInt(int64(restartCount), 10)
+		freshPod.Annotations = ensureAnnotations(freshPod.Annotations)
+		freshPod.Annotations[annotationResizedAt] = now.UTC().Format(time.RFC3339)
+		freshPod.Annotations[annotationResizedWorkload] = workloadName
+		if freshPod.Labels == nil {
+			freshPod.Labels = make(map[string]string)
+		}
+		freshPod.Labels[labelTracked] = "true"
+		freshPod.Annotations[annotationPolicy] = policyName
+		appendResizedContainer(freshPod, containerRec.Name)
+		freshPod.Annotations[annotationOriginalCPUPrefix+containerRec.Name] = containerRec.Current.CPURequest.String()
+		freshPod.Annotations[annotationOriginalMemoryPrefix+containerRec.Name] = containerRec.Current.MemoryRequest.String()
+		if !containerRec.Current.CPULimit.IsZero() {
+			freshPod.Annotations[annotationOriginalCPULimitPrefix+containerRec.Name] = containerRec.Current.CPULimit.String()
+		}
+		if !containerRec.Current.MemoryLimit.IsZero() {
+			freshPod.Annotations[annotationOriginalMemoryLimitPrefix+containerRec.Name] = containerRec.Current.MemoryLimit.String()
+		}
+		freshPod.Annotations[annotationOriginalRestartCountPrefix+containerRec.Name] = strconv.FormatInt(int64(restartCount), 10)
 
-	if updateErr := r.Update(ctx, freshPod); updateErr != nil {
-		logger.Error(updateErr, "Failed to persist resize tracking annotations, reverting resize", "pod", pod.Name)
-		return "annotation-persist-failed", updateErr
+		updateErr := r.Update(ctx, freshPod)
+		if updateErr == nil {
+			// Propagate the fresh pod (with updated resourceVersion and annotations)
+			// back to the caller so subsequent container resizes on the same pod
+			// do not need an additional API Get.
+			*pod = *freshPod
+			return "", nil
+		}
+		if !apierrors.IsConflict(updateErr) {
+			logger.Error(updateErr, "Failed to persist resize tracking annotations, reverting resize", "pod", pod.Name)
+			return "annotation-persist-failed", updateErr
+		}
+		logger.Info("Annotation update conflict, retrying", "pod", pod.Name, "attempt", attempt+1, "maxRetries", maxRetries)
 	}
-	// Propagate the fresh pod (with updated resourceVersion and annotations)
-	// back to the caller so subsequent container resizes on the same pod
-	// do not need an additional API Get.
-	*pod = *freshPod
-	return "", nil
+	logger.Error(nil, "Exhausted annotation persist retries, reverting resize", "pod", pod.Name, "maxRetries", maxRetries)
+	return "annotation-persist-conflict", fmt.Errorf("exhausted %d annotation persist retries", maxRetries)
 }
 
 // buildResizeTarget constructs the target ResourceRequirements from a container recommendation.
