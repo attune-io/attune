@@ -59,6 +59,9 @@ kubectl rightsize savings -n production
 | % SAVED | CPU savings as percentage of total CPU requests |
 | EST. MONTHLY | Estimated monthly cost savings (e.g., `$12.78`) |
 
+When multiple policies have savings data, a **TOTAL** row is appended
+with aggregate CPU, memory, percentage, and estimated monthly savings.
+
 ### recommendations
 
 Shows per-container current vs recommended values with confidence scores.

@@ -826,6 +826,80 @@ func TestPrintSavings(t *testing.T) {
 	assert.Contains(t, output, "128Mi")
 	assert.Contains(t, output, "35%")
 	assert.Contains(t, output, "$12.78")
+	assert.Contains(t, output, "TOTAL")
+}
+
+func TestPrintSavings_MultiplePoliciesShowTotals(t *testing.T) {
+	p1 := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "rightsize.io/v1alpha1",
+		"kind":       "RightSizePolicy",
+		"metadata":   map[string]interface{}{"name": "api-svc", "namespace": "default"},
+		"status": map[string]interface{}{
+			"savings": map[string]interface{}{
+				"cpuRequestReduction":     "350m",
+				"cpuRequestTotal":         "1",
+				"memoryRequestReduction":  "134217728",
+				"estimatedMonthlySavings": "$12.78",
+			},
+		},
+	}}
+	p2 := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "rightsize.io/v1alpha1",
+		"kind":       "RightSizePolicy",
+		"metadata":   map[string]interface{}{"name": "web-svc", "namespace": "default"},
+		"status": map[string]interface{}{
+			"savings": map[string]interface{}{
+				"cpuRequestReduction":     "150m",
+				"cpuRequestTotal":         "500m",
+				"memoryRequestReduction":  "67108864",
+				"estimatedMonthlySavings": "$5.22",
+			},
+		},
+	}}
+
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{gvr: "RightSizePolicyList"}, p1, p2)
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	printSavings(context.Background(), dynClient, "default")
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	output := buf.String()
+
+	assert.Contains(t, output, "TOTAL")
+	assert.Contains(t, output, "500m")    // 350m + 150m
+	assert.Contains(t, output, "192Mi")   // 128Mi + 64Mi
+	assert.Contains(t, output, "$18.00")  // $12.78 + $5.22
+}
+
+func TestParseDollarCents(t *testing.T) {
+	tests := []struct {
+		input string
+		want  int64
+	}{
+		{"$12.78", 1278},
+		{"$0.50", 50},
+		{"$100.00", 10000},
+		{"$0.00", 0},
+		{"-", 0},
+		{"", 0},
+		{"invalid", 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			assert.Equal(t, tt.want, parseDollarCents(tt.input))
+		})
+	}
 }
 
 func TestPrintSavings_NoSavings(t *testing.T) {

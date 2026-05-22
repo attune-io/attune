@@ -24,6 +24,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -344,6 +345,10 @@ func printSavings(ctx context.Context, dynClient dynamic.Interface, namespace st
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 3, ' ', 0)
 	fmt.Fprintln(w, "NAMESPACE\tNAME\tCPU SAVED\tMEMORY SAVED\t% SAVED\tEST. MONTHLY")
 
+	var totalCPUMillis, totalCPUTotalMillis, totalMemBytes int64
+	var totalMonthlyCents int64
+	hasTotals := false
+
 	for _, item := range list.Items {
 		ns := item.GetNamespace()
 		name := item.GetName()
@@ -351,6 +356,19 @@ func printSavings(ctx context.Context, dynClient dynamic.Interface, namespace st
 		cpuTotal := getNestedString(item, "status", "savings", "cpuRequestTotal")
 		memSaved := getNestedString(item, "status", "savings", "memoryRequestReduction")
 		estMonthly := getNestedString(item, "status", "savings", "estimatedMonthlySavings")
+
+		// Accumulate totals from raw values before formatting.
+		if q, err := resource.ParseQuantity(cpuSaved); err == nil {
+			totalCPUMillis += q.MilliValue()
+			hasTotals = true
+		}
+		if q, err := resource.ParseQuantity(cpuTotal); err == nil {
+			totalCPUTotalMillis += q.MilliValue()
+		}
+		if q, err := resource.ParseQuantity(memSaved); err == nil {
+			totalMemBytes += q.Value()
+		}
+		totalMonthlyCents += parseDollarCents(estMonthly)
 
 		if cpuSaved == "" {
 			cpuSaved = "-"
@@ -366,6 +384,26 @@ func printSavings(ctx context.Context, dynClient dynamic.Interface, namespace st
 
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
 			ns, name, cpuSaved, memSaved, pctSaved, estMonthly)
+	}
+
+	// Print totals row when at least one policy has savings data.
+	if hasTotals {
+		totalCPU := resource.NewMilliQuantity(totalCPUMillis, resource.DecimalSI).String()
+		totalMem := formatMemory(fmt.Sprintf("%d", totalMemBytes))
+		if totalMem == "" {
+			totalMem = "-"
+		}
+		totalPct := "-"
+		if totalCPUTotalMillis > 0 {
+			totalPct = fmt.Sprintf("%.0f%%", float64(totalCPUMillis)*100.0/float64(totalCPUTotalMillis))
+		}
+		totalMonthly := "-"
+		if totalMonthlyCents > 0 {
+			totalMonthly = fmt.Sprintf("$%.2f", float64(totalMonthlyCents)/100.0)
+		}
+		fmt.Fprintln(w, "\t\t\t\t\t")
+		fmt.Fprintf(w, "\tTOTAL\t%s\t%s\t%s\t%s\n",
+			totalCPU, totalMem, totalPct, totalMonthly)
 	}
 
 	if err := w.Flush(); err != nil {
@@ -832,6 +870,21 @@ func getConditionMessage(obj unstructured.Unstructured, conditionType string) st
 }
 
 // savingsPercent computes the CPU savings percentage from reduction and total strings.
+// parseDollarCents parses a dollar string like "$12.78" into cents (1278).
+// Returns 0 for empty, dash, or unparseable values.
+func parseDollarCents(s string) int64 {
+	s = strings.TrimSpace(s)
+	if s == "" || s == "-" {
+		return 0
+	}
+	s = strings.TrimPrefix(s, "$")
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0
+	}
+	return int64(f * 100)
+}
+
 func savingsPercent(saved, total string) string {
 	if saved == "-" || saved == "" || total == "" {
 		return "-"
