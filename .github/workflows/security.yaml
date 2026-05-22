@@ -86,25 +86,26 @@ jobs:
           scan_tar="${RUNNER_TEMP:-/tmp}/kube-rightsize-scan-${GITHUB_RUN_ID}-${GITHUB_JOB}.tar"
           # The Dockerfile uses FROM --platform=$BUILDPLATFORM which requires
           # BuildKit (buildx). Ensure buildx is usable, then build.
-          if ! docker buildx version &>/dev/null; then
-            # Install buildx plugin for Docker if missing. Download to a
-            # temp file first: the destination may be a stale/locked binary
-            # from a previous runner invocation.
-            mkdir -p "$HOME/.docker/cli-plugins"
-            OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
-            ARCH="$(uname -m)"; case "$ARCH" in x86_64) ARCH=amd64;; aarch64) ARCH=arm64;; esac
-            tmp_buildx="$(mktemp)"
-            curl -fsSL "https://github.com/docker/buildx/releases/download/v0.23.0/buildx-v0.23.0.${OS}-${ARCH}" \
-              -o "$tmp_buildx"
-            chmod +x "$tmp_buildx"
-            rm -f "$HOME/.docker/cli-plugins/docker-buildx"
-            mv "$tmp_buildx" "$HOME/.docker/cli-plugins/docker-buildx"
+          # The Dockerfile uses --platform=$BUILDPLATFORM which requires BuildKit.
+          # When buildx is available, use it directly. Otherwise, strip the
+          # --platform directives (only needed for cross-compilation) and build
+          # natively with the legacy builder.
+          if docker buildx version &>/dev/null; then
+            SCAN_PLATFORM="linux/$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')"
+            docker buildx build \
+              --platform "$SCAN_PLATFORM" \
+              --output "type=docker,dest=$scan_tar" \
+              -t kube-rightsize:scan .
+          else
+            # Strip BuildKit-only features for a legacy-builder native build:
+            # --platform=$VAR from FROM, --mount=type=cache,... from RUN,
+            # and the # syntax= directive.
+            sed -e 's/--platform=[^[:space:]]*//' -e '/^# syntax=/d' Dockerfile \
+              | awk '/^RUN --mount/ { printf "RUN "; next } /^[[:space:]]+--mount/ { next } { print }' \
+              > "${RUNNER_TEMP}/Dockerfile.scan"
+            docker build -f "${RUNNER_TEMP}/Dockerfile.scan" -t kube-rightsize:scan .
+            docker save kube-rightsize:scan -o "$scan_tar"
           fi
-          SCAN_PLATFORM="linux/$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')"
-          docker buildx build \
-            --platform "$SCAN_PLATFORM" \
-            --output "type=docker,dest=$scan_tar" \
-            -t kube-rightsize:scan .
 
       - name: Trivy image scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
