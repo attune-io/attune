@@ -214,9 +214,17 @@ stateDiagram-v2
 
 ## Limits and caveats
 
-- **Memory decreases**: The kernel only reclaims memory when the working
-  set drops below the new limit. If the application holds onto allocated
-  memory, the decrease has no practical effect until the process releases it.
+- **Memory limit decreases**: Kubernetes forbids decreasing a container's
+  memory limit in-place unless the container's `resizePolicy` for memory is
+  set to `RestartContainer`. If your pod uses `NotRequired` (the default) or
+  has no resize policy, the operator will clamp the memory limit to the
+  current value and only decrease the memory request. To allow memory limit
+  decreases without a restart, upgrade to Kubernetes 1.34+ where this
+  restriction was relaxed.
+- **Memory request decreases**: The kernel only reclaims memory when the
+  working set drops below the new limit. If the application holds onto
+  allocated memory, the decrease has no practical effect until the process
+  releases it.
 - **Init containers**: Not resizable in-place. The operator only resizes
   regular containers.
 - **Restart policy**: Containers with `resizePolicy: RestartContainer` will
