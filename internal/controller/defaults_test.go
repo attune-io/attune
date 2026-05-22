@@ -321,6 +321,30 @@ func TestFetchDefaults_ListError(t *testing.T) {
 	assert.Contains(t, err.Error(), "listing RightSizeNamespaceDefaults")
 }
 
+func TestFetchDefaults_ClusterListError(t *testing.T) {
+	// Namespace list succeeds (returns 0 items) but cluster list fails.
+	scheme := testScheme()
+	callCount := 0
+	errClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithInterceptorFuncs(interceptor.Funcs{
+			List: func(ctx context.Context, client client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+				callCount++
+				if callCount == 1 {
+					// First call (namespace-scoped): succeed with empty list.
+					return nil
+				}
+				// Second call (cluster-scoped): fail.
+				return fmt.Errorf("simulated cluster list error")
+			},
+		}).Build()
+	r := &RightSizePolicyReconciler{Client: errClient, Scheme: scheme}
+
+	result, err := r.fetchDefaults(context.Background(), "default")
+	assert.Nil(t, result)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "listing RightSizeDefaults")
+}
+
 func TestFetchDefaults_SelectsLexicographicallySmallestClusterDefault(t *testing.T) {
 	scheme := testScheme()
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).

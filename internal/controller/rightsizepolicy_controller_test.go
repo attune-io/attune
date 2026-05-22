@@ -8840,6 +8840,98 @@ func TestAdjustHPATargets_UpdateErrorPreservesOriginal(t *testing.T) {
 	assert.Equal(t, int32(80), *storedHPA.Spec.Metrics[0].Resource.Target.AverageUtilization)
 }
 
+func TestAdjustHPATargets_ClampsAbove100(t *testing.T) {
+	// When CPU request decreases dramatically, the computed target can exceed
+	// 100%. Verify it is clamped to 100.
+	scheme := testScheme()
+	target := int32(80)
+	hpa := autoscalingv2.HorizontalPodAutoscaler{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "clamp-hpa",
+			Namespace: "default",
+			Annotations: map[string]string{
+				annotationHPAAutoTune: "true",
+			},
+		},
+		Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+			ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+				Kind: "Deployment",
+				Name: "my-app",
+			},
+			Metrics: []autoscalingv2.MetricSpec{
+				{
+					Type: autoscalingv2.ResourceMetricSourceType,
+					Resource: &autoscalingv2.ResourceMetricSource{
+						Name: corev1.ResourceCPU,
+						Target: autoscalingv2.MetricTarget{
+							Type:               autoscalingv2.UtilizationMetricType,
+							AverageUtilization: &target,
+						},
+					},
+				},
+			},
+		},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&hpa).Build()
+	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+
+	// old=1000m, new=100m -> 80 * 1000/100 = 800, clamped to 100
+	r.adjustHPATargets(context.Background(), []autoscalingv2.HorizontalPodAutoscaler{hpa},
+		"my-app", "Deployment",
+		resource.MustParse("1000m"), resource.MustParse("100m"))
+
+	var stored autoscalingv2.HorizontalPodAutoscaler
+	require.NoError(t, fakeClient.Get(context.Background(),
+		client.ObjectKey{Namespace: "default", Name: "clamp-hpa"}, &stored))
+	assert.Equal(t, int32(100), *stored.Spec.Metrics[0].Resource.Target.AverageUtilization)
+}
+
+func TestAdjustHPATargets_ClampsBelow1(t *testing.T) {
+	// When CPU request increases dramatically, the computed target can drop
+	// below 1. Verify it is clamped to 1.
+	scheme := testScheme()
+	target := int32(50)
+	hpa := autoscalingv2.HorizontalPodAutoscaler{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "clamp-low-hpa",
+			Namespace: "default",
+			Annotations: map[string]string{
+				annotationHPAAutoTune: "true",
+			},
+		},
+		Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+			ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+				Kind: "Deployment",
+				Name: "my-app",
+			},
+			Metrics: []autoscalingv2.MetricSpec{
+				{
+					Type: autoscalingv2.ResourceMetricSourceType,
+					Resource: &autoscalingv2.ResourceMetricSource{
+						Name: corev1.ResourceCPU,
+						Target: autoscalingv2.MetricTarget{
+							Type:               autoscalingv2.UtilizationMetricType,
+							AverageUtilization: &target,
+						},
+					},
+				},
+			},
+		},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&hpa).Build()
+	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+
+	// old=10m, new=10000m -> 50 * 10/10000 = 0.05, int32 = 0, clamped to 1
+	r.adjustHPATargets(context.Background(), []autoscalingv2.HorizontalPodAutoscaler{hpa},
+		"my-app", "Deployment",
+		resource.MustParse("10m"), resource.MustParse("10000m"))
+
+	var stored autoscalingv2.HorizontalPodAutoscaler
+	require.NoError(t, fakeClient.Get(context.Background(),
+		client.ObjectKey{Namespace: "default", Name: "clamp-low-hpa"}, &stored))
+	assert.Equal(t, int32(1), *stored.Spec.Metrics[0].Resource.Target.AverageUtilization)
+}
+
 func TestBuildRecommendationEngines_NilMaxChangePercent(t *testing.T) {
 	// Exercise the defense-in-depth nil fallback: when MaxCPUChangePercent
 	// and MaxMemoryChangePercent are nil (bypassing applyBuiltInDefaults),
