@@ -1741,6 +1741,14 @@ spec:
                       CanaryInProgress: canary pods resized, observing for safety violations.
                       FullRollout: observation passed with no violations, all pods are being resized.
                     type: string
+                  pods:
+                    description: |-
+                      Pods lists the names of pods selected for the canary subset.
+                      Populated when Mode is Canary and pods have been resized.
+                    items:
+                      type: string
+                    maxItems: 100
+                    type: array
                   startTime:
                     description: StartTime is when the canary subset was first resized.
                     format: date-time
@@ -2305,7 +2313,7 @@ spec:
                   - to
                   - workload
                   type: object
-                maxItems: 20
+                maxItems: 50
                 type: array
               savings:
                 description: Savings summarizes estimated resource savings.
@@ -2347,6 +2355,26 @@ spec:
                       across all workloads (e.g. "2Gi").
                     type: string
                 type: object
+              workloadErrors:
+                description: |-
+                  WorkloadErrors records per-workload errors from the most recent
+                  reconcile cycle. Capped at 10 entries to limit status size.
+                items:
+                  description: WorkloadError records an error encountered while processing
+                    a specific workload.
+                  properties:
+                    error:
+                      description: Error is a human-readable description of the error.
+                      type: string
+                    workload:
+                      description: Workload is the name of the affected workload.
+                      type: string
+                  required:
+                  - error
+                  - workload
+                  type: object
+                maxItems: 10
+                type: array
               workloads:
                 description: Workloads summarizes workload discovery and resize counts.
                 properties:

@@ -45,7 +45,7 @@ func TestAppendHistory_EmptyExisting(t *testing.T) {
 	newEntries := []rightsizev1alpha1.ResizeHistoryEntry{
 		makeHistoryEntry("api-server", time.Now()),
 	}
-	result := appendHistory(nil, newEntries, 20)
+	result := appendHistory(nil, newEntries, maxHistoryEntries)
 	assert.Len(t, result, 1)
 	assert.Equal(t, "api-server", result[0].Workload)
 }
@@ -57,18 +57,18 @@ func TestAppendHistory_ExistingPlusNew(t *testing.T) {
 	newEntries := []rightsizev1alpha1.ResizeHistoryEntry{
 		makeHistoryEntry("api-2", time.Now()),
 	}
-	result := appendHistory(existing, newEntries, 20)
+	result := appendHistory(existing, newEntries, maxHistoryEntries)
 	assert.Len(t, result, 2)
 	assert.Equal(t, "api-1", result[0].Workload)
 	assert.Equal(t, "api-2", result[1].Workload)
 }
 
 func TestAppendHistory_Truncation(t *testing.T) {
-	existing := make([]rightsizev1alpha1.ResizeHistoryEntry, 20)
+	existing := make([]rightsizev1alpha1.ResizeHistoryEntry, maxHistoryEntries)
 	for i := range existing {
 		existing[i] = makeHistoryEntry(
 			fmt.Sprintf("workload-%d", i),
-			time.Now().Add(-time.Duration(20-i)*time.Minute),
+			time.Now().Add(-time.Duration(maxHistoryEntries-i)*time.Minute),
 		)
 	}
 
@@ -80,12 +80,12 @@ func TestAppendHistory_Truncation(t *testing.T) {
 		)
 	}
 
-	result := appendHistory(existing, newEntries, 20)
-	assert.Len(t, result, 20)
+	result := appendHistory(existing, newEntries, maxHistoryEntries)
+	assert.Len(t, result, maxHistoryEntries)
 
 	// The last 5 entries should be the newly appended ones.
 	for i := 0; i < 5; i++ {
-		assert.Equal(t, fmt.Sprintf("new-workload-%d", i), result[15+i].Workload)
+		assert.Equal(t, fmt.Sprintf("new-workload-%d", i), result[maxHistoryEntries-5+i].Workload)
 	}
 }
 
@@ -106,7 +106,7 @@ func TestAppendHistory_NoTruncation(t *testing.T) {
 		)
 	}
 
-	result := appendHistory(existing, newEntries, 20)
+	result := appendHistory(existing, newEntries, maxHistoryEntries)
 	assert.Len(t, result, 5)
 }
 
@@ -179,4 +179,16 @@ func TestRemoveSuccessfulInPlaceHistory_UsesSharedSemantics(t *testing.T) {
 	assert.Len(t, filtered, 2)
 	assert.Equal(t, "eviction", filtered[0].Workload)
 	assert.Equal(t, "reverted", filtered[1].Workload)
+}
+
+func TestAppendUnique(t *testing.T) {
+	result := appendUnique(nil, "pod-a")
+	assert.Equal(t, []string{"pod-a"}, result)
+
+	result = appendUnique(result, "pod-b")
+	assert.Equal(t, []string{"pod-a", "pod-b"}, result)
+
+	// Duplicate should be ignored.
+	result = appendUnique(result, "pod-a")
+	assert.Equal(t, []string{"pod-a", "pod-b"}, result)
 }

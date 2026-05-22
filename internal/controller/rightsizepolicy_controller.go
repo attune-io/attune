@@ -166,6 +166,7 @@ type workloadProcessingResult struct {
 	maxDataPoints     int
 	totalQueryErrors  int
 	queryErrorTypes   map[string]struct{}
+	workloadErrors    []rightsizev1alpha1.WorkloadError
 	gaugeKeys         []gaugeKey
 	hpaList           autoscalingv2.HorizontalPodAutoscalerList
 }
@@ -327,6 +328,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	globalMaxDataPoints := wpResult.maxDataPoints
 	totalQueryErrors := wpResult.totalQueryErrors
 	queryErrorTypes := wpResult.queryErrorTypes
+	workloadErrors := wpResult.workloadErrors
 	hpaList := wpResult.hpaList
 
 	// Emit event when recommendations first become available.
@@ -347,6 +349,8 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		DataPointsCollected: safeInt32(globalMaxDataPoints),
 		DataPointsRequired:  safeInt32(int(minimumDP)),
 	}
+	// Surface per-workload errors so users can diagnose without operator logs.
+	policy.Status.WorkloadErrors = workloadErrors
 	// Observe mode: collect data and track progress but don't surface
 	// recommendations. This gives a zero-footprint data-collection phase.
 	if policy.Spec.UpdateStrategy.Mode == rightsizev1alpha1.UpdateModeObserve {
@@ -412,7 +416,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		// the escalation mechanisms (consecutiveReverts, Degraded condition,
 		// exponential backoff) work for all revert reasons.
 		if len(history) > 0 {
-			policy.Status.ResizeHistory = appendHistory(policy.Status.ResizeHistory, history, 20)
+			policy.Status.ResizeHistory = appendHistory(policy.Status.ResizeHistory, history, maxHistoryEntries)
 		}
 		if resizedCount > 0 {
 			policy.Status.Workloads.Resized = safeInt32(resizedCount)
@@ -636,6 +640,12 @@ func (r *RightSizePolicyReconciler) processWorkloads(
 			}
 			if dataPoints > result.maxDataPoints {
 				result.maxDataPoints = dataPoints
+			}
+			if err != nil && len(result.workloadErrors) < 10 {
+				result.workloadErrors = append(result.workloadErrors, rightsizev1alpha1.WorkloadError{
+					Workload: workloadName,
+					Error:    err.Error(),
+				})
 			}
 			if err == nil && rec != nil {
 				rec.Workload = workloadName

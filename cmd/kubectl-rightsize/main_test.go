@@ -296,6 +296,63 @@ func TestGetConditionMessage(t *testing.T) {
 	}
 }
 
+func TestPrintPreview(t *testing.T) {
+	policy := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "rightsize.io/v1alpha1",
+			"kind":       "RightSizePolicy",
+			"metadata": map[string]interface{}{
+				"name":      "web-app",
+				"namespace": "default",
+			},
+			"spec": map[string]interface{}{
+				"updateStrategy": map[string]interface{}{"mode": "Recommend"},
+			},
+			"status": map[string]interface{}{
+				"recommendations": []interface{}{
+					map[string]interface{}{
+						"workload": "web-deploy",
+						"containers": []interface{}{
+							map[string]interface{}{
+								"name":        "app",
+								"current":     map[string]interface{}{"cpuRequest": "500m", "memoryRequest": "256Mi"},
+								"recommended": map[string]interface{}{"cpuRequest": "250m", "memoryRequest": "256Mi"},
+								"confidence":  0.95,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{gvr: "RightSizePolicyList"}, policy)
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	printPreview(context.Background(), dynClient, "default", "web-app")
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	output := buf.String()
+
+	assert.Contains(t, output, "Preview:")
+	assert.Contains(t, output, "web-deploy")
+	assert.Contains(t, output, "500m")
+	assert.Contains(t, output, "250m")
+	assert.Contains(t, output, "CPU")
+	assert.Contains(t, output, "Memory")
+}
+
 func TestPrintHistory(t *testing.T) {
 	policy := &unstructured.Unstructured{
 		Object: map[string]interface{}{
@@ -512,7 +569,7 @@ func TestPrintStatus(t *testing.T) {
 	require.NoError(t, err)
 	os.Stdout = w
 
-	printStatus(context.Background(), dynClient, "production")
+	printStatus(context.Background(), dynClient, "production", "", "")
 
 	w.Close()
 	os.Stdout = old
@@ -527,6 +584,7 @@ func TestPrintStatus(t *testing.T) {
 	assert.Contains(t, output, "Monitoring")
 	assert.Contains(t, output, "production")
 	assert.Contains(t, output, "PENDING")
+	assert.Contains(t, output, "CANARY")
 	assert.Contains(t, output, "3           1         2")
 }
 
@@ -623,7 +681,7 @@ func TestPrintStatus_ReadyContract(t *testing.T) {
 			require.NoError(t, err)
 			os.Stdout = w
 
-			printStatus(context.Background(), dynClient, "production")
+			printStatus(context.Background(), dynClient, "production", "", "")
 
 			w.Close()
 			os.Stdout = old
@@ -648,7 +706,7 @@ func TestPrintStatus_NoPolicies(t *testing.T) {
 	require.NoError(t, err)
 	os.Stdout = w
 
-	printStatus(context.Background(), dynClient, "default")
+	printStatus(context.Background(), dynClient, "default", "", "")
 
 	w.Close()
 	os.Stdout = old
@@ -659,6 +717,72 @@ func TestPrintStatus_NoPolicies(t *testing.T) {
 	output := buf.String()
 
 	assert.Contains(t, output, "No RightSizePolicies found")
+}
+
+func TestPrintStatus_FilterDegraded(t *testing.T) {
+	degraded := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "rightsize.io/v1alpha1",
+		"kind":       "RightSizePolicy",
+		"metadata":   map[string]interface{}{"name": "bad-app", "namespace": "prod", "creationTimestamp": "2026-01-01T00:00:00Z"},
+		"spec":       map[string]interface{}{"updateStrategy": map[string]interface{}{"mode": "Auto"}},
+		"status": map[string]interface{}{
+			"workloads": map[string]interface{}{"discovered": int64(1)},
+			"conditions": []interface{}{
+				map[string]interface{}{"type": "Degraded", "status": "True", "reason": "HighRevertRate"},
+				map[string]interface{}{"type": "Ready", "status": "True", "reason": "Monitoring"},
+			},
+		},
+	}}
+	healthy := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "rightsize.io/v1alpha1",
+		"kind":       "RightSizePolicy",
+		"metadata":   map[string]interface{}{"name": "good-app", "namespace": "prod", "creationTimestamp": "2026-01-01T00:00:00Z"},
+		"spec":       map[string]interface{}{"updateStrategy": map[string]interface{}{"mode": "Auto"}},
+		"status": map[string]interface{}{
+			"workloads": map[string]interface{}{"discovered": int64(2)},
+			"conditions": []interface{}{
+				map[string]interface{}{"type": "Ready", "status": "True", "reason": "Monitoring"},
+			},
+		},
+	}}
+
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{gvr: "RightSizePolicyList"}, degraded, healthy)
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	printStatus(context.Background(), dynClient, "prod", "", "degraded")
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	output := buf.String()
+
+	assert.Contains(t, output, "bad-app")
+	assert.NotContains(t, output, "good-app")
+}
+
+func TestSortPolicies_BySavings(t *testing.T) {
+	items := []unstructured.Unstructured{
+		{Object: map[string]interface{}{
+			"metadata": map[string]interface{}{"name": "low"},
+			"status":   map[string]interface{}{"savings": map[string]interface{}{"estimatedMonthlySavings": "$5.00"}},
+		}},
+		{Object: map[string]interface{}{
+			"metadata": map[string]interface{}{"name": "high"},
+			"status":   map[string]interface{}{"savings": map[string]interface{}{"estimatedMonthlySavings": "$50.00"}},
+		}},
+	}
+	sortPolicies(items, "savings")
+	assert.Equal(t, "high", items[0].GetName())
+	assert.Equal(t, "low", items[1].GetName())
 }
 
 // ---------- printStructured ----------
@@ -811,7 +935,7 @@ func TestPrintSavings(t *testing.T) {
 	require.NoError(t, err)
 	os.Stdout = w
 
-	printSavings(context.Background(), dynClient, "default")
+	printSavings(context.Background(), dynClient, "default", "")
 
 	w.Close()
 	os.Stdout = old
@@ -866,7 +990,7 @@ func TestPrintSavings_MultiplePoliciesShowTotals(t *testing.T) {
 	require.NoError(t, err)
 	os.Stdout = w
 
-	printSavings(context.Background(), dynClient, "default")
+	printSavings(context.Background(), dynClient, "default", "")
 
 	w.Close()
 	os.Stdout = old
@@ -924,7 +1048,7 @@ func TestPrintSavings_NoSavings(t *testing.T) {
 	require.NoError(t, err)
 	os.Stdout = w
 
-	printSavings(context.Background(), dynClient, "default")
+	printSavings(context.Background(), dynClient, "default", "")
 
 	w.Close()
 	os.Stdout = old

@@ -483,9 +483,15 @@ type RightSizePolicyStatus struct {
 	Savings SavingsStatus `json:"savings,omitempty"`
 
 	// ResizeHistory records past resize operations.
-	// +kubebuilder:validation:MaxItems=20
+	// +kubebuilder:validation:MaxItems=50
 	// +optional
 	ResizeHistory []ResizeHistoryEntry `json:"resizeHistory,omitempty"`
+
+	// WorkloadErrors records per-workload errors from the most recent
+	// reconcile cycle. Capped at 10 entries to limit status size.
+	// +kubebuilder:validation:MaxItems=10
+	// +optional
+	WorkloadErrors []WorkloadError `json:"workloadErrors,omitempty"`
 
 	// Canary tracks the canary rollout phase when autoPromote is enabled.
 	// +optional
@@ -496,6 +502,15 @@ type RightSizePolicyStatus struct {
 	// this policy, even when no state changes occur.
 	// +optional
 	LastReconcileTime *metav1.Time `json:"lastReconcileTime,omitempty"`
+}
+
+// WorkloadError records an error encountered while processing a specific workload.
+type WorkloadError struct {
+	// Workload is the name of the affected workload.
+	Workload string `json:"workload"`
+
+	// Error is a human-readable description of the error.
+	Error string `json:"error"`
 }
 
 // CanaryStatus tracks the canary rollout progression.
@@ -515,6 +530,12 @@ type CanaryStatus struct {
 	// canary observation resets so the new configuration is re-validated.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
+	// Pods lists the names of pods selected for the canary subset.
+	// Populated when Mode is Canary and pods have been resized.
+	// +kubebuilder:validation:MaxItems=100
+	// +optional
+	Pods []string `json:"pods,omitempty"`
 }
 
 // WorkloadStatus summarizes workload counts.

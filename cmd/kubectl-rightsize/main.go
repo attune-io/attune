@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sort"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -94,6 +95,8 @@ func run(args []string, buildClient dynamicClientFactory) int {
 	fs.StringVar(output, "output", "", structuredOutputUsage)
 	watch := fs.Bool("w", false, "Watch mode: refresh status every 10 seconds (status command only)")
 	fs.BoolVar(watch, "watch", false, "Watch mode: refresh status every 10 seconds (status command only)")
+	sortBy := fs.String("sort-by", "", "Sort output: name, namespace, savings, age (status/savings commands)")
+	filter := fs.String("filter", "", "Filter policies by Ready condition reason: degraded, pending, collecting, ready, noworkloads (status command)")
 	fs.Usage = func() {
 		fmt.Fprintln(os.Stderr, "Usage: kubectl rightsize <command> [flags]")
 		fmt.Fprintln(os.Stderr, "")
@@ -102,6 +105,7 @@ func run(args []string, buildClient dynamicClientFactory) int {
 		fmt.Fprintln(os.Stderr, "  savings           Show estimated CPU/memory savings per policy")
 		fmt.Fprintln(os.Stderr, "  recommendations   Show per-container sizing recommendations")
 		fmt.Fprintln(os.Stderr, "  explain           Show recommendation reasoning for one policy")
+		fmt.Fprintln(os.Stderr, "  preview           Preview per-pod resource changes before promoting mode")
 		fmt.Fprintln(os.Stderr, "  history           Show resize history (including eviction fallbacks)")
 		fmt.Fprintln(os.Stderr, "  version           Print plugin version")
 		fmt.Fprintln(os.Stderr, "")
@@ -152,10 +156,18 @@ func run(args []string, buildClient dynamicClientFactory) int {
 		fmt.Fprintf(os.Stderr, "Error: --watch is supported only with the status command\n")
 		return 1
 	}
+	if *filter != "" && cmd != "status" {
+		fmt.Fprintf(os.Stderr, "Error: --filter is supported only with the status command\n")
+		return 1
+	}
+	if *sortBy != "" && cmd != "status" && cmd != "savings" {
+		fmt.Fprintf(os.Stderr, "Error: --sort-by is supported only with the status and savings commands\n")
+		return 1
+	}
 
 	policyName := ""
-	if cmd == "explain" {
-		name, err := explainPolicyName(parsedArgs)
+	if cmd == "explain" || cmd == "preview" {
+		name, err := policyNameArg(cmd, parsedArgs)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			return 1
@@ -188,18 +200,20 @@ func run(args []string, buildClient dynamicClientFactory) int {
 	switch cmd {
 	case "status":
 		if *watch {
-			watchStatus(ctx, dynClient, *namespace)
+			watchStatus(ctx, dynClient, *namespace, *sortBy, *filter)
 		} else {
-			printStatus(ctx, dynClient, *namespace)
+			printStatus(ctx, dynClient, *namespace, *sortBy, *filter)
 		}
 	case "savings":
-		printSavings(ctx, dynClient, *namespace)
+		printSavings(ctx, dynClient, *namespace, *sortBy)
 	case "recommendations":
 		printRecommendations(ctx, dynClient, *namespace)
 	case "explain":
 		printExplain(ctx, dynClient, *namespace, policyName)
 	case "history":
 		printHistory(ctx, dynClient, *namespace)
+	case "preview":
+		printPreview(ctx, dynClient, *namespace, policyName)
 	}
 	return 0
 }
@@ -227,7 +241,7 @@ func buildDynamicClient(kubeconfigPath string) (dynamic.Interface, string, error
 
 func isKnownCommand(cmd string) bool {
 	switch cmd {
-	case "status", "savings", "recommendations", "explain", "history", "version":
+	case "status", "savings", "recommendations", "explain", "history", "preview", "version":
 		return true
 	default:
 		return false
@@ -251,13 +265,17 @@ func zeroArgCommandArgs(cmd string, args []string) error {
 }
 
 func explainPolicyName(args []string) (string, error) {
+	return policyNameArg("explain", args)
+}
+
+func policyNameArg(cmd string, args []string) (string, error) {
 	switch len(args) {
 	case 0:
-		return "", fmt.Errorf("explain requires a policy name")
+		return "", fmt.Errorf("%s requires a policy name", cmd)
 	case 1:
 		return args[0], nil
 	default:
-		return "", fmt.Errorf("explain accepts exactly one policy name. Put flags before the policy name, for example: kubectl rightsize explain -n production %s", args[0])
+		return "", fmt.Errorf("%s accepts exactly one policy name. Put flags before the policy name, for example: kubectl rightsize %s -n production %s", cmd, cmd, args[0])
 	}
 }
 
@@ -283,7 +301,7 @@ func fetchPolicies(ctx context.Context, dynClient dynamic.Interface, namespace s
 	return list
 }
 
-func printStatus(ctx context.Context, dynClient dynamic.Interface, namespace string) {
+func printStatus(ctx context.Context, dynClient dynamic.Interface, namespace, sortByFlag, filterFlag string) {
 	list := fetchPolicies(ctx, dynClient, namespace)
 
 	if len(list.Items) == 0 {
@@ -291,10 +309,18 @@ func printStatus(ctx context.Context, dynClient dynamic.Interface, namespace str
 		return
 	}
 
-	w := tabwriter.NewWriter(os.Stdout, 0, 4, 3, ' ', 0)
-	fmt.Fprintln(w, "NAMESPACE\tNAME\tMODE\tWORKLOADS\tPENDING\tRESIZED\tREADY\tRESIZING\tDEGRADED\tSCHEDULE\tAGE")
+	items := list.Items
+	items = filterPolicies(items, filterFlag)
+	if len(items) == 0 {
+		fmt.Println("No RightSizePolicies match the filter.")
+		return
+	}
+	sortPolicies(items, sortByFlag)
 
-	for _, item := range list.Items {
+	w := tabwriter.NewWriter(os.Stdout, 0, 4, 3, ' ', 0)
+	fmt.Fprintln(w, "NAMESPACE\tNAME\tMODE\tWORKLOADS\tPENDING\tRESIZED\tREADY\tRESIZING\tDEGRADED\tSCHEDULE\tCANARY\tAGE")
+
+	for _, item := range items {
 		ns := item.GetNamespace()
 		name := item.GetName()
 		mode := getNestedString(item, "spec", "updateStrategy", "mode")
@@ -305,25 +331,44 @@ func printStatus(ctx context.Context, dynClient dynamic.Interface, namespace str
 		resizing := getConditionReason(item, "Resizing")
 		degraded := getConditionReason(item, "Degraded")
 		schedule := getConditionReason(item, "ScheduleBlocked")
+		canary := formatCanaryStatus(item)
 		age := formatAge(item.GetCreationTimestamp().Time)
 
-		fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t%s\n",
-			ns, name, mode, workloads, pending, resized, ready, resizing, degraded, schedule, age)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			ns, name, mode, workloads, pending, resized, ready, resizing, degraded, schedule, canary, age)
 	}
 
 	if err := w.Flush(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error flushing output: %v\n", err)
 	}
+
+	// Show per-workload errors when present.
+	for _, item := range list.Items {
+		errors, found, _ := unstructured.NestedSlice(item.Object, "status", "workloadErrors")
+		if !found || len(errors) == 0 {
+			continue
+		}
+		fmt.Fprintf(os.Stderr, "\nWorkload errors for %s/%s:\n", item.GetNamespace(), item.GetName())
+		for _, e := range errors {
+			entry, ok := e.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			wl, _ := entry["workload"].(string)
+			msg, _ := entry["error"].(string)
+			fmt.Fprintf(os.Stderr, "  %s: %s\n", wl, msg)
+		}
+	}
 }
 
-func watchStatus(ctx context.Context, dynClient dynamic.Interface, namespace string) {
+func watchStatus(ctx context.Context, dynClient dynamic.Interface, namespace, sortByFlag, filterFlag string) {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
 	defer stop()
 
 	for {
 		// Clear screen and move cursor to top-left.
 		fmt.Print("\033[2J\033[H")
-		printStatus(ctx, dynClient, namespace)
+		printStatus(ctx, dynClient, namespace, sortByFlag, filterFlag)
 		fmt.Printf("\nLast refresh: %s  (Ctrl+C to stop)\n", time.Now().Format("15:04:05"))
 
 		select {
@@ -334,13 +379,16 @@ func watchStatus(ctx context.Context, dynClient dynamic.Interface, namespace str
 	}
 }
 
-func printSavings(ctx context.Context, dynClient dynamic.Interface, namespace string) {
+func printSavings(ctx context.Context, dynClient dynamic.Interface, namespace, sortByFlag string) {
 	list := fetchPolicies(ctx, dynClient, namespace)
 
 	if len(list.Items) == 0 {
 		fmt.Println("No RightSizePolicies found.")
 		return
 	}
+
+	items := list.Items
+	sortPolicies(items, sortByFlag)
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 3, ' ', 0)
 	fmt.Fprintln(w, "NAMESPACE\tNAME\tCPU SAVED\tMEMORY SAVED\t% SAVED\tEST. MONTHLY")
@@ -349,7 +397,7 @@ func printSavings(ctx context.Context, dynClient dynamic.Interface, namespace st
 	var totalMonthlyCents int64
 	hasTotals := false
 
-	for _, item := range list.Items {
+	for _, item := range items {
 		ns := item.GetNamespace()
 		name := item.GetName()
 		cpuSaved := getNestedString(item, "status", "savings", "cpuRequestReduction")
@@ -1020,6 +1068,85 @@ func printStructured(ctx context.Context, dynClient dynamic.Interface, namespace
 	}
 }
 
+// filterPolicies returns items matching the given filter keyword based on the
+// Ready condition reason. Supported filters: degraded, pending, collecting,
+// ready, noworkloads. Empty filter returns all items.
+func filterPolicies(items []unstructured.Unstructured, filterFlag string) []unstructured.Unstructured {
+	if filterFlag == "" {
+		return items
+	}
+	f := strings.ToLower(filterFlag)
+	var result []unstructured.Unstructured
+	for _, item := range items {
+		reason := strings.ToLower(policyReadyReason(item))
+		degraded := strings.ToLower(getConditionReason(item, "Degraded"))
+		var match bool
+		switch f {
+		case "degraded":
+			match = degraded != "-" && degraded != ""
+		case "pending":
+			match = reason == "pending"
+		case "collecting":
+			match = strings.Contains(reason, "insufficientdata") || strings.Contains(reason, "collecting")
+		case "ready":
+			match = strings.Contains(reason, "monitoring") || strings.Contains(reason, "ready")
+		case "noworkloads":
+			match = strings.Contains(reason, "noworkloadsfound") || strings.Contains(reason, "no matching workloads")
+		default:
+			match = strings.Contains(reason, f)
+		}
+		if match {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
+// sortPolicies sorts items in place by the given key. Supported: name,
+// namespace, savings, age. Empty or unrecognized values are no-ops (API order).
+func sortPolicies(items []unstructured.Unstructured, sortByFlag string) {
+	switch strings.ToLower(sortByFlag) {
+	case "name":
+		sort.Slice(items, func(i, j int) bool {
+			return items[i].GetName() < items[j].GetName()
+		})
+	case "namespace":
+		sort.Slice(items, func(i, j int) bool {
+			if items[i].GetNamespace() == items[j].GetNamespace() {
+				return items[i].GetName() < items[j].GetName()
+			}
+			return items[i].GetNamespace() < items[j].GetNamespace()
+		})
+	case "savings":
+		sort.Slice(items, func(i, j int) bool {
+			return parseDollarCents(getNestedString(items[i], "status", "savings", "estimatedMonthlySavings")) >
+				parseDollarCents(getNestedString(items[j], "status", "savings", "estimatedMonthlySavings"))
+		})
+	case "age":
+		sort.Slice(items, func(i, j int) bool {
+			return items[i].GetCreationTimestamp().Time.Before(items[j].GetCreationTimestamp().Time)
+		})
+	}
+}
+
+// formatCanaryStatus returns a summary of the canary rollout state, or "-" if
+// the policy is not in Canary mode or has no canary status.
+func formatCanaryStatus(item unstructured.Unstructured) string {
+	mode := getNestedString(item, "spec", "updateStrategy", "mode")
+	if mode != "Canary" {
+		return "-"
+	}
+	phase := getNestedString(item, "status", "canary", "phase")
+	if phase == "" {
+		return "Pending"
+	}
+	pods, _, _ := unstructured.NestedStringSlice(item.Object, "status", "canary", "pods")
+	if len(pods) > 0 {
+		return fmt.Sprintf("%s (%d pods)", phase, len(pods))
+	}
+	return phase
+}
+
 func formatAge(created time.Time) string {
 	dur := time.Since(created)
 	switch {
@@ -1095,5 +1222,81 @@ func printHistory(ctx context.Context, dynClient dynamic.Interface, namespace st
 	}
 	if !hasEntries {
 		fmt.Fprintf(os.Stderr, "\nNo resize history found. In-place resizes and eviction fallbacks are recorded in Canary, OneShot, and Auto modes.\n")
+	}
+}
+
+// printPreview shows per-workload, per-container resource changes that would
+// occur if the policy's mode were promoted to Auto (or Canary).
+func printPreview(ctx context.Context, dynClient dynamic.Interface, namespace, policyName string) {
+	if namespace == "" {
+		fmt.Fprintln(os.Stderr, "Error: preview requires a single namespace. Use -n or --namespace.")
+		os.Exit(1)
+	}
+
+	item, err := dynClient.Resource(gvr).Namespace(namespace).Get(ctx, policyName, metav1.GetOptions{})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error fetching policy %s/%s: %v\n", namespace, policyName, err)
+		os.Exit(1)
+	}
+
+	mode := getNestedString(*item, "spec", "updateStrategy", "mode")
+	recs, found, _ := unstructured.NestedSlice(item.Object, "status", "recommendations")
+	if !found || len(recs) == 0 {
+		fmt.Printf("%s/%s has no recommendations yet (%s). Nothing to preview.\n",
+			namespace, policyName, policyReadyReason(*item))
+		return
+	}
+
+	fmt.Printf("Preview: %s/%s (current mode: %s)\n\n", namespace, policyName, mode)
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 4, 3, ' ', 0)
+	fmt.Fprintln(w, "WORKLOAD\tCONTAINER\tRESOURCE\tCURRENT\tRECOMMENDED\tCHANGE")
+
+	for _, r := range recs {
+		rec, ok := r.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		workload, _ := rec["workload"].(string)
+		containers, _ := rec["containers"].([]interface{})
+
+		for _, c := range containers {
+			cont, ok := c.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			name, _ := cont["name"].(string)
+			current, _ := cont["current"].(map[string]interface{})
+			recommended, _ := cont["recommended"].(map[string]interface{})
+
+			curCPU, _ := current["cpuRequest"].(string)
+			recCPU, _ := recommended["cpuRequest"].(string)
+			curMem, _ := current["memoryRequest"].(string)
+			recMem, _ := recommended["memoryRequest"].(string)
+
+			cpuDelta := formatDeltaSuffix(curCPU, recCPU)
+			memDelta := formatDeltaSuffix(curMem, recMem)
+
+			fmt.Fprintf(w, "%s\t%s\tCPU\t%s\t%s\t%s\n",
+				workload, name, curCPU, recCPU, strings.TrimPrefix(cpuDelta, ", "))
+			fmt.Fprintf(w, "%s\t%s\tMemory\t%s\t%s\t%s\n",
+				workload, name, curMem, recMem, strings.TrimPrefix(memDelta, ", "))
+		}
+	}
+
+	if err := w.Flush(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error flushing output: %v\n", err)
+	}
+
+	// Show canary pod count if policy is in Canary mode.
+	canaryPct := getNestedString(*item, "spec", "updateStrategy", "canary", "percentage")
+	if canaryPct != "" {
+		fmt.Fprintf(os.Stderr, "\nCanary percentage: %s%% of eligible pods will be resized first.\n", canaryPct)
+	}
+
+	// Warn about workload errors.
+	errors, found, _ := unstructured.NestedSlice(item.Object, "status", "workloadErrors")
+	if found && len(errors) > 0 {
+		fmt.Fprintf(os.Stderr, "\nWarning: %d workload(s) had errors during last reconcile. Run 'kubectl rightsize status' for details.\n", len(errors))
 	}
 }

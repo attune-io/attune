@@ -48,6 +48,10 @@ const (
 	degradedRevertThreshold = 3
 	// maxBackoffDoublings caps exponential cooldown at 2^N x base.
 	maxBackoffDoublings = 4
+	// maxHistoryEntries is the maximum number of resize history entries
+	// kept per policy. Must match the kubebuilder MaxItems marker on
+	// RightSizePolicyStatus.ResizeHistory.
+	maxHistoryEntries = 50
 )
 
 // isResizeMode returns true if the policy mode performs actual pod resizes.
@@ -583,6 +587,16 @@ func (r *RightSizePolicyReconciler) newSafetyMonitor(logger logr.Logger, collect
 		monitor.WithThrottleChecker(tc, safety.DefaultThrottleThreshold)
 	}
 	return monitor
+}
+
+// appendUnique appends value to the slice if it is not already present.
+func appendUnique(slice []string, value string) []string {
+	for _, v := range slice {
+		if v == value {
+			return slice
+		}
+	}
+	return append(slice, value)
 }
 
 // autoRevertEnabled returns true when the policy's AutoRevert setting is nil

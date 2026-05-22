@@ -221,6 +221,15 @@ func (r *RightSizePolicyReconciler) executeResizes(
 			continue
 		}
 
+		// Track canary pod names so users can identify the subset.
+		if policy.Spec.UpdateStrategy.Mode == rightsizev1alpha1.UpdateModeCanary &&
+			policy.Status.Canary != nil &&
+			policy.Status.Canary.Phase == rightsizev1alpha1.CanaryPhaseInProgress {
+			for _, p := range selectedPods {
+				policy.Status.Canary.Pods = appendUnique(policy.Status.Canary.Pods, p.Name)
+			}
+		}
+
 		var workloadResized int32 // atomic for concurrent access
 		for _, pod := range selectedPods {
 			// Capture loop variables for the goroutine.

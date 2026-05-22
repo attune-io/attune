@@ -4094,7 +4094,7 @@ func TestMergeDefaults_PolicyOverridesDefaults(t *testing.T) {
 // ---------- appendHistory ----------
 
 func TestAppendHistory_CapsAtMaxEntries(t *testing.T) {
-	existing := make([]rightsizev1alpha1.ResizeHistoryEntry, 18)
+	existing := make([]rightsizev1alpha1.ResizeHistoryEntry, maxHistoryEntries-2)
 	for i := range existing {
 		existing[i] = rightsizev1alpha1.ResizeHistoryEntry{Workload: fmt.Sprintf("w-%d", i)}
 	}
@@ -4105,10 +4105,10 @@ func TestAppendHistory_CapsAtMaxEntries(t *testing.T) {
 		{Workload: "new-4"},
 	}
 
-	result := appendHistory(existing, newEntries, 20)
-	assert.Len(t, result, 20)
+	result := appendHistory(existing, newEntries, maxHistoryEntries)
+	assert.Len(t, result, maxHistoryEntries)
 	assert.Equal(t, "w-2", result[0].Workload)
-	assert.Equal(t, "new-4", result[19].Workload)
+	assert.Equal(t, "new-4", result[maxHistoryEntries-1].Workload)
 }
 
 // ---------- Reconcile with OneShot mode (exercises resize path entry) ----------
