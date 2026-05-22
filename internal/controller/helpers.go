@@ -591,10 +591,8 @@ func (r *RightSizePolicyReconciler) newSafetyMonitor(logger logr.Logger, collect
 
 // appendUnique appends value to the slice if it is not already present.
 func appendUnique(slice []string, value string) []string {
-	for _, v := range slice {
-		if v == value {
-			return slice
-		}
+	if slices.Contains(slice, value) {
+		return slice
 	}
 	return append(slice, value)
 }
