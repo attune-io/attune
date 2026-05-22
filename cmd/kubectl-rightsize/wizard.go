@@ -232,7 +232,7 @@ func wizardCreate(ctx context.Context, dynClient dynamic.Interface, namespace st
 		if err != nil {
 			return err
 		}
-		if err := os.WriteFile(filename, yamlBytes, 0644); err != nil {
+		if err := os.WriteFile(filename, yamlBytes, 0o600); err != nil {
 			return fmt.Errorf("writing file: %w", err)
 		}
 		fmt.Printf("Saved to %s\n", filename)

@@ -25,9 +25,9 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
-	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // scriptedPrompter returns pre-programmed answers for testing.
@@ -271,8 +271,8 @@ func TestWizardPromote_Cancel(t *testing.T) {
 	)
 
 	p := &scriptedPrompter{
-		selectAnswers:  []int{0, 2},       // policy, mode
-		confirmAnswers: []bool{false},      // cancel
+		selectAnswers:  []int{0, 2},   // policy, mode
+		confirmAnswers: []bool{false}, // cancel
 	}
 
 	err := wizardPromote(context.Background(), dynClient, "default", p)

@@ -53,10 +53,10 @@ func BenchmarkBuildProfile_HistoryWindows(b *testing.B) {
 		name    string
 		samples int
 	}{
-		{"1d_288", 288},      // 24h / 5m
-		{"7d_2016", 2016},    // default history window
-		{"14d_4032", 4032},   // 2-week window
-		{"30d_8640", 8640},   // 30d max window
+		{"1d_288", 288},    // 24h / 5m
+		{"7d_2016", 2016},  // default history window
+		{"14d_4032", 4032}, // 2-week window
+		{"30d_8640", 8640}, // 30d max window
 	}
 	for _, tc := range cases {
 		b.Run(tc.name, func(b *testing.B) {
