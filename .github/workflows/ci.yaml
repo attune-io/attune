@@ -633,7 +633,9 @@ jobs:
           PLUGINS_DIR="$(helm env HELM_PLUGINS)/unittest"
           mkdir -p "$PLUGINS_DIR"
           HELM_UNITTEST_ASSET_VERSION="${HELM_UNITTEST_VERSION#v}"
-          curl -fsSL "https://github.com/helm-unittest/helm-unittest/releases/download/${HELM_UNITTEST_VERSION}/helm-unittest-linux-amd64-${HELM_UNITTEST_ASSET_VERSION}.tgz" \
+          OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+          ARCH=$(uname -m); [ "$ARCH" = "x86_64" ] && ARCH="amd64"; [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ] && ARCH="arm64"
+          curl -fsSL "https://github.com/helm-unittest/helm-unittest/releases/download/${HELM_UNITTEST_VERSION}/helm-unittest-${OS}-${ARCH}-${HELM_UNITTEST_ASSET_VERSION}.tgz" \
             | tar xz -C "$PLUGINS_DIR"
           helm unittest charts/kube-rightsize
 
