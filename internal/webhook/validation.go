@@ -254,6 +254,21 @@ func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizeP
 		}
 	}
 
+	// Validate at most one metrics source is configured.
+	sourceCount := 0
+	if policy.Spec.MetricsSource.Prometheus != nil {
+		sourceCount++
+	}
+	if policy.Spec.MetricsSource.Datadog != nil {
+		sourceCount++
+	}
+	if policy.Spec.MetricsSource.CloudWatch != nil {
+		sourceCount++
+	}
+	if sourceCount > 1 {
+		return warnings, fmt.Errorf("metricsSource: at most one of prometheus, datadog, or cloudwatch may be set")
+	}
+
 	// Validate Prometheus settings if specified.
 	if prometheus := policy.Spec.MetricsSource.Prometheus; prometheus != nil {
 		if prometheus.Address != "" {
@@ -271,6 +286,37 @@ func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizeP
 			if strings.Contains(prometheus.BearerTokenSecret.Name, "/") {
 				return warnings, fmt.Errorf("metricsSource.prometheus.bearerTokenSecret.name must not contain '/'; secrets are read from the policy's namespace")
 			}
+		}
+	}
+
+	// Validate Datadog settings if specified.
+	if dd := policy.Spec.MetricsSource.Datadog; dd != nil {
+		validSites := map[string]bool{
+			"datadoghq.com": true, "datadoghq.eu": true,
+			"us3.datadoghq.com": true, "us5.datadoghq.com": true,
+			"ap1.datadoghq.com": true, "ddog-gov.com": true,
+		}
+		if dd.Site != "" && !validSites[dd.Site] {
+			return warnings, fmt.Errorf("metricsSource.datadog.site %q is not a recognized Datadog site", dd.Site)
+		}
+		if dd.APIKeySecretRef.Name == "" {
+			return warnings, fmt.Errorf("metricsSource.datadog.apiKeySecretRef.name is required")
+		}
+		if dd.APIKeySecretRef.Key == "" {
+			return warnings, fmt.Errorf("metricsSource.datadog.apiKeySecretRef.key is required")
+		}
+		if strings.Contains(dd.APIKeySecretRef.Name, "/") {
+			return warnings, fmt.Errorf("metricsSource.datadog.apiKeySecretRef.name must not contain '/'; secrets are read from the policy's namespace")
+		}
+	}
+
+	// Validate CloudWatch settings if specified.
+	if cw := policy.Spec.MetricsSource.CloudWatch; cw != nil {
+		if cw.Region == "" {
+			return warnings, fmt.Errorf("metricsSource.cloudwatch.region is required")
+		}
+		if cw.ClusterName == "" {
+			return warnings, fmt.Errorf("metricsSource.cloudwatch.clusterName is required")
 		}
 	}
 

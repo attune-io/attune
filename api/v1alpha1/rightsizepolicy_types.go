@@ -123,10 +123,19 @@ type TargetRef struct {
 }
 
 // MetricsSource configures the source of metrics data.
+// At most one of prometheus, datadog, or cloudwatch may be set.
 type MetricsSource struct {
 	// Prometheus configures a Prometheus metrics source.
 	// +optional
 	Prometheus *PrometheusConfig `json:"prometheus,omitempty"`
+
+	// Datadog configures a Datadog metrics source.
+	// +optional
+	Datadog *DatadogConfig `json:"datadog,omitempty"`
+
+	// CloudWatch configures an Amazon CloudWatch Container Insights metrics source.
+	// +optional
+	CloudWatch *CloudWatchConfig `json:"cloudwatch,omitempty"`
 
 	// HistoryWindow is the time window for historical metrics data.
 	// Defaults to 7d (168h) if not specified.
@@ -202,6 +211,36 @@ type TLSConfig struct {
 	// Use only for self-signed certificates in development.
 	// +optional
 	InsecureSkipVerify bool `json:"insecureSkipVerify,omitempty"`
+}
+
+// DatadogConfig configures a Datadog metrics source.
+// +kubebuilder:validation:Optional
+type DatadogConfig struct {
+	// Site is the Datadog site (e.g. "datadoghq.com", "datadoghq.eu", "us5.datadoghq.com").
+	// Defaults to "datadoghq.com".
+	// +kubebuilder:default="datadoghq.com"
+	// +optional
+	Site string `json:"site,omitempty"`
+
+	// APIKeySecretRef references a Secret containing the Datadog API key.
+	// The Secret must contain an "api-key" key and optionally an "app-key" key.
+	APIKeySecretRef SecretKeyRef `json:"apiKeySecretRef"`
+}
+
+// CloudWatchConfig configures an Amazon CloudWatch Container Insights metrics source.
+// +kubebuilder:validation:Optional
+type CloudWatchConfig struct {
+	// Region is the AWS region (e.g. "us-east-1"). Required.
+	Region string `json:"region"`
+
+	// ClusterName is the EKS cluster name for Container Insights metrics.
+	// Required for metric filtering.
+	ClusterName string `json:"clusterName"`
+
+	// RoleARN is an optional IAM role ARN to assume for cross-account access.
+	// If not set, uses the pod's service account IAM role (IRSA/Pod Identity).
+	// +optional
+	RoleARN string `json:"roleArn,omitempty"`
 }
 
 // ResourceConfig defines resource recommendation parameters.

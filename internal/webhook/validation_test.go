@@ -896,3 +896,126 @@ func TestValidate_RateWindowExceedsHistoryWindow(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "must not exceed historyWindow")
 }
+
+func TestValidate_MultipleMetricsSources(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.MetricsSource.Prometheus = &rightsizev1alpha1.PrometheusConfig{
+		Address: "http://prometheus:9090",
+	}
+	policy.Spec.MetricsSource.Datadog = &rightsizev1alpha1.DatadogConfig{
+		APIKeySecretRef: rightsizev1alpha1.SecretKeyRef{Name: "dd-secret", Key: "api-key"},
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "at most one of prometheus, datadog, or cloudwatch")
+}
+
+func TestValidate_DatadogValid(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.MetricsSource.Datadog = &rightsizev1alpha1.DatadogConfig{
+		Site:            "datadoghq.eu",
+		APIKeySecretRef: rightsizev1alpha1.SecretKeyRef{Name: "dd-secret", Key: "api-key"},
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	assert.NoError(t, err)
+}
+
+func TestValidate_DatadogInvalidSite(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.MetricsSource.Datadog = &rightsizev1alpha1.DatadogConfig{
+		Site:            "evil.example.com",
+		APIKeySecretRef: rightsizev1alpha1.SecretKeyRef{Name: "dd-secret", Key: "api-key"},
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not a recognized Datadog site")
+}
+
+func TestValidate_DatadogMissingSecret(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.MetricsSource.Datadog = &rightsizev1alpha1.DatadogConfig{}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "apiKeySecretRef.name is required")
+}
+
+func TestValidate_DatadogSecretCrossNamespace(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.MetricsSource.Datadog = &rightsizev1alpha1.DatadogConfig{
+		APIKeySecretRef: rightsizev1alpha1.SecretKeyRef{Name: "other-ns/dd-secret", Key: "api-key"},
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "must not contain '/'")
+}
+
+func TestValidate_CloudWatchValid(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.MetricsSource.CloudWatch = &rightsizev1alpha1.CloudWatchConfig{
+		Region:      "us-east-1",
+		ClusterName: "my-eks-cluster",
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	assert.NoError(t, err)
+}
+
+func TestValidate_CloudWatchMissingRegion(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.MetricsSource.CloudWatch = &rightsizev1alpha1.CloudWatchConfig{
+		ClusterName: "my-cluster",
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "region is required")
+}
+
+func TestValidate_CloudWatchMissingCluster(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.MetricsSource.CloudWatch = &rightsizev1alpha1.CloudWatchConfig{
+		Region: "us-west-2",
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "clusterName is required")
+}
+
+func TestValidate_AllThreeSourcesSet(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.MetricsSource.Prometheus = &rightsizev1alpha1.PrometheusConfig{Address: "http://prom:9090"}
+	policy.Spec.MetricsSource.Datadog = &rightsizev1alpha1.DatadogConfig{
+		APIKeySecretRef: rightsizev1alpha1.SecretKeyRef{Name: "s", Key: "k"},
+	}
+	policy.Spec.MetricsSource.CloudWatch = &rightsizev1alpha1.CloudWatchConfig{
+		Region: "us-east-1", ClusterName: "c",
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "at most one")
+}
+
+func TestValidate_NoSourceIsValid(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	// No metricsSource.prometheus/datadog/cloudwatch set; uses defaults.
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	assert.NoError(t, err)
+}
