@@ -120,6 +120,14 @@ Use a typed `kubernetes.Clientset` and call `UpdateResize()`:
 clientset.CoreV1().Pods(ns).UpdateResize(ctx, name, pod, metav1.UpdateOptions{})
 ```
 
+`UpdateResize` must be wrapped in `retry.RetryOnConflict` because the kubelet
+concurrently updates pod status (conditions, containerStatuses) after applying
+a resize, which bumps `resourceVersion`. In multi-container pods where
+containers are resized sequentially, the second container's `UpdateResize`
+nearly always hits a 409 Conflict from the stale `resourceVersion`. The retry
+loop re-fetches the pod and reapplies the resource changes on each attempt.
+See `internal/resize/engine.go` `ResizePod()`.
+
 ### Code generation
 
 Run `make manifests` after changing CRD types or RBAC markers. Run
