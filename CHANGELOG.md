@@ -63,6 +63,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `make test-local` now cleans up the k3d cluster even on mid-run failures
 - Gitleaks PATH resolution on self-hosted runners
 - `prometheus-unreachable` E2E test now accepts either `InsufficientData` or `PrometheusUnavailable` reason, fixing a flake where the first reconcile sets one reason and subsequent reconciles set another
+- Multi-container sequential resize: annotation persist now retries on 409 Conflict instead of reverting the second container
+- Memory limit clamp for K8s v1.33: in-place memory limit decreases are skipped when the container's resize policy is `NotRequired`, preventing API server rejection
+- Guaranteed QoS preservation with memory limit clamp: the clamp is applied before the QoS check so that Guaranteed pods are not incorrectly resized into Burstable
+- `helm-unittest` download now uses dynamic OS/arch detection instead of hardcoded `linux-amd64`
 
 ## [0.1.0] - Unreleased
 
