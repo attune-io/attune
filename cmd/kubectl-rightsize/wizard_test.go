@@ -340,6 +340,63 @@ func TestKindToGVR(t *testing.T) {
 	assert.Equal(t, daemonsetsGVR, kindToGVR("DaemonSet"))
 }
 
+func TestWizardPromote_SameMode(t *testing.T) {
+	dynClient := newFakeDynClient(
+		unstructuredPolicy("api-rightsize", "default", "Auto"),
+	)
+
+	p := &scriptedPrompter{
+		selectAnswers: []int{0, 2}, // policy: api-rightsize, mode: Auto (same)
+	}
+
+	err := wizardPromote(context.Background(), dynClient, "default", p)
+	require.NoError(t, err)
+
+	// Mode should still be Auto (no update attempted).
+	item, _ := dynClient.Resource(gvr).Namespace("default").Get(
+		context.Background(), "api-rightsize", metav1.GetOptions{})
+	assert.Equal(t, "Auto", getNestedString(*item, "spec", "updateStrategy", "mode"))
+}
+
+func TestWizardCreate_ManualPrometheus(t *testing.T) {
+	dynClient := newFakeDynClient(
+		unstructuredDeployment("worker", "default", 3),
+		// No prometheus service; forces manual input.
+	)
+
+	p := &scriptedPrompter{
+		selectAnswers: []int{
+			0, // kind: Deployment
+			0, // workload: worker
+			0, // CPU: P95
+			0, // Memory: P99
+			0, // mode: Recommend
+			0, // action: Apply
+		},
+		inputAnswers: []string{"http://custom-prom:9090"},
+	}
+
+	err := wizardCreate(context.Background(), dynClient, "default", p)
+	require.NoError(t, err)
+
+	created, err := dynClient.Resource(gvr).Namespace("default").Get(
+		context.Background(), "worker-rightsize", metav1.GetOptions{})
+	require.NoError(t, err)
+
+	addr := getNestedString(*created, "spec", "metricsSource", "prometheus", "address")
+	assert.Equal(t, "http://custom-prom:9090", addr)
+}
+
+func TestWizardCreate_NoWorkloads(t *testing.T) {
+	dynClient := newFakeDynClient()
+	p := &scriptedPrompter{
+		selectAnswers: []int{0}, // kind: Deployment
+	}
+	err := wizardCreate(context.Background(), dynClient, "default", p)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "no Deployments found")
+}
+
 func TestMarshalPolicyYAML(t *testing.T) {
 	obj := buildPolicyObject("default", "test", "Deployment", "app",
 		"http://prom:9090", 95, 99, "Recommend")
