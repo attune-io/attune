@@ -191,11 +191,11 @@ clean: ## Remove build artifacts
 	rm -rf bin/ dist/ coverage.out
 
 .PHONY: docs-build
-docs-build: ## Build documentation site (requires pip install mkdocs-material)
+docs-build: ## Build documentation site (requires python3 -m pip install mkdocs-material)
 	mkdocs build --strict
 
 .PHONY: docs-serve
-docs-serve: ## Serve documentation site locally (requires pip install mkdocs-material)
+docs-serve: ## Serve documentation site locally (requires python3 -m pip install mkdocs-material)
 	mkdocs serve
 
 ##@ Development
