@@ -109,6 +109,7 @@ func run(args []string, buildClient dynamicClientFactory) int {
 		fmt.Fprintln(os.Stderr, "  explain           Show recommendation reasoning for one policy")
 		fmt.Fprintln(os.Stderr, "  preview           Preview per-pod resource changes before promoting mode")
 		fmt.Fprintln(os.Stderr, "  history           Show resize history (including eviction fallbacks)")
+		fmt.Fprintln(os.Stderr, "  wizard            Interactive policy creation and mode promotion")
 		fmt.Fprintln(os.Stderr, "  version           Print plugin version")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Flags:")
@@ -169,7 +170,7 @@ func run(args []string, buildClient dynamicClientFactory) int {
 
 	isMultiCtx := *allContexts || *contexts != ""
 	if isMultiCtx {
-		if cmd == "explain" || cmd == "preview" {
+		if cmd == "explain" || cmd == "preview" || cmd == "wizard" {
 			fmt.Fprintf(os.Stderr, "Error: %s requires a single cluster context; remove --contexts/--all-contexts\n", cmd)
 			return 1
 		}
@@ -256,6 +257,8 @@ func run(args []string, buildClient dynamicClientFactory) int {
 		printHistory(ctx, dynClient, *namespace)
 	case "preview":
 		printPreview(ctx, dynClient, *namespace, policyName)
+	case "wizard":
+		return runWizard(ctx, dynClient, *namespace, parsedArgs, newInteractivePrompter())
 	}
 	return 0
 }
@@ -287,7 +290,7 @@ func buildDynamicClient(kubeconfigPath, contextOverride string) (dynamic.Interfa
 
 func isKnownCommand(cmd string) bool {
 	switch cmd {
-	case "status", "savings", "recommendations", "explain", "history", "preview", "version":
+	case "status", "savings", "recommendations", "explain", "history", "preview", "version", "wizard":
 		return true
 	default:
 		return false
