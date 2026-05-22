@@ -328,7 +328,7 @@ run: manifests generate ## Run operator locally against the configured cluster
 
 .PHONY: docker-build
 docker-build: ## Build container image
-	docker build -t $(IMG) .
+	DOCKER_BUILDKIT=1 docker build -t $(IMG) .
 
 .PHONY: docker-push
 docker-push: ## Push container image

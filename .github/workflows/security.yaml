@@ -96,7 +96,9 @@ jobs:
               --output "type=docker,dest=$scan_tar" \
               -t kube-rightsize:scan .
           else
-            docker build -t kube-rightsize:scan .
+            # DOCKER_BUILDKIT=1 enables BuildKit in the legacy CLI so
+            # --platform=$BUILDPLATFORM in the Dockerfile resolves correctly.
+            DOCKER_BUILDKIT=1 docker build -t kube-rightsize:scan .
             docker save kube-rightsize:scan -o "$scan_tar"
           fi
 
