@@ -285,6 +285,32 @@ kubectl get validatingwebhookconfiguration -o yaml | grep caBundle | head -1
 
 ## Resize failures
 
+### Resize subresource not found (K8s 1.32)
+
+**Symptom**: Operator logs contain `the server does not allow this method
+on the requested resource` or `pod resize subresource is not enabled` when
+attempting a resize.
+
+**Cause**: On Kubernetes 1.32, the In-Place Pod Resize feature is alpha and
+disabled by default. The `/resize` subresource is only available when the
+`InPlacePodVerticalScaling` feature gate is enabled on all control plane
+components and kubelets.
+
+**Fix**: Enable the feature gate on all components. For managed clusters,
+check your provider's documentation. For self-managed clusters:
+
+```bash
+# API server, controller-manager, and scheduler flags:
+--feature-gates=InPlacePodVerticalScaling=true
+
+# Kubelet config (on every node):
+featureGates:
+  InPlacePodVerticalScaling: true
+```
+
+On **Kubernetes 1.33+**, this feature gate is enabled by default and no
+action is needed.
+
 ### Infeasible resize
 
 **Symptom**: Resize history shows `result: Failed` and operator logs contain
