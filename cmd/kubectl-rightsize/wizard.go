@@ -137,20 +137,25 @@ func runWizard(ctx context.Context, dynClient dynamic.Interface, namespace strin
 	return 0
 }
 
+// resolveNamespace returns the provided namespace or prompts the user to select one.
+func resolveNamespace(ctx context.Context, dynClient dynamic.Interface, namespace string, p prompter) (string, error) {
+	if namespace != "" {
+		return namespace, nil
+	}
+	return selectNamespace(ctx, dynClient, p)
+}
+
 // wizardCreate guides the user through creating a RightSizePolicy.
 func wizardCreate(ctx context.Context, dynClient dynamic.Interface, namespace string, p prompter) error {
 	fmt.Println("Welcome to kube-rightsize! Let's create a RightSizePolicy.")
 	fmt.Println()
 
 	// 1. Namespace selection.
-	ns := namespace
-	if ns == "" {
-		selected, err := selectNamespace(ctx, dynClient, p)
-		if err != nil {
-			return err
-		}
-		ns = selected
-	} else {
+	ns, err := resolveNamespace(ctx, dynClient, namespace, p)
+	if err != nil {
+		return err
+	}
+	if namespace != "" {
 		fmt.Printf("Using namespace: %s\n\n", ns)
 	}
 
@@ -244,13 +249,9 @@ func wizardCreate(ctx context.Context, dynClient dynamic.Interface, namespace st
 
 // wizardPromote guides mode promotion of an existing policy.
 func wizardPromote(ctx context.Context, dynClient dynamic.Interface, namespace string, p prompter) error {
-	ns := namespace
-	if ns == "" {
-		selected, err := selectNamespace(ctx, dynClient, p)
-		if err != nil {
-			return err
-		}
-		ns = selected
+	ns, err := resolveNamespace(ctx, dynClient, namespace, p)
+	if err != nil {
+		return err
 	}
 
 	// List policies.
