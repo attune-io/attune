@@ -47,6 +47,7 @@ nav:
       - Core Concepts: getting-started/concepts.md
       - Installation: getting-started/installation.md
       - Quick Start: getting-started/quickstart.md
+      - Your First 30 Days: getting-started/first-30-days.md
   - Guides:
       - Recommend Mode: guides/recommend-mode.md
       - Canary Rollout: guides/canary-rollout.md
