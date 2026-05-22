@@ -54,7 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - `golang.org/x/net` updated to v0.55.0 to fix GO-2026-5026 (Punycode validation vulnerability in `idna`)
-- Trivy image scan CI failure on runners without the `docker-buildx` plugin; the step now auto-installs buildx when missing
+- Trivy image scan CI failure on runners without BuildKit/buildx; the step now strips BuildKit-only Dockerfile directives and builds natively with the legacy builder
 - `make docker-build` now sets `DOCKER_BUILDKIT=1` so the Dockerfile's `--platform=$BUILDPLATFORM` resolves on legacy Docker CLIs
 - `kubectl rightsize explain` was missing `safetyObservationPeriod` merge from namespace/cluster defaults, showing wrong effective value
 - `StaleRecommendationsTotal` metric label mismatch between registration and increment
