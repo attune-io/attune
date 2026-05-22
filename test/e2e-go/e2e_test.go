@@ -1683,9 +1683,12 @@ func TestE2E_MultiContainer_SequentialResize(t *testing.T) {
 
 	pod := podList.Items[0]
 	origCPU := resource.MustParse("500m")
+	origMem := resource.MustParse("256Mi")
 	resizedContainers := 0
 	for _, c := range pod.Spec.Containers {
-		if c.Resources.Requests.Cpu().Cmp(origCPU) != 0 {
+		cpuChanged := c.Resources.Requests.Cpu().Cmp(origCPU) != 0
+		memChanged := c.Resources.Requests.Memory().Cmp(origMem) != 0
+		if cpuChanged || memChanged {
 			resizedContainers++
 			t.Logf("container %s resized: cpu=%s mem=%s",
 				c.Name, c.Resources.Requests.Cpu(), c.Resources.Requests.Memory())
