@@ -226,7 +226,7 @@ func IsEligibleForResize(pod *corev1.Pod) bool {
 	if pod.DeletionTimestamp != nil {
 		return false
 	}
-	// Check pod conditions for active resize (preferred over deprecated Status.Resize)
+	// Check pod conditions for active resize (1.33+, preferred).
 	for _, cond := range pod.Status.Conditions {
 		if cond.Status != corev1.ConditionTrue {
 			continue
@@ -238,6 +238,12 @@ func IsEligibleForResize(pod *corev1.Pod) bool {
 		if condType == condPodResizePending && cond.Reason != reasonInfeasible {
 			return false
 		}
+	}
+	// Fallback: check deprecated Status.Resize field (K8s 1.32 alpha).
+	// On 1.33+ this field is empty; on 1.32 it is the only resize status signal.
+	if pod.Status.Resize == corev1.PodResizeStatusInProgress ||
+		pod.Status.Resize == corev1.PodResizeStatusDeferred {
+		return false
 	}
 	return true
 }
@@ -252,7 +258,8 @@ func IsResizeInfeasible(pod *corev1.Pod) bool {
 			return true
 		}
 	}
-	return false
+	// Fallback: check deprecated Status.Resize field (K8s 1.32 alpha).
+	return pod.Status.Resize == corev1.PodResizeStatusInfeasible
 }
 
 // EvictPod evicts a pod using the Eviction API, which respects

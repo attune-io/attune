@@ -16,7 +16,7 @@ recommendations, and promoting to Canary mode, all in about five minutes.
     the cluster for exploration.
 
 !!! info "Prerequisites"
-    - **Kubernetes 1.33+** — required for In-Place Pod Resize (GA). Older clusters are not supported.
+    - **Kubernetes 1.32+** — 1.32 requires the `InPlacePodVerticalScaling` feature gate; 1.33+ has it enabled by default.
     - **Prometheus** — the operator queries `container_cpu_usage_seconds_total` and `container_memory_working_set_bytes`.
     - **kube-rightsize installed** — see [Installation](installation.md) for Helm and raw manifest options.
 

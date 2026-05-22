@@ -5,8 +5,8 @@
 kube-rightsize is a Kubernetes operator that automatically right-sizes pod
 resource requests and limits using
 [In-Place Pod Resize](https://kubernetes.io/blog/2025/12/19/kubernetes-v1-35-in-place-pod-resize-ga/)
-(GA in Kubernetes 1.33+). In-place by default, optional eviction fallback for
-infeasible resizes, and no HPA conflicts.
+(beta in Kubernetes 1.33+, alpha with feature gate in 1.32). In-place by default,
+optional eviction fallback for infeasible resizes, and no HPA conflicts.
 
 ## The Problem
 
@@ -21,8 +21,9 @@ it fully automated (ScaleOps 2026). Recommendation-only tools like
 Goldilocks show you the numbers but leave you with hundreds of YAML edits
 that sit in the backlog for months.
 
-Kubernetes 1.33 changed this by graduating In-Place Pod Resize to GA. The
-foundation for non-disruptive right-sizing now exists. kube-rightsize is
+Kubernetes 1.33 changed this by graduating In-Place Pod Resize to beta
+(enabled by default). The foundation for non-disruptive right-sizing now
+exists. kube-rightsize is
 the operator built to use it.
 
 ## How It's Different
@@ -47,7 +48,7 @@ the operator built to use it.
 
 ## Key Features
 
-- **In-place resize** via the Kubernetes 1.33+ `/resize` subresource
+- **In-place resize** via the Kubernetes 1.32+ `/resize` subresource
 - **Graduated rollout**: Observe, Recommend, OneShot, Canary, Auto
 - **Auto-revert** on OOMKill, CPU throttle, restart spikes, or pod NotReady
 - **HPA coexistence** without death spirals

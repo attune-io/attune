@@ -501,11 +501,11 @@ helm-docs: ## Install helm-docs
 
 .PHONY: helm-lint
 helm-lint: ## Lint Helm chart and validate templates (mirrors CI helm-lint job)
-	helm lint charts/kube-rightsize --kube-version v1.33.0
+	helm lint charts/kube-rightsize --kube-version v1.32.0
 	@for f in charts/kube-rightsize/ci/*.yaml; do \
 		echo "--- Template validation with $$f ---"; \
 		helm template kube-rightsize charts/kube-rightsize -f "$$f" \
-			--kube-version v1.33.0 \
+			--kube-version v1.32.0 \
 			--api-versions cert-manager.io/v1 > /dev/null; \
 	done
 

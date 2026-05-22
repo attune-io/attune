@@ -20,7 +20,7 @@ is the resource-scheduling complement to horizontal autoscaling.
 | **Repository** | [github.com/SebTardifLabs/kube-rightsize](https://github.com/SebTardifLabs/kube-rightsize) |
 | **License** | Apache 2.0 |
 | **Category** | Scheduling & Orchestration |
-| **Description** | Safe in-place Kubernetes pod resource right-sizing operator. Replaces VPA with non-disruptive resizing via the K8s 1.33+ resize subresource. |
+| **Description** | Safe in-place Kubernetes pod resource right-sizing operator. Replaces VPA with non-disruptive resizing via the K8s 1.32+ resize subresource. |
 
 ## How to submit
 
@@ -38,7 +38,7 @@ project, submit a PR that adds an entry to `landscape.yml`:
     crunchbase: null
     description: >-
       Safe in-place Kubernetes pod resource right-sizing operator.
-      Replaces VPA with non-disruptive resizing via the K8s 1.33+
+      Replaces VPA with non-disruptive resizing via the K8s 1.32+
       resize subresource. Five graduated modes (Observe, Recommend,
       OneShot, Canary, Auto), multi-layer safety with auto-revert,
       HPA coexistence, time-of-day awareness, and confidence-scaled

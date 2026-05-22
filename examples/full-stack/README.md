@@ -20,7 +20,7 @@ kubectl apply -f examples/full-stack/
 
 ## Prerequisites
 
-- Kubernetes 1.33+
+- Kubernetes 1.32+
 - kube-rightsize operator installed
 - Prometheus Operator (for ServiceMonitor)
 - Grafana with sidecar dashboard provisioning (label: `grafana_dashboard: "1"`)

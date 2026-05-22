@@ -16,7 +16,7 @@
 #      node's allocatable CPU, the boost is capped automatically.
 #
 # Prerequisites:
-#   - Kubernetes 1.33+ with In-Place Pod Resize enabled
+#   - Kubernetes 1.32+ with In-Place Pod Resize enabled (1.32 requires InPlacePodVerticalScaling feature gate)
 #   - Prometheus reachable at the address below
 #   - kube-rightsize operator installed
 #

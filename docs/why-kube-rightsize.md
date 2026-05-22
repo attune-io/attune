@@ -105,7 +105,7 @@ kube-rightsize closes that gap. It computes the recommendation AND applies it
 to the running pod, with graduated safety controls so you don't have to
 babysit each change. No YAML edits, no pull requests, no backlog tickets.
 
-## What Changed: In-Place Pod Resize (Kubernetes 1.33+)
+## What Changed: In-Place Pod Resize (Kubernetes 1.32+)
 
 In December 2025, Kubernetes v1.35 graduated
 [In-Place Pod Resize](https://kubernetes.io/blog/2025/12/19/kubernetes-v1-35-in-place-pod-resize-ga/)
@@ -270,7 +270,7 @@ You've been told "VPA and HPA don't mix." kube-rightsize fixes the base
 request so each HPA-scaled replica is right-sized, while HPA continues to
 handle horizontal scaling. They complement each other.
 
-### Anyone running Kubernetes 1.33+
+### Anyone running Kubernetes 1.32+
 
 If your cluster supports in-place pod resize, you're leaving money on the
 table by not using it.
@@ -316,7 +316,7 @@ Now multiply this across 50 services and you're saving $20,000+/month.
 | **Graduated rollout** | No (all-or-nothing) | N/A | Some | **5 modes** |
 | **Cost** | Free | Free | $$$$ | **Free (Apache 2.0)** |
 | **Lock-in** | None | None | Vendor-specific | **None** |
-| **K8s version** | Any | Any | Any | **1.33+** |
+| **K8s version** | Any | Any | Any | **1.32+** |
 
 ### vs. Commercial alternatives (CAST AI, ScaleOps, Zesty)
 

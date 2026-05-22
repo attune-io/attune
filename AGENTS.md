@@ -3,7 +3,7 @@
 ## Project
 
 Kubernetes operator for in-place pod resource right-sizing (VPA replacement).
-Requires Kubernetes 1.33+ (In-Place Pod Resize GA). Built with Go 1.26,
+Requires Kubernetes 1.32+ (In-Place Pod Resize; 1.32 alpha with feature gate, 1.33+ beta enabled by default). Built with Go 1.26,
 controller-runtime v0.24.1, Kubebuilder v4, K8s API v0.36.1.
 
 ## Commands
@@ -232,7 +232,7 @@ directory. When referencing files elsewhere in the repo (e.g., `charts/`,
 - Use `kubefake.NewSimpleClientset()` to test resize operations
 - Use `fake.NewClientBuilder()` for controller-runtime client mocking
 - Integration tests use envtest (build tag: `integration`)
-- E2E tests use Chainsaw v0.2.15 on k3d or Kind clusters (K8s 1.33, 1.34, 1.35 matrix in CI)
+- E2E tests use Chainsaw v0.2.15 on k3d or Kind clusters (K8s 1.32, 1.33, 1.34, 1.35 matrix in CI)
 - E2E tests that modify CRs mid-test must use a refetch/retry loop to handle
   optimistic concurrency conflicts (the operator reconciles the same object
   concurrently, causing `the object has been modified` errors on update)

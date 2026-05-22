@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Support for Kubernetes 1.32 with `InPlacePodVerticalScaling` alpha feature gate; the operator now falls back to the deprecated `pod.Status.Resize` field for resize status on clusters without the 1.33+ pod conditions
 - Top-level `safetyObservationPeriod` field on `UpdateStrategy` for configuring post-resize safety watch duration (default 5m, minimum 1m); takes precedence over `canary.observationPeriod` and works in all modes
 - Early OOMKill and crash loop detection during safety observation period: critical events trigger immediate revert without waiting for the full observation period
 - `kubectl rightsize explain` now displays the effective observation period with source tracking

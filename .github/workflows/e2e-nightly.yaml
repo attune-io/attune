@@ -13,6 +13,7 @@ on:
         default: all
         options:
           - all
+          - v1.32
           - v1.33
           - v1.34
           - v1.35
@@ -58,6 +59,9 @@ jobs:
           selected_suite="${{ inputs.suite || 'all' }}"
 
           case "$selected_version" in
+            v1.32)
+              matrix='{"include":[{"k8s-version":"v1.32","k3s-image":"v1.32.13-k3s1"}]}'
+              ;;
             v1.33)
               matrix='{"include":[{"k8s-version":"v1.33","k3s-image":"v1.33.11-k3s1"}]}'
               ;;
@@ -68,7 +72,7 @@ jobs:
               matrix='{"include":[{"k8s-version":"v1.35","k3s-image":"v1.35.4-k3s1"}]}'
               ;;
             all)
-              matrix='{"include":[{"k8s-version":"v1.33","k3s-image":"v1.33.11-k3s1"},{"k8s-version":"v1.34","k3s-image":"v1.34.7-k3s1"},{"k8s-version":"v1.35","k3s-image":"v1.35.4-k3s1"}]}'
+              matrix='{"include":[{"k8s-version":"v1.32","k3s-image":"v1.32.13-k3s1"},{"k8s-version":"v1.33","k3s-image":"v1.33.11-k3s1"},{"k8s-version":"v1.34","k3s-image":"v1.34.7-k3s1"},{"k8s-version":"v1.35","k3s-image":"v1.35.4-k3s1"}]}'
               ;;
             *)
               echo "Unknown k8s-version input: $selected_version" >&2
@@ -169,10 +173,21 @@ jobs:
           # Retry cluster creation up to 3 times. k3d can fail transiently
           # when Docker containers vanish mid-creation due to daemon
           # contention with concurrent CI runs.
+          # K8s 1.32 needs the InPlacePodVerticalScaling alpha feature gate enabled explicitly.
+          EXTRA_K3S_ARGS=()
+          if [[ "${{ matrix.k8s-version }}" == "v1.32" ]]; then
+            EXTRA_K3S_ARGS=(
+              --k3s-arg "--kube-apiserver-arg=feature-gates=InPlacePodVerticalScaling=true@server:*"
+              --k3s-arg "--kube-controller-manager-arg=feature-gates=InPlacePodVerticalScaling=true@server:*"
+              --k3s-arg "--kube-scheduler-arg=feature-gates=InPlacePodVerticalScaling=true@server:*"
+              --k3s-arg "--kubelet-arg=feature-gates=InPlacePodVerticalScaling=true@server:*"
+            )
+          fi
           for attempt in 1 2 3; do
             if k3d cluster create "$CLUSTER_NAME" \
               --image rancher/k3s:${{ matrix.k3s-image }} \
               --k3s-arg "--disable=traefik,servicelb@server:*" \
+              "${EXTRA_K3S_ARGS[@]}" \
               --wait --timeout 120s \
               --kubeconfig-update-default=false \
               --kubeconfig-switch-context=false; then

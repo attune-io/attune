@@ -1,12 +1,13 @@
-kube-rightsize uses the Kubernetes 1.33+ in-place pod resize API to adjust
+kube-rightsize uses the Kubernetes 1.32+ in-place pod resize API to adjust
 container resources without restarting pods. This page explains how the
 resize API works and how the operator uses it.
 
 ## The `/resize` subresource
 
-Kubernetes 1.33 graduated `InPlacePodVerticalScaling` to GA. This adds a
-`/resize` subresource on pods that accepts a modified `PodSpec` with new
-container resource requests/limits.
+Kubernetes 1.32 added the `/resize` subresource on pods as part of the
+`InPlacePodVerticalScaling` alpha feature gate. Kubernetes 1.33 graduated
+the feature to beta (enabled by default). The subresource accepts a
+modified `PodSpec` with new container resource requests/limits.
 
 ```
 PATCH /api/v1/namespaces/{ns}/pods/{name}/resize

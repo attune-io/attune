@@ -11,7 +11,7 @@ guidelines and instructions for contributing.
 |------|---------|---------|
 | Go | 1.26+ | [golang.org/dl](https://golang.org/dl/) |
 | Docker | 24+ | [docs.docker.com](https://docs.docker.com/engine/install/) |
-| kubectl | 1.33+ | [kubernetes.io](https://kubernetes.io/docs/tasks/tools/) |
+| kubectl | 1.32+ | [kubernetes.io](https://kubernetes.io/docs/tasks/tools/) |
 | Helm | 3.16+ or 4.x | [helm.sh](https://helm.sh/docs/intro/install/) |
 | k3d **or** Kind | k3d 5.8+ / Kind 0.24+ | [k3d.io](https://k3d.io/#installation) or [kind.sigs.k8s.io](https://kind.sigs.k8s.io/docs/user/quick-start/#installation) |
 | Python 3 + pip | 3.8+ | For `yamllint` (YAML linting in `make verify`) |

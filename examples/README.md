@@ -49,6 +49,6 @@ real-world deployments:
 
 All examples assume:
 
-- Kubernetes 1.33+ (in-place pod resize GA)
+- Kubernetes 1.32+ (1.32 requires the `InPlacePodVerticalScaling` feature gate; 1.33+ enabled by default)
 - Prometheus reachable inside the cluster
 - kube-rightsize operator installed (for example: `helm install kube-rightsize oci://ghcr.io/sebtardiflabs/charts/kube-rightsize --namespace kube-rightsize-system --create-namespace`)

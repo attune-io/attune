@@ -234,6 +234,36 @@ func TestIsEligibleForResize(t *testing.T) {
 			},
 			want: true,
 		},
+		{
+			name: "K8s 1.32 deprecated Status.Resize InProgress is ineligible",
+			pod: &corev1.Pod{
+				Status: corev1.PodStatus{
+					Phase:  corev1.PodRunning,
+					Resize: corev1.PodResizeStatusInProgress,
+				},
+			},
+			want: false,
+		},
+		{
+			name: "K8s 1.32 deprecated Status.Resize Deferred is ineligible",
+			pod: &corev1.Pod{
+				Status: corev1.PodStatus{
+					Phase:  corev1.PodRunning,
+					Resize: corev1.PodResizeStatusDeferred,
+				},
+			},
+			want: false,
+		},
+		{
+			name: "K8s 1.32 deprecated Status.Resize Infeasible is still eligible",
+			pod: &corev1.Pod{
+				Status: corev1.PodStatus{
+					Phase:  corev1.PodRunning,
+					Resize: corev1.PodResizeStatusInfeasible,
+				},
+			},
+			want: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -654,6 +684,24 @@ func TestIsResizeInfeasible(t *testing.T) {
 					Conditions: []corev1.PodCondition{
 						{Type: "PodResizePending", Status: corev1.ConditionTrue, Reason: "Deferred"},
 					},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "K8s 1.32 deprecated Status.Resize Infeasible",
+			pod: &corev1.Pod{
+				Status: corev1.PodStatus{
+					Resize: corev1.PodResizeStatusInfeasible,
+				},
+			},
+			want: true,
+		},
+		{
+			name: "K8s 1.32 deprecated Status.Resize InProgress is not infeasible",
+			pod: &corev1.Pod{
+				Status: corev1.PodStatus{
+					Resize: corev1.PodResizeStatusInProgress,
 				},
 			},
 			want: false,

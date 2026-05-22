@@ -4,15 +4,18 @@
 
 | Requirement | Minimum Version |
 |-------------|-----------------|
-| Kubernetes  | 1.33+           |
+| Kubernetes  | 1.32+           |
 | Helm        | 3.16+ or 4.x    |
 | Prometheus  | 2.x (with `container_cpu_usage_seconds_total` and `container_memory_working_set_bytes`) |
 | cert-manager | 1.12+ (for webhook TLS; optional if installing with `--set webhooks.enabled=false`) |
 
 !!! note "In-Place Pod Resize"
-    Kubernetes 1.33+ is required because kube-rightsize uses the
-    [In-Place Pod Resize](https://kubernetes.io/blog/2025/12/19/kubernetes-v1-35-in-place-pod-resize-ga/)
-    feature, which reached GA in that release. Older clusters are not supported.
+    Kubernetes 1.32+ is required because kube-rightsize uses the
+    [In-Place Pod Resize](https://kubernetes.io/blog/2025/05/16/kubernetes-v1-33-in-place-pod-resize-beta/)
+    `/resize` subresource, which was added in 1.32.
+    On **1.32**, you must enable the `InPlacePodVerticalScaling` feature gate
+    on the apiserver, controller-manager, scheduler, and all kubelets.
+    On **1.33+**, the feature is enabled by default (beta).
 
 ## Install with Helm (recommended)
 
