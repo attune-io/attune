@@ -17,6 +17,7 @@ limitations under the License.
 package recommendation
 
 import (
+	"fmt"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -75,7 +76,65 @@ func BenchmarkConfidenceEstimator(b *testing.B) {
 	}
 }
 
+// BenchmarkFullChain_HistoryWindows benchmarks the full recommendation chain
+// with profiles matching real history windows. The chain cost is dominated
+// by the estimator math, not profile building, so this tests whether
+// confidence scaling and bounds checks degrade with larger histories.
+func BenchmarkFullChain_HistoryWindows(b *testing.B) {
+	cases := []struct {
+		name       string
+		dataPoints int
+		days       int
+	}{
+		{"1d_288dp", 288, 1},
+		{"7d_2016dp", 2016, 7},
+		{"14d_4032dp", 4032, 14},
+		{"30d_8640dp", 8640, 30},
+	}
+	engine := NewEngine(95, 1.2,
+		resource.MustParse("50m"),
+		resource.MustParse("4000m"),
+		50,
+	)
+	current := resource.MustParse("500m")
+
+	for _, tc := range cases {
+		b.Run(tc.name, func(b *testing.B) {
+			profile := buildBenchProfileWithSize(tc.dataPoints, tc.days)
+			b.ResetTimer()
+			b.ReportAllocs()
+			for b.Loop() {
+				engine.Recommend(profile, current)
+			}
+		})
+	}
+}
+
+// BenchmarkFullChain_Percentiles benchmarks the chain across all supported
+// percentile values to verify no percentile has disproportionate cost.
+func BenchmarkFullChain_Percentiles(b *testing.B) {
+	for _, p := range []int{50, 90, 95, 99} {
+		b.Run(fmt.Sprintf("P%d", p), func(b *testing.B) {
+			engine := NewEngine(p, 1.2,
+				resource.MustParse("50m"),
+				resource.MustParse("4000m"),
+				50,
+			)
+			profile := buildBenchProfile()
+			current := resource.MustParse("500m")
+			b.ResetTimer()
+			for b.Loop() {
+				engine.Recommend(profile, current)
+			}
+		})
+	}
+}
+
 func buildBenchProfile() metrics.UsageProfile {
+	return buildBenchProfileWithSize(5000, 7)
+}
+
+func buildBenchProfileWithSize(dataPoints, days int) metrics.UsageProfile {
 	ps := metrics.PercentileSet{
 		P50: 0.100,
 		P90: 0.180,
@@ -83,11 +142,15 @@ func buildBenchProfile() metrics.UsageProfile {
 		P99: 0.250,
 		Max: 0.400,
 	}
+	confidence := float64(dataPoints) / 5000.0
+	if confidence > 1.0 {
+		confidence = 1.0
+	}
 	profile := metrics.UsageProfile{
 		OverallPercentiles: ps,
-		DataPoints:         5000,
-		TimeSpanDays:       7,
-		Confidence:         0.95,
+		DataPoints:         dataPoints,
+		TimeSpanDays:       float64(days),
+		Confidence:         confidence,
 	}
 	for h := 0; h < 24; h++ {
 		profile.HourlyPercentiles[h] = ps

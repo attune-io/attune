@@ -46,6 +46,30 @@ func BenchmarkBuildProfile_100000Samples(b *testing.B) {
 	}
 }
 
+// BenchmarkBuildProfile_HistoryWindows benchmarks BuildProfile with sample
+// counts matching real production history windows (queryStep=5m).
+func BenchmarkBuildProfile_HistoryWindows(b *testing.B) {
+	cases := []struct {
+		name    string
+		samples int
+	}{
+		{"1d_288", 288},      // 24h / 5m
+		{"7d_2016", 2016},    // default history window
+		{"14d_4032", 4032},   // 2-week window
+		{"30d_8640", 8640},   // 30d max window
+	}
+	for _, tc := range cases {
+		b.Run(tc.name, func(b *testing.B) {
+			samples := generateBenchSamples(tc.samples)
+			b.ResetTimer()
+			b.ReportAllocs()
+			for b.Loop() {
+				BuildProfile(samples)
+			}
+		})
+	}
+}
+
 func generateBenchSamples(count int) []Sample {
 	rng := rand.New(rand.NewSource(42))
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
