@@ -252,31 +252,13 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	r.mergeDefaults(&policy, defaults)
 	r.applyBuiltInDefaults(&policy)
 
-	// Step 2: Resolve Prometheus address and config from spec or RightSizeDefaults.
-	promConfig, err := r.resolvePrometheusConfig(ctx, &policy, defaults)
+	// Step 2: Resolve metrics source, create collector, and select query builder.
+	collector, queryBuilder, err := r.resolveMetricsCollector(ctx, &policy, defaults)
 	if err != nil {
-		logger.Error(err, "Failed to resolve Prometheus config")
-		operatormetrics.ReconcileErrorsTotal.WithLabelValues("prometheus_config").Inc()
+		logger.Error(err, "Failed to resolve metrics source")
+		operatormetrics.ReconcileErrorsTotal.WithLabelValues("metrics_source").Inc()
 		r.setFailedCondition(ctx, &policy, rightsizev1alpha1.ReasonPrometheusUnavailable,
-			fmt.Sprintf("Cannot resolve Prometheus config: %v", err))
-		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
-	}
-
-	// Build collector options from the PrometheusConfig.
-	collectorOpts, err := r.buildCollectorOptions(ctx, policy.Namespace, promConfig)
-	if err != nil {
-		logger.Error(err, "Failed to build collector options")
-		operatormetrics.ReconcileErrorsTotal.WithLabelValues("collector_options").Inc()
-		r.setFailedCondition(ctx, &policy, rightsizev1alpha1.ReasonPrometheusUnavailable, err.Error())
-		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
-	}
-
-	collector, err := r.getOrCreateCollector(promConfig, collectorOpts)
-	if err != nil {
-		logger.Error(err, "Failed to create metrics collector", "address", promConfig.Address)
-		operatormetrics.ReconcileErrorsTotal.WithLabelValues("collector_create").Inc()
-		r.setFailedCondition(ctx, &policy, rightsizev1alpha1.ReasonPrometheusUnavailable,
-			fmt.Sprintf("Cannot create metrics collector: %v", err))
+			fmt.Sprintf("Cannot resolve metrics source: %v", err))
 		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 	}
 
@@ -315,7 +297,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 	workloadCtx, workloadCancel := context.WithTimeout(ctx, promTimeout)
 	defer workloadCancel()
-	wpResult := r.processWorkloads(workloadCtx, &policy, workloads, collector)
+	wpResult := r.processWorkloads(workloadCtx, &policy, workloads, collector, queryBuilder)
 	promTimedOut := workloadCtx.Err() == context.DeadlineExceeded
 	if promTimedOut {
 		logger.Info("Prometheus query timeout exceeded, using partial results",
@@ -559,6 +541,7 @@ func (r *RightSizePolicyReconciler) processWorkloads(
 	policy *rightsizev1alpha1.RightSizePolicy,
 	workloads []client.Object,
 	collector rsmetrics.MetricsCollector,
+	qb rsmetrics.QueryBuilder,
 ) workloadProcessingResult {
 	logger := log.FromContext(ctx)
 	result := workloadProcessingResult{
@@ -625,7 +608,7 @@ func (r *RightSizePolicyReconciler) processWorkloads(
 				return nil
 			}
 
-			rec, qErrors, failedMetricTypes, dataPoints, err := r.computeRecommendations(gCtx, policy, workload, collector, cpuEngine, memEngine, excludeSet)
+			rec, qErrors, failedMetricTypes, dataPoints, err := r.computeRecommendations(gCtx, policy, workload, collector, qb, cpuEngine, memEngine, excludeSet)
 			// Log and record metrics outside the lock (both are goroutine-safe).
 			if err != nil {
 				logger.Error(err, "Failed to compute recommendations", "workload", workloadName)

@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
+	rsmetrics "github.com/SebTardifLabs/kube-rightsize/internal/metrics"
 )
 
 // ---------- nativeSidecars ----------
@@ -589,7 +590,7 @@ func TestWorkload_FormatPromDuration(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.want, func(t *testing.T) {
-			assert.Equal(t, tt.want, formatPromDuration(tt.d))
+			assert.Equal(t, tt.want, rsmetrics.FormatPromDuration(tt.d))
 		})
 	}
 }

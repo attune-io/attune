@@ -92,7 +92,7 @@ func BenchmarkComputeRecommendations(b *testing.B) {
 
 	b.ResetTimer()
 	for b.Loop() {
-		_, _, _, _, _ = reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil)
+		_, _, _, _, _ = reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
 	}
 }
 
@@ -443,7 +443,7 @@ func BenchmarkComputeRecommendations_ManyContainers(b *testing.B) {
 			b.ResetTimer()
 			b.ReportAllocs()
 			for b.Loop() {
-				_, _, _, _, _ = reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil)
+				_, _, _, _, _ = reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
 			}
 		})
 	}

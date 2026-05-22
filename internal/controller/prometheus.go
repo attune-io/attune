@@ -178,6 +178,7 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 	policy *rightsizev1alpha1.RightSizePolicy,
 	workload client.Object,
 	collector rsmetrics.MetricsCollector,
+	qb rsmetrics.QueryBuilder,
 	cpuEngine, memEngine *recommendation.RecommendationEngine,
 	excludeSet map[string]bool,
 ) (rec *rightsizev1alpha1.WorkloadRecommendation, queryErrors int, failedMetricTypes []string, maxDataPoints int, err error) {
@@ -209,19 +210,19 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 	if queryStep != rightsizev1alpha1.DefaultQueryStep {
 		logger.V(1).Info("Using custom query step", "queryStep", queryStep)
 	}
-	// Run CPU and memory queries concurrently. They are independent PromQL
-	// expressions against the same Prometheus instance. The rate limiter
-	// provides backpressure, so concurrent queries are safe.
+	// Run CPU and memory queries concurrently. They are independent queries
+	// against the same metrics backend. The rate limiter provides backpressure,
+	// so concurrent queries are safe.
 	rateWindow := r.getRateWindow(policy)
 	var cpuSamplesByContainer, memSamplesByContainer map[string][]rsmetrics.Sample
 	var cpuErr, memErr bool
 	var qg errgroup.Group
 	qg.Go(func() error {
-		cpuSamplesByContainer, cpuErr = queryMetricsGrouped(ctx, collector, policy.Namespace, podRegex, "cpu", start, now, queryStep, rateWindow)
+		cpuSamplesByContainer, cpuErr = queryMetricsGrouped(ctx, collector, qb, policy.Namespace, podRegex, "cpu", start, now, queryStep, rateWindow)
 		return nil
 	})
 	qg.Go(func() error {
-		memSamplesByContainer, memErr = queryMetricsGrouped(ctx, collector, policy.Namespace, podRegex, "memory", start, now, queryStep, rateWindow)
+		memSamplesByContainer, memErr = queryMetricsGrouped(ctx, collector, qb, policy.Namespace, podRegex, "memory", start, now, queryStep, rateWindow)
 		return nil
 	})
 	_ = qg.Wait()
@@ -461,6 +462,100 @@ func (r *RightSizePolicyReconciler) buildCollectorOptions(ctx context.Context, n
 		opts.BearerToken = token
 	}
 	return opts, nil
+}
+
+// resolveMetricsCollector creates the appropriate MetricsCollector and
+// QueryBuilder based on which metricsSource field is configured. Falls back
+// to Prometheus when no explicit source is set.
+func (r *RightSizePolicyReconciler) resolveMetricsCollector(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy, defaults *rightsizev1alpha1.RightSizeDefaults) (rsmetrics.MetricsCollector, rsmetrics.QueryBuilder, error) {
+	ms := policy.Spec.MetricsSource
+
+	switch {
+	case ms.Datadog != nil:
+		return r.resolveDatadogCollector(ctx, policy)
+	case ms.CloudWatch != nil:
+		return r.resolveCloudWatchCollector(ctx, policy)
+	default:
+		// Prometheus (existing path, including auto-discovery and defaults).
+		promConfig, err := r.resolvePrometheusConfig(ctx, policy, defaults)
+		if err != nil {
+			return nil, nil, err
+		}
+		opts, err := r.buildCollectorOptions(ctx, policy.Namespace, promConfig)
+		if err != nil {
+			return nil, nil, err
+		}
+		collector, err := r.getOrCreateCollector(promConfig, opts)
+		if err != nil {
+			return nil, nil, err
+		}
+		return collector, &rsmetrics.PromQLQueryBuilder{}, nil
+	}
+}
+
+// resolveDatadogCollector creates a DatadogCollector from the policy's
+// Datadog config, reading API/app keys from the referenced Secret.
+func (r *RightSizePolicyReconciler) resolveDatadogCollector(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy) (rsmetrics.MetricsCollector, rsmetrics.QueryBuilder, error) {
+	dd := policy.Spec.MetricsSource.Datadog
+
+	// Read API key from the referenced Secret.
+	apiKey, err := r.readSecretKey(ctx, policy.Namespace, dd.APIKeySecretRef.Name, dd.APIKeySecretRef.Key)
+	if err != nil {
+		return nil, nil, fmt.Errorf("cannot read Datadog API key: %w", err)
+	}
+
+	// Read optional app key from the same Secret (key "app-key").
+	appKey, _ := r.readSecretKey(ctx, policy.Namespace, dd.APIKeySecretRef.Name, "app-key")
+
+	site := dd.Site
+	if site == "" {
+		site = "datadoghq.com"
+	}
+
+	// Cache the collector keyed by site + API key hash.
+	cacheKey := fmt.Sprintf("datadog:%s|%x", site, sha256.Sum256([]byte(apiKey)))
+	now := r.now()
+	if cached, ok := r.collectors.Load(cacheKey); ok {
+		entry, _ := cached.(*collectorEntry)
+		if entry != nil {
+			r.collectors.Store(cacheKey, &collectorEntry{collector: entry.collector, lastUsed: now})
+			return entry.collector, &rsmetrics.DatadogQueryBuilder{}, nil
+		}
+	}
+
+	inner := rsmetrics.NewDatadogCollector(site, apiKey, appKey, log.FromContext(ctx).WithName("datadog"))
+	// Datadog: 300 requests/hour => ~0.08 QPS; burst of 3 for concurrent queries.
+	collector := rsmetrics.NewRateLimitedCollector(inner, 0.08, 3)
+	r.collectors.Store(cacheKey, &collectorEntry{collector: collector, lastUsed: now})
+	return collector, &rsmetrics.DatadogQueryBuilder{}, nil
+}
+
+// resolveCloudWatchCollector creates a CloudWatchCollector from the policy's
+// CloudWatch config, using the default AWS credential chain.
+func (r *RightSizePolicyReconciler) resolveCloudWatchCollector(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy) (rsmetrics.MetricsCollector, rsmetrics.QueryBuilder, error) {
+	cw := policy.Spec.MetricsSource.CloudWatch
+
+	// Cache the collector keyed by region + cluster + role.
+	cacheKey := fmt.Sprintf("cloudwatch:%s|%s|%s", cw.Region, cw.ClusterName, cw.RoleARN)
+	now := r.now()
+	if cached, ok := r.collectors.Load(cacheKey); ok {
+		entry, _ := cached.(*collectorEntry)
+		if entry != nil {
+			r.collectors.Store(cacheKey, &collectorEntry{collector: entry.collector, lastUsed: now})
+			qb := &rsmetrics.CloudWatchQueryBuilder{ClusterName: cw.ClusterName}
+			return entry.collector, qb, nil
+		}
+	}
+
+	inner, err := rsmetrics.NewCloudWatchCollector(ctx, cw.Region, cw.ClusterName, cw.RoleARN, log.FromContext(ctx).WithName("cloudwatch"))
+	if err != nil {
+		return nil, nil, fmt.Errorf("creating CloudWatch collector: %w", err)
+	}
+	// CloudWatch: 50 TPS quota; use 5 QPS with burst of 10 to stay safe.
+	collector := rsmetrics.NewRateLimitedCollector(inner, 5, 10)
+	r.collectors.Store(cacheKey, &collectorEntry{collector: collector, lastUsed: now})
+	qb := &rsmetrics.CloudWatchQueryBuilder{ClusterName: cw.ClusterName}
+	return collector, qb, nil
 }
 
 // resolvePrometheusAddress returns the Prometheus address from the policy spec,

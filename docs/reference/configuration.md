@@ -272,10 +272,10 @@ The CRD also supports Datadog and CloudWatch Container Insights as
 alternative metrics sources. **At most one** of `prometheus`, `datadog`, or
 `cloudwatch` may be set per policy.
 
-> **Note**: Datadog and CloudWatch backends are defined in the CRD but not
-> yet implemented. Setting these fields allows forward-compatible policy
-> definitions; the controller will report an error condition until the
-> backend is available.
+> The Datadog collector queries the `/api/v1/query` endpoint and converts
+> nanocores to cores automatically. The CloudWatch collector uses the
+> Container Insights `ContainerInsights` namespace and supports IRSA/Pod
+> Identity credentials with optional cross-account role assumption.
 
 ### Datadog
 

@@ -194,19 +194,22 @@ func (r *RightSizePolicyReconciler) getPodRegex(workload client.Object) string {
 	return name + ".*"
 }
 
-// queryMetricsGrouped queries Prometheus once per metric for the whole
-// workload, preserving the `container` label so callers can split samples
-// by container client-side. If the grouped query returns no labeled series,
-// it falls back to the pod-level query and returns samples under the empty
-// string key.
-func queryMetricsGrouped(ctx context.Context, collector rsmetrics.MetricsCollector, namespace, podRegex, metric string, start, end time.Time, step, rateWindow time.Duration) (map[string][]rsmetrics.Sample, bool) {
+// queryMetricsGrouped queries the configured metrics backend once per metric
+// for the whole workload, preserving the `container` label so callers can
+// split samples by container client-side. The QueryBuilder produces a
+// backend-specific query string (PromQL, Datadog query, or CloudWatch spec).
+// If qb is nil, it defaults to PromQL for backward compatibility.
+func queryMetricsGrouped(ctx context.Context, collector rsmetrics.MetricsCollector, qb rsmetrics.QueryBuilder, namespace, podRegex, metric string, start, end time.Time, step, rateWindow time.Duration) (map[string][]rsmetrics.Sample, bool) {
 	logger := log.FromContext(ctx)
 	v1Logger := logger.V(1)
 	v2Logger := logger.V(2)
-	query := buildPrometheusQuery(namespace, podRegex, "", metric, rateWindow)
+	if qb == nil {
+		qb = &rsmetrics.PromQLQueryBuilder{}
+	}
+	query := qb.BuildQuery(namespace, podRegex, "", metric, rateWindow)
 
 	if v1Logger.Enabled() {
-		v1Logger.Info("Querying Prometheus",
+		v1Logger.Info("Querying metrics backend",
 			"metric", metric, "query", query,
 			"start", start.Format(time.RFC3339), "end", end.Format(time.RFC3339),
 			"step", step)
@@ -229,14 +232,14 @@ func queryMetricsGrouped(ctx context.Context, collector rsmetrics.MetricsCollect
 			totalSamples += len(samples)
 		}
 		if totalSamples == 0 {
-			v1Logger.Info("Prometheus query returned no data",
+			v1Logger.Info("Metrics query returned no data",
 				"metric", metric, "query", query)
 		}
 	}
 	if v2Logger.Enabled() {
 		// V(2): log per-container sample counts.
 		for container, samples := range grouped {
-			v2Logger.Info("Prometheus query samples",
+			v2Logger.Info("Metrics query samples",
 				"metric", metric, "container", container,
 				"sampleCount", len(samples))
 		}
@@ -268,47 +271,9 @@ func filterStandaloneReplicaSets(objects []client.Object) []client.Object {
 	return result
 }
 
-// buildPrometheusQuery generates a PromQL query for the given metric type.
-// podRegex is a pre-built PromQL regex (already escaped) that matches pod names.
-// If container is empty, the query matches pod-level metrics (no container filter).
+// buildPrometheusQuery is a convenience wrapper around PromQLQueryBuilder for
+// backward compatibility. Used by benchmarks and tests that don't need
+// multi-backend support.
 func buildPrometheusQuery(namespace, podRegex, container, metric string, rateWindow time.Duration) string {
-	ns := rsmetrics.EscapePromQL(namespace)
-
-	containerFilter := ""
-	if container != "" {
-		containerFilter = fmt.Sprintf(`,container="%s"`, rsmetrics.EscapePromQL(container))
-	}
-
-	// Format rate window for PromQL (e.g., "5m", "15m", "2m30s").
-	rw := formatPromDuration(rateWindow)
-
-	switch metric {
-	case "cpu":
-		return fmt.Sprintf(
-			`rate(container_cpu_usage_seconds_total{namespace="%s",pod=~"%s"%s}[%s])`,
-			ns, podRegex, containerFilter, rw,
-		)
-	case "memory":
-		return fmt.Sprintf(
-			`container_memory_working_set_bytes{namespace="%s",pod=~"%s"%s}`,
-			ns, podRegex, containerFilter,
-		)
-	default:
-		return ""
-	}
-}
-
-// formatPromDuration formats a Go duration as a PromQL duration string.
-// PromQL accepts "Nm" for minutes, "Ns" for seconds, "Nh" for hours.
-func formatPromDuration(d time.Duration) string {
-	if d <= 0 {
-		return "5m"
-	}
-	if d >= time.Hour && d%time.Hour == 0 {
-		return fmt.Sprintf("%dh", int(d.Hours()))
-	}
-	if d >= time.Minute && d%time.Minute == 0 {
-		return fmt.Sprintf("%dm", int(d.Minutes()))
-	}
-	return fmt.Sprintf("%ds", int(d.Seconds()))
+	return (&rsmetrics.PromQLQueryBuilder{}).BuildQuery(namespace, podRegex, container, metric, rateWindow)
 }
