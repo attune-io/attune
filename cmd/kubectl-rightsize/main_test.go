@@ -785,6 +785,81 @@ func TestSortPolicies_BySavings(t *testing.T) {
 	assert.Equal(t, "low", items[1].GetName())
 }
 
+func TestFormatCanaryStatus(t *testing.T) {
+	tests := []struct {
+		name     string
+		obj      map[string]interface{}
+		expected string
+	}{
+		{
+			name: "non-canary mode",
+			obj: map[string]interface{}{
+				"spec": map[string]interface{}{"updateStrategy": map[string]interface{}{"mode": "Auto"}},
+			},
+			expected: "-",
+		},
+		{
+			name: "canary pending",
+			obj: map[string]interface{}{
+				"spec": map[string]interface{}{"updateStrategy": map[string]interface{}{"mode": "Canary"}},
+			},
+			expected: "Pending",
+		},
+		{
+			name: "canary in progress with pods",
+			obj: map[string]interface{}{
+				"spec": map[string]interface{}{"updateStrategy": map[string]interface{}{"mode": "Canary"}},
+				"status": map[string]interface{}{
+					"canary": map[string]interface{}{
+						"phase": "CanaryInProgress",
+						"pods":  []interface{}{"pod-a", "pod-b"},
+					},
+				},
+			},
+			expected: "CanaryInProgress (2 pods)",
+		},
+		{
+			name: "canary full rollout",
+			obj: map[string]interface{}{
+				"spec": map[string]interface{}{"updateStrategy": map[string]interface{}{"mode": "Canary"}},
+				"status": map[string]interface{}{
+					"canary": map[string]interface{}{"phase": "FullRollout"},
+				},
+			},
+			expected: "FullRollout",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			item := unstructured.Unstructured{Object: tt.obj}
+			assert.Equal(t, tt.expected, formatCanaryStatus(item))
+		})
+	}
+}
+
+func TestFilterPolicies_EmptyFilterReturnsAll(t *testing.T) {
+	items := []unstructured.Unstructured{
+		{Object: map[string]interface{}{"metadata": map[string]interface{}{"name": "a"}}},
+		{Object: map[string]interface{}{"metadata": map[string]interface{}{"name": "b"}}},
+	}
+	result := filterPolicies(items, "")
+	assert.Len(t, result, 2)
+}
+
+func TestRun_FilterFlagRejectedForNonStatus(t *testing.T) {
+	code := run([]string{"savings", "--filter", "degraded"}, func(string) (dynamic.Interface, string, error) {
+		return nil, "default", nil
+	})
+	assert.Equal(t, 1, code)
+}
+
+func TestRun_SortByFlagRejectedForHistory(t *testing.T) {
+	code := run([]string{"history", "--sort-by", "name"}, func(string) (dynamic.Interface, string, error) {
+		return nil, "default", nil
+	})
+	assert.Equal(t, 1, code)
+}
+
 // ---------- printStructured ----------
 
 func TestPrintStructured_JSON(t *testing.T) {
