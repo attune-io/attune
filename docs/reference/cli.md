@@ -32,6 +32,8 @@ kubectl rightsize status --watch          # live-refresh every 10s
 | Flag | Description |
 |------|-------------|
 | `-w`, `--watch` | Continuously refresh the status table every 10 seconds. Press Ctrl+C to stop. Useful during initial data collection to track progress without manually re-running the command. |
+| `--sort-by` | Sort output by field: `name`, `namespace`, `savings`, or `age`. |
+| `--filter` | Filter policies by Ready condition reason: `degraded`, `pending`, `collecting`, `ready`, or `noworkloads`. |
 
 | Column | Description |
 |--------|-------------|
@@ -39,6 +41,10 @@ kubectl rightsize status --watch          # live-refresh every 10s
 | READY | Current `Ready` reason (`Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `PrometheusUnavailable`, `InvalidConfig`, or `WorkloadDiscoveryFailed`), or the current `Ready` condition message when `Ready=False` includes actionable details |
 | RESIZING | `InProgress`, `Idle`, `CooldownActive`, or `-` (non-resize modes) |
 | DEGRADED | `HighRevertRate` or `-` |
+| CANARY | Canary phase and pod count (e.g., `CanaryInProgress (2 pods)`) when mode is Canary, `-` otherwise |
+
+When any policy has per-workload errors, they are printed below the table
+with the workload name and error message.
 
 ### savings
 
@@ -61,6 +67,29 @@ kubectl rightsize savings -n production
 
 When multiple policies have savings data, a **TOTAL** row is appended
 with aggregate CPU, memory, percentage, and estimated monthly savings.
+
+The `--sort-by` flag also works with the `savings` command.
+
+### preview
+
+Shows a per-container comparison of current vs recommended resources for a
+single policy. Use this before promoting from Recommend to Canary or Auto
+to preview what changes would be applied.
+
+```bash
+kubectl rightsize preview -n production api-services
+```
+
+| Column | Description |
+|--------|-------------|
+| WORKLOAD | Target workload name |
+| CONTAINER | Container name |
+| RESOURCE | `CPU` or `Memory` |
+| CURRENT | Current resource request |
+| RECOMMENDED | Recommended resource request |
+| CHANGE | Delta description |
+
+`preview` requires both a policy name and a single namespace.
 
 ### recommendations
 
@@ -154,6 +183,8 @@ with `kubectl get rightsizepolicy -o json|yaml`.
 | `--kubeconfig` | | Path to kubeconfig file |
 | `--output` | `-o` | Output raw `RightSizePolicy` objects as `json` or `yaml` (`status` only) |
 | `--watch` | `-w` | Continuously refresh status every 10 seconds (`status` only) |
+| `--sort-by` | | Sort output: `name`, `namespace`, `savings`, `age` (`status` and `savings` only) |
+| `--filter` | | Filter by condition: `degraded`, `pending`, `collecting`, `ready`, `noworkloads` (`status` only) |
 
 ## Manager Binary Flags
 

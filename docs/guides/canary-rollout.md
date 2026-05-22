@@ -51,6 +51,14 @@ spec:
 
 ## Monitoring canary pods
 
+The operator tracks which pods were selected for the canary subset in
+`status.canary.pods`. You can see the count in `kubectl rightsize status`
+(the CANARY column), or list the exact pod names:
+
+```bash
+kubectl get rsp my-app -o jsonpath='{.status.canary.pods}' | jq .
+```
+
 Watch resize events:
 
 ```bash

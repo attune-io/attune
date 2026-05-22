@@ -160,6 +160,13 @@ spec:
 | `resizeHistory[].to` | `string` | New value |
 | `resizeHistory[].method` | `string` | `InPlace` or `Eviction` |
 | `resizeHistory[].result` | `string` | `Success`, `Failed`, `Reverted`, or `Evicted` |
+| `resizeHistory[].reason` | `string` | Why a resize was reverted or failed (e.g. `oomkill`, `restart`, `notready`). Empty for successful resizes. |
+| `workloadErrors[].workload` | `string` | Workload name that encountered an error during reconciliation |
+| `workloadErrors[].error` | `string` | Human-readable error description |
+| `canary.phase` | `string` | `CanaryInProgress` or `FullRollout` |
+| `canary.startTime` | `Time` | When the canary subset was first resized |
+| `canary.observedGeneration` | `int64` | Policy generation when this canary cycle started |
+| `canary.pods` | `[]string` | Names of pods selected for the canary subset |
 
 `ResourceRecommendationExplanation` contains the intermediate fields emitted by
 the estimator chain: `rawPercentile`, `safetyMargin`, `afterSafetyMargin`,
