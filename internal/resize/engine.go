@@ -99,7 +99,7 @@ func (r *PodResizer) ResizePod(ctx context.Context, pod *corev1.Pod, container s
 		// Clamp the target memory limit when the container's resize policy
 		// for memory is NotRequired (or absent, which defaults to NotRequired).
 		// K8s v1.33 forbids in-place memory limit decreases with NotRequired.
-		adjustedTarget := clampMemoryLimitForPolicy(fresh, container, target)
+		adjustedTarget := ClampMemoryLimitForPolicy(fresh, container, target)
 		if isInit {
 			current = fresh.Spec.InitContainers[idx].Resources
 			updated.Spec.InitContainers[idx].Resources = mergeResources(current, adjustedTarget)
@@ -268,11 +268,11 @@ func (r *PodResizer) EvictPod(ctx context.Context, pod *corev1.Pod) error {
 	})
 }
 
-// clampMemoryLimitForPolicy prevents memory limit decreases when the
+// ClampMemoryLimitForPolicy prevents memory limit decreases when the
 // container's resize policy for memory is NotRequired (or absent, which
 // defaults to NotRequired). Kubernetes v1.33 rejects in-place memory limit
 // decreases unless the resize policy is RestartContainer.
-func clampMemoryLimitForPolicy(pod *corev1.Pod, container string, target corev1.ResourceRequirements) corev1.ResourceRequirements {
+func ClampMemoryLimitForPolicy(pod *corev1.Pod, container string, target corev1.ResourceRequirements) corev1.ResourceRequirements {
 	if len(target.Limits) == 0 {
 		return target
 	}

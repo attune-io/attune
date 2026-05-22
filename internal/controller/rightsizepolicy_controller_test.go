@@ -6326,9 +6326,9 @@ func (f *failOnNamedPodUpdateClient) Update(ctx context.Context, obj client.Obje
 // kubelet bumping resourceVersion concurrently during multi-container resizes.
 type conflictThenSucceedClient struct {
 	client.Client
-	mu             sync.Mutex
-	conflictsLeft  int
-	conflictsSeen  int
+	mu            sync.Mutex
+	conflictsLeft int
+	conflictsSeen int
 }
 
 func (c *conflictThenSucceedClient) Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {

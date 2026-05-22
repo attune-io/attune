@@ -357,6 +357,15 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 	containerRec, resizer, monitor, now := p.ContainerRec, p.Resizer, p.Monitor, p.Now
 	target := p.Target
 
+	// Clamp the target memory limit before skip checks (including QoS
+	// preservation). K8s v1.33 forbids in-place memory limit decreases
+	// when the resize policy is NotRequired. Applying the clamp early
+	// ensures shouldSkipResize sees the actual values that will be sent
+	// to the API server. Without this, a Guaranteed QoS pod could pass
+	// the QoS check with the unclamped target but then have its memory
+	// limit preserved by the resize engine, breaking requests == limits.
+	target = resize.ClampMemoryLimitForPolicy(pod, containerRec.Name, target)
+
 	skip, reason := r.shouldSkipResize(ctx, policy, pod, containerRec, target, p.Checks)
 	if skip {
 		if reason != "" {

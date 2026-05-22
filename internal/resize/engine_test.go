@@ -840,7 +840,7 @@ func TestClampMemoryLimitForPolicy(t *testing.T) {
 				}
 			}
 
-			result := clampMemoryLimitForPolicy(pod, "app", target)
+			result := ClampMemoryLimitForPolicy(pod, "app", target)
 
 			if tt.expectedMemLim == "" {
 				assert.Empty(t, result.Limits)
