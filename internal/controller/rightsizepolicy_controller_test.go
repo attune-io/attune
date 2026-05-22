@@ -6321,6 +6321,67 @@ func (f *failOnNamedPodUpdateClient) Update(ctx context.Context, obj client.Obje
 	return f.Client.Update(ctx, obj, opts...)
 }
 
+// conflictThenSucceedClient returns a 409 Conflict on the first N pod
+// Update calls, then delegates to the real client. This simulates the
+// kubelet bumping resourceVersion concurrently during multi-container resizes.
+type conflictThenSucceedClient struct {
+	client.Client
+	mu             sync.Mutex
+	conflictsLeft  int
+	conflictsSeen  int
+}
+
+func (c *conflictThenSucceedClient) Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
+	if _, ok := obj.(*corev1.Pod); ok {
+		c.mu.Lock()
+		if c.conflictsLeft > 0 {
+			c.conflictsLeft--
+			c.conflictsSeen++
+			c.mu.Unlock()
+			return apierrors.NewConflict(corev1.Resource("pods"), obj.GetName(), fmt.Errorf("resourceVersion changed"))
+		}
+		c.mu.Unlock()
+	}
+	return c.Client.Update(ctx, obj, opts...)
+}
+
+func TestExecuteResizes_AnnotationConflictRetrySucceeds(t *testing.T) {
+	pod := newResizePodWithStatus("api-server", "500m", "512Mi", "1000m", "1Gi", 0)
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod).Build()
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+
+	wrappedClient := &conflictThenSucceedClient{Client: fakeClient, conflictsLeft: 1}
+
+	reconciler := &RightSizePolicyReconciler{
+		Client:    wrappedClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeOneShot
+
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("api-server", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),
+	}
+
+	workloads := []client.Object{deploy}
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil, nil)
+
+	// Despite a conflict on the first annotation update attempt, the retry
+	// should succeed and the resize should NOT be reverted.
+	assert.Equal(t, 1, count, "resize should succeed after conflict retry")
+	require.NotEmpty(t, history)
+	for _, h := range history {
+		assert.NotEqual(t, rightsizev1alpha1.ResizeResultReverted, h.Result,
+			"history should not contain Reverted entries after successful retry")
+	}
+	assert.Equal(t, 1, wrappedClient.conflictsSeen, "should have seen exactly 1 conflict")
+}
+
 func TestExecuteResizes_RevertFailureMarksHistoryAsFailed(t *testing.T) {
 	pod := newResizePodWithStatus("api-server", "500m", "512Mi", "1000m", "1Gi", 3)
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
