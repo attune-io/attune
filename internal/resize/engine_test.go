@@ -566,6 +566,18 @@ func TestMergeResources(t *testing.T) {
 			wantMemLimit: "2Gi",
 		},
 		{
+			name: "current has no limits, target adds limits",
+			current: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m")},
+				// No limits on current pod.
+			},
+			target: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("250m")},
+				Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+			},
+			wantCPULimit: "1",
+		},
+		{
 			name: "mixed controlledValues: target has only CPU limit, memory limit preserved from current",
 			current: corev1.ResourceRequirements{
 				Requests: corev1.ResourceList{
