@@ -1,6 +1,7 @@
-# syntax=docker/dockerfile:1
-
 # Build stage: use BUILDPLATFORM so Go runs natively even for cross-arch builds.
+# BuildKit features (--platform, --mount) are supported natively since Docker 20.10.
+# No # syntax directive needed; it triggers a registry pull that fails on macOS
+# self-hosted runners where the keychain is locked in headless sessions.
 FROM --platform=$BUILDPLATFORM golang:1.26@sha256:6df14f4a4bc9d979a3721f488981e0d1b318006377e473ed23d026796f5f4c0a AS builder
 
 ARG TARGETOS
