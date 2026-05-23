@@ -40,7 +40,7 @@ spec:
     safetyMargin: "1.2"
     controlledValues: RequestsOnly
     minAllowed: "100m"
-      maxAllowed: "4000m"
+    maxAllowed: "4000m"
 ```
 
 !!! tip

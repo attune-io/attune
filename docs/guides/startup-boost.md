@@ -40,7 +40,7 @@ spec:
       multiplier: "3.0"   # 3x the steady-state recommendation
       duration: 2m         # boost expires 2 minutes after pod creation
     minAllowed: "100m"
-      maxAllowed: "8000m"
+    maxAllowed: "8000m"
   memory:
     percentile: 99
     safetyMargin: "1.3"

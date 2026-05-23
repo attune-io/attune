@@ -27,13 +27,13 @@ spec:
     percentile: 95
     safetyMargin: "1.2"
     minAllowed: "50m"
-      maxAllowed: "4000m"
+    maxAllowed: "4000m"
     controlledValues: RequestsAndLimits
   memory:
     percentile: 99
     safetyMargin: "1.3"
     minAllowed: "64Mi"
-      maxAllowed: "8Gi"
+    maxAllowed: "8Gi"
     allowDecrease: false
   updateStrategy:
     mode: Recommend

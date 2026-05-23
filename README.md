@@ -77,12 +77,12 @@ spec:
     percentile: 95
     safetyMargin: "1.2"
     minAllowed: "1m"
-      maxAllowed: "4000m"
+    maxAllowed: "4000m"
   memory:
     percentile: 99
     safetyMargin: "1.3"
     minAllowed: "4Mi"
-      maxAllowed: "8Gi"
+    maxAllowed: "8Gi"
   updateStrategy:
     mode: Recommend
 ```
