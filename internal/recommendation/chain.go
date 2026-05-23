@@ -25,7 +25,7 @@ import (
 )
 
 // RecommendationEngine produces resource recommendations by applying a
-// pipeline: percentile -> margin -> confidence -> bounds -> change_filter.
+// pipeline: percentile -> overhead -> confidence -> bounds -> change_filter.
 // Each step is configured via the fields below and executed inline in
 // RecommendWithExplanation.
 type RecommendationEngine struct {

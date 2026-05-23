@@ -141,7 +141,7 @@ spec:
 | `recommendations[].containers[].lastUpdated` | `Time` | Last recommendation timestamp |
 | `recommendations[].stale` | `bool` | `true` when Prometheus returned no fresh data; resize is blocked until fresh data arrives |
 | `recommendations[].lastDataTime` | `Time` | Timestamp of the most recent Prometheus data point |
-| `recommendations[].dataAge` | `Duration` | Age of the freshest Prometheus data relative to the query time |
+
 | `savings.cpuRequestReduction` | `string` | Total CPU request reduction (e.g. "1200m") |
 | `savings.cpuRequestTotal` | `string` | Total current CPU requests across all workloads (e.g. "2000m") |
 | `savings.memoryRequestReduction` | `string` | Total memory request reduction (e.g. "2Gi") |

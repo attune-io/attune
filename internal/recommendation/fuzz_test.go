@@ -88,19 +88,19 @@ func FuzzPercentileEstimator(f *testing.F) {
 }
 
 func FuzzRecommendationEngine(f *testing.F) {
-	// Seed corpus: (usage, current, margin, percentile).
-	f.Add(0.1, 0.5, 1.2, 95)
+	// Seed corpus: (usage, current, overhead%, percentile).
+	f.Add(0.1, 0.5, 20.0, 95)
 
-	f.Fuzz(func(t *testing.T, usage, current, margin float64, percentile int) {
+	f.Fuzz(func(t *testing.T, usage, current, overhead float64, percentile int) {
 		// Validate inputs.
-		if percentile < 50 || percentile > 99 || margin < 1.0 || margin > 5.0 {
+		if percentile < 50 || percentile > 99 || overhead < 0 || overhead > 500 {
 			t.Skip()
 		}
 		if usage < 0 || current <= 0 || usage > 100 || current > 100 {
 			t.Skip()
 		}
 
-		engine := NewEngine(percentile, margin,
+		engine := NewEngine(percentile, overhead,
 			resource.MustParse("10m"), resource.MustParse("100000m"), 100, EngineOpts{IsCPU: true})
 
 		profile := buildTestProfile(usage)

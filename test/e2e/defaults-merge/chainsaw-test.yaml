@@ -83,7 +83,7 @@ spec:
                 memory:
                   percentile: 99
                   overhead: "30"
-                # mode intentionally omitted: inherited from RightSizeDefaults (Recommend)
+                # type intentionally omitted: inherited from RightSizeDefaults (Recommend)
                 updateStrategy:
                   cooldown: 1m
     - name: verify-policy-reconciles
@@ -98,8 +98,8 @@ spec:
               status:
                 workloads:
                   discovered: 1
-    - name: verify-mode-inherited
-      description: Verify that mode was inherited from defaults (Recommend) by checking the status condition
+    - name: verify-type-inherited
+      description: Verify that type was inherited from defaults (Recommend) by checking the status condition
       try:
         - script:
             timeout: 2m
@@ -108,11 +108,11 @@ spec:
                 REASON=$(kubectl get rightsizepolicy inherits-defaults -n e2e-defaults-merge \
                   -o jsonpath='{.status.conditions[?(@.type=="Ready")].reason}' 2>/dev/null)
                 if [ "$REASON" = "InsufficientData" ] || [ "$REASON" = "Monitoring" ]; then
-                  echo "Policy is in Recommend mode (reason: $REASON)"
-                  # Verify the policy spec does NOT have mode set (it was inherited)
-                  MODE=$(kubectl get rightsizepolicy inherits-defaults -n e2e-defaults-merge \
-                    -o jsonpath='{.spec.updateStrategy.mode}' 2>/dev/null)
-                  echo "Spec mode value: '$MODE'"
+                  echo "Policy is in Recommend type (reason: $REASON)"
+                  # Verify the policy spec does NOT have type set (it was inherited)
+                  TYPE=$(kubectl get rightsizepolicy inherits-defaults -n e2e-defaults-merge \
+                    -o jsonpath='{.spec.updateStrategy.type}' 2>/dev/null)
+                  echo "Spec type value: '$TYPE'"
                   exit 0
                 fi
                 sleep 5

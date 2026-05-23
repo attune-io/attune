@@ -84,12 +84,12 @@ spec:
     safetyObservationPeriod: 10m  # safety watch window after each resize
 ```
 
-### Safety margin guidance
+### Overhead guidance
 
-- **CPU**: 1.2x (20% headroom) works well for steady-state services. Use 1.5x
+- **CPU**: 20% overhead works well for steady-state services. Use 50%
   for bursty workloads.
-- **Memory**: 1.3x (30% headroom) is recommended because memory pressure causes
-  OOM kills. Never go below 1.1x for production.
+- **Memory**: 30% overhead is recommended because memory pressure causes
+  OOM kills. Never go below 10% for production.
 
 ## Monitoring Auto mode
 

@@ -817,7 +817,7 @@ type SavingsStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:shortName=rsp,categories={rightsize}
-// +kubebuilder:printcolumn:name="Mode",type=string,JSONPath=`.spec.updateStrategy.mode`
+// +kubebuilder:printcolumn:name="Type",type=string,JSONPath=`.spec.updateStrategy.type`
 // +kubebuilder:printcolumn:name="Workloads",type=integer,JSONPath=`.status.workloads.discovered`
 // +kubebuilder:printcolumn:name="Recs",type=integer,JSONPath=`.status.workloads.withRecommendations`
 // +kubebuilder:printcolumn:name="Resized",type=integer,JSONPath=`.status.workloads.resized`

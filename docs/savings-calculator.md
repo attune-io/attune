@@ -292,19 +292,19 @@ The calculator uses the same pricing model as the operator's built-in
   <div class="calc-field">
     <label for="overheadCpu">CPU overhead</label>
     <select id="overheadCpu" onchange="calculate()">
-      <option value="1.1">1.1x (10% headroom)</option>
-      <option value="1.2" selected>1.2x (20% headroom) — recommended</option>
-      <option value="1.3">1.3x (30% headroom)</option>
-      <option value="1.5">1.5x (50% headroom, bursty workloads)</option>
+      <option value="10">10% headroom</option>
+      <option value="20" selected>20% headroom — recommended</option>
+      <option value="30">30% headroom</option>
+      <option value="50">50% headroom (bursty workloads)</option>
     </select>
   </div>
   <div class="calc-field">
     <label for="overheadMem">Memory overhead</label>
     <select id="overheadMem" onchange="calculate()">
-      <option value="1.1">1.1x (10% headroom)</option>
-      <option value="1.2">1.2x (20% headroom)</option>
-      <option value="1.3" selected>1.3x (30% headroom) — recommended</option>
-      <option value="1.5">1.5x (50% headroom)</option>
+      <option value="10">10% headroom</option>
+      <option value="20">20% headroom</option>
+      <option value="30" selected>30% headroom — recommended</option>
+      <option value="50">50% headroom</option>
     </select>
   </div>
 </div>
@@ -440,8 +440,8 @@ function getWorkloads() {
 function calculate() {
   const cpuPrice = parseFloat(document.getElementById('cpuPrice').value) || 0;
   const memPrice = parseFloat(document.getElementById('memPrice').value) || 0;
-  const cpuMargin = parseFloat(document.getElementById('overheadCpu').value);
-  const memMargin = parseFloat(document.getElementById('overheadMem').value);
+  const cpuMargin = 1 + parseFloat(document.getElementById('overheadCpu').value) / 100;
+  const memMargin = 1 + parseFloat(document.getElementById('overheadMem').value) / 100;
   const hoursPerMonth = 730;
 
   const workloads = getWorkloads();

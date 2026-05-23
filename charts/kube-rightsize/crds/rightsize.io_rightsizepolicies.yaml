@@ -19,8 +19,8 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.updateStrategy.mode
-      name: Mode
+    - jsonPath: .spec.updateStrategy.type
+      name: Type
       type: string
     - jsonPath: .status.workloads.discovered
       name: Workloads

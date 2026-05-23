@@ -37,7 +37,7 @@ func BenchmarkPercentileEstimator(b *testing.B) {
 }
 
 func BenchmarkFullChain(b *testing.B) {
-	engine := NewEngine(95, 1.2,
+	engine := NewEngine(95, 20.0,
 		resource.MustParse("50m"),
 		resource.MustParse("4000m"),
 		50,
@@ -91,7 +91,7 @@ func BenchmarkFullChain_HistoryWindows(b *testing.B) {
 		{"14d_4032dp", 4032, 14},
 		{"30d_8640dp", 8640, 30},
 	}
-	engine := NewEngine(95, 1.2,
+	engine := NewEngine(95, 20.0,
 		resource.MustParse("50m"),
 		resource.MustParse("4000m"),
 		50,
@@ -115,7 +115,7 @@ func BenchmarkFullChain_HistoryWindows(b *testing.B) {
 func BenchmarkFullChain_Percentiles(b *testing.B) {
 	for _, p := range []int{50, 90, 95, 99} {
 		b.Run(fmt.Sprintf("P%d", p), func(b *testing.B) {
-			engine := NewEngine(p, 1.2,
+			engine := NewEngine(p, 20.0,
 				resource.MustParse("50m"),
 				resource.MustParse("4000m"),
 				50,

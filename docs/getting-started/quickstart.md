@@ -25,8 +25,8 @@ recommendations, and promoting to Canary mode, all in about five minutes.
 Start in **Recommend** mode so that no pods are modified. The operator will
 collect metrics and write recommendations to the resource status.
 
-All fields have production-ready defaults (P95 CPU, P99 memory, 1.2x/1.3x
-overheads, sensible bounds). A minimal policy is just:
+All fields have production-ready defaults (P95 CPU, P99 memory, 20%/30%
+overhead, sensible bounds). A minimal policy is just:
 
 ```yaml
 apiVersion: rightsize.io/v1alpha1
