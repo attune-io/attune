@@ -127,7 +127,7 @@ var (
 	PrometheusQueryDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "kube_rightsize_prometheus_query_duration_seconds",
-			Help:    "Duration of Prometheus queries",
+			Help:    "Duration of metrics backend queries (Prometheus, Datadog, or CloudWatch)",
 			Buckets: prometheus.DefBuckets,
 		},
 		[]string{"query_type"},
@@ -136,7 +136,7 @@ var (
 	PrometheusQueryErrors = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "kube_rightsize_prometheus_query_errors_total",
-			Help: "Total number of Prometheus query errors",
+			Help: "Total number of metrics backend query errors (Prometheus, Datadog, or CloudWatch)",
 		},
 		[]string{"namespace", "query_type"},
 	)
