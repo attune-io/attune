@@ -391,6 +391,11 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 		if reason != "" {
 			logger.Info("Skipping resize: "+reason,
 				"pod", pod.Name, "container", containerRec.Name)
+		} else {
+			logger.V(1).Info("Skipping resize: already at target",
+				"pod", pod.Name, "container", containerRec.Name,
+				"cpuTarget", target.Requests.Cpu().String(),
+				"memTarget", target.Requests.Memory().String())
 		}
 		return nil, resizeOutcomeNone
 	}
