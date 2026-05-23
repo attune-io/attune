@@ -177,13 +177,19 @@ func (r *RightSizePolicyReconciler) applyStartupBoosts(
 						// violate LimitRange or quota constraints.
 						expireRec := rightsizev1alpha1.ContainerRecommendation{
 							Name: c.Name,
+							Current: rightsizev1alpha1.ResourceValues{
+								CPURequest:    c.Resources.Requests.Cpu().DeepCopy(),
+								MemoryRequest: c.Resources.Requests.Memory().DeepCopy(),
+							},
 							Recommended: rightsizev1alpha1.ResourceValues{
-								CPURequest: recCPU.DeepCopy(),
+								CPURequest:    recCPU.DeepCopy(),
+								MemoryRequest: c.Resources.Requests.Memory().DeepCopy(),
 							},
 						}
 						expireTarget := corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{
-								corev1.ResourceCPU: recCPU.DeepCopy(),
+								corev1.ResourceCPU:    recCPU.DeepCopy(),
+								corev1.ResourceMemory: c.Resources.Requests.Memory().DeepCopy(),
 							},
 						}
 						if skip, reason := r.shouldSkipResize(ctx, policy, pod, expireRec, expireTarget, checks); skip {
