@@ -185,13 +185,13 @@ spec:
       address: http://prometheus-server.monitoring:80
   cpu:
     percentile: 95
-    safetyMargin: "1.2"
+    overhead: "20"
     bounds:
       min: "50m"
       max: "2000m"
   memory:
     percentile: 99
-    safetyMargin: "1.3"
+    overhead: "30"
     bounds:
       min: "64Mi"
       max: "4Gi"

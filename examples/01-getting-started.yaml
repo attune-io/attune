@@ -6,7 +6,7 @@
 #
 # All fields except targetRef and metricsSource.prometheus.address are
 # optional. The operator applies sensible built-in defaults (P95 CPU,
-# P99 memory, 1.2x safety margin, Recommend mode). Override only what
+# P99 memory, 20% overhead, Recommend mode). Override only what
 # you need.
 #
 # Prerequisites:

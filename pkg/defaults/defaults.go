@@ -32,7 +32,7 @@ import (
 // MergeDefaults with the operator's built-in default values. This runs
 // AFTER MergeDefaults so that cluster-wide RightSizeDefaults take precedence.
 //
-// Per-resource fields (Percentile, SafetyMargin, MinAllowed/MaxAllowed, BurstSensitivity)
+// Per-resource fields (Percentile, Overhead, MinAllowed/MaxAllowed, BurstSensitivity)
 // are NOT set here; they are handled defensively at their usage sites in
 // buildRecommendationEngines.
 func ApplyBuiltInDefaults(policy *rightsizev1alpha1.RightSizePolicy) {
@@ -106,9 +106,9 @@ func MergeResourceConfig(policy *rightsizev1alpha1.ResourceConfig, defaults *rig
 		policy.Percentile = defaults.Percentile
 		inherited = append(inherited, prefix+".percentile")
 	}
-	if policy.SafetyMargin == "" && defaults.SafetyMargin != "" {
-		policy.SafetyMargin = defaults.SafetyMargin
-		inherited = append(inherited, prefix+".safetyMargin")
+	if policy.Overhead == "" && defaults.Overhead != "" {
+		policy.Overhead = defaults.Overhead
+		inherited = append(inherited, prefix+".overhead")
 	}
 	if policy.MinAllowed == nil && defaults.MinAllowed != nil {
 		policy.MinAllowed = defaults.MinAllowed

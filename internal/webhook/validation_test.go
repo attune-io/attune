@@ -41,12 +41,12 @@ func validPolicy() *rightsizev1alpha1.RightSizePolicy {
 				Name: &name,
 			},
 			CPU: rightsizev1alpha1.ResourceConfig{
-				Percentile:   95,
-				SafetyMargin: "1.2",
+				Percentile: 95,
+				Overhead:   "20",
 			},
 			Memory: rightsizev1alpha1.ResourceConfig{
-				Percentile:   99,
-				SafetyMargin: "1.3",
+				Percentile: 99,
+				Overhead:   "30",
 			},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 				Type: rightsizev1alpha1.UpdateTypeRecommend,
@@ -294,17 +294,15 @@ func TestValidate_MemoryDecreaseWarning(t *testing.T) {
 	assert.Contains(t, warnings[0], "OOMKill risk")
 }
 
-func TestValidate_SafetyMarginBelowOneWarns(t *testing.T) {
+func TestValidate_OverheadZeroIsValid(t *testing.T) {
 	validator := &RightSizePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.CPU.SafetyMargin = "0.8"
+	policy.Spec.CPU.Overhead = "0"
 
 	warnings, err := validator.ValidateCreate(context.Background(), policy)
 
 	assert.NoError(t, err)
-	require.Len(t, warnings, 1)
-	assert.Contains(t, warnings[0], "below 1.0")
-	assert.Contains(t, warnings[0], "reduce resources below the target percentile")
+	assert.Empty(t, warnings)
 }
 
 func TestValidate_MemoryStartupBoostWarning(t *testing.T) {
@@ -381,17 +379,17 @@ func TestValidateUpdate_InvalidBounds(t *testing.T) {
 	assert.Contains(t, err.Error(), "cpu.minAllowed")
 }
 
-func TestValidate_SafetyMarginInvalid(t *testing.T) {
+func TestValidate_OverheadInvalid(t *testing.T) {
 	tests := []struct {
 		name    string
 		cpu     string
 		memory  string
 		wantErr string
 	}{
-		{"non-numeric CPU", "abc", "1.3", "cpu.safetyMargin"},
-		{"non-numeric memory", "1.2", "xyz", "memory.safetyMargin"},
-		{"zero CPU", "0", "1.3", "must be positive"},
-		{"negative memory", "1.2", "-1.5", "must be positive"},
+		{"non-numeric CPU", "abc", "30", "cpu.overhead"},
+		{"non-numeric memory", "20", "xyz", "memory.overhead"},
+		{"negative CPU", "-5", "30", "must be non-negative"},
+		{"negative memory", "20", "-1.5", "must be non-negative"},
 		{"NaN CPU", "NaN", "1.3", "must be a finite number"},
 		{"Inf memory", "1.2", "Inf", "must be a finite number"},
 		{"-Inf CPU", "-Inf", "1.3", "must be a finite number"},
@@ -400,8 +398,8 @@ func TestValidate_SafetyMarginInvalid(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			validator := &RightSizePolicyValidator{}
 			policy := validPolicy()
-			policy.Spec.CPU.SafetyMargin = tt.cpu
-			policy.Spec.Memory.SafetyMargin = tt.memory
+			policy.Spec.CPU.Overhead = tt.cpu
+			policy.Spec.Memory.Overhead = tt.memory
 
 			_, err := validator.ValidateCreate(context.Background(), policy)
 			assert.Error(t, err)
@@ -460,22 +458,22 @@ func TestValidate_NegativeBudgetCaps(t *testing.T) {
 	})
 }
 
-func TestValidate_SafetyMarginExceedsMax(t *testing.T) {
+func TestValidate_OverheadExceedsMax(t *testing.T) {
 	tests := []struct {
 		name    string
 		cpu     string
 		memory  string
 		wantErr string
 	}{
-		{"CPU exceeds max", "15.0", "1.3", "cpu.safetyMargin must be <= 10.0"},
-		{"memory exceeds max", "1.2", "100.0", "memory.safetyMargin must be <= 10.0"},
+		{"CPU exceeds max", "1000", "30", "cpu.overhead must be <= 900"},
+		{"memory exceeds max", "20", "1000", "memory.overhead must be <= 900"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			validator := &RightSizePolicyValidator{}
 			policy := validPolicy()
-			policy.Spec.CPU.SafetyMargin = tt.cpu
-			policy.Spec.Memory.SafetyMargin = tt.memory
+			policy.Spec.CPU.Overhead = tt.cpu
+			policy.Spec.Memory.Overhead = tt.memory
 
 			_, err := validator.ValidateCreate(context.Background(), policy)
 			assert.Error(t, err)

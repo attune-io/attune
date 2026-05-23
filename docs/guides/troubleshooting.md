@@ -385,8 +385,8 @@ kubectl get rsp <name> -o jsonpath='{.status.resizeHistory}' | \
 
 Common causes:
 
-- **oomkill**: safety margin is too low for memory. Increase `memory.safetyMargin`.
-- **throttle**: CPU throttle ratio exceeded 50% post-resize. Increase `cpu.safetyMargin`.
+- **oomkill**: overhead is too low for memory. Increase `memory.overhead`.
+- **throttle**: CPU throttle ratio exceeded 50% post-resize. Increase `cpu.overhead`.
 - **restart**: the application crashes at the new resource level. Check application logs.
 - **notready**: readiness probe fails post-resize. Verify probe configuration.
 

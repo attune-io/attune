@@ -30,7 +30,7 @@ import (
 // RecommendWithExplanation.
 type RecommendationEngine struct {
 	percentile           int
-	safetyMargin         float64
+	overhead             float64
 	burstSensitivity     float64
 	minBound             resource.Quantity
 	maxBound             resource.Quantity
@@ -56,7 +56,8 @@ type EngineOpts struct {
 const DefaultBurstSensitivity = 0.1
 
 // NewEngine creates a new RecommendationEngine with the specified parameters.
-func NewEngine(percentile int, safetyMargin float64, minBound, maxBound resource.Quantity,
+// overhead is the percentage of additional resources (e.g., 20.0 for 20% extra).
+func NewEngine(percentile int, overhead float64, minBound, maxBound resource.Quantity,
 	maxChangePercent float64, opts ...EngineOpts,
 ) *RecommendationEngine {
 	var opt EngineOpts
@@ -72,7 +73,7 @@ func NewEngine(percentile int, safetyMargin float64, minBound, maxBound resource
 	}
 	return &RecommendationEngine{
 		percentile:           percentile,
-		safetyMargin:         safetyMargin,
+		overhead:             overhead,
 		burstSensitivity:     bs,
 		minBound:             minBound.DeepCopy(),
 		maxBound:             maxBound.DeepCopy(),
@@ -98,16 +99,18 @@ func (e *RecommendationEngine) RecommendWithExplanation(profile metrics.UsagePro
 	percentileEstimator := &PercentileEstimator{Percentile: e.percentile, IsCPU: e.isCPU}
 	rawPercentile := percentileEstimator.Estimate(profile, current)
 
-	afterSafetyMargin := scaleQuantity(rawPercentile, e.safetyMargin)
+	// Convert overhead percentage to multiplier: 20% overhead -> 1.2x multiplier.
+	overheadMultiplier := 1 + e.overhead/100
+	afterOverhead := scaleQuantity(rawPercentile, overheadMultiplier)
 
 	// Burst-aware boost: if the profile detected a burst (max > 3x p95),
-	// widen the safety margin proportionally using a logarithmic scale
+	// widen the overhead proportionally using a logarithmic scale
 	// so extreme bursts don't inflate the recommendation excessively.
 	burstFactor := 1.0
 	if profile.BurstDetected && profile.BurstMagnitude > 1 && e.burstSensitivity > 0 {
 		burstFactor = 1.0 + math.Log2(profile.BurstMagnitude)*e.burstSensitivity
 	}
-	afterBurst := scaleQuantity(afterSafetyMargin, burstFactor)
+	afterBurst := scaleQuantity(afterOverhead, burstFactor)
 
 	confidence := profile.Confidence
 	if confidence < 0.1 {
@@ -155,8 +158,8 @@ func (e *RecommendationEngine) RecommendWithExplanation(profile metrics.UsagePro
 
 	explanation = RecommendationExplanation{
 		RawPercentile:       rawPercentile.DeepCopy(),
-		SafetyMargin:        e.safetyMargin,
-		AfterSafetyMargin:   afterSafetyMargin.DeepCopy(),
+		Overhead:            e.overhead,
+		AfterOverhead:       afterOverhead.DeepCopy(),
 		BurstFactor:         burstFactor,
 		AfterBurst:          afterBurst.DeepCopy(),
 		Confidence:          profile.Confidence,

@@ -457,19 +457,19 @@ func TestNamespaceDefaultsValidator_RecordsRejectedMetric(t *testing.T) {
 	assert.Equal(t, 1.0, metric.GetCounter().GetValue())
 }
 
-func TestDefaultsValidate_SafetyMarginInvalid(t *testing.T) {
+func TestDefaultsValidate_OverheadInvalid(t *testing.T) {
 	tests := []struct {
 		name    string
 		cpu     string
 		memory  string
 		wantErr string
 	}{
-		{"NaN CPU", "NaN", "1.3", "must be a finite number"},
-		{"negative CPU", "-0.5", "1.3", "must be positive"},
-		{"CPU exceeds max", "15.0", "1.3", "cpu.safetyMargin must be <= 10.0"},
-		{"NaN memory", "1.2", "NaN", "must be a finite number"},
-		{"negative memory", "1.2", "-1.5", "must be positive"},
-		{"memory exceeds max", "1.2", "100.0", "memory.safetyMargin must be <= 10.0"},
+		{"NaN CPU", "NaN", "30", "must be a finite number"},
+		{"negative CPU", "-5", "30", "must be non-negative"},
+		{"CPU exceeds max", "1000", "30", "cpu.overhead must be <= 900"},
+		{"NaN memory", "20", "NaN", "must be a finite number"},
+		{"negative memory", "20", "-1.5", "must be non-negative"},
+		{"memory exceeds max", "20", "1000", "memory.overhead must be <= 900"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -478,12 +478,12 @@ func TestDefaultsValidate_SafetyMarginInvalid(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{Name: "default"},
 				Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
 					CPU: &rightsizev1alpha1.ResourceConfig{
-						Percentile:   95,
-						SafetyMargin: tc.cpu,
+						Percentile: 95,
+						Overhead:   tc.cpu,
 					},
 					Memory: &rightsizev1alpha1.ResourceConfig{
-						Percentile:   99,
-						SafetyMargin: tc.memory,
+						Percentile: 99,
+						Overhead:   tc.memory,
 					},
 				},
 			}

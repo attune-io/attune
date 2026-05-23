@@ -826,12 +826,12 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *righ
 
 	fmt.Println("  CPU:")
 	printEffectiveField("  Percentile", formatInt64Field(item, "spec", "cpu", "percentile"), formatInt32Val(effective.Spec.CPU.Percentile), selected, cpuDefaults != nil && cpuDefaults.Percentile != 0)
-	printEffectiveField("  Safety margin", getNestedString(item, "spec", "cpu", "safetyMargin"), effective.Spec.CPU.SafetyMargin, selected, cpuDefaults != nil && cpuDefaults.SafetyMargin != "")
+	printEffectiveField("  Overhead", getNestedString(item, "spec", "cpu", "overhead"), effective.Spec.CPU.Overhead, selected, cpuDefaults != nil && cpuDefaults.Overhead != "")
 	printEffectiveField("  Controlled values", getNestedString(item, "spec", "cpu", "controlledValues"), formatStringPtr(effective.Spec.CPU.ControlledValues), selected, cpuDefaults != nil && cpuDefaults.ControlledValues != nil)
 
 	fmt.Println("  Memory:")
 	printEffectiveField("  Percentile", formatInt64Field(item, "spec", "memory", "percentile"), formatInt32Val(effective.Spec.Memory.Percentile), selected, memDefaults != nil && memDefaults.Percentile != 0)
-	printEffectiveField("  Safety margin", getNestedString(item, "spec", "memory", "safetyMargin"), effective.Spec.Memory.SafetyMargin, selected, memDefaults != nil && memDefaults.SafetyMargin != "")
+	printEffectiveField("  Overhead", getNestedString(item, "spec", "memory", "overhead"), effective.Spec.Memory.Overhead, selected, memDefaults != nil && memDefaults.Overhead != "")
 	printEffectiveField("  Controlled values", getNestedString(item, "spec", "memory", "controlledValues"), formatStringPtr(effective.Spec.Memory.ControlledValues), selected, memDefaults != nil && memDefaults.ControlledValues != nil)
 }
 
@@ -974,9 +974,9 @@ func printResourceExplanation(resourceName string, current, recommended, explana
 
 	fmt.Printf("    %s:\n", resourceName)
 	fmt.Printf("      Raw percentile:              %s\n", nestedString(resourceExplanation, "rawPercentile"))
-	fmt.Printf("      x Safety margin (%s):      %s\n",
-		formatFloat(nestedFloat(resourceExplanation, "safetyMargin")),
-		nestedString(resourceExplanation, "afterSafetyMargin"))
+	fmt.Printf("      + Overhead (%s%%):           %s\n",
+		formatFloat(nestedFloat(resourceExplanation, "overhead")),
+		nestedString(resourceExplanation, "afterOverhead"))
 	fmt.Printf("      x Confidence factor (%s, confidence %.2f): %s\n",
 		formatFloat(nestedFloat(resourceExplanation, "confidenceFactor")),
 		nestedFloat(resourceExplanation, "confidence"),

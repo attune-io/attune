@@ -26,7 +26,7 @@ Start in **Recommend** mode so that no pods are modified. The operator will
 collect metrics and write recommendations to the resource status.
 
 All fields have production-ready defaults (P95 CPU, P99 memory, 1.2x/1.3x
-safety margins, sensible bounds). A minimal policy is just:
+overheads, sensible bounds). A minimal policy is just:
 
 ```yaml
 apiVersion: rightsize.io/v1alpha1
@@ -67,7 +67,7 @@ spec:
 ??? note "Full configuration reference"
     All defaults can be overridden per-policy. See
     [Configuration Reference](../reference/configuration.md) for the complete
-    list of fields including `cpu.percentile`, `memory.safetyMargin`,
+    list of fields including `cpu.percentile`, `memory.overhead`,
     `updateStrategy.cooldown`, bounds, and more.
 
 ```bash

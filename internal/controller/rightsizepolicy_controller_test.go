@@ -178,16 +178,16 @@ func newTestPolicy(name, namespace string) *rightsizev1alpha1.RightSizePolicy {
 				MinimumDataPoints: int32Ptr(48),
 			},
 			CPU: rightsizev1alpha1.ResourceConfig{
-				Percentile:   95,
-				SafetyMargin: "1.2",
-				MinAllowed:   quantityPtr("50m"),
-				MaxAllowed:   quantityPtr("4000m"),
+				Percentile: 95,
+				Overhead:   "20",
+				MinAllowed: quantityPtr("50m"),
+				MaxAllowed: quantityPtr("4000m"),
 			},
 			Memory: rightsizev1alpha1.ResourceConfig{
-				Percentile:   99,
-				SafetyMargin: "1.3",
-				MinAllowed:   quantityPtr("64Mi"),
-				MaxAllowed:   quantityPtr("8Gi"),
+				Percentile: 99,
+				Overhead:   "30",
+				MinAllowed: quantityPtr("64Mi"),
+				MaxAllowed: quantityPtr("8Gi"),
 			},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 				Type: rightsizev1alpha1.UpdateTypeRecommend,
@@ -3792,7 +3792,7 @@ func TestMergeDefaults_MergesAllFields(t *testing.T) {
 		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
 			CPU: &rightsizev1alpha1.ResourceConfig{
 				Percentile:       90,
-				SafetyMargin:     "1.5",
+				Overhead:         "50",
 				ControlledValues: &controlledValues,
 				BurstSensitivity: &burstSensitivity,
 				MinAllowed:       quantityPtr("100m"),
@@ -3804,7 +3804,7 @@ func TestMergeDefaults_MergesAllFields(t *testing.T) {
 			},
 			Memory: &rightsizev1alpha1.ResourceConfig{
 				Percentile:    95,
-				SafetyMargin:  "1.4",
+				Overhead:      "40",
 				AllowDecrease: &allowDecrease,
 			},
 			MetricsSource: &rightsizev1alpha1.MetricsSource{
@@ -3846,7 +3846,7 @@ func TestMergeDefaults_MergesAllFields(t *testing.T) {
 
 	// CPU
 	assert.Equal(t, int32(90), policy.Spec.CPU.Percentile)
-	assert.Equal(t, "1.5", policy.Spec.CPU.SafetyMargin)
+	assert.Equal(t, "50", policy.Spec.CPU.Overhead)
 	require.NotNil(t, policy.Spec.CPU.ControlledValues)
 	assert.Equal(t, "RequestsAndLimits", *policy.Spec.CPU.ControlledValues)
 	require.NotNil(t, policy.Spec.CPU.BurstSensitivity)
@@ -3859,7 +3859,7 @@ func TestMergeDefaults_MergesAllFields(t *testing.T) {
 
 	// Memory
 	assert.Equal(t, int32(95), policy.Spec.Memory.Percentile)
-	assert.Equal(t, "1.4", policy.Spec.Memory.SafetyMargin)
+	assert.Equal(t, "40", policy.Spec.Memory.Overhead)
 	require.NotNil(t, policy.Spec.Memory.AllowDecrease)
 	assert.True(t, *policy.Spec.Memory.AllowDecrease)
 
@@ -4063,8 +4063,8 @@ func TestMergeDefaults_PolicyOverridesDefaults(t *testing.T) {
 	defaults := &rightsizev1alpha1.RightSizeDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "cluster-defaults"},
 		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			CPU:    &rightsizev1alpha1.ResourceConfig{Percentile: 90, SafetyMargin: "1.5"},
-			Memory: &rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.4"},
+			CPU:    &rightsizev1alpha1.ResourceConfig{Percentile: 90, Overhead: "50"},
+			Memory: &rightsizev1alpha1.ResourceConfig{Percentile: 95, Overhead: "40"},
 		},
 	}
 	r := newReconcilerWithClient(defaults)
@@ -4073,17 +4073,17 @@ func TestMergeDefaults_PolicyOverridesDefaults(t *testing.T) {
 	policy := &rightsizev1alpha1.RightSizePolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
 		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 99, SafetyMargin: "1.1"},
-			Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, SafetyMargin: "1.2"},
+			CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 99, Overhead: "10"},
+			Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, Overhead: "20"},
 		},
 	}
 
 	r.mergeDefaults(policy, nil)
 
 	assert.Equal(t, int32(99), policy.Spec.CPU.Percentile)
-	assert.Equal(t, "1.1", policy.Spec.CPU.SafetyMargin)
+	assert.Equal(t, "10", policy.Spec.CPU.Overhead)
 	assert.Equal(t, int32(99), policy.Spec.Memory.Percentile)
-	assert.Equal(t, "1.2", policy.Spec.Memory.SafetyMargin)
+	assert.Equal(t, "20", policy.Spec.Memory.Overhead)
 }
 
 // ---------- appendHistory ----------

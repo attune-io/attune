@@ -6,10 +6,10 @@ metadata:
 spec:
   cpu:
     percentile: 95
-    safetyMargin: "1.2"
+    overhead: "20"
   memory:
     percentile: 99
-    safetyMargin: "1.2"
+    overhead: "20"
   updateStrategy:
     type: Canary
     cooldown: 1h

@@ -1595,8 +1595,8 @@ func TestPrintExplain(t *testing.T) {
 								"explanation": map[string]interface{}{
 									"cpu": map[string]interface{}{
 										"rawPercentile":       "200m",
-										"safetyMargin":        1.2,
-										"afterSafetyMargin":   "240m",
+										"overhead":            20.0,
+										"afterOverhead":       "240m",
 										"confidence":          0.85,
 										"confidenceFactor":    4.0,
 										"afterConfidence":     "960m",
@@ -1610,8 +1610,8 @@ func TestPrintExplain(t *testing.T) {
 									},
 									"memory": map[string]interface{}{
 										"rawPercentile":     "256Mi",
-										"safetyMargin":      1.3,
-										"afterSafetyMargin": "333Mi",
+										"overhead":          30.0,
+										"afterOverhead":     "333Mi",
 										"confidence":        0.85,
 										"confidenceFactor":  4.0,
 										"afterConfidence":   "1332Mi",
@@ -2100,12 +2100,12 @@ func TestPrintEffectivePolicySummary_DoesNotPanic(t *testing.T) {
 		Spec: rightsizev1alpha1.RightSizePolicySpec{
 			CPU: rightsizev1alpha1.ResourceConfig{
 				Percentile:       95,
-				SafetyMargin:     "1.2",
+				Overhead:         "20",
 				ControlledValues: &cv,
 			},
 			Memory: rightsizev1alpha1.ResourceConfig{
-				Percentile:   99,
-				SafetyMargin: "1.3",
+				Percentile: 99,
+				Overhead:   "30",
 			},
 			MetricsSource: rightsizev1alpha1.MetricsSource{
 				QueryStep:  &metav1.Duration{Duration: 5 * time.Minute},
@@ -2154,7 +2154,7 @@ func TestMergeDefaultsIntoPolicy_AllFieldsInherited(t *testing.T) {
 		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
 			CPU: &rightsizev1alpha1.ResourceConfig{
 				Percentile:       90,
-				SafetyMargin:     "1.5",
+				Overhead:         "50",
 				ControlledValues: &cv,
 				BurstSensitivity: &burstSensitivity,
 				AllowDecrease:    &allowDecrease,
@@ -2162,7 +2162,7 @@ func TestMergeDefaultsIntoPolicy_AllFieldsInherited(t *testing.T) {
 			},
 			Memory: &rightsizev1alpha1.ResourceConfig{
 				Percentile:       99,
-				SafetyMargin:     "1.4",
+				Overhead:         "40",
 				ControlledValues: &cv,
 			},
 			MetricsSource: &rightsizev1alpha1.MetricsSource{
@@ -2192,7 +2192,7 @@ func TestMergeDefaultsIntoPolicy_AllFieldsInherited(t *testing.T) {
 
 	// CPU resource config
 	assert.Equal(t, int32(90), policy.Spec.CPU.Percentile)
-	assert.Equal(t, "1.5", policy.Spec.CPU.SafetyMargin)
+	assert.Equal(t, "50", policy.Spec.CPU.Overhead)
 	require.NotNil(t, policy.Spec.CPU.ControlledValues)
 	assert.Equal(t, "RequestsAndLimits", *policy.Spec.CPU.ControlledValues)
 	require.NotNil(t, policy.Spec.CPU.BurstSensitivity)
@@ -2204,7 +2204,7 @@ func TestMergeDefaultsIntoPolicy_AllFieldsInherited(t *testing.T) {
 
 	// Memory resource config
 	assert.Equal(t, int32(99), policy.Spec.Memory.Percentile)
-	assert.Equal(t, "1.4", policy.Spec.Memory.SafetyMargin)
+	assert.Equal(t, "40", policy.Spec.Memory.Overhead)
 	require.NotNil(t, policy.Spec.Memory.ControlledValues)
 	assert.Equal(t, "RequestsAndLimits", *policy.Spec.Memory.ControlledValues)
 
@@ -2246,7 +2246,7 @@ func TestMergeDefaultsIntoPolicy_PolicyFieldsNotOverwritten(t *testing.T) {
 		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
 			CPU: &rightsizev1alpha1.ResourceConfig{
 				Percentile:       50,
-				SafetyMargin:     "2.0",
+				Overhead:         "100",
 				ControlledValues: &cv,
 			},
 			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{
@@ -2264,7 +2264,7 @@ func TestMergeDefaultsIntoPolicy_PolicyFieldsNotOverwritten(t *testing.T) {
 		Spec: rightsizev1alpha1.RightSizePolicySpec{
 			CPU: rightsizev1alpha1.ResourceConfig{
 				Percentile:       95,
-				SafetyMargin:     "1.2",
+				Overhead:         "20",
 				ControlledValues: &policyCV,
 			},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
@@ -2280,7 +2280,7 @@ func TestMergeDefaultsIntoPolicy_PolicyFieldsNotOverwritten(t *testing.T) {
 
 	// Policy fields should be preserved.
 	assert.Equal(t, int32(95), policy.Spec.CPU.Percentile)
-	assert.Equal(t, "1.2", policy.Spec.CPU.SafetyMargin)
+	assert.Equal(t, "20", policy.Spec.CPU.Overhead)
 	assert.Equal(t, "RequestsOnly", *policy.Spec.CPU.ControlledValues)
 	assert.Equal(t, rightsizev1alpha1.UpdateTypeRecommend, policy.Spec.UpdateStrategy.Type)
 	assert.Equal(t, int32(3), policy.Spec.UpdateStrategy.MaxConcurrentResizes)

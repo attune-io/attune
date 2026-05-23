@@ -47,13 +47,13 @@ spec:
     historyWindow: 168h  # 7 days of data
   cpu:
     percentile: 95
-    safetyMargin: "1.2"
+    overhead: "20"
     minAllowed: "50m"
     maxAllowed: "4000m"
     controlledValues: RequestsAndLimits
   memory:
     percentile: 99
-    safetyMargin: "1.3"
+    overhead: "30"
     minAllowed: "64Mi"
     maxAllowed: "8Gi"
     controlledValues: RequestsAndLimits
@@ -67,7 +67,7 @@ spec:
 
 | Setting | Purpose | Suggested value |
 |---------|---------|-----------------|
-| `safetyMargin` | Headroom above observed usage | 1.2 (CPU), 1.3 (memory) |
+| `overhead` | Headroom above observed usage | 20% (CPU), 30% (memory) |
 | `minAllowed/maxAllowed` | Prevent extreme recommendations | Match your resource limits policy |
 | `cooldown` | Time between resizes | 1h minimum for production |
 | `autoRevert` | Roll back if pods become unhealthy | `true` for production |

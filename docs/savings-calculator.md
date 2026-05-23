@@ -290,8 +290,8 @@ The calculator uses the same pricing model as the operator's built-in
     <span class="help-text">AWS ~$0.004, GCP ~$0.005, Azure ~$0.004</span>
   </div>
   <div class="calc-field">
-    <label for="safetyMarginCpu">CPU safety margin</label>
-    <select id="safetyMarginCpu" onchange="calculate()">
+    <label for="overheadCpu">CPU overhead</label>
+    <select id="overheadCpu" onchange="calculate()">
       <option value="1.1">1.1x (10% headroom)</option>
       <option value="1.2" selected>1.2x (20% headroom) — recommended</option>
       <option value="1.3">1.3x (30% headroom)</option>
@@ -299,8 +299,8 @@ The calculator uses the same pricing model as the operator's built-in
     </select>
   </div>
   <div class="calc-field">
-    <label for="safetyMarginMem">Memory safety margin</label>
-    <select id="safetyMarginMem" onchange="calculate()">
+    <label for="overheadMem">Memory overhead</label>
+    <select id="overheadMem" onchange="calculate()">
       <option value="1.1">1.1x (10% headroom)</option>
       <option value="1.2">1.2x (20% headroom)</option>
       <option value="1.3" selected>1.3x (30% headroom) — recommended</option>
@@ -375,14 +375,14 @@ The calculator uses the same pricing model as the operator's built-in
 <div class="under-prov-note" id="underProvNote">
   <strong>Under-provisioned workloads detected.</strong> Rows marked with a
   warning have P95 usage that exceeds the current resource request (after
-  applying the safety margin). Right-sizing these workloads would
+  applying the overhead). Right-sizing these workloads would
   <em>increase</em> their requests, preventing throttling and OOMKills. This
   improves reliability rather than reducing cost.
 </div>
 
 <div class="note-box">
   <strong>How this is calculated:</strong> For each workload, the right-sized
-  value is <code>P95_usage x safety_margin</code>. Monthly cost uses
+  value is <code>P95_usage x (1 + overhead/100)</code>. Monthly cost uses
   <code>(cores x CPU_price + GiB x mem_price) x 730 hours</code>. Savings are
   the difference between current and right-sized costs across all replicas.
   Actual savings may be higher due to improved bin-packing enabling node
@@ -440,8 +440,8 @@ function getWorkloads() {
 function calculate() {
   const cpuPrice = parseFloat(document.getElementById('cpuPrice').value) || 0;
   const memPrice = parseFloat(document.getElementById('memPrice').value) || 0;
-  const cpuMargin = parseFloat(document.getElementById('safetyMarginCpu').value);
-  const memMargin = parseFloat(document.getElementById('safetyMarginMem').value);
+  const cpuMargin = parseFloat(document.getElementById('overheadCpu').value);
+  const memMargin = parseFloat(document.getElementById('overheadMem').value);
   const hoursPerMonth = 730;
 
   const workloads = getWorkloads();
@@ -615,11 +615,11 @@ if (document.readyState !== 'loading') {
 For each workload, the **right-sized resource request** is:
 
 ```
-right_sized = P95_usage x safety_margin
+right_sized = P95_usage x (1 + overhead/100)
 ```
 
 This matches the operator's default algorithm: take the 95th percentile of
-observed CPU usage (or 99th for memory), multiply by the safety margin, and
+observed CPU usage (or 99th for memory), multiply by the overhead, and
 clamp to the configured bounds.
 
 ### Why actual savings may be higher

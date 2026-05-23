@@ -94,8 +94,8 @@ func TestMergeDefaults_InheritsUnsetFields(t *testing.T) {
 	defaults := &rightsizev1alpha1.RightSizeDefaults{
 		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
 			CPU: &rightsizev1alpha1.ResourceConfig{
-				Percentile:   90,
-				SafetyMargin: "1.5",
+				Percentile: 90,
+				Overhead:   "50",
 			},
 			Memory: &rightsizev1alpha1.ResourceConfig{
 				Percentile: 95,
@@ -110,11 +110,11 @@ func TestMergeDefaults_InheritsUnsetFields(t *testing.T) {
 	inherited := MergeDefaults(policy, defaults)
 
 	assert.Equal(t, int32(90), policy.Spec.CPU.Percentile)
-	assert.Equal(t, "1.5", policy.Spec.CPU.SafetyMargin)
+	assert.Equal(t, "50", policy.Spec.CPU.Overhead)
 	assert.Equal(t, int32(95), policy.Spec.Memory.Percentile)
 	assert.Equal(t, cooldown, policy.Spec.UpdateStrategy.Cooldown)
 	assert.Contains(t, inherited, "cpu.percentile")
-	assert.Contains(t, inherited, "cpu.safetyMargin")
+	assert.Contains(t, inherited, "cpu.overhead")
 	assert.Contains(t, inherited, "memory.percentile")
 	assert.Contains(t, inherited, "cooldown")
 }
@@ -123,16 +123,16 @@ func TestMergeDefaults_PolicyFieldsTakePrecedence(t *testing.T) {
 	defaults := &rightsizev1alpha1.RightSizeDefaults{
 		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
 			CPU: &rightsizev1alpha1.ResourceConfig{
-				Percentile:   90,
-				SafetyMargin: "1.5",
+				Percentile: 90,
+				Overhead:   "50",
 			},
 		},
 	}
 	policy := &rightsizev1alpha1.RightSizePolicy{
 		Spec: rightsizev1alpha1.RightSizePolicySpec{
 			CPU: rightsizev1alpha1.ResourceConfig{
-				Percentile:   99,
-				SafetyMargin: "1.1",
+				Percentile: 99,
+				Overhead:   "10",
 			},
 		},
 	}
@@ -140,7 +140,7 @@ func TestMergeDefaults_PolicyFieldsTakePrecedence(t *testing.T) {
 	inherited := MergeDefaults(policy, defaults)
 
 	assert.Equal(t, int32(99), policy.Spec.CPU.Percentile)
-	assert.Equal(t, "1.1", policy.Spec.CPU.SafetyMargin)
+	assert.Equal(t, "10", policy.Spec.CPU.Overhead)
 	assert.Empty(t, inherited)
 }
 
@@ -211,7 +211,7 @@ func TestMergeUpdateStrategy_AllFields(t *testing.T) {
 func TestMergeResourceConfig_AllFields(t *testing.T) {
 	defaults := &rightsizev1alpha1.ResourceConfig{
 		Percentile:       90,
-		SafetyMargin:     "1.5",
+		Overhead:         "50",
 		MinAllowed:       quantityPtr("50m"),
 		MaxAllowed:       quantityPtr("4000m"),
 		ControlledValues: ptrStr("RequestsAndLimits"),
@@ -224,7 +224,7 @@ func TestMergeResourceConfig_AllFields(t *testing.T) {
 	inherited := MergeResourceConfig(policy, defaults, "cpu")
 
 	assert.Equal(t, int32(90), policy.Percentile)
-	assert.Equal(t, "1.5", policy.SafetyMargin)
+	assert.Equal(t, "50", policy.Overhead)
 	require.NotNil(t, policy.MinAllowed)
 	assert.Equal(t, resource.MustParse("50m"), *policy.MinAllowed)
 	assert.Equal(t, resource.MustParse("4000m"), *policy.MaxAllowed)
@@ -239,8 +239,9 @@ func TestMergeResourceConfig_AllFields(t *testing.T) {
 	assert.Equal(t, 2*time.Minute, policy.StartupBoost.Duration.Duration)
 	assert.Len(t, inherited, 8)
 	assert.Contains(t, inherited, "cpu.percentile")
-	assert.Contains(t, inherited, "cpu.safetyMargin")
-	assert.Contains(t, inherited, "cpu.bounds")
+	assert.Contains(t, inherited, "cpu.overhead")
+	assert.Contains(t, inherited, "cpu.minAllowed")
+	assert.Contains(t, inherited, "cpu.maxAllowed")
 	assert.Contains(t, inherited, "cpu.controlledValues")
 	assert.Contains(t, inherited, "cpu.burstSensitivity")
 	assert.Contains(t, inherited, "cpu.allowDecrease")
@@ -257,7 +258,7 @@ func TestMergeResourceConfig_NilDefaultsIsNoOp(t *testing.T) {
 func TestMergeResourceConfig_PolicyFieldsTakePrecedence(t *testing.T) {
 	defaults := &rightsizev1alpha1.ResourceConfig{
 		Percentile:       90,
-		SafetyMargin:     "1.5",
+		Overhead:         "50",
 		ControlledValues: ptrStr("RequestsAndLimits"),
 		BurstSensitivity: ptrStr("0.5"),
 		AllowDecrease:    ptrBool(true),
@@ -266,7 +267,7 @@ func TestMergeResourceConfig_PolicyFieldsTakePrecedence(t *testing.T) {
 	}
 	policy := &rightsizev1alpha1.ResourceConfig{
 		Percentile:       99,
-		SafetyMargin:     "1.1",
+		Overhead:         "10",
 		ControlledValues: ptrStr("RequestsOnly"),
 		BurstSensitivity: ptrStr("0.1"),
 		AllowDecrease:    ptrBool(false),
@@ -278,7 +279,7 @@ func TestMergeResourceConfig_PolicyFieldsTakePrecedence(t *testing.T) {
 
 	assert.Empty(t, inherited)
 	assert.Equal(t, int32(99), policy.Percentile)
-	assert.Equal(t, "1.1", policy.SafetyMargin)
+	assert.Equal(t, "10", policy.Overhead)
 	assert.Equal(t, "RequestsOnly", *policy.ControlledValues)
 	assert.Equal(t, "0.1", *policy.BurstSensitivity)
 	assert.False(t, *policy.AllowDecrease)

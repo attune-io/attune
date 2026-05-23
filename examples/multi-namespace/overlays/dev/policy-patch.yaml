@@ -6,10 +6,10 @@ metadata:
 spec:
   cpu:
     percentile: 90
-    safetyMargin: "1.1"
+    overhead: "10"
   memory:
     percentile: 95
-    safetyMargin: "1.1"
+    overhead: "10"
   updateStrategy:
     type: Auto
     cooldown: 30m

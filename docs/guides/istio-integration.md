@@ -32,10 +32,10 @@ spec:
       address: http://prometheus-server.monitoring:80
   cpu:
     percentile: 95
-    safetyMargin: "1.2"
+    overhead: "20"
   memory:
     percentile: 99
-    safetyMargin: "1.3"
+    overhead: "30"
   updateStrategy:
     type: Auto
 ```

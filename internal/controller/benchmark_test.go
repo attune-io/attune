@@ -117,8 +117,8 @@ func BenchmarkReconcile_ManyWorkloads(b *testing.B) {
 						Prometheus:        &rightsizev1alpha1.PrometheusConfig{Address: "http://prom:9090"},
 						MinimumDataPoints: int32Ptr(48),
 					},
-					CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.2"},
-					Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, SafetyMargin: "1.3"},
+					CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, Overhead: "20"},
+					Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, Overhead: "30"},
 					UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 						Type: rightsizev1alpha1.UpdateTypeRecommend,
 					},
@@ -222,8 +222,8 @@ func BenchmarkReconcile_ManyPolicies(b *testing.B) {
 								Prometheus:        &rightsizev1alpha1.PrometheusConfig{Address: "http://prom:9090"},
 								MinimumDataPoints: int32Ptr(48),
 							},
-							CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.2"},
-							Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, SafetyMargin: "1.3"},
+							CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, Overhead: "20"},
+							Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, Overhead: "30"},
 							UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 								Type: rightsizev1alpha1.UpdateTypeRecommend,
 							},
@@ -322,8 +322,8 @@ func BenchmarkReconcile_ConcurrentPolicies(b *testing.B) {
 								Prometheus:        &rightsizev1alpha1.PrometheusConfig{Address: "http://prom:9090"},
 								MinimumDataPoints: int32Ptr(48),
 							},
-							CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.2"},
-							Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, SafetyMargin: "1.3"},
+							CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, Overhead: "20"},
+							Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, Overhead: "30"},
 							UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 								Type: rightsizev1alpha1.UpdateTypeRecommend,
 							},

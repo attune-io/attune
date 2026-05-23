@@ -35,7 +35,7 @@ spec:
       address: http://prometheus-server.monitoring:80
   cpu:
     percentile: 95
-    safetyMargin: "1.2"
+    overhead: "20"
     startupBoost:
       multiplier: "3.0"   # 3x the steady-state recommendation
       duration: 2m         # boost expires 2 minutes after pod creation
@@ -43,7 +43,7 @@ spec:
     maxAllowed: "8000m"
   memory:
     percentile: 99
-    safetyMargin: "1.3"
+    overhead: "30"
   updateStrategy:
     type: Auto
     cooldown: 1h
@@ -96,7 +96,7 @@ includes a Startup Boost panel that visualizes this metric.
 ## Limitations
 
 - StartupBoost only applies to **CPU**. Memory startup spikes are handled
-  by the standard safety margin and percentile configuration.
+  by the standard overhead and percentile configuration.
 - The boost requires the operator to be running when pods start. If the
   operator is down during a deployment, pods start with their current
   requests and receive the boost on the next reconcile (if still within

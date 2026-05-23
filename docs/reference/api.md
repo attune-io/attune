@@ -61,7 +61,7 @@ spec:
   # CPU recommendation parameters.
   cpu:
     percentile: 95             # target percentile: 50, 90, 95, or 99
-    safetyMargin: "1.2"        # multiplier for headroom (1.2 = 20%)
+    overhead: "20"        # percentage headroom above percentile
     burstSensitivity: "0.1"   # burst boost multiplier (0 = disabled, max 1.0)
     startupBoost:              # optional: temporary CPU boost for cold starts
       multiplier: "3.0"        # scale factor for startup CPU (1.1-10.0)
@@ -73,7 +73,7 @@ spec:
   # Memory recommendation parameters.
   memory:
     percentile: 99
-    safetyMargin: "1.3"
+    overhead: "30"
     burstSensitivity: "0.1"
     minAllowed: "4Mi"
     maxAllowed: "8Gi"                 # upper limit: 16Ti
@@ -167,7 +167,7 @@ spec:
 | `canary.pods` | `[]string` | Names of pods selected for the canary subset |
 
 `ResourceRecommendationExplanation` contains the intermediate fields emitted by
-the estimator chain: `rawPercentile`, `safetyMargin`, `afterSafetyMargin`,
+the estimator chain: `rawPercentile`, `overhead`, `afterOverhead`,
 `burstFactor`, `afterBurst`, `confidence`, `confidenceFactor`, `afterConfidence`, `bounds`,
 `boundsApplied`, `afterBounds`, `minChangePercent`, `maxChangePercent`,
 `changeFilterApplied`, `afterChangeFilter`, `final`, and optional
@@ -235,11 +235,11 @@ spec:
     rateWindow: 5m
   cpu:              # same structure as RightSizePolicy.spec.cpu
     percentile: 95
-    safetyMargin: "1.2"
+    overhead: "20"
     controlledValues: RequestsAndLimits
   memory:           # same structure as RightSizePolicy.spec.memory
     percentile: 99
-    safetyMargin: "1.3"
+    overhead: "30"
     controlledValues: RequestsAndLimits
     allowDecrease: false
   updateStrategy:   # same structure as RightSizePolicy.spec.updateStrategy
@@ -314,10 +314,10 @@ spec:
       address: http://prometheus-server.monitoring:80
   cpu:
     percentile: 99
-    safetyMargin: "1.3"
+    overhead: "30"
   memory:
     percentile: 99
-    safetyMargin: "1.5"
+    overhead: "50"
     allowDecrease: false
   updateStrategy:
     type: Canary

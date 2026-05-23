@@ -112,6 +112,12 @@ spec:
                     description: MinAllowed is the minimum allowed resource value.
                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                     x-kubernetes-int-or-string: true
+                  overhead:
+                    description: |-
+                      Overhead is the percentage of additional resources added on top of the
+                      percentile recommendation. Expressed as a string (e.g. "20" means 20%
+                      extra headroom above the target percentile). Must be >= 0, max 900.
+                    type: string
                   percentile:
                     description: |-
                       Percentile is the usage percentile to target for recommendations.
@@ -124,13 +130,6 @@ spec:
                     - 99
                     format: int32
                     type: integer
-                  safetyMargin:
-                    description: |-
-                      SafetyMargin is a multiplier applied to the percentile recommendation.
-                      Expressed as a decimal string (e.g. "1.2" means 20% headroom above the
-                      target percentile). Must be a positive number, max 10.0. Values below
-                      1.0 reduce resources below the percentile and generate a warning.
-                    type: string
                   startupBoost:
                     description: |-
                       StartupBoost temporarily increases CPU requests for newly created or
@@ -208,6 +207,12 @@ spec:
                     description: MinAllowed is the minimum allowed resource value.
                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                     x-kubernetes-int-or-string: true
+                  overhead:
+                    description: |-
+                      Overhead is the percentage of additional resources added on top of the
+                      percentile recommendation. Expressed as a string (e.g. "20" means 20%
+                      extra headroom above the target percentile). Must be >= 0, max 900.
+                    type: string
                   percentile:
                     description: |-
                       Percentile is the usage percentile to target for recommendations.
@@ -220,13 +225,6 @@ spec:
                     - 99
                     format: int32
                     type: integer
-                  safetyMargin:
-                    description: |-
-                      SafetyMargin is a multiplier applied to the percentile recommendation.
-                      Expressed as a decimal string (e.g. "1.2" means 20% headroom above the
-                      target percentile). Must be a positive number, max 10.0. Values below
-                      1.0 reduce resources below the percentile and generate a warning.
-                    type: string
                   startupBoost:
                     description: |-
                       StartupBoost temporarily increases CPU requests for newly created or
@@ -877,12 +875,12 @@ spec:
                                       applying the confidence adjustment.
                                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                                     x-kubernetes-int-or-string: true
-                                  afterSafetyMargin:
+                                  afterOverhead:
                                     anyOf:
                                     - type: integer
                                     - type: string
-                                    description: AfterSafetyMargin is the value after
-                                      applying the safety margin.
+                                    description: AfterOverhead is the value after
+                                      applying the overhead.
                                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                                     x-kubernetes-int-or-string: true
                                   bounds:
@@ -950,6 +948,10 @@ spec:
                                     description: MinChangePercent is the minimum change
                                       threshold required to alter the current value.
                                     type: number
+                                  overhead:
+                                    description: Overhead is the configured overhead
+                                      percentage applied to the raw percentile.
+                                    type: number
                                   rawPercentile:
                                     anyOf:
                                     - type: integer
@@ -958,23 +960,19 @@ spec:
                                       before any adjustments.
                                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                                     x-kubernetes-int-or-string: true
-                                  safetyMargin:
-                                    description: SafetyMargin is the configured safety
-                                      multiplier applied to the raw percentile.
-                                    type: number
                                 required:
                                 - afterBounds
                                 - afterChangeFilter
                                 - afterConfidence
-                                - afterSafetyMargin
+                                - afterOverhead
                                 - bounds
                                 - confidence
                                 - confidenceFactor
                                 - final
                                 - maxChangePercent
                                 - minChangePercent
+                                - overhead
                                 - rawPercentile
-                                - safetyMargin
                                 type: object
                               memory:
                                 description: Memory contains the memory recommendation
@@ -1012,12 +1010,12 @@ spec:
                                       applying the confidence adjustment.
                                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                                     x-kubernetes-int-or-string: true
-                                  afterSafetyMargin:
+                                  afterOverhead:
                                     anyOf:
                                     - type: integer
                                     - type: string
-                                    description: AfterSafetyMargin is the value after
-                                      applying the safety margin.
+                                    description: AfterOverhead is the value after
+                                      applying the overhead.
                                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                                     x-kubernetes-int-or-string: true
                                   bounds:
@@ -1085,6 +1083,10 @@ spec:
                                     description: MinChangePercent is the minimum change
                                       threshold required to alter the current value.
                                     type: number
+                                  overhead:
+                                    description: Overhead is the configured overhead
+                                      percentage applied to the raw percentile.
+                                    type: number
                                   rawPercentile:
                                     anyOf:
                                     - type: integer
@@ -1093,23 +1095,19 @@ spec:
                                       before any adjustments.
                                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                                     x-kubernetes-int-or-string: true
-                                  safetyMargin:
-                                    description: SafetyMargin is the configured safety
-                                      multiplier applied to the raw percentile.
-                                    type: number
                                 required:
                                 - afterBounds
                                 - afterChangeFilter
                                 - afterConfidence
-                                - afterSafetyMargin
+                                - afterOverhead
                                 - bounds
                                 - confidence
                                 - confidenceFactor
                                 - final
                                 - maxChangePercent
                                 - minChangePercent
+                                - overhead
                                 - rawPercentile
-                                - safetyMargin
                                 type: object
                             type: object
                           lastUpdated:

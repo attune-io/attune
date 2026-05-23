@@ -251,12 +251,11 @@ type ResourceConfig struct {
 	// +optional
 	Percentile int32 `json:"percentile,omitempty"`
 
-	// SafetyMargin is a multiplier applied to the percentile recommendation.
-	// Expressed as a decimal string (e.g. "1.2" means 20% headroom above the
-	// target percentile). Must be a positive number, max 10.0. Values below
-	// 1.0 reduce resources below the percentile and generate a warning.
+	// Overhead is the percentage of additional resources added on top of the
+	// percentile recommendation. Expressed as a string (e.g. "20" means 20%
+	// extra headroom above the target percentile). Must be >= 0, max 900.
 	// +optional
-	SafetyMargin string `json:"safetyMargin,omitempty"`
+	Overhead string `json:"overhead,omitempty"`
 
 	// MinAllowed is the minimum allowed resource value.
 	// +optional
@@ -672,11 +671,11 @@ type ResourceRecommendationExplanation struct {
 	// RawPercentile is the selected percentile before any adjustments.
 	RawPercentile resource.Quantity `json:"rawPercentile"`
 
-	// SafetyMargin is the configured safety multiplier applied to the raw percentile.
-	SafetyMargin float64 `json:"safetyMargin"`
+	// Overhead is the configured overhead percentage applied to the raw percentile.
+	Overhead float64 `json:"overhead"`
 
-	// AfterSafetyMargin is the value after applying the safety margin.
-	AfterSafetyMargin resource.Quantity `json:"afterSafetyMargin"`
+	// AfterOverhead is the value after applying the overhead.
+	AfterOverhead resource.Quantity `json:"afterOverhead"`
 
 	// BurstFactor is the multiplier applied when burst is detected (max > 3x p95).
 	// 1.0 when no burst. Uses logarithmic scaling to avoid excessive inflation.

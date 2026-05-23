@@ -195,7 +195,7 @@ spec:
   cpu:
     # Algorithm parameters
     percentile: 95            # supported: 50, 90, 95, 99
-    safetyMargin: "1.2"       # default: 1.2 (20% headroom above percentile)
+    overhead: "20"       # default: 20 (20% headroom above percentile)
     # Optional hard bounds
     minAllowed: "50m"
     maxAllowed: "4000m"
@@ -204,7 +204,7 @@ spec:
 
   memory:
     percentile: 99            # supported: 50, 90, 95, 99
-    safetyMargin: "1.3"       # default: 1.3 (30% headroom)
+    overhead: "30"       # default: 30 (30% headroom)
     minAllowed: "64Mi"
     maxAllowed: "8Gi"
     controlledValues: RequestsAndLimits
@@ -373,11 +373,11 @@ spec:
     minimumDataPoints: 48
   cpu:
     percentile: 95
-    safetyMargin: "1.2"
+    overhead: "20"
     controlledValues: RequestsAndLimits
   memory:
     percentile: 99
-    safetyMargin: "1.3"
+    overhead: "30"
     controlledValues: RequestsAndLimits
     allowDecrease: false
   updateStrategy:
@@ -534,7 +534,7 @@ Raw Prometheus Data
        │
        ▼
 ┌──────────────────┐
-│ Safety Margin    │  Multiply by safetyMargin (default 1.2 CPU, 1.3 memory)
+│ Overhead         │  Add overhead percentage (default 20% CPU, 30% memory)
 │ Estimator        │  Ensures headroom above observed usage
 └──────┬───────────┘
        │

@@ -37,25 +37,25 @@ func TestDefault_DoesNotPreFillResourceDefaults(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Zero(t, policy.Spec.CPU.Percentile)
-	assert.Empty(t, policy.Spec.CPU.SafetyMargin)
+	assert.Empty(t, policy.Spec.CPU.Overhead)
 	assert.Zero(t, policy.Spec.Memory.Percentile)
-	assert.Empty(t, policy.Spec.Memory.SafetyMargin)
+	assert.Empty(t, policy.Spec.Memory.Overhead)
 }
 
 func TestDefault_PreservesExisting(t *testing.T) {
 	defaulter := &RightSizePolicyDefaulter{}
 	policy := &rightsizev1alpha1.RightSizePolicy{}
 	policy.Spec.CPU.Percentile = 90
-	policy.Spec.CPU.SafetyMargin = "1.5"
+	policy.Spec.CPU.Overhead = "50"
 
 	err := defaulter.Default(context.Background(), policy)
 
 	assert.NoError(t, err)
 	assert.Equal(t, int32(90), policy.Spec.CPU.Percentile)
-	assert.Equal(t, "1.5", policy.Spec.CPU.SafetyMargin)
+	assert.Equal(t, "50", policy.Spec.CPU.Overhead)
 	// Unset resource fields should remain available for defaults resources to supply.
 	assert.Zero(t, policy.Spec.Memory.Percentile)
-	assert.Empty(t, policy.Spec.Memory.SafetyMargin)
+	assert.Empty(t, policy.Spec.Memory.Overhead)
 }
 
 func TestDefault_DoesNotSetMode(t *testing.T) {

@@ -390,7 +390,7 @@ func (in *ResourceConfig) DeepCopy() *ResourceConfig {
 func (in *ResourceRecommendationExplanation) DeepCopyInto(out *ResourceRecommendationExplanation) {
 	*out = *in
 	out.RawPercentile = in.RawPercentile.DeepCopy()
-	out.AfterSafetyMargin = in.AfterSafetyMargin.DeepCopy()
+	out.AfterOverhead = in.AfterOverhead.DeepCopy()
 	out.AfterBurst = in.AfterBurst.DeepCopy()
 	out.AfterConfidence = in.AfterConfidence.DeepCopy()
 	in.Bounds.DeepCopyInto(&out.Bounds)

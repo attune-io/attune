@@ -37,7 +37,7 @@ When an HPA uses CPU utilization as its metric, set `controlledValues` to
 spec:
   cpu:
     percentile: 95
-    safetyMargin: "1.2"
+    overhead: "20"
     controlledValues: RequestsOnly
     minAllowed: "100m"
     maxAllowed: "4000m"

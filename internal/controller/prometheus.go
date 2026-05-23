@@ -378,7 +378,7 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 			logger.V(2).Info("CPU recommendation chain",
 				"container", containerName,
 				"rawPercentile", &explanation.CPU.RawPercentile,
-				"afterMargin", &explanation.CPU.AfterSafetyMargin,
+				"afterOverhead", &explanation.CPU.AfterOverhead,
 				"burstFactor", explanation.CPU.BurstFactor,
 				"afterConfidence", &explanation.CPU.AfterConfidence,
 				"boundsApplied", explanation.CPU.BoundsApplied,
@@ -389,7 +389,7 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 			logger.V(2).Info("Memory recommendation chain",
 				"container", containerName,
 				"rawPercentile", &explanation.Memory.RawPercentile,
-				"afterMargin", &explanation.Memory.AfterSafetyMargin,
+				"afterOverhead", &explanation.Memory.AfterOverhead,
 				"burstFactor", explanation.Memory.BurstFactor,
 				"afterConfidence", &explanation.Memory.AfterConfidence,
 				"boundsApplied", explanation.Memory.BoundsApplied,
@@ -692,14 +692,14 @@ func samplesForContainer(grouped map[string][]rsmetrics.Sample, container string
 // redundant DeepCopy.
 func toAPIRecommendationExplanation(explanation recommendation.RecommendationExplanation) *rightsizev1alpha1.ResourceRecommendationExplanation {
 	return &rightsizev1alpha1.ResourceRecommendationExplanation{
-		RawPercentile:     explanation.RawPercentile,
-		SafetyMargin:      explanation.SafetyMargin,
-		AfterSafetyMargin: explanation.AfterSafetyMargin,
-		BurstFactor:       explanation.BurstFactor,
-		AfterBurst:        explanation.AfterBurst,
-		Confidence:        explanation.Confidence,
-		ConfidenceFactor:  explanation.ConfidenceFactor,
-		AfterConfidence:   explanation.AfterConfidence,
+		RawPercentile:    explanation.RawPercentile,
+		Overhead:         explanation.Overhead,
+		AfterOverhead:    explanation.AfterOverhead,
+		BurstFactor:      explanation.BurstFactor,
+		AfterBurst:       explanation.AfterBurst,
+		Confidence:       explanation.Confidence,
+		ConfidenceFactor: explanation.ConfidenceFactor,
+		AfterConfidence:  explanation.AfterConfidence,
 		Bounds: rightsizev1alpha1.ResourceBounds{
 			Min: explanation.MinBound,
 			Max: explanation.MaxBound,
@@ -727,8 +727,8 @@ func buildRecommendationEngines(policy *rightsizev1alpha1.RightSizePolicy) (cpuE
 		memPercentile = int(rightsizev1alpha1.DefaultMemoryPercentile)
 	}
 
-	cpuSafetyMargin := parseFloat64(policy.Spec.CPU.SafetyMargin, 1.2)
-	memSafetyMargin := parseFloat64(policy.Spec.Memory.SafetyMargin, 1.3)
+	cpuOverhead := parseOverheadPercent(policy.Spec.CPU.Overhead, 20.0)
+	memOverhead := parseOverheadPercent(policy.Spec.Memory.Overhead, 30.0)
 
 	cpuBoundsMin := rightsizev1alpha1.DefaultCPUBoundsMin.DeepCopy()
 	cpuBoundsMax := rightsizev1alpha1.DefaultCPUBoundsMax.DeepCopy()
@@ -772,7 +772,7 @@ func buildRecommendationEngines(policy *rightsizev1alpha1.RightSizePolicy) (cpuE
 		memOpts.BurstSensitivity = &bs
 	}
 
-	cpuEngine = recommendation.NewEngine(cpuPercentile, cpuSafetyMargin, cpuBoundsMin, cpuBoundsMax, maxCPUChange, cpuOpts)
-	memEngine = recommendation.NewEngine(memPercentile, memSafetyMargin, memBoundsMin, memBoundsMax, maxMemChange, memOpts)
+	cpuEngine = recommendation.NewEngine(cpuPercentile, cpuOverhead, cpuBoundsMin, cpuBoundsMax, maxCPUChange, cpuOpts)
+	memEngine = recommendation.NewEngine(memPercentile, memOverhead, memBoundsMin, memBoundsMax, maxMemChange, memOpts)
 	return cpuEngine, memEngine
 }

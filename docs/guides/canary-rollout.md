@@ -85,7 +85,7 @@ kubectl get rsp my-app -o jsonpath='{.status.resizeHistory}' | jq '.[] | select(
 
 !!! warning
     If you see repeated reverts, review the `reason` field (oomkill, restart,
-    notready) and consider increasing the safety margin or adjusting bounds
+    notready) and consider increasing the overhead or adjusting bounds
     before retrying.
 
 ## Promoting from canary to full fleet
@@ -108,7 +108,7 @@ kubectl get rsp my-app -o jsonpath='{.status.canary.phase}'
 ```
 
 **Spec change resets the canary cycle.** If you edit the policy spec
-(e.g., change `percentile` or `safetyMargin`) while a canary cycle is in
+(e.g., change `percentile` or `overhead`) while a canary cycle is in
 progress or in `FullRollout`, the operator resets the observation timer.
 The new configuration is re-validated from scratch before promotion.
 

@@ -50,7 +50,7 @@ func buildRealisticCPUProfile(p95 float64, confidence float64) metrics.UsageProf
 func TestRecommendationEngine_RealisticCPU(t *testing.T) {
 	engine := NewEngine(
 		95,                          // percentile
-		1.2,                         // safety margin
+		20.0,                        // overhead
 		resource.MustParse("50m"),   // min bound
 		resource.MustParse("4000m"), // max bound
 		50,                          // max change percent
@@ -63,7 +63,7 @@ func TestRecommendationEngine_RealisticCPU(t *testing.T) {
 
 	recommended, changed := engine.Recommend(profile, current)
 	assert.True(t, changed)
-	// Chain: P95=200m → margin(1.2)=240m → confidence(~4.2x)=~1011m
+	// Chain: P95=200m → overhead(20%)=240m → confidence(~4.2x)=~1011m
 	//   → bounds OK → change filter: 1011m vs 500m = 102% > 50%
 	//   → capped at 500m + 250m = 750m.
 	assert.Equal(t, int64(750), recommended.MilliValue(),
@@ -73,7 +73,7 @@ func TestRecommendationEngine_RealisticCPU(t *testing.T) {
 func TestRecommendationEngine_RealisticMemory(t *testing.T) {
 	engine := NewEngine(
 		99,                         // percentile
-		1.2,                        // safety margin
+		20.0,                       // overhead
 		resource.MustParse("64Mi"), // min bound
 		resource.MustParse("8Gi"),  // max bound
 		50,                         // max change percent
@@ -109,7 +109,7 @@ func TestRecommendationEngine_RealisticMemory(t *testing.T) {
 func TestRecommendationEngine_SmallChangeFiltered(t *testing.T) {
 	engine := NewEngine(
 		95,
-		1.0, // no margin
+		0.0, // no overhead
 		resource.MustParse("10m"),
 		resource.MustParse("10000m"),
 		50,
@@ -120,7 +120,7 @@ func TestRecommendationEngine_SmallChangeFiltered(t *testing.T) {
 	// confidence -> bounds) produces a value within 10% of current,
 	// so the ChangeFilter's MinChangePercent (10%) rejects it.
 	// With confidence=1.0: factor = (1+1/1)^2 = 4.
-	// P95=0.1275 → 128m → margin(1.0)=128m → confidence(4x)=512m → bounds OK.
+	// P95=0.1275 → 128m → overhead(0%)=128m → confidence(4x)=512m → bounds OK.
 	// Change from current 500m: (512-500)/500 = 2.4% < 10% → filtered.
 	ps := metrics.PercentileSet{
 		P50: 0.060,
@@ -150,7 +150,7 @@ func TestRecommendationEngine_SmallChangeFiltered(t *testing.T) {
 func TestRecommendationEngine_LargeChangeCapped(t *testing.T) {
 	engine := NewEngine(
 		95,
-		1.2,
+		20.0,
 		resource.MustParse("50m"),
 		resource.MustParse("4000m"),
 		50, // max 50% change
@@ -158,7 +158,7 @@ func TestRecommendationEngine_LargeChangeCapped(t *testing.T) {
 	)
 
 	// Profile where recommended would be much higher than current.
-	// Chain: P95=2000m → margin(1.2)=2400m → confidence(~4.2x)=~10112m
+	// Chain: P95=2000m → overhead(20%)=2400m → confidence(~4.2x)=~10112m
 	//   → bounds(4000m) → change filter: 4000m vs 200m = 1900% > 50%
 	//   → capped at 200m + 100m = 300m.
 	profile := buildRealisticCPUProfile(2.0, 0.95)
@@ -174,7 +174,7 @@ func TestRecommendationEngine_HighVsLowConfidence(t *testing.T) {
 	makeEngine := func() *RecommendationEngine {
 		return NewEngine(
 			95,
-			1.2,
+			20.0,
 			resource.MustParse("50m"),
 			resource.MustParse("100000m"),
 			100, // allow full range of change so filter doesn't mask differences
@@ -200,7 +200,7 @@ func TestRecommendationEngine_HighVsLowConfidence(t *testing.T) {
 func TestRecommendationEngine_BurstyProfile(t *testing.T) {
 	engine := NewEngine(
 		95,
-		1.2,
+		20.0,
 		resource.MustParse("50m"),
 		resource.MustParse("4000m"),
 		50,
@@ -242,13 +242,13 @@ func TestRecommendationEngine_BurstyProfile(t *testing.T) {
 	assert.Equal(t, 1.0, calmExplain.BurstFactor,
 		"calm profile should have burst factor == 1.0")
 
-	// The post-burst value should be higher than the post-safety-margin value.
-	assert.Greater(t, burstyExplain.AfterBurst.MilliValue(), burstyExplain.AfterSafetyMargin.MilliValue(),
-		"burst should increase the value above safety margin")
+	// The post-burst value should be higher than the post-overhead value.
+	assert.Greater(t, burstyExplain.AfterBurst.MilliValue(), burstyExplain.AfterOverhead.MilliValue(),
+		"burst should increase the value above overhead")
 
-	// The calm profile's post-burst should equal its post-safety-margin.
-	assert.Equal(t, calmExplain.AfterSafetyMargin.MilliValue(), calmExplain.AfterBurst.MilliValue(),
-		"no burst should leave the value unchanged after safety margin")
+	// The calm profile's post-burst should equal its post-overhead.
+	assert.Equal(t, calmExplain.AfterOverhead.MilliValue(), calmExplain.AfterBurst.MilliValue(),
+		"no burst should leave the value unchanged after overhead")
 
 	t.Logf("Bursty afterBurst=%s (factor=%.3f), Calm afterBurst=%s (factor=%.3f)",
 		burstyExplain.AfterBurst.String(), burstyExplain.BurstFactor,
@@ -258,7 +258,7 @@ func TestRecommendationEngine_BurstyProfile(t *testing.T) {
 func TestRecommendationEngine_BurstExplanation(t *testing.T) {
 	engine := NewEngine(
 		95,
-		1.2,
+		20.0,
 		resource.MustParse("50m"),
 		resource.MustParse("4000m"),
 		50,
@@ -282,12 +282,12 @@ func TestRecommendationEngine_BurstExplanation(t *testing.T) {
 
 	assert.Greater(t, explanation.BurstFactor, 1.0,
 		"burst factor should be > 1.0 for bursty profile")
-	assert.True(t, explanation.AfterBurst.Cmp(explanation.AfterSafetyMargin) > 0,
-		"afterBurst should be greater than afterSafetyMargin when burst is active")
+	assert.True(t, explanation.AfterBurst.Cmp(explanation.AfterOverhead) > 0,
+		"afterBurst should be greater than afterOverhead when burst is active")
 }
 
 func TestRecommendationEngine_NoBurstExplanation(t *testing.T) {
-	engine := NewEngine(95, 1.2, resource.MustParse("50m"), resource.MustParse("4000m"), 50, EngineOpts{IsCPU: true})
+	engine := NewEngine(95, 20.0, resource.MustParse("50m"), resource.MustParse("4000m"), 50, EngineOpts{IsCPU: true})
 
 	ps := metrics.PercentileSet{P50: 0.1, P90: 0.15, P95: 0.2, P99: 0.3, Max: 0.5}
 	profile := metrics.UsageProfile{
@@ -305,12 +305,12 @@ func TestRecommendationEngine_NoBurstExplanation(t *testing.T) {
 
 	assert.Equal(t, 1.0, explanation.BurstFactor,
 		"burst factor should be 1.0 when no burst detected")
-	assert.Equal(t, explanation.AfterSafetyMargin.MilliValue(), explanation.AfterBurst.MilliValue(),
-		"afterBurst should equal afterSafetyMargin when no burst")
+	assert.Equal(t, explanation.AfterOverhead.MilliValue(), explanation.AfterBurst.MilliValue(),
+		"afterBurst should equal afterOverhead when no burst")
 }
 
 func TestRecommendationEngine_BurstMagnitudeBoundary(t *testing.T) {
-	engine := NewEngine(95, 1.2, resource.MustParse("50m"), resource.MustParse("4000m"), 50, EngineOpts{IsCPU: true})
+	engine := NewEngine(95, 20.0, resource.MustParse("50m"), resource.MustParse("4000m"), 50, EngineOpts{IsCPU: true})
 
 	ps := metrics.PercentileSet{P50: 0.1, P90: 0.15, P95: 0.2, P99: 0.3, Max: 0.6}
 
@@ -331,13 +331,13 @@ func TestRecommendationEngine_BurstMagnitudeBoundary(t *testing.T) {
 
 	assert.Equal(t, 1.0, explanation.BurstFactor,
 		"burst factor should be 1.0 when magnitude is exactly 1.0")
-	assert.Equal(t, explanation.AfterSafetyMargin.MilliValue(), explanation.AfterBurst.MilliValue(),
+	assert.Equal(t, explanation.AfterOverhead.MilliValue(), explanation.AfterBurst.MilliValue(),
 		"no boost when magnitude is at boundary")
 }
 
 func TestRecommendationEngine_BurstSensitivityZero(t *testing.T) {
 	zero := 0.0
-	engine := NewEngine(95, 1.2, resource.MustParse("50m"), resource.MustParse("4000m"), 50,
+	engine := NewEngine(95, 20.0, resource.MustParse("50m"), resource.MustParse("4000m"), 50,
 		EngineOpts{IsCPU: true, BurstSensitivity: &zero})
 
 	ps := metrics.PercentileSet{P50: 0.1, P90: 0.15, P95: 0.2, P99: 0.3, Max: 2.0}
@@ -357,16 +357,16 @@ func TestRecommendationEngine_BurstSensitivityZero(t *testing.T) {
 
 	assert.Equal(t, 1.0, explanation.BurstFactor,
 		"sensitivity=0 should disable burst boost entirely")
-	assert.Equal(t, explanation.AfterSafetyMargin.MilliValue(), explanation.AfterBurst.MilliValue(),
+	assert.Equal(t, explanation.AfterOverhead.MilliValue(), explanation.AfterBurst.MilliValue(),
 		"no boost when sensitivity is zero")
 }
 
 func TestRecommendationEngine_BurstSensitivityCustom(t *testing.T) {
 	defaultSens := 0.1
 	doubleSens := 0.2
-	defaultEngine := NewEngine(95, 1.2, resource.MustParse("50m"), resource.MustParse("4000m"), 100,
+	defaultEngine := NewEngine(95, 20.0, resource.MustParse("50m"), resource.MustParse("4000m"), 100,
 		EngineOpts{IsCPU: true, BurstSensitivity: &defaultSens})
-	doubleEngine := NewEngine(95, 1.2, resource.MustParse("50m"), resource.MustParse("4000m"), 100,
+	doubleEngine := NewEngine(95, 20.0, resource.MustParse("50m"), resource.MustParse("4000m"), 100,
 		EngineOpts{IsCPU: true, BurstSensitivity: &doubleSens})
 
 	ps := metrics.PercentileSet{P50: 0.1, P90: 0.15, P95: 0.2, P99: 0.3, Max: 2.0}
@@ -395,7 +395,7 @@ func TestRecommendationEngine_BurstSensitivityCustom(t *testing.T) {
 func TestRecommendationEngine_ExplainChain(t *testing.T) {
 	engine := NewEngine(
 		95,
-		1.2,
+		20.0,
 		resource.MustParse("50m"),
 		resource.MustParse("4000m"),
 		50,
@@ -408,7 +408,7 @@ func TestRecommendationEngine_ExplainChain(t *testing.T) {
 	assert.True(t, changed)
 	assert.Equal(t, recommended.String(), explanation.Final.String())
 	assert.Equal(t, int64(200), explanation.RawPercentile.MilliValue())
-	assert.Equal(t, int64(240), explanation.AfterSafetyMargin.MilliValue())
+	assert.Equal(t, int64(240), explanation.AfterOverhead.MilliValue())
 	assert.InDelta(t, 4.2133, explanation.ConfidenceFactor, 0.0001)
 	assert.Equal(t, "max_change_capped", explanation.ChangeFilterApplied)
 	assert.Equal(t, int64(750), explanation.AfterChangeFilter.MilliValue())
@@ -421,7 +421,7 @@ func TestRecommendationEngine_ZeroCurrentBypassesChangeFilter(t *testing.T) {
 	// min/max bounds but not by maxChangePercent.
 	engine := NewEngine(
 		95,
-		1.2,
+		20.0,
 		resource.MustParse("50m"),
 		resource.MustParse("4000m"),
 		50, // maxChangePercent = 50%

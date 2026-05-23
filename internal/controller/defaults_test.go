@@ -48,12 +48,12 @@ func TestMergeDefaults_NoDefaults(t *testing.T) {
 	policy := &rightsizev1alpha1.RightSizePolicy{
 		Spec: rightsizev1alpha1.RightSizePolicySpec{
 			CPU: rightsizev1alpha1.ResourceConfig{
-				Percentile:   95,
-				SafetyMargin: "1.2",
+				Percentile: 95,
+				Overhead:   "20",
 			},
 			Memory: rightsizev1alpha1.ResourceConfig{
-				Percentile:   99,
-				SafetyMargin: "1.3",
+				Percentile: 99,
+				Overhead:   "30",
 			},
 		},
 	}
@@ -64,9 +64,9 @@ func TestMergeDefaults_NoDefaults(t *testing.T) {
 
 	// Nothing should change when no defaults exist.
 	assert.Equal(t, int32(95), policy.Spec.CPU.Percentile)
-	assert.Equal(t, "1.2", policy.Spec.CPU.SafetyMargin)
+	assert.Equal(t, "20", policy.Spec.CPU.Overhead)
 	assert.Equal(t, int32(99), policy.Spec.Memory.Percentile)
-	assert.Equal(t, "1.3", policy.Spec.Memory.SafetyMargin)
+	assert.Equal(t, "30", policy.Spec.Memory.Overhead)
 }
 
 func TestMergeDefaults_CPUPercentileMerged(t *testing.T) {
@@ -77,8 +77,8 @@ func TestMergeDefaults_CPUPercentileMerged(t *testing.T) {
 		},
 		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
 			CPU: &rightsizev1alpha1.ResourceConfig{
-				Percentile:   95,
-				SafetyMargin: "1.2",
+				Percentile: 95,
+				Overhead:   "20",
 			},
 		},
 	}
@@ -96,8 +96,8 @@ func TestMergeDefaults_CPUPercentileMerged(t *testing.T) {
 	policy := &rightsizev1alpha1.RightSizePolicy{
 		Spec: rightsizev1alpha1.RightSizePolicySpec{
 			CPU: rightsizev1alpha1.ResourceConfig{
-				Percentile:   0, // zero: should be filled from defaults
-				SafetyMargin: "1.5",
+				Percentile: 0, // zero: should be filled from defaults
+				Overhead:   "50",
 			},
 		},
 	}
@@ -107,11 +107,11 @@ func TestMergeDefaults_CPUPercentileMerged(t *testing.T) {
 	r.mergeDefaults(policy, fetchedDefaults)
 
 	assert.Equal(t, int32(95), policy.Spec.CPU.Percentile)
-	// SafetyMargin was already set on the policy, so it stays.
-	assert.Equal(t, "1.5", policy.Spec.CPU.SafetyMargin)
+	// Overhead was already set on the policy, so it stays.
+	assert.Equal(t, "50", policy.Spec.CPU.Overhead)
 }
 
-func TestMergeDefaults_SafetyMarginMerged(t *testing.T) {
+func TestMergeDefaults_OverheadMerged(t *testing.T) {
 	scheme := testScheme()
 	defaults := &rightsizev1alpha1.RightSizeDefaults{
 		ObjectMeta: metav1.ObjectMeta{
@@ -119,8 +119,8 @@ func TestMergeDefaults_SafetyMarginMerged(t *testing.T) {
 		},
 		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
 			CPU: &rightsizev1alpha1.ResourceConfig{
-				Percentile:   90,
-				SafetyMargin: "1.2",
+				Percentile: 90,
+				Overhead:   "20",
 			},
 		},
 	}
@@ -138,8 +138,8 @@ func TestMergeDefaults_SafetyMarginMerged(t *testing.T) {
 	policy := &rightsizev1alpha1.RightSizePolicy{
 		Spec: rightsizev1alpha1.RightSizePolicySpec{
 			CPU: rightsizev1alpha1.ResourceConfig{
-				Percentile:   90,
-				SafetyMargin: "", // empty: should be filled from defaults
+				Percentile: 90,
+				Overhead:   "", // empty: should be filled from defaults
 			},
 		},
 	}
@@ -149,7 +149,7 @@ func TestMergeDefaults_SafetyMarginMerged(t *testing.T) {
 	r.mergeDefaults(policy, fetchedDefaults)
 
 	assert.Equal(t, int32(90), policy.Spec.CPU.Percentile)
-	assert.Equal(t, "1.2", policy.Spec.CPU.SafetyMargin)
+	assert.Equal(t, "20", policy.Spec.CPU.Overhead)
 }
 
 func TestMergeDefaults_PolicyTakesPrecedence(t *testing.T) {
@@ -160,8 +160,8 @@ func TestMergeDefaults_PolicyTakesPrecedence(t *testing.T) {
 		},
 		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
 			CPU: &rightsizev1alpha1.ResourceConfig{
-				Percentile:   95,
-				SafetyMargin: "1.5",
+				Percentile: 95,
+				Overhead:   "50",
 			},
 		},
 	}
@@ -179,8 +179,8 @@ func TestMergeDefaults_PolicyTakesPrecedence(t *testing.T) {
 	policy := &rightsizev1alpha1.RightSizePolicy{
 		Spec: rightsizev1alpha1.RightSizePolicySpec{
 			CPU: rightsizev1alpha1.ResourceConfig{
-				Percentile:   90,
-				SafetyMargin: "1.3",
+				Percentile: 90,
+				Overhead:   "30",
 			},
 		},
 	}
@@ -191,7 +191,7 @@ func TestMergeDefaults_PolicyTakesPrecedence(t *testing.T) {
 
 	// Policy values take precedence over defaults.
 	assert.Equal(t, int32(90), policy.Spec.CPU.Percentile)
-	assert.Equal(t, "1.3", policy.Spec.CPU.SafetyMargin)
+	assert.Equal(t, "30", policy.Spec.CPU.Overhead)
 }
 
 func TestFetchDefaults_NamespaceScopedOverridesCluster(t *testing.T) {
@@ -229,14 +229,14 @@ func TestFetchDefaults_NamespaceDefaultsDoNotMergeWithClusterDefaults(t *testing
 	clusterDefaults := &rightsizev1alpha1.RightSizeDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
 		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			CPU:    &rightsizev1alpha1.ResourceConfig{Percentile: 90, SafetyMargin: "1.2"},
-			Memory: &rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.4"},
+			CPU:    &rightsizev1alpha1.ResourceConfig{Percentile: 90, Overhead: "20"},
+			Memory: &rightsizev1alpha1.ResourceConfig{Percentile: 95, Overhead: "40"},
 		},
 	}
 	nsDefaults := &rightsizev1alpha1.RightSizeNamespaceDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "production-defaults", Namespace: "production"},
 		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			CPU: &rightsizev1alpha1.ResourceConfig{Percentile: 99, SafetyMargin: "1.2"},
+			CPU: &rightsizev1alpha1.ResourceConfig{Percentile: 99, Overhead: "20"},
 			// Memory intentionally omitted: namespace defaults should replace,
 			// not merge with, cluster defaults for this namespace.
 		},
@@ -250,22 +250,22 @@ func TestFetchDefaults_NamespaceDefaultsDoNotMergeWithClusterDefaults(t *testing
 	require.NoError(t, err)
 	require.NotNil(t, defaults)
 	assert.Equal(t, int32(99), defaults.Spec.CPU.Percentile)
-	assert.Equal(t, "1.2", defaults.Spec.CPU.SafetyMargin)
+	assert.Equal(t, "20", defaults.Spec.CPU.Overhead)
 	assert.Nil(t, defaults.Spec.Memory)
 
 	policy := &rightsizev1alpha1.RightSizePolicy{}
 	r.mergeDefaults(policy, defaults)
 
 	assert.Equal(t, int32(99), policy.Spec.CPU.Percentile)
-	assert.Equal(t, "1.2", policy.Spec.CPU.SafetyMargin)
+	assert.Equal(t, "20", policy.Spec.CPU.Overhead)
 	assert.Zero(t, policy.Spec.Memory.Percentile)
-	assert.Empty(t, policy.Spec.Memory.SafetyMargin)
+	assert.Empty(t, policy.Spec.Memory.Overhead)
 }
 
 func TestMergeDefaults_NamespaceDefaultsUseBuiltInFallbackForOmittedMemory(t *testing.T) {
 	defaults := &rightsizev1alpha1.RightSizeDefaults{
 		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			CPU: &rightsizev1alpha1.ResourceConfig{Percentile: 99, SafetyMargin: "1.2"},
+			CPU: &rightsizev1alpha1.ResourceConfig{Percentile: 99, Overhead: "20"},
 		},
 	}
 	r := &RightSizePolicyReconciler{}
@@ -274,9 +274,9 @@ func TestMergeDefaults_NamespaceDefaultsUseBuiltInFallbackForOmittedMemory(t *te
 	r.mergeDefaults(policy, defaults)
 
 	assert.Equal(t, int32(99), policy.Spec.CPU.Percentile)
-	assert.Equal(t, "1.2", policy.Spec.CPU.SafetyMargin)
+	assert.Equal(t, "20", policy.Spec.CPU.Overhead)
 	assert.Zero(t, policy.Spec.Memory.Percentile)
-	assert.Empty(t, policy.Spec.Memory.SafetyMargin)
+	assert.Empty(t, policy.Spec.Memory.Overhead)
 
 	cpuEngine, memEngine := buildRecommendationEngines(policy)
 	require.NotNil(t, cpuEngine)
@@ -299,8 +299,8 @@ func TestMergeDefaults_NamespaceDefaultsUseBuiltInFallbackForOmittedMemory(t *te
 	recommended, explanation, changed := memEngine.RecommendWithExplanation(profile, resource.MustParse("512Mi"))
 	assert.True(t, changed)
 	assert.Equal(t, int64(1024*1024*1024), explanation.RawPercentile.Value(), "omitted memory should fall back to the built-in p99 percentile")
-	assert.Equal(t, 1.3, explanation.SafetyMargin, "omitted memory should fall back to the built-in safety margin")
-	assert.Equal(t, int64(1395864372), explanation.AfterSafetyMargin.Value(), "built-in memory safety margin should widen the raw percentile result")
+	assert.Equal(t, 30.0, explanation.Overhead, "omitted memory should fall back to the built-in overhead")
+	assert.Equal(t, int64(1395864372), explanation.AfterOverhead.Value(), "built-in memory overhead should widen the raw percentile result")
 	assert.Equal(t, recommended.String(), explanation.Final.String())
 }
 

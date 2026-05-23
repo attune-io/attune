@@ -148,7 +148,7 @@ not retrofitted onto a VPA architecture that was never meant for it.
  ┌─────────────────────┐
  │  Recommender Engine  │
  │  P95/P99 percentile  │
- │  + safety margin     │
+ │  + overhead          │
  │  + confidence scaling│
  │  + bounds clamping   │
  │  + change filter     │
@@ -292,12 +292,12 @@ This deployment has 10 replicas. On AWS EKS at on-demand pricing:
 - Memory waste: 2.8 GiB x 10 replicas x $0.004/GiB-hr x 730 hr/mo = **$82/mo**
 - **Total waste: $444/month for one service**
 
-**After kube-rightsize (with P95 + 20% safety margin):**
+**After kube-rightsize (with P95 + 20% overhead):**
 
 | Resource | Original | Recommended | Savings |
 |----------|----------|-------------|---------|
-| CPU | 2000m | 480m (400m x 1.2) | **76%** |
-| Memory | 4Gi | 1.56Gi (1.2Gi x 1.3) | **61%** |
+| CPU | 2000m | 480m (400m + 20%) | **76%** |
+| Memory | 4Gi | 1.56Gi (1.2Gi + 30%) | **61%** |
 
 The operator applies this change in-place. No restarts. No HPA interference.
 The pods continue serving traffic with the same performance, just using fewer

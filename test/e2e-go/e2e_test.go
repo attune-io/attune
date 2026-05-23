@@ -175,13 +175,13 @@ func createPolicy(t *testing.T, name, namespace, deployName string, mode rightsi
 			},
 			CPU: rightsizev1alpha1.ResourceConfig{
 				Percentile:   95,
-				SafetyMargin: "1.2",
+				Overhead: "20",
 				MinAllowed: quantityPtr("50m"),
 				MaxAllowed: quantityPtr("4000m"),
 			},
 			Memory: rightsizev1alpha1.ResourceConfig{
 				Percentile:    99,
-				SafetyMargin:  "1.3",
+				Overhead:  "30",
 				AllowDecrease: boolPtr(true),
 				MinAllowed: quantityPtr("64Mi"),
 				MaxAllowed: quantityPtr("8Gi"),
@@ -479,12 +479,12 @@ func TestE2E_MultiContainer_ExcludesSidecar(t *testing.T) {
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
 			},
 			CPU: rightsizev1alpha1.ResourceConfig{
-				Percentile: 95, SafetyMargin: "1.2",
+				Percentile: 95, Overhead: "20",
 				MinAllowed: quantityPtr("50m"),
 				MaxAllowed: quantityPtr("4000m"),
 			},
 			Memory: rightsizev1alpha1.ResourceConfig{
-				Percentile: 99, SafetyMargin: "1.3",
+				Percentile: 99, Overhead: "30",
 				AllowDecrease: boolPtr(true),
 				MinAllowed:    quantityPtr("64Mi"),
 				MaxAllowed:    quantityPtr("8Gi"),
@@ -646,8 +646,8 @@ func TestE2E_BudgetCaps_DefersResize(t *testing.T) {
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
 			},
-			CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.2"},
-			Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, SafetyMargin: "1.3"},
+			CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, Overhead: "20"},
+			Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, Overhead: "30"},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 				Type:                   rightsizev1alpha1.UpdateTypeAuto,
 				Cooldown:               &metav1.Duration{Duration: time.Minute},
@@ -718,8 +718,8 @@ func TestE2E_ScheduleWindow_SkipsOutsideWindow(t *testing.T) {
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
 			},
-			CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.2"},
-			Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, SafetyMargin: "1.3"},
+			CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, Overhead: "20"},
+			Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, Overhead: "30"},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 				Type:                   rightsizev1alpha1.UpdateTypeAuto,
 				Cooldown:               &metav1.Duration{Duration: time.Minute},
@@ -788,8 +788,8 @@ func TestE2E_BearerToken_Authenticates(t *testing.T) {
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
 			},
-			CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.2"},
-			Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, SafetyMargin: "1.3"},
+			CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, Overhead: "20"},
+			Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, Overhead: "30"},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 				Type:     rightsizev1alpha1.UpdateTypeRecommend,
 				Cooldown: &metav1.Duration{Duration: time.Minute},
@@ -827,12 +827,12 @@ func TestE2E_EvictionFallback_ResizesWithInPlaceOrRecreate(t *testing.T) {
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
 			},
 			CPU: rightsizev1alpha1.ResourceConfig{
-				Percentile: 95, SafetyMargin: "1.2",
+				Percentile: 95, Overhead: "20",
 				MinAllowed: quantityPtr("50m"),
 				MaxAllowed: quantityPtr("4000m"),
 			},
 			Memory: rightsizev1alpha1.ResourceConfig{
-				Percentile: 99, SafetyMargin: "1.3",
+				Percentile: 99, Overhead: "30",
 				AllowDecrease: boolPtr(true),
 				MinAllowed: quantityPtr("64Mi"),
 				MaxAllowed: quantityPtr("8Gi"),
@@ -986,8 +986,8 @@ func TestE2E_BearerToken_SecretRotation(t *testing.T) {
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
 			},
-			CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.2"},
-			Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, SafetyMargin: "1.3"},
+			CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, Overhead: "20"},
+			Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, Overhead: "30"},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 				Type:     rightsizev1alpha1.UpdateTypeRecommend,
 				Cooldown: &metav1.Duration{Duration: time.Minute},
@@ -1091,14 +1091,14 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 			},
 			CPU: rightsizev1alpha1.ResourceConfig{
 				Percentile:       95,
-				SafetyMargin:     "1.2",
+				Overhead:     "20",
 				ControlledValues: &controlledValues,
 				MinAllowed: quantityPtr("10m"),
 				MaxAllowed: quantityPtr("1000m"),
 			},
 			Memory: rightsizev1alpha1.ResourceConfig{
 				Percentile:       99,
-				SafetyMargin:     "1.0",
+				Overhead:     "0",
 				AllowDecrease:    boolPtr(true),
 				ControlledValues: &controlledValues,
 				MinAllowed: quantityPtr("8Mi"),
@@ -1230,12 +1230,12 @@ func TestE2E_MultiReplica_ProgressiveResize(t *testing.T) {
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
 			},
 			CPU: rightsizev1alpha1.ResourceConfig{
-				Percentile: 95, SafetyMargin: "1.2",
+				Percentile: 95, Overhead: "20",
 				MinAllowed: quantityPtr("50m"),
 				MaxAllowed: quantityPtr("4000m"),
 			},
 			Memory: rightsizev1alpha1.ResourceConfig{
-				Percentile: 99, SafetyMargin: "1.3", AllowDecrease: boolPtr(true),
+				Percentile: 99, Overhead: "30", AllowDecrease: boolPtr(true),
 				MinAllowed: quantityPtr("64Mi"),
 				MaxAllowed: quantityPtr("8Gi"),
 			},
@@ -1308,12 +1308,12 @@ func TestE2E_GuaranteedQoS_RequestsAndLimits(t *testing.T) {
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
 			},
 			CPU: rightsizev1alpha1.ResourceConfig{
-				Percentile: 95, SafetyMargin: "1.2", ControlledValues: &controlledBoth,
+				Percentile: 95, Overhead: "20", ControlledValues: &controlledBoth,
 				MinAllowed: quantityPtr("50m"),
 				MaxAllowed: quantityPtr("4000m"),
 			},
 			Memory: rightsizev1alpha1.ResourceConfig{
-				Percentile: 99, SafetyMargin: "1.3", AllowDecrease: boolPtr(true), ControlledValues: &controlledBoth,
+				Percentile: 99, Overhead: "30", AllowDecrease: boolPtr(true), ControlledValues: &controlledBoth,
 				MinAllowed: quantityPtr("64Mi"),
 				MaxAllowed: quantityPtr("8Gi"),
 			},
@@ -1394,8 +1394,8 @@ func TestE2E_LabelSelector_MultipleWorkloads(t *testing.T) {
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
 			},
-			CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.2"},
-			Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, SafetyMargin: "1.3"},
+			CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, Overhead: "20"},
+			Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, Overhead: "30"},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 				Type: rightsizev1alpha1.UpdateTypeRecommend, Cooldown: &metav1.Duration{Duration: time.Minute},
 			},
@@ -1558,12 +1558,12 @@ func TestE2E_MemoryAllowDecreaseFalse(t *testing.T) {
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
 			},
 			CPU: rightsizev1alpha1.ResourceConfig{
-				Percentile: 95, SafetyMargin: "1.2",
+				Percentile: 95, Overhead: "20",
 				MinAllowed: quantityPtr("50m"),
 				MaxAllowed: quantityPtr("4000m"),
 			},
 			Memory: rightsizev1alpha1.ResourceConfig{
-				Percentile: 99, SafetyMargin: "1.3",
+				Percentile: 99, Overhead: "30",
 				// AllowDecrease intentionally NOT set (nil), so the default false applies.
 				MinAllowed: quantityPtr("64Mi"),
 				MaxAllowed: quantityPtr("8Gi"),
@@ -1653,12 +1653,12 @@ func TestE2E_MultiContainer_SequentialResize(t *testing.T) {
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
 			},
 			CPU: rightsizev1alpha1.ResourceConfig{
-				Percentile: 95, SafetyMargin: "1.2",
+				Percentile: 95, Overhead: "20",
 				MinAllowed: quantityPtr("50m"),
 				MaxAllowed: quantityPtr("4000m"),
 			},
 			Memory: rightsizev1alpha1.ResourceConfig{
-				Percentile: 99, SafetyMargin: "1.3",
+				Percentile: 99, Overhead: "30",
 				AllowDecrease: boolPtr(true),
 				MinAllowed: quantityPtr("64Mi"),
 				MaxAllowed: quantityPtr("8Gi"),

@@ -413,7 +413,7 @@ func (r *RightSizePolicyReconciler) setDegradedCondition(policy *rightsizev1alph
 			Type:               rightsizev1alpha1.ConditionDegraded,
 			Status:             metav1.ConditionTrue,
 			Reason:             rightsizev1alpha1.ReasonHighRevertRate,
-			Message:            fmt.Sprintf("%d of last %d resizes were reverted; consider adjusting safety margins", reverts, window),
+			Message:            fmt.Sprintf("%d of last %d resizes were reverted; consider adjusting overheads", reverts, window),
 			ObservedGeneration: policy.Generation,
 		})
 	} else {

@@ -17,7 +17,7 @@ spec:
               kind: Namespace
               metadata:
                 name: e2e-webhook-validation
-    - name: reject-invalid-safety-margin
+    - name: reject-invalid-overhead
       try:
         - apply:
             expect:
@@ -38,7 +38,7 @@ spec:
                     address: http://prometheus-server.monitoring:80
                 cpu:
                   percentile: 95
-                  safetyMargin: "not-a-number"
+                  overhead: "not-a-number"
                 memory:
                   percentile: 99
                 updateStrategy:

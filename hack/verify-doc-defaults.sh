@@ -140,18 +140,18 @@ check_default "memPercentile (README)" \
   "percentile: 99" \
   "README.md"
 
-# --- CPU safetyMargin default = 1.2, memory safetyMargin default = 1.3 ---
-check_default "cpuSafetyMargin (Go)" \
-  'DefaultCPUSafetyMargin.*"1.2"' \
+# --- CPU overhead default = 20, memory overhead default = 30 ---
+check_default "cpuOverhead (Go)" \
+  'DefaultCPUOverhead.*"20"' \
   "api/v1alpha1/defaults.go"
-check_default "memSafetyMargin (Go)" \
-  'DefaultMemorySafetyMargin.*"1.3"' \
+check_default "memOverhead (Go)" \
+  'DefaultMemoryOverhead.*"30"' \
   "api/v1alpha1/defaults.go"
-check_default "cpuSafetyMargin (README)" \
-  'safetyMargin.*1.2' \
+check_default "cpuOverhead (README)" \
+  'overhead.*20' \
   "README.md"
-check_default "memSafetyMargin (README)" \
-  'safetyMargin.*1.3' \
+check_default "memOverhead (README)" \
+  'overhead.*30' \
   "README.md"
 
 # --- Resource bounds defaults ---
@@ -206,18 +206,18 @@ check_default "prometheusPort (README)" \
   'prometheusPort.*9090' \
   "README.md"
 
-# --- why-kube-rightsize.md: pricing, safety margins ---
+# --- why-kube-rightsize.md: pricing, overheads ---
 check_default "cpuPricing (why page)" \
   '0\.031' \
   "docs/why-kube-rightsize.md"
 check_default "memPricing (why page)" \
   '0\.004' \
   "docs/why-kube-rightsize.md"
-check_default "cpuSafetyMargin (why page)" \
-  'x 1.2' \
+check_default "cpuOverhead (why page)" \
+  '+ 20%' \
   "docs/why-kube-rightsize.md"
-check_default "memSafetyMargin (why page)" \
-  'x 1.3' \
+check_default "memOverhead (why page)" \
+  '+ 30%' \
   "docs/why-kube-rightsize.md"
 check_default "cpuPercentile (why page)" \
   'P95' \

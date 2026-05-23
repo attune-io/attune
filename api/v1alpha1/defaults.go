@@ -50,9 +50,9 @@ const (
 // computeRecommendations.
 const (
 	DefaultCPUPercentile          int32 = 95
-	DefaultCPUSafetyMargin              = "1.2"
+	DefaultCPUOverhead                  = "20"
 	DefaultMemoryPercentile       int32 = 99
-	DefaultMemorySafetyMargin           = "1.3"
+	DefaultMemoryOverhead               = "30"
 	DefaultUpdateType                   = UpdateTypeRecommend
 	DefaultMaxCPUChangePercent    int32 = 50
 	DefaultMaxMemoryChangePercent int32 = 30

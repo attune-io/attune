@@ -187,6 +187,21 @@ func parseFloat64(s string, fallback float64) float64 {
 	return v
 }
 
+// parseOverheadPercent parses an overhead percentage string (e.g. "20" for 20%).
+// Returns fallback on error, NaN, Inf, negative, or > 900.
+// Defense-in-depth: webhook validates first, but this protects when webhooks
+// are disabled or bypassed.
+func parseOverheadPercent(s string, fallback float64) float64 {
+	if s == "" {
+		return fallback
+	}
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil || math.IsNaN(v) || math.IsInf(v, 0) || v < 0 || v > 900 {
+		return fallback
+	}
+	return v
+}
+
 // parseFloat64NonNeg parses a string as a non-negative float64, capped at 1.0.
 // Returns fallback on error, NaN, Inf, or negative values.
 func parseFloat64NonNeg(s string, fallback float64) float64 {

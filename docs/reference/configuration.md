@@ -210,7 +210,7 @@ lexicographically smallest `metadata.name` wins.
 ### Use case
 
 Different environments often need different right-sizing parameters.
-Production namespaces may use higher safety margins and conservative
+Production namespaces may use higher overheads and conservative
 modes, while staging namespaces can be more aggressive:
 
 ```yaml
@@ -222,10 +222,10 @@ metadata:
 spec:
   cpu:
     percentile: 99
-    safetyMargin: "1.3"
+    overhead: "30"
   memory:
     percentile: 99
-    safetyMargin: "1.5"
+    overhead: "50"
     allowDecrease: false
   updateStrategy:
     type: Canary
@@ -240,10 +240,10 @@ metadata:
 spec:
   cpu:
     percentile: 95
-    safetyMargin: "1.1"
+    overhead: "10"
   memory:
     percentile: 95
-    safetyMargin: "1.2"
+    overhead: "20"
   updateStrategy:
     type: Auto
     cooldown: 30m
@@ -260,7 +260,7 @@ All fields from `RightSizeDefaults` are available in
 | Section | Fields |
 |---------|--------|
 | `metricsSource` | `prometheus.address`, `prometheus.headers`, `prometheus.queryParameters`, `prometheus.bearerTokenSecret`, `prometheus.tls`, `datadog.site`, `datadog.apiKeySecretRef`, `cloudwatch.region`, `cloudwatch.clusterName`, `cloudwatch.roleArn`, `historyWindow`, `minimumDataPoints`, `queryStep`, `rateWindow` |
-| `cpu` | `percentile`, `safetyMargin`, `minAllowed`, `maxAllowed`, `controlledValues`, `burstSensitivity`, `allowDecrease`, `startupBoost` |
+| `cpu` | `percentile`, `overhead`, `minAllowed`, `maxAllowed`, `controlledValues`, `burstSensitivity`, `allowDecrease`, `startupBoost` |
 | `memory` | Same as `cpu` |
 | `updateStrategy` | `type`, `cooldown`, `autoRevert`, `resizeMethod`, `maxCpuChangePercent`, `maxMemoryChangePercent`, `maxConcurrentResizes`, `maxTotalCpuIncrease`, `maxTotalMemoryIncrease`, `schedule`, `export`, `canary` |
 | `costPricing` | `cpuPerCoreHour`, `memoryPerGiBHour` |

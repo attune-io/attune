@@ -321,13 +321,13 @@ func newTestPolicy(name, namespace, deploymentName string) *rightsizev1alpha1.Ri
 			},
 			CPU: rightsizev1alpha1.ResourceConfig{
 				Percentile:   95,
-				SafetyMargin: "1.2",
+				Overhead: "20",
 				MinAllowed:   quantityPtr("50m"),
 				MaxAllowed:   quantityPtr("4000m"),
 			},
 			Memory: rightsizev1alpha1.ResourceConfig{
 				Percentile:   99,
-				SafetyMargin: "1.3",
+				Overhead: "30",
 				MinAllowed:   quantityPtr("64Mi"),
 				MaxAllowed:   quantityPtr("8Gi"),
 			},
@@ -461,11 +461,11 @@ func TestReconcile_LabelSelectorTargetsMultipleWorkloads(t *testing.T) {
 			},
 			CPU: rightsizev1alpha1.ResourceConfig{
 				Percentile:   95,
-				SafetyMargin: "1.2",
+				Overhead: "20",
 			},
 			Memory: rightsizev1alpha1.ResourceConfig{
 				Percentile:   99,
-				SafetyMargin: "1.3",
+				Overhead: "30",
 			},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 				Type:     "Recommend",
@@ -523,11 +523,11 @@ func TestReconcile_DefaultsMergingFromClusterDefaults(t *testing.T) {
 		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
 			CPU: &rightsizev1alpha1.ResourceConfig{
 				Percentile:   90,
-				SafetyMargin: "1.5",
+				Overhead: "50",
 			},
 			Memory: &rightsizev1alpha1.ResourceConfig{
 				Percentile:   95,
-				SafetyMargin: "1.4",
+				Overhead: "40",
 			},
 		},
 	}
@@ -585,11 +585,11 @@ func TestReconcile_NamespaceDefaultsDoNotMergeClusterResourceFields(t *testing.T
 		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
 			CPU: &rightsizev1alpha1.ResourceConfig{
 				Percentile:   90,
-				SafetyMargin: "1.5",
+				Overhead: "50",
 			},
 			Memory: &rightsizev1alpha1.ResourceConfig{
 				Percentile:   95,
-				SafetyMargin: "1.4",
+				Overhead: "40",
 			},
 		},
 	}
@@ -603,7 +603,7 @@ func TestReconcile_NamespaceDefaultsDoNotMergeClusterResourceFields(t *testing.T
 		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
 			CPU: &rightsizev1alpha1.ResourceConfig{
 				Percentile:   99,
-				SafetyMargin: "1.2",
+				Overhead: "20",
 			},
 		},
 	}
@@ -651,9 +651,9 @@ func TestReconcile_NamespaceDefaultsDoNotMergeClusterResourceFields(t *testing.T
 		Name: "policy-namespace-defaults-non-merge", Namespace: namespace,
 	}, &created))
 	assert.Zero(t, created.Spec.CPU.Percentile, "webhook should not prefill CPU percentile")
-	assert.Empty(t, created.Spec.CPU.SafetyMargin, "webhook should not prefill CPU safety margin")
+	assert.Empty(t, created.Spec.CPU.Overhead, "webhook should not prefill CPU overhead")
 	assert.Zero(t, created.Spec.Memory.Percentile, "webhook should not prefill memory percentile")
-	assert.Empty(t, created.Spec.Memory.SafetyMargin, "webhook should not prefill memory safety margin")
+	assert.Empty(t, created.Spec.Memory.Overhead, "webhook should not prefill memory overhead")
 
 }
 
@@ -755,11 +755,11 @@ func TestReconcile_ConcurrentResizesFieldProcessedWithoutRaces(t *testing.T) {
 			},
 			CPU: rightsizev1alpha1.ResourceConfig{
 				Percentile:   95,
-				SafetyMargin: "1.2",
+				Overhead: "20",
 			},
 			Memory: rightsizev1alpha1.ResourceConfig{
 				Percentile:   99,
-				SafetyMargin: "1.3",
+				Overhead: "30",
 			},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 				Type:                 "Recommend",

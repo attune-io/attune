@@ -107,8 +107,8 @@ Look for:
 
 If recommendations look unreasonable, adjust the policy:
 
-- Recommendations too aggressive? Increase `safetyMargin` (e.g., `"1.3"`)
-- Recommendations too conservative? Decrease `safetyMargin` (e.g., `"1.1"`)
+- Recommendations too aggressive? Increase `overhead` (e.g., `"30"`)
+- Recommendations too conservative? Decrease `overhead` (e.g., `"10"`)
 - Don't want memory to decrease? Set `memory.allowDecrease: false`
 
 ## Week 2: Promote to Canary mode
@@ -133,7 +133,7 @@ resize is reverted, the **REASON** column tells you why (oomkill, restart,
 notready, throttle).
 
 !!! warning
-    If you see repeated reverts, increase the safety margin or adjust
+    If you see repeated reverts, increase the overhead or adjust
     bounds before proceeding. See [troubleshooting](../guides/troubleshooting.md).
 
 ## Weeks 3-4: Full automation
@@ -158,7 +158,7 @@ The TOTAL row at the bottom shows aggregate cluster-wide savings.
 Once the first policy has been running in Auto mode for a week, expand by
 creating policies for more workloads. Use
 [RightSizeDefaults](../reference/api.md#rightsizedefaults) to set
-org-wide defaults (safety margins, bounds) so individual policies stay
+org-wide defaults (overheads, bounds) so individual policies stay
 minimal.
 
 ## Quick reference: what to run when

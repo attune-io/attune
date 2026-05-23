@@ -145,7 +145,7 @@ make test-e2e-smoke
 | `test/e2e/health-probes/` | (infra) | Liveness and readiness probes pass |
 | `test/e2e/metrics-endpoint/` | (infra) | Prometheus metrics endpoint is exposed |
 | `test/e2e/webhook-defaulting/` | (webhook) | Mutating webhook applies defaults |
-| `test/e2e/webhook-validation/` | (webhook) | Rejects invalid safety margin and negative cooldown |
+| `test/e2e/webhook-validation/` | (webhook) | Rejects invalid overhead and negative cooldown |
 | `test/e2e/webhook-schedule-validation/` | (webhook) | Rejects invalid timezone, day, and window time |
 | `test/e2e/defaults-validation/` | (webhook) | Rejects invalid RightSizeDefaults |
 

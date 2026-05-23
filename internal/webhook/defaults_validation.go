@@ -130,19 +130,15 @@ func validateDefaultsSpec(spec rightsizev1alpha1.RightSizeDefaultsSpec) (admissi
 	// Validate CPU resource config fields.
 	var warnings admission.Warnings
 	if spec.CPU != nil {
-		if w, err := validateResourceConfigFields("cpu", spec.CPU); err != nil {
+		if err := validateResourceConfigFields("cpu", spec.CPU); err != nil {
 			return warnings, err
-		} else {
-			warnings = append(warnings, w...)
 		}
 	}
 
 	// Validate memory resource config fields.
 	if spec.Memory != nil {
-		if w, err := validateResourceConfigFields("memory", spec.Memory); err != nil {
+		if err := validateResourceConfigFields("memory", spec.Memory); err != nil {
 			return warnings, err
-		} else {
-			warnings = append(warnings, w...)
 		}
 		if spec.Memory.StartupBoost != nil {
 			warnings = append(warnings, "memory.startupBoost has no effect; startup boost only applies to CPU resources")
@@ -177,31 +173,27 @@ func validateDefaultsSpec(spec rightsizev1alpha1.RightSizeDefaultsSpec) (admissi
 // validateResourceConfigFields validates fields that are shared between
 // policy and defaults ResourceConfig. The prefix (e.g. "cpu", "memory")
 // is used in error messages.
-func validateResourceConfigFields(prefix string, rc *rightsizev1alpha1.ResourceConfig) (admission.Warnings, error) {
-	var warnings admission.Warnings
-
-	// SafetyMargin
-	if w, err := validateSafetyMargin(prefix, rc.SafetyMargin); err != nil {
-		return warnings, err
-	} else if w != "" {
-		warnings = append(warnings, w)
+func validateResourceConfigFields(prefix string, rc *rightsizev1alpha1.ResourceConfig) error {
+	// Overhead
+	if err := validateOverhead(prefix, rc.Overhead); err != nil {
+		return err
 	}
 
 	// BurstSensitivity
 	if err := validateBurstSensitivity(prefix, rc.BurstSensitivity); err != nil {
-		return warnings, err
+		return err
 	}
 
 	// Percentile
 	supportedPercentiles := map[int32]bool{50: true, 90: true, 95: true, 99: true}
 	if p := rc.Percentile; p != 0 && !supportedPercentiles[p] {
-		return warnings, fmt.Errorf("%s.percentile %d is not supported; must be one of: 50, 90, 95, 99", prefix, p)
+		return fmt.Errorf("%s.percentile %d is not supported; must be one of: 50, 90, 95, 99", prefix, p)
 	}
 
 	// Bounds (minAllowed/maxAllowed)
 	if rc.MinAllowed != nil && rc.MaxAllowed != nil {
 		if rc.MinAllowed.Cmp(*rc.MaxAllowed) > 0 {
-			return warnings, fmt.Errorf("%s.minAllowed (%s) must be <= %s.maxAllowed (%s)",
+			return fmt.Errorf("%s.minAllowed (%s) must be <= %s.maxAllowed (%s)",
 				prefix, rc.MinAllowed.String(), prefix, rc.MaxAllowed.String())
 		}
 	}
@@ -210,26 +202,26 @@ func validateResourceConfigFields(prefix string, rc *rightsizev1alpha1.ResourceC
 	if sb := rc.StartupBoost; sb != nil {
 		m, err := strconv.ParseFloat(sb.Multiplier, 64)
 		if err != nil {
-			return warnings, fmt.Errorf("%s.startupBoost.multiplier %q is not a valid number: %w", prefix, sb.Multiplier, err)
+			return fmt.Errorf("%s.startupBoost.multiplier %q is not a valid number: %w", prefix, sb.Multiplier, err)
 		}
 		if math.IsNaN(m) || math.IsInf(m, 0) {
-			return warnings, fmt.Errorf("%s.startupBoost.multiplier must be a finite number, got %s", prefix, sb.Multiplier)
+			return fmt.Errorf("%s.startupBoost.multiplier must be a finite number, got %s", prefix, sb.Multiplier)
 		}
 		if m <= 1 {
-			return warnings, fmt.Errorf("%s.startupBoost.multiplier must be > 1.0, got %s", prefix, sb.Multiplier)
+			return fmt.Errorf("%s.startupBoost.multiplier must be > 1.0, got %s", prefix, sb.Multiplier)
 		}
 		if m > 10 {
-			return warnings, fmt.Errorf("%s.startupBoost.multiplier must be <= 10.0, got %s", prefix, sb.Multiplier)
+			return fmt.Errorf("%s.startupBoost.multiplier must be <= 10.0, got %s", prefix, sb.Multiplier)
 		}
 		if sb.Duration.Duration < 10*time.Second {
-			return warnings, fmt.Errorf("%s.startupBoost.duration must be at least 10s, got %s", prefix, sb.Duration.Duration)
+			return fmt.Errorf("%s.startupBoost.duration must be at least 10s, got %s", prefix, sb.Duration.Duration)
 		}
 		if sb.Duration.Duration > 1*time.Hour {
-			return warnings, fmt.Errorf("%s.startupBoost.duration must be at most 1h, got %s", prefix, sb.Duration.Duration)
+			return fmt.Errorf("%s.startupBoost.duration must be at most 1h, got %s", prefix, sb.Duration.Duration)
 		}
 	}
 
-	return warnings, nil
+	return nil
 }
 
 func validatePositiveFloat(field, value string) error {

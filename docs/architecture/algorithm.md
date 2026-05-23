@@ -45,14 +45,15 @@ Multiplies the inner result by a safety factor to provide headroom:
 result = inner * factor
 ```
 
-Typical values: `1.2` (20% headroom) for CPU, `1.3` (30%) for memory.
-The multiplication is done in millicore precision and rounded up.
+Typical values: `20` (20% headroom) for CPU, `30` (30%) for memory.
+Internally, overhead percentage is converted to a multiplier (`1 + overhead/100`)
+and applied in millicore precision, rounded up.
 
 ## 3. Burst Estimator
 
 `BuildProfile()` flags bursts when `max > 3x p95`. The burst estimator
-uses `BurstMagnitude` to apply a logarithmic safety-margin boost after the
-base margin and before the confidence adjustment. See the
+uses `BurstMagnitude` to apply a logarithmic overhead boost after the
+base overhead and before the confidence adjustment. See the
 [Burst detection](#burst-detection) section below for the full formula and
 sensitivity tuning.
 
@@ -129,7 +130,7 @@ if changePct > MaxChangePercent:
 ## Burst detection
 
 `BuildProfile()` flags bursts when `max > 3x p95`. The recommendation engine
-uses `BurstMagnitude` to apply a logarithmic safety-margin boost:
+uses `BurstMagnitude` to apply a logarithmic overhead boost:
 
 ```
 burstFactor = 1 + sensitivity * log2(BurstMagnitude)
@@ -146,7 +147,7 @@ to disable burst boost entirely (useful for batch jobs).
 | 16x             | +40%                    | +80%                    |
 | 100x            | +66%                    | +133%                   |
 
-This step runs after the base safety margin and before the confidence
+This step runs after the base overhead and before the confidence
 adjustment. When no burst is detected (or magnitude <= 1), the factor
 is 1.0 (no change). The burst factor is visible in `kubectl rightsize explain`
 output via the `burstFactor` and `afterBurst` fields, and as the
@@ -154,13 +155,13 @@ output via the `burstFactor` and `afterBurst` fields, and as the
 
 ## Full pipeline example
 
-Given: p95 CPU = 200m, safety margin = 1.2, confidence = 0.8,
+Given: p95 CPU = 200m, overhead = 20%, confidence = 0.8,
 bounds = [1m, 4000m], current = 500m, max change = 50%.
 
 | Stage | Calculation | Result |
 |-------|-------------|--------|
 | Percentile | max across hourly p95 | 200m |
-| Margin | 200m * 1.2 | 240m |
+| Overhead | 200m * (1 + 20/100) = 200m * 1.2 | 240m |
 | Confidence | 240m * (1 + 1/0.8)^2 = 240m * 5.0625 | 1215m |
 | Bounds | clamp(1215m, 1m, 4000m) | 1215m |
 | Change Filter | change = abs(1215-500)/500 = 143% > 50%, cap | 750m |

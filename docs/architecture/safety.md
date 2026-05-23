@@ -41,7 +41,7 @@ if cs.LastTerminationState.Terminated.Reason == "OOMKilled" &&
 The container was killed by the OOM killer after the resize. This indicates
 the new memory allocation is too low.
 
-**Mitigation**: increase `memory.safetyMargin` or raise `memory.minAllowed`.
+**Mitigation**: increase `memory.overhead` or raise `memory.minAllowed`.
 
 ### Restart spike
 
@@ -77,7 +77,7 @@ new allocation is too low.
     can execute. This prevents false-positive reverts on containers that
     were heavily throttled before upscaling.
 
-**Mitigation**: increase `cpu.safetyMargin` or raise `cpu.minAllowed`.
+**Mitigation**: increase `cpu.overhead` or raise `cpu.minAllowed`.
 
 ### Pod NotReady
 
@@ -252,5 +252,5 @@ Before resizing, the controller checks for potential conflicts:
 When multiple consecutive resizes are reverted (visible in
 `.status.resizeHistory`), the policy's parameters likely need adjustment
 before further resizes should be attempted. Check the revert reasons
-(`oomkill`, `restart`, `notready`) and adjust safety margins or cooldown
+(`oomkill`, `restart`, `notready`) and adjust overheads or cooldown
 accordingly.

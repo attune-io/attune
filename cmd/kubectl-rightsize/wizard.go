@@ -496,12 +496,12 @@ func buildPolicyObject(namespace, name, kind, workloadName, promAddr string, cpu
 					},
 				},
 				"cpu": map[string]interface{}{
-					"percentile":   int64(cpuPercentile),
-					"safetyMargin": "1.2",
+					"percentile": int64(cpuPercentile),
+					"overhead":   "20",
 				},
 				"memory": map[string]interface{}{
-					"percentile":   int64(memPercentile),
-					"safetyMargin": "1.3",
+					"percentile": int64(memPercentile),
+					"overhead":   "30",
 				},
 				"updateStrategy": map[string]interface{}{
 					"type": mode,

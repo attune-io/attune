@@ -15,7 +15,7 @@ limitations under the License.
 */
 
 // Package recommendation provides a composable recommendation engine that
-// combines percentile-based estimation, safety margins, confidence adjustments,
+// combines percentile-based estimation, overheads, confidence adjustments,
 // bounds clamping, and change filtering into a chain of estimators.
 package recommendation
 
@@ -40,8 +40,8 @@ type estimator interface {
 // estimator chain for a single resource recommendation.
 type RecommendationExplanation struct {
 	RawPercentile       resource.Quantity
-	SafetyMargin        float64
-	AfterSafetyMargin   resource.Quantity
+	Overhead            float64
+	AfterOverhead       resource.Quantity
 	BurstFactor         float64
 	AfterBurst          resource.Quantity
 	Confidence          float64
