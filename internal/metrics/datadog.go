@@ -196,7 +196,11 @@ func flattenGrouped(grouped map[string][]Sample, err error) ([]Sample, error) {
 	if err != nil {
 		return nil, err
 	}
-	var samples []Sample
+	n := 0
+	for _, s := range grouped {
+		n += len(s)
+	}
+	samples := make([]Sample, 0, n)
 	for _, s := range grouped {
 		samples = append(samples, s...)
 	}
