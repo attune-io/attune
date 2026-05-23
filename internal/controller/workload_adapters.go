@@ -52,78 +52,61 @@ type workloadKind struct {
 	extract   func(client.ObjectList) []client.Object
 }
 
+// extractItems converts a typed item slice into a []client.Object slice.
+// This eliminates the boilerplate extract closure in each workloadKinds entry.
+func extractItems[T any, PT interface {
+	*T
+	client.Object
+}](items []T) []client.Object {
+	out := make([]client.Object, len(items))
+	for i := range items {
+		out[i] = PT(&items[i])
+	}
+	return out
+}
+
 // workloadKinds maps kind strings to their factory functions.
 var workloadKinds = map[string]workloadKind{
 	"Deployment": {
 		newObject: func() client.Object { return &appsv1.Deployment{} },
 		newList:   func() client.ObjectList { return &appsv1.DeploymentList{} },
 		extract: func(list client.ObjectList) []client.Object {
-			dl := list.(*appsv1.DeploymentList)
-			out := make([]client.Object, len(dl.Items))
-			for i := range dl.Items {
-				out[i] = &dl.Items[i]
-			}
-			return out
+			return extractItems[appsv1.Deployment](list.(*appsv1.DeploymentList).Items)
 		},
 	},
 	"StatefulSet": {
 		newObject: func() client.Object { return &appsv1.StatefulSet{} },
 		newList:   func() client.ObjectList { return &appsv1.StatefulSetList{} },
 		extract: func(list client.ObjectList) []client.Object {
-			dl := list.(*appsv1.StatefulSetList)
-			out := make([]client.Object, len(dl.Items))
-			for i := range dl.Items {
-				out[i] = &dl.Items[i]
-			}
-			return out
+			return extractItems[appsv1.StatefulSet](list.(*appsv1.StatefulSetList).Items)
 		},
 	},
 	"DaemonSet": {
 		newObject: func() client.Object { return &appsv1.DaemonSet{} },
 		newList:   func() client.ObjectList { return &appsv1.DaemonSetList{} },
 		extract: func(list client.ObjectList) []client.Object {
-			dl := list.(*appsv1.DaemonSetList)
-			out := make([]client.Object, len(dl.Items))
-			for i := range dl.Items {
-				out[i] = &dl.Items[i]
-			}
-			return out
+			return extractItems[appsv1.DaemonSet](list.(*appsv1.DaemonSetList).Items)
 		},
 	},
 	"CronJob": {
 		newObject: func() client.Object { return &batchv1.CronJob{} },
 		newList:   func() client.ObjectList { return &batchv1.CronJobList{} },
 		extract: func(list client.ObjectList) []client.Object {
-			dl := list.(*batchv1.CronJobList)
-			out := make([]client.Object, len(dl.Items))
-			for i := range dl.Items {
-				out[i] = &dl.Items[i]
-			}
-			return out
+			return extractItems[batchv1.CronJob](list.(*batchv1.CronJobList).Items)
 		},
 	},
 	"Job": {
 		newObject: func() client.Object { return &batchv1.Job{} },
 		newList:   func() client.ObjectList { return &batchv1.JobList{} },
 		extract: func(list client.ObjectList) []client.Object {
-			dl := list.(*batchv1.JobList)
-			out := make([]client.Object, len(dl.Items))
-			for i := range dl.Items {
-				out[i] = &dl.Items[i]
-			}
-			return out
+			return extractItems[batchv1.Job](list.(*batchv1.JobList).Items)
 		},
 	},
 	"ReplicaSet": {
 		newObject: func() client.Object { return &appsv1.ReplicaSet{} },
 		newList:   func() client.ObjectList { return &appsv1.ReplicaSetList{} },
 		extract: func(list client.ObjectList) []client.Object {
-			dl := list.(*appsv1.ReplicaSetList)
-			out := make([]client.Object, len(dl.Items))
-			for i := range dl.Items {
-				out[i] = &dl.Items[i]
-			}
-			return out
+			return extractItems[appsv1.ReplicaSet](list.(*appsv1.ReplicaSetList).Items)
 		},
 	},
 }
