@@ -534,8 +534,8 @@ func TestDefaultsValidate_BoundsMinExceedsMax(t *testing.T) {
 		max      string
 		wantErr  string
 	}{
-		{"CPU min > max", "cpu", "2", "1", "cpu.bounds.min"},
-		{"memory min > max", "memory", "2Gi", "1Gi", "memory.bounds.min"},
+		{"CPU min > max", "cpu", "2", "1", "cpu.minAllowed"},
+		{"memory min > max", "memory", "2Gi", "1Gi", "memory.minAllowed"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -544,11 +544,11 @@ func TestDefaultsValidate_BoundsMinExceedsMax(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{Name: "default"},
 				Spec:       rightsizev1alpha1.RightSizeDefaultsSpec{},
 			}
+			minQ := resource.MustParse(tc.min)
+			maxQ := resource.MustParse(tc.max)
 			rc := &rightsizev1alpha1.ResourceConfig{
-				Bounds: &rightsizev1alpha1.ResourceBounds{
-					Min: resource.MustParse(tc.min),
-					Max: resource.MustParse(tc.max),
-				},
+				MinAllowed: &minQ,
+				MaxAllowed: &maxQ,
 			}
 			if tc.resource == "cpu" {
 				defaults.Spec.CPU = rc

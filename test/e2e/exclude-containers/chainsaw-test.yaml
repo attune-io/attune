@@ -3,7 +3,7 @@ kind: Test
 metadata:
   name: exclude-containers
 spec:
-  description: Verify that excludeContainers skips sidecar containers in multi-container pods
+  description: Verify that excludedContainers skips sidecar containers in multi-container pods
   timeouts:
     apply: 30s
     assert: 2m
@@ -64,7 +64,7 @@ spec:
                 targetRef:
                   kind: Deployment
                   name: multi-container-app
-                excludeContainers:
+                excludedContainers:
                   - istio-proxy
                 metricsSource:
                   prometheus:

@@ -79,28 +79,6 @@ spec:
                       For CPU: nil defaults to true (decreases allowed, throttle detected by safety monitor).
                       For memory: nil defaults to false (decreases blocked to prevent OOMKill).
                     type: boolean
-                  bounds:
-                    description: Bounds defines the minimum and maximum allowed resource
-                      values.
-                    properties:
-                      max:
-                        anyOf:
-                        - type: integer
-                        - type: string
-                        description: Max is the maximum allowed resource value.
-                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                        x-kubernetes-int-or-string: true
-                      min:
-                        anyOf:
-                        - type: integer
-                        - type: string
-                        description: Min is the minimum allowed resource value.
-                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                        x-kubernetes-int-or-string: true
-                    required:
-                    - max
-                    - min
-                    type: object
                   burstSensitivity:
                     description: |-
                       BurstSensitivity controls how much burst detection inflates the
@@ -120,6 +98,20 @@ spec:
                     - RequestsOnly
                     - RequestsAndLimits
                     type: string
+                  maxAllowed:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    description: MaxAllowed is the maximum allowed resource value.
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                  minAllowed:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    description: MinAllowed is the minimum allowed resource value.
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
                   percentile:
                     description: |-
                       Percentile is the usage percentile to target for recommendations.
@@ -165,9 +157,9 @@ spec:
                     - multiplier
                     type: object
                 type: object
-              excludeContainers:
+              excludedContainers:
                 description: |-
-                  ExcludeContainers is a list of container names to skip when computing
+                  ExcludedContainers is a list of container names to skip when computing
                   recommendations and performing resizes. Use this for sidecar containers
                   (e.g., istio-proxy, linkerd-proxy) that are managed by a service mesh
                   and should not be right-sized.
@@ -183,28 +175,6 @@ spec:
                       For CPU: nil defaults to true (decreases allowed, throttle detected by safety monitor).
                       For memory: nil defaults to false (decreases blocked to prevent OOMKill).
                     type: boolean
-                  bounds:
-                    description: Bounds defines the minimum and maximum allowed resource
-                      values.
-                    properties:
-                      max:
-                        anyOf:
-                        - type: integer
-                        - type: string
-                        description: Max is the maximum allowed resource value.
-                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                        x-kubernetes-int-or-string: true
-                      min:
-                        anyOf:
-                        - type: integer
-                        - type: string
-                        description: Min is the minimum allowed resource value.
-                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                        x-kubernetes-int-or-string: true
-                    required:
-                    - max
-                    - min
-                    type: object
                   burstSensitivity:
                     description: |-
                       BurstSensitivity controls how much burst detection inflates the
@@ -224,6 +194,20 @@ spec:
                     - RequestsOnly
                     - RequestsAndLimits
                     type: string
+                  maxAllowed:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    description: MaxAllowed is the maximum allowed resource value.
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                  minAllowed:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    description: MinAllowed is the minimum allowed resource value.
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
                   percentile:
                     description: |-
                       Percentile is the usage percentile to target for recommendations.
@@ -593,14 +577,15 @@ spec:
                     description: |-
                       ResizeMethod controls what happens when an in-place resize fails.
                         InPlaceOnly (default): skip the pod and retry next cycle.
-                        InPlaceOrEvict: fall back to pod eviction if in-place resize
-                        fails or is marked Infeasible by kubelet. Evictions respect
+                        InPlaceOrRecreate: fall back to pod eviction if in-place resize
+                        fails or is marked Infeasible by kubelet. The owning controller
+                        recreates the pod with updated resources. Evictions respect
                         PodDisruptionBudgets and never evict the last replica.
                       Defaults to InPlaceOnly if not set (applied by the controller so that
                       RightSizeDefaults cluster configuration can override it).
                     enum:
                     - InPlaceOnly
-                    - InPlaceOrEvict
+                    - InPlaceOrRecreate
                     type: string
                   safetyObservationPeriod:
                     description: |-

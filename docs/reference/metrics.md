@@ -72,7 +72,7 @@ Total resize operations deferred because the per-cycle budget cap
 
 ### kube_rightsize_eviction_total
 
-Total eviction attempts when `resizeMethod: InPlaceOrEvict` falls back
+Total eviction attempts when `resizeMethod: InPlaceOrRecreate` falls back
 to pod eviction after an in-place resize fails or is marked Infeasible.
 
 | Label | Description |

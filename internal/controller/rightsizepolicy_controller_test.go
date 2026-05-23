@@ -179,18 +179,14 @@ func newTestPolicy(name, namespace string) *rightsizev1alpha1.RightSizePolicy {
 			CPU: rightsizev1alpha1.ResourceConfig{
 				Percentile:   95,
 				SafetyMargin: "1.2",
-				Bounds: &rightsizev1alpha1.ResourceBounds{
-					Min: resource.MustParse("50m"),
-					Max: resource.MustParse("4000m"),
-				},
+				MinAllowed:   quantityPtr("50m"),
+				MaxAllowed:   quantityPtr("4000m"),
 			},
 			Memory: rightsizev1alpha1.ResourceConfig{
 				Percentile:   99,
 				SafetyMargin: "1.3",
-				Bounds: &rightsizev1alpha1.ResourceBounds{
-					Min: resource.MustParse("64Mi"),
-					Max: resource.MustParse("8Gi"),
-				},
+				MinAllowed:   quantityPtr("64Mi"),
+				MaxAllowed:   quantityPtr("8Gi"),
 			},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 				Mode: rightsizev1alpha1.UpdateModeRecommend,
@@ -3798,10 +3794,8 @@ func TestMergeDefaults_MergesAllFields(t *testing.T) {
 				SafetyMargin:     "1.5",
 				ControlledValues: &controlledValues,
 				BurstSensitivity: &burstSensitivity,
-				Bounds: &rightsizev1alpha1.ResourceBounds{
-					Min: resource.MustParse("100m"),
-					Max: resource.MustParse("8"),
-				},
+				MinAllowed:       quantityPtr("100m"),
+				MaxAllowed:       quantityPtr("8"),
 				StartupBoost: &rightsizev1alpha1.StartupBoost{
 					Multiplier: "3.0",
 					Duration:   metav1.Duration{Duration: 2 * time.Minute},
@@ -3821,7 +3815,7 @@ func TestMergeDefaults_MergesAllFields(t *testing.T) {
 				Mode:                   rightsizev1alpha1.UpdateModeAuto,
 				Cooldown:               &cooldown,
 				AutoRevert:             &autoRevert,
-				ResizeMethod:           rightsizev1alpha1.ResizeMethodInPlaceOrEvict,
+				ResizeMethod:           rightsizev1alpha1.ResizeMethodInPlaceOrRecreate,
 				MaxCPUChangePercent:    int32Ptr(80),
 				MaxMemoryChangePercent: int32Ptr(60),
 				MaxConcurrentResizes:   5,
@@ -3856,8 +3850,8 @@ func TestMergeDefaults_MergesAllFields(t *testing.T) {
 	assert.Equal(t, "RequestsAndLimits", *policy.Spec.CPU.ControlledValues)
 	require.NotNil(t, policy.Spec.CPU.BurstSensitivity)
 	assert.Equal(t, "0.2", *policy.Spec.CPU.BurstSensitivity)
-	require.NotNil(t, policy.Spec.CPU.Bounds)
-	assert.Equal(t, resource.MustParse("100m"), policy.Spec.CPU.Bounds.Min)
+	require.NotNil(t, policy.Spec.CPU.MinAllowed)
+	assert.Equal(t, resource.MustParse("100m"), *policy.Spec.CPU.MinAllowed)
 	require.NotNil(t, policy.Spec.CPU.StartupBoost)
 	assert.Equal(t, "3.0", policy.Spec.CPU.StartupBoost.Multiplier)
 	assert.Equal(t, 2*time.Minute, policy.Spec.CPU.StartupBoost.Duration.Duration)
@@ -3882,7 +3876,7 @@ func TestMergeDefaults_MergesAllFields(t *testing.T) {
 	assert.Equal(t, 30*time.Minute, policy.Spec.UpdateStrategy.Cooldown.Duration)
 	require.NotNil(t, policy.Spec.UpdateStrategy.AutoRevert)
 	assert.True(t, *policy.Spec.UpdateStrategy.AutoRevert)
-	assert.Equal(t, rightsizev1alpha1.ResizeMethodInPlaceOrEvict, policy.Spec.UpdateStrategy.ResizeMethod)
+	assert.Equal(t, rightsizev1alpha1.ResizeMethodInPlaceOrRecreate, policy.Spec.UpdateStrategy.ResizeMethod)
 	require.NotNil(t, policy.Spec.UpdateStrategy.MaxCPUChangePercent)
 	assert.Equal(t, int32(80), *policy.Spec.UpdateStrategy.MaxCPUChangePercent)
 	require.NotNil(t, policy.Spec.UpdateStrategy.MaxMemoryChangePercent)
@@ -3941,7 +3935,7 @@ func TestApplyBuiltInDefaults_PreservesUserValues(t *testing.T) {
 	policy.Spec.UpdateStrategy.MaxMemoryChangePercent = int32Ptr(60)
 	autoRevert := false
 	policy.Spec.UpdateStrategy.AutoRevert = &autoRevert
-	policy.Spec.UpdateStrategy.ResizeMethod = rightsizev1alpha1.ResizeMethodInPlaceOrEvict
+	policy.Spec.UpdateStrategy.ResizeMethod = rightsizev1alpha1.ResizeMethodInPlaceOrRecreate
 	policy.Spec.MetricsSource.MinimumDataPoints = int32Ptr(24)
 	policy.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: 30 * time.Minute}
 	policy.Spec.MetricsSource.HistoryWindow = &metav1.Duration{Duration: 48 * time.Hour}
@@ -3957,7 +3951,7 @@ func TestApplyBuiltInDefaults_PreservesUserValues(t *testing.T) {
 	assert.Equal(t, int32(80), *policy.Spec.UpdateStrategy.MaxCPUChangePercent)
 	assert.Equal(t, int32(60), *policy.Spec.UpdateStrategy.MaxMemoryChangePercent)
 	assert.False(t, *policy.Spec.UpdateStrategy.AutoRevert)
-	assert.Equal(t, rightsizev1alpha1.ResizeMethodInPlaceOrEvict, policy.Spec.UpdateStrategy.ResizeMethod)
+	assert.Equal(t, rightsizev1alpha1.ResizeMethodInPlaceOrRecreate, policy.Spec.UpdateStrategy.ResizeMethod)
 	assert.Equal(t, int32(24), *policy.Spec.MetricsSource.MinimumDataPoints)
 	assert.Equal(t, 30*time.Minute, policy.Spec.UpdateStrategy.Cooldown.Duration)
 	assert.Equal(t, 48*time.Hour, policy.Spec.MetricsSource.HistoryWindow.Duration)
@@ -3978,7 +3972,7 @@ func TestMergeDefaults_ClusterDefaultsTakeEffect(t *testing.T) {
 				Mode:                   rightsizev1alpha1.UpdateModeAuto,
 				Cooldown:               &cooldown,
 				AutoRevert:             &autoRevert,
-				ResizeMethod:           rightsizev1alpha1.ResizeMethodInPlaceOrEvict,
+				ResizeMethod:           rightsizev1alpha1.ResizeMethodInPlaceOrRecreate,
 				MaxCPUChangePercent:    int32Ptr(80),
 				MaxMemoryChangePercent: int32Ptr(60),
 			},
@@ -3996,7 +3990,7 @@ func TestMergeDefaults_ClusterDefaultsTakeEffect(t *testing.T) {
 	assert.Equal(t, rightsizev1alpha1.UpdateModeAuto, policy.Spec.UpdateStrategy.Mode)
 	assert.Equal(t, 30*time.Minute, policy.Spec.UpdateStrategy.Cooldown.Duration)
 	assert.False(t, *policy.Spec.UpdateStrategy.AutoRevert)
-	assert.Equal(t, rightsizev1alpha1.ResizeMethodInPlaceOrEvict, policy.Spec.UpdateStrategy.ResizeMethod)
+	assert.Equal(t, rightsizev1alpha1.ResizeMethodInPlaceOrRecreate, policy.Spec.UpdateStrategy.ResizeMethod)
 	assert.Equal(t, int32(80), *policy.Spec.UpdateStrategy.MaxCPUChangePercent)
 	assert.Equal(t, int32(60), *policy.Spec.UpdateStrategy.MaxMemoryChangePercent)
 }
@@ -5787,11 +5781,11 @@ func TestReconcile_SkipsMidRolloutWorkload(t *testing.T) {
 	assert.Equal(t, int32(0), updated.Status.Workloads.WithRecommendations)
 }
 
-// ---------- excludeContainers ----------
+// ---------- excludedContainers ----------
 
-func TestComputeRecommendations_ExcludeContainers(t *testing.T) {
+func TestComputeRecommendations_ExcludedContainers(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.ExcludeContainers = []string{"istio-proxy"}
+	policy.Spec.ExcludedContainers = []string{"istio-proxy"}
 
 	// Deployment with two containers: main + istio-proxy sidecar.
 	deploy := &appsv1.Deployment{
@@ -5856,7 +5850,7 @@ func TestComputeRecommendations_ExcludeContainers(t *testing.T) {
 
 func TestComputeRecommendations_ExcludeAllContainers(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.ExcludeContainers = []string{"main"}
+	policy.Spec.ExcludedContainers = []string{"main"}
 
 	deploy := newTestDeployment("api-server", "default", nil)
 	reconciler := newReconcilerWithClient()
@@ -6635,7 +6629,7 @@ func TestTryEvictionFallback_EvictsWhenMultipleReplicas(t *testing.T) {
 	pod2 := newTestPod("api-server-abc-2", "default", map[string]string{"app": "api-server"})
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.ResizeMethod = rightsizev1alpha1.ResizeMethodInPlaceOrEvict
+	policy.Spec.UpdateStrategy.ResizeMethod = rightsizev1alpha1.ResizeMethodInPlaceOrRecreate
 
 	clientset := kubefake.NewSimpleClientset(pod1, pod2)
 	scheme := testScheme()
@@ -6672,7 +6666,7 @@ func TestTryEvictionFallback_SkipsLastReplica(t *testing.T) {
 	pod := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.ResizeMethod = rightsizev1alpha1.ResizeMethodInPlaceOrEvict
+	policy.Spec.UpdateStrategy.ResizeMethod = rightsizev1alpha1.ResizeMethodInPlaceOrRecreate
 
 	clientset := kubefake.NewSimpleClientset(pod)
 	scheme := testScheme()
@@ -6691,7 +6685,7 @@ func TestTryEvictionFallback_SkipsLastReplica(t *testing.T) {
 }
 
 func TestResizeContainer_InfeasiblePodEvictedDirectly(t *testing.T) {
-	// A pod marked Infeasible with InPlaceOrEvict should go directly to
+	// A pod marked Infeasible with InPlaceOrRecreate should go directly to
 	// eviction without attempting another in-place resize.
 	pod1 := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
 	pod1.Name = "api-server-abc-1"
@@ -6717,7 +6711,7 @@ func TestResizeContainer_InfeasiblePodEvictedDirectly(t *testing.T) {
 
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeAuto
-	policy.Spec.UpdateStrategy.ResizeMethod = rightsizev1alpha1.ResizeMethodInPlaceOrEvict
+	policy.Spec.UpdateStrategy.ResizeMethod = rightsizev1alpha1.ResizeMethodInPlaceOrRecreate
 
 	resizer := resize.NewPodResizer(clientset, ctrl.Log)
 	containerRec := rightsizev1alpha1.ContainerRecommendation{
@@ -6825,7 +6819,7 @@ func TestResizeContainer_InfeasiblePodSkippedWithInPlaceOnly(t *testing.T) {
 	case event := <-recorder.Events:
 		assert.Contains(t, event, "InfeasibleBlocked")
 		assert.Contains(t, event, "api-server-abc-1")
-		assert.Contains(t, event, "InPlaceOrEvict")
+		assert.Contains(t, event, "InPlaceOrRecreate")
 	default:
 		t.Error("expected InfeasibleBlocked event but none was emitted")
 	}
@@ -7062,7 +7056,7 @@ func TestExecuteResizes_EvictionDoesNotConsumeBudgetNeededByNextPod(t *testing.T
 
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeAuto
-	policy.Spec.UpdateStrategy.ResizeMethod = rightsizev1alpha1.ResizeMethodInPlaceOrEvict
+	policy.Spec.UpdateStrategy.ResizeMethod = rightsizev1alpha1.ResizeMethodInPlaceOrRecreate
 	cpuBudget := resource.MustParse("300m")
 	policy.Spec.UpdateStrategy.MaxTotalCPUIncrease = &cpuBudget
 
@@ -7139,7 +7133,7 @@ func TestExecuteResizes_MixedOutcomePodDoesNotLeakSuccessOrBudget(t *testing.T) 
 
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeAuto
-	policy.Spec.UpdateStrategy.ResizeMethod = rightsizev1alpha1.ResizeMethodInPlaceOrEvict
+	policy.Spec.UpdateStrategy.ResizeMethod = rightsizev1alpha1.ResizeMethodInPlaceOrRecreate
 	policy.Spec.UpdateStrategy.MaxConcurrentResizes = 1
 	cpuBudget := resource.MustParse("400m")
 	policy.Spec.UpdateStrategy.MaxTotalCPUIncrease = &cpuBudget
@@ -7668,7 +7662,7 @@ func TestTryEvictionFallback_EvictionDeniedByPDB(t *testing.T) {
 	pod2 := newTestPod("api-server-abc-2", "default", map[string]string{"app": "api-server"})
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.ResizeMethod = rightsizev1alpha1.ResizeMethodInPlaceOrEvict
+	policy.Spec.UpdateStrategy.ResizeMethod = rightsizev1alpha1.ResizeMethodInPlaceOrRecreate
 
 	clientset := kubefake.NewSimpleClientset(pod1, pod2)
 	// Make eviction fail (simulates PDB denial).
@@ -7709,7 +7703,7 @@ func TestTryEvictionFallback_NilSelectorSkipsEviction(t *testing.T) {
 		},
 	}
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.ResizeMethod = rightsizev1alpha1.ResizeMethodInPlaceOrEvict
+	policy.Spec.UpdateStrategy.ResizeMethod = rightsizev1alpha1.ResizeMethodInPlaceOrRecreate
 
 	clientset := kubefake.NewSimpleClientset(pod)
 	scheme := testScheme()

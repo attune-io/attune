@@ -79,7 +79,7 @@ rules:
     verbs:
       - update
       - patch
-  # Eviction fallback (resizeMethod: InPlaceOrEvict)
+  # Eviction fallback (resizeMethod: InPlaceOrRecreate)
   - apiGroups:
       - ""
     resources:

@@ -198,11 +198,11 @@ func validateResourceConfigFields(prefix string, rc *rightsizev1alpha1.ResourceC
 		return warnings, fmt.Errorf("%s.percentile %d is not supported; must be one of: 50, 90, 95, 99", prefix, p)
 	}
 
-	// Bounds
-	if rc.Bounds != nil {
-		if rc.Bounds.Min.Cmp(rc.Bounds.Max) > 0 {
-			return warnings, fmt.Errorf("%s.bounds.min (%s) must be <= %s.bounds.max (%s)",
-				prefix, rc.Bounds.Min.String(), prefix, rc.Bounds.Max.String())
+	// Bounds (minAllowed/maxAllowed)
+	if rc.MinAllowed != nil && rc.MaxAllowed != nil {
+		if rc.MinAllowed.Cmp(*rc.MaxAllowed) > 0 {
+			return warnings, fmt.Errorf("%s.minAllowed (%s) must be <= %s.maxAllowed (%s)",
+				prefix, rc.MinAllowed.String(), prefix, rc.MaxAllowed.String())
 		}
 	}
 

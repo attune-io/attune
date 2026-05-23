@@ -1749,7 +1749,7 @@ func TestPrintExplain_ShowsPolicyNamespaceAndBuiltInEffectiveValues(t *testing.T
 
 	nsCooldown := &metav1.Duration{Duration: 45 * time.Minute}
 	nsMode := rightsizev1alpha1.UpdateModeCanary
-	nsResizeMethod := rightsizev1alpha1.ResizeMethodInPlaceOrEvict
+	nsResizeMethod := rightsizev1alpha1.ResizeMethodInPlaceOrRecreate
 	nsDefaultsObj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&rightsizev1alpha1.RightSizeNamespaceDefaults{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "rightsize.io/v1alpha1", Kind: "RightSizeNamespaceDefaults"},
 		ObjectMeta: metav1.ObjectMeta{Name: "team-defaults", Namespace: "default"},
@@ -1809,7 +1809,7 @@ func TestPrintExplain_ShowsPolicyNamespaceAndBuiltInEffectiveValues(t *testing.T
 	assert.Contains(t, output, "Cooldown: 30m0s (source: policy, configured: 30m)")
 	assert.Contains(t, output, "Query step: 10m0s (source: policy, configured: 10m)")
 	assert.Contains(t, output, "Minimum data points: 120 (source: policy, configured: 120)")
-	assert.Contains(t, output, "Resize method: InPlaceOrEvict (source: namespace default, configured: <unset>)")
+	assert.Contains(t, output, "Resize method: InPlaceOrRecreate (source: namespace default, configured: <unset>)")
 	assert.Contains(t, output, "Max CPU change: 70% (source: policy, configured: 70%)")
 	assert.Contains(t, output, "Max memory change: 30% (source: built-in default, configured: <unset>)")
 	assert.Contains(t, output, "Observation period: 5m0s (source: built-in default, configured: <unset>)")
@@ -1876,7 +1876,7 @@ func TestPrintExplain_ObservationPeriodFromCanaryShowsConfigured(t *testing.T) {
 func TestPrintExplain_UsesClusterDefaultsWhenNoNamespaceDefaultsExist(t *testing.T) {
 	clusterQueryStep := &metav1.Duration{Duration: 2 * time.Minute}
 	clusterMode := rightsizev1alpha1.UpdateModeAuto
-	clusterResizeMethod := rightsizev1alpha1.ResizeMethodInPlaceOrEvict
+	clusterResizeMethod := rightsizev1alpha1.ResizeMethodInPlaceOrRecreate
 	clusterDefaultsObj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&rightsizev1alpha1.RightSizeDefaults{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "rightsize.io/v1alpha1", Kind: "RightSizeDefaults"},
 		ObjectMeta: metav1.ObjectMeta{Name: "cluster-defaults"},
@@ -1938,7 +1938,7 @@ func TestPrintExplain_UsesClusterDefaultsWhenNoNamespaceDefaultsExist(t *testing
 
 	assert.Contains(t, output, "Mode: Auto (source: cluster default, configured: <unset>)")
 	assert.Contains(t, output, "Query step: 2m0s (source: cluster default, configured: <unset>)")
-	assert.Contains(t, output, "Resize method: InPlaceOrEvict (source: cluster default, configured: <unset>)")
+	assert.Contains(t, output, "Resize method: InPlaceOrRecreate (source: cluster default, configured: <unset>)")
 }
 
 func TestPrintExplain_NamespaceDefaultsDoNotInheritMissingFieldsFromClusterDefaults(t *testing.T) {
@@ -2175,7 +2175,7 @@ func TestMergeDefaultsIntoPolicy_AllFieldsInherited(t *testing.T) {
 				Mode:                    rightsizev1alpha1.UpdateModeAuto,
 				Cooldown:                &metav1.Duration{Duration: 30 * time.Minute},
 				AutoRevert:              ptrBool(false),
-				ResizeMethod:            rightsizev1alpha1.ResizeMethodInPlaceOrEvict,
+				ResizeMethod:            rightsizev1alpha1.ResizeMethodInPlaceOrRecreate,
 				MaxCPUChangePercent:     ptrInt32(80),
 				MaxMemoryChangePercent:  ptrInt32(40),
 				SafetyObservationPeriod: &metav1.Duration{Duration: 10 * time.Minute},
@@ -2224,7 +2224,7 @@ func TestMergeDefaultsIntoPolicy_AllFieldsInherited(t *testing.T) {
 	assert.Equal(t, 30*time.Minute, policy.Spec.UpdateStrategy.Cooldown.Duration)
 	require.NotNil(t, policy.Spec.UpdateStrategy.AutoRevert)
 	assert.False(t, *policy.Spec.UpdateStrategy.AutoRevert)
-	assert.Equal(t, rightsizev1alpha1.ResizeMethodInPlaceOrEvict, policy.Spec.UpdateStrategy.ResizeMethod)
+	assert.Equal(t, rightsizev1alpha1.ResizeMethodInPlaceOrRecreate, policy.Spec.UpdateStrategy.ResizeMethod)
 	require.NotNil(t, policy.Spec.UpdateStrategy.MaxCPUChangePercent)
 	assert.Equal(t, int32(80), *policy.Spec.UpdateStrategy.MaxCPUChangePercent)
 	require.NotNil(t, policy.Spec.UpdateStrategy.MaxMemoryChangePercent)

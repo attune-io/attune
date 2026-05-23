@@ -36,8 +36,8 @@ const (
 type ResizeMethodType string
 
 const (
-	ResizeMethodInPlaceOnly    ResizeMethodType = "InPlaceOnly"
-	ResizeMethodInPlaceOrEvict ResizeMethodType = "InPlaceOrEvict"
+	ResizeMethodInPlaceOnly       ResizeMethodType = "InPlaceOnly"
+	ResizeMethodInPlaceOrRecreate ResizeMethodType = "InPlaceOrRecreate"
 )
 
 // CanaryPhase defines the canary rollout state.
@@ -92,12 +92,12 @@ type RightSizePolicySpec struct {
 	// +optional
 	UpdateStrategy UpdateStrategy `json:"updateStrategy,omitempty"`
 
-	// ExcludeContainers is a list of container names to skip when computing
+	// ExcludedContainers is a list of container names to skip when computing
 	// recommendations and performing resizes. Use this for sidecar containers
 	// (e.g., istio-proxy, linkerd-proxy) that are managed by a service mesh
 	// and should not be right-sized.
 	// +optional
-	ExcludeContainers []string `json:"excludeContainers,omitempty"`
+	ExcludedContainers []string `json:"excludedContainers,omitempty"`
 
 	// Weight determines the priority of this policy when multiple policies
 	// match the same workload. Higher values take precedence.
@@ -258,9 +258,13 @@ type ResourceConfig struct {
 	// +optional
 	SafetyMargin string `json:"safetyMargin,omitempty"`
 
-	// Bounds defines the minimum and maximum allowed resource values.
+	// MinAllowed is the minimum allowed resource value.
 	// +optional
-	Bounds *ResourceBounds `json:"bounds,omitempty"`
+	MinAllowed *resource.Quantity `json:"minAllowed,omitempty"`
+
+	// MaxAllowed is the maximum allowed resource value.
+	// +optional
+	MaxAllowed *resource.Quantity `json:"maxAllowed,omitempty"`
 
 	// ControlledValues specifies which resource values to manage.
 	// "RequestsOnly" (default) adjusts only requests, leaving limits unchanged.
@@ -311,6 +315,7 @@ type StartupBoost struct {
 }
 
 // ResourceBounds defines the minimum and maximum resource values.
+// Used only in explanation/status types for observability.
 type ResourceBounds struct {
 	// Min is the minimum allowed resource value.
 	// +kubebuilder:validation:Required
@@ -369,12 +374,13 @@ type UpdateStrategy struct {
 
 	// ResizeMethod controls what happens when an in-place resize fails.
 	//   InPlaceOnly (default): skip the pod and retry next cycle.
-	//   InPlaceOrEvict: fall back to pod eviction if in-place resize
-	//   fails or is marked Infeasible by kubelet. Evictions respect
+	//   InPlaceOrRecreate: fall back to pod eviction if in-place resize
+	//   fails or is marked Infeasible by kubelet. The owning controller
+	//   recreates the pod with updated resources. Evictions respect
 	//   PodDisruptionBudgets and never evict the last replica.
 	// Defaults to InPlaceOnly if not set (applied by the controller so that
 	// RightSizeDefaults cluster configuration can override it).
-	// +kubebuilder:validation:Enum=InPlaceOnly;InPlaceOrEvict
+	// +kubebuilder:validation:Enum=InPlaceOnly;InPlaceOrRecreate
 	// +optional
 	ResizeMethod ResizeMethodType `json:"resizeMethod,omitempty"`
 

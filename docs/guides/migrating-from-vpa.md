@@ -10,7 +10,7 @@ with no downtime.
 |----------|---------------------------|-------|
 | `Off` | **Observe** or **Recommend** | Observe: data collection only. Recommend: collect and write recommendations to status |
 | `Initial` | **OneShot** | Set resources once; kube-rightsize uses in-place resize instead of restart |
-| `Auto` (with eviction) | **Canary** or **Auto** | In-place first; add `resizeMethod: InPlaceOrEvict` if you want eviction fallback instead of skipping infeasible pods |
+| `Auto` (with eviction) | **Canary** or **Auto** | In-place first; add `resizeMethod: InPlaceOrRecreate` if you want eviction fallback instead of skipping infeasible pods |
 | `Recommend` (UpdateMode=Off) | **Recommend** | Write recommendations to status without acting |
 
 ## Step-by-step migration
@@ -28,8 +28,8 @@ to RightSizePolicy fields:
 | VPA field | RightSizePolicy field |
 |-----------|----------------------|
 | `targetRef` | `spec.targetRef` (same structure) |
-| `resourcePolicy.containerPolicies[].minAllowed` | `spec.cpu.bounds.min`, `spec.memory.bounds.min` |
-| `resourcePolicy.containerPolicies[].maxAllowed` | `spec.cpu.bounds.max`, `spec.memory.bounds.max` |
+| `resourcePolicy.containerPolicies[].minAllowed` | `spec.cpu.minAllowed`, `spec.memory.minAllowed` |
+| `resourcePolicy.containerPolicies[].maxAllowed` | `spec.cpu.maxAllowed`, `spec.memory.maxAllowed` |
 | `resourcePolicy.containerPolicies[].controlledValues` | `spec.cpu.controlledValues`, `spec.memory.controlledValues` |
 | `updatePolicy.updateMode` | `spec.updateStrategy.mode` |
 
@@ -77,15 +77,13 @@ spec:
   cpu:
     percentile: 95
     safetyMargin: "1.2"
-    bounds:
-      min: "100m"
-      max: "4000m"
+    minAllowed: "100m"
+      maxAllowed: "4000m"
   memory:
     percentile: 99
     safetyMargin: "1.3"
-    bounds:
-      min: "128Mi"
-      max: "8Gi"
+    minAllowed: "128Mi"
+      maxAllowed: "8Gi"
     allowDecrease: false
   updateStrategy:
     mode: Recommend

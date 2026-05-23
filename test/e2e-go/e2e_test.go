@@ -97,6 +97,11 @@ func TestMain(m *testing.M) {
 func int32Ptr(i int32) *int32 { return &i }
 func boolPtr(b bool) *bool    { return &b }
 
+func quantityPtr(s string) *resource.Quantity {
+	q := resource.MustParse(s)
+	return &q
+}
+
 func uniqueNS(base string) string {
 	return fmt.Sprintf("e2e-go-%s-%d", base, time.Now().UnixNano()%100000)
 }
@@ -171,19 +176,15 @@ func createPolicy(t *testing.T, name, namespace, deployName string, mode rightsi
 			CPU: rightsizev1alpha1.ResourceConfig{
 				Percentile:   95,
 				SafetyMargin: "1.2",
-				Bounds: &rightsizev1alpha1.ResourceBounds{
-					Min: resource.MustParse("50m"),
-					Max: resource.MustParse("4000m"),
-				},
+				MinAllowed: quantityPtr("50m"),
+				MaxAllowed: quantityPtr("4000m"),
 			},
 			Memory: rightsizev1alpha1.ResourceConfig{
 				Percentile:    99,
 				SafetyMargin:  "1.3",
 				AllowDecrease: boolPtr(true),
-				Bounds: &rightsizev1alpha1.ResourceBounds{
-					Min: resource.MustParse("64Mi"),
-					Max: resource.MustParse("8Gi"),
-				},
+				MinAllowed: quantityPtr("64Mi"),
+				MaxAllowed: quantityPtr("8Gi"),
 			},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 				Mode:                   mode,
@@ -464,7 +465,7 @@ func TestE2E_MultiContainer_ExcludesSidecar(t *testing.T) {
 	require.NoError(t, k8sClient.Create(ctx, deploy))
 	waitForDeploymentReady(t, "multi-app", ns, 60*time.Second)
 
-	// Create policy with excludeContainers set directly to avoid update conflicts
+	// Create policy with excludedContainers set directly to avoid update conflicts
 	// with the reconciler which starts processing immediately after creation.
 	deployName := "multi-app"
 	policy := &rightsizev1alpha1.RightSizePolicy{
@@ -479,14 +480,16 @@ func TestE2E_MultiContainer_ExcludesSidecar(t *testing.T) {
 			},
 			CPU: rightsizev1alpha1.ResourceConfig{
 				Percentile: 95, SafetyMargin: "1.2",
-				Bounds: &rightsizev1alpha1.ResourceBounds{Min: resource.MustParse("50m"), Max: resource.MustParse("4000m")},
+				MinAllowed: quantityPtr("50m"),
+				MaxAllowed: quantityPtr("4000m"),
 			},
 			Memory: rightsizev1alpha1.ResourceConfig{
 				Percentile: 99, SafetyMargin: "1.3",
 				AllowDecrease: boolPtr(true),
-				Bounds:        &rightsizev1alpha1.ResourceBounds{Min: resource.MustParse("64Mi"), Max: resource.MustParse("8Gi")},
+				MinAllowed:    quantityPtr("64Mi"),
+				MaxAllowed:    quantityPtr("8Gi"),
 			},
-			ExcludeContainers: []string{"istio-proxy"},
+			ExcludedContainers: []string{"istio-proxy"},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 				Mode: rightsizev1alpha1.UpdateModeAuto, Cooldown: &metav1.Duration{Duration: time.Minute},
 				AutoRevert: boolPtr(true), MaxCPUChangePercent: int32Ptr(100), MaxMemoryChangePercent: int32Ptr(100),
@@ -583,7 +586,7 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 		if err := k8sClient.Get(ctx, types.NamespacedName{Name: loadPolicy.Name, Namespace: ns}, &latestPolicy); err != nil {
 			return err
 		}
-		latestPolicy.Spec.CPU.Bounds.Max = maxCPU
+		latestPolicy.Spec.CPU.MaxAllowed = &maxCPU
 		return k8sClient.Update(ctx, &latestPolicy)
 	}))
 
@@ -805,7 +808,7 @@ func TestE2E_BearerToken_Authenticates(t *testing.T) {
 		"policy with bearer token should discover workloads")
 }
 
-func TestE2E_EvictionFallback_ResizesWithInPlaceOrEvict(t *testing.T) {
+func TestE2E_EvictionFallback_ResizesWithInPlaceOrRecreate(t *testing.T) {
 	t.Parallel()
 	ns := uniqueNS("evict")
 	createNamespace(t, ns)
@@ -825,24 +828,20 @@ func TestE2E_EvictionFallback_ResizesWithInPlaceOrEvict(t *testing.T) {
 			},
 			CPU: rightsizev1alpha1.ResourceConfig{
 				Percentile: 95, SafetyMargin: "1.2",
-				Bounds: &rightsizev1alpha1.ResourceBounds{
-					Min: resource.MustParse("50m"),
-					Max: resource.MustParse("4000m"),
-				},
+				MinAllowed: quantityPtr("50m"),
+				MaxAllowed: quantityPtr("4000m"),
 			},
 			Memory: rightsizev1alpha1.ResourceConfig{
 				Percentile: 99, SafetyMargin: "1.3",
 				AllowDecrease: boolPtr(true),
-				Bounds: &rightsizev1alpha1.ResourceBounds{
-					Min: resource.MustParse("64Mi"),
-					Max: resource.MustParse("8Gi"),
-				},
+				MinAllowed: quantityPtr("64Mi"),
+				MaxAllowed: quantityPtr("8Gi"),
 			},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 				Mode:                   rightsizev1alpha1.UpdateModeAuto,
 				Cooldown:               &metav1.Duration{Duration: time.Minute},
 				AutoRevert:             boolPtr(true),
-				ResizeMethod:           rightsizev1alpha1.ResizeMethodInPlaceOrEvict,
+				ResizeMethod:           rightsizev1alpha1.ResizeMethodInPlaceOrRecreate,
 				MaxCPUChangePercent:    int32Ptr(100),
 				MaxMemoryChangePercent: int32Ptr(100),
 			},
@@ -850,14 +849,14 @@ func TestE2E_EvictionFallback_ResizesWithInPlaceOrEvict(t *testing.T) {
 	}
 	require.NoError(t, k8sClient.Create(ctx, policy))
 
-	// Wait for resize. With InPlaceOrEvict, the resize should succeed
+	// Wait for resize. With InPlaceOrRecreate, the resize should succeed
 	// either in-place or via eviction fallback.
 	waitForResize(t, "evict-policy", ns, 3*time.Minute)
 
 	var p rightsizev1alpha1.RightSizePolicy
 	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "evict-policy", Namespace: ns}, &p))
 	assert.GreaterOrEqual(t, p.Status.Workloads.Resized, int32(1),
-		"at least one workload should be resized with InPlaceOrEvict")
+		"at least one workload should be resized with InPlaceOrRecreate")
 }
 
 func TestE2E_RecommendMode_KeepsRecommendationsWithoutLivePods(t *testing.T) {
@@ -1094,14 +1093,16 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 				Percentile:       95,
 				SafetyMargin:     "1.2",
 				ControlledValues: &controlledValues,
-				Bounds:           &rightsizev1alpha1.ResourceBounds{Min: resource.MustParse("10m"), Max: resource.MustParse("1000m")},
+				MinAllowed: quantityPtr("10m"),
+				MaxAllowed: quantityPtr("1000m"),
 			},
 			Memory: rightsizev1alpha1.ResourceConfig{
 				Percentile:       99,
 				SafetyMargin:     "1.0",
 				AllowDecrease:    boolPtr(true),
 				ControlledValues: &controlledValues,
-				Bounds:           &rightsizev1alpha1.ResourceBounds{Min: resource.MustParse("8Mi"), Max: resource.MustParse("512Mi")},
+				MinAllowed: quantityPtr("8Mi"),
+				MaxAllowed: quantityPtr("512Mi"),
 			},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 				Mode:                   rightsizev1alpha1.UpdateModeAuto,
@@ -1230,11 +1231,13 @@ func TestE2E_MultiReplica_ProgressiveResize(t *testing.T) {
 			},
 			CPU: rightsizev1alpha1.ResourceConfig{
 				Percentile: 95, SafetyMargin: "1.2",
-				Bounds: &rightsizev1alpha1.ResourceBounds{Min: resource.MustParse("50m"), Max: resource.MustParse("4000m")},
+				MinAllowed: quantityPtr("50m"),
+				MaxAllowed: quantityPtr("4000m"),
 			},
 			Memory: rightsizev1alpha1.ResourceConfig{
 				Percentile: 99, SafetyMargin: "1.3", AllowDecrease: boolPtr(true),
-				Bounds: &rightsizev1alpha1.ResourceBounds{Min: resource.MustParse("64Mi"), Max: resource.MustParse("8Gi")},
+				MinAllowed: quantityPtr("64Mi"),
+				MaxAllowed: quantityPtr("8Gi"),
 			},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 				Mode: rightsizev1alpha1.UpdateModeAuto, Cooldown: &metav1.Duration{Duration: time.Minute},
@@ -1306,11 +1309,13 @@ func TestE2E_GuaranteedQoS_RequestsAndLimits(t *testing.T) {
 			},
 			CPU: rightsizev1alpha1.ResourceConfig{
 				Percentile: 95, SafetyMargin: "1.2", ControlledValues: &controlledBoth,
-				Bounds: &rightsizev1alpha1.ResourceBounds{Min: resource.MustParse("50m"), Max: resource.MustParse("4000m")},
+				MinAllowed: quantityPtr("50m"),
+				MaxAllowed: quantityPtr("4000m"),
 			},
 			Memory: rightsizev1alpha1.ResourceConfig{
 				Percentile: 99, SafetyMargin: "1.3", AllowDecrease: boolPtr(true), ControlledValues: &controlledBoth,
-				Bounds: &rightsizev1alpha1.ResourceBounds{Min: resource.MustParse("64Mi"), Max: resource.MustParse("8Gi")},
+				MinAllowed: quantityPtr("64Mi"),
+				MaxAllowed: quantityPtr("8Gi"),
 			},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 				Mode: rightsizev1alpha1.UpdateModeAuto, Cooldown: &metav1.Duration{Duration: time.Minute},
@@ -1554,12 +1559,14 @@ func TestE2E_MemoryAllowDecreaseFalse(t *testing.T) {
 			},
 			CPU: rightsizev1alpha1.ResourceConfig{
 				Percentile: 95, SafetyMargin: "1.2",
-				Bounds: &rightsizev1alpha1.ResourceBounds{Min: resource.MustParse("50m"), Max: resource.MustParse("4000m")},
+				MinAllowed: quantityPtr("50m"),
+				MaxAllowed: quantityPtr("4000m"),
 			},
 			Memory: rightsizev1alpha1.ResourceConfig{
 				Percentile: 99, SafetyMargin: "1.3",
 				// AllowDecrease intentionally NOT set (nil), so the default false applies.
-				Bounds: &rightsizev1alpha1.ResourceBounds{Min: resource.MustParse("64Mi"), Max: resource.MustParse("8Gi")},
+				MinAllowed: quantityPtr("64Mi"),
+				MaxAllowed: quantityPtr("8Gi"),
 			},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 				Mode: rightsizev1alpha1.UpdateModeAuto, Cooldown: &metav1.Duration{Duration: time.Minute},
@@ -1586,7 +1593,7 @@ func TestE2E_MultiContainer_SequentialResize(t *testing.T) {
 	ns := uniqueNS("multiresz")
 	createNamespace(t, ns)
 
-	// Two containers, both eligible for resize (no excludeContainers).
+	// Two containers, both eligible for resize (no excludedContainers).
 	// Both start with 500m CPU, which is high for pause containers.
 	// The operator should resize both sequentially, each UpdateResize call
 	// bumping resourceVersion. The *pod = *freshPod propagation (PR #412)
@@ -1647,18 +1654,14 @@ func TestE2E_MultiContainer_SequentialResize(t *testing.T) {
 			},
 			CPU: rightsizev1alpha1.ResourceConfig{
 				Percentile: 95, SafetyMargin: "1.2",
-				Bounds: &rightsizev1alpha1.ResourceBounds{
-					Min: resource.MustParse("50m"),
-					Max: resource.MustParse("4000m"),
-				},
+				MinAllowed: quantityPtr("50m"),
+				MaxAllowed: quantityPtr("4000m"),
 			},
 			Memory: rightsizev1alpha1.ResourceConfig{
 				Percentile: 99, SafetyMargin: "1.3",
 				AllowDecrease: boolPtr(true),
-				Bounds: &rightsizev1alpha1.ResourceBounds{
-					Min: resource.MustParse("64Mi"),
-					Max: resource.MustParse("8Gi"),
-				},
+				MinAllowed: quantityPtr("64Mi"),
+				MaxAllowed: quantityPtr("8Gi"),
 			},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 				Mode:                   rightsizev1alpha1.UpdateModeAuto,

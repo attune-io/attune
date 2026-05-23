@@ -218,7 +218,7 @@ func findContainer(pod *corev1.Pod, name string) (idx int, isInit bool) {
 // cycle. A pod is eligible if it is Running, not marked for deletion, and does
 // not have an in-progress or deferred resize. Pods marked Infeasible ARE
 // eligible: they cannot be resized in-place but may be evicted when the policy
-// uses InPlaceOrEvict.
+// uses InPlaceOrRecreate.
 func IsEligibleForResize(pod *corev1.Pod) bool {
 	if pod.Status.Phase != corev1.PodRunning {
 		return false

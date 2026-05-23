@@ -305,7 +305,7 @@
             },
             "resizeMethod": {
               "type": "string",
-              "enum": ["InPlaceOnly", "InPlaceOrEvict"],
+              "enum": ["InPlaceOnly", "InPlaceOrRecreate"],
               "default": "InPlaceOnly"
             },
             "maxConcurrentResizes": {

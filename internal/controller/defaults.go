@@ -77,7 +77,7 @@ func (r *RightSizePolicyReconciler) fetchDefaults(ctx context.Context, namespace
 // mergeDefaults with the operator's built-in default values. This runs AFTER
 // mergeDefaults so that cluster-wide RightSizeDefaults take precedence.
 //
-// Per-resource fields (Percentile, SafetyMargin, Bounds, BurstSensitivity)
+// Per-resource fields (Percentile, SafetyMargin, MinAllowed/MaxAllowed, BurstSensitivity)
 // are NOT set here; they are handled defensively at their usage sites in
 // buildRecommendationEngines.
 func (r *RightSizePolicyReconciler) applyBuiltInDefaults(policy *rightsizev1alpha1.RightSizePolicy) {

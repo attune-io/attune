@@ -193,8 +193,8 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 		cpuEngine, memEngine = buildRecommendationEngines(policy)
 	}
 	if excludeSet == nil {
-		excludeSet = make(map[string]bool, len(policy.Spec.ExcludeContainers))
-		for _, name := range policy.Spec.ExcludeContainers {
+		excludeSet = make(map[string]bool, len(policy.Spec.ExcludedContainers))
+		for _, name := range policy.Spec.ExcludedContainers {
 			excludeSet[name] = true
 		}
 	}
@@ -733,16 +733,20 @@ func buildRecommendationEngines(policy *rightsizev1alpha1.RightSizePolicy) (cpuE
 
 	cpuBoundsMin := rightsizev1alpha1.DefaultCPUBoundsMin.DeepCopy()
 	cpuBoundsMax := rightsizev1alpha1.DefaultCPUBoundsMax.DeepCopy()
-	if policy.Spec.CPU.Bounds != nil {
-		cpuBoundsMin = policy.Spec.CPU.Bounds.Min.DeepCopy()
-		cpuBoundsMax = policy.Spec.CPU.Bounds.Max.DeepCopy()
+	if policy.Spec.CPU.MinAllowed != nil {
+		cpuBoundsMin = policy.Spec.CPU.MinAllowed.DeepCopy()
+	}
+	if policy.Spec.CPU.MaxAllowed != nil {
+		cpuBoundsMax = policy.Spec.CPU.MaxAllowed.DeepCopy()
 	}
 
 	memBoundsMin := rightsizev1alpha1.DefaultMemoryBoundsMin.DeepCopy()
 	memBoundsMax := rightsizev1alpha1.DefaultMemoryBoundsMax.DeepCopy()
-	if policy.Spec.Memory.Bounds != nil {
-		memBoundsMin = policy.Spec.Memory.Bounds.Min.DeepCopy()
-		memBoundsMax = policy.Spec.Memory.Bounds.Max.DeepCopy()
+	if policy.Spec.Memory.MinAllowed != nil {
+		memBoundsMin = policy.Spec.Memory.MinAllowed.DeepCopy()
+	}
+	if policy.Spec.Memory.MaxAllowed != nil {
+		memBoundsMax = policy.Spec.Memory.MaxAllowed.DeepCopy()
 	}
 
 	// Defense-in-depth: clamp maxChangePercent to [1, 100] even if webhook is bypassed.

@@ -177,7 +177,7 @@ var (
 	EvictionTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "kube_rightsize_eviction_total",
-			Help: "Total eviction attempts (InPlaceOrEvict fallback)",
+			Help: "Total eviction attempts (InPlaceOrRecreate fallback)",
 		},
 		[]string{"namespace", "workload", "result"},
 	)

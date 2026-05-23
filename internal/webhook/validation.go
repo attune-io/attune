@@ -61,29 +61,33 @@ func (v *RightSizePolicyValidator) ValidateDelete(ctx context.Context, policy *r
 func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizePolicy) (admission.Warnings, error) {
 	var warnings admission.Warnings
 
-	// CPU bounds: min must be <= max, and max capped at 256 cores.
-	if policy.Spec.CPU.Bounds != nil {
-		if policy.Spec.CPU.Bounds.Min.Cmp(policy.Spec.CPU.Bounds.Max) > 0 {
-			return warnings, fmt.Errorf("cpu.bounds.min (%s) must be <= cpu.bounds.max (%s)",
-				policy.Spec.CPU.Bounds.Min.String(), policy.Spec.CPU.Bounds.Max.String())
+	// CPU bounds: minAllowed must be <= maxAllowed, and maxAllowed capped at 256 cores.
+	if policy.Spec.CPU.MinAllowed != nil && policy.Spec.CPU.MaxAllowed != nil {
+		if policy.Spec.CPU.MinAllowed.Cmp(*policy.Spec.CPU.MaxAllowed) > 0 {
+			return warnings, fmt.Errorf("cpu.minAllowed (%s) must be <= cpu.maxAllowed (%s)",
+				policy.Spec.CPU.MinAllowed.String(), policy.Spec.CPU.MaxAllowed.String())
 		}
+	}
+	if policy.Spec.CPU.MaxAllowed != nil {
 		maxCPU := resource.MustParse("256")
-		if policy.Spec.CPU.Bounds.Max.Cmp(maxCPU) > 0 {
-			return warnings, fmt.Errorf("cpu.bounds.max (%s) exceeds the maximum allowed value of 256 cores",
-				policy.Spec.CPU.Bounds.Max.String())
+		if policy.Spec.CPU.MaxAllowed.Cmp(maxCPU) > 0 {
+			return warnings, fmt.Errorf("cpu.maxAllowed (%s) exceeds the maximum allowed value of 256 cores",
+				policy.Spec.CPU.MaxAllowed.String())
 		}
 	}
 
-	// Memory bounds: min must be <= max, and max capped at 16Ti.
-	if policy.Spec.Memory.Bounds != nil {
-		if policy.Spec.Memory.Bounds.Min.Cmp(policy.Spec.Memory.Bounds.Max) > 0 {
-			return warnings, fmt.Errorf("memory.bounds.min (%s) must be <= memory.bounds.max (%s)",
-				policy.Spec.Memory.Bounds.Min.String(), policy.Spec.Memory.Bounds.Max.String())
+	// Memory bounds: minAllowed must be <= maxAllowed, and maxAllowed capped at 16Ti.
+	if policy.Spec.Memory.MinAllowed != nil && policy.Spec.Memory.MaxAllowed != nil {
+		if policy.Spec.Memory.MinAllowed.Cmp(*policy.Spec.Memory.MaxAllowed) > 0 {
+			return warnings, fmt.Errorf("memory.minAllowed (%s) must be <= memory.maxAllowed (%s)",
+				policy.Spec.Memory.MinAllowed.String(), policy.Spec.Memory.MaxAllowed.String())
 		}
+	}
+	if policy.Spec.Memory.MaxAllowed != nil {
 		maxMemory := resource.MustParse("16Ti")
-		if policy.Spec.Memory.Bounds.Max.Cmp(maxMemory) > 0 {
-			return warnings, fmt.Errorf("memory.bounds.max (%s) exceeds the maximum allowed value of 16Ti",
-				policy.Spec.Memory.Bounds.Max.String())
+		if policy.Spec.Memory.MaxAllowed.Cmp(maxMemory) > 0 {
+			return warnings, fmt.Errorf("memory.maxAllowed (%s) exceeds the maximum allowed value of 16Ti",
+				policy.Spec.Memory.MaxAllowed.String())
 		}
 	}
 

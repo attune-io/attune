@@ -41,7 +41,7 @@ if cs.LastTerminationState.Terminated.Reason == "OOMKilled" &&
 The container was killed by the OOM killer after the resize. This indicates
 the new memory allocation is too low.
 
-**Mitigation**: increase `memory.safetyMargin` or raise `memory.bounds.min`.
+**Mitigation**: increase `memory.safetyMargin` or raise `memory.minAllowed`.
 
 ### Restart spike
 
@@ -77,7 +77,7 @@ new allocation is too low.
     can execute. This prevents false-positive reverts on containers that
     were heavily throttled before upscaling.
 
-**Mitigation**: increase `cpu.safetyMargin` or raise `cpu.bounds.min`.
+**Mitigation**: increase `cpu.safetyMargin` or raise `cpu.minAllowed`.
 
 ### Pod NotReady
 
@@ -229,7 +229,7 @@ without the check.
 
 ## Container exclusion
 
-The `excludeContainers` field on the policy spec allows skipping specific
+The `excludedContainers` field on the policy spec allows skipping specific
 containers (e.g., service mesh sidecars like `istio-proxy` or `linkerd-proxy`)
 from both recommendations and resizes. Excluded containers are not queried for
 metrics and are not considered for resize.

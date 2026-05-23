@@ -76,15 +76,13 @@ spec:
   cpu:
     percentile: 95
     safetyMargin: "1.2"
-    bounds:
-      min: "1m"
-      max: "4000m"
+    minAllowed: "1m"
+      maxAllowed: "4000m"
   memory:
     percentile: 99
     safetyMargin: "1.3"
-    bounds:
-      min: "4Mi"
-      max: "8Gi"
+    minAllowed: "4Mi"
+      maxAllowed: "8Gi"
   updateStrategy:
     mode: Recommend
 ```
@@ -262,14 +260,14 @@ The dashboard includes:
   cover peak hours, not just the average.
 - **HPA coexistence**: Adjusts base resource requests without interfering
   with HPA's percentage-based scaling. No death spirals.
-- **Always-bounded**: Resource bounds (`min`/`max`) per-policy with safe
+- **Always-bounded**: Resource bounds (`minAllowed`/`maxAllowed`) per-policy with safe
   defaults (CPU: 1m-4000m, Memory: 4Mi-8Gi).
 
 ### Operations
 
 - **In-place resize**: Adjusts CPU and memory on running pods via the
   K8s 1.32+ `/resize` subresource. The default path is in-place with no
-  restarts. `InPlaceOrEvict` can optionally fall back to eviction when
+  restarts. `InPlaceOrRecreate` can optionally fall back to eviction when
   kubelet rejects an in-place resize.
 - **Cost savings estimation**: Per-workload `EstimatedMonthlySavings` in
   status, CLI (`kubectl rightsize savings`), and Grafana dashboard.

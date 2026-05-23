@@ -39,9 +39,8 @@ spec:
     startupBoost:
       multiplier: "3.0"   # 3x the steady-state recommendation
       duration: 2m         # boost expires 2 minutes after pod creation
-    bounds:
-      min: "100m"
-      max: "8000m"
+    minAllowed: "100m"
+      maxAllowed: "8000m"
   memory:
     percentile: 99
     safetyMargin: "1.3"
@@ -72,11 +71,11 @@ container startup time in your monitoring to calibrate duration.
 ## Interaction with bounds
 
 The boost is applied **after** bounds clamping. If the boosted value exceeds
-the configured `bounds.max`, it is capped at `bounds.max`. Set `bounds.max`
+the configured `maxAllowed`, it is capped at `maxAllowed`. Set `maxAllowed`
 high enough to accommodate the boosted value if you want the full multiplier
 effect.
 
-For example, with a 500m recommendation, 3.0x multiplier, and bounds.max of
+For example, with a 500m recommendation, 3.0x multiplier, and maxAllowed of
 1000m, the boosted request will be 1000m (capped), not 1500m.
 
 ## Monitoring

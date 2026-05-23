@@ -7,9 +7,9 @@ covers configuration for each mode.
 
 | Istio Mode | How it works | Operator config |
 |---|---|---|
-| **Sidecar** (traditional) | Injects `istio-proxy` as a regular container | Use `excludeContainers: [istio-proxy]` |
+| **Sidecar** (traditional) | Injects `istio-proxy` as a regular container | Use `excludedContainers: [istio-proxy]` |
 | **Ambient** (ztunnel, GA in Istio 1.24+) | Per-node DaemonSet, no per-pod sidecar | No special config needed |
-| **Native sidecar** (`ENABLE_NATIVE_SIDECARS=true`) | Injects `istio-proxy` as init container with `restartPolicy: Always` | Use `excludeContainers: [istio-proxy]` |
+| **Native sidecar** (`ENABLE_NATIVE_SIDECARS=true`) | Injects `istio-proxy` as init container with `restartPolicy: Always` | Use `excludedContainers: [istio-proxy]` |
 
 ## Sidecar mode (traditional)
 
@@ -25,7 +25,7 @@ spec:
   targetRef:
     kind: Deployment
     name: my-app
-  excludeContainers:
+  excludedContainers:
     - istio-proxy
   metricsSource:
     prometheus:
@@ -58,11 +58,11 @@ pod's lifetime and are visible to kube-rightsize.
 
 The operator automatically detects native sidecar containers (init
 containers with `restartPolicy=Always`) and includes them in workload
-analysis. Use `excludeContainers` to prevent resizing:
+analysis. Use `excludedContainers` to prevent resizing:
 
 ```yaml
 spec:
-  excludeContainers:
+  excludedContainers:
     - istio-proxy
 ```
 

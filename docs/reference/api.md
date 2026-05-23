@@ -66,9 +66,8 @@ spec:
     startupBoost:              # optional: temporary CPU boost for cold starts
       multiplier: "3.0"        # scale factor for startup CPU (1.1-10.0)
       duration: 2m             # boost window after pod creation (10s-1h)
-    bounds:                    # optional: min/max clamps
-      min: "1m"
-      max: "4000m"               # upper limit: 256 cores
+    minAllowed: "1m"             # optional: min clamp
+    maxAllowed: "4000m"          # optional: max clamp (upper limit: 256 cores)
     controlledValues: RequestsAndLimits  # RequestsOnly | RequestsAndLimits
 
   # Memory recommendation parameters.
@@ -76,9 +75,8 @@ spec:
     percentile: 99
     safetyMargin: "1.3"
     burstSensitivity: "0.1"
-    bounds:
-      min: "4Mi"
-      max: "8Gi"                 # upper limit: 16Ti
+    minAllowed: "4Mi"
+    maxAllowed: "8Gi"                 # upper limit: 16Ti
     controlledValues: RequestsAndLimits
     allowDecrease: false       # prevent memory decreases (recommended)
 
@@ -94,7 +92,7 @@ spec:
     cooldown: 1h               # min time between resize operations (default: 1h)
     autoRevert: true           # revert on safety violation (default: true)
     safetyObservationPeriod: 5m  # post-resize safety watch period (default: 5m, minimum: 1m)
-    resizeMethod: InPlaceOnly  # InPlaceOnly | InPlaceOrEvict (default: InPlaceOnly)
+    resizeMethod: InPlaceOnly  # InPlaceOnly | InPlaceOrRecreate (default: InPlaceOnly)
     maxConcurrentResizes: 1    # parallel pod resizes per cycle (default: 1, max: 50)
     maxTotalCpuIncrease: "2000m"    # max aggregate CPU increase per cycle (default: unlimited)
     maxTotalMemoryIncrease: "4Gi"   # max aggregate memory increase per cycle (default: unlimited)
@@ -108,7 +106,7 @@ spec:
       timezone: "America/New_York" # IANA timezone (default: UTC)
 
   # Containers to skip (e.g., service mesh sidecars).
-  excludeContainers:
+  excludedContainers:
     - istio-proxy
     - linkerd-proxy
 

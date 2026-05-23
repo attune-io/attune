@@ -197,18 +197,16 @@ spec:
     percentile: 95            # supported: 50, 90, 95, 99
     safetyMargin: "1.2"       # default: 1.2 (20% headroom above percentile)
     # Optional hard bounds
-    bounds:
-      min: "50m"
-      max: "4000m"
+    minAllowed: "50m"
+    maxAllowed: "4000m"
     # Optional: control what is adjusted
     controlledValues: RequestsAndLimits  # RequestsOnly | RequestsAndLimits
 
   memory:
     percentile: 99            # supported: 50, 90, 95, 99
     safetyMargin: "1.3"       # default: 1.3 (30% headroom)
-    bounds:
-      min: "64Mi"
-      max: "8Gi"
+    minAllowed: "64Mi"
+    maxAllowed: "8Gi"
     controlledValues: RequestsAndLimits
     # Memory-specific safety
     allowDecrease: false      # default: false (OOM risk), set true only when confident
@@ -305,14 +303,14 @@ status:
 ```yaml
 # Applied via +kubebuilder:validation:XValidation markers on the Go types
 
-# cpu.bounds: min must be less than max
+# cpu: minAllowed must be less than maxAllowed
 x-kubernetes-validations:
-  - rule: "self.bounds.min <= self.bounds.max"
-    message: "cpu.bounds.min must be less than or equal to cpu.bounds.max"
+  - rule: "!has(self.minAllowed) || !has(self.maxAllowed) || self.minAllowed <= self.maxAllowed"
+    message: "cpu.minAllowed must be less than or equal to cpu.maxAllowed"
 
-# memory.bounds: min must be less than max
-  - rule: "self.bounds.min <= self.bounds.max"
-    message: "memory.bounds.min must be less than or equal to memory.bounds.max"
+# memory: minAllowed must be less than maxAllowed
+  - rule: "!has(self.minAllowed) || !has(self.maxAllowed) || self.minAllowed <= self.maxAllowed"
+    message: "memory.minAllowed must be less than or equal to memory.maxAllowed"
 
 # updateStrategy: canary config required when mode is Canary
   - rule: "self.updateStrategy.mode != 'Canary' || has(self.updateStrategy.canary)"
@@ -1517,7 +1515,7 @@ kube-rightsize/
 
 | Pattern | Source | How We Use It |
 |---------|--------|---------------|
-| Mandatory resource bounds | OptiPod | `bounds.min`/`bounds.max` are required fields |
+| Mandatory resource bounds | OptiPod | `minAllowed`/`maxAllowed` are required fields |
 | Weight-based policy resolution | OptiPod | `weight` field for deterministic conflict resolution |
 | Gradual memory decrease | OptiPod | `maxMemoryChangePercent` + `allowDecrease` flag |
 | Composable estimator chain | VPA | Decorator pattern: percentile -> margin -> confidence -> bounds |

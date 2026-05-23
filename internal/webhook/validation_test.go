@@ -68,47 +68,47 @@ func TestValidate_ValidPolicy(t *testing.T) {
 func TestValidate_CPUBoundsInvalid(t *testing.T) {
 	validator := &RightSizePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.CPU.Bounds = &rightsizev1alpha1.ResourceBounds{
-		Min: resource.MustParse("2"),
-		Max: resource.MustParse("1"),
-	}
+	cpuMin := resource.MustParse("2")
+	cpuMax := resource.MustParse("1")
+	policy.Spec.CPU.MinAllowed = &cpuMin
+	policy.Spec.CPU.MaxAllowed = &cpuMax
 
 	warnings, err := validator.ValidateCreate(context.Background(), policy)
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "cpu.bounds.min")
-	assert.Contains(t, err.Error(), "must be <= cpu.bounds.max")
+	assert.Contains(t, err.Error(), "cpu.minAllowed")
+	assert.Contains(t, err.Error(), "must be <= cpu.maxAllowed")
 	assert.Empty(t, warnings)
 }
 
 func TestValidate_MemoryBoundsInvalid(t *testing.T) {
 	validator := &RightSizePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.Memory.Bounds = &rightsizev1alpha1.ResourceBounds{
-		Min: resource.MustParse("2Gi"),
-		Max: resource.MustParse("1Gi"),
-	}
+	memMin := resource.MustParse("2Gi")
+	memMax := resource.MustParse("1Gi")
+	policy.Spec.Memory.MinAllowed = &memMin
+	policy.Spec.Memory.MaxAllowed = &memMax
 
 	warnings, err := validator.ValidateCreate(context.Background(), policy)
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "memory.bounds.min")
-	assert.Contains(t, err.Error(), "must be <= memory.bounds.max")
+	assert.Contains(t, err.Error(), "memory.minAllowed")
+	assert.Contains(t, err.Error(), "must be <= memory.maxAllowed")
 	assert.Empty(t, warnings)
 }
 
 func TestValidate_CPUBoundsMaxExceedsUpperLimit(t *testing.T) {
 	validator := &RightSizePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.CPU.Bounds = &rightsizev1alpha1.ResourceBounds{
-		Min: resource.MustParse("100m"),
-		Max: resource.MustParse("512"),
-	}
+	cpuMin := resource.MustParse("100m")
+	cpuMax := resource.MustParse("512")
+	policy.Spec.CPU.MinAllowed = &cpuMin
+	policy.Spec.CPU.MaxAllowed = &cpuMax
 
 	warnings, err := validator.ValidateCreate(context.Background(), policy)
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "cpu.bounds.max")
+	assert.Contains(t, err.Error(), "cpu.maxAllowed")
 	assert.Contains(t, err.Error(), "exceeds the maximum allowed value of 256 cores")
 	assert.Empty(t, warnings)
 }
@@ -116,15 +116,15 @@ func TestValidate_CPUBoundsMaxExceedsUpperLimit(t *testing.T) {
 func TestValidate_MemoryBoundsMaxExceedsUpperLimit(t *testing.T) {
 	validator := &RightSizePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.Memory.Bounds = &rightsizev1alpha1.ResourceBounds{
-		Min: resource.MustParse("64Mi"),
-		Max: resource.MustParse("32Ti"),
-	}
+	memMin := resource.MustParse("64Mi")
+	memMax := resource.MustParse("32Ti")
+	policy.Spec.Memory.MinAllowed = &memMin
+	policy.Spec.Memory.MaxAllowed = &memMax
 
 	warnings, err := validator.ValidateCreate(context.Background(), policy)
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "memory.bounds.max")
+	assert.Contains(t, err.Error(), "memory.maxAllowed")
 	assert.Contains(t, err.Error(), "exceeds the maximum allowed value of 16Ti")
 	assert.Empty(t, warnings)
 }
@@ -370,15 +370,15 @@ func TestValidateUpdate_InvalidBounds(t *testing.T) {
 	validator := &RightSizePolicyValidator{}
 	old := validPolicy()
 	updated := validPolicy()
-	updated.Spec.CPU.Bounds = &rightsizev1alpha1.ResourceBounds{
-		Min: resource.MustParse("2"),
-		Max: resource.MustParse("1"),
-	}
+	cpuMin := resource.MustParse("2")
+	cpuMax := resource.MustParse("1")
+	updated.Spec.CPU.MinAllowed = &cpuMin
+	updated.Spec.CPU.MaxAllowed = &cpuMax
 
 	_, err := validator.ValidateUpdate(context.Background(), old, updated)
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "cpu.bounds.min")
+	assert.Contains(t, err.Error(), "cpu.minAllowed")
 }
 
 func TestValidate_SafetyMarginInvalid(t *testing.T) {
@@ -653,10 +653,10 @@ func TestValidateCreate_RecordsRejectedMetric(t *testing.T) {
 
 	validator := &RightSizePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.CPU.Bounds = &rightsizev1alpha1.ResourceBounds{
-		Min: resource.MustParse("2"),
-		Max: resource.MustParse("1"),
-	}
+	cpuMin := resource.MustParse("2")
+	cpuMax := resource.MustParse("1")
+	policy.Spec.CPU.MinAllowed = &cpuMin
+	policy.Spec.CPU.MaxAllowed = &cpuMax
 
 	_, err := validator.ValidateCreate(context.Background(), policy)
 	require.Error(t, err)

@@ -20,13 +20,11 @@ Before switching to Auto mode:
 4. **Configure appropriate bounds** to prevent extreme recommendations:
    ```yaml
    cpu:
-     bounds:
-       min: "50m"    # never go below 50 millicores
-       max: "4000m"  # never exceed 4 cores
+     minAllowed: "50m"    # never go below 50 millicores
+     maxAllowed: "4000m"  # never exceed 4 cores
    memory:
-     bounds:
-       min: "64Mi"   # never go below 64 MiB
-       max: "8Gi"    # never exceed 8 GiB
+     minAllowed: "64Mi"   # never go below 64 MiB
+     maxAllowed: "8Gi"    # never exceed 8 GiB
    ```
 
 ## Creating an Auto-mode policy
@@ -50,16 +48,14 @@ spec:
   cpu:
     percentile: 95
     safetyMargin: "1.2"
-    bounds:
-      min: "50m"
-      max: "4000m"
+    minAllowed: "50m"
+    maxAllowed: "4000m"
     controlledValues: RequestsAndLimits
   memory:
     percentile: 99
     safetyMargin: "1.3"
-    bounds:
-      min: "64Mi"
-      max: "8Gi"
+    minAllowed: "64Mi"
+    maxAllowed: "8Gi"
     controlledValues: RequestsAndLimits
   updateStrategy:
     mode: Auto
@@ -72,7 +68,7 @@ spec:
 | Setting | Purpose | Suggested value |
 |---------|---------|-----------------|
 | `safetyMargin` | Headroom above observed usage | 1.2 (CPU), 1.3 (memory) |
-| `bounds.min/max` | Prevent extreme recommendations | Match your resource limits policy |
+| `minAllowed/maxAllowed` | Prevent extreme recommendations | Match your resource limits policy |
 | `cooldown` | Time between resizes | 1h minimum for production |
 | `autoRevert` | Roll back if pods become unhealthy | `true` for production |
 
@@ -127,7 +123,7 @@ The operator exports metrics for dashboarding:
 - `kube_rightsize_recommendation_memory_bytes` -- Recommended memory per workload
 - `kube_rightsize_confidence` -- Confidence score (0-1) per workload
 - `kube_rightsize_resize_total` -- Total successful, failed, and reverted in-place resize operations
-- `kube_rightsize_eviction_total` -- Total eviction fallback attempts when `resizeMethod: InPlaceOrEvict`
+- `kube_rightsize_eviction_total` -- Total eviction fallback attempts when `resizeMethod: InPlaceOrRecreate`
 - `kube_rightsize_reverts_total` -- Total reverts (broken down by reason)
 
 Alert on high revert rates:

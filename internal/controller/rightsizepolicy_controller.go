@@ -568,8 +568,8 @@ func (r *RightSizePolicyReconciler) processWorkloads(
 	}
 
 	cpuEngine, memEngine := buildRecommendationEngines(policy)
-	excludeSet := make(map[string]bool, len(policy.Spec.ExcludeContainers))
-	for _, name := range policy.Spec.ExcludeContainers {
+	excludeSet := make(map[string]bool, len(policy.Spec.ExcludedContainers))
+	for _, name := range policy.Spec.ExcludedContainers {
 		excludeSet[name] = true
 	}
 

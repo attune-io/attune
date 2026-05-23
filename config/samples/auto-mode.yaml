@@ -21,16 +21,14 @@ spec:
   cpu:
     percentile: 95
     safetyMargin: "1.15"
-    bounds:
-      min: "100m"
-      max: "8000m"
+    minAllowed: "100m"
+    maxAllowed: "8000m"
     controlledValues: RequestsAndLimits
   memory:
     percentile: 99
     safetyMargin: "1.25"
-    bounds:
-      min: "128Mi"
-      max: "16Gi"
+    minAllowed: "128Mi"
+    maxAllowed: "16Gi"
     controlledValues: RequestsAndLimits
     allowDecrease: false
   updateStrategy:

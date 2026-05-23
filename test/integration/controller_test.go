@@ -256,6 +256,11 @@ func TestMain(m *testing.M) {
 
 func int32Ptr(i int32) *int32 { return &i }
 
+func quantityPtr(s string) *resource.Quantity {
+	q := resource.MustParse(s)
+	return &q
+}
+
 func newTestDeployment(name, namespace string) *appsv1.Deployment {
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
@@ -317,18 +322,14 @@ func newTestPolicy(name, namespace, deploymentName string) *rightsizev1alpha1.Ri
 			CPU: rightsizev1alpha1.ResourceConfig{
 				Percentile:   95,
 				SafetyMargin: "1.2",
-				Bounds: &rightsizev1alpha1.ResourceBounds{
-					Min: resource.MustParse("50m"),
-					Max: resource.MustParse("4000m"),
-				},
+				MinAllowed:   quantityPtr("50m"),
+				MaxAllowed:   quantityPtr("4000m"),
 			},
 			Memory: rightsizev1alpha1.ResourceConfig{
 				Percentile:   99,
 				SafetyMargin: "1.3",
-				Bounds: &rightsizev1alpha1.ResourceBounds{
-					Min: resource.MustParse("64Mi"),
-					Max: resource.MustParse("8Gi"),
-				},
+				MinAllowed:   quantityPtr("64Mi"),
+				MaxAllowed:   quantityPtr("8Gi"),
 			},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
 				Mode: rightsizev1alpha1.UpdateModeRecommend,

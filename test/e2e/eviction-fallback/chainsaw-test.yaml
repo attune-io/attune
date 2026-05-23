@@ -3,7 +3,7 @@ kind: Test
 metadata:
   name: eviction-fallback
 spec:
-  description: Verify that a RightSizePolicy with resizeMethod InPlaceOrEvict accepts the field and resizes pods (in-place path; eviction fallback requires Infeasible pods)
+  description: Verify that a RightSizePolicy with resizeMethod InPlaceOrRecreate accepts the field and resizes pods (in-place path; eviction fallback requires Infeasible pods)
   timeouts:
     apply: 30s
     assert: 2m
@@ -108,7 +108,7 @@ spec:
                   cooldown: 1m
                   maxCpuChangePercent: 100
                   maxMemoryChangePercent: 100
-                  resizeMethod: InPlaceOrEvict
+                  resizeMethod: InPlaceOrRecreate
                   autoRevert: true
     - name: verify-policy-reconciles
       try:

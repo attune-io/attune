@@ -39,9 +39,8 @@ spec:
     percentile: 95
     safetyMargin: "1.2"
     controlledValues: RequestsOnly
-    bounds:
-      min: "100m"
-      max: "4000m"
+    minAllowed: "100m"
+      maxAllowed: "4000m"
 ```
 
 !!! tip

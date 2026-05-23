@@ -325,8 +325,7 @@ bounds to stay within node capacity:
 ```yaml
 spec:
   cpu:
-    bounds:
-      max: "2000m"  # reduce max to fit on nodes
+    maxAllowed: "2000m"  # reduce max to fit on nodes
 ```
 
 ### QoS class change blocked

@@ -32,6 +32,11 @@ func ptrInt32(v int32) *int32 { return &v }
 func ptrBool(v bool) *bool    { return &v }
 func ptrStr(v string) *string { return &v }
 
+func quantityPtr(s string) *resource.Quantity {
+	q := resource.MustParse(s)
+	return &q
+}
+
 func TestApplyBuiltInDefaults_FillsAllFields(t *testing.T) {
 	policy := &rightsizev1alpha1.RightSizePolicy{}
 	ApplyBuiltInDefaults(policy)
@@ -149,7 +154,7 @@ func TestMergeUpdateStrategy_AllFields(t *testing.T) {
 	defaults := &rightsizev1alpha1.UpdateStrategy{
 		Mode:                    rightsizev1alpha1.UpdateModeAuto,
 		AutoRevert:              &autoRevert,
-		ResizeMethod:            rightsizev1alpha1.ResizeMethodInPlaceOrEvict,
+		ResizeMethod:            rightsizev1alpha1.ResizeMethodInPlaceOrRecreate,
 		MaxCPUChangePercent:     &maxCPU,
 		MaxMemoryChangePercent:  &maxMem,
 		MaxConcurrentResizes:    maxConc,
@@ -167,7 +172,7 @@ func TestMergeUpdateStrategy_AllFields(t *testing.T) {
 
 	assert.Equal(t, rightsizev1alpha1.UpdateModeAuto, policy.Mode)
 	assert.True(t, *policy.AutoRevert)
-	assert.Equal(t, rightsizev1alpha1.ResizeMethodInPlaceOrEvict, policy.ResizeMethod)
+	assert.Equal(t, rightsizev1alpha1.ResizeMethodInPlaceOrRecreate, policy.ResizeMethod)
 	assert.Equal(t, int32(40), *policy.MaxCPUChangePercent)
 	assert.Equal(t, int32(20), *policy.MaxMemoryChangePercent)
 	assert.Equal(t, int32(3), policy.MaxConcurrentResizes)
@@ -207,7 +212,8 @@ func TestMergeResourceConfig_AllFields(t *testing.T) {
 	defaults := &rightsizev1alpha1.ResourceConfig{
 		Percentile:       90,
 		SafetyMargin:     "1.5",
-		Bounds:           &rightsizev1alpha1.ResourceBounds{Min: resource.MustParse("50m"), Max: resource.MustParse("4000m")},
+		MinAllowed:       quantityPtr("50m"),
+		MaxAllowed:       quantityPtr("4000m"),
 		ControlledValues: ptrStr("RequestsAndLimits"),
 		BurstSensitivity: ptrStr("0.3"),
 		AllowDecrease:    ptrBool(true),
@@ -219,9 +225,9 @@ func TestMergeResourceConfig_AllFields(t *testing.T) {
 
 	assert.Equal(t, int32(90), policy.Percentile)
 	assert.Equal(t, "1.5", policy.SafetyMargin)
-	require.NotNil(t, policy.Bounds)
-	assert.Equal(t, resource.MustParse("50m"), policy.Bounds.Min)
-	assert.Equal(t, resource.MustParse("4000m"), policy.Bounds.Max)
+	require.NotNil(t, policy.MinAllowed)
+	assert.Equal(t, resource.MustParse("50m"), *policy.MinAllowed)
+	assert.Equal(t, resource.MustParse("4000m"), *policy.MaxAllowed)
 	require.NotNil(t, policy.ControlledValues)
 	assert.Equal(t, "RequestsAndLimits", *policy.ControlledValues)
 	require.NotNil(t, policy.BurstSensitivity)
@@ -231,7 +237,7 @@ func TestMergeResourceConfig_AllFields(t *testing.T) {
 	require.NotNil(t, policy.StartupBoost)
 	assert.Equal(t, "3.0", policy.StartupBoost.Multiplier)
 	assert.Equal(t, 2*time.Minute, policy.StartupBoost.Duration.Duration)
-	assert.Len(t, inherited, 7)
+	assert.Len(t, inherited, 8)
 	assert.Contains(t, inherited, "cpu.percentile")
 	assert.Contains(t, inherited, "cpu.safetyMargin")
 	assert.Contains(t, inherited, "cpu.bounds")
@@ -256,7 +262,7 @@ func TestMergeResourceConfig_PolicyFieldsTakePrecedence(t *testing.T) {
 		BurstSensitivity: ptrStr("0.5"),
 		AllowDecrease:    ptrBool(true),
 		StartupBoost:     &rightsizev1alpha1.StartupBoost{Multiplier: "3.0"},
-		Bounds:           &rightsizev1alpha1.ResourceBounds{Min: resource.MustParse("50m")},
+		MinAllowed:       quantityPtr("50m"),
 	}
 	policy := &rightsizev1alpha1.ResourceConfig{
 		Percentile:       99,
@@ -265,7 +271,7 @@ func TestMergeResourceConfig_PolicyFieldsTakePrecedence(t *testing.T) {
 		BurstSensitivity: ptrStr("0.1"),
 		AllowDecrease:    ptrBool(false),
 		StartupBoost:     &rightsizev1alpha1.StartupBoost{Multiplier: "2.0"},
-		Bounds:           &rightsizev1alpha1.ResourceBounds{Min: resource.MustParse("100m")},
+		MinAllowed:       quantityPtr("100m"),
 	}
 
 	inherited := MergeResourceConfig(policy, defaults, "memory")
@@ -277,7 +283,7 @@ func TestMergeResourceConfig_PolicyFieldsTakePrecedence(t *testing.T) {
 	assert.Equal(t, "0.1", *policy.BurstSensitivity)
 	assert.False(t, *policy.AllowDecrease)
 	assert.Equal(t, "2.0", policy.StartupBoost.Multiplier)
-	assert.Equal(t, resource.MustParse("100m"), policy.Bounds.Min)
+	assert.Equal(t, resource.MustParse("100m"), *policy.MinAllowed)
 }
 
 func TestMergeResourceConfig_PrefixAppliedCorrectly(t *testing.T) {
@@ -388,7 +394,7 @@ func TestMergeUpdateStrategy_PolicyFieldsTakePrecedence(t *testing.T) {
 		Mode:                    rightsizev1alpha1.UpdateModeAuto,
 		Cooldown:                &metav1.Duration{Duration: 30 * time.Minute},
 		AutoRevert:              ptrBool(false),
-		ResizeMethod:            rightsizev1alpha1.ResizeMethodInPlaceOrEvict,
+		ResizeMethod:            rightsizev1alpha1.ResizeMethodInPlaceOrRecreate,
 		MaxCPUChangePercent:     ptrInt32(80),
 		MaxMemoryChangePercent:  ptrInt32(40),
 		MaxConcurrentResizes:    5,

@@ -122,7 +122,7 @@ stateDiagram-v2
     state EvictOrSkip {
         direction LR
         [*] --> InfeasibleSkipped: resizeMethod = InPlaceOnly
-        [*] --> EvictionCheck: resizeMethod = InPlaceOrEvict
+        [*] --> EvictionCheck: resizeMethod = InPlaceOrRecreate
     }
 
     note right of InfeasibleSkipped: Skipped to avoid wasted\nUpdateResize API calls\nthat would fail every cycle
@@ -148,7 +148,7 @@ stateDiagram-v2
     state EvictOrSkipFailed {
         direction LR
         [*] --> Failed: resizeMethod = InPlaceOnly
-        [*] --> EvictionFallback: resizeMethod = InPlaceOrEvict
+        [*] --> EvictionFallback: resizeMethod = InPlaceOrRecreate
     }
 
     EvictionFallback --> LastReplicaGuard
@@ -187,7 +187,7 @@ stateDiagram-v2
   pods the kubelet has marked `PodResizePending=Infeasible`. These pods cannot
   be resized in-place on their current node, but they are included in the
   resize cycle so the eviction fallback can handle them when `resizeMethod`
-  is `InPlaceOrEvict`. With `InPlaceOnly`, they are skipped with a log
+  is `InPlaceOrRecreate`. With `InPlaceOnly`, they are skipped with a log
   message ("Pod resize is Infeasible and resizeMethod is InPlaceOnly,
   skipping") to avoid wasting an UpdateResize API call that would fail
   on every reconcile cycle.

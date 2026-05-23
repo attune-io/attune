@@ -124,9 +124,9 @@ make test-e2e-smoke
 | `test/e2e/cronjob-target/` | CronJob | Discovers a CronJob workload (recommend-only) |
 | `test/e2e/job-target/` | Job | Discovers a standalone Job workload (recommend-only) |
 | `test/e2e/opt-out/` | (cross-cutting) | `rightsize.io/skip` annotation is respected |
-| `test/e2e/exclude-containers/` | (cross-cutting) | `excludeContainers` skips sidecars |
+| `test/e2e/exclude-containers/` | (cross-cutting) | `excludedContainers` skips sidecars |
 | `test/e2e/multi-selector/` | (cross-cutting) | Label selector matches multiple deployments |
-| `test/e2e/eviction-fallback/` | (cross-cutting) | InPlaceOrEvict is accepted and still resizes workloads (in-place path) |
+| `test/e2e/eviction-fallback/` | (cross-cutting) | InPlaceOrRecreate is accepted and still resizes workloads (in-place path) |
 | `test/e2e/schedule-window/` | (cross-cutting) | Schedule windows block resizes outside the allowed time |
 | `test/e2e/budget-caps/` | (cross-cutting) | Budget caps are accepted and the policy still resizes workloads |
 | `test/e2e/concurrent-resize/` | (cross-cutting) | `maxConcurrentResizes` is accepted and workloads still resize |

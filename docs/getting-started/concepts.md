@@ -128,11 +128,11 @@ View savings via `kubectl rightsize savings` or the Grafana dashboard.
 
 By default, the operator computes recommendations for every container in a pod.
 For pods with sidecar containers managed by a service mesh (e.g., `istio-proxy`,
-`linkerd-proxy`), use `excludeContainers` to skip them:
+`linkerd-proxy`), use `excludedContainers` to skip them:
 
 ```yaml
 spec:
-  excludeContainers:
+  excludedContainers:
     - istio-proxy
 ```
 

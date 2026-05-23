@@ -22,15 +22,13 @@ spec:
   cpu:
     percentile: 95
     safetyMargin: "1.2"
-    bounds:
-      min: "50m"
-      max: "4000m"
+    minAllowed: "50m"
+    maxAllowed: "4000m"
   memory:
     percentile: 99
     safetyMargin: "1.3"
-    bounds:
-      min: "64Mi"
-      max: "8Gi"
+    minAllowed: "64Mi"
+    maxAllowed: "8Gi"
   updateStrategy:
     mode: Recommend            # safe default; switch to Canary or Auto later
     cooldown: 1h
