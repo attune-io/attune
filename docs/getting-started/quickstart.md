@@ -146,7 +146,7 @@ proceeds if they remain healthy.
 ```yaml
 spec:
   updateStrategy:
-    mode: Canary
+    type: Canary
     canary:
       percentage: 10
       observationPeriod: 30m

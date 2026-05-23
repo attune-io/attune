@@ -41,7 +41,7 @@ spec:
                 memory:
                   percentile: 99
                 updateStrategy:
-                  mode: Auto
+                  type: Auto
                   schedule:
                     timezone: "Mars/Phobos"
     - name: reject-invalid-day-of-week
@@ -68,7 +68,7 @@ spec:
                 memory:
                   percentile: 99
                 updateStrategy:
-                  mode: Auto
+                  type: Auto
                   schedule:
                     daysOfWeek:
                       - Wed
@@ -96,7 +96,7 @@ spec:
                 memory:
                   percentile: 99
                 updateStrategy:
-                  mode: Auto
+                  type: Auto
                   schedule:
                     windows:
                       - start: "25:00"
@@ -122,7 +122,7 @@ spec:
                 memory:
                   percentile: 99
                 updateStrategy:
-                  mode: Auto
+                  type: Auto
                   schedule:
                     windows:
                       - start: "02:00"

@@ -289,7 +289,7 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "mode": {
+            "type": {
               "type": "string",
               "enum": ["Observe", "Recommend", "OneShot", "Canary", "Auto"],
               "default": "Recommend"

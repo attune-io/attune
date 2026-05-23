@@ -9,7 +9,7 @@
 
 Fields are defaulted in three layers. Only `weight` and `maxConcurrentResizes`
 appear in the stored spec when omitted by the user (they are CRD schema or
-webhook defaults). All other defaultable fields (`mode`, `controlledValues`,
+webhook defaults). All other defaultable fields (`type`, `controlledValues`,
 `cooldown`, `historyWindow`, `minimumDataPoints`, `queryStep`, `rateWindow`, `autoRevert`,
 `resizeMethod`, `maxCpuChangePercent`, `maxMemoryChangePercent`,
 `safetyObservationPeriod`) are applied
@@ -82,7 +82,7 @@ spec:
 
   # How and when to apply changes.
   updateStrategy:
-    mode: Recommend            # Observe | Recommend | OneShot | Canary | Auto
+    type: Recommend            # Observe | Recommend | OneShot | Canary | Auto
     canary:                    # required when mode is Canary
       percentage: 10           # % of pods to resize first
       observationPeriod: 30m   # watch canary pods before proceeding (minimum: 1m)
@@ -243,7 +243,7 @@ spec:
     controlledValues: RequestsAndLimits
     allowDecrease: false
   updateStrategy:   # same structure as RightSizePolicy.spec.updateStrategy
-    mode: Recommend
+    type: Recommend
     cooldown: 1h
     autoRevert: true
   costPricing:      # optional, for EstimatedMonthlySavings computation
@@ -320,7 +320,7 @@ spec:
     safetyMargin: "1.5"
     allowDecrease: false
   updateStrategy:
-    mode: Canary
+    type: Canary
     cooldown: 2h
     autoRevert: true
 ```

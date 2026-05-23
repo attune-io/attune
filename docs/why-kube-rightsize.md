@@ -370,7 +370,7 @@ spec:
     prometheus:
       address: http://prometheus-server.monitoring:80
   updateStrategy:
-    mode: Recommend
+    type: Recommend
 ```
 
 ### 3. Wait for data, then review
@@ -386,7 +386,7 @@ kubectl rightsize savings -n default
 ```bash
 # Try on 10% of pods first (autoPromote handles the rest)
 kubectl patch rsp my-app --type merge \
-  -p '{"spec":{"updateStrategy":{"mode":"Canary","canary":{"percentage":10,"autoPromote":true},"autoRevert":true}}}'
+  -p '{"spec":{"updateStrategy":{"type":"Canary","canary":{"percentage":10,"autoPromote":true},"autoRevert":true}}}'
 ```
 
 With `autoPromote: true`, the operator automatically promotes to the full

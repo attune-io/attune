@@ -45,7 +45,7 @@ spec:
     percentile: 99
     safetyMargin: "1.3"
   updateStrategy:
-    mode: Auto
+    type: Auto
     cooldown: 1h
 ```
 

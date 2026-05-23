@@ -24,4 +24,4 @@ spec:
   memory:
     percentile: 99
   updateStrategy:
-    mode: Observe
+    type: Observe

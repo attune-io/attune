@@ -49,7 +49,7 @@ func validPolicy() *rightsizev1alpha1.RightSizePolicy {
 				SafetyMargin: "1.3",
 			},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Mode: rightsizev1alpha1.UpdateModeRecommend,
+				Type: rightsizev1alpha1.UpdateTypeRecommend,
 			},
 		},
 	}
@@ -132,7 +132,7 @@ func TestValidate_MemoryBoundsMaxExceedsUpperLimit(t *testing.T) {
 func TestValidate_CanaryModeWithoutConfig(t *testing.T) {
 	validator := &RightSizePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeCanary
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeCanary
 	policy.Spec.UpdateStrategy.Canary = nil
 
 	warnings, err := validator.ValidateCreate(context.Background(), policy)
@@ -145,7 +145,7 @@ func TestValidate_CanaryModeWithoutConfig(t *testing.T) {
 func TestValidate_CanaryObservationPeriodNegative(t *testing.T) {
 	validator := &RightSizePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeCanary
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeCanary
 	policy.Spec.UpdateStrategy.Canary = &rightsizev1alpha1.CanaryConfig{
 		Percentage:        10,
 		ObservationPeriod: metav1.Duration{Duration: -time.Minute},
@@ -161,7 +161,7 @@ func TestValidate_CanaryObservationPeriodNegative(t *testing.T) {
 func TestValidate_CanaryObservationPeriodTooShort(t *testing.T) {
 	validator := &RightSizePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeCanary
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeCanary
 	policy.Spec.UpdateStrategy.Canary = &rightsizev1alpha1.CanaryConfig{
 		Percentage:        10,
 		ObservationPeriod: metav1.Duration{Duration: 30 * time.Second},
@@ -177,7 +177,7 @@ func TestValidate_CanaryObservationPeriodTooShort(t *testing.T) {
 func TestValidate_CanaryObservationPeriodZeroWarns(t *testing.T) {
 	validator := &RightSizePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeCanary
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeCanary
 	policy.Spec.UpdateStrategy.Canary = &rightsizev1alpha1.CanaryConfig{
 		Percentage:        10,
 		ObservationPeriod: metav1.Duration{Duration: 0},

@@ -190,7 +190,7 @@ func newTestPolicy(name, namespace string) *rightsizev1alpha1.RightSizePolicy {
 				MaxAllowed:   quantityPtr("8Gi"),
 			},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Mode: rightsizev1alpha1.UpdateModeRecommend,
+				Type: rightsizev1alpha1.UpdateTypeRecommend,
 				Cooldown: &metav1.Duration{
 					Duration: 1 * time.Hour,
 				},
@@ -2525,7 +2525,7 @@ func TestReconcile_HappyPathWithRecommendations(t *testing.T) {
 
 func TestReconcile_ObserveModeOmitsRecommendations(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeObserve
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeObserve
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
 	pod := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
 
@@ -3348,7 +3348,7 @@ func TestExecuteResizes_SuccessfulResize(t *testing.T) {
 	reconciler, _ := newResizeReconciler(pod, deploy)
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeOneShot
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeOneShot
 
 	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
 		newResizeRecommendation("api-server", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),
@@ -3371,7 +3371,7 @@ func TestExecuteResizes_ContextCancelledAbortsRemaining(t *testing.T) {
 	reconciler, _ := newResizeReconciler(pod, deploy)
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeAuto
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeAuto
 
 	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
 		newResizeRecommendation("api-server", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),
@@ -3394,7 +3394,7 @@ func TestExecuteResizes_SkipsMatchingResources(t *testing.T) {
 	reconciler, _ := newResizeReconciler(pod, deploy)
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeOneShot
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeOneShot
 
 	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
 		newResizeRecommendation("api-server", "500m", "512Mi", "0", "0", "750m", "384Mi", "1500m", "768Mi"),
@@ -3412,7 +3412,7 @@ func TestExecuteResizes_NoMatchingWorkload(t *testing.T) {
 	reconciler.Clientset = kubefake.NewSimpleClientset()
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeOneShot
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeOneShot
 
 	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
 		{Workload: "api-server", Kind: "Deployment"},
@@ -3430,7 +3430,7 @@ func TestExecuteResizes_SkipsStaleRecommendation(t *testing.T) {
 	reconciler.Clientset = kubefake.NewSimpleClientset()
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeOneShot
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeOneShot
 
 	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
 		{Workload: "api-server", Kind: "Deployment", Stale: true},
@@ -3813,7 +3813,7 @@ func TestMergeDefaults_MergesAllFields(t *testing.T) {
 				MinimumDataPoints: int32Ptr(24),
 			},
 			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{
-				Mode:                   rightsizev1alpha1.UpdateModeAuto,
+				Type:                   rightsizev1alpha1.UpdateTypeAuto,
 				Cooldown:               &cooldown,
 				AutoRevert:             &autoRevert,
 				ResizeMethod:           rightsizev1alpha1.ResizeMethodInPlaceOrRecreate,
@@ -3872,7 +3872,7 @@ func TestMergeDefaults_MergesAllFields(t *testing.T) {
 	assert.Equal(t, int32(24), *policy.Spec.MetricsSource.MinimumDataPoints)
 
 	// UpdateStrategy
-	assert.Equal(t, rightsizev1alpha1.UpdateModeAuto, policy.Spec.UpdateStrategy.Mode)
+	assert.Equal(t, rightsizev1alpha1.UpdateTypeAuto, policy.Spec.UpdateStrategy.Type)
 	require.NotNil(t, policy.Spec.UpdateStrategy.Cooldown)
 	assert.Equal(t, 30*time.Minute, policy.Spec.UpdateStrategy.Cooldown.Duration)
 	require.NotNil(t, policy.Spec.UpdateStrategy.AutoRevert)
@@ -3905,7 +3905,7 @@ func TestApplyBuiltInDefaults_FillsAllFields(t *testing.T) {
 	r.applyBuiltInDefaults(policy)
 
 	// Every field should now have a built-in default value.
-	assert.Equal(t, rightsizev1alpha1.DefaultUpdateMode, policy.Spec.UpdateStrategy.Mode)
+	assert.Equal(t, rightsizev1alpha1.DefaultUpdateType, policy.Spec.UpdateStrategy.Type)
 	require.NotNil(t, policy.Spec.UpdateStrategy.MaxCPUChangePercent)
 	assert.Equal(t, rightsizev1alpha1.DefaultMaxCPUChangePercent, *policy.Spec.UpdateStrategy.MaxCPUChangePercent)
 	require.NotNil(t, policy.Spec.UpdateStrategy.MaxMemoryChangePercent)
@@ -3931,7 +3931,7 @@ func TestApplyBuiltInDefaults_PreservesUserValues(t *testing.T) {
 	r := newReconcilerWithClient()
 	// Create a policy with explicit user values.
 	policy := &rightsizev1alpha1.RightSizePolicy{}
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeAuto
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeAuto
 	policy.Spec.UpdateStrategy.MaxCPUChangePercent = int32Ptr(80)
 	policy.Spec.UpdateStrategy.MaxMemoryChangePercent = int32Ptr(60)
 	autoRevert := false
@@ -3948,7 +3948,7 @@ func TestApplyBuiltInDefaults_PreservesUserValues(t *testing.T) {
 	r.applyBuiltInDefaults(policy)
 
 	// User values should be preserved, not overwritten.
-	assert.Equal(t, rightsizev1alpha1.UpdateModeAuto, policy.Spec.UpdateStrategy.Mode)
+	assert.Equal(t, rightsizev1alpha1.UpdateTypeAuto, policy.Spec.UpdateStrategy.Type)
 	assert.Equal(t, int32(80), *policy.Spec.UpdateStrategy.MaxCPUChangePercent)
 	assert.Equal(t, int32(60), *policy.Spec.UpdateStrategy.MaxMemoryChangePercent)
 	assert.False(t, *policy.Spec.UpdateStrategy.AutoRevert)
@@ -3970,7 +3970,7 @@ func TestMergeDefaults_ClusterDefaultsTakeEffect(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "cluster-defaults"},
 		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
 			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{
-				Mode:                   rightsizev1alpha1.UpdateModeAuto,
+				Type:                   rightsizev1alpha1.UpdateTypeAuto,
 				Cooldown:               &cooldown,
 				AutoRevert:             &autoRevert,
 				ResizeMethod:           rightsizev1alpha1.ResizeMethodInPlaceOrRecreate,
@@ -3988,7 +3988,7 @@ func TestMergeDefaults_ClusterDefaultsTakeEffect(t *testing.T) {
 	r.applyBuiltInDefaults(policy)
 
 	// Cluster defaults should take effect.
-	assert.Equal(t, rightsizev1alpha1.UpdateModeAuto, policy.Spec.UpdateStrategy.Mode)
+	assert.Equal(t, rightsizev1alpha1.UpdateTypeAuto, policy.Spec.UpdateStrategy.Type)
 	assert.Equal(t, 30*time.Minute, policy.Spec.UpdateStrategy.Cooldown.Duration)
 	assert.False(t, *policy.Spec.UpdateStrategy.AutoRevert)
 	assert.Equal(t, rightsizev1alpha1.ResizeMethodInPlaceOrRecreate, policy.Spec.UpdateStrategy.ResizeMethod)
@@ -4004,7 +4004,7 @@ func TestMergeAndApplyDefaults_PartialClusterDefaults(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "partial-defaults"},
 		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
 			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{
-				Mode:                rightsizev1alpha1.UpdateModeAuto,
+				Type:                rightsizev1alpha1.UpdateTypeAuto,
 				MaxCPUChangePercent: int32Ptr(80),
 			},
 		},
@@ -4014,7 +4014,7 @@ func TestMergeAndApplyDefaults_PartialClusterDefaults(t *testing.T) {
 
 	r.mergeDefaults(policy, defaults)
 	// Verify partial state before applyBuiltInDefaults.
-	assert.Equal(t, rightsizev1alpha1.UpdateModeAuto, policy.Spec.UpdateStrategy.Mode)
+	assert.Equal(t, rightsizev1alpha1.UpdateTypeAuto, policy.Spec.UpdateStrategy.Type)
 	require.NotNil(t, policy.Spec.UpdateStrategy.MaxCPUChangePercent)
 	assert.Equal(t, int32(80), *policy.Spec.UpdateStrategy.MaxCPUChangePercent)
 	assert.Nil(t, policy.Spec.UpdateStrategy.MaxMemoryChangePercent,
@@ -4023,7 +4023,7 @@ func TestMergeAndApplyDefaults_PartialClusterDefaults(t *testing.T) {
 
 	r.applyBuiltInDefaults(policy)
 	// Inherited values preserved.
-	assert.Equal(t, rightsizev1alpha1.UpdateModeAuto, policy.Spec.UpdateStrategy.Mode)
+	assert.Equal(t, rightsizev1alpha1.UpdateTypeAuto, policy.Spec.UpdateStrategy.Type)
 	assert.Equal(t, int32(80), *policy.Spec.UpdateStrategy.MaxCPUChangePercent)
 	// Built-in defaults fill the rest.
 	require.NotNil(t, policy.Spec.UpdateStrategy.MaxMemoryChangePercent)
@@ -4110,7 +4110,7 @@ func TestAppendHistory_CapsAtMaxEntries(t *testing.T) {
 
 func TestReconcile_OneShotMode_NoClientset_SkipsResize(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeOneShot
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeOneShot
 
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
 	pod := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
@@ -4234,7 +4234,7 @@ func TestReconcile_PrometheusQueryErrorsMentionCPUAndMemoryWhenBothFail(t *testi
 
 func TestResolveCanaryPhase_InitializesOnFirstCall(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeCanary
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeCanary
 	policy.Spec.UpdateStrategy.Canary = &rightsizev1alpha1.CanaryConfig{
 		Percentage:        20,
 		ObservationPeriod: metav1.Duration{Duration: 5 * time.Minute},
@@ -4242,9 +4242,9 @@ func TestResolveCanaryPhase_InitializesOnFirstCall(t *testing.T) {
 	}
 
 	reconciler := &RightSizePolicyReconciler{}
-	mode := reconciler.resolveCanaryPhase(context.Background(), policy, rightsizev1alpha1.UpdateModeCanary)
+	mode := reconciler.resolveCanaryPhase(context.Background(), policy, rightsizev1alpha1.UpdateTypeCanary)
 
-	assert.Equal(t, rightsizev1alpha1.UpdateModeCanary, mode, "first call should stay in canary mode")
+	assert.Equal(t, rightsizev1alpha1.UpdateTypeCanary, mode, "first call should stay in canary mode")
 	require.NotNil(t, policy.Status.Canary)
 	assert.Equal(t, rightsizev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.Phase)
 	assert.NotNil(t, policy.Status.Canary.StartTime)
@@ -4253,7 +4253,7 @@ func TestResolveCanaryPhase_InitializesOnFirstCall(t *testing.T) {
 func TestResolveCanaryPhase_PromotesAfterObservation(t *testing.T) {
 	startTime := metav1.NewTime(time.Now().Add(-10 * time.Minute))
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeCanary
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeCanary
 	policy.Spec.UpdateStrategy.Canary = &rightsizev1alpha1.CanaryConfig{
 		Percentage:        20,
 		ObservationPeriod: metav1.Duration{Duration: 5 * time.Minute},
@@ -4269,16 +4269,16 @@ func TestResolveCanaryPhase_PromotesAfterObservation(t *testing.T) {
 	}
 
 	reconciler := &RightSizePolicyReconciler{}
-	mode := reconciler.resolveCanaryPhase(context.Background(), policy, rightsizev1alpha1.UpdateModeCanary)
+	mode := reconciler.resolveCanaryPhase(context.Background(), policy, rightsizev1alpha1.UpdateTypeCanary)
 
-	assert.Equal(t, rightsizev1alpha1.UpdateModeAuto, mode, "should promote to auto after observation passes")
+	assert.Equal(t, rightsizev1alpha1.UpdateTypeAuto, mode, "should promote to auto after observation passes")
 	assert.Equal(t, rightsizev1alpha1.CanaryPhaseFullRollout, policy.Status.Canary.Phase)
 }
 
 func TestResolveCanaryPhase_LegacyHistoryWithoutMethodPromotesCanary(t *testing.T) {
 	startTime := metav1.NewTime(time.Now().Add(-10 * time.Minute))
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeCanary
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeCanary
 	policy.Spec.UpdateStrategy.Canary = &rightsizev1alpha1.CanaryConfig{
 		Percentage:        20,
 		ObservationPeriod: metav1.Duration{Duration: 5 * time.Minute},
@@ -4293,16 +4293,16 @@ func TestResolveCanaryPhase_LegacyHistoryWithoutMethodPromotesCanary(t *testing.
 	}
 
 	reconciler := &RightSizePolicyReconciler{}
-	mode := reconciler.resolveCanaryPhase(context.Background(), policy, rightsizev1alpha1.UpdateModeCanary)
+	mode := reconciler.resolveCanaryPhase(context.Background(), policy, rightsizev1alpha1.UpdateTypeCanary)
 
-	assert.Equal(t, rightsizev1alpha1.UpdateModeAuto, mode, "legacy in-place history without method should still promote canary")
+	assert.Equal(t, rightsizev1alpha1.UpdateTypeAuto, mode, "legacy in-place history without method should still promote canary")
 	assert.Equal(t, rightsizev1alpha1.CanaryPhaseFullRollout, policy.Status.Canary.Phase)
 }
 
 func TestResolveCanaryPhase_EvictionDoesNotPromoteCanary(t *testing.T) {
 	startTime := metav1.NewTime(time.Now().Add(-10 * time.Minute))
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeCanary
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeCanary
 	policy.Spec.UpdateStrategy.Canary = &rightsizev1alpha1.CanaryConfig{
 		Percentage:        20,
 		ObservationPeriod: metav1.Duration{Duration: 5 * time.Minute},
@@ -4317,16 +4317,16 @@ func TestResolveCanaryPhase_EvictionDoesNotPromoteCanary(t *testing.T) {
 	}
 
 	reconciler := &RightSizePolicyReconciler{}
-	mode := reconciler.resolveCanaryPhase(context.Background(), policy, rightsizev1alpha1.UpdateModeCanary)
+	mode := reconciler.resolveCanaryPhase(context.Background(), policy, rightsizev1alpha1.UpdateTypeCanary)
 
-	assert.Equal(t, rightsizev1alpha1.UpdateModeCanary, mode, "eviction-only history should not count as a successful canary resize")
+	assert.Equal(t, rightsizev1alpha1.UpdateTypeCanary, mode, "eviction-only history should not count as a successful canary resize")
 	assert.Equal(t, rightsizev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.Phase)
 }
 
 func TestResolveCanaryPhase_WaitsDuringObservation(t *testing.T) {
 	startTime := metav1.NewTime(time.Now().Add(-1 * time.Minute))
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeCanary
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeCanary
 	policy.Spec.UpdateStrategy.Canary = &rightsizev1alpha1.CanaryConfig{
 		Percentage:        20,
 		ObservationPeriod: metav1.Duration{Duration: 5 * time.Minute},
@@ -4338,15 +4338,15 @@ func TestResolveCanaryPhase_WaitsDuringObservation(t *testing.T) {
 	}
 
 	reconciler := &RightSizePolicyReconciler{}
-	mode := reconciler.resolveCanaryPhase(context.Background(), policy, rightsizev1alpha1.UpdateModeCanary)
+	mode := reconciler.resolveCanaryPhase(context.Background(), policy, rightsizev1alpha1.UpdateTypeCanary)
 
-	assert.Equal(t, rightsizev1alpha1.UpdateModeCanary, mode, "should stay in canary during observation")
+	assert.Equal(t, rightsizev1alpha1.UpdateTypeCanary, mode, "should stay in canary during observation")
 }
 
 func TestResolveCanaryPhase_BlocksOnRevert(t *testing.T) {
 	startTime := metav1.NewTime(time.Now().Add(-10 * time.Minute))
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeCanary
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeCanary
 	policy.Spec.UpdateStrategy.Canary = &rightsizev1alpha1.CanaryConfig{
 		Percentage:        20,
 		ObservationPeriod: metav1.Duration{Duration: 5 * time.Minute},
@@ -4362,9 +4362,9 @@ func TestResolveCanaryPhase_BlocksOnRevert(t *testing.T) {
 	}
 
 	reconciler := &RightSizePolicyReconciler{}
-	mode := reconciler.resolveCanaryPhase(context.Background(), policy, rightsizev1alpha1.UpdateModeCanary)
+	mode := reconciler.resolveCanaryPhase(context.Background(), policy, rightsizev1alpha1.UpdateTypeCanary)
 
-	assert.Equal(t, rightsizev1alpha1.UpdateModeCanary, mode, "should block promotion when revert happened")
+	assert.Equal(t, rightsizev1alpha1.UpdateTypeCanary, mode, "should block promotion when revert happened")
 	assert.Equal(t, rightsizev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.Phase)
 }
 
@@ -4375,16 +4375,16 @@ func TestResolveCanaryPhase_FullRolloutStaysAuto(t *testing.T) {
 	}
 
 	reconciler := &RightSizePolicyReconciler{}
-	mode := reconciler.resolveCanaryPhase(context.Background(), policy, rightsizev1alpha1.UpdateModeCanary)
+	mode := reconciler.resolveCanaryPhase(context.Background(), policy, rightsizev1alpha1.UpdateTypeCanary)
 
-	assert.Equal(t, rightsizev1alpha1.UpdateModeAuto, mode, "FullRollout should map to Auto")
+	assert.Equal(t, rightsizev1alpha1.UpdateTypeAuto, mode, "FullRollout should map to Auto")
 }
 
 func TestResolveCanaryPhase_ResetsOnSpecChange(t *testing.T) {
 	startTime := metav1.NewTime(time.Now().Add(-10 * time.Minute))
 	policy := newTestPolicy("test-policy", "default")
 	policy.Generation = 3
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeCanary
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeCanary
 	policy.Spec.UpdateStrategy.Canary = &rightsizev1alpha1.CanaryConfig{
 		Percentage:        20,
 		ObservationPeriod: metav1.Duration{Duration: 5 * time.Minute},
@@ -4398,10 +4398,10 @@ func TestResolveCanaryPhase_ResetsOnSpecChange(t *testing.T) {
 	}
 
 	reconciler := &RightSizePolicyReconciler{}
-	mode := reconciler.resolveCanaryPhase(context.Background(), policy, rightsizev1alpha1.UpdateModeCanary)
+	mode := reconciler.resolveCanaryPhase(context.Background(), policy, rightsizev1alpha1.UpdateTypeCanary)
 
 	// Should reset and re-initialize, staying in canary mode.
-	assert.Equal(t, rightsizev1alpha1.UpdateModeCanary, mode, "spec change should reset canary, not stay in FullRollout")
+	assert.Equal(t, rightsizev1alpha1.UpdateTypeCanary, mode, "spec change should reset canary, not stay in FullRollout")
 	require.NotNil(t, policy.Status.Canary)
 	assert.Equal(t, rightsizev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.Phase)
 	assert.Equal(t, int64(3), policy.Status.Canary.ObservedGeneration, "new cycle should track current generation")
@@ -4411,7 +4411,7 @@ func TestResolveCanaryPhase_NoResetWhenGenerationMatches(t *testing.T) {
 	startTime := metav1.NewTime(time.Now().Add(-10 * time.Minute))
 	policy := newTestPolicy("test-policy", "default")
 	policy.Generation = 2
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeCanary
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeCanary
 	policy.Spec.UpdateStrategy.Canary = &rightsizev1alpha1.CanaryConfig{
 		Percentage:        20,
 		ObservationPeriod: metav1.Duration{Duration: 5 * time.Minute},
@@ -4427,10 +4427,10 @@ func TestResolveCanaryPhase_NoResetWhenGenerationMatches(t *testing.T) {
 	}
 
 	reconciler := &RightSizePolicyReconciler{}
-	mode := reconciler.resolveCanaryPhase(context.Background(), policy, rightsizev1alpha1.UpdateModeCanary)
+	mode := reconciler.resolveCanaryPhase(context.Background(), policy, rightsizev1alpha1.UpdateTypeCanary)
 
 	// Same generation: should promote normally after observation period.
-	assert.Equal(t, rightsizev1alpha1.UpdateModeAuto, mode, "same generation should promote normally")
+	assert.Equal(t, rightsizev1alpha1.UpdateTypeAuto, mode, "same generation should promote normally")
 	assert.Equal(t, rightsizev1alpha1.CanaryPhaseFullRollout, policy.Status.Canary.Phase)
 }
 
@@ -4438,7 +4438,7 @@ func TestResolveCanaryPhase_NoResetWhenGenerationMatches(t *testing.T) {
 
 func TestReconcile_CooldownActive_SkipsResize(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeOneShot
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeOneShot
 	policy.Annotations = map[string]string{
 		lastResizeAnnotation: time.Now().UTC().Format(time.RFC3339),
 	}
@@ -4475,13 +4475,13 @@ func TestReconcile_HistoryBasedResizedDerivation(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		mode        rightsizev1alpha1.UpdateMode
+		mode        rightsizev1alpha1.UpdateType
 		history     []rightsizev1alpha1.ResizeHistoryEntry
 		wantResized int32
 	}{
 		{
 			name: "derives Resized from distinct successful in-place workloads",
-			mode: rightsizev1alpha1.UpdateModeOneShot,
+			mode: rightsizev1alpha1.UpdateTypeOneShot,
 			history: []rightsizev1alpha1.ResizeHistoryEntry{
 				{Workload: "api-server", Method: "InPlace", Result: rightsizev1alpha1.ResizeResultSuccess, Timestamp: now},
 				{Workload: "worker", Method: "InPlace", Result: rightsizev1alpha1.ResizeResultSuccess, Timestamp: now},
@@ -4490,7 +4490,7 @@ func TestReconcile_HistoryBasedResizedDerivation(t *testing.T) {
 		},
 		{
 			name: "evicted workloads do not count as resized",
-			mode: rightsizev1alpha1.UpdateModeOneShot,
+			mode: rightsizev1alpha1.UpdateTypeOneShot,
 			history: []rightsizev1alpha1.ResizeHistoryEntry{
 				{Workload: "api-server", Method: "Eviction", Result: rightsizev1alpha1.ResizeResultEvicted, Timestamp: now},
 				{Workload: "worker", Method: "Eviction", Result: rightsizev1alpha1.ResizeResultEvicted, Timestamp: now},
@@ -4499,7 +4499,7 @@ func TestReconcile_HistoryBasedResizedDerivation(t *testing.T) {
 		},
 		{
 			name: "legacy successful history without method still counts as resized",
-			mode: rightsizev1alpha1.UpdateModeOneShot,
+			mode: rightsizev1alpha1.UpdateTypeOneShot,
 			history: []rightsizev1alpha1.ResizeHistoryEntry{
 				{Workload: "api-server", Result: rightsizev1alpha1.ResizeResultSuccess, Timestamp: now},
 				{Workload: "worker", Result: rightsizev1alpha1.ResizeResultSuccess, Timestamp: now},
@@ -4508,7 +4508,7 @@ func TestReconcile_HistoryBasedResizedDerivation(t *testing.T) {
 		},
 		{
 			name: "only failed and reverted entries leave Resized at 0",
-			mode: rightsizev1alpha1.UpdateModeOneShot,
+			mode: rightsizev1alpha1.UpdateTypeOneShot,
 			history: []rightsizev1alpha1.ResizeHistoryEntry{
 				{Workload: "api-server", Method: "InPlace", Result: rightsizev1alpha1.ResizeResultFailed, Timestamp: now},
 				{Workload: "worker", Method: "InPlace", Result: rightsizev1alpha1.ResizeResultReverted, Timestamp: now},
@@ -4517,7 +4517,7 @@ func TestReconcile_HistoryBasedResizedDerivation(t *testing.T) {
 		},
 		{
 			name: "duplicate workload entries counted as one",
-			mode: rightsizev1alpha1.UpdateModeOneShot,
+			mode: rightsizev1alpha1.UpdateTypeOneShot,
 			history: []rightsizev1alpha1.ResizeHistoryEntry{
 				{Workload: "api-server", Method: "InPlace", Result: rightsizev1alpha1.ResizeResultSuccess, Timestamp: now},
 				{Workload: "api-server", Method: "InPlace", Result: rightsizev1alpha1.ResizeResultSuccess, Timestamp: now},
@@ -4527,13 +4527,13 @@ func TestReconcile_HistoryBasedResizedDerivation(t *testing.T) {
 		},
 		{
 			name:        "empty history leaves Resized at 0",
-			mode:        rightsizev1alpha1.UpdateModeOneShot,
+			mode:        rightsizev1alpha1.UpdateTypeOneShot,
 			history:     nil,
 			wantResized: 0,
 		},
 		{
 			name: "Recommend mode skips derivation entirely",
-			mode: rightsizev1alpha1.UpdateModeRecommend,
+			mode: rightsizev1alpha1.UpdateTypeRecommend,
 			history: []rightsizev1alpha1.ResizeHistoryEntry{
 				{Workload: "api-server", Method: "InPlace", Result: rightsizev1alpha1.ResizeResultSuccess, Timestamp: now},
 			},
@@ -4541,7 +4541,7 @@ func TestReconcile_HistoryBasedResizedDerivation(t *testing.T) {
 		},
 		{
 			name: "Observe mode skips derivation entirely",
-			mode: rightsizev1alpha1.UpdateModeObserve,
+			mode: rightsizev1alpha1.UpdateTypeObserve,
 			history: []rightsizev1alpha1.ResizeHistoryEntry{
 				{Workload: "api-server", Method: "InPlace", Result: rightsizev1alpha1.ResizeResultSuccess, Timestamp: now},
 			},
@@ -4552,7 +4552,7 @@ func TestReconcile_HistoryBasedResizedDerivation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			policy := newTestPolicy("test-policy", "default")
-			policy.Spec.UpdateStrategy.Mode = tt.mode
+			policy.Spec.UpdateStrategy.Type = tt.mode
 			// Set cooldown annotation so resize execution is skipped;
 			// this isolates the history-based derivation path.
 			if isResizeMode(tt.mode) {
@@ -4607,7 +4607,7 @@ func TestExecuteResizes_SkipsQoSChange(t *testing.T) {
 	reconciler, _ := newResizeReconciler(pod, deploy)
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeOneShot
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeOneShot
 
 	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
 		newResizeRecommendation("api-server", "500m", "512Mi", "500m", "512Mi", "750m", "384Mi", "1500m", "768Mi"),
@@ -4635,7 +4635,7 @@ func TestExecuteResizes_GuaranteedQoS_MemoryClampAllowsCPUResize(t *testing.T) {
 	reconciler, _ := newResizeReconciler(pod, deploy)
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeAuto
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeAuto
 
 	// Recommend CPU decrease (500m → 50m) and memory decrease (256Mi → 64Mi).
 	// Both limits also decrease (ControlledValues: RequestsAndLimits behavior).
@@ -4659,7 +4659,7 @@ func TestExecuteResizes_QoSBlocked_EmitsResizeSkippedEvent(t *testing.T) {
 	reconciler.Recorder = recorder
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeAuto
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeAuto
 
 	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
 		newResizeRecommendation("api-server", "500m", "512Mi", "500m", "512Mi", "250m", "256Mi", "500m", "512Mi"),
@@ -4692,7 +4692,7 @@ func TestExecuteResizes_ResizeError(t *testing.T) {
 	})
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeOneShot
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeOneShot
 
 	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
 		newResizeRecommendation("api-server", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),
@@ -4721,7 +4721,7 @@ func TestExecuteResizes_ResizeError_EmitsResizeFailedEvent(t *testing.T) {
 	})
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeOneShot
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeOneShot
 
 	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
 		newResizeRecommendation("api-server", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),
@@ -4746,7 +4746,7 @@ func TestExecuteResizes_AutoRevert_SafeVerdictNoRevert(t *testing.T) {
 	reconciler, _ := newResizeReconciler(pod, deploy)
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeAuto
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeAuto
 	policy.Spec.UpdateStrategy.AutoRevert = boolPtr(true)
 
 	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
@@ -5887,7 +5887,7 @@ func TestExecuteResizes_SkipsWhenExceedsNodeCapacity(t *testing.T) {
 	reconciler, _ := newResizeReconciler(pod, deploy, node)
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeOneShot
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeOneShot
 
 	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
 		newResizeRecommendation("api-server", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),
@@ -5917,7 +5917,7 @@ func TestExecuteResizes_ProceedsWhenWithinNodeCapacity(t *testing.T) {
 	reconciler, _ := newResizeReconciler(pod, deploy, node)
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeOneShot
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeOneShot
 
 	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
 		newResizeRecommendation("api-server", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),
@@ -6070,7 +6070,7 @@ func TestExecuteResizes_EmitsResizedEvent(t *testing.T) {
 	reconciler.Recorder = recorder
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeAuto
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeAuto
 	policy.Spec.UpdateStrategy.AutoRevert = boolPtr(false)
 
 	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
@@ -6115,7 +6115,7 @@ func TestExecuteResizes_ThrottleNotRevertedDuringGracePeriod(t *testing.T) {
 	reconciler.Recorder = recorder
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeAuto
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeAuto
 	policy.Spec.UpdateStrategy.AutoRevert = boolPtr(true)
 
 	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
@@ -6161,7 +6161,7 @@ func TestExecuteResizes_PersistsAnnotations(t *testing.T) {
 	reconciler, fakeClient := newResizeReconciler(pod, deploy)
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeOneShot
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeOneShot
 
 	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
 		newResizeRecommendation("api-server", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),
@@ -6198,7 +6198,7 @@ func TestExecuteResizes_CapturesZeroRestartCount(t *testing.T) {
 	reconciler, fakeClient := newResizeReconciler(pod, deploy)
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeOneShot
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeOneShot
 
 	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
 		newResizeRecommendation("api-server", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),
@@ -6224,7 +6224,7 @@ func TestExecuteResizes_PreservesExistingPodAnnotations(t *testing.T) {
 	reconciler, fakeClient := newResizeReconciler(pod, deploy)
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeOneShot
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeOneShot
 
 	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
 		newResizeRecommendation("api-server", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),
@@ -6270,7 +6270,7 @@ func TestExecuteResizes_RevertsOnAnnotationUpdateFailure(t *testing.T) {
 	reconciler.Recorder = recorder
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeOneShot
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeOneShot
 
 	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
 		newResizeRecommendation("api-server", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),
@@ -6387,7 +6387,7 @@ func TestExecuteResizes_AnnotationConflictRetrySucceeds(t *testing.T) {
 	}
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeOneShot
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeOneShot
 
 	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
 		newResizeRecommendation("api-server", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),
@@ -6444,7 +6444,7 @@ func TestExecuteResizes_RevertFailureMarksHistoryAsFailed(t *testing.T) {
 	}
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeOneShot
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeOneShot
 
 	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
 		newResizeRecommendation("api-server", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),
@@ -6496,7 +6496,7 @@ func TestExecuteResizes_RevertsOnReFetchFailure(t *testing.T) {
 	reconciler.Recorder = recorder
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeOneShot
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeOneShot
 
 	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
 		newResizeRecommendation("api-server", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),
@@ -6711,7 +6711,7 @@ func TestResizeContainer_InfeasiblePodEvictedDirectly(t *testing.T) {
 	}
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeAuto
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeAuto
 	policy.Spec.UpdateStrategy.ResizeMethod = rightsizev1alpha1.ResizeMethodInPlaceOrRecreate
 
 	resizer := resize.NewPodResizer(clientset, ctrl.Log)
@@ -6786,7 +6786,7 @@ func TestResizeContainer_InfeasiblePodSkippedWithInPlaceOnly(t *testing.T) {
 	}
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeAuto
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeAuto
 	// InPlaceOnly (default): no eviction allowed.
 
 	resizer := resize.NewPodResizer(clientset, ctrl.Log)
@@ -6844,7 +6844,7 @@ func TestExecuteResizes_BudgetCapsDefersExcessiveIncrease(t *testing.T) {
 	reconciler, _ := newResizeReconciler(pod, deploy)
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeAuto
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeAuto
 	cpuBudget := resource.MustParse("500m")
 	policy.Spec.UpdateStrategy.MaxTotalCPUIncrease = &cpuBudget
 
@@ -6865,7 +6865,7 @@ func TestExecuteResizes_BudgetCapsAllowsWithinBudget(t *testing.T) {
 	reconciler, _ := newResizeReconciler(pod, deploy)
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeAuto
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeAuto
 	cpuBudget := resource.MustParse("500m")
 	policy.Spec.UpdateStrategy.MaxTotalCPUIncrease = &cpuBudget
 
@@ -6886,7 +6886,7 @@ func TestExecuteResizes_BudgetCapsDecreasesFree(t *testing.T) {
 	reconciler, _ := newResizeReconciler(pod, deploy)
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeAuto
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeAuto
 	cpuBudget := resource.MustParse("100m")
 	policy.Spec.UpdateStrategy.MaxTotalCPUIncrease = &cpuBudget
 
@@ -6907,7 +6907,7 @@ func TestExecuteResizes_BudgetCapsMemory(t *testing.T) {
 	reconciler, _ := newResizeReconciler(pod, deploy)
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeAuto
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeAuto
 	memBudget := resource.MustParse("512Mi")
 	policy.Spec.UpdateStrategy.MaxTotalMemoryIncrease = &memBudget
 
@@ -6927,7 +6927,7 @@ func TestExecuteResizes_BudgetCapsExactlyEqualsPasses(t *testing.T) {
 	reconciler, _ := newResizeReconciler(pod, deploy)
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeAuto
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeAuto
 	cpuBudget := resource.MustParse("500m")
 	policy.Spec.UpdateStrategy.MaxTotalCPUIncrease = &cpuBudget
 
@@ -6946,7 +6946,7 @@ func TestExecuteResizes_BudgetCapsClampedTargetUsesAppliedIncrease(t *testing.T)
 	reconciler, _ := newResizeReconciler(pod, deploy)
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeAuto
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeAuto
 	cpuBudget := resource.MustParse("100m")
 	policy.Spec.UpdateStrategy.MaxTotalCPUIncrease = &cpuBudget
 
@@ -6977,7 +6977,7 @@ func TestExecuteResizes_BudgetCapsSkipDoesNotConsumeBudget(t *testing.T) {
 	}
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeAuto
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeAuto
 	cpuBudget := resource.MustParse("300m")
 	policy.Spec.UpdateStrategy.MaxTotalCPUIncrease = &cpuBudget
 
@@ -7019,7 +7019,7 @@ func TestExecuteResizes_BudgetCapsResizeFailureDoesNotConsumeBudget(t *testing.T
 	}
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeAuto
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeAuto
 	cpuBudget := resource.MustParse("300m")
 	policy.Spec.UpdateStrategy.MaxTotalCPUIncrease = &cpuBudget
 
@@ -7056,7 +7056,7 @@ func TestExecuteResizes_EvictionDoesNotConsumeBudgetNeededByNextPod(t *testing.T
 	}
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeAuto
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeAuto
 	policy.Spec.UpdateStrategy.ResizeMethod = rightsizev1alpha1.ResizeMethodInPlaceOrRecreate
 	cpuBudget := resource.MustParse("300m")
 	policy.Spec.UpdateStrategy.MaxTotalCPUIncrease = &cpuBudget
@@ -7133,7 +7133,7 @@ func TestExecuteResizes_MixedOutcomePodDoesNotLeakSuccessOrBudget(t *testing.T) 
 	}
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeAuto
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeAuto
 	policy.Spec.UpdateStrategy.ResizeMethod = rightsizev1alpha1.ResizeMethodInPlaceOrRecreate
 	policy.Spec.UpdateStrategy.MaxConcurrentResizes = 1
 	cpuBudget := resource.MustParse("400m")
@@ -7210,7 +7210,7 @@ func TestExecuteResizes_BudgetCapsRevertDoesNotConsumeBudget(t *testing.T) {
 	}
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeAuto
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeAuto
 	cpuBudget := resource.MustParse("300m")
 	policy.Spec.UpdateStrategy.MaxTotalCPUIncrease = &cpuBudget
 
@@ -7249,7 +7249,7 @@ func TestExecuteResizes_ConcurrentResizes(t *testing.T) {
 	}
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeAuto
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeAuto
 	policy.Spec.UpdateStrategy.MaxConcurrentResizes = 5 // allow parallelism
 
 	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
@@ -7311,7 +7311,7 @@ func TestExecuteResizes_MultiContainerSequential(t *testing.T) {
 	}
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeOneShot
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeOneShot
 
 	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
 		{
@@ -7427,7 +7427,7 @@ func TestExecuteResizes_MultiContainer_BudgetExhaustion(t *testing.T) {
 	}
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeAuto
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeAuto
 	policy.Spec.UpdateStrategy.AutoRevert = &autoRevert
 	// Budget: 300m CPU. First container increases by 250m (500m→750m),
 	// leaving 50m. Worker needs 150m (200m→350m) which exceeds remaining.
@@ -7526,7 +7526,7 @@ func TestReconcile_NowFuncControlsScheduleGate(t *testing.T) {
 	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeAuto
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeAuto
 	policy.Spec.UpdateStrategy.Schedule = &rightsizev1alpha1.ResizeSchedule{
 		Windows:    []rightsizev1alpha1.TimeWindow{{Start: "02:00", End: "06:00"}},
 		DaysOfWeek: []string{"Wednesday"},
@@ -8689,9 +8689,9 @@ func TestApplyStartupBoosts_ExpiryKeepsAnnotationOnFailure(t *testing.T) {
 func TestStartupBoost_SkippedInObserveMode(t *testing.T) {
 	// Verify that the reconcile-level guard prevents startup boosts when
 	// the policy mode is Observe or Recommend.
-	for _, mode := range []rightsizev1alpha1.UpdateMode{
-		rightsizev1alpha1.UpdateModeObserve,
-		rightsizev1alpha1.UpdateModeRecommend,
+	for _, mode := range []rightsizev1alpha1.UpdateType{
+		rightsizev1alpha1.UpdateTypeObserve,
+		rightsizev1alpha1.UpdateTypeRecommend,
 	} {
 		t.Run(string(mode), func(t *testing.T) {
 			assert.False(t, isResizeMode(mode),
@@ -8699,10 +8699,10 @@ func TestStartupBoost_SkippedInObserveMode(t *testing.T) {
 		})
 	}
 	// Positive check: Auto, OneShot, and Canary are resize modes.
-	for _, mode := range []rightsizev1alpha1.UpdateMode{
-		rightsizev1alpha1.UpdateModeAuto,
-		rightsizev1alpha1.UpdateModeOneShot,
-		rightsizev1alpha1.UpdateModeCanary,
+	for _, mode := range []rightsizev1alpha1.UpdateType{
+		rightsizev1alpha1.UpdateTypeAuto,
+		rightsizev1alpha1.UpdateTypeOneShot,
+		rightsizev1alpha1.UpdateTypeCanary,
 	} {
 		t.Run(string(mode), func(t *testing.T) {
 			assert.True(t, isResizeMode(mode),
@@ -9972,7 +9972,7 @@ func TestExecuteResizes_AnnotationConflictExhaustedRetries(t *testing.T) {
 	reconciler.Recorder = recorder
 
 	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeOneShot
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeOneShot
 
 	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
 		newResizeRecommendation("api-server", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),

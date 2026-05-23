@@ -84,7 +84,7 @@ spec:
     minAllowed: "4Mi"
     maxAllowed: "8Gi"
   updateStrategy:
-    mode: Recommend
+    type: Recommend
 ```
 
 ```bash
@@ -147,7 +147,7 @@ to 10% of pods first:
 ```yaml
 spec:
   updateStrategy:
-    mode: Canary
+    type: Canary
     canary:
       percentage: 10
       observationPeriod: 30m

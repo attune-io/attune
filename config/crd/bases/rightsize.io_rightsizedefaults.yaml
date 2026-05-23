@@ -392,7 +392,7 @@ spec:
                       RightSizeDefaults cluster configuration can override it).
                     type: boolean
                   canary:
-                    description: Canary configures canary rollout behavior when Mode
+                    description: Canary configures canary rollout behavior when Type
                       is Canary.
                     properties:
                       autoPromote:
@@ -484,24 +484,6 @@ spec:
                       Decreases do not consume budget. Default: unlimited.
                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                     x-kubernetes-int-or-string: true
-                  mode:
-                    description: |-
-                      Mode determines the update behavior, graduated from safe to automated:
-                        Recommend: collects metrics and writes recommendations to status, no pod changes.
-                        OneShot: resizes one pod per reconcile cycle.
-                        Canary: resizes a percentage of pods first, then the rest after observation.
-                        Auto: resizes all eligible pods each cycle.
-                        Observe: collects metrics and tracks data points but does not surface recommendations or savings.
-                      Start with Recommend in production and promote after reviewing status.
-                      Defaults to Recommend if not set (applied by the controller, not the webhook,
-                      so that RightSizeDefaults cluster configuration can override it).
-                    enum:
-                    - Observe
-                    - Recommend
-                    - OneShot
-                    - Canary
-                    - Auto
-                    type: string
                   resizeMethod:
                     description: |-
                       ResizeMethod controls what happens when an in-place resize fails.
@@ -573,6 +555,24 @@ spec:
                           type: object
                         type: array
                     type: object
+                  type:
+                    description: |-
+                      Mode determines the update behavior, graduated from safe to automated:
+                        Recommend: collects metrics and writes recommendations to status, no pod changes.
+                        OneShot: resizes one pod per reconcile cycle.
+                        Canary: resizes a percentage of pods first, then the rest after observation.
+                        Auto: resizes all eligible pods each cycle.
+                        Observe: collects metrics and tracks data points but does not surface recommendations or savings.
+                      Start with Recommend in production and promote after reviewing status.
+                      Defaults to Recommend if not set (applied by the controller, not the webhook,
+                      so that RightSizeDefaults cluster configuration can override it).
+                    enum:
+                    - Observe
+                    - Recommend
+                    - OneShot
+                    - Canary
+                    - Auto
+                    type: string
                 type: object
             type: object
         type: object

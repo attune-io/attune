@@ -161,7 +161,7 @@ that do not set them explicitly. Policy-level values always take precedence.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `mode` | string | `Recommend` | `Observe`, `Recommend`, `OneShot`, `Canary`, `Auto` |
+| `type` | string | `Recommend` | `Observe`, `Recommend`, `OneShot`, `Canary`, `Auto` |
 | `cooldown` | duration | `1h` | Minimum time between resizes |
 | `autoRevert` | bool | `true` | Revert unsafe resizes automatically |
 | `resizeMethod` | string | `InPlaceOnly` | `InPlaceOnly` or `InPlaceOrRecreate` |
@@ -183,7 +183,7 @@ metadata:
   name: cluster-defaults
 spec:
   updateStrategy:
-    mode: Auto
+    type: Auto
     cooldown: 30m
     maxTotalCpuIncrease: "2000m"
     schedule:
@@ -228,7 +228,7 @@ spec:
     safetyMargin: "1.5"
     allowDecrease: false
   updateStrategy:
-    mode: Canary
+    type: Canary
     cooldown: 2h
     autoRevert: true
 ---
@@ -245,7 +245,7 @@ spec:
     percentile: 95
     safetyMargin: "1.2"
   updateStrategy:
-    mode: Auto
+    type: Auto
     cooldown: 30m
 ```
 
@@ -262,7 +262,7 @@ All fields from `RightSizeDefaults` are available in
 | `metricsSource` | `prometheus.address`, `prometheus.headers`, `prometheus.queryParameters`, `prometheus.bearerTokenSecret`, `prometheus.tls`, `datadog.site`, `datadog.apiKeySecretRef`, `cloudwatch.region`, `cloudwatch.clusterName`, `cloudwatch.roleArn`, `historyWindow`, `minimumDataPoints`, `queryStep`, `rateWindow` |
 | `cpu` | `percentile`, `safetyMargin`, `minAllowed`, `maxAllowed`, `controlledValues`, `burstSensitivity`, `allowDecrease`, `startupBoost` |
 | `memory` | Same as `cpu` |
-| `updateStrategy` | `mode`, `cooldown`, `autoRevert`, `resizeMethod`, `maxCpuChangePercent`, `maxMemoryChangePercent`, `maxConcurrentResizes`, `maxTotalCpuIncrease`, `maxTotalMemoryIncrease`, `schedule`, `export`, `canary` |
+| `updateStrategy` | `type`, `cooldown`, `autoRevert`, `resizeMethod`, `maxCpuChangePercent`, `maxMemoryChangePercent`, `maxConcurrentResizes`, `maxTotalCpuIncrease`, `maxTotalMemoryIncrease`, `schedule`, `export`, `canary` |
 | `costPricing` | `cpuPerCoreHour`, `memoryPerGiBHour` |
 
 ## Alternative Metrics Sources

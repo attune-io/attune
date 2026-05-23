@@ -153,7 +153,7 @@ func createDeployment(t *testing.T, name, namespace string, cpuReq, memReq strin
 	return deploy
 }
 
-func createPolicy(t *testing.T, name, namespace, deployName string, mode rightsizev1alpha1.UpdateMode) *rightsizev1alpha1.RightSizePolicy {
+func createPolicy(t *testing.T, name, namespace, deployName string, mode rightsizev1alpha1.UpdateType) *rightsizev1alpha1.RightSizePolicy {
 	t.Helper()
 	policy := &rightsizev1alpha1.RightSizePolicy{
 		ObjectMeta: metav1.ObjectMeta{
@@ -187,7 +187,7 @@ func createPolicy(t *testing.T, name, namespace, deployName string, mode rightsi
 				MaxAllowed: quantityPtr("8Gi"),
 			},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Mode:                   mode,
+				Type:                   mode,
 				Cooldown:               &metav1.Duration{Duration: time.Minute},
 				AutoRevert:             boolPtr(true),
 				MaxCPUChangePercent:    int32Ptr(100),
@@ -294,7 +294,7 @@ func TestE2E_PolicyDiscovery(t *testing.T) {
 	createDeployment(t, "test-app", ns, "250m", "256Mi", 1)
 	waitForDeploymentReady(t, "test-app", ns, 60*time.Second)
 
-	createPolicy(t, "test-policy", ns, "test-app", rightsizev1alpha1.UpdateModeRecommend)
+	createPolicy(t, "test-policy", ns, "test-app", rightsizev1alpha1.UpdateTypeRecommend)
 	waitForPolicyDiscovered(t, "test-policy", ns, 90*time.Second)
 
 	var policy rightsizev1alpha1.RightSizePolicy
@@ -309,7 +309,7 @@ func TestE2E_AutoMode_ResizesRunningPod(t *testing.T) {
 	createDeployment(t, "auto-app", ns, "500m", "512Mi", 1)
 	waitForDeploymentReady(t, "auto-app", ns, 60*time.Second)
 
-	createPolicy(t, "auto-policy", ns, "auto-app", rightsizev1alpha1.UpdateModeAuto)
+	createPolicy(t, "auto-policy", ns, "auto-app", rightsizev1alpha1.UpdateTypeAuto)
 
 	// Wait for resize to complete (pod resources should change).
 	waitForResize(t, "auto-policy", ns, 3*time.Minute)
@@ -346,7 +346,7 @@ func TestE2E_OneShotMode_ResizesOnePod(t *testing.T) {
 	createDeployment(t, "oneshot-app", ns, "500m", "512Mi", 2)
 	waitForDeploymentReady(t, "oneshot-app", ns, 60*time.Second)
 
-	createPolicy(t, "oneshot-policy", ns, "oneshot-app", rightsizev1alpha1.UpdateModeOneShot)
+	createPolicy(t, "oneshot-policy", ns, "oneshot-app", rightsizev1alpha1.UpdateTypeOneShot)
 
 	waitForResize(t, "oneshot-policy", ns, 3*time.Minute)
 
@@ -400,7 +400,7 @@ func TestE2E_AutoMode_RecordsResizeHistory(t *testing.T) {
 	require.NoError(t, k8sClient.Create(ctx, deploy))
 	waitForDeploymentReady(t, "revert-app", ns, 60*time.Second)
 
-	policy := createPolicy(t, "revert-policy", ns, "revert-app", rightsizev1alpha1.UpdateModeAuto)
+	policy := createPolicy(t, "revert-policy", ns, "revert-app", rightsizev1alpha1.UpdateTypeAuto)
 
 	// Wait for initial resize.
 	waitForResize(t, "revert-policy", ns, 3*time.Minute)
@@ -491,7 +491,7 @@ func TestE2E_MultiContainer_ExcludesSidecar(t *testing.T) {
 			},
 			ExcludedContainers: []string{"istio-proxy"},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Mode: rightsizev1alpha1.UpdateModeAuto, Cooldown: &metav1.Duration{Duration: time.Minute},
+				Type: rightsizev1alpha1.UpdateTypeAuto, Cooldown: &metav1.Duration{Duration: time.Minute},
 				AutoRevert: boolPtr(true), MaxCPUChangePercent: int32Ptr(100), MaxMemoryChangePercent: int32Ptr(100),
 			},
 		},
@@ -578,7 +578,7 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 	require.NoError(t, k8sClient.Create(ctx, deploy))
 	waitForDeploymentReady(t, "load-app", ns, 120*time.Second)
 
-	loadPolicy := createPolicy(t, "load-policy", ns, "load-app", rightsizev1alpha1.UpdateModeRecommend)
+	loadPolicy := createPolicy(t, "load-policy", ns, "load-app", rightsizev1alpha1.UpdateTypeRecommend)
 	maxCPU, err := resource.ParseQuantity("800m")
 	require.NoError(t, err)
 	require.NoError(t, retry.RetryOnConflict(retry.DefaultRetry, func() error {
@@ -649,7 +649,7 @@ func TestE2E_BudgetCaps_DefersResize(t *testing.T) {
 			CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.2"},
 			Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, SafetyMargin: "1.3"},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Mode:                   rightsizev1alpha1.UpdateModeAuto,
+				Type:                   rightsizev1alpha1.UpdateTypeAuto,
 				Cooldown:               &metav1.Duration{Duration: time.Minute},
 				MaxTotalCPUIncrease:    &tightBudget,
 				MaxCPUChangePercent:    int32Ptr(100),
@@ -721,7 +721,7 @@ func TestE2E_ScheduleWindow_SkipsOutsideWindow(t *testing.T) {
 			CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.2"},
 			Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, SafetyMargin: "1.3"},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Mode:                   rightsizev1alpha1.UpdateModeAuto,
+				Type:                   rightsizev1alpha1.UpdateTypeAuto,
 				Cooldown:               &metav1.Duration{Duration: time.Minute},
 				MaxCPUChangePercent:    int32Ptr(100),
 				MaxMemoryChangePercent: int32Ptr(100),
@@ -791,7 +791,7 @@ func TestE2E_BearerToken_Authenticates(t *testing.T) {
 			CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.2"},
 			Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, SafetyMargin: "1.3"},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Mode:     rightsizev1alpha1.UpdateModeRecommend,
+				Type:     rightsizev1alpha1.UpdateTypeRecommend,
 				Cooldown: &metav1.Duration{Duration: time.Minute},
 			},
 		},
@@ -838,7 +838,7 @@ func TestE2E_EvictionFallback_ResizesWithInPlaceOrRecreate(t *testing.T) {
 				MaxAllowed: quantityPtr("8Gi"),
 			},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Mode:                   rightsizev1alpha1.UpdateModeAuto,
+				Type:                   rightsizev1alpha1.UpdateTypeAuto,
 				Cooldown:               &metav1.Duration{Duration: time.Minute},
 				AutoRevert:             boolPtr(true),
 				ResizeMethod:           rightsizev1alpha1.ResizeMethodInPlaceOrRecreate,
@@ -868,7 +868,7 @@ func TestE2E_RecommendMode_KeepsRecommendationsWithoutLivePods(t *testing.T) {
 	createDeployment(t, "nopods-app", ns, "500m", "256Mi", 1)
 	waitForDeploymentReady(t, "nopods-app", ns, 60*time.Second)
 
-	createPolicy(t, "nopods-policy", ns, "nopods-app", rightsizev1alpha1.UpdateModeRecommend)
+	createPolicy(t, "nopods-policy", ns, "nopods-app", rightsizev1alpha1.UpdateTypeRecommend)
 	waitForPolicyDiscovered(t, "nopods-policy", ns, 2*time.Minute)
 
 	// Wait until recommendations appear.
@@ -989,7 +989,7 @@ func TestE2E_BearerToken_SecretRotation(t *testing.T) {
 			CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.2"},
 			Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, SafetyMargin: "1.3"},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Mode:     rightsizev1alpha1.UpdateModeRecommend,
+				Type:     rightsizev1alpha1.UpdateTypeRecommend,
 				Cooldown: &metav1.Duration{Duration: time.Minute},
 			},
 		},
@@ -1105,7 +1105,7 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 				MaxAllowed: quantityPtr("512Mi"),
 			},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Mode:                   rightsizev1alpha1.UpdateModeAuto,
+				Type:                   rightsizev1alpha1.UpdateTypeAuto,
 				Cooldown:               &metav1.Duration{Duration: time.Minute},
 				AutoRevert:             boolPtr(true),
 				MaxCPUChangePercent:    int32Ptr(100),
@@ -1240,7 +1240,7 @@ func TestE2E_MultiReplica_ProgressiveResize(t *testing.T) {
 				MaxAllowed: quantityPtr("8Gi"),
 			},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Mode: rightsizev1alpha1.UpdateModeAuto, Cooldown: &metav1.Duration{Duration: time.Minute},
+				Type: rightsizev1alpha1.UpdateTypeAuto, Cooldown: &metav1.Duration{Duration: time.Minute},
 				MaxConcurrentResizes:   1,
 				AutoRevert:             boolPtr(true),
 				MaxCPUChangePercent:    int32Ptr(100),
@@ -1318,7 +1318,7 @@ func TestE2E_GuaranteedQoS_RequestsAndLimits(t *testing.T) {
 				MaxAllowed: quantityPtr("8Gi"),
 			},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Mode: rightsizev1alpha1.UpdateModeAuto, Cooldown: &metav1.Duration{Duration: time.Minute},
+				Type: rightsizev1alpha1.UpdateTypeAuto, Cooldown: &metav1.Duration{Duration: time.Minute},
 				AutoRevert: boolPtr(true), MaxCPUChangePercent: int32Ptr(100), MaxMemoryChangePercent: int32Ptr(100),
 			},
 		},
@@ -1397,7 +1397,7 @@ func TestE2E_LabelSelector_MultipleWorkloads(t *testing.T) {
 			CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.2"},
 			Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, SafetyMargin: "1.3"},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Mode: rightsizev1alpha1.UpdateModeRecommend, Cooldown: &metav1.Duration{Duration: time.Minute},
+				Type: rightsizev1alpha1.UpdateTypeRecommend, Cooldown: &metav1.Duration{Duration: time.Minute},
 			},
 		},
 	}
@@ -1418,7 +1418,7 @@ func TestE2E_PolicyDeletion_CleansUpAnnotations(t *testing.T) {
 	createDeployment(t, "cleanup-app", ns, "500m", "512Mi", 1)
 	waitForDeploymentReady(t, "cleanup-app", ns, 60*time.Second)
 
-	policy := createPolicy(t, "cleanup-policy", ns, "cleanup-app", rightsizev1alpha1.UpdateModeAuto)
+	policy := createPolicy(t, "cleanup-policy", ns, "cleanup-app", rightsizev1alpha1.UpdateTypeAuto)
 
 	// Wait for resize so tracking annotations are set on the pod.
 	waitForResize(t, "cleanup-policy", ns, 3*time.Minute)
@@ -1458,7 +1458,7 @@ func TestE2E_ScaleUp_NewReplicasGetResized(t *testing.T) {
 	createDeployment(t, "scaleup-app", ns, "500m", "512Mi", 1)
 	waitForDeploymentReady(t, "scaleup-app", ns, 60*time.Second)
 
-	createPolicy(t, "scaleup-policy", ns, "scaleup-app", rightsizev1alpha1.UpdateModeAuto)
+	createPolicy(t, "scaleup-policy", ns, "scaleup-app", rightsizev1alpha1.UpdateTypeAuto)
 	waitForResize(t, "scaleup-policy", ns, 5*time.Minute)
 
 	// Scale up to 2 replicas.
@@ -1506,8 +1506,8 @@ func TestE2E_ConcurrentPolicies_SameNamespace(t *testing.T) {
 	waitForDeploymentReady(t, "api-app", ns, 60*time.Second)
 	waitForDeploymentReady(t, "worker-app", ns, 60*time.Second)
 
-	createPolicy(t, "api-policy", ns, "api-app", rightsizev1alpha1.UpdateModeRecommend)
-	createPolicy(t, "worker-policy", ns, "worker-app", rightsizev1alpha1.UpdateModeRecommend)
+	createPolicy(t, "api-policy", ns, "api-app", rightsizev1alpha1.UpdateTypeRecommend)
+	createPolicy(t, "worker-policy", ns, "worker-app", rightsizev1alpha1.UpdateTypeRecommend)
 
 	// Wait for recommendations (not just discovery) so we can assert workload names.
 	waitForRecommendations := func(policyName string) {
@@ -1569,7 +1569,7 @@ func TestE2E_MemoryAllowDecreaseFalse(t *testing.T) {
 				MaxAllowed: quantityPtr("8Gi"),
 			},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Mode: rightsizev1alpha1.UpdateModeAuto, Cooldown: &metav1.Duration{Duration: time.Minute},
+				Type: rightsizev1alpha1.UpdateTypeAuto, Cooldown: &metav1.Duration{Duration: time.Minute},
 				AutoRevert: boolPtr(true), MaxCPUChangePercent: int32Ptr(100), MaxMemoryChangePercent: int32Ptr(100),
 			},
 		},
@@ -1664,7 +1664,7 @@ func TestE2E_MultiContainer_SequentialResize(t *testing.T) {
 				MaxAllowed: quantityPtr("8Gi"),
 			},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Mode:                   rightsizev1alpha1.UpdateModeAuto,
+				Type:                   rightsizev1alpha1.UpdateTypeAuto,
 				Cooldown:               &metav1.Duration{Duration: time.Minute},
 				AutoRevert:             boolPtr(true),
 				MaxCPUChangePercent:    int32Ptr(100),

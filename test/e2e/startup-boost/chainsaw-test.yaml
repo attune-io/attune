@@ -110,7 +110,7 @@ spec:
                   minAllowed: 64Mi
                   maxAllowed: 8Gi
                 updateStrategy:
-                  mode: Auto
+                  type: Auto
                   cooldown: 1m
                   maxCpuChangePercent: 100
                   maxMemoryChangePercent: 100

@@ -32,7 +32,7 @@ spec:
     minAllowed: "64Mi"
     maxAllowed: "8Gi"
   updateStrategy:
-    mode: Auto
+    type: Auto
     cooldown: 1h
     autoRevert: true
     # Resize only during off-peak hours on weekdays

@@ -48,5 +48,5 @@ spec:
     minAllowed: "256Mi"
     maxAllowed: "16Gi"
   updateStrategy:
-    mode: Auto
+    type: Auto
     cooldown: 1h

@@ -38,7 +38,7 @@ spec:
     controlledValues: RequestsOnly
     allowDecrease: false
   updateStrategy:
-    mode: Recommend            # start with Recommend when HPA is involved
+    type: Recommend            # start with Recommend when HPA is involved
     cooldown: 2h
 ---
 # Companion HPA (for reference)

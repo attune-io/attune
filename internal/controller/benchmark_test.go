@@ -120,7 +120,7 @@ func BenchmarkReconcile_ManyWorkloads(b *testing.B) {
 					CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.2"},
 					Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, SafetyMargin: "1.3"},
 					UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-						Mode: rightsizev1alpha1.UpdateModeRecommend,
+						Type: rightsizev1alpha1.UpdateTypeRecommend,
 					},
 				},
 			}
@@ -225,7 +225,7 @@ func BenchmarkReconcile_ManyPolicies(b *testing.B) {
 							CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.2"},
 							Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, SafetyMargin: "1.3"},
 							UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-								Mode: rightsizev1alpha1.UpdateModeRecommend,
+								Type: rightsizev1alpha1.UpdateTypeRecommend,
 							},
 						},
 					},
@@ -325,7 +325,7 @@ func BenchmarkReconcile_ConcurrentPolicies(b *testing.B) {
 							CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, SafetyMargin: "1.2"},
 							Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, SafetyMargin: "1.3"},
 							UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-								Mode: rightsizev1alpha1.UpdateModeRecommend,
+								Type: rightsizev1alpha1.UpdateTypeRecommend,
 							},
 						},
 					},

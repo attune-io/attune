@@ -23,14 +23,14 @@ helm install kube-rightsize oci://ghcr.io/sebtardiflabs/charts/kube-rightsize \
 | affinity | object | `{}` | Affinity rules |
 | clusterSize | string | `""` | Cluster size preset: sets resources, rate limits, and replica count. Valid values: small, medium, large, xlarge, or "" (no preset). Any explicitly set value overrides the preset. See docs/guides/scaling.md for details. |
 | collectorTTL | string | `"10m"` | Collector cache TTL for unused Prometheus connections (Go duration, e.g. "10m", "1h") |
-| defaults | object | `{"enabled":false,"updateStrategy":{"autoRevert":true,"cooldown":"1h","maxConcurrentResizes":1,"mode":"Recommend","resizeMethod":"InPlaceOnly"}}` | Cluster-wide defaults (creates a RightSizeDefaults CR) |
+| defaults | object | `{"enabled":false,"updateStrategy":{"autoRevert":true,"cooldown":"1h","maxConcurrentResizes":1,"resizeMethod":"InPlaceOnly","type":"Recommend"}}` | Cluster-wide defaults (creates a RightSizeDefaults CR) |
 | defaults.enabled | bool | `false` | Create a RightSizeDefaults resource with the values below |
-| defaults.updateStrategy | object | `{"autoRevert":true,"cooldown":"1h","maxConcurrentResizes":1,"mode":"Recommend","resizeMethod":"InPlaceOnly"}` | Default update strategy applied to all policies that don't override it |
+| defaults.updateStrategy | object | `{"autoRevert":true,"cooldown":"1h","maxConcurrentResizes":1,"resizeMethod":"InPlaceOnly","type":"Recommend"}` | Default update strategy applied to all policies that don't override it |
 | defaults.updateStrategy.autoRevert | bool | `true` | Auto-revert unsafe resizes |
 | defaults.updateStrategy.cooldown | string | `"1h"` | Cooldown between resize cycles (Go duration, minimum 1m) |
 | defaults.updateStrategy.maxConcurrentResizes | int | `1` | Max concurrent pod resizes per cycle (1-50) |
-| defaults.updateStrategy.mode | string | `"Recommend"` | Resize mode: Observe, Recommend, OneShot, Canary, Auto |
 | defaults.updateStrategy.resizeMethod | string | `"InPlaceOnly"` | Resize method: InPlaceOnly or InPlaceOrRecreate |
+| defaults.updateStrategy.type | string | `"Recommend"` | Resize type: Observe, Recommend, OneShot, Canary, Auto |
 | fullnameOverride | string | `""` | Override the full name |
 | grafanaDashboard.additionalLabels | object | `{}` | Additional labels for the dashboard ConfigMap (e.g., for folder selection) |
 | grafanaDashboard.enabled | bool | `false` | Create a ConfigMap with the Grafana dashboard (auto-discovered by Grafana sidecar) |

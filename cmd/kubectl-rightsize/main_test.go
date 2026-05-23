@@ -101,13 +101,13 @@ func TestGetNestedString(t *testing.T) {
 		Object: map[string]interface{}{
 			"spec": map[string]interface{}{
 				"updateStrategy": map[string]interface{}{
-					"mode": "Recommend",
+					"type": "Recommend",
 				},
 			},
 		},
 	}
 
-	assert.Equal(t, "Recommend", getNestedString(obj, "spec", "updateStrategy", "mode"))
+	assert.Equal(t, "Recommend", getNestedString(obj, "spec", "updateStrategy", "type"))
 	assert.Equal(t, "", getNestedString(obj, "spec", "nonexistent"))
 	assert.Equal(t, "", getNestedString(obj, "missing", "path"))
 }
@@ -306,7 +306,7 @@ func TestPrintPreview(t *testing.T) {
 				"namespace": "default",
 			},
 			"spec": map[string]interface{}{
-				"updateStrategy": map[string]interface{}{"mode": "Recommend"},
+				"updateStrategy": map[string]interface{}{"type": "Recommend"},
 			},
 			"status": map[string]interface{}{
 				"recommendations": []interface{}{
@@ -540,7 +540,7 @@ func TestPrintStatus(t *testing.T) {
 			},
 			"spec": map[string]interface{}{
 				"updateStrategy": map[string]interface{}{
-					"mode": "Auto",
+					"type": "Auto",
 				},
 			},
 			"status": map[string]interface{}{
@@ -651,7 +651,7 @@ func TestPrintStatus_ReadyContract(t *testing.T) {
 					},
 					"spec": map[string]interface{}{
 						"updateStrategy": map[string]interface{}{
-							"mode": "Auto",
+							"type": "Auto",
 						},
 					},
 					"status": map[string]interface{}{
@@ -724,7 +724,7 @@ func TestPrintStatus_FilterDegraded(t *testing.T) {
 		"apiVersion": "rightsize.io/v1alpha1",
 		"kind":       "RightSizePolicy",
 		"metadata":   map[string]interface{}{"name": "bad-app", "namespace": "prod", "creationTimestamp": "2026-01-01T00:00:00Z"},
-		"spec":       map[string]interface{}{"updateStrategy": map[string]interface{}{"mode": "Auto"}},
+		"spec":       map[string]interface{}{"updateStrategy": map[string]interface{}{"type": "Auto"}},
 		"status": map[string]interface{}{
 			"workloads": map[string]interface{}{"discovered": int64(1)},
 			"conditions": []interface{}{
@@ -737,7 +737,7 @@ func TestPrintStatus_FilterDegraded(t *testing.T) {
 		"apiVersion": "rightsize.io/v1alpha1",
 		"kind":       "RightSizePolicy",
 		"metadata":   map[string]interface{}{"name": "good-app", "namespace": "prod", "creationTimestamp": "2026-01-01T00:00:00Z"},
-		"spec":       map[string]interface{}{"updateStrategy": map[string]interface{}{"mode": "Auto"}},
+		"spec":       map[string]interface{}{"updateStrategy": map[string]interface{}{"type": "Auto"}},
 		"status": map[string]interface{}{
 			"workloads": map[string]interface{}{"discovered": int64(2)},
 			"conditions": []interface{}{
@@ -794,21 +794,21 @@ func TestFormatCanaryStatus(t *testing.T) {
 		{
 			name: "non-canary mode",
 			obj: map[string]interface{}{
-				"spec": map[string]interface{}{"updateStrategy": map[string]interface{}{"mode": "Auto"}},
+				"spec": map[string]interface{}{"updateStrategy": map[string]interface{}{"type": "Auto"}},
 			},
 			expected: "-",
 		},
 		{
 			name: "canary pending",
 			obj: map[string]interface{}{
-				"spec": map[string]interface{}{"updateStrategy": map[string]interface{}{"mode": "Canary"}},
+				"spec": map[string]interface{}{"updateStrategy": map[string]interface{}{"type": "Canary"}},
 			},
 			expected: "Pending",
 		},
 		{
 			name: "canary in progress with pods",
 			obj: map[string]interface{}{
-				"spec": map[string]interface{}{"updateStrategy": map[string]interface{}{"mode": "Canary"}},
+				"spec": map[string]interface{}{"updateStrategy": map[string]interface{}{"type": "Canary"}},
 				"status": map[string]interface{}{
 					"canary": map[string]interface{}{
 						"phase": "CanaryInProgress",
@@ -821,7 +821,7 @@ func TestFormatCanaryStatus(t *testing.T) {
 		{
 			name: "canary full rollout",
 			obj: map[string]interface{}{
-				"spec": map[string]interface{}{"updateStrategy": map[string]interface{}{"mode": "Canary"}},
+				"spec": map[string]interface{}{"updateStrategy": map[string]interface{}{"type": "Canary"}},
 				"status": map[string]interface{}{
 					"canary": map[string]interface{}{"phase": "FullRollout"},
 				},
@@ -873,7 +873,7 @@ func TestPrintStructured_JSON(t *testing.T) {
 			},
 			"spec": map[string]interface{}{
 				"updateStrategy": map[string]interface{}{
-					"mode": "Recommend",
+					"type": "Recommend",
 				},
 			},
 		},
@@ -922,7 +922,7 @@ func TestPrintStructured_YAML(t *testing.T) {
 			},
 			"spec": map[string]interface{}{
 				"updateStrategy": map[string]interface{}{
-					"mode": "Auto",
+					"type": "Auto",
 				},
 			},
 		},
@@ -1303,7 +1303,7 @@ func TestRun_MainWiring(t *testing.T) {
 		},
 		"spec": map[string]interface{}{
 			"updateStrategy": map[string]interface{}{
-				"mode": "Recommend",
+				"type": "Recommend",
 			},
 		},
 		"status": map[string]interface{}{
@@ -1710,7 +1710,7 @@ func TestPrintExplain_NoRecommendations(t *testing.T) {
 
 	assert.Contains(t, output, "default/new-policy has no recommendations yet (Not enough data).")
 	assert.Contains(t, output, "Effective values:")
-	assert.Contains(t, output, "Mode: Recommend (source: built-in default, configured: <unset>)")
+	assert.Contains(t, output, "Type: Recommend (source: built-in default, configured: <unset>)")
 }
 
 func TestPrintExplain_ShowsPolicyNamespaceAndBuiltInEffectiveValues(t *testing.T) {
@@ -1727,7 +1727,7 @@ func TestPrintExplain_ShowsPolicyNamespaceAndBuiltInEffectiveValues(t *testing.T
 		},
 		"spec": map[string]interface{}{
 			"updateStrategy": map[string]interface{}{
-				"mode":                "Auto",
+				"type":                "Auto",
 				"cooldown":            cooldown,
 				"maxCpuChangePercent": maxCPUChangePercent,
 			},
@@ -1748,14 +1748,14 @@ func TestPrintExplain_ShowsPolicyNamespaceAndBuiltInEffectiveValues(t *testing.T
 	}}
 
 	nsCooldown := &metav1.Duration{Duration: 45 * time.Minute}
-	nsMode := rightsizev1alpha1.UpdateModeCanary
+	nsMode := rightsizev1alpha1.UpdateTypeCanary
 	nsResizeMethod := rightsizev1alpha1.ResizeMethodInPlaceOrRecreate
 	nsDefaultsObj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&rightsizev1alpha1.RightSizeNamespaceDefaults{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "rightsize.io/v1alpha1", Kind: "RightSizeNamespaceDefaults"},
 		ObjectMeta: metav1.ObjectMeta{Name: "team-defaults", Namespace: "default"},
 		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
 			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{
-				Mode:         nsMode,
+				Type:         nsMode,
 				Cooldown:     nsCooldown,
 				ResizeMethod: nsResizeMethod,
 			},
@@ -1805,7 +1805,7 @@ func TestPrintExplain_ShowsPolicyNamespaceAndBuiltInEffectiveValues(t *testing.T
 	require.NoError(t, err)
 	output := buf.String()
 
-	assert.Contains(t, output, "Mode: Auto (source: policy, configured: Auto)")
+	assert.Contains(t, output, "Type: Auto (source: policy, configured: Auto)")
 	assert.Contains(t, output, "Cooldown: 30m0s (source: policy, configured: 30m)")
 	assert.Contains(t, output, "Query step: 10m0s (source: policy, configured: 10m)")
 	assert.Contains(t, output, "Minimum data points: 120 (source: policy, configured: 120)")
@@ -1826,7 +1826,7 @@ func TestPrintExplain_ObservationPeriodFromCanaryShowsConfigured(t *testing.T) {
 		},
 		"spec": map[string]interface{}{
 			"updateStrategy": map[string]interface{}{
-				"mode": "Canary",
+				"type": "Canary",
 				"canary": map[string]interface{}{
 					"percentage":        int64(10),
 					"observationPeriod": "10m",
@@ -1875,7 +1875,7 @@ func TestPrintExplain_ObservationPeriodFromCanaryShowsConfigured(t *testing.T) {
 
 func TestPrintExplain_UsesClusterDefaultsWhenNoNamespaceDefaultsExist(t *testing.T) {
 	clusterQueryStep := &metav1.Duration{Duration: 2 * time.Minute}
-	clusterMode := rightsizev1alpha1.UpdateModeAuto
+	clusterMode := rightsizev1alpha1.UpdateTypeAuto
 	clusterResizeMethod := rightsizev1alpha1.ResizeMethodInPlaceOrRecreate
 	clusterDefaultsObj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&rightsizev1alpha1.RightSizeDefaults{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "rightsize.io/v1alpha1", Kind: "RightSizeDefaults"},
@@ -1883,7 +1883,7 @@ func TestPrintExplain_UsesClusterDefaultsWhenNoNamespaceDefaultsExist(t *testing
 		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
 			MetricsSource: &rightsizev1alpha1.MetricsSource{QueryStep: clusterQueryStep},
 			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{
-				Mode:         clusterMode,
+				Type:         clusterMode,
 				ResizeMethod: clusterResizeMethod,
 			},
 		},
@@ -1936,7 +1936,7 @@ func TestPrintExplain_UsesClusterDefaultsWhenNoNamespaceDefaultsExist(t *testing
 	require.NoError(t, err)
 	output := buf.String()
 
-	assert.Contains(t, output, "Mode: Auto (source: cluster default, configured: <unset>)")
+	assert.Contains(t, output, "Type: Auto (source: cluster default, configured: <unset>)")
 	assert.Contains(t, output, "Query step: 2m0s (source: cluster default, configured: <unset>)")
 	assert.Contains(t, output, "Resize method: InPlaceOrRecreate (source: cluster default, configured: <unset>)")
 }
@@ -1954,13 +1954,13 @@ func TestPrintExplain_NamespaceDefaultsDoNotInheritMissingFieldsFromClusterDefau
 	nsDefaults := &unstructured.Unstructured{Object: nsDefaultsObj}
 
 	clusterQueryStep := &metav1.Duration{Duration: 1 * time.Minute}
-	clusterMode := rightsizev1alpha1.UpdateModeAuto
+	clusterMode := rightsizev1alpha1.UpdateTypeAuto
 	clusterDefaultsObj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&rightsizev1alpha1.RightSizeDefaults{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "rightsize.io/v1alpha1", Kind: "RightSizeDefaults"},
 		ObjectMeta: metav1.ObjectMeta{Name: "cluster-defaults"},
 		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
 			MetricsSource:  &rightsizev1alpha1.MetricsSource{QueryStep: clusterQueryStep},
-			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{Mode: clusterMode},
+			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{Type: clusterMode},
 		},
 	})
 	require.NoError(t, err)
@@ -2015,9 +2015,9 @@ func TestPrintExplain_NamespaceDefaultsDoNotInheritMissingFieldsFromClusterDefau
 
 	assert.Contains(t, output, "Minimum data points: 96 (source: namespace default, configured: <unset>)")
 	assert.Contains(t, output, "Query step: 5m0s (source: built-in default, configured: <unset>)")
-	assert.Contains(t, output, "Mode: Recommend (source: built-in default, configured: <unset>)")
+	assert.Contains(t, output, "Type: Recommend (source: built-in default, configured: <unset>)")
 	assert.NotContains(t, output, "Query step: 1m0s")
-	assert.NotContains(t, output, "Mode: Auto")
+	assert.NotContains(t, output, "Type: Auto")
 }
 
 // ---------- policyReadyReason ----------
@@ -2112,7 +2112,7 @@ func TestPrintEffectivePolicySummary_DoesNotPanic(t *testing.T) {
 				RateWindow: &metav1.Duration{Duration: 10 * time.Minute},
 			},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Mode:                 rightsizev1alpha1.UpdateModeAuto,
+				Type:                 rightsizev1alpha1.UpdateTypeAuto,
 				Cooldown:             &metav1.Duration{Duration: time.Hour},
 				AutoRevert:           &autoRevert,
 				MaxConcurrentResizes: 5,
@@ -2122,7 +2122,7 @@ func TestPrintEffectivePolicySummary_DoesNotPanic(t *testing.T) {
 	item := unstructured.Unstructured{Object: map[string]interface{}{
 		"spec": map[string]interface{}{
 			"updateStrategy": map[string]interface{}{
-				"mode": "Auto",
+				"type": "Auto",
 			},
 		},
 	}}
@@ -2135,7 +2135,7 @@ func TestPrintEffectivePolicySummary_DoesNotPanic(t *testing.T) {
 			CPU:            &rightsizev1alpha1.ResourceConfig{Percentile: 90},
 			Memory:         &rightsizev1alpha1.ResourceConfig{Percentile: 95},
 			MetricsSource:  &rightsizev1alpha1.MetricsSource{},
-			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{Mode: rightsizev1alpha1.UpdateModeAuto},
+			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{Type: rightsizev1alpha1.UpdateTypeAuto},
 		},
 	}
 	printEffectivePolicySummary(item, policy, selectedDefaults{defaults: defaults, source: "cluster"})
@@ -2172,7 +2172,7 @@ func TestMergeDefaultsIntoPolicy_AllFieldsInherited(t *testing.T) {
 				RateWindow:        &metav1.Duration{Duration: 15 * time.Minute},
 			},
 			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{
-				Mode:                    rightsizev1alpha1.UpdateModeAuto,
+				Type:                    rightsizev1alpha1.UpdateTypeAuto,
 				Cooldown:                &metav1.Duration{Duration: 30 * time.Minute},
 				AutoRevert:              ptrBool(false),
 				ResizeMethod:            rightsizev1alpha1.ResizeMethodInPlaceOrRecreate,
@@ -2219,7 +2219,7 @@ func TestMergeDefaultsIntoPolicy_AllFieldsInherited(t *testing.T) {
 	assert.Equal(t, 15*time.Minute, policy.Spec.MetricsSource.RateWindow.Duration)
 
 	// UpdateStrategy
-	assert.Equal(t, rightsizev1alpha1.UpdateModeAuto, policy.Spec.UpdateStrategy.Mode)
+	assert.Equal(t, rightsizev1alpha1.UpdateTypeAuto, policy.Spec.UpdateStrategy.Type)
 	require.NotNil(t, policy.Spec.UpdateStrategy.Cooldown)
 	assert.Equal(t, 30*time.Minute, policy.Spec.UpdateStrategy.Cooldown.Duration)
 	require.NotNil(t, policy.Spec.UpdateStrategy.AutoRevert)
@@ -2250,7 +2250,7 @@ func TestMergeDefaultsIntoPolicy_PolicyFieldsNotOverwritten(t *testing.T) {
 				ControlledValues: &cv,
 			},
 			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{
-				Mode:                 rightsizev1alpha1.UpdateModeAuto,
+				Type:                 rightsizev1alpha1.UpdateTypeAuto,
 				MaxConcurrentResizes: 10,
 			},
 			MetricsSource: &rightsizev1alpha1.MetricsSource{
@@ -2268,7 +2268,7 @@ func TestMergeDefaultsIntoPolicy_PolicyFieldsNotOverwritten(t *testing.T) {
 				ControlledValues: &policyCV,
 			},
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Mode:                 rightsizev1alpha1.UpdateModeRecommend,
+				Type:                 rightsizev1alpha1.UpdateTypeRecommend,
 				MaxConcurrentResizes: 3,
 			},
 			MetricsSource: rightsizev1alpha1.MetricsSource{
@@ -2282,7 +2282,7 @@ func TestMergeDefaultsIntoPolicy_PolicyFieldsNotOverwritten(t *testing.T) {
 	assert.Equal(t, int32(95), policy.Spec.CPU.Percentile)
 	assert.Equal(t, "1.2", policy.Spec.CPU.SafetyMargin)
 	assert.Equal(t, "RequestsOnly", *policy.Spec.CPU.ControlledValues)
-	assert.Equal(t, rightsizev1alpha1.UpdateModeRecommend, policy.Spec.UpdateStrategy.Mode)
+	assert.Equal(t, rightsizev1alpha1.UpdateTypeRecommend, policy.Spec.UpdateStrategy.Type)
 	assert.Equal(t, int32(3), policy.Spec.UpdateStrategy.MaxConcurrentResizes)
 	assert.Equal(t, 5*time.Minute, policy.Spec.MetricsSource.RateWindow.Duration)
 }

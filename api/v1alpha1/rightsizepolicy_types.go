@@ -21,15 +21,15 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// UpdateMode defines the operating mode of a RightSizePolicy.
-type UpdateMode string
+// UpdateType defines the operating mode of a RightSizePolicy.
+type UpdateType string
 
 const (
-	UpdateModeObserve   UpdateMode = "Observe"
-	UpdateModeRecommend UpdateMode = "Recommend"
-	UpdateModeOneShot   UpdateMode = "OneShot"
-	UpdateModeCanary    UpdateMode = "Canary"
-	UpdateModeAuto      UpdateMode = "Auto"
+	UpdateTypeObserve   UpdateType = "Observe"
+	UpdateTypeRecommend UpdateType = "Recommend"
+	UpdateTypeOneShot   UpdateType = "OneShot"
+	UpdateTypeCanary    UpdateType = "Canary"
+	UpdateTypeAuto      UpdateType = "Auto"
 )
 
 // ResizeMethodType defines the resize fallback strategy.
@@ -339,9 +339,9 @@ type UpdateStrategy struct {
 	// so that RightSizeDefaults cluster configuration can override it).
 	// +kubebuilder:validation:Enum=Observe;Recommend;OneShot;Canary;Auto
 	// +optional
-	Mode UpdateMode `json:"mode,omitempty"`
+	Type UpdateType `json:"type,omitempty"`
 
-	// Canary configures canary rollout behavior when Mode is Canary.
+	// Canary configures canary rollout behavior when Type is Canary.
 	// +optional
 	Canary *CanaryConfig `json:"canary,omitempty"`
 

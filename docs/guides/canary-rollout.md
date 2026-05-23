@@ -9,7 +9,7 @@ passes without issues.
 ```yaml
 spec:
   updateStrategy:
-    mode: Canary
+    type: Canary
     canary:
       percentage: 10          # resize 10% of pods first
       observationPeriod: 30m  # watch canary pods for 30 minutes
@@ -119,7 +119,7 @@ after canary pods have run successfully through multiple cooldown cycles:
 
 ```bash
 kubectl patch rsp my-app --type merge \
-  -p '{"spec":{"updateStrategy":{"mode":"Auto"}}}'
+  -p '{"spec":{"updateStrategy":{"type":"Auto"}}}'
 ```
 
 Or increase the canary percentage gradually:
@@ -135,7 +135,7 @@ To stop all resizing immediately, switch back to Recommend mode:
 
 ```bash
 kubectl patch rsp my-app --type merge \
-  -p '{"spec":{"updateStrategy":{"mode":"Recommend"}}}'
+  -p '{"spec":{"updateStrategy":{"type":"Recommend"}}}'
 ```
 
 !!! tip

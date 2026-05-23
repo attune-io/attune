@@ -21,13 +21,13 @@ Your Git-stored Deployment spec remains unchanged. This means:
 
 ### 1. Start in Recommend mode
 
-Deploy `RightSizePolicy` resources in your GitOps repo with `mode: Recommend`.
+Deploy `RightSizePolicy` resources in your GitOps repo with `type: Recommend`.
 The operator computes recommendations without modifying anything.
 
 ```yaml
 spec:
   updateStrategy:
-    mode: Recommend
+    type: Recommend
 ```
 
 ### 2. Review recommendations

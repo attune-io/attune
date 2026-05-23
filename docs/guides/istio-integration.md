@@ -37,7 +37,7 @@ spec:
     percentile: 99
     safetyMargin: "1.3"
   updateStrategy:
-    mode: Auto
+    type: Auto
 ```
 
 The operator will compute recommendations and resize only your application

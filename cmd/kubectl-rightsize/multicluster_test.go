@@ -166,7 +166,7 @@ func TestPrintStatusItems_ShowsClusterColumn(t *testing.T) {
 				"name": "api-svc", "namespace": "default",
 				"creationTimestamp": "2026-01-01T00:00:00Z",
 			},
-			"spec":   map[string]interface{}{"updateStrategy": map[string]interface{}{"mode": "Auto"}},
+			"spec":   map[string]interface{}{"updateStrategy": map[string]interface{}{"type": "Auto"}},
 			"status": map[string]interface{}{"workloads": map[string]interface{}{"discovered": int64(2)}},
 		}},
 		{Object: map[string]interface{}{
@@ -174,7 +174,7 @@ func TestPrintStatusItems_ShowsClusterColumn(t *testing.T) {
 				"name": "web-svc", "namespace": "default",
 				"creationTimestamp": "2026-01-01T00:00:00Z",
 			},
-			"spec":   map[string]interface{}{"updateStrategy": map[string]interface{}{"mode": "Recommend"}},
+			"spec":   map[string]interface{}{"updateStrategy": map[string]interface{}{"type": "Recommend"}},
 			"status": map[string]interface{}{"workloads": map[string]interface{}{"discovered": int64(1)}},
 		}},
 	}
@@ -210,7 +210,7 @@ func TestPrintStatusItems_NoClusterColumnForSingleCluster(t *testing.T) {
 				"name": "api-svc", "namespace": "default",
 				"creationTimestamp": "2026-01-01T00:00:00Z",
 			},
-			"spec":   map[string]interface{}{"updateStrategy": map[string]interface{}{"mode": "Auto"}},
+			"spec":   map[string]interface{}{"updateStrategy": map[string]interface{}{"type": "Auto"}},
 			"status": map[string]interface{}{"workloads": map[string]interface{}{"discovered": int64(2)}},
 		}},
 	}
@@ -426,7 +426,7 @@ func TestRun_MultiClusterStatus(t *testing.T) {
 			"name": "east-policy", "namespace": "default",
 			"creationTimestamp": "2026-01-01T00:00:00Z",
 		},
-		"spec": map[string]interface{}{"updateStrategy": map[string]interface{}{"mode": "Auto"}},
+		"spec": map[string]interface{}{"updateStrategy": map[string]interface{}{"type": "Auto"}},
 		"status": map[string]interface{}{
 			"workloads":  map[string]interface{}{"discovered": int64(3)},
 			"conditions": []interface{}{map[string]interface{}{"type": "Ready", "status": "True", "reason": "Monitoring"}},
@@ -458,7 +458,7 @@ func TestRun_MultiClusterWithWarnings(t *testing.T) {
 			"name": "ok-policy", "namespace": "default",
 			"creationTimestamp": "2026-01-01T00:00:00Z",
 		},
-		"spec":   map[string]interface{}{"updateStrategy": map[string]interface{}{"mode": "Auto"}},
+		"spec":   map[string]interface{}{"updateStrategy": map[string]interface{}{"type": "Auto"}},
 		"status": map[string]interface{}{"workloads": map[string]interface{}{"discovered": int64(1)}},
 	}}
 

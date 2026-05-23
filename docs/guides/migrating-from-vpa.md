@@ -31,7 +31,7 @@ to RightSizePolicy fields:
 | `resourcePolicy.containerPolicies[].minAllowed` | `spec.cpu.minAllowed`, `spec.memory.minAllowed` |
 | `resourcePolicy.containerPolicies[].maxAllowed` | `spec.cpu.maxAllowed`, `spec.memory.maxAllowed` |
 | `resourcePolicy.containerPolicies[].controlledValues` | `spec.cpu.controlledValues`, `spec.memory.controlledValues` |
-| `updatePolicy.updateMode` | `spec.updateStrategy.mode` |
+| `updatePolicy.updateMode` | `spec.updateStrategy.type` |
 
 Example VPA:
 
@@ -86,7 +86,7 @@ spec:
     maxAllowed: "8Gi"
     allowDecrease: false
   updateStrategy:
-    mode: Recommend
+    type: Recommend
     cooldown: 1h
     autoRevert: true
 ```
@@ -113,7 +113,7 @@ kubectl delete vpa my-app
 
 ```bash
 kubectl patch rsp my-app --type merge \
-  -p '{"spec":{"updateStrategy":{"mode":"Canary","canary":{"percentage":10,"observationPeriod":"30m"}}}}'
+  -p '{"spec":{"updateStrategy":{"type":"Canary","canary":{"percentage":10,"observationPeriod":"30m"}}}}'
 ```
 
 ### 6. Remove VPA entirely

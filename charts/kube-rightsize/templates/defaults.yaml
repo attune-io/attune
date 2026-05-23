@@ -23,7 +23,7 @@ spec:
     {{- toYaml . | nindent 4 }}
   {{- end }}
   updateStrategy:
-    mode: {{ .Values.defaults.updateStrategy.mode | default "Recommend" }}
+    type: {{ .Values.defaults.updateStrategy.type | default "Recommend" }}
     {{- if .Values.defaults.updateStrategy.cooldown }}
     cooldown: {{ .Values.defaults.updateStrategy.cooldown }}
     {{- end }}

@@ -118,7 +118,7 @@ small subset of pods:
 
 ```bash
 kubectl patch rsp my-first-policy -n my-app --type=merge \
-  -p '{"spec":{"updateStrategy":{"mode":"Canary","canary":{"percentage":10}}}}'
+  -p '{"spec":{"updateStrategy":{"type":"Canary","canary":{"percentage":10}}}}'
 ```
 
 This resizes only 10% of matching pods. Monitor:
@@ -142,7 +142,7 @@ After successful canary resizes with no reverts, promote to Auto:
 
 ```bash
 kubectl patch rsp my-first-policy -n my-app --type=merge \
-  -p '{"spec":{"updateStrategy":{"mode":"Auto"}}}'
+  -p '{"spec":{"updateStrategy":{"type":"Auto"}}}'
 ```
 
 Now the operator manages resources continuously. Check savings:

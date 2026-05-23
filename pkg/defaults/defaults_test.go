@@ -41,7 +41,7 @@ func TestApplyBuiltInDefaults_FillsAllFields(t *testing.T) {
 	policy := &rightsizev1alpha1.RightSizePolicy{}
 	ApplyBuiltInDefaults(policy)
 
-	assert.Equal(t, rightsizev1alpha1.DefaultUpdateMode, policy.Spec.UpdateStrategy.Mode)
+	assert.Equal(t, rightsizev1alpha1.DefaultUpdateType, policy.Spec.UpdateStrategy.Type)
 	assert.NotNil(t, policy.Spec.UpdateStrategy.MaxCPUChangePercent)
 	assert.Equal(t, rightsizev1alpha1.DefaultMaxCPUChangePercent, *policy.Spec.UpdateStrategy.MaxCPUChangePercent)
 	assert.NotNil(t, policy.Spec.UpdateStrategy.MaxMemoryChangePercent)
@@ -62,19 +62,19 @@ func TestApplyBuiltInDefaults_FillsAllFields(t *testing.T) {
 }
 
 func TestApplyBuiltInDefaults_DoesNotOverrideExistingValues(t *testing.T) {
-	mode := rightsizev1alpha1.UpdateModeAuto
+	mode := rightsizev1alpha1.UpdateTypeAuto
 	maxCPU := int32(25)
 	policy := &rightsizev1alpha1.RightSizePolicy{
 		Spec: rightsizev1alpha1.RightSizePolicySpec{
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Mode:                mode,
+				Type:                mode,
 				MaxCPUChangePercent: &maxCPU,
 			},
 		},
 	}
 	ApplyBuiltInDefaults(policy)
 
-	assert.Equal(t, mode, policy.Spec.UpdateStrategy.Mode)
+	assert.Equal(t, mode, policy.Spec.UpdateStrategy.Type)
 	assert.Equal(t, int32(25), *policy.Spec.UpdateStrategy.MaxCPUChangePercent)
 }
 
@@ -152,7 +152,7 @@ func TestMergeUpdateStrategy_AllFields(t *testing.T) {
 	maxTotalCPU := resource.MustParse("2000m")
 	maxTotalMem := resource.MustParse("4Gi")
 	defaults := &rightsizev1alpha1.UpdateStrategy{
-		Mode:                    rightsizev1alpha1.UpdateModeAuto,
+		Type:                    rightsizev1alpha1.UpdateTypeAuto,
 		AutoRevert:              &autoRevert,
 		ResizeMethod:            rightsizev1alpha1.ResizeMethodInPlaceOrRecreate,
 		MaxCPUChangePercent:     &maxCPU,
@@ -170,7 +170,7 @@ func TestMergeUpdateStrategy_AllFields(t *testing.T) {
 
 	inherited := MergeUpdateStrategy(policy, defaults)
 
-	assert.Equal(t, rightsizev1alpha1.UpdateModeAuto, policy.Mode)
+	assert.Equal(t, rightsizev1alpha1.UpdateTypeAuto, policy.Type)
 	assert.True(t, *policy.AutoRevert)
 	assert.Equal(t, rightsizev1alpha1.ResizeMethodInPlaceOrRecreate, policy.ResizeMethod)
 	assert.Equal(t, int32(40), *policy.MaxCPUChangePercent)
@@ -383,15 +383,15 @@ func TestMergeMetricsSource_PartialInheritance(t *testing.T) {
 // ---------- MergeUpdateStrategy edge cases ----------
 
 func TestMergeUpdateStrategy_NilDefaultsIsNoOp(t *testing.T) {
-	policy := &rightsizev1alpha1.UpdateStrategy{Mode: rightsizev1alpha1.UpdateModeAuto}
+	policy := &rightsizev1alpha1.UpdateStrategy{Type: rightsizev1alpha1.UpdateTypeAuto}
 	inherited := MergeUpdateStrategy(policy, nil)
 	assert.Empty(t, inherited)
-	assert.Equal(t, rightsizev1alpha1.UpdateModeAuto, policy.Mode)
+	assert.Equal(t, rightsizev1alpha1.UpdateTypeAuto, policy.Type)
 }
 
 func TestMergeUpdateStrategy_PolicyFieldsTakePrecedence(t *testing.T) {
 	defaults := &rightsizev1alpha1.UpdateStrategy{
-		Mode:                    rightsizev1alpha1.UpdateModeAuto,
+		Type:                    rightsizev1alpha1.UpdateTypeAuto,
 		Cooldown:                &metav1.Duration{Duration: 30 * time.Minute},
 		AutoRevert:              ptrBool(false),
 		ResizeMethod:            rightsizev1alpha1.ResizeMethodInPlaceOrRecreate,
@@ -404,7 +404,7 @@ func TestMergeUpdateStrategy_PolicyFieldsTakePrecedence(t *testing.T) {
 		Canary:                  &rightsizev1alpha1.CanaryConfig{Percentage: 10},
 	}
 	policy := &rightsizev1alpha1.UpdateStrategy{
-		Mode:                    rightsizev1alpha1.UpdateModeRecommend,
+		Type:                    rightsizev1alpha1.UpdateTypeRecommend,
 		Cooldown:                &metav1.Duration{Duration: time.Hour},
 		AutoRevert:              ptrBool(true),
 		ResizeMethod:            rightsizev1alpha1.ResizeMethodInPlaceOnly,
@@ -420,7 +420,7 @@ func TestMergeUpdateStrategy_PolicyFieldsTakePrecedence(t *testing.T) {
 	inherited := MergeUpdateStrategy(policy, defaults)
 
 	assert.Empty(t, inherited)
-	assert.Equal(t, rightsizev1alpha1.UpdateModeRecommend, policy.Mode)
+	assert.Equal(t, rightsizev1alpha1.UpdateTypeRecommend, policy.Type)
 	assert.Equal(t, time.Hour, policy.Cooldown.Duration)
 	assert.True(t, *policy.AutoRevert)
 	assert.Equal(t, rightsizev1alpha1.ResizeMethodInPlaceOnly, policy.ResizeMethod)
@@ -435,14 +435,14 @@ func TestMergeUpdateStrategy_PolicyFieldsTakePrecedence(t *testing.T) {
 
 func TestMergeUpdateStrategy_PartialInheritance(t *testing.T) {
 	defaults := &rightsizev1alpha1.UpdateStrategy{
-		Mode:                 rightsizev1alpha1.UpdateModeAuto,
+		Type:                 rightsizev1alpha1.UpdateTypeAuto,
 		Cooldown:             &metav1.Duration{Duration: 30 * time.Minute},
 		MaxCPUChangePercent:  ptrInt32(80),
 		MaxConcurrentResizes: 5,
 		Schedule:             &rightsizev1alpha1.ResizeSchedule{Timezone: "UTC"},
 	}
 	policy := &rightsizev1alpha1.UpdateStrategy{
-		Mode:     rightsizev1alpha1.UpdateModeRecommend,
+		Type:     rightsizev1alpha1.UpdateTypeRecommend,
 		Cooldown: &metav1.Duration{Duration: time.Hour},
 	}
 
@@ -454,6 +454,6 @@ func TestMergeUpdateStrategy_PartialInheritance(t *testing.T) {
 	assert.Contains(t, inherited, "schedule")
 	assert.NotContains(t, inherited, "mode")
 	assert.NotContains(t, inherited, "cooldown")
-	assert.Equal(t, rightsizev1alpha1.UpdateModeRecommend, policy.Mode)
+	assert.Equal(t, rightsizev1alpha1.UpdateTypeRecommend, policy.Type)
 	assert.Equal(t, time.Hour, policy.Cooldown.Duration)
 }

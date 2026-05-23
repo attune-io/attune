@@ -58,7 +58,7 @@ spec:
     maxAllowed: "8Gi"
     controlledValues: RequestsAndLimits
   updateStrategy:
-    mode: Auto
+    type: Auto
     cooldown: 1h
     autoRevert: true
 ```
@@ -79,7 +79,7 @@ set `safetyObservationPeriod`:
 ```yaml
 spec:
   updateStrategy:
-    mode: Auto
+    type: Auto
     autoRevert: true
     safetyObservationPeriod: 10m  # safety watch window after each resize
 ```
@@ -145,7 +145,7 @@ computed; only the actual resize execution is gated.
 ```yaml
 spec:
   updateStrategy:
-    mode: Auto
+    type: Auto
     schedule:
       windows:
         - start: "02:00"
@@ -168,7 +168,7 @@ Combine scheduling with budget caps for large fleets:
 ```yaml
 spec:
   updateStrategy:
-    mode: Auto
+    type: Auto
     schedule:
       windows:
         - start: "02:00"
@@ -190,7 +190,7 @@ patches from CI/CD rather than letting the operator resize directly).
 ```yaml
 spec:
   updateStrategy:
-    mode: Recommend  # or Auto
+    type: Recommend  # or Auto
     export:
       configMap: true
 ```
@@ -212,14 +212,14 @@ This is useful in GitOps workflows where:
 
 ```bash
 kubectl patch rsp my-app --type merge \
-  -p '{"spec":{"updateStrategy":{"mode":"Auto","autoRevert":true}}}'
+  -p '{"spec":{"updateStrategy":{"type":"Auto","autoRevert":true}}}'
 ```
 
 ### From Canary mode
 
 ```bash
 kubectl patch rsp my-app --type merge \
-  -p '{"spec":{"updateStrategy":{"mode":"Auto"}}}'
+  -p '{"spec":{"updateStrategy":{"type":"Auto"}}}'
 ```
 
 ## Rollback
@@ -228,7 +228,7 @@ If Auto mode causes issues, switch back to Recommend immediately:
 
 ```bash
 kubectl patch rsp my-app --type merge \
-  -p '{"spec":{"updateStrategy":{"mode":"Recommend"}}}'
+  -p '{"spec":{"updateStrategy":{"type":"Recommend"}}}'
 ```
 
 This stops all future resizes. Already-resized pods keep their current

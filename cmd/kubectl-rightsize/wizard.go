@@ -266,7 +266,7 @@ func wizardPromote(ctx context.Context, dynClient dynamic.Interface, namespace s
 	// Select policy.
 	policyOptions := make([]string, len(list.Items))
 	for i, item := range list.Items {
-		mode := getNestedString(item, "spec", "updateStrategy", "mode")
+		mode := getNestedString(item, "spec", "updateStrategy", "type")
 		ready := policyReadyReason(item)
 		policyOptions[i] = fmt.Sprintf("%s (mode: %s, status: %s)", item.GetName(), mode, ready)
 	}
@@ -276,7 +276,7 @@ func wizardPromote(ctx context.Context, dynClient dynamic.Interface, namespace s
 	}
 
 	selected := &list.Items[policyIdx]
-	currentMode := getNestedString(*selected, "spec", "updateStrategy", "mode")
+	currentMode := getNestedString(*selected, "spec", "updateStrategy", "type")
 	fmt.Printf("\nPolicy: %s/%s (current mode: %s)\n", ns, selected.GetName(), currentMode)
 
 	// Show recommendation summary.
@@ -337,8 +337,8 @@ func wizardPromote(ctx context.Context, dynClient dynamic.Interface, namespace s
 	if err != nil {
 		return fmt.Errorf("re-fetching policy: %w", err)
 	}
-	if err := unstructured.SetNestedField(fresh.Object, newMode, "spec", "updateStrategy", "mode"); err != nil {
-		return fmt.Errorf("setting mode: %w", err)
+	if err := unstructured.SetNestedField(fresh.Object, newMode, "spec", "updateStrategy", "type"); err != nil {
+		return fmt.Errorf("setting type: %w", err)
 	}
 	_, err = dynClient.Resource(gvr).Namespace(ns).Update(ctx, fresh, metav1.UpdateOptions{})
 	if err != nil {
@@ -504,7 +504,7 @@ func buildPolicyObject(namespace, name, kind, workloadName, promAddr string, cpu
 					"safetyMargin": "1.3",
 				},
 				"updateStrategy": map[string]interface{}{
-					"mode": mode,
+					"type": mode,
 				},
 			},
 		},

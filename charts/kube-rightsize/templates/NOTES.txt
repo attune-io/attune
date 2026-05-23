@@ -35,7 +35,7 @@ kube-rightsize has been installed.
        minAllowed: 64Mi
        maxAllowed: 8Gi
      updateStrategy:
-       mode: Recommend
+       type: Recommend
    EOF
 
 4. Check policy status:

@@ -22,13 +22,13 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 )
 
-// Update strategy mode aliases for backward compatibility.
+// Update strategy type aliases for backward compatibility.
 const (
-	ModeRecommend = UpdateModeRecommend
-	ModeObserve   = UpdateModeObserve
-	ModeOneShot   = UpdateModeOneShot
-	ModeCanary    = UpdateModeCanary
-	ModeAuto      = UpdateModeAuto
+	ModeRecommend = UpdateTypeRecommend
+	ModeObserve   = UpdateTypeObserve
+	ModeOneShot   = UpdateTypeOneShot
+	ModeCanary    = UpdateTypeCanary
+	ModeAuto      = UpdateTypeAuto
 )
 
 // Controlled values options.
@@ -53,7 +53,7 @@ const (
 	DefaultCPUSafetyMargin              = "1.2"
 	DefaultMemoryPercentile       int32 = 99
 	DefaultMemorySafetyMargin           = "1.3"
-	DefaultUpdateMode                   = UpdateModeRecommend
+	DefaultUpdateType                   = UpdateTypeRecommend
 	DefaultMaxCPUChangePercent    int32 = 50
 	DefaultMaxMemoryChangePercent int32 = 30
 	DefaultWeight                 int32 = 100

@@ -25,7 +25,7 @@ spec:
     minAllowed: "128Mi"
     maxAllowed: "8Gi"
   updateStrategy:
-    mode: Auto
+    type: Auto
     autoRevert: true
     schedule:
       windows:

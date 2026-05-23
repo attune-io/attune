@@ -39,7 +39,7 @@ import (
 )
 
 // selectPodsForResize selects pods eligible for resize based on the update mode.
-func selectPodsForResize(pods []corev1.Pod, mode rightsizev1alpha1.UpdateMode, canaryPercentage int32) []corev1.Pod {
+func selectPodsForResize(pods []corev1.Pod, mode rightsizev1alpha1.UpdateType, canaryPercentage int32) []corev1.Pod {
 	var eligible []corev1.Pod
 	for _, p := range pods {
 		if resize.IsEligibleForResize(&p) {
@@ -51,9 +51,9 @@ func selectPodsForResize(pods []corev1.Pod, mode rightsizev1alpha1.UpdateMode, c
 	}
 
 	switch mode {
-	case rightsizev1alpha1.UpdateModeOneShot:
+	case rightsizev1alpha1.UpdateTypeOneShot:
 		return eligible[:1]
-	case rightsizev1alpha1.UpdateModeCanary:
+	case rightsizev1alpha1.UpdateTypeCanary:
 		count := int(canaryPercentage) * len(eligible) / 100
 		if count < 1 {
 			count = 1
@@ -62,7 +62,7 @@ func selectPodsForResize(pods []corev1.Pod, mode rightsizev1alpha1.UpdateMode, c
 			count = len(eligible)
 		}
 		return eligible[:count]
-	case rightsizev1alpha1.UpdateModeAuto:
+	case rightsizev1alpha1.UpdateTypeAuto:
 		return eligible // resize all in Auto mode
 	default:
 		return nil
@@ -103,7 +103,7 @@ func (r *RightSizePolicyReconciler) executeResizes(
 		return 0, nil
 	}
 
-	mode := policy.Spec.UpdateStrategy.Mode
+	mode := policy.Spec.UpdateStrategy.Type
 	canaryPct := int32(10)
 	canaryAutoPromote := false
 	if policy.Spec.UpdateStrategy.Canary != nil {
@@ -113,7 +113,7 @@ func (r *RightSizePolicyReconciler) executeResizes(
 
 	// Canary auto-promotion: if all canary pods passed the observation
 	// period without reverts, promote to full rollout.
-	if mode == rightsizev1alpha1.UpdateModeCanary && canaryAutoPromote {
+	if mode == rightsizev1alpha1.UpdateTypeCanary && canaryAutoPromote {
 		mode = r.resolveCanaryPhase(ctx, policy, mode)
 	}
 
@@ -224,7 +224,7 @@ func (r *RightSizePolicyReconciler) executeResizes(
 		}
 
 		// Track canary pod names so users can identify the subset.
-		if policy.Spec.UpdateStrategy.Mode == rightsizev1alpha1.UpdateModeCanary &&
+		if policy.Spec.UpdateStrategy.Type == rightsizev1alpha1.UpdateTypeCanary &&
 			policy.Status.Canary != nil &&
 			policy.Status.Canary.Phase == rightsizev1alpha1.CanaryPhaseInProgress {
 			for _, p := range selectedPods {
@@ -675,7 +675,7 @@ func clampRequestsToLimits(target *corev1.ResourceRequirements) {
 // resolveCanaryPhase checks whether canary pods have passed the observation
 // period without reverts. If so, it promotes to FullRollout and returns
 // ModeAuto so selectPodsForResize resizes all pods.
-func (r *RightSizePolicyReconciler) resolveCanaryPhase(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy, currentMode rightsizev1alpha1.UpdateMode) rightsizev1alpha1.UpdateMode {
+func (r *RightSizePolicyReconciler) resolveCanaryPhase(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy, currentMode rightsizev1alpha1.UpdateType) rightsizev1alpha1.UpdateType {
 	logger := log.FromContext(ctx)
 	observationPeriod := getObservationPeriod(policy)
 
@@ -694,7 +694,7 @@ func (r *RightSizePolicyReconciler) resolveCanaryPhase(ctx context.Context, poli
 
 	// Phase: FullRollout already active from a prior reconcile.
 	if cs != nil && cs.Phase == rightsizev1alpha1.CanaryPhaseFullRollout {
-		return rightsizev1alpha1.UpdateModeAuto
+		return rightsizev1alpha1.UpdateTypeAuto
 	}
 
 	// Phase: CanaryInProgress -- check if observation period has elapsed.
@@ -730,7 +730,7 @@ func (r *RightSizePolicyReconciler) resolveCanaryPhase(ctx context.Context, poli
 			logger.Info("Canary observation passed, promoting to full rollout",
 				"policy", policy.Name, "observationPeriod", observationPeriod)
 			policy.Status.Canary.Phase = rightsizev1alpha1.CanaryPhaseFullRollout
-			return rightsizev1alpha1.UpdateModeAuto
+			return rightsizev1alpha1.UpdateTypeAuto
 		}
 		return currentMode
 	}

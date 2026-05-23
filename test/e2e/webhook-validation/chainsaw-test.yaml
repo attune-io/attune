@@ -42,7 +42,7 @@ spec:
                 memory:
                   percentile: 99
                 updateStrategy:
-                  mode: Recommend
+                  type: Recommend
     - name: reject-negative-cooldown
       try:
         - apply:
@@ -67,7 +67,7 @@ spec:
                 memory:
                   percentile: 99
                 updateStrategy:
-                  mode: Recommend
+                  type: Recommend
                   cooldown: -5m
   catch:
     - describe:

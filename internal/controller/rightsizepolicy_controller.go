@@ -335,7 +335,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	policy.Status.WorkloadErrors = workloadErrors
 	// Observe mode: collect data and track progress but don't surface
 	// recommendations. This gives a zero-footprint data-collection phase.
-	if policy.Spec.UpdateStrategy.Mode == rightsizev1alpha1.UpdateModeObserve {
+	if policy.Spec.UpdateStrategy.Type == rightsizev1alpha1.UpdateTypeObserve {
 		logger.V(1).Info("Observe mode: recommendations computed but not surfaced in status",
 			"workloadsWithRecs", len(recommendations))
 		// Reset savings gauges in Observe mode so they don't show stale values.
@@ -352,7 +352,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	// Step 9: Execute resizes if mode allows.
-	mode := policy.Spec.UpdateStrategy.Mode
+	mode := policy.Spec.UpdateStrategy.Type
 	cooldownActive := r.isCooldownActive(&policy)
 	withinWindow := isWithinResizeWindow(policy.Spec.UpdateStrategy.Schedule, r.now())
 	var newResizedCount int

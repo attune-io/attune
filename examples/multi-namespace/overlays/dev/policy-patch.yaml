@@ -11,7 +11,7 @@ spec:
     percentile: 95
     safetyMargin: "1.1"
   updateStrategy:
-    mode: Auto
+    type: Auto
     cooldown: 30m
     maxCpuChangePercent: 100
     maxMemoryChangePercent: 100

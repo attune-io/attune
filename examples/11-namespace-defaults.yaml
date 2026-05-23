@@ -28,7 +28,7 @@ spec:
     safetyMargin: "1.5"
     allowDecrease: false
   updateStrategy:
-    mode: Canary
+    type: Canary
     cooldown: 2h
     autoRevert: true
 ---
@@ -48,5 +48,5 @@ spec:
     percentile: 95
     safetyMargin: "1.2"
   updateStrategy:
-    mode: Auto
+    type: Auto
     cooldown: 30m

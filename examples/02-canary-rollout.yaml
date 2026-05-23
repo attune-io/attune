@@ -41,7 +41,7 @@ spec:
     controlledValues: RequestsAndLimits
     allowDecrease: false       # never shrink memory (OOMKill risk)
   updateStrategy:
-    mode: Canary
+    type: Canary
     canary:
       percentage: 10           # resize 10% of pods first
       observationPeriod: 30m   # watch for 30 minutes

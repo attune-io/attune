@@ -31,5 +31,5 @@ spec:
     controlledValues: RequestsAndLimits
     allowDecrease: false
   updateStrategy:
-    mode: Recommend
+    type: Recommend
     cooldown: 1h

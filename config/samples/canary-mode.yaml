@@ -27,7 +27,7 @@ spec:
     maxAllowed: "16Gi"
     allowDecrease: false
   updateStrategy:
-    mode: Canary
+    type: Canary
     canary:
       percentage: 10
       observationPeriod: 30m

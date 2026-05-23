@@ -34,7 +34,7 @@ spec:
                   percentile: 95
                   safetyMargin: "1.4"
                 updateStrategy:
-                  mode: Recommend
+                  type: Recommend
         - apply:
             resource:
               apiVersion: apps/v1

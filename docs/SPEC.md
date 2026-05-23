@@ -213,7 +213,7 @@ spec:
 
   # Rollout strategy
   updateStrategy:
-    mode: Recommend           # Observe | Recommend | OneShot | Canary | Auto
+    type: Recommend           # Observe | Recommend | OneShot | Canary | Auto
     # mode-specific config (for Canary and Auto):
     canary:
       percentage: 10          # % of pods to resize first
@@ -313,7 +313,7 @@ x-kubernetes-validations:
     message: "memory.minAllowed must be less than or equal to memory.maxAllowed"
 
 # updateStrategy: canary config required when mode is Canary
-  - rule: "self.updateStrategy.mode != 'Canary' || has(self.updateStrategy.canary)"
+  - rule: "self.updateStrategy.type != 'Canary' || has(self.updateStrategy.canary)"
     message: "canary configuration is required when mode is Canary"
 
 # weight: immutable after creation (prevents runtime priority races)
@@ -328,7 +328,7 @@ x-kubernetes-validations:
 #### Printer Columns
 
 ```go
-// +kubebuilder:printcolumn:name="Mode",type=string,JSONPath=`.spec.updateStrategy.mode`
+// +kubebuilder:printcolumn:name="Mode",type=string,JSONPath=`.spec.updateStrategy.type`
 // +kubebuilder:printcolumn:name="Workloads",type=integer,JSONPath=`.status.workloads.discovered`
 // +kubebuilder:printcolumn:name="Recs",type=integer,JSONPath=`.status.workloads.withRecommendations`
 // +kubebuilder:printcolumn:name="Resized",type=integer,JSONPath=`.status.workloads.resized`
@@ -381,7 +381,7 @@ spec:
     controlledValues: RequestsAndLimits
     allowDecrease: false
   updateStrategy:
-    mode: Recommend
+    type: Recommend
     cooldown: 1h
     autoRevert: true
 ```

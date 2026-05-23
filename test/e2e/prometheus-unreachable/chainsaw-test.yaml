@@ -60,7 +60,7 @@ spec:
                 memory:
                   percentile: 99
                 updateStrategy:
-                  mode: Recommend
+                  type: Recommend
     - name: verify-graceful-degradation
       try:
         - script:

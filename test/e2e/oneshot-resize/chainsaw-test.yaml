@@ -115,7 +115,7 @@ spec:
                   maxAllowed: 8Gi
                   controlledValues: RequestsAndLimits
                 updateStrategy:
-                  mode: OneShot
+                  type: OneShot
                   cooldown: 1m
                   maxCpuChangePercent: 100
                   maxMemoryChangePercent: 100

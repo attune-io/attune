@@ -28,5 +28,5 @@ spec:
     - istio-proxy
     - linkerd-proxy
   updateStrategy:
-    mode: Auto
+    type: Auto
     autoRevert: true

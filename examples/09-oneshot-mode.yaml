@@ -32,6 +32,6 @@ spec:
     maxAllowed: "32Gi"
     allowDecrease: false
   updateStrategy:
-    mode: OneShot
+    type: OneShot
     cooldown: 4h
     autoRevert: true

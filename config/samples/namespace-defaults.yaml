@@ -22,6 +22,6 @@ spec:
     safetyMargin: "1.5"
     allowDecrease: false
   updateStrategy:
-    mode: Canary
+    type: Canary
     cooldown: 2h
     autoRevert: true

@@ -55,8 +55,8 @@ const (
 )
 
 // isResizeMode returns true if the policy mode performs actual pod resizes.
-func isResizeMode(mode rightsizev1alpha1.UpdateMode) bool {
-	return mode == rightsizev1alpha1.UpdateModeOneShot || mode == rightsizev1alpha1.UpdateModeCanary || mode == rightsizev1alpha1.UpdateModeAuto
+func isResizeMode(mode rightsizev1alpha1.UpdateType) bool {
+	return mode == rightsizev1alpha1.UpdateTypeOneShot || mode == rightsizev1alpha1.UpdateTypeCanary || mode == rightsizev1alpha1.UpdateTypeAuto
 }
 
 // newHistoryEntry creates a ResizeHistoryEntry from a resize result.
@@ -326,7 +326,7 @@ func removeSuccessfulInPlaceHistory(entries []rightsizev1alpha1.ResizeHistoryEnt
 
 // setResizingCondition sets the Resizing condition based on current state.
 func (r *RightSizePolicyReconciler) setResizingCondition(policy *rightsizev1alpha1.RightSizePolicy, cooldownActive bool) {
-	if !isResizeMode(policy.Spec.UpdateStrategy.Mode) {
+	if !isResizeMode(policy.Spec.UpdateStrategy.Type) {
 		// Non-resize modes: clear the condition.
 		meta.RemoveStatusCondition(&policy.Status.Conditions, rightsizev1alpha1.ConditionResizing)
 		return

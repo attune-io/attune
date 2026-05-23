@@ -116,7 +116,7 @@ spec:
                   maxAllowed: 8Gi
                   controlledValues: RequestsAndLimits
                 updateStrategy:
-                  mode: Canary
+                  type: Canary
                   cooldown: 1m
                   maxCpuChangePercent: 100
                   maxMemoryChangePercent: 100

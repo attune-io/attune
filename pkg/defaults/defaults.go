@@ -36,8 +36,8 @@ import (
 // are NOT set here; they are handled defensively at their usage sites in
 // buildRecommendationEngines.
 func ApplyBuiltInDefaults(policy *rightsizev1alpha1.RightSizePolicy) {
-	if policy.Spec.UpdateStrategy.Mode == "" {
-		policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.DefaultUpdateMode
+	if policy.Spec.UpdateStrategy.Type == "" {
+		policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.DefaultUpdateType
 	}
 	if policy.Spec.UpdateStrategy.MaxCPUChangePercent == nil {
 		v := rightsizev1alpha1.DefaultMaxCPUChangePercent
@@ -168,8 +168,8 @@ func MergeUpdateStrategy(policy *rightsizev1alpha1.UpdateStrategy, defaults *rig
 		return nil
 	}
 	var inherited []string
-	if policy.Mode == "" {
-		policy.Mode = defaults.Mode
+	if policy.Type == "" {
+		policy.Type = defaults.Type
 		inherited = append(inherited, "mode")
 	}
 	if policy.Cooldown == nil && defaults.Cooldown != nil {

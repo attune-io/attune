@@ -38,5 +38,5 @@ spec:
     maxAllowed: "4Gi"
     allowDecrease: false
   updateStrategy:
-    mode: Recommend
+    type: Recommend
     cooldown: 1h

@@ -143,7 +143,7 @@ func unstructuredPolicy(name, namespace, mode string) *unstructured.Unstructured
 			},
 			"spec": map[string]interface{}{
 				"updateStrategy": map[string]interface{}{
-					"mode": mode,
+					"type": mode,
 				},
 			},
 		},
@@ -177,7 +177,7 @@ func TestWizardCreate_ApplyToCluster(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "api-server-rightsize", created.GetName())
 
-	mode := getNestedString(*created, "spec", "updateStrategy", "mode")
+	mode := getNestedString(*created, "spec", "updateStrategy", "type")
 	assert.Equal(t, "Recommend", mode)
 
 	kind := getNestedString(*created, "spec", "targetRef", "kind")
@@ -261,7 +261,7 @@ func TestWizardPromote(t *testing.T) {
 	updated, err := dynClient.Resource(gvr).Namespace("default").Get(
 		context.Background(), "api-rightsize", metav1.GetOptions{})
 	require.NoError(t, err)
-	mode := getNestedString(*updated, "spec", "updateStrategy", "mode")
+	mode := getNestedString(*updated, "spec", "updateStrategy", "type")
 	assert.Equal(t, "Auto", mode)
 }
 
@@ -281,7 +281,7 @@ func TestWizardPromote_Cancel(t *testing.T) {
 	// Mode should be unchanged.
 	item, _ := dynClient.Resource(gvr).Namespace("default").Get(
 		context.Background(), "cache-rightsize", metav1.GetOptions{})
-	assert.Equal(t, "Recommend", getNestedString(*item, "spec", "updateStrategy", "mode"))
+	assert.Equal(t, "Recommend", getNestedString(*item, "spec", "updateStrategy", "type"))
 }
 
 func TestWizardPromote_NoPolicies(t *testing.T) {
@@ -330,7 +330,7 @@ func TestBuildPolicyObject(t *testing.T) {
 	assert.Equal(t, "api-rightsize", obj.GetName())
 	assert.Equal(t, "prod", obj.GetNamespace())
 
-	mode := getNestedString(*obj, "spec", "updateStrategy", "mode")
+	mode := getNestedString(*obj, "spec", "updateStrategy", "type")
 	assert.Equal(t, "Recommend", mode)
 }
 
@@ -355,7 +355,7 @@ func TestWizardPromote_SameMode(t *testing.T) {
 	// Mode should still be Auto (no update attempted).
 	item, _ := dynClient.Resource(gvr).Namespace("default").Get(
 		context.Background(), "api-rightsize", metav1.GetOptions{})
-	assert.Equal(t, "Auto", getNestedString(*item, "spec", "updateStrategy", "mode"))
+	assert.Equal(t, "Auto", getNestedString(*item, "spec", "updateStrategy", "type"))
 }
 
 func TestWizardCreate_ManualPrometheus(t *testing.T) {

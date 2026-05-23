@@ -18,7 +18,7 @@ tests:
       - isKind:
           of: RightSizeDefaults
       - equal:
-          path: spec.updateStrategy.mode
+          path: spec.updateStrategy.type
           value: Recommend
       - equal:
           path: spec.updateStrategy.autoRevert

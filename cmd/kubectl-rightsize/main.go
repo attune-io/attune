@@ -379,7 +379,7 @@ func printStatusItems(allItems []unstructured.Unstructured, sortByFlag, filterFl
 	for _, item := range items {
 		ns := item.GetNamespace()
 		name := item.GetName()
-		mode := getNestedString(item, "spec", "updateStrategy", "mode")
+		mode := getNestedString(item, "spec", "updateStrategy", "type")
 		workloads := getNestedInt64(item, "status", "workloads", "discovered")
 		pending := getNestedInt64(item, "status", "workloads", "pending")
 		resized := getNestedInt64(item, "status", "workloads", "resized")
@@ -802,7 +802,7 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *righ
 	}
 
 	fmt.Println("Effective values:")
-	printEffectiveField("Mode", getNestedString(item, "spec", "updateStrategy", "mode"), string(effective.Spec.UpdateStrategy.Mode), selected, updateDefaults != nil && updateDefaults.Mode != "")
+	printEffectiveField("Type", getNestedString(item, "spec", "updateStrategy", "type"), string(effective.Spec.UpdateStrategy.Type), selected, updateDefaults != nil && updateDefaults.Type != "")
 	printEffectiveField("Cooldown", getNestedString(item, "spec", "updateStrategy", "cooldown"), formatDurationPtr(effective.Spec.UpdateStrategy.Cooldown), selected, updateDefaults != nil && updateDefaults.Cooldown != nil)
 	printEffectiveField("Query step", getNestedString(item, "spec", "metricsSource", "queryStep"), formatDurationPtr(effective.Spec.MetricsSource.QueryStep), selected, metricsDefaults != nil && metricsDefaults.QueryStep != nil)
 	printEffectiveField("Minimum data points", formatInt64Ptr(rawInt64Field(item, "spec", "metricsSource", "minimumDataPoints")), formatInt32Ptr(effective.Spec.MetricsSource.MinimumDataPoints), selected, metricsDefaults != nil && metricsDefaults.MinimumDataPoints != nil)
@@ -1232,7 +1232,7 @@ func sortPolicies(items []unstructured.Unstructured, sortByFlag string) {
 // formatCanaryStatus returns a summary of the canary rollout state, or "-" if
 // the policy is not in Canary mode or has no canary status.
 func formatCanaryStatus(item unstructured.Unstructured) string {
-	mode := getNestedString(item, "spec", "updateStrategy", "mode")
+	mode := getNestedString(item, "spec", "updateStrategy", "type")
 	if mode != "Canary" {
 		return "-"
 	}
@@ -1353,7 +1353,7 @@ func printPreview(ctx context.Context, dynClient dynamic.Interface, namespace, p
 		os.Exit(1)
 	}
 
-	mode := getNestedString(*item, "spec", "updateStrategy", "mode")
+	mode := getNestedString(*item, "spec", "updateStrategy", "type")
 	recs, found, _ := unstructured.NestedSlice(item.Object, "status", "recommendations")
 	if !found || len(recs) == 0 {
 		fmt.Printf("%s/%s has no recommendations yet (%s). Nothing to preview.\n",

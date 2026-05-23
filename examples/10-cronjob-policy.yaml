@@ -38,4 +38,4 @@ spec:
     minAllowed: "128Mi"
     maxAllowed: "4Gi"
   updateStrategy:
-    mode: Recommend
+    type: Recommend

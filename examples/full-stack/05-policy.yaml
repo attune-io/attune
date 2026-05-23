@@ -8,7 +8,7 @@ spec:
     kind: Deployment
     name: api-server
   updateStrategy:
-    mode: Canary
+    type: Canary
     cooldown: 1h
     maxCpuChangePercent: 50
     maxMemoryChangePercent: 30

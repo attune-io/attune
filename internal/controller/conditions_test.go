@@ -43,7 +43,7 @@ import (
 func TestSetResizingCondition_InProgress(t *testing.T) {
 	policy := &rightsizev1alpha1.RightSizePolicy{
 		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{Mode: rightsizev1alpha1.UpdateModeAuto},
+			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{Type: rightsizev1alpha1.UpdateTypeAuto},
 		},
 		Status: rightsizev1alpha1.RightSizePolicyStatus{
 			Workloads: rightsizev1alpha1.WorkloadStatus{Resized: 2},
@@ -61,7 +61,7 @@ func TestSetResizingCondition_InProgress(t *testing.T) {
 func TestSetResizingCondition_CooldownActive(t *testing.T) {
 	policy := &rightsizev1alpha1.RightSizePolicy{
 		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{Mode: rightsizev1alpha1.UpdateModeAuto},
+			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{Type: rightsizev1alpha1.UpdateTypeAuto},
 		},
 	}
 	r := &RightSizePolicyReconciler{}
@@ -76,7 +76,7 @@ func TestSetResizingCondition_CooldownActive(t *testing.T) {
 func TestSetResizingCondition_Idle(t *testing.T) {
 	policy := &rightsizev1alpha1.RightSizePolicy{
 		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{Mode: rightsizev1alpha1.UpdateModeAuto},
+			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{Type: rightsizev1alpha1.UpdateTypeAuto},
 		},
 	}
 	r := &RightSizePolicyReconciler{}
@@ -91,7 +91,7 @@ func TestSetResizingCondition_Idle(t *testing.T) {
 func TestSetResizingCondition_ObserveMode_NoCondition(t *testing.T) {
 	policy := &rightsizev1alpha1.RightSizePolicy{
 		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{Mode: rightsizev1alpha1.UpdateModeObserve},
+			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{Type: rightsizev1alpha1.UpdateTypeObserve},
 		},
 	}
 	r := &RightSizePolicyReconciler{}

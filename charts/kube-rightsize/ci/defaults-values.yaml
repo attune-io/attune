@@ -3,7 +3,7 @@
 defaults:
   enabled: true
   updateStrategy:
-    mode: Recommend
+    type: Recommend
     cooldown: "1h"
     autoRevert: true
     resizeMethod: InPlaceOnly

@@ -120,7 +120,7 @@ spec:
                 memory:
                   percentile: 99
                 updateStrategy:
-                  mode: Recommend
+                  type: Recommend
                   cooldown: 1m
     - name: verify-deployment-ready
       try:

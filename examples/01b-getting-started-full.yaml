@@ -30,7 +30,7 @@ spec:
     minAllowed: "64Mi"
     maxAllowed: "8Gi"
   updateStrategy:
-    mode: Recommend            # safe default; switch to Canary or Auto later
+    type: Recommend            # safe default; switch to Canary or Auto later
     cooldown: 1h
     maxCpuChangePercent: 50
     maxMemoryChangePercent: 30

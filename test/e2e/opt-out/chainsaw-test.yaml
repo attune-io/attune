@@ -82,7 +82,7 @@ spec:
                   maxAllowed: 8Gi
                   controlledValues: RequestsAndLimits
                 updateStrategy:
-                  mode: Recommend
+                  type: Recommend
                   cooldown: 1m
     - name: verify-deployment-ready
       try:

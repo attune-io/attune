@@ -32,7 +32,7 @@ spec:
     controlledValues: RequestsAndLimits
     allowDecrease: false
   updateStrategy:
-    mode: Auto
+    type: Auto
     maxCpuChangePercent: 50
     maxMemoryChangePercent: 30
     cooldown: 2h

@@ -71,7 +71,7 @@ spec:
                   safetyMargin: "1.3"
                   allowDecrease: false
                 updateStrategy:
-                  mode: Recommend
+                  type: Recommend
                   cooldown: 1m
     - name: verify-statefulset-ready
       try:

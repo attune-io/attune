@@ -36,7 +36,7 @@ spec:
     maxAllowed: "8Gi"
     allowDecrease: false
   updateStrategy:
-    mode: Recommend
+    type: Recommend
     cooldown: 1h
 ```
 
@@ -102,5 +102,5 @@ When you are satisfied with the recommendations, change the mode:
 
 ```bash
 kubectl patch rsp api-services --type merge \
-  -p '{"spec":{"updateStrategy":{"mode":"Canary","canary":{"percentage":10,"observationPeriod":"30m"}}}}'
+  -p '{"spec":{"updateStrategy":{"type":"Canary","canary":{"percentage":10,"observationPeriod":"30m"}}}}'
 ```

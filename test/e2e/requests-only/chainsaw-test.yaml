@@ -69,7 +69,7 @@ spec:
                   safetyMargin: "1.3"
                   controlledValues: RequestsOnly
                 updateStrategy:
-                  mode: Recommend
+                  type: Recommend
                   cooldown: 1m
     - name: verify-deployment-ready
       try:
