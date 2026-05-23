@@ -9,4 +9,11 @@ runs:
         set -euo pipefail
         docker_config="$(mktemp -d "${RUNNER_TEMP:-/tmp}/docker-ci-config.XXXXXX")"
         printf '{}' > "$docker_config/config.json"
+        # Preserve CLI plugins (buildx, compose, etc.) from the user config.
+        # On macOS (Docker Desktop), plugins live only in ~/.docker/cli-plugins/.
+        # Overriding DOCKER_CONFIG without linking them makes docker-build fail
+        # with "BuildKit is enabled but the buildx component is missing".
+        if [ -d "$HOME/.docker/cli-plugins" ]; then
+          ln -s "$HOME/.docker/cli-plugins" "$docker_config/cli-plugins"
+        fi
         printf 'DOCKER_CONFIG=%s\n' "$docker_config" >> "$GITHUB_ENV"
