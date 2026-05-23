@@ -60,12 +60,20 @@ const (
 	collectorTTL = 10 * time.Minute
 )
 
-// getOrCreateCollector returns a cached collector for the given config,
-// creating one if needed. The cache key includes the address, headers, and
-// TLS settings so different configs get different collectors. The cache is
-// bounded at maxCollectors entries.
+// getOrCreateCollector returns a cached collector for the given Prometheus
+// config, creating one if needed. Delegates to getOrCreateCollectorByKey.
 func (r *RightSizePolicyReconciler) getOrCreateCollector(config *rightsizev1alpha1.PrometheusConfig, opts *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
 	cacheKey := collectorCacheKey(config, opts)
+	return r.getOrCreateCollectorByKey(cacheKey, config.Address, func() (rsmetrics.MetricsCollector, error) {
+		return r.MetricsFactory(config.Address, opts)
+	})
+}
+
+// getOrCreateCollectorByKey returns a cached collector for the given key,
+// creating one via factory if needed. The cache is bounded at maxCollectors
+// entries, stale entries are TTL-evicted, and LoadOrStore prevents duplicate
+// collectors from concurrent goroutines.
+func (r *RightSizePolicyReconciler) getOrCreateCollectorByKey(cacheKey, description string, factory func() (rsmetrics.MetricsCollector, error)) (rsmetrics.MetricsCollector, error) {
 	now := r.now()
 
 	if cached, ok := r.collectors.Load(cacheKey); ok {
@@ -102,10 +110,10 @@ func (r *RightSizePolicyReconciler) getOrCreateCollector(config *rightsizev1alph
 		return count < maxCollectors
 	})
 	if count >= maxCollectors {
-		return nil, fmt.Errorf("collector cache full (%d entries); refusing new Prometheus address %q; consolidate policies to use fewer distinct Prometheus addresses, or use a RightSizeDefaults resource to share a single address across all policies", maxCollectors, config.Address)
+		return nil, fmt.Errorf("collector cache full (%d entries); refusing new collector %q; consolidate policies to use fewer distinct addresses, or use a RightSizeDefaults resource to share a single address across all policies", maxCollectors, description)
 	}
 
-	collector, err := r.MetricsFactory(config.Address, opts)
+	collector, err := factory()
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +127,7 @@ func (r *RightSizePolicyReconciler) getOrCreateCollector(config *rightsizev1alph
 	}
 	stored, _ := actual.(*collectorEntry)
 	if stored == nil {
-		return nil, fmt.Errorf("unexpected nil collector entry for address %q", config.Address)
+		return nil, fmt.Errorf("unexpected nil collector entry for key %q", description)
 	}
 	return stored.collector, nil
 }
@@ -512,21 +520,17 @@ func (r *RightSizePolicyReconciler) resolveDatadogCollector(ctx context.Context,
 		site = "datadoghq.com"
 	}
 
-	// Cache the collector keyed by site + API key hash.
+	// Cache the collector keyed by site + API key hash, with full
+	// TTL eviction, capacity bound, and race-safe LoadOrStore.
 	cacheKey := fmt.Sprintf("datadog:%s|%x", site, sha256.Sum256([]byte(apiKey)))
-	now := r.now()
-	if cached, ok := r.collectors.Load(cacheKey); ok {
-		entry, _ := cached.(*collectorEntry)
-		if entry != nil {
-			r.collectors.Store(cacheKey, &collectorEntry{collector: entry.collector, lastUsed: now})
-			return entry.collector, &rsmetrics.DatadogQueryBuilder{}, nil
-		}
+	collector, err := r.getOrCreateCollectorByKey(cacheKey, "datadog:"+site, func() (rsmetrics.MetricsCollector, error) {
+		inner := rsmetrics.NewDatadogCollector(site, apiKey, appKey, log.FromContext(ctx).WithName("datadog"))
+		// Datadog: 300 requests/hour => ~0.08 QPS; burst of 3 for concurrent queries.
+		return rsmetrics.NewRateLimitedCollector(inner, 0.08, 3), nil
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("creating Datadog collector: %w", err)
 	}
-
-	inner := rsmetrics.NewDatadogCollector(site, apiKey, appKey, log.FromContext(ctx).WithName("datadog"))
-	// Datadog: 300 requests/hour => ~0.08 QPS; burst of 3 for concurrent queries.
-	collector := rsmetrics.NewRateLimitedCollector(inner, 0.08, 3)
-	r.collectors.Store(cacheKey, &collectorEntry{collector: collector, lastUsed: now})
 	return collector, &rsmetrics.DatadogQueryBuilder{}, nil
 }
 
@@ -535,25 +539,20 @@ func (r *RightSizePolicyReconciler) resolveDatadogCollector(ctx context.Context,
 func (r *RightSizePolicyReconciler) resolveCloudWatchCollector(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy) (rsmetrics.MetricsCollector, rsmetrics.QueryBuilder, error) {
 	cw := policy.Spec.MetricsSource.CloudWatch
 
-	// Cache the collector keyed by region + cluster + role.
+	// Cache the collector keyed by region + cluster + role, with full
+	// TTL eviction, capacity bound, and race-safe LoadOrStore.
 	cacheKey := fmt.Sprintf("cloudwatch:%s|%s|%s", cw.Region, cw.ClusterName, cw.RoleARN)
-	now := r.now()
-	if cached, ok := r.collectors.Load(cacheKey); ok {
-		entry, _ := cached.(*collectorEntry)
-		if entry != nil {
-			r.collectors.Store(cacheKey, &collectorEntry{collector: entry.collector, lastUsed: now})
-			qb := &rsmetrics.CloudWatchQueryBuilder{ClusterName: cw.ClusterName}
-			return entry.collector, qb, nil
+	collector, err := r.getOrCreateCollectorByKey(cacheKey, "cloudwatch:"+cw.Region, func() (rsmetrics.MetricsCollector, error) {
+		inner, innerErr := rsmetrics.NewCloudWatchCollector(ctx, cw.Region, cw.ClusterName, cw.RoleARN, log.FromContext(ctx).WithName("cloudwatch"))
+		if innerErr != nil {
+			return nil, innerErr
 		}
-	}
-
-	inner, err := rsmetrics.NewCloudWatchCollector(ctx, cw.Region, cw.ClusterName, cw.RoleARN, log.FromContext(ctx).WithName("cloudwatch"))
+		// CloudWatch: 50 TPS quota; use 5 QPS with burst of 10 to stay safe.
+		return rsmetrics.NewRateLimitedCollector(inner, 5, 10), nil
+	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("creating CloudWatch collector: %w", err)
 	}
-	// CloudWatch: 50 TPS quota; use 5 QPS with burst of 10 to stay safe.
-	collector := rsmetrics.NewRateLimitedCollector(inner, 5, 10)
-	r.collectors.Store(cacheKey, &collectorEntry{collector: collector, lastUsed: now})
 	qb := &rsmetrics.CloudWatchQueryBuilder{ClusterName: cw.ClusterName}
 	return collector, qb, nil
 }
