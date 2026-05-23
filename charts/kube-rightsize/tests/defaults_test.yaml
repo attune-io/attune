@@ -44,19 +44,20 @@ tests:
           path: spec.updateStrategy.autoRevert
           value: false
 
-  - it: should render maxCpuChangePercent and maxMemoryChangePercent
+  - it: should render maxChangePercent in cpu and memory
     set:
       defaults:
         enabled: true
-        updateStrategy:
-          maxCpuChangePercent: 25
-          maxMemoryChangePercent: 50
+        cpu:
+          maxChangePercent: 25
+        memory:
+          maxChangePercent: 50
     asserts:
       - equal:
-          path: spec.updateStrategy.maxCpuChangePercent
+          path: spec.cpu.maxChangePercent
           value: 25
       - equal:
-          path: spec.updateStrategy.maxMemoryChangePercent
+          path: spec.memory.maxChangePercent
           value: 50
 
   - it: should render export.configMap as boolean

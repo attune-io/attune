@@ -165,8 +165,6 @@ that do not set them explicitly. Policy-level values always take precedence.
 | `cooldown` | duration | `1h` | Minimum time between resizes |
 | `autoRevert` | bool | `true` | Revert unsafe resizes automatically |
 | `resizeMethod` | string | `InPlaceOnly` | `InPlaceOnly` or `InPlaceOrRecreate` |
-| `maxCpuChangePercent` | int32 | `50` | Max CPU change per resize (%) |
-| `maxMemoryChangePercent` | int32 | `30` | Max memory change per resize (%) |
 | `maxConcurrentResizes` | int32 | `1` | Max pods to resize simultaneously |
 | `maxTotalCpuIncrease` | quantity | (none) | Max aggregate CPU increase per cycle |
 | `maxTotalMemoryIncrease` | quantity | (none) | Max aggregate memory increase per cycle |
@@ -260,9 +258,9 @@ All fields from `RightSizeDefaults` are available in
 | Section | Fields |
 |---------|--------|
 | `metricsSource` | `prometheus.address`, `prometheus.headers`, `prometheus.queryParameters`, `prometheus.bearerTokenSecret`, `prometheus.tls`, `datadog.site`, `datadog.apiKeySecretRef`, `cloudwatch.region`, `cloudwatch.clusterName`, `cloudwatch.roleArn`, `historyWindow`, `minimumDataPoints`, `queryStep`, `rateWindow` |
-| `cpu` | `percentile`, `overhead`, `minAllowed`, `maxAllowed`, `controlledValues`, `burstSensitivity`, `allowDecrease`, `startupBoost` |
+| `cpu` | `percentile`, `overhead`, `minAllowed`, `maxAllowed`, `controlledValues`, `burstSensitivity`, `allowDecrease`, `startupBoost`, `maxChangePercent` |
 | `memory` | Same as `cpu` |
-| `updateStrategy` | `type`, `cooldown`, `autoRevert`, `resizeMethod`, `maxCpuChangePercent`, `maxMemoryChangePercent`, `maxConcurrentResizes`, `maxTotalCpuIncrease`, `maxTotalMemoryIncrease`, `schedule`, `export`, `canary` |
+| `updateStrategy` | `type`, `cooldown`, `autoRevert`, `resizeMethod`, `maxConcurrentResizes`, `maxTotalCpuIncrease`, `maxTotalMemoryIncrease`, `schedule`, `export`, `canary` |
 | `costPricing` | `cpuPerCoreHour`, `memoryPerGiBHour` |
 
 ## Alternative Metrics Sources

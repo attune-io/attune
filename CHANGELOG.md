@@ -42,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **BREAKING**: `safetyMargin` field renamed to `overhead` with percentage semantics. Old multiplier values must be converted: `(old - 1) * 100` (e.g., `safetyMargin: "1.2"` becomes `overhead: "20"`). Defaults changed from `"1.2"`/`"1.3"` to `"20"`/`"30"`. Validation bounds changed from `(0, 10.0]` to `[0, 900]`.
+- **BREAKING**: `maxCpuChangePercent` and `maxMemoryChangePercent` moved from `updateStrategy` to `cpu`/`memory` as `maxChangePercent`. Groups all per-resource recommendation parameters in one place.
 - **BREAKING**: `updateStrategy.mode` field renamed to `updateStrategy.type` to align with Kubernetes core conventions
 - **BREAKING**: `bounds.min`/`bounds.max` renamed to `minAllowed`/`maxAllowed`, `InPlaceOrEvict` renamed to `InPlaceOrRecreate`, `excludeContainers` renamed to `excludedContainers`
 - Shorter requeue interval during data collection phase for faster initial recommendation generation

@@ -7,14 +7,14 @@ spec:
   cpu:
     percentile: 99
     overhead: "30"
+    maxChangePercent: 30
   memory:
     percentile: 99
     overhead: "50"
+    maxChangePercent: 30
   updateStrategy:
     type: Canary
     cooldown: 2h
-    maxCpuChangePercent: 30
-    maxMemoryChangePercent: 30
     canary:
       percentage: 10
       observationPeriod: 30m

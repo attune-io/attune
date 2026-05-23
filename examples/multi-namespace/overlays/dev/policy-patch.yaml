@@ -7,11 +7,11 @@ spec:
   cpu:
     percentile: 90
     overhead: "10"
+    maxChangePercent: 100
   memory:
     percentile: 95
     overhead: "10"
+    maxChangePercent: 100
   updateStrategy:
     type: Auto
     cooldown: 30m
-    maxCpuChangePercent: 100
-    maxMemoryChangePercent: 100

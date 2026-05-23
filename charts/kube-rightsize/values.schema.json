@@ -299,7 +299,8 @@
             "minAllowed": { "type": "string" },
             "maxAllowed": { "type": "string" },
             "controlledValues": { "type": "string", "enum": ["RequestsOnly", "RequestsAndLimits"] },
-            "burstSensitivity": { "type": "string" }
+            "burstSensitivity": { "type": "string" },
+            "maxChangePercent": { "type": "integer", "minimum": 1, "maximum": 100, "description": "Max change percentage per reconcile cycle (default: 50 for CPU)" }
           }
         },
         "memory": {
@@ -312,7 +313,8 @@
             "minAllowed": { "type": "string" },
             "maxAllowed": { "type": "string" },
             "controlledValues": { "type": "string", "enum": ["RequestsOnly", "RequestsAndLimits"] },
-            "burstSensitivity": { "type": "string" }
+            "burstSensitivity": { "type": "string" },
+            "maxChangePercent": { "type": "integer", "minimum": 1, "maximum": 100, "description": "Max change percentage per reconcile cycle (default: 30 for memory)" }
           }
         },
         "costPricing": {
@@ -387,18 +389,6 @@
             "maxTotalMemoryIncrease": {
               "type": "string",
               "description": "Per-cycle memory increase budget (e.g. 4Gi)"
-            },
-            "maxCpuChangePercent": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 100,
-              "description": "Maximum CPU change per resize as a percentage of current request"
-            },
-            "maxMemoryChangePercent": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 100,
-              "description": "Maximum memory change per resize as a percentage of current request"
             },
             "safetyObservationPeriod": {
               "type": "string",

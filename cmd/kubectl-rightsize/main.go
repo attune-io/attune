@@ -807,8 +807,6 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *righ
 	printEffectiveField("Query step", getNestedString(item, "spec", "metricsSource", "queryStep"), formatDurationPtr(effective.Spec.MetricsSource.QueryStep), selected, metricsDefaults != nil && metricsDefaults.QueryStep != nil)
 	printEffectiveField("Minimum data points", formatInt64Ptr(rawInt64Field(item, "spec", "metricsSource", "minimumDataPoints")), formatInt32Ptr(effective.Spec.MetricsSource.MinimumDataPoints), selected, metricsDefaults != nil && metricsDefaults.MinimumDataPoints != nil)
 	printEffectiveField("Resize method", getNestedString(item, "spec", "updateStrategy", "resizeMethod"), string(effective.Spec.UpdateStrategy.ResizeMethod), selected, updateDefaults != nil && updateDefaults.ResizeMethod != "")
-	printEffectiveField("Max CPU change", formatPercentInt64Ptr(rawInt64Field(item, "spec", "updateStrategy", "maxCpuChangePercent")), formatPercentPtr(effective.Spec.UpdateStrategy.MaxCPUChangePercent), selected, updateDefaults != nil && updateDefaults.MaxCPUChangePercent != nil)
-	printEffectiveField("Max memory change", formatPercentInt64Ptr(rawInt64Field(item, "spec", "updateStrategy", "maxMemoryChangePercent")), formatPercentPtr(effective.Spec.UpdateStrategy.MaxMemoryChangePercent), selected, updateDefaults != nil && updateDefaults.MaxMemoryChangePercent != nil)
 	obsConfigured := getNestedString(item, "spec", "updateStrategy", "safetyObservationPeriod")
 	if obsConfigured == "" {
 		obsConfigured = getNestedString(item, "spec", "updateStrategy", "canary", "observationPeriod")
@@ -828,11 +826,13 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *righ
 	printEffectiveField("  Percentile", formatInt64Field(item, "spec", "cpu", "percentile"), formatInt32Val(effective.Spec.CPU.Percentile), selected, cpuDefaults != nil && cpuDefaults.Percentile != 0)
 	printEffectiveField("  Overhead", getNestedString(item, "spec", "cpu", "overhead"), effective.Spec.CPU.Overhead, selected, cpuDefaults != nil && cpuDefaults.Overhead != "")
 	printEffectiveField("  Controlled values", getNestedString(item, "spec", "cpu", "controlledValues"), formatStringPtr(effective.Spec.CPU.ControlledValues), selected, cpuDefaults != nil && cpuDefaults.ControlledValues != nil)
+	printEffectiveField("  Max change", formatPercentInt64Ptr(rawInt64Field(item, "spec", "cpu", "maxChangePercent")), formatPercentPtr(effective.Spec.CPU.MaxChangePercent), selected, cpuDefaults != nil && cpuDefaults.MaxChangePercent != nil)
 
 	fmt.Println("  Memory:")
 	printEffectiveField("  Percentile", formatInt64Field(item, "spec", "memory", "percentile"), formatInt32Val(effective.Spec.Memory.Percentile), selected, memDefaults != nil && memDefaults.Percentile != 0)
 	printEffectiveField("  Overhead", getNestedString(item, "spec", "memory", "overhead"), effective.Spec.Memory.Overhead, selected, memDefaults != nil && memDefaults.Overhead != "")
 	printEffectiveField("  Controlled values", getNestedString(item, "spec", "memory", "controlledValues"), formatStringPtr(effective.Spec.Memory.ControlledValues), selected, memDefaults != nil && memDefaults.ControlledValues != nil)
+	printEffectiveField("  Max change", formatPercentInt64Ptr(rawInt64Field(item, "spec", "memory", "maxChangePercent")), formatPercentPtr(effective.Spec.Memory.MaxChangePercent), selected, memDefaults != nil && memDefaults.MaxChangePercent != nil)
 }
 
 func printEffectiveField(label, configured, effective string, selected selectedDefaults, inherited bool) {

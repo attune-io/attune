@@ -1726,10 +1726,12 @@ func TestPrintExplain_ShowsPolicyNamespaceAndBuiltInEffectiveValues(t *testing.T
 			"namespace": "default",
 		},
 		"spec": map[string]interface{}{
+			"cpu": map[string]interface{}{
+				"maxChangePercent": maxCPUChangePercent,
+			},
 			"updateStrategy": map[string]interface{}{
-				"type":                "Auto",
-				"cooldown":            cooldown,
-				"maxCpuChangePercent": maxCPUChangePercent,
+				"type":     "Auto",
+				"cooldown": cooldown,
 			},
 			"metricsSource": map[string]interface{}{
 				"queryStep":         queryStep,
@@ -1770,8 +1772,8 @@ func TestPrintExplain_ShowsPolicyNamespaceAndBuiltInEffectiveValues(t *testing.T
 		TypeMeta:   metav1.TypeMeta{APIVersion: "rightsize.io/v1alpha1", Kind: "RightSizeDefaults"},
 		ObjectMeta: metav1.ObjectMeta{Name: "cluster-defaults"},
 		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			MetricsSource:  &rightsizev1alpha1.MetricsSource{QueryStep: clusterQueryStep},
-			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{MaxCPUChangePercent: &clusterMaxCPU},
+			MetricsSource: &rightsizev1alpha1.MetricsSource{QueryStep: clusterQueryStep},
+			CPU:           &rightsizev1alpha1.ResourceConfig{MaxChangePercent: &clusterMaxCPU},
 		},
 	})
 	require.NoError(t, err)
@@ -1810,8 +1812,8 @@ func TestPrintExplain_ShowsPolicyNamespaceAndBuiltInEffectiveValues(t *testing.T
 	assert.Contains(t, output, "Query step: 10m0s (source: policy, configured: 10m)")
 	assert.Contains(t, output, "Minimum data points: 120 (source: policy, configured: 120)")
 	assert.Contains(t, output, "Resize method: InPlaceOrRecreate (source: namespace default, configured: <unset>)")
-	assert.Contains(t, output, "Max CPU change: 70% (source: policy, configured: 70%)")
-	assert.Contains(t, output, "Max memory change: 30% (source: built-in default, configured: <unset>)")
+	assert.Contains(t, output, "Max change: 70% (source: policy, configured: 70%)")
+	assert.Contains(t, output, "Max change: 30% (source: built-in default, configured: <unset>)")
 	assert.Contains(t, output, "Observation period: 5m0s (source: built-in default, configured: <unset>)")
 	assert.NotContains(t, output, "source: cluster default")
 }
@@ -2159,11 +2161,13 @@ func TestMergeDefaultsIntoPolicy_AllFieldsInherited(t *testing.T) {
 				BurstSensitivity: &burstSensitivity,
 				AllowDecrease:    &allowDecrease,
 				StartupBoost:     &rightsizev1alpha1.StartupBoost{Multiplier: boostMultiplier, Duration: boostDuration},
+				MaxChangePercent: ptrInt32(80),
 			},
 			Memory: &rightsizev1alpha1.ResourceConfig{
 				Percentile:       99,
 				Overhead:         "40",
 				ControlledValues: &cv,
+				MaxChangePercent: ptrInt32(40),
 			},
 			MetricsSource: &rightsizev1alpha1.MetricsSource{
 				HistoryWindow:     &metav1.Duration{Duration: 336 * time.Hour},
@@ -2176,8 +2180,6 @@ func TestMergeDefaultsIntoPolicy_AllFieldsInherited(t *testing.T) {
 				Cooldown:                &metav1.Duration{Duration: 30 * time.Minute},
 				AutoRevert:              ptrBool(false),
 				ResizeMethod:            rightsizev1alpha1.ResizeMethodInPlaceOrRecreate,
-				MaxCPUChangePercent:     ptrInt32(80),
-				MaxMemoryChangePercent:  ptrInt32(40),
 				SafetyObservationPeriod: &metav1.Duration{Duration: 10 * time.Minute},
 				MaxConcurrentResizes:    5,
 				Schedule:                &rightsizev1alpha1.ResizeSchedule{Timezone: "UTC"},
@@ -2225,10 +2227,10 @@ func TestMergeDefaultsIntoPolicy_AllFieldsInherited(t *testing.T) {
 	require.NotNil(t, policy.Spec.UpdateStrategy.AutoRevert)
 	assert.False(t, *policy.Spec.UpdateStrategy.AutoRevert)
 	assert.Equal(t, rightsizev1alpha1.ResizeMethodInPlaceOrRecreate, policy.Spec.UpdateStrategy.ResizeMethod)
-	require.NotNil(t, policy.Spec.UpdateStrategy.MaxCPUChangePercent)
-	assert.Equal(t, int32(80), *policy.Spec.UpdateStrategy.MaxCPUChangePercent)
-	require.NotNil(t, policy.Spec.UpdateStrategy.MaxMemoryChangePercent)
-	assert.Equal(t, int32(40), *policy.Spec.UpdateStrategy.MaxMemoryChangePercent)
+	require.NotNil(t, policy.Spec.CPU.MaxChangePercent)
+	assert.Equal(t, int32(80), *policy.Spec.CPU.MaxChangePercent)
+	require.NotNil(t, policy.Spec.Memory.MaxChangePercent)
+	assert.Equal(t, int32(40), *policy.Spec.Memory.MaxChangePercent)
 	require.NotNil(t, policy.Spec.UpdateStrategy.SafetyObservationPeriod)
 	assert.Equal(t, 10*time.Minute, policy.Spec.UpdateStrategy.SafetyObservationPeriod.Duration)
 	assert.Equal(t, int32(5), policy.Spec.UpdateStrategy.MaxConcurrentResizes)

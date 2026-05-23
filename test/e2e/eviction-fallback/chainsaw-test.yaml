@@ -99,15 +99,15 @@ spec:
                 cpu:
                   percentile: 95
                   overhead: "20"
+                  maxChangePercent: 100
                 memory:
                   percentile: 99
                   overhead: "30"
                   allowDecrease: true
+                  maxChangePercent: 100
                 updateStrategy:
                   type: Auto
                   cooldown: 1m
-                  maxCpuChangePercent: 100
-                  maxMemoryChangePercent: 100
                   resizeMethod: InPlaceOrRecreate
                   autoRevert: true
     - name: verify-policy-reconciles

@@ -108,6 +108,7 @@ spec:
                   minAllowed: 50m
                   maxAllowed: "4000m"
                   controlledValues: RequestsAndLimits
+                  maxChangePercent: 100
                 memory:
                   percentile: 99
                   overhead: "30"
@@ -115,11 +116,10 @@ spec:
                   minAllowed: 64Mi
                   maxAllowed: 8Gi
                   controlledValues: RequestsAndLimits
+                  maxChangePercent: 100
                 updateStrategy:
                   type: Canary
                   cooldown: 1m
-                  maxCpuChangePercent: 100
-                  maxMemoryChangePercent: 100
                   canary:
                     percentage: 33
                     observationPeriod: 5m

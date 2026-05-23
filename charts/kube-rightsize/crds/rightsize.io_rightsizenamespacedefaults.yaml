@@ -109,6 +109,17 @@ spec:
                     description: MaxAllowed is the maximum allowed resource value.
                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                     x-kubernetes-int-or-string: true
+                  maxChangePercent:
+                    description: |-
+                      MaxChangePercent is the maximum allowed change percentage per
+                      reconcile cycle for this resource. Limits how aggressively the
+                      recommendation can deviate from the current value in a single step,
+                      forcing gradual convergence. Defaults to 50 for CPU, 30 for memory
+                      (applied by the controller so that RightSizeDefaults can override).
+                    format: int32
+                    maximum: 100
+                    minimum: 1
+                    type: integer
                   minAllowed:
                     anyOf:
                     - type: integer
@@ -197,6 +208,17 @@ spec:
                     description: MaxAllowed is the maximum allowed resource value.
                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                     x-kubernetes-int-or-string: true
+                  maxChangePercent:
+                    description: |-
+                      MaxChangePercent is the maximum allowed change percentage per
+                      reconcile cycle for this resource. Limits how aggressively the
+                      recommendation can deviate from the current value in a single step,
+                      forcing gradual convergence. Defaults to 50 for CPU, 30 for memory
+                      (applied by the controller so that RightSizeDefaults can override).
+                    format: int32
+                    maximum: 100
+                    minimum: 1
+                    type: integer
                   minAllowed:
                     anyOf:
                     - type: integer
@@ -443,24 +465,6 @@ spec:
                       concurrently within a single reconcile cycle. Default: 1 (serial).
                     format: int32
                     maximum: 50
-                    minimum: 1
-                    type: integer
-                  maxCpuChangePercent:
-                    description: |-
-                      MaxCPUChangePercent is the maximum allowed CPU change percentage per operation.
-                      Defaults to 50 if not set (applied by the controller so that
-                      RightSizeDefaults cluster configuration can override it).
-                    format: int32
-                    maximum: 100
-                    minimum: 1
-                    type: integer
-                  maxMemoryChangePercent:
-                    description: |-
-                      MaxMemoryChangePercent is the maximum allowed memory change percentage per operation.
-                      Defaults to 30 if not set (applied by the controller so that
-                      RightSizeDefaults cluster configuration can override it).
-                    format: int32
-                    maximum: 100
                     minimum: 1
                     type: integer
                   maxTotalCpuIncrease:

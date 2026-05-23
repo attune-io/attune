@@ -7,11 +7,13 @@ spec:
   targetRef:
     kind: Deployment
     name: api-server
+  cpu:
+    maxChangePercent: 50
+  memory:
+    maxChangePercent: 30
   updateStrategy:
     type: Canary
     cooldown: 1h
-    maxCpuChangePercent: 50
-    maxMemoryChangePercent: 30
     autoRevert: true
     canary:
       percentage: 10

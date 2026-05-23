@@ -39,13 +39,13 @@ func ApplyBuiltInDefaults(policy *rightsizev1alpha1.RightSizePolicy) {
 	if policy.Spec.UpdateStrategy.Type == "" {
 		policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.DefaultUpdateType
 	}
-	if policy.Spec.UpdateStrategy.MaxCPUChangePercent == nil {
-		v := rightsizev1alpha1.DefaultMaxCPUChangePercent
-		policy.Spec.UpdateStrategy.MaxCPUChangePercent = &v
+	if policy.Spec.CPU.MaxChangePercent == nil {
+		v := rightsizev1alpha1.DefaultCPUMaxChangePercent
+		policy.Spec.CPU.MaxChangePercent = &v
 	}
-	if policy.Spec.UpdateStrategy.MaxMemoryChangePercent == nil {
-		v := rightsizev1alpha1.DefaultMaxMemoryChangePercent
-		policy.Spec.UpdateStrategy.MaxMemoryChangePercent = &v
+	if policy.Spec.Memory.MaxChangePercent == nil {
+		v := rightsizev1alpha1.DefaultMemoryMaxChangePercent
+		policy.Spec.Memory.MaxChangePercent = &v
 	}
 	if policy.Spec.UpdateStrategy.Cooldown == nil {
 		d, _ := time.ParseDuration(rightsizev1alpha1.DefaultCooldown)
@@ -134,6 +134,10 @@ func MergeResourceConfig(policy *rightsizev1alpha1.ResourceConfig, defaults *rig
 		policy.StartupBoost = defaults.StartupBoost
 		inherited = append(inherited, prefix+".startupBoost")
 	}
+	if policy.MaxChangePercent == nil && defaults.MaxChangePercent != nil {
+		policy.MaxChangePercent = defaults.MaxChangePercent
+		inherited = append(inherited, prefix+".maxChangePercent")
+	}
 	return inherited
 }
 
@@ -183,14 +187,6 @@ func MergeUpdateStrategy(policy *rightsizev1alpha1.UpdateStrategy, defaults *rig
 	if policy.ResizeMethod == "" && defaults.ResizeMethod != "" {
 		policy.ResizeMethod = defaults.ResizeMethod
 		inherited = append(inherited, "resizeMethod")
-	}
-	if policy.MaxCPUChangePercent == nil && defaults.MaxCPUChangePercent != nil {
-		policy.MaxCPUChangePercent = defaults.MaxCPUChangePercent
-		inherited = append(inherited, "maxCpuChangePercent")
-	}
-	if policy.MaxMemoryChangePercent == nil && defaults.MaxMemoryChangePercent != nil {
-		policy.MaxMemoryChangePercent = defaults.MaxMemoryChangePercent
-		inherited = append(inherited, "maxMemoryChangePercent")
 	}
 	if policy.MaxConcurrentResizes == 0 && defaults.MaxConcurrentResizes != 0 {
 		policy.MaxConcurrentResizes = defaults.MaxConcurrentResizes

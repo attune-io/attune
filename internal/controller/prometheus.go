@@ -766,13 +766,13 @@ func buildRecommendationEngines(policy *rightsizev1alpha1.RightSizePolicy) (cpuE
 	}
 
 	// Defense-in-depth: clamp maxChangePercent to [1, 100] even if webhook is bypassed.
-	maxCPUPct := rightsizev1alpha1.DefaultMaxCPUChangePercent
-	if policy.Spec.UpdateStrategy.MaxCPUChangePercent != nil {
-		maxCPUPct = *policy.Spec.UpdateStrategy.MaxCPUChangePercent
+	maxCPUPct := rightsizev1alpha1.DefaultCPUMaxChangePercent
+	if policy.Spec.CPU.MaxChangePercent != nil {
+		maxCPUPct = *policy.Spec.CPU.MaxChangePercent
 	}
-	maxMemPct := rightsizev1alpha1.DefaultMaxMemoryChangePercent
-	if policy.Spec.UpdateStrategy.MaxMemoryChangePercent != nil {
-		maxMemPct = *policy.Spec.UpdateStrategy.MaxMemoryChangePercent
+	maxMemPct := rightsizev1alpha1.DefaultMemoryMaxChangePercent
+	if policy.Spec.Memory.MaxChangePercent != nil {
+		maxMemPct = *policy.Spec.Memory.MaxChangePercent
 	}
 	maxCPUChange := min(max(float64(maxCPUPct), 1), 100)
 	maxMemChange := min(max(float64(maxMemPct), 1), 100)

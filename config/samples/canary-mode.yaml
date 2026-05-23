@@ -20,19 +20,19 @@ spec:
     overhead: "20"
     minAllowed: "100m"
     maxAllowed: "8000m"
+    maxChangePercent: 50
   memory:
     percentile: 99
     overhead: "30"
     minAllowed: "128Mi"
     maxAllowed: "16Gi"
     allowDecrease: false
+    maxChangePercent: 30
   updateStrategy:
     type: Canary
     canary:
       percentage: 10
       observationPeriod: 30m
-    maxCpuChangePercent: 50
-    maxMemoryChangePercent: 30
     cooldown: 2h
     autoRevert: true
   weight: 100

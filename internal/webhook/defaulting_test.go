@@ -68,8 +68,8 @@ func TestDefault_DoesNotSetMode(t *testing.T) {
 	// Mode is NOT set by the webhook; it's deferred to the controller's
 	// applyBuiltInDefaults so that RightSizeDefaults can override it.
 	assert.Empty(t, policy.Spec.UpdateStrategy.Type)
-	assert.Nil(t, policy.Spec.UpdateStrategy.MaxCPUChangePercent)
-	assert.Nil(t, policy.Spec.UpdateStrategy.MaxMemoryChangePercent)
+	assert.Nil(t, policy.Spec.CPU.MaxChangePercent)
+	assert.Nil(t, policy.Spec.Memory.MaxChangePercent)
 }
 
 func TestDefault_SetsWeight(t *testing.T) {

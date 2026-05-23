@@ -42,10 +42,10 @@ func TestApplyBuiltInDefaults_FillsAllFields(t *testing.T) {
 	ApplyBuiltInDefaults(policy)
 
 	assert.Equal(t, rightsizev1alpha1.DefaultUpdateType, policy.Spec.UpdateStrategy.Type)
-	assert.NotNil(t, policy.Spec.UpdateStrategy.MaxCPUChangePercent)
-	assert.Equal(t, rightsizev1alpha1.DefaultMaxCPUChangePercent, *policy.Spec.UpdateStrategy.MaxCPUChangePercent)
-	assert.NotNil(t, policy.Spec.UpdateStrategy.MaxMemoryChangePercent)
-	assert.Equal(t, rightsizev1alpha1.DefaultMaxMemoryChangePercent, *policy.Spec.UpdateStrategy.MaxMemoryChangePercent)
+	assert.NotNil(t, policy.Spec.CPU.MaxChangePercent)
+	assert.Equal(t, rightsizev1alpha1.DefaultCPUMaxChangePercent, *policy.Spec.CPU.MaxChangePercent)
+	assert.NotNil(t, policy.Spec.Memory.MaxChangePercent)
+	assert.Equal(t, rightsizev1alpha1.DefaultMemoryMaxChangePercent, *policy.Spec.Memory.MaxChangePercent)
 	assert.NotNil(t, policy.Spec.UpdateStrategy.Cooldown)
 	assert.NotNil(t, policy.Spec.UpdateStrategy.AutoRevert)
 	assert.True(t, *policy.Spec.UpdateStrategy.AutoRevert)
@@ -67,15 +67,17 @@ func TestApplyBuiltInDefaults_DoesNotOverrideExistingValues(t *testing.T) {
 	policy := &rightsizev1alpha1.RightSizePolicy{
 		Spec: rightsizev1alpha1.RightSizePolicySpec{
 			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Type:                mode,
-				MaxCPUChangePercent: &maxCPU,
+				Type: mode,
+			},
+			CPU: rightsizev1alpha1.ResourceConfig{
+				MaxChangePercent: &maxCPU,
 			},
 		},
 	}
 	ApplyBuiltInDefaults(policy)
 
 	assert.Equal(t, mode, policy.Spec.UpdateStrategy.Type)
-	assert.Equal(t, int32(25), *policy.Spec.UpdateStrategy.MaxCPUChangePercent)
+	assert.Equal(t, int32(25), *policy.Spec.CPU.MaxChangePercent)
 }
 
 func TestMergeDefaults_NilDefaultsIsNoOp(t *testing.T) {
@@ -146,8 +148,6 @@ func TestMergeDefaults_PolicyFieldsTakePrecedence(t *testing.T) {
 
 func TestMergeUpdateStrategy_AllFields(t *testing.T) {
 	autoRevert := true
-	maxCPU := int32(40)
-	maxMem := int32(20)
 	maxConc := int32(3)
 	maxTotalCPU := resource.MustParse("2000m")
 	maxTotalMem := resource.MustParse("4Gi")
@@ -155,8 +155,6 @@ func TestMergeUpdateStrategy_AllFields(t *testing.T) {
 		Type:                    rightsizev1alpha1.UpdateTypeAuto,
 		AutoRevert:              &autoRevert,
 		ResizeMethod:            rightsizev1alpha1.ResizeMethodInPlaceOrRecreate,
-		MaxCPUChangePercent:     &maxCPU,
-		MaxMemoryChangePercent:  &maxMem,
 		MaxConcurrentResizes:    maxConc,
 		Cooldown:                &metav1.Duration{Duration: 30 * time.Minute},
 		MaxTotalCPUIncrease:     &maxTotalCPU,
@@ -173,8 +171,6 @@ func TestMergeUpdateStrategy_AllFields(t *testing.T) {
 	assert.Equal(t, rightsizev1alpha1.UpdateTypeAuto, policy.Type)
 	assert.True(t, *policy.AutoRevert)
 	assert.Equal(t, rightsizev1alpha1.ResizeMethodInPlaceOrRecreate, policy.ResizeMethod)
-	assert.Equal(t, int32(40), *policy.MaxCPUChangePercent)
-	assert.Equal(t, int32(20), *policy.MaxMemoryChangePercent)
 	assert.Equal(t, int32(3), policy.MaxConcurrentResizes)
 	assert.NotNil(t, policy.Cooldown)
 	require.NotNil(t, policy.MaxTotalCPUIncrease)
@@ -190,12 +186,10 @@ func TestMergeUpdateStrategy_AllFields(t *testing.T) {
 	assert.Equal(t, 5*time.Minute, policy.Canary.ObservationPeriod.Duration)
 	require.NotNil(t, policy.SafetyObservationPeriod)
 	assert.Equal(t, 10*time.Minute, policy.SafetyObservationPeriod.Duration)
-	assert.Len(t, inherited, 13)
+	assert.Len(t, inherited, 11)
 	assert.Contains(t, inherited, "type")
 	assert.Contains(t, inherited, "autoRevert")
 	assert.Contains(t, inherited, "resizeMethod")
-	assert.Contains(t, inherited, "maxCpuChangePercent")
-	assert.Contains(t, inherited, "maxMemoryChangePercent")
 	assert.Contains(t, inherited, "maxConcurrentResizes")
 	assert.Contains(t, inherited, "cooldown")
 	assert.Contains(t, inherited, "maxTotalCpuIncrease")
@@ -396,8 +390,6 @@ func TestMergeUpdateStrategy_PolicyFieldsTakePrecedence(t *testing.T) {
 		Cooldown:                &metav1.Duration{Duration: 30 * time.Minute},
 		AutoRevert:              ptrBool(false),
 		ResizeMethod:            rightsizev1alpha1.ResizeMethodInPlaceOrRecreate,
-		MaxCPUChangePercent:     ptrInt32(80),
-		MaxMemoryChangePercent:  ptrInt32(40),
 		MaxConcurrentResizes:    5,
 		SafetyObservationPeriod: &metav1.Duration{Duration: 10 * time.Minute},
 		Schedule:                &rightsizev1alpha1.ResizeSchedule{Timezone: "UTC"},
@@ -409,8 +401,6 @@ func TestMergeUpdateStrategy_PolicyFieldsTakePrecedence(t *testing.T) {
 		Cooldown:                &metav1.Duration{Duration: time.Hour},
 		AutoRevert:              ptrBool(true),
 		ResizeMethod:            rightsizev1alpha1.ResizeMethodInPlaceOnly,
-		MaxCPUChangePercent:     ptrInt32(50),
-		MaxMemoryChangePercent:  ptrInt32(30),
 		MaxConcurrentResizes:    3,
 		SafetyObservationPeriod: &metav1.Duration{Duration: 5 * time.Minute},
 		Schedule:                &rightsizev1alpha1.ResizeSchedule{Timezone: "America/New_York"},
@@ -425,8 +415,6 @@ func TestMergeUpdateStrategy_PolicyFieldsTakePrecedence(t *testing.T) {
 	assert.Equal(t, time.Hour, policy.Cooldown.Duration)
 	assert.True(t, *policy.AutoRevert)
 	assert.Equal(t, rightsizev1alpha1.ResizeMethodInPlaceOnly, policy.ResizeMethod)
-	assert.Equal(t, int32(50), *policy.MaxCPUChangePercent)
-	assert.Equal(t, int32(30), *policy.MaxMemoryChangePercent)
 	assert.Equal(t, int32(3), policy.MaxConcurrentResizes)
 	assert.Equal(t, 5*time.Minute, policy.SafetyObservationPeriod.Duration)
 	assert.Equal(t, "America/New_York", policy.Schedule.Timezone)
@@ -438,7 +426,6 @@ func TestMergeUpdateStrategy_PartialInheritance(t *testing.T) {
 	defaults := &rightsizev1alpha1.UpdateStrategy{
 		Type:                 rightsizev1alpha1.UpdateTypeAuto,
 		Cooldown:             &metav1.Duration{Duration: 30 * time.Minute},
-		MaxCPUChangePercent:  ptrInt32(80),
 		MaxConcurrentResizes: 5,
 		Schedule:             &rightsizev1alpha1.ResizeSchedule{Timezone: "UTC"},
 	}
@@ -449,8 +436,7 @@ func TestMergeUpdateStrategy_PartialInheritance(t *testing.T) {
 
 	inherited := MergeUpdateStrategy(policy, defaults)
 
-	assert.Len(t, inherited, 3)
-	assert.Contains(t, inherited, "maxCpuChangePercent")
+	assert.Len(t, inherited, 2)
 	assert.Contains(t, inherited, "maxConcurrentResizes")
 	assert.Contains(t, inherited, "schedule")
 	assert.NotContains(t, inherited, "type")

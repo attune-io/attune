@@ -54,12 +54,6 @@ spec:
     {{- with .Values.defaults.updateStrategy.maxTotalMemoryIncrease }}
     maxTotalMemoryIncrease: {{ . }}
     {{- end }}
-    {{- with .Values.defaults.updateStrategy.maxCpuChangePercent }}
-    maxCpuChangePercent: {{ . }}
-    {{- end }}
-    {{- with .Values.defaults.updateStrategy.maxMemoryChangePercent }}
-    maxMemoryChangePercent: {{ . }}
-    {{- end }}
     {{- with .Values.defaults.updateStrategy.safetyObservationPeriod }}
     safetyObservationPeriod: {{ . }}
     {{- end }}

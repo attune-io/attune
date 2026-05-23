@@ -24,13 +24,13 @@ spec:
     overhead: "20"
     minAllowed: "50m"
     maxAllowed: "4000m"
+    maxChangePercent: 50
   memory:
     percentile: 99
     overhead: "30"
     minAllowed: "64Mi"
     maxAllowed: "8Gi"
+    maxChangePercent: 30
   updateStrategy:
     type: Recommend            # safe default; switch to Canary or Auto later
     cooldown: 1h
-    maxCpuChangePercent: 50
-    maxMemoryChangePercent: 30

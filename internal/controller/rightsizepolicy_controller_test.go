@@ -3832,11 +3832,13 @@ func TestMergeDefaults_MergesAllFields(t *testing.T) {
 					Multiplier: "3.0",
 					Duration:   metav1.Duration{Duration: 2 * time.Minute},
 				},
+				MaxChangePercent: int32Ptr(80),
 			},
 			Memory: &rightsizev1alpha1.ResourceConfig{
-				Percentile:    95,
-				Overhead:      "40",
-				AllowDecrease: &allowDecrease,
+				Percentile:       95,
+				Overhead:         "40",
+				AllowDecrease:    &allowDecrease,
+				MaxChangePercent: int32Ptr(60),
 			},
 			MetricsSource: &rightsizev1alpha1.MetricsSource{
 				QueryStep:         &queryStep,
@@ -3848,8 +3850,6 @@ func TestMergeDefaults_MergesAllFields(t *testing.T) {
 				Cooldown:               &cooldown,
 				AutoRevert:             &autoRevert,
 				ResizeMethod:           rightsizev1alpha1.ResizeMethodInPlaceOrRecreate,
-				MaxCPUChangePercent:    int32Ptr(80),
-				MaxMemoryChangePercent: int32Ptr(60),
 				MaxConcurrentResizes:   5,
 				MaxTotalCPUIncrease:    quantityPtr("2000m"),
 				MaxTotalMemoryIncrease: quantityPtr("4Gi"),
@@ -3909,10 +3909,10 @@ func TestMergeDefaults_MergesAllFields(t *testing.T) {
 	require.NotNil(t, policy.Spec.UpdateStrategy.AutoRevert)
 	assert.True(t, *policy.Spec.UpdateStrategy.AutoRevert)
 	assert.Equal(t, rightsizev1alpha1.ResizeMethodInPlaceOrRecreate, policy.Spec.UpdateStrategy.ResizeMethod)
-	require.NotNil(t, policy.Spec.UpdateStrategy.MaxCPUChangePercent)
-	assert.Equal(t, int32(80), *policy.Spec.UpdateStrategy.MaxCPUChangePercent)
-	require.NotNil(t, policy.Spec.UpdateStrategy.MaxMemoryChangePercent)
-	assert.Equal(t, int32(60), *policy.Spec.UpdateStrategy.MaxMemoryChangePercent)
+	require.NotNil(t, policy.Spec.CPU.MaxChangePercent)
+	assert.Equal(t, int32(80), *policy.Spec.CPU.MaxChangePercent)
+	require.NotNil(t, policy.Spec.Memory.MaxChangePercent)
+	assert.Equal(t, int32(60), *policy.Spec.Memory.MaxChangePercent)
 	assert.Equal(t, int32(5), policy.Spec.UpdateStrategy.MaxConcurrentResizes)
 	require.NotNil(t, policy.Spec.UpdateStrategy.MaxTotalCPUIncrease)
 	assert.Equal(t, resource.MustParse("2000m"), *policy.Spec.UpdateStrategy.MaxTotalCPUIncrease)
@@ -3937,10 +3937,10 @@ func TestApplyBuiltInDefaults_FillsAllFields(t *testing.T) {
 
 	// Every field should now have a built-in default value.
 	assert.Equal(t, rightsizev1alpha1.DefaultUpdateType, policy.Spec.UpdateStrategy.Type)
-	require.NotNil(t, policy.Spec.UpdateStrategy.MaxCPUChangePercent)
-	assert.Equal(t, rightsizev1alpha1.DefaultMaxCPUChangePercent, *policy.Spec.UpdateStrategy.MaxCPUChangePercent)
-	require.NotNil(t, policy.Spec.UpdateStrategy.MaxMemoryChangePercent)
-	assert.Equal(t, rightsizev1alpha1.DefaultMaxMemoryChangePercent, *policy.Spec.UpdateStrategy.MaxMemoryChangePercent)
+	require.NotNil(t, policy.Spec.CPU.MaxChangePercent)
+	assert.Equal(t, rightsizev1alpha1.DefaultCPUMaxChangePercent, *policy.Spec.CPU.MaxChangePercent)
+	require.NotNil(t, policy.Spec.Memory.MaxChangePercent)
+	assert.Equal(t, rightsizev1alpha1.DefaultMemoryMaxChangePercent, *policy.Spec.Memory.MaxChangePercent)
 	require.NotNil(t, policy.Spec.UpdateStrategy.Cooldown)
 	assert.Equal(t, time.Hour, policy.Spec.UpdateStrategy.Cooldown.Duration)
 	require.NotNil(t, policy.Spec.UpdateStrategy.AutoRevert)
@@ -3963,8 +3963,8 @@ func TestApplyBuiltInDefaults_PreservesUserValues(t *testing.T) {
 	// Create a policy with explicit user values.
 	policy := &rightsizev1alpha1.RightSizePolicy{}
 	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeAuto
-	policy.Spec.UpdateStrategy.MaxCPUChangePercent = int32Ptr(80)
-	policy.Spec.UpdateStrategy.MaxMemoryChangePercent = int32Ptr(60)
+	policy.Spec.CPU.MaxChangePercent = int32Ptr(80)
+	policy.Spec.Memory.MaxChangePercent = int32Ptr(60)
 	autoRevert := false
 	policy.Spec.UpdateStrategy.AutoRevert = &autoRevert
 	policy.Spec.UpdateStrategy.ResizeMethod = rightsizev1alpha1.ResizeMethodInPlaceOrRecreate
@@ -3980,8 +3980,8 @@ func TestApplyBuiltInDefaults_PreservesUserValues(t *testing.T) {
 
 	// User values should be preserved, not overwritten.
 	assert.Equal(t, rightsizev1alpha1.UpdateTypeAuto, policy.Spec.UpdateStrategy.Type)
-	assert.Equal(t, int32(80), *policy.Spec.UpdateStrategy.MaxCPUChangePercent)
-	assert.Equal(t, int32(60), *policy.Spec.UpdateStrategy.MaxMemoryChangePercent)
+	assert.Equal(t, int32(80), *policy.Spec.CPU.MaxChangePercent)
+	assert.Equal(t, int32(60), *policy.Spec.Memory.MaxChangePercent)
 	assert.False(t, *policy.Spec.UpdateStrategy.AutoRevert)
 	assert.Equal(t, rightsizev1alpha1.ResizeMethodInPlaceOrRecreate, policy.Spec.UpdateStrategy.ResizeMethod)
 	assert.Equal(t, int32(24), *policy.Spec.MetricsSource.MinimumDataPoints)
@@ -4000,13 +4000,17 @@ func TestMergeDefaults_ClusterDefaultsTakeEffect(t *testing.T) {
 	defaults := &rightsizev1alpha1.RightSizeDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "cluster-defaults"},
 		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			CPU: &rightsizev1alpha1.ResourceConfig{
+				MaxChangePercent: int32Ptr(80),
+			},
+			Memory: &rightsizev1alpha1.ResourceConfig{
+				MaxChangePercent: int32Ptr(60),
+			},
 			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{
-				Type:                   rightsizev1alpha1.UpdateTypeAuto,
-				Cooldown:               &cooldown,
-				AutoRevert:             &autoRevert,
-				ResizeMethod:           rightsizev1alpha1.ResizeMethodInPlaceOrRecreate,
-				MaxCPUChangePercent:    int32Ptr(80),
-				MaxMemoryChangePercent: int32Ptr(60),
+				Type:         rightsizev1alpha1.UpdateTypeAuto,
+				Cooldown:     &cooldown,
+				AutoRevert:   &autoRevert,
+				ResizeMethod: rightsizev1alpha1.ResizeMethodInPlaceOrRecreate,
 			},
 		},
 	}
@@ -4023,20 +4027,22 @@ func TestMergeDefaults_ClusterDefaultsTakeEffect(t *testing.T) {
 	assert.Equal(t, 30*time.Minute, policy.Spec.UpdateStrategy.Cooldown.Duration)
 	assert.False(t, *policy.Spec.UpdateStrategy.AutoRevert)
 	assert.Equal(t, rightsizev1alpha1.ResizeMethodInPlaceOrRecreate, policy.Spec.UpdateStrategy.ResizeMethod)
-	assert.Equal(t, int32(80), *policy.Spec.UpdateStrategy.MaxCPUChangePercent)
-	assert.Equal(t, int32(60), *policy.Spec.UpdateStrategy.MaxMemoryChangePercent)
+	assert.Equal(t, int32(80), *policy.Spec.CPU.MaxChangePercent)
+	assert.Equal(t, int32(60), *policy.Spec.Memory.MaxChangePercent)
 }
 
 func TestMergeAndApplyDefaults_PartialClusterDefaults(t *testing.T) {
-	// Admin sets only Mode and MaxCPUChangePercent; everything else nil.
+	// Admin sets only Mode and CPU MaxChangePercent; everything else nil.
 	// After mergeDefaults + applyBuiltInDefaults, the inherited fields must
 	// be preserved and the rest must get built-in defaults.
 	defaults := &rightsizev1alpha1.RightSizeDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "partial-defaults"},
 		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
+			CPU: &rightsizev1alpha1.ResourceConfig{
+				MaxChangePercent: int32Ptr(80),
+			},
 			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{
-				Type:                rightsizev1alpha1.UpdateTypeAuto,
-				MaxCPUChangePercent: int32Ptr(80),
+				Type: rightsizev1alpha1.UpdateTypeAuto,
 			},
 		},
 	}
@@ -4046,19 +4052,19 @@ func TestMergeAndApplyDefaults_PartialClusterDefaults(t *testing.T) {
 	r.mergeDefaults(policy, defaults)
 	// Verify partial state before applyBuiltInDefaults.
 	assert.Equal(t, rightsizev1alpha1.UpdateTypeAuto, policy.Spec.UpdateStrategy.Type)
-	require.NotNil(t, policy.Spec.UpdateStrategy.MaxCPUChangePercent)
-	assert.Equal(t, int32(80), *policy.Spec.UpdateStrategy.MaxCPUChangePercent)
-	assert.Nil(t, policy.Spec.UpdateStrategy.MaxMemoryChangePercent,
+	require.NotNil(t, policy.Spec.CPU.MaxChangePercent)
+	assert.Equal(t, int32(80), *policy.Spec.CPU.MaxChangePercent)
+	assert.Nil(t, policy.Spec.Memory.MaxChangePercent,
 		"should still be nil before applyBuiltInDefaults")
 	assert.Nil(t, policy.Spec.UpdateStrategy.AutoRevert)
 
 	r.applyBuiltInDefaults(policy)
 	// Inherited values preserved.
 	assert.Equal(t, rightsizev1alpha1.UpdateTypeAuto, policy.Spec.UpdateStrategy.Type)
-	assert.Equal(t, int32(80), *policy.Spec.UpdateStrategy.MaxCPUChangePercent)
+	assert.Equal(t, int32(80), *policy.Spec.CPU.MaxChangePercent)
 	// Built-in defaults fill the rest.
-	require.NotNil(t, policy.Spec.UpdateStrategy.MaxMemoryChangePercent)
-	assert.Equal(t, rightsizev1alpha1.DefaultMaxMemoryChangePercent, *policy.Spec.UpdateStrategy.MaxMemoryChangePercent)
+	require.NotNil(t, policy.Spec.Memory.MaxChangePercent)
+	assert.Equal(t, rightsizev1alpha1.DefaultMemoryMaxChangePercent, *policy.Spec.Memory.MaxChangePercent)
 	require.NotNil(t, policy.Spec.UpdateStrategy.AutoRevert)
 	assert.True(t, *policy.Spec.UpdateStrategy.AutoRevert)
 	assert.Equal(t, rightsizev1alpha1.DefaultResizeMethod, policy.Spec.UpdateStrategy.ResizeMethod)
@@ -8989,13 +8995,13 @@ func TestAdjustHPATargets_ClampsBelow1(t *testing.T) {
 }
 
 func TestBuildRecommendationEngines_NilMaxChangePercent(t *testing.T) {
-	// Exercise the defense-in-depth nil fallback: when MaxCPUChangePercent
-	// and MaxMemoryChangePercent are nil (bypassing applyBuiltInDefaults),
-	// the function should fall back to DefaultMaxCPUChangePercent and
-	// DefaultMaxMemoryChangePercent.
+	// Exercise the defense-in-depth nil fallback: when CPU.MaxChangePercent
+	// and Memory.MaxChangePercent are nil (bypassing applyBuiltInDefaults),
+	// the function should fall back to DefaultCPUMaxChangePercent and
+	// DefaultMemoryMaxChangePercent.
 	policy := &rightsizev1alpha1.RightSizePolicy{}
-	policy.Spec.UpdateStrategy.MaxCPUChangePercent = nil
-	policy.Spec.UpdateStrategy.MaxMemoryChangePercent = nil
+	policy.Spec.CPU.MaxChangePercent = nil
+	policy.Spec.Memory.MaxChangePercent = nil
 
 	cpuEngine, memEngine := buildRecommendationEngines(policy)
 
@@ -9007,7 +9013,7 @@ func TestBuildRecommendationEngines_NilMaxChangePercent(t *testing.T) {
 		Confidence:         1.0,
 	}
 	_, cpuExpl, _ := cpuEngine.RecommendWithExplanation(cpuProfile, resource.MustParse("500m"))
-	assert.Equal(t, float64(rightsizev1alpha1.DefaultMaxCPUChangePercent), cpuExpl.MaxChangePercent)
+	assert.Equal(t, float64(rightsizev1alpha1.DefaultCPUMaxChangePercent), cpuExpl.MaxChangePercent)
 
 	memProfile := rsmetrics.UsageProfile{
 		OverallPercentiles: rsmetrics.PercentileSet{P50: 256, P95: 512, Max: 1024},
@@ -9015,17 +9021,17 @@ func TestBuildRecommendationEngines_NilMaxChangePercent(t *testing.T) {
 		Confidence:         1.0,
 	}
 	_, memExpl, _ := memEngine.RecommendWithExplanation(memProfile, resource.MustParse("256Mi"))
-	assert.Equal(t, float64(rightsizev1alpha1.DefaultMaxMemoryChangePercent), memExpl.MaxChangePercent)
+	assert.Equal(t, float64(rightsizev1alpha1.DefaultMemoryMaxChangePercent), memExpl.MaxChangePercent)
 }
 
 func TestBuildRecommendationEngines_ExplicitMaxChangePercent(t *testing.T) {
-	// When MaxCPUChangePercent and MaxMemoryChangePercent are set explicitly,
+	// When CPU.MaxChangePercent and Memory.MaxChangePercent are set explicitly,
 	// the engine should use those values instead of the defaults.
 	policy := &rightsizev1alpha1.RightSizePolicy{}
 	cpuPct := int32(75)
 	memPct := int32(40)
-	policy.Spec.UpdateStrategy.MaxCPUChangePercent = &cpuPct
-	policy.Spec.UpdateStrategy.MaxMemoryChangePercent = &memPct
+	policy.Spec.CPU.MaxChangePercent = &cpuPct
+	policy.Spec.Memory.MaxChangePercent = &memPct
 
 	cpuEngine, memEngine := buildRecommendationEngines(policy)
 

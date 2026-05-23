@@ -8,14 +8,16 @@ passes without issues.
 
 ```yaml
 spec:
+  cpu:
+    maxChangePercent: 50       # max CPU change per resize cycle
+  memory:
+    maxChangePercent: 30       # max memory change per resize cycle
   updateStrategy:
     type: Canary
     canary:
       percentage: 10          # resize 10% of pods first
       observationPeriod: 30m  # watch canary pods for 30 minutes
       autoPromote: true       # promote to full fleet automatically
-    maxCpuChangePercent: 50
-    maxMemoryChangePercent: 30
     cooldown: 2h
     autoRevert: true
 ```
@@ -25,8 +27,8 @@ spec:
 | `canary.percentage` | Percentage of eligible pods to resize in the first wave |
 | `canary.observationPeriod` | How long the operator monitors canary pods before proceeding |
 | `canary.autoPromote` | Automatically promote to full fleet after observation passes without reverts (default: false) |
-| `maxCpuChangePercent` | Maximum CPU change per resize cycle (default 50%) |
-| `maxMemoryChangePercent` | Maximum memory change per resize cycle (default 30%) |
+| `cpu.maxChangePercent` | Maximum CPU change per resize cycle (default 50%) |
+| `memory.maxChangePercent` | Maximum memory change per resize cycle (default 30%) |
 | `cooldown` | Minimum time between successive resize operations |
 | `autoRevert` | Automatically restore original resources on safety violation |
 

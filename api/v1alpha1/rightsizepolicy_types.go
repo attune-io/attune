@@ -296,6 +296,16 @@ type ResourceConfig struct {
 	// Only applies to CPU resources.
 	// +optional
 	StartupBoost *StartupBoost `json:"startupBoost,omitempty"`
+
+	// MaxChangePercent is the maximum allowed change percentage per
+	// reconcile cycle for this resource. Limits how aggressively the
+	// recommendation can deviate from the current value in a single step,
+	// forcing gradual convergence. Defaults to 50 for CPU, 30 for memory
+	// (applied by the controller so that RightSizeDefaults can override).
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=100
+	// +optional
+	MaxChangePercent *int32 `json:"maxChangePercent,omitempty"`
 }
 
 // StartupBoost configures temporary CPU inflation for cold-start optimization.
@@ -344,22 +354,6 @@ type UpdateStrategy struct {
 	// Canary configures canary rollout behavior when Type is Canary.
 	// +optional
 	Canary *CanaryConfig `json:"canary,omitempty"`
-
-	// MaxCPUChangePercent is the maximum allowed CPU change percentage per operation.
-	// Defaults to 50 if not set (applied by the controller so that
-	// RightSizeDefaults cluster configuration can override it).
-	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:validation:Maximum=100
-	// +optional
-	MaxCPUChangePercent *int32 `json:"maxCpuChangePercent,omitempty"`
-
-	// MaxMemoryChangePercent is the maximum allowed memory change percentage per operation.
-	// Defaults to 30 if not set (applied by the controller so that
-	// RightSizeDefaults cluster configuration can override it).
-	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:validation:Maximum=100
-	// +optional
-	MaxMemoryChangePercent *int32 `json:"maxMemoryChangePercent,omitempty"`
 
 	// Cooldown is the minimum time between successive resize operations.
 	// Defaults to 1h if not specified.

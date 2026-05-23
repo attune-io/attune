@@ -11,7 +11,7 @@ Fields are defaulted in three layers. Only `weight` and `maxConcurrentResizes`
 appear in the stored spec when omitted by the user (they are CRD schema or
 webhook defaults). All other defaultable fields (`type`, `controlledValues`,
 `cooldown`, `historyWindow`, `minimumDataPoints`, `queryStep`, `rateWindow`, `autoRevert`,
-`resizeMethod`, `maxCpuChangePercent`, `maxMemoryChangePercent`,
+`resizeMethod`, `cpu.maxChangePercent`, `memory.maxChangePercent`,
 `safetyObservationPeriod`) are applied
 by the controller at reconcile time so that cluster-wide `RightSizeDefaults`
 and namespace-scoped `RightSizeNamespaceDefaults` can override them. These
@@ -69,6 +69,7 @@ spec:
     minAllowed: "1m"             # optional: min clamp
     maxAllowed: "4000m"          # optional: max clamp (upper limit: 256 cores)
     controlledValues: RequestsAndLimits  # RequestsOnly | RequestsAndLimits
+    maxChangePercent: 50       # max CPU change per cycle (default: 50)
 
   # Memory recommendation parameters.
   memory:
@@ -79,6 +80,7 @@ spec:
     maxAllowed: "8Gi"                 # upper limit: 16Ti
     controlledValues: RequestsAndLimits
     allowDecrease: false       # prevent memory decreases (recommended)
+    maxChangePercent: 30       # max memory change per cycle (default: 30)
 
   # How and when to apply changes.
   updateStrategy:
@@ -87,8 +89,6 @@ spec:
       percentage: 10           # % of pods to resize first
       observationPeriod: 30m   # watch canary pods before proceeding (minimum: 1m)
       autoPromote: true        # promote to full fleet after safe observation (default: false)
-    maxCpuChangePercent: 50    # max CPU change per cycle (default: 50)
-    maxMemoryChangePercent: 30 # max memory change per cycle (default: 30)
     cooldown: 1h               # min time between resize operations (default: 1h)
     autoRevert: true           # revert on safety violation (default: true)
     safetyObservationPeriod: 5m  # post-resize safety watch period (default: 5m, minimum: 1m)

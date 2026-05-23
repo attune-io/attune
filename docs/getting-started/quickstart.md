@@ -145,13 +145,15 @@ proceeds if they remain healthy.
 
 ```yaml
 spec:
+  cpu:
+    maxChangePercent: 50
+  memory:
+    maxChangePercent: 30
   updateStrategy:
     type: Canary
     canary:
       percentage: 10
       observationPeriod: 30m
-    maxCpuChangePercent: 50
-    maxMemoryChangePercent: 30
     cooldown: 2h
     autoRevert: true
 ```

@@ -140,7 +140,7 @@ jobs:
 
   docs-check:
     name: Docs Check
-    runs-on: [self-hosted, Linux]
+    runs-on: self-hosted
     timeout-minutes: 10
     needs: changes
     if: needs.changes.outputs.docs == 'true' || needs.changes.outputs.helm == 'true'
@@ -175,7 +175,7 @@ jobs:
 
   yaml-lint:
     name: YAML Lint
-    runs-on: [self-hosted, Linux]
+    runs-on: self-hosted
     timeout-minutes: 5
     needs: changes
     if: needs.changes.outputs.yaml == 'true'
@@ -354,7 +354,7 @@ jobs:
   # verify compilation. The nightly E2E matrix catches runtime regressions.
   test-e2e:
     name: E2E Tests
-    runs-on: [self-hosted, Linux]
+    runs-on: self-hosted
     timeout-minutes: 45
     needs: [changes, lint, test-unit]
     if: needs.changes.outputs.go-source == 'true'
@@ -612,7 +612,7 @@ jobs:
 
   helm-lint:
     name: Helm Lint
-    runs-on: [self-hosted, Linux]
+    runs-on: self-hosted
     timeout-minutes: 10
     needs: changes
     if: needs.changes.outputs.helm == 'true' || needs.changes.outputs.go == 'true'
@@ -650,7 +650,7 @@ jobs:
           HELM_UNITTEST_ASSET_VERSION="${HELM_UNITTEST_VERSION#v}"
           case "$(uname -s)" in
             Linux)  HU_OS=linux  ;;
-            Darwin) HU_OS=darwin ;;
+            Darwin) HU_OS=macos  ;;
             *)      echo "unsupported OS: $(uname -s)" >&2; exit 1 ;;
           esac
           case "$(uname -m)" in
@@ -687,7 +687,7 @@ jobs:
 
   build:
     name: Build
-    runs-on: [self-hosted, Linux]
+    runs-on: self-hosted
     timeout-minutes: 15
     needs: changes
     if: needs.changes.outputs.go == 'true'

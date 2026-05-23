@@ -18,6 +18,8 @@ resources must be updated before applying the new CRDs.
 | `bounds.min` / `bounds.max` | `minAllowed` / `maxAllowed` | rename only |
 | `InPlaceOrEvict` | `InPlaceOrRecreate` | rename only |
 | `excludeContainers` | `excludedContainers` | rename only |
+| `updateStrategy.maxCpuChangePercent` | `cpu.maxChangePercent` | move to cpu section |
+| `updateStrategy.maxMemoryChangePercent` | `memory.maxChangePercent` | move to memory section |
 
 ### Overhead conversion examples
 

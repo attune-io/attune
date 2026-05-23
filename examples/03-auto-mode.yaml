@@ -29,6 +29,7 @@ spec:
     minAllowed: "200m"
     maxAllowed: "16000m"
     controlledValues: RequestsAndLimits
+    maxChangePercent: 30
   memory:
     percentile: 99
     overhead: "25"
@@ -36,10 +37,9 @@ spec:
     maxAllowed: "32Gi"
     controlledValues: RequestsAndLimits
     allowDecrease: false
+    maxChangePercent: 20
   updateStrategy:
     type: Auto
-    maxCpuChangePercent: 30
-    maxMemoryChangePercent: 20
     cooldown: 4h
     autoRevert: true
     # safetyObservationPeriod: 5m  # how long to watch each pod after resize (default: 5m, min: 1m)

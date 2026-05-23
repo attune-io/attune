@@ -201,6 +201,8 @@ spec:
     maxAllowed: "4000m"
     # Optional: control what is adjusted
     controlledValues: RequestsAndLimits  # RequestsOnly | RequestsAndLimits
+    # Maximum change per reconciliation cycle
+    maxChangePercent: 50      # default: 50
 
   memory:
     percentile: 99            # supported: 50, 90, 95, 99
@@ -210,6 +212,8 @@ spec:
     controlledValues: RequestsAndLimits
     # Memory-specific safety
     allowDecrease: false      # default: false (OOM risk), set true only when confident
+    # Maximum change per reconciliation cycle
+    maxChangePercent: 30      # default: 30
 
   # Rollout strategy
   updateStrategy:
@@ -218,9 +222,6 @@ spec:
     canary:
       percentage: 10          # % of pods to resize first
       observationPeriod: 30m  # monitor canary pods for this long (minimum: 1m)
-    # Maximum change per reconciliation cycle
-    maxCpuChangePercent: 50   # default: 50
-    maxMemoryChangePercent: 30 # default: 30
     # Cooldown between resize cycles
     cooldown: 1h              # default: 1h, min: 1m
     # Automatic revert on OOMKill or excessive CPU throttle
@@ -1517,7 +1518,7 @@ kube-rightsize/
 |---------|--------|---------------|
 | Mandatory resource bounds | OptiPod | `minAllowed`/`maxAllowed` are required fields |
 | Weight-based policy resolution | OptiPod | `weight` field for deterministic conflict resolution |
-| Gradual memory decrease | OptiPod | `maxMemoryChangePercent` + `allowDecrease` flag |
+| Gradual memory decrease | OptiPod | `memory.maxChangePercent` + `allowDecrease` flag |
 | Composable estimator chain | VPA | Decorator pattern: percentile -> margin -> confidence -> bounds |
 | Confidence-based widening | VPA | `(1 + multiplier/confidence)^exponent` formula |
 | Two-phase resize (CPU then memory) | right-sizer | CPU first (safer), then memory, with proper polling |

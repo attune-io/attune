@@ -54,8 +54,8 @@ const (
 	DefaultMemoryPercentile       int32 = 99
 	DefaultMemoryOverhead               = "30"
 	DefaultUpdateType                   = UpdateTypeRecommend
-	DefaultMaxCPUChangePercent    int32 = 50
-	DefaultMaxMemoryChangePercent int32 = 30
+	DefaultCPUMaxChangePercent    int32 = 50
+	DefaultMemoryMaxChangePercent int32 = 30
 	DefaultWeight                 int32 = 100
 	DefaultControlledValues             = ControlledRequestsOnly
 	DefaultHistoryWindow                = "168h"

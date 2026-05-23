@@ -33,6 +33,7 @@ spec:
     minAllowed: "100m"
     maxAllowed: "8000m"
     controlledValues: RequestsAndLimits
+    maxChangePercent: 50
   memory:
     percentile: 99
     overhead: "30"
@@ -40,12 +41,11 @@ spec:
     maxAllowed: "16Gi"
     controlledValues: RequestsAndLimits
     allowDecrease: false       # never shrink memory (OOMKill risk)
+    maxChangePercent: 30
   updateStrategy:
     type: Canary
     canary:
       percentage: 10           # resize 10% of pods first
       observationPeriod: 30m   # watch for 30 minutes
-    maxCpuChangePercent: 50    # cap per-resize CPU change
-    maxMemoryChangePercent: 30 # cap per-resize memory change
     cooldown: 2h
     autoRevert: true           # revert if unhealthy
