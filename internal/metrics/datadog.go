@@ -75,15 +75,7 @@ func NewDatadogCollector(site, apiKey, appKey string, logger logr.Logger) *Datad
 
 // QueryRange executes a Datadog metric query and returns flattened samples.
 func (c *DatadogCollector) QueryRange(ctx context.Context, query string, start, end time.Time, step time.Duration) ([]Sample, error) {
-	grouped, err := c.QueryRangeGrouped(ctx, query, start, end, step)
-	if err != nil {
-		return nil, err
-	}
-	var samples []Sample
-	for _, s := range grouped {
-		samples = append(samples, s...)
-	}
-	return samples, nil
+	return flattenGrouped(c.QueryRangeGrouped(ctx, query, start, end, step))
 }
 
 // QueryRangeGrouped queries the Datadog /api/v1/query endpoint and groups
@@ -196,6 +188,19 @@ func extractDatadogTag(tags []string, key string) string {
 		}
 	}
 	return ""
+}
+
+// flattenGrouped flattens a grouped sample map into a single slice.
+// Used by both DatadogCollector.QueryRange and CloudWatchCollector.QueryRange.
+func flattenGrouped(grouped map[string][]Sample, err error) ([]Sample, error) {
+	if err != nil {
+		return nil, err
+	}
+	var samples []Sample
+	for _, s := range grouped {
+		samples = append(samples, s...)
+	}
+	return samples, nil
 }
 
 func truncate(s string, n int) string {

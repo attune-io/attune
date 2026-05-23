@@ -102,15 +102,11 @@ func (b *DatadogQueryBuilder) BuildQuery(namespace, podRegex, container, metric 
 // datadogPodFilter converts a PromQL-style pod regex into a Datadog tag
 // filter with glob-style wildcards.
 func datadogPodFilter(podRegex string) string {
-	for i, ch := range podRegex {
-		if strings.ContainsRune(`[]()+*?{}.^$|\`, ch) {
-			if i == 0 {
-				return "*"
-			}
-			return podRegex[:i] + "*"
-		}
+	prefix := extractLiteralPrefix(podRegex)
+	if prefix == "" {
+		return "*"
 	}
-	return podRegex + "*"
+	return prefix + "*"
 }
 
 // CloudWatchQuerySpec is the structured query encoded as JSON in the query
@@ -168,15 +164,18 @@ func (b *CloudWatchQueryBuilder) BuildQuery(namespace, podRegex, container, metr
 
 // cloudWatchPodPrefix extracts a literal prefix from a PromQL-style regex.
 func cloudWatchPodPrefix(podRegex string) string {
-	for i, ch := range podRegex {
+	return extractLiteralPrefix(podRegex)
+}
+
+// extractLiteralPrefix returns the leading literal portion of a regex before
+// the first metacharacter. Used by both Datadog and CloudWatch query builders.
+func extractLiteralPrefix(regex string) string {
+	for i, ch := range regex {
 		if strings.ContainsRune(`[]()+*?{}.^$|\`, ch) {
-			if i == 0 {
-				return ""
-			}
-			return podRegex[:i]
+			return regex[:i]
 		}
 	}
-	return podRegex
+	return regex
 }
 
 // FormatPromDuration formats a Go duration as a PromQL duration string.

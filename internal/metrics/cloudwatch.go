@@ -80,15 +80,7 @@ func NewCloudWatchCollectorWithClient(client CloudWatchAPI, clusterName string, 
 
 // QueryRange executes a CloudWatch query and returns flattened samples.
 func (c *CloudWatchCollector) QueryRange(ctx context.Context, query string, start, end time.Time, step time.Duration) ([]Sample, error) {
-	grouped, err := c.QueryRangeGrouped(ctx, query, start, end, step)
-	if err != nil {
-		return nil, err
-	}
-	var samples []Sample
-	for _, s := range grouped {
-		samples = append(samples, s...)
-	}
-	return samples, nil
+	return flattenGrouped(c.QueryRangeGrouped(ctx, query, start, end, step))
 }
 
 // QueryRangeGrouped parses the JSON query spec and executes a CloudWatch
