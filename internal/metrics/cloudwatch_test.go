@@ -259,6 +259,49 @@ func TestCloudWatchCollector_Query_Instant(t *testing.T) {
 	assert.InDelta(t, 2.0, val, 0.001, "should return the latest sample")
 }
 
+func TestCloudWatchCollector_ContainerFiltering(t *testing.T) {
+	ts := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
+
+	mock := &mockCloudWatchClient{
+		getMetricDataFn: func(_ context.Context, _ *cloudwatch.GetMetricDataInput, _ ...func(*cloudwatch.Options)) (*cloudwatch.GetMetricDataOutput, error) {
+			return &cloudwatch.GetMetricDataOutput{
+				MetricDataResults: []cwtypes.MetricDataResult{
+					{
+						Label:      aws.String("metric pod-a main"),
+						Timestamps: []time.Time{ts},
+						Values:     []float64{100},
+					},
+					{
+						Label:      aws.String("metric pod-a sidecar"),
+						Timestamps: []time.Time{ts},
+						Values:     []float64{200},
+					},
+				},
+			}, nil
+		},
+	}
+
+	c := NewCloudWatchCollectorWithClient(mock, "c", logr.Discard())
+
+	spec := CloudWatchQuerySpec{
+		Metric:      "container_memory_working_set",
+		ClusterName: "c",
+		Namespace:   "ns",
+		PodPrefix:   "pod-",
+		Container:   "main", // Should filter out "sidecar"
+		Period:      300,
+		Stat:        "Average",
+	}
+	query, _ := json.Marshal(spec)
+
+	grouped, err := c.QueryRangeGrouped(context.Background(), string(query),
+		ts.Add(-time.Hour), ts, 5*time.Minute)
+	require.NoError(t, err)
+	assert.Len(t, grouped, 1, "should only contain the 'main' container")
+	assert.Contains(t, grouped, "main")
+	assert.InDelta(t, 100, grouped["main"][0].Value, 0.001)
+}
+
 func TestParseCloudWatchLabel(t *testing.T) {
 	tests := []struct {
 		label         string

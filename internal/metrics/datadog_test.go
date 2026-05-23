@@ -223,5 +223,79 @@ func TestExtractDatadogTag(t *testing.T) {
 	assert.Equal(t, "", extractDatadogTag(tags, "missing_tag"))
 }
 
+func TestDatadogCollector_EmptyTagSet(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		resp := datadogSeriesResponse{
+			Status: "ok",
+			Series: []datadogSeries{
+				{
+					Metric:    "kubernetes.memory.working_set",
+					TagSet:    []string{}, // no kube_container_name tag
+					Pointlist: [][2]float64{{1700000000000, 100}},
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	c := &DatadogCollector{
+		httpClient:    server.Client(),
+		baseURL:       server.URL,
+		apiKey:        "key",
+		logger:        logr.Discard(),
+		cpuMetricName: "kubernetes.cpu.usage.total",
+	}
+
+	grouped, err := c.QueryRangeGrouped(context.Background(), "memory", time.Now().Add(-time.Hour), time.Now(), time.Minute)
+	require.NoError(t, err)
+	// Samples with no container tag should be grouped under "".
+	assert.Len(t, grouped[""], 1)
+	assert.InDelta(t, 100, grouped[""][0].Value, 0.001)
+}
+
+func TestDatadogCollector_Query_ReturnsLatestTimestamp(t *testing.T) {
+	// Regression test: Query must return the latest sample by timestamp,
+	// not by iteration order (which is non-deterministic from map flattening).
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		resp := datadogSeriesResponse{
+			Status: "ok",
+			Series: []datadogSeries{
+				{
+					Metric: "custom.metric",
+					TagSet: []string{"kube_container_name:a"},
+					Pointlist: [][2]float64{
+						{1700000000000, 1.0}, // earlier
+						{1700000300000, 5.0}, // latest
+					},
+				},
+				{
+					Metric: "custom.metric",
+					TagSet: []string{"kube_container_name:b"},
+					Pointlist: [][2]float64{
+						{1700000100000, 3.0}, // middle
+					},
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	c := &DatadogCollector{
+		httpClient:    server.Client(),
+		baseURL:       server.URL,
+		apiKey:        "key",
+		logger:        logr.Discard(),
+		cpuMetricName: "kubernetes.cpu.usage.total",
+	}
+
+	val, err := c.Query(context.Background(), "custom.metric{*}", time.Unix(1700000300, 0))
+	require.NoError(t, err)
+	assert.InDelta(t, 5.0, val, 0.001, "should return the sample with the latest timestamp")
+}
+
 // Verify DatadogCollector implements MetricsCollector.
 var _ MetricsCollector = &DatadogCollector{}

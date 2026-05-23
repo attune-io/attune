@@ -170,7 +170,15 @@ func (c *DatadogCollector) Query(ctx context.Context, query string, ts time.Time
 	if len(samples) == 0 {
 		return 0, fmt.Errorf("empty result from Datadog instant query")
 	}
-	return samples[len(samples)-1].Value, nil
+	// Find the sample with the latest timestamp (samples from QueryRange
+	// come from map iteration and have non-deterministic order).
+	latest := samples[0]
+	for _, s := range samples[1:] {
+		if s.Timestamp.After(latest.Timestamp) {
+			latest = s
+		}
+	}
+	return latest.Value, nil
 }
 
 // Close is a no-op; the HTTP client does not need explicit cleanup.
