@@ -30,6 +30,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	sigsyaml "sigs.k8s.io/yaml"
+
+	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
 )
 
 // GVRs used by the wizard for Kubernetes discovery.
@@ -497,11 +499,11 @@ func buildPolicyObject(namespace, name, kind, workloadName, promAddr string, cpu
 				},
 				"cpu": map[string]interface{}{
 					"percentile": int64(cpuPercentile),
-					"overhead":   "20",
+					"overhead":   rightsizev1alpha1.DefaultCPUOverhead,
 				},
 				"memory": map[string]interface{}{
 					"percentile": int64(memPercentile),
-					"overhead":   "30",
+					"overhead":   rightsizev1alpha1.DefaultMemoryOverhead,
 				},
 				"updateStrategy": map[string]interface{}{
 					"type": mode,

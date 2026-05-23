@@ -398,6 +398,18 @@
               "maximum": 100,
               "description": "Maximum memory change per resize as a percentage of current request"
             },
+            "safetyObservationPeriod": {
+              "type": "string",
+              "description": "Duration to observe a pod after resize before concluding it is safe (e.g. '5m')"
+            },
+            "canary": {
+              "type": "object",
+              "description": "Canary rollout configuration",
+              "properties": {
+                "percentage": { "type": "integer", "minimum": 1, "maximum": 100 },
+                "observationPeriod": { "type": "string" }
+              }
+            },
             "export": {
               "type": "object",
               "additionalProperties": false,

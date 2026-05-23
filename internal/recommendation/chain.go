@@ -30,7 +30,7 @@ import (
 // RecommendWithExplanation.
 type RecommendationEngine struct {
 	percentile           int
-	overhead             float64
+	overhead             float64 // percentage to add (e.g. 20.0 = +20%); converted to multiplier via 1+overhead/100
 	burstSensitivity     float64
 	minBound             resource.Quantity
 	maxBound             resource.Quantity

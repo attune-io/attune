@@ -107,9 +107,9 @@ func run(args []string, buildClient dynamicClientFactory) int {
 		fmt.Fprintln(os.Stderr, "  savings           Show estimated CPU/memory savings per policy")
 		fmt.Fprintln(os.Stderr, "  recommendations   Show per-container sizing recommendations")
 		fmt.Fprintln(os.Stderr, "  explain           Show recommendation reasoning for one policy")
-		fmt.Fprintln(os.Stderr, "  preview           Preview per-pod resource changes before promoting mode")
+		fmt.Fprintln(os.Stderr, "  preview           Preview per-pod resource changes before promoting type")
 		fmt.Fprintln(os.Stderr, "  history           Show resize history (including eviction fallbacks)")
-		fmt.Fprintln(os.Stderr, "  wizard            Interactive policy creation and mode promotion")
+		fmt.Fprintln(os.Stderr, "  wizard            Interactive policy creation and type promotion")
 		fmt.Fprintln(os.Stderr, "  version           Print plugin version")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Flags:")
@@ -371,9 +371,9 @@ func printStatusItems(allItems []unstructured.Unstructured, sortByFlag, filterFl
 	showCluster := hasClusterAnnotation(items)
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 3, ' ', 0)
 	if showCluster {
-		fmt.Fprintln(w, "CLUSTER\tNAMESPACE\tNAME\tMODE\tWORKLOADS\tPENDING\tRESIZED\tREADY\tRESIZING\tDEGRADED\tSCHEDULE\tCANARY\tAGE")
+		fmt.Fprintln(w, "CLUSTER\tNAMESPACE\tNAME\tTYPE\tWORKLOADS\tPENDING\tRESIZED\tREADY\tRESIZING\tDEGRADED\tSCHEDULE\tCANARY\tAGE")
 	} else {
-		fmt.Fprintln(w, "NAMESPACE\tNAME\tMODE\tWORKLOADS\tPENDING\tRESIZED\tREADY\tRESIZING\tDEGRADED\tSCHEDULE\tCANARY\tAGE")
+		fmt.Fprintln(w, "NAMESPACE\tNAME\tTYPE\tWORKLOADS\tPENDING\tRESIZED\tREADY\tRESIZING\tDEGRADED\tSCHEDULE\tCANARY\tAGE")
 	}
 
 	for _, item := range items {

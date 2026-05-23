@@ -95,7 +95,7 @@ kubectl apply -f policy.yaml
 
 ```bash
 kubectl get rightsizepolicies -n production
-# NAME            MODE        WORKLOADS   RECS   RESIZED   READY   AGE
+# NAME            TYPE        WORKLOADS   RECS   RESIZED   READY   AGE
 # api-services    Recommend   3           0      0         False   5m
 ```
 

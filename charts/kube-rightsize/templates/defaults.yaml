@@ -60,6 +60,13 @@ spec:
     {{- with .Values.defaults.updateStrategy.maxMemoryChangePercent }}
     maxMemoryChangePercent: {{ . }}
     {{- end }}
+    {{- with .Values.defaults.updateStrategy.safetyObservationPeriod }}
+    safetyObservationPeriod: {{ . }}
+    {{- end }}
+    {{- with .Values.defaults.updateStrategy.canary }}
+    canary:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     {{- with .Values.defaults.updateStrategy.export }}
     export:
       {{- toYaml . | nindent 6 }}
