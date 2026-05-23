@@ -289,6 +289,18 @@ type ResourceConfig struct {
 	// +optional
 	AllowDecrease *bool `json:"allowDecrease,omitempty"`
 
+	// MemoryFromCPURatio derives memory recommendations from CPU recommendations
+	// using a fixed ratio, instead of using Prometheus memory metrics. Useful for
+	// JVM, Go, and .NET workloads where heap scales linearly with CPU allocation
+	// and Prometheus memory metrics are unreliable (JVM reserves heap upfront,
+	// Go GC targets a fixed percentage of available memory).
+	// Example: "2.0" means memory = 2x the CPU recommendation in bytes
+	// (e.g., 500m CPU -> 1Gi memory). The derived value still passes through
+	// minAllowed, maxAllowed, and maxChangePercent bounds.
+	// Only valid on the memory ResourceConfig; ignored on CPU.
+	// +optional
+	MemoryFromCPURatio *string `json:"memoryFromCpuRatio,omitempty"`
+
 	// StartupBoost temporarily increases CPU requests for newly created or
 	// restarted pods to accelerate JVM/.NET class loading, JIT compilation,
 	// and cache warming. After the duration expires (or the container reaches

@@ -27,6 +27,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 	corev1 "k8s.io/api/core/v1"
+	k8sresource "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -346,7 +347,43 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 		}
 
 		// Compute memory recommendation.
-		if memProfile.DataPoints >= int(minimumDataPoints) {
+		// When memoryFromCpuRatio is set, derive memory from the CPU
+		// recommendation instead of using Prometheus memory metrics.
+		if policy.Spec.Memory.MemoryFromCPURatio != nil && *policy.Spec.Memory.MemoryFromCPURatio != "" && explanation.CPU != nil {
+			ratio := parseFloat64(*policy.Spec.Memory.MemoryFromCPURatio, 0)
+			if ratio > 0 {
+				// CPU recommendation is in millicores. Convert to cores, multiply
+				// by ratio to get GiB, then convert to bytes for the memory engine.
+				cpuCores := float64(rec.Recommended.CPURequest.MilliValue()) / 1000
+				memBytes := int64(cpuCores * ratio * 1024 * 1024 * 1024)
+				derivedMem := *k8sresource.NewQuantity(memBytes, k8sresource.BinarySI)
+
+				// Pass through the memory engine's bounds + change filter by
+				// running it with a synthetic profile that targets the derived value.
+				memRec, memExplain, _ := memEngine.RecommendWithExplanation(
+					rsmetrics.UsageProfile{
+						OverallPercentiles: rsmetrics.PercentileSet{
+							P50: float64(memBytes), P90: float64(memBytes),
+							P95: float64(memBytes), P99: float64(memBytes),
+							Max: float64(memBytes),
+						},
+						DataPoints: int(minimumDataPoints),
+						Confidence: 1.0,
+					}, currentMemReq)
+
+				_ = derivedMem // ratio used to compute the synthetic profile above
+				allowDecrease := policy.Spec.Memory.AllowDecrease != nil && *policy.Spec.Memory.AllowDecrease
+				if !allowDecrease && memRec.Cmp(currentMemReq) < 0 {
+					memRec = currentMemReq.DeepCopy()
+					memExplain.Final = memRec.DeepCopy()
+					memExplain.FinalAdjustment = fmt.Sprintf("Memory decrease blocked by allowDecrease=false (derived from CPU via ratio %s)", *policy.Spec.Memory.MemoryFromCPURatio)
+				}
+				rec.Recommended.MemoryRequest = memRec
+				memExplain.FinalAdjustment = appendNote(memExplain.FinalAdjustment,
+					fmt.Sprintf("derived from CPU via memoryFromCpuRatio=%s", *policy.Spec.Memory.MemoryFromCPURatio))
+				explanation.Memory = toAPIRecommendationExplanation(memExplain)
+			}
+		} else if memProfile.DataPoints >= int(minimumDataPoints) {
 			memRec, memExplain, _ := memEngine.RecommendWithExplanation(memProfile, currentMemReq)
 			// Enforce AllowDecrease: skip memory decreases unless explicitly allowed.
 			allowDecrease := policy.Spec.Memory.AllowDecrease != nil && *policy.Spec.Memory.AllowDecrease
@@ -701,6 +738,14 @@ func samplesForContainer(grouped map[string][]rsmetrics.Sample, container string
 		return samples
 	}
 	return grouped[""]
+}
+
+// appendNote appends a note to an existing adjustment string, separated by "; ".
+func appendNote(existing, note string) string {
+	if existing == "" {
+		return note
+	}
+	return existing + "; " + note
 }
 
 // toAPIRecommendationExplanation converts an internal explanation to the API

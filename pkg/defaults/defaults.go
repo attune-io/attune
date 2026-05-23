@@ -130,6 +130,10 @@ func MergeResourceConfig(policy *rightsizev1alpha1.ResourceConfig, defaults *rig
 		policy.AllowDecrease = defaults.AllowDecrease
 		inherited = append(inherited, prefix+".allowDecrease")
 	}
+	if policy.MemoryFromCPURatio == nil && defaults.MemoryFromCPURatio != nil {
+		policy.MemoryFromCPURatio = defaults.MemoryFromCPURatio
+		inherited = append(inherited, prefix+".memoryFromCpuRatio")
+	}
 	if policy.StartupBoost == nil && defaults.StartupBoost != nil {
 		policy.StartupBoost = defaults.StartupBoost
 		inherited = append(inherited, prefix+".startupBoost")

@@ -369,6 +369,11 @@ func (in *ResourceConfig) DeepCopyInto(out *ResourceConfig) {
 		*out = new(bool)
 		**out = **in
 	}
+	if in.MemoryFromCPURatio != nil {
+		in, out := &in.MemoryFromCPURatio, &out.MemoryFromCPURatio
+		*out = new(string)
+		**out = **in
+	}
 	if in.StartupBoost != nil {
 		in, out := &in.StartupBoost, &out.StartupBoost
 		*out = new(StartupBoost)
