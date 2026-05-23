@@ -155,14 +155,14 @@ output via the `burstFactor` and `afterBurst` fields, and as the
 ## Full pipeline example
 
 Given: p95 CPU = 200m, safety margin = 1.2, confidence = 0.8,
-bounds = [50m, 4000m], current = 500m, max change = 50%.
+bounds = [1m, 4000m], current = 500m, max change = 50%.
 
 | Stage | Calculation | Result |
 |-------|-------------|--------|
 | Percentile | max across hourly p95 | 200m |
 | Margin | 200m * 1.2 | 240m |
 | Confidence | 240m * (1 + 1/0.8)^2 = 240m * 5.0625 | 1215m |
-| Bounds | clamp(1215m, 50m, 4000m) | 1215m |
+| Bounds | clamp(1215m, 1m, 4000m) | 1215m |
 | Change Filter | change = abs(1215-500)/500 = 143% > 50%, cap | 750m |
 
 Final recommendation: **750m** (capped at 50% increase from 500m).

@@ -77,13 +77,13 @@ spec:
     percentile: 95
     safetyMargin: "1.2"
     bounds:
-      min: "50m"
+      min: "1m"
       max: "4000m"
   memory:
     percentile: 99
     safetyMargin: "1.3"
     bounds:
-      min: "64Mi"
+      min: "4Mi"
       max: "8Gi"
   updateStrategy:
     mode: Recommend
@@ -263,7 +263,7 @@ The dashboard includes:
 - **HPA coexistence**: Adjusts base resource requests without interfering
   with HPA's percentage-based scaling. No death spirals.
 - **Always-bounded**: Resource bounds (`min`/`max`) per-policy with safe
-  defaults (CPU: 50m-4000m, Memory: 64Mi-8Gi).
+  defaults (CPU: 1m-4000m, Memory: 4Mi-8Gi).
 
 ### Operations
 

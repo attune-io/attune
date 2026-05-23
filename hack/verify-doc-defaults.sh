@@ -156,22 +156,22 @@ check_default "memSafetyMargin (README)" \
 
 # --- Resource bounds defaults ---
 check_default "cpuBoundsMin (Go)" \
-  'DefaultCPUBoundsMin.*"50m"' \
+  'DefaultCPUBoundsMin.*"1m"' \
   "api/v1alpha1/defaults.go"
 check_default "cpuBoundsMax (Go)" \
   'DefaultCPUBoundsMax.*"4000m"' \
   "api/v1alpha1/defaults.go"
 check_default "memBoundsMin (Go)" \
-  'DefaultMemoryBoundsMin.*"64Mi"' \
+  'DefaultMemoryBoundsMin.*"4Mi"' \
   "api/v1alpha1/defaults.go"
 check_default "memBoundsMax (Go)" \
   'DefaultMemoryBoundsMax.*"8Gi"' \
   "api/v1alpha1/defaults.go"
 check_default "cpuBounds (README)" \
-  'min.*50m' \
+  'min.*1m' \
   "README.md"
 check_default "memBounds (README)" \
-  'min.*64Mi' \
+  'min.*4Mi' \
   "README.md"
 
 # --- cooldown default = 1h ---

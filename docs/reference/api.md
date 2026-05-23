@@ -67,7 +67,7 @@ spec:
       multiplier: "3.0"        # scale factor for startup CPU (1.1-10.0)
       duration: 2m             # boost window after pod creation (10s-1h)
     bounds:                    # optional: min/max clamps
-      min: "50m"
+      min: "1m"
       max: "4000m"               # upper limit: 256 cores
     controlledValues: RequestsAndLimits  # RequestsOnly | RequestsAndLimits
 
@@ -77,7 +77,7 @@ spec:
     safetyMargin: "1.3"
     burstSensitivity: "0.1"
     bounds:
-      min: "64Mi"
+      min: "4Mi"
       max: "8Gi"                 # upper limit: 16Ti
     controlledValues: RequestsAndLimits
     allowDecrease: false       # prevent memory decreases (recommended)

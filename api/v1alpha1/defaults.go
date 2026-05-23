@@ -70,8 +70,8 @@ const (
 // These are package-level vars (parsed once at init) rather than inline
 // MustParse calls in the reconciler hot path.
 var (
-	DefaultCPUBoundsMin    = resource.MustParse("50m")
+	DefaultCPUBoundsMin    = resource.MustParse("1m")
 	DefaultCPUBoundsMax    = resource.MustParse("4000m")
-	DefaultMemoryBoundsMin = resource.MustParse("64Mi")
+	DefaultMemoryBoundsMin = resource.MustParse("4Mi")
 	DefaultMemoryBoundsMax = resource.MustParse("8Gi")
 )
