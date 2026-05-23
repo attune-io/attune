@@ -390,9 +390,9 @@ func TestValidate_OverheadInvalid(t *testing.T) {
 		{"non-numeric memory", "20", "xyz", "memory.overhead"},
 		{"negative CPU", "-5", "30", "must be non-negative"},
 		{"negative memory", "20", "-1.5", "must be non-negative"},
-		{"NaN CPU", "NaN", "1.3", "must be a finite number"},
-		{"Inf memory", "1.2", "Inf", "must be a finite number"},
-		{"-Inf CPU", "-Inf", "1.3", "must be a finite number"},
+		{"NaN CPU", "NaN", "30", "must be a finite number"},
+		{"Inf memory", "20", "Inf", "must be a finite number"},
+		{"-Inf CPU", "-Inf", "30", "must be a finite number"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
