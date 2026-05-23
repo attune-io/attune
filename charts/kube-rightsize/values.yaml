@@ -133,6 +133,14 @@ webhooks:
   # -- Enable admission webhooks for defaulting and validation. Requires cert-manager to be installed for TLS certificate provisioning.
   enabled: true
 
+# -- Initial sizing webhook configuration.
+# When enabled, a mutating webhook sets pod resource requests at creation time
+# based on existing RightSizePolicy recommendations. Requires namespace label
+# rightsize.io/initial-sizing=enabled and initialSizing: true on the policy.
+initialSizing:
+  # -- Enable the pod initial sizing mutating webhook.
+  enabled: false
+
 # -- NetworkPolicy configuration for operator ingress and egress ports
 networkPolicy:
   # -- Enable NetworkPolicy for the operator pod

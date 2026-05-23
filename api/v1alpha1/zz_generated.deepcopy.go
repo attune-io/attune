@@ -859,6 +859,11 @@ func (in *UpdateStrategy) DeepCopyInto(out *UpdateStrategy) {
 		*out = new(v1.Duration)
 		**out = **in
 	}
+	if in.InitialSizing != nil {
+		in, out := &in.InitialSizing, &out.InitialSizing
+		*out = new(bool)
+		**out = **in
+	}
 	if in.AutoRevert != nil {
 		in, out := &in.AutoRevert, &out.AutoRevert
 		*out = new(bool)

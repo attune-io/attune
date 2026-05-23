@@ -390,6 +390,14 @@ type UpdateStrategy struct {
 	// +optional
 	Cooldown *metav1.Duration `json:"cooldown,omitempty"`
 
+	// InitialSizing enables a mutating admission webhook that sets resource
+	// requests/limits on new pods at creation time, based on existing
+	// recommendations. This eliminates the "deploy with bad defaults, wait
+	// for first reconcile" gap. Requires the namespace label
+	// rightsize.io/initial-sizing=enabled. Defaults to false.
+	// +optional
+	InitialSizing *bool `json:"initialSizing,omitempty"`
+
 	// AutoRevert automatically reverts changes if degradation is detected.
 	// Defaults to true if not set (applied by the controller so that
 	// RightSizeDefaults cluster configuration can override it).

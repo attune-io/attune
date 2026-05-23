@@ -38,6 +38,8 @@ helm install kube-rightsize oci://ghcr.io/sebtardiflabs/charts/kube-rightsize \
 | image.repository | string | `"ghcr.io/sebtardiflabs/kube-rightsize"` | Container image repository |
 | image.tag | string | `""` | Image tag (defaults to Chart appVersion) |
 | imagePullSecrets | list | `[]` | Image pull secrets |
+| initialSizing | object | `{"enabled":false}` | Initial sizing webhook configuration. When enabled, a mutating webhook sets pod resource requests at creation time based on existing RightSizePolicy recommendations. Requires namespace label rightsize.io/initial-sizing=enabled and initialSizing: true on the policy. |
+| initialSizing.enabled | bool | `false` | Enable the pod initial sizing mutating webhook. |
 | leaderElection | object | `{"enabled":true}` | Leader election (enable for HA with replicaCount > 1) |
 | logging | object | `{"format":"json","level":"info"}` | Logging configuration |
 | logging.format | string | `"json"` | Log format (json, text) |

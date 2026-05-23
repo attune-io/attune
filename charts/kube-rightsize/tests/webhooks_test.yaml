@@ -68,6 +68,42 @@ tests:
           path: webhooks[2].rules[0].resources[0]
           value: rightsizenamespacedefaults
 
+  - it: should include pod initial sizing webhook when enabled
+    set:
+      webhooks.enabled: true
+      initialSizing.enabled: true
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: MutatingWebhookConfiguration
+      - equal:
+          path: webhooks[1].name
+          value: pod-initial-sizing.rightsize.io
+      - equal:
+          path: webhooks[1].clientConfig.service.path
+          value: /mutate-v1-pod
+      - equal:
+          path: webhooks[1].failurePolicy
+          value: Ignore
+      - equal:
+          path: webhooks[1].rules[0].resources[0]
+          value: pods
+      - equal:
+          path: webhooks[1].namespaceSelector.matchExpressions[0].key
+          value: rightsize.io/initial-sizing
+
+  - it: should not include pod initial sizing webhook when disabled
+    set:
+      webhooks.enabled: true
+      initialSizing.enabled: false
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: MutatingWebhookConfiguration
+      - lengthEqual:
+          path: webhooks
+          count: 1
+
   - it: should set cert-manager annotation
     set:
       webhooks.enabled: true

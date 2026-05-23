@@ -42,4 +42,13 @@ kube-rightsize has been installed.
 
    kubectl get rightsizepolicies -A
 
+{{- if .Values.initialSizing.enabled }}
+5. Initial sizing is enabled. To activate it for a namespace:
+
+   kubectl label namespace <your-namespace> rightsize.io/initial-sizing=enabled
+
+   Then set initialSizing: true on your RightSizePolicy's updateStrategy.
+   New pods will get recommended resources at creation time.
+{{- end }}
+
 For more information, visit: https://github.com/SebTardifLabs/kube-rightsize

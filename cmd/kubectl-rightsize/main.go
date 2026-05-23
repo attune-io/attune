@@ -813,6 +813,7 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *righ
 	}
 	printEffectiveField("Observation period", obsConfigured, effectiveObservationPeriod(effective), selected, updateDefaults != nil && updateDefaults.SafetyObservationPeriod != nil)
 	printEffectiveField("Auto revert", formatBoolField(item, "spec", "updateStrategy", "autoRevert"), formatBoolPtr(effective.Spec.UpdateStrategy.AutoRevert), selected, updateDefaults != nil && updateDefaults.AutoRevert != nil)
+	printEffectiveField("Initial sizing", formatBoolField(item, "spec", "updateStrategy", "initialSizing"), formatBoolPtr(effective.Spec.UpdateStrategy.InitialSizing), selected, updateDefaults != nil && updateDefaults.InitialSizing != nil)
 	printEffectiveField("Max concurrent resizes", formatInt64Field(item, "spec", "updateStrategy", "maxConcurrentResizes"), formatInt32Val(effective.Spec.UpdateStrategy.MaxConcurrentResizes), selected, updateDefaults != nil && updateDefaults.MaxConcurrentResizes != 0)
 	printEffectiveField("Rate window", getNestedString(item, "spec", "metricsSource", "rateWindow"), formatDurationPtr(effective.Spec.MetricsSource.RateWindow), selected, metricsDefaults != nil && metricsDefaults.RateWindow != nil)
 

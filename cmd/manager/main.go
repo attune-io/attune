@@ -227,6 +227,14 @@ func main() {
 			setupLog.Error(err, "unable to create webhook", "webhook", "RightSizeNamespaceDefaults")
 			os.Exit(1)
 		}
+
+		// Pod initial sizing webhook: mutates pod resources at creation time
+		// based on existing RightSizePolicy recommendations.
+		mgr.GetWebhookServer().Register("/mutate-v1-pod",
+			&webhookserver.Admission{Handler: &webhook.PodMutatingHandler{
+				Client: mgr.GetClient(),
+				Logger: setupLog.WithName("pod-initial-sizing"),
+			}})
 	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {

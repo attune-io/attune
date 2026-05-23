@@ -323,7 +323,7 @@ func TestDetectPrometheus_NoMatches(t *testing.T) {
 
 func TestBuildPolicyObject(t *testing.T) {
 	obj := buildPolicyObject("prod", "api-rightsize", "Deployment", "api-server",
-		"http://prom:9090", 95, 99, "Recommend")
+		"http://prom:9090", 95, 99, "Recommend", false)
 
 	assert.Equal(t, "rightsize.io/v1alpha1", obj.GetAPIVersion())
 	assert.Equal(t, "RightSizePolicy", obj.GetKind())
@@ -397,9 +397,86 @@ func TestWizardCreate_NoWorkloads(t *testing.T) {
 	assert.Contains(t, err.Error(), "no Deployments found")
 }
 
+func TestBuildPolicyObject_WithInitialSizing(t *testing.T) {
+	obj := buildPolicyObject("prod", "api-rightsize", "Deployment", "api-server",
+		"http://prom:9090", 95, 99, "Auto", true)
+
+	mode := getNestedString(*obj, "spec", "updateStrategy", "type")
+	assert.Equal(t, "Auto", mode)
+
+	is, found, _ := unstructured.NestedBool(obj.Object, "spec", "updateStrategy", "initialSizing")
+	assert.True(t, found, "initialSizing should be present")
+	assert.True(t, is, "initialSizing should be true")
+}
+
+func TestBuildPolicyObject_WithoutInitialSizing(t *testing.T) {
+	obj := buildPolicyObject("prod", "api-rightsize", "Deployment", "api-server",
+		"http://prom:9090", 95, 99, "Auto", false)
+
+	// initialSizing should not be present when false.
+	_, found, _ := unstructured.NestedBool(obj.Object, "spec", "updateStrategy", "initialSizing")
+	assert.False(t, found, "initialSizing should not be set when false")
+}
+
+func TestWizardCreate_AutoModeWithInitialSizing(t *testing.T) {
+	dynClient := newFakeDynClient(
+		unstructuredDeployment("api-server", "default", 3),
+		unstructuredService("prometheus-server", "monitoring", int64(9090)),
+	)
+
+	p := &scriptedPrompter{
+		selectAnswers: []int{
+			0, // kind: Deployment
+			0, // workload: api-server
+			0, // prometheus: auto-detected
+			0, // CPU: P95
+			0, // Memory: P99
+			1, // mode: Auto
+			0, // action: Apply
+		},
+		confirmAnswers: []bool{true}, // initial sizing: yes
+	}
+
+	err := wizardCreate(context.Background(), dynClient, "default", p)
+	require.NoError(t, err)
+
+	created, err := dynClient.Resource(gvr).Namespace("default").Get(
+		context.Background(), "api-server-rightsize", metav1.GetOptions{})
+	require.NoError(t, err)
+
+	mode := getNestedString(*created, "spec", "updateStrategy", "type")
+	assert.Equal(t, "Auto", mode)
+
+	is, found, _ := unstructured.NestedBool(created.Object, "spec", "updateStrategy", "initialSizing")
+	assert.True(t, found, "initialSizing should be present")
+	assert.True(t, is, "initialSizing should be true")
+}
+
+func TestWizardPromote_EnablesInitialSizing(t *testing.T) {
+	dynClient := newFakeDynClient(
+		unstructuredPolicy("api-rightsize", "default", "Recommend"),
+	)
+
+	p := &scriptedPrompter{
+		selectAnswers:  []int{0, 2},        // policy: api-rightsize, mode: Auto
+		confirmAnswers: []bool{true, true}, // initial sizing: yes, confirm promote: yes
+	}
+
+	err := wizardPromote(context.Background(), dynClient, "default", p)
+	require.NoError(t, err)
+
+	item, _ := dynClient.Resource(gvr).Namespace("default").Get(
+		context.Background(), "api-rightsize", metav1.GetOptions{})
+	assert.Equal(t, "Auto", getNestedString(*item, "spec", "updateStrategy", "type"))
+
+	is, found, _ := unstructured.NestedBool(item.Object, "spec", "updateStrategy", "initialSizing")
+	assert.True(t, found, "initialSizing should be set")
+	assert.True(t, is, "initialSizing should be true")
+}
+
 func TestMarshalPolicyYAML(t *testing.T) {
 	obj := buildPolicyObject("default", "test", "Deployment", "app",
-		"http://prom:9090", 95, 99, "Recommend")
+		"http://prom:9090", 95, 99, "Recommend", false)
 	data, err := marshalPolicyYAML(obj)
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "apiVersion: rightsize.io/v1alpha1")

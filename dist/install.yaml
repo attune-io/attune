@@ -520,6 +520,14 @@ spec:
                           to the policy for automatic cleanup.
                         type: boolean
                     type: object
+                  initialSizing:
+                    description: |-
+                      InitialSizing enables a mutating admission webhook that sets resource
+                      requests/limits on new pods at creation time, based on existing
+                      recommendations. This eliminates the "deploy with bad defaults, wait
+                      for first reconcile" gap. Requires the namespace label
+                      rightsize.io/initial-sizing=enabled. Defaults to false.
+                    type: boolean
                   maxConcurrentResizes:
                     default: 1
                     description: |-
@@ -1170,6 +1178,14 @@ spec:
                           to the policy for automatic cleanup.
                         type: boolean
                     type: object
+                  initialSizing:
+                    description: |-
+                      InitialSizing enables a mutating admission webhook that sets resource
+                      requests/limits on new pods at creation time, based on existing
+                      recommendations. This eliminates the "deploy with bad defaults, wait
+                      for first reconcile" gap. Requires the namespace label
+                      rightsize.io/initial-sizing=enabled. Defaults to false.
+                    type: boolean
                   maxConcurrentResizes:
                     default: 1
                     description: |-
@@ -1890,6 +1906,14 @@ spec:
                           to the policy for automatic cleanup.
                         type: boolean
                     type: object
+                  initialSizing:
+                    description: |-
+                      InitialSizing enables a mutating admission webhook that sets resource
+                      requests/limits on new pods at creation time, based on existing
+                      recommendations. This eliminates the "deploy with bad defaults, wait
+                      for first reconcile" gap. Requires the namespace label
+                      rightsize.io/initial-sizing=enabled. Defaults to false.
+                    type: boolean
                   maxConcurrentResizes:
                     default: 1
                     description: |-

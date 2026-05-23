@@ -276,6 +276,18 @@
         }
       }
     },
+    "initialSizing": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Pod initial sizing webhook configuration",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable the pod initial sizing mutating webhook"
+        }
+      }
+    },
     "defaults": {
       "type": "object",
       "additionalProperties": false,

@@ -200,6 +200,10 @@ func MergeUpdateStrategy(policy *rightsizev1alpha1.UpdateStrategy, defaults *rig
 		policy.ResizeMethod = defaults.ResizeMethod
 		inherited = append(inherited, "resizeMethod")
 	}
+	if policy.InitialSizing == nil && defaults.InitialSizing != nil {
+		policy.InitialSizing = defaults.InitialSizing
+		inherited = append(inherited, "initialSizing")
+	}
 	if policy.MaxConcurrentResizes == 0 && defaults.MaxConcurrentResizes != 0 {
 		policy.MaxConcurrentResizes = defaults.MaxConcurrentResizes
 		inherited = append(inherited, "maxConcurrentResizes")

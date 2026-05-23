@@ -205,12 +205,21 @@ func wizardCreate(ctx context.Context, dynClient dynamic.Interface, namespace st
 		return err
 	}
 
-	// 8. Build policy name.
+	// 8. Initial sizing (only for Auto/OneShot/Canary).
+	initialSizing := false
+	if modeValues[modeIdx] == "Auto" || modeValues[modeIdx] == "OneShot" || modeValues[modeIdx] == "Canary" {
+		initialSizing, err = p.Confirm("Enable initial sizing for new pods? (sets resources at creation time)", false)
+		if err != nil {
+			return err
+		}
+	}
+
+	// 9. Build policy name.
 	policyName := workloadName + "-rightsize"
 
-	// 9. Generate YAML.
+	// 10. Generate YAML.
 	policy := buildPolicyObject(ns, policyName, kind, workloadName, promAddr,
-		cpuPercentiles[cpuIdx], memPercentiles[memIdx], modeValues[modeIdx])
+		cpuPercentiles[cpuIdx], memPercentiles[memIdx], modeValues[modeIdx], initialSizing)
 
 	yamlBytes, err := marshalPolicyYAML(policy)
 	if err != nil {
@@ -334,6 +343,18 @@ func wizardPromote(ctx context.Context, dynClient dynamic.Interface, namespace s
 		return nil
 	}
 
+	// Ask about initial sizing when promoting to an active mode.
+	enableInitialSizing := false
+	if newMode == "Auto" || newMode == "OneShot" || newMode == "Canary" {
+		currentIS, _, _ := unstructured.NestedBool(selected.Object, "spec", "updateStrategy", "initialSizing")
+		if !currentIS {
+			enableInitialSizing, err = p.Confirm("Enable initial sizing for new pods?", false)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
 	// Re-fetch for fresh resourceVersion.
 	fresh, err := dynClient.Resource(gvr).Namespace(ns).Get(ctx, selected.GetName(), metav1.GetOptions{})
 	if err != nil {
@@ -342,11 +363,19 @@ func wizardPromote(ctx context.Context, dynClient dynamic.Interface, namespace s
 	if err := unstructured.SetNestedField(fresh.Object, newMode, "spec", "updateStrategy", "type"); err != nil {
 		return fmt.Errorf("setting type: %w", err)
 	}
+	if enableInitialSizing {
+		if err := unstructured.SetNestedField(fresh.Object, true, "spec", "updateStrategy", "initialSizing"); err != nil {
+			return fmt.Errorf("setting initialSizing: %w", err)
+		}
+	}
 	_, err = dynClient.Resource(gvr).Namespace(ns).Update(ctx, fresh, metav1.UpdateOptions{})
 	if err != nil {
 		return fmt.Errorf("updating policy: %w", err)
 	}
 	fmt.Printf("Policy %q promoted to %s mode.\n", selected.GetName(), newMode)
+	if enableInitialSizing {
+		fmt.Printf("Initial sizing enabled. Label namespaces with: kubectl label namespace %s rightsize.io/initial-sizing=enabled\n", ns)
+	}
 	return nil
 }
 
@@ -478,7 +507,7 @@ func detectPrometheus(ctx context.Context, dynClient dynamic.Interface) []string
 }
 
 // buildPolicyObject constructs an unstructured RightSizePolicy.
-func buildPolicyObject(namespace, name, kind, workloadName, promAddr string, cpuPercentile, memPercentile int32, mode string) *unstructured.Unstructured {
+func buildPolicyObject(namespace, name, kind, workloadName, promAddr string, cpuPercentile, memPercentile int32, mode string, initialSizing bool) *unstructured.Unstructured {
 	obj := &unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "rightsize.io/v1alpha1",
@@ -505,13 +534,21 @@ func buildPolicyObject(namespace, name, kind, workloadName, promAddr string, cpu
 					"percentile": int64(memPercentile),
 					"overhead":   rightsizev1alpha1.DefaultMemoryOverhead,
 				},
-				"updateStrategy": map[string]interface{}{
-					"type": mode,
-				},
+				"updateStrategy": buildUpdateStrategy(mode, initialSizing),
 			},
 		},
 	}
 	return obj
+}
+
+func buildUpdateStrategy(mode string, initialSizing bool) map[string]interface{} {
+	strategy := map[string]interface{}{
+		"type": mode,
+	}
+	if initialSizing {
+		strategy["initialSizing"] = true
+	}
+	return strategy
 }
 
 func marshalPolicyYAML(obj *unstructured.Unstructured) ([]byte, error) {

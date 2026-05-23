@@ -38,6 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Structured-output test coverage for kubectl plugin (`-o json`, `-o yaml`)
 - Documentation for running the full Go E2E suite locally
 - V(1) debug log when a resize is skipped because the container is already at the target resources
+- **Initial sizing webhook**: Mutating admission webhook sets pod resource requests/limits at creation time based on existing RightSizePolicy recommendations, eliminating the "deploy with bad defaults" gap. Requires namespace label `rightsize.io/initial-sizing=enabled` and `initialSizing: true` on the policy. Safety: `failurePolicy: Ignore`, confidence threshold 0.5, stale check.
+- **Directional change caps**: `maxIncreasePercent` (default 50%) and `maxDecreasePercent` (default 30%) in ResourceConfig for asymmetric per-step caps (memory decreases are riskier than CPU increases)
+- **Memory-from-CPU derivation**: `memoryFromCpuRatio` in ResourceConfig derives memory recommendation from CPU (e.g., `"2.0"` for JVM heap-bound workloads), skipping Prometheus memory queries
+- Wizard `create` and `promote` flows now prompt for initial sizing when mode is Auto, OneShot, or Canary
 
 ### Changed
 
