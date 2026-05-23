@@ -27,7 +27,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 )
@@ -957,4 +959,64 @@ func TestRevertPod_UpdateResizeError(t *testing.T) {
 	err := monitor.RevertPod(context.Background(), record)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "reverting resize for pod")
+}
+
+func TestRevertPod_RetriesOnConflict(t *testing.T) {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pod", Namespace: "default"},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "app",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("750m"),
+							corev1.ResourceMemory: resource.MustParse("512Mi"),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	clientset := fake.NewSimpleClientset(pod)
+	conflictsLeft := 2
+	clientset.PrependReactor("update", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if action.GetSubresource() == "resize" {
+			if conflictsLeft > 0 {
+				conflictsLeft--
+				return true, nil, apierrors.NewConflict(
+					schema.GroupResource{Group: "", Resource: "pods"},
+					"test-pod",
+					assert.AnError,
+				)
+			}
+			return false, nil, nil
+		}
+		return false, nil, nil
+	})
+
+	monitor := NewMonitor(clientset, testr.New(t))
+	record := ResizeRecord{
+		PodName:   "test-pod",
+		Namespace: "default",
+		Container: "app",
+		OriginalResources: corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("500m"),
+				corev1.ResourceMemory: resource.MustParse("256Mi"),
+			},
+		},
+		ResizedAt: time.Now().Add(-1 * time.Minute),
+	}
+
+	err := monitor.RevertPod(context.Background(), record)
+	require.NoError(t, err, "RevertPod should succeed after retrying past conflicts")
+	assert.Equal(t, 0, conflictsLeft, "all conflicts should have been consumed")
+
+	// Verify the pod was reverted to original resources.
+	reverted, getErr := clientset.CoreV1().Pods("default").Get(context.Background(), "test-pod", metav1.GetOptions{})
+	require.NoError(t, getErr)
+	assert.Equal(t, resource.MustParse("500m"), reverted.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU])
+	assert.Equal(t, resource.MustParse("256Mi"), reverted.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory])
 }

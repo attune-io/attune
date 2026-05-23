@@ -29,6 +29,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/util/retry"
 
 	"github.com/SebTardifLabs/kube-rightsize/internal/throttle"
 )
@@ -194,43 +195,48 @@ func (m *Monitor) CheckPod(ctx context.Context, record ResizeRecord, now time.Ti
 // RevertPod resizes the pod back to its original resources using the /resize
 // subresource. This is the undo path for a resize that caused problems.
 func (m *Monitor) RevertPod(ctx context.Context, record ResizeRecord) error {
-	pod, err := m.client.CoreV1().Pods(record.Namespace).Get(ctx, record.PodName, metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("getting pod for revert %s/%s: %w", record.Namespace, record.PodName, err)
-	}
-
-	updated := pod.DeepCopy()
-	found := false
-	for i, c := range updated.Spec.InitContainers {
-		if c.Name == record.Container {
-			updated.Spec.InitContainers[i].Resources = record.OriginalResources
-			found = true
-			break
+	// Retry loop handles 409 Conflict errors that occur when the kubelet
+	// updates pod status between our Get and UpdateResize, bumping
+	// resourceVersion. This mirrors the retry logic in ResizePod.
+	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		pod, err := m.client.CoreV1().Pods(record.Namespace).Get(ctx, record.PodName, metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("getting pod for revert %s/%s: %w", record.Namespace, record.PodName, err)
 		}
-	}
-	if !found {
-		for i, c := range updated.Spec.Containers {
+
+		updated := pod.DeepCopy()
+		found := false
+		for i, c := range updated.Spec.InitContainers {
 			if c.Name == record.Container {
-				updated.Spec.Containers[i].Resources = record.OriginalResources
+				updated.Spec.InitContainers[i].Resources = record.OriginalResources
 				found = true
 				break
 			}
 		}
-	}
-	if !found {
-		m.logger.Info("container not found in pod, skipping revert",
-			"pod", record.PodName, "namespace", record.Namespace,
-			"container", record.Container)
+		if !found {
+			for i, c := range updated.Spec.Containers {
+				if c.Name == record.Container {
+					updated.Spec.Containers[i].Resources = record.OriginalResources
+					found = true
+					break
+				}
+			}
+		}
+		if !found {
+			m.logger.Info("container not found in pod, skipping revert",
+				"pod", record.PodName, "namespace", record.Namespace,
+				"container", record.Container)
+			return nil
+		}
+
+		m.logger.Info("reverting pod resize", "pod", record.PodName,
+			"namespace", record.Namespace, "container", record.Container)
+
+		_, err = m.client.CoreV1().Pods(record.Namespace).UpdateResize(ctx, record.PodName, updated, metav1.UpdateOptions{})
+		if err != nil {
+			return fmt.Errorf("reverting resize for pod %s/%s: %w", record.Namespace, record.PodName, err)
+		}
+
 		return nil
-	}
-
-	m.logger.Info("reverting pod resize", "pod", record.PodName,
-		"namespace", record.Namespace, "container", record.Container)
-
-	_, err = m.client.CoreV1().Pods(record.Namespace).UpdateResize(ctx, record.PodName, updated, metav1.UpdateOptions{})
-	if err != nil {
-		return fmt.Errorf("reverting resize for pod %s/%s: %w", record.Namespace, record.PodName, err)
-	}
-
-	return nil
+	})
 }
