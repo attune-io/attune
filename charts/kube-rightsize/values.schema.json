@@ -291,6 +291,7 @@
         },
         "cpu": {
           "type": "object",
+          "additionalProperties": false,
           "description": "Default CPU resource configuration",
           "properties": {
             "percentile": { "type": "integer", "enum": [50, 90, 95, 99] },
@@ -303,6 +304,7 @@
         },
         "memory": {
           "type": "object",
+          "additionalProperties": false,
           "description": "Default memory resource configuration",
           "properties": {
             "percentile": { "type": "integer", "enum": [50, 90, 95, 99] },

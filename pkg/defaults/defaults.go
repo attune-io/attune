@@ -170,7 +170,7 @@ func MergeUpdateStrategy(policy *rightsizev1alpha1.UpdateStrategy, defaults *rig
 	var inherited []string
 	if policy.Type == "" {
 		policy.Type = defaults.Type
-		inherited = append(inherited, "mode")
+		inherited = append(inherited, "type")
 	}
 	if policy.Cooldown == nil && defaults.Cooldown != nil {
 		policy.Cooldown = defaults.Cooldown

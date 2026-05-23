@@ -218,7 +218,7 @@ func (r *RightSizePolicyReconciler) executeResizes(
 		selectedPods := selectPodsForResize(pods, mode, canaryPct)
 		logger.V(1).Info("Pod selection for resize",
 			"workload", rec.Workload, "total", len(pods),
-			"selected", len(selectedPods), "mode", mode)
+			"selected", len(selectedPods), "type", mode)
 		if len(selectedPods) == 0 {
 			continue
 		}

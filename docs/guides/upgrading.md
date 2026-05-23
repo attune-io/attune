@@ -31,30 +31,49 @@ resources must be updated before applying the new CRDs.
 
 ### Automated migration
 
-Use `yq` to update all policies in a namespace:
+**Using `sed`** (covers all five renames):
+
+```bash
+# All five renames in one pass
+sed -i \
+  -e 's/safetyMargin:/overhead:/g' \
+  -e 's/overhead: "1.1"/overhead: "10"/g' \
+  -e 's/overhead: "1.15"/overhead: "15"/g' \
+  -e 's/overhead: "1.2"/overhead: "20"/g' \
+  -e 's/overhead: "1.25"/overhead: "25"/g' \
+  -e 's/overhead: "1.3"/overhead: "30"/g' \
+  -e 's/overhead: "1.5"/overhead: "50"/g' \
+  -e 's/InPlaceOrEvict/InPlaceOrRecreate/g' \
+  -e 's/excludeContainers:/excludedContainers:/g' \
+  manifests/*.yaml
+
+# mode -> type (only in updateStrategy context to avoid false positives)
+sed -i '/updateStrategy/,/^[^ ]/{s/mode:/type:/g}' manifests/*.yaml
+
+# bounds.min/max -> minAllowed/maxAllowed (remove nesting manually if used)
+```
+
+**Using `yq`** (handles overhead conversion and bounds restructuring):
 
 ```bash
 # Export current policies
 kubectl get rightsizepolicies -n production -o yaml > policies.yaml
 
-# Rename fields and convert overhead values
+# Rename safetyMargin to overhead and convert values
 yq -i '
-  (.items[].spec.cpu.overhead) |= (. | tonumber - 1) * 100 | tostring |
-  (.items[].spec.memory.overhead) |= (. | tonumber - 1) * 100 | tostring
+  .items[].spec.cpu |= (
+    .overhead = ((.safetyMargin | tonumber - 1) * 100 | tostring) |
+    del(.safetyMargin)
+  ) |
+  .items[].spec.memory |= (
+    .overhead = ((.safetyMargin | tonumber - 1) * 100 | tostring) |
+    del(.safetyMargin)
+  )
 ' policies.yaml
 
 # Apply the new CRDs first, then re-apply policies
 kubectl apply -f config/crd/bases/
 kubectl apply -f policies.yaml
-```
-
-For `sed` (simpler cases where overhead is a known value):
-
-```bash
-# In-place rename for all YAML files in a directory
-sed -i 's/safetyMargin:/overhead:/g' manifests/*.yaml
-sed -i 's/overhead: "1.2"/overhead: "20"/g' manifests/*.yaml
-sed -i 's/overhead: "1.3"/overhead: "30"/g' manifests/*.yaml
 ```
 
 ### Helm values migration
