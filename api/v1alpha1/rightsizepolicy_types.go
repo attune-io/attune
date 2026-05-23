@@ -298,14 +298,32 @@ type ResourceConfig struct {
 	StartupBoost *StartupBoost `json:"startupBoost,omitempty"`
 
 	// MaxChangePercent is the maximum allowed change percentage per
-	// reconcile cycle for this resource. Limits how aggressively the
-	// recommendation can deviate from the current value in a single step,
-	// forcing gradual convergence. Defaults to 50 for CPU, 30 for memory
-	// (applied by the controller so that RightSizeDefaults can override).
+	// reconcile cycle for this resource (both directions). Limits how
+	// aggressively the recommendation can deviate from the current value
+	// in a single step, forcing gradual convergence. Overridden by
+	// MaxIncreasePercent/MaxDecreasePercent if those are set.
+	// Defaults to 50 for CPU, 30 for memory.
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=100
 	// +optional
 	MaxChangePercent *int32 `json:"maxChangePercent,omitempty"`
+
+	// MaxIncreasePercent is the maximum allowed increase percentage per
+	// reconcile cycle. Takes precedence over MaxChangePercent for upward
+	// changes. Defaults to MaxChangePercent if not set.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=100
+	// +optional
+	MaxIncreasePercent *int32 `json:"maxIncreasePercent,omitempty"`
+
+	// MaxDecreasePercent is the maximum allowed decrease percentage per
+	// reconcile cycle. Takes precedence over MaxChangePercent for downward
+	// changes. Memory decreases are riskier (OOM), so a lower cap is
+	// recommended. Defaults to MaxChangePercent if not set.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=100
+	// +optional
+	MaxDecreasePercent *int32 `json:"maxDecreasePercent,omitempty"`
 }
 
 // StartupBoost configures temporary CPU inflation for cold-start optimization.

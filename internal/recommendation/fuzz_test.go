@@ -101,7 +101,7 @@ func FuzzRecommendationEngine(f *testing.F) {
 		}
 
 		engine := NewEngine(percentile, overhead,
-			resource.MustParse("10m"), resource.MustParse("100000m"), 100, EngineOpts{IsCPU: true})
+			resource.MustParse("10m"), resource.MustParse("100000m"), 100, 100, EngineOpts{IsCPU: true})
 
 		profile := buildTestProfile(usage)
 		currentQ := resource.NewMilliQuantity(int64(current*1000), resource.DecimalSI)

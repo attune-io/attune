@@ -40,7 +40,7 @@ func BenchmarkFullChain(b *testing.B) {
 	engine := NewEngine(95, 20.0,
 		resource.MustParse("50m"),
 		resource.MustParse("4000m"),
-		50,
+		50, 50,
 	)
 	profile := buildBenchProfile()
 	current := resource.MustParse("500m")
@@ -94,7 +94,7 @@ func BenchmarkFullChain_HistoryWindows(b *testing.B) {
 	engine := NewEngine(95, 20.0,
 		resource.MustParse("50m"),
 		resource.MustParse("4000m"),
-		50,
+		50, 50,
 	)
 	current := resource.MustParse("500m")
 
@@ -118,7 +118,7 @@ func BenchmarkFullChain_Percentiles(b *testing.B) {
 			engine := NewEngine(p, 20.0,
 				resource.MustParse("50m"),
 				resource.MustParse("4000m"),
-				50,
+				50, 50,
 			)
 			profile := buildBenchProfile()
 			current := resource.MustParse("500m")

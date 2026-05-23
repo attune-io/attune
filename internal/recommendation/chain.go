@@ -35,7 +35,8 @@ type RecommendationEngine struct {
 	minBound             resource.Quantity
 	maxBound             resource.Quantity
 	minChangePercent     float64
-	maxChangePercent     float64
+	maxIncreasePercent   float64
+	maxDecreasePercent   float64
 	confidenceMultiplier float64
 	confidenceExponent   float64
 	isCPU                bool
@@ -57,8 +58,9 @@ const DefaultBurstSensitivity = 0.1
 
 // NewEngine creates a new RecommendationEngine with the specified parameters.
 // overhead is the percentage of additional resources (e.g., 20.0 for 20% extra).
+// maxIncreasePct/maxDecreasePct cap directional changes per cycle.
 func NewEngine(percentile int, overhead float64, minBound, maxBound resource.Quantity,
-	maxChangePercent float64, opts ...EngineOpts,
+	maxIncreasePct, maxDecreasePct float64, opts ...EngineOpts,
 ) *RecommendationEngine {
 	var opt EngineOpts
 	if len(opts) > 0 {
@@ -78,7 +80,8 @@ func NewEngine(percentile int, overhead float64, minBound, maxBound resource.Qua
 		minBound:             minBound.DeepCopy(),
 		maxBound:             maxBound.DeepCopy(),
 		minChangePercent:     10.0,
-		maxChangePercent:     maxChangePercent,
+		maxIncreasePercent:   maxIncreasePct,
+		maxDecreasePercent:   maxDecreasePct,
 		confidenceMultiplier: 1.0,
 		confidenceExponent:   2.0,
 		isCPU:                opt.IsCPU,
@@ -134,17 +137,25 @@ func (e *RecommendationEngine) RecommendWithExplanation(profile metrics.UsagePro
 
 	afterChangeFilter := afterBounds.DeepCopy()
 	changeFilterApplied := ""
+	// Determine which directional cap applies. Default to increase cap
+	// for the explanation when current is zero (no change filter runs).
+	maxPct := e.maxIncreasePercent
 	currentMillis := float64(current.MilliValue())
 	if currentMillis != 0 {
 		afterBoundsMillis := float64(afterBounds.MilliValue())
 		changePct := math.Abs(afterBoundsMillis-currentMillis) / currentMillis * 100
+		isIncrease := afterBoundsMillis > currentMillis
+		maxPct = e.maxDecreasePercent
+		if isIncrease {
+			maxPct = e.maxIncreasePercent
+		}
 		if changePct < e.minChangePercent {
 			afterChangeFilter = current.DeepCopy()
 			changeFilterApplied = "min_change_filtered"
-		} else if changePct > e.maxChangePercent {
-			maxDelta := currentMillis * e.maxChangePercent / 100
+		} else if changePct > maxPct {
+			maxDelta := currentMillis * maxPct / 100
 			capped := currentMillis - maxDelta
-			if afterBoundsMillis > currentMillis {
+			if isIncrease {
 				capped = currentMillis + maxDelta
 			}
 			if afterBounds.Format == resource.BinarySI {
@@ -170,7 +181,7 @@ func (e *RecommendationEngine) RecommendWithExplanation(profile metrics.UsagePro
 		BoundsApplied:       boundsApplied,
 		AfterBounds:         afterBounds.DeepCopy(),
 		MinChangePercent:    e.minChangePercent,
-		MaxChangePercent:    e.maxChangePercent,
+		MaxChangePercent:    maxPct,
 		ChangeFilterApplied: changeFilterApplied,
 		AfterChangeFilter:   afterChangeFilter.DeepCopy(),
 		Final:               afterChangeFilter.DeepCopy(),

@@ -765,17 +765,12 @@ func buildRecommendationEngines(policy *rightsizev1alpha1.RightSizePolicy) (cpuE
 		memBoundsMax = policy.Spec.Memory.MaxAllowed.DeepCopy()
 	}
 
-	// Defense-in-depth: clamp maxChangePercent to [1, 100] even if webhook is bypassed.
-	maxCPUPct := rightsizev1alpha1.DefaultCPUMaxChangePercent
-	if policy.Spec.CPU.MaxChangePercent != nil {
-		maxCPUPct = *policy.Spec.CPU.MaxChangePercent
-	}
-	maxMemPct := rightsizev1alpha1.DefaultMemoryMaxChangePercent
-	if policy.Spec.Memory.MaxChangePercent != nil {
-		maxMemPct = *policy.Spec.Memory.MaxChangePercent
-	}
-	maxCPUChange := min(max(float64(maxCPUPct), 1), 100)
-	maxMemChange := min(max(float64(maxMemPct), 1), 100)
+	// Resolve directional change caps with precedence:
+	// maxIncreasePercent/maxDecreasePercent > maxChangePercent > built-in default.
+	cpuIncrease, cpuDecrease := resolveChangeCaps(policy.Spec.CPU,
+		rightsizev1alpha1.DefaultCPUMaxChangePercent)
+	memIncrease, memDecrease := resolveChangeCaps(policy.Spec.Memory,
+		rightsizev1alpha1.DefaultMemoryMaxChangePercent)
 
 	// Parse per-resource burst sensitivity; nil means default (0.1).
 	cpuOpts := recommendation.EngineOpts{IsCPU: true}
@@ -789,7 +784,26 @@ func buildRecommendationEngines(policy *rightsizev1alpha1.RightSizePolicy) (cpuE
 		memOpts.BurstSensitivity = &bs
 	}
 
-	cpuEngine = recommendation.NewEngine(cpuPercentile, cpuOverhead, cpuBoundsMin, cpuBoundsMax, maxCPUChange, cpuOpts)
-	memEngine = recommendation.NewEngine(memPercentile, memOverhead, memBoundsMin, memBoundsMax, maxMemChange, memOpts)
+	cpuEngine = recommendation.NewEngine(cpuPercentile, cpuOverhead, cpuBoundsMin, cpuBoundsMax, cpuIncrease, cpuDecrease, cpuOpts)
+	memEngine = recommendation.NewEngine(memPercentile, memOverhead, memBoundsMin, memBoundsMax, memIncrease, memDecrease, memOpts)
 	return cpuEngine, memEngine
+}
+
+// resolveChangeCaps resolves directional change caps from the ResourceConfig.
+// Precedence: maxIncreasePercent/maxDecreasePercent > maxChangePercent > builtInDefault.
+// Defense-in-depth: clamps to [1, 100] even if webhook is bypassed.
+func resolveChangeCaps(rc rightsizev1alpha1.ResourceConfig, builtInDefault int32) (increase, decrease float64) {
+	base := builtInDefault
+	if rc.MaxChangePercent != nil {
+		base = *rc.MaxChangePercent
+	}
+	inc := base
+	if rc.MaxIncreasePercent != nil {
+		inc = *rc.MaxIncreasePercent
+	}
+	dec := base
+	if rc.MaxDecreasePercent != nil {
+		dec = *rc.MaxDecreasePercent
+	}
+	return min(max(float64(inc), 1), 100), min(max(float64(dec), 1), 100)
 }

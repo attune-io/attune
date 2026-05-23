@@ -138,6 +138,14 @@ func MergeResourceConfig(policy *rightsizev1alpha1.ResourceConfig, defaults *rig
 		policy.MaxChangePercent = defaults.MaxChangePercent
 		inherited = append(inherited, prefix+".maxChangePercent")
 	}
+	if policy.MaxIncreasePercent == nil && defaults.MaxIncreasePercent != nil {
+		policy.MaxIncreasePercent = defaults.MaxIncreasePercent
+		inherited = append(inherited, prefix+".maxIncreasePercent")
+	}
+	if policy.MaxDecreasePercent == nil && defaults.MaxDecreasePercent != nil {
+		policy.MaxDecreasePercent = defaults.MaxDecreasePercent
+		inherited = append(inherited, prefix+".maxDecreasePercent")
+	}
 	return inherited
 }
 
