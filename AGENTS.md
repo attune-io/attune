@@ -44,7 +44,7 @@ controller-runtime v0.24.1, Kubebuilder v4, K8s API v0.36.1.
 - `cmd/manager/` - Operator entry point
 - `cmd/kubectl-rightsize/` - kubectl plugin
 - `internal/controller/` - Reconciler (core business logic)
-- `internal/metrics/` - Prometheus metrics collection and rate limiting
+- `internal/metrics/` - Metrics collection (Prometheus, Datadog, CloudWatch), QueryBuilder interface, rate limiting
 - `internal/recommendation/` - Composable estimator chain (percentile, margin, confidence, bounds, change filter)
 - `internal/resize/` - In-place pod resize engine via /resize subresource
 - `internal/safety/` - Post-resize safety observation and rollback
