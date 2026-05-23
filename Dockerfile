@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # Build stage: use BUILDPLATFORM so Go runs natively even for cross-arch builds.
-FROM --platform=$BUILDPLATFORM golang:1.26@sha256:313faae491b410a35402c05d35e7518ae99103d957308e940e1ae2cfa0aac29b AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26@sha256:6df14f4a4bc9d979a3721f488981e0d1b318006377e473ed23d026796f5f4c0a AS builder
 
 ARG TARGETOS
 ARG TARGETARCH
