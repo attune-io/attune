@@ -159,18 +159,7 @@ func (c *DatadogCollector) Query(ctx context.Context, query string, ts time.Time
 	if err != nil {
 		return 0, err
 	}
-	if len(samples) == 0 {
-		return 0, fmt.Errorf("empty result from Datadog instant query")
-	}
-	// Find the sample with the latest timestamp (samples from QueryRange
-	// come from map iteration and have non-deterministic order).
-	latest := samples[0]
-	for _, s := range samples[1:] {
-		if s.Timestamp.After(latest.Timestamp) {
-			latest = s
-		}
-	}
-	return latest.Value, nil
+	return latestSampleValue(samples, "Datadog")
 }
 
 // Close is a no-op; the HTTP client does not need explicit cleanup.
@@ -205,6 +194,23 @@ func flattenGrouped(grouped map[string][]Sample, err error) ([]Sample, error) {
 		samples = append(samples, s...)
 	}
 	return samples, nil
+}
+
+// latestSampleValue returns the value of the sample with the latest timestamp.
+// It returns an error with the given backend name if the sample slice is empty.
+// Used by Datadog and CloudWatch instant queries to avoid duplicating the
+// "find latest" logic.
+func latestSampleValue(samples []Sample, backend string) (float64, error) {
+	if len(samples) == 0 {
+		return 0, fmt.Errorf("empty result from %s instant query", backend)
+	}
+	latest := samples[0]
+	for _, s := range samples[1:] {
+		if s.Timestamp.After(latest.Timestamp) {
+			latest = s
+		}
+	}
+	return latest.Value, nil
 }
 
 func truncate(s string, n int) string {

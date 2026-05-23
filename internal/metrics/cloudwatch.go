@@ -176,17 +176,7 @@ func (c *CloudWatchCollector) Query(ctx context.Context, query string, ts time.T
 	if err != nil {
 		return 0, err
 	}
-	if len(samples) == 0 {
-		return 0, fmt.Errorf("empty result from CloudWatch instant query")
-	}
-	// Return latest sample.
-	latest := samples[0]
-	for _, s := range samples[1:] {
-		if s.Timestamp.After(latest.Timestamp) {
-			latest = s
-		}
-	}
-	return latest.Value, nil
+	return latestSampleValue(samples, "CloudWatch")
 }
 
 // Close is a no-op; the AWS SDK client does not need explicit cleanup.

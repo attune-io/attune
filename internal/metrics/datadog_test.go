@@ -297,5 +297,46 @@ func TestDatadogCollector_Query_ReturnsLatestTimestamp(t *testing.T) {
 	assert.InDelta(t, 5.0, val, 0.001, "should return the sample with the latest timestamp")
 }
 
+func TestLatestSampleValue(t *testing.T) {
+	tests := []struct {
+		name    string
+		samples []Sample
+		want    float64
+		wantErr string
+	}{
+		{
+			name:    "empty returns error",
+			samples: nil,
+			wantErr: "empty result from TestBackend instant query",
+		},
+		{
+			name:    "single sample",
+			samples: []Sample{{Timestamp: time.Unix(1000, 0), Value: 42.0}},
+			want:    42.0,
+		},
+		{
+			name: "returns latest by timestamp",
+			samples: []Sample{
+				{Timestamp: time.Unix(1000, 0), Value: 1.0},
+				{Timestamp: time.Unix(3000, 0), Value: 3.0},
+				{Timestamp: time.Unix(2000, 0), Value: 2.0},
+			},
+			want: 3.0,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			val, err := latestSampleValue(tt.samples, "TestBackend")
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+			} else {
+				require.NoError(t, err)
+				assert.InDelta(t, tt.want, val, 0.001)
+			}
+		})
+	}
+}
+
 // Verify DatadogCollector implements MetricsCollector.
 var _ MetricsCollector = &DatadogCollector{}
