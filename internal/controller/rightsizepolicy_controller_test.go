@@ -27,6 +27,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
 	promtestutil "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -9943,4 +9944,341 @@ func TestReconcile_SufficientDataRequeuesAtCooldown(t *testing.T) {
 	// With sufficient data, requeue should be the full cooldown.
 	assert.Equal(t, 2*time.Hour, result.RequeueAfter,
 		"sufficient data should requeue at cooldown interval")
+}
+
+// --- Issue #437: persistResizeAnnotations exhausted-retries path ---
+
+func TestExecuteResizes_AnnotationConflictExhaustedRetries(t *testing.T) {
+	// When all 3 annotation persist retries are exhausted due to conflicts,
+	// the resize should be reverted with reason "annotation-persist-conflict".
+	pod := newResizePodWithStatus("api-server", "500m", "512Mi", "1000m", "1Gi", 0)
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod).Build()
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+
+	// Set conflictsLeft to 3 (matches maxRetries in persistResizeAnnotations),
+	// so all retry attempts fail with 409 Conflict.
+	wrappedClient := &conflictThenSucceedClient{Client: fakeClient, conflictsLeft: 3}
+
+	reconciler := &RightSizePolicyReconciler{
+		Client:    wrappedClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+	}
+
+	recorder := events.NewFakeRecorder(10)
+	reconciler.Recorder = recorder
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeOneShot
+
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("api-server", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),
+	}
+
+	workloads := []client.Object{deploy}
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil, nil)
+
+	// The resize should have been reverted because all retries were exhausted.
+	assert.Equal(t, 0, count, "net resized count should be 0 after conflict exhaustion revert")
+
+	// History should show Reverted entries with annotation-persist-conflict reason.
+	require.NotEmpty(t, history)
+	var foundReverted bool
+	for _, h := range history {
+		if h.Result == rightsizev1alpha1.ResizeResultReverted && h.Reason == "annotation-persist-conflict" {
+			foundReverted = true
+			break
+		}
+	}
+	assert.True(t, foundReverted, "history should contain a Reverted entry with reason annotation-persist-conflict")
+
+	// Verify that a Reverted event was emitted mentioning annotation-persist-conflict.
+	var foundRevertEvent bool
+	for {
+		select {
+		case event := <-recorder.Events:
+			if strings.Contains(event, "Reverted") && strings.Contains(event, "annotation-persist-conflict") {
+				foundRevertEvent = true
+			}
+		default:
+			goto done437
+		}
+	}
+done437:
+	assert.True(t, foundRevertEvent, "expected a Reverted event mentioning annotation-persist-conflict")
+
+	// All 3 conflict attempts should have been seen.
+	assert.Equal(t, 3, wrappedClient.conflictsSeen, "should have exhausted all 3 retries")
+
+	// Verify that a revert was issued via UpdateResize (2 calls: original + revert).
+	var resizeCalls int
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			resizeCalls++
+		}
+	}
+	assert.Equal(t, 2, resizeCalls, "should have 2 UpdateResize calls: original resize + revert")
+}
+
+// --- Issue #441: annotation cleanup conflict retry in checkPendingSafetyObservations ---
+
+func TestCheckPendingSafetyObservations_AnnotationCleanupConflictRetry(t *testing.T) {
+	// Verify that annotation cleanup retries on 409 Conflict and succeeds.
+	resizedAt := time.Now().Add(-10 * time.Minute)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "api-server-abc-1",
+			Namespace: "default",
+			Labels:    map[string]string{"app": "api-server", labelTracked: "true"},
+			Annotations: map[string]string{
+				annotationResizedAt:                     resizedAt.UTC().Format(time.RFC3339),
+				annotationResizedContainers:             "main",
+				annotationOriginalCPUPrefix + "main":    "500m",
+				annotationOriginalMemoryPrefix + "main": "512Mi",
+				annotationPolicy:                        "test-policy",
+				annotationResizedWorkload:               "api-server",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  "main",
+					Image: "nginx",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("750m"),
+							corev1.ResourceMemory: resource.MustParse("384Mi"),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+	}
+
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod).Build()
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+
+	// First annotation cleanup Update returns 409 Conflict, second succeeds.
+	wrappedClient := &conflictThenSucceedClient{Client: fakeClient, conflictsLeft: 1}
+
+	reconciler := &RightSizePolicyReconciler{
+		Client:    wrappedClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.AutoRevert = boolPtr(true)
+	policy.Spec.UpdateStrategy.SafetyObservationPeriod = &metav1.Duration{Duration: 5 * time.Minute}
+
+	workloads := []client.Object{deploy}
+	pending := reconciler.checkPendingSafetyObservations(context.Background(), policy, &mockCollector{}, workloads)
+
+	assert.False(t, pending, "should not be pending after successful cleanup")
+	assert.Equal(t, 1, wrappedClient.conflictsSeen, "should have retried once on conflict")
+
+	// Verify annotations were removed.
+	var updated corev1.Pod
+	err := wrappedClient.Get(context.Background(), client.ObjectKeyFromObject(pod), &updated)
+	require.NoError(t, err)
+	_, hasResizedAt := updated.Annotations[annotationResizedAt]
+	assert.False(t, hasResizedAt, "tracking annotations should be removed after cleanup")
+}
+
+func TestCheckPendingSafetyObservations_AnnotationCleanupConflictExhausted(t *testing.T) {
+	// Verify that exhausting all cleanup retries logs the error but doesn't crash.
+	resizedAt := time.Now().Add(-10 * time.Minute)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "api-server-abc-1",
+			Namespace: "default",
+			Labels:    map[string]string{"app": "api-server", labelTracked: "true"},
+			Annotations: map[string]string{
+				annotationResizedAt:                     resizedAt.UTC().Format(time.RFC3339),
+				annotationResizedContainers:             "main",
+				annotationOriginalCPUPrefix + "main":    "500m",
+				annotationOriginalMemoryPrefix + "main": "512Mi",
+				annotationPolicy:                        "test-policy",
+				annotationResizedWorkload:               "api-server",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  "main",
+					Image: "nginx",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("750m"),
+							corev1.ResourceMemory: resource.MustParse("384Mi"),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+	}
+
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod).Build()
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+
+	// All 3 cleanup attempts return 409 Conflict.
+	wrappedClient := &conflictThenSucceedClient{Client: fakeClient, conflictsLeft: 3}
+
+	reconciler := &RightSizePolicyReconciler{
+		Client:    wrappedClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.AutoRevert = boolPtr(true)
+	policy.Spec.UpdateStrategy.SafetyObservationPeriod = &metav1.Duration{Duration: 5 * time.Minute}
+
+	workloads := []client.Object{deploy}
+	pending := reconciler.checkPendingSafetyObservations(context.Background(), policy, &mockCollector{}, workloads)
+
+	// Should not crash and should not report pending (annotation cleanup is
+	// best-effort; the annotations will be cleaned on the next reconcile).
+	assert.False(t, pending)
+	assert.Equal(t, 3, wrappedClient.conflictsSeen, "should have exhausted all 3 retries")
+
+	// Annotations should still be present since all updates failed.
+	var updated corev1.Pod
+	err := wrappedClient.Get(context.Background(), client.ObjectKeyFromObject(pod), &updated)
+	require.NoError(t, err)
+	_, hasResizedAt := updated.Annotations[annotationResizedAt]
+	assert.True(t, hasResizedAt, "tracking annotations should still be present after exhausted retries")
+}
+
+// --- Issue #440: startup boost expiry memory regression test ---
+
+func TestApplyStartupBoosts_ExpiryPassesShouldSkipResizeWithMemory(t *testing.T) {
+	// Regression test: startup boost expiry must populate memory values in
+	// the skip-check target so that LimitRange/node allocatable checks
+	// don't fail due to zero-valued memory fields.
+	boostApplied := time.Now().Add(-10 * time.Minute) // expired
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "api-server-abc-1",
+			Namespace: "default",
+			Labels:    map[string]string{"app": "api-server"},
+			Annotations: map[string]string{
+				annotationStartupBoostAt: boostApplied.UTC().Format(time.RFC3339),
+				annotationPolicy:         "test-policy",
+			},
+		},
+		Spec: corev1.PodSpec{
+			NodeName: "node-1",
+			Containers: []corev1.Container{
+				{
+					Name:  "main",
+					Image: "nginx",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1000m"), // boosted
+							corev1.ResourceMemory: resource.MustParse("512Mi"),
+						},
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("2000m"),
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+	}
+
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "node-1"},
+		Status: corev1.NodeStatus{
+			Allocatable: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("4000m"),
+				corev1.ResourceMemory: resource.MustParse("8Gi"),
+			},
+		},
+	}
+
+	// LimitRange requires minimum memory of 64Mi.
+	limitRange := &corev1.LimitRange{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-lr", Namespace: "default"},
+		Spec: corev1.LimitRangeSpec{
+			Limits: []corev1.LimitRangeItem{
+				{
+					Type: corev1.LimitTypeContainer,
+					Min: corev1.ResourceList{
+						corev1.ResourceMemory: resource.MustParse("64Mi"),
+					},
+				},
+			},
+		},
+	}
+
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod, node, limitRange).Build()
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+
+	reconciler := &RightSizePolicyReconciler{
+		Client:    fakeClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	dur := metav1.Duration{Duration: 5 * time.Minute}
+	policy.Spec.CPU.StartupBoost = &rightsizev1alpha1.StartupBoost{
+		Multiplier: "2.0",
+		Duration:   dur,
+	}
+
+	// Steady-state recommendation: 500m CPU (half the boosted value).
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "api-server",
+			Kind:     "Deployment",
+			Containers: []rightsizev1alpha1.ContainerRecommendation{
+				{
+					Name: "main",
+					Recommended: rightsizev1alpha1.ResourceValues{
+						CPURequest: resource.MustParse("500m"),
+					},
+				},
+			},
+		},
+	}
+
+	resizer := resize.NewPodResizer(clientset, logr.Discard())
+	checks := reconciler.buildResizePreChecks(context.Background(), policy)
+
+	reconciler.applyStartupBoosts(context.Background(), policy, podMap("api-server", pod), recommendations, resizer, checks)
+
+	// Verify that UpdateResize was called (boost expired, resize to steady-state).
+	var resizeCalls int
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			resizeCalls++
+		}
+	}
+	assert.GreaterOrEqual(t, resizeCalls, 1,
+		"boost expiry should call UpdateResize to reduce CPU to steady-state")
+
+	// Verify the boost annotation was removed (expiry completed successfully).
+	var updated corev1.Pod
+	err := fakeClient.Get(context.Background(), client.ObjectKeyFromObject(pod), &updated)
+	require.NoError(t, err)
+	_, hasBoostAt := updated.Annotations[annotationStartupBoostAt]
+	assert.False(t, hasBoostAt, "startup boost annotation should be removed after expiry")
 }
