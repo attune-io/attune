@@ -905,7 +905,7 @@ func TestReconcile_MetricsFactoryFailureSetsPrometheusUnavailable(t *testing.T) 
 		for _, c := range fetched.Status.Conditions {
 			if c.Type == "Ready" {
 				return c.Reason == "PrometheusUnavailable" &&
-					strings.Contains(c.Message, "Cannot create metrics collector") &&
+					strings.Contains(c.Message, "Cannot resolve metrics source") &&
 					strings.Contains(c.Message, factoryErr.Error())
 			}
 		}
