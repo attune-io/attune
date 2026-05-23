@@ -26,6 +26,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -258,14 +259,33 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 		// Re-fetch directly from API server (not informer cache) to get
 		// fresh resourceVersion after UpdateResize. The cache may not have
 		// the watch event yet, causing a 409 Conflict on annotation update.
-		freshPod, getErr := r.Clientset.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
-		if getErr != nil {
-			logger.Error(getErr, "Failed to re-fetch pod for annotation cleanup", "pod", pod.Name)
-			continue
+		// Retry on conflict to handle kubelet status churn.
+		const maxCleanupRetries = 3
+		var cleanupErr error
+		for attempt := range maxCleanupRetries {
+			freshPod, getErr := r.Clientset.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
+			if getErr != nil {
+				logger.Error(getErr, "Failed to re-fetch pod for annotation cleanup", "pod", pod.Name)
+				cleanupErr = getErr
+				break
+			}
+			removeTrackingAnnotations(freshPod)
+			updateErr := r.Update(ctx, freshPod)
+			if updateErr == nil {
+				cleanupErr = nil
+				break
+			}
+			if !apierrors.IsConflict(updateErr) {
+				logger.Error(updateErr, "Failed to remove resize tracking annotations", "pod", pod.Name)
+				cleanupErr = updateErr
+				break
+			}
+			logger.V(1).Info("Annotation cleanup conflict, retrying",
+				"pod", pod.Name, "attempt", attempt+1)
+			cleanupErr = updateErr
 		}
-		removeTrackingAnnotations(freshPod)
-		if updateErr := r.Update(ctx, freshPod); updateErr != nil {
-			logger.Error(updateErr, "Failed to remove resize tracking annotations", "pod", pod.Name)
+		if cleanupErr != nil && apierrors.IsConflict(cleanupErr) {
+			logger.Error(cleanupErr, "Exhausted annotation cleanup retries", "pod", pod.Name, "retries", maxCleanupRetries)
 		}
 	}
 	return observationsPending
