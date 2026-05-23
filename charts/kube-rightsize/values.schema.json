@@ -285,6 +285,42 @@
           "type": "boolean",
           "default": false
         },
+        "metricsSource": {
+          "type": "object",
+          "description": "Default metrics source configuration"
+        },
+        "cpu": {
+          "type": "object",
+          "description": "Default CPU resource configuration",
+          "properties": {
+            "percentile": { "type": "integer", "enum": [50, 90, 95, 99] },
+            "overhead": { "type": "string", "pattern": "^[0-9]+(\\.[0-9]+)?$", "description": "Overhead percentage (e.g. '20' for 20% headroom)" },
+            "minAllowed": { "type": "string" },
+            "maxAllowed": { "type": "string" },
+            "controlledValues": { "type": "string", "enum": ["RequestsOnly", "RequestsAndLimits"] },
+            "burstSensitivity": { "type": "string" }
+          }
+        },
+        "memory": {
+          "type": "object",
+          "description": "Default memory resource configuration",
+          "properties": {
+            "percentile": { "type": "integer", "enum": [50, 90, 95, 99] },
+            "overhead": { "type": "string", "pattern": "^[0-9]+(\\.[0-9]+)?$", "description": "Overhead percentage (e.g. '30' for 30% headroom)" },
+            "minAllowed": { "type": "string" },
+            "maxAllowed": { "type": "string" },
+            "controlledValues": { "type": "string", "enum": ["RequestsOnly", "RequestsAndLimits"] },
+            "burstSensitivity": { "type": "string" }
+          }
+        },
+        "costPricing": {
+          "type": "object",
+          "description": "Cost pricing for savings estimates",
+          "properties": {
+            "cpuPerCorePerHour": { "type": "string" },
+            "memoryPerGiBPerHour": { "type": "string" }
+          }
+        },
         "updateStrategy": {
           "type": "object",
           "additionalProperties": false,

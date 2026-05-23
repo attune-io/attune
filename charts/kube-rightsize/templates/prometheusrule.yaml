@@ -69,7 +69,7 @@ spec:
               More than {{ "{{ $value | humanizePercentage }}" }} of resize
               operations were reverted in the last hour. This indicates the
               operator's recommendations may be causing instability. Review
-              safety margins and workload behavior.
+              overhead settings and workload behavior.
         {{- end }}
         {{- if .Values.metrics.prometheusRule.rules.reconcileStale.enabled }}
         - alert: KubeRightsizeReconcileStale

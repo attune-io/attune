@@ -60,6 +60,7 @@ nav:
       - Migrating from VPA: guides/migrating-from-vpa.md
       - Scaling: guides/scaling.md
       - Troubleshooting: guides/troubleshooting.md
+      - Upgrading: guides/upgrading.md
   - Reference:
       - API Reference: reference/api.md
       - CLI Reference: reference/cli.md
