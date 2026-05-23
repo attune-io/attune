@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Go E2E tests for bearer-token Secret rotation and recommendations without live pods
 - Structured-output test coverage for kubectl plugin (`-o json`, `-o yaml`)
 - Documentation for running the full Go E2E suite locally
+- V(1) debug log when a resize is skipped because the container is already at the target resources
 
 ### Changed
 
@@ -69,6 +70,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `prometheus-unreachable` E2E test now accepts either `InsufficientData` or `PrometheusUnavailable` reason, fixing a flake where the first reconcile sets one reason and subsequent reconciles set another
 - RevertPod now retries on 409 Conflict (matching ResizePod); previously a conflict during revert left the pod at unsafe resource levels until the next reconcile
 - Datadog and CloudWatch collector caches now share the same TTL eviction, capacity bounds, and race-safe LoadOrStore as the Prometheus collector cache; previously they could leak memory and create duplicate collectors
+- Startup boost expiry pre-check now includes memory values, preventing node allocatable safety check bypass when namespaces have memory LimitRange constraints
+- Annotation cleanup in safety observation now retries on 409 Conflict (up to 3 attempts), matching the persistResizeAnnotations retry pattern
 - Multi-container sequential resize: annotation persist now retries on 409 Conflict instead of reverting the second container
 - Memory limit clamp for K8s v1.33: in-place memory limit decreases are skipped when the container's resize policy is `NotRequired`, preventing API server rejection
 - Guaranteed QoS preservation with memory limit clamp: the clamp is applied before the QoS check so that Guaranteed pods are not incorrectly resized into Burstable
