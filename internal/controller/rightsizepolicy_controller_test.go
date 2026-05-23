@@ -4624,6 +4624,36 @@ func TestExecuteResizes_SkipsQoSChange(t *testing.T) {
 	assert.Empty(t, history)
 }
 
+func TestExecuteResizes_GuaranteedQoS_MemoryClampAllowsCPUResize(t *testing.T) {
+	// Regression test for the E2E failure TestE2E_GuaranteedQoS_RequestsAndLimits.
+	// Guaranteed QoS pod (requests == limits). The recommendation decreases both
+	// CPU and memory. The memory limit clamp preserves the current memory limit
+	// (NotRequired resize policy forbids in-place memory limit decreases). Before
+	// the fix, the clamped memory limit (256Mi) != recommended memory request (64Mi)
+	// caused PreservesQoS to block the entire resize, including CPU.
+	// After the fix, the memory request is raised to match the clamped limit,
+	// preserving Guaranteed QoS and allowing CPU to resize.
+	pod := newResizePod("qos-app", "500m", "256Mi", "500m", "256Mi")
+	pod.Status.QOSClass = corev1.PodQOSGuaranteed
+	// No resizePolicy set → defaults to NotRequired for memory.
+	deploy := newTestDeployment("qos-app", "default", map[string]string{"app": "qos-app"})
+	reconciler, _ := newResizeReconciler(pod, deploy)
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Mode = rightsizev1alpha1.UpdateModeAuto
+
+	// Recommend CPU decrease (500m → 50m) and memory decrease (256Mi → 64Mi).
+	// Both limits also decrease (ControlledValues: RequestsAndLimits behavior).
+	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("qos-app", "500m", "256Mi", "500m", "256Mi", "50m", "64Mi", "50m", "64Mi"),
+	}
+
+	workloads := []client.Object{deploy}
+	count, history := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("qos-app", pod), nil, nil)
+	assert.Equal(t, 1, count, "resize should succeed: CPU changes even though memory is clamped")
+	assert.NotEmpty(t, history, "should have resize history entries")
+}
+
 func TestExecuteResizes_QoSBlocked_EmitsResizeSkippedEvent(t *testing.T) {
 	pod := newResizePod("api-server", "500m", "512Mi", "500m", "512Mi")
 	pod.Status.QOSClass = corev1.PodQOSGuaranteed

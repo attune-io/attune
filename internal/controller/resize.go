@@ -371,6 +371,18 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 			logger.Info("Memory limit decrease clamped by resize policy",
 				"pod", pod.Name, "container", containerRec.Name,
 				"requestedLimit", memLim.String(), "clampedLimit", clampedLim.String())
+			// For Guaranteed QoS pods, the memory request must also be raised
+			// to match the clamped limit. Otherwise requests != limits and
+			// PreservesQoS blocks the resize entirely, preventing CPU changes
+			// that would otherwise succeed.
+			if pod.Status.QOSClass == corev1.PodQOSGuaranteed {
+				if memReq, rok := target.Requests[corev1.ResourceMemory]; rok && memReq.Cmp(clampedLim) < 0 {
+					target.Requests[corev1.ResourceMemory] = clampedLim.DeepCopy()
+					logger.Info("Memory request raised to match clamped limit for Guaranteed QoS",
+						"pod", pod.Name, "container", containerRec.Name,
+						"request", clampedLim.String())
+				}
+			}
 		}
 	}
 
