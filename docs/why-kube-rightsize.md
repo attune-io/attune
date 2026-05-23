@@ -307,41 +307,82 @@ Now multiply this across 50 services and you're saving $20,000+/month.
 
 ## How kube-rightsize Compares
 
-| | VPA | Goldilocks | Commercial tools | **kube-rightsize** |
-|---|---|---|---|---|
-| **Resize method** | Evicts pods | No resize | Varies (some in-place) | **In-place only** |
-| **HPA compatible** | No | N/A | Varies | **Yes** |
-| **Safety system** | Minimal | N/A | Proprietary | **Open, multi-layer** |
-| **Time-of-day aware** | No | No | Some | **Yes** |
-| **Graduated rollout** | No (all-or-nothing) | N/A | Some | **5 modes** |
-| **Cost** | Free | Free | $$$$ | **Free (Apache 2.0)** |
-| **Lock-in** | None | None | Vendor-specific | **None** |
-| **K8s version** | Any | Any | Any | **1.32+** |
+The Kubernetes rightsizing ecosystem spans 16+ tools, from open-source
+recommenders to full-stack commercial platforms. Here is how they compare
+across the capabilities that matter most.
 
-### vs. Commercial alternatives (CAST AI, ScaleOps, Zesty)
+### Open-source tools
 
-Commercial tools like CAST AI, ScaleOps, and Zesty offer comprehensive
-optimization suites that cover node provisioning, spot instances, and pod
-right-sizing. They're excellent products, but they come with trade-offs:
+| | VPA | Goldilocks | KRR (Robusta) | Oblik | kube-reqsizer | **kube-rightsize** |
+|---|---|---|---|---|---|---|
+| **Primary function** | Recommend + apply | VPA dashboard | CLI recommender | VPA applier | Usage-based controller | **Recommend + in-place apply** |
+| **Resize method** | Evict/recreate, InPlaceOrRecreate (1.33+) | No resize | No resize | Cron-based rollout | Rolling restart | **In-place only** |
+| **HPA compatible** | No (conflicts on CPU metric) | N/A | N/A | N/A | No | **Yes** |
+| **Safety system** | Minimal (PDB only) | N/A | N/A | min-diff thresholds | None | **Multi-layer (OOMKill, throttle, revert)** |
+| **Time-of-day aware** | No (24h half-life histogram) | No | No | No | No | **Yes (hourly profiles)** |
+| **Graduated rollout** | No (all-or-nothing) | N/A | N/A | No | No | **5 modes (Observe to Auto)** |
+| **Per-resource config** | containerPolicies[] | N/A | CLI flags | Annotations per resource | N/A | **Typed CRD (cpu/memory sections)** |
+| **Confidence scaling** | Internal, not configurable | N/A | N/A | N/A | N/A | **Configurable, visible in status** |
+| **Config model** | CRD | VPA + labels | CLI flags | CRD + annotations | Annotations | **CRD + defaults hierarchy** |
+| **Cluster-wide defaults** | No | No | No | Env vars | No | **Yes (RightSizeDefaults CRD)** |
 
-- **Cost**: Commercial tools charge based on optimized spend or per-node. For
-  large clusters, this can be $10,000-50,000+/year.
-- **Data residency**: Your Prometheus metrics and cluster metadata flow
-  through a third-party SaaS platform.
-- **Vendor lock-in**: Proprietary CRDs, agents, and dashboards that don't
-  follow Kubernetes-native patterns.
+### Commercial platforms
 
-kube-rightsize is a focused, open-source alternative for teams that want:
+| | CAST AI | StormForge | ScaleOps | PerfectScale | Datadog | nOps | Spot Ocean | Sedai |
+|---|---|---|---|---|---|---|---|---|
+| **Resize method** | In-place + rollout | In-place + rollout | In-place + rollout | In-place + rollout | In-place + rollout | VPA-based | VPA-based | Agent-based |
+| **Recommender** | ML, usage-based | ML (Bayesian) | Real-time + burst | AI + risk scoring | Usage histograms | VPA + policies | VPA | Reinforcement learning |
+| **HPA coordination** | Yes | Yes (adjusts targets) | Yes | Yes | Yes (unified CRD) | Partial | Partial | Yes |
+| **Per-step change cap** | Change sensitivity % | maxPercentIncrease/Decrease | N/A | Policy levels | N/A | N/A | N/A | SLO guardrails |
+| **Graduated rollout** | Immediate/deferred | Incremental % steps | Continuous | Risk-scored | Preview/Apply modes | Scheduled windows | N/A | DataPilot to AutoPilot |
+| **Config model** | Proprietary CRD | Annotations | Proprietary CRD | Hierarchical CRDs | DatadogPodAutoscaler CRD | VPA + annotations | Standard VPA CRD | Platform API |
+| **Node optimization** | Yes (Spot, bin-pack) | No | Yes | No | No | Yes (EKS) | Yes (Spot, headroom) | Yes |
+| **Self-hosted option** | No (SaaS) | Hybrid | Yes | No (SaaS) | Agent + SaaS | No (SaaS) | No (SaaS) | No (SaaS) |
+| **Open source** | No | No | No | No | Agent only | No | No | No |
+| **Typical cost** | % of savings | Per-cluster | Per-cluster | Per-cluster | Included with Datadog | % of savings | Per-node | Per-workload |
 
-- Full control over their right-sizing logic
-- No SaaS dependency
-- Kubernetes-native CRDs and tooling
-- The ability to audit and modify the recommendation algorithm
-- Integration with existing Prometheus and Grafana infrastructure
+### kube-rightsize vs. the field
 
-If you need the broader optimization suite (spot instances, node provisioning,
-multi-cloud), pair kube-rightsize with [Karpenter](https://karpenter.sh/) for
-a fully open-source stack.
+| Capability | kube-rightsize | How many of 16 tools have it |
+|-----------|---------------|----------------------------|
+| In-place resize (no eviction) | Yes | 9/16 (VPA 1.33+, CAST AI, StormForge, ScaleOps, PerfectScale, Datadog, nOps, Spot Ocean, Kedify) |
+| HPA coexistence | Yes | 7/16 |
+| Multi-layer safety with auto-revert | Yes | 2/16 (us, PerfectScale) |
+| Graduated rollout (3+ modes) | Yes | 4/16 (us, StormForge, PerfectScale, Sedai) |
+| Time-of-day awareness | Yes | 3/16 (us, StormForge, ScaleOps) |
+| Cluster-wide defaults CRD | Yes | 2/16 (us, PerfectScale) |
+| Fully open source (Apache 2.0) | Yes | 5/16 (VPA, Goldilocks, KRR, Oblik, kube-reqsizer) |
+| No SaaS dependency | Yes | 7/16 (all OSS + ScaleOps) |
+| kubectl plugin with savings estimates | Yes | 0/16 |
+| Canary rollout for resizes | Yes | 0/16 |
+
+### Where commercial tools win
+
+Commercial platforms like CAST AI, ScaleOps, and StormForge offer
+capabilities that kube-rightsize intentionally does not cover:
+
+- **Node optimization**: Spot instance management, bin-packing, and cluster
+  autoscaling. Pair kube-rightsize with
+  [Karpenter](https://karpenter.sh/) for an open-source equivalent.
+- **ML/predictive recommenders**: Bayesian optimization (StormForge),
+  reinforcement learning (Sedai), and risk-scored automation (PerfectScale)
+  can outperform percentile-based recommendations for highly variable workloads.
+- **Multi-cloud dashboards**: Unified cost views across AWS, GCP, and Azure
+  with commitment optimization.
+
+### Where kube-rightsize wins
+
+- **Full control**: The recommendation algorithm is open, auditable, and
+  modifiable. No black-box ML.
+- **No SaaS dependency**: Your metrics stay in your Prometheus. No data
+  leaves the cluster.
+- **Kubernetes-native**: Standard CRDs, conditions, events, and kubectl
+  plugin. Works with existing GitOps workflows.
+- **Safety-first**: The only open-source tool with OOMKill detection,
+  CPU throttle monitoring, restart spike detection, and automatic revert
+  with exponential backoff.
+- **Cost**: Free forever (Apache 2.0). Commercial tools charge $10,000-50,000+/year
+  for large clusters.
 
 ## Getting Started
 

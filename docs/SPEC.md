@@ -1516,10 +1516,10 @@ kube-rightsize/
 
 | Pattern | Source | How We Use It |
 |---------|--------|---------------|
-| Mandatory resource bounds | OptiPod | `minAllowed`/`maxAllowed` are required fields |
+| Mandatory resource bounds | OptiPod | `minAllowed`/`maxAllowed` fields |
 | Weight-based policy resolution | OptiPod | `weight` field for deterministic conflict resolution |
 | Gradual memory decrease | OptiPod | `memory.maxChangePercent` + `allowDecrease` flag |
-| Composable estimator chain | VPA | Decorator pattern: percentile -> margin -> confidence -> bounds |
+| Composable estimator chain | VPA | Decorator pattern: percentile -> overhead -> confidence -> bounds |
 | Confidence-based widening | VPA | `(1 + multiplier/confidence)^exponent` formula |
 | Two-phase resize (CPU then memory) | right-sizer | CPU first (safer), then memory, with proper polling |
 | Conditions via meta.SetStatusCondition | Kyverno | Standard library helper, not hand-rolled |
@@ -1527,6 +1527,15 @@ kube-rightsize/
 | Strict CI shell defaults | CloudNativePG | `bash -Eeuo pipefail -x {0}` in all workflows |
 | ADOPTERS.md from day one | CloudNativePG | Social proof drives adoption |
 | envtest + property-based testing | OptiPod | Fast feedback + invariant testing |
+| Percentage overhead (not multiplier) | CAST AI, KRR, VPA | `overhead: "20"` = +20% headroom (ecosystem consensus) |
+| `minAllowed`/`maxAllowed` naming | VPA | Direct match with VPA `containerPolicies` field names |
+| `controlledValues` field | VPA | Direct match with VPA (RequestsOnly / RequestsAndLimits) |
+| Hierarchical defaults CRD | PerfectScale | Cluster > namespace > policy precedence (3-tier) |
+| Per-step change cap in ResourceConfig | StormForge | `maxChangePercent` per resource (StormForge uses `maxPercentIncrease`/`maxPercentDecrease`) |
+| Preview/Apply progression | Datadog | Our Observe > Recommend > Canary > Auto mirrors Datadog's Preview > Apply |
+| Unified vertical CRD (not VPA+HPA) | Datadog | Single RightSizePolicy instead of separate VPA + HPA objects |
+| Cron-style scheduling | Oblik | `schedule.windows` + `daysOfWeek` (Oblik uses `cron` + `cronAddRandomMax`) |
+| Annotation-based opt-out | CAST AI, Oblik | `rightsize.io/skip: "true"` for workload exclusion |
 
 ### Anti-Patterns Avoided
 
@@ -1535,9 +1544,24 @@ kube-rightsize/
 | Bloated CRD (15+ config sections) | right-sizer | Focused CRD + separate defaults CRD |
 | Emoji logging / fmt.Printf | right-sizer, OptiPod | Structured logging only (logr) |
 | Hardcoded time.Sleep between operations | right-sizer | Proper polling via wait.PollUntilContextCancel |
-| No CRD (annotation-only) | kube-reqsizer | Full CRD with proper status |
+| No CRD (annotation-only) | kube-reqsizer, Oblik | Full CRD with proper status (Oblik supports both but annotations are fragile at scale) |
 | Manual memory string parsing | kube-reqsizer | Always use resource.Quantity |
 | Status Phase as bare string | right-sizer | Typed constants with kubebuilder enum validation |
 | ObservedGeneration via annotations | right-sizer | Proper status subresource field |
 | All containers resized together | VPA | Per-container independent resize |
 | HPA conflict undefined | VPA | Detect and handle HPA coexistence |
+| SaaS-only with no self-hosted option | CAST AI, PerfectScale, Sedai, nOps | Fully self-contained operator, metrics stay in-cluster |
+| Black-box ML recommender | StormForge, Sedai, ScaleOps | Transparent percentile + overhead + confidence chain; every step visible in explanation |
+| Combined horizontal + vertical in one field | VPA (`updateMode`) | Separate `type` (what to do) and `resizeMethod` (how to apply) for clarity |
+| Platform API instead of CRD | Sedai, Densify | Kubernetes-native CRD; works with GitOps, kubectl, and standard tooling |
+| Multiplier-based overhead (1.2x) | kube-reqsizer | Percentage-based overhead ("20" = +20%), matching ecosystem consensus |
+
+### Competitor Landscape (16 tools surveyed)
+
+| Category | Tools | Key takeaway |
+|----------|-------|-------------|
+| **OSS recommenders** | VPA, Goldilocks, KRR, Kubecost/OpenCost | Good for visibility and one-time audits; no autonomous application (except VPA Auto, which evicts) |
+| **OSS appliers** | Oblik, kube-reqsizer, Kedify | Apply VPA recommendations via cron or controller; no safety system or graduated rollout |
+| **Commercial full-stack** | CAST AI, ScaleOps, StormForge, PerfectScale, Sedai, Densify | Pod + node optimization with ML; $10k-50k+/year; SaaS dependency (except ScaleOps self-hosted) |
+| **Observability-integrated** | Datadog, nOps, Spot Ocean | Leverage existing monitoring; Datadog's `DatadogPodAutoscaler` CRD is well-designed |
+| **kube-rightsize** | (this project) | Focused on in-place resize with safety; open-source; no SaaS; Kubernetes-native CRDs |
