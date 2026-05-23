@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strconv"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -59,6 +60,22 @@ const (
 	// collectorTTL is how long an unused collector stays cached before eviction.
 	collectorTTL = 10 * time.Minute
 )
+
+// Default overhead percentages parsed once from the canonical string constants
+// in api/v1alpha1/defaults.go. This avoids hardcoding magic numbers that could
+// drift if the constants change.
+var (
+	defaultCPUOverhead    = mustParseFloat(rightsizev1alpha1.DefaultCPUOverhead)
+	defaultMemoryOverhead = mustParseFloat(rightsizev1alpha1.DefaultMemoryOverhead)
+)
+
+func mustParseFloat(s string) float64 {
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		panic("invalid default constant: " + s)
+	}
+	return v
+}
 
 // getOrCreateCollector returns a cached collector for the given Prometheus
 // config, creating one if needed. Delegates to getOrCreateCollectorByKey.
@@ -727,8 +744,8 @@ func buildRecommendationEngines(policy *rightsizev1alpha1.RightSizePolicy) (cpuE
 		memPercentile = int(rightsizev1alpha1.DefaultMemoryPercentile)
 	}
 
-	cpuOverhead := parseOverheadPercent(policy.Spec.CPU.Overhead, 20.0)
-	memOverhead := parseOverheadPercent(policy.Spec.Memory.Overhead, 30.0)
+	cpuOverhead := parseOverheadPercent(policy.Spec.CPU.Overhead, defaultCPUOverhead)
+	memOverhead := parseOverheadPercent(policy.Spec.Memory.Overhead, defaultMemoryOverhead)
 
 	cpuBoundsMin := rightsizev1alpha1.DefaultCPUBoundsMin.DeepCopy()
 	cpuBoundsMax := rightsizev1alpha1.DefaultCPUBoundsMax.DeepCopy()

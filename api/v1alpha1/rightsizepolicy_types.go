@@ -255,6 +255,7 @@ type ResourceConfig struct {
 	// percentile recommendation. Expressed as a string (e.g. "20" means 20%
 	// extra headroom above the target percentile). Must be >= 0, max 900.
 	// +optional
+	// +kubebuilder:validation:Pattern=`^([0-9]+(\.[0-9]+)?)?$`
 	Overhead string `json:"overhead,omitempty"`
 
 	// MinAllowed is the minimum allowed resource value.

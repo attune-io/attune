@@ -1067,6 +1067,37 @@ func TestParseFloat64_ZeroFallback(t *testing.T) {
 	assert.InDelta(t, 1.2, parseFloat64("0", 1.2), 0.001)
 }
 
+func TestParseOverheadPercent(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		fallback float64
+		expected float64
+	}{
+		{"valid 20", "20", 15.0, 20.0},
+		{"valid 0", "0", 15.0, 0.0},
+		{"valid 900 boundary", "900", 15.0, 900.0},
+		{"valid decimal", "20.5", 15.0, 20.5},
+		{"valid scientific", "1e2", 15.0, 100.0},
+		{"valid signed positive", "+20", 15.0, 20.0},
+		{"empty returns fallback", "", 15.0, 15.0},
+		{"non-numeric returns fallback", "abc", 15.0, 15.0},
+		{"NaN returns fallback", "NaN", 15.0, 15.0},
+		{"Inf returns fallback", "Inf", 15.0, 15.0},
+		{"-Inf returns fallback", "-Inf", 15.0, 15.0},
+		{"negative returns fallback", "-5", 15.0, 15.0},
+		{"over 900 returns fallback", "900.01", 15.0, 15.0},
+		{"over 900 large", "1000", 15.0, 15.0},
+		{"negative zero", "-0", 15.0, 0.0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseOverheadPercent(tt.input, tt.fallback)
+			assert.InDelta(t, tt.expected, got, 0.001)
+		})
+	}
+}
+
 func TestComputeSavings_ReturnsCorrectStructure(t *testing.T) {
 	scheme := testScheme()
 	r := &RightSizePolicyReconciler{Client: fake.NewClientBuilder().WithScheme(scheme).Build()}

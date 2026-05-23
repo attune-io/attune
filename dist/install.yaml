@@ -119,6 +119,7 @@ spec:
                       Overhead is the percentage of additional resources added on top of the
                       percentile recommendation. Expressed as a string (e.g. "20" means 20%
                       extra headroom above the target percentile). Must be >= 0, max 900.
+                    pattern: ^([0-9]+(\.[0-9]+)?)?$
                     type: string
                   percentile:
                     description: |-
@@ -206,6 +207,7 @@ spec:
                       Overhead is the percentage of additional resources added on top of the
                       percentile recommendation. Expressed as a string (e.g. "20" means 20%
                       extra headroom above the target percentile). Must be >= 0, max 900.
+                    pattern: ^([0-9]+(\.[0-9]+)?)?$
                     type: string
                   percentile:
                     description: |-
@@ -699,6 +701,7 @@ spec:
                       Overhead is the percentage of additional resources added on top of the
                       percentile recommendation. Expressed as a string (e.g. "20" means 20%
                       extra headroom above the target percentile). Must be >= 0, max 900.
+                    pattern: ^([0-9]+(\.[0-9]+)?)?$
                     type: string
                   percentile:
                     description: |-
@@ -786,6 +789,7 @@ spec:
                       Overhead is the percentage of additional resources added on top of the
                       percentile recommendation. Expressed as a string (e.g. "20" means 20%
                       extra headroom above the target percentile). Must be >= 0, max 900.
+                    pattern: ^([0-9]+(\.[0-9]+)?)?$
                     type: string
                   percentile:
                     description: |-
@@ -1275,6 +1279,7 @@ spec:
                       Overhead is the percentage of additional resources added on top of the
                       percentile recommendation. Expressed as a string (e.g. "20" means 20%
                       extra headroom above the target percentile). Must be >= 0, max 900.
+                    pattern: ^([0-9]+(\.[0-9]+)?)?$
                     type: string
                   percentile:
                     description: |-
@@ -1370,6 +1375,7 @@ spec:
                       Overhead is the percentage of additional resources added on top of the
                       percentile recommendation. Expressed as a string (e.g. "20" means 20%
                       extra headroom above the target percentile). Must be >= 0, max 900.
+                    pattern: ^([0-9]+(\.[0-9]+)?)?$
                     type: string
                   percentile:
                     description: |-
