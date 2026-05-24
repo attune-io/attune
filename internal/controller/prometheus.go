@@ -747,6 +747,10 @@ func deriveMemoryFromCPU(
 
 	// Pass through the memory engine's bounds + change filter by
 	// running it with a synthetic profile that targets the derived value.
+	// Confidence is set very high (1e9) to neutralize the engine's
+	// confidence factor: (1 + 1/1e9)^2 ≈ 1.0. A ratio-derived value
+	// is deterministic and should not receive the statistical uncertainty
+	// buffer that Prometheus-sourced recommendations get.
 	memRec, memExplain, _ := memEngine.RecommendWithExplanation(
 		rsmetrics.UsageProfile{
 			OverallPercentiles: rsmetrics.PercentileSet{
@@ -755,7 +759,7 @@ func deriveMemoryFromCPU(
 				Max: float64(memBytes),
 			},
 			DataPoints: int(minimumDataPoints),
-			Confidence: 1.0,
+			Confidence: 1e9,
 		}, currentMemReq)
 
 	if !allowDecrease && memRec.Cmp(currentMemReq) < 0 {

@@ -58,7 +58,7 @@ func TestDeriveMemoryFromCPU(t *testing.T) {
 			currentMem:  "512Mi",
 			wantApplied: true,
 			wantMemMin:  "1Gi",
-			wantMemMax:  "3Gi",
+			wantMemMax:  "2500Mi", // ~2Gi raw, no confidence inflation
 		},
 		{
 			name:        "100m CPU with ratio 4.0 produces ~400Mi",
@@ -67,7 +67,7 @@ func TestDeriveMemoryFromCPU(t *testing.T) {
 			currentMem:  "128Mi",
 			wantApplied: true,
 			wantMemMin:  "200Mi",
-			wantMemMax:  "600Mi",
+			wantMemMax:  "512Mi",
 		},
 		{
 			name:        "500m CPU with ratio 1.0 produces ~512Mi",
@@ -76,7 +76,7 @@ func TestDeriveMemoryFromCPU(t *testing.T) {
 			currentMem:  "256Mi",
 			wantApplied: true,
 			wantMemMin:  "256Mi",
-			wantMemMax:  "1Gi",
+			wantMemMax:  "768Mi",
 		},
 		{
 			name:          "decrease blocked by allowDecrease=false",
@@ -96,8 +96,8 @@ func TestDeriveMemoryFromCPU(t *testing.T) {
 			currentMem:    "1Gi",
 			allowDecrease: true,
 			wantApplied:   true,
-			wantMemMin:    "64Mi", // can go below current
-			wantMemMax:    "1Gi",  // engine confidence factor inflates, but still below current
+			wantMemMin:    "64Mi",  // can go below current
+			wantMemMax:    "256Mi", // ~102Mi raw, no confidence inflation
 		},
 		{
 			name:        "zero ratio not applied",
@@ -200,23 +200,20 @@ func TestDeriveMemoryFromCPU_MinBoundEnforced(t *testing.T) {
 
 func TestDeriveMemoryFromCPU_ExactMath(t *testing.T) {
 	// Verify the core math: 1000m CPU * ratio 2.0 = 2 GiB raw.
-	// The engine applies confidence factor ((1+1/1)^2 = 4x at confidence=1.0),
-	// and the change filter caps increases to maxIncreasePct of current.
-	// Set currentMem near the expected post-confidence value so the change
-	// filter doesn't cap, and verify the result is in the expected range.
+	// The engine applies overhead (0% in test engine) but the confidence
+	// factor is neutralized (synthetic profile uses confidence=1e9).
+	// With 0% overhead and wide bounds, expect close to 2Gi.
 	engine := newTestMemEngine()
 	cpuRec := resource.MustParse("1000m")
-	// Raw derivation = 2Gi, confidence 4x = ~8Gi. Set current near that
-	// so the change filter (maxIncreasePct=100%) doesn't cap.
-	currentMem := resource.MustParse("4Gi")
+	currentMem := resource.MustParse("1Gi")
 
 	memRec, _, applied := deriveMemoryFromCPU(cpuRec, 2.0, engine, 48, currentMem, true)
 	require.True(t, applied)
 
-	// Expect ~8Gi (2Gi raw * 4x confidence). Allow +-25% for engine rounding.
-	eightGi := resource.MustParse("8Gi")
-	diff := memRec.Value() - eightGi.Value()
-	pctDiff := float64(diff) / float64(eightGi.Value()) * 100
-	assert.InDelta(t, 0, pctDiff, 25,
-		"memory %s should be within 25%% of 8Gi (got %.1f%% diff)", memRec.String(), pctDiff)
+	// Expect ~2Gi (no confidence inflation, 0% overhead).
+	twoGi := resource.MustParse("2Gi")
+	diff := memRec.Value() - twoGi.Value()
+	pctDiff := float64(diff) / float64(twoGi.Value()) * 100
+	assert.InDelta(t, 0, pctDiff, 5,
+		"memory %s should be within 5%% of 2Gi (got %.1f%% diff)", memRec.String(), pctDiff)
 }
