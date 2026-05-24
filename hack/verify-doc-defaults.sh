@@ -261,6 +261,7 @@ check_default "Ready troubleshooting section" "^### PrometheusUnavailable" "docs
 check_default "Ready troubleshooting section" "^### InsufficientData" "docs/guides/troubleshooting.md"
 check_default "Ready troubleshooting section" "^### InvalidConfig" "docs/guides/troubleshooting.md"
 check_default "Ready troubleshooting section" "^### WorkloadDiscoveryFailed" "docs/guides/troubleshooting.md"
+check_default "Ready troubleshooting section" "^### Paused" "docs/guides/troubleshooting.md"
 check_default "Prometheus setup condition table" "Ready: False, Reason: InsufficientData" "docs/guides/prometheus-setup.md"
 check_default "Prometheus setup condition meaning" "Prometheus could not be used for this reconcile" "docs/guides/prometheus-setup.md"
 check_absent "Prometheus setup stale condition meaning" "No Prometheus address found" "docs/guides/prometheus-setup.md"

@@ -210,6 +210,17 @@ for example an unsupported kind, an invalid selector, or a client/list error.
 4. Check operator logs for the exact discovery error if the target still
    looks correct.
 
+### Paused
+
+**Symptom**: Ready condition is `False` with reason `Paused`.
+
+**Cause**: `spec.paused` is set to `true` on the policy. The operator skips
+all reconciliation: no metrics collection, no recommendations, no resizes.
+Existing resizes are not reverted.
+
+**Fix**: Set `spec.paused: false` or remove the field entirely. The operator
+will resume reconciliation on the next cycle.
+
 ### CooldownActive
 
 **Symptom**: The operator logs "Cooldown active, skipping resize" and no

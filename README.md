@@ -289,6 +289,22 @@ The dashboard includes:
   override cluster-scoped defaults for production vs staging.
 - **Conflict detection**: Warns about VPA, overlapping policies, or active
   rollouts targeting the same workload.
+- **VPA recommendation consumption**: Use existing VerticalPodAutoscaler
+  recommendations as an alternative to Prometheus queries via `metricsSource.vpa`.
+- **SLO-based guardrails**: PromQL-based application health checks
+  (latency, error rate) that auto-revert resizes on threshold breach.
+- **GitOps diff command**: `kubectl rightsize diff` outputs recommendations
+  in diff format for ArgoCD/Flux review workflows.
+- **Initial sizing webhook**: Set pod resources at creation time based on
+  existing policy recommendations, eliminating the "deploy with bad defaults" gap.
+- **Directional change caps**: Asymmetric `maxIncreasePercent`/`maxDecreasePercent`
+  per resource (memory decreases are riskier than CPU increases).
+- **Memory-from-CPU derivation**: `memoryFromCpuRatio` derives memory from CPU
+  for JVM and heap-bound workloads.
+- **Pause reconciliation**: `spec.paused: true` halts all activity without
+  reverting existing resizes.
+- **Webhook warnings**: 13 admission-time warnings for nonsensical config
+  combinations with 31 runtime K8s events and per-policy suppression.
 
 ## Documentation
 

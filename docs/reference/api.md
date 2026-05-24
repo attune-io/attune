@@ -53,6 +53,11 @@ spec:
         key: token
       tls:                                # optional: TLS settings
         insecureSkipVerify: false
+    # Alternative: consume VPA recommendations instead of querying Prometheus.
+    # At most one of prometheus, datadog, cloudwatch, or vpa may be set.
+    # vpa:
+    #   name: my-vpa                       # VPA object name
+    #   namespace: default                 # defaults to policy namespace
     historyWindow: 168h                    # lookback window (default: 168h)
     minimumDataPoints: 48                  # min samples before recommending (default: 48)
     queryStep: 5m                          # Prometheus range query step interval (default: 5m)
@@ -70,6 +75,8 @@ spec:
     maxAllowed: "4000m"          # optional: max clamp (upper limit: 256 cores)
     controlledValues: RequestsAndLimits  # RequestsOnly | RequestsAndLimits
     maxChangePercent: 50       # max CPU change per cycle (default: 50)
+    maxIncreasePercent: 50     # max increase per cycle (default: 50)
+    maxDecreasePercent: 30     # max decrease per cycle (default: 30)
 
   # Memory recommendation parameters.
   memory:
@@ -81,10 +88,17 @@ spec:
     controlledValues: RequestsAndLimits
     allowDecrease: false       # prevent memory decreases (recommended)
     maxChangePercent: 30       # max memory change per cycle (default: 30)
+    maxIncreasePercent: 50     # max increase per cycle (default: 50)
+    maxDecreasePercent: 30     # max decrease per cycle (default: 30)
+    memoryFromCpuRatio: "2.0"  # optional: derive memory from CPU (GiB per core)
+
+  # Pause reconciliation (no metrics, no recommendations, no resizes).
+  paused: false                # default: false
 
   # How and when to apply changes.
   updateStrategy:
     type: Recommend            # Observe | Recommend | OneShot | Canary | Auto
+    initialSizing: false       # optional: set pod resources at creation time via webhook
     canary:                    # required when mode is Canary
       percentage: 10           # % of pods to resize first
       observationPeriod: 30m   # watch canary pods before proceeding (minimum: 1m)
@@ -98,6 +112,11 @@ spec:
     maxTotalMemoryIncrease: "4Gi"   # max aggregate memory increase per cycle (default: unlimited)
     export:                         # optional: export recommendations to ConfigMaps
       configMap: true               # creates <policy>-<workload>-recommendations ConfigMap
+    sloGuardrails:                  # optional: revert if application SLOs breach after resize
+      - name: p99-latency
+        query: 'histogram_quantile(0.99, rate(http_request_duration_seconds_bucket{namespace="{{ .Namespace }}"}[5m]))'
+        threshold: "0.5"
+        comparison: above
     schedule:                       # optional: restrict when resizes can occur
       windows:
         - start: "02:00"           # HH:MM (24-hour)
@@ -177,7 +196,7 @@ the estimator chain: `rawPercentile`, `overhead`, `afterOverhead`,
 
 | Type | Reasons | Description |
 |------|---------|-------------|
-| `Ready` | `Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `PrometheusUnavailable`, `InvalidConfig`, `WorkloadDiscoveryFailed` | Overall health |
+| `Ready` | `Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `PrometheusUnavailable`, `InvalidConfig`, `WorkloadDiscoveryFailed`, `Paused` | Overall health |
 | `Resizing` | `InProgress`, `Idle`, `CooldownActive` | Active resize operation state |
 | `Degraded` | `HighRevertRate` | High revert rate detected (3+ of last 5 reverted) |
 | `ScheduleBlocked` | `OutsideWindow`, `InsideWindow` | Whether the current time is within the configured resize schedule window |
@@ -212,6 +231,19 @@ View them with `kubectl describe rightsizepolicy <name>` or
 | `ResizeSkipped` | Warning | A resize was skipped (e.g. pod in bad state, rolling out) |
 | `Reverted` | Warning | A resize was reverted due to safety observation failure (OOMKill, CPU throttle, restarts) |
 | `Evicted` | Warning | A pod was evicted as a fallback when in-place resize was not possible |
+| `StaleRecommendation` | Warning | Recommendations are stale (no fresh Prometheus data) |
+| `CooldownActive` | Normal | Resize deferred because the cooldown period has not elapsed |
+| `HPAConflict` | Warning | An HPA targets the same workload and may conflict with resizing |
+| `VPAConflict` | Warning | A VPA targets the same workload |
+| `ConfigClamped` | Warning | A policy field was clamped to its allowed range at runtime |
+| `ExportFailed` | Warning | Failed to export recommendations to ConfigMap |
+| `RestartOnResize` | Normal | Container will restart on resize due to `RestartContainer` resize policy |
+| `MemoryLimitClamped` | Normal | Memory limit decrease skipped due to K8s v1.33 restriction |
+| `PolicyConflict` | Warning | Multiple policies target the same workload |
+| `RolloutInProgress` | Normal | Resize skipped because the workload is mid-rollout |
+| `WorkloadOptOut` | Normal | Workload opted out via annotation |
+
+Events use 1-hour deduplication to prevent log spam. Identical events are emitted at most once per hour; condition changes produce new events immediately. Specific events can be suppressed per-policy using the `rightsize.io/suppress-warnings` annotation (comma-separated list of event reasons).
 
 ---
 

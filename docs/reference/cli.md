@@ -38,7 +38,7 @@ kubectl rightsize status --watch          # live-refresh every 10s
 | Column | Description |
 |--------|-------------|
 | PENDING | Workloads with active recommendations that are still awaiting resize |
-| READY | Current `Ready` reason (`Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `PrometheusUnavailable`, `InvalidConfig`, or `WorkloadDiscoveryFailed`), or the current `Ready` condition message when `Ready=False` includes actionable details |
+| READY | Current `Ready` reason (`Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `PrometheusUnavailable`, `InvalidConfig`, `WorkloadDiscoveryFailed`, or `Paused`), or the current `Ready` condition message when `Ready=False` includes actionable details |
 | RESIZING | `InProgress`, `Idle`, `CooldownActive`, or `-` (non-resize modes) |
 | DEGRADED | `HighRevertRate` or `-` |
 | CANARY | Canary phase and pod count (e.g., `CanaryInProgress (2 pods)`) when mode is Canary, `-` otherwise |
@@ -129,6 +129,18 @@ kubectl rightsize explain -n production api-services
 ```
 
 `explain` requires both a policy name and a single namespace. Put flags before the policy name, for example `kubectl rightsize explain -n production api-services`.
+
+### diff
+
+Shows resource change recommendations in diff format for GitOps workflows. Outputs the difference between current and recommended resources for each workload.
+
+```bash
+kubectl rightsize diff
+kubectl rightsize diff -n production
+kubectl rightsize diff -o yaml    # structured YAML output
+```
+
+Useful for piping into ArgoCD or Flux review processes, or for manual review before promoting from Recommend to Auto mode.
 
 ### history
 

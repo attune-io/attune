@@ -391,7 +391,7 @@ spec:
 
 | Condition Type | Reasons | Description |
 |---------------|---------|-------------|
-| `Ready` | `Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `PrometheusUnavailable`, `InvalidConfig`, `WorkloadDiscoveryFailed` | Overall health |
+| `Ready` | `Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `PrometheusUnavailable`, `InvalidConfig`, `WorkloadDiscoveryFailed`, `Paused` | Overall health |
 | `Resizing` | `InProgress`, `Idle`, `CooldownActive` | Active resize operation |
 | `Degraded` | `HighRevertRate` | Some resizes failing |
 
@@ -542,8 +542,9 @@ Raw Prometheus Data
        ▼
 ┌──────────────────┐
 │ Confidence       │  Widen recommendation when data is sparse:
-│ Multiplier       │  result *= (1 + multiplier / confidence) ^ exponent
+│ Multiplier       │  result *= 1 + multiplier * (1 - confidence) ^ exponent
 │                  │  confidence = min(days_of_data, sqrt(data_points/24))
+│                  │  Factor ranges from 1.0 (7d data) to ~1.8 (4h data)
 └──────┬───────────┘
        │
        ▼
