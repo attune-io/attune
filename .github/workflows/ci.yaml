@@ -478,21 +478,17 @@ jobs:
         shell: bash -Eeuo pipefail -x {0}
         run: |
           export PATH="$HOME/.local/bin:$PATH"
-          for attempt in 1 2 3; do
-            if k3d image import \
-              quay.io/jetstack/cert-manager-controller:${{ env.CERT_MANAGER_VERSION }} \
-              quay.io/jetstack/cert-manager-webhook:${{ env.CERT_MANAGER_VERSION }} \
-              quay.io/jetstack/cert-manager-cainjector:${{ env.CERT_MANAGER_VERSION }} \
-              -c "$K3D_CLUSTER_NAME"; then
-              break
-            fi
-            echo "::warning::k3d image import attempt $attempt failed, retrying in 10s..."
-            sleep 10
-            if (( attempt == 3 )); then
-              echo "::error::k3d image import failed after 3 attempts"
-              exit 1
-            fi
-          done
+          # Save to tarball first; k3d image import by name fails on some
+          # Docker Desktop versions where the containerd image store namespace
+          # is not visible to k3d's runtime query. Tarball import is reliable
+          # and matches the approach used for the operator image.
+          docker save \
+            quay.io/jetstack/cert-manager-controller:${{ env.CERT_MANAGER_VERSION }} \
+            quay.io/jetstack/cert-manager-webhook:${{ env.CERT_MANAGER_VERSION }} \
+            quay.io/jetstack/cert-manager-cainjector:${{ env.CERT_MANAGER_VERSION }} \
+            -o /tmp/cert-manager-images.tar
+          k3d image import /tmp/cert-manager-images.tar -c "$K3D_CLUSTER_NAME"
+          rm -f /tmp/cert-manager-images.tar
 
       - name: Install cert-manager
         shell: bash -Eeuo pipefail -x {0}
@@ -506,17 +502,9 @@ jobs:
         shell: bash -Eeuo pipefail -x {0}
         run: |
           export PATH="$HOME/.local/bin:$PATH"
-          for attempt in 1 2 3; do
-            if k3d image import ${{ env.PROMETHEUS_IMAGE }} -c "$K3D_CLUSTER_NAME"; then
-              break
-            fi
-            echo "::warning::k3d image import attempt $attempt failed, retrying in 10s..."
-            sleep 10
-            if (( attempt == 3 )); then
-              echo "::error::k3d Prometheus image import failed after 3 attempts"
-              exit 1
-            fi
-          done
+          docker save ${{ env.PROMETHEUS_IMAGE }} -o /tmp/prometheus.tar
+          k3d image import /tmp/prometheus.tar -c "$K3D_CLUSTER_NAME"
+          rm -f /tmp/prometheus.tar
 
       - name: Install Prometheus
         shell: bash -Eeuo pipefail -x {0}
