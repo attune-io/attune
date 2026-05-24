@@ -10439,3 +10439,105 @@ func TestApplyStartupBoosts_ExpiryPassesShouldSkipResizeWithMemory(t *testing.T)
 	_, hasBoostAt := updated.Annotations[annotationStartupBoostAt]
 	assert.False(t, hasBoostAt, "startup boost annotation should be removed after expiry")
 }
+
+func TestWarnConfigClamping(t *testing.T) {
+	tests := []struct {
+		name      string
+		policy    *rightsizev1alpha1.RightSizePolicy
+		wantEvent string // substring expected in the event, "" means no event
+	}{
+		{
+			name: "historyWindow below minimum emits event",
+			policy: func() *rightsizev1alpha1.RightSizePolicy {
+				p := newTestPolicy("test", "default")
+				p.Spec.MetricsSource.HistoryWindow = &metav1.Duration{Duration: 30 * time.Minute}
+				return p
+			}(),
+			wantEvent: "historyWindow 30m0s clamped to 1h",
+		},
+		{
+			name: "historyWindow above maximum emits event",
+			policy: func() *rightsizev1alpha1.RightSizePolicy {
+				p := newTestPolicy("test", "default")
+				p.Spec.MetricsSource.HistoryWindow = &metav1.Duration{Duration: 800 * time.Hour}
+				return p
+			}(),
+			wantEvent: "historyWindow 800h0m0s clamped to 720h",
+		},
+		{
+			name: "queryStep below minimum emits event",
+			policy: func() *rightsizev1alpha1.RightSizePolicy {
+				p := newTestPolicy("test", "default")
+				p.Spec.MetricsSource.QueryStep = &metav1.Duration{Duration: 5 * time.Second}
+				return p
+			}(),
+			wantEvent: "queryStep 5s clamped to 10s",
+		},
+		{
+			name: "queryStep above maximum emits event",
+			policy: func() *rightsizev1alpha1.RightSizePolicy {
+				p := newTestPolicy("test", "default")
+				p.Spec.MetricsSource.QueryStep = &metav1.Duration{Duration: 2 * time.Hour}
+				return p
+			}(),
+			wantEvent: "queryStep 2h0m0s clamped to 1h",
+		},
+		{
+			name: "rateWindow below minimum emits event",
+			policy: func() *rightsizev1alpha1.RightSizePolicy {
+				p := newTestPolicy("test", "default")
+				p.Spec.MetricsSource.RateWindow = &metav1.Duration{Duration: 10 * time.Second}
+				return p
+			}(),
+			wantEvent: "rateWindow 10s clamped to 30s",
+		},
+		{
+			name: "cooldown below operator minimum emits event",
+			policy: func() *rightsizev1alpha1.RightSizePolicy {
+				p := newTestPolicy("test", "default")
+				p.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: 30 * time.Second}
+				return p
+			}(),
+			wantEvent: "cooldown 30s raised to operator minimum",
+		},
+		{
+			name: "valid config emits no event",
+			policy: func() *rightsizev1alpha1.RightSizePolicy {
+				p := newTestPolicy("test", "default")
+				p.Spec.MetricsSource.HistoryWindow = &metav1.Duration{Duration: 24 * time.Hour}
+				p.Spec.MetricsSource.QueryStep = &metav1.Duration{Duration: time.Minute}
+				p.Spec.MetricsSource.RateWindow = &metav1.Duration{Duration: 2 * time.Minute}
+				p.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: 5 * time.Minute}
+				return p
+			}(),
+			wantEvent: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reconciler := newReconcilerWithClient()
+			recorder := events.NewFakeRecorder(10)
+			reconciler.Recorder = recorder
+
+			reconciler.warnConfigClamping(tt.policy)
+
+			if tt.wantEvent != "" {
+				select {
+				case event := <-recorder.Events:
+					assert.Contains(t, event, "ConfigClamped")
+					assert.Contains(t, event, tt.wantEvent)
+				default:
+					t.Fatalf("expected event containing %q but channel was empty", tt.wantEvent)
+				}
+			} else {
+				select {
+				case event := <-recorder.Events:
+					t.Fatalf("expected no event but got: %s", event)
+				default:
+					// Good: no event emitted.
+				}
+			}
+		})
+	}
+}
