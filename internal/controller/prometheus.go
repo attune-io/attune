@@ -351,33 +351,10 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 		// recommendation instead of using Prometheus memory metrics.
 		if policy.Spec.Memory.MemoryFromCPURatio != nil && *policy.Spec.Memory.MemoryFromCPURatio != "" && explanation.CPU != nil {
 			ratio := parseFloat64(*policy.Spec.Memory.MemoryFromCPURatio, 0)
-			if ratio > 0 {
-				// CPU recommendation is in millicores. Convert to cores, multiply
-				// by ratio to get GiB, then convert to bytes for the memory engine.
-				cpuCores := float64(rec.Recommended.CPURequest.MilliValue()) / 1000
-				memBytes := int64(cpuCores * ratio * 1024 * 1024 * 1024)
-				derivedMem := *k8sresource.NewQuantity(memBytes, k8sresource.BinarySI)
-
-				// Pass through the memory engine's bounds + change filter by
-				// running it with a synthetic profile that targets the derived value.
-				memRec, memExplain, _ := memEngine.RecommendWithExplanation(
-					rsmetrics.UsageProfile{
-						OverallPercentiles: rsmetrics.PercentileSet{
-							P50: float64(memBytes), P90: float64(memBytes),
-							P95: float64(memBytes), P99: float64(memBytes),
-							Max: float64(memBytes),
-						},
-						DataPoints: int(minimumDataPoints),
-						Confidence: 1.0,
-					}, currentMemReq)
-
-				_ = derivedMem // ratio used to compute the synthetic profile above
-				allowDecrease := policy.Spec.Memory.AllowDecrease != nil && *policy.Spec.Memory.AllowDecrease
-				if !allowDecrease && memRec.Cmp(currentMemReq) < 0 {
-					memRec = currentMemReq.DeepCopy()
-					memExplain.Final = memRec.DeepCopy()
-					memExplain.FinalAdjustment = fmt.Sprintf("Memory decrease blocked by allowDecrease=false (derived from CPU via ratio %s)", *policy.Spec.Memory.MemoryFromCPURatio)
-				}
+			allowDecrease := policy.Spec.Memory.AllowDecrease != nil && *policy.Spec.Memory.AllowDecrease
+			memRec, memExplain, applied := deriveMemoryFromCPU(
+				rec.Recommended.CPURequest, ratio, memEngine, minimumDataPoints, currentMemReq, allowDecrease)
+			if applied {
 				rec.Recommended.MemoryRequest = memRec
 				memExplain.FinalAdjustment = appendNote(memExplain.FinalAdjustment,
 					fmt.Sprintf("derived from CPU via memoryFromCpuRatio=%s", *policy.Spec.Memory.MemoryFromCPURatio))
@@ -742,6 +719,52 @@ func samplesForContainer(grouped map[string][]rsmetrics.Sample, container string
 		return samples
 	}
 	return grouped[""]
+}
+
+// deriveMemoryFromCPU computes a memory recommendation by deriving it from
+// the CPU recommendation using a fixed ratio instead of Prometheus memory
+// metrics. The derived value passes through the memory engine's bounds and
+// change-filter pipeline via a synthetic usage profile.
+//
+// Returns the recommended quantity, explanation, and whether derivation was
+// applied (false when the ratio is non-positive).
+func deriveMemoryFromCPU(
+	cpuRec k8sresource.Quantity,
+	ratio float64,
+	memEngine *recommendation.RecommendationEngine,
+	minimumDataPoints int32,
+	currentMemReq k8sresource.Quantity,
+	allowDecrease bool,
+) (k8sresource.Quantity, recommendation.RecommendationExplanation, bool) {
+	if ratio <= 0 {
+		return currentMemReq.DeepCopy(), recommendation.RecommendationExplanation{}, false
+	}
+
+	// CPU recommendation is in millicores. Convert to cores, multiply
+	// by ratio to get GiB, then convert to bytes for the memory engine.
+	cpuCores := float64(cpuRec.MilliValue()) / 1000
+	memBytes := int64(cpuCores * ratio * 1024 * 1024 * 1024)
+
+	// Pass through the memory engine's bounds + change filter by
+	// running it with a synthetic profile that targets the derived value.
+	memRec, memExplain, _ := memEngine.RecommendWithExplanation(
+		rsmetrics.UsageProfile{
+			OverallPercentiles: rsmetrics.PercentileSet{
+				P50: float64(memBytes), P90: float64(memBytes),
+				P95: float64(memBytes), P99: float64(memBytes),
+				Max: float64(memBytes),
+			},
+			DataPoints: int(minimumDataPoints),
+			Confidence: 1.0,
+		}, currentMemReq)
+
+	if !allowDecrease && memRec.Cmp(currentMemReq) < 0 {
+		memRec = currentMemReq.DeepCopy()
+		memExplain.Final = memRec.DeepCopy()
+		memExplain.FinalAdjustment = fmt.Sprintf("Memory decrease blocked by allowDecrease=false (derived from CPU via ratio %.4g)", ratio)
+	}
+
+	return memRec, memExplain, true
 }
 
 // appendNote appends a note to an existing adjustment string, separated by "; ".

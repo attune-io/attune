@@ -1,0 +1,222 @@
+/*
+Copyright 2026.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package controller
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/api/resource"
+
+	"github.com/SebTardifLabs/kube-rightsize/internal/recommendation"
+)
+
+// newTestMemEngine creates a memory recommendation engine with wide bounds
+// and no change filter so that derived values pass through unmodified.
+func newTestMemEngine() *recommendation.RecommendationEngine {
+	return recommendation.NewEngine(
+		99,                         // percentile (irrelevant for synthetic profiles)
+		0,                          // overhead (0% so derived value is not inflated)
+		resource.MustParse("1Mi"),  // minBound
+		resource.MustParse("64Gi"), // maxBound
+		100,                        // maxIncreasePct (wide)
+		100,                        // maxDecreasePct (wide)
+	)
+}
+
+func TestDeriveMemoryFromCPU(t *testing.T) {
+	tests := []struct {
+		name          string
+		cpuRec        string
+		ratio         float64
+		currentMem    string
+		allowDecrease bool
+		wantApplied   bool
+		wantMemMin    string // minimum expected memory (inclusive)
+		wantMemMax    string // maximum expected memory (inclusive)
+		wantAdjust    string // substring expected in FinalAdjustment
+	}{
+		{
+			name:        "1 core with ratio 2.0 produces ~2Gi",
+			cpuRec:      "1000m",
+			ratio:       2.0,
+			currentMem:  "512Mi",
+			wantApplied: true,
+			wantMemMin:  "1Gi",
+			wantMemMax:  "3Gi",
+		},
+		{
+			name:        "100m CPU with ratio 4.0 produces ~400Mi",
+			cpuRec:      "100m",
+			ratio:       4.0,
+			currentMem:  "128Mi",
+			wantApplied: true,
+			wantMemMin:  "200Mi",
+			wantMemMax:  "600Mi",
+		},
+		{
+			name:        "500m CPU with ratio 1.0 produces ~512Mi",
+			cpuRec:      "500m",
+			ratio:       1.0,
+			currentMem:  "256Mi",
+			wantApplied: true,
+			wantMemMin:  "256Mi",
+			wantMemMax:  "1Gi",
+		},
+		{
+			name:          "decrease blocked by allowDecrease=false",
+			cpuRec:        "100m",
+			ratio:         1.0,
+			currentMem:    "1Gi",
+			allowDecrease: false,
+			wantApplied:   true,
+			wantMemMin:    "1Gi", // must not go below current
+			wantMemMax:    "1Gi",
+			wantAdjust:    "allowDecrease=false",
+		},
+		{
+			name:          "decrease allowed when flag is true",
+			cpuRec:        "100m",
+			ratio:         1.0,
+			currentMem:    "1Gi",
+			allowDecrease: true,
+			wantApplied:   true,
+			wantMemMin:    "64Mi", // can go below current
+			wantMemMax:    "1Gi",  // engine confidence factor inflates, but still below current
+		},
+		{
+			name:        "zero ratio not applied",
+			cpuRec:      "1000m",
+			ratio:       0,
+			currentMem:  "512Mi",
+			wantApplied: false,
+		},
+		{
+			name:        "negative ratio not applied",
+			cpuRec:      "1000m",
+			ratio:       -1.0,
+			currentMem:  "512Mi",
+			wantApplied: false,
+		},
+		{
+			name:        "large CPU with small ratio",
+			cpuRec:      "4000m",
+			ratio:       0.5,
+			currentMem:  "512Mi",
+			wantApplied: true,
+			wantMemMin:  "1Gi",
+			wantMemMax:  "3Gi",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cpuRec := resource.MustParse(tt.cpuRec)
+			currentMem := resource.MustParse(tt.currentMem)
+			engine := newTestMemEngine()
+
+			memRec, explain, applied := deriveMemoryFromCPU(
+				cpuRec, tt.ratio, engine, 48, currentMem, tt.allowDecrease)
+
+			assert.Equal(t, tt.wantApplied, applied, "applied mismatch")
+			if !tt.wantApplied {
+				return
+			}
+
+			require.False(t, memRec.IsZero(), "derived memory should not be zero")
+
+			if tt.wantMemMin != "" {
+				minQ := resource.MustParse(tt.wantMemMin)
+				assert.True(t, memRec.Cmp(minQ) >= 0,
+					"memory %s should be >= %s", memRec.String(), minQ.String())
+			}
+			if tt.wantMemMax != "" {
+				maxQ := resource.MustParse(tt.wantMemMax)
+				assert.True(t, memRec.Cmp(maxQ) <= 0,
+					"memory %s should be <= %s", memRec.String(), maxQ.String())
+			}
+
+			// Explanation should always have a non-zero Final when applied.
+			assert.False(t, explain.Final.IsZero(), "explanation.Final should not be zero")
+
+			if tt.wantAdjust != "" {
+				assert.Contains(t, explain.FinalAdjustment, tt.wantAdjust)
+			}
+		})
+	}
+}
+
+func TestDeriveMemoryFromCPU_BoundsEnforced(t *testing.T) {
+	// Engine with tight bounds to verify clamping.
+	engine := recommendation.NewEngine(99, 0,
+		resource.MustParse("100Mi"), // minBound
+		resource.MustParse("512Mi"), // maxBound
+		100, 100)
+
+	// 4 cores * ratio 2.0 = 8Gi, but maxBound is 512Mi.
+	cpuRec := resource.MustParse("4000m")
+	currentMem := resource.MustParse("256Mi")
+
+	memRec, _, applied := deriveMemoryFromCPU(cpuRec, 2.0, engine, 48, currentMem, true)
+	require.True(t, applied)
+
+	maxBound := resource.MustParse("512Mi")
+	assert.True(t, memRec.Cmp(maxBound) <= 0,
+		"memory %s should be clamped to maxBound %s", memRec.String(), maxBound.String())
+}
+
+func TestDeriveMemoryFromCPU_MinBoundEnforced(t *testing.T) {
+	engine := recommendation.NewEngine(99, 0,
+		resource.MustParse("256Mi"), // minBound
+		resource.MustParse("64Gi"),  // maxBound
+		100, 100)
+
+	// 10m CPU * ratio 0.5 = ~5Mi, but minBound is 256Mi.
+	cpuRec := resource.MustParse("10m")
+	currentMem := resource.MustParse("128Mi")
+
+	memRec, _, applied := deriveMemoryFromCPU(cpuRec, 0.5, engine, 48, currentMem, true)
+	require.True(t, applied)
+
+	minBound := resource.MustParse("256Mi")
+	assert.True(t, memRec.Cmp(minBound) >= 0,
+		"memory %s should be clamped to minBound %s", memRec.String(), minBound.String())
+}
+
+func TestDeriveMemoryFromCPU_ExactMath(t *testing.T) {
+	// Verify the core math: 1000m CPU * ratio 2.0 = 2 GiB raw.
+	// The engine applies confidence factor ((1+1/1)^2 = 4x at confidence=1.0),
+	// and the change filter caps increases to maxIncreasePct of current.
+	// Set currentMem near the expected post-confidence value so the change
+	// filter doesn't cap, and verify the result is in the expected range.
+	engine := newTestMemEngine()
+	cpuRec := resource.MustParse("1000m")
+	// Raw derivation = 2Gi, confidence 4x = ~8Gi. Set current near that
+	// so the change filter (maxIncreasePct=100%) doesn't cap.
+	currentMem := resource.MustParse("4Gi")
+
+	memRec, _, applied := deriveMemoryFromCPU(cpuRec, 2.0, engine, 48, currentMem, true)
+	require.True(t, applied)
+
+	// Expect ~8Gi (2Gi raw * 4x confidence). Allow +-25% for engine rounding.
+	eightGi := resource.MustParse("8Gi")
+	diff := memRec.Value() - eightGi.Value()
+	pctDiff := float64(diff) / float64(eightGi.Value()) * 100
+	assert.InDelta(t, 0, pctDiff, 25,
+		"memory %s should be within 25%% of 8Gi (got %.1f%% diff)", memRec.String(), pctDiff)
+}
