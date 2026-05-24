@@ -198,6 +198,8 @@ func (r *RightSizePolicyReconciler) executeResizes(
 		if rec.Stale {
 			logger.Info("Skipping resize for workload with stale recommendation", "workload", rec.Workload)
 			operatormetrics.StaleRecommendationsTotal.WithLabelValues(policy.Namespace, policy.Name).Inc()
+			r.emitEventOnce(policy, corev1.EventTypeWarning, "StaleRecommendation", "resize",
+				"Resize deferred for workload %s: recommendation is stale (metrics source may be unavailable)", rec.Workload)
 			continue
 		}
 
@@ -371,6 +373,9 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 			logger.Info("Memory limit decrease clamped by resize policy",
 				"pod", pod.Name, "container", containerRec.Name,
 				"requestedLimit", memLim.String(), "clampedLimit", clampedLim.String())
+			r.emitEventOnce(policy, corev1.EventTypeWarning, "MemoryLimitClamped", "resize",
+				"Container %s in pod %s: memory limit decrease blocked (NotRequired resize policy); limit preserved at %s",
+				containerRec.Name, pod.Name, clampedLim.String())
 			// For Guaranteed QoS pods, the memory request must also be raised
 			// to match the clamped limit. Otherwise requests != limits and
 			// PreservesQoS blocks the resize entirely, preventing CPU changes
@@ -391,6 +396,8 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 		if reason != "" {
 			logger.Info("Skipping resize: "+reason,
 				"pod", pod.Name, "container", containerRec.Name)
+			r.emitEventOnce(policy, corev1.EventTypeWarning, "ResizeSkipped", "resize",
+				"Resize blocked for pod %s container %s: %s", pod.Name, containerRec.Name, reason)
 		} else {
 			logger.V(1).Info("Skipping resize: already at target",
 				"pod", pod.Name, "container", containerRec.Name,
@@ -421,18 +428,19 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 			logger.Info("Pod resize is Infeasible and resizeMethod is InPlaceOnly, skipping",
 				"pod", pod.Name, "container", containerRec.Name)
 			operatormetrics.InfeasibleSkippedTotal.WithLabelValues(pod.Namespace, workloadName).Inc()
-			if r.Recorder != nil {
-				r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "InfeasibleBlocked", "resize",
-					"Pod %s cannot be resized in-place (Infeasible) and resizeMethod is InPlaceOnly; consider InPlaceOrRecreate",
-					pod.Name)
-			}
+			r.emitEventOnce(policy, corev1.EventTypeWarning, "InfeasibleBlocked", "resize",
+				"Pod %s cannot be resized in-place (Infeasible) and resizeMethod is InPlaceOnly; consider InPlaceOrRecreate",
+				pod.Name)
 		}
 		return nil, resizeOutcomeNone
 	}
 
-	if resize.WouldRestartContainer(pod, containerRec.Name) {
-		logger.Info("Container has RestartContainer resize policy; resize will trigger restart",
-			"pod", pod.Name, "container", containerRec.Name)
+	if restartResources := resize.RestartContainerResources(pod, containerRec.Name); len(restartResources) > 0 {
+		logger.Info("Container has RestartContainer resize policy; resize will trigger container restart",
+			"pod", pod.Name, "container", containerRec.Name, "restartResources", restartResources)
+		r.emitEventOnce(policy, corev1.EventTypeWarning, "RestartOnResize", "resize",
+			"Container %s in pod %s has RestartContainer resize policy for %v; resize will restart the container",
+			containerRec.Name, pod.Name, restartResources)
 	}
 
 	resizeStart := r.now()
@@ -661,17 +669,20 @@ func buildResizeTarget(rec rightsizev1alpha1.ContainerRecommendation) corev1.Res
 // clampRequestsToLimits ensures requests do not exceed limits for each resource.
 // When a limit is present and the request exceeds it, the request is capped
 // at the limit value to prevent API server rejection.
-func clampRequestsToLimits(target *corev1.ResourceRequirements) {
+func clampRequestsToLimits(target *corev1.ResourceRequirements) []string {
 	if target.Limits == nil {
-		return
+		return nil
 	}
+	var clamped []string
 	for _, res := range []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory} {
 		lim, hasLim := target.Limits[res]
 		req, hasReq := target.Requests[res]
 		if hasLim && hasReq && req.Cmp(lim) > 0 {
 			target.Requests[res] = lim.DeepCopy()
+			clamped = append(clamped, string(res))
 		}
 	}
+	return clamped
 }
 
 // resolveCanaryPhase checks whether canary pods have passed the observation

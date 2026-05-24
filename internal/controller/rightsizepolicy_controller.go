@@ -145,6 +145,11 @@ type RightSizePolicyReconciler struct {
 	// restart persist until the owning policy's next reconcile refreshes them.
 	gaugeKeys sync.Map // map[string][]gaugeKey
 
+	// eventDedup suppresses repeated K8s events for the same condition.
+	// Events with the same key are suppressed for 1 hour, then re-emitted
+	// so persistent conditions are periodically surfaced without flooding.
+	eventDedup *eventDedup
+
 	// discoveredPromMu guards the cached Prometheus auto-discovery result.
 	discoveredPromMu   sync.Mutex
 	discoveredPromAddr string
@@ -251,6 +256,7 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 	r.mergeDefaults(&policy, defaults)
 	r.applyBuiltInDefaults(&policy)
+	r.warnConfigClamping(&policy)
 
 	// Step 2: Resolve metrics source, create collector, and select query builder.
 	collector, queryBuilder, err := r.resolveMetricsCollector(ctx, &policy, defaults)
@@ -464,6 +470,8 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 	if isResizeMode(mode) && cooldownActive {
 		logger.Info("Cooldown active, skipping resize")
+		r.emitEventOnce(&policy, corev1.EventTypeNormal, "CooldownActive", "resize",
+			"Resize deferred: cooldown period active")
 	}
 
 	// Expose effective cooldown status with backoff details.
@@ -617,24 +625,34 @@ func (r *RightSizePolicyReconciler) processWorkloads(
 			workloadMeta := metav1.ObjectMeta{Annotations: workload.GetAnnotations()}
 			if conflictDetector.CheckAnnotationOptOut(workloadMeta) {
 				logger.Info("Workload opted out via annotation", "workload", workloadName)
+				r.emitEventOnce(policy, corev1.EventTypeNormal, "WorkloadOptOut", "recommend",
+					"Workload %s opted out via rightsize.io/exclude annotation", workloadName)
 				return nil
 			}
 
 			if hpaConflict := conflictDetector.CheckHPAConflict(result.hpaList.Items, workloadName, workloadKind); hpaConflict != nil {
 				logger.Info("HPA conflict detected", "workload", workloadName, "hpa", hpaConflict.Name, "message", hpaConflict.Message)
+				r.emitEventOnce(policy, corev1.EventTypeWarning, "HPAConflict", "recommend",
+					"HPA %s targets workload %s: %s", hpaConflict.Name, workloadName, hpaConflict.Message)
 			}
 
 			if vpaConflict := conflictDetector.CheckVPAConflictInMemory(vpaList, workloadName, workloadKind); vpaConflict != nil {
 				logger.Info("VPA conflict detected", "workload", workloadName, "vpa", vpaConflict.Name, "message", vpaConflict.Message)
+				r.emitEventOnce(policy, corev1.EventTypeWarning, "VPAConflict", "recommend",
+					"VPA %s targets workload %s: %s", vpaConflict.Name, workloadName, vpaConflict.Message)
 			}
 
 			if policyConflict := conflictDetector.CheckPolicyConflictInMemory(policyList, workloadName, workloadKind, workload.GetLabels(), policy.Name, policy.Spec.Weight); policyConflict != nil {
 				logger.Info("Higher-weight policy exists, skipping workload", "workload", workloadName, "policy", policyConflict.Name, "message", policyConflict.Message)
+				r.emitEventOnce(policy, corev1.EventTypeWarning, "PolicyConflict", "recommend",
+					"Workload %s yielded to higher-weight policy %s: %s", workloadName, policyConflict.Name, policyConflict.Message)
 				return nil
 			}
 
 			if r.isRollingOut(workload) {
 				logger.Info("Skipping workload mid-rollout", "workload", workloadName)
+				r.emitEventOnce(policy, corev1.EventTypeNormal, "RolloutInProgress", "resize",
+					"Resize deferred for workload %s: rollout in progress", workloadName)
 				return nil
 			}
 

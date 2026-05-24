@@ -1228,3 +1228,166 @@ func TestValidate_VPAWithDatadogMutuallyExclusive(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "at most one")
 }
+
+// ---------- Ineffective settings warnings ----------
+
+func TestWarn_InitialSizingInRecommendMode(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeRecommend
+	policy.Spec.UpdateStrategy.InitialSizing = boolPtr(true)
+
+	w, err := validator.ValidateCreate(context.Background(), policy)
+	assert.NoError(t, err)
+	assert.Contains(t, w, "initialSizing has no effect in Recommend mode; it requires Auto, OneShot, or Canary")
+}
+
+func TestWarn_AutoRevertInObserveMode(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeObserve
+	policy.Spec.UpdateStrategy.AutoRevert = boolPtr(true)
+
+	w, err := validator.ValidateCreate(context.Background(), policy)
+	assert.NoError(t, err)
+	assert.Contains(t, w, "autoRevert has no effect in Observe mode; no resizes occur to revert")
+}
+
+func TestWarn_SLOGuardrailsInRecommendMode(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeRecommend
+	policy.Spec.UpdateStrategy.SLOGuardrails = []rightsizev1alpha1.SLOGuardrail{
+		{Name: "latency", Query: "up", Threshold: "1"},
+	}
+
+	w, err := validator.ValidateCreate(context.Background(), policy)
+	assert.NoError(t, err)
+	assert.Contains(t, w, "sloGuardrails have no effect in Recommend mode; no resizes occur to guard")
+}
+
+func TestWarn_SLOGuardrailsWithAutoRevertFalse(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeAuto
+	policy.Spec.UpdateStrategy.AutoRevert = boolPtr(false)
+	policy.Spec.UpdateStrategy.SLOGuardrails = []rightsizev1alpha1.SLOGuardrail{
+		{Name: "latency", Query: "up", Threshold: "1"},
+	}
+
+	w, err := validator.ValidateCreate(context.Background(), policy)
+	assert.NoError(t, err)
+	assert.Contains(t, w, "sloGuardrails are configured but autoRevert is false; SLO breaches will be detected but not acted on")
+}
+
+func TestWarn_SLOGuardrailsWithVPASource(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeAuto
+	policy.Spec.UpdateStrategy.SLOGuardrails = []rightsizev1alpha1.SLOGuardrail{
+		{Name: "latency", Query: "up", Threshold: "1"},
+	}
+	policy.Spec.MetricsSource.Prometheus = nil
+	policy.Spec.MetricsSource.VPA = &rightsizev1alpha1.VPAConfig{Name: "my-vpa"}
+
+	w, err := validator.ValidateCreate(context.Background(), policy)
+	assert.NoError(t, err)
+	assert.Contains(t, w, "sloGuardrails require a Prometheus-compatible metrics source; VPA source does not support PromQL queries")
+}
+
+func TestWarn_CanaryConfigInAutoMode(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeAuto
+	policy.Spec.UpdateStrategy.Canary = &rightsizev1alpha1.CanaryConfig{
+		Percentage:        10,
+		ObservationPeriod: metav1.Duration{Duration: 5 * time.Minute},
+	}
+
+	w, err := validator.ValidateCreate(context.Background(), policy)
+	assert.NoError(t, err)
+	assert.Contains(t, w, "canary configuration has no effect in Auto mode")
+}
+
+func TestWarn_ScheduleInObserveMode(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeObserve
+	policy.Spec.UpdateStrategy.Schedule = &rightsizev1alpha1.ResizeSchedule{
+		Timezone: "UTC",
+	}
+
+	w, err := validator.ValidateCreate(context.Background(), policy)
+	assert.NoError(t, err)
+	assert.Contains(t, w, "schedule has no effect in Observe mode; no resizes occur to schedule")
+}
+
+func TestWarn_MaxConcurrentInOneShotMode(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeOneShot
+	policy.Spec.UpdateStrategy.MaxConcurrentResizes = 5
+
+	w, err := validator.ValidateCreate(context.Background(), policy)
+	assert.NoError(t, err)
+	assert.Contains(t, w, "maxConcurrentResizes > 1 has no effect in OneShot mode; only one pod is resized per cycle")
+}
+
+func TestWarn_MemoryFromCpuRatioOverridesPercentile(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	ratio := "2.0"
+	policy.Spec.Memory.MemoryFromCPURatio = &ratio
+	policy.Spec.Memory.Percentile = 99
+
+	w, err := validator.ValidateCreate(context.Background(), policy)
+	assert.NoError(t, err)
+	assert.Contains(t, w, "memory.percentile has no effect when memoryFromCpuRatio is set; memory is derived from CPU")
+}
+
+func TestWarn_MemoryFromCpuRatioOverridesOverhead(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	ratio2 := "2.0"
+	policy.Spec.Memory.MemoryFromCPURatio = &ratio2
+	policy.Spec.Memory.Overhead = "30"
+
+	w, err := validator.ValidateCreate(context.Background(), policy)
+	assert.NoError(t, err)
+	assert.Contains(t, w, "memory.overhead has no effect when memoryFromCpuRatio is set; memory is derived from CPU")
+}
+
+func TestWarn_ExportInObserveMode(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeObserve
+	policy.Spec.UpdateStrategy.Export = &rightsizev1alpha1.ExportConfig{ConfigMap: true}
+
+	w, err := validator.ValidateCreate(context.Background(), policy)
+	assert.NoError(t, err)
+	assert.Contains(t, w, "export.configMap has no effect in Observe mode; recommendations are not surfaced")
+}
+
+func TestWarn_BudgetCapsInRecommendMode(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeRecommend
+	cpu := resource.MustParse("2")
+	policy.Spec.UpdateStrategy.MaxTotalCPUIncrease = &cpu
+
+	w, err := validator.ValidateCreate(context.Background(), policy)
+	assert.NoError(t, err)
+	assert.Contains(t, w, "maxTotalCpuIncrease has no effect in Recommend mode; no resizes occur")
+}
+
+func TestWarn_NoWarningsInAutoMode(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeAuto
+
+	w, err := validator.ValidateCreate(context.Background(), policy)
+	assert.NoError(t, err)
+	for _, warning := range w {
+		assert.NotContains(t, warning, "has no effect")
+	}
+}

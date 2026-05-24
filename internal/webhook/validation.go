@@ -347,7 +347,87 @@ func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizeP
 		warnings = append(warnings, "memory.allowDecrease is enabled; this carries OOMKill risk")
 	}
 
+	// Warn about settings that have no effect in non-resizing modes.
+	warnings = append(warnings, warnIneffectiveSettings(policy)...)
+
 	return warnings, nil
+}
+
+// warnIneffectiveSettings detects configuration combinations that are
+// technically valid but have no effect, helping users catch typos and
+// misunderstandings before they wonder why nothing is happening.
+func warnIneffectiveSettings(policy *rightsizev1alpha1.RightSizePolicy) admission.Warnings {
+	var w admission.Warnings
+	mode := policy.Spec.UpdateStrategy.Type
+	isNonResizing := mode == rightsizev1alpha1.UpdateTypeObserve ||
+		mode == rightsizev1alpha1.UpdateTypeRecommend ||
+		mode == ""
+
+	// Settings that only matter when resizes happen.
+	if isNonResizing {
+		if policy.Spec.UpdateStrategy.InitialSizing != nil && *policy.Spec.UpdateStrategy.InitialSizing {
+			w = append(w, fmt.Sprintf("initialSizing has no effect in %s mode; it requires Auto, OneShot, or Canary", mode))
+		}
+		if policy.Spec.UpdateStrategy.AutoRevert != nil && *policy.Spec.UpdateStrategy.AutoRevert {
+			w = append(w, fmt.Sprintf("autoRevert has no effect in %s mode; no resizes occur to revert", mode))
+		}
+		if len(policy.Spec.UpdateStrategy.SLOGuardrails) > 0 {
+			w = append(w, fmt.Sprintf("sloGuardrails have no effect in %s mode; no resizes occur to guard", mode))
+		}
+		if policy.Spec.UpdateStrategy.Schedule != nil {
+			w = append(w, fmt.Sprintf("schedule has no effect in %s mode; no resizes occur to schedule", mode))
+		}
+		if policy.Spec.UpdateStrategy.ResizeMethod != "" {
+			w = append(w, fmt.Sprintf("resizeMethod has no effect in %s mode; no resizes occur", mode))
+		}
+		if policy.Spec.UpdateStrategy.MaxTotalCPUIncrease != nil {
+			w = append(w, fmt.Sprintf("maxTotalCpuIncrease has no effect in %s mode; no resizes occur", mode))
+		}
+		if policy.Spec.UpdateStrategy.MaxTotalMemoryIncrease != nil {
+			w = append(w, fmt.Sprintf("maxTotalMemoryIncrease has no effect in %s mode; no resizes occur", mode))
+		}
+	}
+
+	// Export in Observe mode produces nothing (no recommendations surfaced).
+	if mode == rightsizev1alpha1.UpdateTypeObserve {
+		if policy.Spec.UpdateStrategy.Export != nil && policy.Spec.UpdateStrategy.Export.ConfigMap {
+			w = append(w, "export.configMap has no effect in Observe mode; recommendations are not surfaced")
+		}
+	}
+
+	// Canary config outside Canary mode.
+	if policy.Spec.UpdateStrategy.Canary != nil && mode != rightsizev1alpha1.UpdateTypeCanary {
+		w = append(w, fmt.Sprintf("canary configuration has no effect in %s mode", mode))
+	}
+
+	// SLO guardrails with autoRevert disabled.
+	if len(policy.Spec.UpdateStrategy.SLOGuardrails) > 0 && !isNonResizing {
+		if policy.Spec.UpdateStrategy.AutoRevert != nil && !*policy.Spec.UpdateStrategy.AutoRevert {
+			w = append(w, "sloGuardrails are configured but autoRevert is false; SLO breaches will be detected but not acted on")
+		}
+	}
+
+	// SLO guardrails with VPA source (no Prometheus query interface).
+	if len(policy.Spec.UpdateStrategy.SLOGuardrails) > 0 && policy.Spec.MetricsSource.VPA != nil {
+		w = append(w, "sloGuardrails require a Prometheus-compatible metrics source; VPA source does not support PromQL queries")
+	}
+
+	// maxConcurrentResizes > 1 in OneShot mode.
+	if mode == rightsizev1alpha1.UpdateTypeOneShot && policy.Spec.UpdateStrategy.MaxConcurrentResizes > 1 {
+		w = append(w, "maxConcurrentResizes > 1 has no effect in OneShot mode; only one pod is resized per cycle")
+	}
+
+	// memoryFromCpuRatio makes memory percentile/overhead redundant.
+	if policy.Spec.Memory.MemoryFromCPURatio != nil && *policy.Spec.Memory.MemoryFromCPURatio != "" {
+		if policy.Spec.Memory.Percentile != 0 {
+			w = append(w, "memory.percentile has no effect when memoryFromCpuRatio is set; memory is derived from CPU")
+		}
+		if policy.Spec.Memory.Overhead != "" {
+			w = append(w, "memory.overhead has no effect when memoryFromCpuRatio is set; memory is derived from CPU")
+		}
+	}
+
+	return w
 }
 
 func validateOverhead(resource, overhead string) error {

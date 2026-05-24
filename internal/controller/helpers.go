@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -29,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -142,6 +144,125 @@ func (r *RightSizePolicyReconciler) setFailedCondition(ctx context.Context, poli
 		}
 	}
 	logger.Error(fmt.Errorf("exhausted retries"), "Failed to set failed condition after retries", "reason", reason)
+}
+
+// annotationSuppressWarnings is the annotation key for suppressing specific
+// warning event reasons. Value is a comma-separated list of event reason strings
+// (e.g., "HPAConflict,ConfigClamped,CooldownActive"). Suppressed warnings are
+// still logged at V(1) but do not emit K8s events.
+const annotationSuppressWarnings = "rightsize.io/suppress-warnings"
+
+// isSuppressed returns true if the given event reason is listed in the
+// rightsize.io/suppress-warnings annotation.
+func isSuppressed(annotations map[string]string, reason string) bool {
+	val, ok := annotations[annotationSuppressWarnings]
+	if !ok || val == "" {
+		return false
+	}
+	for _, suppressed := range strings.Split(val, ",") {
+		if strings.TrimSpace(suppressed) == reason {
+			return true
+		}
+	}
+	return false
+}
+
+// eventDedup tracks which events have been emitted per policy to avoid flooding
+// the K8s event stream on every reconcile. Events are suppressed until the TTL
+// expires or the condition changes. The map is in-memory only; after operator
+// restart events re-emit once (acceptable).
+type eventDedup struct {
+	mu   sync.Mutex
+	seen map[string]time.Time
+	ttl  time.Duration
+}
+
+func newEventDedup(ttl time.Duration) *eventDedup {
+	return &eventDedup{
+		seen: make(map[string]time.Time),
+		ttl:  ttl,
+	}
+}
+
+// shouldEmit returns true if the event should be emitted (not recently seen).
+// key should be "policyUID/reason" or "policyUID/reason/detail" for uniqueness.
+func (d *eventDedup) shouldEmit(key string) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if last, ok := d.seen[key]; ok && time.Since(last) < d.ttl {
+		return false
+	}
+	d.seen[key] = time.Now()
+	return true
+}
+
+// emitEventOnce emits a K8s event only if it hasn't been emitted recently
+// (within the dedup TTL, default 1 hour). This prevents flooding the event
+// stream when a condition persists across reconciles.
+func (r *RightSizePolicyReconciler) emitEventOnce(
+	obj runtime.Object, eventType, reason, action, messageFmt string, args ...interface{},
+) {
+	if r.Recorder == nil {
+		return
+	}
+	// Lazy-init the dedup map.
+	if r.eventDedup == nil {
+		r.eventDedup = newEventDedup(time.Hour)
+	}
+	var uid string
+	if accessor, ok := obj.(metav1.ObjectMetaAccessor); ok {
+		uid = string(accessor.GetObjectMeta().GetUID())
+		// Check if this warning reason is suppressed via annotation.
+		if isSuppressed(accessor.GetObjectMeta().GetAnnotations(), reason) {
+			return
+		}
+	}
+	msg := fmt.Sprintf(messageFmt, args...)
+	key := uid + "/" + reason + "/" + msg
+	if !r.eventDedup.shouldEmit(key) {
+		return
+	}
+	r.Recorder.Eventf(obj, nil, eventType, reason, action, messageFmt, args...)
+}
+
+// warnConfigClamping emits K8s events for any config values that are silently
+// clamped to valid ranges. Called once per reconcile, early, so users see
+// feedback in kubectl get events instead of wondering why their values differ.
+func (r *RightSizePolicyReconciler) warnConfigClamping(policy *rightsizev1alpha1.RightSizePolicy) {
+	if hw := policy.Spec.MetricsSource.HistoryWindow; hw != nil {
+		if hw.Duration < time.Hour {
+			r.emitEventOnce(policy, corev1.EventTypeWarning, "ConfigClamped", "config",
+				"historyWindow %s clamped to 1h (minimum)", hw.Duration)
+		} else if hw.Duration > 720*time.Hour {
+			r.emitEventOnce(policy, corev1.EventTypeWarning, "ConfigClamped", "config",
+				"historyWindow %s clamped to 720h (maximum)", hw.Duration)
+		}
+	}
+	if qs := policy.Spec.MetricsSource.QueryStep; qs != nil {
+		if qs.Duration < 10*time.Second {
+			r.emitEventOnce(policy, corev1.EventTypeWarning, "ConfigClamped", "config",
+				"queryStep %s clamped to 10s (minimum)", qs.Duration)
+		} else if qs.Duration > time.Hour {
+			r.emitEventOnce(policy, corev1.EventTypeWarning, "ConfigClamped", "config",
+				"queryStep %s clamped to 1h (maximum)", qs.Duration)
+		}
+	}
+	if rw := policy.Spec.MetricsSource.RateWindow; rw != nil {
+		if rw.Duration < 30*time.Second {
+			r.emitEventOnce(policy, corev1.EventTypeWarning, "ConfigClamped", "config",
+				"rateWindow %s clamped to 30s (minimum)", rw.Duration)
+		}
+	}
+	if cd := policy.Spec.UpdateStrategy.Cooldown; cd != nil {
+		minCooldown := r.MinCooldown
+		if minCooldown == 0 {
+			minCooldown = time.Minute
+		}
+		if cd.Duration > 0 && cd.Duration < minCooldown {
+			r.emitEventOnce(policy, corev1.EventTypeWarning, "ConfigClamped", "config",
+				"cooldown %s raised to operator minimum %s", cd.Duration, minCooldown)
+		}
+	}
 }
 
 // parseHistoryWindow parses the history window duration from the policy.

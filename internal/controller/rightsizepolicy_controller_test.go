@@ -4768,13 +4768,21 @@ func TestExecuteResizes_ResizeError_EmitsResizeFailedEvent(t *testing.T) {
 	count, _ := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil, nil)
 	assert.Equal(t, 0, count)
 
-	select {
-	case event := <-recorder.Events:
-		assert.Contains(t, event, "ResizeFailed")
-		assert.Contains(t, event, "api-server")
-	default:
-		t.Fatal("expected a ResizeFailed event but channel was empty")
+	// Drain all events and check for at least one ResizeFailed event.
+	foundFailed := false
+	for {
+		select {
+		case event := <-recorder.Events:
+			if strings.Contains(event, "ResizeFailed") {
+				assert.Contains(t, event, "api-server")
+				foundFailed = true
+			}
+		default:
+			goto doneFailed
+		}
 	}
+doneFailed:
+	assert.True(t, foundFailed, "expected at least one ResizeFailed event")
 }
 
 func TestExecuteResizes_AutoRevert_SafeVerdictNoRevert(t *testing.T) {
@@ -6118,13 +6126,59 @@ func TestExecuteResizes_EmitsResizedEvent(t *testing.T) {
 	count, _ := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil, nil)
 	assert.Equal(t, 1, count)
 
-	// Drain the event channel and check for a Resized event.
-	select {
-	case event := <-recorder.Events:
-		assert.Contains(t, event, "Resized")
-	default:
-		t.Fatal("expected a Resized event but channel was empty")
+	// Drain all events and check for at least one Resized event.
+	foundResized := false
+	for {
+		select {
+		case event := <-recorder.Events:
+			if strings.Contains(event, "Resized") {
+				foundResized = true
+			}
+		default:
+			goto done
+		}
 	}
+done:
+	assert.True(t, foundResized, "expected at least one Resized event")
+}
+
+// ---------- Warning suppression ----------
+
+func TestIsSuppressed(t *testing.T) {
+	tests := []struct {
+		name        string
+		annotations map[string]string
+		reason      string
+		expected    bool
+	}{
+		{"no annotation", nil, "HPAConflict", false},
+		{"empty annotation", map[string]string{"rightsize.io/suppress-warnings": ""}, "HPAConflict", false},
+		{"single match", map[string]string{"rightsize.io/suppress-warnings": "HPAConflict"}, "HPAConflict", true},
+		{"single no match", map[string]string{"rightsize.io/suppress-warnings": "VPAConflict"}, "HPAConflict", false},
+		{"comma-separated match", map[string]string{"rightsize.io/suppress-warnings": "ConfigClamped,HPAConflict,CooldownActive"}, "HPAConflict", true},
+		{"comma-separated no match", map[string]string{"rightsize.io/suppress-warnings": "ConfigClamped,VPAConflict"}, "HPAConflict", false},
+		{"whitespace trimmed", map[string]string{"rightsize.io/suppress-warnings": "ConfigClamped, HPAConflict , CooldownActive"}, "HPAConflict", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, isSuppressed(tt.annotations, tt.reason))
+		})
+	}
+}
+
+func TestEventDedup_SuppressesDuplicates(t *testing.T) {
+	d := newEventDedup(time.Hour)
+	assert.True(t, d.shouldEmit("policy1/HPAConflict/msg"), "first should emit")
+	assert.False(t, d.shouldEmit("policy1/HPAConflict/msg"), "duplicate within TTL should suppress")
+	assert.True(t, d.shouldEmit("policy1/VPAConflict/msg"), "different reason should emit")
+	assert.True(t, d.shouldEmit("policy2/HPAConflict/msg"), "different policy should emit")
+}
+
+func TestEventDedup_ReEmitsAfterTTL(t *testing.T) {
+	d := newEventDedup(1 * time.Millisecond)
+	assert.True(t, d.shouldEmit("policy1/HPAConflict/msg"), "first should emit")
+	time.Sleep(5 * time.Millisecond)
+	assert.True(t, d.shouldEmit("policy1/HPAConflict/msg"), "should re-emit after TTL")
 }
 
 // ---------- Throttle integration ----------

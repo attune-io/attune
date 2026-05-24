@@ -515,6 +515,62 @@ func TestWouldRestartContainer_ContainerNotFound(t *testing.T) {
 	assert.False(t, WouldRestartContainer(pod, "app"))
 }
 
+// ---------- RestartContainerResources ----------
+
+func TestRestartContainerResources_MemoryOnly(t *testing.T) {
+	pod := &corev1.Pod{
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "app",
+					ResizePolicy: []corev1.ContainerResizePolicy{
+						{ResourceName: corev1.ResourceCPU, RestartPolicy: corev1.NotRequired},
+						{ResourceName: corev1.ResourceMemory, RestartPolicy: corev1.RestartContainer},
+					},
+				},
+			},
+		},
+	}
+	assert.Equal(t, []string{"memory"}, RestartContainerResources(pod, "app"))
+}
+
+func TestRestartContainerResources_Both(t *testing.T) {
+	pod := &corev1.Pod{
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "app",
+					ResizePolicy: []corev1.ContainerResizePolicy{
+						{ResourceName: corev1.ResourceCPU, RestartPolicy: corev1.RestartContainer},
+						{ResourceName: corev1.ResourceMemory, RestartPolicy: corev1.RestartContainer},
+					},
+				},
+			},
+		},
+	}
+	result := RestartContainerResources(pod, "app")
+	assert.Len(t, result, 2)
+	assert.Contains(t, result, "cpu")
+	assert.Contains(t, result, "memory")
+}
+
+func TestRestartContainerResources_None(t *testing.T) {
+	pod := &corev1.Pod{
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "app",
+					ResizePolicy: []corev1.ContainerResizePolicy{
+						{ResourceName: corev1.ResourceCPU, RestartPolicy: corev1.NotRequired},
+						{ResourceName: corev1.ResourceMemory, RestartPolicy: corev1.NotRequired},
+					},
+				},
+			},
+		},
+	}
+	assert.Nil(t, RestartContainerResources(pod, "app"))
+}
+
 func TestMergeResources(t *testing.T) {
 	tests := []struct {
 		name          string

@@ -322,18 +322,26 @@ func ClampMemoryLimitForPolicy(pod *corev1.Pod, container string, target corev1.
 // trigger a kubelet restart based on the container's resizePolicy. If the
 // container has no resizePolicy, the default is NotRequired (no restart).
 func WouldRestartContainer(pod *corev1.Pod, containerName string) bool {
+	return len(RestartContainerResources(pod, containerName)) > 0
+}
+
+// RestartContainerResources returns the resource names (e.g. "cpu", "memory")
+// that have RestartContainer resize policy on the named container. Returns nil
+// if no resources require restart.
+func RestartContainerResources(pod *corev1.Pod, containerName string) []string {
 	for _, c := range slices.Concat(pod.Spec.InitContainers, pod.Spec.Containers) {
 		if c.Name != containerName {
 			continue
 		}
+		var resources []string
 		for _, rp := range c.ResizePolicy {
 			if rp.RestartPolicy == corev1.RestartContainer {
-				return true
+				resources = append(resources, string(rp.ResourceName))
 			}
 		}
-		return false
+		return resources
 	}
-	return false
+	return nil
 }
 
 // PreservesQoS returns true if applying the target resources to the named

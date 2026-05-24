@@ -72,6 +72,8 @@ func (r *RightSizePolicyReconciler) exportRecommendationConfigMaps(
 		}
 		if err := ctrl.SetControllerReference(policy, cm, r.Scheme); err != nil {
 			logger.Error(err, "Failed to set owner reference on recommendation ConfigMap", "configmap", cmName)
+			r.emitEventOnce(policy, corev1.EventTypeWarning, "ExportFailed", "export",
+				"Failed to export recommendations to ConfigMap %s: %v", cmName, err)
 			continue
 		}
 
@@ -80,6 +82,8 @@ func (r *RightSizePolicyReconciler) exportRecommendationConfigMaps(
 			if apierrors.IsNotFound(err) {
 				if createErr := r.Create(ctx, cm); createErr != nil {
 					logger.Error(createErr, "Failed to create recommendation ConfigMap", "configmap", cmName)
+					r.emitEventOnce(policy, corev1.EventTypeWarning, "ExportFailed", "export",
+						"Failed to create recommendation ConfigMap %s: %v", cmName, createErr)
 				}
 			} else {
 				logger.Error(err, "Failed to check recommendation ConfigMap", "configmap", cmName)
@@ -98,6 +102,8 @@ func (r *RightSizePolicyReconciler) exportRecommendationConfigMaps(
 		}
 		if updateErr := r.Update(ctx, &existing); updateErr != nil {
 			logger.Error(updateErr, "Failed to update recommendation ConfigMap", "configmap", cmName)
+			r.emitEventOnce(policy, corev1.EventTypeWarning, "ExportFailed", "export",
+				"Failed to update recommendation ConfigMap %s: %v", cmName, updateErr)
 		} else {
 			logger.V(1).Info("Exported recommendations to ConfigMap",
 				"configMap", cmName, "workload", rec.Workload)

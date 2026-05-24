@@ -109,6 +109,9 @@ func (r *RightSizePolicyReconciler) tryEvictionFallback(
 	if running <= 1 {
 		logger.Info("Skipping eviction fallback: would evict the last running replica",
 			"pod", pod.Name, "workload", workloadName)
+		r.emitEventOnce(policy, corev1.EventTypeWarning, "EvictionBlocked", "resize",
+			"Eviction fallback blocked for pod %s in workload %s: would evict the only running replica",
+			pod.Name, workloadName)
 		return false
 	}
 
@@ -118,6 +121,9 @@ func (r *RightSizePolicyReconciler) tryEvictionFallback(
 		logger.Error(err, "Eviction fallback denied (PDB or other constraint)",
 			"pod", pod.Name, "workload", workloadName)
 		operatormetrics.EvictionTotal.WithLabelValues(pod.Namespace, workloadName, "denied").Inc()
+		r.emitEventOnce(policy, corev1.EventTypeWarning, "EvictionDenied", "resize",
+			"Eviction fallback denied for pod %s in workload %s: %v (check PodDisruptionBudgets)",
+			pod.Name, workloadName, err)
 		return false
 	}
 
