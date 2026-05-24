@@ -109,6 +109,7 @@ func run(args []string, buildClient dynamicClientFactory) int {
 		fmt.Fprintln(os.Stderr, "  explain           Show recommendation reasoning for one policy")
 		fmt.Fprintln(os.Stderr, "  preview           Preview per-pod resource changes before promoting type")
 		fmt.Fprintln(os.Stderr, "  history           Show resize history (including eviction fallbacks)")
+		fmt.Fprintln(os.Stderr, "  diff              Show resource change diffs from recommendations")
 		fmt.Fprintln(os.Stderr, "  wizard            Interactive policy creation and type promotion")
 		fmt.Fprintln(os.Stderr, "  version           Print plugin version")
 		fmt.Fprintln(os.Stderr, "")
@@ -116,7 +117,7 @@ func run(args []string, buildClient dynamicClientFactory) int {
 		fs.PrintDefaults()
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Structured output note:")
-		fmt.Fprintln(os.Stderr, "  -o json|yaml is supported only with the status command.")
+		fmt.Fprintln(os.Stderr, "  -o json|yaml is supported with status. -o yaml is supported with diff.")
 		fmt.Fprintln(os.Stderr, "  For raw RightSizePolicy objects with other commands, use kubectl get rightsizepolicy -o json|yaml.")
 	}
 
@@ -216,6 +217,8 @@ func run(args []string, buildClient dynamicClientFactory) int {
 			printRecommendationsItems(items)
 		case "history":
 			printHistoryItems(items)
+		case "diff":
+			printDiffItems(items, "")
 		}
 		return 0
 	}
@@ -235,7 +238,7 @@ func run(args []string, buildClient dynamicClientFactory) int {
 	if *allNamespaces {
 		*namespace = ""
 	}
-	if *output == "json" || *output == "yaml" {
+	if (*output == "json" || *output == "yaml") && cmd != "diff" {
 		printStructured(ctx, dynClient, *namespace, *output)
 		return 0
 	}
@@ -257,6 +260,8 @@ func run(args []string, buildClient dynamicClientFactory) int {
 		printHistory(ctx, dynClient, *namespace)
 	case "preview":
 		printPreview(ctx, dynClient, *namespace, policyName)
+	case "diff":
+		printDiff(ctx, dynClient, *namespace, *output)
 	case "wizard":
 		return runWizard(ctx, dynClient, *namespace, parsedArgs, newInteractivePrompter())
 	}
@@ -290,7 +295,7 @@ func buildDynamicClient(kubeconfigPath, contextOverride string) (dynamic.Interfa
 
 func isKnownCommand(cmd string) bool {
 	switch cmd {
-	case "status", "savings", "recommendations", "explain", "history", "preview", "version", "wizard":
+	case "status", "savings", "recommendations", "explain", "history", "preview", "version", "wizard", "diff":
 		return true
 	default:
 		return false
@@ -299,7 +304,7 @@ func isKnownCommand(cmd string) bool {
 
 func isZeroArgCommand(cmd string) bool {
 	switch cmd {
-	case "status", "savings", "recommendations", "history":
+	case "status", "savings", "recommendations", "history", "diff":
 		return true
 	default:
 		return false
@@ -331,6 +336,12 @@ func policyNameArg(cmd string, args []string) (string, error) {
 func structuredOutputCommandError(cmd, output string) error {
 	if output == "" {
 		return nil
+	}
+	if cmd == "diff" {
+		if output == "yaml" {
+			return nil
+		}
+		return fmt.Errorf("-o %s is not supported with diff; use -o yaml for patch manifests", output)
 	}
 	if output != "json" && output != "yaml" {
 		return fmt.Errorf("unsupported output format %q, use json or yaml", output)
