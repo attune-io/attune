@@ -63,11 +63,11 @@ func TestRecommendationEngine_RealisticCPU(t *testing.T) {
 
 	recommended, changed := engine.Recommend(profile, current)
 	assert.True(t, changed)
-	// Chain: P95=200m → overhead(20%)=240m → confidence(~4.2x)=~1011m
-	//   → bounds OK → change filter: 1011m vs 500m = 102% > 50%
-	//   → capped at 500m + 250m = 750m.
-	assert.Equal(t, int64(750), recommended.MilliValue(),
-		"50%% max increase from 500m should cap at 750m")
+	// Chain: P95=200m → overhead(20%)=240m → confidence(0.95, ~1.003x)=~241m
+	//   → bounds OK → change filter: 241m vs 500m = 52% decrease > 50%
+	//   → capped at 500m - 250m = 250m.
+	assert.Equal(t, int64(250), recommended.MilliValue(),
+		"50%% max decrease from 500m should cap at 250m")
 }
 
 func TestRecommendationEngine_RealisticMemory(t *testing.T) {
@@ -122,12 +122,14 @@ func TestRecommendationEngine_SmallChangeFiltered(t *testing.T) {
 	// With confidence=1.0: factor = (1+1/1)^2 = 4.
 	// P95=0.1275 → 128m → overhead(0%)=128m → confidence(4x)=512m → bounds OK.
 	// Change from current 500m: (512-500)/500 = 2.4% < 10% → filtered.
+	// Engine has overhead=0%. P95=0.495 → 495m. At confidence=1.0, factor=1.0.
+	// 495m vs 500m = 1.0% change, well within 10% min change filter.
 	ps := metrics.PercentileSet{
-		P50: 0.060,
-		P90: 0.100,
-		P95: 0.1275,
-		P99: 0.135,
-		Max: 0.150,
+		P50: 0.300,
+		P90: 0.400,
+		P95: 0.495,
+		P99: 0.500,
+		Max: 0.510,
 	}
 	profile := metrics.UsageProfile{
 		OverallPercentiles: ps,
@@ -409,9 +411,11 @@ func TestRecommendationEngine_ExplainChain(t *testing.T) {
 	assert.Equal(t, recommended.String(), explanation.Final.String())
 	assert.Equal(t, int64(200), explanation.RawPercentile.MilliValue())
 	assert.Equal(t, int64(240), explanation.AfterOverhead.MilliValue())
-	assert.InDelta(t, 4.2133, explanation.ConfidenceFactor, 0.0001)
+	// Confidence 0.95 → factor = 1 + 1.0 * (1 - 0.95)^2 = 1.0025.
+	assert.InDelta(t, 1.0025, explanation.ConfidenceFactor, 0.0001)
+	// 240m * 1.0025 ≈ 241m vs 500m = 51.8% decrease → capped at 50%.
 	assert.Equal(t, "max_change_capped", explanation.ChangeFilterApplied)
-	assert.Equal(t, int64(750), explanation.AfterChangeFilter.MilliValue())
+	assert.Equal(t, int64(250), explanation.AfterChangeFilter.MilliValue())
 }
 
 func TestRecommendationEngine_ZeroCurrentBypassesChangeFilter(t *testing.T) {

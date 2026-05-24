@@ -119,9 +119,16 @@ func (e *RecommendationEngine) RecommendWithExplanation(profile metrics.UsagePro
 	if confidence < 0.1 {
 		confidence = 0.1
 	}
+	if confidence > 1.0 {
+		confidence = 1.0
+	}
+	// Confidence factor adds a buffer for uncertainty: at confidence=1.0
+	// (7 days of data), factor=1.0 (no extra buffer). At confidence=0.1
+	// (minimum data), factor≈1.8 (80% extra buffer on top of overhead).
+	// Formula: 1 + multiplier * (1-confidence)^exponent.
 	confidenceFactor := 1.0
 	if e.confidenceMultiplier != 0 && e.confidenceExponent != 0 {
-		confidenceFactor = math.Pow(1+e.confidenceMultiplier/confidence, e.confidenceExponent)
+		confidenceFactor = 1 + e.confidenceMultiplier*math.Pow(1-confidence, e.confidenceExponent)
 	}
 	afterConfidence := scaleQuantity(afterBurst, confidenceFactor)
 
