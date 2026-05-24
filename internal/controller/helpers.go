@@ -580,11 +580,17 @@ func (r *RightSizePolicyReconciler) updateStatusWithRetry(ctx context.Context, p
 }
 
 // newSafetyMonitor creates a safety.Monitor with optional throttle checking
-// if the metrics collector supports it.
-func (r *RightSizePolicyReconciler) newSafetyMonitor(logger logr.Logger, collector rsmetrics.MetricsCollector) *safety.Monitor {
+// if the metrics collector supports it, and optional SLO guardrail checking
+// if the policy has SLO guardrails configured.
+func (r *RightSizePolicyReconciler) newSafetyMonitor(logger logr.Logger, collector rsmetrics.MetricsCollector, guardrails ...[]rightsizev1alpha1.SLOGuardrail) *safety.Monitor {
 	monitor := safety.NewMonitor(r.Clientset, logger)
 	if tc, ok := collector.(safety.ThrottleChecker); ok {
 		monitor.WithThrottleChecker(tc, safety.DefaultThrottleThreshold)
+	}
+	if len(guardrails) > 0 && len(guardrails[0]) > 0 {
+		if sq, ok := collector.(safety.SLOQuerier); ok {
+			monitor.WithSLOChecker(sq, guardrails[0])
+		}
 	}
 	return monitor
 }

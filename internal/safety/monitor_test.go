@@ -32,6 +32,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
+
+	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
 )
 
 func TestCheckPod(t *testing.T) {
@@ -1019,4 +1021,380 @@ func TestRevertPod_RetriesOnConflict(t *testing.T) {
 	require.NoError(t, getErr)
 	assert.Equal(t, resource.MustParse("500m"), reverted.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU])
 	assert.Equal(t, resource.MustParse("256Mi"), reverted.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory])
+}
+
+// ---------- SLO Guardrail checking ----------
+
+type mockSLOQuerier struct {
+	value float64
+	err   error
+	// gotQuery captures the last query for assertion.
+	gotQuery string
+}
+
+func (m *mockSLOQuerier) Query(_ context.Context, query string, _ time.Time) (float64, error) {
+	m.gotQuery = query
+	return m.value, m.err
+}
+
+func TestCheckPod_SLOBreachedAbove(t *testing.T) {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "web-0", Namespace: "default"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "app", RestartCount: 0},
+			},
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+
+	clientset := fake.NewSimpleClientset(pod)
+	monitor := NewMonitor(clientset, testr.New(t))
+	querier := &mockSLOQuerier{value: 0.95}
+	monitor.WithSLOChecker(querier, []rightsizev1alpha1.SLOGuardrail{
+		{
+			Name:       "p99-latency",
+			Query:      `histogram_quantile(0.99, rate(http_request_duration_seconds_bucket{namespace="{{ .Namespace }}"}[5m]))`,
+			Threshold:  "0.5",
+			Comparison: "above",
+		},
+	})
+
+	record := ResizeRecord{
+		PodName:      "web-0",
+		Namespace:    "default",
+		Container:    "app",
+		ResizedAt:    time.Now().Add(-6 * time.Minute), // >5m default eval window
+		RestartCount: 0,
+		WorkloadName: "my-deployment",
+	}
+
+	verdict, err := monitor.CheckPod(context.Background(), record, time.Now())
+	require.NoError(t, err)
+	assert.False(t, verdict.Safe)
+	assert.Equal(t, "slo:p99-latency", verdict.Reason)
+	assert.Contains(t, verdict.Message, "0.9500")
+	assert.Contains(t, verdict.Message, "above")
+	// Verify template interpolation replaced {{ .Namespace }}.
+	assert.Contains(t, querier.gotQuery, `namespace="default"`)
+}
+
+func TestCheckPod_SLOBreachedBelow(t *testing.T) {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "web-0", Namespace: "default"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "app", RestartCount: 0},
+			},
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+
+	clientset := fake.NewSimpleClientset(pod)
+	monitor := NewMonitor(clientset, testr.New(t))
+	querier := &mockSLOQuerier{value: 0.90}
+	monitor.WithSLOChecker(querier, []rightsizev1alpha1.SLOGuardrail{
+		{
+			Name:       "success-rate",
+			Query:      `sum(rate(http_requests_total{code=~"2.."}[5m])) / sum(rate(http_requests_total[5m]))`,
+			Threshold:  "0.95",
+			Comparison: "below",
+		},
+	})
+
+	record := ResizeRecord{
+		PodName:      "web-0",
+		Namespace:    "default",
+		Container:    "app",
+		ResizedAt:    time.Now().Add(-6 * time.Minute),
+		RestartCount: 0,
+	}
+
+	verdict, err := monitor.CheckPod(context.Background(), record, time.Now())
+	require.NoError(t, err)
+	assert.False(t, verdict.Safe)
+	assert.Equal(t, "slo:success-rate", verdict.Reason)
+	assert.Contains(t, verdict.Message, "below")
+}
+
+func TestCheckPod_SLOWithinThreshold(t *testing.T) {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "web-0", Namespace: "default"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "app", RestartCount: 0},
+			},
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+
+	clientset := fake.NewSimpleClientset(pod)
+	monitor := NewMonitor(clientset, testr.New(t))
+	querier := &mockSLOQuerier{value: 0.3}
+	monitor.WithSLOChecker(querier, []rightsizev1alpha1.SLOGuardrail{
+		{
+			Name:       "p99-latency",
+			Query:      `histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))`,
+			Threshold:  "0.5",
+			Comparison: "above",
+		},
+	})
+
+	record := ResizeRecord{
+		PodName:      "web-0",
+		Namespace:    "default",
+		Container:    "app",
+		ResizedAt:    time.Now().Add(-6 * time.Minute),
+		RestartCount: 0,
+	}
+
+	verdict, err := monitor.CheckPod(context.Background(), record, time.Now())
+	require.NoError(t, err)
+	assert.True(t, verdict.Safe)
+}
+
+func TestCheckPod_SLOSkippedDuringEvalWindow(t *testing.T) {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "web-0", Namespace: "default"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "app", RestartCount: 0},
+			},
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+
+	clientset := fake.NewSimpleClientset(pod)
+	monitor := NewMonitor(clientset, testr.New(t))
+	querier := &mockSLOQuerier{value: 999.0} // Would breach, but should be skipped
+	monitor.WithSLOChecker(querier, []rightsizev1alpha1.SLOGuardrail{
+		{
+			Name:       "p99-latency",
+			Query:      `histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))`,
+			Threshold:  "0.5",
+			Comparison: "above",
+		},
+	})
+
+	record := ResizeRecord{
+		PodName:      "web-0",
+		Namespace:    "default",
+		Container:    "app",
+		ResizedAt:    time.Now().Add(-30 * time.Second), // within 5m eval window
+		RestartCount: 0,
+	}
+
+	verdict, err := monitor.CheckPod(context.Background(), record, time.Now())
+	require.NoError(t, err)
+	assert.True(t, verdict.Safe, "SLO check should be skipped within evaluation window")
+}
+
+func TestCheckPod_SLOCustomEvalWindow(t *testing.T) {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "web-0", Namespace: "default"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "app", RestartCount: 0},
+			},
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+
+	clientset := fake.NewSimpleClientset(pod)
+	monitor := NewMonitor(clientset, testr.New(t))
+	querier := &mockSLOQuerier{value: 1.0}
+	tenMin := metav1.Duration{Duration: 10 * time.Minute}
+	monitor.WithSLOChecker(querier, []rightsizev1alpha1.SLOGuardrail{
+		{
+			Name:             "p99-latency",
+			Query:            `histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))`,
+			Threshold:        "0.5",
+			Comparison:       "above",
+			EvaluationWindow: &tenMin,
+		},
+	})
+
+	record := ResizeRecord{
+		PodName:      "web-0",
+		Namespace:    "default",
+		Container:    "app",
+		ResizedAt:    time.Now().Add(-6 * time.Minute), // >5m but <10m custom eval
+		RestartCount: 0,
+	}
+
+	verdict, err := monitor.CheckPod(context.Background(), record, time.Now())
+	require.NoError(t, err)
+	assert.True(t, verdict.Safe, "SLO check should be skipped within custom 10m evaluation window")
+}
+
+func TestCheckPod_SLOQueryFailsOpen(t *testing.T) {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "web-0", Namespace: "default"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "app", RestartCount: 0},
+			},
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+
+	clientset := fake.NewSimpleClientset(pod)
+	monitor := NewMonitor(clientset, testr.New(t))
+	querier := &mockSLOQuerier{err: assert.AnError}
+	monitor.WithSLOChecker(querier, []rightsizev1alpha1.SLOGuardrail{
+		{
+			Name:       "p99-latency",
+			Query:      `histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))`,
+			Threshold:  "0.5",
+			Comparison: "above",
+		},
+	})
+
+	record := ResizeRecord{
+		PodName:      "web-0",
+		Namespace:    "default",
+		Container:    "app",
+		ResizedAt:    time.Now().Add(-6 * time.Minute),
+		RestartCount: 0,
+	}
+
+	verdict, err := monitor.CheckPod(context.Background(), record, time.Now())
+	require.NoError(t, err)
+	assert.True(t, verdict.Safe, "should fail open when SLO query errors")
+}
+
+func TestCheckPod_SLODefaultComparisonAbove(t *testing.T) {
+	// When comparison is empty, it should default to "above".
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "web-0", Namespace: "default"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "app", RestartCount: 0},
+			},
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+
+	clientset := fake.NewSimpleClientset(pod)
+	monitor := NewMonitor(clientset, testr.New(t))
+	querier := &mockSLOQuerier{value: 1.0}
+	monitor.WithSLOChecker(querier, []rightsizev1alpha1.SLOGuardrail{
+		{
+			Name:      "error-rate",
+			Query:     `sum(rate(errors_total[5m]))`,
+			Threshold: "0.5",
+			// Comparison intentionally empty - should default to "above"
+		},
+	})
+
+	record := ResizeRecord{
+		PodName:      "web-0",
+		Namespace:    "default",
+		Container:    "app",
+		ResizedAt:    time.Now().Add(-6 * time.Minute),
+		RestartCount: 0,
+	}
+
+	verdict, err := monitor.CheckPod(context.Background(), record, time.Now())
+	require.NoError(t, err)
+	assert.False(t, verdict.Safe)
+	assert.Equal(t, "slo:error-rate", verdict.Reason)
+}
+
+func TestInterpolateSLOQuery(t *testing.T) {
+	tests := []struct {
+		name     string
+		template string
+		record   ResizeRecord
+		want     string
+		wantErr  bool
+	}{
+		{
+			name:     "all variables",
+			template: `rate(errors_total{namespace="{{ .Namespace }}", pod="{{ .PodName }}", workload="{{ .WorkloadName }}"}[5m])`,
+			record: ResizeRecord{
+				Namespace:    "prod",
+				PodName:      "web-abc123",
+				WorkloadName: "web",
+			},
+			want: `rate(errors_total{namespace="prod", pod="web-abc123", workload="web"}[5m])`,
+		},
+		{
+			name:     "no variables",
+			template: `sum(rate(http_requests_total[5m]))`,
+			record:   ResizeRecord{Namespace: "default"},
+			want:     `sum(rate(http_requests_total[5m]))`,
+		},
+		{
+			name:     "invalid template",
+			template: `{{ .Invalid`,
+			record:   ResizeRecord{},
+			wantErr:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := interpolateSLOQuery(tt.template, tt.record)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestCheckPod_SLONoQuerier(t *testing.T) {
+	// When no SLO querier is configured, SLO checks should be skipped.
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "web-0", Namespace: "default"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "app", RestartCount: 0},
+			},
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+
+	clientset := fake.NewSimpleClientset(pod)
+	monitor := NewMonitor(clientset, testr.New(t))
+	// No SLO querier configured
+
+	record := ResizeRecord{
+		PodName:      "web-0",
+		Namespace:    "default",
+		Container:    "app",
+		ResizedAt:    time.Now().Add(-6 * time.Minute),
+		RestartCount: 0,
+	}
+
+	verdict, err := monitor.CheckPod(context.Background(), record, time.Now())
+	require.NoError(t, err)
+	assert.True(t, verdict.Safe)
 }

@@ -632,6 +632,49 @@ spec:
                           type: object
                         type: array
                     type: object
+                  sloGuardrails:
+                    description: |-
+                      SLOGuardrails defines application-level SLO metrics to check after
+                      a resize. If any metric breaches its threshold during the safety
+                      observation period, the resize is automatically reverted.
+                      Requires a Prometheus-compatible metrics source.
+                    items:
+                      description: |-
+                        SLOGuardrail defines an application-level metric that is checked after
+                        a resize to detect degradation. If the metric breaches the threshold,
+                        the safety monitor triggers an automatic revert.
+                      properties:
+                        comparison:
+                          default: above
+                          description: Comparison is "above" or "below". "above" reverts
+                            when value > threshold.
+                          enum:
+                          - above
+                          - below
+                          type: string
+                        evaluationWindow:
+                          description: EvaluationWindow is how long after resize to
+                            check. Defaults to 5m.
+                          type: string
+                        name:
+                          description: Name identifies this guardrail for logging
+                            and status reporting.
+                          type: string
+                        query:
+                          description: |-
+                            Query is a PromQL query that returns a scalar value.
+                            Template variables: {{ .Namespace }}, {{ .WorkloadName }}, {{ .PodName }}
+                          type: string
+                        threshold:
+                          description: Threshold is the value that triggers a revert.
+                          type: string
+                      required:
+                      - name
+                      - query
+                      - threshold
+                      type: object
+                    maxItems: 10
+                    type: array
                   type:
                     description: |-
                       Mode determines the update behavior, graduated from safe to automated:

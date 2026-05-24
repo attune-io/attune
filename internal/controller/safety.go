@@ -150,7 +150,7 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 		return
 	}
 
-	monitor := r.newSafetyMonitor(logger, collector)
+	monitor := r.newSafetyMonitor(logger, collector, policy.Spec.UpdateStrategy.SLOGuardrails)
 	observationPeriod := getObservationPeriod(policy)
 
 	// Build a set of workload names this policy targets for provenance checks.
@@ -390,6 +390,7 @@ func buildResizeRecords(pod *corev1.Pod, observationPeriod time.Duration) ([]saf
 			ResizedAt:         resizedAt,
 			ObservationEnd:    resizedAt.Add(observationPeriod),
 			RestartCount:      origRestartCount,
+			WorkloadName:      pod.Annotations[annotationResizedWorkload],
 		})
 	}
 

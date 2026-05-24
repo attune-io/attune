@@ -320,6 +320,11 @@ func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizeP
 		}
 	}
 
+	// Validate SLO guardrails.
+	if err := validateSLOGuardrails(policy.Spec.UpdateStrategy.SLOGuardrails); err != nil {
+		return warnings, err
+	}
+
 	// Validate schedule fields.
 	if schedule := policy.Spec.UpdateStrategy.Schedule; schedule != nil {
 		if err := validateSchedule(schedule); err != nil {
@@ -419,6 +424,46 @@ func validateHHMM(field, value string) error {
 	m, err2 := strconv.Atoi(value[3:])
 	if err1 != nil || err2 != nil || h < 0 || h > 23 || m < 0 || m > 59 {
 		return fmt.Errorf("updateStrategy.%s %q is not a valid time (00:00-23:59)", field, value)
+	}
+	return nil
+}
+
+// validateSLOGuardrails validates all SLO guardrail entries.
+func validateSLOGuardrails(guardrails []rightsizev1alpha1.SLOGuardrail) error {
+	names := make(map[string]bool, len(guardrails))
+	for i, g := range guardrails {
+		if g.Name == "" {
+			return fmt.Errorf("updateStrategy.sloGuardrails[%d].name is required", i)
+		}
+		if names[g.Name] {
+			return fmt.Errorf("updateStrategy.sloGuardrails[%d].name %q is duplicated", i, g.Name)
+		}
+		names[g.Name] = true
+
+		if g.Query == "" {
+			return fmt.Errorf("updateStrategy.sloGuardrails[%d].query is required", i)
+		}
+
+		if g.Threshold == "" {
+			return fmt.Errorf("updateStrategy.sloGuardrails[%d].threshold is required", i)
+		}
+		if _, err := strconv.ParseFloat(g.Threshold, 64); err != nil {
+			return fmt.Errorf("updateStrategy.sloGuardrails[%d].threshold %q is not a valid number: %w", i, g.Threshold, err)
+		}
+
+		if g.Comparison != "" && g.Comparison != "above" && g.Comparison != "below" {
+			return fmt.Errorf("updateStrategy.sloGuardrails[%d].comparison must be \"above\" or \"below\", got %q", i, g.Comparison)
+		}
+
+		if g.EvaluationWindow != nil {
+			ew := g.EvaluationWindow.Duration
+			if ew < 0 {
+				return fmt.Errorf("updateStrategy.sloGuardrails[%d].evaluationWindow must be non-negative, got %s", i, ew)
+			}
+			if ew > 0 && ew < time.Minute {
+				return fmt.Errorf("updateStrategy.sloGuardrails[%d].evaluationWindow must be at least 1m, got %s", i, ew)
+			}
+		}
 	}
 	return nil
 }

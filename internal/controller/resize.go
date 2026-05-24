@@ -118,7 +118,7 @@ func (r *RightSizePolicyReconciler) executeResizes(
 	}
 
 	resizer := resize.NewPodResizer(r.Clientset, logger)
-	monitor := r.newSafetyMonitor(logger, collector)
+	monitor := r.newSafetyMonitor(logger, collector, policy.Spec.UpdateStrategy.SLOGuardrails)
 
 	var totalResized int
 	var history []rightsizev1alpha1.ResizeHistoryEntry
@@ -506,6 +506,7 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 			Namespace:         pod.Namespace,
 			Container:         containerRec.Name,
 			OriginalResources: originalResources,
+			WorkloadName:      workloadName,
 		}
 		revertFailed := false
 		if revertErr := monitor.RevertPod(ctx, revertRecord); revertErr != nil {
@@ -551,6 +552,7 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 		NewResources:      target,
 		ResizedAt:         now.Time,
 		RestartCount:      restartCount,
+		WorkloadName:      workloadName,
 	}
 	if reason, err := r.runImmediateSafetyCheck(ctx, policy, monitor, record); err != nil {
 		return history, resizeOutcomeInPlace

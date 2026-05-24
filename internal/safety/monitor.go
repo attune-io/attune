@@ -19,9 +19,12 @@ limitations under the License.
 package safety
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"slices"
+	"strconv"
+	"text/template"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -31,6 +34,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/util/retry"
 
+	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
 	"github.com/SebTardifLabs/kube-rightsize/internal/throttle"
 )
 
@@ -40,6 +44,23 @@ type ThrottleChecker = throttle.Checker
 // DefaultThrottleThreshold is the fraction of CPU periods that are throttled
 // above which the safety monitor triggers a revert (50%).
 const DefaultThrottleThreshold = 0.5
+
+// DefaultSLOEvaluationWindow is the default duration after resize during which
+// SLO guardrail queries are evaluated.
+const DefaultSLOEvaluationWindow = 5 * time.Minute
+
+// SLOQuerier executes an instant PromQL query and returns a scalar value.
+// MetricsCollector satisfies this interface.
+type SLOQuerier interface {
+	Query(ctx context.Context, query string, ts time.Time) (float64, error)
+}
+
+// sloTemplateData holds the variables available for interpolation in SLO queries.
+type sloTemplateData struct {
+	Namespace    string
+	WorkloadName string
+	PodName      string
+}
 
 // ResizeRecord tracks a resize operation for safety monitoring.
 type ResizeRecord struct {
@@ -53,6 +74,9 @@ type ResizeRecord struct {
 	// RestartCount holds the container restart count recorded at the time of
 	// the resize so that CheckPod can detect increases.
 	RestartCount int32
+	// WorkloadName is the name of the owning workload (Deployment, StatefulSet, etc.).
+	// Used for SLO guardrail query template interpolation.
+	WorkloadName string
 }
 
 // SafetyVerdict is the result of checking a resized pod for problems.
@@ -73,6 +97,8 @@ type Monitor struct {
 	logger            logr.Logger
 	throttleChecker   ThrottleChecker
 	throttleThreshold float64
+	sloQuerier        SLOQuerier
+	sloGuardrails     []rightsizev1alpha1.SLOGuardrail
 }
 
 // NewMonitor creates a Monitor backed by the given Kubernetes client.
@@ -90,6 +116,14 @@ func (m *Monitor) WithThrottleChecker(checker ThrottleChecker, threshold float64
 	if threshold > 0 {
 		m.throttleThreshold = threshold
 	}
+	return m
+}
+
+// WithSLOChecker adds application-level SLO guardrail checking. The querier
+// is used to execute instant PromQL queries for each guardrail.
+func (m *Monitor) WithSLOChecker(querier SLOQuerier, guardrails []rightsizev1alpha1.SLOGuardrail) *Monitor {
+	m.sloQuerier = querier
+	m.sloGuardrails = guardrails
 	return m
 }
 
@@ -175,6 +209,13 @@ func (m *Monitor) CheckPod(ctx context.Context, record ResizeRecord, now time.Ti
 		}
 	}
 
+	// Check application-level SLO guardrails via Prometheus.
+	if m.sloQuerier != nil && len(m.sloGuardrails) > 0 {
+		if v := m.checkSLOGuardrails(ctx, record, now); v != nil {
+			return *v, nil
+		}
+	}
+
 	// Check the pod Ready condition.
 	for _, condition := range pod.Status.Conditions {
 		if condition.Type == corev1.PodReady {
@@ -190,6 +231,84 @@ func (m *Monitor) CheckPod(ctx context.Context, record ResizeRecord, now time.Ti
 	}
 
 	return SafetyVerdict{Safe: true, ThrottleDeferred: throttleDeferred}, nil
+}
+
+// checkSLOGuardrails evaluates all configured SLO guardrail queries against
+// Prometheus. Returns a non-nil SafetyVerdict if any guardrail is breached.
+// Fails open: if a query errors, the guardrail is skipped with a log message.
+func (m *Monitor) checkSLOGuardrails(ctx context.Context, record ResizeRecord, now time.Time) *SafetyVerdict {
+	for _, g := range m.sloGuardrails {
+		evalWindow := DefaultSLOEvaluationWindow
+		if g.EvaluationWindow != nil && g.EvaluationWindow.Duration > 0 {
+			evalWindow = g.EvaluationWindow.Duration
+		}
+		if now.Sub(record.ResizedAt) < evalWindow {
+			continue // evaluation window not yet elapsed
+		}
+
+		query, err := interpolateSLOQuery(g.Query, record)
+		if err != nil {
+			m.logger.Error(err, "SLO guardrail query interpolation failed, skipping",
+				"guardrail", g.Name, "pod", record.PodName, "namespace", record.Namespace)
+			continue
+		}
+
+		value, err := m.sloQuerier.Query(ctx, query, now)
+		if err != nil {
+			m.logger.Error(err, "SLO guardrail query failed, skipping",
+				"guardrail", g.Name, "pod", record.PodName, "namespace", record.Namespace)
+			continue
+		}
+
+		threshold, err := strconv.ParseFloat(g.Threshold, 64)
+		if err != nil {
+			m.logger.Error(err, "SLO guardrail threshold parse failed, skipping",
+				"guardrail", g.Name, "threshold", g.Threshold)
+			continue
+		}
+
+		comparison := g.Comparison
+		if comparison == "" {
+			comparison = "above"
+		}
+
+		breached := false
+		switch comparison {
+		case "above":
+			breached = value > threshold
+		case "below":
+			breached = value < threshold
+		}
+
+		if breached {
+			return &SafetyVerdict{
+				Safe:   false,
+				Reason: "slo:" + g.Name,
+				Message: fmt.Sprintf("SLO guardrail %q breached for pod %s/%s: value %.4f %s threshold %.4f",
+					g.Name, record.Namespace, record.PodName, value, comparison, threshold),
+			}
+		}
+	}
+	return nil
+}
+
+// interpolateSLOQuery renders Go template variables in a PromQL query string.
+// Supported variables: {{ .Namespace }}, {{ .WorkloadName }}, {{ .PodName }}.
+func interpolateSLOQuery(queryTemplate string, record ResizeRecord) (string, error) {
+	tmpl, err := template.New("slo").Parse(queryTemplate)
+	if err != nil {
+		return "", fmt.Errorf("parsing SLO query template: %w", err)
+	}
+	data := sloTemplateData{
+		Namespace:    record.Namespace,
+		WorkloadName: record.WorkloadName,
+		PodName:      record.PodName,
+	}
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return "", fmt.Errorf("executing SLO query template: %w", err)
+	}
+	return buf.String(), nil
 }
 
 // RevertPod resizes the pod back to its original resources using the /resize

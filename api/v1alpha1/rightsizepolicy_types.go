@@ -455,6 +455,38 @@ type UpdateStrategy struct {
 	// consumption (e.g. GitOps workflows with ArgoCD or Flux).
 	// +optional
 	Export *ExportConfig `json:"export,omitempty"`
+
+	// SLOGuardrails defines application-level SLO metrics to check after
+	// a resize. If any metric breaches its threshold during the safety
+	// observation period, the resize is automatically reverted.
+	// Requires a Prometheus-compatible metrics source.
+	// +optional
+	// +kubebuilder:validation:MaxItems=10
+	SLOGuardrails []SLOGuardrail `json:"sloGuardrails,omitempty"`
+}
+
+// SLOGuardrail defines an application-level metric that is checked after
+// a resize to detect degradation. If the metric breaches the threshold,
+// the safety monitor triggers an automatic revert.
+type SLOGuardrail struct {
+	// Name identifies this guardrail for logging and status reporting.
+	Name string `json:"name"`
+
+	// Query is a PromQL query that returns a scalar value.
+	// Template variables: {{ .Namespace }}, {{ .WorkloadName }}, {{ .PodName }}
+	Query string `json:"query"`
+
+	// Threshold is the value that triggers a revert.
+	Threshold string `json:"threshold"`
+
+	// Comparison is "above" or "below". "above" reverts when value > threshold.
+	// +kubebuilder:validation:Enum=above;below
+	// +kubebuilder:default="above"
+	Comparison string `json:"comparison,omitempty"`
+
+	// EvaluationWindow is how long after resize to check. Defaults to 5m.
+	// +optional
+	EvaluationWindow *metav1.Duration `json:"evaluationWindow,omitempty"`
 }
 
 // ExportConfig controls recommendation export to external systems.
@@ -806,7 +838,7 @@ type ResizeHistoryEntry struct {
 	// Reason explains why the resize was reverted or failed.
 	// Only populated when Result is Reverted or Failed.
 	// Values include: oomkill, restart, notready, throttle,
-	// annotation-conflict, immediate-safety-check.
+	// annotation-conflict, immediate-safety-check, slo:<name>.
 	// +optional
 	Reason string `json:"reason,omitempty"`
 }

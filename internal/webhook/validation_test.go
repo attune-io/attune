@@ -1017,3 +1017,147 @@ func TestValidate_NoSourceIsValid(t *testing.T) {
 	_, err := validator.ValidateCreate(context.Background(), policy)
 	assert.NoError(t, err)
 }
+
+// ---------- SLO Guardrail validation ----------
+
+func TestValidate_SLOGuardrailsValid(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.SLOGuardrails = []rightsizev1alpha1.SLOGuardrail{
+		{
+			Name:       "p99-latency",
+			Query:      `histogram_quantile(0.99, rate(http_request_duration_seconds_bucket{namespace="{{ .Namespace }}"}[5m]))`,
+			Threshold:  "0.5",
+			Comparison: "above",
+		},
+		{
+			Name:             "success-rate",
+			Query:            `sum(rate(http_requests_total{code=~"2.."}[5m])) / sum(rate(http_requests_total[5m]))`,
+			Threshold:        "0.95",
+			Comparison:       "below",
+			EvaluationWindow: &metav1.Duration{Duration: 10 * time.Minute},
+		},
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	assert.NoError(t, err)
+}
+
+func TestValidate_SLOGuardrailEmptyName(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.SLOGuardrails = []rightsizev1alpha1.SLOGuardrail{
+		{Name: "", Query: "up", Threshold: "1"},
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "name is required")
+}
+
+func TestValidate_SLOGuardrailDuplicateName(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.SLOGuardrails = []rightsizev1alpha1.SLOGuardrail{
+		{Name: "latency", Query: "up", Threshold: "1"},
+		{Name: "latency", Query: "up", Threshold: "2"},
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "duplicated")
+}
+
+func TestValidate_SLOGuardrailEmptyQuery(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.SLOGuardrails = []rightsizev1alpha1.SLOGuardrail{
+		{Name: "test", Query: "", Threshold: "1"},
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "query is required")
+}
+
+func TestValidate_SLOGuardrailEmptyThreshold(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.SLOGuardrails = []rightsizev1alpha1.SLOGuardrail{
+		{Name: "test", Query: "up", Threshold: ""},
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "threshold is required")
+}
+
+func TestValidate_SLOGuardrailInvalidThreshold(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.SLOGuardrails = []rightsizev1alpha1.SLOGuardrail{
+		{Name: "test", Query: "up", Threshold: "not-a-number"},
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not a valid number")
+}
+
+func TestValidate_SLOGuardrailInvalidComparison(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.SLOGuardrails = []rightsizev1alpha1.SLOGuardrail{
+		{Name: "test", Query: "up", Threshold: "1", Comparison: "equals"},
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `must be "above" or "below"`)
+}
+
+func TestValidate_SLOGuardrailEvalWindowTooShort(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.SLOGuardrails = []rightsizev1alpha1.SLOGuardrail{
+		{
+			Name:             "test",
+			Query:            "up",
+			Threshold:        "1",
+			EvaluationWindow: &metav1.Duration{Duration: 30 * time.Second},
+		},
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "evaluationWindow must be at least 1m")
+}
+
+func TestValidate_SLOGuardrailEvalWindowNegative(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.SLOGuardrails = []rightsizev1alpha1.SLOGuardrail{
+		{
+			Name:             "test",
+			Query:            "up",
+			Threshold:        "1",
+			EvaluationWindow: &metav1.Duration{Duration: -1 * time.Second},
+		},
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "evaluationWindow must be non-negative")
+}
+
+func TestValidate_SLOGuardrailDefaultComparisonValid(t *testing.T) {
+	// Empty comparison is valid (defaults to "above" at runtime).
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.SLOGuardrails = []rightsizev1alpha1.SLOGuardrail{
+		{Name: "test", Query: "up", Threshold: "1", Comparison: ""},
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	assert.NoError(t, err)
+}
