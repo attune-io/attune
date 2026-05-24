@@ -350,7 +350,7 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 		// When memoryFromCpuRatio is set, derive memory from the CPU
 		// recommendation instead of using Prometheus memory metrics.
 		if policy.Spec.Memory.MemoryFromCPURatio != nil && *policy.Spec.Memory.MemoryFromCPURatio != "" && explanation.CPU != nil {
-			ratio := parseFloat64(*policy.Spec.Memory.MemoryFromCPURatio, 0)
+			ratio := parseFloat64Ratio(*policy.Spec.Memory.MemoryFromCPURatio)
 			allowDecrease := policy.Spec.Memory.AllowDecrease != nil && *policy.Spec.Memory.AllowDecrease
 			memRec, memExplain, applied := deriveMemoryFromCPU(
 				rec.Recommended.CPURequest, ratio, memEngine, minimumDataPoints, currentMemReq, allowDecrease)

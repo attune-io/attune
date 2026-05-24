@@ -187,6 +187,20 @@ func parseFloat64(s string, fallback float64) float64 {
 	return v
 }
 
+// parseFloat64Ratio parses a positive float64 with a ceiling of 1000
+// (suitable for ratios like memoryFromCpuRatio). Returns 0 on error,
+// NaN, Inf, non-positive, or > 1000.
+func parseFloat64Ratio(s string) float64 {
+	if s == "" {
+		return 0
+	}
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil || math.IsNaN(v) || math.IsInf(v, 0) || v <= 0 || v > 1000.0 { //nolint:mnd // 1000 is a generous ceiling for GiB-per-core ratios
+		return 0
+	}
+	return v
+}
+
 // parseOverheadPercent parses an overhead percentage string (e.g. "20" for 20%).
 // Returns fallback on error, NaN, Inf, negative, or > 900.
 // Defense-in-depth: webhook validates first, but this protects when webhooks

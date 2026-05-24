@@ -1118,6 +1118,21 @@ func TestParseFloat64_ZeroFallback(t *testing.T) {
 	assert.InDelta(t, 1.2, parseFloat64("0", 1.2), 0.001)
 }
 
+func TestParseFloat64Ratio_AcceptsHighValues(t *testing.T) {
+	// memoryFromCpuRatio values above 10.0 are valid (e.g. 16 GiB per core).
+	assert.InDelta(t, 16.0, parseFloat64Ratio("16.0"), 0.001)
+	assert.InDelta(t, 32.0, parseFloat64Ratio("32.0"), 0.001)
+	assert.InDelta(t, 0.5, parseFloat64Ratio("0.5"), 0.001)
+}
+
+func TestParseFloat64Ratio_RejectsBadValues(t *testing.T) {
+	assert.InDelta(t, 0, parseFloat64Ratio(""), 0.001)
+	assert.InDelta(t, 0, parseFloat64Ratio("-1"), 0.001)
+	assert.InDelta(t, 0, parseFloat64Ratio("0"), 0.001)
+	assert.InDelta(t, 0, parseFloat64Ratio("1001"), 0.001)
+	assert.InDelta(t, 0, parseFloat64Ratio("abc"), 0.001)
+}
+
 func TestParseOverheadPercent(t *testing.T) {
 	tests := []struct {
 		name     string
