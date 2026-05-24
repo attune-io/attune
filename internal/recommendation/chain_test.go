@@ -63,7 +63,7 @@ func TestRecommendationEngine_RealisticCPU(t *testing.T) {
 
 	recommended, changed := engine.Recommend(profile, current)
 	assert.True(t, changed)
-	// Chain: P95=200m → overhead(20%)=240m → confidence(0.95, ~1.003x)=~241m
+	// Chain: P95=200m → overhead(20%)=240m → confidence(0.95, ~1.0025x)=~241m
 	//   → bounds OK → change filter: 241m vs 500m = 52% decrease > 50%
 	//   → capped at 500m - 250m = 250m.
 	assert.Equal(t, int64(250), recommended.MilliValue(),
@@ -119,9 +119,6 @@ func TestRecommendationEngine_SmallChangeFiltered(t *testing.T) {
 	// Design a profile where the full chain (percentile -> margin ->
 	// confidence -> bounds) produces a value within 10% of current,
 	// so the ChangeFilter's MinChangePercent (10%) rejects it.
-	// With confidence=1.0: factor = (1+1/1)^2 = 4.
-	// P95=0.1275 → 128m → overhead(0%)=128m → confidence(4x)=512m → bounds OK.
-	// Change from current 500m: (512-500)/500 = 2.4% < 10% → filtered.
 	// Engine has overhead=0%. P95=0.495 → 495m. At confidence=1.0, factor=1.0.
 	// 495m vs 500m = 1.0% change, well within 10% min change filter.
 	ps := metrics.PercentileSet{
@@ -160,8 +157,8 @@ func TestRecommendationEngine_LargeChangeCapped(t *testing.T) {
 	)
 
 	// Profile where recommended would be much higher than current.
-	// Chain: P95=2000m → overhead(20%)=2400m → confidence(~4.2x)=~10112m
-	//   → bounds(4000m) → change filter: 4000m vs 200m = 1900% > 50%
+	// Chain: P95=2000m → overhead(20%)=2400m → confidence(0.95, ~1.003x)=~2406m
+	//   → bounds OK → change filter: 2406m vs 200m = 1103% > 50%
 	//   → capped at 200m + 100m = 300m.
 	profile := buildRealisticCPUProfile(2.0, 0.95)
 	current := resource.MustParse("200m")
