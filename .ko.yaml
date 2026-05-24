@@ -1,0 +1,15 @@
+# ko configuration for building kube-rightsize operator images.
+# See https://ko.build/configuration/
+defaultBaseImage: gcr.io/distroless/static:nonroot
+builds:
+  - id: manager
+    main: ./cmd/manager/
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X main.version={{.Env.VERSION}}
+      - -X main.commit={{.Env.COMMIT}}
+      - -X main.date={{.Env.DATE}}
+    env:
+      - CGO_ENABLED=0

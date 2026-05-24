@@ -15,6 +15,7 @@ GOVULNCHECK_VERSION ?= v1.3.0
 K3D_VERSION ?= v5.8.3
 GITLEAKS_VERSION ?= 8.30.1
 CERT_MANAGER_VERSION ?= v1.17.2
+KO_VERSION ?= v0.18.0
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -289,8 +290,8 @@ test-local: test test-integration ## Run unit + integration + Chainsaw E2E + Go 
 		--image rancher/k3s:$(K3S_VERSION) \
 		--k3s-arg "--disable=traefik,servicelb@server:*" \
 		--wait --timeout 120s; \
-	$(MAKE) docker-build IMG=kube-rightsize:test; \
-	k3d image import kube-rightsize:test -c "$$cluster_name"; \
+	$(MAKE) ko-build-local IMG=kube-rightsize:test; \
+	k3d image import /tmp/kube-rightsize.tar -c "$$cluster_name"; \
 	$(MAKE) _deploy-stack IMG=kube-rightsize:test; \
 	$(MAKE) test-e2e; \
 	$(MAKE) test-e2e-go
@@ -304,8 +305,8 @@ test-local-smoke: ## Provision k3d, deploy the operator stack, run the minimal E
 		--image rancher/k3s:$(K3S_VERSION) \
 		--k3s-arg "--disable=traefik,servicelb@server:*" \
 		--wait --timeout 120s; \
-	$(MAKE) docker-build IMG=kube-rightsize:test; \
-	k3d image import kube-rightsize:test -c "$$cluster_name"; \
+	$(MAKE) ko-build-local IMG=kube-rightsize:test; \
+	k3d image import /tmp/kube-rightsize.tar -c "$$cluster_name"; \
 	$(MAKE) _deploy-stack IMG=kube-rightsize:test; \
 	$(MAKE) test-e2e-smoke
 
@@ -326,8 +327,18 @@ build-plugin: ## Build kubectl-rightsize plugin
 run: manifests generate ## Run operator locally against the configured cluster
 	go run ./cmd/manager/
 
+.PHONY: ko-build-local
+ko-build-local: ko ## Build operator image as OCI tarball via ko (no Docker daemon needed)
+	VERSION=$(VERSION) COMMIT=$(shell git rev-parse --short HEAD 2>/dev/null || echo none) \
+		DATE=$(shell date -u +%Y-%m-%dT%H:%M:%SZ) \
+		KO_DOCKER_REPO=$(firstword $(subst :, ,$(IMG))) $(KO) build ./cmd/manager/ \
+		--bare --tags=$(lastword $(subst :, ,$(IMG))) \
+		--platform=linux/$(shell go env GOARCH) \
+		--tarball=/tmp/kube-rightsize.tar --push=false
+	@echo "Image tarball: /tmp/kube-rightsize.tar ($(IMG))"
+
 .PHONY: docker-build
-docker-build: ## Build container image
+docker-build: ## Build container image via Docker (alternative to ko-build-local)
 	DOCKER_BUILDKIT=1 docker build -t $(IMG) .
 
 .PHONY: docker-push
@@ -410,8 +421,8 @@ _deploy-stack:
 		--wait --timeout 3m
 
 .PHONY: k3d-deploy
-k3d-deploy: docker-build ## Build, load, and deploy to k3d (with Prometheus + cert-manager)
-	k3d image import $(IMG) -c $(K3D_CLUSTER_NAME)
+k3d-deploy: ko-build-local ## Build via ko, load, and deploy to k3d (with Prometheus + cert-manager)
+	k3d image import /tmp/kube-rightsize.tar -c $(K3D_CLUSTER_NAME)
 	@$(MAKE) _deploy-stack
 
 .PHONY: kind-create
@@ -423,8 +434,8 @@ kind-delete: ## Delete the Kind cluster
 	kind delete cluster --name $(KIND_CLUSTER_NAME)
 
 .PHONY: kind-deploy
-kind-deploy: docker-build ## Build, load, and deploy to Kind (with Prometheus + cert-manager)
-	kind load docker-image $(IMG) --name $(KIND_CLUSTER_NAME)
+kind-deploy: ko-build-local ## Build via ko, load, and deploy to Kind (with Prometheus + cert-manager)
+	kind load image-archive /tmp/kube-rightsize.tar --name $(KIND_CLUSTER_NAME)
 	@$(MAKE) _deploy-stack
 
 ##@ Release
@@ -473,6 +484,14 @@ golangci-lint: ## Install golangci-lint
 	@test -s $(GOLANGCI_LINT) || { \
 		go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) && \
 		mv $(LOCALBIN)/golangci-lint $(GOLANGCI_LINT); \
+	}
+
+KO = $(LOCALBIN)/ko-$(KO_VERSION)
+.PHONY: ko
+ko: ## Install ko (Docker-daemon-free image builder for Go)
+	@test -s $(KO) || { \
+		go install github.com/google/ko@$(KO_VERSION) && \
+		mv $(LOCALBIN)/ko $(KO); \
 	}
 
 KUSTOMIZE = $(LOCALBIN)/kustomize-$(KUSTOMIZE_VERSION)

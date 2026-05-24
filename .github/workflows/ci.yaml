@@ -556,19 +556,15 @@ jobs:
         shell: bash -Eeuo pipefail -x {0}
         run: |
           export PATH="$HOME/.local/bin:$PATH"
-          make docker-build IMG=kube-rightsize:e2e
-          # BuildKit with Docker Desktop's containerd storage may not make
-          # the image immediately visible to `docker save` (used by k3d).
-          # Wait for the image to appear in the daemon's image list.
-          for attempt in 1 2 3 4 5; do
-            if docker image inspect kube-rightsize:e2e > /dev/null 2>&1; then
-              break
-            fi
-            echo "::warning::Image not yet visible (attempt $attempt/5), waiting 5s..."
-            sleep 5
-          done
-          docker image inspect kube-rightsize:e2e > /dev/null
-          k3d image import kube-rightsize:e2e -c "$K3D_CLUSTER_NAME"
+          # Use ko to build the image as an OCI tarball. This bypasses the
+          # Docker daemon entirely, avoiding containerd storage races (#462).
+          go install github.com/google/ko@v0.18.0
+          VERSION=e2e COMMIT=$(git rev-parse --short HEAD) DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+            KO_DOCKER_REPO=kube-rightsize ko build ./cmd/manager/ \
+            --bare --tags=e2e --platform=linux/$(go env GOARCH) \
+            --tarball=/tmp/kube-rightsize-e2e.tar --push=false
+          # k3d accepts OCI tarballs directly; no docker save needed.
+          k3d image import /tmp/kube-rightsize-e2e.tar -c "$K3D_CLUSTER_NAME"
 
       - name: Install operator via Helm
         shell: bash -Eeuo pipefail -x {0}
