@@ -139,6 +139,13 @@ otherwise a Guaranteed QoS pod passes the QoS check with the unclamped target
 but then has its limit preserved by the clamp, breaking requests == limits.
 K8s v1.34+ relaxed this restriction.
 
+The same clamp must also be applied on the **revert path** in
+`internal/safety/monitor.go` `RevertPod()`. A safety revert after OOMKill
+sets resources back to their original (lower) values; without the clamp,
+the memory limit decrease is rejected on v1.33 and the revert silently
+fails. This was the root cause of the `TestE2E_OOMKill_TriggersRevert`
+nightly failure on K8s v1.33 (fixed in `0e2a369`).
+
 ### Code generation
 
 Run `make manifests` after changing CRD types or RBAC markers. Run
