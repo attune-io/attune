@@ -785,6 +785,63 @@ func TestSortPolicies_BySavings(t *testing.T) {
 	assert.Equal(t, "low", items[1].GetName())
 }
 
+func TestSortPolicies_ByName(t *testing.T) {
+	items := []unstructured.Unstructured{
+		{Object: map[string]interface{}{"metadata": map[string]interface{}{"name": "charlie"}}},
+		{Object: map[string]interface{}{"metadata": map[string]interface{}{"name": "alpha"}}},
+		{Object: map[string]interface{}{"metadata": map[string]interface{}{"name": "bravo"}}},
+	}
+	sortPolicies(items, "name")
+	assert.Equal(t, "alpha", items[0].GetName())
+	assert.Equal(t, "bravo", items[1].GetName())
+	assert.Equal(t, "charlie", items[2].GetName())
+}
+
+func TestSortPolicies_ByNamespace(t *testing.T) {
+	items := []unstructured.Unstructured{
+		{Object: map[string]interface{}{"metadata": map[string]interface{}{"name": "b", "namespace": "prod"}}},
+		{Object: map[string]interface{}{"metadata": map[string]interface{}{"name": "a", "namespace": "prod"}}},
+		{Object: map[string]interface{}{"metadata": map[string]interface{}{"name": "c", "namespace": "dev"}}},
+	}
+	sortPolicies(items, "namespace")
+	// dev < prod, then by name within same namespace.
+	assert.Equal(t, "c", items[0].GetName())
+	assert.Equal(t, "a", items[1].GetName())
+	assert.Equal(t, "b", items[2].GetName())
+}
+
+func TestSortPolicies_ByAge(t *testing.T) {
+	now := time.Now()
+	items := []unstructured.Unstructured{
+		{Object: map[string]interface{}{
+			"metadata": map[string]interface{}{
+				"name":              "newer",
+				"creationTimestamp": now.Add(-1 * time.Hour).Format(time.RFC3339),
+			},
+		}},
+		{Object: map[string]interface{}{
+			"metadata": map[string]interface{}{
+				"name":              "oldest",
+				"creationTimestamp": now.Add(-24 * time.Hour).Format(time.RFC3339),
+			},
+		}},
+	}
+	sortPolicies(items, "age")
+	assert.Equal(t, "oldest", items[0].GetName())
+	assert.Equal(t, "newer", items[1].GetName())
+}
+
+func TestSortPolicies_UnknownKey(t *testing.T) {
+	items := []unstructured.Unstructured{
+		{Object: map[string]interface{}{"metadata": map[string]interface{}{"name": "b"}}},
+		{Object: map[string]interface{}{"metadata": map[string]interface{}{"name": "a"}}},
+	}
+	sortPolicies(items, "unknown")
+	// Unknown key is a no-op; order preserved.
+	assert.Equal(t, "b", items[0].GetName())
+	assert.Equal(t, "a", items[1].GetName())
+}
+
 func TestFormatCanaryStatus(t *testing.T) {
 	tests := []struct {
 		name     string
