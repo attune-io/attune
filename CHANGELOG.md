@@ -42,6 +42,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Directional change caps**: `maxIncreasePercent` (default 50%) and `maxDecreasePercent` (default 30%) in ResourceConfig for asymmetric per-step caps (memory decreases are riskier than CPU increases)
 - **Memory-from-CPU derivation**: `memoryFromCpuRatio` in ResourceConfig derives memory recommendation from CPU (e.g., `"2.0"` for JVM heap-bound workloads), skipping Prometheus memory queries
 - Wizard `create` and `promote` flows now prompt for initial sizing when mode is Auto, OneShot, or Canary
+- **SLO-based guardrails**: `updateStrategy.sloGuardrails[]` defines application-level PromQL checks (latency, error rate) evaluated after each resize during the safety observation period. Breaching a threshold triggers automatic revert. Supports template variables for namespace, workload, and pod name.
+- **VPA recommendation consumption**: `metricsSource.vpa` consumes existing VerticalPodAutoscaler recommendations as an alternative to Prometheus queries, bridging VPA-only clusters into kube-rightsize's in-place resize engine
+- **GitOps diff command**: `kubectl rightsize diff` outputs resource change recommendations in YAML diff format for GitOps workflows (ArgoCD, Flux). Supports `-o yaml` structured output.
+- **spec.paused**: Boolean field on `RightSizePolicySpec` that halts all reconciliation (metrics collection, recommendations, resizes) without reverting existing resizes. The operator sets `Ready=False` with `reason=Paused`. Modeled after Prometheus Operator and Flux `spec.suspend`.
+- **Webhook warnings for nonsensical config**: 13 admission-time warnings detect ineffective settings (e.g., canary config in non-canary mode, SLO guardrails with VPA source, resize-only settings in Observe/Recommend mode)
+- **Runtime K8s events**: 31 warning/event types (up from 3) for silent controller behaviors: `StaleRecommendation`, `CooldownActive`, `HPAConflict`, `VPAConflict`, `ConfigClamped`, `ExportFailed`, `ResizeSkipped`, `BudgetExhausted`, and more. All recurring events use 1-hour deduplication to prevent log spam.
+- **Warning suppression**: `rightsize.io/suppress-warnings` annotation accepts a comma-separated list of event reasons to suppress (e.g., `HPAConflict,ConfigClamped`)
 
 ### Changed
 
@@ -84,6 +91,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Memory limit clamp for K8s v1.33: in-place memory limit decreases are skipped when the container's resize policy is `NotRequired`, preventing API server rejection
 - Guaranteed QoS preservation with memory limit clamp: the clamp is applied before the QoS check so that Guaranteed pods are not incorrectly resized into Burstable
 - `helm-unittest` download now uses dynamic OS/arch detection instead of hardcoded `linux-amd64`
+- OOMKill E2E test: `RestartContainer` memory resize policy hides OOM evidence by overwriting `LastTerminationState` on resize-induced restarts; test now uses `NotRequired` policy
+- Safety revert path now applies K8s v1.33 memory limit clamp (`ClampMemoryLimitForPolicy`), preventing revert failures when memory limits would decrease with `NotRequired` resize policy
+- CI image builds switched from Docker/BuildKit to `ko`, eliminating Docker daemon dependency and containerd storage race conditions on macOS self-hosted runners
+- k3d image import retry loops with pre-cleanup for macOS containerd storage flakes
 
 ## [0.1.0] - Unreleased
 

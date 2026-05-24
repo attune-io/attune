@@ -83,6 +83,7 @@ This page documents every value in the Helm chart's `values.yaml`.
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `webhooks.enabled` | bool | `true` | Enable admission webhooks for defaulting and validation. Requires cert-manager. |
+| `initialSizing.enabled` | bool | `false` | Enable the pod initial sizing mutating webhook. Sets pod resource requests at creation time based on existing RightSizePolicy recommendations. Requires namespace label `rightsize.io/initial-sizing=enabled` and `initialSizing: true` on the policy. |
 
 ## Grafana Dashboard
 
@@ -258,9 +259,9 @@ All fields from `RightSizeDefaults` are available in
 | Section | Fields |
 |---------|--------|
 | `metricsSource` | `prometheus.address`, `prometheus.headers`, `prometheus.queryParameters`, `prometheus.bearerTokenSecret`, `prometheus.tls`, `datadog.site`, `datadog.apiKeySecretRef`, `cloudwatch.region`, `cloudwatch.clusterName`, `cloudwatch.roleArn`, `historyWindow`, `minimumDataPoints`, `queryStep`, `rateWindow` |
-| `cpu` | `percentile`, `overhead`, `minAllowed`, `maxAllowed`, `controlledValues`, `burstSensitivity`, `allowDecrease`, `startupBoost`, `maxChangePercent` |
+| `cpu` | `percentile`, `overhead`, `minAllowed`, `maxAllowed`, `controlledValues`, `burstSensitivity`, `allowDecrease`, `startupBoost`, `maxChangePercent`, `maxIncreasePercent`, `maxDecreasePercent`, `memoryFromCpuRatio` |
 | `memory` | Same as `cpu` |
-| `updateStrategy` | `type`, `cooldown`, `autoRevert`, `resizeMethod`, `maxConcurrentResizes`, `maxTotalCpuIncrease`, `maxTotalMemoryIncrease`, `schedule`, `export`, `canary` |
+| `updateStrategy` | `type`, `cooldown`, `autoRevert`, `resizeMethod`, `initialSizing`, `maxConcurrentResizes`, `maxTotalCpuIncrease`, `maxTotalMemoryIncrease`, `schedule`, `export`, `canary`, `safetyObservationPeriod`, `sloGuardrails` |
 | `costPricing` | `cpuPerCoreHour`, `memoryPerGiBHour` |
 
 ## Alternative Metrics Sources
@@ -291,13 +292,79 @@ alternative metrics sources. **At most one** of `prometheus`, `datadog`, or
 | `metricsSource.cloudwatch.clusterName` | string | (required) | EKS cluster name for Container Insights metric filtering |
 | `metricsSource.cloudwatch.roleArn` | string | `""` | Optional IAM role ARN for cross-account access (IRSA/Pod Identity used if empty) |
 
+## Policy-Level Fields
+
+### spec.paused
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `paused` | bool | `false` | Halts all reconciliation for this policy: no metrics collection, no recommendations, no resizes. Existing resizes are not reverted. The operator sets `Ready=False` with `reason=Paused`. |
+
+### Directional Change Caps
+
+Per-resource fields in `cpu` and `memory` that limit how much a recommendation can change per cycle:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `maxIncreasePercent` | int32 | `50` | Maximum percentage increase allowed per resize cycle |
+| `maxDecreasePercent` | int32 | `30` | Maximum percentage decrease allowed per resize cycle |
+| `maxChangePercent` | int32 | `50`/`30` | Symmetric change cap (overridden by directional caps if set) |
+
+### Memory-from-CPU Derivation
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `memory.memoryFromCpuRatio` | string | (none) | Derives memory recommendation from CPU instead of querying Prometheus for memory metrics. The value is a ratio of GiB per core (e.g., `"2.0"` means 1 core = 2 GiB memory). Useful for JVM and heap-bound workloads where memory is proportional to CPU. |
+
+### SLO Guardrails
+
+Application-level PromQL checks evaluated after each resize during the safety observation period.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `updateStrategy.sloGuardrails[].name` | string | (required) | Identifies this guardrail for logging and status |
+| `updateStrategy.sloGuardrails[].query` | string | (required) | PromQL query returning a scalar. Supports `{{ .Namespace }}`, `{{ .WorkloadName }}`, `{{ .PodName }}` template variables. |
+| `updateStrategy.sloGuardrails[].threshold` | string | (required) | Value that triggers a revert |
+| `updateStrategy.sloGuardrails[].comparison` | string | `above` | `above` (revert when value > threshold) or `below` |
+| `updateStrategy.sloGuardrails[].evaluationWindow` | duration | `5m` | How long after resize to check |
+
+Example:
+
+```yaml
+updateStrategy:
+  sloGuardrails:
+    - name: p99-latency
+      query: 'histogram_quantile(0.99, rate(http_request_duration_seconds_bucket{namespace="{{ .Namespace }}"}[5m]))'
+      threshold: "0.5"
+      comparison: above
+    - name: error-rate
+      query: 'sum(rate(http_requests_total{namespace="{{ .Namespace }}", code=~"5.."}[5m])) / sum(rate(http_requests_total{namespace="{{ .Namespace }}"}[5m]))'
+      threshold: "0.01"
+      comparison: above
+```
+
+### VPA Recommendation Consumption
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `metricsSource.vpa.name` | string | (required) | Name of the VerticalPodAutoscaler object to consume recommendations from |
+| `metricsSource.vpa.namespace` | string | (policy namespace) | Namespace of the VPA. Defaults to the policy's namespace. |
+
+At most one of `prometheus`, `datadog`, `cloudwatch`, or `vpa` may be set per policy.
+
+### Initial Sizing
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `updateStrategy.initialSizing` | bool | `false` | When true and the initial sizing webhook is enabled, new pods matching this policy receive recommended resources at creation time via a mutating admission webhook. Requires the namespace label `rightsize.io/initial-sizing=enabled`. |
+
 ## Status Conditions
 
 The controller sets these conditions on each `RightSizePolicy`:
 
 | Condition | Reasons | Description |
 |-----------|---------|-------------|
-| `Ready` | `Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `PrometheusUnavailable`, `InvalidConfig`, `WorkloadDiscoveryFailed` | Overall health |
+| `Ready` | `Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `PrometheusUnavailable`, `InvalidConfig`, `WorkloadDiscoveryFailed`, `Paused` | Overall health |
 | `Resizing` | `InProgress`, `Idle`, `CooldownActive` | Active resize operation state (only in resize modes) |
 | `Degraded` | `HighRevertRate` | Set when 3+ of the last 5 resizes were reverted |
 
