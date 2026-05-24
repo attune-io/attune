@@ -347,6 +347,15 @@ func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizeP
 		warnings = append(warnings, "memory.allowDecrease is enabled; this carries OOMKill risk")
 	}
 
+	// Warn if paused with an active mode.
+	if policy.Spec.Paused != nil && *policy.Spec.Paused {
+		mode := policy.Spec.UpdateStrategy.Type
+		if mode == rightsizev1alpha1.UpdateTypeAuto || mode == rightsizev1alpha1.UpdateTypeOneShot || mode == rightsizev1alpha1.UpdateTypeCanary {
+			warnings = append(warnings, fmt.Sprintf(
+				"spec.paused is true but type is %s; no metrics collection or resizes will occur while paused", mode))
+		}
+	}
+
 	// Warn about settings that have no effect in non-resizing modes.
 	warnings = append(warnings, warnIneffectiveSettings(policy)...)
 

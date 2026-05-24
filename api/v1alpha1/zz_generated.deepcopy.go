@@ -675,6 +675,11 @@ func (in *RightSizePolicySpec) DeepCopyInto(out *RightSizePolicySpec) {
 	in.MetricsSource.DeepCopyInto(&out.MetricsSource)
 	in.CPU.DeepCopyInto(&out.CPU)
 	in.Memory.DeepCopyInto(&out.Memory)
+	if in.Paused != nil {
+		in, out := &in.Paused, &out.Paused
+		*out = new(bool)
+		**out = **in
+	}
 	in.UpdateStrategy.DeepCopyInto(&out.UpdateStrategy)
 	if in.ExcludedContainers != nil {
 		in, out := &in.ExcludedContainers, &out.ExcludedContainers

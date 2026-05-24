@@ -487,6 +487,57 @@ func TestReconcile_MissingPolicyReturnsNoError(t *testing.T) {
 	assert.Equal(t, ctrl.Result{}, result)
 }
 
+func TestReconcile_PausedPolicySkipsReconciliation(t *testing.T) {
+	paused := true
+	policy := &rightsizev1alpha1.RightSizePolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "paused-policy",
+			Namespace:  "default",
+			Finalizers: []string{"rightsize.io/cleanup"},
+		},
+		Spec: rightsizev1alpha1.RightSizePolicySpec{
+			Paused: &paused,
+			TargetRef: rightsizev1alpha1.TargetRef{
+				Kind: "Deployment",
+				Name: func() *string { s := "my-app"; return &s }(),
+			},
+			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+				Type: rightsizev1alpha1.UpdateTypeAuto,
+			},
+		},
+	}
+
+	scheme := runtime.NewScheme()
+	_ = rightsizev1alpha1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(policy).
+		WithStatusSubresource(policy).
+		Build()
+
+	reconciler := &RightSizePolicyReconciler{
+		Client: fakeClient,
+		Scheme: scheme,
+	}
+
+	result, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "paused-policy", Namespace: "default"},
+	})
+	assert.NoError(t, err)
+	// Paused policies should not requeue (no work to do until unpaused).
+	assert.Equal(t, ctrl.Result{}, result)
+
+	// Verify the Ready condition is set to False with reason Paused.
+	var updated rightsizev1alpha1.RightSizePolicy
+	require.NoError(t, fakeClient.Get(context.Background(),
+		types.NamespacedName{Name: "paused-policy", Namespace: "default"}, &updated))
+	readyCond := meta.FindStatusCondition(updated.Status.Conditions, rightsizev1alpha1.ConditionReady)
+	require.NotNil(t, readyCond, "Ready condition should be set")
+	assert.Equal(t, metav1.ConditionFalse, readyCond.Status)
+	assert.Equal(t, rightsizev1alpha1.ReasonPaused, readyCond.Reason)
+	assert.Contains(t, readyCond.Message, "paused")
+}
+
 func TestReconcile_MissingPolicyCleansGauges(t *testing.T) {
 	reconciler := newReconcilerWithClient()
 

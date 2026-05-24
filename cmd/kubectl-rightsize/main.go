@@ -817,6 +817,7 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *righ
 	printEffectiveField("Cooldown", getNestedString(item, "spec", "updateStrategy", "cooldown"), formatDurationPtr(effective.Spec.UpdateStrategy.Cooldown), selected, updateDefaults != nil && updateDefaults.Cooldown != nil)
 	printEffectiveField("Query step", getNestedString(item, "spec", "metricsSource", "queryStep"), formatDurationPtr(effective.Spec.MetricsSource.QueryStep), selected, metricsDefaults != nil && metricsDefaults.QueryStep != nil)
 	printEffectiveField("Minimum data points", formatInt64Ptr(rawInt64Field(item, "spec", "metricsSource", "minimumDataPoints")), formatInt32Ptr(effective.Spec.MetricsSource.MinimumDataPoints), selected, metricsDefaults != nil && metricsDefaults.MinimumDataPoints != nil)
+	printEffectiveField("Paused", formatBoolField(item, "spec", "paused"), formatBoolPtr(effective.Spec.Paused), selected, false)
 	printEffectiveField("Resize method", getNestedString(item, "spec", "updateStrategy", "resizeMethod"), string(effective.Spec.UpdateStrategy.ResizeMethod), selected, updateDefaults != nil && updateDefaults.ResizeMethod != "")
 	obsConfigured := getNestedString(item, "spec", "updateStrategy", "safetyObservationPeriod")
 	if obsConfigured == "" {

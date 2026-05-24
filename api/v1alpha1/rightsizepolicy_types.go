@@ -88,6 +88,14 @@ type RightSizePolicySpec struct {
 	// Memory configures memory resource recommendations.
 	Memory ResourceConfig `json:"memory"`
 
+	// Paused stops the operator from reconciling this policy. Metrics
+	// collection, recommendations, and resizes are all halted. Existing
+	// resizes are not reverted. Use this during maintenance windows or
+	// when debugging unexpected behavior. The operator sets Ready=False
+	// with reason=Paused while this field is true.
+	// +optional
+	Paused *bool `json:"paused,omitempty"`
+
 	// UpdateStrategy configures how and when to apply resource changes.
 	// +optional
 	UpdateStrategy UpdateStrategy `json:"updateStrategy,omitempty"`

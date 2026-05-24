@@ -1018,6 +1018,37 @@ func TestValidate_NoSourceIsValid(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+// ---------- Paused warning ----------
+
+func TestValidate_PausedWithAutoModeWarns(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	paused := true
+	policy.Spec.Paused = &paused
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeAuto
+
+	w, err := validator.ValidateCreate(context.Background(), policy)
+	assert.NoError(t, err)
+	require.Len(t, w, 1)
+	assert.Contains(t, w[0], "spec.paused is true")
+	assert.Contains(t, w[0], "Auto")
+}
+
+func TestValidate_PausedWithRecommendModeNoWarning(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	paused := true
+	policy.Spec.Paused = &paused
+	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeRecommend
+
+	w, err := validator.ValidateCreate(context.Background(), policy)
+	assert.NoError(t, err)
+	// No warning because Recommend mode doesn't resize anyway.
+	for _, warning := range w {
+		assert.NotContains(t, warning, "spec.paused")
+	}
+}
+
 // ---------- SLO Guardrail validation ----------
 
 func TestValidate_SLOGuardrailsValid(t *testing.T) {

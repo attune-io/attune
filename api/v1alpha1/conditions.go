@@ -38,6 +38,7 @@ const (
 	ReasonWorkloadDiscoveryFailed = "WorkloadDiscoveryFailed"
 	ReasonOutsideWindow           = "OutsideWindow"
 	ReasonInsideWindow            = "InsideWindow"
+	ReasonPaused                  = "Paused"
 )
 
 // CanaryPhaseInProgress and CanaryPhaseFullRollout are now typed constants

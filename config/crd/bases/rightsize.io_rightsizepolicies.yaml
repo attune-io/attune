@@ -488,6 +488,14 @@ spec:
                     - name
                     type: object
                 type: object
+              paused:
+                description: |-
+                  Paused stops the operator from reconciling this policy. Metrics
+                  collection, recommendations, and resizes are all halted. Existing
+                  resizes are not reverted. Use this during maintenance windows or
+                  when debugging unexpected behavior. The operator sets Ready=False
+                  with reason=Paused while this field is true.
+                type: boolean
               targetRef:
                 description: TargetRef identifies the workload(s) to be rightsized.
                 properties:

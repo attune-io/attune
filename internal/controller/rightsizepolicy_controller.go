@@ -258,6 +258,13 @@ func (r *RightSizePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	r.applyBuiltInDefaults(&policy)
 	r.warnConfigClamping(&policy)
 
+	// Early return if paused.
+	if policy.Spec.Paused != nil && *policy.Spec.Paused {
+		logger.Info("Policy is paused, skipping reconciliation")
+		r.setFailedCondition(ctx, &policy, rightsizev1alpha1.ReasonPaused, "Reconciliation paused by spec.paused=true")
+		return ctrl.Result{}, nil
+	}
+
 	// Step 2: Resolve metrics source, create collector, and select query builder.
 	collector, queryBuilder, err := r.resolveMetricsCollector(ctx, &policy, defaults)
 	if err != nil {
