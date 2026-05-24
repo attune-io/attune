@@ -204,14 +204,18 @@ func TestMergeUpdateStrategy_AllFields(t *testing.T) {
 
 func TestMergeResourceConfig_AllFields(t *testing.T) {
 	defaults := &rightsizev1alpha1.ResourceConfig{
-		Percentile:       90,
-		Overhead:         "50",
-		MinAllowed:       quantityPtr("50m"),
-		MaxAllowed:       quantityPtr("4000m"),
-		ControlledValues: ptrStr("RequestsAndLimits"),
-		BurstSensitivity: ptrStr("0.3"),
-		AllowDecrease:    ptrBool(true),
-		StartupBoost:     &rightsizev1alpha1.StartupBoost{Multiplier: "3.0", Duration: metav1.Duration{Duration: 2 * time.Minute}},
+		Percentile:         90,
+		Overhead:           "50",
+		MinAllowed:         quantityPtr("50m"),
+		MaxAllowed:         quantityPtr("4000m"),
+		ControlledValues:   ptrStr("RequestsAndLimits"),
+		BurstSensitivity:   ptrStr("0.3"),
+		AllowDecrease:      ptrBool(true),
+		MemoryFromCPURatio: ptrStr("2.0"),
+		StartupBoost:       &rightsizev1alpha1.StartupBoost{Multiplier: "3.0", Duration: metav1.Duration{Duration: 2 * time.Minute}},
+		MaxChangePercent:   ptrInt32(50),
+		MaxIncreasePercent: ptrInt32(60),
+		MaxDecreasePercent: ptrInt32(30),
 	}
 	policy := &rightsizev1alpha1.ResourceConfig{}
 
@@ -228,10 +232,18 @@ func TestMergeResourceConfig_AllFields(t *testing.T) {
 	assert.Equal(t, "0.3", *policy.BurstSensitivity)
 	require.NotNil(t, policy.AllowDecrease)
 	assert.True(t, *policy.AllowDecrease)
+	require.NotNil(t, policy.MemoryFromCPURatio)
+	assert.Equal(t, "2.0", *policy.MemoryFromCPURatio)
 	require.NotNil(t, policy.StartupBoost)
 	assert.Equal(t, "3.0", policy.StartupBoost.Multiplier)
 	assert.Equal(t, 2*time.Minute, policy.StartupBoost.Duration.Duration)
-	assert.Len(t, inherited, 8)
+	require.NotNil(t, policy.MaxChangePercent)
+	assert.Equal(t, int32(50), *policy.MaxChangePercent)
+	require.NotNil(t, policy.MaxIncreasePercent)
+	assert.Equal(t, int32(60), *policy.MaxIncreasePercent)
+	require.NotNil(t, policy.MaxDecreasePercent)
+	assert.Equal(t, int32(30), *policy.MaxDecreasePercent)
+	assert.Len(t, inherited, 12)
 	assert.Contains(t, inherited, "cpu.percentile")
 	assert.Contains(t, inherited, "cpu.overhead")
 	assert.Contains(t, inherited, "cpu.minAllowed")
@@ -239,7 +251,11 @@ func TestMergeResourceConfig_AllFields(t *testing.T) {
 	assert.Contains(t, inherited, "cpu.controlledValues")
 	assert.Contains(t, inherited, "cpu.burstSensitivity")
 	assert.Contains(t, inherited, "cpu.allowDecrease")
+	assert.Contains(t, inherited, "cpu.memoryFromCpuRatio")
 	assert.Contains(t, inherited, "cpu.startupBoost")
+	assert.Contains(t, inherited, "cpu.maxChangePercent")
+	assert.Contains(t, inherited, "cpu.maxIncreasePercent")
+	assert.Contains(t, inherited, "cpu.maxDecreasePercent")
 }
 
 func TestMergeResourceConfig_NilDefaultsIsNoOp(t *testing.T) {
@@ -251,22 +267,30 @@ func TestMergeResourceConfig_NilDefaultsIsNoOp(t *testing.T) {
 
 func TestMergeResourceConfig_PolicyFieldsTakePrecedence(t *testing.T) {
 	defaults := &rightsizev1alpha1.ResourceConfig{
-		Percentile:       90,
-		Overhead:         "50",
-		ControlledValues: ptrStr("RequestsAndLimits"),
-		BurstSensitivity: ptrStr("0.5"),
-		AllowDecrease:    ptrBool(true),
-		StartupBoost:     &rightsizev1alpha1.StartupBoost{Multiplier: "3.0"},
-		MinAllowed:       quantityPtr("50m"),
+		Percentile:         90,
+		Overhead:           "50",
+		ControlledValues:   ptrStr("RequestsAndLimits"),
+		BurstSensitivity:   ptrStr("0.5"),
+		AllowDecrease:      ptrBool(true),
+		MemoryFromCPURatio: ptrStr("2.0"),
+		StartupBoost:       &rightsizev1alpha1.StartupBoost{Multiplier: "3.0"},
+		MinAllowed:         quantityPtr("50m"),
+		MaxChangePercent:   ptrInt32(50),
+		MaxIncreasePercent: ptrInt32(60),
+		MaxDecreasePercent: ptrInt32(30),
 	}
 	policy := &rightsizev1alpha1.ResourceConfig{
-		Percentile:       99,
-		Overhead:         "10",
-		ControlledValues: ptrStr("RequestsOnly"),
-		BurstSensitivity: ptrStr("0.1"),
-		AllowDecrease:    ptrBool(false),
-		StartupBoost:     &rightsizev1alpha1.StartupBoost{Multiplier: "2.0"},
-		MinAllowed:       quantityPtr("100m"),
+		Percentile:         99,
+		Overhead:           "10",
+		ControlledValues:   ptrStr("RequestsOnly"),
+		BurstSensitivity:   ptrStr("0.1"),
+		AllowDecrease:      ptrBool(false),
+		MemoryFromCPURatio: ptrStr("4.0"),
+		StartupBoost:       &rightsizev1alpha1.StartupBoost{Multiplier: "2.0"},
+		MinAllowed:         quantityPtr("100m"),
+		MaxChangePercent:   ptrInt32(40),
+		MaxIncreasePercent: ptrInt32(70),
+		MaxDecreasePercent: ptrInt32(20),
 	}
 
 	inherited := MergeResourceConfig(policy, defaults, "memory")
@@ -277,8 +301,12 @@ func TestMergeResourceConfig_PolicyFieldsTakePrecedence(t *testing.T) {
 	assert.Equal(t, "RequestsOnly", *policy.ControlledValues)
 	assert.Equal(t, "0.1", *policy.BurstSensitivity)
 	assert.False(t, *policy.AllowDecrease)
+	assert.Equal(t, "4.0", *policy.MemoryFromCPURatio)
 	assert.Equal(t, "2.0", policy.StartupBoost.Multiplier)
 	assert.Equal(t, resource.MustParse("100m"), *policy.MinAllowed)
+	assert.Equal(t, int32(40), *policy.MaxChangePercent)
+	assert.Equal(t, int32(70), *policy.MaxIncreasePercent)
+	assert.Equal(t, int32(20), *policy.MaxDecreasePercent)
 }
 
 func TestMergeResourceConfig_PrefixAppliedCorrectly(t *testing.T) {
