@@ -35,6 +35,7 @@ import (
 	"k8s.io/client-go/util/retry"
 
 	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
+	"github.com/SebTardifLabs/kube-rightsize/internal/resize"
 	"github.com/SebTardifLabs/kube-rightsize/internal/throttle"
 )
 
@@ -324,10 +325,15 @@ func (m *Monitor) RevertPod(ctx context.Context, record ResizeRecord) error {
 		}
 
 		updated := pod.DeepCopy()
+		// Apply the K8s v1.33 memory limit clamp: memory limits cannot be
+		// decreased in-place when the resize policy is NotRequired. Without
+		// this, reverts that lower the memory limit are rejected by the API
+		// server on v1.33 clusters.
+		revertTarget := resize.ClampMemoryLimitForPolicy(pod, record.Container, record.OriginalResources)
 		found := false
 		for i, c := range updated.Spec.InitContainers {
 			if c.Name == record.Container {
-				updated.Spec.InitContainers[i].Resources = record.OriginalResources
+				updated.Spec.InitContainers[i].Resources = revertTarget
 				found = true
 				break
 			}
@@ -335,7 +341,7 @@ func (m *Monitor) RevertPod(ctx context.Context, record ResizeRecord) error {
 		if !found {
 			for i, c := range updated.Spec.Containers {
 				if c.Name == record.Container {
-					updated.Spec.Containers[i].Resources = record.OriginalResources
+					updated.Spec.Containers[i].Resources = revertTarget
 					found = true
 					break
 				}

@@ -463,6 +463,81 @@ func TestRevertPod(t *testing.T) {
 	assert.True(t, foundResize, "UpdateResize should have been called")
 }
 
+func TestRevertPod_MemoryLimitClampedOnV133(t *testing.T) {
+	// Simulates K8s v1.33 constraint: memory limits cannot be decreased
+	// in-place when resize policy is NotRequired. The revert should clamp
+	// the memory limit to the current value instead of decreasing it.
+	original := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("500m"),
+			corev1.ResourceMemory: resource.MustParse("256Mi"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceMemory: resource.MustParse("256Mi"), // lower than current
+		},
+	}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-pod",
+			Namespace: "default",
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "app",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("750m"),
+							corev1.ResourceMemory: resource.MustParse("512Mi"),
+						},
+						Limits: corev1.ResourceList{
+							corev1.ResourceMemory: resource.MustParse("512Mi"),
+						},
+					},
+					// NotRequired is the default; no explicit resize policy needed.
+				},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+		},
+	}
+
+	clientset := fake.NewSimpleClientset(pod)
+	logger := testr.New(t)
+	monitor := NewMonitor(clientset, logger)
+
+	record := ResizeRecord{
+		PodName:           "test-pod",
+		Namespace:         "default",
+		Container:         "app",
+		OriginalResources: original,
+		ResizedAt:         time.Now().Add(-1 * time.Minute),
+	}
+
+	err := monitor.RevertPod(context.Background(), record)
+	require.NoError(t, err)
+
+	// Verify the memory limit was clamped to current (512Mi), not decreased to 256Mi.
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			updated := a.(k8stesting.UpdateAction).GetObject().(*corev1.Pod)
+			memLim := updated.Spec.Containers[0].Resources.Limits[corev1.ResourceMemory]
+			assert.True(t, memLim.Equal(resource.MustParse("512Mi")),
+				"memory limit should be clamped to current 512Mi, got %s", memLim.String())
+			// CPU and memory request should still revert normally.
+			cpuReq := updated.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
+			assert.True(t, cpuReq.Equal(resource.MustParse("500m")),
+				"CPU request should be reverted to 500m, got %s", cpuReq.String())
+			memReq := updated.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory]
+			assert.True(t, memReq.Equal(resource.MustParse("256Mi")),
+				"memory request should be reverted to 256Mi, got %s", memReq.String())
+			return
+		}
+	}
+	t.Fatal("UpdateResize should have been called")
+}
+
 func TestRevertPod_InitContainer(t *testing.T) {
 	restartAlways := corev1.ContainerRestartPolicyAlways
 	original := corev1.ResourceRequirements{
