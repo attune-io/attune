@@ -573,6 +573,36 @@ func (r *RightSizePolicyReconciler) processWorkloads(
 		excludeSet[name] = true
 	}
 
+	// When VPA is the metrics source, read VPA recommendations once before
+	// the workload loop so all workloads share the same VPA data.
+	isVPASource := policy.Spec.MetricsSource.VPA != nil
+	var vpaRecs []rsmetrics.VPAContainerRecommendation
+	if isVPASource {
+		vpaCfg := policy.Spec.MetricsSource.VPA
+		vpaNS := vpaCfg.Namespace
+		if vpaNS == "" {
+			vpaNS = policy.Namespace
+		}
+		var vpaErr error
+		vpaRecs, vpaErr = rsmetrics.ReadVPARecommendations(ctx, r.Client, vpaCfg.Name, vpaNS)
+		if vpaErr != nil {
+			logger.Error(vpaErr, "Failed to read VPA recommendations", "vpa", vpaCfg.Name, "namespace", vpaNS)
+			result.totalQueryErrors++
+			result.queryErrorTypes["VPA"] = struct{}{}
+			if len(result.workloadErrors) < 10 {
+				result.workloadErrors = append(result.workloadErrors, rightsizev1alpha1.WorkloadError{
+					Workload: "*",
+					Error:    fmt.Sprintf("VPA read error: %v", vpaErr),
+				})
+			}
+			return result
+		}
+		if len(vpaRecs) == 0 {
+			logger.Info("VPA has no recommendations yet", "vpa", vpaCfg.Name, "namespace", vpaNS)
+			return result
+		}
+	}
+
 	// Process workloads in parallel. The errgroup context propagates
 	// cancellation to all workers if the parent context is cancelled.
 	var mu sync.Mutex
@@ -608,7 +638,17 @@ func (r *RightSizePolicyReconciler) processWorkloads(
 				return nil
 			}
 
-			rec, qErrors, failedMetricTypes, dataPoints, err := r.computeRecommendations(gCtx, policy, workload, collector, qb, cpuEngine, memEngine, excludeSet)
+			var rec *rightsizev1alpha1.WorkloadRecommendation
+			var qErrors int
+			var failedMetricTypes []string
+			var dataPoints int
+			var err error
+
+			if isVPASource {
+				rec, dataPoints, err = r.computeVPARecommendationsForWorkload(gCtx, policy, workload, vpaRecs, cpuEngine, memEngine, excludeSet)
+			} else {
+				rec, qErrors, failedMetricTypes, dataPoints, err = r.computeRecommendations(gCtx, policy, workload, collector, qb, cpuEngine, memEngine, excludeSet)
+			}
 			// Log and record metrics outside the lock (both are goroutine-safe).
 			if err != nil {
 				logger.Error(err, "Failed to compute recommendations", "workload", workloadName)

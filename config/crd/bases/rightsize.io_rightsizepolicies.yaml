@@ -472,6 +472,21 @@ spec:
                       Advanced users may set this independently to control CPU rate smoothing
                       (e.g. a short rateWindow for responsive tracking with a longer queryStep).
                     type: string
+                  vpa:
+                    description: VPA configures consumption of existing VerticalPodAutoscaler
+                      recommendations.
+                    properties:
+                      name:
+                        description: Name is the name of the VerticalPodAutoscaler
+                          object.
+                        type: string
+                      namespace:
+                        description: Namespace is the namespace of the VPA. Defaults
+                          to the policy's namespace.
+                        type: string
+                    required:
+                    - name
+                    type: object
                 type: object
               targetRef:
                 description: TargetRef identifies the workload(s) to be rightsized.

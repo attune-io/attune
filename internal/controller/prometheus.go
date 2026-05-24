@@ -533,6 +533,10 @@ func (r *RightSizePolicyReconciler) resolveMetricsCollector(ctx context.Context,
 	ms := policy.Spec.MetricsSource
 
 	switch {
+	case ms.VPA != nil:
+		// VPA source: recommendations come from the VPA object, not a metrics backend.
+		// Return nil collector/queryBuilder; processWorkloads handles the VPA path.
+		return nil, nil, nil
 	case ms.Datadog != nil:
 		return r.resolveDatadogCollector(ctx, policy)
 	case ms.CloudWatch != nil:

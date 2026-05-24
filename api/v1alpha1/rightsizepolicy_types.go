@@ -122,8 +122,17 @@ type TargetRef struct {
 	Selector *metav1.LabelSelector `json:"selector,omitempty"`
 }
 
+// VPAConfig configures consumption of existing VPA recommendations.
+type VPAConfig struct {
+	// Name is the name of the VerticalPodAutoscaler object.
+	Name string `json:"name"`
+	// Namespace is the namespace of the VPA. Defaults to the policy's namespace.
+	// +optional
+	Namespace string `json:"namespace,omitempty"`
+}
+
 // MetricsSource configures the source of metrics data.
-// At most one of prometheus, datadog, or cloudwatch may be set.
+// At most one of prometheus, datadog, cloudwatch, or vpa may be set.
 type MetricsSource struct {
 	// Prometheus configures a Prometheus metrics source.
 	// +optional
@@ -136,6 +145,10 @@ type MetricsSource struct {
 	// CloudWatch configures an Amazon CloudWatch Container Insights metrics source.
 	// +optional
 	CloudWatch *CloudWatchConfig `json:"cloudwatch,omitempty"`
+
+	// VPA configures consumption of existing VerticalPodAutoscaler recommendations.
+	// +optional
+	VPA *VPAConfig `json:"vpa,omitempty"`
 
 	// HistoryWindow is the time window for historical metrics data.
 	// Defaults to 7d (168h) if not specified.

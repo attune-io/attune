@@ -907,7 +907,7 @@ func TestValidate_MultipleMetricsSources(t *testing.T) {
 
 	_, err := validator.ValidateCreate(context.Background(), policy)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "at most one of prometheus, datadog, or cloudwatch")
+	assert.Contains(t, err.Error(), "at most one")
 }
 
 func TestValidate_DatadogValid(t *testing.T) {
@@ -1160,4 +1160,71 @@ func TestValidate_SLOGuardrailDefaultComparisonValid(t *testing.T) {
 
 	_, err := validator.ValidateCreate(context.Background(), policy)
 	assert.NoError(t, err)
+}
+
+// ---------- VPA validation ----------
+
+func TestValidate_VPAValid(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.MetricsSource.VPA = &rightsizev1alpha1.VPAConfig{
+		Name: "my-vpa",
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	assert.NoError(t, err)
+}
+
+func TestValidate_VPAWithNamespace(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.MetricsSource.VPA = &rightsizev1alpha1.VPAConfig{
+		Name:      "my-vpa",
+		Namespace: "monitoring",
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	assert.NoError(t, err)
+}
+
+func TestValidate_VPAMissingName(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.MetricsSource.VPA = &rightsizev1alpha1.VPAConfig{
+		Name: "",
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "metricsSource.vpa.name is required")
+}
+
+func TestValidate_VPAWithPrometheusMutuallyExclusive(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.MetricsSource.VPA = &rightsizev1alpha1.VPAConfig{
+		Name: "my-vpa",
+	}
+	policy.Spec.MetricsSource.Prometheus = &rightsizev1alpha1.PrometheusConfig{
+		Address: "http://prometheus:9090",
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "at most one")
+}
+
+func TestValidate_VPAWithDatadogMutuallyExclusive(t *testing.T) {
+	validator := &RightSizePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.MetricsSource.VPA = &rightsizev1alpha1.VPAConfig{
+		Name: "my-vpa",
+	}
+	policy.Spec.MetricsSource.Datadog = &rightsizev1alpha1.DatadogConfig{
+		APIKeySecretRef: rightsizev1alpha1.SecretKeyRef{Name: "dd-secret", Key: "api-key"},
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "at most one")
 }

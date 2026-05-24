@@ -265,8 +265,18 @@ func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizeP
 	if policy.Spec.MetricsSource.CloudWatch != nil {
 		sourceCount++
 	}
+	if policy.Spec.MetricsSource.VPA != nil {
+		sourceCount++
+	}
 	if sourceCount > 1 {
-		return warnings, fmt.Errorf("metricsSource: at most one of prometheus, datadog, or cloudwatch may be set")
+		return warnings, fmt.Errorf("metricsSource: at most one of prometheus, datadog, cloudwatch, or vpa may be set")
+	}
+
+	// Validate VPA settings if specified.
+	if vpa := policy.Spec.MetricsSource.VPA; vpa != nil {
+		if vpa.Name == "" {
+			return warnings, fmt.Errorf("metricsSource.vpa.name is required")
+		}
 	}
 
 	// Validate Prometheus settings if specified.

@@ -466,6 +466,21 @@ spec:
                       Advanced users may set this independently to control CPU rate smoothing
                       (e.g. a short rateWindow for responsive tracking with a longer queryStep).
                     type: string
+                  vpa:
+                    description: VPA configures consumption of existing VerticalPodAutoscaler
+                      recommendations.
+                    properties:
+                      name:
+                        description: Name is the name of the VerticalPodAutoscaler
+                          object.
+                        type: string
+                      namespace:
+                        description: Namespace is the namespace of the VPA. Defaults
+                          to the policy's namespace.
+                        type: string
+                    required:
+                    - name
+                    type: object
                 type: object
               updateStrategy:
                 description: UpdateStrategy configures default update strategy settings.
@@ -630,6 +645,49 @@ spec:
                           type: object
                         type: array
                     type: object
+                  sloGuardrails:
+                    description: |-
+                      SLOGuardrails defines application-level SLO metrics to check after
+                      a resize. If any metric breaches its threshold during the safety
+                      observation period, the resize is automatically reverted.
+                      Requires a Prometheus-compatible metrics source.
+                    items:
+                      description: |-
+                        SLOGuardrail defines an application-level metric that is checked after
+                        a resize to detect degradation. If the metric breaches the threshold,
+                        the safety monitor triggers an automatic revert.
+                      properties:
+                        comparison:
+                          default: above
+                          description: Comparison is "above" or "below". "above" reverts
+                            when value > threshold.
+                          enum:
+                          - above
+                          - below
+                          type: string
+                        evaluationWindow:
+                          description: EvaluationWindow is how long after resize to
+                            check. Defaults to 5m.
+                          type: string
+                        name:
+                          description: Name identifies this guardrail for logging
+                            and status reporting.
+                          type: string
+                        query:
+                          description: |-
+                            Query is a PromQL query that returns a scalar value.
+                            Template variables: {{ .Namespace }}, {{ .WorkloadName }}, {{ .PodName }}
+                          type: string
+                        threshold:
+                          description: Threshold is the value that triggers a revert.
+                          type: string
+                      required:
+                      - name
+                      - query
+                      - threshold
+                      type: object
+                    maxItems: 10
+                    type: array
                   type:
                     description: |-
                       Mode determines the update behavior, graduated from safe to automated:
@@ -1124,6 +1182,21 @@ spec:
                       Advanced users may set this independently to control CPU rate smoothing
                       (e.g. a short rateWindow for responsive tracking with a longer queryStep).
                     type: string
+                  vpa:
+                    description: VPA configures consumption of existing VerticalPodAutoscaler
+                      recommendations.
+                    properties:
+                      name:
+                        description: Name is the name of the VerticalPodAutoscaler
+                          object.
+                        type: string
+                      namespace:
+                        description: Namespace is the namespace of the VPA. Defaults
+                          to the policy's namespace.
+                        type: string
+                    required:
+                    - name
+                    type: object
                 type: object
               updateStrategy:
                 description: UpdateStrategy configures default update strategy settings.
@@ -1288,6 +1361,49 @@ spec:
                           type: object
                         type: array
                     type: object
+                  sloGuardrails:
+                    description: |-
+                      SLOGuardrails defines application-level SLO metrics to check after
+                      a resize. If any metric breaches its threshold during the safety
+                      observation period, the resize is automatically reverted.
+                      Requires a Prometheus-compatible metrics source.
+                    items:
+                      description: |-
+                        SLOGuardrail defines an application-level metric that is checked after
+                        a resize to detect degradation. If the metric breaches the threshold,
+                        the safety monitor triggers an automatic revert.
+                      properties:
+                        comparison:
+                          default: above
+                          description: Comparison is "above" or "below". "above" reverts
+                            when value > threshold.
+                          enum:
+                          - above
+                          - below
+                          type: string
+                        evaluationWindow:
+                          description: EvaluationWindow is how long after resize to
+                            check. Defaults to 5m.
+                          type: string
+                        name:
+                          description: Name identifies this guardrail for logging
+                            and status reporting.
+                          type: string
+                        query:
+                          description: |-
+                            Query is a PromQL query that returns a scalar value.
+                            Template variables: {{ .Namespace }}, {{ .WorkloadName }}, {{ .PodName }}
+                          type: string
+                        threshold:
+                          description: Threshold is the value that triggers a revert.
+                          type: string
+                      required:
+                      - name
+                      - query
+                      - threshold
+                      type: object
+                    maxItems: 10
+                    type: array
                   type:
                     description: |-
                       Mode determines the update behavior, graduated from safe to automated:
@@ -1786,6 +1902,21 @@ spec:
                       Advanced users may set this independently to control CPU rate smoothing
                       (e.g. a short rateWindow for responsive tracking with a longer queryStep).
                     type: string
+                  vpa:
+                    description: VPA configures consumption of existing VerticalPodAutoscaler
+                      recommendations.
+                    properties:
+                      name:
+                        description: Name is the name of the VerticalPodAutoscaler
+                          object.
+                        type: string
+                      namespace:
+                        description: Namespace is the namespace of the VPA. Defaults
+                          to the policy's namespace.
+                        type: string
+                    required:
+                    - name
+                    type: object
                 type: object
               targetRef:
                 description: TargetRef identifies the workload(s) to be rightsized.
@@ -2016,6 +2147,49 @@ spec:
                           type: object
                         type: array
                     type: object
+                  sloGuardrails:
+                    description: |-
+                      SLOGuardrails defines application-level SLO metrics to check after
+                      a resize. If any metric breaches its threshold during the safety
+                      observation period, the resize is automatically reverted.
+                      Requires a Prometheus-compatible metrics source.
+                    items:
+                      description: |-
+                        SLOGuardrail defines an application-level metric that is checked after
+                        a resize to detect degradation. If the metric breaches the threshold,
+                        the safety monitor triggers an automatic revert.
+                      properties:
+                        comparison:
+                          default: above
+                          description: Comparison is "above" or "below". "above" reverts
+                            when value > threshold.
+                          enum:
+                          - above
+                          - below
+                          type: string
+                        evaluationWindow:
+                          description: EvaluationWindow is how long after resize to
+                            check. Defaults to 5m.
+                          type: string
+                        name:
+                          description: Name identifies this guardrail for logging
+                            and status reporting.
+                          type: string
+                        query:
+                          description: |-
+                            Query is a PromQL query that returns a scalar value.
+                            Template variables: {{ .Namespace }}, {{ .WorkloadName }}, {{ .PodName }}
+                          type: string
+                        threshold:
+                          description: Threshold is the value that triggers a revert.
+                          type: string
+                      required:
+                      - name
+                      - query
+                      - threshold
+                      type: object
+                    maxItems: 10
+                    type: array
                   type:
                     description: |-
                       Mode determines the update behavior, graduated from safe to automated:
@@ -2605,7 +2779,7 @@ spec:
                         Reason explains why the resize was reverted or failed.
                         Only populated when Result is Reverted or Failed.
                         Values include: oomkill, restart, notready, throttle,
-                        annotation-conflict, immediate-safety-check.
+                        annotation-conflict, immediate-safety-check, slo:<name>.
                       type: string
                     resource:
                       description: Resource is the resource type that was resized.
