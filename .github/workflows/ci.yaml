@@ -384,7 +384,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: false
 
-      - name: Install k3d
+      - name: Install k3d and crane
         shell: bash -Eeuo pipefail -x {0}
         run: |
           if command -v k3d &>/dev/null; then
@@ -392,6 +392,7 @@ jobs:
           else
             curl -s https://raw.githubusercontent.com/k3d-io/k3d/${{ env.K3D_VERSION }}/install.sh | K3D_INSTALL_DIR="$HOME/.local/bin" USE_SUDO=false bash
           fi
+          go install github.com/google/go-containerregistry/cmd/crane@latest
 
       - name: Prepare isolated kubeconfig
         shell: bash -Eeuo pipefail -x {0}
@@ -418,31 +419,15 @@ jobs:
       - name: Pre-pull cert-manager and Prometheus images
         shell: bash -Eeuo pipefail -x {0}
         run: |
-          images=(
-            "quay.io/jetstack/cert-manager-controller:${{ env.CERT_MANAGER_VERSION }}"
-            "quay.io/jetstack/cert-manager-webhook:${{ env.CERT_MANAGER_VERSION }}"
-            "quay.io/jetstack/cert-manager-cainjector:${{ env.CERT_MANAGER_VERSION }}"
-            "${{ env.PROMETHEUS_IMAGE }}"
-          )
-          # Pull sequentially with retry. Docker Desktop's containerd image
-          # store can race on blob commits when pulls overlap, and partial
-          # downloads leave the store in an inconsistent state. We remove
-          # the image before retrying to clear stale containerd state.
-          for img in "${images[@]}"; do
-            for attempt in 1 2 3; do
-              if docker pull "$img"; then
-                break
-              fi
-              echo "::warning::Pull attempt $attempt failed for $img, retrying in 10s..."
-              docker image rm "$img" 2>/dev/null || true
-              sleep 10
-              if (( attempt == 3 )); then
-                echo "::error::Failed to pull $img after 3 attempts"
-                exit 1
-              fi
-            done
-            docker image inspect "$img" > /dev/null
-          done
+          # Use crane to download OCI tarballs directly from the registry.
+          # This bypasses Docker's containerd image store entirely, avoiding
+          # the namespace mismatch that causes k3d image import by name to
+          # fail on some Docker Desktop versions.
+          ARCH="$(go env GOARCH)"
+          crane pull --platform="linux/$ARCH" "quay.io/jetstack/cert-manager-controller:${{ env.CERT_MANAGER_VERSION }}" /tmp/cert-manager-controller.tar
+          crane pull --platform="linux/$ARCH" "quay.io/jetstack/cert-manager-webhook:${{ env.CERT_MANAGER_VERSION }}" /tmp/cert-manager-webhook.tar
+          crane pull --platform="linux/$ARCH" "quay.io/jetstack/cert-manager-cainjector:${{ env.CERT_MANAGER_VERSION }}" /tmp/cert-manager-cainjector.tar
+          crane pull --platform="linux/$ARCH" "${{ env.PROMETHEUS_IMAGE }}" /tmp/prometheus.tar
 
       - name: Create k3d cluster
         shell: bash -Eeuo pipefail -x {0}
@@ -478,17 +463,11 @@ jobs:
         shell: bash -Eeuo pipefail -x {0}
         run: |
           export PATH="$HOME/.local/bin:$PATH"
-          # Save to tarball first; k3d image import by name fails on some
-          # Docker Desktop versions where the containerd image store namespace
-          # is not visible to k3d's runtime query. Tarball import is reliable
-          # and matches the approach used for the operator image.
-          docker save \
-            quay.io/jetstack/cert-manager-controller:${{ env.CERT_MANAGER_VERSION }} \
-            quay.io/jetstack/cert-manager-webhook:${{ env.CERT_MANAGER_VERSION }} \
-            quay.io/jetstack/cert-manager-cainjector:${{ env.CERT_MANAGER_VERSION }} \
-            -o /tmp/cert-manager-images.tar
-          k3d image import /tmp/cert-manager-images.tar -c "$K3D_CLUSTER_NAME"
-          rm -f /tmp/cert-manager-images.tar
+          k3d image import \
+            /tmp/cert-manager-controller.tar \
+            /tmp/cert-manager-webhook.tar \
+            /tmp/cert-manager-cainjector.tar \
+            -c "$K3D_CLUSTER_NAME"
 
       - name: Install cert-manager
         shell: bash -Eeuo pipefail -x {0}
@@ -502,9 +481,7 @@ jobs:
         shell: bash -Eeuo pipefail -x {0}
         run: |
           export PATH="$HOME/.local/bin:$PATH"
-          docker save ${{ env.PROMETHEUS_IMAGE }} -o /tmp/prometheus.tar
           k3d image import /tmp/prometheus.tar -c "$K3D_CLUSTER_NAME"
-          rm -f /tmp/prometheus.tar
 
       - name: Install Prometheus
         shell: bash -Eeuo pipefail -x {0}
