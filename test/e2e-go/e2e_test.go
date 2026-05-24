@@ -1076,7 +1076,12 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 						Command: []string{"/stress-ng", "--sleep", "1", "--timeout", "3600"},
 						ResizePolicy: []corev1.ContainerResizePolicy{
 							{ResourceName: corev1.ResourceCPU, RestartPolicy: corev1.NotRequired},
-							{ResourceName: corev1.ResourceMemory, RestartPolicy: corev1.RestartContainer},
+							// NotRequired so the memory resize is applied in-place
+							// without killing the container. RestartContainer causes
+							// resize-induced restarts that (a) kill the exec'd stressor
+							// before it can OOM and (b) overwrite LastTerminationState
+							// so the OOMKill evidence is lost by subsequent restarts.
+							{ResourceName: corev1.ResourceMemory, RestartPolicy: corev1.NotRequired},
 						},
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{
@@ -1143,9 +1148,30 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 	// Wait for the operator to resize the pod at least once.
 	waitForResize(t, "oom-policy", ns, 3*time.Minute)
 
-	// Memory resize with RestartContainer policy forces a container restart.
-	// Wait for the pod to be ready again before exec'ing the OOM stressor,
-	// otherwise the exec targets a container mid-restart and silently fails.
+	// Wait for the resize to be applied in the actual pod (not just recorded
+	// in policy status). The kubelet may defer the resize when the node is
+	// under memory pressure. Without this check, the exec targets a container
+	// that still has the original 64Mi limit, and the stressor OOMs before
+	// the resize takes effect.
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 2*time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
+		var pods corev1.PodList
+		if err := k8sClient.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{"app": "oom-app"}); err != nil {
+			return false, nil
+		}
+		for _, pod := range pods.Items {
+			for _, cs := range pod.Spec.Containers {
+				if cs.Name == "app" {
+					memReq := cs.Resources.Requests.Memory()
+					if memReq != nil && memReq.Cmp(resource.MustParse("64Mi")) != 0 {
+						t.Logf("Pod %s memory request changed to %s", pod.Name, memReq.String())
+						return true, nil
+					}
+				}
+			}
+		}
+		return false, nil
+	}), "timed out waiting for resize to be applied in pod spec")
+
 	waitForDeploymentReady(t, "oom-app", ns, 120*time.Second)
 
 	// Phase 2: Exec into the running pod to trigger OOM. Using exec keeps the
