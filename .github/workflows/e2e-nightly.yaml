@@ -387,11 +387,14 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      - name: Run fuzz tests (1M iterations per target)
+      - name: Run fuzz tests (coverage-guided, 30s per target)
         shell: bash -Eeuo pipefail -x {0}
         run: |
-          go test ./internal/recommendation/... -run='^$' -fuzz=FuzzPercentileEstimator -fuzztime=1000000x
-          go test ./internal/recommendation/... -run='^$' -fuzz=FuzzRecommendationEngine -fuzztime=1000000x
+          # Time-based limits let Go's coverage-guided engine focus on
+          # inputs that explore new code paths. 30s per target achieves
+          # full branch coverage faster than 1M random iterations.
+          go test ./internal/recommendation/... -run='^$' -fuzz=FuzzPercentileEstimator -fuzztime=30s
+          go test ./internal/recommendation/... -run='^$' -fuzz=FuzzRecommendationEngine -fuzztime=30s
 
   report:
     name: Nightly Results

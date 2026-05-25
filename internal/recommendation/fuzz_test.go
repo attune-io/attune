@@ -48,8 +48,14 @@ func buildTestProfile(usage float64) metrics.UsageProfile {
 }
 
 func FuzzPercentileEstimator(f *testing.F) {
-	// Seed corpus with reasonable values.
-	f.Add(0.1, 0.5, 95)
+	// Seed corpus covering boundaries and representative values.
+	// Go's coverage-guided engine uses these as starting points and
+	// mutates toward uncovered branches.
+	f.Add(0.1, 0.5, 95)       // typical mid-range
+	f.Add(0.0, 0.0, 50)       // zero input, min percentile
+	f.Add(1000.0, 1000.0, 99) // max bounds, max percentile
+	f.Add(0.5, 0.1, 75)       // inverted p50 > p95
+	f.Add(0.001, 0.001, 50)   // near-zero boundary
 
 	f.Fuzz(func(t *testing.T, p50, p95 float64, percentile int) {
 		if percentile < 50 || percentile > 99 {
@@ -89,7 +95,13 @@ func FuzzPercentileEstimator(f *testing.F) {
 
 func FuzzRecommendationEngine(f *testing.F) {
 	// Seed corpus: (usage, current, overhead%, percentile).
-	f.Add(0.1, 0.5, 20.0, 95)
+	// Covers boundary conditions so the coverage-guided engine
+	// starts near interesting decision points.
+	f.Add(0.1, 0.5, 20.0, 95)    // typical mid-range
+	f.Add(0.001, 0.01, 0.0, 50)  // near-zero, no overhead, min percentile
+	f.Add(99.0, 99.0, 499.0, 99) // near-max values
+	f.Add(0.5, 0.01, 100.0, 95)  // high usage vs low current (underprovisioned)
+	f.Add(0.01, 99.0, 50.0, 75)  // low usage vs high current (overprovisioned)
 
 	f.Fuzz(func(t *testing.T, usage, current, overhead float64, percentile int) {
 		// Validate inputs.
