@@ -230,6 +230,16 @@ chore: update controller-runtime to v0.24.1
 - Add table-driven tests for new logic
 - Use `meta.SetStatusCondition()` for condition management
 
+## Backporting Fixes to Release Branches
+
+When a fix merged to `main` should also go into a stable release branch,
+add a `backport/<branch>` label to the PR (e.g., `backport/release-0.1`).
+A GitHub Actions workflow will automatically cherry-pick the merge commit
+and open a backport PR targeting that release branch.
+
+If the cherry-pick has conflicts, the backport PR is created with conflict
+markers for manual resolution.
+
 ## Code of Conduct
 
 This project follows the [CNCF Code of Conduct](https://github.com/cncf/foundation/blob/main/code-of-conduct.md).
