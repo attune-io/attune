@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2025-05-26
+
 ### Added
 
 - Support for Kubernetes 1.32 with `InPlacePodVerticalScaling` alpha feature gate; the operator now falls back to the deprecated `pod.Status.Resize` field for resize status on clusters without the 1.33+ pod conditions
@@ -97,7 +99,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - k3d image import retry loops with pre-cleanup for macOS containerd storage flakes
 - Confidence factor formula `(1+M/C)^E` produced a 4x multiplier at maximum confidence (7 days of data), inflating all recommendations well beyond the user's configured overhead. A workload with P95=200m and `overhead: "20"` converged to ~960m instead of the expected ~240m. Replaced with `1 + M*(1-C)^E` which gives factor=1.0 at full confidence and up to 1.8x at minimum confidence.
 - `memoryFromCpuRatio` values above 10.0 (e.g., `"16.0"` for in-memory databases) were silently rejected by the shared `parseFloat64` parser, disabling the feature without any error or warning. The ratio now uses a dedicated parser with a 1000.0 ceiling.
-
-## [0.1.0] - Unreleased
-
-Initial release.
