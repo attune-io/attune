@@ -1,0 +1,10 @@
+exclude = [
+  "localhost",
+  "127\\.0\\.0\\.1",
+  "0\\.0\\.0\\.0",
+  "example\\.com",
+]
+exclude_loopback = true
+max_concurrency = 8
+timeout = 30
+max_retries = 3
