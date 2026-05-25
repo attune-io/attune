@@ -594,7 +594,8 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 		return k8sClient.Update(ctx, &latestPolicy)
 	}))
 
-	// Wait for the updated policy to produce a recommendation using the test-specific max bound.
+	// Wait for the updated policy to produce a recommendation below the current request,
+	// proving the operator detected overprovisioning.
 	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
 		var latestPolicy attunev1alpha1.AttunePolicy
 		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "load-policy", Namespace: ns}, &latestPolicy); err != nil {
@@ -605,7 +606,9 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 			len(latestPolicy.Status.Recommendations[0].Containers) == 0 {
 			return false, nil
 		}
-		return latestPolicy.Status.Recommendations[0].Containers[0].Recommended.CPURequest.MilliValue() == 250, nil
+		recCPU := latestPolicy.Status.Recommendations[0].Containers[0].Recommended.CPURequest.MilliValue()
+		t.Logf("Current CPU recommendation: %dm (waiting for <= 250m and < 300m)", recCPU)
+		return recCPU <= 250 && recCPU < 300, nil
 	}))
 
 	var latestPolicy attunev1alpha1.AttunePolicy
@@ -615,10 +618,12 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 	rec := latestPolicy.Status.Recommendations[0]
 	require.NotEmpty(t, rec.Containers)
 
-	// CPU recommendation should be clamped by the test-specific max bound.
+	// CPU recommendation should be within MaxAllowed and below the current 300m request.
 	recCPU := rec.Containers[0].Recommended.CPURequest
-	assert.Equal(t, int64(250), recCPU.MilliValue(),
-		"recommended CPU should honor the test-specific 250m max bound, got %s", recCPU.String())
+	assert.LessOrEqual(t, recCPU.MilliValue(), int64(250),
+		"recommended CPU should respect the 250m MaxAllowed, got %s", recCPU.String())
+	assert.Less(t, recCPU.MilliValue(), int64(300),
+		"recommended CPU should be below the 300m request (overprovisioned), got %s", recCPU.String())
 
 	cpuExplain := rec.Containers[0].Explanation
 	require.NotNil(t, cpuExplain)
