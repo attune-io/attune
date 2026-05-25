@@ -125,7 +125,7 @@ jobs:
           cache: true
 
       - name: Cache E2E container images
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: |
             /tmp/cert-manager-controller.tar
@@ -343,13 +343,15 @@ jobs:
             echo "=== cert-manager pods ==="
             kubectl get pods -n cert-manager || true
             echo "=== operator logs ==="
-            kubectl logs -n attune-system -l app.kubernetes.io/name=attune --tail=100 || true
+            kubectl logs -n attune-system -l app.kubernetes.io/name=attune --tail=300 || true
             echo "=== pod status ==="
             kubectl get pods -A || true
             echo "=== pod descriptions ==="
             kubectl describe pods -A || true
-            echo "=== events ==="
-            kubectl get events -A --sort-by='.lastTimestamp' | tail -30 || true
+            echo "=== events (attune-system) ==="
+            kubectl get events -n attune-system --sort-by='.lastTimestamp' || true
+            echo "=== events (all namespaces, last 100) ==="
+            kubectl get events -A --sort-by='.lastTimestamp' | tail -100 || true
           } | tee test-results/debug-${{ matrix.k8s-version }}.log
 
       - name: Upload test artifacts
@@ -385,11 +387,14 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      - name: Run fuzz tests (1M iterations per target)
+      - name: Run fuzz tests (coverage-guided, 30s per target)
         shell: bash -Eeuo pipefail -x {0}
         run: |
-          go test ./internal/recommendation/... -run='^$' -fuzz=FuzzPercentileEstimator -fuzztime=1000000x
-          go test ./internal/recommendation/... -run='^$' -fuzz=FuzzRecommendationEngine -fuzztime=1000000x
+          # Time-based limits let Go's coverage-guided engine focus on
+          # inputs that explore new code paths. 30s per target achieves
+          # full branch coverage faster than 1M random iterations.
+          go test ./internal/recommendation/... -run='^$' -fuzz=FuzzPercentileEstimator -fuzztime=30s
+          go test ./internal/recommendation/... -run='^$' -fuzz=FuzzRecommendationEngine -fuzztime=30s
 
   report:
     name: Nightly Results

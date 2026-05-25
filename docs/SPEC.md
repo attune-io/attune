@@ -31,8 +31,8 @@
 ### Problem
 
 99.94% of Kubernetes clusters are over-provisioned. Average CPU utilization is 8%, memory 20%
-(CAST AI 2026). VPA, the tool designed to fix this, is universally feared: fewer than 1% of
-organizations run it fully automated (ScaleOps 2026). VPA evicts pods, conflicts with HPA, and
+([CAST AI 2026](https://cast.ai/reports/state-of-kubernetes-optimization/)). VPA, the tool designed to fix this, is universally feared: fewer than 1% of
+organizations run it fully automated ([ScaleOps 2026](https://scaleops.com/blog/why-pod-rightsizing-fails-in-production-a-deep-dive-into-vpa-and-what-actually-works/)). VPA evicts pods, conflicts with HPA, and
 has caused cluster-wide outages.
 
 In 2025, In-Place Pod Resize graduated to beta in Kubernetes 1.33 (KEP-1287,

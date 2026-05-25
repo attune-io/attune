@@ -116,6 +116,9 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 						},
 					}
 					if skip, reason := r.shouldSkipResize(ctx, policy, pod, boostRec, boostTarget, checks); skip {
+						if reason == "" {
+							reason = "already at target"
+						}
 						logger.Info("Skipping startup boost: "+reason,
 							"pod", pod.Name, "container", c.Name,
 							"boostedCPU", boostedCPU.String())
@@ -193,6 +196,9 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 							},
 						}
 						if skip, reason := r.shouldSkipResize(ctx, policy, pod, expireRec, expireTarget, checks); skip {
+							if reason == "" {
+								reason = "already at target"
+							}
 							logger.Info("Skipping boost expiry reduction: "+reason,
 								"pod", pod.Name, "container", c.Name,
 								"targetCPU", recCPU.String())
