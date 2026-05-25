@@ -211,10 +211,10 @@ helm upgrade attune oci://ghcr.io/attune-io/charts/attune \
 into Grafana and select your Prometheus data source.
 
 The dashboard includes:
-- **Overview**: total resizes, reverts, CPU/memory saved
-- **Resize Operations**: resize rate by result, reverts by reason
-- **Recommendations**: per-workload CPU/memory recommendations and confidence scores
-- **Operator Health**: reconcile latency (p50/p99), Prometheus query duration, query errors
+- Overview: total resizes, reverts, CPU/memory saved
+- Resize Operations: resize rate by result, reverts by reason
+- Recommendations: per-workload CPU/memory recommendations and confidence scores
+- Operator Health: reconcile latency (p50/p99), Prometheus query duration, query errors
 
 ## Architecture
 
@@ -242,69 +242,69 @@ The dashboard includes:
 
 ### Safety
 
-- **Auto-revert**: Automatically restores original resources on OOMKill,
+- Auto-revert: automatically restores original resources on OOMKill,
   CPU throttle, restart spikes, or pod NotReady.
-- **Graduated rollout**: Five modes from zero-risk to full automation:
+- Graduated rollout: five modes from zero-risk to full automation --
   Observe, Recommend, OneShot, Canary, Auto.
-- **Node capacity guard**: Validates post-resize requests fit within node
+- Node capacity guard: validates post-resize requests fit within node
   allocatable before applying changes.
-- **LimitRange/ResourceQuota guard**: Skips resizes that would violate
+- LimitRange/ResourceQuota guard: skips resizes that would violate
   namespace constraints or exceed quota headroom.
-- **Exponential backoff**: Cooldown doubles per consecutive revert
+- Exponential backoff: cooldown doubles per consecutive revert
   (capped at 16x). Degraded condition flags workloads needing tuning.
 
 ### Intelligence
 
-- **Confidence scaling**: Conservative when data is sparse, precise as it
+- Confidence scaling: conservative when data is sparse, precise as it
   accumulates. No premature optimization.
-- **Time-of-day awareness**: Hourly usage profiles ensure recommendations
+- Time-of-day awareness: hourly usage profiles ensure recommendations
   cover peak hours, not just the average.
-- **HPA coexistence**: Adjusts base resource requests without interfering
+- HPA coexistence: adjusts base resource requests without interfering
   with HPA's percentage-based scaling. No death spirals.
-- **Always-bounded**: Resource bounds (`minAllowed`/`maxAllowed`) per-policy with safe
+- Always-bounded: resource bounds (`minAllowed`/`maxAllowed`) per-policy with safe
   defaults (CPU: 1m-4000m, Memory: 4Mi-8Gi).
 
 ### Operations
 
-- **In-place resize**: Adjusts CPU and memory on running pods via the
+- In-place resize: adjusts CPU and memory on running pods via the
   K8s 1.32+ `/resize` subresource. The default path is in-place with no
   restarts. `InPlaceOrRecreate` can optionally fall back to eviction when
   kubelet rejects an in-place resize.
-- **Cost savings estimation**: Per-workload `EstimatedMonthlySavings` in
+- Cost savings estimation: per-workload `EstimatedMonthlySavings` in
   status, CLI (`kubectl attune savings`), and Grafana dashboard.
-- **Scheduled resize windows**: Restrict resizes to specific time windows
+- Scheduled resize windows: restrict resizes to specific time windows
   and days of the week. Recommendations compute continuously regardless.
-- **Per-cycle budget caps**: Limit aggregate CPU/memory increases per
+- Per-cycle budget caps: limit aggregate CPU/memory increases per
   reconcile cycle, preventing cluster-wide spikes.
-- **Concurrent pod processing**: Parallel pod resizes within a cycle for
+- Concurrent pod processing: parallel pod resizes within a cycle for
   reduced latency at scale.
 
 ### Compatibility
 
-- **Multi-data-source**: Thanos, VictoriaMetrics, Grafana Mimir, managed
+- Multi-data-source: Thanos, VictoriaMetrics, Grafana Mimir, managed
   Prometheus. Bearer token auth, custom headers, TLS.
-- **Prometheus auto-discovery**: Finds Prometheus via the Operator CRD or
+- Prometheus auto-discovery: finds Prometheus via the Operator CRD or
   well-known service names when no address is configured.
-- **Batch workloads**: CronJobs and Jobs for recommend-only right-sizing.
-- **Namespace-scoped defaults**: Per-namespace `AttuneNamespaceDefaults`
+- Batch workloads: CronJobs and Jobs for recommend-only right-sizing.
+- Namespace-scoped defaults: per-namespace `AttuneNamespaceDefaults`
   override cluster-scoped defaults for production vs staging.
-- **Conflict detection**: Warns about VPA, overlapping policies, or active
+- Conflict detection: warns about VPA, overlapping policies, or active
   rollouts targeting the same workload.
-- **VPA recommendation consumption**: Use existing VerticalPodAutoscaler
+- VPA recommendation consumption: use existing VerticalPodAutoscaler
   recommendations as an alternative to Prometheus queries via `metricsSource.vpa`.
-- **SLO-based guardrails**: PromQL-based application health checks
+- SLO-based guardrails: PromQL-based application health checks
   (latency, error rate) that auto-revert resizes on threshold breach.
-- **GitOps diff command**: `kubectl attune diff` outputs recommendations
+- GitOps diff command: `kubectl attune diff` outputs recommendations
   in diff format for ArgoCD/Flux review workflows.
-- **Initial sizing webhook**: Set pod resources at creation time based on
+- Initial sizing webhook: set pod resources at creation time based on
   existing policy recommendations, eliminating the "deploy with bad defaults" gap.
-- **Directional change caps**: Asymmetric `maxIncreasePercent`/`maxDecreasePercent`
+- Directional change caps: asymmetric `maxIncreasePercent`/`maxDecreasePercent`
   per resource (memory decreases are riskier than CPU increases).
-- **Memory-from-CPU derivation**: `memoryFromCpuRatio` derives memory from CPU
+- Memory-from-CPU derivation: `memoryFromCpuRatio` derives memory from CPU
   for JVM and heap-bound workloads.
-- **Pause reconciliation**: `spec.paused: true` halts all activity without
+- Pause reconciliation: `spec.paused: true` halts all activity without
   reverting existing resizes.
-- **Webhook warnings**: 13 admission-time warnings for nonsensical config
+- Webhook warnings: 13 admission-time warnings for nonsensical config
   combinations with 31 runtime K8s events and per-policy suppression.
 
 ## Documentation
