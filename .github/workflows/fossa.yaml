@@ -12,6 +12,7 @@ permissions:
 jobs:
   fossa:
     name: FOSSA License Scan
+    if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -25,6 +26,7 @@ jobs:
 
   fossa-test:
     name: FOSSA License Check
+    if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: fossa
