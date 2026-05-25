@@ -9,10 +9,10 @@ The numbers are staggering:
 | Stat | Source |
 |------|--------|
 | **8%** average CPU utilization across K8s clusters | [CAST AI 2026 State of K8s Optimization](https://cast.ai/reports/state-of-kubernetes-optimization/) |
-| **99.94%** of clusters are overprovisioned | [CAST AI 2025 Cost Benchmark](https://cast.ai/blog/kubernetes-cost-report/) |
+| **99.94%** of clusters are overprovisioned | [CAST AI 2025 Cost Benchmark](https://cast.ai/reports/kubernetes-cost-benchmark/) |
 | **83%** of container costs are idle resources | [Datadog State of Cloud Costs 2024](https://www.datadoghq.com/state-of-cloud-costs/) |
-| **$44.5 billion** in projected cloud infrastructure waste for 2025 | [Harness FinOps in Focus 2025](https://www.harness.io/blog/finops-in-focus-report) |
-| **70%** cite overprovisioning as the #1 cost driver | [CNCF FinOps Microsurvey 2023](https://www.cncf.io/reports/cncf-finops-microsurvey-2023/) |
+| **$44.5 billion** in projected cloud infrastructure waste for 2025 | [Harness FinOps in Focus 2025](https://www.harness.io/finops-in-focus) |
+| **70%** cite overprovisioning as the #1 cost driver | [CNCF FinOps Microsurvey 2023](https://www.cncf.io/blog/2023/12/20/cncf-cloud-native-finops-cloud-financial-management-microsurvey/) |
 
 Here's what's happening: your developers set `resources.requests` to "something
 that works," add a generous safety margin because they don't want 3 AM pages,
