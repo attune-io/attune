@@ -218,8 +218,8 @@ The dashboard includes:
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────┐
-│                 attune                     │
+┌────────────────────────────────────────────────────┐
+│                       attune                       │
 │                                                    │
 │  Policy         Metrics         Recommender        │
 │  Controller ──► Collector ──►  Engine              │
@@ -230,7 +230,7 @@ The dashboard includes:
 │  Engine ◄────► Monitor                             │
 │  (/resize       (OOMKill, throttle,                │
 │   subresource)   restarts, auto-revert)            │
-└──────────────────────────────────────────────────┘
+└────────────────────────────────────────────────────┘
          │                    │
          ▼                    ▼
     Kubernetes API       Prometheus
