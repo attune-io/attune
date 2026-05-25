@@ -88,13 +88,13 @@ jobs:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     needs: prepare-matrix
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
-    timeout-minutes: 45
+    timeout-minutes: 75
     env:
       SELECTED_SUITE: ${{ needs.prepare-matrix.outputs.suite }}
       CLUSTER_NAME: e2e-${{ matrix.k8s-version }}-${{ github.run_id }}-${{ github.run_attempt }}
       KUBECONFIG: ${{ github.workspace }}/.kubeconfig-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.k8s-version }}-${{ needs.prepare-matrix.outputs.suite }}
     strategy:
-      max-parallel: 1
+      max-parallel: 4
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare-matrix.outputs.matrix) }}
     steps:
