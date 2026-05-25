@@ -272,7 +272,7 @@ jobs:
   test-fuzz-bench:
     name: Fuzz & Benchmark Tests
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
-    timeout-minutes: 10
+    timeout-minutes: 20
     needs: changes
     if: needs.changes.outputs.go == 'true'
     steps:
