@@ -123,7 +123,7 @@ Commit the generated output.
 ## Documentation Site
 
 The `docs/` directory is configured as an [MkDocs](https://www.mkdocs.org/)
-site with the [Material](https://squidfun.github.io/mkdocs-material/) theme.
+site with the [Material](https://squidfunk.github.io/mkdocs-material/) theme.
 
 ### Local preview
 
