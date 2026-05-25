@@ -4,20 +4,20 @@ This guide walks you through replacing the Kubernetes Vertical Pod Autoscaler
 (VPA) with attune. The migration can be done workload-by-workload
 with no downtime.
 
-## VPA vs attune modes
+## VPA vs Attune modes
 
-| VPA Mode | attune Equivalent | Notes |
+| VPA Mode | Attune Equivalent | Notes |
 |----------|---------------------------|-------|
 | `Off` | **Observe** or **Recommend** | Observe: data collection only. Recommend: collect and write recommendations to status |
-| `Initial` | **OneShot** | Set resources once; attune uses in-place resize instead of restart |
+| `Initial` | **OneShot** | Set resources once; Attune uses in-place resize instead of restart |
 | `Auto` (with eviction) | **Canary** or **Auto** | In-place first; add `resizeMethod: InPlaceOrRecreate` if you want eviction fallback instead of skipping infeasible pods |
 | `Recommend` (UpdateMode=Off) | **Recommend** | Write recommendations to status without acting |
 
 ## Step-by-step migration
 
-### 1. Install attune alongside VPA
+### 1. Install Attune alongside VPA
 
-Both can run in the same cluster. Install attune per the
+Both can run in the same cluster. Install Attune per the
 [Installation guide](../getting-started/installation.md).
 
 ### 2. Create a AttunePolicy in Recommend mode
@@ -94,7 +94,7 @@ spec:
 ### 3. Compare recommendations
 
 Let both run for at least one full `historyWindow` period (default 7 days).
-Compare the VPA recommendations with attune recommendations:
+Compare the VPA recommendations with Attune recommendations:
 
 ```bash
 kubectl get vpa my-app -o jsonpath='{.status.recommendation}' | jq .
@@ -109,7 +109,7 @@ Set the VPA to `Off` mode or delete it:
 kubectl delete vpa my-app
 ```
 
-### 5. Promote attune to Canary
+### 5. Promote Attune to Canary
 
 ```bash
 kubectl patch rsp my-app --type merge \
@@ -127,6 +127,6 @@ kubectl delete crd verticalpodautoscalers.autoscaling.k8s.io \
 ```
 
 !!! warning
-    Do not run both VPA (in Auto/Initial mode) and attune (in
+    Do not run both VPA (in Auto/Initial mode) and Attune (in
     Canary/Auto mode) on the same workload. The conflict detector will
     warn you, but running both can cause competing resize operations.

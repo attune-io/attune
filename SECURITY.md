@@ -2,7 +2,7 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in attune, please report it
+If you discover a security vulnerability in Attune, please report it
 responsibly.
 
 **DO NOT** create a public GitHub issue for security vulnerabilities.

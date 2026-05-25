@@ -1,6 +1,6 @@
 # Examples
 
-Working examples for attune, from a single policy to full production
+Working examples for Attune, from a single policy to full production
 setups. Standalone `.yaml` files can be applied directly from the repo root
 with `kubectl apply -f examples/<file>.yaml`, while directory-based scenarios
 include their own instructions and may use `kubectl apply -k`.
@@ -51,4 +51,4 @@ All examples assume:
 
 - Kubernetes 1.32+ (1.32 requires the `InPlacePodVerticalScaling` feature gate; 1.33+ enabled by default)
 - Prometheus reachable inside the cluster
-- attune operator installed (for example: `helm install attune oci://ghcr.io/attune-io/charts/attune --namespace attune-system --create-namespace`)
+- Attune operator installed (for example: `helm install attune oci://ghcr.io/attune-io/charts/attune --namespace attune-system --create-namespace`)

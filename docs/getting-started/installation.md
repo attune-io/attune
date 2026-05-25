@@ -10,7 +10,7 @@
 | cert-manager | 1.12+ (for webhook TLS; optional if installing with `--set webhooks.enabled=false`) |
 
 !!! note "In-Place Pod Resize"
-    Kubernetes 1.32+ is required because attune uses the
+    Kubernetes 1.32+ is required because Attune uses the
     [In-Place Pod Resize](https://kubernetes.io/blog/2025/05/16/kubernetes-v1-33-in-place-pod-resize-beta/)
     `/resize` subresource, which was added in 1.32.
     On **1.32**, you must enable the `InPlacePodVerticalScaling` feature gate

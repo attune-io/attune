@@ -1,4 +1,4 @@
-# Contributing to attune
+# Contributing to Attune
 
 Thank you for your interest in contributing! This document provides
 guidelines and instructions for contributing.

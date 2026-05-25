@@ -1,6 +1,6 @@
 # Istio Integration
 
-attune works with all three Istio deployment models. This guide
+Attune works with all three Istio deployment models. This guide
 covers configuration for each mode.
 
 ## Deployment models
@@ -47,7 +47,7 @@ containers, leaving `istio-proxy` untouched.
 
 In ambient mode, Istio uses a per-node ztunnel DaemonSet instead of
 per-pod sidecars. There is no `istio-proxy` container in your pods, so
-attune works transparently with no special configuration.
+Attune works transparently with no special configuration.
 
 ## Native sidecar mode
 

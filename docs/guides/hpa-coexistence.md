@@ -1,6 +1,6 @@
 # HPA Coexistence
 
-attune is designed to work alongside Horizontal Pod Autoscalers
+Attune is designed to work alongside Horizontal Pod Autoscalers
 (HPAs) without causing scaling conflicts or death spirals.
 
 ## Why HPA + VPA was problematic
@@ -10,9 +10,9 @@ utilization percentage drops, causing HPA to scale in. When HPA scales in,
 per-pod load increases, causing VPA to increase requests again. This feedback
 loop is the classic "death spiral."
 
-## How attune avoids conflicts
+## How Attune avoids conflicts
 
-attune adjusts **resource requests** (and optionally limits), while
+Attune adjusts **resource requests** (and optionally limits), while
 HPA adjusts **replica count**. The operator does not change the number of
 pods. Because in-place resize modifies cgroup limits on running pods without
 restarting them, the HPA's utilization metric reflects the new allocation
@@ -58,7 +58,7 @@ actual usage.
 ### Memory is always safe
 
 Memory-based HPAs (less common) scale on `memory` utilization, not requests.
-attune can safely adjust memory requests alongside a memory-based HPA
+Attune can safely adjust memory requests alongside a memory-based HPA
 because the working set size does not change when the request changes.
 
 ## Monitoring coexistence

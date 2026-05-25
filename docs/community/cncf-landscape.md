@@ -1,13 +1,13 @@
 # CNCF Landscape
 
-attune is listed on the [CNCF Cloud Native Landscape](https://landscape.cncf.io/)
+Attune is listed on the [CNCF Cloud Native Landscape](https://landscape.cncf.io/)
 under **Orchestration & Management > Scheduling & Orchestration**, alongside
 projects like VPA, Karpenter, and KEDA.
 
 ## Category
 
 **Scheduling & Orchestration** -- tools that manage when, where, and how
-workloads run on Kubernetes clusters. attune fits here because it
+workloads run on Kubernetes clusters. Attune fits here because it
 dynamically adjusts pod resource allocations based on observed usage, which
 is the resource-scheduling complement to horizontal autoscaling.
 
@@ -15,7 +15,7 @@ is the resource-scheduling complement to horizontal autoscaling.
 
 | Field | Value |
 |-------|-------|
-| **Name** | attune |
+| **Name** | Attune |
 | **Homepage** | [github.com/attune-io/attune](https://github.com/attune-io/attune) |
 | **Repository** | [github.com/attune-io/attune](https://github.com/attune-io/attune) |
 | **License** | Apache 2.0 |
@@ -59,7 +59,7 @@ available at [`docs/logo.svg`](../logo.svg). Requirements:
 
 | Project | Category | Relationship |
 |---------|----------|-------------|
-| [VPA](https://github.com/kubernetes/autoscaler/tree/master/vertical-pod-autoscaler) | Scheduling & Orchestration | attune replaces VPA's eviction-based approach with in-place resize |
-| [Karpenter](https://karpenter.sh/) | Scheduling & Orchestration | Complementary: Karpenter handles node provisioning, attune handles pod sizing |
+| [VPA](https://github.com/kubernetes/autoscaler/tree/master/vertical-pod-autoscaler) | Scheduling & Orchestration | Attune replaces VPA's eviction-based approach with in-place resize |
+| [Karpenter](https://karpenter.sh/) | Scheduling & Orchestration | Complementary: Karpenter handles node provisioning, Attune handles pod sizing |
 | [KEDA](https://keda.sh/) | Scheduling & Orchestration | Complementary: KEDA handles event-driven horizontal scaling |
-| [Goldilocks](https://github.com/FairwindsOps/goldilocks) | Scheduling & Orchestration | attune goes beyond recommendations to automated in-place resize |
+| [Goldilocks](https://github.com/FairwindsOps/goldilocks) | Scheduling & Orchestration | Attune goes beyond recommendations to automated in-place resize |

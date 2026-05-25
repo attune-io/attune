@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="docs/logo.jpg" alt="attune logo" width="200">
+  <img src="docs/logo.jpg" alt="Attune logo" width="200">
 </p>
 
-# attune
+# Attune
 
 [![CI](https://github.com/attune-io/attune/actions/workflows/ci.yaml/badge.svg)](https://github.com/attune-io/attune/actions/workflows/ci.yaml)
 [![Security](https://github.com/attune-io/attune/actions/workflows/security.yaml/badge.svg)](https://github.com/attune-io/attune/actions/workflows/security.yaml)
@@ -11,7 +11,7 @@
 
 **Safe, in-place Kubernetes pod resource right-sizing. VPA done right.**
 
-attune is a Kubernetes operator that automatically right-sizes pod
+Attune is a Kubernetes operator that automatically right-sizes pod
 resource requests and limits using [In-Place Pod Resize](https://kubernetes.io/blog/2025/12/19/kubernetes-v1-35-in-place-pod-resize-ga/)
 (beta in Kubernetes 1.33+, alpha with feature gate in 1.32). In-place by default, optional eviction fallback for infeasible resizes, and no HPA conflicts.
 
@@ -28,7 +28,7 @@ resource requests and limits using [In-Place Pod Resize](https://kubernetes.io/b
 
 ## How It's Different
 
-| | VPA | Goldilocks | attune |
+| | VPA | Goldilocks | Attune |
 |---|---|---|---|
 | Resize method | Evicts pods | No resize (recommend only) | **In-place** (no restarts) |
 | HPA compatible | No (death spirals) | N/A | **Yes** (adjusts base, not %) |
@@ -310,7 +310,7 @@ The dashboard includes:
 
 | Guide | Description |
 |-------|-------------|
-| [Why attune?](docs/why-attune.md) | The problem, why VPA fails, and how in-place resize changes everything |
+| [Why Attune?](docs/why-attune.md) | The problem, why VPA fails, and how in-place resize changes everything |
 | [Savings Calculator](docs/savings-calculator.md) | Estimate your monthly savings with an interactive calculator |
 | [Quickstart](docs/getting-started/quickstart.md) | Get running in 5 minutes |
 | [Migrating from VPA](docs/guides/migrating-from-vpa.md) | Step-by-step VPA replacement |
@@ -323,7 +323,7 @@ The dashboard includes:
 | [Examples](examples/) | Ready-to-use policy manifests |
 | [Contributing](CONTRIBUTING.md) | Development setup and guidelines |
 | [Changelog](CHANGELOG.md) | Release history and breaking changes |
-| [Adopters](ADOPTERS.md) | Organizations using attune |
+| [Adopters](ADOPTERS.md) | Organizations using Attune |
 
 ## License
 

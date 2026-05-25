@@ -1,4 +1,4 @@
-site_name: attune
+site_name: Attune
 site_description: Safe, in-place Kubernetes pod resource right-sizing
 site_url: https://attune-io.github.io/attune/
 repo_url: https://github.com/attune-io/attune
@@ -40,7 +40,7 @@ markdown_extensions:
 
 nav:
   - Home: index.md
-  - Why attune?: why-attune.md
+  - Why Attune?: why-attune.md
   - Specification: SPEC.md
   - Savings Calculator: savings-calculator.md
   - Getting Started:

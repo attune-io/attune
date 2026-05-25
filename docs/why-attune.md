@@ -1,4 +1,4 @@
-# Why attune
+# Why Attune
 
 ## The $44 Billion Problem You're Contributing To
 
@@ -101,7 +101,7 @@ Nothing changes.
 Diagnostic tools tell you what to fix. They don't fix it. At scale, the gap
 between "knowing" and "doing" is where savings go to die.
 
-attune closes that gap. It computes the recommendation AND applies it
+Attune closes that gap. It computes the recommendation AND applies it
 to the running pod, with graduated safety controls so you don't have to
 babysit each change. No YAML edits, no pull requests, no backlog tickets.
 
@@ -127,9 +127,9 @@ restart cycle, is no longer necessary. A smart operator can now:
 
 All without a single pod restart.
 
-## Enter attune
+## Enter Attune
 
-**attune is a Kubernetes operator built exclusively for in-place pod
+**Attune is a Kubernetes operator built exclusively for in-place pod
 right-sizing.** It was designed from the ground up for the post-KEP-1287 world,
 not retrofitted onto a VPA architecture that was never meant for it.
 
@@ -174,7 +174,7 @@ not retrofitted onto a VPA architecture that was never meant for it.
 
 ### Five modes for every comfort level
 
-You don't have to go from zero to fully-automated overnight. attune
+You don't have to go from zero to fully-automated overnight. Attune
 provides a graduated path:
 
 | Mode | What happens | Risk level |
@@ -215,14 +215,14 @@ Every resize is guarded by a multi-layer safety system:
 
 ### HPA coexistence, for real
 
-attune adjusts the *base resource request*, not the replica count.
+Attune adjusts the *base resource request*, not the replica count.
 This means HPA continues to scale horizontally based on its configured
-metrics, while attune ensures each replica is right-sized. No death
+metrics, while Attune ensures each replica is right-sized. No death
 spiral. No conflicting signals.
 
 ### Time-of-day awareness
 
-Unlike VPA's single-number histogram, attune buckets usage data into
+Unlike VPA's single-number histogram, Attune buckets usage data into
 24 hourly profiles and takes the **maximum across all hours**. This means:
 
 - A workload that peaks at 2 PM gets a recommendation based on that peak
@@ -246,7 +246,7 @@ You manage dozens or hundreds of namespaces. Developers set resource requests
 once and never look at them again. You're tired of fielding tickets about
 cluster capacity while dashboards show 8% utilization.
 
-**attune gives you cluster-wide and namespace-scoped defaults**.
+**Attune gives you cluster-wide and namespace-scoped defaults**.
 Use `AttuneDefaults` for cluster baselines, `AttuneNamespaceDefaults`
 for environment- or team-specific overrides, and per-namespace
 `AttunePolicy` resources for workload-level customization.
@@ -266,7 +266,7 @@ resize lets you reclaim that 3.5 cores without touching a single pod lifecycle.
 
 ### Teams running HPA
 
-You've been told "VPA and HPA don't mix." attune fixes the base
+You've been told "VPA and HPA don't mix." Attune fixes the base
 request so each HPA-scaled replica is right-sized, while HPA continues to
 handle horizontal scaling. They complement each other.
 
@@ -292,7 +292,7 @@ This deployment has 10 replicas. On AWS EKS at on-demand pricing:
 - Memory waste: 2.8 GiB x 10 replicas x $0.004/GiB-hr x 730 hr/mo = **$82/mo**
 - **Total waste: $444/month for one service**
 
-**After attune (with P95 + 20% overhead):**
+**After Attune (with P95 + 20% overhead):**
 
 | Resource | Original | Recommended | Savings |
 |----------|----------|-------------|---------|
@@ -305,7 +305,7 @@ reserved resources.
 
 Now multiply this across 50 services and you're saving $20,000+/month.
 
-## How attune Compares
+## How Attune Compares
 
 The Kubernetes rightsizing ecosystem spans 16+ tools, from open-source
 recommenders to full-stack commercial platforms. Here is how they compare
@@ -313,7 +313,7 @@ across the capabilities that matter most.
 
 ### Open-source tools
 
-| | VPA | Goldilocks | KRR (Robusta) | Oblik | kube-reqsizer | **attune** |
+| | VPA | Goldilocks | KRR (Robusta) | Oblik | kube-reqsizer | **Attune** |
 |---|---|---|---|---|---|---|
 | **Primary function** | Recommend + apply | VPA dashboard | CLI recommender | VPA applier | Usage-based controller | **Recommend + in-place apply** |
 | **Resize method** | Evict/recreate, InPlaceOrRecreate (1.33+) | No resize | No resize | Cron-based rollout | Rolling restart | **In-place only** |
@@ -341,9 +341,9 @@ across the capabilities that matter most.
 | **Open source** | No | No | No | No | Agent only | No | No | No |
 | **Typical cost** | % of savings | Per-cluster | Per-cluster | Per-cluster | Included with Datadog | % of savings | Per-node | Per-workload |
 
-### attune vs. the field
+### Attune vs. the field
 
-| Capability | attune | How many of 16 tools have it |
+| Capability | Attune | How many of 16 tools have it |
 |-----------|---------------|----------------------------|
 | In-place resize (no eviction) | Yes | 9/16 (VPA 1.33+, CAST AI, StormForge, ScaleOps, PerfectScale, Datadog, nOps, Spot Ocean, Kedify) |
 | HPA coexistence | Yes | 7/16 |
@@ -359,10 +359,10 @@ across the capabilities that matter most.
 ### Where commercial tools win
 
 Commercial platforms like CAST AI, ScaleOps, and StormForge offer
-capabilities that attune intentionally does not cover:
+capabilities that Attune intentionally does not cover:
 
 - **Node optimization**: Spot instance management, bin-packing, and cluster
-  autoscaling. Pair attune with
+  autoscaling. Pair Attune with
   [Karpenter](https://karpenter.sh/) for an open-source equivalent.
 - **ML/predictive recommenders**: Bayesian optimization (StormForge),
   reinforcement learning (Sedai), and risk-scored automation (PerfectScale)
@@ -370,7 +370,7 @@ capabilities that attune intentionally does not cover:
 - **Multi-cloud dashboards**: Unified cost views across AWS, GCP, and Azure
   with commitment optimization.
 
-### Where attune wins
+### Where Attune wins
 
 - **Full control**: The recommendation algorithm is open, auditable, and
   modifiable. No black-box ML.
