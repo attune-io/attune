@@ -343,13 +343,15 @@ jobs:
             echo "=== cert-manager pods ==="
             kubectl get pods -n cert-manager || true
             echo "=== operator logs ==="
-            kubectl logs -n attune-system -l app.kubernetes.io/name=attune --tail=100 || true
+            kubectl logs -n attune-system -l app.kubernetes.io/name=attune --tail=300 || true
             echo "=== pod status ==="
             kubectl get pods -A || true
             echo "=== pod descriptions ==="
             kubectl describe pods -A || true
-            echo "=== events ==="
-            kubectl get events -A --sort-by='.lastTimestamp' | tail -30 || true
+            echo "=== events (attune-system) ==="
+            kubectl get events -n attune-system --sort-by='.lastTimestamp' || true
+            echo "=== events (all namespaces, last 100) ==="
+            kubectl get events -A --sort-by='.lastTimestamp' | tail -100 || true
           } | tee test-results/debug-${{ matrix.k8s-version }}.log
 
       - name: Upload test artifacts

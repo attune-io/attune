@@ -21,8 +21,7 @@ jobs:
     timeout-minutes: 5
     if: >
       github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'pull_request' &&
-      github.event.workflow_run.actor.login == 'dependabot[bot]'
+      startsWith(github.event.workflow_run.head_branch, 'dependabot/')
     steps:
       - name: Find PR for this commit
         id: pr
@@ -40,7 +39,7 @@ jobs:
       - name: Fetch Dependabot metadata
         if: steps.pr.outputs.number
         id: metadata
-        uses: dependabot/fetch-metadata@d7267f607e9d3fb96fc2fbe83e0af444e844f40b # v2
+        uses: dependabot/fetch-metadata@08eff52bf64351f401fb50d4972fa95b9f2c2d1b # v2.4.0
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
