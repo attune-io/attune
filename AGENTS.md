@@ -237,11 +237,15 @@ directory. When referencing files elsewhere in the repo (e.g., `charts/`,
   with it, they run concurrently (~2 min, bounded by OOMKill at 127s).
 - E2E test policies must use `Cooldown: 1m` (the minimum) to avoid long requeue
   delays during data collection.
+- E2E test pods should use Burstable QoS (requests only, no CPU/memory limits)
+  unless testing QoS behavior specifically. Guaranteed QoS pods are harder to
+  schedule when 13 parallel tests compete for ~4 allocatable CPUs on the k3d
+  node. Keep CPU requests at or below 300m per test pod.
 
 ## CI
 
 - Runs on **GitHub-hosted runners** (`ubuntu-latest`) by default
-- Fuzz tests: 1M iterations per target, 20-minute job timeout
+- Fuzz tests: 30s time-based per target (coverage-guided, not iteration count)
 - E2E Nightly runs the full K8s version matrix (1.32, 1.33, 1.34, 1.35)
   sequentially; each version creates a fresh k3d cluster
 - Concurrency groups use `cancel-in-progress: false` on main; PRs targeting
