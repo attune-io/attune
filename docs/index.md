@@ -12,12 +12,12 @@ optional eviction fallback for infeasible resizes, and no HPA conflicts.
 
 Average Kubernetes CPU utilization is **8%**. That means 92% of the compute
 you're paying for is idle. Industry-wide, this adds up to
-**$44.5 billion** in projected cloud waste (Harness 2025), and **70%** of
-organizations cite overprovisioning as their #1 cost driver (CNCF 2023).
+**$44.5 billion** in projected cloud waste ([Harness 2025](https://www.harness.io/finops-in-focus)), and **70%** of
+organizations cite overprovisioning as their #1 cost driver ([CNCF 2023](https://www.cncf.io/blog/2023/12/20/cncf-cloud-native-finops-cloud-financial-management-microsurvey/)).
 
 The existing tool for this, VPA, evicts pods to resize them. It conflicts
 with HPA, causes cascading failures, and fewer than **1%** of teams run
-it fully automated (ScaleOps 2026). Recommendation-only tools like
+it fully automated ([ScaleOps 2026](https://scaleops.com/blog/why-pod-rightsizing-fails-in-production-a-deep-dive-into-vpa-and-what-actually-works/)). Recommendation-only tools like
 Goldilocks show you the numbers but leave you with hundreds of YAML edits
 that sit in the backlog for months.
 

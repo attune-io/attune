@@ -21,9 +21,9 @@ resource requests and limits using [In-Place Pod Resize](https://kubernetes.io/b
 
 | Problem | Impact |
 |---------|--------|
-| Average CPU utilization is **8%** | Billions wasted industry-wide (CAST AI 2026) |
-| **70%** cite overprovisioning as #1 cost driver | Resources allocated "just in case" never reclaimed (CNCF 2023) |
-| **<1%** run VPA fully automated | VPA evicts pods, conflicts with HPA, causes outages (ScaleOps 2026) |
+| Average CPU utilization is **8%** | Billions wasted industry-wide ([CAST AI 2026](https://cast.ai/reports/state-of-kubernetes-optimization/)) |
+| **70%** cite overprovisioning as #1 cost driver | Resources allocated "just in case" never reclaimed ([CNCF 2023](https://www.cncf.io/blog/2023/12/20/cncf-cloud-native-finops-cloud-financial-management-microsurvey/)) |
+| **<1%** run VPA fully automated | VPA evicts pods, conflicts with HPA, causes outages ([ScaleOps 2026](https://scaleops.com/blog/why-pod-rightsizing-fails-in-production-a-deep-dive-into-vpa-and-what-actually-works/)) |
 | In-Place Pod Resize is **beta** (K8s 1.33+, alpha in 1.32) | The foundation for non-disruptive right-sizing now exists |
 
 ## How It's Different
