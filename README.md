@@ -139,6 +139,7 @@ kubectl attune savings -n production
 > before installing with `networkPolicy.enabled=true` (the default). The
 > policy allows webhook, metrics, DNS, API server, and Prometheus egress
 > on `networkPolicy.prometheusPort` (default `9090`).
+
 ### Upgrade to Canary Mode
 
 Once you trust the recommendations, switch to Canary mode to apply changes
