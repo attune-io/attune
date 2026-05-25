@@ -1,17 +1,17 @@
 <p align="center">
-  <img src="docs/logo.jpg" alt="kube-rightsize logo" width="200">
+  <img src="docs/logo.jpg" alt="attune logo" width="200">
 </p>
 
-# kube-rightsize
+# attune
 
-[![CI](https://github.com/SebTardifLabs/kube-rightsize/actions/workflows/ci.yaml/badge.svg)](https://github.com/SebTardifLabs/kube-rightsize/actions/workflows/ci.yaml)
-[![Security](https://github.com/SebTardifLabs/kube-rightsize/actions/workflows/security.yaml/badge.svg)](https://github.com/SebTardifLabs/kube-rightsize/actions/workflows/security.yaml)
+[![CI](https://github.com/attune-io/attune/actions/workflows/ci.yaml/badge.svg)](https://github.com/attune-io/attune/actions/workflows/ci.yaml)
+[![Security](https://github.com/attune-io/attune/actions/workflows/security.yaml/badge.svg)](https://github.com/attune-io/attune/actions/workflows/security.yaml)
 [![Go Version](https://img.shields.io/badge/go-1.26-blue)](go.mod)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
 **Safe, in-place Kubernetes pod resource right-sizing. VPA done right.**
 
-kube-rightsize is a Kubernetes operator that automatically right-sizes pod
+attune is a Kubernetes operator that automatically right-sizes pod
 resource requests and limits using [In-Place Pod Resize](https://kubernetes.io/blog/2025/12/19/kubernetes-v1-35-in-place-pod-resize-ga/)
 (beta in Kubernetes 1.33+, alpha with feature gate in 1.32). In-place by default, optional eviction fallback for infeasible resizes, and no HPA conflicts.
 
@@ -28,7 +28,7 @@ resource requests and limits using [In-Place Pod Resize](https://kubernetes.io/b
 
 ## How It's Different
 
-| | VPA | Goldilocks | kube-rightsize |
+| | VPA | Goldilocks | attune |
 |---|---|---|---|
 | Resize method | Evicts pods | No resize (recommend only) | **In-place** (no restarts) |
 | HPA compatible | No (death spirals) | N/A | **Yes** (adjusts base, not %) |
@@ -50,8 +50,8 @@ resource requests and limits using [In-Place Pod Resize](https://kubernetes.io/b
 ### Install
 
 ```bash
-helm install kube-rightsize oci://ghcr.io/sebtardiflabs/charts/kube-rightsize \
-  --namespace kube-rightsize-system --create-namespace
+helm install attune oci://ghcr.io/attune-io/charts/attune \
+  --namespace attune-system --create-namespace
 ```
 
 ### Create a Policy
@@ -59,8 +59,8 @@ helm install kube-rightsize oci://ghcr.io/sebtardiflabs/charts/kube-rightsize \
 Start in **Recommend** mode (safe, no changes applied):
 
 ```yaml
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizePolicy
+apiVersion: attune.io/v1alpha1
+kind: AttunePolicy
 metadata:
   name: api-services
   namespace: production
@@ -94,7 +94,7 @@ kubectl apply -f policy.yaml
 ### Check Recommendations
 
 ```bash
-kubectl get rightsizepolicies -n production
+kubectl get attunepolicies -n production
 # NAME            TYPE        WORKLOADS   RECS   RESIZED   READY   AGE
 # api-services    Recommend   3           0      0         False   5m
 ```
@@ -102,17 +102,17 @@ kubectl get rightsizepolicies -n production
 After enough data accumulates, recommendations appear:
 
 ```bash
-kubectl get rightsizepolicies -n production
+kubectl get attunepolicies -n production
 # NAME            MODE        WORKLOADS   RECS   RESIZED   READY   AGE
 # api-services    Recommend   3           3      0         True    2d
 
-kubectl rightsize recommendations -n production
+kubectl attune recommendations -n production
 # NAMESPACE    POLICY         WORKLOAD     CONTAINER   CPU REQ   CPU REC   MEM REQ   MEM REC   CONFIDENCE / STATUS
 # production   api-services   api-server   app         500m      320m      512Mi     384Mi     92.0%
 # production   api-services   worker       main        1000m     480m      2Gi       1.2Gi     88.5%
 # production   api-services   frontend     nginx       250m      120m      256Mi     180Mi     95.1%
 
-kubectl rightsize savings -n production
+kubectl attune savings -n production
 # NAMESPACE    POLICY         CPU SAVED   MEM SAVED   EST. MONTHLY
 # production   api-services   830m        1012Mi      $72.40
 ```
@@ -123,11 +123,11 @@ kubectl rightsize savings -n production
 > See the [quickstart guide](docs/getting-started/quickstart.md) for details.
 >
 > **Effective defaults:** Most defaultable policy fields are applied by the
-> controller at reconcile time so that `RightSizeDefaults` and
-> `RightSizeNamespaceDefaults` can override them. Those fields may appear empty
-> in `kubectl get rightsizepolicy -o yaml`, but the policy still follows the
+> controller at reconcile time so that `AttuneDefaults` and
+> `AttuneNamespaceDefaults` can override them. Those fields may appear empty
+> in `kubectl get attunepolicy -o yaml`, but the policy still follows the
 > built-in and inherited runtime behavior unless you override those fields.
-> Use `kubectl rightsize explain -n <namespace> <policy>` to inspect the
+> Use `kubectl attune explain -n <namespace> <policy>` to inspect the
 > effective values for the key controller-applied defaults and see whether each
 > one came from the policy, a namespace default, a cluster default, or the
 > built-in default.
@@ -135,7 +135,7 @@ kubectl rightsize savings -n production
 > **Upgrading?** Review the [changelog](CHANGELOG.md) for breaking changes.
 >
 > **Helm installs:** If you use restrictive cluster networking, review the
-> chart's [Helm README](charts/kube-rightsize/README.md#networkpolicy)
+> chart's [Helm README](charts/attune/README.md#networkpolicy)
 > before installing with `networkPolicy.enabled=true` (the default). The
 > policy allows webhook, metrics, DNS, API server, and Prometheus egress
 > on `networkPolicy.prometheusPort` (default `9090`).
@@ -159,7 +159,7 @@ HPA coexistence, cluster-wide defaults, and multi-workload selectors.
 
 ## kubectl Plugin
 
-A `kubectl rightsize` plugin provides quick access to policy status,
+A `kubectl attune` plugin provides quick access to policy status,
 savings, recommendations, resize history, and recommendation reasoning
 without raw YAML parsing.
 
@@ -168,21 +168,21 @@ without raw YAML parsing.
 make build-plugin
 
 # Copy to your PATH (system-wide)
-sudo cp bin/kubectl-rightsize /usr/local/bin/
+sudo cp bin/kubectl-attune /usr/local/bin/
 
 # Or install for the current user only
-install -Dm755 bin/kubectl-rightsize "$HOME/.local/bin/kubectl-rightsize"
+install -Dm755 bin/kubectl-attune "$HOME/.local/bin/kubectl-attune"
 export PATH="$HOME/.local/bin:$PATH"
 
 # Usage
-kubectl rightsize status -n production
-kubectl rightsize savings -n production
-kubectl rightsize recommendations -n production
-kubectl rightsize history -n production
-kubectl rightsize explain -n production api-services
+kubectl attune status -n production
+kubectl attune savings -n production
+kubectl attune recommendations -n production
+kubectl attune history -n production
+kubectl attune explain -n production api-services
 
 # All namespaces
-kubectl rightsize status -A
+kubectl attune status -A
 ```
 
 Example output:
@@ -201,7 +201,7 @@ production   api-services   api-server   app         500m      320m      512Mi  
 Helm values to auto-provision the dashboard via the Grafana sidecar:
 
 ```bash
-helm upgrade kube-rightsize oci://ghcr.io/sebtardiflabs/charts/kube-rightsize \
+helm upgrade attune oci://ghcr.io/attune-io/charts/attune \
   --set grafanaDashboard.enabled=true
 ```
 
@@ -219,7 +219,7 @@ The dashboard includes:
 
 ```
 ┌──────────────────────────────────────────────────┐
-│                 kube-rightsize                     │
+│                 attune                     │
 │                                                    │
 │  Policy         Metrics         Recommender        │
 │  Controller ──► Collector ──►  Engine              │
@@ -270,7 +270,7 @@ The dashboard includes:
   restarts. `InPlaceOrRecreate` can optionally fall back to eviction when
   kubelet rejects an in-place resize.
 - **Cost savings estimation**: Per-workload `EstimatedMonthlySavings` in
-  status, CLI (`kubectl rightsize savings`), and Grafana dashboard.
+  status, CLI (`kubectl attune savings`), and Grafana dashboard.
 - **Scheduled resize windows**: Restrict resizes to specific time windows
   and days of the week. Recommendations compute continuously regardless.
 - **Per-cycle budget caps**: Limit aggregate CPU/memory increases per
@@ -285,7 +285,7 @@ The dashboard includes:
 - **Prometheus auto-discovery**: Finds Prometheus via the Operator CRD or
   well-known service names when no address is configured.
 - **Batch workloads**: CronJobs and Jobs for recommend-only right-sizing.
-- **Namespace-scoped defaults**: Per-namespace `RightSizeNamespaceDefaults`
+- **Namespace-scoped defaults**: Per-namespace `AttuneNamespaceDefaults`
   override cluster-scoped defaults for production vs staging.
 - **Conflict detection**: Warns about VPA, overlapping policies, or active
   rollouts targeting the same workload.
@@ -293,7 +293,7 @@ The dashboard includes:
   recommendations as an alternative to Prometheus queries via `metricsSource.vpa`.
 - **SLO-based guardrails**: PromQL-based application health checks
   (latency, error rate) that auto-revert resizes on threshold breach.
-- **GitOps diff command**: `kubectl rightsize diff` outputs recommendations
+- **GitOps diff command**: `kubectl attune diff` outputs recommendations
   in diff format for ArgoCD/Flux review workflows.
 - **Initial sizing webhook**: Set pod resources at creation time based on
   existing policy recommendations, eliminating the "deploy with bad defaults" gap.
@@ -310,7 +310,7 @@ The dashboard includes:
 
 | Guide | Description |
 |-------|-------------|
-| [Why kube-rightsize?](docs/why-kube-rightsize.md) | The problem, why VPA fails, and how in-place resize changes everything |
+| [Why attune?](docs/why-attune.md) | The problem, why VPA fails, and how in-place resize changes everything |
 | [Savings Calculator](docs/savings-calculator.md) | Estimate your monthly savings with an interactive calculator |
 | [Quickstart](docs/getting-started/quickstart.md) | Get running in 5 minutes |
 | [Migrating from VPA](docs/guides/migrating-from-vpa.md) | Step-by-step VPA replacement |
@@ -323,7 +323,7 @@ The dashboard includes:
 | [Examples](examples/) | Ready-to-use policy manifests |
 | [Contributing](CONTRIBUTING.md) | Development setup and guidelines |
 | [Changelog](CHANGELOG.md) | Release history and breaking changes |
-| [Adopters](ADOPTERS.md) | Organizations using kube-rightsize |
+| [Adopters](ADOPTERS.md) | Organizations using attune |
 
 ## License
 

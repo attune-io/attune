@@ -32,7 +32,7 @@ func TestMetricsRegistered(t *testing.T) {
 		SavingsCPU.WithLabelValues("default").Set(0.35)
 		SavingsMemory.WithLabelValues("default").Set(536870912)
 		Confidence.WithLabelValues("default", "api-server", "api").Set(0.92)
-		ReconcileDuration.WithLabelValues("rightsizepolicy", "default", "test-policy").Observe(1.5)
+		ReconcileDuration.WithLabelValues("attunepolicy", "default", "test-policy").Observe(1.5)
 		PrometheusQueryDuration.WithLabelValues("cpu_grouped").Observe(0.05)
 		PrometheusQueryErrors.WithLabelValues("default", "cpu_grouped").Inc()
 	})

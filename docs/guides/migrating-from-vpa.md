@@ -1,31 +1,31 @@
 # Migrating from VPA
 
 This guide walks you through replacing the Kubernetes Vertical Pod Autoscaler
-(VPA) with kube-rightsize. The migration can be done workload-by-workload
+(VPA) with attune. The migration can be done workload-by-workload
 with no downtime.
 
-## VPA vs kube-rightsize modes
+## VPA vs attune modes
 
-| VPA Mode | kube-rightsize Equivalent | Notes |
+| VPA Mode | attune Equivalent | Notes |
 |----------|---------------------------|-------|
 | `Off` | **Observe** or **Recommend** | Observe: data collection only. Recommend: collect and write recommendations to status |
-| `Initial` | **OneShot** | Set resources once; kube-rightsize uses in-place resize instead of restart |
+| `Initial` | **OneShot** | Set resources once; attune uses in-place resize instead of restart |
 | `Auto` (with eviction) | **Canary** or **Auto** | In-place first; add `resizeMethod: InPlaceOrRecreate` if you want eviction fallback instead of skipping infeasible pods |
 | `Recommend` (UpdateMode=Off) | **Recommend** | Write recommendations to status without acting |
 
 ## Step-by-step migration
 
-### 1. Install kube-rightsize alongside VPA
+### 1. Install attune alongside VPA
 
-Both can run in the same cluster. Install kube-rightsize per the
+Both can run in the same cluster. Install attune per the
 [Installation guide](../getting-started/installation.md).
 
-### 2. Create a RightSizePolicy in Recommend mode
+### 2. Create a AttunePolicy in Recommend mode
 
-For each VPA object, create a matching RightSizePolicy. Map the VPA config
-to RightSizePolicy fields:
+For each VPA object, create a matching AttunePolicy. Map the VPA config
+to AttunePolicy fields:
 
-| VPA field | RightSizePolicy field |
+| VPA field | AttunePolicy field |
 |-----------|----------------------|
 | `targetRef` | `spec.targetRef` (same structure) |
 | `resourcePolicy.containerPolicies[].minAllowed` | `spec.cpu.minAllowed`, `spec.memory.minAllowed` |
@@ -58,11 +58,11 @@ spec:
     updateMode: "Auto"
 ```
 
-Equivalent RightSizePolicy:
+Equivalent AttunePolicy:
 
 ```yaml
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizePolicy
+apiVersion: attune.io/v1alpha1
+kind: AttunePolicy
 metadata:
   name: my-app
   namespace: default
@@ -94,7 +94,7 @@ spec:
 ### 3. Compare recommendations
 
 Let both run for at least one full `historyWindow` period (default 7 days).
-Compare the VPA recommendations with kube-rightsize recommendations:
+Compare the VPA recommendations with attune recommendations:
 
 ```bash
 kubectl get vpa my-app -o jsonpath='{.status.recommendation}' | jq .
@@ -109,7 +109,7 @@ Set the VPA to `Off` mode or delete it:
 kubectl delete vpa my-app
 ```
 
-### 5. Promote kube-rightsize to Canary
+### 5. Promote attune to Canary
 
 ```bash
 kubectl patch rsp my-app --type merge \
@@ -127,6 +127,6 @@ kubectl delete crd verticalpodautoscalers.autoscaling.k8s.io \
 ```
 
 !!! warning
-    Do not run both VPA (in Auto/Initial mode) and kube-rightsize (in
+    Do not run both VPA (in Auto/Initial mode) and attune (in
     Canary/Auto mode) on the same workload. The conflict detector will
     warn you, but running both can cause competing resize operations.

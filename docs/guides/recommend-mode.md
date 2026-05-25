@@ -1,14 +1,14 @@
 # Recommend Mode
 
-Recommend mode is the safest way to start with kube-rightsize. The operator
+Recommend mode is the safest way to start with attune. The operator
 collects Prometheus metrics, computes recommendations, and writes them to the
 policy's `.status.recommendations` field. No pods are modified.
 
 ## Creating a Recommend-mode policy
 
 ```yaml
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizePolicy
+apiVersion: attune.io/v1alpha1
+kind: AttunePolicy
 metadata:
   name: api-services
   namespace: production

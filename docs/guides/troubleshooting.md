@@ -18,7 +18,7 @@ failed:
 
 - `Cannot resolve Prometheus config` means address resolution failed. The
   operator checks (in order): policy spec, one defaults source
-  (`RightSizeNamespaceDefaults` if present, otherwise `RightSizeDefaults`),
+  (`AttuneNamespaceDefaults` if present, otherwise `AttuneDefaults`),
   Prometheus Operator CRD, then well-known service names.
 - `Cannot create metrics collector`, `reading secret`, or transport errors
   like `TLS handshake timeout` mean the address was found but auth, headers,
@@ -36,11 +36,11 @@ will not work.
 
 **Fix address resolution failures**:
 
-1. Set the address explicitly in a `RightSizeDefaults` resource:
+1. Set the address explicitly in a `AttuneDefaults` resource:
 
     ```yaml
-    apiVersion: rightsize.io/v1alpha1
-    kind: RightSizeDefaults
+    apiVersion: attune.io/v1alpha1
+    kind: AttuneDefaults
     metadata:
       name: default
     spec:
@@ -82,7 +82,7 @@ completed. This typically happens when Prometheus is slow to respond
 1. Increase the timeout: set Helm `prometheusTimeout: "10m"` (or
    `--prometheus-timeout=10m`).
 2. Reduce per-query cost: decrease `historyWindow` or increase `queryStep`
-   on the RightSizePolicy or RightSizeDefaults.
+   on the AttunePolicy or AttuneDefaults.
 3. Check Prometheus health: high query latency often indicates Prometheus
    itself needs more resources or recording rules.
 
@@ -181,12 +181,12 @@ spec:
 
 **Cause**: The controller could not fetch or apply defaults cleanly before
 continuing. The condition message includes the failing step, such as
-`Failed to fetch defaults: listing RightSizeNamespaceDefaults ...`.
+`Failed to fetch defaults: listing AttuneNamespaceDefaults ...`.
 
 **Fix**:
 
-1. Check whether the operator can list `RightSizeDefaults` and
-   `RightSizeNamespaceDefaults`.
+1. Check whether the operator can list `AttuneDefaults` and
+   `AttuneNamespaceDefaults`.
 2. Verify the defaults objects themselves are valid and that only the
    expected objects exist in the namespace.
 3. Check operator logs for the exact failing API call or validation error.
@@ -244,7 +244,7 @@ kubectl patch rsp <name> --type merge \
 
 ```
 Error from server (InternalError): Internal error occurred: failed calling
-webhook "vrightsizepolicy.kb.io": Post "https://...": dial tcp ...: connection refused
+webhook "vattunepolicy.kb.io": Post "https://...": dial tcp ...: connection refused
 ```
 
 **Cause**: The webhook server is not running or the TLS certificate is not
@@ -269,7 +269,7 @@ ready. This typically means cert-manager is missing or broken.
 3. Check the Certificate status:
 
     ```bash
-    kubectl get certificate -n kube-rightsize-system
+    kubectl get certificate -n attune-system
     # Status should be True (Ready)
     ```
 
@@ -447,7 +447,7 @@ updateStrategy:
 
 **Symptom**: `kubectl apply` fails with:
 ```
-admission webhook "validation.rightsize.io" denied the request:
+admission webhook "validation.attune.io" denied the request:
 updateStrategy.schedule.timezone "PST" is not a valid IANA timezone
 ```
 
@@ -476,7 +476,7 @@ timedatectl list-timezones
 
 **Symptom**: `kubectl apply` fails with:
 ```
-admission webhook "validation.rightsize.io" denied the request:
+admission webhook "validation.attune.io" denied the request:
 updateStrategy.schedule.daysOfWeek contains invalid day "Wed"
 ```
 
@@ -495,12 +495,12 @@ Valid values: `Monday`, `Tuesday`, `Wednesday`, `Thursday`, `Friday`,
 
 ## Deleting a policy
 
-When you delete a `RightSizePolicy`, the operator uses a
-`rightsize.io/cleanup` finalizer to clean up before the resource is
+When you delete a `AttunePolicy`, the operator uses a
+`attune.io/cleanup` finalizer to clean up before the resource is
 garbage-collected:
 
-1. **Annotations removed**: all tracking annotations (`rightsize.io/resized-at`,
-   `rightsize.io/policy`, etc.) and the `rightsize.io/tracked` label are
+1. **Annotations removed**: all tracking annotations (`attune.io/resized-at`,
+   `attune.io/policy`, etc.) and the `attune.io/tracked` label are
    removed from pods managed by that policy.
 2. **Resources retained**: pods keep their current (resized) CPU and memory
    values. The operator does not revert resources to pre-resize values.
@@ -513,7 +513,7 @@ If the policy appears stuck in `Terminating`, check the operator logs for
 pod update errors during cleanup:
 
 ```bash
-kubectl logs -n kube-rightsize-system deploy/kube-rightsize-controller-manager | grep "deletion cleanup"
+kubectl logs -n attune-system deploy/attune-controller-manager | grep "deletion cleanup"
 ```
 
 ## Large cluster performance
@@ -547,7 +547,7 @@ acting on outdated metrics. You will see this in the operator logs:
 Skipping resize for workload with stale recommendation  workload=my-app
 ```
 
-The `kube_rightsize_stale_recommendations_total` counter increments each
+The `attune_stale_recommendations_total` counter increments each
 time this happens. Common causes:
 
 1. **Prometheus is temporarily unavailable** or responding slowly.
@@ -558,7 +558,7 @@ time this happens. Common causes:
 To diagnose, enable debug logging and check the Prometheus query results:
 
 ```bash
-kubectl logs -n kube-rightsize-system deploy/kube-rightsize-controller-manager \
+kubectl logs -n attune-system deploy/attune-controller-manager \
   | grep -E "stale|Prometheus query returned no data"
 ```
 
@@ -566,7 +566,7 @@ Resizes resume automatically once fresh data is available.
 
 ## Deployment-owned ReplicaSet targeting
 
-If a `RightSizePolicy` targets a ReplicaSet that is owned by a Deployment,
+If a `AttunePolicy` targets a ReplicaSet that is owned by a Deployment,
 the operator rejects it with an error:
 
 ```
@@ -600,25 +600,25 @@ at `info` level. To enable debug logging:
 
 ```bash
 # Enable debug logs (V(1): queries, pod selection, cache, recommendations)
-helm upgrade kube-rightsize kube-rightsize/kube-rightsize \
+helm upgrade attune attune/attune \
   --set logging.level=debug
 
 # Enable verbose trace logs (V(2): per-sample data, full recommendation chain)
-helm upgrade kube-rightsize kube-rightsize/kube-rightsize \
+helm upgrade attune attune/attune \
   --set logging.level=2
 ```
 
 You can also switch to human-readable text format for local debugging:
 
 ```bash
-helm upgrade kube-rightsize kube-rightsize/kube-rightsize \
+helm upgrade attune attune/attune \
   --set logging.level=debug --set logging.format=text
 ```
 
 Revert to normal after debugging:
 
 ```bash
-helm upgrade kube-rightsize kube-rightsize/kube-rightsize \
+helm upgrade attune attune/attune \
   --set logging.level=info
 ```
 
@@ -627,7 +627,7 @@ helm upgrade kube-rightsize kube-rightsize/kube-rightsize \
 Operator logs:
 
 ```bash
-kubectl -n kube-rightsize-system logs -l app.kubernetes.io/name=kube-rightsize --tail=100
+kubectl -n attune-system logs -l app.kubernetes.io/name=attune --tail=100
 ```
 
 List all policies with status:
@@ -645,8 +645,8 @@ kubectl describe rsp <name>
 Check operator metrics:
 
 ```bash
-kubectl -n kube-rightsize-system port-forward svc/kube-rightsize-metrics 8080:8080 >/tmp/kube-rightsize-metrics-pf.log 2>&1 &
+kubectl -n attune-system port-forward svc/attune-metrics 8080:8080 >/tmp/attune-metrics-pf.log 2>&1 &
 PF_PID=$!
 trap 'kill "$PF_PID" 2>/dev/null || true' EXIT
-curl -s localhost:8080/metrics | grep kube_rightsize
+curl -s localhost:8080/metrics | grep attune
 ```

@@ -31,8 +31,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
-	rsmetrics "github.com/SebTardifLabs/kube-rightsize/internal/metrics"
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	rsmetrics "github.com/attune-io/attune/internal/metrics"
 )
 
 // ---------- nativeSidecars ----------
@@ -118,7 +118,7 @@ func TestWorkload_IsBatchWorkload(t *testing.T) {
 
 func TestWorkload_GetContainers(t *testing.T) {
 	always := corev1.ContainerRestartPolicyAlways
-	r := &RightSizePolicyReconciler{}
+	r := &AttunePolicyReconciler{}
 
 	tests := []struct {
 		name      string
@@ -204,7 +204,7 @@ func TestWorkload_GetContainers(t *testing.T) {
 // ---------- isRollingOut ----------
 
 func TestWorkload_IsRollingOut(t *testing.T) {
-	r := &RightSizePolicyReconciler{}
+	r := &AttunePolicyReconciler{}
 
 	tests := []struct {
 		name     string
@@ -293,7 +293,7 @@ func TestWorkload_IsRollingOut(t *testing.T) {
 // ---------- getPodSelectorLabels ----------
 
 func TestWorkload_GetPodSelectorLabels(t *testing.T) {
-	r := &RightSizePolicyReconciler{}
+	r := &AttunePolicyReconciler{}
 
 	tests := []struct {
 		name     string
@@ -658,7 +658,7 @@ func TestWorkload_DiscoverWorkloads(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		policy  *rightsizev1alpha1.RightSizePolicy
+		policy  *attunev1alpha1.AttunePolicy
 		objects []client.Object
 		wantLen int
 		wantNil bool
@@ -666,10 +666,10 @@ func TestWorkload_DiscoverWorkloads(t *testing.T) {
 	}{
 		{
 			name: "by name found",
-			policy: &rightsizev1alpha1.RightSizePolicy{
+			policy: &attunev1alpha1.AttunePolicy{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
-				Spec: rightsizev1alpha1.RightSizePolicySpec{
-					TargetRef: rightsizev1alpha1.TargetRef{
+				Spec: attunev1alpha1.AttunePolicySpec{
+					TargetRef: attunev1alpha1.TargetRef{
 						Kind: "Deployment",
 						Name: stringPtr("web"),
 					},
@@ -680,10 +680,10 @@ func TestWorkload_DiscoverWorkloads(t *testing.T) {
 		},
 		{
 			name: "by name not found returns nil",
-			policy: &rightsizev1alpha1.RightSizePolicy{
+			policy: &attunev1alpha1.AttunePolicy{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
-				Spec: rightsizev1alpha1.RightSizePolicySpec{
-					TargetRef: rightsizev1alpha1.TargetRef{
+				Spec: attunev1alpha1.AttunePolicySpec{
+					TargetRef: attunev1alpha1.TargetRef{
 						Kind: "Deployment",
 						Name: stringPtr("missing"),
 					},
@@ -694,10 +694,10 @@ func TestWorkload_DiscoverWorkloads(t *testing.T) {
 		},
 		{
 			name: "by selector matches",
-			policy: &rightsizev1alpha1.RightSizePolicy{
+			policy: &attunev1alpha1.AttunePolicy{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
-				Spec: rightsizev1alpha1.RightSizePolicySpec{
-					TargetRef: rightsizev1alpha1.TargetRef{
+				Spec: attunev1alpha1.AttunePolicySpec{
+					TargetRef: attunev1alpha1.TargetRef{
 						Kind: "Deployment",
 						Selector: &metav1.LabelSelector{
 							MatchLabels: map[string]string{"team": "backend"},
@@ -710,10 +710,10 @@ func TestWorkload_DiscoverWorkloads(t *testing.T) {
 		},
 		{
 			name: "neither name nor selector returns error",
-			policy: &rightsizev1alpha1.RightSizePolicy{
+			policy: &attunev1alpha1.AttunePolicy{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
-				Spec: rightsizev1alpha1.RightSizePolicySpec{
-					TargetRef: rightsizev1alpha1.TargetRef{
+				Spec: attunev1alpha1.AttunePolicySpec{
+					TargetRef: attunev1alpha1.TargetRef{
 						Kind: "Deployment",
 					},
 				},
@@ -729,7 +729,7 @@ func TestWorkload_DiscoverWorkloads(t *testing.T) {
 			if len(tt.objects) > 0 {
 				builder = builder.WithObjects(tt.objects...)
 			}
-			r := &RightSizePolicyReconciler{Client: builder.Build()}
+			r := &AttunePolicyReconciler{Client: builder.Build()}
 
 			got, err := r.discoverWorkloads(ctx, tt.policy)
 			if tt.wantErr != "" {
@@ -805,7 +805,7 @@ func TestWorkload_GetPodsForWorkload(t *testing.T) {
 			if len(tt.objects) > 0 {
 				builder = builder.WithObjects(tt.objects...)
 			}
-			r := &RightSizePolicyReconciler{Client: builder.Build()}
+			r := &AttunePolicyReconciler{Client: builder.Build()}
 
 			pods, err := r.getPodsForWorkload(ctx, tt.workload)
 			if tt.wantErr != "" {

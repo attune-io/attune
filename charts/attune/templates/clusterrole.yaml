@@ -1,0 +1,174 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "attune.fullname" . }}
+  labels:
+    {{- include "attune.labels" . | nindent 4 }}
+rules:
+  # AttunePolicy CRDs: read + patch (annotations)
+  - apiGroups:
+      - attune.io
+    resources:
+      - attunepolicies
+    verbs:
+      - get
+      - list
+      - watch
+      - patch
+  - apiGroups:
+      - attune.io
+    resources:
+      - attunepolicies/status
+    verbs:
+      - get
+      - update
+  # Finalizers: allow the controller to manage the cleanup finalizer
+  - apiGroups:
+      - attune.io
+    resources:
+      - attunepolicies/finalizers
+    verbs:
+      - update
+  # AttuneDefaults: read-only (cluster and namespace scoped)
+  - apiGroups:
+      - attune.io
+    resources:
+      - attunedefaults
+      - attunenamespacedefaults
+    verbs:
+      - get
+      - list
+      - watch
+  # Workload controllers: read-only
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+      - statefulsets
+      - daemonsets
+      - replicasets
+    verbs:
+      - get
+      - list
+      - watch
+  # Batch workloads: read-only (Job/CronJob recommend-only support)
+  - apiGroups:
+      - batch
+    resources:
+      - cronjobs
+      - jobs
+    verbs:
+      - get
+      - list
+      - watch
+  # Pods: read + update (tracking annotations) + resize subresource
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - pods/resize
+    verbs:
+      - update
+      - patch
+  # Eviction fallback (resizeMethod: InPlaceOrRecreate)
+  - apiGroups:
+      - ""
+    resources:
+      - pods/eviction
+    verbs:
+      - create
+  # Events: read (OOMKill detection) + create (operator events)
+  - apiGroups:
+      - events.k8s.io
+    resources:
+      - events
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - patch
+  # HPA: read + write (conflict detection + auto-tune)
+  - apiGroups:
+      - autoscaling
+    resources:
+      - horizontalpodautoscalers
+    verbs:
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  # VPA: read-only (conflict detection)
+  - apiGroups:
+      - autoscaling.k8s.io
+    resources:
+      - verticalpodautoscalers
+    verbs:
+      - get
+      - list
+      - watch
+  # Prometheus Operator: read-only (auto-discovery)
+  - apiGroups:
+      - monitoring.coreos.com
+    resources:
+      - prometheuses
+    verbs:
+      - get
+      - list
+  # Nodes: read-only (capacity pre-check before resize)
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+    verbs:
+      - get
+      - list
+      - watch
+  # Services: Prometheus auto-discovery via well-known service names (list/watch for cache)
+  - apiGroups:
+      - ""
+    resources:
+      - services
+    verbs:
+      - get
+      - list
+      - watch
+  # ConfigMaps: recommendation export for GitOps workflows (list/watch for cache)
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - update
+      - watch
+  # Secrets: get-only (bearer token for Prometheus auth; no informer cache)
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+  # ResourceQuotas and LimitRanges: read-only (pre-resize compatibility checks)
+  - apiGroups:
+      - ""
+    resources:
+      - resourcequotas
+      - limitranges
+    verbs:
+      - get
+      - list
+      - watch

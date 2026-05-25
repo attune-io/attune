@@ -1,0 +1,99 @@
+{{- if .Values.webhooks.enabled }}
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: {{ include "attune.fullname" . }}-mutating
+  labels:
+    {{- include "attune.labels" . | nindent 4 }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "attune.fullname" . }}-webhook
+webhooks:
+  - name: defaulting.attune.io
+    admissionReviewVersions: ["v1"]
+    clientConfig:
+      service:
+        name: {{ include "attune.fullname" . }}-webhook
+        namespace: {{ .Release.Namespace }}
+        path: /mutate-attune-io-v1alpha1-attunepolicy
+    failurePolicy: Fail
+    rules:
+      - apiGroups: ["attune.io"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["attunepolicies"]
+    sideEffects: None
+{{- if .Values.initialSizing.enabled }}
+  - name: pod-initial-sizing.attune.io
+    admissionReviewVersions: ["v1"]
+    clientConfig:
+      service:
+        name: {{ include "attune.fullname" . }}-webhook
+        namespace: {{ .Release.Namespace }}
+        path: /mutate-v1-pod
+    failurePolicy: Ignore
+    reinvocationPolicy: IfNeeded
+    namespaceSelector:
+      matchExpressions:
+        - key: attune.io/initial-sizing
+          operator: In
+          values: ["enabled"]
+    rules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE"]
+        resources: ["pods"]
+    sideEffects: None
+{{- end }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: {{ include "attune.fullname" . }}-validating
+  labels:
+    {{- include "attune.labels" . | nindent 4 }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "attune.fullname" . }}-webhook
+webhooks:
+  - name: validation.attune.io
+    admissionReviewVersions: ["v1"]
+    clientConfig:
+      service:
+        name: {{ include "attune.fullname" . }}-webhook
+        namespace: {{ .Release.Namespace }}
+        path: /validate-attune-io-v1alpha1-attunepolicy
+    failurePolicy: Fail
+    rules:
+      - apiGroups: ["attune.io"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["attunepolicies"]
+    sideEffects: None
+  - name: validation-defaults.attune.io
+    admissionReviewVersions: ["v1"]
+    clientConfig:
+      service:
+        name: {{ include "attune.fullname" . }}-webhook
+        namespace: {{ .Release.Namespace }}
+        path: /validate-attune-io-v1alpha1-attunedefaults
+    failurePolicy: Fail
+    rules:
+      - apiGroups: ["attune.io"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["attunedefaults"]
+    sideEffects: None
+  - name: validation-namespace-defaults.attune.io
+    admissionReviewVersions: ["v1"]
+    clientConfig:
+      service:
+        name: {{ include "attune.fullname" . }}-webhook
+        namespace: {{ .Release.Namespace }}
+        path: /validate-attune-io-v1alpha1-attunenamespacedefaults
+    failurePolicy: Fail
+    rules:
+      - apiGroups: ["attune.io"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["attunenamespacedefaults"]
+    sideEffects: None
+{{- end }}

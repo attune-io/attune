@@ -1,6 +1,6 @@
 # GitOps Integration
 
-kube-rightsize performs in-place pod resizes via the `/resize` subresource,
+attune performs in-place pod resizes via the `/resize` subresource,
 which modifies the running pod without changing the Deployment, StatefulSet,
 or DaemonSet spec. This has specific implications for GitOps workflows.
 
@@ -15,13 +15,13 @@ Your Git-stored Deployment spec remains unchanged. This means:
   change), the new pods start with the original resources from the template.
   The operator will re-evaluate and resize again after collecting metrics.
 - **No feedback loop**: The operator doesn't write back to Git. The
-  recommended values live only in the `RightSizePolicy` status.
+  recommended values live only in the `AttunePolicy` status.
 
 ## Recommended workflow
 
 ### 1. Start in Recommend mode
 
-Deploy `RightSizePolicy` resources in your GitOps repo with `type: Recommend`.
+Deploy `AttunePolicy` resources in your GitOps repo with `type: Recommend`.
 The operator computes recommendations without modifying anything.
 
 ```yaml
@@ -33,7 +33,7 @@ spec:
 ### 2. Review recommendations
 
 ```bash
-kubectl rightsize recommendations -n production
+kubectl attune recommendations -n production
 ```
 
 ### 3. Apply recommendations to Git (manual)
@@ -52,17 +52,17 @@ adjusts.
 
 - **Resource tracking**: ArgoCD tracks Deployments and StatefulSets but not
   individual pod specs. In-place resizes are invisible to ArgoCD.
-- **Health checks**: The `RightSizePolicy` CRD has a `Ready` condition.
+- **Health checks**: The `AttunePolicy` CRD has a `Ready` condition.
   ArgoCD can use this for health status if you add a custom health check.
 - **Sync waves**: Deploy the operator (Helm chart) in an early sync wave,
-  and `RightSizePolicy` resources in a later wave.
+  and `AttunePolicy` resources in a later wave.
 
 ## Flux-specific notes
 
 - **Kustomization ordering**: Use `dependsOn` to ensure the operator is
-  healthy before `RightSizePolicy` resources are applied.
+  healthy before `AttunePolicy` resources are applied.
 - **Health checks**: Flux can check the `Ready` condition on
-  `RightSizePolicy` resources via `healthChecks` in the Kustomization.
+  `AttunePolicy` resources via `healthChecks` in the Kustomization.
 
 ## When to update Git vs let the operator handle it
 
@@ -71,4 +71,4 @@ adjusts.
 | Initial right-sizing of a new service | Let operator recommend, then commit to Git |
 | Ongoing optimization of stable services | Use Auto mode; commit periodically based on savings reports |
 | Pre-deployment sizing | Use Recommend mode, review, commit before promoting |
-| Cost reporting | Use `kubectl rightsize savings` or the Grafana dashboard |
+| Cost reporting | Use `kubectl attune savings` or the Grafana dashboard |

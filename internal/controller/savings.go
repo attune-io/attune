@@ -23,8 +23,8 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/resource"
 
-	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
-	"github.com/SebTardifLabs/kube-rightsize/internal/operatormetrics"
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/operatormetrics"
 )
 
 const (
@@ -45,7 +45,7 @@ type savingsAccumulator struct {
 }
 
 // accumulateSavings iterates over recommendations and accumulates resource diffs.
-func accumulateSavings(recommendations []rightsizev1alpha1.WorkloadRecommendation) savingsAccumulator {
+func accumulateSavings(recommendations []attunev1alpha1.WorkloadRecommendation) savingsAccumulator {
 	var acc savingsAccumulator
 	for _, rec := range recommendations {
 		for _, c := range rec.Containers {
@@ -71,10 +71,10 @@ func accumulateSavings(recommendations []rightsizev1alpha1.WorkloadRecommendatio
 }
 
 // computeSavings calculates the aggregate resource savings across all recommendations.
-func (r *RightSizePolicyReconciler) computeSavings(recommendations []rightsizev1alpha1.WorkloadRecommendation, defaults *rightsizev1alpha1.RightSizeDefaults) rightsizev1alpha1.SavingsStatus {
+func (r *AttunePolicyReconciler) computeSavings(recommendations []attunev1alpha1.WorkloadRecommendation, defaults *attunev1alpha1.AttuneDefaults) attunev1alpha1.SavingsStatus {
 	acc := accumulateSavings(recommendations)
 
-	savings := rightsizev1alpha1.SavingsStatus{}
+	savings := attunev1alpha1.SavingsStatus{}
 	if acc.totalCPU > 0 {
 		savings.CPURequestTotal = resource.NewMilliQuantity(acc.totalCPU, resource.DecimalSI).String()
 	}
@@ -116,7 +116,7 @@ func (r *RightSizePolicyReconciler) computeSavings(recommendations []rightsizev1
 // updateSavingsGauges publishes savings metrics to Prometheus gauges.
 // Called from Reconcile after computeSavings. Separated so computeSavings
 // remains a pure function that tests can call without registering collectors.
-func updateSavingsGauges(namespace string, recommendations []rightsizev1alpha1.WorkloadRecommendation, defaults *rightsizev1alpha1.RightSizeDefaults) {
+func updateSavingsGauges(namespace string, recommendations []attunev1alpha1.WorkloadRecommendation, defaults *attunev1alpha1.AttuneDefaults) {
 	acc := accumulateSavings(recommendations)
 
 	cpuCoresSaved := float64(acc.totalCPUSaved) / 1000.0
@@ -129,8 +129,8 @@ func updateSavingsGauges(namespace string, recommendations []rightsizev1alpha1.W
 	operatormetrics.SavingsEstimatedMonthly.WithLabelValues(namespace).Set(monthlySavings)
 }
 
-// getCostPricing reads pricing from RightSizeDefaults, falling back to defaults.
-func getCostPricing(defaults *rightsizev1alpha1.RightSizeDefaults) (cpuPerCoreHour, memPerGiBHour float64) {
+// getCostPricing reads pricing from AttuneDefaults, falling back to defaults.
+func getCostPricing(defaults *attunev1alpha1.AttuneDefaults) (cpuPerCoreHour, memPerGiBHour float64) {
 	cpuPerCoreHour = defaultCPUPerCoreHour
 	memPerGiBHour = defaultMemPerGiBHour
 

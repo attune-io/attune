@@ -15,8 +15,8 @@ limitations under the License.
 */
 
 // Package defaults provides shared default-value and merge logic for
-// RightSizePolicy fields. Both the controller (internal/controller) and
-// the kubectl plugin (cmd/kubectl-rightsize) use these functions so
+// AttunePolicy fields. Both the controller (internal/controller) and
+// the kubectl plugin (cmd/kubectl-attune) use these functions so
 // their defaulting behavior stays in sync.
 package defaults
 
@@ -25,64 +25,64 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 )
 
 // ApplyBuiltInDefaults fills strategy and metrics fields still unset after
 // MergeDefaults with the operator's built-in default values. This runs
-// AFTER MergeDefaults so that cluster-wide RightSizeDefaults take precedence.
+// AFTER MergeDefaults so that cluster-wide AttuneDefaults take precedence.
 //
 // Per-resource fields (Percentile, Overhead, MinAllowed/MaxAllowed, BurstSensitivity)
 // are NOT set here; they are handled defensively at their usage sites in
 // buildRecommendationEngines.
-func ApplyBuiltInDefaults(policy *rightsizev1alpha1.RightSizePolicy) {
+func ApplyBuiltInDefaults(policy *attunev1alpha1.AttunePolicy) {
 	if policy.Spec.UpdateStrategy.Type == "" {
-		policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.DefaultUpdateType
+		policy.Spec.UpdateStrategy.Type = attunev1alpha1.DefaultUpdateType
 	}
 	if policy.Spec.CPU.MaxChangePercent == nil {
-		v := rightsizev1alpha1.DefaultCPUMaxChangePercent
+		v := attunev1alpha1.DefaultCPUMaxChangePercent
 		policy.Spec.CPU.MaxChangePercent = &v
 	}
 	if policy.Spec.Memory.MaxChangePercent == nil {
-		v := rightsizev1alpha1.DefaultMemoryMaxChangePercent
+		v := attunev1alpha1.DefaultMemoryMaxChangePercent
 		policy.Spec.Memory.MaxChangePercent = &v
 	}
 	if policy.Spec.UpdateStrategy.Cooldown == nil {
-		d, _ := time.ParseDuration(rightsizev1alpha1.DefaultCooldown)
+		d, _ := time.ParseDuration(attunev1alpha1.DefaultCooldown)
 		policy.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: d}
 	}
 	if policy.Spec.UpdateStrategy.AutoRevert == nil {
-		v := rightsizev1alpha1.DefaultAutoRevert
+		v := attunev1alpha1.DefaultAutoRevert
 		policy.Spec.UpdateStrategy.AutoRevert = &v
 	}
 	if policy.Spec.UpdateStrategy.ResizeMethod == "" {
-		policy.Spec.UpdateStrategy.ResizeMethod = rightsizev1alpha1.DefaultResizeMethod
+		policy.Spec.UpdateStrategy.ResizeMethod = attunev1alpha1.DefaultResizeMethod
 	}
 	if policy.Spec.MetricsSource.MinimumDataPoints == nil {
-		v := rightsizev1alpha1.DefaultMinimumDataPoints
+		v := attunev1alpha1.DefaultMinimumDataPoints
 		policy.Spec.MetricsSource.MinimumDataPoints = &v
 	}
 	if policy.Spec.MetricsSource.HistoryWindow == nil {
-		d, _ := time.ParseDuration(rightsizev1alpha1.DefaultHistoryWindow)
+		d, _ := time.ParseDuration(attunev1alpha1.DefaultHistoryWindow)
 		policy.Spec.MetricsSource.HistoryWindow = &metav1.Duration{Duration: d}
 	}
 	if policy.Spec.MetricsSource.QueryStep == nil {
-		policy.Spec.MetricsSource.QueryStep = &metav1.Duration{Duration: rightsizev1alpha1.DefaultQueryStep}
+		policy.Spec.MetricsSource.QueryStep = &metav1.Duration{Duration: attunev1alpha1.DefaultQueryStep}
 	}
 	if policy.Spec.CPU.ControlledValues == nil {
-		cv := rightsizev1alpha1.DefaultControlledValues
+		cv := attunev1alpha1.DefaultControlledValues
 		policy.Spec.CPU.ControlledValues = &cv
 	}
 	if policy.Spec.Memory.ControlledValues == nil {
-		cv := rightsizev1alpha1.DefaultControlledValues
+		cv := attunev1alpha1.DefaultControlledValues
 		policy.Spec.Memory.ControlledValues = &cv
 	}
 }
 
-// MergeDefaults merges values from a RightSizeDefaults resource into the
+// MergeDefaults merges values from a AttuneDefaults resource into the
 // policy where the policy has not specified its own values. Returns the
 // list of field names that were inherited (for debug logging by callers).
-func MergeDefaults(policy *rightsizev1alpha1.RightSizePolicy, defaults *rightsizev1alpha1.RightSizeDefaults) []string {
+func MergeDefaults(policy *attunev1alpha1.AttunePolicy, defaults *attunev1alpha1.AttuneDefaults) []string {
 	if defaults == nil {
 		return nil
 	}
@@ -97,7 +97,7 @@ func MergeDefaults(policy *rightsizev1alpha1.RightSizePolicy, defaults *rightsiz
 }
 
 // MergeResourceConfig merges default resource config values into the policy.
-func MergeResourceConfig(policy *rightsizev1alpha1.ResourceConfig, defaults *rightsizev1alpha1.ResourceConfig, prefix string) []string {
+func MergeResourceConfig(policy *attunev1alpha1.ResourceConfig, defaults *attunev1alpha1.ResourceConfig, prefix string) []string {
 	if defaults == nil {
 		return nil
 	}
@@ -154,7 +154,7 @@ func MergeResourceConfig(policy *rightsizev1alpha1.ResourceConfig, defaults *rig
 }
 
 // MergeMetricsSource merges default metrics source values into the policy.
-func MergeMetricsSource(policy *rightsizev1alpha1.MetricsSource, defaults *rightsizev1alpha1.MetricsSource) []string {
+func MergeMetricsSource(policy *attunev1alpha1.MetricsSource, defaults *attunev1alpha1.MetricsSource) []string {
 	if defaults == nil {
 		return nil
 	}
@@ -179,7 +179,7 @@ func MergeMetricsSource(policy *rightsizev1alpha1.MetricsSource, defaults *right
 }
 
 // MergeUpdateStrategy merges default update strategy values into the policy.
-func MergeUpdateStrategy(policy *rightsizev1alpha1.UpdateStrategy, defaults *rightsizev1alpha1.UpdateStrategy) []string {
+func MergeUpdateStrategy(policy *attunev1alpha1.UpdateStrategy, defaults *attunev1alpha1.UpdateStrategy) []string {
 	if defaults == nil {
 		return nil
 	}

@@ -80,8 +80,8 @@ spec:
       try:
         - apply:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: boost-test
                 namespace: e2e-startup-boost
@@ -118,8 +118,8 @@ spec:
       try:
         - assert:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: boost-test
                 namespace: e2e-startup-boost
@@ -133,13 +133,13 @@ spec:
             content: |
               for i in $(seq 1 36); do
                 ANNOTATION=$(kubectl get pods -n e2e-startup-boost -l app=boost-app \
-                  -o jsonpath='{.items[0].metadata.annotations.rightsize\.io/startup-boost-at}' 2>/dev/null)
+                  -o jsonpath='{.items[0].metadata.annotations.attune\.io/startup-boost-at}' 2>/dev/null)
                 if [ -n "$ANNOTATION" ]; then
                   echo "Startup boost annotation found: $ANNOTATION"
                   exit 0
                 fi
                 # Also check if a resize occurred (boost may have been applied and expired)
-                RESIZED=$(kubectl get rightsizepolicy boost-test -n e2e-startup-boost \
+                RESIZED=$(kubectl get attunepolicy boost-test -n e2e-startup-boost \
                   -o jsonpath='{.status.workloads.resized}' 2>/dev/null)
                 if [ "$RESIZED" -ge 1 ] 2>/dev/null; then
                   echo "Resize occurred ($RESIZED), boost was applied"
@@ -152,13 +152,13 @@ spec:
               exit 1
   catch:
     - describe:
-        apiVersion: rightsize.io/v1alpha1
-        kind: RightSizePolicy
+        apiVersion: attune.io/v1alpha1
+        kind: AttunePolicy
         namespace: e2e-startup-boost
     - describe:
         apiVersion: apps/v1
         kind: Deployment
         namespace: e2e-startup-boost
     - podLogs:
-        namespace: kube-rightsize-system
-        selector: app.kubernetes.io/name=kube-rightsize
+        namespace: attune-system
+        selector: app.kubernetes.io/name=attune

@@ -24,8 +24,8 @@ spec:
               - check:
                   ($error != null): true
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: bad-margin
                 namespace: e2e-webhook-validation
@@ -50,8 +50,8 @@ spec:
               - check:
                   ($error != null): true
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: bad-cooldown
                 namespace: e2e-webhook-validation
@@ -71,6 +71,6 @@ spec:
                   cooldown: -5m
   catch:
     - describe:
-        apiVersion: rightsize.io/v1alpha1
-        kind: RightSizePolicy
+        apiVersion: attune.io/v1alpha1
+        kind: AttunePolicy
         namespace: e2e-webhook-validation

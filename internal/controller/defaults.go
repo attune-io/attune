@@ -26,21 +26,21 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
-	pkgdefaults "github.com/SebTardifLabs/kube-rightsize/pkg/defaults"
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	pkgdefaults "github.com/attune-io/attune/pkg/defaults"
 )
 
 // fetchDefaults returns the effective defaults for the given namespace, checking
-// namespace-scoped RightSizeNamespaceDefaults first, then falling back to
-// cluster-scoped RightSizeDefaults. Returns nil if neither exists.
+// namespace-scoped AttuneNamespaceDefaults first, then falling back to
+// cluster-scoped AttuneDefaults. Returns nil if neither exists.
 //
 // If multiple defaults objects exist at the same scope, selection is
 // deterministic: the lexicographically smallest metadata.name wins.
-func (r *RightSizePolicyReconciler) fetchDefaults(ctx context.Context, namespace string) (*rightsizev1alpha1.RightSizeDefaults, error) {
+func (r *AttunePolicyReconciler) fetchDefaults(ctx context.Context, namespace string) (*attunev1alpha1.AttuneDefaults, error) {
 	// Check namespace-scoped defaults first.
-	var nsList rightsizev1alpha1.RightSizeNamespaceDefaultsList
+	var nsList attunev1alpha1.AttuneNamespaceDefaultsList
 	if err := r.List(ctx, &nsList, client.InNamespace(namespace)); err != nil {
-		return nil, fmt.Errorf("listing RightSizeNamespaceDefaults in %s: %w", namespace, err)
+		return nil, fmt.Errorf("listing AttuneNamespaceDefaults in %s: %w", namespace, err)
 	}
 	if len(nsList.Items) > 0 {
 		nsDefaults := nsList.Items[0]
@@ -49,17 +49,17 @@ func (r *RightSizePolicyReconciler) fetchDefaults(ctx context.Context, namespace
 				nsDefaults = nsList.Items[i]
 			}
 		}
-		// Convert to RightSizeDefaults so callers don't need to know the source.
-		return &rightsizev1alpha1.RightSizeDefaults{
+		// Convert to AttuneDefaults so callers don't need to know the source.
+		return &attunev1alpha1.AttuneDefaults{
 			ObjectMeta: nsDefaults.ObjectMeta,
 			Spec:       nsDefaults.Spec,
 		}, nil
 	}
 
 	// Fall back to cluster-scoped defaults.
-	var clusterList rightsizev1alpha1.RightSizeDefaultsList
+	var clusterList attunev1alpha1.AttuneDefaultsList
 	if err := r.List(ctx, &clusterList); err != nil {
-		return nil, fmt.Errorf("listing RightSizeDefaults: %w", err)
+		return nil, fmt.Errorf("listing AttuneDefaults: %w", err)
 	}
 	if len(clusterList.Items) == 0 {
 		return nil, nil
@@ -75,17 +75,17 @@ func (r *RightSizePolicyReconciler) fetchDefaults(ctx context.Context, namespace
 
 // applyBuiltInDefaults fills strategy and metrics fields still unset after
 // mergeDefaults with the operator's built-in default values. This runs AFTER
-// mergeDefaults so that cluster-wide RightSizeDefaults take precedence.
+// mergeDefaults so that cluster-wide AttuneDefaults take precedence.
 //
 // Per-resource fields (Percentile, Overhead, MinAllowed/MaxAllowed, BurstSensitivity)
 // are NOT set here; they are handled defensively at their usage sites in
 // buildRecommendationEngines.
-func (r *RightSizePolicyReconciler) applyBuiltInDefaults(policy *rightsizev1alpha1.RightSizePolicy) {
+func (r *AttunePolicyReconciler) applyBuiltInDefaults(policy *attunev1alpha1.AttunePolicy) {
 	pkgdefaults.ApplyBuiltInDefaults(policy)
 }
 
 // mergeDefaults delegates to the shared defaults package and logs inherited fields.
-func (r *RightSizePolicyReconciler) mergeDefaults(policy *rightsizev1alpha1.RightSizePolicy, defaults *rightsizev1alpha1.RightSizeDefaults) {
+func (r *AttunePolicyReconciler) mergeDefaults(policy *attunev1alpha1.AttunePolicy, defaults *attunev1alpha1.AttuneDefaults) {
 	if defaults == nil {
 		ctrl.Log.V(1).Info("No cluster defaults configured, using built-in values only")
 		return
@@ -103,7 +103,7 @@ func (r *RightSizePolicyReconciler) mergeDefaults(policy *rightsizev1alpha1.Righ
 
 // isWithinResizeWindow returns true if the current time falls within the
 // configured resize schedule. Returns true if no schedule is configured.
-func isWithinResizeWindow(schedule *rightsizev1alpha1.ResizeSchedule, now time.Time) bool {
+func isWithinResizeWindow(schedule *attunev1alpha1.ResizeSchedule, now time.Time) bool {
 	if schedule == nil {
 		return true
 	}

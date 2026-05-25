@@ -1,4 +1,4 @@
-# hack/demo.tape - VHS (Charm) recording script for kube-rightsize demo.
+# hack/demo.tape - VHS (Charm) recording script for attune demo.
 #
 # Install VHS: go install github.com/charmbracelet/vhs@latest
 # Record:      vhs hack/demo.tape
@@ -17,7 +17,7 @@ Set Theme "Catppuccin Mocha"
 Set TypingSpeed 50ms
 Set Padding 20
 
-Type "# kube-rightsize: safe in-place Kubernetes pod right-sizing"
+Type "# attune: safe in-place Kubernetes pod right-sizing"
 Enter
 Sleep 1s
 

@@ -3,7 +3,7 @@ kind: Test
 metadata:
   name: namespace-defaults
 spec:
-  description: Verify that RightSizeNamespaceDefaults overrides cluster-scoped RightSizeDefaults
+  description: Verify that AttuneNamespaceDefaults overrides cluster-scoped AttuneDefaults
   timeouts:
     apply: 60s
     assert: 2m
@@ -19,8 +19,8 @@ spec:
                 name: e2e-namespace-defaults
         - apply:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizeDefaults
+              apiVersion: attune.io/v1alpha1
+              kind: AttuneDefaults
               metadata:
                 name: zzz-e2e-wrong-defaults
               spec:
@@ -37,8 +37,8 @@ spec:
                   type: Recommend
         - apply:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizeNamespaceDefaults
+              apiVersion: attune.io/v1alpha1
+              kind: AttuneNamespaceDefaults
               metadata:
                 name: ns-defaults
                 namespace: e2e-namespace-defaults
@@ -83,8 +83,8 @@ spec:
                             memory: 256Mi
         - apply:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: ns-defaults-test
                 namespace: e2e-namespace-defaults
@@ -110,9 +110,9 @@ spec:
             timeout: 2m
             content: |
               for i in $(seq 1 24); do
-                REASON=$(kubectl get rightsizepolicy ns-defaults-test -n e2e-namespace-defaults \
+                REASON=$(kubectl get attunepolicy ns-defaults-test -n e2e-namespace-defaults \
                   -o jsonpath='{.status.conditions[?(@.type=="Ready")].reason}' 2>/dev/null)
-                DISCOVERED=$(kubectl get rightsizepolicy ns-defaults-test -n e2e-namespace-defaults \
+                DISCOVERED=$(kubectl get attunepolicy ns-defaults-test -n e2e-namespace-defaults \
                   -o jsonpath='{.status.workloads.discovered}' 2>/dev/null)
                 if [ "$DISCOVERED" = "1" ] && { [ "$REASON" = "InsufficientData" ] || [ "$REASON" = "Monitoring" ]; }; then
                   echo "Policy reconciled with namespace defaults (reason: $REASON, discovered: $DISCOVERED)"
@@ -121,20 +121,20 @@ spec:
                 sleep 5
               done
               echo "Timed out waiting for policy to reconcile with namespace defaults"
-              kubectl get rightsizepolicy ns-defaults-test -n e2e-namespace-defaults -o yaml
+              kubectl get attunepolicy ns-defaults-test -n e2e-namespace-defaults -o yaml
               exit 1
   catch:
     - describe:
-        apiVersion: rightsize.io/v1alpha1
-        kind: RightSizePolicy
+        apiVersion: attune.io/v1alpha1
+        kind: AttunePolicy
         namespace: e2e-namespace-defaults
     - describe:
-        apiVersion: rightsize.io/v1alpha1
-        kind: RightSizeNamespaceDefaults
+        apiVersion: attune.io/v1alpha1
+        kind: AttuneNamespaceDefaults
         namespace: e2e-namespace-defaults
     - describe:
-        apiVersion: rightsize.io/v1alpha1
-        kind: RightSizeDefaults
+        apiVersion: attune.io/v1alpha1
+        kind: AttuneDefaults
     - podLogs:
-        namespace: kube-rightsize-system
-        selector: app.kubernetes.io/name=kube-rightsize
+        namespace: attune-system
+        selector: app.kubernetes.io/name=attune

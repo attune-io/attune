@@ -43,8 +43,8 @@ spec:
                             memory: 128Mi
         - apply:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: bp-test
                 namespace: e2e-bootstrap-progress
@@ -72,7 +72,7 @@ spec:
             timeout: 2m
             content: |
               for i in $(seq 1 24); do
-                MSG=$(kubectl get rightsizepolicy bp-test -n e2e-bootstrap-progress \
+                MSG=$(kubectl get attunepolicy bp-test -n e2e-bootstrap-progress \
                   -o jsonpath='{.status.conditions[?(@.type=="Ready")].message}' 2>/dev/null)
                 if echo "$MSG" | grep -q "Collecting data:"; then
                   echo "Progress message found: $MSG"
@@ -84,13 +84,13 @@ spec:
                 sleep 5
               done
               echo "Timed out waiting for progress message"
-              kubectl get rightsizepolicy bp-test -n e2e-bootstrap-progress -o yaml
+              kubectl get attunepolicy bp-test -n e2e-bootstrap-progress -o yaml
               exit 1
   catch:
     - describe:
-        apiVersion: rightsize.io/v1alpha1
-        kind: RightSizePolicy
+        apiVersion: attune.io/v1alpha1
+        kind: AttunePolicy
         namespace: e2e-bootstrap-progress
     - podLogs:
-        namespace: kube-rightsize-system
-        selector: app.kubernetes.io/name=kube-rightsize
+        namespace: attune-system
+        selector: app.kubernetes.io/name=attune

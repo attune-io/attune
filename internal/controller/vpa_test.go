@@ -33,8 +33,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
-	rsmetrics "github.com/SebTardifLabs/kube-rightsize/internal/metrics"
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	rsmetrics "github.com/attune-io/attune/internal/metrics"
 )
 
 func newVPAUnstructured(name, namespace string, containerRecs []map[string]interface{}) *unstructured.Unstructured {
@@ -59,7 +59,7 @@ func newVPAUnstructured(name, namespace string, containerRecs []map[string]inter
 func TestComputeVPARecommendationsForWorkload_Basic(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.MetricsSource.Prometheus = nil
-	policy.Spec.MetricsSource.VPA = &rightsizev1alpha1.VPAConfig{Name: "my-vpa"}
+	policy.Spec.MetricsSource.VPA = &attunev1alpha1.VPAConfig{Name: "my-vpa"}
 
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
 
@@ -76,7 +76,7 @@ func TestComputeVPARecommendationsForWorkload_Basic(t *testing.T) {
 		WithObjects(deploy).
 		Build()
 
-	reconciler := &RightSizePolicyReconciler{
+	reconciler := &AttunePolicyReconciler{
 		Client: fakeClient,
 		Scheme: testScheme(),
 	}
@@ -101,7 +101,7 @@ func TestComputeVPARecommendationsForWorkload_Basic(t *testing.T) {
 func TestComputeVPARecommendationsForWorkload_ExcludesContainer(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.MetricsSource.Prometheus = nil
-	policy.Spec.MetricsSource.VPA = &rightsizev1alpha1.VPAConfig{Name: "my-vpa"}
+	policy.Spec.MetricsSource.VPA = &attunev1alpha1.VPAConfig{Name: "my-vpa"}
 	policy.Spec.ExcludedContainers = []string{"main"}
 
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
@@ -119,7 +119,7 @@ func TestComputeVPARecommendationsForWorkload_ExcludesContainer(t *testing.T) {
 		WithObjects(deploy).
 		Build()
 
-	reconciler := &RightSizePolicyReconciler{
+	reconciler := &AttunePolicyReconciler{
 		Client: fakeClient,
 		Scheme: testScheme(),
 	}
@@ -134,7 +134,7 @@ func TestComputeVPARecommendationsForWorkload_ExcludesContainer(t *testing.T) {
 func TestComputeVPARecommendationsForWorkload_NoMatchingContainer(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.MetricsSource.Prometheus = nil
-	policy.Spec.MetricsSource.VPA = &rightsizev1alpha1.VPAConfig{Name: "my-vpa"}
+	policy.Spec.MetricsSource.VPA = &attunev1alpha1.VPAConfig{Name: "my-vpa"}
 
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
 
@@ -152,7 +152,7 @@ func TestComputeVPARecommendationsForWorkload_NoMatchingContainer(t *testing.T) 
 		WithObjects(deploy).
 		Build()
 
-	reconciler := &RightSizePolicyReconciler{
+	reconciler := &AttunePolicyReconciler{
 		Client: fakeClient,
 		Scheme: testScheme(),
 	}
@@ -164,35 +164,35 @@ func TestComputeVPARecommendationsForWorkload_NoMatchingContainer(t *testing.T) 
 	assert.Nil(t, rec, "no matching container should result in no recommendation")
 }
 
-func newVPAPolicy(name, namespace, vpaName string) *rightsizev1alpha1.RightSizePolicy {
-	return &rightsizev1alpha1.RightSizePolicy{
+func newVPAPolicy(name, namespace, vpaName string) *attunev1alpha1.AttunePolicy {
+	return &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
 		},
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			TargetRef: rightsizev1alpha1.TargetRef{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			TargetRef: attunev1alpha1.TargetRef{
 				Kind: "Deployment",
 				Name: stringPtr("api-server"),
 			},
-			MetricsSource: rightsizev1alpha1.MetricsSource{
-				VPA:               &rightsizev1alpha1.VPAConfig{Name: vpaName},
+			MetricsSource: attunev1alpha1.MetricsSource{
+				VPA:               &attunev1alpha1.VPAConfig{Name: vpaName},
 				MinimumDataPoints: int32Ptr(1),
 			},
-			CPU: rightsizev1alpha1.ResourceConfig{
+			CPU: attunev1alpha1.ResourceConfig{
 				Percentile: 95,
 				Overhead:   "20",
 				MinAllowed: quantityPtr("50m"),
 				MaxAllowed: quantityPtr("4000m"),
 			},
-			Memory: rightsizev1alpha1.ResourceConfig{
+			Memory: attunev1alpha1.ResourceConfig{
 				Percentile: 99,
 				Overhead:   "30",
 				MinAllowed: quantityPtr("64Mi"),
 				MaxAllowed: quantityPtr("8Gi"),
 			},
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Type: rightsizev1alpha1.UpdateTypeRecommend,
+			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+				Type: attunev1alpha1.UpdateTypeRecommend,
 			},
 		},
 	}
@@ -252,10 +252,10 @@ func TestReconcile_VPASource_Recommendations(t *testing.T) {
 	fakeClient := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithObjects(policy, deploy, vpa).
-		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
+		WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
 		Build()
 
-	reconciler := &RightSizePolicyReconciler{
+	reconciler := &AttunePolicyReconciler{
 		Client: fakeClient,
 		Scheme: scheme,
 	}
@@ -266,7 +266,7 @@ func TestReconcile_VPASource_Recommendations(t *testing.T) {
 	require.NoError(t, err)
 	assert.Greater(t, result.RequeueAfter, time.Duration(0))
 
-	var updated rightsizev1alpha1.RightSizePolicy
+	var updated attunev1alpha1.AttunePolicy
 	require.NoError(t, fakeClient.Get(context.Background(),
 		types.NamespacedName{Name: "vpa-policy", Namespace: "default"}, &updated))
 
@@ -292,10 +292,10 @@ func TestReconcile_VPASource_VPANotFound(t *testing.T) {
 	fakeClient := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithObjects(policy, deploy).
-		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
+		WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
 		Build()
 
-	reconciler := &RightSizePolicyReconciler{
+	reconciler := &AttunePolicyReconciler{
 		Client: fakeClient,
 		Scheme: scheme,
 	}
@@ -306,7 +306,7 @@ func TestReconcile_VPASource_VPANotFound(t *testing.T) {
 	require.NoError(t, err)
 	assert.Greater(t, result.RequeueAfter, time.Duration(0))
 
-	var updated rightsizev1alpha1.RightSizePolicy
+	var updated attunev1alpha1.AttunePolicy
 	require.NoError(t, fakeClient.Get(context.Background(),
 		types.NamespacedName{Name: "vpa-policy", Namespace: "default"}, &updated))
 
@@ -371,10 +371,10 @@ func TestReconcile_VPASource_DefaultsNamespace(t *testing.T) {
 	fakeClient := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithObjects(policy, deploy, vpa).
-		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
+		WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
 		Build()
 
-	reconciler := &RightSizePolicyReconciler{
+	reconciler := &AttunePolicyReconciler{
 		Client: fakeClient,
 		Scheme: scheme,
 	}
@@ -385,7 +385,7 @@ func TestReconcile_VPASource_DefaultsNamespace(t *testing.T) {
 	require.NoError(t, err)
 	assert.Greater(t, result.RequeueAfter, time.Duration(0))
 
-	var updated rightsizev1alpha1.RightSizePolicy
+	var updated attunev1alpha1.AttunePolicy
 	require.NoError(t, fakeClient.Get(context.Background(),
 		types.NamespacedName{Name: "vpa-policy", Namespace: "prod"}, &updated))
 
@@ -399,7 +399,7 @@ func TestResolveMetricsCollector_VPA(t *testing.T) {
 	scheme := testScheme()
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 
-	reconciler := &RightSizePolicyReconciler{
+	reconciler := &AttunePolicyReconciler{
 		Client: fakeClient,
 		Scheme: scheme,
 	}
@@ -423,10 +423,10 @@ func TestReconcile_VPASource_EmptyRecommendations(t *testing.T) {
 	fakeClient := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithObjects(policy, deploy, vpa).
-		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
+		WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
 		Build()
 
-	reconciler := &RightSizePolicyReconciler{
+	reconciler := &AttunePolicyReconciler{
 		Client: fakeClient,
 		Scheme: scheme,
 	}
@@ -437,7 +437,7 @@ func TestReconcile_VPASource_EmptyRecommendations(t *testing.T) {
 	require.NoError(t, err)
 	assert.Greater(t, result.RequeueAfter, time.Duration(0))
 
-	var updated rightsizev1alpha1.RightSizePolicy
+	var updated attunev1alpha1.AttunePolicy
 	require.NoError(t, fakeClient.Get(context.Background(),
 		types.NamespacedName{Name: "vpa-policy", Namespace: "default"}, &updated))
 

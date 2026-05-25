@@ -9,10 +9,10 @@
 #   kubectl apply -f examples/02-canary-rollout.yaml
 #
 # Watch progress:
-#   kubectl rightsize status -n production
+#   kubectl attune status -n production
 ---
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizePolicy
+apiVersion: attune.io/v1alpha1
+kind: AttunePolicy
 metadata:
   name: api-canary
   namespace: production

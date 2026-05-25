@@ -6,5 +6,5 @@ This project follows the
 ## Reporting
 
 Report unacceptable behavior to the project maintainers via
-[GitHub Security Advisories](https://github.com/SebTardifLabs/kube-rightsize/security/advisories/new)
+[GitHub Security Advisories](https://github.com/attune-io/attune/security/advisories/new)
 or by opening a private issue.

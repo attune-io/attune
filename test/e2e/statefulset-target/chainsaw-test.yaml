@@ -3,7 +3,7 @@ kind: Test
 metadata:
   name: statefulset-target
 spec:
-  description: Verify that a RightSizePolicy can target a StatefulSet workload
+  description: Verify that a AttunePolicy can target a StatefulSet workload
   timeouts:
     apply: 30s
     assert: 2m
@@ -49,8 +49,8 @@ spec:
                             memory: 2Gi
         - apply:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: statefulset-test
                 namespace: e2e-statefulset-target
@@ -88,8 +88,8 @@ spec:
       try:
         - assert:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: statefulset-test
                 namespace: e2e-statefulset-target
@@ -98,13 +98,13 @@ spec:
                   discovered: 1
   catch:
     - describe:
-        apiVersion: rightsize.io/v1alpha1
-        kind: RightSizePolicy
+        apiVersion: attune.io/v1alpha1
+        kind: AttunePolicy
         namespace: e2e-statefulset-target
     - describe:
         apiVersion: apps/v1
         kind: StatefulSet
         namespace: e2e-statefulset-target
     - podLogs:
-        namespace: kube-rightsize-system
-        selector: app.kubernetes.io/name=kube-rightsize
+        namespace: attune-system
+        selector: app.kubernetes.io/name=attune

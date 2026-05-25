@@ -14,7 +14,7 @@ spec:
         - script:
             content: |
               REPO_ROOT=$(git rev-parse --show-toplevel)
-              output=$(helm template kube-rightsize "$REPO_ROOT/charts/kube-rightsize" \
+              output=$(helm template attune "$REPO_ROOT/charts/attune" \
                 --set grafanaDashboard.enabled=true \
                 --set webhooks.enabled=false 2>&1)
               if ! echo "$output" | grep -q 'grafana_dashboard: "1"'; then
@@ -32,7 +32,7 @@ spec:
         - script:
             content: |
               REPO_ROOT=$(git rev-parse --show-toplevel)
-              output=$(helm template kube-rightsize "$REPO_ROOT/charts/kube-rightsize" \
+              output=$(helm template attune "$REPO_ROOT/charts/attune" \
                 --set webhooks.enabled=false 2>&1)
               if echo "$output" | grep -q 'grafana_dashboard'; then
                 echo "ERROR: dashboard ConfigMap should not render by default"

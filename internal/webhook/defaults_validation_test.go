@@ -28,13 +28,13 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
-	"github.com/SebTardifLabs/kube-rightsize/internal/operatormetrics"
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/operatormetrics"
 )
 
 func TestDefaultsValidator_NoPricing(t *testing.T) {
-	v := &RightSizeDefaultsValidator{}
-	defaults := &rightsizev1alpha1.RightSizeDefaults{
+	v := &AttuneDefaultsValidator{}
+	defaults := &attunev1alpha1.AttuneDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "default"},
 	}
 	_, err := v.ValidateCreate(context.Background(), defaults)
@@ -42,11 +42,11 @@ func TestDefaultsValidator_NoPricing(t *testing.T) {
 }
 
 func TestDefaultsValidator_ValidPricing(t *testing.T) {
-	v := &RightSizeDefaultsValidator{}
-	defaults := &rightsizev1alpha1.RightSizeDefaults{
+	v := &AttuneDefaultsValidator{}
+	defaults := &attunev1alpha1.AttuneDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "default"},
-		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			CostPricing: &rightsizev1alpha1.CostPricing{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CostPricing: &attunev1alpha1.CostPricing{
 				CPUPerCoreHour:   "0.031",
 				MemoryPerGiBHour: "0.004",
 			},
@@ -57,12 +57,12 @@ func TestDefaultsValidator_ValidPricing(t *testing.T) {
 }
 
 func TestDefaultsValidator_MemoryStartupBoostWarning(t *testing.T) {
-	v := &RightSizeDefaultsValidator{}
-	defaults := &rightsizev1alpha1.RightSizeDefaults{
+	v := &AttuneDefaultsValidator{}
+	defaults := &attunev1alpha1.AttuneDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "default"},
-		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			Memory: &rightsizev1alpha1.ResourceConfig{
-				StartupBoost: &rightsizev1alpha1.StartupBoost{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			Memory: &attunev1alpha1.ResourceConfig{
+				StartupBoost: &attunev1alpha1.StartupBoost{
 					Multiplier: "2.0",
 					Duration:   metav1.Duration{Duration: 60000000000}, // 1m
 				},
@@ -76,11 +76,11 @@ func TestDefaultsValidator_MemoryStartupBoostWarning(t *testing.T) {
 }
 
 func TestDefaultsValidator_QueryStepTooSmall(t *testing.T) {
-	v := &RightSizeDefaultsValidator{}
-	defaults := &rightsizev1alpha1.RightSizeDefaults{
+	v := &AttuneDefaultsValidator{}
+	defaults := &attunev1alpha1.AttuneDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "default"},
-		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			MetricsSource: &rightsizev1alpha1.MetricsSource{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			MetricsSource: &attunev1alpha1.MetricsSource{
 				QueryStep: &metav1.Duration{Duration: 5000000000}, // 5s
 			},
 		},
@@ -91,11 +91,11 @@ func TestDefaultsValidator_QueryStepTooSmall(t *testing.T) {
 }
 
 func TestDefaultsValidator_QueryStepTooLarge(t *testing.T) {
-	v := &RightSizeDefaultsValidator{}
-	defaults := &rightsizev1alpha1.RightSizeDefaults{
+	v := &AttuneDefaultsValidator{}
+	defaults := &attunev1alpha1.AttuneDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "default"},
-		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			MetricsSource: &rightsizev1alpha1.MetricsSource{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			MetricsSource: &attunev1alpha1.MetricsSource{
 				QueryStep: &metav1.Duration{Duration: 7200000000000}, // 2h
 			},
 		},
@@ -106,11 +106,11 @@ func TestDefaultsValidator_QueryStepTooLarge(t *testing.T) {
 }
 
 func TestDefaultsValidator_QueryStepValid(t *testing.T) {
-	v := &RightSizeDefaultsValidator{}
-	defaults := &rightsizev1alpha1.RightSizeDefaults{
+	v := &AttuneDefaultsValidator{}
+	defaults := &attunev1alpha1.AttuneDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "default"},
-		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			MetricsSource: &rightsizev1alpha1.MetricsSource{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			MetricsSource: &attunev1alpha1.MetricsSource{
 				QueryStep: &metav1.Duration{Duration: 60000000000}, // 1m
 			},
 		},
@@ -120,11 +120,11 @@ func TestDefaultsValidator_QueryStepValid(t *testing.T) {
 }
 
 func TestDefaultsValidator_InvalidCPUPrice(t *testing.T) {
-	v := &RightSizeDefaultsValidator{}
-	defaults := &rightsizev1alpha1.RightSizeDefaults{
+	v := &AttuneDefaultsValidator{}
+	defaults := &attunev1alpha1.AttuneDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "default"},
-		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			CostPricing: &rightsizev1alpha1.CostPricing{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CostPricing: &attunev1alpha1.CostPricing{
 				CPUPerCoreHour: "banana",
 			},
 		},
@@ -135,11 +135,11 @@ func TestDefaultsValidator_InvalidCPUPrice(t *testing.T) {
 }
 
 func TestDefaultsValidator_NegativeMemoryPrice(t *testing.T) {
-	v := &RightSizeDefaultsValidator{}
-	defaults := &rightsizev1alpha1.RightSizeDefaults{
+	v := &AttuneDefaultsValidator{}
+	defaults := &attunev1alpha1.AttuneDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "default"},
-		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			CostPricing: &rightsizev1alpha1.CostPricing{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CostPricing: &attunev1alpha1.CostPricing{
 				MemoryPerGiBHour: "-0.5",
 			},
 		},
@@ -151,14 +151,14 @@ func TestDefaultsValidator_NegativeMemoryPrice(t *testing.T) {
 }
 
 func TestDefaultsValidator_Update(t *testing.T) {
-	v := &RightSizeDefaultsValidator{}
-	old := &rightsizev1alpha1.RightSizeDefaults{
+	v := &AttuneDefaultsValidator{}
+	old := &attunev1alpha1.AttuneDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "default"},
 	}
-	updated := &rightsizev1alpha1.RightSizeDefaults{
+	updated := &attunev1alpha1.AttuneDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "default"},
-		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			CostPricing: &rightsizev1alpha1.CostPricing{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CostPricing: &attunev1alpha1.CostPricing{
 				CPUPerCoreHour: "invalid",
 			},
 		},
@@ -168,18 +168,18 @@ func TestDefaultsValidator_Update(t *testing.T) {
 }
 
 func TestDefaultsValidator_Delete(t *testing.T) {
-	v := &RightSizeDefaultsValidator{}
-	_, err := v.ValidateDelete(context.Background(), &rightsizev1alpha1.RightSizeDefaults{})
+	v := &AttuneDefaultsValidator{}
+	_, err := v.ValidateDelete(context.Background(), &attunev1alpha1.AttuneDefaults{})
 	require.NoError(t, err)
 }
 
 func TestDefaultsValidator_InvalidScheduleTimezone(t *testing.T) {
-	v := &RightSizeDefaultsValidator{}
-	defaults := &rightsizev1alpha1.RightSizeDefaults{
+	v := &AttuneDefaultsValidator{}
+	defaults := &attunev1alpha1.AttuneDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "default"},
-		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{
-				Schedule: &rightsizev1alpha1.ResizeSchedule{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Schedule: &attunev1alpha1.ResizeSchedule{
 					Timezone: "Invalid/Zone",
 				},
 			},
@@ -191,12 +191,12 @@ func TestDefaultsValidator_InvalidScheduleTimezone(t *testing.T) {
 }
 
 func TestDefaultsValidator_InvalidScheduleDayOfWeek(t *testing.T) {
-	v := &RightSizeDefaultsValidator{}
-	defaults := &rightsizev1alpha1.RightSizeDefaults{
+	v := &AttuneDefaultsValidator{}
+	defaults := &attunev1alpha1.AttuneDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "default"},
-		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{
-				Schedule: &rightsizev1alpha1.ResizeSchedule{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Schedule: &attunev1alpha1.ResizeSchedule{
 					DaysOfWeek: []string{"Notaday"},
 				},
 			},
@@ -208,13 +208,13 @@ func TestDefaultsValidator_InvalidScheduleDayOfWeek(t *testing.T) {
 }
 
 func TestDefaultsValidator_ValidSchedule(t *testing.T) {
-	v := &RightSizeDefaultsValidator{}
-	defaults := &rightsizev1alpha1.RightSizeDefaults{
+	v := &AttuneDefaultsValidator{}
+	defaults := &attunev1alpha1.AttuneDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "default"},
-		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{
-				Schedule: &rightsizev1alpha1.ResizeSchedule{
-					Windows:    []rightsizev1alpha1.TimeWindow{{Start: "02:00", End: "06:00"}},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Schedule: &attunev1alpha1.ResizeSchedule{
+					Windows:    []attunev1alpha1.TimeWindow{{Start: "02:00", End: "06:00"}},
 					DaysOfWeek: []string{"Monday", "Friday"},
 					Timezone:   "UTC",
 				},
@@ -229,8 +229,8 @@ func TestDefaultsValidator_RecordsMetrics(t *testing.T) {
 	operatormetrics.WebhookValidationTotal.Reset()
 	operatormetrics.WebhookDuration.Reset()
 
-	v := &RightSizeDefaultsValidator{}
-	defaults := &rightsizev1alpha1.RightSizeDefaults{
+	v := &AttuneDefaultsValidator{}
+	defaults := &attunev1alpha1.AttuneDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "default"},
 	}
 
@@ -254,12 +254,12 @@ func TestDefaultsValidator_RecordsMetrics(t *testing.T) {
 }
 
 func TestDefaultsValidator_PrometheusQueryParametersReservedRejected(t *testing.T) {
-	v := &RightSizeDefaultsValidator{}
-	defaults := &rightsizev1alpha1.RightSizeDefaults{
+	v := &AttuneDefaultsValidator{}
+	defaults := &attunev1alpha1.AttuneDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "default"},
-		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			MetricsSource: &rightsizev1alpha1.MetricsSource{
-				Prometheus: &rightsizev1alpha1.PrometheusConfig{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			MetricsSource: &attunev1alpha1.MetricsSource{
+				Prometheus: &attunev1alpha1.PrometheusConfig{
 					Address:         "http://prometheus-server.monitoring:80",
 					QueryParameters: map[string]string{"step": "30s"},
 				},
@@ -287,12 +287,12 @@ func TestDefaultsValidator_PrometheusAddressSSRF(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			v := &RightSizeDefaultsValidator{}
-			defaults := &rightsizev1alpha1.RightSizeDefaults{
+			v := &AttuneDefaultsValidator{}
+			defaults := &attunev1alpha1.AttuneDefaults{
 				ObjectMeta: metav1.ObjectMeta{Name: "default"},
-				Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-					MetricsSource: &rightsizev1alpha1.MetricsSource{
-						Prometheus: &rightsizev1alpha1.PrometheusConfig{
+				Spec: attunev1alpha1.AttuneDefaultsSpec{
+					MetricsSource: &attunev1alpha1.MetricsSource{
+						Prometheus: &attunev1alpha1.PrometheusConfig{
 							Address: tt.address,
 						},
 					},
@@ -312,11 +312,11 @@ func TestDefaultsValidator_PrometheusAddressSSRF(t *testing.T) {
 func TestDefaultsValidator_RecordsRejectedMetric(t *testing.T) {
 	operatormetrics.WebhookValidationTotal.Reset()
 
-	v := &RightSizeDefaultsValidator{}
-	defaults := &rightsizev1alpha1.RightSizeDefaults{
+	v := &AttuneDefaultsValidator{}
+	defaults := &attunev1alpha1.AttuneDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "default"},
-		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			CostPricing: &rightsizev1alpha1.CostPricing{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CostPricing: &attunev1alpha1.CostPricing{
 				CPUPerCoreHour: "invalid",
 			},
 		},
@@ -333,14 +333,14 @@ func TestDefaultsValidator_RecordsRejectedMetric(t *testing.T) {
 }
 
 func TestNamespaceDefaultsValidator_Update(t *testing.T) {
-	v := &RightSizeNamespaceDefaultsValidator{}
-	old := &rightsizev1alpha1.RightSizeNamespaceDefaults{
+	v := &AttuneNamespaceDefaultsValidator{}
+	old := &attunev1alpha1.AttuneNamespaceDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "production"},
 	}
-	updated := &rightsizev1alpha1.RightSizeNamespaceDefaults{
+	updated := &attunev1alpha1.AttuneNamespaceDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "production"},
-		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			CostPricing: &rightsizev1alpha1.CostPricing{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CostPricing: &attunev1alpha1.CostPricing{
 				CPUPerCoreHour: "invalid",
 			},
 		},
@@ -350,8 +350,8 @@ func TestNamespaceDefaultsValidator_Update(t *testing.T) {
 }
 
 func TestNamespaceDefaultsValidator_Delete(t *testing.T) {
-	v := &RightSizeNamespaceDefaultsValidator{}
-	_, err := v.ValidateDelete(context.Background(), &rightsizev1alpha1.RightSizeNamespaceDefaults{})
+	v := &AttuneNamespaceDefaultsValidator{}
+	_, err := v.ValidateDelete(context.Background(), &attunev1alpha1.AttuneNamespaceDefaults{})
 	require.NoError(t, err)
 }
 
@@ -359,8 +359,8 @@ func TestNamespaceDefaultsValidator_RecordsMetrics(t *testing.T) {
 	operatormetrics.WebhookValidationTotal.Reset()
 	operatormetrics.WebhookDuration.Reset()
 
-	v := &RightSizeNamespaceDefaultsValidator{}
-	defaults := &rightsizev1alpha1.RightSizeNamespaceDefaults{
+	v := &AttuneNamespaceDefaultsValidator{}
+	defaults := &attunev1alpha1.AttuneNamespaceDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "production"},
 	}
 
@@ -382,12 +382,12 @@ func TestNamespaceDefaultsValidator_RecordsMetrics(t *testing.T) {
 }
 
 func TestNamespaceDefaultsValidator_InvalidScheduleTimezone(t *testing.T) {
-	v := &RightSizeNamespaceDefaultsValidator{}
-	defaults := &rightsizev1alpha1.RightSizeNamespaceDefaults{
+	v := &AttuneNamespaceDefaultsValidator{}
+	defaults := &attunev1alpha1.AttuneNamespaceDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "production"},
-		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{
-				Schedule: &rightsizev1alpha1.ResizeSchedule{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Schedule: &attunev1alpha1.ResizeSchedule{
 					Timezone: "Invalid/Zone",
 				},
 			},
@@ -399,12 +399,12 @@ func TestNamespaceDefaultsValidator_InvalidScheduleTimezone(t *testing.T) {
 }
 
 func TestNamespaceDefaultsValidator_PrometheusQueryParametersReservedRejected(t *testing.T) {
-	v := &RightSizeNamespaceDefaultsValidator{}
-	defaults := &rightsizev1alpha1.RightSizeNamespaceDefaults{
+	v := &AttuneNamespaceDefaultsValidator{}
+	defaults := &attunev1alpha1.AttuneNamespaceDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "production"},
-		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			MetricsSource: &rightsizev1alpha1.MetricsSource{
-				Prometheus: &rightsizev1alpha1.PrometheusConfig{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			MetricsSource: &attunev1alpha1.MetricsSource{
+				Prometheus: &attunev1alpha1.PrometheusConfig{
 					Address:         "http://prometheus-server.monitoring:80",
 					QueryParameters: map[string]string{"timeout": "5s"},
 				},
@@ -418,12 +418,12 @@ func TestNamespaceDefaultsValidator_PrometheusQueryParametersReservedRejected(t 
 }
 
 func TestNamespaceDefaultsValidator_PrometheusAddressSSRF(t *testing.T) {
-	v := &RightSizeNamespaceDefaultsValidator{}
-	defaults := &rightsizev1alpha1.RightSizeNamespaceDefaults{
+	v := &AttuneNamespaceDefaultsValidator{}
+	defaults := &attunev1alpha1.AttuneNamespaceDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "production"},
-		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			MetricsSource: &rightsizev1alpha1.MetricsSource{
-				Prometheus: &rightsizev1alpha1.PrometheusConfig{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			MetricsSource: &attunev1alpha1.MetricsSource{
+				Prometheus: &attunev1alpha1.PrometheusConfig{
 					Address: "http://127.0.0.1:9090",
 				},
 			},
@@ -437,11 +437,11 @@ func TestNamespaceDefaultsValidator_PrometheusAddressSSRF(t *testing.T) {
 func TestNamespaceDefaultsValidator_RecordsRejectedMetric(t *testing.T) {
 	operatormetrics.WebhookValidationTotal.Reset()
 
-	v := &RightSizeNamespaceDefaultsValidator{}
-	defaults := &rightsizev1alpha1.RightSizeNamespaceDefaults{
+	v := &AttuneNamespaceDefaultsValidator{}
+	defaults := &attunev1alpha1.AttuneNamespaceDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "production"},
-		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			CostPricing: &rightsizev1alpha1.CostPricing{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CostPricing: &attunev1alpha1.CostPricing{
 				CPUPerCoreHour: "invalid",
 			},
 		},
@@ -473,15 +473,15 @@ func TestDefaultsValidate_OverheadInvalid(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v := &RightSizeDefaultsValidator{}
-			defaults := &rightsizev1alpha1.RightSizeDefaults{
+			v := &AttuneDefaultsValidator{}
+			defaults := &attunev1alpha1.AttuneDefaults{
 				ObjectMeta: metav1.ObjectMeta{Name: "default"},
-				Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-					CPU: &rightsizev1alpha1.ResourceConfig{
+				Spec: attunev1alpha1.AttuneDefaultsSpec{
+					CPU: &attunev1alpha1.ResourceConfig{
 						Percentile: 95,
 						Overhead:   tc.cpu,
 					},
-					Memory: &rightsizev1alpha1.ResourceConfig{
+					Memory: &attunev1alpha1.ResourceConfig{
 						Percentile: 99,
 						Overhead:   tc.memory,
 					},
@@ -507,12 +507,12 @@ func TestDefaultsValidate_UnsupportedPercentile(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v := &RightSizeDefaultsValidator{}
-			defaults := &rightsizev1alpha1.RightSizeDefaults{
+			v := &AttuneDefaultsValidator{}
+			defaults := &attunev1alpha1.AttuneDefaults{
 				ObjectMeta: metav1.ObjectMeta{Name: "default"},
-				Spec:       rightsizev1alpha1.RightSizeDefaultsSpec{},
+				Spec:       attunev1alpha1.AttuneDefaultsSpec{},
 			}
-			rc := &rightsizev1alpha1.ResourceConfig{Percentile: tc.percentile}
+			rc := &attunev1alpha1.ResourceConfig{Percentile: tc.percentile}
 			if tc.resource == "cpu" {
 				defaults.Spec.CPU = rc
 			} else {
@@ -539,14 +539,14 @@ func TestDefaultsValidate_BoundsMinExceedsMax(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v := &RightSizeDefaultsValidator{}
-			defaults := &rightsizev1alpha1.RightSizeDefaults{
+			v := &AttuneDefaultsValidator{}
+			defaults := &attunev1alpha1.AttuneDefaults{
 				ObjectMeta: metav1.ObjectMeta{Name: "default"},
-				Spec:       rightsizev1alpha1.RightSizeDefaultsSpec{},
+				Spec:       attunev1alpha1.AttuneDefaultsSpec{},
 			}
 			minQ := resource.MustParse(tc.min)
 			maxQ := resource.MustParse(tc.max)
-			rc := &rightsizev1alpha1.ResourceConfig{
+			rc := &attunev1alpha1.ResourceConfig{
 				MinAllowed: &minQ,
 				MaxAllowed: &maxQ,
 			}
@@ -576,11 +576,11 @@ func TestDefaultsValidate_BurstSensitivityInvalid(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v := &RightSizeDefaultsValidator{}
-			defaults := &rightsizev1alpha1.RightSizeDefaults{
+			v := &AttuneDefaultsValidator{}
+			defaults := &attunev1alpha1.AttuneDefaults{
 				ObjectMeta: metav1.ObjectMeta{Name: "default"},
-				Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-					CPU: &rightsizev1alpha1.ResourceConfig{
+				Spec: attunev1alpha1.AttuneDefaultsSpec{
+					CPU: &attunev1alpha1.ResourceConfig{
 						BurstSensitivity: &tc.value,
 					},
 				},
@@ -608,12 +608,12 @@ func TestDefaultsValidate_StartupBoostInvalid(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v := &RightSizeDefaultsValidator{}
-			defaults := &rightsizev1alpha1.RightSizeDefaults{
+			v := &AttuneDefaultsValidator{}
+			defaults := &attunev1alpha1.AttuneDefaults{
 				ObjectMeta: metav1.ObjectMeta{Name: "default"},
-				Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-					CPU: &rightsizev1alpha1.ResourceConfig{
-						StartupBoost: &rightsizev1alpha1.StartupBoost{
+				Spec: attunev1alpha1.AttuneDefaultsSpec{
+					CPU: &attunev1alpha1.ResourceConfig{
+						StartupBoost: &attunev1alpha1.StartupBoost{
 							Multiplier: tc.multiplier,
 							Duration:   metav1.Duration{Duration: tc.duration},
 						},
@@ -639,11 +639,11 @@ func TestDefaultsValidate_CooldownInvalid(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v := &RightSizeDefaultsValidator{}
-			defaults := &rightsizev1alpha1.RightSizeDefaults{
+			v := &AttuneDefaultsValidator{}
+			defaults := &attunev1alpha1.AttuneDefaults{
 				ObjectMeta: metav1.ObjectMeta{Name: "default"},
-				Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-					UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{
+				Spec: attunev1alpha1.AttuneDefaultsSpec{
+					UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 						Cooldown: &metav1.Duration{Duration: tc.cooldown},
 					},
 				},
@@ -667,11 +667,11 @@ func TestDefaultsValidate_HistoryWindowInvalid(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v := &RightSizeDefaultsValidator{}
-			defaults := &rightsizev1alpha1.RightSizeDefaults{
+			v := &AttuneDefaultsValidator{}
+			defaults := &attunev1alpha1.AttuneDefaults{
 				ObjectMeta: metav1.ObjectMeta{Name: "default"},
-				Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-					MetricsSource: &rightsizev1alpha1.MetricsSource{
+				Spec: attunev1alpha1.AttuneDefaultsSpec{
+					MetricsSource: &attunev1alpha1.MetricsSource{
 						HistoryWindow: &metav1.Duration{Duration: tc.window},
 					},
 				},

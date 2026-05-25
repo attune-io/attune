@@ -3,7 +3,7 @@
     {
       "name": "DS_PROMETHEUS",
       "label": "Prometheus",
-      "description": "Prometheus data source for kube-rightsize metrics",
+      "description": "Prometheus data source for attune metrics",
       "type": "datasource",
       "pluginId": "prometheus",
       "pluginName": "Prometheus"
@@ -12,7 +12,7 @@
   "annotations": {
     "list": []
   },
-  "description": "kube-rightsize operator overview: resize operations, savings, recommendations, and operator health. NOTE: regenerate charts/kube-rightsize/files/grafana-dashboard.json via hack/verify-dashboard-metrics.sh --write after editing this source dashboard.",
+  "description": "attune operator overview: resize operations, savings, recommendations, and operator health. NOTE: regenerate charts/attune/files/grafana-dashboard.json via hack/verify-dashboard-metrics.sh --write after editing this source dashboard.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -49,7 +49,7 @@
       "type": "stat",
       "targets": [
         {
-          "expr": "sum(kube_rightsize_resize_total)",
+          "expr": "sum(attune_resize_total)",
           "legendFormat": "resizes"
         }
       ]
@@ -78,7 +78,7 @@
       "type": "stat",
       "targets": [
         {
-          "expr": "sum(kube_rightsize_reverts_total)",
+          "expr": "sum(attune_reverts_total)",
           "legendFormat": "reverts"
         }
       ]
@@ -107,7 +107,7 @@
       "type": "stat",
       "targets": [
         {
-          "expr": "sum(kube_rightsize_savings_cpu_cores_total)",
+          "expr": "sum(attune_savings_cpu_cores_total)",
           "legendFormat": "cores"
         }
       ]
@@ -136,7 +136,7 @@
       "type": "stat",
       "targets": [
         {
-          "expr": "sum(kube_rightsize_savings_memory_bytes_total)",
+          "expr": "sum(attune_savings_memory_bytes_total)",
           "legendFormat": "bytes"
         }
       ]
@@ -165,7 +165,7 @@
       "type": "stat",
       "targets": [
         {
-          "expr": "sum(kube_rightsize_savings_estimated_monthly_dollars)",
+          "expr": "sum(attune_savings_estimated_monthly_dollars)",
           "legendFormat": "$/month"
         }
       ]
@@ -196,7 +196,7 @@
       "type": "timeseries",
       "targets": [
         {
-          "expr": "sum by (result) (rate(kube_rightsize_resize_total[$__rate_interval]))",
+          "expr": "sum by (result) (rate(attune_resize_total[$__rate_interval]))",
           "legendFormat": "{{ result }}"
         }
       ]
@@ -220,7 +220,7 @@
       "type": "timeseries",
       "targets": [
         {
-          "expr": "sum by (reason) (rate(kube_rightsize_reverts_total[$__rate_interval]))",
+          "expr": "sum by (reason) (rate(attune_reverts_total[$__rate_interval]))",
           "legendFormat": "{{ reason }}"
         }
       ]
@@ -243,11 +243,11 @@
       "type": "timeseries",
       "targets": [
         {
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(kube_rightsize_resize_duration_seconds_bucket[$__rate_interval])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(attune_resize_duration_seconds_bucket[$__rate_interval])))",
           "legendFormat": "p99"
         },
         {
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(kube_rightsize_resize_duration_seconds_bucket[$__rate_interval])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(attune_resize_duration_seconds_bucket[$__rate_interval])))",
           "legendFormat": "p50"
         }
       ]
@@ -278,15 +278,15 @@
       "type": "timeseries",
       "targets": [
         {
-          "expr": "sum by (policy) (rate(kube_rightsize_schedule_skipped_total[$__rate_interval]))",
+          "expr": "sum by (policy) (rate(attune_schedule_skipped_total[$__rate_interval]))",
           "legendFormat": "schedule-skip {{ policy }}"
         },
         {
-          "expr": "sum by (policy) (rate(kube_rightsize_budget_exhausted_total[$__rate_interval]))",
+          "expr": "sum by (policy) (rate(attune_budget_exhausted_total[$__rate_interval]))",
           "legendFormat": "budget-exhausted {{ policy }}"
         },
         {
-          "expr": "sum by (workload) (rate(kube_rightsize_throttle_deferred_total[$__rate_interval]))",
+          "expr": "sum by (workload) (rate(attune_throttle_deferred_total[$__rate_interval]))",
           "legendFormat": "throttle-deferred {{ workload }}"
         }
       ]
@@ -310,11 +310,11 @@
       "type": "timeseries",
       "targets": [
         {
-          "expr": "sum by (workload, result) (rate(kube_rightsize_eviction_total[$__rate_interval]))",
+          "expr": "sum by (workload, result) (rate(attune_eviction_total[$__rate_interval]))",
           "legendFormat": "eviction {{ workload }} {{ result }}"
         },
         {
-          "expr": "sum by (workload) (rate(kube_rightsize_infeasible_skipped_total[$__rate_interval]))",
+          "expr": "sum by (workload) (rate(attune_infeasible_skipped_total[$__rate_interval]))",
           "legendFormat": "infeasible {{ workload }}"
         }
       ]
@@ -337,7 +337,7 @@
       "type": "timeseries",
       "targets": [
         {
-          "expr": "sum by (action) (rate(kube_rightsize_startup_boost_total[$__rate_interval]))",
+          "expr": "sum by (action) (rate(attune_startup_boost_total[$__rate_interval]))",
           "legendFormat": "{{ action }}"
         }
       ]
@@ -367,7 +367,7 @@
       "type": "timeseries",
       "targets": [
         {
-          "expr": "kube_rightsize_recommendation_cpu_cores{namespace=~\"$namespace\"}",
+          "expr": "attune_recommendation_cpu_cores{namespace=~\"$namespace\"}",
           "legendFormat": "{{ workload }}/{{ container }}"
         }
       ]
@@ -390,7 +390,7 @@
       "type": "timeseries",
       "targets": [
         {
-          "expr": "kube_rightsize_recommendation_memory_bytes{namespace=~\"$namespace\"}",
+          "expr": "attune_recommendation_memory_bytes{namespace=~\"$namespace\"}",
           "legendFormat": "{{ workload }}/{{ container }}"
         }
       ]
@@ -423,7 +423,7 @@
       "type": "timeseries",
       "targets": [
         {
-          "expr": "kube_rightsize_confidence{namespace=~\"$namespace\"}",
+          "expr": "attune_confidence{namespace=~\"$namespace\"}",
           "legendFormat": "{{ workload }}/{{ container }}"
         }
       ]
@@ -450,7 +450,7 @@
       "type": "timeseries",
       "targets": [
         {
-          "expr": "kube_rightsize_burst_factor{namespace=~\"$namespace\"}",
+          "expr": "attune_burst_factor{namespace=~\"$namespace\"}",
           "legendFormat": "{{ workload }}/{{ container }} ({{ resource }})"
         }
       ]
@@ -480,11 +480,11 @@
       "type": "timeseries",
       "targets": [
         {
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(kube_rightsize_reconcile_duration_seconds_bucket[$__rate_interval])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(attune_reconcile_duration_seconds_bucket[$__rate_interval])))",
           "legendFormat": "p99"
         },
         {
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(kube_rightsize_reconcile_duration_seconds_bucket[$__rate_interval])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(attune_reconcile_duration_seconds_bucket[$__rate_interval])))",
           "legendFormat": "p50"
         }
       ]
@@ -508,11 +508,11 @@
       "type": "timeseries",
       "targets": [
         {
-          "expr": "histogram_quantile(0.99, sum by (le, namespace, policy) (rate(kube_rightsize_reconcile_duration_seconds_bucket{namespace=~\"$namespace\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.99, sum by (le, namespace, policy) (rate(attune_reconcile_duration_seconds_bucket{namespace=~\"$namespace\"}[$__rate_interval])))",
           "legendFormat": "p99 {{ namespace }}/{{ policy }}"
         },
         {
-          "expr": "histogram_quantile(0.50, sum by (le, namespace, policy) (rate(kube_rightsize_reconcile_duration_seconds_bucket{namespace=~\"$namespace\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.50, sum by (le, namespace, policy) (rate(attune_reconcile_duration_seconds_bucket{namespace=~\"$namespace\"}[$__rate_interval])))",
           "legendFormat": "p50 {{ namespace }}/{{ policy }}"
         }
       ]
@@ -535,11 +535,11 @@
       "type": "timeseries",
       "targets": [
         {
-          "expr": "histogram_quantile(0.99, sum by (le, query_type) (rate(kube_rightsize_prometheus_query_duration_seconds_bucket[$__rate_interval])))",
+          "expr": "histogram_quantile(0.99, sum by (le, query_type) (rate(attune_prometheus_query_duration_seconds_bucket[$__rate_interval])))",
           "legendFormat": "p99 {{query_type}}"
         },
         {
-          "expr": "histogram_quantile(0.50, sum by (le, query_type) (rate(kube_rightsize_prometheus_query_duration_seconds_bucket[$__rate_interval])))",
+          "expr": "histogram_quantile(0.50, sum by (le, query_type) (rate(attune_prometheus_query_duration_seconds_bucket[$__rate_interval])))",
           "legendFormat": "p50 {{query_type}}"
         }
       ]
@@ -569,7 +569,7 @@
       "type": "stat",
       "targets": [
         {
-          "expr": "sum by (namespace, query_type) (rate(kube_rightsize_prometheus_query_errors_total[$__rate_interval]))",
+          "expr": "sum by (namespace, query_type) (rate(attune_prometheus_query_errors_total[$__rate_interval]))",
           "legendFormat": "{{namespace}} {{query_type}}"
         }
       ]
@@ -589,7 +589,7 @@
       "type": "timeseries",
       "targets": [
         {
-          "expr": "sum by (error_type) (rate(kube_rightsize_reconcile_errors_total[$__rate_interval]))",
+          "expr": "sum by (error_type) (rate(attune_reconcile_errors_total[$__rate_interval]))",
           "legendFormat": "{{ error_type }}"
         }
       ]
@@ -607,11 +607,11 @@
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 58 },
       "id": 14,
       "title": "Webhook Validation Rate",
-      "description": "Covers RightSizePolicy (validate_create, validate_update, defaulting), RightSizeDefaults (defaults_validate_create, defaults_validate_update), and RightSizeNamespaceDefaults (namespace_defaults_validate_create, namespace_defaults_validate_update) webhooks.",
+      "description": "Covers AttunePolicy (validate_create, validate_update, defaulting), AttuneDefaults (defaults_validate_create, defaults_validate_update), and AttuneNamespaceDefaults (namespace_defaults_validate_create, namespace_defaults_validate_update) webhooks.",
       "type": "timeseries",
       "targets": [
         {
-          "expr": "sum by (operation, result) (rate(kube_rightsize_webhook_validation_total[$__rate_interval]))",
+          "expr": "sum by (operation, result) (rate(attune_webhook_validation_total[$__rate_interval]))",
           "legendFormat": "{{operation}} {{result}}"
         }
       ]
@@ -625,26 +625,26 @@
       "type": "timeseries",
       "targets": [
         {
-          "expr": "histogram_quantile(0.99, sum by (le, operation) (rate(kube_rightsize_webhook_duration_seconds_bucket[$__rate_interval])))",
+          "expr": "histogram_quantile(0.99, sum by (le, operation) (rate(attune_webhook_duration_seconds_bucket[$__rate_interval])))",
           "legendFormat": "p99 {{operation}}"
         },
         {
-          "expr": "histogram_quantile(0.50, sum by (le, operation) (rate(kube_rightsize_webhook_duration_seconds_bucket[$__rate_interval])))",
+          "expr": "histogram_quantile(0.50, sum by (le, operation) (rate(attune_webhook_duration_seconds_bucket[$__rate_interval])))",
           "legendFormat": "p50 {{operation}}"
         }
       ]
     }
   ],
   "schemaVersion": 39,
-  "tags": ["kubernetes", "kube-rightsize", "cost-optimization"],
+  "tags": ["kubernetes", "attune", "cost-optimization"],
   "templating": {
     "list": [
       {
         "current": {},
         "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-        "definition": "label_values(kube_rightsize_recommendation_cpu_cores, namespace)",
+        "definition": "label_values(attune_recommendation_cpu_cores, namespace)",
         "name": "namespace",
-        "query": "label_values(kube_rightsize_recommendation_cpu_cores, namespace)",
+        "query": "label_values(attune_recommendation_cpu_cores, namespace)",
         "regex": "",
         "type": "query",
         "includeAll": true,
@@ -653,7 +653,7 @@
     ]
   },
   "time": { "from": "now-6h", "to": "now" },
-  "title": "kube-rightsize",
-  "uid": "kube-rightsize-overview",
+  "title": "attune",
+  "uid": "attune-overview",
   "version": 1
 }

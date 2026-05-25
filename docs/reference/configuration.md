@@ -5,7 +5,7 @@ This page documents every value in the Helm chart's `values.yaml`.
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `replicaCount` | int | `1` | Number of operator replicas. Set to `2` for HA with leader election. |
-| `image.repository` | string | `ghcr.io/sebtardiflabs/kube-rightsize` | Container image repository |
+| `image.repository` | string | `ghcr.io/attune-io/attune` | Container image repository |
 | `image.pullPolicy` | string | `IfNotPresent` | Image pull policy |
 | `image.tag` | string | `""` | Image tag. Defaults to the chart's `appVersion`. |
 | `imagePullSecrets` | list | `[]` | Image pull secrets for private registries |
@@ -83,7 +83,7 @@ This page documents every value in the Helm chart's `values.yaml`.
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `webhooks.enabled` | bool | `true` | Enable admission webhooks for defaulting and validation. Requires cert-manager. |
-| `initialSizing.enabled` | bool | `false` | Enable the pod initial sizing mutating webhook. Sets pod resource requests at creation time based on existing RightSizePolicy recommendations. Requires namespace label `rightsize.io/initial-sizing=enabled` and `initialSizing: true` on the policy. |
+| `initialSizing.enabled` | bool | `false` | Enable the pod initial sizing mutating webhook. Sets pod resource requests at creation time based on existing AttunePolicy recommendations. Requires namespace label `attune.io/initial-sizing=enabled` and `initialSizing: true` on the policy. |
 
 ## Grafana Dashboard
 
@@ -115,7 +115,7 @@ This page documents every value in the Helm chart's `values.yaml`.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `watchNamespaces` | list | `[]` | Namespaces to watch for RightSizePolicy resources. Empty list means all namespaces (cluster-scoped). Maps to the `--watch-namespaces` manager flag. Set this on large clusters where policies exist in only a few namespaces to dramatically reduce informer cache memory. Cluster-scoped resources (Nodes, RightSizeDefaults) are always watched regardless. Requires a pod restart to change. |
+| `watchNamespaces` | list | `[]` | Namespaces to watch for AttunePolicy resources. Empty list means all namespaces (cluster-scoped). Maps to the `--watch-namespaces` manager flag. Set this on large clusters where policies exist in only a few namespaces to dramatically reduce informer cache memory. Cluster-scoped resources (Nodes, AttuneDefaults) are always watched regardless. Requires a pod restart to change. |
 
 Example:
 
@@ -130,7 +130,7 @@ watchNamespaces:
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `maxConcurrentReconciles` | int/string | `""` (1) | Maximum number of RightSizePolicy reconciles running in parallel. Maps to the `--max-concurrent-reconciles` manager flag. The default (1) processes policies sequentially. Increase for clusters with many policies to reduce reconcile queue latency. Auto-set by `clusterSize` preset (small=1, medium=2, large=4, xlarge=8). The Prometheus rate limiter (`prometheusQPS`) is shared across all goroutines, so concurrent reconciles won't overwhelm Prometheus. |
+| `maxConcurrentReconciles` | int/string | `""` (1) | Maximum number of AttunePolicy reconciles running in parallel. Maps to the `--max-concurrent-reconciles` manager flag. The default (1) processes policies sequentially. Increase for clusters with many policies to reduce reconcile queue latency. Auto-set by `clusterSize` preset (small=1, medium=2, large=4, xlarge=8). The Prometheus rate limiter (`prometheusQPS`) is shared across all goroutines, so concurrent reconciles won't overwhelm Prometheus. |
 
 ## Logging
 
@@ -139,10 +139,10 @@ watchNamespaces:
 | `logging.level` | string | `info` | Log level: `debug`, `info`, `warn`, `error` |
 | `logging.format` | string | `json` | Log format: `json` or `text` |
 
-## CRD Configuration (RightSizeDefaults)
+## CRD Configuration (AttuneDefaults)
 
-These fields are set on the `RightSizeDefaults` cluster-scoped CRD, not in
-the Helm `values.yaml`. They apply to all `RightSizePolicy` resources.
+These fields are set on the `AttuneDefaults` cluster-scoped CRD, not in
+the Helm `values.yaml`. They apply to all `AttunePolicy` resources.
 
 ### Cost Pricing
 
@@ -152,12 +152,12 @@ the Helm `values.yaml`. They apply to all `RightSizePolicy` resources.
 | `costPricing.memoryPerGiBHour` | string | `"0.004"` | USD per GiB-hour for cost estimation |
 
 These values are used to compute `status.savings.estimatedMonthlySavings`
-on each `RightSizePolicy`. Adjust for your cloud provider or reserved
+on each `AttunePolicy`. Adjust for your cloud provider or reserved
 instance pricing.
 
 ### Inheritable UpdateStrategy Fields
 
-All `updateStrategy` fields in `RightSizeDefaults` are inherited by policies
+All `updateStrategy` fields in `AttuneDefaults` are inherited by policies
 that do not set them explicitly. Policy-level values always take precedence.
 
 | Field | Type | Default | Description |
@@ -173,11 +173,11 @@ that do not set them explicitly. Policy-level values always take precedence.
 | `export` | object | (none) | Metrics export configuration |
 
 Example: set a cluster-wide maintenance window and budget cap via
-`RightSizeDefaults`, then individual policies inherit them unless overridden:
+`AttuneDefaults`, then individual policies inherit them unless overridden:
 
 ```yaml
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizeDefaults
+apiVersion: attune.io/v1alpha1
+kind: AttuneDefaults
 metadata:
   name: cluster-defaults
 spec:
@@ -193,17 +193,17 @@ spec:
       timezone: UTC
 ```
 
-## CRD Configuration (RightSizeNamespaceDefaults)
+## CRD Configuration (AttuneNamespaceDefaults)
 
-`RightSizeNamespaceDefaults` provides namespace-scoped default values that
-override cluster-scoped `RightSizeDefaults`. Policies in the same namespace
+`AttuneNamespaceDefaults` provides namespace-scoped default values that
+override cluster-scoped `AttuneDefaults`. Policies in the same namespace
 inherit these values unless they specify their own.
 
 **Precedence order:** policy spec > namespace defaults > cluster defaults > built-in defaults
 
-The spec is identical to `RightSizeDefaults` (all fields in
-`RightSizeDefaultsSpec` are available). When multiple
-`RightSizeNamespaceDefaults` objects exist in the same namespace, the
+The spec is identical to `AttuneDefaults` (all fields in
+`AttuneDefaultsSpec` are available). When multiple
+`AttuneNamespaceDefaults` objects exist in the same namespace, the
 lexicographically smallest `metadata.name` wins.
 
 ### Use case
@@ -213,8 +213,8 @@ Production namespaces may use higher overheads and conservative
 modes, while staging namespaces can be more aggressive:
 
 ```yaml
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizeNamespaceDefaults
+apiVersion: attune.io/v1alpha1
+kind: AttuneNamespaceDefaults
 metadata:
   name: production-defaults
   namespace: production
@@ -231,8 +231,8 @@ spec:
     cooldown: 2h
     autoRevert: true
 ---
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizeNamespaceDefaults
+apiVersion: attune.io/v1alpha1
+kind: AttuneNamespaceDefaults
 metadata:
   name: staging-defaults
   namespace: staging
@@ -249,12 +249,12 @@ spec:
 ```
 
 See the full example in
-[`examples/11-namespace-defaults.yaml`](https://github.com/SebTardifLabs/kube-rightsize/blob/main/examples/11-namespace-defaults.yaml).
+[`examples/11-namespace-defaults.yaml`](https://github.com/attune-io/attune/blob/main/examples/11-namespace-defaults.yaml).
 
 ### Available Fields
 
-All fields from `RightSizeDefaults` are available in
-`RightSizeNamespaceDefaults`:
+All fields from `AttuneDefaults` are available in
+`AttuneNamespaceDefaults`:
 
 | Section | Fields |
 |---------|--------|
@@ -266,7 +266,7 @@ All fields from `RightSizeDefaults` are available in
 
 ## Alternative Metrics Sources
 
-By default, kube-rightsize queries Prometheus for CPU and memory usage data.
+By default, attune queries Prometheus for CPU and memory usage data.
 The CRD also supports Datadog and CloudWatch Container Insights as
 alternative metrics sources. **At most one** of `prometheus`, `datadog`, or
 `cloudwatch` may be set per policy.
@@ -356,11 +356,11 @@ At most one of `prometheus`, `datadog`, `cloudwatch`, or `vpa` may be set per po
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `updateStrategy.initialSizing` | bool | `false` | When true and the initial sizing webhook is enabled, new pods matching this policy receive recommended resources at creation time via a mutating admission webhook. Requires the namespace label `rightsize.io/initial-sizing=enabled`. |
+| `updateStrategy.initialSizing` | bool | `false` | When true and the initial sizing webhook is enabled, new pods matching this policy receive recommended resources at creation time via a mutating admission webhook. Requires the namespace label `attune.io/initial-sizing=enabled`. |
 
 ## Status Conditions
 
-The controller sets these conditions on each `RightSizePolicy`:
+The controller sets these conditions on each `AttunePolicy`:
 
 | Condition | Reasons | Description |
 |-----------|---------|-------------|

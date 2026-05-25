@@ -1,8 +1,8 @@
 ---
 # Example: Canary mode (resize 10% of pods first, then the rest)
 # Applies in-place resizes with graduated rollout and auto-revert.
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizePolicy
+apiVersion: attune.io/v1alpha1
+kind: AttunePolicy
 metadata:
   name: worker-fleet
   namespace: production

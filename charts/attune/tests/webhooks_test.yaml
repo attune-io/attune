@@ -1,0 +1,113 @@
+suite: webhook tests
+templates:
+  - templates/webhooks.yaml
+tests:
+  - it: should render mutating and validating webhooks when enabled
+    set:
+      webhooks.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 2
+
+  - it: should not render when webhooks disabled
+    set:
+      webhooks.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should set correct mutating webhook path
+    set:
+      webhooks.enabled: true
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: MutatingWebhookConfiguration
+      - equal:
+          path: webhooks[0].clientConfig.service.path
+          value: /mutate-attune-io-v1alpha1-attunepolicy
+
+  - it: should set correct validating webhook path for policies
+    set:
+      webhooks.enabled: true
+    documentIndex: 1
+    asserts:
+      - isKind:
+          of: ValidatingWebhookConfiguration
+      - equal:
+          path: webhooks[0].clientConfig.service.path
+          value: /validate-attune-io-v1alpha1-attunepolicy
+
+  - it: should include AttuneDefaults validation webhook
+    set:
+      webhooks.enabled: true
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: webhooks[1].name
+          value: validation-defaults.attune.io
+      - equal:
+          path: webhooks[1].clientConfig.service.path
+          value: /validate-attune-io-v1alpha1-attunedefaults
+      - equal:
+          path: webhooks[1].rules[0].resources[0]
+          value: attunedefaults
+
+  - it: should include AttuneNamespaceDefaults validation webhook
+    set:
+      webhooks.enabled: true
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: webhooks[2].name
+          value: validation-namespace-defaults.attune.io
+      - equal:
+          path: webhooks[2].clientConfig.service.path
+          value: /validate-attune-io-v1alpha1-attunenamespacedefaults
+      - equal:
+          path: webhooks[2].rules[0].resources[0]
+          value: attunenamespacedefaults
+
+  - it: should include pod initial sizing webhook when enabled
+    set:
+      webhooks.enabled: true
+      initialSizing.enabled: true
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: MutatingWebhookConfiguration
+      - equal:
+          path: webhooks[1].name
+          value: pod-initial-sizing.attune.io
+      - equal:
+          path: webhooks[1].clientConfig.service.path
+          value: /mutate-v1-pod
+      - equal:
+          path: webhooks[1].failurePolicy
+          value: Ignore
+      - equal:
+          path: webhooks[1].rules[0].resources[0]
+          value: pods
+      - equal:
+          path: webhooks[1].namespaceSelector.matchExpressions[0].key
+          value: attune.io/initial-sizing
+
+  - it: should not include pod initial sizing webhook when disabled
+    set:
+      webhooks.enabled: true
+      initialSizing.enabled: false
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: MutatingWebhookConfiguration
+      - lengthEqual:
+          path: webhooks
+          count: 1
+
+  - it: should set cert-manager annotation
+    set:
+      webhooks.enabled: true
+    documentIndex: 0
+    asserts:
+      - isNotNull:
+          path: metadata.annotations["cert-manager.io/inject-ca-from"]

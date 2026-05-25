@@ -1,0 +1,87 @@
+{{- if and .Values.metrics.enabled .Values.metrics.prometheusRule.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "attune.fullname" . }}
+  labels:
+    {{- include "attune.labels" . | nindent 4 }}
+    {{- with .Values.metrics.prometheusRule.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: attune
+      rules:
+        {{- if .Values.metrics.prometheusRule.rules.reconcileErrors.enabled }}
+        - alert: KubeRightsizeReconcileErrors
+          expr: sum(rate(attune_reconcile_errors_total[5m])) > {{ .Values.metrics.prometheusRule.rules.reconcileErrors.threshold }}
+          for: {{ .Values.metrics.prometheusRule.rules.reconcileErrors.for }}
+          labels:
+            severity: {{ .Values.metrics.prometheusRule.rules.reconcileErrors.severity }}
+          annotations:
+            summary: attune reconcile errors detected
+            description: >-
+              The attune operator is experiencing reconcile errors
+              ({{ "{{ $value | humanize }}" }} errors/sec over 5m).
+              Check the operator logs for details.
+        {{- end }}
+        {{- if .Values.metrics.prometheusRule.rules.prometheusUnreachable.enabled }}
+        - alert: KubeRightsizePrometheusUnreachable
+          expr: sum(rate(attune_prometheus_query_errors_total[5m])) > 0
+          for: {{ .Values.metrics.prometheusRule.rules.prometheusUnreachable.for }}
+          labels:
+            severity: {{ .Values.metrics.prometheusRule.rules.prometheusUnreachable.severity }}
+          annotations:
+            summary: attune cannot query Prometheus
+            description: >-
+              The attune operator has been experiencing Prometheus
+              query errors for {{ .Values.metrics.prometheusRule.rules.prometheusUnreachable.for }}.
+              Verify the Prometheus address and connectivity.
+        {{- end }}
+        {{- if .Values.metrics.prometheusRule.rules.degraded.enabled }}
+        - alert: KubeRightsizeDegraded
+          expr: sum by (namespace, workload) (increase(attune_reverts_total[15m])) > 3
+          for: {{ .Values.metrics.prometheusRule.rules.degraded.for }}
+          labels:
+            severity: {{ .Values.metrics.prometheusRule.rules.degraded.severity }}
+          annotations:
+            summary: attune workload is degraded (repeated reverts)
+            description: >-
+              Workload {{ "{{ $labels.namespace }}" }}/{{ "{{ $labels.workload }}" }}
+              has been reverted more than 3 times in 15 minutes. The safety
+              monitor is blocking resizes. Investigate the workload for
+              instability.
+        {{- end }}
+        {{- if .Values.metrics.prometheusRule.rules.highRevertRate.enabled }}
+        - alert: KubeRightsizeHighRevertRate
+          expr: >-
+            (
+              sum(increase(attune_reverts_total[1h]))
+              /
+              clamp_min(sum(increase(attune_resize_total[1h])), 1)
+            ) > {{ .Values.metrics.prometheusRule.rules.highRevertRate.threshold }}
+          for: {{ .Values.metrics.prometheusRule.rules.highRevertRate.for }}
+          labels:
+            severity: {{ .Values.metrics.prometheusRule.rules.highRevertRate.severity }}
+          annotations:
+            summary: attune high revert rate detected
+            description: >-
+              More than {{ "{{ $value | humanizePercentage }}" }} of resize
+              operations were reverted in the last hour. This indicates the
+              operator's recommendations may be causing instability. Review
+              overhead settings and workload behavior.
+        {{- end }}
+        {{- if .Values.metrics.prometheusRule.rules.reconcileStale.enabled }}
+        - alert: KubeRightsizeReconcileStale
+          expr: changes(attune_reconcile_duration_seconds_count[{{ .Values.metrics.prometheusRule.rules.reconcileStale.staleDuration }}]) == 0
+          for: {{ .Values.metrics.prometheusRule.rules.reconcileStale.for }}
+          labels:
+            severity: {{ .Values.metrics.prometheusRule.rules.reconcileStale.severity }}
+          annotations:
+            summary: attune has not reconciled recently
+            description: >-
+              No successful reconciliation has completed in the last
+              {{ .Values.metrics.prometheusRule.rules.reconcileStale.staleDuration }}.
+              The operator may be stuck, crashed, or unable to process policies.
+        {{- end }}
+{{- end }}

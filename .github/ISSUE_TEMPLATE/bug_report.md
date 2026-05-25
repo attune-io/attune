@@ -1,6 +1,6 @@
 ---
 name: Bug Report
-about: Report a bug in kube-rightsize
+about: Report a bug in attune
 title: "[Bug] "
 labels: kind/bug
 assignees: ""
@@ -12,7 +12,7 @@ A clear description of the bug.
 
 ## Steps to Reproduce
 
-1. Create a RightSizePolicy with...
+1. Create a AttunePolicy with...
 2. Wait for...
 3. Observe...
 
@@ -26,13 +26,13 @@ What actually happened.
 
 ## Environment
 
-- kube-rightsize version:
+- attune version:
 - Kubernetes version:
 - Container runtime:
 - Cloud provider:
 - Prometheus version:
 
-## RightSizePolicy YAML
+## AttunePolicy YAML
 
 ```yaml
 # Paste your policy here (redact sensitive values)

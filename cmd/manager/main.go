@@ -37,12 +37,12 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	webhookserver "sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
-	"github.com/SebTardifLabs/kube-rightsize/internal/controller"
-	"github.com/SebTardifLabs/kube-rightsize/internal/metrics"
-	_ "github.com/SebTardifLabs/kube-rightsize/internal/operatormetrics"
-	"github.com/SebTardifLabs/kube-rightsize/internal/transform"
-	"github.com/SebTardifLabs/kube-rightsize/internal/webhook"
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/controller"
+	"github.com/attune-io/attune/internal/metrics"
+	_ "github.com/attune-io/attune/internal/operatormetrics"
+	"github.com/attune-io/attune/internal/transform"
+	"github.com/attune-io/attune/internal/webhook"
 )
 
 var (
@@ -56,7 +56,7 @@ var (
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	utilruntime.Must(rightsizev1alpha1.AddToScheme(scheme))
+	utilruntime.Must(attunev1alpha1.AddToScheme(scheme))
 }
 
 func main() {
@@ -85,7 +85,7 @@ func main() {
 	flag.IntVar(&prometheusBurst, "prometheus-burst", 20,
 		"Maximum burst for Prometheus query throttle.")
 	flag.IntVar(&maxConcurrentReconciles, "max-concurrent-reconciles", 1,
-		"Maximum number of RightSizePolicy reconciles running in parallel. Increase for large clusters with many policies.")
+		"Maximum number of AttunePolicy reconciles running in parallel. Increase for large clusters with many policies.")
 	flag.StringVar(&watchNamespaces, "watch-namespaces", "",
 		"Comma-separated list of namespaces to watch. Empty means all namespaces (cluster-scoped). "+
 			"Reduces informer cache memory on large clusters where policies exist in a few namespaces.")
@@ -129,7 +129,7 @@ func main() {
 		},
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "kube-rightsize.rightsize.io",
+		LeaderElectionID:       "attune.attune.io",
 		Client: client.Options{
 			Cache: &client.CacheOptions{
 				DisableFor: []client.Object{&corev1.Secret{}},
@@ -139,8 +139,8 @@ func main() {
 
 	// Namespace-scoped caching: when --watch-namespaces is set, only watch
 	// the listed namespaces for namespace-scoped resources (Pods, Deployments,
-	// HPAs, RightSizePolicies, etc.). Cluster-scoped resources (Nodes,
-	// RightSizeDefaults) are always watched regardless.
+	// HPAs, AttunePolicies, etc.). Cluster-scoped resources (Nodes,
+	// AttuneDefaults) are always watched regardless.
 	if watchNamespaces != "" {
 		nsMap := make(map[string]cache.Config)
 		for _, ns := range strings.Split(watchNamespaces, ",") {
@@ -185,12 +185,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Setup the RightSizePolicyReconciler with a real Prometheus metrics factory and clientset.
-	if err = (&controller.RightSizePolicyReconciler{
+	// Setup the AttunePolicyReconciler with a real Prometheus metrics factory and clientset.
+	if err = (&controller.AttunePolicyReconciler{
 		Client:                  mgr.GetClient(),
 		Scheme:                  mgr.GetScheme(),
 		Clientset:               clientset,
-		Recorder:                mgr.GetEventRecorder("kube-rightsize"),
+		Recorder:                mgr.GetEventRecorder("attune"),
 		CollectorTTL:            collectorTTL,
 		MaxConcurrentReconciles: maxConcurrentReconciles,
 		PrometheusTimeout:       prometheusTimeout,
@@ -202,34 +202,34 @@ func main() {
 			return metrics.NewRateLimitedCollector(collector, prometheusQPS, prometheusBurst), nil
 		},
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "RightSizePolicy")
+		setupLog.Error(err, "unable to create controller", "controller", "AttunePolicy")
 		os.Exit(1)
 	}
 
 	// Register webhooks (requires cert-manager or manual TLS cert provisioning).
 	if enableWebhooks {
-		if err = ctrl.NewWebhookManagedBy(mgr, &rightsizev1alpha1.RightSizePolicy{}).
-			WithDefaulter(&webhook.RightSizePolicyDefaulter{}).
-			WithValidator(&webhook.RightSizePolicyValidator{}).
+		if err = ctrl.NewWebhookManagedBy(mgr, &attunev1alpha1.AttunePolicy{}).
+			WithDefaulter(&webhook.AttunePolicyDefaulter{}).
+			WithValidator(&webhook.AttunePolicyValidator{}).
 			Complete(); err != nil {
-			setupLog.Error(err, "unable to create webhook", "webhook", "RightSizePolicy")
+			setupLog.Error(err, "unable to create webhook", "webhook", "AttunePolicy")
 			os.Exit(1)
 		}
-		if err = ctrl.NewWebhookManagedBy(mgr, &rightsizev1alpha1.RightSizeDefaults{}).
-			WithValidator(&webhook.RightSizeDefaultsValidator{}).
+		if err = ctrl.NewWebhookManagedBy(mgr, &attunev1alpha1.AttuneDefaults{}).
+			WithValidator(&webhook.AttuneDefaultsValidator{}).
 			Complete(); err != nil {
-			setupLog.Error(err, "unable to create webhook", "webhook", "RightSizeDefaults")
+			setupLog.Error(err, "unable to create webhook", "webhook", "AttuneDefaults")
 			os.Exit(1)
 		}
-		if err = ctrl.NewWebhookManagedBy(mgr, &rightsizev1alpha1.RightSizeNamespaceDefaults{}).
-			WithValidator(&webhook.RightSizeNamespaceDefaultsValidator{}).
+		if err = ctrl.NewWebhookManagedBy(mgr, &attunev1alpha1.AttuneNamespaceDefaults{}).
+			WithValidator(&webhook.AttuneNamespaceDefaultsValidator{}).
 			Complete(); err != nil {
-			setupLog.Error(err, "unable to create webhook", "webhook", "RightSizeNamespaceDefaults")
+			setupLog.Error(err, "unable to create webhook", "webhook", "AttuneNamespaceDefaults")
 			os.Exit(1)
 		}
 
 		// Pod initial sizing webhook: mutates pod resources at creation time
-		// based on existing RightSizePolicy recommendations.
+		// based on existing AttunePolicy recommendations.
 		mgr.GetWebhookServer().Register("/mutate-v1-pod",
 			&webhookserver.Admission{Handler: &webhook.PodMutatingHandler{
 				Client: mgr.GetClient(),

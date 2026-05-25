@@ -34,9 +34,9 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/util/retry"
 
-	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
-	"github.com/SebTardifLabs/kube-rightsize/internal/resize"
-	"github.com/SebTardifLabs/kube-rightsize/internal/throttle"
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/resize"
+	"github.com/attune-io/attune/internal/throttle"
 )
 
 // ThrottleChecker is an alias for throttle.Checker for backward compatibility.
@@ -99,7 +99,7 @@ type Monitor struct {
 	throttleChecker   ThrottleChecker
 	throttleThreshold float64
 	sloQuerier        SLOQuerier
-	sloGuardrails     []rightsizev1alpha1.SLOGuardrail
+	sloGuardrails     []attunev1alpha1.SLOGuardrail
 }
 
 // NewMonitor creates a Monitor backed by the given Kubernetes client.
@@ -122,7 +122,7 @@ func (m *Monitor) WithThrottleChecker(checker ThrottleChecker, threshold float64
 
 // WithSLOChecker adds application-level SLO guardrail checking. The querier
 // is used to execute instant PromQL queries for each guardrail.
-func (m *Monitor) WithSLOChecker(querier SLOQuerier, guardrails []rightsizev1alpha1.SLOGuardrail) *Monitor {
+func (m *Monitor) WithSLOChecker(querier SLOQuerier, guardrails []attunev1alpha1.SLOGuardrail) *Monitor {
 	m.sloQuerier = querier
 	m.sloGuardrails = guardrails
 	return m

@@ -1,7 +1,7 @@
 ## Version scheme
 
-kube-rightsize follows [Semantic Versioning](https://semver.org/). The Helm
-chart version and `appVersion` are kept in sync in `charts/kube-rightsize/Chart.yaml`.
+attune follows [Semantic Versioning](https://semver.org/). The Helm
+chart version and `appVersion` are kept in sync in `charts/attune/Chart.yaml`.
 
 ## Release process
 
@@ -38,7 +38,7 @@ tag matching `v*` is pushed.
 GoReleaser produces:
 
 - Linux binaries for amd64 and arm64
-- A container image pushed to `ghcr.io/sebtardiflabs/kube-rightsize`
+- A container image pushed to `ghcr.io/attune-io/attune`
 - A GitHub release with checksums and release notes
 
 ### 4. Container image signing
@@ -48,16 +48,16 @@ using keyless signing (Fulcio + Rekor). Verify a release image:
 
 ```bash
 cosign verify \
-  --certificate-identity-regexp="https://github.com/SebTardifLabs/kube-rightsize" \
+  --certificate-identity-regexp="https://github.com/attune-io/attune" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-  ghcr.io/sebtardiflabs/kube-rightsize:v0.2.0
+  ghcr.io/attune-io/attune:v0.2.0
 ```
 
 ### 5. Helm chart publishing
 
-The Helm chart is published as an OCI artifact to `ghcr.io/sebtardiflabs/charts/kube-rightsize`.
+The Helm chart is published as an OCI artifact to `ghcr.io/attune-io/charts/attune`.
 
-Update the chart version in `charts/kube-rightsize/Chart.yaml`:
+Update the chart version in `charts/attune/Chart.yaml`:
 
 ```yaml
 version: 0.2.0
@@ -67,8 +67,8 @@ appVersion: "0.2.0"
 The CI pipeline packages and pushes the chart automatically:
 
 ```bash
-helm package charts/kube-rightsize
-helm push kube-rightsize-0.2.0.tgz oci://ghcr.io/sebtardiflabs/charts
+helm package charts/attune
+helm push attune-0.2.0.tgz oci://ghcr.io/attune-io/charts
 ```
 
 ### 6. Static install manifest

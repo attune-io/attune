@@ -55,8 +55,8 @@ spec:
                             memory: 256Mi
         - apply:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: exclude-sidecar
                 namespace: e2e-exclude-containers
@@ -95,8 +95,8 @@ spec:
       try:
         - assert:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: exclude-sidecar
                 namespace: e2e-exclude-containers
@@ -105,9 +105,9 @@ spec:
                   discovered: 1
   catch:
     - describe:
-        apiVersion: rightsize.io/v1alpha1
-        kind: RightSizePolicy
+        apiVersion: attune.io/v1alpha1
+        kind: AttunePolicy
         namespace: e2e-exclude-containers
     - podLogs:
-        namespace: kube-rightsize-system
-        selector: app.kubernetes.io/name=kube-rightsize
+        namespace: attune-system
+        selector: app.kubernetes.io/name=attune

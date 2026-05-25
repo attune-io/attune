@@ -67,6 +67,37 @@ rules:
   - list
   - watch
 - apiGroups:
+  - attune.io
+  resources:
+  - attunedefaults
+  - attunenamespacedefaults
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - attune.io
+  resources:
+  - attunepolicies
+  verbs:
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - attune.io
+  resources:
+  - attunepolicies/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - attune.io
+  resources:
+  - attunepolicies/status
+  verbs:
+  - get
+  - update
+- apiGroups:
   - autoscaling
   resources:
   - horizontalpodautoscalers
@@ -110,34 +141,3 @@ rules:
   verbs:
   - get
   - list
-- apiGroups:
-  - rightsize.io
-  resources:
-  - rightsizedefaults
-  - rightsizenamespacedefaults
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - rightsize.io
-  resources:
-  - rightsizepolicies
-  verbs:
-  - get
-  - list
-  - patch
-  - watch
-- apiGroups:
-  - rightsize.io
-  resources:
-  - rightsizepolicies/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - rightsize.io
-  resources:
-  - rightsizepolicies/status
-  verbs:
-  - get
-  - update

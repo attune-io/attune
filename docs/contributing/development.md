@@ -13,8 +13,8 @@
 ## Clone and build
 
 ```bash
-git clone https://github.com/SebTardifLabs/kube-rightsize.git
-cd kube-rightsize
+git clone https://github.com/attune-io/attune.git
+cd attune
 
 # Generate CRD manifests and deepcopy methods
 make manifests generate
@@ -81,10 +81,10 @@ Build the container image, load it into the local cluster, and deploy:
 
 ```bash
 # If using k3d:
-make k3d-deploy IMG=kube-rightsize:e2e
+make k3d-deploy IMG=attune:e2e
 
 # If using Kind:
-make kind-deploy IMG=kube-rightsize:e2e
+make kind-deploy IMG=attune:e2e
 ```
 
 ## Linting

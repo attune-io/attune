@@ -8,15 +8,15 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: kube-rightsize-dashboard
+  name: attune-dashboard
   namespace: monitoring
   labels:
     grafana_dashboard: "1"
 data:
-  kube-rightsize.json: |
+  attune.json: |
     See deploy/grafana/dashboard.json for the full dashboard definition.
     Copy its contents here, or use:
-      kubectl create configmap kube-rightsize-dashboard \
-        --from-file=kube-rightsize.json=deploy/grafana/dashboard.json \
+      kubectl create configmap attune-dashboard \
+        --from-file=attune.json=deploy/grafana/dashboard.json \
         -n monitoring \
         -o yaml --dry-run=client | kubectl apply -f -

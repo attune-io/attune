@@ -13,16 +13,16 @@ spec:
       try:
         - script:
             content: |
-              METRICS_IP=$(kubectl get svc kube-rightsize-metrics -n kube-rightsize-system -o jsonpath='{.spec.clusterIP}')
-              METRICS_PORT=$(kubectl get svc kube-rightsize-metrics -n kube-rightsize-system -o jsonpath='{.spec.ports[0].port}')
+              METRICS_IP=$(kubectl get svc attune-metrics -n attune-system -o jsonpath='{.spec.clusterIP}')
+              METRICS_PORT=$(kubectl get svc attune-metrics -n attune-system -o jsonpath='{.spec.ports[0].port}')
               kubectl run metrics-check --image=curlimages/curl --restart=Never --rm --attach --command -- \
                 curl -sf "http://${METRICS_IP}:${METRICS_PORT}/metrics" > /tmp/e2e-metrics.txt 2>&1
               # Verify operator-specific metrics are present
-              grep -q 'kube_rightsize_reconcile_duration_seconds' /tmp/e2e-metrics.txt
-              grep -q 'kube_rightsize_resize_total' /tmp/e2e-metrics.txt
-              grep -q 'kube_rightsize_reverts_total' /tmp/e2e-metrics.txt
-              grep -q 'kube_rightsize_prometheus_query_errors_total' /tmp/e2e-metrics.txt
-              grep -q 'kube_rightsize_resize_duration_seconds' /tmp/e2e-metrics.txt
-              grep -q 'kube_rightsize_reconcile_errors_total' /tmp/e2e-metrics.txt
-              grep -q 'kube_rightsize_savings_estimated_monthly_dollars' /tmp/e2e-metrics.txt
+              grep -q 'attune_reconcile_duration_seconds' /tmp/e2e-metrics.txt
+              grep -q 'attune_resize_total' /tmp/e2e-metrics.txt
+              grep -q 'attune_reverts_total' /tmp/e2e-metrics.txt
+              grep -q 'attune_prometheus_query_errors_total' /tmp/e2e-metrics.txt
+              grep -q 'attune_resize_duration_seconds' /tmp/e2e-metrics.txt
+              grep -q 'attune_reconcile_errors_total' /tmp/e2e-metrics.txt
+              grep -q 'attune_savings_estimated_monthly_dollars' /tmp/e2e-metrics.txt
               echo "All expected metrics found"

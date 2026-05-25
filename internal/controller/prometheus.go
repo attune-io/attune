@@ -35,11 +35,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
-	rsmetrics "github.com/SebTardifLabs/kube-rightsize/internal/metrics"
-	"github.com/SebTardifLabs/kube-rightsize/internal/operatormetrics"
-	"github.com/SebTardifLabs/kube-rightsize/internal/recommendation"
-	"github.com/SebTardifLabs/kube-rightsize/internal/validation"
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	rsmetrics "github.com/attune-io/attune/internal/metrics"
+	"github.com/attune-io/attune/internal/operatormetrics"
+	"github.com/attune-io/attune/internal/recommendation"
+	"github.com/attune-io/attune/internal/validation"
 )
 
 // collectorEntry wraps a MetricsCollector with a last-used timestamp
@@ -66,8 +66,8 @@ const (
 // in api/v1alpha1/defaults.go. This avoids hardcoding magic numbers that could
 // drift if the constants change.
 var (
-	defaultCPUOverhead    = mustParseFloat(rightsizev1alpha1.DefaultCPUOverhead)
-	defaultMemoryOverhead = mustParseFloat(rightsizev1alpha1.DefaultMemoryOverhead)
+	defaultCPUOverhead    = mustParseFloat(attunev1alpha1.DefaultCPUOverhead)
+	defaultMemoryOverhead = mustParseFloat(attunev1alpha1.DefaultMemoryOverhead)
 )
 
 func mustParseFloat(s string) float64 {
@@ -80,7 +80,7 @@ func mustParseFloat(s string) float64 {
 
 // getOrCreateCollector returns a cached collector for the given Prometheus
 // config, creating one if needed. Delegates to getOrCreateCollectorByKey.
-func (r *RightSizePolicyReconciler) getOrCreateCollector(config *rightsizev1alpha1.PrometheusConfig, opts *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
+func (r *AttunePolicyReconciler) getOrCreateCollector(config *attunev1alpha1.PrometheusConfig, opts *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
 	cacheKey := collectorCacheKey(config, opts)
 	return r.getOrCreateCollectorByKey(cacheKey, config.Address, func() (rsmetrics.MetricsCollector, error) {
 		return r.MetricsFactory(config.Address, opts)
@@ -91,7 +91,7 @@ func (r *RightSizePolicyReconciler) getOrCreateCollector(config *rightsizev1alph
 // creating one via factory if needed. The cache is bounded at maxCollectors
 // entries, stale entries are TTL-evicted, and LoadOrStore prevents duplicate
 // collectors from concurrent goroutines.
-func (r *RightSizePolicyReconciler) getOrCreateCollectorByKey(cacheKey, description string, factory func() (rsmetrics.MetricsCollector, error)) (rsmetrics.MetricsCollector, error) {
+func (r *AttunePolicyReconciler) getOrCreateCollectorByKey(cacheKey, description string, factory func() (rsmetrics.MetricsCollector, error)) (rsmetrics.MetricsCollector, error) {
 	now := r.now()
 
 	if cached, ok := r.collectors.Load(cacheKey); ok {
@@ -128,7 +128,7 @@ func (r *RightSizePolicyReconciler) getOrCreateCollectorByKey(cacheKey, descript
 		return count < maxCollectors
 	})
 	if count >= maxCollectors {
-		return nil, fmt.Errorf("collector cache full (%d entries); refusing new collector %q; consolidate policies to use fewer distinct addresses, or use a RightSizeDefaults resource to share a single address across all policies", maxCollectors, description)
+		return nil, fmt.Errorf("collector cache full (%d entries); refusing new collector %q; consolidate policies to use fewer distinct addresses, or use a AttuneDefaults resource to share a single address across all policies", maxCollectors, description)
 	}
 
 	collector, err := factory()
@@ -150,7 +150,7 @@ func (r *RightSizePolicyReconciler) getOrCreateCollectorByKey(cacheKey, descript
 	return stored.collector, nil
 }
 
-func collectorConfigPrefix(address string, headers map[string]string, tlsConfig *rightsizev1alpha1.TLSConfig) string {
+func collectorConfigPrefix(address string, headers map[string]string, tlsConfig *attunev1alpha1.TLSConfig) string {
 	key := address
 	if tlsConfig != nil && tlsConfig.InsecureSkipVerify {
 		key += "|insecure"
@@ -170,13 +170,13 @@ func collectorConfigPrefix(address string, headers map[string]string, tlsConfig 
 
 // collectorCacheKey builds a cache key that includes address, headers,
 // bearer token identity, and TLS settings.
-func collectorCacheKey(config *rightsizev1alpha1.PrometheusConfig, opts *rsmetrics.CollectorOptions) string {
+func collectorCacheKey(config *attunev1alpha1.PrometheusConfig, opts *rsmetrics.CollectorOptions) string {
 	headers := map[string]string(nil)
-	var tlsConfig *rightsizev1alpha1.TLSConfig
+	var tlsConfig *attunev1alpha1.TLSConfig
 	if opts != nil {
 		headers = opts.Headers
 		if opts.InsecureSkipVerify {
-			tlsConfig = &rightsizev1alpha1.TLSConfig{InsecureSkipVerify: true}
+			tlsConfig = &attunev1alpha1.TLSConfig{InsecureSkipVerify: true}
 		}
 	}
 	key := collectorConfigPrefix(config.Address, headers, tlsConfig)
@@ -199,15 +199,15 @@ func collectorCacheKey(config *rightsizev1alpha1.PrometheusConfig, opts *rsmetri
 
 //
 //nolint:unparam // error return is part of the interface contract for future use
-func (r *RightSizePolicyReconciler) computeRecommendations(
+func (r *AttunePolicyReconciler) computeRecommendations(
 	ctx context.Context,
-	policy *rightsizev1alpha1.RightSizePolicy,
+	policy *attunev1alpha1.AttunePolicy,
 	workload client.Object,
 	collector rsmetrics.MetricsCollector,
 	qb rsmetrics.QueryBuilder,
 	cpuEngine, memEngine *recommendation.RecommendationEngine,
 	excludeSet map[string]bool,
-) (rec *rightsizev1alpha1.WorkloadRecommendation, queryErrors int, failedMetricTypes []string, maxDataPoints int, err error) {
+) (rec *attunev1alpha1.WorkloadRecommendation, queryErrors int, failedMetricTypes []string, maxDataPoints int, err error) {
 	logger := log.FromContext(ctx)
 	containers := r.getContainers(workload)
 	if len(containers) == 0 {
@@ -233,7 +233,7 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 	podRegex := r.getPodRegex(workload)
 
 	queryStep := r.getQueryStep(policy)
-	if queryStep != rightsizev1alpha1.DefaultQueryStep {
+	if queryStep != attunev1alpha1.DefaultQueryStep {
 		logger.V(1).Info("Using custom query step", "queryStep", queryStep)
 	}
 	// Run CPU and memory queries concurrently. They are independent queries
@@ -261,7 +261,7 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 		failedMetricTypes = append(failedMetricTypes, "memory")
 	}
 
-	var containerRecs []rightsizev1alpha1.ContainerRecommendation
+	var containerRecs []attunev1alpha1.ContainerRecommendation
 
 	for _, container := range containers {
 		containerName := container.Name
@@ -302,20 +302,20 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 		currentMemReq := container.Resources.Requests.Memory().DeepCopy()
 		currentMemLim := container.Resources.Limits.Memory().DeepCopy()
 
-		rec := rightsizev1alpha1.ContainerRecommendation{
+		rec := attunev1alpha1.ContainerRecommendation{
 			Name:       containerName,
 			DataPoints: safeInt32(cpuProfile.DataPoints + memProfile.DataPoints),
 			Confidence: (cpuProfile.Confidence + memProfile.Confidence) / 2.0,
 			LastUpdated: metav1.Time{
 				Time: now,
 			},
-			Current: rightsizev1alpha1.ResourceValues{
+			Current: attunev1alpha1.ResourceValues{
 				CPURequest:    currentCPUReq,
 				CPULimit:      currentCPULim,
 				MemoryRequest: currentMemReq,
 				MemoryLimit:   currentMemLim,
 			},
-			Recommended: rightsizev1alpha1.ResourceValues{
+			Recommended: attunev1alpha1.ResourceValues{
 				CPURequest:    currentCPUReq,
 				CPULimit:      currentCPULim,
 				MemoryRequest: currentMemReq,
@@ -323,7 +323,7 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 			},
 		}
 
-		explanation := &rightsizev1alpha1.ContainerRecommendationExplanation{}
+		explanation := &attunev1alpha1.ContainerRecommendationExplanation{}
 
 		// Compute CPU recommendation.
 		if cpuProfile.DataPoints >= int(minimumDataPoints) {
@@ -429,18 +429,18 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 		}
 
 		// Scale limits proportionally if ControlledValues is RequestsAndLimits.
-		cpuControlled := rightsizev1alpha1.ControlledRequestsOnly
+		cpuControlled := attunev1alpha1.ControlledRequestsOnly
 		if policy.Spec.CPU.ControlledValues != nil {
 			cpuControlled = *policy.Spec.CPU.ControlledValues
 		}
-		memControlled := rightsizev1alpha1.ControlledRequestsOnly
+		memControlled := attunev1alpha1.ControlledRequestsOnly
 		if policy.Spec.Memory.ControlledValues != nil {
 			memControlled = *policy.Spec.Memory.ControlledValues
 		}
-		if cpuControlled == rightsizev1alpha1.ControlledRequestsAndLimits {
+		if cpuControlled == attunev1alpha1.ControlledRequestsAndLimits {
 			rec.Recommended.CPULimit = scaleLimits(currentCPUReq, currentCPULim, rec.Recommended.CPURequest)
 		}
-		if memControlled == rightsizev1alpha1.ControlledRequestsAndLimits {
+		if memControlled == attunev1alpha1.ControlledRequestsAndLimits {
 			rec.Recommended.MemoryLimit = scaleLimits(currentMemReq, currentMemLim, rec.Recommended.MemoryRequest)
 		}
 
@@ -465,7 +465,7 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 	}
 
 	lastDataTime := metav1.NewTime(now)
-	return &rightsizev1alpha1.WorkloadRecommendation{
+	return &attunev1alpha1.WorkloadRecommendation{
 		Containers:   containerRecs,
 		LastDataTime: &lastDataTime,
 	}, queryErrors, failedMetricTypes, maxDataPoints, nil
@@ -473,7 +473,7 @@ func (r *RightSizePolicyReconciler) computeRecommendations(
 
 // buildCollectorOptions constructs CollectorOptions from the given PrometheusConfig,
 // including headers, query parameters, TLS settings, and Secret-backed bearer token resolution.
-func (r *RightSizePolicyReconciler) buildCollectorOptions(ctx context.Context, namespace string, config *rightsizev1alpha1.PrometheusConfig) (*rsmetrics.CollectorOptions, error) {
+func (r *AttunePolicyReconciler) buildCollectorOptions(ctx context.Context, namespace string, config *attunev1alpha1.PrometheusConfig) (*rsmetrics.CollectorOptions, error) {
 	if err := validation.PrometheusQueryParameters(config.QueryParameters); err != nil {
 		return nil, err
 	}
@@ -506,7 +506,7 @@ func (r *RightSizePolicyReconciler) buildCollectorOptions(ctx context.Context, n
 // resolveMetricsCollector creates the appropriate MetricsCollector and
 // QueryBuilder based on which metricsSource field is configured. Falls back
 // to Prometheus when no explicit source is set.
-func (r *RightSizePolicyReconciler) resolveMetricsCollector(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy, defaults *rightsizev1alpha1.RightSizeDefaults) (rsmetrics.MetricsCollector, rsmetrics.QueryBuilder, error) {
+func (r *AttunePolicyReconciler) resolveMetricsCollector(ctx context.Context, policy *attunev1alpha1.AttunePolicy, defaults *attunev1alpha1.AttuneDefaults) (rsmetrics.MetricsCollector, rsmetrics.QueryBuilder, error) {
 	ms := policy.Spec.MetricsSource
 
 	switch {
@@ -538,7 +538,7 @@ func (r *RightSizePolicyReconciler) resolveMetricsCollector(ctx context.Context,
 
 // resolveDatadogCollector creates a DatadogCollector from the policy's
 // Datadog config, reading API/app keys from the referenced Secret.
-func (r *RightSizePolicyReconciler) resolveDatadogCollector(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy) (rsmetrics.MetricsCollector, rsmetrics.QueryBuilder, error) {
+func (r *AttunePolicyReconciler) resolveDatadogCollector(ctx context.Context, policy *attunev1alpha1.AttunePolicy) (rsmetrics.MetricsCollector, rsmetrics.QueryBuilder, error) {
 	dd := policy.Spec.MetricsSource.Datadog
 
 	// Read API key from the referenced Secret.
@@ -571,7 +571,7 @@ func (r *RightSizePolicyReconciler) resolveDatadogCollector(ctx context.Context,
 
 // resolveCloudWatchCollector creates a CloudWatchCollector from the policy's
 // CloudWatch config, using the default AWS credential chain.
-func (r *RightSizePolicyReconciler) resolveCloudWatchCollector(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy) (rsmetrics.MetricsCollector, rsmetrics.QueryBuilder, error) {
+func (r *AttunePolicyReconciler) resolveCloudWatchCollector(ctx context.Context, policy *attunev1alpha1.AttunePolicy) (rsmetrics.MetricsCollector, rsmetrics.QueryBuilder, error) {
 	cw := policy.Spec.MetricsSource.CloudWatch
 
 	// Cache the collector keyed by region + cluster + role, with full
@@ -593,8 +593,8 @@ func (r *RightSizePolicyReconciler) resolveCloudWatchCollector(ctx context.Conte
 }
 
 // resolvePrometheusAddress returns the Prometheus address from the policy spec,
-// falling back to the cluster-scoped RightSizeDefaults if not set.
-func (r *RightSizePolicyReconciler) resolvePrometheusConfig(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy, defaults *rightsizev1alpha1.RightSizeDefaults) (*rightsizev1alpha1.PrometheusConfig, error) {
+// falling back to the cluster-scoped AttuneDefaults if not set.
+func (r *AttunePolicyReconciler) resolvePrometheusConfig(ctx context.Context, policy *attunev1alpha1.AttunePolicy, defaults *attunev1alpha1.AttuneDefaults) (*attunev1alpha1.PrometheusConfig, error) {
 	// Check policy-level config first.
 	if policy.Spec.MetricsSource.Prometheus != nil &&
 		policy.Spec.MetricsSource.Prometheus.Address != "" {
@@ -605,7 +605,7 @@ func (r *RightSizePolicyReconciler) resolvePrometheusConfig(ctx context.Context,
 		return config, nil
 	}
 
-	// Fall back to RightSizeDefaults.
+	// Fall back to AttuneDefaults.
 	if defaults != nil &&
 		defaults.Spec.MetricsSource != nil &&
 		defaults.Spec.MetricsSource.Prometheus != nil &&
@@ -623,14 +623,14 @@ func (r *RightSizePolicyReconciler) resolvePrometheusConfig(ctx context.Context,
 			log.FromContext(ctx).Error(err, "Auto-discovered Prometheus address failed SSRF validation", "address", discovered)
 		} else {
 			log.FromContext(ctx).Info("Auto-discovered Prometheus address", "address", discovered)
-			return &rightsizev1alpha1.PrometheusConfig{Address: discovered}, nil
+			return &attunev1alpha1.PrometheusConfig{Address: discovered}, nil
 		}
 	}
 	return nil, fmt.Errorf("no Prometheus address configured in policy or cluster defaults, and auto-discovery found no Prometheus instance")
 }
 
 // readSecretKey reads a single key from a Kubernetes Secret.
-func (r *RightSizePolicyReconciler) readSecretKey(ctx context.Context, namespace, name, key string) (string, error) {
+func (r *AttunePolicyReconciler) readSecretKey(ctx context.Context, namespace, name, key string) (string, error) {
 	var secret corev1.Secret
 	if err := r.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, &secret); err != nil {
 		return "", fmt.Errorf("reading secret %s/%s: %w", namespace, name, err)
@@ -645,7 +645,7 @@ func (r *RightSizePolicyReconciler) readSecretKey(ctx context.Context, namespace
 // discoverPrometheus attempts to find a Prometheus instance in the cluster
 // by checking for the Prometheus Operator's Prometheus CRD, then falling back
 // to well-known service names.
-func (r *RightSizePolicyReconciler) discoverPrometheus(ctx context.Context) string {
+func (r *AttunePolicyReconciler) discoverPrometheus(ctx context.Context) string {
 	const promDiscoveryCacheTTL = 5 * time.Minute
 
 	r.discoveredPromMu.Lock()
@@ -707,7 +707,7 @@ func (r *RightSizePolicyReconciler) discoverPrometheus(ctx context.Context) stri
 	return ""
 }
 
-func (r *RightSizePolicyReconciler) cacheDiscoveredPrometheus(addr string) {
+func (r *AttunePolicyReconciler) cacheDiscoveredPrometheus(addr string) {
 	r.discoveredPromMu.Lock()
 	r.discoveredPromAddr = addr
 	r.discoveredPromTime = r.now()
@@ -783,8 +783,8 @@ func appendNote(existing, note string) string {
 // type. The explanation parameter is passed by value (already a copy) and is
 // not referenced after this call, so quantities are assigned directly without
 // redundant DeepCopy.
-func toAPIRecommendationExplanation(explanation recommendation.RecommendationExplanation) *rightsizev1alpha1.ResourceRecommendationExplanation {
-	return &rightsizev1alpha1.ResourceRecommendationExplanation{
+func toAPIRecommendationExplanation(explanation recommendation.RecommendationExplanation) *attunev1alpha1.ResourceRecommendationExplanation {
+	return &attunev1alpha1.ResourceRecommendationExplanation{
 		RawPercentile:    explanation.RawPercentile,
 		Overhead:         explanation.Overhead,
 		AfterOverhead:    explanation.AfterOverhead,
@@ -793,7 +793,7 @@ func toAPIRecommendationExplanation(explanation recommendation.RecommendationExp
 		Confidence:       explanation.Confidence,
 		ConfidenceFactor: explanation.ConfidenceFactor,
 		AfterConfidence:  explanation.AfterConfidence,
-		Bounds: rightsizev1alpha1.ResourceBounds{
+		Bounds: attunev1alpha1.ResourceBounds{
 			Min: explanation.MinBound,
 			Max: explanation.MaxBound,
 		},
@@ -810,21 +810,21 @@ func toAPIRecommendationExplanation(explanation recommendation.RecommendationExp
 
 // buildRecommendationEngines creates CPU and memory recommendation engines
 // from the policy's configuration, falling back to defaults.
-func buildRecommendationEngines(policy *rightsizev1alpha1.RightSizePolicy) (cpuEngine, memEngine *recommendation.RecommendationEngine) {
+func buildRecommendationEngines(policy *attunev1alpha1.AttunePolicy) (cpuEngine, memEngine *recommendation.RecommendationEngine) {
 	cpuPercentile := int(policy.Spec.CPU.Percentile)
 	if cpuPercentile == 0 {
-		cpuPercentile = int(rightsizev1alpha1.DefaultCPUPercentile)
+		cpuPercentile = int(attunev1alpha1.DefaultCPUPercentile)
 	}
 	memPercentile := int(policy.Spec.Memory.Percentile)
 	if memPercentile == 0 {
-		memPercentile = int(rightsizev1alpha1.DefaultMemoryPercentile)
+		memPercentile = int(attunev1alpha1.DefaultMemoryPercentile)
 	}
 
 	cpuOverhead := parseOverheadPercent(policy.Spec.CPU.Overhead, defaultCPUOverhead)
 	memOverhead := parseOverheadPercent(policy.Spec.Memory.Overhead, defaultMemoryOverhead)
 
-	cpuBoundsMin := rightsizev1alpha1.DefaultCPUBoundsMin.DeepCopy()
-	cpuBoundsMax := rightsizev1alpha1.DefaultCPUBoundsMax.DeepCopy()
+	cpuBoundsMin := attunev1alpha1.DefaultCPUBoundsMin.DeepCopy()
+	cpuBoundsMax := attunev1alpha1.DefaultCPUBoundsMax.DeepCopy()
 	if policy.Spec.CPU.MinAllowed != nil {
 		cpuBoundsMin = policy.Spec.CPU.MinAllowed.DeepCopy()
 	}
@@ -832,8 +832,8 @@ func buildRecommendationEngines(policy *rightsizev1alpha1.RightSizePolicy) (cpuE
 		cpuBoundsMax = policy.Spec.CPU.MaxAllowed.DeepCopy()
 	}
 
-	memBoundsMin := rightsizev1alpha1.DefaultMemoryBoundsMin.DeepCopy()
-	memBoundsMax := rightsizev1alpha1.DefaultMemoryBoundsMax.DeepCopy()
+	memBoundsMin := attunev1alpha1.DefaultMemoryBoundsMin.DeepCopy()
+	memBoundsMax := attunev1alpha1.DefaultMemoryBoundsMax.DeepCopy()
 	if policy.Spec.Memory.MinAllowed != nil {
 		memBoundsMin = policy.Spec.Memory.MinAllowed.DeepCopy()
 	}
@@ -844,9 +844,9 @@ func buildRecommendationEngines(policy *rightsizev1alpha1.RightSizePolicy) (cpuE
 	// Resolve directional change caps with precedence:
 	// maxIncreasePercent/maxDecreasePercent > maxChangePercent > built-in default.
 	cpuIncrease, cpuDecrease := resolveChangeCaps(policy.Spec.CPU,
-		rightsizev1alpha1.DefaultCPUMaxChangePercent)
+		attunev1alpha1.DefaultCPUMaxChangePercent)
 	memIncrease, memDecrease := resolveChangeCaps(policy.Spec.Memory,
-		rightsizev1alpha1.DefaultMemoryMaxChangePercent)
+		attunev1alpha1.DefaultMemoryMaxChangePercent)
 
 	// Parse per-resource burst sensitivity; nil means default (0.1).
 	cpuOpts := recommendation.EngineOpts{IsCPU: true}
@@ -868,7 +868,7 @@ func buildRecommendationEngines(policy *rightsizev1alpha1.RightSizePolicy) (cpuE
 // resolveChangeCaps resolves directional change caps from the ResourceConfig.
 // Precedence: maxIncreasePercent/maxDecreasePercent > maxChangePercent > builtInDefault.
 // Defense-in-depth: clamps to [1, 100] even if webhook is bypassed.
-func resolveChangeCaps(rc rightsizev1alpha1.ResourceConfig, builtInDefault int32) (increase, decrease float64) {
+func resolveChangeCaps(rc attunev1alpha1.ResourceConfig, builtInDefault int32) (increase, decrease float64) {
 	base := builtInDefault
 	if rc.MaxChangePercent != nil {
 		base = *rc.MaxChangePercent

@@ -29,7 +29,7 @@ import (
 
 // their resource-based target utilization to maintain the same absolute resource
 // threshold after a resize changes the request baseline.
-func (r *RightSizePolicyReconciler) adjustHPATargets(
+func (r *AttunePolicyReconciler) adjustHPATargets(
 	ctx context.Context,
 	hpas []autoscalingv2.HorizontalPodAutoscaler,
 	workloadName, workloadKind string,

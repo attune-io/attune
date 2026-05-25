@@ -1,0 +1,494 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "replicaCount": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 1,
+      "description": "Number of operator replicas (use 2 for HA with leader election)"
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repository": {
+          "type": "string",
+          "default": "ghcr.io/attune-io/attune"
+        },
+        "pullPolicy": {
+          "type": "string",
+          "enum": ["Always", "IfNotPresent", "Never"],
+          "default": "IfNotPresent"
+        },
+        "tag": {
+          "type": "string",
+          "default": "",
+          "description": "Image tag (defaults to Chart appVersion)"
+        }
+      }
+    },
+    "imagePullSecrets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" }
+        },
+        "required": ["name"]
+      },
+      "default": []
+    },
+    "nameOverride": {
+      "type": "string",
+      "default": ""
+    },
+    "fullnameOverride": {
+      "type": "string",
+      "default": ""
+    },
+    "serviceAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "create": {
+          "type": "boolean",
+          "default": true
+        },
+        "annotations": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "default": {}
+        },
+        "name": {
+          "type": "string",
+          "default": ""
+        }
+      }
+    },
+    "podAnnotations": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "default": {}
+    },
+    "podSecurityContext": {
+      "type": "object",
+      "description": "Pod-level security context"
+    },
+    "securityContext": {
+      "type": "object",
+      "description": "Container-level security context"
+    },
+    "resources": {
+      "type": "object",
+      "description": "Operator pod resource requests and limits",
+      "properties": {
+        "limits": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "requests": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "priorityClassName": {
+      "type": "string",
+      "default": "",
+      "description": "Priority class name for the operator pod"
+    },
+    "nodeSelector": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "default": {}
+    },
+    "tolerations": {
+      "type": "array",
+      "items": { "type": "object" },
+      "default": []
+    },
+    "affinity": {
+      "type": "object",
+      "default": {}
+    },
+    "topologySpreadConstraints": {
+      "type": "array",
+      "items": { "type": "object" },
+      "default": []
+    },
+    "leaderElection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "default": 8080
+        },
+        "serviceMonitor": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "additionalLabels": {
+              "type": "object",
+              "additionalProperties": { "type": "string" },
+              "default": {}
+            },
+            "interval": {
+              "type": "string",
+              "pattern": "^([0-9]+(ns|us|ms|s|m|h))+$",
+              "default": "30s"
+            }
+          }
+        },
+        "prometheusRule": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "additionalLabels": {
+              "type": "object",
+              "additionalProperties": { "type": "string" },
+              "default": {}
+            },
+            "rules": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "reconcileErrors": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": { "type": "boolean", "default": true },
+                    "threshold": { "type": "string", "default": "0" },
+                    "for": { "type": "string", "default": "10m" },
+                    "severity": { "type": "string", "default": "warning" }
+                  }
+                },
+                "prometheusUnreachable": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": { "type": "boolean", "default": true },
+                    "for": { "type": "string", "default": "10m" },
+                    "severity": { "type": "string", "default": "warning" }
+                  }
+                },
+                "degraded": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": { "type": "boolean", "default": true },
+                    "for": { "type": "string", "default": "5m" },
+                    "severity": { "type": "string", "default": "critical" }
+                  }
+                },
+                "highRevertRate": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": { "type": "boolean", "default": true },
+                    "threshold": { "type": "string", "default": "0.5" },
+                    "for": { "type": "string", "default": "15m" },
+                    "severity": { "type": "string", "default": "critical" }
+                  }
+                },
+                "reconcileStale": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": { "type": "boolean", "default": true },
+                    "staleDuration": { "type": "string", "default": "30m" },
+                    "for": { "type": "string", "default": "5m" },
+                    "severity": { "type": "string", "default": "warning" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "grafanaDashboard": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "additionalLabels": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "default": {}
+        }
+      }
+    },
+    "webhooks": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable admission webhooks (requires cert-manager)"
+        }
+      }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "prometheusPort": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "default": 9090,
+          "description": "TCP port allowed for Prometheus backend pods"
+        }
+      }
+    },
+    "initialSizing": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Pod initial sizing webhook configuration",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable the pod initial sizing mutating webhook"
+        }
+      }
+    },
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Cluster-wide AttuneDefaults CR",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "metricsSource": {
+          "type": "object",
+          "description": "Default metrics source configuration"
+        },
+        "cpu": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Default CPU resource configuration",
+          "properties": {
+            "percentile": { "type": "integer", "enum": [50, 90, 95, 99] },
+            "overhead": { "type": "string", "pattern": "^[0-9]+(\\.[0-9]+)?$", "description": "Overhead percentage (e.g. '20' for 20% headroom)" },
+            "minAllowed": { "type": "string" },
+            "maxAllowed": { "type": "string" },
+            "controlledValues": { "type": "string", "enum": ["RequestsOnly", "RequestsAndLimits"] },
+            "burstSensitivity": { "type": "string" },
+            "maxChangePercent": { "type": "integer", "minimum": 1, "maximum": 100, "description": "Max change percentage per reconcile cycle (default: 50 for CPU)" }
+          }
+        },
+        "memory": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Default memory resource configuration",
+          "properties": {
+            "percentile": { "type": "integer", "enum": [50, 90, 95, 99] },
+            "overhead": { "type": "string", "pattern": "^[0-9]+(\\.[0-9]+)?$", "description": "Overhead percentage (e.g. '30' for 30% headroom)" },
+            "minAllowed": { "type": "string" },
+            "maxAllowed": { "type": "string" },
+            "controlledValues": { "type": "string", "enum": ["RequestsOnly", "RequestsAndLimits"] },
+            "burstSensitivity": { "type": "string" },
+            "maxChangePercent": { "type": "integer", "minimum": 1, "maximum": 100, "description": "Max change percentage per reconcile cycle (default: 30 for memory)" }
+          }
+        },
+        "costPricing": {
+          "type": "object",
+          "description": "Cost pricing for savings estimates",
+          "properties": {
+            "cpuPerCorePerHour": { "type": "string" },
+            "memoryPerGiBPerHour": { "type": "string" }
+          }
+        },
+        "updateStrategy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["Observe", "Recommend", "OneShot", "Canary", "Auto"],
+              "default": "Recommend"
+            },
+            "cooldown": {
+              "type": "string",
+              "pattern": "^([0-9]+(ns|us|ms|s|m|h))+$",
+              "default": "1h"
+            },
+            "autoRevert": {
+              "type": "boolean",
+              "default": true
+            },
+            "resizeMethod": {
+              "type": "string",
+              "enum": ["InPlaceOnly", "InPlaceOrRecreate"],
+              "default": "InPlaceOnly"
+            },
+            "maxConcurrentResizes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 1
+            },
+            "schedule": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "windows": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "start": { "type": "string", "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$" },
+                      "end": { "type": "string", "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$" }
+                    },
+                    "required": ["start", "end"]
+                  }
+                },
+                "daysOfWeek": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+                  }
+                },
+                "timezone": {
+                  "type": "string",
+                  "default": "UTC"
+                }
+              }
+            },
+            "maxTotalCpuIncrease": {
+              "type": "string",
+              "description": "Per-cycle CPU increase budget (e.g. 2000m)"
+            },
+            "maxTotalMemoryIncrease": {
+              "type": "string",
+              "description": "Per-cycle memory increase budget (e.g. 4Gi)"
+            },
+            "safetyObservationPeriod": {
+              "type": "string",
+              "description": "Duration to observe a pod after resize before concluding it is safe (e.g. '5m')"
+            },
+            "canary": {
+              "type": "object",
+              "description": "Canary rollout configuration",
+              "properties": {
+                "percentage": { "type": "integer", "minimum": 1, "maximum": 100 },
+                "observationPeriod": { "type": "string" }
+              }
+            },
+            "export": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "Export recommendations to a ConfigMap",
+              "properties": {
+                "configMap": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Enable exporting recommendations to ConfigMaps (one per workload)"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "clusterSize": {
+      "type": "string",
+      "enum": ["", "small", "medium", "large", "xlarge"],
+      "default": "",
+      "description": "Cluster size preset: sets resources, rate limits, and replica count. Empty means no preset."
+    },
+    "prometheusQPS": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "default": 10,
+      "description": "Prometheus query rate limit (queries per second)"
+    },
+    "prometheusBurst": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "default": 20,
+      "description": "Prometheus query burst allowance"
+    },
+    "collectorTTL": {
+      "type": "string",
+      "pattern": "^([0-9]+(ns|us|ms|s|m|h))+$",
+      "default": "10m",
+      "description": "Cache TTL for unused Prometheus connections (Go duration, e.g. 10m, 1h30m)"
+    },
+    "prometheusTimeout": {
+      "type": "string",
+      "pattern": "^([0-9]+(ns|us|ms|s|m|h))+$",
+      "default": "5m",
+      "description": "Maximum time for Prometheus queries per reconciliation cycle (Go duration, e.g. 5m, 10m)"
+    },
+    "maxConcurrentReconciles": {
+      "type": ["integer", "string"],
+      "minimum": 1,
+      "default": "",
+      "description": "Maximum number of AttunePolicy reconciles running in parallel. Auto-set by clusterSize preset if empty."
+    },
+    "watchNamespaces": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "Namespaces to watch for AttunePolicy resources. Empty means all namespaces. Reduces informer cache memory on large clusters."
+    },
+    "logging": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "level": {
+          "oneOf": [
+            { "type": "string", "enum": ["debug", "info", "warn", "error"] },
+            { "type": "integer", "minimum": 0, "maximum": 10, "description": "Numeric V-level for verbose logging (e.g. 2 for trace)" }
+          ],
+          "default": "info"
+        },
+        "format": {
+          "type": "string",
+          "enum": ["json", "text"],
+          "default": "json"
+        }
+      }
+    }
+  }
+}

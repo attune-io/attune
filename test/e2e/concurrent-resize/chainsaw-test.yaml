@@ -3,7 +3,7 @@ kind: Test
 metadata:
   name: concurrent-resize
 spec:
-  description: Verify that a RightSizePolicy with maxConcurrentResizes is accepted and discovers workloads
+  description: Verify that a AttunePolicy with maxConcurrentResizes is accepted and discovers workloads
   timeouts:
     apply: 30s
     assert: 2m
@@ -80,8 +80,8 @@ spec:
       try:
         - apply:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: concurrent-test
                 namespace: e2e-concurrent-resize
@@ -113,8 +113,8 @@ spec:
       try:
         - assert:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: concurrent-test
                 namespace: e2e-concurrent-resize
@@ -127,7 +127,7 @@ spec:
             timeout: 5m
             content: |
               for i in $(seq 1 60); do
-                RESIZED=$(kubectl get rightsizepolicy concurrent-test -n e2e-concurrent-resize \
+                RESIZED=$(kubectl get attunepolicy concurrent-test -n e2e-concurrent-resize \
                   -o jsonpath='{.status.workloads.resized}' 2>/dev/null)
                 if [ "$RESIZED" -ge 1 ] 2>/dev/null; then
                   echo "Concurrent resize confirmed: $RESIZED workload(s) resized"
@@ -136,13 +136,13 @@ spec:
                 sleep 5
               done
               echo "No resize occurred within timeout"
-              kubectl get rightsizepolicy concurrent-test -n e2e-concurrent-resize -o yaml
+              kubectl get attunepolicy concurrent-test -n e2e-concurrent-resize -o yaml
               exit 1
   catch:
     - describe:
-        apiVersion: rightsize.io/v1alpha1
-        kind: RightSizePolicy
+        apiVersion: attune.io/v1alpha1
+        kind: AttunePolicy
         namespace: e2e-concurrent-resize
     - podLogs:
-        namespace: kube-rightsize-system
-        selector: app.kubernetes.io/name=kube-rightsize
+        namespace: attune-system
+        selector: app.kubernetes.io/name=attune

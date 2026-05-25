@@ -35,120 +35,120 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 )
 
 // ---------- Resizing condition ----------
 
 func TestSetResizingCondition_InProgress(t *testing.T) {
-	policy := &rightsizev1alpha1.RightSizePolicy{
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{Type: rightsizev1alpha1.UpdateTypeAuto},
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: attunev1alpha1.UpdateStrategy{Type: attunev1alpha1.UpdateTypeAuto},
 		},
-		Status: rightsizev1alpha1.RightSizePolicyStatus{
-			Workloads: rightsizev1alpha1.WorkloadStatus{Resized: 2},
+		Status: attunev1alpha1.AttunePolicyStatus{
+			Workloads: attunev1alpha1.WorkloadStatus{Resized: 2},
 		},
 	}
-	r := &RightSizePolicyReconciler{}
+	r := &AttunePolicyReconciler{}
 	r.setResizingCondition(policy, false)
 
-	cond := meta.FindStatusCondition(policy.Status.Conditions, rightsizev1alpha1.ConditionResizing)
+	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionResizing)
 	require.NotNil(t, cond)
 	assert.Equal(t, metav1.ConditionTrue, cond.Status)
-	assert.Equal(t, rightsizev1alpha1.ReasonInProgress, cond.Reason)
+	assert.Equal(t, attunev1alpha1.ReasonInProgress, cond.Reason)
 }
 
 func TestSetResizingCondition_CooldownActive(t *testing.T) {
-	policy := &rightsizev1alpha1.RightSizePolicy{
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{Type: rightsizev1alpha1.UpdateTypeAuto},
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: attunev1alpha1.UpdateStrategy{Type: attunev1alpha1.UpdateTypeAuto},
 		},
 	}
-	r := &RightSizePolicyReconciler{}
+	r := &AttunePolicyReconciler{}
 	r.setResizingCondition(policy, true)
 
-	cond := meta.FindStatusCondition(policy.Status.Conditions, rightsizev1alpha1.ConditionResizing)
+	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionResizing)
 	require.NotNil(t, cond)
 	assert.Equal(t, metav1.ConditionFalse, cond.Status)
-	assert.Equal(t, rightsizev1alpha1.ReasonCooldownActive, cond.Reason)
+	assert.Equal(t, attunev1alpha1.ReasonCooldownActive, cond.Reason)
 }
 
 func TestSetResizingCondition_Idle(t *testing.T) {
-	policy := &rightsizev1alpha1.RightSizePolicy{
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{Type: rightsizev1alpha1.UpdateTypeAuto},
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: attunev1alpha1.UpdateStrategy{Type: attunev1alpha1.UpdateTypeAuto},
 		},
 	}
-	r := &RightSizePolicyReconciler{}
+	r := &AttunePolicyReconciler{}
 	r.setResizingCondition(policy, false)
 
-	cond := meta.FindStatusCondition(policy.Status.Conditions, rightsizev1alpha1.ConditionResizing)
+	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionResizing)
 	require.NotNil(t, cond)
 	assert.Equal(t, metav1.ConditionFalse, cond.Status)
-	assert.Equal(t, rightsizev1alpha1.ReasonIdle, cond.Reason)
+	assert.Equal(t, attunev1alpha1.ReasonIdle, cond.Reason)
 }
 
 func TestSetResizingCondition_ObserveMode_NoCondition(t *testing.T) {
-	policy := &rightsizev1alpha1.RightSizePolicy{
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{Type: rightsizev1alpha1.UpdateTypeObserve},
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: attunev1alpha1.UpdateStrategy{Type: attunev1alpha1.UpdateTypeObserve},
 		},
 	}
-	r := &RightSizePolicyReconciler{}
+	r := &AttunePolicyReconciler{}
 	r.setResizingCondition(policy, false)
 
-	cond := meta.FindStatusCondition(policy.Status.Conditions, rightsizev1alpha1.ConditionResizing)
+	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionResizing)
 	assert.Nil(t, cond)
 }
 
 // ---------- Degraded condition ----------
 
 func TestSetDegradedCondition_HighRevertRate(t *testing.T) {
-	policy := &rightsizev1alpha1.RightSizePolicy{
-		Status: rightsizev1alpha1.RightSizePolicyStatus{
-			ResizeHistory: []rightsizev1alpha1.ResizeHistoryEntry{
-				{Result: rightsizev1alpha1.ResizeResultReverted},
-				{Result: rightsizev1alpha1.ResizeResultReverted},
-				{Result: rightsizev1alpha1.ResizeResultSuccess},
-				{Result: rightsizev1alpha1.ResizeResultReverted},
-				{Result: rightsizev1alpha1.ResizeResultReverted},
+	policy := &attunev1alpha1.AttunePolicy{
+		Status: attunev1alpha1.AttunePolicyStatus{
+			ResizeHistory: []attunev1alpha1.ResizeHistoryEntry{
+				{Result: attunev1alpha1.ResizeResultReverted},
+				{Result: attunev1alpha1.ResizeResultReverted},
+				{Result: attunev1alpha1.ResizeResultSuccess},
+				{Result: attunev1alpha1.ResizeResultReverted},
+				{Result: attunev1alpha1.ResizeResultReverted},
 			},
 		},
 	}
-	r := &RightSizePolicyReconciler{}
+	r := &AttunePolicyReconciler{}
 	r.setDegradedCondition(policy)
 
-	cond := meta.FindStatusCondition(policy.Status.Conditions, rightsizev1alpha1.ConditionDegraded)
+	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionDegraded)
 	require.NotNil(t, cond)
 	assert.Equal(t, metav1.ConditionTrue, cond.Status)
-	assert.Equal(t, rightsizev1alpha1.ReasonHighRevertRate, cond.Reason)
+	assert.Equal(t, attunev1alpha1.ReasonHighRevertRate, cond.Reason)
 }
 
 func TestSetDegradedCondition_LowRevertRate(t *testing.T) {
-	policy := &rightsizev1alpha1.RightSizePolicy{
-		Status: rightsizev1alpha1.RightSizePolicyStatus{
-			ResizeHistory: []rightsizev1alpha1.ResizeHistoryEntry{
-				{Result: rightsizev1alpha1.ResizeResultSuccess},
-				{Result: rightsizev1alpha1.ResizeResultSuccess},
-				{Result: rightsizev1alpha1.ResizeResultReverted},
-				{Result: rightsizev1alpha1.ResizeResultSuccess},
-				{Result: rightsizev1alpha1.ResizeResultSuccess},
+	policy := &attunev1alpha1.AttunePolicy{
+		Status: attunev1alpha1.AttunePolicyStatus{
+			ResizeHistory: []attunev1alpha1.ResizeHistoryEntry{
+				{Result: attunev1alpha1.ResizeResultSuccess},
+				{Result: attunev1alpha1.ResizeResultSuccess},
+				{Result: attunev1alpha1.ResizeResultReverted},
+				{Result: attunev1alpha1.ResizeResultSuccess},
+				{Result: attunev1alpha1.ResizeResultSuccess},
 			},
 		},
 	}
-	r := &RightSizePolicyReconciler{}
+	r := &AttunePolicyReconciler{}
 	r.setDegradedCondition(policy)
 
-	cond := meta.FindStatusCondition(policy.Status.Conditions, rightsizev1alpha1.ConditionDegraded)
+	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionDegraded)
 	assert.Nil(t, cond)
 }
 
 func TestSetDegradedCondition_EmptyHistory(t *testing.T) {
-	policy := &rightsizev1alpha1.RightSizePolicy{}
-	r := &RightSizePolicyReconciler{}
+	policy := &attunev1alpha1.AttunePolicy{}
+	r := &AttunePolicyReconciler{}
 	r.setDegradedCondition(policy)
 
-	cond := meta.FindStatusCondition(policy.Status.Conditions, rightsizev1alpha1.ConditionDegraded)
+	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionDegraded)
 	assert.Nil(t, cond)
 }
 
@@ -157,17 +157,17 @@ func TestSetDegradedCondition_EmptyHistory(t *testing.T) {
 func TestConsecutiveReverts(t *testing.T) {
 	tests := []struct {
 		name    string
-		history []rightsizev1alpha1.ResizeHistoryEntry
+		history []attunev1alpha1.ResizeHistoryEntry
 		want    int
 	}{
 		{"empty", nil, 0},
-		{"no reverts", []rightsizev1alpha1.ResizeHistoryEntry{{Result: rightsizev1alpha1.ResizeResultSuccess}}, 0},
-		{"one revert", []rightsizev1alpha1.ResizeHistoryEntry{{Result: rightsizev1alpha1.ResizeResultReverted}}, 1},
-		{"three consecutive", []rightsizev1alpha1.ResizeHistoryEntry{
-			{Result: rightsizev1alpha1.ResizeResultSuccess}, {Result: rightsizev1alpha1.ResizeResultReverted}, {Result: rightsizev1alpha1.ResizeResultReverted}, {Result: rightsizev1alpha1.ResizeResultReverted},
+		{"no reverts", []attunev1alpha1.ResizeHistoryEntry{{Result: attunev1alpha1.ResizeResultSuccess}}, 0},
+		{"one revert", []attunev1alpha1.ResizeHistoryEntry{{Result: attunev1alpha1.ResizeResultReverted}}, 1},
+		{"three consecutive", []attunev1alpha1.ResizeHistoryEntry{
+			{Result: attunev1alpha1.ResizeResultSuccess}, {Result: attunev1alpha1.ResizeResultReverted}, {Result: attunev1alpha1.ResizeResultReverted}, {Result: attunev1alpha1.ResizeResultReverted},
 		}, 3},
-		{"broken by success", []rightsizev1alpha1.ResizeHistoryEntry{
-			{Result: rightsizev1alpha1.ResizeResultReverted}, {Result: rightsizev1alpha1.ResizeResultSuccess}, {Result: rightsizev1alpha1.ResizeResultReverted},
+		{"broken by success", []attunev1alpha1.ResizeHistoryEntry{
+			{Result: attunev1alpha1.ResizeResultReverted}, {Result: attunev1alpha1.ResizeResultSuccess}, {Result: attunev1alpha1.ResizeResultReverted},
 		}, 1},
 	}
 	for _, tt := range tests {
@@ -180,11 +180,11 @@ func TestConsecutiveReverts(t *testing.T) {
 // ---------- Exponential backoff ----------
 
 func TestGetEffectiveCooldown_NoReverts(t *testing.T) {
-	r := &RightSizePolicyReconciler{}
+	r := &AttunePolicyReconciler{}
 	cooldown := 1 * time.Hour
-	policy := &rightsizev1alpha1.RightSizePolicy{
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: attunev1alpha1.UpdateStrategy{
 				Cooldown: &metav1.Duration{Duration: cooldown},
 			},
 		},
@@ -193,17 +193,17 @@ func TestGetEffectiveCooldown_NoReverts(t *testing.T) {
 }
 
 func TestGetEffectiveCooldown_TwoReverts(t *testing.T) {
-	r := &RightSizePolicyReconciler{}
+	r := &AttunePolicyReconciler{}
 	cooldown := 1 * time.Hour
-	policy := &rightsizev1alpha1.RightSizePolicy{
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: attunev1alpha1.UpdateStrategy{
 				Cooldown: &metav1.Duration{Duration: cooldown},
 			},
 		},
-		Status: rightsizev1alpha1.RightSizePolicyStatus{
-			ResizeHistory: []rightsizev1alpha1.ResizeHistoryEntry{
-				{Result: rightsizev1alpha1.ResizeResultReverted}, {Result: rightsizev1alpha1.ResizeResultReverted},
+		Status: attunev1alpha1.AttunePolicyStatus{
+			ResizeHistory: []attunev1alpha1.ResizeHistoryEntry{
+				{Result: attunev1alpha1.ResizeResultReverted}, {Result: attunev1alpha1.ResizeResultReverted},
 			},
 		},
 	}
@@ -212,22 +212,22 @@ func TestGetEffectiveCooldown_TwoReverts(t *testing.T) {
 }
 
 func TestGetEffectiveCooldown_CappedAt16x(t *testing.T) {
-	r := &RightSizePolicyReconciler{}
+	r := &AttunePolicyReconciler{}
 	cooldown := 1 * time.Hour
-	policy := &rightsizev1alpha1.RightSizePolicy{
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: attunev1alpha1.UpdateStrategy{
 				Cooldown: &metav1.Duration{Duration: cooldown},
 			},
 		},
-		Status: rightsizev1alpha1.RightSizePolicyStatus{
-			ResizeHistory: []rightsizev1alpha1.ResizeHistoryEntry{
-				{Result: rightsizev1alpha1.ResizeResultReverted},
-				{Result: rightsizev1alpha1.ResizeResultReverted},
-				{Result: rightsizev1alpha1.ResizeResultReverted},
-				{Result: rightsizev1alpha1.ResizeResultReverted},
-				{Result: rightsizev1alpha1.ResizeResultReverted},
-				{Result: rightsizev1alpha1.ResizeResultReverted},
+		Status: attunev1alpha1.AttunePolicyStatus{
+			ResizeHistory: []attunev1alpha1.ResizeHistoryEntry{
+				{Result: attunev1alpha1.ResizeResultReverted},
+				{Result: attunev1alpha1.ResizeResultReverted},
+				{Result: attunev1alpha1.ResizeResultReverted},
+				{Result: attunev1alpha1.ResizeResultReverted},
+				{Result: attunev1alpha1.ResizeResultReverted},
+				{Result: attunev1alpha1.ResizeResultReverted},
 			},
 		},
 	}
@@ -247,7 +247,7 @@ var zeroCurrent = corev1.ResourceRequirements{
 func TestCheckQuotaCompatibility_NoLimitRange(t *testing.T) {
 	scheme := testScheme()
 	c := fake.NewClientBuilder().WithScheme(scheme).Build()
-	r := &RightSizePolicyReconciler{Client: c}
+	r := &AttunePolicyReconciler{Client: c}
 
 	target := corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
@@ -275,7 +275,7 @@ func TestCheckQuotaCompatibility_BelowMinimum(t *testing.T) {
 	}
 	scheme := testScheme()
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(lr).Build()
-	r := &RightSizePolicyReconciler{Client: c}
+	r := &AttunePolicyReconciler{Client: c}
 
 	target := corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
@@ -304,7 +304,7 @@ func TestCheckQuotaCompatibility_AboveMaximum(t *testing.T) {
 	}
 	scheme := testScheme()
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(lr).Build()
-	r := &RightSizePolicyReconciler{Client: c}
+	r := &AttunePolicyReconciler{Client: c}
 
 	target := corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
@@ -333,7 +333,7 @@ func TestCheckQuotaCompatibility_MemoryBelowMinimum(t *testing.T) {
 	}
 	scheme := testScheme()
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(lr).Build()
-	r := &RightSizePolicyReconciler{Client: c}
+	r := &AttunePolicyReconciler{Client: c}
 
 	target := corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
@@ -363,7 +363,7 @@ func TestCheckQuotaCompatibility_CPUAboveMaximum(t *testing.T) {
 	}
 	scheme := testScheme()
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(lr).Build()
-	r := &RightSizePolicyReconciler{Client: c}
+	r := &AttunePolicyReconciler{Client: c}
 
 	target := corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
@@ -393,7 +393,7 @@ func TestCheckQuotaCompatibility_QuotaExceeded(t *testing.T) {
 	}
 	scheme := testScheme()
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(quota).Build()
-	r := &RightSizePolicyReconciler{Client: c}
+	r := &AttunePolicyReconciler{Client: c}
 
 	current := corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
@@ -427,7 +427,7 @@ func TestCheckQuotaCompatibility_QuotaWithHeadroom(t *testing.T) {
 	}
 	scheme := testScheme()
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(quota).Build()
-	r := &RightSizePolicyReconciler{Client: c}
+	r := &AttunePolicyReconciler{Client: c}
 
 	current := corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
@@ -460,7 +460,7 @@ func TestCheckQuotaCompatibility_DecreaseAlwaysPasses(t *testing.T) {
 	}
 	scheme := testScheme()
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(quota).Build()
-	r := &RightSizePolicyReconciler{Client: c}
+	r := &AttunePolicyReconciler{Client: c}
 
 	current := corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
@@ -493,7 +493,7 @@ func TestCheckQuotaCompatibility_MemoryQuotaExceeded(t *testing.T) {
 	}
 	scheme := testScheme()
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(quota).Build()
-	r := &RightSizePolicyReconciler{Client: c}
+	r := &AttunePolicyReconciler{Client: c}
 
 	current := corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
@@ -530,7 +530,7 @@ func TestCheckQuotaCompatibility_LimitsAboveMaximum(t *testing.T) {
 	}
 	scheme := testScheme()
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(lr).Build()
-	r := &RightSizePolicyReconciler{Client: c}
+	r := &AttunePolicyReconciler{Client: c}
 
 	// Requests are within bounds, but limits exceed the LimitRange max.
 	target := corev1.ResourceRequirements{
@@ -566,7 +566,7 @@ func TestCheckQuotaCompatibility_MemoryLimitAboveMaximum(t *testing.T) {
 	}
 	scheme := testScheme()
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(lr).Build()
-	r := &RightSizePolicyReconciler{Client: c}
+	r := &AttunePolicyReconciler{Client: c}
 
 	// CPU limit is within bounds, but memory limit exceeds the LimitRange max.
 	target := corev1.ResourceRequirements{
@@ -589,21 +589,21 @@ func TestCheckQuotaCompatibility_MemoryLimitAboveMaximum(t *testing.T) {
 
 func TestComputeSavings_EstimatedMonthlySavings(t *testing.T) {
 	scheme := testScheme()
-	r := &RightSizePolicyReconciler{
+	r := &AttunePolicyReconciler{
 		Client: fake.NewClientBuilder().WithScheme(scheme).Build(),
 	}
-	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+	recommendations := []attunev1alpha1.WorkloadRecommendation{
 		{
 			Workload: "test",
 			Kind:     "Deployment",
-			Containers: []rightsizev1alpha1.ContainerRecommendation{
+			Containers: []attunev1alpha1.ContainerRecommendation{
 				{
 					Name: "main",
-					Current: rightsizev1alpha1.ResourceValues{
+					Current: attunev1alpha1.ResourceValues{
 						CPURequest:    resource.MustParse("1000m"),
 						MemoryRequest: resource.MustParse("1Gi"),
 					},
-					Recommended: rightsizev1alpha1.ResourceValues{
+					Recommended: attunev1alpha1.ResourceValues{
 						CPURequest:    resource.MustParse("500m"),
 						MemoryRequest: resource.MustParse("512Mi"),
 					},
@@ -622,31 +622,31 @@ func TestComputeSavings_EstimatedMonthlySavings(t *testing.T) {
 // ---------- Custom CostPricing ----------
 
 func TestComputeSavings_CustomCostPricing(t *testing.T) {
-	defaults := &rightsizev1alpha1.RightSizeDefaults{
+	defaults := &attunev1alpha1.AttuneDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "default"},
-		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			CostPricing: &rightsizev1alpha1.CostPricing{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CostPricing: &attunev1alpha1.CostPricing{
 				CPUPerCoreHour:   "0.10",
 				MemoryPerGiBHour: "0.01",
 			},
 		},
 	}
 	scheme := testScheme()
-	r := &RightSizePolicyReconciler{
+	r := &AttunePolicyReconciler{
 		Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(defaults).Build(),
 	}
-	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+	recommendations := []attunev1alpha1.WorkloadRecommendation{
 		{
 			Workload: "test",
 			Kind:     "Deployment",
-			Containers: []rightsizev1alpha1.ContainerRecommendation{
+			Containers: []attunev1alpha1.ContainerRecommendation{
 				{
 					Name: "main",
-					Current: rightsizev1alpha1.ResourceValues{
+					Current: attunev1alpha1.ResourceValues{
 						CPURequest:    resource.MustParse("1000m"),
 						MemoryRequest: resource.MustParse("1Gi"),
 					},
-					Recommended: rightsizev1alpha1.ResourceValues{
+					Recommended: attunev1alpha1.ResourceValues{
 						CPURequest:    resource.MustParse("500m"),
 						MemoryRequest: resource.MustParse("512Mi"),
 					},
@@ -665,43 +665,43 @@ func TestComputeSavings_CustomCostPricing(t *testing.T) {
 
 func TestSetFailedCondition_SuccessOnFirstAttempt(t *testing.T) {
 	scheme := testScheme()
-	policy := &rightsizev1alpha1.RightSizePolicy{
+	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
 	}
 	c := fake.NewClientBuilder().WithScheme(scheme).
 		WithObjects(policy).
-		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
+		WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
 		Build()
-	r := &RightSizePolicyReconciler{Client: c, Scheme: scheme}
+	r := &AttunePolicyReconciler{Client: c, Scheme: scheme}
 
-	r.setFailedCondition(context.Background(), policy, rightsizev1alpha1.ReasonInvalidConfig, "bad config")
+	r.setFailedCondition(context.Background(), policy, attunev1alpha1.ReasonInvalidConfig, "bad config")
 
-	cond := meta.FindStatusCondition(policy.Status.Conditions, rightsizev1alpha1.ConditionReady)
+	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionReady)
 	require.NotNil(t, cond)
 	assert.Equal(t, metav1.ConditionFalse, cond.Status)
-	assert.Equal(t, rightsizev1alpha1.ReasonInvalidConfig, cond.Reason)
+	assert.Equal(t, attunev1alpha1.ReasonInvalidConfig, cond.Reason)
 	assert.Equal(t, "bad config", cond.Message)
 }
 
 func TestSetFailedCondition_ConflictRetrySucceeds(t *testing.T) {
 	scheme := testScheme()
-	policy := &rightsizev1alpha1.RightSizePolicy{
+	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
 	}
 	c := fake.NewClientBuilder().WithScheme(scheme).
 		WithObjects(policy).
-		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
+		WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
 		Build()
 
 	var updateCalls atomic.Int32
 	wrappedClient := fake.NewClientBuilder().WithScheme(scheme).
 		WithObjects(policy).
-		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
+		WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
 		WithInterceptorFuncs(interceptor.Funcs{
 			SubResourceUpdate: func(ctx context.Context, cl client.Client, subResourceName string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
 				call := updateCalls.Add(1)
 				if call == 1 {
-					return apierrors.NewConflict(schema.GroupResource{Group: "rightsize.sebtardif.com", Resource: "rightsizepolicies"}, "test-policy", fmt.Errorf("conflict"))
+					return apierrors.NewConflict(schema.GroupResource{Group: "attune.io", Resource: "attunepolicies"}, "test-policy", fmt.Errorf("conflict"))
 				}
 				return cl.Status().Update(ctx, obj, opts...)
 			},
@@ -711,35 +711,35 @@ func TestSetFailedCondition_ConflictRetrySucceeds(t *testing.T) {
 		}).
 		Build()
 
-	r := &RightSizePolicyReconciler{Client: wrappedClient, Scheme: scheme}
-	r.setFailedCondition(context.Background(), policy, rightsizev1alpha1.ReasonInvalidConfig, "retry test")
+	r := &AttunePolicyReconciler{Client: wrappedClient, Scheme: scheme}
+	r.setFailedCondition(context.Background(), policy, attunev1alpha1.ReasonInvalidConfig, "retry test")
 
 	assert.Equal(t, int32(2), updateCalls.Load(), "expected 2 update calls (1 conflict + 1 success)")
 
-	cond := meta.FindStatusCondition(policy.Status.Conditions, rightsizev1alpha1.ConditionReady)
+	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionReady)
 	require.NotNil(t, cond)
 	assert.Equal(t, metav1.ConditionFalse, cond.Status)
-	assert.Equal(t, rightsizev1alpha1.ReasonInvalidConfig, cond.Reason)
+	assert.Equal(t, attunev1alpha1.ReasonInvalidConfig, cond.Reason)
 }
 
 func TestSetFailedCondition_ExhaustedRetries(t *testing.T) {
 	scheme := testScheme()
-	policy := &rightsizev1alpha1.RightSizePolicy{
+	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
 	}
 	c := fake.NewClientBuilder().WithScheme(scheme).
 		WithObjects(policy).
-		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
+		WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
 		Build()
 
 	var updateCalls atomic.Int32
 	wrappedClient := fake.NewClientBuilder().WithScheme(scheme).
 		WithObjects(policy).
-		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
+		WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
 		WithInterceptorFuncs(interceptor.Funcs{
 			SubResourceUpdate: func(_ context.Context, _ client.Client, _ string, _ client.Object, _ ...client.SubResourceUpdateOption) error {
 				updateCalls.Add(1)
-				return apierrors.NewConflict(schema.GroupResource{Group: "rightsize.sebtardif.com", Resource: "rightsizepolicies"}, "test-policy", fmt.Errorf("conflict"))
+				return apierrors.NewConflict(schema.GroupResource{Group: "attune.io", Resource: "attunepolicies"}, "test-policy", fmt.Errorf("conflict"))
 			},
 			Get: func(ctx context.Context, _ client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 				return c.Get(ctx, key, obj, opts...)
@@ -747,8 +747,8 @@ func TestSetFailedCondition_ExhaustedRetries(t *testing.T) {
 		}).
 		Build()
 
-	r := &RightSizePolicyReconciler{Client: wrappedClient, Scheme: scheme}
-	r.setFailedCondition(context.Background(), policy, rightsizev1alpha1.ReasonInvalidConfig, "exhausted test")
+	r := &AttunePolicyReconciler{Client: wrappedClient, Scheme: scheme}
+	r.setFailedCondition(context.Background(), policy, attunev1alpha1.ReasonInvalidConfig, "exhausted test")
 
 	// 3 attempts in the for loop, all return conflict
 	assert.Equal(t, int32(3), updateCalls.Load(), "expected 3 update attempts before exhaustion")
@@ -756,14 +756,14 @@ func TestSetFailedCondition_ExhaustedRetries(t *testing.T) {
 
 func TestSetFailedCondition_NonConflictError(t *testing.T) {
 	scheme := testScheme()
-	policy := &rightsizev1alpha1.RightSizePolicy{
+	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
 	}
 
 	var updateCalls atomic.Int32
 	wrappedClient := fake.NewClientBuilder().WithScheme(scheme).
 		WithObjects(policy).
-		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
+		WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
 		WithInterceptorFuncs(interceptor.Funcs{
 			SubResourceUpdate: func(_ context.Context, _ client.Client, _ string, _ client.Object, _ ...client.SubResourceUpdateOption) error {
 				updateCalls.Add(1)
@@ -772,8 +772,8 @@ func TestSetFailedCondition_NonConflictError(t *testing.T) {
 		}).
 		Build()
 
-	r := &RightSizePolicyReconciler{Client: wrappedClient, Scheme: scheme}
-	r.setFailedCondition(context.Background(), policy, rightsizev1alpha1.ReasonInvalidConfig, "non-conflict test")
+	r := &AttunePolicyReconciler{Client: wrappedClient, Scheme: scheme}
+	r.setFailedCondition(context.Background(), policy, attunev1alpha1.ReasonInvalidConfig, "non-conflict test")
 
 	// Non-conflict error should not retry
 	assert.Equal(t, int32(1), updateCalls.Load(), "expected exactly 1 update call for non-conflict error")
@@ -781,18 +781,18 @@ func TestSetFailedCondition_NonConflictError(t *testing.T) {
 
 func TestSetFailedCondition_RefetchFailure(t *testing.T) {
 	scheme := testScheme()
-	policy := &rightsizev1alpha1.RightSizePolicy{
+	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
 	}
 
 	var updateCalls atomic.Int32
 	wrappedClient := fake.NewClientBuilder().WithScheme(scheme).
 		WithObjects(policy).
-		WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
+		WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
 		WithInterceptorFuncs(interceptor.Funcs{
 			SubResourceUpdate: func(_ context.Context, _ client.Client, _ string, _ client.Object, _ ...client.SubResourceUpdateOption) error {
 				updateCalls.Add(1)
-				return apierrors.NewConflict(schema.GroupResource{Group: "rightsize.sebtardif.com", Resource: "rightsizepolicies"}, "test-policy", fmt.Errorf("conflict"))
+				return apierrors.NewConflict(schema.GroupResource{Group: "attune.io", Resource: "attunepolicies"}, "test-policy", fmt.Errorf("conflict"))
 			},
 			Get: func(_ context.Context, _ client.WithWatch, _ client.ObjectKey, _ client.Object, _ ...client.GetOption) error {
 				return fmt.Errorf("API server unreachable")
@@ -800,8 +800,8 @@ func TestSetFailedCondition_RefetchFailure(t *testing.T) {
 		}).
 		Build()
 
-	r := &RightSizePolicyReconciler{Client: wrappedClient, Scheme: scheme}
-	r.setFailedCondition(context.Background(), policy, rightsizev1alpha1.ReasonInvalidConfig, "refetch failure test")
+	r := &AttunePolicyReconciler{Client: wrappedClient, Scheme: scheme}
+	r.setFailedCondition(context.Background(), policy, attunev1alpha1.ReasonInvalidConfig, "refetch failure test")
 
 	// Conflict on first update, then re-fetch fails -> returns immediately
 	assert.Equal(t, int32(1), updateCalls.Load(), "expected 1 update call when re-fetch fails")
@@ -810,10 +810,10 @@ func TestSetFailedCondition_RefetchFailure(t *testing.T) {
 // ---------- setCooldownStatus ----------
 
 func TestSetCooldownStatus_NoReverts(t *testing.T) {
-	r := &RightSizePolicyReconciler{}
-	policy := &rightsizev1alpha1.RightSizePolicy{
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+	r := &AttunePolicyReconciler{}
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: attunev1alpha1.UpdateStrategy{
 				Cooldown: &metav1.Duration{Duration: 10 * time.Minute},
 			},
 		},
@@ -826,18 +826,18 @@ func TestSetCooldownStatus_NoReverts(t *testing.T) {
 }
 
 func TestSetCooldownStatus_WithReverts(t *testing.T) {
-	r := &RightSizePolicyReconciler{}
-	policy := &rightsizev1alpha1.RightSizePolicy{
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+	r := &AttunePolicyReconciler{}
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: attunev1alpha1.UpdateStrategy{
 				Cooldown: &metav1.Duration{Duration: 10 * time.Minute},
 			},
 		},
-		Status: rightsizev1alpha1.RightSizePolicyStatus{
-			ResizeHistory: []rightsizev1alpha1.ResizeHistoryEntry{
-				{Result: rightsizev1alpha1.ResizeResultReverted},
-				{Result: rightsizev1alpha1.ResizeResultReverted},
-				{Result: rightsizev1alpha1.ResizeResultReverted},
+		Status: attunev1alpha1.AttunePolicyStatus{
+			ResizeHistory: []attunev1alpha1.ResizeHistoryEntry{
+				{Result: attunev1alpha1.ResizeResultReverted},
+				{Result: attunev1alpha1.ResizeResultReverted},
+				{Result: attunev1alpha1.ResizeResultReverted},
 			},
 		},
 	}
@@ -850,18 +850,18 @@ func TestSetCooldownStatus_WithReverts(t *testing.T) {
 }
 
 func TestSetCooldownStatus_CappedAt16x(t *testing.T) {
-	r := &RightSizePolicyReconciler{}
-	entries := make([]rightsizev1alpha1.ResizeHistoryEntry, 10)
+	r := &AttunePolicyReconciler{}
+	entries := make([]attunev1alpha1.ResizeHistoryEntry, 10)
 	for i := range entries {
-		entries[i].Result = rightsizev1alpha1.ResizeResultReverted
+		entries[i].Result = attunev1alpha1.ResizeResultReverted
 	}
-	policy := &rightsizev1alpha1.RightSizePolicy{
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: attunev1alpha1.UpdateStrategy{
 				Cooldown: &metav1.Duration{Duration: time.Hour},
 			},
 		},
-		Status: rightsizev1alpha1.RightSizePolicyStatus{
+		Status: attunev1alpha1.AttunePolicyStatus{
 			ResizeHistory: entries,
 		},
 	}
@@ -875,56 +875,56 @@ func TestSetCooldownStatus_CappedAt16x(t *testing.T) {
 // ---------- setScheduleBlockedCondition ----------
 
 func TestSetScheduleBlockedCondition_NoSchedule(t *testing.T) {
-	r := &RightSizePolicyReconciler{}
-	policy := &rightsizev1alpha1.RightSizePolicy{}
+	r := &AttunePolicyReconciler{}
+	policy := &attunev1alpha1.AttunePolicy{}
 	r.setScheduleBlockedCondition(policy, true)
-	cond := meta.FindStatusCondition(policy.Status.Conditions, rightsizev1alpha1.ConditionScheduleBlocked)
+	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionScheduleBlocked)
 	assert.Nil(t, cond, "should not set condition when no schedule")
 }
 
 func TestSetScheduleBlockedCondition_OutsideWindow(t *testing.T) {
-	r := &RightSizePolicyReconciler{}
-	policy := &rightsizev1alpha1.RightSizePolicy{
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Schedule: &rightsizev1alpha1.ResizeSchedule{
-					Windows: []rightsizev1alpha1.TimeWindow{{Start: "02:00", End: "06:00"}},
+	r := &AttunePolicyReconciler{}
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+				Schedule: &attunev1alpha1.ResizeSchedule{
+					Windows: []attunev1alpha1.TimeWindow{{Start: "02:00", End: "06:00"}},
 				},
 			},
 		},
 	}
 	r.setScheduleBlockedCondition(policy, false)
-	cond := meta.FindStatusCondition(policy.Status.Conditions, rightsizev1alpha1.ConditionScheduleBlocked)
+	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionScheduleBlocked)
 	require.NotNil(t, cond)
 	assert.Equal(t, metav1.ConditionTrue, cond.Status)
-	assert.Equal(t, rightsizev1alpha1.ReasonOutsideWindow, cond.Reason)
+	assert.Equal(t, attunev1alpha1.ReasonOutsideWindow, cond.Reason)
 }
 
 func TestSetScheduleBlockedCondition_InsideWindow(t *testing.T) {
-	r := &RightSizePolicyReconciler{}
-	policy := &rightsizev1alpha1.RightSizePolicy{
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Schedule: &rightsizev1alpha1.ResizeSchedule{
-					Windows: []rightsizev1alpha1.TimeWindow{{Start: "02:00", End: "06:00"}},
+	r := &AttunePolicyReconciler{}
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+				Schedule: &attunev1alpha1.ResizeSchedule{
+					Windows: []attunev1alpha1.TimeWindow{{Start: "02:00", End: "06:00"}},
 				},
 			},
 		},
 	}
 	r.setScheduleBlockedCondition(policy, true)
-	cond := meta.FindStatusCondition(policy.Status.Conditions, rightsizev1alpha1.ConditionScheduleBlocked)
+	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionScheduleBlocked)
 	require.NotNil(t, cond)
 	assert.Equal(t, metav1.ConditionFalse, cond.Status)
-	assert.Equal(t, rightsizev1alpha1.ReasonInsideWindow, cond.Reason)
+	assert.Equal(t, attunev1alpha1.ReasonInsideWindow, cond.Reason)
 }
 
 // ---------- getRateWindow ----------
 
 func TestGetRateWindow_DefaultsFallbackToQueryStep(t *testing.T) {
-	r := &RightSizePolicyReconciler{}
-	policy := &rightsizev1alpha1.RightSizePolicy{
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			MetricsSource: rightsizev1alpha1.MetricsSource{
+	r := &AttunePolicyReconciler{}
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			MetricsSource: attunev1alpha1.MetricsSource{
 				QueryStep: &metav1.Duration{Duration: 15 * time.Minute},
 			},
 		},
@@ -934,10 +934,10 @@ func TestGetRateWindow_DefaultsFallbackToQueryStep(t *testing.T) {
 }
 
 func TestGetRateWindow_ExplicitValue(t *testing.T) {
-	r := &RightSizePolicyReconciler{}
-	policy := &rightsizev1alpha1.RightSizePolicy{
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			MetricsSource: rightsizev1alpha1.MetricsSource{
+	r := &AttunePolicyReconciler{}
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			MetricsSource: attunev1alpha1.MetricsSource{
 				RateWindow: &metav1.Duration{Duration: 2 * time.Minute},
 			},
 		},
@@ -947,10 +947,10 @@ func TestGetRateWindow_ExplicitValue(t *testing.T) {
 }
 
 func TestGetRateWindow_ClampedMin(t *testing.T) {
-	r := &RightSizePolicyReconciler{}
-	policy := &rightsizev1alpha1.RightSizePolicy{
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			MetricsSource: rightsizev1alpha1.MetricsSource{
+	r := &AttunePolicyReconciler{}
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			MetricsSource: attunev1alpha1.MetricsSource{
 				RateWindow: &metav1.Duration{Duration: 5 * time.Second},
 			},
 		},

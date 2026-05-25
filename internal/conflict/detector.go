@@ -15,7 +15,7 @@ limitations under the License.
 */
 
 // Package conflict detects conflicts with VPA, HPA, and other
-// RightSizePolicies that could interfere with resize operations.
+// AttunePolicies that could interfere with resize operations.
 package conflict
 
 import (
@@ -33,19 +33,19 @@ import (
 )
 
 // ConflictType identifies the kind of resource that conflicts with a
-// RightSizePolicy.
+// AttunePolicy.
 type ConflictType string
 
 // AnnotationSkip is the annotation key for opting a workload out of right-sizing.
-const AnnotationSkip = "rightsize.io/skip"
+const AnnotationSkip = "attune.io/skip"
 
 const (
 	// ConflictVPA indicates a VerticalPodAutoscaler targets the same workload.
 	ConflictVPA ConflictType = "VPA"
 	// ConflictHPA indicates a HorizontalPodAutoscaler targets the same workload.
 	ConflictHPA ConflictType = "HPA"
-	// ConflictPolicy indicates another RightSizePolicy targets the same workload.
-	ConflictPolicy ConflictType = "RightSizePolicy"
+	// ConflictPolicy indicates another AttunePolicy targets the same workload.
+	ConflictPolicy ConflictType = "AttunePolicy"
 )
 
 // Conflict describes a single detected conflict.
@@ -68,7 +68,7 @@ func NewDetector(logger logr.Logger) *Detector {
 }
 
 // CheckAnnotationOptOut returns true if the object carries the annotation
-// "rightsize.io/skip" set to "true", indicating that the workload has opted
+// "attune.io/skip" set to "true", indicating that the workload has opted
 // out of automatic right-sizing.
 func (d *Detector) CheckAnnotationOptOut(obj metav1.ObjectMeta) bool {
 	if obj.Annotations == nil {
@@ -157,7 +157,7 @@ func policyTargetsWorkload(logger logr.Logger, policy unstructured.Unstructured,
 	return sel.Matches(labels.Set(workloadLabels))
 }
 
-// CheckPolicyConflict checks if another RightSizePolicy with higher weight
+// CheckPolicyConflict checks if another AttunePolicy with higher weight
 // targets the same workload. Returns a Conflict if a higher-weight policy
 // exists (the current policy should defer). Returns nil if the current policy
 // has the highest weight or no overlap exists.
@@ -172,7 +172,7 @@ func (d *Detector) CheckHPAConflict(hpas []autoscalingv2.HorizontalPodAutoscaler
 			return &Conflict{
 				Type:    ConflictHPA,
 				Name:    hpa.Name,
-				Message: fmt.Sprintf("HPA %s targets the same %s/%s; kube-rightsize will adjust requests without interfering with HPA scaling", hpa.Name, workloadKind, workloadName),
+				Message: fmt.Sprintf("HPA %s targets the same %s/%s; attune will adjust requests without interfering with HPA scaling", hpa.Name, workloadKind, workloadName),
 			}
 		}
 	}
@@ -227,17 +227,17 @@ func (d *Detector) CheckVPAConflictInMemory(vpaList *unstructured.UnstructuredLi
 	return nil
 }
 
-// ListPolicies fetches all RightSizePolicies in the namespace once for efficient conflict checking.
+// ListPolicies fetches all AttunePolicies in the namespace once for efficient conflict checking.
 func (d *Detector) ListPolicies(ctx context.Context, c client.Client, namespace string) *unstructured.UnstructuredList {
 	policyList := &unstructured.UnstructuredList{}
 	policyList.SetGroupVersionKind(schema.GroupVersionKind{
-		Group:   "rightsize.io",
+		Group:   "attune.io",
 		Version: "v1alpha1",
-		Kind:    "RightSizePolicyList",
+		Kind:    "AttunePolicyList",
 	})
 
 	if err := c.List(ctx, policyList, client.InNamespace(namespace)); err != nil {
-		d.logger.V(1).Info("Could not list RightSizePolicies for conflict check", "error", err)
+		d.logger.V(1).Info("Could not list AttunePolicies for conflict check", "error", err)
 		return nil
 	}
 	return policyList
@@ -269,7 +269,7 @@ func (d *Detector) CheckPolicyConflictInMemory(policyList *unstructured.Unstruct
 			return &Conflict{
 				Type: ConflictPolicy,
 				Name: policy.GetName(),
-				Message: fmt.Sprintf("RightSizePolicy %s has higher weight or priority (%d vs %d) for %s/%s; deferring",
+				Message: fmt.Sprintf("AttunePolicy %s has higher weight or priority (%d vs %d) for %s/%s; deferring",
 					policy.GetName(), otherWeight, currentWeight, workloadKind, workloadName),
 			}
 		}

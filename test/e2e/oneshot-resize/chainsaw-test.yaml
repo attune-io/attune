@@ -3,7 +3,7 @@ kind: Test
 metadata:
   name: oneshot-resize
 spec:
-  description: Verify that a RightSizePolicy in OneShot mode discovers workloads and reaches Ready condition
+  description: Verify that a AttunePolicy in OneShot mode discovers workloads and reaches Ready condition
   timeouts:
     apply: 30s
     assert: 2m
@@ -83,8 +83,8 @@ spec:
       try:
         - apply:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: oneshot-test
                 namespace: e2e-oneshot-resize
@@ -125,7 +125,7 @@ spec:
             timeout: 2m
             content: |
               for i in $(seq 1 24); do
-                STATUS=$(kubectl get rightsizepolicy oneshot-test -n e2e-oneshot-resize \
+                STATUS=$(kubectl get attunepolicy oneshot-test -n e2e-oneshot-resize \
                   -o jsonpath='{.status.workloads.discovered}' 2>/dev/null)
                 if [ "$STATUS" -ge 1 ] 2>/dev/null; then
                   echo "Policy discovered $STATUS workload(s)"
@@ -134,7 +134,7 @@ spec:
                 sleep 5
               done
               echo "Timed out waiting for policy to discover workloads"
-              kubectl get rightsizepolicy oneshot-test -n e2e-oneshot-resize -o yaml
+              kubectl get attunepolicy oneshot-test -n e2e-oneshot-resize -o yaml
               exit 1
     - name: verify-resize-occurred
       try:
@@ -142,7 +142,7 @@ spec:
             timeout: 5m
             content: |
               for i in $(seq 1 60); do
-                RESIZED=$(kubectl get rightsizepolicy oneshot-test -n e2e-oneshot-resize \
+                RESIZED=$(kubectl get attunepolicy oneshot-test -n e2e-oneshot-resize \
                   -o jsonpath='{.status.workloads.resized}' 2>/dev/null)
                 if [ "$RESIZED" -ge 1 ] 2>/dev/null; then
                   echo "Resize confirmed: $RESIZED pod(s) resized"
@@ -151,18 +151,18 @@ spec:
                 sleep 5
               done
               echo "No resize occurred within timeout"
-              kubectl get rightsizepolicy oneshot-test -n e2e-oneshot-resize -o yaml
+              kubectl get attunepolicy oneshot-test -n e2e-oneshot-resize -o yaml
               exit 1
   catch:
     - describe:
-        apiVersion: rightsize.io/v1alpha1
-        kind: RightSizePolicy
+        apiVersion: attune.io/v1alpha1
+        kind: AttunePolicy
         namespace: e2e-oneshot-resize
     - describe:
         apiVersion: apps/v1
         kind: Deployment
         namespace: e2e-oneshot-resize
     - podLogs:
-        namespace: kube-rightsize-system
-        selector: app.kubernetes.io/name=kube-rightsize
+        namespace: attune-system
+        selector: app.kubernetes.io/name=attune
 

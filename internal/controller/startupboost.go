@@ -27,19 +27,19 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
-	"github.com/SebTardifLabs/kube-rightsize/internal/operatormetrics"
-	"github.com/SebTardifLabs/kube-rightsize/internal/resize"
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/operatormetrics"
+	"github.com/attune-io/attune/internal/resize"
 )
 
 // applyStartupBoosts checks for recently created pods that need a temporary
 // CPU boost. Pods within the boost duration that don't have the boost annotation
 // get inflated CPU; pods with an expired boost get reduced to steady-state.
-func (r *RightSizePolicyReconciler) applyStartupBoosts(
+func (r *AttunePolicyReconciler) applyStartupBoosts(
 	ctx context.Context,
-	policy *rightsizev1alpha1.RightSizePolicy,
+	policy *attunev1alpha1.AttunePolicy,
 	podsByWorkload map[string][]corev1.Pod,
-	recommendations []rightsizev1alpha1.WorkloadRecommendation,
+	recommendations []attunev1alpha1.WorkloadRecommendation,
 	resizer *resize.PodResizer,
 	checks *resizePreChecks,
 ) {
@@ -98,13 +98,13 @@ func (r *RightSizePolicyReconciler) applyStartupBoosts(
 					}
 					// Safety check: verify the boosted target does not violate
 					// node allocatable, ResourceQuota, LimitRange, or QoS class.
-					boostRec := rightsizev1alpha1.ContainerRecommendation{
+					boostRec := attunev1alpha1.ContainerRecommendation{
 						Name: c.Name,
-						Current: rightsizev1alpha1.ResourceValues{
+						Current: attunev1alpha1.ResourceValues{
 							CPURequest:    c.Resources.Requests.Cpu().DeepCopy(),
 							MemoryRequest: c.Resources.Requests.Memory().DeepCopy(),
 						},
-						Recommended: rightsizev1alpha1.ResourceValues{
+						Recommended: attunev1alpha1.ResourceValues{
 							CPURequest:    boostedCPU.DeepCopy(),
 							MemoryRequest: c.Resources.Requests.Memory().DeepCopy(),
 						},
@@ -175,13 +175,13 @@ func (r *RightSizePolicyReconciler) applyStartupBoosts(
 						}
 						// Pre-check: verify the steady-state target doesn't
 						// violate LimitRange or quota constraints.
-						expireRec := rightsizev1alpha1.ContainerRecommendation{
+						expireRec := attunev1alpha1.ContainerRecommendation{
 							Name: c.Name,
-							Current: rightsizev1alpha1.ResourceValues{
+							Current: attunev1alpha1.ResourceValues{
 								CPURequest:    c.Resources.Requests.Cpu().DeepCopy(),
 								MemoryRequest: c.Resources.Requests.Memory().DeepCopy(),
 							},
-							Recommended: rightsizev1alpha1.ResourceValues{
+							Recommended: attunev1alpha1.ResourceValues{
 								CPURequest:    recCPU.DeepCopy(),
 								MemoryRequest: c.Resources.Requests.Memory().DeepCopy(),
 							},
@@ -240,7 +240,7 @@ func (r *RightSizePolicyReconciler) applyStartupBoosts(
 // continue to the next container. On re-fetch failure it returns (nil, err),
 // signaling the caller should break the container loop. On success it returns
 // the refreshed pod.
-func (r *RightSizePolicyReconciler) boostResizeAndRefetch(
+func (r *AttunePolicyReconciler) boostResizeAndRefetch(
 	ctx context.Context,
 	resizer *resize.PodResizer,
 	pod *corev1.Pod,

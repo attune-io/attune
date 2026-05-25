@@ -23,12 +23,12 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 )
 
-func newSavingsReconciler() *RightSizePolicyReconciler {
+func newSavingsReconciler() *AttunePolicyReconciler {
 	scheme := testScheme()
-	return &RightSizePolicyReconciler{
+	return &AttunePolicyReconciler{
 		Client: fake.NewClientBuilder().WithScheme(scheme).Build(),
 	}
 }
@@ -42,18 +42,18 @@ func TestComputeSavings_Empty(t *testing.T) {
 
 func TestComputeSavings_CPUReduction(t *testing.T) {
 	r := newSavingsReconciler()
-	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+	recommendations := []attunev1alpha1.WorkloadRecommendation{
 		{
 			Workload: "api-server",
 			Kind:     "Deployment",
-			Containers: []rightsizev1alpha1.ContainerRecommendation{
+			Containers: []attunev1alpha1.ContainerRecommendation{
 				{
 					Name: "main",
-					Current: rightsizev1alpha1.ResourceValues{
+					Current: attunev1alpha1.ResourceValues{
 						CPURequest:    resource.MustParse("500m"),
 						MemoryRequest: resource.MustParse("512Mi"),
 					},
-					Recommended: rightsizev1alpha1.ResourceValues{
+					Recommended: attunev1alpha1.ResourceValues{
 						CPURequest:    resource.MustParse("150m"),
 						MemoryRequest: resource.MustParse("512Mi"),
 					},
@@ -73,18 +73,18 @@ func TestComputeSavings_CPUReduction(t *testing.T) {
 
 func TestComputeSavings_MemoryReduction(t *testing.T) {
 	r := newSavingsReconciler()
-	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+	recommendations := []attunev1alpha1.WorkloadRecommendation{
 		{
 			Workload: "api-server",
 			Kind:     "Deployment",
-			Containers: []rightsizev1alpha1.ContainerRecommendation{
+			Containers: []attunev1alpha1.ContainerRecommendation{
 				{
 					Name: "main",
-					Current: rightsizev1alpha1.ResourceValues{
+					Current: attunev1alpha1.ResourceValues{
 						CPURequest:    resource.MustParse("500m"),
 						MemoryRequest: resource.MustParse("512Mi"),
 					},
-					Recommended: rightsizev1alpha1.ResourceValues{
+					Recommended: attunev1alpha1.ResourceValues{
 						CPURequest:    resource.MustParse("500m"),
 						MemoryRequest: resource.MustParse("280Mi"),
 					},
@@ -102,18 +102,18 @@ func TestComputeSavings_MemoryReduction(t *testing.T) {
 
 func TestComputeSavings_MultipleWorkloads(t *testing.T) {
 	r := newSavingsReconciler()
-	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+	recommendations := []attunev1alpha1.WorkloadRecommendation{
 		{
 			Workload: "api-server",
 			Kind:     "Deployment",
-			Containers: []rightsizev1alpha1.ContainerRecommendation{
+			Containers: []attunev1alpha1.ContainerRecommendation{
 				{
 					Name: "main",
-					Current: rightsizev1alpha1.ResourceValues{
+					Current: attunev1alpha1.ResourceValues{
 						CPURequest:    resource.MustParse("500m"),
 						MemoryRequest: resource.MustParse("512Mi"),
 					},
-					Recommended: rightsizev1alpha1.ResourceValues{
+					Recommended: attunev1alpha1.ResourceValues{
 						CPURequest:    resource.MustParse("300m"),
 						MemoryRequest: resource.MustParse("384Mi"),
 					},
@@ -123,14 +123,14 @@ func TestComputeSavings_MultipleWorkloads(t *testing.T) {
 		{
 			Workload: "worker",
 			Kind:     "Deployment",
-			Containers: []rightsizev1alpha1.ContainerRecommendation{
+			Containers: []attunev1alpha1.ContainerRecommendation{
 				{
 					Name: "main",
-					Current: rightsizev1alpha1.ResourceValues{
+					Current: attunev1alpha1.ResourceValues{
 						CPURequest:    resource.MustParse("1000m"),
 						MemoryRequest: resource.MustParse("1Gi"),
 					},
-					Recommended: rightsizev1alpha1.ResourceValues{
+					Recommended: attunev1alpha1.ResourceValues{
 						CPURequest:    resource.MustParse("900m"),
 						MemoryRequest: resource.MustParse("768Mi"),
 					},
@@ -148,18 +148,18 @@ func TestComputeSavings_MultipleWorkloads(t *testing.T) {
 
 func TestComputeSavings_NoReduction(t *testing.T) {
 	r := newSavingsReconciler()
-	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+	recommendations := []attunev1alpha1.WorkloadRecommendation{
 		{
 			Workload: "api-server",
 			Kind:     "Deployment",
-			Containers: []rightsizev1alpha1.ContainerRecommendation{
+			Containers: []attunev1alpha1.ContainerRecommendation{
 				{
 					Name: "main",
-					Current: rightsizev1alpha1.ResourceValues{
+					Current: attunev1alpha1.ResourceValues{
 						CPURequest:    resource.MustParse("200m"),
 						MemoryRequest: resource.MustParse("256Mi"),
 					},
-					Recommended: rightsizev1alpha1.ResourceValues{
+					Recommended: attunev1alpha1.ResourceValues{
 						CPURequest:    resource.MustParse("300m"),
 						MemoryRequest: resource.MustParse("512Mi"),
 					},
@@ -181,29 +181,29 @@ func TestComputeSavings_NoReduction(t *testing.T) {
 
 func TestComputeSavings_Mixed(t *testing.T) {
 	r := newSavingsReconciler()
-	recommendations := []rightsizev1alpha1.WorkloadRecommendation{
+	recommendations := []attunev1alpha1.WorkloadRecommendation{
 		{
 			Workload: "api-server",
 			Kind:     "Deployment",
-			Containers: []rightsizev1alpha1.ContainerRecommendation{
+			Containers: []attunev1alpha1.ContainerRecommendation{
 				{
 					Name: "reduce-cpu",
-					Current: rightsizev1alpha1.ResourceValues{
+					Current: attunev1alpha1.ResourceValues{
 						CPURequest:    resource.MustParse("500m"),
 						MemoryRequest: resource.MustParse("256Mi"),
 					},
-					Recommended: rightsizev1alpha1.ResourceValues{
+					Recommended: attunev1alpha1.ResourceValues{
 						CPURequest:    resource.MustParse("150m"),
 						MemoryRequest: resource.MustParse("256Mi"),
 					},
 				},
 				{
 					Name: "increase-cpu",
-					Current: rightsizev1alpha1.ResourceValues{
+					Current: attunev1alpha1.ResourceValues{
 						CPURequest:    resource.MustParse("100m"),
 						MemoryRequest: resource.MustParse("128Mi"),
 					},
-					Recommended: rightsizev1alpha1.ResourceValues{
+					Recommended: attunev1alpha1.ResourceValues{
 						CPURequest:    resource.MustParse("300m"),
 						MemoryRequest: resource.MustParse("128Mi"),
 					},

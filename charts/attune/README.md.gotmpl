@@ -1,0 +1,96 @@
+{{ template "chart.header" . }}
+
+{{ template "chart.description" . }}
+
+## Prerequisites
+
+- Kubernetes 1.32+ (1.32 requires the `InPlacePodVerticalScaling` feature gate; 1.33+ has it enabled by default)
+- Prometheus (for usage metrics)
+- Helm 3.16+ or 4.x
+- [cert-manager](https://cert-manager.io/docs/installation/) (for webhook TLS; to skip, use `--set webhooks.enabled=false`)
+
+## Installation
+
+```bash
+helm install attune oci://ghcr.io/attune-io/charts/attune \
+  --namespace attune-system --create-namespace
+```
+
+{{ template "chart.valuesSection" . }}
+
+## CRDs
+
+This chart installs the required CRDs on `helm install`:
+- `attunepolicies.attune.io`
+- `attunedefaults.attune.io`
+- `attunenamespacedefaults.attune.io`
+
+> **Note:** Helm does not update CRDs on `helm upgrade`.
+> Before upgrading, apply the latest CRDs manually:
+> ```bash
+> kubectl apply --server-side --force-conflicts -f \
+>   https://github.com/attune-io/attune/releases/latest/download/crds.yaml
+> ```
+
+## Prometheus Configuration
+
+Prometheus address is configured per-policy in `AttunePolicy.spec.metricsSource.prometheus.address`,
+via namespace-scoped `AttuneNamespaceDefaults`, or globally via the
+`AttuneDefaults` CRD. It is not a chart value.
+
+If `networkPolicy.enabled=true`, the operator pod allows egress to Prometheus on
+`networkPolicy.prometheusPort` (default `9090`). For the `prometheus-community/prometheus`
+chart, keep this at `9090` even if the Service URL uses port `80`, because
+NetworkPolicy egress matches the backend pod port.
+
+## Security Defaults
+
+The chart defaults to a restricted runtime profile:
+
+- Pod security context sets `runAsNonRoot: true` and pod-level `seccompProfile.type: RuntimeDefault`
+- Container security context drops all Linux capabilities, disables privilege escalation,
+  uses a read-only root filesystem, and runs as UID/GID `65532`
+
+If your cluster enforces Pod Security Admission or custom policies, verify these
+settings match your environment before overriding them.
+
+## NetworkPolicy
+
+When `networkPolicy.enabled=true`, the chart creates a policy for the operator pod that:
+
+- allows webhook ingress on `9443` when `webhooks.enabled=true`
+- allows metrics ingress on `metrics.port` when `metrics.enabled=true`
+- allows egress to the Kubernetes API on `443`
+- allows DNS egress on UDP/TCP `53`
+- allows egress to Prometheus on `networkPolicy.prometheusPort`
+
+Clusters with default-deny policies may need matching Prometheus namespace or source
+policies so scraping can still reach the operator metrics Service.
+
+## Grafana Dashboard
+
+**Auto-provision (recommended):** set `grafanaDashboard.enabled=true` to create a
+ConfigMap labeled for the Grafana sidecar:
+
+```bash
+helm upgrade attune oci://ghcr.io/attune-io/charts/attune \
+  --namespace attune-system \
+  --reuse-values \
+  --set grafanaDashboard.enabled=true
+```
+
+**Manual import:** A pre-built dashboard is also included in
+[`deploy/grafana/dashboard.json`](https://github.com/attune-io/attune/blob/main/deploy/grafana/dashboard.json).
+Import it into Grafana to visualize recommendations, resize operations, and savings.
+
+## Uninstall
+
+```bash
+helm uninstall attune -n attune-system
+```
+
+CRDs are not removed by `helm uninstall`. To remove them:
+
+```bash
+kubectl delete crd attunepolicies.attune.io attunedefaults.attune.io attunenamespacedefaults.attune.io
+```

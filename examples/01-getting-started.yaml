@@ -1,4 +1,4 @@
-# Getting Started: minimal RightSizePolicy in Recommend mode
+# Getting Started: minimal AttunePolicy in Recommend mode
 #
 # This is the safest starting point. The operator watches your workloads,
 # queries Prometheus for usage data, and writes recommendations into the
@@ -12,22 +12,22 @@
 # Prerequisites:
 #   - Kubernetes 1.32+ with In-Place Pod Resize enabled (1.32 requires InPlacePodVerticalScaling feature gate)
 #   - Prometheus reachable at the address below
-#   - kube-rightsize operator installed (helm install kube-rightsize ...)
+#   - attune operator installed (helm install attune ...)
 #
 # Apply:
 #   kubectl apply -f examples/01-getting-started.yaml
 #
 # Check progress:
-#   kubectl rightsize status -n my-app
-#   kubectl rightsize recommendations -n my-app
+#   kubectl attune status -n my-app
+#   kubectl attune recommendations -n my-app
 #
 # For a faster first look (~1 hour instead of ~4 hours), uncomment:
 #   minimumDataPoints: 12
 #
 # See examples/01b-getting-started-full.yaml for all available options.
 ---
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizePolicy
+apiVersion: attune.io/v1alpha1
+kind: AttunePolicy
 metadata:
   name: my-first-policy
   namespace: my-app

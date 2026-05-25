@@ -46,14 +46,14 @@ KUBEBUILDER_ASSETS="$(setup-envtest use -p path)" \
 ```
 
 Integration tests verify the full reconciliation loop: creating a
-RightSizePolicy, injecting mock metrics, and asserting that status is
+AttunePolicy, injecting mock metrics, and asserting that status is
 updated correctly.
 
 ## E2E tests (Chainsaw)
 
 End-to-end tests run against a real Kubernetes cluster using
 [Chainsaw](https://kyverno.github.io/chainsaw/). They deploy actual
-Deployments and RightSizePolicy resources and verify the operator
+Deployments and AttunePolicy resources and verify the operator
 behaves correctly.
 
 ### Prerequisites
@@ -67,14 +67,14 @@ behaves correctly.
 ```bash
 # Recommended: k3d, because CI and nightly workflows run on k3d/K3S
 make k3d-create
-make k3d-deploy IMG=kube-rightsize:e2e
+make k3d-deploy IMG=attune:e2e
 make test-e2e
 make test-e2e-go
 make k3d-delete
 
 # Alternative: Kind (supported, but local-only and not the default CI path)
 make kind-create
-make kind-deploy IMG=kube-rightsize:e2e
+make kind-deploy IMG=attune:e2e
 make test-e2e
 make test-e2e-go
 make kind-delete
@@ -123,15 +123,15 @@ make test-e2e-smoke
 | `test/e2e/daemonset-target/` | DaemonSet | Discovers a DaemonSet workload |
 | `test/e2e/cronjob-target/` | CronJob | Discovers a CronJob workload (recommend-only) |
 | `test/e2e/job-target/` | Job | Discovers a standalone Job workload (recommend-only) |
-| `test/e2e/opt-out/` | (cross-cutting) | `rightsize.io/skip` annotation is respected |
+| `test/e2e/opt-out/` | (cross-cutting) | `attune.io/skip` annotation is respected |
 | `test/e2e/exclude-containers/` | (cross-cutting) | `excludedContainers` skips sidecars |
 | `test/e2e/multi-selector/` | (cross-cutting) | Label selector matches multiple deployments |
 | `test/e2e/eviction-fallback/` | (cross-cutting) | InPlaceOrRecreate is accepted and still resizes workloads (in-place path) |
 | `test/e2e/schedule-window/` | (cross-cutting) | Schedule windows block resizes outside the allowed time |
 | `test/e2e/budget-caps/` | (cross-cutting) | Budget caps are accepted and the policy still resizes workloads |
 | `test/e2e/concurrent-resize/` | (cross-cutting) | `maxConcurrentResizes` is accepted and workloads still resize |
-| `test/e2e/namespace-defaults/` | (cross-cutting) | RightSizeNamespaceDefaults overrides cluster defaults |
-| `test/e2e/defaults-merge/` | (cross-cutting) | RightSizeDefaults values are inherited by a policy that omits them |
+| `test/e2e/namespace-defaults/` | (cross-cutting) | AttuneNamespaceDefaults overrides cluster defaults |
+| `test/e2e/defaults-merge/` | (cross-cutting) | AttuneDefaults values are inherited by a policy that omits them |
 | `test/e2e/hpa-conflict/` | (cross-cutting) | HPA conflict is warning-only, policy still reconciles |
 | `test/e2e/vpa-conflict/` | (cross-cutting) | VPA conflict is warning-only, policy still reconciles |
 | `test/e2e/hpa-auto-tune/` | (cross-cutting) | Auto-tunes HPA CPU target utilization when annotated |
@@ -147,7 +147,7 @@ make test-e2e-smoke
 | `test/e2e/webhook-defaulting/` | (webhook) | Mutating webhook applies defaults |
 | `test/e2e/webhook-validation/` | (webhook) | Rejects invalid overhead and negative cooldown |
 | `test/e2e/webhook-schedule-validation/` | (webhook) | Rejects invalid timezone, day, and window time |
-| `test/e2e/defaults-validation/` | (webhook) | Rejects invalid RightSizeDefaults |
+| `test/e2e/defaults-validation/` | (webhook) | Rejects invalid AttuneDefaults |
 
 ### Writing new E2E tests
 

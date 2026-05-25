@@ -31,8 +31,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
-	rsmetrics "github.com/SebTardifLabs/kube-rightsize/internal/metrics"
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	rsmetrics "github.com/attune-io/attune/internal/metrics"
 )
 
 func BenchmarkBuildPrometheusQuery_CPU(b *testing.B) {
@@ -104,23 +104,23 @@ func BenchmarkReconcile_ManyWorkloads(b *testing.B) {
 		b.Run(fmt.Sprintf("%d_workloads", n), func(b *testing.B) {
 			objects := make([]client.Object, 0, 2*n+1)
 
-			policy := &rightsizev1alpha1.RightSizePolicy{
+			policy := &attunev1alpha1.AttunePolicy{
 				ObjectMeta: metav1.ObjectMeta{Name: "scale-policy", Namespace: "bench"},
-				Spec: rightsizev1alpha1.RightSizePolicySpec{
-					TargetRef: rightsizev1alpha1.TargetRef{
+				Spec: attunev1alpha1.AttunePolicySpec{
+					TargetRef: attunev1alpha1.TargetRef{
 						Kind: "Deployment",
 						Selector: &metav1.LabelSelector{
 							MatchLabels: map[string]string{"bench": "true"},
 						},
 					},
-					MetricsSource: rightsizev1alpha1.MetricsSource{
-						Prometheus:        &rightsizev1alpha1.PrometheusConfig{Address: "http://prom:9090"},
+					MetricsSource: attunev1alpha1.MetricsSource{
+						Prometheus:        &attunev1alpha1.PrometheusConfig{Address: "http://prom:9090"},
 						MinimumDataPoints: int32Ptr(48),
 					},
-					CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, Overhead: "20"},
-					Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, Overhead: "30"},
-					UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-						Type: rightsizev1alpha1.UpdateTypeRecommend,
+					CPU:    attunev1alpha1.ResourceConfig{Percentile: 95, Overhead: "20"},
+					Memory: attunev1alpha1.ResourceConfig{Percentile: 99, Overhead: "30"},
+					UpdateStrategy: attunev1alpha1.UpdateStrategy{
+						Type: attunev1alpha1.UpdateTypeRecommend,
 					},
 				},
 			}
@@ -177,9 +177,9 @@ func BenchmarkReconcile_ManyWorkloads(b *testing.B) {
 			fakeClient := fake.NewClientBuilder().
 				WithScheme(scheme).
 				WithObjects(objects...).
-				WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
+				WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
 				Build()
-			r := &RightSizePolicyReconciler{
+			r := &AttunePolicyReconciler{
 				Client:         fakeClient,
 				Scheme:         scheme,
 				MetricsFactory: mockMetricsFactory(mc),
@@ -211,21 +211,21 @@ func BenchmarkReconcile_ManyPolicies(b *testing.B) {
 				labels := map[string]string{"app": name}
 
 				objects = append(objects,
-					&rightsizev1alpha1.RightSizePolicy{
+					&attunev1alpha1.AttunePolicy{
 						ObjectMeta: metav1.ObjectMeta{Name: policyName, Namespace: "bench"},
-						Spec: rightsizev1alpha1.RightSizePolicySpec{
-							TargetRef: rightsizev1alpha1.TargetRef{
+						Spec: attunev1alpha1.AttunePolicySpec{
+							TargetRef: attunev1alpha1.TargetRef{
 								Kind: "Deployment",
 								Name: stringPtr(name),
 							},
-							MetricsSource: rightsizev1alpha1.MetricsSource{
-								Prometheus:        &rightsizev1alpha1.PrometheusConfig{Address: "http://prom:9090"},
+							MetricsSource: attunev1alpha1.MetricsSource{
+								Prometheus:        &attunev1alpha1.PrometheusConfig{Address: "http://prom:9090"},
 								MinimumDataPoints: int32Ptr(48),
 							},
-							CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, Overhead: "20"},
-							Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, Overhead: "30"},
-							UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-								Type: rightsizev1alpha1.UpdateTypeRecommend,
+							CPU:    attunev1alpha1.ResourceConfig{Percentile: 95, Overhead: "20"},
+							Memory: attunev1alpha1.ResourceConfig{Percentile: 99, Overhead: "30"},
+							UpdateStrategy: attunev1alpha1.UpdateStrategy{
+								Type: attunev1alpha1.UpdateTypeRecommend,
 							},
 						},
 					},
@@ -277,9 +277,9 @@ func BenchmarkReconcile_ManyPolicies(b *testing.B) {
 			fakeClient := fake.NewClientBuilder().
 				WithScheme(scheme).
 				WithObjects(objects...).
-				WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
+				WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
 				Build()
-			r := &RightSizePolicyReconciler{
+			r := &AttunePolicyReconciler{
 				Client:         fakeClient,
 				Scheme:         scheme,
 				MetricsFactory: mockMetricsFactory(mc),
@@ -311,21 +311,21 @@ func BenchmarkReconcile_ConcurrentPolicies(b *testing.B) {
 				labels := map[string]string{"app": name}
 
 				objects = append(objects,
-					&rightsizev1alpha1.RightSizePolicy{
+					&attunev1alpha1.AttunePolicy{
 						ObjectMeta: metav1.ObjectMeta{Name: policyName, Namespace: "bench"},
-						Spec: rightsizev1alpha1.RightSizePolicySpec{
-							TargetRef: rightsizev1alpha1.TargetRef{
+						Spec: attunev1alpha1.AttunePolicySpec{
+							TargetRef: attunev1alpha1.TargetRef{
 								Kind: "Deployment",
 								Name: stringPtr(name),
 							},
-							MetricsSource: rightsizev1alpha1.MetricsSource{
-								Prometheus:        &rightsizev1alpha1.PrometheusConfig{Address: "http://prom:9090"},
+							MetricsSource: attunev1alpha1.MetricsSource{
+								Prometheus:        &attunev1alpha1.PrometheusConfig{Address: "http://prom:9090"},
 								MinimumDataPoints: int32Ptr(48),
 							},
-							CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, Overhead: "20"},
-							Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, Overhead: "30"},
-							UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-								Type: rightsizev1alpha1.UpdateTypeRecommend,
+							CPU:    attunev1alpha1.ResourceConfig{Percentile: 95, Overhead: "20"},
+							Memory: attunev1alpha1.ResourceConfig{Percentile: 99, Overhead: "30"},
+							UpdateStrategy: attunev1alpha1.UpdateStrategy{
+								Type: attunev1alpha1.UpdateTypeRecommend,
 							},
 						},
 					},
@@ -377,9 +377,9 @@ func BenchmarkReconcile_ConcurrentPolicies(b *testing.B) {
 			fakeClient := fake.NewClientBuilder().
 				WithScheme(scheme).
 				WithObjects(objects...).
-				WithStatusSubresource(&rightsizev1alpha1.RightSizePolicy{}).
+				WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
 				Build()
-			r := &RightSizePolicyReconciler{
+			r := &AttunePolicyReconciler{
 				Client:         fakeClient,
 				Scheme:         scheme,
 				MetricsFactory: mockMetricsFactory(mc),

@@ -1,6 +1,6 @@
 ---
 name: Feature Request
-about: Suggest a feature for kube-rightsize
+about: Suggest a feature for attune
 title: "[Feature] "
 labels: kind/feature
 assignees: ""

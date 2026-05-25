@@ -6,7 +6,7 @@ earlier pre-release, apply every section below your current version.
 ## v1alpha1 Field Renames (Unreleased)
 
 Five CRD fields were renamed to align with ecosystem conventions. Existing
-`RightSizePolicy`, `RightSizeDefaults`, and `RightSizeNamespaceDefaults`
+`AttunePolicy`, `AttuneDefaults`, and `AttuneNamespaceDefaults`
 resources must be updated before applying the new CRDs.
 
 ### Field mapping
@@ -59,7 +59,7 @@ sed -i '/updateStrategy/,/^[^ ]/{s/mode:/type:/g}' manifests/*.yaml
 
 ```bash
 # Export current policies
-kubectl get rightsizepolicies -n production -o yaml > policies.yaml
+kubectl get attunepolicies -n production -o yaml > policies.yaml
 
 # Rename safetyMargin to overhead and convert values
 yq -i '

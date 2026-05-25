@@ -31,15 +31,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
-	rsmetrics "github.com/SebTardifLabs/kube-rightsize/internal/metrics"
-	"github.com/SebTardifLabs/kube-rightsize/internal/operatormetrics"
-	"github.com/SebTardifLabs/kube-rightsize/internal/resize"
-	"github.com/SebTardifLabs/kube-rightsize/internal/safety"
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	rsmetrics "github.com/attune-io/attune/internal/metrics"
+	"github.com/attune-io/attune/internal/operatormetrics"
+	"github.com/attune-io/attune/internal/resize"
+	"github.com/attune-io/attune/internal/safety"
 )
 
 // selectPodsForResize selects pods eligible for resize based on the update mode.
-func selectPodsForResize(pods []corev1.Pod, mode rightsizev1alpha1.UpdateType, canaryPercentage int32) []corev1.Pod {
+func selectPodsForResize(pods []corev1.Pod, mode attunev1alpha1.UpdateType, canaryPercentage int32) []corev1.Pod {
 	var eligible []corev1.Pod
 	for _, p := range pods {
 		if resize.IsEligibleForResize(&p) {
@@ -51,9 +51,9 @@ func selectPodsForResize(pods []corev1.Pod, mode rightsizev1alpha1.UpdateType, c
 	}
 
 	switch mode {
-	case rightsizev1alpha1.UpdateTypeOneShot:
+	case attunev1alpha1.UpdateTypeOneShot:
 		return eligible[:1]
-	case rightsizev1alpha1.UpdateTypeCanary:
+	case attunev1alpha1.UpdateTypeCanary:
 		count := int(canaryPercentage) * len(eligible) / 100
 		if count < 1 {
 			count = 1
@@ -62,7 +62,7 @@ func selectPodsForResize(pods []corev1.Pod, mode rightsizev1alpha1.UpdateType, c
 			count = len(eligible)
 		}
 		return eligible[:count]
-	case rightsizev1alpha1.UpdateTypeAuto:
+	case attunev1alpha1.UpdateTypeAuto:
 		return eligible // resize all in Auto mode
 	default:
 		return nil
@@ -88,15 +88,15 @@ func budgetIncrease(pod *corev1.Pod, containerName string, target corev1.Resourc
 }
 
 // executeResizes performs the actual pod resizes for all workloads with recommendations.
-func (r *RightSizePolicyReconciler) executeResizes(
+func (r *AttunePolicyReconciler) executeResizes(
 	ctx context.Context,
-	policy *rightsizev1alpha1.RightSizePolicy,
+	policy *attunev1alpha1.AttunePolicy,
 	workloads []client.Object,
-	recommendations []rightsizev1alpha1.WorkloadRecommendation,
+	recommendations []attunev1alpha1.WorkloadRecommendation,
 	podsByWorkload map[string][]corev1.Pod,
 	collector rsmetrics.MetricsCollector,
 	checks *resizePreChecks,
-) (int, []rightsizev1alpha1.ResizeHistoryEntry) {
+) (int, []attunev1alpha1.ResizeHistoryEntry) {
 	logger := log.FromContext(ctx)
 	if r.Clientset == nil {
 		logger.Info("No clientset configured, skipping resize execution")
@@ -113,7 +113,7 @@ func (r *RightSizePolicyReconciler) executeResizes(
 
 	// Canary auto-promotion: if all canary pods passed the observation
 	// period without reverts, promote to full rollout.
-	if mode == rightsizev1alpha1.UpdateTypeCanary && canaryAutoPromote {
+	if mode == attunev1alpha1.UpdateTypeCanary && canaryAutoPromote {
 		mode = r.resolveCanaryPhase(ctx, policy, mode)
 	}
 
@@ -121,7 +121,7 @@ func (r *RightSizePolicyReconciler) executeResizes(
 	monitor := r.newSafetyMonitor(logger, collector, policy.Spec.UpdateStrategy.SLOGuardrails)
 
 	var totalResized int
-	var history []rightsizev1alpha1.ResizeHistoryEntry
+	var history []attunev1alpha1.ResizeHistoryEntry
 	now := metav1.NewTime(r.now())
 
 	// Per-cycle budget caps. Protected by budgetMu for concurrent access.
@@ -226,9 +226,9 @@ func (r *RightSizePolicyReconciler) executeResizes(
 		}
 
 		// Track canary pod names so users can identify the subset.
-		if policy.Spec.UpdateStrategy.Type == rightsizev1alpha1.UpdateTypeCanary &&
+		if policy.Spec.UpdateStrategy.Type == attunev1alpha1.UpdateTypeCanary &&
 			policy.Status.Canary != nil &&
-			policy.Status.Canary.Phase == rightsizev1alpha1.CanaryPhaseInProgress {
+			policy.Status.Canary.Phase == attunev1alpha1.CanaryPhaseInProgress {
 			for _, p := range selectedPods {
 				policy.Status.Canary.Pods = appendUnique(policy.Status.Canary.Pods, p.Name)
 			}
@@ -245,7 +245,7 @@ func (r *RightSizePolicyReconciler) executeResizes(
 				defer wg.Done()
 				defer func() { <-sem }() // release semaphore
 
-				var podHistory []rightsizev1alpha1.ResizeHistoryEntry
+				var podHistory []attunev1alpha1.ResizeHistoryEntry
 				var podReservedCPU, podReservedMem int64
 				podResized := false
 
@@ -324,11 +324,11 @@ func (r *RightSizePolicyReconciler) executeResizes(
 // resizeParams groups parameters for resizeContainer, reducing the function
 // signature from 9 parameters to 2 (ctx + params).
 type resizeParams struct {
-	Policy       *rightsizev1alpha1.RightSizePolicy
+	Policy       *attunev1alpha1.AttunePolicy
 	Pod          *corev1.Pod
 	Workload     client.Object
 	WorkloadName string
-	ContainerRec rightsizev1alpha1.ContainerRecommendation
+	ContainerRec attunev1alpha1.ContainerRecommendation
 	Target       corev1.ResourceRequirements
 	Resizer      *resize.PodResizer
 	Monitor      *safety.Monitor
@@ -350,10 +350,10 @@ const (
 // skip checks, the resize call, annotation persistence, and safety checks.
 // It returns the history entries produced and the outcome so callers can
 // distinguish in-place success, eviction fallback, and no-op/failure.
-func (r *RightSizePolicyReconciler) resizeContainer(
+func (r *AttunePolicyReconciler) resizeContainer(
 	ctx context.Context,
 	p resizeParams,
-) ([]rightsizev1alpha1.ResizeHistoryEntry, resizeOutcome) {
+) ([]attunev1alpha1.ResizeHistoryEntry, resizeOutcome) {
 	logger := log.FromContext(ctx)
 	policy, pod, workload, workloadName := p.Policy, p.Pod, p.Workload, p.WorkloadName
 	containerRec, resizer, monitor, now := p.ContainerRec, p.Resizer, p.Monitor, p.Now
@@ -407,18 +407,18 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 		return nil, resizeOutcomeNone
 	}
 
-	evictionHistory := func() []rightsizev1alpha1.ResizeHistoryEntry {
-		return []rightsizev1alpha1.ResizeHistoryEntry{
+	evictionHistory := func() []attunev1alpha1.ResizeHistoryEntry {
+		return []attunev1alpha1.ResizeHistoryEntry{
 			{
 				Timestamp: now, Workload: workloadName, Container: containerRec.Name,
-				Resource: "cpu+memory", Method: "Eviction", Result: rightsizev1alpha1.ResizeResultEvicted,
+				Resource: "cpu+memory", Method: "Eviction", Result: attunev1alpha1.ResizeResultEvicted,
 			},
 		}
 	}
 
 	// Pods already marked Infeasible cannot be resized in-place on the current node.
 	if resize.IsResizeInfeasible(pod) {
-		if policy.Spec.UpdateStrategy.ResizeMethod == rightsizev1alpha1.ResizeMethodInPlaceOrRecreate {
+		if policy.Spec.UpdateStrategy.ResizeMethod == attunev1alpha1.ResizeMethodInPlaceOrRecreate {
 			logger.Info("Pod resize is Infeasible, attempting eviction fallback",
 				"pod", pod.Name, "container", containerRec.Name)
 			if evicted := r.tryEvictionFallback(ctx, policy, pod, workload, workloadName, containerRec.Name, resizer); evicted {
@@ -447,7 +447,7 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 	results, err := resizer.ResizePod(ctx, pod, containerRec.Name, target)
 	if err != nil {
 		// Attempt eviction fallback if configured.
-		if policy.Spec.UpdateStrategy.ResizeMethod == rightsizev1alpha1.ResizeMethodInPlaceOrRecreate {
+		if policy.Spec.UpdateStrategy.ResizeMethod == attunev1alpha1.ResizeMethodInPlaceOrRecreate {
 			if evicted := r.tryEvictionFallback(ctx, policy, pod, workload, workloadName, containerRec.Name, resizer); evicted {
 				return evictionHistory(), resizeOutcomeEvicted
 			}
@@ -455,9 +455,9 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 
 		logger.Error(err, "Failed to resize pod",
 			"pod", pod.Name, "container", containerRec.Name)
-		var entries []rightsizev1alpha1.ResizeHistoryEntry
+		var entries []attunev1alpha1.ResizeHistoryEntry
 		for _, res := range results {
-			entries = append(entries, newHistoryEntry(now, workloadName, containerRec.Name, res, rightsizev1alpha1.ResizeResultFailed))
+			entries = append(entries, newHistoryEntry(now, workloadName, containerRec.Name, res, attunev1alpha1.ResizeResultFailed))
 			operatormetrics.ResizeTotal.WithLabelValues(pod.Namespace, workloadName, res.Resource, "failed").Inc()
 		}
 		if r.Recorder != nil {
@@ -469,11 +469,11 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 
 	operatormetrics.ResizeDuration.WithLabelValues(pod.Namespace, workloadName).Observe(time.Since(resizeStart).Seconds())
 
-	var history []rightsizev1alpha1.ResizeHistoryEntry
+	var history []attunev1alpha1.ResizeHistoryEntry
 	for _, res := range results {
-		result := rightsizev1alpha1.ResizeResultSuccess
+		result := attunev1alpha1.ResizeResultSuccess
 		if !res.Success {
-			result = rightsizev1alpha1.ResizeResultFailed
+			result = attunev1alpha1.ResizeResultFailed
 		}
 		history = append(history, newHistoryEntry(now, workloadName, containerRec.Name, res, result))
 		if res.Success {
@@ -529,15 +529,15 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 				}
 			}
 			if r.Recorder != nil {
-				r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, string(rightsizev1alpha1.ResizeResultReverted), "revert",
+				r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, string(attunev1alpha1.ResizeResultReverted), "revert",
 					"Reverted resize on %s/%s: %s", workloadName, containerRec.Name, reason)
 			}
 		}
 		// Always mark history entries regardless of whether the revert succeeded.
 		// On revert failure, mark as Failed so the resize is not recorded as Success.
-		resultStatus := rightsizev1alpha1.ResizeResultReverted
+		resultStatus := attunev1alpha1.ResizeResultReverted
 		if revertFailed {
-			resultStatus = rightsizev1alpha1.ResizeResultFailed
+			resultStatus = attunev1alpha1.ResizeResultFailed
 		}
 		for i := range history {
 			if history[i].Workload == workloadName && history[i].Container == containerRec.Name {
@@ -581,10 +581,10 @@ func (r *RightSizePolicyReconciler) resizeContainer(
 // pod status (conditions, containerStatuses) after a resize, bumping
 // resourceVersion. In multi-container pods the second container's annotation
 // persist races with the kubelet's status write from the first resize.
-func (r *RightSizePolicyReconciler) persistResizeAnnotations(
+func (r *AttunePolicyReconciler) persistResizeAnnotations(
 	ctx context.Context,
 	pod *corev1.Pod,
-	containerRec rightsizev1alpha1.ContainerRecommendation,
+	containerRec attunev1alpha1.ContainerRecommendation,
 	policyName string,
 	workloadName string,
 	now metav1.Time,
@@ -643,7 +643,7 @@ func (r *RightSizePolicyReconciler) persistResizeAnnotations(
 // Limits are included when non-zero: for RequestsOnly they equal the current limits (no-op),
 // for RequestsAndLimits they are scaled proportionally. Pods that never had limits produce
 // zero-valued limit fields, which are omitted to avoid Kubernetes rejecting the resize.
-func buildResizeTarget(rec rightsizev1alpha1.ContainerRecommendation) corev1.ResourceRequirements {
+func buildResizeTarget(rec attunev1alpha1.ContainerRecommendation) corev1.ResourceRequirements {
 	target := corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
 			corev1.ResourceCPU:    rec.Recommended.CPURequest.DeepCopy(),
@@ -688,7 +688,7 @@ func clampRequestsToLimits(target *corev1.ResourceRequirements) []string {
 // resolveCanaryPhase checks whether canary pods have passed the observation
 // period without reverts. If so, it promotes to FullRollout and returns
 // ModeAuto so selectPodsForResize resizes all pods.
-func (r *RightSizePolicyReconciler) resolveCanaryPhase(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy, currentMode rightsizev1alpha1.UpdateType) rightsizev1alpha1.UpdateType {
+func (r *AttunePolicyReconciler) resolveCanaryPhase(ctx context.Context, policy *attunev1alpha1.AttunePolicy, currentMode attunev1alpha1.UpdateType) attunev1alpha1.UpdateType {
 	logger := log.FromContext(ctx)
 	observationPeriod := getObservationPeriod(policy)
 
@@ -706,12 +706,12 @@ func (r *RightSizePolicyReconciler) resolveCanaryPhase(ctx context.Context, poli
 	}
 
 	// Phase: FullRollout already active from a prior reconcile.
-	if cs != nil && cs.Phase == rightsizev1alpha1.CanaryPhaseFullRollout {
-		return rightsizev1alpha1.UpdateTypeAuto
+	if cs != nil && cs.Phase == attunev1alpha1.CanaryPhaseFullRollout {
+		return attunev1alpha1.UpdateTypeAuto
 	}
 
 	// Phase: CanaryInProgress -- check if observation period has elapsed.
-	if cs != nil && cs.Phase == rightsizev1alpha1.CanaryPhaseInProgress && cs.StartTime != nil {
+	if cs != nil && cs.Phase == attunev1alpha1.CanaryPhaseInProgress && cs.StartTime != nil {
 		elapsed := r.now().Sub(cs.StartTime.Time)
 		if elapsed >= observationPeriod {
 			// Check for reverts during the observation window and require at least
@@ -722,7 +722,7 @@ func (r *RightSizePolicyReconciler) resolveCanaryPhase(ctx context.Context, poli
 				if !h.Timestamp.After(cs.StartTime.Time) {
 					continue
 				}
-				if h.Result == rightsizev1alpha1.ResizeResultReverted {
+				if h.Result == attunev1alpha1.ResizeResultReverted {
 					hasRevert = true
 					break
 				}
@@ -742,8 +742,8 @@ func (r *RightSizePolicyReconciler) resolveCanaryPhase(ctx context.Context, poli
 			}
 			logger.Info("Canary observation passed, promoting to full rollout",
 				"policy", policy.Name, "observationPeriod", observationPeriod)
-			policy.Status.Canary.Phase = rightsizev1alpha1.CanaryPhaseFullRollout
-			return rightsizev1alpha1.UpdateTypeAuto
+			policy.Status.Canary.Phase = attunev1alpha1.CanaryPhaseFullRollout
+			return attunev1alpha1.UpdateTypeAuto
 		}
 		return currentMode
 	}
@@ -751,8 +751,8 @@ func (r *RightSizePolicyReconciler) resolveCanaryPhase(ctx context.Context, poli
 	// Phase: not started yet. Initialize canary tracking on the next resize.
 	if cs == nil {
 		now := metav1.NewTime(r.now())
-		policy.Status.Canary = &rightsizev1alpha1.CanaryStatus{
-			Phase:              rightsizev1alpha1.CanaryPhaseInProgress,
+		policy.Status.Canary = &attunev1alpha1.CanaryStatus{
+			Phase:              attunev1alpha1.CanaryPhaseInProgress,
 			StartTime:          &now,
 			ObservedGeneration: policy.Generation,
 		}
@@ -772,7 +772,7 @@ type resizePreChecks struct {
 // buildResizePreChecks pre-fetches namespace-scoped LimitRanges and
 // ResourceQuotas so that both executeResizes and applyStartupBoosts can
 // share the data without duplicate API calls.
-func (r *RightSizePolicyReconciler) buildResizePreChecks(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy) *resizePreChecks {
+func (r *AttunePolicyReconciler) buildResizePreChecks(ctx context.Context, policy *attunev1alpha1.AttunePolicy) *resizePreChecks {
 	logger := log.FromContext(ctx)
 	var limitRanges corev1.LimitRangeList
 	if err := r.List(ctx, &limitRanges, client.InNamespace(policy.Namespace)); err != nil {
@@ -791,11 +791,11 @@ func (r *RightSizePolicyReconciler) buildResizePreChecks(ctx context.Context, po
 // shouldSkipResize runs pre-checks and returns whether to skip the resize
 // and an optional reason string. An empty reason with skip=true means the
 // pod already matches the recommendation (no log needed).
-func (r *RightSizePolicyReconciler) shouldSkipResize(
+func (r *AttunePolicyReconciler) shouldSkipResize(
 	ctx context.Context,
-	policy *rightsizev1alpha1.RightSizePolicy,
+	policy *attunev1alpha1.AttunePolicy,
 	pod *corev1.Pod,
-	containerRec rightsizev1alpha1.ContainerRecommendation,
+	containerRec attunev1alpha1.ContainerRecommendation,
 	target corev1.ResourceRequirements,
 	checks *resizePreChecks,
 ) (skip bool, reason string) {

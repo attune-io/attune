@@ -1,6 +1,6 @@
 # Auto Mode
 
-Auto mode is the production end-state for kube-rightsize. The operator
+Auto mode is the production end-state for attune. The operator
 continuously resizes all eligible pods based on observed metrics. Before
 enabling Auto mode, you should have validated recommendations through
 Recommend and/or Canary mode.
@@ -13,7 +13,7 @@ Before switching to Auto mode:
    to build confidence in the recommendations
 2. **Verify recommendations are reasonable** using the kubectl plugin:
    ```bash
-   kubectl rightsize recommendations -n <namespace>
+   kubectl attune recommendations -n <namespace>
    ```
 3. **Test with Canary mode** (optional but recommended) to validate resizes
    on a subset of pods before the full fleet
@@ -30,8 +30,8 @@ Before switching to Auto mode:
 ## Creating an Auto-mode policy
 
 ```yaml
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizePolicy
+apiVersion: attune.io/v1alpha1
+kind: AttunePolicy
 metadata:
   name: my-app
   namespace: production
@@ -97,13 +97,13 @@ spec:
 
 ```bash
 # Overview of all policies
-kubectl rightsize status -A
+kubectl attune status -A
 
 # Estimated savings
-kubectl rightsize savings -n production
+kubectl attune savings -n production
 
 # Detailed per-container recommendations
-kubectl rightsize recommendations -n production
+kubectl attune recommendations -n production
 ```
 
 ### Watch for degradation
@@ -119,18 +119,18 @@ kubectl get rsp -A -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadat
 
 The operator exports metrics for dashboarding:
 
-- `kube_rightsize_recommendation_cpu_cores` -- Recommended CPU per workload
-- `kube_rightsize_recommendation_memory_bytes` -- Recommended memory per workload
-- `kube_rightsize_confidence` -- Confidence score (0-1) per workload
-- `kube_rightsize_resize_total` -- Total successful, failed, and reverted in-place resize operations
-- `kube_rightsize_eviction_total` -- Total eviction fallback attempts when `resizeMethod: InPlaceOrRecreate`
-- `kube_rightsize_reverts_total` -- Total reverts (broken down by reason)
+- `attune_recommendation_cpu_cores` -- Recommended CPU per workload
+- `attune_recommendation_memory_bytes` -- Recommended memory per workload
+- `attune_confidence` -- Confidence score (0-1) per workload
+- `attune_resize_total` -- Total successful, failed, and reverted in-place resize operations
+- `attune_eviction_total` -- Total eviction fallback attempts when `resizeMethod: InPlaceOrRecreate`
+- `attune_reverts_total` -- Total reverts (broken down by reason)
 
 Alert on high revert rates:
 
 ```yaml
-- alert: RightSizeHighRevertRate
-  expr: rate(kube_rightsize_reverts_total[1h]) > 0.1
+- alert: AttuneHighRevertRate
+  expr: rate(attune_reverts_total[1h]) > 0.1
   for: 10m
   annotations:
     summary: "High revert rate for {{ $labels.namespace }}/{{ $labels.workload }}"
@@ -178,7 +178,7 @@ spec:
     maxTotalMemoryIncrease: "4Gi"
 ```
 
-See [`examples/12-scheduled-auto-mode.yaml`](https://github.com/SebTardifLabs/kube-rightsize/blob/main/examples/12-scheduled-auto-mode.yaml) for a complete example.
+See [`examples/12-scheduled-auto-mode.yaml`](https://github.com/attune-io/attune/blob/main/examples/12-scheduled-auto-mode.yaml) for a complete example.
 If resizes are blocked unexpectedly, see the [troubleshooting guide](troubleshooting.md) for schedule-specific diagnostics.
 
 ## Exporting recommendations to ConfigMaps

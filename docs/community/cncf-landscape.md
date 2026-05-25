@@ -1,13 +1,13 @@
 # CNCF Landscape
 
-kube-rightsize is listed on the [CNCF Cloud Native Landscape](https://landscape.cncf.io/)
+attune is listed on the [CNCF Cloud Native Landscape](https://landscape.cncf.io/)
 under **Orchestration & Management > Scheduling & Orchestration**, alongside
 projects like VPA, Karpenter, and KEDA.
 
 ## Category
 
 **Scheduling & Orchestration** -- tools that manage when, where, and how
-workloads run on Kubernetes clusters. kube-rightsize fits here because it
+workloads run on Kubernetes clusters. attune fits here because it
 dynamically adjusts pod resource allocations based on observed usage, which
 is the resource-scheduling complement to horizontal autoscaling.
 
@@ -15,9 +15,9 @@ is the resource-scheduling complement to horizontal autoscaling.
 
 | Field | Value |
 |-------|-------|
-| **Name** | kube-rightsize |
-| **Homepage** | [github.com/SebTardifLabs/kube-rightsize](https://github.com/SebTardifLabs/kube-rightsize) |
-| **Repository** | [github.com/SebTardifLabs/kube-rightsize](https://github.com/SebTardifLabs/kube-rightsize) |
+| **Name** | attune |
+| **Homepage** | [github.com/attune-io/attune](https://github.com/attune-io/attune) |
+| **Repository** | [github.com/attune-io/attune](https://github.com/attune-io/attune) |
 | **License** | Apache 2.0 |
 | **Category** | Scheduling & Orchestration |
 | **Description** | Safe in-place Kubernetes pod resource right-sizing operator. Replaces VPA with non-disruptive resizing via the K8s 1.32+ resize subresource. |
@@ -30,10 +30,10 @@ project, submit a PR that adds an entry to `landscape.yml`:
 
 ```yaml
 - item:
-    name: kube-rightsize
-    homepage_url: https://github.com/SebTardifLabs/kube-rightsize
-    repo_url: https://github.com/SebTardifLabs/kube-rightsize
-    logo: kube-rightsize.svg
+    name: attune
+    homepage_url: https://github.com/attune-io/attune
+    repo_url: https://github.com/attune-io/attune
+    logo: attune.svg
     twitter: null
     crunchbase: null
     description: >-
@@ -59,7 +59,7 @@ available at [`docs/logo.svg`](../logo.svg). Requirements:
 
 | Project | Category | Relationship |
 |---------|----------|-------------|
-| [VPA](https://github.com/kubernetes/autoscaler/tree/master/vertical-pod-autoscaler) | Scheduling & Orchestration | kube-rightsize replaces VPA's eviction-based approach with in-place resize |
-| [Karpenter](https://karpenter.sh/) | Scheduling & Orchestration | Complementary: Karpenter handles node provisioning, kube-rightsize handles pod sizing |
+| [VPA](https://github.com/kubernetes/autoscaler/tree/master/vertical-pod-autoscaler) | Scheduling & Orchestration | attune replaces VPA's eviction-based approach with in-place resize |
+| [Karpenter](https://karpenter.sh/) | Scheduling & Orchestration | Complementary: Karpenter handles node provisioning, attune handles pod sizing |
 | [KEDA](https://keda.sh/) | Scheduling & Orchestration | Complementary: KEDA handles event-driven horizontal scaling |
-| [Goldilocks](https://github.com/FairwindsOps/goldilocks) | Scheduling & Orchestration | kube-rightsize goes beyond recommendations to automated in-place resize |
+| [Goldilocks](https://github.com/FairwindsOps/goldilocks) | Scheduling & Orchestration | attune goes beyond recommendations to automated in-place resize |

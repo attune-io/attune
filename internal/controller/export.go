@@ -28,15 +28,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 )
 
 // exportRecommendationConfigMaps creates or updates ConfigMaps with
 // recommendation data for GitOps workflows.
-func (r *RightSizePolicyReconciler) exportRecommendationConfigMaps(
+func (r *AttunePolicyReconciler) exportRecommendationConfigMaps(
 	ctx context.Context,
-	policy *rightsizev1alpha1.RightSizePolicy,
-	recommendations []rightsizev1alpha1.WorkloadRecommendation,
+	policy *attunev1alpha1.AttunePolicy,
+	recommendations []attunev1alpha1.WorkloadRecommendation,
 ) {
 	logger := log.FromContext(ctx)
 	for _, rec := range recommendations {
@@ -64,8 +64,8 @@ func (r *RightSizePolicyReconciler) exportRecommendationConfigMaps(
 				Name:      cmName,
 				Namespace: policy.Namespace,
 				Labels: map[string]string{
-					"rightsize.io/policy":   policy.Name,
-					"rightsize.io/workload": rec.Workload,
+					"attune.io/policy":   policy.Name,
+					"attune.io/workload": rec.Workload,
 				},
 			},
 			Data: data,

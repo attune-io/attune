@@ -149,9 +149,9 @@ to disable burst boost entirely (useful for batch jobs).
 
 This step runs after the base overhead and before the confidence
 adjustment. When no burst is detected (or magnitude <= 1), the factor
-is 1.0 (no change). The burst factor is visible in `kubectl rightsize explain`
+is 1.0 (no change). The burst factor is visible in `kubectl attune explain`
 output via the `burstFactor` and `afterBurst` fields, and as the
-`kube_rightsize_burst_factor` Prometheus metric.
+`attune_burst_factor` Prometheus metric.
 
 ## Full pipeline example
 

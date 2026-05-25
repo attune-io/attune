@@ -1,4 +1,4 @@
-module github.com/SebTardifLabs/kube-rightsize
+module github.com/attune-io/attune
 
 go 1.26.3
 

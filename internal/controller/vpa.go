@@ -25,10 +25,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
-	rsmetrics "github.com/SebTardifLabs/kube-rightsize/internal/metrics"
-	"github.com/SebTardifLabs/kube-rightsize/internal/operatormetrics"
-	"github.com/SebTardifLabs/kube-rightsize/internal/recommendation"
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	rsmetrics "github.com/attune-io/attune/internal/metrics"
+	"github.com/attune-io/attune/internal/operatormetrics"
+	"github.com/attune-io/attune/internal/recommendation"
 )
 
 // computeVPARecommendationsForWorkload builds WorkloadRecommendation by using
@@ -37,14 +37,14 @@ import (
 // filter) as a synthetic UsageProfile.
 //
 //nolint:unparam // error return is part of the interface contract for future use
-func (r *RightSizePolicyReconciler) computeVPARecommendationsForWorkload(
+func (r *AttunePolicyReconciler) computeVPARecommendationsForWorkload(
 	ctx context.Context,
-	policy *rightsizev1alpha1.RightSizePolicy,
+	policy *attunev1alpha1.AttunePolicy,
 	workload client.Object,
 	vpaRecs []rsmetrics.VPAContainerRecommendation,
 	cpuEngine, memEngine *recommendation.RecommendationEngine,
 	excludeSet map[string]bool,
-) (rec *rightsizev1alpha1.WorkloadRecommendation, maxDataPoints int, err error) {
+) (rec *attunev1alpha1.WorkloadRecommendation, maxDataPoints int, err error) {
 	logger := log.FromContext(ctx)
 	containers := r.getContainers(workload)
 	if len(containers) == 0 {
@@ -72,7 +72,7 @@ func (r *RightSizePolicyReconciler) computeVPARecommendationsForWorkload(
 	// VPA provides a single recommendation point; DataPoints=1 signals that.
 	const vpaDataPoints = 1
 
-	var containerRecs []rightsizev1alpha1.ContainerRecommendation
+	var containerRecs []attunev1alpha1.ContainerRecommendation
 
 	for _, container := range containers {
 		containerName := container.Name
@@ -119,20 +119,20 @@ func (r *RightSizePolicyReconciler) computeVPARecommendationsForWorkload(
 		currentMemReq := container.Resources.Requests.Memory().DeepCopy()
 		currentMemLim := container.Resources.Limits.Memory().DeepCopy()
 
-		cRec := rightsizev1alpha1.ContainerRecommendation{
+		cRec := attunev1alpha1.ContainerRecommendation{
 			Name:       containerName,
 			DataPoints: safeInt32(cpuProfile.DataPoints + memProfile.DataPoints),
 			Confidence: 1.0, // VPA does its own confidence internally
 			LastUpdated: metav1.Time{
 				Time: now,
 			},
-			Current: rightsizev1alpha1.ResourceValues{
+			Current: attunev1alpha1.ResourceValues{
 				CPURequest:    currentCPUReq,
 				CPULimit:      currentCPULim,
 				MemoryRequest: currentMemReq,
 				MemoryLimit:   currentMemLim,
 			},
-			Recommended: rightsizev1alpha1.ResourceValues{
+			Recommended: attunev1alpha1.ResourceValues{
 				CPURequest:    currentCPUReq,
 				CPULimit:      currentCPULim,
 				MemoryRequest: currentMemReq,
@@ -140,7 +140,7 @@ func (r *RightSizePolicyReconciler) computeVPARecommendationsForWorkload(
 			},
 		}
 
-		explanation := &rightsizev1alpha1.ContainerRecommendationExplanation{}
+		explanation := &attunev1alpha1.ContainerRecommendationExplanation{}
 
 		// Compute CPU recommendation through the standard engine pipeline.
 		cpuRec, cpuExplain, _ := cpuEngine.RecommendWithExplanation(cpuProfile, currentCPUReq)
@@ -181,18 +181,18 @@ func (r *RightSizePolicyReconciler) computeVPARecommendationsForWorkload(
 		cRec.Explanation = explanation
 
 		// Scale limits proportionally if ControlledValues is RequestsAndLimits.
-		cpuControlled := rightsizev1alpha1.ControlledRequestsOnly
+		cpuControlled := attunev1alpha1.ControlledRequestsOnly
 		if policy.Spec.CPU.ControlledValues != nil {
 			cpuControlled = *policy.Spec.CPU.ControlledValues
 		}
-		memControlled := rightsizev1alpha1.ControlledRequestsOnly
+		memControlled := attunev1alpha1.ControlledRequestsOnly
 		if policy.Spec.Memory.ControlledValues != nil {
 			memControlled = *policy.Spec.Memory.ControlledValues
 		}
-		if cpuControlled == rightsizev1alpha1.ControlledRequestsAndLimits {
+		if cpuControlled == attunev1alpha1.ControlledRequestsAndLimits {
 			cRec.Recommended.CPULimit = scaleLimits(currentCPUReq, currentCPULim, cRec.Recommended.CPURequest)
 		}
-		if memControlled == rightsizev1alpha1.ControlledRequestsAndLimits {
+		if memControlled == attunev1alpha1.ControlledRequestsAndLimits {
 			cRec.Recommended.MemoryLimit = scaleLimits(currentMemReq, currentMemLim, cRec.Recommended.MemoryRequest)
 		}
 
@@ -217,7 +217,7 @@ func (r *RightSizePolicyReconciler) computeVPARecommendationsForWorkload(
 	}
 
 	lastDataTime := metav1.NewTime(now)
-	return &rightsizev1alpha1.WorkloadRecommendation{
+	return &attunev1alpha1.WorkloadRecommendation{
 		Containers:   containerRecs,
 		LastDataTime: &lastDataTime,
 	}, maxDataPoints, nil

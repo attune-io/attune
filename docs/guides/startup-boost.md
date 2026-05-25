@@ -21,8 +21,8 @@ that expires after a configurable duration.
 Add `startupBoost` to the CPU resource config:
 
 ```yaml
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizePolicy
+apiVersion: attune.io/v1alpha1
+kind: AttunePolicy
 metadata:
   name: jvm-api
   namespace: production
@@ -83,14 +83,14 @@ For example, with a 500m recommendation, 3.0x multiplier, and maxAllowed of
 The operator tracks startup boost activity through the metric:
 
 ```
-kube_rightsize_startup_boost_total
+attune_startup_boost_total
 ```
 
 This counter increments each time a startup boost is applied. Use it to
 track how often boosts fire and whether the duration is calibrated correctly
 (if boosts expire before Ready, duration may be too short).
 
-The pre-built [Grafana dashboard](https://github.com/SebTardifLabs/kube-rightsize/blob/main/deploy/grafana/dashboard.json)
+The pre-built [Grafana dashboard](https://github.com/attune-io/attune/blob/main/deploy/grafana/dashboard.json)
 includes a Startup Boost panel that visualizes this metric.
 
 ## Limitations
@@ -105,4 +105,4 @@ includes a Startup Boost panel that visualizes this metric.
   OneShot, or Canary). In Recommend mode, the boost is computed in the
   recommendation but not applied.
 
-See [`examples/14-startup-boost.yaml`](https://github.com/SebTardifLabs/kube-rightsize/blob/main/examples/14-startup-boost.yaml) for a complete example.
+See [`examples/14-startup-boost.yaml`](https://github.com/attune-io/attune/blob/main/examples/14-startup-boost.yaml) for a complete example.

@@ -69,7 +69,7 @@ linters:
         linters: [gosec, bodyclose, forbidigo, unparam]
       - path: test/
         linters: [gosec, bodyclose, forbidigo]
-      - path: cmd/kubectl-rightsize/
+      - path: cmd/kubectl-attune/
         linters: [forbidigo]
 
 formatters:
@@ -80,10 +80,10 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/SebTardifLabs/kube-rightsize
+        - github.com/attune-io/attune
     gci:
       sections:
         - standard
         - default
-        - prefix(github.com/SebTardifLabs/kube-rightsize)
+        - prefix(github.com/attune-io/attune)
       custom-order: true

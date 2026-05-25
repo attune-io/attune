@@ -1,0 +1,18 @@
+{{- /* This dashboard is generated from deploy/grafana/dashboard.json.
+       Run hack/verify-dashboard-metrics.sh (or make verify-dashboard-metrics)
+       to confirm charts/attune/files/grafana-dashboard.json is in sync. */ -}}
+{{- if .Values.grafanaDashboard.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "attune.fullname" . }}-dashboard
+  labels:
+    {{- include "attune.labels" . | nindent 4 }}
+    grafana_dashboard: "1"
+    {{- with .Values.grafanaDashboard.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+data:
+  attune.json: |-
+{{ .Files.Get "files/grafana-dashboard.json" | indent 4 }}
+{{- end }}

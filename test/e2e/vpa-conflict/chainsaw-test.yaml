@@ -3,7 +3,7 @@ kind: Test
 metadata:
   name: vpa-conflict
 spec:
-  description: Verify that a RightSizePolicy coexists with a VPA on the same Deployment (warning only, not blocking)
+  description: Verify that a AttunePolicy coexists with a VPA on the same Deployment (warning only, not blocking)
   timeouts:
     apply: 30s
     assert: 2m
@@ -101,8 +101,8 @@ spec:
                   updateMode: "Off"
         - apply:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: vpa-conflict-test
                 namespace: e2e-vpa-conflict
@@ -137,8 +137,8 @@ spec:
       try:
         - assert:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: vpa-conflict-test
                 namespace: e2e-vpa-conflict
@@ -147,13 +147,13 @@ spec:
                   discovered: 1
   catch:
     - describe:
-        apiVersion: rightsize.io/v1alpha1
-        kind: RightSizePolicy
+        apiVersion: attune.io/v1alpha1
+        kind: AttunePolicy
         namespace: e2e-vpa-conflict
     - describe:
         apiVersion: autoscaling.k8s.io/v1
         kind: VerticalPodAutoscaler
         namespace: e2e-vpa-conflict
     - podLogs:
-        namespace: kube-rightsize-system
-        selector: app.kubernetes.io/name=kube-rightsize
+        namespace: attune-system
+        selector: app.kubernetes.io/name=attune

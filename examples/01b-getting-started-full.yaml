@@ -4,8 +4,8 @@
 # Most users should start with examples/01-getting-started.yaml (minimal)
 # and override only what they need.
 ---
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizePolicy
+apiVersion: attune.io/v1alpha1
+kind: AttunePolicy
 metadata:
   name: my-first-policy
   namespace: my-app

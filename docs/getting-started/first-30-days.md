@@ -1,17 +1,17 @@
-# Your First 30 Days with kube-rightsize
+# Your First 30 Days with attune
 
-This guide walks you through what to expect after installing kube-rightsize,
+This guide walks you through what to expect after installing attune,
 from the initial data collection to full automation. Each phase builds
 confidence before moving to the next.
 
 ## Day 0: Install and create your first policy
 
 After [installing the operator](installation.md), create a
-[RightSizePolicy](../reference/api.md) targeting a non-critical workload:
+[AttunePolicy](../reference/api.md) targeting a non-critical workload:
 
 ```yaml
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizePolicy
+apiVersion: attune.io/v1alpha1
+kind: AttunePolicy
 metadata:
   name: my-first-policy
   namespace: my-app
@@ -27,7 +27,7 @@ spec:
 Verify the operator is running and picked up your policy:
 
 ```bash
-kubectl rightsize status -n my-app
+kubectl attune status -n my-app
 ```
 
 You should see your policy with **Ready** showing `InsufficientData` or a
@@ -37,7 +37,7 @@ normal.
 !!! tip "Verify operator config"
     Check the operator logs to confirm it started with the right settings:
     ```bash
-    kubectl logs -n kube-rightsize-system deploy/kube-rightsize-controller-manager | head -5
+    kubectl logs -n attune-system deploy/attune-controller-manager | head -5
     ```
     The first line shows all configured parameters (Prometheus QPS,
     watch namespaces, webhooks, etc.).
@@ -51,7 +51,7 @@ recommendations. This takes roughly **4 hours**.
 Watch progress live:
 
 ```bash
-kubectl rightsize status -w -n my-app
+kubectl attune status -w -n my-app
 ```
 
 What to check during this phase:
@@ -74,7 +74,7 @@ Once data collection completes, the policy transitions to
 **Ready=Monitoring** and recommendations appear:
 
 ```bash
-kubectl rightsize recommendations -n my-app
+kubectl attune recommendations -n my-app
 ```
 
 This shows current vs recommended resource values with a confidence score.
@@ -84,7 +84,7 @@ it will improve over the coming days.
 To understand **why** a specific recommendation was made:
 
 ```bash
-kubectl rightsize explain my-first-policy -n my-app
+kubectl attune explain my-first-policy -n my-app
 ```
 
 This traces the full recommendation pipeline: raw percentile, safety
@@ -95,8 +95,8 @@ margin, confidence adjustment, bounds clamping, and change filter.
 During the first week, check recommendations daily:
 
 ```bash
-kubectl rightsize recommendations -n my-app
-kubectl rightsize savings -n my-app
+kubectl attune recommendations -n my-app
+kubectl attune savings -n my-app
 ```
 
 Look for:
@@ -124,8 +124,8 @@ kubectl patch rsp my-first-policy -n my-app --type=merge \
 This resizes only 10% of matching pods. Monitor:
 
 ```bash
-kubectl rightsize status -w -n my-app
-kubectl rightsize history -n my-app
+kubectl attune status -w -n my-app
+kubectl attune history -n my-app
 ```
 
 The history command shows each resize with its result and reason. If a
@@ -148,7 +148,7 @@ kubectl patch rsp my-first-policy -n my-app --type=merge \
 Now the operator manages resources continuously. Check savings:
 
 ```bash
-kubectl rightsize savings -A
+kubectl attune savings -A
 ```
 
 The TOTAL row at the bottom shows aggregate cluster-wide savings.
@@ -157,7 +157,7 @@ The TOTAL row at the bottom shows aggregate cluster-wide savings.
 
 Once the first policy has been running in Auto mode for a week, expand by
 creating policies for more workloads. Use
-[RightSizeDefaults](../reference/api.md#rightsizedefaults) to set
+[AttuneDefaults](../reference/api.md#attunedefaults) to set
 org-wide defaults (overheads, bounds) so individual policies stay
 minimal.
 
@@ -165,9 +165,9 @@ minimal.
 
 | When | Command | What you're checking |
 |------|---------|---------------------|
-| Just installed | `kubectl rightsize status -w` | Operator picked up your policy |
-| Waiting for data | `kubectl rightsize status -w` | Progress percentage climbing |
-| First recommendations | `kubectl rightsize recommendations` | Values look reasonable |
-| Understanding a recommendation | `kubectl rightsize explain <policy>` | Full pipeline trace |
-| After enabling Canary/Auto | `kubectl rightsize history` | Resizes succeeding, no reverts |
-| Monthly review | `kubectl rightsize savings -A` | Cluster-wide savings total |
+| Just installed | `kubectl attune status -w` | Operator picked up your policy |
+| Waiting for data | `kubectl attune status -w` | Progress percentage climbing |
+| First recommendations | `kubectl attune recommendations` | Values look reasonable |
+| Understanding a recommendation | `kubectl attune explain <policy>` | Full pipeline trace |
+| After enabling Canary/Auto | `kubectl attune history` | Resizes succeeding, no reverts |
+| Monthly review | `kubectl attune savings -A` | Cluster-wide savings total |

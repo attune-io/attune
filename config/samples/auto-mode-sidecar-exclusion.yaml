@@ -2,8 +2,8 @@
 # Example: Auto mode with sidecar container exclusion
 # Excludes service mesh sidecars from right-sizing so they remain
 # managed by their respective controllers (e.g., istio-proxy by Istio).
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizePolicy
+apiVersion: attune.io/v1alpha1
+kind: AttunePolicy
 metadata:
   name: app-with-sidecar
   namespace: production

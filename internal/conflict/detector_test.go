@@ -69,7 +69,7 @@ func TestCheckAnnotationOptOut(t *testing.T) {
 			name: "different annotation key",
 			obj: metav1.ObjectMeta{
 				Annotations: map[string]string{
-					"rightsize.io/enabled": "true",
+					"attune.io/enabled": "true",
 				},
 			},
 			want: false,
@@ -305,9 +305,9 @@ func TestCheckPolicyConflict_HigherWeightDefers(t *testing.T) {
 
 	otherPolicy := &unstructured.Unstructured{}
 	otherPolicy.SetGroupVersionKind(schema.GroupVersionKind{
-		Group:   "rightsize.io",
+		Group:   "attune.io",
 		Version: "v1alpha1",
-		Kind:    "RightSizePolicy",
+		Kind:    "AttunePolicy",
 	})
 	otherPolicy.SetName("high-priority")
 	otherPolicy.SetNamespace("default")
@@ -330,9 +330,9 @@ func TestCheckPolicyConflict_LowerWeightNoConflict(t *testing.T) {
 
 	otherPolicy := &unstructured.Unstructured{}
 	otherPolicy.SetGroupVersionKind(schema.GroupVersionKind{
-		Group:   "rightsize.io",
+		Group:   "attune.io",
 		Version: "v1alpha1",
-		Kind:    "RightSizePolicy",
+		Kind:    "AttunePolicy",
 	})
 	otherPolicy.SetName("low-priority")
 	otherPolicy.SetNamespace("default")
@@ -352,9 +352,9 @@ func TestCheckPolicyConflict_DifferentWorkload(t *testing.T) {
 
 	otherPolicy := &unstructured.Unstructured{}
 	otherPolicy.SetGroupVersionKind(schema.GroupVersionKind{
-		Group:   "rightsize.io",
+		Group:   "attune.io",
 		Version: "v1alpha1",
-		Kind:    "RightSizePolicy",
+		Kind:    "AttunePolicy",
 	})
 	otherPolicy.SetName("other")
 	otherPolicy.SetNamespace("default")
@@ -374,9 +374,9 @@ func TestCheckPolicyConflict_SkipsSelf(t *testing.T) {
 
 	self := &unstructured.Unstructured{}
 	self.SetGroupVersionKind(schema.GroupVersionKind{
-		Group:   "rightsize.io",
+		Group:   "attune.io",
 		Version: "v1alpha1",
-		Kind:    "RightSizePolicy",
+		Kind:    "AttunePolicy",
 	})
 	self.SetName("current-policy")
 	self.SetNamespace("default")
@@ -473,7 +473,7 @@ func TestCheckVPAConflictInMemory_MultipleVPAs_MatchSecond(t *testing.T) {
 func newPolicy(name, targetKind, targetName string, weight int64) unstructured.Unstructured {
 	p := unstructured.Unstructured{}
 	p.SetGroupVersionKind(schema.GroupVersionKind{
-		Group: "rightsize.io", Version: "v1alpha1", Kind: "RightSizePolicy",
+		Group: "attune.io", Version: "v1alpha1", Kind: "AttunePolicy",
 	})
 	p.SetName(name)
 	p.SetNamespace("default")
@@ -576,7 +576,7 @@ func TestCheckPolicyConflictInMemory_MultiplePolicies(t *testing.T) {
 func newSelectorPolicy(name string, targetKind string, matchLabels map[string]string, weight int64) unstructured.Unstructured {
 	p := unstructured.Unstructured{}
 	p.SetGroupVersionKind(schema.GroupVersionKind{
-		Group: "rightsize.io", Version: "v1alpha1", Kind: "RightSizePolicy",
+		Group: "attune.io", Version: "v1alpha1", Kind: "AttunePolicy",
 	})
 	p.SetName(name)
 	_ = unstructured.SetNestedField(p.Object, targetKind, "spec", "targetRef", "kind")
@@ -641,7 +641,7 @@ func TestCheckPolicyConflictInMemory_TwoSelectorPoliciesBothMatch(t *testing.T) 
 func newExpressionPolicy(name, targetKind string, matchLabels map[string]string, expressions []interface{}, weight int64) unstructured.Unstructured {
 	p := unstructured.Unstructured{}
 	p.SetGroupVersionKind(schema.GroupVersionKind{
-		Group: "rightsize.io", Version: "v1alpha1", Kind: "RightSizePolicy",
+		Group: "attune.io", Version: "v1alpha1", Kind: "AttunePolicy",
 	})
 	p.SetName(name)
 	_ = unstructured.SetNestedField(p.Object, targetKind, "spec", "targetRef", "kind")

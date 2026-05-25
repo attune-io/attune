@@ -1,5 +1,5 @@
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizeDefaults
+apiVersion: attune.io/v1alpha1
+kind: AttuneDefaults
 metadata:
   name: org-defaults
 spec:

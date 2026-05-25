@@ -1,8 +1,8 @@
-# kube-rightsize
+# attune
 
 **Safe, in-place Kubernetes pod resource right-sizing. VPA done right.**
 
-kube-rightsize is a Kubernetes operator that automatically right-sizes pod
+attune is a Kubernetes operator that automatically right-sizes pod
 resource requests and limits using
 [In-Place Pod Resize](https://kubernetes.io/blog/2025/12/19/kubernetes-v1-35-in-place-pod-resize-ga/)
 (beta in Kubernetes 1.33+, alpha with feature gate in 1.32). In-place by default,
@@ -23,12 +23,12 @@ that sit in the backlog for months.
 
 Kubernetes 1.33 changed this by graduating In-Place Pod Resize to beta
 (enabled by default). The foundation for non-disruptive right-sizing now
-exists. kube-rightsize is
+exists. attune is
 the operator built to use it.
 
 ## How It's Different
 
-| | VPA | Goldilocks | kube-rightsize |
+| | VPA | Goldilocks | attune |
 |---|---|---|---|
 | Resize method | Evicts pods | No resize (recommend only) | **In-place** (no restarts) |
 | HPA compatible | No (death spirals) | N/A | **Yes** (adjusts base, not %) |
@@ -57,7 +57,7 @@ the operator built to use it.
 - **Mandatory bounds** (no unbounded recommendations)
 
 **[Estimate your savings](savings-calculator.md)** with the interactive
-calculator, or read **[Why kube-rightsize?](why-kube-rightsize.md)** for
+calculator, or read **[Why attune?](why-attune.md)** for
 the full story.
 
 ## Get Started
@@ -72,4 +72,4 @@ the full story.
 - [CLI Reference](reference/cli.md)
 - [Configuration](reference/configuration.md)
 - [Specification](SPEC.md)
-- [Contributing](https://github.com/SebTardifLabs/kube-rightsize/blob/main/CONTRIBUTING.md)
+- [Contributing](https://github.com/attune-io/attune/blob/main/CONTRIBUTING.md)

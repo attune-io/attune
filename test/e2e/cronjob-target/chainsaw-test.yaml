@@ -3,7 +3,7 @@ kind: Test
 metadata:
   name: cronjob-target
 spec:
-  description: Verify that a RightSizePolicy targeting a CronJob discovers it and operates in recommend-only mode
+  description: Verify that a AttunePolicy targeting a CronJob discovers it and operates in recommend-only mode
   timeouts:
     apply: 30s
     assert: 2m
@@ -43,8 +43,8 @@ spec:
                         restartPolicy: OnFailure
         - apply:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: cronjob-test
                 namespace: e2e-cronjob-target
@@ -70,8 +70,8 @@ spec:
       try:
         - assert:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: cronjob-test
                 namespace: e2e-cronjob-target
@@ -80,13 +80,13 @@ spec:
                   discovered: 1
   catch:
     - describe:
-        apiVersion: rightsize.io/v1alpha1
-        kind: RightSizePolicy
+        apiVersion: attune.io/v1alpha1
+        kind: AttunePolicy
         namespace: e2e-cronjob-target
     - describe:
         apiVersion: batch/v1
         kind: CronJob
         namespace: e2e-cronjob-target
     - podLogs:
-        namespace: kube-rightsize-system
-        selector: app.kubernetes.io/name=kube-rightsize
+        namespace: attune-system
+        selector: app.kubernetes.io/name=attune

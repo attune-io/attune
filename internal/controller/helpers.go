@@ -35,10 +35,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
-	rsmetrics "github.com/SebTardifLabs/kube-rightsize/internal/metrics"
-	"github.com/SebTardifLabs/kube-rightsize/internal/resize"
-	"github.com/SebTardifLabs/kube-rightsize/internal/safety"
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	rsmetrics "github.com/attune-io/attune/internal/metrics"
+	"github.com/attune-io/attune/internal/resize"
+	"github.com/attune-io/attune/internal/safety"
 )
 
 const (
@@ -52,18 +52,18 @@ const (
 	maxBackoffDoublings = 4
 	// maxHistoryEntries is the maximum number of resize history entries
 	// kept per policy. Must match the kubebuilder MaxItems marker on
-	// RightSizePolicyStatus.ResizeHistory.
+	// AttunePolicyStatus.ResizeHistory.
 	maxHistoryEntries = 50
 )
 
 // isResizeMode returns true if the policy mode performs actual pod resizes.
-func isResizeMode(mode rightsizev1alpha1.UpdateType) bool {
-	return mode == rightsizev1alpha1.UpdateTypeOneShot || mode == rightsizev1alpha1.UpdateTypeCanary || mode == rightsizev1alpha1.UpdateTypeAuto
+func isResizeMode(mode attunev1alpha1.UpdateType) bool {
+	return mode == attunev1alpha1.UpdateTypeOneShot || mode == attunev1alpha1.UpdateTypeCanary || mode == attunev1alpha1.UpdateTypeAuto
 }
 
 // newHistoryEntry creates a ResizeHistoryEntry from a resize result.
-func newHistoryEntry(now metav1.Time, workload, container string, res resize.ResizeResult, result rightsizev1alpha1.ResizeResult) rightsizev1alpha1.ResizeHistoryEntry {
-	return rightsizev1alpha1.ResizeHistoryEntry{
+func newHistoryEntry(now metav1.Time, workload, container string, res resize.ResizeResult, result attunev1alpha1.ResizeResult) attunev1alpha1.ResizeHistoryEntry {
+	return attunev1alpha1.ResizeHistoryEntry{
 		Timestamp: now,
 		Workload:  workload,
 		Container: container,
@@ -117,13 +117,13 @@ func appendResizedContainer(pod *corev1.Pod, containerName string) {
 // setFailedCondition sets a Ready=False condition on the policy and updates
 // the status subresource. Errors from the status update are logged but not
 // returned, since the caller typically returns a requeue result regardless.
-func (r *RightSizePolicyReconciler) setFailedCondition(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy, reason, message string) {
+func (r *AttunePolicyReconciler) setFailedCondition(ctx context.Context, policy *attunev1alpha1.AttunePolicy, reason, message string) {
 	logger := log.FromContext(ctx)
 	key := types.NamespacedName{Name: policy.Name, Namespace: policy.Namespace}
 
 	for attempt := range 3 {
 		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
-			Type:               rightsizev1alpha1.ConditionReady,
+			Type:               attunev1alpha1.ConditionReady,
 			Status:             metav1.ConditionFalse,
 			Reason:             reason,
 			Message:            message,
@@ -150,10 +150,10 @@ func (r *RightSizePolicyReconciler) setFailedCondition(ctx context.Context, poli
 // warning event reasons. Value is a comma-separated list of event reason strings
 // (e.g., "HPAConflict,ConfigClamped,CooldownActive"). Suppressed warnings are
 // still logged at V(1) but do not emit K8s events.
-const annotationSuppressWarnings = "rightsize.io/suppress-warnings"
+const annotationSuppressWarnings = "attune.io/suppress-warnings"
 
 // isSuppressed returns true if the given event reason is listed in the
-// rightsize.io/suppress-warnings annotation.
+// attune.io/suppress-warnings annotation.
 func isSuppressed(annotations map[string]string, reason string) bool {
 	val, ok := annotations[annotationSuppressWarnings]
 	if !ok || val == "" {
@@ -199,7 +199,7 @@ func (d *eventDedup) shouldEmit(key string) bool {
 // emitEventOnce emits a K8s event only if it hasn't been emitted recently
 // (within the dedup TTL, default 1 hour). This prevents flooding the event
 // stream when a condition persists across reconciles.
-func (r *RightSizePolicyReconciler) emitEventOnce(
+func (r *AttunePolicyReconciler) emitEventOnce(
 	obj runtime.Object, eventType, reason, action, messageFmt string, args ...interface{},
 ) {
 	if r.Recorder == nil {
@@ -228,7 +228,7 @@ func (r *RightSizePolicyReconciler) emitEventOnce(
 // warnConfigClamping emits K8s events for any config values that are silently
 // clamped to valid ranges. Called once per reconcile, early, so users see
 // feedback in kubectl get events instead of wondering why their values differ.
-func (r *RightSizePolicyReconciler) warnConfigClamping(policy *rightsizev1alpha1.RightSizePolicy) {
+func (r *AttunePolicyReconciler) warnConfigClamping(policy *attunev1alpha1.AttunePolicy) {
 	if hw := policy.Spec.MetricsSource.HistoryWindow; hw != nil {
 		if hw.Duration < time.Hour {
 			r.emitEventOnce(policy, corev1.EventTypeWarning, "ConfigClamped", "config",
@@ -267,7 +267,7 @@ func (r *RightSizePolicyReconciler) warnConfigClamping(policy *rightsizev1alpha1
 
 // parseHistoryWindow parses the history window duration from the policy.
 // Defense-in-depth: clamps to [1h, 720h] even if webhook validation is bypassed.
-func (r *RightSizePolicyReconciler) parseHistoryWindow(policy *rightsizev1alpha1.RightSizePolicy) time.Duration {
+func (r *AttunePolicyReconciler) parseHistoryWindow(policy *attunev1alpha1.AttunePolicy) time.Duration {
 	if policy.Spec.MetricsSource.HistoryWindow != nil {
 		hw := policy.Spec.MetricsSource.HistoryWindow.Duration
 		if hw < time.Hour {
@@ -282,7 +282,7 @@ func (r *RightSizePolicyReconciler) parseHistoryWindow(policy *rightsizev1alpha1
 }
 
 // getMinimumDataPoints returns the minimum data points threshold from the policy.
-func (r *RightSizePolicyReconciler) getMinimumDataPoints(policy *rightsizev1alpha1.RightSizePolicy) int32 {
+func (r *AttunePolicyReconciler) getMinimumDataPoints(policy *attunev1alpha1.AttunePolicy) int32 {
 	if policy.Spec.MetricsSource.MinimumDataPoints != nil && *policy.Spec.MetricsSource.MinimumDataPoints > 0 {
 		return *policy.Spec.MetricsSource.MinimumDataPoints
 	}
@@ -290,7 +290,7 @@ func (r *RightSizePolicyReconciler) getMinimumDataPoints(policy *rightsizev1alph
 }
 
 // getQueryStep returns the query step interval from the policy or the default (5m).
-func (r *RightSizePolicyReconciler) getQueryStep(policy *rightsizev1alpha1.RightSizePolicy) time.Duration {
+func (r *AttunePolicyReconciler) getQueryStep(policy *attunev1alpha1.AttunePolicy) time.Duration {
 	if policy.Spec.MetricsSource.QueryStep != nil {
 		qs := policy.Spec.MetricsSource.QueryStep.Duration
 		if qs < 10*time.Second {
@@ -301,11 +301,11 @@ func (r *RightSizePolicyReconciler) getQueryStep(policy *rightsizev1alpha1.Right
 		}
 		return qs
 	}
-	return rightsizev1alpha1.DefaultQueryStep
+	return attunev1alpha1.DefaultQueryStep
 }
 
 // getRateWindow returns the rate window from the policy or falls back to queryStep.
-func (r *RightSizePolicyReconciler) getRateWindow(policy *rightsizev1alpha1.RightSizePolicy) time.Duration {
+func (r *AttunePolicyReconciler) getRateWindow(policy *attunev1alpha1.AttunePolicy) time.Duration {
 	if policy.Spec.MetricsSource.RateWindow != nil {
 		rw := policy.Spec.MetricsSource.RateWindow.Duration
 		if rw < 30*time.Second {
@@ -321,7 +321,7 @@ func (r *RightSizePolicyReconciler) getRateWindow(policy *rightsizev1alpha1.Righ
 }
 
 // parseCooldown returns the cooldown duration from the policy's update strategy.
-func (r *RightSizePolicyReconciler) parseCooldown(policy *rightsizev1alpha1.RightSizePolicy) time.Duration {
+func (r *AttunePolicyReconciler) parseCooldown(policy *attunev1alpha1.AttunePolicy) time.Duration {
 	if policy.Spec.UpdateStrategy.Cooldown != nil {
 		cd := policy.Spec.UpdateStrategy.Cooldown.Duration
 		// Defense-in-depth: enforce minimum floor even if webhook validation is bypassed.
@@ -340,7 +340,7 @@ func (r *RightSizePolicyReconciler) parseCooldown(policy *rightsizev1alpha1.Righ
 // isCooldownActive checks if the policy is within the cooldown window since last resize.
 // The cooldown is multiplied by 2^N where N is the number of consecutive reverts
 // (exponential backoff), capped at 16x the base cooldown.
-func (r *RightSizePolicyReconciler) isCooldownActive(policy *rightsizev1alpha1.RightSizePolicy) bool {
+func (r *AttunePolicyReconciler) isCooldownActive(policy *attunev1alpha1.AttunePolicy) bool {
 	ann := policy.Annotations
 	if ann == nil {
 		return false
@@ -359,7 +359,7 @@ func (r *RightSizePolicyReconciler) isCooldownActive(policy *rightsizev1alpha1.R
 
 // getEffectiveCooldown returns the cooldown with exponential backoff applied
 // based on the number of consecutive reverts in the resize history.
-func (r *RightSizePolicyReconciler) getEffectiveCooldown(policy *rightsizev1alpha1.RightSizePolicy) time.Duration {
+func (r *AttunePolicyReconciler) getEffectiveCooldown(policy *attunev1alpha1.AttunePolicy) time.Duration {
 	base := r.parseCooldown(policy)
 	reverts := consecutiveReverts(policy.Status.ResizeHistory)
 	if reverts == 0 {
@@ -374,7 +374,7 @@ func (r *RightSizePolicyReconciler) getEffectiveCooldown(policy *rightsizev1alph
 
 // setCooldownStatus populates the CooldownStatus on the policy with the
 // effective cooldown, backoff multiplier, and consecutive revert count.
-func (r *RightSizePolicyReconciler) setCooldownStatus(policy *rightsizev1alpha1.RightSizePolicy) {
+func (r *AttunePolicyReconciler) setCooldownStatus(policy *attunev1alpha1.AttunePolicy) {
 	base := r.parseCooldown(policy)
 	reverts := consecutiveReverts(policy.Status.ResizeHistory)
 	capped := reverts
@@ -383,7 +383,7 @@ func (r *RightSizePolicyReconciler) setCooldownStatus(policy *rightsizev1alpha1.
 	}
 	multiplier := int32(1 << capped) // 2^N
 	effective := base * time.Duration(multiplier)
-	policy.Status.Cooldown = &rightsizev1alpha1.CooldownStatus{
+	policy.Status.Cooldown = &attunev1alpha1.CooldownStatus{
 		EffectiveCooldown:  &metav1.Duration{Duration: effective},
 		BackoffMultiplier:  multiplier,
 		ConsecutiveReverts: safeInt32(reverts),
@@ -392,7 +392,7 @@ func (r *RightSizePolicyReconciler) setCooldownStatus(policy *rightsizev1alpha1.
 
 // markResizeTime sets the last-resize-time annotation on the policy using a
 // merge patch to avoid 409 Conflict with concurrent spec changes.
-func (r *RightSizePolicyReconciler) markResizeTime(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy) error {
+func (r *AttunePolicyReconciler) markResizeTime(ctx context.Context, policy *attunev1alpha1.AttunePolicy) error {
 	patch := client.MergeFrom(policy.DeepCopy())
 	if policy.Annotations == nil {
 		policy.Annotations = make(map[string]string)
@@ -404,9 +404,9 @@ func (r *RightSizePolicyReconciler) markResizeTime(ctx context.Context, policy *
 // appendHistory appends new entries to existing history, capping at maxEntries.
 //
 //nolint:unparam // maxEntries is a parameter for configurability
-func appendHistory(existing []rightsizev1alpha1.ResizeHistoryEntry,
-	newEntries []rightsizev1alpha1.ResizeHistoryEntry, maxEntries int,
-) []rightsizev1alpha1.ResizeHistoryEntry {
+func appendHistory(existing []attunev1alpha1.ResizeHistoryEntry,
+	newEntries []attunev1alpha1.ResizeHistoryEntry, maxEntries int,
+) []attunev1alpha1.ResizeHistoryEntry {
 	result := append(existing, newEntries...)
 	if len(result) > maxEntries {
 		result = result[len(result)-maxEntries:]
@@ -414,17 +414,17 @@ func appendHistory(existing []rightsizev1alpha1.ResizeHistoryEntry,
 	return result
 }
 
-func resizeHistoryMethod(entry rightsizev1alpha1.ResizeHistoryEntry) string {
+func resizeHistoryMethod(entry attunev1alpha1.ResizeHistoryEntry) string {
 	if entry.Method != "" {
 		return entry.Method
 	}
-	if entry.Result == rightsizev1alpha1.ResizeResultEvicted {
+	if entry.Result == attunev1alpha1.ResizeResultEvicted {
 		return "Eviction"
 	}
 	return resize.MethodInPlace
 }
 
-func normalizeResizeHistoryMethods(history []rightsizev1alpha1.ResizeHistoryEntry) bool {
+func normalizeResizeHistoryMethods(history []attunev1alpha1.ResizeHistoryEntry) bool {
 	changed := false
 	for i := range history {
 		method := resizeHistoryMethod(history[i])
@@ -437,43 +437,43 @@ func normalizeResizeHistoryMethods(history []rightsizev1alpha1.ResizeHistoryEntr
 	return changed
 }
 
-func isSuccessfulInPlaceHistory(entry rightsizev1alpha1.ResizeHistoryEntry) bool {
-	return resizeHistoryMethod(entry) == resize.MethodInPlace && entry.Result == rightsizev1alpha1.ResizeResultSuccess
+func isSuccessfulInPlaceHistory(entry attunev1alpha1.ResizeHistoryEntry) bool {
+	return resizeHistoryMethod(entry) == resize.MethodInPlace && entry.Result == attunev1alpha1.ResizeResultSuccess
 }
 
-func removeSuccessfulInPlaceHistory(entries []rightsizev1alpha1.ResizeHistoryEntry) []rightsizev1alpha1.ResizeHistoryEntry {
+func removeSuccessfulInPlaceHistory(entries []attunev1alpha1.ResizeHistoryEntry) []attunev1alpha1.ResizeHistoryEntry {
 	return slices.DeleteFunc(entries, isSuccessfulInPlaceHistory)
 }
 
 // setResizingCondition sets the Resizing condition based on current state.
-func (r *RightSizePolicyReconciler) setResizingCondition(policy *rightsizev1alpha1.RightSizePolicy, cooldownActive bool) {
+func (r *AttunePolicyReconciler) setResizingCondition(policy *attunev1alpha1.AttunePolicy, cooldownActive bool) {
 	if !isResizeMode(policy.Spec.UpdateStrategy.Type) {
 		// Non-resize modes: clear the condition.
-		meta.RemoveStatusCondition(&policy.Status.Conditions, rightsizev1alpha1.ConditionResizing)
+		meta.RemoveStatusCondition(&policy.Status.Conditions, attunev1alpha1.ConditionResizing)
 		return
 	}
 
 	if policy.Status.Workloads.Resized > 0 {
 		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
-			Type:               rightsizev1alpha1.ConditionResizing,
+			Type:               attunev1alpha1.ConditionResizing,
 			Status:             metav1.ConditionTrue,
-			Reason:             rightsizev1alpha1.ReasonInProgress,
+			Reason:             attunev1alpha1.ReasonInProgress,
 			Message:            fmt.Sprintf("%d workload(s) resized this cycle", policy.Status.Workloads.Resized),
 			ObservedGeneration: policy.Generation,
 		})
 	} else if cooldownActive {
 		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
-			Type:               rightsizev1alpha1.ConditionResizing,
+			Type:               attunev1alpha1.ConditionResizing,
 			Status:             metav1.ConditionFalse,
-			Reason:             rightsizev1alpha1.ReasonCooldownActive,
+			Reason:             attunev1alpha1.ReasonCooldownActive,
 			Message:            "Waiting for cooldown period to expire",
 			ObservedGeneration: policy.Generation,
 		})
 	} else {
 		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
-			Type:               rightsizev1alpha1.ConditionResizing,
+			Type:               attunev1alpha1.ConditionResizing,
 			Status:             metav1.ConditionFalse,
-			Reason:             rightsizev1alpha1.ReasonIdle,
+			Reason:             attunev1alpha1.ReasonIdle,
 			Message:            "No resizes needed",
 			ObservedGeneration: policy.Generation,
 		})
@@ -483,25 +483,25 @@ func (r *RightSizePolicyReconciler) setResizingCondition(policy *rightsizev1alph
 // setScheduleBlockedCondition sets or removes the ScheduleBlocked condition
 // based on whether a resize schedule is configured and whether the current
 // time falls within the allowed window.
-func (r *RightSizePolicyReconciler) setScheduleBlockedCondition(policy *rightsizev1alpha1.RightSizePolicy, withinWindow bool) {
+func (r *AttunePolicyReconciler) setScheduleBlockedCondition(policy *attunev1alpha1.AttunePolicy, withinWindow bool) {
 	if policy.Spec.UpdateStrategy.Schedule == nil || len(policy.Spec.UpdateStrategy.Schedule.Windows) == 0 {
-		meta.RemoveStatusCondition(&policy.Status.Conditions, rightsizev1alpha1.ConditionScheduleBlocked)
+		meta.RemoveStatusCondition(&policy.Status.Conditions, attunev1alpha1.ConditionScheduleBlocked)
 		return
 	}
 
 	if !withinWindow {
 		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
-			Type:               rightsizev1alpha1.ConditionScheduleBlocked,
+			Type:               attunev1alpha1.ConditionScheduleBlocked,
 			Status:             metav1.ConditionTrue,
-			Reason:             rightsizev1alpha1.ReasonOutsideWindow,
+			Reason:             attunev1alpha1.ReasonOutsideWindow,
 			Message:            "Resizes deferred: current time is outside the configured schedule window",
 			ObservedGeneration: policy.Generation,
 		})
 	} else {
 		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
-			Type:               rightsizev1alpha1.ConditionScheduleBlocked,
+			Type:               attunev1alpha1.ConditionScheduleBlocked,
 			Status:             metav1.ConditionFalse,
-			Reason:             rightsizev1alpha1.ReasonInsideWindow,
+			Reason:             attunev1alpha1.ReasonInsideWindow,
 			Message:            "Current time is within the resize schedule window",
 			ObservedGeneration: policy.Generation,
 		})
@@ -510,10 +510,10 @@ func (r *RightSizePolicyReconciler) setScheduleBlockedCondition(policy *rightsiz
 
 // setDegradedCondition checks recent resize history for high revert rates.
 // If 3+ of the last 5 history entries are reverted, the condition is set.
-func (r *RightSizePolicyReconciler) setDegradedCondition(policy *rightsizev1alpha1.RightSizePolicy) {
+func (r *AttunePolicyReconciler) setDegradedCondition(policy *attunev1alpha1.AttunePolicy) {
 	history := policy.Status.ResizeHistory
 	if len(history) == 0 {
-		meta.RemoveStatusCondition(&policy.Status.Conditions, rightsizev1alpha1.ConditionDegraded)
+		meta.RemoveStatusCondition(&policy.Status.Conditions, attunev1alpha1.ConditionDegraded)
 		return
 	}
 
@@ -524,27 +524,27 @@ func (r *RightSizePolicyReconciler) setDegradedCondition(policy *rightsizev1alph
 	recent := history[len(history)-window:]
 	reverts := 0
 	for _, entry := range recent {
-		if entry.Result == rightsizev1alpha1.ResizeResultReverted {
+		if entry.Result == attunev1alpha1.ResizeResultReverted {
 			reverts++
 		}
 	}
 
 	if reverts >= degradedRevertThreshold {
 		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
-			Type:               rightsizev1alpha1.ConditionDegraded,
+			Type:               attunev1alpha1.ConditionDegraded,
 			Status:             metav1.ConditionTrue,
-			Reason:             rightsizev1alpha1.ReasonHighRevertRate,
+			Reason:             attunev1alpha1.ReasonHighRevertRate,
 			Message:            fmt.Sprintf("%d of last %d resizes were reverted; consider adjusting overheads", reverts, window),
 			ObservedGeneration: policy.Generation,
 		})
 	} else {
-		meta.RemoveStatusCondition(&policy.Status.Conditions, rightsizev1alpha1.ConditionDegraded)
+		meta.RemoveStatusCondition(&policy.Status.Conditions, attunev1alpha1.ConditionDegraded)
 	}
 }
 
 // checkQuotaCompatibility verifies that the target resources don't violate
 // LimitRange or ResourceQuota constraints in the namespace.
-func (r *RightSizePolicyReconciler) checkQuotaCompatibility(ctx context.Context, namespace string, currentResources, target corev1.ResourceRequirements) error {
+func (r *AttunePolicyReconciler) checkQuotaCompatibility(ctx context.Context, namespace string, currentResources, target corev1.ResourceRequirements) error {
 	logger := log.FromContext(ctx)
 
 	// Check LimitRange per-container min/max.
@@ -654,10 +654,10 @@ func checkQuotaHeadroom(quota corev1.ResourceQuota, current, target corev1.Resou
 
 // consecutiveReverts returns the number of consecutive reverted entries at the
 // end of the resize history.
-func consecutiveReverts(history []rightsizev1alpha1.ResizeHistoryEntry) int {
+func consecutiveReverts(history []attunev1alpha1.ResizeHistoryEntry) int {
 	count := 0
 	for i := len(history) - 1; i >= 0; i-- {
-		if history[i].Result == rightsizev1alpha1.ResizeResultReverted {
+		if history[i].Result == attunev1alpha1.ResizeResultReverted {
 			count++
 		} else {
 			break
@@ -670,7 +670,7 @@ func consecutiveReverts(history []rightsizev1alpha1.ResizeHistoryEntry) int {
 // (3 retries + 1 final) on conflict. On each conflict it re-fetches the
 // policy and re-applies the saved status fields, preserving the higher
 // Resized count from concurrent reconciles.
-func (r *RightSizePolicyReconciler) updateStatusWithRetry(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy, key types.NamespacedName) error {
+func (r *AttunePolicyReconciler) updateStatusWithRetry(ctx context.Context, policy *attunev1alpha1.AttunePolicy, key types.NamespacedName) error {
 	const maxRetries = 3
 	logger := log.FromContext(ctx)
 
@@ -703,7 +703,7 @@ func (r *RightSizePolicyReconciler) updateStatusWithRetry(ctx context.Context, p
 // newSafetyMonitor creates a safety.Monitor with optional throttle checking
 // if the metrics collector supports it, and optional SLO guardrail checking
 // if the policy has SLO guardrails configured.
-func (r *RightSizePolicyReconciler) newSafetyMonitor(logger logr.Logger, collector rsmetrics.MetricsCollector, guardrails ...[]rightsizev1alpha1.SLOGuardrail) *safety.Monitor {
+func (r *AttunePolicyReconciler) newSafetyMonitor(logger logr.Logger, collector rsmetrics.MetricsCollector, guardrails ...[]attunev1alpha1.SLOGuardrail) *safety.Monitor {
 	monitor := safety.NewMonitor(r.Clientset, logger)
 	if tc, ok := collector.(safety.ThrottleChecker); ok {
 		monitor.WithThrottleChecker(tc, safety.DefaultThrottleThreshold)
@@ -726,13 +726,13 @@ func appendUnique(slice []string, value string) []string {
 
 // autoRevertEnabled returns true when the policy's AutoRevert setting is nil
 // (defaulting to true) or explicitly set to true.
-func autoRevertEnabled(s rightsizev1alpha1.UpdateStrategy) bool {
+func autoRevertEnabled(s attunev1alpha1.UpdateStrategy) bool {
 	return s.AutoRevert == nil || *s.AutoRevert
 }
 
 // getObservationPeriod returns the safety observation period using the
 // precedence: safetyObservationPeriod > canary.observationPeriod > default (5m).
-func getObservationPeriod(policy *rightsizev1alpha1.RightSizePolicy) time.Duration {
+func getObservationPeriod(policy *attunev1alpha1.AttunePolicy) time.Duration {
 	if policy.Spec.UpdateStrategy.SafetyObservationPeriod != nil && policy.Spec.UpdateStrategy.SafetyObservationPeriod.Duration > 0 {
 		return policy.Spec.UpdateStrategy.SafetyObservationPeriod.Duration
 	}

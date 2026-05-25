@@ -1,4 +1,4 @@
-The `kubectl-rightsize` plugin provides quick access to policy status,
+The `kubectl-attune` plugin provides quick access to policy status,
 savings estimates, per-container recommendations, and recommendation
 reasoning.
 
@@ -9,10 +9,10 @@ reasoning.
 make build-plugin
 
 # Copy to your PATH (system-wide)
-sudo cp bin/kubectl-rightsize /usr/local/bin/
+sudo cp bin/kubectl-attune /usr/local/bin/
 
 # Or install for the current user only
-install -Dm755 bin/kubectl-rightsize "$HOME/.local/bin/kubectl-rightsize"
+install -Dm755 bin/kubectl-attune "$HOME/.local/bin/kubectl-attune"
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
@@ -23,10 +23,10 @@ export PATH="$HOME/.local/bin:$PATH"
 Shows all policies with their conditions, workload counts, and age.
 
 ```bash
-kubectl rightsize status
-kubectl rightsize status -n production
-kubectl rightsize status -A
-kubectl rightsize status --watch          # live-refresh every 10s
+kubectl attune status
+kubectl attune status -n production
+kubectl attune status -A
+kubectl attune status --watch          # live-refresh every 10s
 ```
 
 | Flag | Description |
@@ -52,8 +52,8 @@ Shows aggregate CPU and memory savings per policy with estimated monthly
 cost savings.
 
 ```bash
-kubectl rightsize savings
-kubectl rightsize savings -n production
+kubectl attune savings
+kubectl attune savings -n production
 ```
 
 | Column | Description |
@@ -77,7 +77,7 @@ single policy. Use this before promoting from Recommend to Canary or Auto
 to preview what changes would be applied.
 
 ```bash
-kubectl rightsize preview -n production api-services
+kubectl attune preview -n production api-services
 ```
 
 | Column | Description |
@@ -98,8 +98,8 @@ When a policy is still collecting data, the last column shows the current
 status message instead.
 
 ```bash
-kubectl rightsize recommendations
-kubectl rightsize recommendations -n production
+kubectl attune recommendations
+kubectl attune recommendations -n production
 ```
 
 | Column | Description |
@@ -125,19 +125,19 @@ whether each value came from the policy, a namespace default, a cluster
 default, or the built-in default.
 
 ```bash
-kubectl rightsize explain -n production api-services
+kubectl attune explain -n production api-services
 ```
 
-`explain` requires both a policy name and a single namespace. Put flags before the policy name, for example `kubectl rightsize explain -n production api-services`.
+`explain` requires both a policy name and a single namespace. Put flags before the policy name, for example `kubectl attune explain -n production api-services`.
 
 ### diff
 
 Shows resource change recommendations in diff format for GitOps workflows. Outputs the difference between current and recommended resources for each workload.
 
 ```bash
-kubectl rightsize diff
-kubectl rightsize diff -n production
-kubectl rightsize diff -o yaml    # structured YAML output
+kubectl attune diff
+kubectl attune diff -n production
+kubectl attune diff -o yaml    # structured YAML output
 ```
 
 Useful for piping into ArgoCD or Flux review processes, or for manual review before promoting from Recommend to Auto mode.
@@ -147,14 +147,14 @@ Useful for piping into ArgoCD or Flux review processes, or for manual review bef
 Shows past resize operations with timestamps, before/after values, and outcomes.
 
 ```bash
-kubectl rightsize history
-kubectl rightsize history -n production
+kubectl attune history
+kubectl attune history -n production
 ```
 
 | Column | Description |
 |--------|-------------|
 | NAMESPACE | Namespace of the policy |
-| POLICY | Name of the RightSizePolicy |
+| POLICY | Name of the AttunePolicy |
 | TIMESTAMP | When the resize occurred |
 | WORKLOAD | Name of the resized workload |
 | CONTAINER | Container that was resized |
@@ -171,8 +171,8 @@ Interactive guided workflow for creating and promoting policies. No flags
 to memorize; the wizard walks through each decision.
 
 ```bash
-kubectl rightsize wizard                # create a new policy
-kubectl rightsize wizard promote        # promote an existing policy's mode
+kubectl attune wizard                # create a new policy
+kubectl attune wizard promote        # promote an existing policy's mode
 ```
 
 **Create flow**: selects namespace, workload kind, workload name,
@@ -191,21 +191,21 @@ The wizard does not support multi-cluster mode (`--all-contexts` /
 Shows the plugin version. Works without cluster access.
 
 ```bash
-kubectl rightsize version
+kubectl attune version
 ```
 
 ## Structured output
 
 `--output` / `-o` is supported only with the `status` command and prints the
-raw `RightSizePolicy` objects returned by the cluster as JSON or YAML.
+raw `AttunePolicy` objects returned by the cluster as JSON or YAML.
 
 ```bash
-kubectl rightsize status -o json
-kubectl rightsize status -A -o yaml
+kubectl attune status -o json
+kubectl attune status -A -o yaml
 ```
 
 For other commands, use the human-oriented plugin output, or fetch raw objects
-with `kubectl get rightsizepolicy -o json|yaml`.
+with `kubectl get attunepolicy -o json|yaml`.
 
 ## Flags
 
@@ -214,7 +214,7 @@ with `kubectl get rightsizepolicy -o json|yaml`.
 | `--namespace` | `-n` | Target namespace (defaults to current context) |
 | `--all-namespaces` | `-A` | List across all namespaces |
 | `--kubeconfig` | | Path to kubeconfig file |
-| `--output` | `-o` | Output raw `RightSizePolicy` objects as `json` or `yaml` (`status` only) |
+| `--output` | `-o` | Output raw `AttunePolicy` objects as `json` or `yaml` (`status` only) |
 | `--watch` | `-w` | Continuously refresh status every 10 seconds (`status` only) |
 | `--sort-by` | | Sort output: `name`, `namespace`, `savings`, `age` (`status` and `savings` only) |
 | `--filter` | | Filter by condition: `degraded`, `pending`, `collecting`, `ready`, `noworkloads` (`status` only) |

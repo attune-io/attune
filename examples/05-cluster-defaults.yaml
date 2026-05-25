@@ -1,14 +1,14 @@
 # Cluster Defaults: set organization-wide baselines
 #
-# RightSizeDefaults is a cluster-scoped resource that provides
-# defaults inherited by all RightSizePolicy resources. Individual
+# AttuneDefaults is a cluster-scoped resource that provides
+# defaults inherited by all AttunePolicy resources. Individual
 # policies only need to specify what differs from the defaults.
 #
 # Apply:
 #   kubectl apply -f examples/05-cluster-defaults.yaml
 ---
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizeDefaults
+apiVersion: attune.io/v1alpha1
+kind: AttuneDefaults
 metadata:
   name: default
 spec:
@@ -37,8 +37,8 @@ spec:
     memoryPerGiBHour: "0.004"   # USD per GiB-hour (default)
 ---
 # With defaults set, policies become much simpler:
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizePolicy
+apiVersion: attune.io/v1alpha1
+kind: AttunePolicy
 metadata:
   name: api-services
   namespace: production

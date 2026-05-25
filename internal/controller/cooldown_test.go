@@ -23,14 +23,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 )
 
 func TestIsCooldownActive_NoAnnotation(t *testing.T) {
-	r := &RightSizePolicyReconciler{}
-	policy := &rightsizev1alpha1.RightSizePolicy{
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+	r := &AttunePolicyReconciler{}
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: attunev1alpha1.UpdateStrategy{
 				Cooldown: &metav1.Duration{Duration: 1 * time.Hour},
 			},
 		},
@@ -39,15 +39,15 @@ func TestIsCooldownActive_NoAnnotation(t *testing.T) {
 }
 
 func TestIsCooldownActive_RecentTime(t *testing.T) {
-	r := &RightSizePolicyReconciler{}
-	policy := &rightsizev1alpha1.RightSizePolicy{
+	r := &AttunePolicyReconciler{}
+	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Annotations: map[string]string{
 				lastResizeAnnotation: time.Now().Add(-5 * time.Minute).Format(time.RFC3339),
 			},
 		},
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: attunev1alpha1.UpdateStrategy{
 				Cooldown: &metav1.Duration{Duration: 1 * time.Hour},
 			},
 		},
@@ -57,15 +57,15 @@ func TestIsCooldownActive_RecentTime(t *testing.T) {
 }
 
 func TestIsCooldownActive_OldTime(t *testing.T) {
-	r := &RightSizePolicyReconciler{}
-	policy := &rightsizev1alpha1.RightSizePolicy{
+	r := &AttunePolicyReconciler{}
+	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Annotations: map[string]string{
 				lastResizeAnnotation: time.Now().Add(-2 * time.Hour).Format(time.RFC3339),
 			},
 		},
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: attunev1alpha1.UpdateStrategy{
 				Cooldown: &metav1.Duration{Duration: 1 * time.Hour},
 			},
 		},
@@ -75,15 +75,15 @@ func TestIsCooldownActive_OldTime(t *testing.T) {
 }
 
 func TestIsCooldownActive_InvalidAnnotation(t *testing.T) {
-	r := &RightSizePolicyReconciler{}
-	policy := &rightsizev1alpha1.RightSizePolicy{
+	r := &AttunePolicyReconciler{}
+	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Annotations: map[string]string{
 				lastResizeAnnotation: "not-a-valid-timestamp",
 			},
 		},
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: attunev1alpha1.UpdateStrategy{
 				Cooldown: &metav1.Duration{Duration: 1 * time.Hour},
 			},
 		},
@@ -93,15 +93,15 @@ func TestIsCooldownActive_InvalidAnnotation(t *testing.T) {
 }
 
 func TestIsCooldownActive_CustomCooldownDuration(t *testing.T) {
-	r := &RightSizePolicyReconciler{}
-	policy := &rightsizev1alpha1.RightSizePolicy{
+	r := &AttunePolicyReconciler{}
+	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Annotations: map[string]string{
 				lastResizeAnnotation: time.Now().Add(-20 * time.Minute).Format(time.RFC3339),
 			},
 		},
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: attunev1alpha1.UpdateStrategy{
 				Cooldown: &metav1.Duration{Duration: 30 * time.Minute},
 			},
 		},

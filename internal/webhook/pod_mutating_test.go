@@ -34,7 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 )
 
 // patchedPod applies the admission response patches to the original pod bytes.
@@ -65,7 +65,7 @@ func strPtr(s string) *string { return &s }
 func testScheme() *runtime.Scheme {
 	s := runtime.NewScheme()
 	_ = corev1.AddToScheme(s)
-	_ = rightsizev1alpha1.AddToScheme(s)
+	_ = attunev1alpha1.AddToScheme(s)
 	return s
 }
 
@@ -87,32 +87,32 @@ func makeAdmissionRequest(t *testing.T, pod *corev1.Pod, ns string) admission.Re
 	}
 }
 
-func testPolicy(name, ns, targetKind, targetName string, initialSizing bool, updateType rightsizev1alpha1.UpdateType) *rightsizev1alpha1.RightSizePolicy {
-	return &rightsizev1alpha1.RightSizePolicy{
+func testPolicy(name, ns, targetKind, targetName string, initialSizing bool, updateType attunev1alpha1.UpdateType) *attunev1alpha1.AttunePolicy {
+	return &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: ns,
 		},
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			TargetRef: rightsizev1alpha1.TargetRef{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			TargetRef: attunev1alpha1.TargetRef{
 				Kind: targetKind,
 				Name: strPtr(targetName),
 			},
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+			UpdateStrategy: attunev1alpha1.UpdateStrategy{
 				Type:          updateType,
 				InitialSizing: boolPtr(initialSizing),
 			},
 		},
-		Status: rightsizev1alpha1.RightSizePolicyStatus{
-			Recommendations: []rightsizev1alpha1.WorkloadRecommendation{
+		Status: attunev1alpha1.AttunePolicyStatus{
+			Recommendations: []attunev1alpha1.WorkloadRecommendation{
 				{
 					Workload: targetName,
 					Kind:     targetKind,
-					Containers: []rightsizev1alpha1.ContainerRecommendation{
+					Containers: []attunev1alpha1.ContainerRecommendation{
 						{
 							Name:       "app",
 							Confidence: 0.8,
-							Recommended: rightsizev1alpha1.ResourceValues{
+							Recommended: attunev1alpha1.ResourceValues{
 								CPURequest:    resource.MustParse("500m"),
 								MemoryRequest: resource.MustParse("256Mi"),
 							},
@@ -150,7 +150,7 @@ func testPod(name string, ownerKind, ownerName string) *corev1.Pod {
 }
 
 func TestPodMutatingHandler_HappyPath(t *testing.T) {
-	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, rightsizev1alpha1.UpdateTypeAuto)
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
 
 	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
@@ -170,7 +170,7 @@ func TestPodMutatingHandler_HappyPath(t *testing.T) {
 }
 
 func TestPodMutatingHandler_SkipAnnotation(t *testing.T) {
-	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, rightsizev1alpha1.UpdateTypeAuto)
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
 	pod.Annotations = map[string]string{AnnotationSkipKey: "true"}
 
@@ -209,7 +209,7 @@ func TestPodMutatingHandler_NotCreate(t *testing.T) {
 }
 
 func TestPodMutatingHandler_NoOwner(t *testing.T) {
-	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, rightsizev1alpha1.UpdateTypeAuto)
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "standalone"},
 		Spec: corev1.PodSpec{
@@ -226,7 +226,7 @@ func TestPodMutatingHandler_NoOwner(t *testing.T) {
 }
 
 func TestPodMutatingHandler_InitialSizingDisabled(t *testing.T) {
-	policy := testPolicy("my-policy", "default", "Deployment", "my-app", false, rightsizev1alpha1.UpdateTypeAuto)
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", false, attunev1alpha1.UpdateTypeAuto)
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
 
 	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
@@ -238,7 +238,7 @@ func TestPodMutatingHandler_InitialSizingDisabled(t *testing.T) {
 }
 
 func TestPodMutatingHandler_ObserveMode(t *testing.T) {
-	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, rightsizev1alpha1.UpdateTypeObserve)
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeObserve)
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
 
 	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
@@ -250,7 +250,7 @@ func TestPodMutatingHandler_ObserveMode(t *testing.T) {
 }
 
 func TestPodMutatingHandler_RecommendMode(t *testing.T) {
-	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, rightsizev1alpha1.UpdateTypeRecommend)
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeRecommend)
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
 
 	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
@@ -262,7 +262,7 @@ func TestPodMutatingHandler_RecommendMode(t *testing.T) {
 }
 
 func TestPodMutatingHandler_StaleRecommendation(t *testing.T) {
-	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, rightsizev1alpha1.UpdateTypeAuto)
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
 	policy.Status.Recommendations[0].Stale = true
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
 
@@ -275,7 +275,7 @@ func TestPodMutatingHandler_StaleRecommendation(t *testing.T) {
 }
 
 func TestPodMutatingHandler_LowConfidence(t *testing.T) {
-	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, rightsizev1alpha1.UpdateTypeAuto)
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
 	policy.Status.Recommendations[0].Containers[0].Confidence = 0.3
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
 
@@ -288,7 +288,7 @@ func TestPodMutatingHandler_LowConfidence(t *testing.T) {
 }
 
 func TestPodMutatingHandler_StatefulSet(t *testing.T) {
-	policy := testPolicy("sts-policy", "default", "StatefulSet", "my-sts", true, rightsizev1alpha1.UpdateTypeAuto)
+	policy := testPolicy("sts-policy", "default", "StatefulSet", "my-sts", true, attunev1alpha1.UpdateTypeAuto)
 	pod := testPod("my-sts-0", "StatefulSet", "my-sts")
 
 	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
@@ -304,8 +304,8 @@ func TestPodMutatingHandler_StatefulSet(t *testing.T) {
 }
 
 func TestPodMutatingHandler_RequestsAndLimits(t *testing.T) {
-	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, rightsizev1alpha1.UpdateTypeAuto)
-	cv := rightsizev1alpha1.ControlledRequestsAndLimits
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
+	cv := attunev1alpha1.ControlledRequestsAndLimits
 	policy.Spec.CPU.ControlledValues = &cv
 	policy.Spec.Memory.ControlledValues = &cv
 	policy.Status.Recommendations[0].Containers[0].Recommended.CPULimit = resource.MustParse("1")
@@ -326,7 +326,7 @@ func TestPodMutatingHandler_RequestsAndLimits(t *testing.T) {
 }
 
 func TestPodMutatingHandler_WrongNamespace(t *testing.T) {
-	policy := testPolicy("my-policy", "production", "Deployment", "my-app", true, rightsizev1alpha1.UpdateTypeAuto)
+	policy := testPolicy("my-policy", "production", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
 
 	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
@@ -339,7 +339,7 @@ func TestPodMutatingHandler_WrongNamespace(t *testing.T) {
 }
 
 func TestPodMutatingHandler_WrongTargetName(t *testing.T) {
-	policy := testPolicy("my-policy", "default", "Deployment", "other-app", true, rightsizev1alpha1.UpdateTypeAuto)
+	policy := testPolicy("my-policy", "default", "Deployment", "other-app", true, attunev1alpha1.UpdateTypeAuto)
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
 
 	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
@@ -368,7 +368,7 @@ func TestPodMutatingHandler_InvalidPodJSON(t *testing.T) {
 }
 
 func TestPodMutatingHandler_OneShotMode(t *testing.T) {
-	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, rightsizev1alpha1.UpdateTypeOneShot)
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeOneShot)
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
 
 	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
@@ -380,7 +380,7 @@ func TestPodMutatingHandler_OneShotMode(t *testing.T) {
 }
 
 func TestPodMutatingHandler_CanaryMode(t *testing.T) {
-	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, rightsizev1alpha1.UpdateTypeCanary)
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeCanary)
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
 
 	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
@@ -471,15 +471,15 @@ func TestExtractDeploymentName(t *testing.T) {
 func TestHasMinConfidence(t *testing.T) {
 	tests := []struct {
 		name       string
-		containers []rightsizev1alpha1.ContainerRecommendation
+		containers []attunev1alpha1.ContainerRecommendation
 		minConf    float64
 		expected   bool
 	}{
 		{"empty", nil, 0.5, false},
-		{"above threshold", []rightsizev1alpha1.ContainerRecommendation{{Confidence: 0.8}}, 0.5, true},
-		{"at threshold", []rightsizev1alpha1.ContainerRecommendation{{Confidence: 0.5}}, 0.5, true},
-		{"below threshold", []rightsizev1alpha1.ContainerRecommendation{{Confidence: 0.3}}, 0.5, false},
-		{"mixed", []rightsizev1alpha1.ContainerRecommendation{{Confidence: 0.8}, {Confidence: 0.3}}, 0.5, false},
+		{"above threshold", []attunev1alpha1.ContainerRecommendation{{Confidence: 0.8}}, 0.5, true},
+		{"at threshold", []attunev1alpha1.ContainerRecommendation{{Confidence: 0.5}}, 0.5, true},
+		{"below threshold", []attunev1alpha1.ContainerRecommendation{{Confidence: 0.3}}, 0.5, false},
+		{"mixed", []attunev1alpha1.ContainerRecommendation{{Confidence: 0.8}, {Confidence: 0.3}}, 0.5, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

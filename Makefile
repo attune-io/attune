@@ -1,7 +1,7 @@
-# kube-rightsize Makefile
+# attune Makefile
 
 # Image
-IMG ?= ghcr.io/sebtardiflabs/kube-rightsize:latest
+IMG ?= ghcr.io/attune-io/attune:latest
 
 # Tool versions
 KUBEBUILDER_VERSION ?= 4.14.0
@@ -88,7 +88,7 @@ verify-release-artifacts: kustomize ## Verify release artifacts generate cleanly
 	cp -R "$$repo_root"/config "$$tmp_dir"/; \
 	cd "$$tmp_dir"/config/manager && $(KUSTOMIZE) edit set image controller=$(IMG) >/dev/null; \
 	$(KUSTOMIZE) build "$$tmp_dir"/config/default > "$$tmp_dir"/install.yaml; \
-	cat "$$repo_root"/charts/kube-rightsize/crds/*.yaml > "$$tmp_dir"/crds.yaml; \
+	cat "$$repo_root"/charts/attune/crds/*.yaml > "$$tmp_dir"/crds.yaml; \
 	bash "$$repo_root"/hack/verify-doc-defaults.sh "$$tmp_dir"/crds.yaml; \
 	if [ -f "$$repo_root"/dist/install.yaml ] && ! diff -u "$$repo_root"/dist/install.yaml "$$tmp_dir"/install.yaml; then \
 		echo ""; \
@@ -120,9 +120,9 @@ ci-runner-status: ## Summarize queued repo runs and local/org self-hosted runner
 	echo "== Local runner services =="; \
 	if command -v systemctl >/dev/null 2>&1; then \
 		for svc in \
-		  actions.runner.SebTardifLabs.pool-1.service \
-		  actions.runner.SebTardifLabs.pool-2.service \
-		  actions.runner.SebTardifLabs.pool-3.service; do \
+		  actions.runner.attune-io.pool-1.service \
+		  actions.runner.attune-io.pool-2.service \
+		  actions.runner.attune-io.pool-3.service; do \
 			state=$$(systemctl is-active "$$svc" 2>/dev/null || true); \
 			substate=$$(systemctl show -p SubState --value "$$svc" 2>/dev/null || true); \
 			main_pid=$$(systemctl show -p MainPID --value "$$svc" 2>/dev/null || true); \
@@ -146,9 +146,9 @@ ci-runner-status: ## Summarize queued repo runs and local/org self-hosted runner
 	if command -v systemctl >/dev/null 2>&1; then \
 		found_worker=false; \
 		for svc in \
-		  actions.runner.SebTardifLabs.pool-1.service \
-		  actions.runner.SebTardifLabs.pool-2.service \
-		  actions.runner.SebTardifLabs.pool-3.service; do \
+		  actions.runner.attune-io.pool-1.service \
+		  actions.runner.attune-io.pool-2.service \
+		  actions.runner.attune-io.pool-3.service; do \
 			main_pid=$$(systemctl show -p MainPID --value "$$svc" 2>/dev/null || true); \
 			if [ -z "$$main_pid" ] || [ "$$main_pid" = "0" ]; then \
 				continue; \
@@ -169,7 +169,7 @@ ci-runner-status: ## Summarize queued repo runs and local/org self-hosted runner
 	fi; \
 	echo; \
 	echo "== Org runner status =="; \
-	org_runners=$$(gh api orgs/SebTardifLabs/actions/runners --jq '.runners[] | "\(.name)\t\(.status)\tbusy=\(.busy)"'); \
+	org_runners=$$(gh api orgs/attune-io/actions/runners --jq '.runners[] | "\(.name)\t\(.status)\tbusy=\(.busy)"'); \
 	if [ -n "$$org_runners" ]; then \
 		while IFS=$$'\t' read -r name status busy; do \
 			printf '%-10s  %-8s  %s\n' "$$name" "$$status" "$$busy"; \
@@ -184,7 +184,7 @@ verify-quick: lint yaml-lint test helm-lint helm-docs-check helm-unittest verify
 .PHONY: verify
 verify: verify-quick test-integration govulncheck ## Run all CI checks locally (includes integration tests)
 	@$(MAKE) manifests generate
-	@git diff --quiet --exit-code config/crd/ charts/kube-rightsize/crds/ api/v1alpha1/zz_generated.deepcopy.go config/rbac/ || \
+	@git diff --quiet --exit-code config/crd/ charts/attune/crds/ api/v1alpha1/zz_generated.deepcopy.go config/rbac/ || \
 		(echo "::error::Generated files are stale. Run 'make manifests generate' and commit." && exit 1)
 
 .PHONY: clean
@@ -204,7 +204,7 @@ docs-serve: ## Serve documentation site locally (requires python3 -m pip install
 .PHONY: manifests
 manifests: controller-gen ## Generate CRD manifests, RBAC, and webhook configs
 	$(CONTROLLER_GEN) rbac:roleName=manager-role crd:allowDangerousTypes=true webhook paths="./..." output:crd:artifacts:config=config/crd/bases output:rbac:artifacts:config=config/rbac
-	cp config/crd/bases/*.yaml charts/kube-rightsize/crds/
+	cp config/crd/bases/*.yaml charts/attune/crds/
 
 .PHONY: generate
 generate: controller-gen ## Generate deepcopy methods
@@ -227,10 +227,10 @@ yaml-lint: ## Lint YAML files (mirrors CI)
 	@command -v yamllint >/dev/null 2>&1 || python3 -c "import yamllint" 2>/dev/null || { echo "Installing yamllint..."; python3 -m pip install --user --break-system-packages yamllint 2>/dev/null || python3 -m pip install --user yamllint; }
 	@if command -v yamllint >/dev/null 2>&1; then \
 		yamllint -d '{extends: default, rules: {line-length: {max: 200}, truthy: {check-keys: false}, indentation: {spaces: 2, indent-sequences: whatever}}}' \
-			config/ charts/kube-rightsize/Chart.yaml charts/kube-rightsize/values.yaml charts/kube-rightsize/ci/; \
+			config/ charts/attune/Chart.yaml charts/attune/values.yaml charts/attune/ci/; \
 	else \
 		python3 -m yamllint -d '{extends: default, rules: {line-length: {max: 200}, truthy: {check-keys: false}, indentation: {spaces: 2, indent-sequences: whatever}}}' \
-			config/ charts/kube-rightsize/Chart.yaml charts/kube-rightsize/values.yaml charts/kube-rightsize/ci/; \
+			config/ charts/attune/Chart.yaml charts/attune/values.yaml charts/attune/ci/; \
 	fi
 
 .PHONY: lint-fix
@@ -283,16 +283,16 @@ test-bench: ## Run benchmark tests
 
 .PHONY: test-local
 test-local: test test-integration ## Run unit + integration + Chainsaw E2E + Go E2E with an auto-provisioned k3d cluster
-	@cluster_name=kube-rightsize-test; \
+	@cluster_name=attune-test; \
 	trap 'k3d cluster delete "$$cluster_name" 2>/dev/null || true' EXIT; \
 	k3d cluster delete "$$cluster_name" 2>/dev/null || true; \
 	k3d cluster create "$$cluster_name" \
 		--image rancher/k3s:$(K3S_VERSION) \
 		--k3s-arg "--disable=traefik,servicelb@server:*" \
 		--wait --timeout 120s; \
-	$(MAKE) ko-build-local IMG=kube-rightsize:test; \
-	k3d image import /tmp/kube-rightsize.tar -c "$$cluster_name"; \
-	$(MAKE) _deploy-stack IMG=kube-rightsize:test; \
+	$(MAKE) ko-build-local IMG=attune:test; \
+	k3d image import /tmp/attune.tar -c "$$cluster_name"; \
+	$(MAKE) _deploy-stack IMG=attune:test; \
 	$(MAKE) test-e2e; \
 	$(MAKE) test-e2e-go
 
@@ -305,9 +305,9 @@ test-local-smoke: ## Provision k3d, deploy the operator stack, run the minimal E
 		--image rancher/k3s:$(K3S_VERSION) \
 		--k3s-arg "--disable=traefik,servicelb@server:*" \
 		--wait --timeout 120s; \
-	$(MAKE) ko-build-local IMG=kube-rightsize:test; \
-	k3d image import /tmp/kube-rightsize.tar -c "$$cluster_name"; \
-	$(MAKE) _deploy-stack IMG=kube-rightsize:test; \
+	$(MAKE) ko-build-local IMG=attune:test; \
+	k3d image import /tmp/attune.tar -c "$$cluster_name"; \
+	$(MAKE) _deploy-stack IMG=attune:test; \
 	$(MAKE) test-e2e-smoke
 
 .PHONY: test-all
@@ -320,8 +320,8 @@ build: manifests generate ## Build operator binary
 	go build -trimpath -ldflags="$(LDFLAGS)" -o bin/manager ./cmd/manager/
 
 .PHONY: build-plugin
-build-plugin: ## Build kubectl-rightsize plugin
-	go build -trimpath -ldflags="$(LDFLAGS)" -o bin/kubectl-rightsize ./cmd/kubectl-rightsize/
+build-plugin: ## Build kubectl-attune plugin
+	go build -trimpath -ldflags="$(LDFLAGS)" -o bin/kubectl-attune ./cmd/kubectl-attune/
 
 .PHONY: run
 run: manifests generate ## Run operator locally against the configured cluster
@@ -334,8 +334,8 @@ ko-build-local: ko ## Build operator image as OCI tarball via ko (no Docker daem
 		KO_DOCKER_REPO=$(firstword $(subst :, ,$(IMG))) $(KO) build ./cmd/manager/ \
 		--bare --tags=$(lastword $(subst :, ,$(IMG))) \
 		--platform=linux/$(shell go env GOARCH) \
-		--tarball=/tmp/kube-rightsize.tar --push=false
-	@echo "Image tarball: /tmp/kube-rightsize.tar ($(IMG))"
+		--tarball=/tmp/attune.tar --push=false
+	@echo "Image tarball: /tmp/attune.tar ($(IMG))"
 
 .PHONY: docker-build
 docker-build: ## Build container image via Docker (alternative to ko-build-local)
@@ -364,7 +364,7 @@ uninstall: ## Uninstall CRDs from the cluster
 .PHONY: deploy
 deploy: manifests kustomize ## Deploy operator to the cluster
 	cd config/manager && $(KUSTOMIZE) edit set image controller=$(IMG)
-	kubectl create namespace kube-rightsize-system --dry-run=client -o yaml | kubectl apply -f -
+	kubectl create namespace attune-system --dry-run=client -o yaml | kubectl apply -f -
 	kubectl apply -k config/default/
 
 .PHONY: undeploy
@@ -374,11 +374,11 @@ undeploy: ## Undeploy operator from the cluster
 ##@ Local Development
 
 # k3d settings (lightweight, fast startup)
-K3D_CLUSTER_NAME ?= kube-rightsize
+K3D_CLUSTER_NAME ?= attune
 K3S_VERSION ?= v1.35.4-k3s1
 
 # Kind settings (upstream K8s, production-accurate)
-KIND_CLUSTER_NAME ?= kube-rightsize
+KIND_CLUSTER_NAME ?= attune
 KIND_NODE_IMAGE ?= kindest/node:v1.33.7
 
 .PHONY: k3d-create
@@ -409,8 +409,8 @@ _deploy-stack:
 		--set server.global.scrape_interval=15s \
 		--wait --timeout 3m 2>/dev/null || true
 	@echo "Installing operator via Helm..."
-	helm install kube-rightsize ./charts/kube-rightsize \
-		--namespace kube-rightsize-system --create-namespace \
+	helm install attune ./charts/attune \
+		--namespace attune-system --create-namespace \
 		--set image.repository=$(firstword $(subst :, ,$(IMG))) \
 		--set image.tag=$(lastword $(subst :, ,$(IMG))) \
 		--set image.pullPolicy=Never \
@@ -422,7 +422,7 @@ _deploy-stack:
 
 .PHONY: k3d-deploy
 k3d-deploy: ko-build-local ## Build via ko, load, and deploy to k3d (with Prometheus + cert-manager)
-	k3d image import /tmp/kube-rightsize.tar -c $(K3D_CLUSTER_NAME)
+	k3d image import /tmp/attune.tar -c $(K3D_CLUSTER_NAME)
 	@$(MAKE) _deploy-stack
 
 .PHONY: kind-create
@@ -435,7 +435,7 @@ kind-delete: ## Delete the Kind cluster
 
 .PHONY: kind-deploy
 kind-deploy: ko-build-local ## Build via ko, load, and deploy to Kind (with Prometheus + cert-manager)
-	kind load image-archive /tmp/kube-rightsize.tar --name $(KIND_CLUSTER_NAME)
+	kind load image-archive /tmp/attune.tar --name $(KIND_CLUSTER_NAME)
 	@$(MAKE) _deploy-stack
 
 ##@ Release
@@ -449,7 +449,7 @@ build-installer: manifests kustomize ## Generate install manifest for release
 .PHONY: build-crds
 build-crds: manifests ## Generate standalone CRDs bundle for manual upgrades
 	mkdir -p dist
-	cat charts/kube-rightsize/crds/*.yaml > dist/crds.yaml
+	cat charts/attune/crds/*.yaml > dist/crds.yaml
 
 ##@ Tools
 
@@ -520,10 +520,10 @@ helm-docs: ## Install helm-docs
 
 .PHONY: helm-lint
 helm-lint: ## Lint Helm chart and validate templates (mirrors CI helm-lint job)
-	helm lint charts/kube-rightsize --kube-version v1.32.0
-	@for f in charts/kube-rightsize/ci/*.yaml; do \
+	helm lint charts/attune --kube-version v1.32.0
+	@for f in charts/attune/ci/*.yaml; do \
 		echo "--- Template validation with $$f ---"; \
-		helm template kube-rightsize charts/kube-rightsize -f "$$f" \
+		helm template attune charts/attune -f "$$f" \
 			--kube-version v1.32.0 \
 			--api-versions cert-manager.io/v1 > /dev/null; \
 	done
@@ -534,10 +534,10 @@ helm-docs-gen: helm-docs ## Generate Helm chart README from values.yaml
 
 .PHONY: helm-docs-check
 helm-docs-check: helm-docs-gen ## Verify Helm docs are up to date
-	@git diff --quiet --exit-code charts/kube-rightsize/README.md || \
+	@git diff --quiet --exit-code charts/attune/README.md || \
 		(echo "::error::Helm README is stale. Run 'make helm-docs-gen' and commit." && exit 1)
 
 .PHONY: helm-unittest
 helm-unittest: ## Run Helm chart unit tests
 	@helm plugin list | grep -q unittest || helm plugin install https://github.com/helm-unittest/helm-unittest.git --verify=false
-	helm unittest charts/kube-rightsize
+	helm unittest charts/attune

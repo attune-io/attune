@@ -24,8 +24,8 @@ spec:
               - check:
                   ($error != null): true
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: bad-timezone
                 namespace: e2e-webhook-schedule
@@ -51,8 +51,8 @@ spec:
               - check:
                   ($error != null): true
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: bad-day
                 namespace: e2e-webhook-schedule
@@ -79,8 +79,8 @@ spec:
               - check:
                   ($error != null): true
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: bad-window
                 namespace: e2e-webhook-schedule
@@ -105,8 +105,8 @@ spec:
       try:
         - apply:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: valid-schedule
                 namespace: e2e-webhook-schedule
@@ -133,6 +133,6 @@ spec:
                     timezone: America/New_York
   catch:
     - describe:
-        apiVersion: rightsize.io/v1alpha1
-        kind: RightSizePolicy
+        apiVersion: attune.io/v1alpha1
+        kind: AttunePolicy
         namespace: e2e-webhook-schedule

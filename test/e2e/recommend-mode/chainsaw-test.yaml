@@ -3,7 +3,7 @@ kind: Test
 metadata:
   name: recommend-mode
 spec:
-  description: Verify that a RightSizePolicy in Recommend mode discovers workloads and reaches Ready condition
+  description: Verify that a AttunePolicy in Recommend mode discovers workloads and reaches Ready condition
   timeouts:
     apply: 30s
     assert: 2m
@@ -50,8 +50,8 @@ spec:
                             memory: 1Gi
         - apply:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: recommend-test
                 namespace: e2e-recommend-mode
@@ -97,8 +97,8 @@ spec:
       try:
         - assert:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: recommend-test
                 namespace: e2e-recommend-mode
@@ -109,14 +109,14 @@ spec:
                     reason: InsufficientData
   catch:
     - describe:
-        apiVersion: rightsize.io/v1alpha1
-        kind: RightSizePolicy
+        apiVersion: attune.io/v1alpha1
+        kind: AttunePolicy
         namespace: e2e-recommend-mode
     - describe:
         apiVersion: apps/v1
         kind: Deployment
         namespace: e2e-recommend-mode
     - podLogs:
-        namespace: kube-rightsize-system
-        selector: app.kubernetes.io/name=kube-rightsize
+        namespace: attune-system
+        selector: app.kubernetes.io/name=attune
 

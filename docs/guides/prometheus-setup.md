@@ -1,6 +1,6 @@
 # Prometheus Setup
 
-kube-rightsize relies on Prometheus for historical CPU and memory usage data.
+attune relies on Prometheus for historical CPU and memory usage data.
 This guide covers which metrics are required, how to configure the Prometheus
 address, and how to verify the integration is working.
 
@@ -38,11 +38,11 @@ The operator resolves the Prometheus address in this order:
 flowchart TD
     A[Policy spec<br/>metricsSource.prometheus.address] -->|set?| Z[Use it]
     A -->|not set| B{Namespace defaults exist?}
-    B -->|yes| C[RightSizeNamespaceDefaults<br/>metricsSource.prometheus.address]
+    B -->|yes| C[AttuneNamespaceDefaults<br/>metricsSource.prometheus.address]
     C --> D{Address set?}
     D -->|yes| Z
     D -->|no| G[Auto-discovery:<br/>Prometheus Operator CRD]
-    B -->|no| E[RightSizeDefaults<br/>metricsSource.prometheus.address]
+    B -->|no| E[AttuneDefaults<br/>metricsSource.prometheus.address]
     E --> F{Address set?}
     F -->|yes| Z
     F -->|no| G
@@ -63,7 +63,7 @@ spec:
 
 Use this when different namespaces use different Prometheus instances.
 
-If you configure `metricsSource.prometheus.bearerTokenSecret`, the Secret must live in the same namespace as the `RightSizePolicy`. Cross-namespace Secret references are rejected.
+If you configure `metricsSource.prometheus.bearerTokenSecret`, the Secret must live in the same namespace as the `AttunePolicy`. Cross-namespace Secret references are rejected.
 
 !!! warning "Use an in-cluster address"
     The operator validates `metricsSource.prometheus.address` to block
@@ -78,8 +78,8 @@ If you configure `metricsSource.prometheus.bearerTokenSecret`, the Secret must l
 ### 2. Namespace defaults
 
 ```yaml
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizeNamespaceDefaults
+apiVersion: attune.io/v1alpha1
+kind: AttuneNamespaceDefaults
 metadata:
   name: team-defaults
   namespace: production
@@ -94,15 +94,15 @@ Use namespace defaults when different teams or environments need different
 Prometheus backends.
 
 Because the controller resolves a single defaults source per namespace, a
-`RightSizeNamespaceDefaults` object shadows cluster defaults for Prometheus
+`AttuneNamespaceDefaults` object shadows cluster defaults for Prometheus
 config too. If it exists but omits `metricsSource.prometheus.address`, the
-controller falls through to auto-discovery, not to `RightSizeDefaults`.
+controller falls through to auto-discovery, not to `AttuneDefaults`.
 
 ### 3. Cluster-wide defaults
 
 ```yaml
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizeDefaults
+apiVersion: attune.io/v1alpha1
+kind: AttuneDefaults
 metadata:
   name: default
 spec:
@@ -112,13 +112,13 @@ spec:
 ```
 
 Policies that omit `metricsSource.prometheus.address` inherit from this when
-no `RightSizeNamespaceDefaults` exists in the same namespace. This is the
+no `AttuneNamespaceDefaults` exists in the same namespace. This is the
 recommended baseline for most clusters.
 
 ### 4. Auto-discovery (Prometheus Operator)
 
 If the [Prometheus Operator](https://github.com/prometheus-operator/prometheus-operator)
-is installed, kube-rightsize lists `monitoring.coreos.com/v1 Prometheus`
+is installed, attune lists `monitoring.coreos.com/v1 Prometheus`
 resources and constructs the address from the first one found:
 
 ```
@@ -166,7 +166,7 @@ helm install prometheus prometheus-community/prometheus \
 The Service is `prometheus-server.monitoring` on **port 80** (not 9090):
 
 ```yaml
-# RightSizeDefaults
+# AttuneDefaults
 spec:
   metricsSource:
     prometheus:
@@ -231,7 +231,7 @@ kubectl run prom-check --image=curlimages/curl --restart=Never --rm --attach --c
   curl -s 'http://prometheus-server.monitoring:80/api/v1/query?query=rate(container_cpu_usage_seconds_total{namespace="<namespace>",pod=~"<pod-prefix>.*"}[5m])'
 ```
 
-Non-empty results confirm kube-rightsize can query metrics for that workload.
+Non-empty results confirm attune can query metrics for that workload.
 
 ### Step 4: Check policy conditions
 
@@ -250,16 +250,16 @@ By default, recommendations need `minimumDataPoints: 48` Prometheus range-query
 samples. With the default `queryStep: 5m`, that is about 4 hours of data
 within the default `historyWindow: 168h`.
 
-## Operator metrics (what kube-rightsize exposes)
+## Operator metrics (what attune exposes)
 
-kube-rightsize itself exposes Prometheus metrics on its `:8080/metrics`
+attune itself exposes Prometheus metrics on its `:8080/metrics`
 endpoint. To scrape these, either:
 
 - Enable the Helm chart's **ServiceMonitor** (`metrics.serviceMonitor.enabled: true`), or
 - Add a scrape annotation to the operator pod
 
 See [Metrics Reference](../reference/metrics.md) for the full list of
-`kube_rightsize_*` metrics.
+`attune_*` metrics.
 
 ## Grafana dashboard
 
@@ -267,13 +267,13 @@ Enable the Helm chart's dashboard ConfigMap to auto-provision a
 Grafana dashboard:
 
 ```bash
-helm upgrade kube-rightsize oci://ghcr.io/sebtardiflabs/charts/kube-rightsize \
+helm upgrade attune oci://ghcr.io/attune-io/charts/attune \
   --set grafanaDashboard.enabled=true
 ```
 
 The dashboard covers resizes, reverts, savings, recommendations, confidence
 scores, reconcile latency, and Prometheus query health. See
-[deploy/grafana/dashboard.json](https://github.com/SebTardifLabs/kube-rightsize/blob/main/deploy/grafana/dashboard.json)
+[deploy/grafana/dashboard.json](https://github.com/attune-io/attune/blob/main/deploy/grafana/dashboard.json)
 for the raw JSON.
 
 ## Alerting with PrometheusRule
@@ -281,7 +281,7 @@ for the raw JSON.
 Enable the Helm chart's PrometheusRule to get out-of-the-box alerts:
 
 ```bash
-helm upgrade kube-rightsize oci://ghcr.io/sebtardiflabs/charts/kube-rightsize \
+helm upgrade attune oci://ghcr.io/attune-io/charts/attune \
   --set metrics.prometheusRule.enabled=true
 ```
 
@@ -309,5 +309,5 @@ metrics:
         staleDuration: 1h    # fire after 1 hour instead of 30m
 ```
 
-See the [Helm chart README](https://github.com/SebTardifLabs/kube-rightsize/blob/main/charts/kube-rightsize/README.md) for the
+See the [Helm chart README](https://github.com/attune-io/attune/blob/main/charts/attune/README.md) for the
 full list of configurable parameters.

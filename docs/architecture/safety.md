@@ -155,7 +155,7 @@ The controller emits Kubernetes Events for visibility:
 | Warning | `ResizeSkipped` | A resize was skipped (QoS change, node capacity, quota) |
 | Warning | `Reverted` | A resize was reverted due to a safety violation |
 
-Events are visible via `kubectl describe rightsizepolicy` and
+Events are visible via `kubectl describe attunepolicy` and
 `kubectl get events`.
 
 ## Degraded condition
@@ -174,7 +174,7 @@ When a safety violation is detected:
 2. The revert uses `UpdateResize` (the same in-place mechanism), so no pod
    restart occurs.
 3. The resize history entry is updated to `result: Reverted`.
-4. The `kube_rightsize_reverts_total` counter is incremented with the
+4. The `attune_reverts_total` counter is incremented with the
    violation reason as a label.
 
 ```mermaid
@@ -198,7 +198,7 @@ sequenceDiagram
 ## Cooldown enforcement
 
 After any resize operation (successful or reverted), the operator records the
-timestamp in the `rightsize.io/last-resize-time` annotation. On the next
+timestamp in the `attune.io/last-resize-time` annotation. On the next
 reconciliation, it checks:
 
 ```go
@@ -240,7 +240,7 @@ Before resizing, the controller checks for potential conflicts:
 
 - **Active rollout**: if `UpdatedReplicas < Replicas`, the workload is
   mid-rollout and resizing is deferred.
-- **Opt-out annotation**: workloads with `rightsize.io/skip: "true"` are
+- **Opt-out annotation**: workloads with `attune.io/skip: "true"` are
   skipped entirely.
 - **QoS preservation**: for Guaranteed-class pods, the resize is blocked if
   it would cause requests to differ from limits.

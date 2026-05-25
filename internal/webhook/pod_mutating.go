@@ -28,23 +28,23 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
-	"github.com/SebTardifLabs/kube-rightsize/internal/operatormetrics"
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/operatormetrics"
 )
 
 const (
 	// AnnotationSkipKey opts a pod out of initial sizing.
-	AnnotationSkipKey = "rightsize.io/skip"
+	AnnotationSkipKey = "attune.io/skip"
 	// AnnotationInitialSizing marks that initial sizing was applied.
-	AnnotationInitialSizing = "rightsize.io/initial-sizing"
+	AnnotationInitialSizing = "attune.io/initial-sizing"
 	// AnnotationInitialSizingPolicy records which policy was used.
-	AnnotationInitialSizingPolicy = "rightsize.io/initial-sizing-policy"
+	AnnotationInitialSizingPolicy = "attune.io/initial-sizing-policy"
 	// minConfidenceForInitialSizing is the minimum confidence to apply initial sizing.
 	minConfidenceForInitialSizing = 0.5
 )
 
 // PodMutatingHandler handles pod admission requests for initial sizing.
-// It reads pre-computed recommendations from RightSizePolicy status (via the
+// It reads pre-computed recommendations from AttunePolicy status (via the
 // informer cache, not the API server) and mutates pod resources at creation time.
 type PodMutatingHandler struct {
 	Client client.Client
@@ -83,8 +83,8 @@ func (h *PodMutatingHandler) Handle(ctx context.Context, req admission.Request) 
 		return admission.Allowed("no recognized owner")
 	}
 
-	// List all RightSizePolicies in the namespace (from informer cache).
-	var policies rightsizev1alpha1.RightSizePolicyList
+	// List all AttunePolicies in the namespace (from informer cache).
+	var policies attunev1alpha1.AttunePolicyList
 	if err := h.Client.List(ctx, &policies, client.InNamespace(req.Namespace)); err != nil {
 		h.Logger.Error(err, "listing policies for initial sizing", "namespace", req.Namespace)
 		return admission.Allowed("error listing policies, skipping initial sizing")
@@ -133,9 +133,9 @@ func (h *PodMutatingHandler) Handle(ctx context.Context, req admission.Request) 
 // findMatchingPolicy finds a policy that targets the given owner workload
 // and has initial sizing enabled with valid recommendations.
 func (h *PodMutatingHandler) findMatchingPolicy(
-	policies []rightsizev1alpha1.RightSizePolicy,
+	policies []attunev1alpha1.AttunePolicy,
 	ownerKind, ownerName string,
-) (*rightsizev1alpha1.RightSizePolicy, *rightsizev1alpha1.WorkloadRecommendation) {
+) (*attunev1alpha1.AttunePolicy, *attunev1alpha1.WorkloadRecommendation) {
 	for i := range policies {
 		policy := &policies[i]
 
@@ -145,8 +145,8 @@ func (h *PodMutatingHandler) findMatchingPolicy(
 		}
 
 		// Skip Observe and Recommend modes (no active resize intent).
-		if policy.Spec.UpdateStrategy.Type == rightsizev1alpha1.UpdateTypeObserve ||
-			policy.Spec.UpdateStrategy.Type == rightsizev1alpha1.UpdateTypeRecommend ||
+		if policy.Spec.UpdateStrategy.Type == attunev1alpha1.UpdateTypeObserve ||
+			policy.Spec.UpdateStrategy.Type == attunev1alpha1.UpdateTypeRecommend ||
 			policy.Spec.UpdateStrategy.Type == "" {
 			continue
 		}
@@ -184,8 +184,8 @@ func (h *PodMutatingHandler) findMatchingPolicy(
 // mutateContainer applies the recommendation to a single container.
 func (h *PodMutatingHandler) mutateContainer(
 	container *corev1.Container,
-	rec *rightsizev1alpha1.WorkloadRecommendation,
-	policy *rightsizev1alpha1.RightSizePolicy,
+	rec *attunev1alpha1.WorkloadRecommendation,
+	policy *attunev1alpha1.AttunePolicy,
 ) bool {
 	for _, cr := range rec.Containers {
 		if cr.Name != container.Name {
@@ -212,7 +212,7 @@ func (h *PodMutatingHandler) mutateContainer(
 
 		// Apply limits if controlledValues is RequestsAndLimits.
 		cpuCV := policy.Spec.CPU.ControlledValues
-		if cpuCV != nil && *cpuCV == rightsizev1alpha1.ControlledRequestsAndLimits {
+		if cpuCV != nil && *cpuCV == attunev1alpha1.ControlledRequestsAndLimits {
 			if !cr.Recommended.CPULimit.IsZero() {
 				if container.Resources.Limits == nil {
 					container.Resources.Limits = corev1.ResourceList{}
@@ -222,7 +222,7 @@ func (h *PodMutatingHandler) mutateContainer(
 		}
 
 		memCV := policy.Spec.Memory.ControlledValues
-		if memCV != nil && *memCV == rightsizev1alpha1.ControlledRequestsAndLimits {
+		if memCV != nil && *memCV == attunev1alpha1.ControlledRequestsAndLimits {
 			if !cr.Recommended.MemoryLimit.IsZero() {
 				if container.Resources.Limits == nil {
 					container.Resources.Limits = corev1.ResourceList{}
@@ -272,7 +272,7 @@ func extractDeploymentName(rsName string) string {
 }
 
 // hasMinConfidence returns true if all containers meet the minimum confidence.
-func hasMinConfidence(containers []rightsizev1alpha1.ContainerRecommendation, minConf float64) bool {
+func hasMinConfidence(containers []attunev1alpha1.ContainerRecommendation, minConf float64) bool {
 	if len(containers) == 0 {
 		return false
 	}

@@ -1,0 +1,30 @@
+{{- if .Values.webhooks.enabled }}
+{{- if not (.Capabilities.APIVersions.Has "cert-manager.io/v1") }}
+{{- fail "webhooks.enabled=true requires cert-manager. Install cert-manager first or set webhooks.enabled=false." }}
+{{- end }}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "attune.fullname" . }}-selfsigned
+  labels:
+    {{- include "attune.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "attune.fullname" . }}-webhook
+  labels:
+    {{- include "attune.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "attune.fullname" . }}-webhook-tls
+  issuerRef:
+    name: {{ include "attune.fullname" . }}-selfsigned
+    kind: Issuer
+  dnsNames:
+    - {{ include "attune.fullname" . }}-webhook
+    - {{ include "attune.fullname" . }}-webhook.{{ .Release.Namespace }}
+    - {{ include "attune.fullname" . }}-webhook.{{ .Release.Namespace }}.svc
+    - {{ include "attune.fullname" . }}-webhook.{{ .Release.Namespace }}.svc.cluster.local
+{{- end }}

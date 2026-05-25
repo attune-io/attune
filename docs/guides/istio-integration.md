@@ -1,6 +1,6 @@
 # Istio Integration
 
-kube-rightsize works with all three Istio deployment models. This guide
+attune works with all three Istio deployment models. This guide
 covers configuration for each mode.
 
 ## Deployment models
@@ -17,8 +17,8 @@ Istio injects `istio-proxy` as a regular container. You should exclude it
 from right-sizing since the mesh manages its resource allocation:
 
 ```yaml
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizePolicy
+apiVersion: attune.io/v1alpha1
+kind: AttunePolicy
 metadata:
   name: my-app
 spec:
@@ -47,14 +47,14 @@ containers, leaving `istio-proxy` untouched.
 
 In ambient mode, Istio uses a per-node ztunnel DaemonSet instead of
 per-pod sidecars. There is no `istio-proxy` container in your pods, so
-kube-rightsize works transparently with no special configuration.
+attune works transparently with no special configuration.
 
 ## Native sidecar mode
 
 When Istio is configured with `ENABLE_NATIVE_SIDECARS=true` (requires
 Kubernetes 1.28+), it injects `istio-proxy` as an init container with
 `restartPolicy: Always`. These "native sidecar" containers run for the
-pod's lifetime and are visible to kube-rightsize.
+pod's lifetime and are visible to attune.
 
 The operator automatically detects native sidecar containers (init
 containers with `restartPolicy=Always`) and includes them in workload

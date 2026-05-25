@@ -24,12 +24,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 )
 
 // makeHistoryEntry creates a ResizeHistoryEntry for testing.
-func makeHistoryEntry(workload string, ts time.Time) rightsizev1alpha1.ResizeHistoryEntry {
-	return rightsizev1alpha1.ResizeHistoryEntry{
+func makeHistoryEntry(workload string, ts time.Time) attunev1alpha1.ResizeHistoryEntry {
+	return attunev1alpha1.ResizeHistoryEntry{
 		Timestamp: metav1.Time{Time: ts},
 		Workload:  workload,
 		Container: "main",
@@ -37,12 +37,12 @@ func makeHistoryEntry(workload string, ts time.Time) rightsizev1alpha1.ResizeHis
 		From:      "500m",
 		To:        "250m",
 		Method:    "InPlace",
-		Result:    rightsizev1alpha1.ResizeResultSuccess,
+		Result:    attunev1alpha1.ResizeResultSuccess,
 	}
 }
 
 func TestAppendHistory_EmptyExisting(t *testing.T) {
-	newEntries := []rightsizev1alpha1.ResizeHistoryEntry{
+	newEntries := []attunev1alpha1.ResizeHistoryEntry{
 		makeHistoryEntry("api-server", time.Now()),
 	}
 	result := appendHistory(nil, newEntries, maxHistoryEntries)
@@ -51,10 +51,10 @@ func TestAppendHistory_EmptyExisting(t *testing.T) {
 }
 
 func TestAppendHistory_ExistingPlusNew(t *testing.T) {
-	existing := []rightsizev1alpha1.ResizeHistoryEntry{
+	existing := []attunev1alpha1.ResizeHistoryEntry{
 		makeHistoryEntry("api-1", time.Now().Add(-1*time.Hour)),
 	}
-	newEntries := []rightsizev1alpha1.ResizeHistoryEntry{
+	newEntries := []attunev1alpha1.ResizeHistoryEntry{
 		makeHistoryEntry("api-2", time.Now()),
 	}
 	result := appendHistory(existing, newEntries, maxHistoryEntries)
@@ -64,7 +64,7 @@ func TestAppendHistory_ExistingPlusNew(t *testing.T) {
 }
 
 func TestAppendHistory_Truncation(t *testing.T) {
-	existing := make([]rightsizev1alpha1.ResizeHistoryEntry, maxHistoryEntries)
+	existing := make([]attunev1alpha1.ResizeHistoryEntry, maxHistoryEntries)
 	for i := range existing {
 		existing[i] = makeHistoryEntry(
 			fmt.Sprintf("workload-%d", i),
@@ -72,7 +72,7 @@ func TestAppendHistory_Truncation(t *testing.T) {
 		)
 	}
 
-	newEntries := make([]rightsizev1alpha1.ResizeHistoryEntry, 5)
+	newEntries := make([]attunev1alpha1.ResizeHistoryEntry, 5)
 	for i := range newEntries {
 		newEntries[i] = makeHistoryEntry(
 			fmt.Sprintf("new-workload-%d", i),
@@ -90,7 +90,7 @@ func TestAppendHistory_Truncation(t *testing.T) {
 }
 
 func TestAppendHistory_NoTruncation(t *testing.T) {
-	existing := make([]rightsizev1alpha1.ResizeHistoryEntry, 3)
+	existing := make([]attunev1alpha1.ResizeHistoryEntry, 3)
 	for i := range existing {
 		existing[i] = makeHistoryEntry(
 			fmt.Sprintf("workload-%d", i),
@@ -98,7 +98,7 @@ func TestAppendHistory_NoTruncation(t *testing.T) {
 		)
 	}
 
-	newEntries := make([]rightsizev1alpha1.ResizeHistoryEntry, 2)
+	newEntries := make([]attunev1alpha1.ResizeHistoryEntry, 2)
 	for i := range newEntries {
 		newEntries[i] = makeHistoryEntry(
 			fmt.Sprintf("new-workload-%d", i),
@@ -111,19 +111,19 @@ func TestAppendHistory_NoTruncation(t *testing.T) {
 }
 
 func TestResizeHistoryMethod_LegacyDefaults(t *testing.T) {
-	assert.Equal(t, "InPlace", resizeHistoryMethod(rightsizev1alpha1.ResizeHistoryEntry{
-		Result: rightsizev1alpha1.ResizeResultSuccess,
+	assert.Equal(t, "InPlace", resizeHistoryMethod(attunev1alpha1.ResizeHistoryEntry{
+		Result: attunev1alpha1.ResizeResultSuccess,
 	}))
-	assert.Equal(t, "Eviction", resizeHistoryMethod(rightsizev1alpha1.ResizeHistoryEntry{
-		Result: rightsizev1alpha1.ResizeResultEvicted,
+	assert.Equal(t, "Eviction", resizeHistoryMethod(attunev1alpha1.ResizeHistoryEntry{
+		Result: attunev1alpha1.ResizeResultEvicted,
 	}))
 }
 
 func TestNormalizeResizeHistoryMethods_FillsMissingMethods(t *testing.T) {
-	history := []rightsizev1alpha1.ResizeHistoryEntry{
-		{Result: rightsizev1alpha1.ResizeResultSuccess},
-		{Result: rightsizev1alpha1.ResizeResultEvicted},
-		{Method: "InPlace", Result: rightsizev1alpha1.ResizeResultReverted},
+	history := []attunev1alpha1.ResizeHistoryEntry{
+		{Result: attunev1alpha1.ResizeResultSuccess},
+		{Result: attunev1alpha1.ResizeResultEvicted},
+		{Method: "InPlace", Result: attunev1alpha1.ResizeResultReverted},
 	}
 
 	changed := normalizeResizeHistoryMethods(history)
@@ -135,10 +135,10 @@ func TestNormalizeResizeHistoryMethods_FillsMissingMethods(t *testing.T) {
 }
 
 func TestNormalizeResizeHistoryMethods_IdempotentWhenAllPresent(t *testing.T) {
-	history := []rightsizev1alpha1.ResizeHistoryEntry{
-		{Method: "InPlace", Result: rightsizev1alpha1.ResizeResultSuccess},
-		{Method: "Eviction", Result: rightsizev1alpha1.ResizeResultEvicted},
-		{Method: "InPlace", Result: rightsizev1alpha1.ResizeResultReverted},
+	history := []attunev1alpha1.ResizeHistoryEntry{
+		{Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess},
+		{Method: "Eviction", Result: attunev1alpha1.ResizeResultEvicted},
+		{Method: "InPlace", Result: attunev1alpha1.ResizeResultReverted},
 	}
 
 	changed := normalizeResizeHistoryMethods(history)
@@ -147,31 +147,31 @@ func TestNormalizeResizeHistoryMethods_IdempotentWhenAllPresent(t *testing.T) {
 }
 
 func TestResizeHistoryMethod_LegacyFailedDefaultsToInPlace(t *testing.T) {
-	assert.Equal(t, "InPlace", resizeHistoryMethod(rightsizev1alpha1.ResizeHistoryEntry{
-		Result: rightsizev1alpha1.ResizeResultFailed,
+	assert.Equal(t, "InPlace", resizeHistoryMethod(attunev1alpha1.ResizeHistoryEntry{
+		Result: attunev1alpha1.ResizeResultFailed,
 	}))
 }
 
 func TestIsSuccessfulInPlaceHistory_LegacySuccessCounts(t *testing.T) {
-	assert.True(t, isSuccessfulInPlaceHistory(rightsizev1alpha1.ResizeHistoryEntry{
-		Result: rightsizev1alpha1.ResizeResultSuccess,
+	assert.True(t, isSuccessfulInPlaceHistory(attunev1alpha1.ResizeHistoryEntry{
+		Result: attunev1alpha1.ResizeResultSuccess,
 	}))
-	assert.False(t, isSuccessfulInPlaceHistory(rightsizev1alpha1.ResizeHistoryEntry{
-		Result: rightsizev1alpha1.ResizeResultEvicted,
+	assert.False(t, isSuccessfulInPlaceHistory(attunev1alpha1.ResizeHistoryEntry{
+		Result: attunev1alpha1.ResizeResultEvicted,
 	}))
-	assert.False(t, isSuccessfulInPlaceHistory(rightsizev1alpha1.ResizeHistoryEntry{
+	assert.False(t, isSuccessfulInPlaceHistory(attunev1alpha1.ResizeHistoryEntry{
 		Method: "InPlace",
-		Result: rightsizev1alpha1.ResizeResultReverted,
+		Result: attunev1alpha1.ResizeResultReverted,
 	}))
 }
 
 func TestRemoveSuccessfulInPlaceHistory_UsesSharedSemantics(t *testing.T) {
 	now := time.Now()
-	entries := []rightsizev1alpha1.ResizeHistoryEntry{
-		{Workload: "legacy-success", Result: rightsizev1alpha1.ResizeResultSuccess, Timestamp: metav1.NewTime(now)},
-		{Workload: "explicit-success", Method: "InPlace", Result: rightsizev1alpha1.ResizeResultSuccess, Timestamp: metav1.NewTime(now)},
-		{Workload: "eviction", Method: "Eviction", Result: rightsizev1alpha1.ResizeResultEvicted, Timestamp: metav1.NewTime(now)},
-		{Workload: "reverted", Method: "InPlace", Result: rightsizev1alpha1.ResizeResultReverted, Timestamp: metav1.NewTime(now)},
+	entries := []attunev1alpha1.ResizeHistoryEntry{
+		{Workload: "legacy-success", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: metav1.NewTime(now)},
+		{Workload: "explicit-success", Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: metav1.NewTime(now)},
+		{Workload: "eviction", Method: "Eviction", Result: attunev1alpha1.ResizeResultEvicted, Timestamp: metav1.NewTime(now)},
+		{Workload: "reverted", Method: "InPlace", Result: attunev1alpha1.ResizeResultReverted, Timestamp: metav1.NewTime(now)},
 	}
 
 	filtered := removeSuccessfulInPlaceHistory(entries)

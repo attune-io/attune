@@ -1,8 +1,8 @@
 ---
 # Example: Recommend mode (safe, no changes applied)
 # Generates recommendations in status without modifying any pods.
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizePolicy
+apiVersion: attune.io/v1alpha1
+kind: AttunePolicy
 metadata:
   name: api-services
   namespace: production

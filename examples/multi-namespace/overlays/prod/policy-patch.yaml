@@ -1,6 +1,6 @@
 # Production: conservative settings, 10% canary, long cooldown
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizePolicy
+apiVersion: attune.io/v1alpha1
+kind: AttunePolicy
 metadata:
   name: api-servers
 spec:

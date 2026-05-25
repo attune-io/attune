@@ -3,7 +3,7 @@ kind: Test
 metadata:
   name: observe-mode
 spec:
-  description: Verify that a RightSizePolicy in Observe mode reaches a condition without generating recommendations or performing resizes
+  description: Verify that a AttunePolicy in Observe mode reaches a condition without generating recommendations or performing resizes
   timeouts:
     apply: 30s
     assert: 2m
@@ -47,8 +47,8 @@ spec:
                             memory: 1Gi
         - apply:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: observe-test
                 namespace: e2e-observe-mode
@@ -86,8 +86,8 @@ spec:
       try:
         - assert:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: observe-test
                 namespace: e2e-observe-mode
@@ -100,8 +100,8 @@ spec:
       try:
         - assert:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: observe-test
                 namespace: e2e-observe-mode
@@ -110,13 +110,13 @@ spec:
                   resized: 0
   catch:
     - describe:
-        apiVersion: rightsize.io/v1alpha1
-        kind: RightSizePolicy
+        apiVersion: attune.io/v1alpha1
+        kind: AttunePolicy
         namespace: e2e-observe-mode
     - describe:
         apiVersion: apps/v1
         kind: Deployment
         namespace: e2e-observe-mode
     - podLogs:
-        namespace: kube-rightsize-system
-        selector: app.kubernetes.io/name=kube-rightsize
+        namespace: attune-system
+        selector: app.kubernetes.io/name=attune

@@ -1,0 +1,40 @@
+apiVersion: krew.googlecontainertools.github.com/v1alpha2
+kind: Plugin
+metadata:
+  name: attune
+spec:
+  version: v0.1.0
+  homepage: https://github.com/attune-io/attune
+  shortDescription: View and manage attune policies
+  description: |
+    Shows policy status, savings estimates, per-container recommendations,
+    recommendation reasoning, and resize history for attune policies.
+  platforms:
+    - selector:
+        matchLabels:
+          os: linux
+          arch: amd64
+      uri: https://github.com/attune-io/attune/releases/download/v0.1.0/kubectl-attune_linux_amd64.tar.gz
+      sha256: PLACEHOLDER
+      bin: kubectl-attune
+    - selector:
+        matchLabels:
+          os: linux
+          arch: arm64
+      uri: https://github.com/attune-io/attune/releases/download/v0.1.0/kubectl-attune_linux_arm64.tar.gz
+      sha256: PLACEHOLDER
+      bin: kubectl-attune
+    - selector:
+        matchLabels:
+          os: darwin
+          arch: amd64
+      uri: https://github.com/attune-io/attune/releases/download/v0.1.0/kubectl-attune_darwin_amd64.tar.gz
+      sha256: PLACEHOLDER
+      bin: kubectl-attune
+    - selector:
+        matchLabels:
+          os: darwin
+          arch: arm64
+      uri: https://github.com/attune-io/attune/releases/download/v0.1.0/kubectl-attune_darwin_arm64.tar.gz
+      sha256: PLACEHOLDER
+      bin: kubectl-attune

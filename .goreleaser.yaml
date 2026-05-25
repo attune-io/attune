@@ -13,9 +13,9 @@ builds:
       - -X main.version={{.Version}}
       - -X main.commit={{.Commit}}
       - -X main.date={{.Date}}
-  - id: kubectl-rightsize
-    main: ./cmd/kubectl-rightsize
-    binary: kubectl-rightsize
+  - id: kubectl-attune
+    main: ./cmd/kubectl-attune
+    binary: kubectl-attune
     goos: [linux, darwin]
     goarch: [amd64, arm64]
     flags:
@@ -25,7 +25,7 @@ builds:
       - -X main.version={{.Version}}
 archives:
   - id: kubectl-plugin
-    builds: [kubectl-rightsize]
-    name_template: "kubectl-rightsize_{{ .Os }}_{{ .Arch }}"
+    builds: [kubectl-attune]
+    name_template: "kubectl-attune_{{ .Os }}_{{ .Arch }}"
 changelog:
   use: github-native

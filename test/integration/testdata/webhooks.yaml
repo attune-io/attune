@@ -1,73 +1,73 @@
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
 metadata:
-  name: kube-rightsize-validating
+  name: attune-validating
 webhooks:
-  - name: validation.rightsize.io
+  - name: validation.attune.io
     admissionReviewVersions: ["v1"]
     clientConfig:
       service:
         name: webhook-service
         namespace: system
-        path: /validate-rightsize-io-v1alpha1-rightsizepolicy
+        path: /validate-attune-io-v1alpha1-attunepolicy
     failurePolicy: Fail
     rules:
-      - apiGroups: ["rightsize.io"]
+      - apiGroups: ["attune.io"]
         apiVersions: ["v1alpha1"]
         operations: ["CREATE", "UPDATE"]
-        resources: ["rightsizepolicies"]
+        resources: ["attunepolicies"]
     sideEffects: None
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
 metadata:
-  name: kube-rightsize-mutating
+  name: attune-mutating
 webhooks:
-  - name: defaulting.rightsize.io
+  - name: defaulting.attune.io
     admissionReviewVersions: ["v1"]
     clientConfig:
       service:
         name: webhook-service
         namespace: system
-        path: /mutate-rightsize-io-v1alpha1-rightsizepolicy
+        path: /mutate-attune-io-v1alpha1-attunepolicy
     failurePolicy: Fail
     rules:
-      - apiGroups: ["rightsize.io"]
+      - apiGroups: ["attune.io"]
         apiVersions: ["v1alpha1"]
         operations: ["CREATE", "UPDATE"]
-        resources: ["rightsizepolicies"]
+        resources: ["attunepolicies"]
     sideEffects: None
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
 metadata:
-  name: kube-rightsize-defaults-validating
+  name: attune-defaults-validating
 webhooks:
-  - name: defaults.validation.rightsize.io
+  - name: defaults.validation.attune.io
     admissionReviewVersions: ["v1"]
     clientConfig:
       service:
         name: webhook-service
         namespace: system
-        path: /validate-rightsize-io-v1alpha1-rightsizedefaults
+        path: /validate-attune-io-v1alpha1-attunedefaults
     failurePolicy: Fail
     rules:
-      - apiGroups: ["rightsize.io"]
+      - apiGroups: ["attune.io"]
         apiVersions: ["v1alpha1"]
         operations: ["CREATE", "UPDATE"]
-        resources: ["rightsizedefaults"]
+        resources: ["attunedefaults"]
     sideEffects: None
-  - name: namespace-defaults.validation.rightsize.io
+  - name: namespace-defaults.validation.attune.io
     admissionReviewVersions: ["v1"]
     clientConfig:
       service:
         name: webhook-service
         namespace: system
-        path: /validate-rightsize-io-v1alpha1-rightsizenamespacedefaults
+        path: /validate-attune-io-v1alpha1-attunenamespacedefaults
     failurePolicy: Fail
     rules:
-      - apiGroups: ["rightsize.io"]
+      - apiGroups: ["attune.io"]
         apiVersions: ["v1alpha1"]
         operations: ["CREATE", "UPDATE"]
-        resources: ["rightsizenamespacedefaults"]
+        resources: ["attunenamespacedefaults"]
     sideEffects: None

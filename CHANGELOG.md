@@ -12,13 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support for Kubernetes 1.32 with `InPlacePodVerticalScaling` alpha feature gate; the operator now falls back to the deprecated `pod.Status.Resize` field for resize status on clusters without the 1.33+ pod conditions
 - Top-level `safetyObservationPeriod` field on `UpdateStrategy` for configuring post-resize safety watch duration (default 5m, minimum 1m); takes precedence over `canary.observationPeriod` and works in all modes
 - Early OOMKill and crash loop detection during safety observation period: critical events trigger immediate revert without waiting for the full observation period
-- `kubectl rightsize explain` now displays the effective observation period with source tracking
+- `kubectl attune explain` now displays the effective observation period with source tracking
 - Configurable `rateWindow` field for CPU PromQL queries; no longer hardcoded to `[5m]`, now tracks `queryStep` by default
 - Effective cooldown with backoff multiplier exposed in policy status
 - Recommendation staleness detection with `LastDataTime` and `Stale` fields; stale recommendations block resize execution
 - `StaleRecommendationsTotal` metric for tracking Prometheus degradation
 - `ScheduleBlocked` status condition when outside the configured resize window
-- `SCHEDULE` column in `kubectl rightsize status` output
+- `SCHEDULE` column in `kubectl attune status` output
 - Per-policy namespace/name labels on `ReconcileDuration` metric
 - Per-policy reconcile duration panel in Grafana dashboard (p99/p50 by namespace and policy)
 - ReplicaSet as a supported target workload kind with adapter, RBAC, and Helm clusterrole
@@ -26,29 +26,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `KubeRightsizeHighRevertRate` PrometheusRule alert in Helm chart
 - Configurable `burstSensitivity` per resource: controls how much burst detection inflates recommendations (default 0.1, set 0 to disable)
 - Canary auto-promotion resets on spec change: editing a policy restarts the observation cycle so new configuration is re-validated
-- `kube_rightsize_burst_factor` Prometheus metric and Grafana dashboard panel showing burst detection multiplier per workload
+- `attune_burst_factor` Prometheus metric and Grafana dashboard panel showing burst detection multiplier per workload
 - Burst detection now influences recommendations via logarithmic safety-margin boost
 - Canary auto-promotion: when `autoPromote: true`, the operator automatically promotes to full fleet resize after the observation period passes without safety violations
 - VPA conflict detection E2E test (Chainsaw scenario with inline CRD)
 - OOMKill safety revert Go E2E test (uses stress-ng for reliable OOMKill trigger)
 - Helm values schema validation (`values.schema.json`) for catching typos at install time
-- Pending workloads column in `kubectl rightsize status` output
+- Pending workloads column in `kubectl attune status` output
 - Secret name and key context in Prometheus auth failure messages
 - Go E2E tests for bearer-token Secret rotation and recommendations without live pods
 - Structured-output test coverage for kubectl plugin (`-o json`, `-o yaml`)
 - Documentation for running the full Go E2E suite locally
 - V(1) debug log when a resize is skipped because the container is already at the target resources
-- **Initial sizing webhook**: Mutating admission webhook sets pod resource requests/limits at creation time based on existing RightSizePolicy recommendations, eliminating the "deploy with bad defaults" gap. Requires namespace label `rightsize.io/initial-sizing=enabled` and `initialSizing: true` on the policy. Safety: `failurePolicy: Ignore`, confidence threshold 0.5, stale check.
+- **Initial sizing webhook**: Mutating admission webhook sets pod resource requests/limits at creation time based on existing AttunePolicy recommendations, eliminating the "deploy with bad defaults" gap. Requires namespace label `attune.io/initial-sizing=enabled` and `initialSizing: true` on the policy. Safety: `failurePolicy: Ignore`, confidence threshold 0.5, stale check.
 - **Directional change caps**: `maxIncreasePercent` (default 50%) and `maxDecreasePercent` (default 30%) in ResourceConfig for asymmetric per-step caps (memory decreases are riskier than CPU increases)
 - **Memory-from-CPU derivation**: `memoryFromCpuRatio` in ResourceConfig derives memory recommendation from CPU (e.g., `"2.0"` for JVM heap-bound workloads), skipping Prometheus memory queries
 - Wizard `create` and `promote` flows now prompt for initial sizing when mode is Auto, OneShot, or Canary
 - **SLO-based guardrails**: `updateStrategy.sloGuardrails[]` defines application-level PromQL checks (latency, error rate) evaluated after each resize during the safety observation period. Breaching a threshold triggers automatic revert. Supports template variables for namespace, workload, and pod name.
-- **VPA recommendation consumption**: `metricsSource.vpa` consumes existing VerticalPodAutoscaler recommendations as an alternative to Prometheus queries, bridging VPA-only clusters into kube-rightsize's in-place resize engine
-- **GitOps diff command**: `kubectl rightsize diff` outputs resource change recommendations in YAML diff format for GitOps workflows (ArgoCD, Flux). Supports `-o yaml` structured output.
-- **spec.paused**: Boolean field on `RightSizePolicySpec` that halts all reconciliation (metrics collection, recommendations, resizes) without reverting existing resizes. The operator sets `Ready=False` with `reason=Paused`. Modeled after Prometheus Operator and Flux `spec.suspend`.
+- **VPA recommendation consumption**: `metricsSource.vpa` consumes existing VerticalPodAutoscaler recommendations as an alternative to Prometheus queries, bridging VPA-only clusters into attune's in-place resize engine
+- **GitOps diff command**: `kubectl attune diff` outputs resource change recommendations in YAML diff format for GitOps workflows (ArgoCD, Flux). Supports `-o yaml` structured output.
+- **spec.paused**: Boolean field on `AttunePolicySpec` that halts all reconciliation (metrics collection, recommendations, resizes) without reverting existing resizes. The operator sets `Ready=False` with `reason=Paused`. Modeled after Prometheus Operator and Flux `spec.suspend`.
 - **Webhook warnings for nonsensical config**: 13 admission-time warnings detect ineffective settings (e.g., canary config in non-canary mode, SLO guardrails with VPA source, resize-only settings in Observe/Recommend mode)
 - **Runtime K8s events**: 31 warning/event types (up from 3) for silent controller behaviors: `StaleRecommendation`, `CooldownActive`, `HPAConflict`, `VPAConflict`, `ConfigClamped`, `ExportFailed`, `ResizeSkipped`, `BudgetExhausted`, and more. All recurring events use 1-hour deduplication to prevent log spam.
-- **Warning suppression**: `rightsize.io/suppress-warnings` annotation accepts a comma-separated list of event reasons to suppress (e.g., `HPAConflict,ConfigClamped`)
+- **Warning suppression**: `attune.io/suppress-warnings` annotation accepts a comma-separated list of event reasons to suppress (e.g., `HPAConflict,ConfigClamped`)
 
 ### Changed
 
@@ -58,7 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING**: `bounds.min`/`bounds.max` renamed to `minAllowed`/`maxAllowed`, `InPlaceOrEvict` renamed to `InPlaceOrRecreate`, `excludeContainers` renamed to `excludedContainers`
 - Shorter requeue interval during data collection phase for faster initial recommendation generation
 - `canary.percentage` CRD minimum changed from 0 to 1 (a 0% canary is meaningless)
-- `rateWindow` is inheritable via `RightSizeDefaults` and `RightSizeNamespaceDefaults`
+- `rateWindow` is inheritable via `AttuneDefaults` and `AttuneNamespaceDefaults`
 - Deployment-owned ReplicaSets are filtered from target discovery to prevent double-resizing
 - Reconcile predicate filters out self-triggered status and metadata updates, reducing kube-apiserver load by eliminating 2-3x reconcile amplification per cycle
 - Recommendations no longer require live pods; historical Prometheus data is sufficient for recommend-only flows
@@ -73,12 +73,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `golang.org/x/net` updated to v0.55.0 to fix GO-2026-5026 (Punycode validation vulnerability in `idna`)
 - Trivy image scan CI failure on runners without BuildKit/buildx; the step now strips BuildKit-only Dockerfile directives and builds natively with the legacy builder
 - `make docker-build` now sets `DOCKER_BUILDKIT=1` so the Dockerfile's `--platform=$BUILDPLATFORM` resolves on legacy Docker CLIs
-- `kubectl rightsize explain` was missing `safetyObservationPeriod` merge from namespace/cluster defaults, showing wrong effective value
+- `kubectl attune explain` was missing `safetyObservationPeriod` merge from namespace/cluster defaults, showing wrong effective value
 - `StaleRecommendationsTotal` metric label mismatch between registration and increment
 - E2E test flakes: OOMKill timeout, GuaranteedQoS queryStep, ScaleUp timeout, Chainsaw poll intervals, rateWindow regression with short queryStep
 - Status race condition where concurrent reconciles could reset `status.workloads.resized` to 0 after a successful resize; Resized count is now derived from resize history entries which survive optimistic concurrency conflicts
-- `kube_rightsize_throttle_deferred_total` metric now appears in the Grafana dashboard (was the only unvisualized operator metric)
-- `RightSizeNamespaceDefaults` CRD missing from `config/crd/kustomization.yaml`; kustomize deployments now include it
+- `attune_throttle_deferred_total` metric now appears in the Grafana dashboard (was the only unvisualized operator metric)
+- `AttuneNamespaceDefaults` CRD missing from `config/crd/kustomization.yaml`; kustomize deployments now include it
 - Bearer-token cache prefix collision when one Prometheus address is a prefix of another
 - `make test-local` now cleans up the k3d cluster even on mid-run failures
 - Gitleaks PATH resolution on self-hosted runners

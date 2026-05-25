@@ -22,7 +22,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-// StripPodFields removes fields from a Pod that the kube-rightsize operator
+// StripPodFields removes fields from a Pod that the attune operator
 // never reads. This reduces the per-Pod memory footprint in the informer cache
 // by dropping large fields like env vars, volumes, probes, and command args.
 //

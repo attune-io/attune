@@ -1,4 +1,4 @@
-kube-rightsize uses the Kubernetes 1.32+ in-place pod resize API to adjust
+attune uses the Kubernetes 1.32+ in-place pod resize API to adjust
 container resources without restarting pods. This page explains how the
 resize API works and how the operator uses it.
 
@@ -18,7 +18,7 @@ limits without restarting it. CPU changes take effect immediately; memory
 limit increases take effect immediately but decreases only apply when the
 container's working set drops below the new limit.
 
-## How kube-rightsize uses it
+## How attune uses it
 
 The operator's resize engine (`internal/resize/engine.go`) performs
 resizes via the typed Kubernetes client:
@@ -61,27 +61,27 @@ observation and revert tracking:
 
 | Annotation | Description |
 |---|---|
-| `rightsize.io/resized-at` | RFC 3339 timestamp of the resize |
-| `rightsize.io/resized-containers` | Comma-separated list of resized container names |
-| `rightsize.io/resized-workload` | Name of the parent workload |
-| `rightsize.io/original-cpu-request.<container>` | CPU request before the resize (per container) |
-| `rightsize.io/original-memory-request.<container>` | Memory request before the resize (per container) |
-| `rightsize.io/original-restart-count.<container>` | Container restart count at resize time (per container) |
-| `rightsize.io/original-cpu-limit.<container>` | CPU limit before the resize (when limit is non-zero) |
-| `rightsize.io/original-memory-limit.<container>` | Memory limit before the resize (when limit is non-zero) |
-| `rightsize.io/policy` | Name of the RightSizePolicy managing this pod (used for safety observation provenance checks and finalizer cleanup) |
-| `rightsize.io/startup-boost-at` | RFC 3339 timestamp when a startup CPU boost was applied |
+| `attune.io/resized-at` | RFC 3339 timestamp of the resize |
+| `attune.io/resized-containers` | Comma-separated list of resized container names |
+| `attune.io/resized-workload` | Name of the parent workload |
+| `attune.io/original-cpu-request.<container>` | CPU request before the resize (per container) |
+| `attune.io/original-memory-request.<container>` | Memory request before the resize (per container) |
+| `attune.io/original-restart-count.<container>` | Container restart count at resize time (per container) |
+| `attune.io/original-cpu-limit.<container>` | CPU limit before the resize (when limit is non-zero) |
+| `attune.io/original-memory-limit.<container>` | Memory limit before the resize (when limit is non-zero) |
+| `attune.io/policy` | Name of the AttunePolicy managing this pod (used for safety observation provenance checks and finalizer cleanup) |
+| `attune.io/startup-boost-at` | RFC 3339 timestamp when a startup CPU boost was applied |
 
 These annotations are removed once the safety observation period completes
 (regardless of whether the resize is kept or reverted). When a policy is
-deleted, the `rightsize.io/cleanup` finalizer removes all tracking
+deleted, the `attune.io/cleanup` finalizer removes all tracking
 annotations from managed pods before allowing garbage collection. Pods
 keep their current (resized) resource values; only annotations are cleaned.
 
 When multiple containers in the same pod are resized in the same cycle,
 each container gets its own set of per-container annotations (e.g.,
-`rightsize.io/original-cpu-request.app`, `rightsize.io/original-cpu-request.sidecar`).
-The `rightsize.io/resized-containers` annotation lists all resized containers
+`attune.io/original-cpu-request.app`, `attune.io/original-cpu-request.sidecar`).
+The `attune.io/resized-containers` annotation lists all resized containers
 as a comma-separated value.
 
 ## Resize lifecycle
@@ -202,7 +202,7 @@ stateDiagram-v2
 
 - **Eviction fallback restarts the pod from the current template.** When a pod
   is evicted, the workload controller (Deployment, StatefulSet) creates a
-  replacement pod from the current PodTemplate. kube-rightsize does not patch
+  replacement pod from the current PodTemplate. attune does not patch
   workload templates as part of eviction fallback, so the replacement pod may
   come back with the original resources until a later in-place resize succeeds.
   Evicted pods are recorded separately from successful in-place resizes and do

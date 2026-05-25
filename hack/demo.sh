@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# hack/demo.sh - Interactive demo of kube-rightsize on a local k3d cluster.
+# hack/demo.sh - Interactive demo of attune on a local k3d cluster.
 #
 # This script provisions a cluster, deploys the operator, creates an
-# over-provisioned workload, applies a RightSizePolicy in Recommend mode,
+# over-provisioned workload, applies a AttunePolicy in Recommend mode,
 # waits for recommendations to appear, then promotes to Auto mode and
 # shows the in-place resize happening.
 #
@@ -22,9 +22,9 @@
 set -euo pipefail
 
 # ── Configuration ────────────────────────────────────────────────────────────
-CLUSTER_NAME="kube-rightsize-demo"
+CLUSTER_NAME="attune-demo"
 K3S_VERSION="v1.35.4-k3s1"
-IMG="kube-rightsize:demo"
+IMG="attune:demo"
 SKIP_CLUSTER="${SKIP_CLUSTER:-false}"
 NO_CLEANUP="${NO_CLEANUP:-false}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -122,8 +122,8 @@ wait_for "Prometheus server ready" 180 \
   "kubectl wait --for=condition=Available deployment/prometheus-server -n monitoring --timeout=5s"
 echo
 
-# ── Step 3: Build and deploy kube-rightsize ──────────────────────────────────
-banner "Step 3: Build and deploy kube-rightsize"
+# ── Step 3: Build and deploy attune ──────────────────────────────────
+banner "Step 3: Build and deploy attune"
 
 cd "$REPO_ROOT"
 info "Building operator image..."
@@ -133,9 +133,9 @@ info "Loading image into cluster..."
 k3d image import "$IMG" -c "$CLUSTER_NAME"
 
 info "Installing via Helm..."
-helm install kube-rightsize ./charts/kube-rightsize \
-  --namespace kube-rightsize-system --create-namespace \
-  --set image.repository=kube-rightsize \
+helm install attune ./charts/attune \
+  --namespace attune-system --create-namespace \
+  --set image.repository=attune \
   --set image.tag=demo \
   --set image.pullPolicy=Never \
   --set webhooks.enabled=true \
@@ -143,8 +143,8 @@ helm install kube-rightsize ./charts/kube-rightsize \
   --wait --timeout 2m >/dev/null
 
 wait_for "operator ready" 60 \
-  "kubectl wait --for=condition=Available deployment/kube-rightsize-controller-manager -n kube-rightsize-system --timeout=5s"
-run kubectl get pods -n kube-rightsize-system
+  "kubectl wait --for=condition=Available deployment/attune-controller-manager -n attune-system --timeout=5s"
+run kubectl get pods -n attune-system
 echo
 
 # ── Step 4: Deploy an over-provisioned workload ─────────────────────────────
@@ -164,15 +164,15 @@ run kubectl get pods -n demo-app -o custom-columns=\
 'NAME:.metadata.name,CPU_REQ:.spec.containers[0].resources.requests.cpu,MEM_REQ:.spec.containers[0].resources.requests.memory'
 echo
 
-# ── Step 5: Create a RightSizePolicy in Recommend mode ──────────────────────
-banner "Step 5: Create a RightSizePolicy (Recommend mode)"
+# ── Step 5: Create a AttunePolicy in Recommend mode ──────────────────────
+banner "Step 5: Create a AttunePolicy (Recommend mode)"
 
 info "Applying a policy with fast demo settings..."
 info "(minimumDataPoints: 3, historyWindow: 15m, reconcileInterval: 30s)"
 
 cat <<'EOF' | kubectl apply -f -
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizePolicy
+apiVersion: attune.io/v1alpha1
+kind: AttunePolicy
 metadata:
   name: web-api
   namespace: demo-app
@@ -214,13 +214,13 @@ echo
 ATTEMPTS=0
 MAX_ATTEMPTS=30
 while [ "$ATTEMPTS" -lt "$MAX_ATTEMPTS" ]; do
-  RECS=$(kubectl get rightsizepolicies web-api -n demo-app -o jsonpath='{.status.recommendations}' 2>/dev/null || echo "")
+  RECS=$(kubectl get attunepolicies web-api -n demo-app -o jsonpath='{.status.recommendations}' 2>/dev/null || echo "")
   if [ -n "$RECS" ] && [ "$RECS" != "null" ] && [ "$RECS" != "[]" ]; then
     break
   fi
   ATTEMPTS=$((ATTEMPTS + 1))
-  PHASE=$(kubectl get rightsizepolicies web-api -n demo-app -o jsonpath='{.status.phase}' 2>/dev/null || echo "unknown")
-  POINTS=$(kubectl get rightsizepolicies web-api -n demo-app -o jsonpath='{.status.dataPointsCollected}' 2>/dev/null || echo "0")
+  PHASE=$(kubectl get attunepolicies web-api -n demo-app -o jsonpath='{.status.phase}' 2>/dev/null || echo "unknown")
+  POINTS=$(kubectl get attunepolicies web-api -n demo-app -o jsonpath='{.status.dataPointsCollected}' 2>/dev/null || echo "0")
   echo -ne "\r  Phase: $PHASE | Data points: $POINTS | Attempt $ATTEMPTS/$MAX_ATTEMPTS   "
   sleep 10
 done
@@ -230,20 +230,20 @@ echo
 if [ "$ATTEMPTS" -ge "$MAX_ATTEMPTS" ]; then
   warn "Recommendations did not appear within the timeout."
   warn "This is expected if Prometheus has not yet scraped enough data."
-  info "Check status with: kubectl get rightsizepolicies web-api -n demo-app -o yaml"
+  info "Check status with: kubectl get attunepolicies web-api -n demo-app -o yaml"
 else
   info "Recommendations are ready!"
   echo
-  run kubectl get rightsizepolicies -n demo-app
+  run kubectl get attunepolicies -n demo-app
   echo
   # Show recommendations via the kubectl plugin if available, otherwise via jsonpath.
-  if command -v kubectl-rightsize >/dev/null 2>&1; then
-    run kubectl rightsize recommendations -n demo-app
+  if command -v kubectl-attune >/dev/null 2>&1; then
+    run kubectl attune recommendations -n demo-app
     echo
-    run kubectl rightsize savings -n demo-app
+    run kubectl attune savings -n demo-app
   else
     info "Recommendation details:"
-    kubectl get rightsizepolicies web-api -n demo-app \
+    kubectl get attunepolicies web-api -n demo-app \
       -o jsonpath='{range .status.recommendations[0].containers[*]}  {.containerName}: CPU {.cpu.recommendation} (from {.cpu.current}), Memory {.memory.recommendation} (from {.memory.current}){"\n"}{end}'
     echo
   fi
@@ -253,7 +253,7 @@ fi
 banner "Step 7: Promote to Auto mode (in-place resize)"
 
 info "Switching from Recommend to Auto mode..."
-run kubectl patch rightsizepolicies web-api -n demo-app --type merge \
+run kubectl patch attunepolicies web-api -n demo-app --type merge \
   -p '{"spec":{"updateStrategy":{"mode":"Auto","autoRevert":true}}}'
 echo
 
@@ -266,19 +266,19 @@ run kubectl get pods -n demo-app -o custom-columns=\
 echo
 
 info "Policy status:"
-run kubectl get rightsizepolicies -n demo-app
+run kubectl get attunepolicies -n demo-app
 echo
 
 # ── Done ─────────────────────────────────────────────────────────────────────
 banner "Demo Complete"
 
-info "kube-rightsize resized all 3 pods in-place without a single restart."
+info "attune resized all 3 pods in-place without a single restart."
 info "No YAML edits. No PRs. No pod restarts."
 echo
 info "What to explore next:"
-info "  kubectl get rightsizepolicies web-api -n demo-app -o yaml  # full status"
+info "  kubectl get attunepolicies web-api -n demo-app -o yaml  # full status"
 info "  kubectl describe pod -n demo-app -l app=web-api            # resize events"
-if command -v kubectl-rightsize >/dev/null 2>&1; then
-  info "  kubectl rightsize savings -n demo-app                     # dollar savings"
+if command -v kubectl-attune >/dev/null 2>&1; then
+  info "  kubectl attune savings -n demo-app                     # dollar savings"
 fi
 echo

@@ -1,9 +1,9 @@
 All metrics are exposed on the operator's metrics endpoint (default port
-8080) and use the `kube_rightsize_` prefix.
+8080) and use the `attune_` prefix.
 
 ## Counters
 
-### kube_rightsize_resize_total
+### attune_resize_total
 
 Total number of in-place resize operations performed.
 
@@ -14,7 +14,7 @@ Total number of in-place resize operations performed.
 | `resource` | `cpu` or `memory` |
 | `result` | `success`, `failed`, or `reverted` |
 
-### kube_rightsize_reverts_total
+### attune_reverts_total
 
 Total number of resize reverts triggered by the safety monitor.
 
@@ -24,7 +24,7 @@ Total number of resize reverts triggered by the safety monitor.
 | `workload` | Workload name |
 | `reason` | `oomkill`, `throttle`, `restart`, `notready`, `re-fetch-failed`, or `annotation-persist-failed` |
 
-### kube_rightsize_prometheus_query_errors_total
+### attune_prometheus_query_errors_total
 
 Total number of failed Prometheus queries.
 
@@ -33,7 +33,7 @@ Total number of failed Prometheus queries.
 | `namespace` | Workload namespace where the query originated |
 | `query_type` | `cpu_grouped` or `memory_grouped` |
 
-### kube_rightsize_reconcile_errors_total
+### attune_reconcile_errors_total
 
 Total number of reconciliation errors by type.
 
@@ -41,7 +41,7 @@ Total number of reconciliation errors by type.
 |-------|-------------|
 | `error_type` | `fetch`, `fetch_defaults`, `prometheus_config`, `collector_options`, `collector_create`, `discover_workloads`, `get_pods`, `compute_recommendations`, `status_update`, or `safety_observation` |
 
-### kube_rightsize_webhook_validation_total
+### attune_webhook_validation_total
 
 Total number of webhook admission decisions.
 
@@ -50,7 +50,7 @@ Total number of webhook admission decisions.
 | `operation` | `validate_create`, `validate_update`, `defaulting`, `defaults_validate_create`, `defaults_validate_update`, `namespace_defaults_validate_create`, or `namespace_defaults_validate_update` |
 | `result` | `allowed` or `rejected` |
 
-### kube_rightsize_schedule_skipped_total
+### attune_schedule_skipped_total
 
 Total resize cycles skipped because the current time is outside the
 configured schedule window.
@@ -60,7 +60,7 @@ configured schedule window.
 | `namespace` | Policy namespace |
 | `policy` | Policy name |
 
-### kube_rightsize_budget_exhausted_total
+### attune_budget_exhausted_total
 
 Total resize operations deferred because the per-cycle budget cap
 (`maxTotalCpuIncrease` / `maxTotalMemoryIncrease`) was exhausted.
@@ -70,7 +70,7 @@ Total resize operations deferred because the per-cycle budget cap
 | `namespace` | Policy namespace |
 | `policy` | Policy name |
 
-### kube_rightsize_eviction_total
+### attune_eviction_total
 
 Total eviction attempts when `resizeMethod: InPlaceOrRecreate` falls back
 to pod eviction after an in-place resize fails or is marked Infeasible.
@@ -81,7 +81,7 @@ to pod eviction after an in-place resize fails or is marked Infeasible.
 | `workload` | Workload name |
 | `result` | `success` or `denied` |
 
-### kube_rightsize_throttle_deferred_total
+### attune_throttle_deferred_total
 
 Total number of throttle safety checks deferred because the Prometheus rate
 window grace period has not elapsed. Incremented when a pod's observation
@@ -93,7 +93,7 @@ a reliable throttle check.
 | `namespace` | Workload namespace |
 | `workload` | Workload name |
 
-### kube_rightsize_startup_boost_total
+### attune_startup_boost_total
 
 Total startup boost lifecycle events (boost applied, expired, or failed).
 
@@ -103,7 +103,7 @@ Total startup boost lifecycle events (boost applied, expired, or failed).
 | `workload` | Workload name |
 | `action` | `applied`, `expired`, or `failed` |
 
-### kube_rightsize_infeasible_skipped_total
+### attune_infeasible_skipped_total
 
 Total pods skipped because kubelet marked the in-place resize as
 Infeasible and `resizeMethod` is `InPlaceOnly` (no eviction fallback).
@@ -113,7 +113,7 @@ Infeasible and `resizeMethod` is `InPlaceOnly` (no eviction fallback).
 | `namespace` | Workload namespace |
 | `workload` | Workload name |
 
-### kube_rightsize_stale_recommendations_total
+### attune_stale_recommendations_total
 
 Total times recommendations were marked stale due to Prometheus data gaps.
 
@@ -124,7 +124,7 @@ Total times recommendations were marked stale due to Prometheus data gaps.
 
 ## Gauges
 
-### kube_rightsize_recommendation_cpu_cores
+### attune_recommendation_cpu_cores
 
 Recommended CPU cores for each workload container.
 
@@ -134,7 +134,7 @@ Recommended CPU cores for each workload container.
 | `workload` | Workload name |
 | `container` | Container name |
 
-### kube_rightsize_recommendation_memory_bytes
+### attune_recommendation_memory_bytes
 
 Recommended memory (bytes) for each workload container.
 
@@ -144,7 +144,7 @@ Recommended memory (bytes) for each workload container.
 | `workload` | Workload name |
 | `container` | Container name |
 
-### kube_rightsize_savings_cpu_cores_total
+### attune_savings_cpu_cores_total
 
 Total CPU cores saved per namespace.
 
@@ -152,7 +152,7 @@ Total CPU cores saved per namespace.
 |-------|-------------|
 | `namespace` | Namespace |
 
-### kube_rightsize_savings_memory_bytes_total
+### attune_savings_memory_bytes_total
 
 Total memory bytes saved per namespace.
 
@@ -160,7 +160,7 @@ Total memory bytes saved per namespace.
 |-------|-------------|
 | `namespace` | Namespace |
 
-### kube_rightsize_savings_estimated_monthly_dollars
+### attune_savings_estimated_monthly_dollars
 
 Estimated monthly cost savings in USD per namespace, computed from configured
 or default pricing ($0.031/vCPU-hour, $0.004/GiB-hour).
@@ -169,7 +169,7 @@ or default pricing ($0.031/vCPU-hour, $0.004/GiB-hour).
 |-------|-------------|
 | `namespace` | Namespace |
 
-### kube_rightsize_confidence
+### attune_confidence
 
 Recommendation confidence score (0-1) per workload container.
 
@@ -179,7 +179,7 @@ Recommendation confidence score (0-1) per workload container.
 | `workload` | Workload name |
 | `container` | Container name |
 
-### kube_rightsize_burst_factor
+### attune_burst_factor
 
 Burst detection multiplier applied to recommendations. A value of 1.0 means
 no burst detected; values above 1.0 indicate the recommendation was inflated
@@ -194,7 +194,7 @@ to accommodate a detected usage burst.
 
 ## Histograms
 
-### kube_rightsize_resize_duration_seconds
+### attune_resize_duration_seconds
 
 Duration of individual pod resize operations.
 
@@ -203,7 +203,7 @@ Duration of individual pod resize operations.
 | `namespace` | Workload namespace |
 | `workload` | Workload name |
 
-### kube_rightsize_reconcile_duration_seconds
+### attune_reconcile_duration_seconds
 
 Duration of each reconciliation loop.
 
@@ -213,7 +213,7 @@ Duration of each reconciliation loop.
 | `namespace` | Policy namespace |
 | `policy` | Policy name |
 
-### kube_rightsize_prometheus_query_duration_seconds
+### attune_prometheus_query_duration_seconds
 
 Duration of each Prometheus query.
 
@@ -221,7 +221,7 @@ Duration of each Prometheus query.
 |-------|-------------|
 | `query_type` | `cpu_grouped` or `memory_grouped` |
 
-### kube_rightsize_webhook_duration_seconds
+### attune_webhook_duration_seconds
 
 Duration of webhook validation and defaulting operations.
 
@@ -232,7 +232,7 @@ Duration of webhook validation and defaulting operations.
 ## Controller-runtime Workqueue Metrics
 
 These metrics are auto-registered by controller-runtime for the
-`RightSizePolicy` reconciler workqueue. They are critical for diagnosing
+`AttunePolicy` reconciler workqueue. They are critical for diagnosing
 reconcile backlog and throughput at scale.
 
 ### workqueue_depth
@@ -242,7 +242,7 @@ processed).
 
 | Label | Description |
 |-------|-------------|
-| `name` | Queue name (e.g. `rightsizepolicy`) |
+| `name` | Queue name (e.g. `attunepolicy`) |
 
 ### workqueue_adds_total
 
@@ -299,62 +299,62 @@ Time that unfinished work has been in progress (gauge). Complements
 Total successful in-place resizes in the last 24 hours:
 
 ```promql
-sum(increase(kube_rightsize_resize_total{result="success"}[24h]))
+sum(increase(attune_resize_total{result="success"}[24h]))
 ```
 
 Total successful eviction fallbacks in the last 24 hours:
 
 ```promql
-sum(increase(kube_rightsize_eviction_total{result="success"}[24h]))
+sum(increase(attune_eviction_total{result="success"}[24h]))
 ```
 
 Revert rate as a percentage of successful in-place resizes:
 
 ```promql
-sum(rate(kube_rightsize_reverts_total[1h]))
+sum(rate(attune_reverts_total[1h]))
 /
-sum(rate(kube_rightsize_resize_total{result="success"}[1h]))
+sum(rate(attune_resize_total{result="success"}[1h]))
 * 100
 ```
 
 Total CPU cores saved cluster-wide:
 
 ```promql
-sum(kube_rightsize_savings_cpu_cores_total)
+sum(attune_savings_cpu_cores_total)
 ```
 
 Low-confidence recommendations (below 0.5):
 
 ```promql
-kube_rightsize_confidence < 0.5
+attune_confidence < 0.5
 ```
 
 P99 reconciliation latency:
 
 ```promql
-histogram_quantile(0.99, rate(kube_rightsize_reconcile_duration_seconds_bucket[5m]))
+histogram_quantile(0.99, rate(attune_reconcile_duration_seconds_bucket[5m]))
 ```
 
 Prometheus query error rate:
 
 ```promql
-sum(rate(kube_rightsize_prometheus_query_errors_total[5m]))
+sum(rate(attune_prometheus_query_errors_total[5m]))
 ```
 
 Reconcile queue depth (backlog indicator):
 
 ```promql
-workqueue_depth{name="rightsizepolicy"}
+workqueue_depth{name="attunepolicy"}
 ```
 
 Average time items wait in the queue before processing:
 
 ```promql
-histogram_quantile(0.99, rate(workqueue_queue_duration_seconds_bucket{name="rightsizepolicy"}[5m]))
+histogram_quantile(0.99, rate(workqueue_queue_duration_seconds_bucket{name="attunepolicy"}[5m]))
 ```
 
 Reconcile enqueue rate (items added to queue per second):
 
 ```promql
-rate(workqueue_adds_total{name="rightsizepolicy"}[5m])
+rate(workqueue_adds_total{name="attunepolicy"}[5m])
 ```

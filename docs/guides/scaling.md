@@ -1,11 +1,11 @@
 # Scaling Guide
 
-This guide covers how to size kube-rightsize for your cluster, from small
+This guide covers how to size attune for your cluster, from small
 dev environments to large production deployments with thousands of workloads.
 
 ## Architecture Overview
 
-kube-rightsize runs as a single-leader Deployment. One replica performs all
+attune runs as a single-leader Deployment. One replica performs all
 reconciliation work while the standby (in HA mode) waits to take over via
 leader election. The operator's main scaling dimensions are:
 
@@ -19,10 +19,10 @@ The fastest way to configure for your cluster size:
 
 ```bash
 # Option A: one-liner with clusterSize preset
-helm install kube-rightsize ./charts/kube-rightsize --set clusterSize=large
+helm install attune ./charts/attune --set clusterSize=large
 
 # Option B: use an example values file for full control
-helm install kube-rightsize ./charts/kube-rightsize -f charts/kube-rightsize/examples/values-large.yaml
+helm install attune ./charts/attune -f charts/attune/examples/values-large.yaml
 ```
 
 ## Cluster Size Presets
@@ -45,7 +45,7 @@ value always overrides the preset.
 | `replicaCount` | 1 | 1 | 2 | 2 |
 
 The "workloads" count means the number of Deployments, StatefulSets, and
-DaemonSets targeted by RightSizePolicy resources, not total pods.
+DaemonSets targeted by AttunePolicy resources, not total pods.
 
 ### Override Behavior
 
@@ -63,8 +63,8 @@ requests set.
 
 ### Recommended CRD Settings by Cluster Size
 
-These settings are configured on your `RightSizePolicy` or
-`RightSizeDefaults` CRDs, not in the Helm chart. They affect per-policy
+These settings are configured on your `AttunePolicy` or
+`AttuneDefaults` CRDs, not in the Helm chart. They affect per-policy
 reconciliation behavior.
 
 | Setting | small | medium | large | xlarge |
@@ -85,7 +85,7 @@ internally).
 ### What breaks first
 
 1. **Reconcile throughput** (most common at scale). By default the controller
-   processes one RightSizePolicy at a time. With hundreds of policies, the
+   processes one AttunePolicy at a time. With hundreds of policies, the
    work queue grows and recommendations become stale. Symptom:
    `workqueue_depth` is consistently > 0,
    `workqueue_longest_running_processor_seconds` climbs. Fix: increase
@@ -101,7 +101,7 @@ internally).
    QPS rate limiter, not goroutine count.
 
 2. **Prometheus query rate**. Symptom: reconcile queue grows,
-   `kube_rightsize_reconcile_duration_seconds` P99 increases. Fix: increase
+   `attune_reconcile_duration_seconds` P99 increases. Fix: increase
    `prometheusQPS` and `prometheusBurst`. This works in tandem with
    `maxConcurrentReconciles`: more goroutines can issue queries in parallel,
    but they share the same QPS budget.
@@ -124,7 +124,7 @@ internally).
 6. **Informer cache memory**. Symptom: operator memory grows linearly with
    cluster size even for namespaces without policies. Fix: use
    `watchNamespaces` to limit the operator to only the namespaces that
-   have RightSizePolicy resources. See
+   have AttunePolicy resources. See
    [Namespace Scoping](#namespace-scoping) below.
 
 ### Diagnosing with metrics
@@ -133,18 +133,18 @@ The operator exposes metrics on the `/metrics` endpoint:
 
 | Metric | What it tells you |
 |--------|-------------------|
-| `kube_rightsize_reconcile_duration_seconds` | How long each policy reconcile takes. P99 > 30s means queries are slow. |
-| `kube_rightsize_reconcile_duration_seconds_count` | Total reconciles. Compare with error count. |
-| `kube_rightsize_reconcile_errors_total` | Errors per policy. Prometheus timeouts show here. |
-| `kube_rightsize_resize_total` | Actual in-place resizes performed. |
-| `kube_rightsize_eviction_total` | Eviction fallback attempts when in-place resize is not possible. |
-| `kube_rightsize_reverts_total` | Reverted in-place resizes (safety mechanism). |
+| `attune_reconcile_duration_seconds` | How long each policy reconcile takes. P99 > 30s means queries are slow. |
+| `attune_reconcile_duration_seconds_count` | Total reconciles. Compare with error count. |
+| `attune_reconcile_errors_total` | Errors per policy. Prometheus timeouts show here. |
+| `attune_resize_total` | Actual in-place resizes performed. |
+| `attune_eviction_total` | Eviction fallback attempts when in-place resize is not possible. |
+| `attune_reverts_total` | Reverted in-place resizes (safety mechanism). |
 | `workqueue_depth` | Controller work queue depth. Consistently > 0 means the operator can't keep up. |
 | `workqueue_longest_running_processor_seconds` | Longest in-flight reconcile. |
 
-### Prometheus sizing for kube-rightsize
+### Prometheus sizing for attune
 
-Each RightSizePolicy generates 2-4 Prometheus queries per reconcile cycle
+Each AttunePolicy generates 2-4 Prometheus queries per reconcile cycle
 (CPU usage, memory usage, OOM events, restart events). At steady state with
 a 1-hour cooldown:
 
@@ -207,7 +207,7 @@ to a dedicated priority level:
 apiVersion: flowcontrol.apiserver.k8s.io/v1
 kind: FlowSchema
 metadata:
-  name: kube-rightsize
+  name: attune
 spec:
   priorityLevelConfiguration:
     name: workload-high
@@ -216,8 +216,8 @@ spec:
     - subjects:
         - kind: ServiceAccount
           serviceAccount:
-            name: kube-rightsize
-            namespace: kube-rightsize-system
+            name: attune
+            namespace: attune-system
       resourceRules:
         - verbs: ["*"]
           apiGroups: ["*"]
@@ -226,7 +226,7 @@ spec:
 
 ## Namespace Scoping
 
-By default, the operator watches all namespaces for RightSizePolicy
+By default, the operator watches all namespaces for AttunePolicy
 resources. On large clusters (10,000+ namespaces) where policies exist in
 only a few namespaces, this wastes informer cache memory watching
 namespaces that will never have policies.
@@ -250,8 +250,8 @@ Or via CLI flag:
 
 - When empty (default): watches all namespaces (cluster-scoped)
 - When set: only watches the listed namespaces for namespace-scoped
-  resources (Pods, Deployments, HPAs, RightSizePolicies, etc.)
-- Cluster-scoped resources (Nodes, RightSizeDefaults) are always watched
+  resources (Pods, Deployments, HPAs, AttunePolicies, etc.)
+- Cluster-scoped resources (Nodes, AttuneDefaults) are always watched
   regardless of this setting
 - Requires a restart to change the namespace list
 
@@ -285,7 +285,7 @@ topologySpreadConstraints:
     whenUnsatisfiable: DoNotSchedule
     labelSelector:
       matchLabels:
-        app.kubernetes.io/name: kube-rightsize
+        app.kubernetes.io/name: attune
 ```
 
 ## Monitoring the Operator

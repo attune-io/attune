@@ -1,11 +1,11 @@
 # Savings Calculator
 
 Estimate how much you could save by right-sizing your Kubernetes workloads
-with kube-rightsize. Enter your current resource allocation and actual usage
+with attune. Enter your current resource allocation and actual usage
 below, and see the projected monthly and annual savings instantly.
 
 The calculator uses the same pricing model as the operator's built-in
-`EstimatedMonthlySavings` computation (configurable via `RightSizeDefaults`).
+`EstimatedMonthlySavings` computation (configurable via `AttuneDefaults`).
 
 ---
 
@@ -327,7 +327,7 @@ The calculator uses the same pricing model as the operator's built-in
 </div>
 
 <div class="calc-results" id="resultsSection">
-<h3>Projected Savings with kube-rightsize</h3>
+<h3>Projected Savings with attune</h3>
 <div class="results-grid">
   <div class="result-card">
     <div class="result-label">Monthly savings</div>
@@ -657,7 +657,7 @@ reports.
 
 **Ready to capture these savings?**
 
-- [Install kube-rightsize](getting-started/installation.md) in 5 minutes
+- [Install attune](getting-started/installation.md) in 5 minutes
 - [Start with Recommend mode](getting-started/quickstart.md) to validate
   the numbers in your own cluster
-- [Read why kube-rightsize](why-kube-rightsize.md) for the full story
+- [Read why attune](why-attune.md) for the full story

@@ -2,8 +2,8 @@
 # Example: OneShot mode (resize one pod per cycle)
 # The safest automated mode. Each cycle resizes at most one pod,
 # then waits for the cooldown before touching another.
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizePolicy
+apiVersion: attune.io/v1alpha1
+kind: AttunePolicy
 metadata:
   name: db-oneshot
   namespace: production

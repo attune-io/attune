@@ -2,19 +2,19 @@
 
 ## Custom Resource Definitions
 
-kube-rightsize introduces three CRDs:
+attune introduces three CRDs:
 
-**RightSizePolicy** (namespaced, short name `rsp`) is the primary resource.
+**AttunePolicy** (namespaced, short name `rsp`) is the primary resource.
 Each policy targets one or more workloads in a namespace, configures the
 recommendation parameters, and controls how resizes are applied.
 
-**RightSizeDefaults** (cluster-scoped, short name `rsd`) sets global default
+**AttuneDefaults** (cluster-scoped, short name `rsd`) sets global default
 values for metrics source, resource config, and update strategy.
 
-**RightSizeNamespaceDefaults** (namespaced, short name `rsnd`) sets
+**AttuneNamespaceDefaults** (namespaced, short name `rsnd`) sets
 per-namespace defaults for policies in the same namespace. If a namespace
-has a `RightSizeNamespaceDefaults`, the controller uses it instead of the
-cluster-scoped `RightSizeDefaults`. Fields omitted there fall back to the
+has a `AttuneNamespaceDefaults`, the controller uses it instead of the
+cluster-scoped `AttuneDefaults`. Fields omitted there fall back to the
 operator's built-in defaults. If multiple defaults objects exist at one
 scope, the controller deterministically picks the lexicographically
 smallest `metadata.name`.
@@ -78,7 +78,7 @@ See [Algorithm](../architecture/algorithm.md) for formulas and details.
 Kubernetes 1.32 added the `/resize` subresource for in-place pod resize
 (alpha, requires feature gate). Kubernetes 1.33 graduated the feature to
 beta (enabled by default). The kubelet adjusts cgroup limits without
-restarting the container. kube-rightsize calls `UpdateResize` on each pod,
+restarting the container. attune calls `UpdateResize` on each pod,
 then polls the container status until the new resources are reported or an
 `Infeasible` condition appears.
 
@@ -112,7 +112,7 @@ Cooldown enforcement prevents repeated resize attempts. See
 
 The operator computes `EstimatedMonthlySavings` based on the difference
 between current and recommended resource requests. Pricing is configurable
-via `RightSizeDefaults` or `RightSizeNamespaceDefaults`:
+via `AttuneDefaults` or `AttuneNamespaceDefaults`:
 
 ```yaml
 spec:
@@ -122,7 +122,7 @@ spec:
 ```
 
 The formula is: `(cpuCoresSaved * cpuPrice + memGiBSaved * memPrice) * 730 hours/month`.
-View savings via `kubectl rightsize savings` or the Grafana dashboard.
+View savings via `kubectl attune savings` or the Grafana dashboard.
 
 ## Multi-container support
 
@@ -144,9 +144,9 @@ node's allocatable resources.
 
 The Prometheus address is resolved in order:
 
-1. `spec.metricsSource.prometheus.address` on the RightSizePolicy
-2. `spec.metricsSource.prometheus.address` on a RightSizeNamespaceDefaults resource in the same namespace
-3. `spec.metricsSource.prometheus.address` on a RightSizeDefaults resource
+1. `spec.metricsSource.prometheus.address` on the AttunePolicy
+2. `spec.metricsSource.prometheus.address` on a AttuneNamespaceDefaults resource in the same namespace
+3. `spec.metricsSource.prometheus.address` on a AttuneDefaults resource
 4. Auto-discovery: Prometheus Operator CRD (`monitoring.coreos.com/v1 Prometheus`)
 5. Auto-discovery: well-known service names (`prometheus-server`,
    `prometheus-kube-prometheus-prometheus`) in common namespaces
@@ -160,6 +160,6 @@ The operator detects:
 - **VPA conflicts**: warns when a VPA targets the same workload.
 - **HPA coexistence**: logs a notice and adjusts only requests (not replicas).
 - **Policy overlap**: higher-weight policies take precedence when multiple
-  RightSizePolicies match the same workload.
+  AttunePolicies match the same workload.
 - **Active rollouts**: skips resizing during an in-progress deployment rollout.
-- **Opt-out annotation**: workloads with `rightsize.io/skip: "true"` are ignored.
+- **Opt-out annotation**: workloads with `attune.io/skip: "true"` are ignored.

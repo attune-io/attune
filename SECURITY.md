@@ -2,13 +2,13 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in kube-rightsize, please report it
+If you discover a security vulnerability in attune, please report it
 responsibly.
 
 **DO NOT** create a public GitHub issue for security vulnerabilities.
 
 Instead, please report vulnerabilities via GitHub's private security advisory
-feature: [Report a vulnerability](https://github.com/SebTardifLabs/kube-rightsize/security/advisories/new).
+feature: [Report a vulnerability](https://github.com/attune-io/attune/security/advisories/new).
 
 ## Supported Versions
 

@@ -28,35 +28,35 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
-	"github.com/SebTardifLabs/kube-rightsize/internal/operatormetrics"
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/operatormetrics"
 )
 
-func validPolicy() *rightsizev1alpha1.RightSizePolicy {
+func validPolicy() *attunev1alpha1.AttunePolicy {
 	name := "my-app"
-	return &rightsizev1alpha1.RightSizePolicy{
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			TargetRef: rightsizev1alpha1.TargetRef{
+	return &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			TargetRef: attunev1alpha1.TargetRef{
 				Kind: "Deployment",
 				Name: &name,
 			},
-			CPU: rightsizev1alpha1.ResourceConfig{
+			CPU: attunev1alpha1.ResourceConfig{
 				Percentile: 95,
 				Overhead:   "20",
 			},
-			Memory: rightsizev1alpha1.ResourceConfig{
+			Memory: attunev1alpha1.ResourceConfig{
 				Percentile: 99,
 				Overhead:   "30",
 			},
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Type: rightsizev1alpha1.UpdateTypeRecommend,
+			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+				Type: attunev1alpha1.UpdateTypeRecommend,
 			},
 		},
 	}
 }
 
 func TestValidate_ValidPolicy(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
 
 	warnings, err := validator.ValidateCreate(context.Background(), policy)
@@ -66,7 +66,7 @@ func TestValidate_ValidPolicy(t *testing.T) {
 }
 
 func TestValidate_CPUBoundsInvalid(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
 	cpuMin := resource.MustParse("2")
 	cpuMax := resource.MustParse("1")
@@ -82,7 +82,7 @@ func TestValidate_CPUBoundsInvalid(t *testing.T) {
 }
 
 func TestValidate_MemoryBoundsInvalid(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
 	memMin := resource.MustParse("2Gi")
 	memMax := resource.MustParse("1Gi")
@@ -98,7 +98,7 @@ func TestValidate_MemoryBoundsInvalid(t *testing.T) {
 }
 
 func TestValidate_CPUBoundsMaxExceedsUpperLimit(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
 	cpuMin := resource.MustParse("100m")
 	cpuMax := resource.MustParse("512")
@@ -114,7 +114,7 @@ func TestValidate_CPUBoundsMaxExceedsUpperLimit(t *testing.T) {
 }
 
 func TestValidate_MemoryBoundsMaxExceedsUpperLimit(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
 	memMin := resource.MustParse("64Mi")
 	memMax := resource.MustParse("32Ti")
@@ -130,9 +130,9 @@ func TestValidate_MemoryBoundsMaxExceedsUpperLimit(t *testing.T) {
 }
 
 func TestValidate_CanaryModeWithoutConfig(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeCanary
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeCanary
 	policy.Spec.UpdateStrategy.Canary = nil
 
 	warnings, err := validator.ValidateCreate(context.Background(), policy)
@@ -143,10 +143,10 @@ func TestValidate_CanaryModeWithoutConfig(t *testing.T) {
 }
 
 func TestValidate_CanaryObservationPeriodNegative(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeCanary
-	policy.Spec.UpdateStrategy.Canary = &rightsizev1alpha1.CanaryConfig{
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeCanary
+	policy.Spec.UpdateStrategy.Canary = &attunev1alpha1.CanaryConfig{
 		Percentage:        10,
 		ObservationPeriod: metav1.Duration{Duration: -time.Minute},
 	}
@@ -159,10 +159,10 @@ func TestValidate_CanaryObservationPeriodNegative(t *testing.T) {
 }
 
 func TestValidate_CanaryObservationPeriodTooShort(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeCanary
-	policy.Spec.UpdateStrategy.Canary = &rightsizev1alpha1.CanaryConfig{
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeCanary
+	policy.Spec.UpdateStrategy.Canary = &attunev1alpha1.CanaryConfig{
 		Percentage:        10,
 		ObservationPeriod: metav1.Duration{Duration: 30 * time.Second},
 	}
@@ -175,10 +175,10 @@ func TestValidate_CanaryObservationPeriodTooShort(t *testing.T) {
 }
 
 func TestValidate_CanaryObservationPeriodZeroWarns(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeCanary
-	policy.Spec.UpdateStrategy.Canary = &rightsizev1alpha1.CanaryConfig{
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeCanary
+	policy.Spec.UpdateStrategy.Canary = &attunev1alpha1.CanaryConfig{
 		Percentage:        10,
 		ObservationPeriod: metav1.Duration{Duration: 0},
 	}
@@ -191,7 +191,7 @@ func TestValidate_CanaryObservationPeriodZeroWarns(t *testing.T) {
 }
 
 func TestValidate_SafetyObservationPeriodTooShort(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
 	policy.Spec.UpdateStrategy.SafetyObservationPeriod = &metav1.Duration{Duration: 30 * time.Second}
 
@@ -203,7 +203,7 @@ func TestValidate_SafetyObservationPeriodTooShort(t *testing.T) {
 }
 
 func TestValidate_SafetyObservationPeriodNegative(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
 	policy.Spec.UpdateStrategy.SafetyObservationPeriod = &metav1.Duration{Duration: -1 * time.Second}
 
@@ -215,7 +215,7 @@ func TestValidate_SafetyObservationPeriodNegative(t *testing.T) {
 }
 
 func TestValidate_SafetyObservationPeriodValid(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
 	policy.Spec.UpdateStrategy.SafetyObservationPeriod = &metav1.Duration{Duration: 2 * time.Minute}
 
@@ -226,7 +226,7 @@ func TestValidate_SafetyObservationPeriodValid(t *testing.T) {
 }
 
 func TestValidate_NoTargetRef(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
 	policy.Spec.TargetRef.Name = nil
 	policy.Spec.TargetRef.Selector = nil
@@ -239,7 +239,7 @@ func TestValidate_NoTargetRef(t *testing.T) {
 }
 
 func TestValidate_UnsupportedWorkloadKind(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
 	policy.Spec.TargetRef.Kind = "ConfigMap"
 
@@ -252,7 +252,7 @@ func TestValidate_UnsupportedWorkloadKind(t *testing.T) {
 }
 
 func TestValidate_NameAndSelectorBothSet(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
 	name := "my-app"
 	policy.Spec.TargetRef.Name = &name
@@ -268,7 +268,7 @@ func TestValidate_NameAndSelectorBothSet(t *testing.T) {
 }
 
 func TestValidate_EmptySelectorRejected(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
 	policy.Spec.TargetRef.Name = nil
 	policy.Spec.TargetRef.Selector = &metav1.LabelSelector{}
@@ -281,7 +281,7 @@ func TestValidate_EmptySelectorRejected(t *testing.T) {
 }
 
 func TestValidate_MemoryDecreaseWarning(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
 	allowDecrease := true
 	policy.Spec.Memory.AllowDecrease = &allowDecrease
@@ -295,7 +295,7 @@ func TestValidate_MemoryDecreaseWarning(t *testing.T) {
 }
 
 func TestValidate_OverheadZeroIsValid(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
 	policy.Spec.CPU.Overhead = "0"
 
@@ -306,9 +306,9 @@ func TestValidate_OverheadZeroIsValid(t *testing.T) {
 }
 
 func TestValidate_MemoryStartupBoostWarning(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.Memory.StartupBoost = &rightsizev1alpha1.StartupBoost{
+	policy.Spec.Memory.StartupBoost = &attunev1alpha1.StartupBoost{
 		Multiplier: "2.0",
 		Duration:   metav1.Duration{Duration: 1 * time.Minute},
 	}
@@ -321,7 +321,7 @@ func TestValidate_MemoryStartupBoostWarning(t *testing.T) {
 }
 
 func TestValidate_QueryStepTooSmall(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
 	policy.Spec.MetricsSource.QueryStep = &metav1.Duration{Duration: 5 * time.Second}
 
@@ -332,7 +332,7 @@ func TestValidate_QueryStepTooSmall(t *testing.T) {
 }
 
 func TestValidate_QueryStepTooLarge(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
 	policy.Spec.MetricsSource.QueryStep = &metav1.Duration{Duration: 2 * time.Hour}
 
@@ -343,7 +343,7 @@ func TestValidate_QueryStepTooLarge(t *testing.T) {
 }
 
 func TestValidate_QueryStepValid(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
 	policy.Spec.MetricsSource.QueryStep = &metav1.Duration{Duration: 30 * time.Second}
 
@@ -353,7 +353,7 @@ func TestValidate_QueryStepValid(t *testing.T) {
 }
 
 func TestValidateUpdate_ValidPolicy(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	old := validPolicy()
 	updated := validPolicy()
 	updated.Spec.CPU.Percentile = 90
@@ -365,7 +365,7 @@ func TestValidateUpdate_ValidPolicy(t *testing.T) {
 }
 
 func TestValidateUpdate_InvalidBounds(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	old := validPolicy()
 	updated := validPolicy()
 	cpuMin := resource.MustParse("2")
@@ -396,7 +396,7 @@ func TestValidate_OverheadInvalid(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			validator := &RightSizePolicyValidator{}
+			validator := &AttunePolicyValidator{}
 			policy := validPolicy()
 			policy.Spec.CPU.Overhead = tt.cpu
 			policy.Spec.Memory.Overhead = tt.memory
@@ -409,7 +409,7 @@ func TestValidate_OverheadInvalid(t *testing.T) {
 }
 
 func TestValidate_NegativeCooldown(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
 	policy.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: -5 * time.Minute}
 
@@ -419,7 +419,7 @@ func TestValidate_NegativeCooldown(t *testing.T) {
 }
 
 func TestValidate_SubMinuteCooldownRejected(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
 	policy.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: 30 * time.Second}
 
@@ -429,7 +429,7 @@ func TestValidate_SubMinuteCooldownRejected(t *testing.T) {
 }
 
 func TestValidate_NegativeBudgetCaps(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 
 	t.Run("negative maxTotalCpuIncrease", func(t *testing.T) {
 		policy := validPolicy()
@@ -470,7 +470,7 @@ func TestValidate_OverheadExceedsMax(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			validator := &RightSizePolicyValidator{}
+			validator := &AttunePolicyValidator{}
 			policy := validPolicy()
 			policy.Spec.CPU.Overhead = tt.cpu
 			policy.Spec.Memory.Overhead = tt.memory
@@ -494,7 +494,7 @@ func TestValidate_BurstSensitivity(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			validator := &RightSizePolicyValidator{}
+			validator := &AttunePolicyValidator{}
 			policy := validPolicy()
 			policy.Spec.CPU.BurstSensitivity = &tt.value
 
@@ -516,7 +516,7 @@ func TestValidate_BurstSensitivityValid(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			validator := &RightSizePolicyValidator{}
+			validator := &AttunePolicyValidator{}
 			policy := validPolicy()
 			policy.Spec.CPU.BurstSensitivity = &tt.value
 
@@ -537,7 +537,7 @@ func TestValidate_HistoryWindowBounds(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			validator := &RightSizePolicyValidator{}
+			validator := &AttunePolicyValidator{}
 			policy := validPolicy()
 			policy.Spec.MetricsSource.HistoryWindow = &metav1.Duration{Duration: tt.window}
 
@@ -549,7 +549,7 @@ func TestValidate_HistoryWindowBounds(t *testing.T) {
 }
 
 func TestValidate_HistoryWindowValid(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
 	policy.Spec.MetricsSource.HistoryWindow = &metav1.Duration{Duration: 168 * time.Hour} // 7d
 
@@ -560,9 +560,9 @@ func TestValidate_HistoryWindowValid(t *testing.T) {
 }
 
 func TestValidate_PrometheusQueryParametersReservedRejected(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.MetricsSource.Prometheus = &rightsizev1alpha1.PrometheusConfig{
+	policy.Spec.MetricsSource.Prometheus = &attunev1alpha1.PrometheusConfig{
 		Address:         "http://prometheus:9090",
 		QueryParameters: map[string]string{"query": "up"},
 	}
@@ -603,9 +603,9 @@ func TestValidate_PrometheusAddressValid(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			validator := &RightSizePolicyValidator{}
+			validator := &AttunePolicyValidator{}
 			policy := validPolicy()
-			policy.Spec.MetricsSource.Prometheus = &rightsizev1alpha1.PrometheusConfig{
+			policy.Spec.MetricsSource.Prometheus = &attunev1alpha1.PrometheusConfig{
 				Address: tt.address,
 			}
 
@@ -624,7 +624,7 @@ func TestValidateCreate_RecordsWebhookMetrics(t *testing.T) {
 	operatormetrics.WebhookValidationTotal.Reset()
 	operatormetrics.WebhookDuration.Reset()
 
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
 
 	_, err := validator.ValidateCreate(context.Background(), policy)
@@ -649,7 +649,7 @@ func TestValidateCreate_RecordsWebhookMetrics(t *testing.T) {
 func TestValidateCreate_RecordsRejectedMetric(t *testing.T) {
 	operatormetrics.WebhookValidationTotal.Reset()
 
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
 	cpuMin := resource.MustParse("2")
 	cpuMax := resource.MustParse("1")
@@ -667,7 +667,7 @@ func TestValidateCreate_RecordsRejectedMetric(t *testing.T) {
 }
 
 func TestValidate_UnsupportedPercentileRejected(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 
 	// CPU percentile 75 is not in {50, 90, 95, 99}.
 	policy := validPolicy()
@@ -694,9 +694,9 @@ func TestValidate_UnsupportedPercentileRejected(t *testing.T) {
 }
 
 func TestValidate_ScheduleTimezoneInvalid(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.UpdateStrategy.Schedule = &rightsizev1alpha1.ResizeSchedule{
+	policy.Spec.UpdateStrategy.Schedule = &attunev1alpha1.ResizeSchedule{
 		Timezone: "Not/A/Timezone",
 	}
 
@@ -707,10 +707,10 @@ func TestValidate_ScheduleTimezoneInvalid(t *testing.T) {
 }
 
 func TestValidate_ScheduleTimezoneValid(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	for _, tz := range []string{"UTC", "America/New_York", "Europe/London", "Asia/Tokyo"} {
 		policy := validPolicy()
-		policy.Spec.UpdateStrategy.Schedule = &rightsizev1alpha1.ResizeSchedule{
+		policy.Spec.UpdateStrategy.Schedule = &attunev1alpha1.ResizeSchedule{
 			Timezone: tz,
 		}
 		_, err := validator.ValidateCreate(context.Background(), policy)
@@ -719,9 +719,9 @@ func TestValidate_ScheduleTimezoneValid(t *testing.T) {
 }
 
 func TestValidate_ScheduleDaysOfWeekInvalid(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.UpdateStrategy.Schedule = &rightsizev1alpha1.ResizeSchedule{
+	policy.Spec.UpdateStrategy.Schedule = &attunev1alpha1.ResizeSchedule{
 		DaysOfWeek: []string{"Monday", "Notaday"},
 	}
 
@@ -732,9 +732,9 @@ func TestValidate_ScheduleDaysOfWeekInvalid(t *testing.T) {
 }
 
 func TestValidate_ScheduleDaysOfWeekCaseInsensitive(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.UpdateStrategy.Schedule = &rightsizev1alpha1.ResizeSchedule{
+	policy.Spec.UpdateStrategy.Schedule = &attunev1alpha1.ResizeSchedule{
 		DaysOfWeek: []string{"monday", "FRIDAY", "Saturday"},
 	}
 
@@ -757,10 +757,10 @@ func TestValidate_ScheduleTimeWindowInvalid(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			validator := &RightSizePolicyValidator{}
+			validator := &AttunePolicyValidator{}
 			policy := validPolicy()
-			policy.Spec.UpdateStrategy.Schedule = &rightsizev1alpha1.ResizeSchedule{
-				Windows: []rightsizev1alpha1.TimeWindow{{Start: tt.start, End: tt.end}},
+			policy.Spec.UpdateStrategy.Schedule = &attunev1alpha1.ResizeSchedule{
+				Windows: []attunev1alpha1.TimeWindow{{Start: tt.start, End: tt.end}},
 			}
 
 			_, err := validator.ValidateCreate(context.Background(), policy)
@@ -771,10 +771,10 @@ func TestValidate_ScheduleTimeWindowInvalid(t *testing.T) {
 }
 
 func TestValidate_ScheduleTimeWindowValid(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.UpdateStrategy.Schedule = &rightsizev1alpha1.ResizeSchedule{
-		Windows:    []rightsizev1alpha1.TimeWindow{{Start: "02:00", End: "06:00"}},
+	policy.Spec.UpdateStrategy.Schedule = &attunev1alpha1.ResizeSchedule{
+		Windows:    []attunev1alpha1.TimeWindow{{Start: "02:00", End: "06:00"}},
 		DaysOfWeek: []string{"Monday", "Wednesday", "Friday"},
 		Timezone:   "America/New_York",
 	}
@@ -784,10 +784,10 @@ func TestValidate_ScheduleTimeWindowValid(t *testing.T) {
 }
 
 func TestValidate_ScheduleOvernightWindowValid(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.UpdateStrategy.Schedule = &rightsizev1alpha1.ResizeSchedule{
-		Windows: []rightsizev1alpha1.TimeWindow{{Start: "22:00", End: "06:00"}},
+	policy.Spec.UpdateStrategy.Schedule = &attunev1alpha1.ResizeSchedule{
+		Windows: []attunev1alpha1.TimeWindow{{Start: "22:00", End: "06:00"}},
 	}
 
 	_, err := validator.ValidateCreate(context.Background(), policy)
@@ -815,9 +815,9 @@ func TestValidate_CPUStartupBoost(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			validator := &RightSizePolicyValidator{}
+			validator := &AttunePolicyValidator{}
 			policy := validPolicy()
-			policy.Spec.CPU.StartupBoost = &rightsizev1alpha1.StartupBoost{
+			policy.Spec.CPU.StartupBoost = &attunev1alpha1.StartupBoost{
 				Multiplier: tc.multiplier,
 				Duration:   metav1.Duration{Duration: tc.duration},
 			}
@@ -834,7 +834,7 @@ func TestValidate_CPUStartupBoost(t *testing.T) {
 }
 
 func TestValidateDelete_AlwaysSucceeds(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
 
 	warnings, err := validator.ValidateDelete(context.Background(), policy)
@@ -844,11 +844,11 @@ func TestValidateDelete_AlwaysSucceeds(t *testing.T) {
 }
 
 func TestValidate_BearerTokenSecretCrossNamespace(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.MetricsSource.Prometheus = &rightsizev1alpha1.PrometheusConfig{
+	policy.Spec.MetricsSource.Prometheus = &attunev1alpha1.PrometheusConfig{
 		Address: "http://prometheus:9090",
-		BearerTokenSecret: &rightsizev1alpha1.SecretKeyRef{
+		BearerTokenSecret: &attunev1alpha1.SecretKeyRef{
 			Name: "other-namespace/my-secret",
 			Key:  "token",
 		},
@@ -860,11 +860,11 @@ func TestValidate_BearerTokenSecretCrossNamespace(t *testing.T) {
 }
 
 func TestValidate_BearerTokenSecretSameNamespace(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.MetricsSource.Prometheus = &rightsizev1alpha1.PrometheusConfig{
+	policy.Spec.MetricsSource.Prometheus = &attunev1alpha1.PrometheusConfig{
 		Address: "http://prometheus:9090",
-		BearerTokenSecret: &rightsizev1alpha1.SecretKeyRef{
+		BearerTokenSecret: &attunev1alpha1.SecretKeyRef{
 			Name: "my-secret",
 			Key:  "token",
 		},
@@ -875,7 +875,7 @@ func TestValidate_BearerTokenSecretSameNamespace(t *testing.T) {
 }
 
 func TestValidate_RateWindowTooSmall(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
 	policy.Spec.MetricsSource.RateWindow = &metav1.Duration{Duration: 5 * time.Second}
 
@@ -885,7 +885,7 @@ func TestValidate_RateWindowTooSmall(t *testing.T) {
 }
 
 func TestValidate_RateWindowExceedsHistoryWindow(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
 	policy.Spec.MetricsSource.HistoryWindow = &metav1.Duration{Duration: time.Hour}
 	policy.Spec.MetricsSource.RateWindow = &metav1.Duration{Duration: 2 * time.Hour}
@@ -896,13 +896,13 @@ func TestValidate_RateWindowExceedsHistoryWindow(t *testing.T) {
 }
 
 func TestValidate_MultipleMetricsSources(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.MetricsSource.Prometheus = &rightsizev1alpha1.PrometheusConfig{
+	policy.Spec.MetricsSource.Prometheus = &attunev1alpha1.PrometheusConfig{
 		Address: "http://prometheus:9090",
 	}
-	policy.Spec.MetricsSource.Datadog = &rightsizev1alpha1.DatadogConfig{
-		APIKeySecretRef: rightsizev1alpha1.SecretKeyRef{Name: "dd-secret", Key: "api-key"},
+	policy.Spec.MetricsSource.Datadog = &attunev1alpha1.DatadogConfig{
+		APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "dd-secret", Key: "api-key"},
 	}
 
 	_, err := validator.ValidateCreate(context.Background(), policy)
@@ -911,11 +911,11 @@ func TestValidate_MultipleMetricsSources(t *testing.T) {
 }
 
 func TestValidate_DatadogValid(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.MetricsSource.Datadog = &rightsizev1alpha1.DatadogConfig{
+	policy.Spec.MetricsSource.Datadog = &attunev1alpha1.DatadogConfig{
 		Site:            "datadoghq.eu",
-		APIKeySecretRef: rightsizev1alpha1.SecretKeyRef{Name: "dd-secret", Key: "api-key"},
+		APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "dd-secret", Key: "api-key"},
 	}
 
 	_, err := validator.ValidateCreate(context.Background(), policy)
@@ -923,11 +923,11 @@ func TestValidate_DatadogValid(t *testing.T) {
 }
 
 func TestValidate_DatadogInvalidSite(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.MetricsSource.Datadog = &rightsizev1alpha1.DatadogConfig{
+	policy.Spec.MetricsSource.Datadog = &attunev1alpha1.DatadogConfig{
 		Site:            "evil.example.com",
-		APIKeySecretRef: rightsizev1alpha1.SecretKeyRef{Name: "dd-secret", Key: "api-key"},
+		APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "dd-secret", Key: "api-key"},
 	}
 
 	_, err := validator.ValidateCreate(context.Background(), policy)
@@ -936,9 +936,9 @@ func TestValidate_DatadogInvalidSite(t *testing.T) {
 }
 
 func TestValidate_DatadogMissingSecret(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.MetricsSource.Datadog = &rightsizev1alpha1.DatadogConfig{}
+	policy.Spec.MetricsSource.Datadog = &attunev1alpha1.DatadogConfig{}
 
 	_, err := validator.ValidateCreate(context.Background(), policy)
 	require.Error(t, err)
@@ -946,10 +946,10 @@ func TestValidate_DatadogMissingSecret(t *testing.T) {
 }
 
 func TestValidate_DatadogSecretCrossNamespace(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.MetricsSource.Datadog = &rightsizev1alpha1.DatadogConfig{
-		APIKeySecretRef: rightsizev1alpha1.SecretKeyRef{Name: "other-ns/dd-secret", Key: "api-key"},
+	policy.Spec.MetricsSource.Datadog = &attunev1alpha1.DatadogConfig{
+		APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "other-ns/dd-secret", Key: "api-key"},
 	}
 
 	_, err := validator.ValidateCreate(context.Background(), policy)
@@ -958,9 +958,9 @@ func TestValidate_DatadogSecretCrossNamespace(t *testing.T) {
 }
 
 func TestValidate_CloudWatchValid(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.MetricsSource.CloudWatch = &rightsizev1alpha1.CloudWatchConfig{
+	policy.Spec.MetricsSource.CloudWatch = &attunev1alpha1.CloudWatchConfig{
 		Region:      "us-east-1",
 		ClusterName: "my-eks-cluster",
 	}
@@ -970,9 +970,9 @@ func TestValidate_CloudWatchValid(t *testing.T) {
 }
 
 func TestValidate_CloudWatchMissingRegion(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.MetricsSource.CloudWatch = &rightsizev1alpha1.CloudWatchConfig{
+	policy.Spec.MetricsSource.CloudWatch = &attunev1alpha1.CloudWatchConfig{
 		ClusterName: "my-cluster",
 	}
 
@@ -982,9 +982,9 @@ func TestValidate_CloudWatchMissingRegion(t *testing.T) {
 }
 
 func TestValidate_CloudWatchMissingCluster(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.MetricsSource.CloudWatch = &rightsizev1alpha1.CloudWatchConfig{
+	policy.Spec.MetricsSource.CloudWatch = &attunev1alpha1.CloudWatchConfig{
 		Region: "us-west-2",
 	}
 
@@ -994,13 +994,13 @@ func TestValidate_CloudWatchMissingCluster(t *testing.T) {
 }
 
 func TestValidate_AllThreeSourcesSet(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.MetricsSource.Prometheus = &rightsizev1alpha1.PrometheusConfig{Address: "http://prom:9090"}
-	policy.Spec.MetricsSource.Datadog = &rightsizev1alpha1.DatadogConfig{
-		APIKeySecretRef: rightsizev1alpha1.SecretKeyRef{Name: "s", Key: "k"},
+	policy.Spec.MetricsSource.Prometheus = &attunev1alpha1.PrometheusConfig{Address: "http://prom:9090"}
+	policy.Spec.MetricsSource.Datadog = &attunev1alpha1.DatadogConfig{
+		APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "s", Key: "k"},
 	}
-	policy.Spec.MetricsSource.CloudWatch = &rightsizev1alpha1.CloudWatchConfig{
+	policy.Spec.MetricsSource.CloudWatch = &attunev1alpha1.CloudWatchConfig{
 		Region: "us-east-1", ClusterName: "c",
 	}
 
@@ -1010,7 +1010,7 @@ func TestValidate_AllThreeSourcesSet(t *testing.T) {
 }
 
 func TestValidate_NoSourceIsValid(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
 	// No metricsSource.prometheus/datadog/cloudwatch set; uses defaults.
 
@@ -1021,11 +1021,11 @@ func TestValidate_NoSourceIsValid(t *testing.T) {
 // ---------- Paused warning ----------
 
 func TestValidate_PausedWithAutoModeWarns(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
 	paused := true
 	policy.Spec.Paused = &paused
-	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeAuto
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
 
 	w, err := validator.ValidateCreate(context.Background(), policy)
 	assert.NoError(t, err)
@@ -1035,11 +1035,11 @@ func TestValidate_PausedWithAutoModeWarns(t *testing.T) {
 }
 
 func TestValidate_PausedWithRecommendModeNoWarning(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
 	paused := true
 	policy.Spec.Paused = &paused
-	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeRecommend
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeRecommend
 
 	w, err := validator.ValidateCreate(context.Background(), policy)
 	assert.NoError(t, err)
@@ -1052,9 +1052,9 @@ func TestValidate_PausedWithRecommendModeNoWarning(t *testing.T) {
 // ---------- SLO Guardrail validation ----------
 
 func TestValidate_SLOGuardrailsValid(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.UpdateStrategy.SLOGuardrails = []rightsizev1alpha1.SLOGuardrail{
+	policy.Spec.UpdateStrategy.SLOGuardrails = []attunev1alpha1.SLOGuardrail{
 		{
 			Name:       "p99-latency",
 			Query:      `histogram_quantile(0.99, rate(http_request_duration_seconds_bucket{namespace="{{ .Namespace }}"}[5m]))`,
@@ -1075,9 +1075,9 @@ func TestValidate_SLOGuardrailsValid(t *testing.T) {
 }
 
 func TestValidate_SLOGuardrailEmptyName(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.UpdateStrategy.SLOGuardrails = []rightsizev1alpha1.SLOGuardrail{
+	policy.Spec.UpdateStrategy.SLOGuardrails = []attunev1alpha1.SLOGuardrail{
 		{Name: "", Query: "up", Threshold: "1"},
 	}
 
@@ -1087,9 +1087,9 @@ func TestValidate_SLOGuardrailEmptyName(t *testing.T) {
 }
 
 func TestValidate_SLOGuardrailDuplicateName(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.UpdateStrategy.SLOGuardrails = []rightsizev1alpha1.SLOGuardrail{
+	policy.Spec.UpdateStrategy.SLOGuardrails = []attunev1alpha1.SLOGuardrail{
 		{Name: "latency", Query: "up", Threshold: "1"},
 		{Name: "latency", Query: "up", Threshold: "2"},
 	}
@@ -1100,9 +1100,9 @@ func TestValidate_SLOGuardrailDuplicateName(t *testing.T) {
 }
 
 func TestValidate_SLOGuardrailEmptyQuery(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.UpdateStrategy.SLOGuardrails = []rightsizev1alpha1.SLOGuardrail{
+	policy.Spec.UpdateStrategy.SLOGuardrails = []attunev1alpha1.SLOGuardrail{
 		{Name: "test", Query: "", Threshold: "1"},
 	}
 
@@ -1112,9 +1112,9 @@ func TestValidate_SLOGuardrailEmptyQuery(t *testing.T) {
 }
 
 func TestValidate_SLOGuardrailEmptyThreshold(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.UpdateStrategy.SLOGuardrails = []rightsizev1alpha1.SLOGuardrail{
+	policy.Spec.UpdateStrategy.SLOGuardrails = []attunev1alpha1.SLOGuardrail{
 		{Name: "test", Query: "up", Threshold: ""},
 	}
 
@@ -1124,9 +1124,9 @@ func TestValidate_SLOGuardrailEmptyThreshold(t *testing.T) {
 }
 
 func TestValidate_SLOGuardrailInvalidThreshold(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.UpdateStrategy.SLOGuardrails = []rightsizev1alpha1.SLOGuardrail{
+	policy.Spec.UpdateStrategy.SLOGuardrails = []attunev1alpha1.SLOGuardrail{
 		{Name: "test", Query: "up", Threshold: "not-a-number"},
 	}
 
@@ -1136,9 +1136,9 @@ func TestValidate_SLOGuardrailInvalidThreshold(t *testing.T) {
 }
 
 func TestValidate_SLOGuardrailInvalidComparison(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.UpdateStrategy.SLOGuardrails = []rightsizev1alpha1.SLOGuardrail{
+	policy.Spec.UpdateStrategy.SLOGuardrails = []attunev1alpha1.SLOGuardrail{
 		{Name: "test", Query: "up", Threshold: "1", Comparison: "equals"},
 	}
 
@@ -1148,9 +1148,9 @@ func TestValidate_SLOGuardrailInvalidComparison(t *testing.T) {
 }
 
 func TestValidate_SLOGuardrailEvalWindowTooShort(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.UpdateStrategy.SLOGuardrails = []rightsizev1alpha1.SLOGuardrail{
+	policy.Spec.UpdateStrategy.SLOGuardrails = []attunev1alpha1.SLOGuardrail{
 		{
 			Name:             "test",
 			Query:            "up",
@@ -1165,9 +1165,9 @@ func TestValidate_SLOGuardrailEvalWindowTooShort(t *testing.T) {
 }
 
 func TestValidate_SLOGuardrailEvalWindowNegative(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.UpdateStrategy.SLOGuardrails = []rightsizev1alpha1.SLOGuardrail{
+	policy.Spec.UpdateStrategy.SLOGuardrails = []attunev1alpha1.SLOGuardrail{
 		{
 			Name:             "test",
 			Query:            "up",
@@ -1183,9 +1183,9 @@ func TestValidate_SLOGuardrailEvalWindowNegative(t *testing.T) {
 
 func TestValidate_SLOGuardrailDefaultComparisonValid(t *testing.T) {
 	// Empty comparison is valid (defaults to "above" at runtime).
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.UpdateStrategy.SLOGuardrails = []rightsizev1alpha1.SLOGuardrail{
+	policy.Spec.UpdateStrategy.SLOGuardrails = []attunev1alpha1.SLOGuardrail{
 		{Name: "test", Query: "up", Threshold: "1", Comparison: ""},
 	}
 
@@ -1196,9 +1196,9 @@ func TestValidate_SLOGuardrailDefaultComparisonValid(t *testing.T) {
 // ---------- VPA validation ----------
 
 func TestValidate_VPAValid(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.MetricsSource.VPA = &rightsizev1alpha1.VPAConfig{
+	policy.Spec.MetricsSource.VPA = &attunev1alpha1.VPAConfig{
 		Name: "my-vpa",
 	}
 
@@ -1207,9 +1207,9 @@ func TestValidate_VPAValid(t *testing.T) {
 }
 
 func TestValidate_VPAWithNamespace(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.MetricsSource.VPA = &rightsizev1alpha1.VPAConfig{
+	policy.Spec.MetricsSource.VPA = &attunev1alpha1.VPAConfig{
 		Name:      "my-vpa",
 		Namespace: "monitoring",
 	}
@@ -1219,9 +1219,9 @@ func TestValidate_VPAWithNamespace(t *testing.T) {
 }
 
 func TestValidate_VPAMissingName(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.MetricsSource.VPA = &rightsizev1alpha1.VPAConfig{
+	policy.Spec.MetricsSource.VPA = &attunev1alpha1.VPAConfig{
 		Name: "",
 	}
 
@@ -1231,12 +1231,12 @@ func TestValidate_VPAMissingName(t *testing.T) {
 }
 
 func TestValidate_VPAWithPrometheusMutuallyExclusive(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.MetricsSource.VPA = &rightsizev1alpha1.VPAConfig{
+	policy.Spec.MetricsSource.VPA = &attunev1alpha1.VPAConfig{
 		Name: "my-vpa",
 	}
-	policy.Spec.MetricsSource.Prometheus = &rightsizev1alpha1.PrometheusConfig{
+	policy.Spec.MetricsSource.Prometheus = &attunev1alpha1.PrometheusConfig{
 		Address: "http://prometheus:9090",
 	}
 
@@ -1246,13 +1246,13 @@ func TestValidate_VPAWithPrometheusMutuallyExclusive(t *testing.T) {
 }
 
 func TestValidate_VPAWithDatadogMutuallyExclusive(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.MetricsSource.VPA = &rightsizev1alpha1.VPAConfig{
+	policy.Spec.MetricsSource.VPA = &attunev1alpha1.VPAConfig{
 		Name: "my-vpa",
 	}
-	policy.Spec.MetricsSource.Datadog = &rightsizev1alpha1.DatadogConfig{
-		APIKeySecretRef: rightsizev1alpha1.SecretKeyRef{Name: "dd-secret", Key: "api-key"},
+	policy.Spec.MetricsSource.Datadog = &attunev1alpha1.DatadogConfig{
+		APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "dd-secret", Key: "api-key"},
 	}
 
 	_, err := validator.ValidateCreate(context.Background(), policy)
@@ -1263,9 +1263,9 @@ func TestValidate_VPAWithDatadogMutuallyExclusive(t *testing.T) {
 // ---------- Ineffective settings warnings ----------
 
 func TestWarn_InitialSizingInRecommendMode(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeRecommend
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeRecommend
 	policy.Spec.UpdateStrategy.InitialSizing = boolPtr(true)
 
 	w, err := validator.ValidateCreate(context.Background(), policy)
@@ -1274,9 +1274,9 @@ func TestWarn_InitialSizingInRecommendMode(t *testing.T) {
 }
 
 func TestWarn_AutoRevertInObserveMode(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeObserve
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeObserve
 	policy.Spec.UpdateStrategy.AutoRevert = boolPtr(true)
 
 	w, err := validator.ValidateCreate(context.Background(), policy)
@@ -1285,10 +1285,10 @@ func TestWarn_AutoRevertInObserveMode(t *testing.T) {
 }
 
 func TestWarn_SLOGuardrailsInRecommendMode(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeRecommend
-	policy.Spec.UpdateStrategy.SLOGuardrails = []rightsizev1alpha1.SLOGuardrail{
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeRecommend
+	policy.Spec.UpdateStrategy.SLOGuardrails = []attunev1alpha1.SLOGuardrail{
 		{Name: "latency", Query: "up", Threshold: "1"},
 	}
 
@@ -1298,11 +1298,11 @@ func TestWarn_SLOGuardrailsInRecommendMode(t *testing.T) {
 }
 
 func TestWarn_SLOGuardrailsWithAutoRevertFalse(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeAuto
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
 	policy.Spec.UpdateStrategy.AutoRevert = boolPtr(false)
-	policy.Spec.UpdateStrategy.SLOGuardrails = []rightsizev1alpha1.SLOGuardrail{
+	policy.Spec.UpdateStrategy.SLOGuardrails = []attunev1alpha1.SLOGuardrail{
 		{Name: "latency", Query: "up", Threshold: "1"},
 	}
 
@@ -1312,14 +1312,14 @@ func TestWarn_SLOGuardrailsWithAutoRevertFalse(t *testing.T) {
 }
 
 func TestWarn_SLOGuardrailsWithVPASource(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeAuto
-	policy.Spec.UpdateStrategy.SLOGuardrails = []rightsizev1alpha1.SLOGuardrail{
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	policy.Spec.UpdateStrategy.SLOGuardrails = []attunev1alpha1.SLOGuardrail{
 		{Name: "latency", Query: "up", Threshold: "1"},
 	}
 	policy.Spec.MetricsSource.Prometheus = nil
-	policy.Spec.MetricsSource.VPA = &rightsizev1alpha1.VPAConfig{Name: "my-vpa"}
+	policy.Spec.MetricsSource.VPA = &attunev1alpha1.VPAConfig{Name: "my-vpa"}
 
 	w, err := validator.ValidateCreate(context.Background(), policy)
 	assert.NoError(t, err)
@@ -1327,10 +1327,10 @@ func TestWarn_SLOGuardrailsWithVPASource(t *testing.T) {
 }
 
 func TestWarn_CanaryConfigInAutoMode(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeAuto
-	policy.Spec.UpdateStrategy.Canary = &rightsizev1alpha1.CanaryConfig{
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	policy.Spec.UpdateStrategy.Canary = &attunev1alpha1.CanaryConfig{
 		Percentage:        10,
 		ObservationPeriod: metav1.Duration{Duration: 5 * time.Minute},
 	}
@@ -1341,10 +1341,10 @@ func TestWarn_CanaryConfigInAutoMode(t *testing.T) {
 }
 
 func TestWarn_ScheduleInObserveMode(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeObserve
-	policy.Spec.UpdateStrategy.Schedule = &rightsizev1alpha1.ResizeSchedule{
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeObserve
+	policy.Spec.UpdateStrategy.Schedule = &attunev1alpha1.ResizeSchedule{
 		Timezone: "UTC",
 	}
 
@@ -1354,9 +1354,9 @@ func TestWarn_ScheduleInObserveMode(t *testing.T) {
 }
 
 func TestWarn_MaxConcurrentInOneShotMode(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeOneShot
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeOneShot
 	policy.Spec.UpdateStrategy.MaxConcurrentResizes = 5
 
 	w, err := validator.ValidateCreate(context.Background(), policy)
@@ -1365,7 +1365,7 @@ func TestWarn_MaxConcurrentInOneShotMode(t *testing.T) {
 }
 
 func TestWarn_MemoryFromCpuRatioOverridesPercentile(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
 	ratio := "2.0"
 	policy.Spec.Memory.MemoryFromCPURatio = &ratio
@@ -1377,7 +1377,7 @@ func TestWarn_MemoryFromCpuRatioOverridesPercentile(t *testing.T) {
 }
 
 func TestWarn_MemoryFromCpuRatioOverridesOverhead(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
 	ratio2 := "2.0"
 	policy.Spec.Memory.MemoryFromCPURatio = &ratio2
@@ -1389,10 +1389,10 @@ func TestWarn_MemoryFromCpuRatioOverridesOverhead(t *testing.T) {
 }
 
 func TestWarn_ExportInObserveMode(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeObserve
-	policy.Spec.UpdateStrategy.Export = &rightsizev1alpha1.ExportConfig{ConfigMap: true}
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeObserve
+	policy.Spec.UpdateStrategy.Export = &attunev1alpha1.ExportConfig{ConfigMap: true}
 
 	w, err := validator.ValidateCreate(context.Background(), policy)
 	assert.NoError(t, err)
@@ -1400,9 +1400,9 @@ func TestWarn_ExportInObserveMode(t *testing.T) {
 }
 
 func TestWarn_BudgetCapsInRecommendMode(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeRecommend
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeRecommend
 	cpu := resource.MustParse("2")
 	policy.Spec.UpdateStrategy.MaxTotalCPUIncrease = &cpu
 
@@ -1412,9 +1412,9 @@ func TestWarn_BudgetCapsInRecommendMode(t *testing.T) {
 }
 
 func TestWarn_NoWarningsInAutoMode(t *testing.T) {
-	validator := &RightSizePolicyValidator{}
+	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
-	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeAuto
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
 
 	w, err := validator.ValidateCreate(context.Background(), policy)
 	assert.NoError(t, err)

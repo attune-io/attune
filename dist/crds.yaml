@@ -4,18 +4,18 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.17.0
-  name: rightsizedefaults.rightsize.io
+  name: attunedefaults.attune.io
 spec:
-  group: rightsize.io
+  group: attune.io
   names:
     categories:
-    - rightsize
-    kind: RightSizeDefaults
-    listKind: RightSizeDefaultsList
-    plural: rightsizedefaults
+    - attune
+    kind: AttuneDefaults
+    listKind: AttuneDefaultsList
+    plural: attunedefaults
     shortNames:
     - rsd
-    singular: rightsizedefaults
+    singular: attunedefaults
   scope: Cluster
   versions:
   - additionalPrinterColumns:
@@ -32,8 +32,8 @@ spec:
     schema:
       openAPIV3Schema:
         description: |-
-          RightSizeDefaults is the Schema for the rightsizedefaults API.
-          It defines cluster-scoped default values for RightSizePolicy resources.
+          AttuneDefaults is the Schema for the attunedefaults API.
+          It defines cluster-scoped default values for AttunePolicy resources.
         properties:
           apiVersion:
             description: |-
@@ -53,8 +53,8 @@ spec:
           metadata:
             type: object
           spec:
-            description: RightSizeDefaultsSpec defines cluster-scoped default values
-              for RightSizePolicy resources.
+            description: AttuneDefaultsSpec defines cluster-scoped default values
+              for AttunePolicy resources.
             properties:
               costPricing:
                 description: |-
@@ -397,7 +397,7 @@ spec:
                       before generating recommendations. Minimum 1, default 48 samples.
                       With the default queryStep of 5m, 48 samples is about 4 hours of data.
                       Defaults to 48 if not set (applied by the controller so that
-                      RightSizeDefaults cluster configuration can override it).
+                      AttuneDefaults cluster configuration can override it).
                     format: int32
                     minimum: 1
                     type: integer
@@ -490,7 +490,7 @@ spec:
                     description: |-
                       AutoRevert automatically reverts changes if degradation is detected.
                       Defaults to true if not set (applied by the controller so that
-                      RightSizeDefaults cluster configuration can override it).
+                      AttuneDefaults cluster configuration can override it).
                     type: boolean
                   canary:
                     description: Canary configures canary rollout behavior when Type
@@ -542,7 +542,7 @@ spec:
                       requests/limits on new pods at creation time, based on existing
                       recommendations. This eliminates the "deploy with bad defaults, wait
                       for first reconcile" gap. Requires the namespace label
-                      rightsize.io/initial-sizing=enabled. Defaults to false.
+                      attune.io/initial-sizing=enabled. Defaults to false.
                     type: boolean
                   maxConcurrentResizes:
                     default: 1
@@ -584,7 +584,7 @@ spec:
                         recreates the pod with updated resources. Evictions respect
                         PodDisruptionBudgets and never evict the last replica.
                       Defaults to InPlaceOnly if not set (applied by the controller so that
-                      RightSizeDefaults cluster configuration can override it).
+                      AttuneDefaults cluster configuration can override it).
                     enum:
                     - InPlaceOnly
                     - InPlaceOrRecreate
@@ -699,7 +699,7 @@ spec:
                         Observe: collects metrics and tracks data points but does not surface recommendations or savings.
                       Start with Recommend in production and promote after reviewing status.
                       Defaults to Recommend if not set (applied by the controller, not the webhook,
-                      so that RightSizeDefaults cluster configuration can override it).
+                      so that AttuneDefaults cluster configuration can override it).
                     enum:
                     - Observe
                     - Recommend
@@ -719,18 +719,18 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.17.0
-  name: rightsizenamespacedefaults.rightsize.io
+  name: attunenamespacedefaults.attune.io
 spec:
-  group: rightsize.io
+  group: attune.io
   names:
     categories:
-    - rightsize
-    kind: RightSizeNamespaceDefaults
-    listKind: RightSizeNamespaceDefaultsList
-    plural: rightsizenamespacedefaults
+    - attune
+    kind: AttuneNamespaceDefaults
+    listKind: AttuneNamespaceDefaultsList
+    plural: attunenamespacedefaults
     shortNames:
     - rsnd
-    singular: rightsizenamespacedefaults
+    singular: attunenamespacedefaults
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
@@ -747,8 +747,8 @@ spec:
     schema:
       openAPIV3Schema:
         description: |-
-          RightSizeNamespaceDefaults is the Schema for namespace-scoped defaults.
-          Values here override cluster-scoped RightSizeDefaults but are overridden
+          AttuneNamespaceDefaults is the Schema for namespace-scoped defaults.
+          Values here override cluster-scoped AttuneDefaults but are overridden
           by per-policy values. Precedence: policy > namespace defaults > cluster defaults.
         properties:
           apiVersion:
@@ -769,8 +769,8 @@ spec:
           metadata:
             type: object
           spec:
-            description: RightSizeDefaultsSpec defines cluster-scoped default values
-              for RightSizePolicy resources.
+            description: AttuneDefaultsSpec defines cluster-scoped default values
+              for AttunePolicy resources.
             properties:
               costPricing:
                 description: |-
@@ -1113,7 +1113,7 @@ spec:
                       before generating recommendations. Minimum 1, default 48 samples.
                       With the default queryStep of 5m, 48 samples is about 4 hours of data.
                       Defaults to 48 if not set (applied by the controller so that
-                      RightSizeDefaults cluster configuration can override it).
+                      AttuneDefaults cluster configuration can override it).
                     format: int32
                     minimum: 1
                     type: integer
@@ -1206,7 +1206,7 @@ spec:
                     description: |-
                       AutoRevert automatically reverts changes if degradation is detected.
                       Defaults to true if not set (applied by the controller so that
-                      RightSizeDefaults cluster configuration can override it).
+                      AttuneDefaults cluster configuration can override it).
                     type: boolean
                   canary:
                     description: Canary configures canary rollout behavior when Type
@@ -1258,7 +1258,7 @@ spec:
                       requests/limits on new pods at creation time, based on existing
                       recommendations. This eliminates the "deploy with bad defaults, wait
                       for first reconcile" gap. Requires the namespace label
-                      rightsize.io/initial-sizing=enabled. Defaults to false.
+                      attune.io/initial-sizing=enabled. Defaults to false.
                     type: boolean
                   maxConcurrentResizes:
                     default: 1
@@ -1300,7 +1300,7 @@ spec:
                         recreates the pod with updated resources. Evictions respect
                         PodDisruptionBudgets and never evict the last replica.
                       Defaults to InPlaceOnly if not set (applied by the controller so that
-                      RightSizeDefaults cluster configuration can override it).
+                      AttuneDefaults cluster configuration can override it).
                     enum:
                     - InPlaceOnly
                     - InPlaceOrRecreate
@@ -1415,7 +1415,7 @@ spec:
                         Observe: collects metrics and tracks data points but does not surface recommendations or savings.
                       Start with Recommend in production and promote after reviewing status.
                       Defaults to Recommend if not set (applied by the controller, not the webhook,
-                      so that RightSizeDefaults cluster configuration can override it).
+                      so that AttuneDefaults cluster configuration can override it).
                     enum:
                     - Observe
                     - Recommend
@@ -1435,18 +1435,18 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.17.0
-  name: rightsizepolicies.rightsize.io
+  name: attunepolicies.attune.io
 spec:
-  group: rightsize.io
+  group: attune.io
   names:
     categories:
-    - rightsize
-    kind: RightSizePolicy
-    listKind: RightSizePolicyList
-    plural: rightsizepolicies
+    - attune
+    kind: AttunePolicy
+    listKind: AttunePolicyList
+    plural: attunepolicies
     shortNames:
     - rsp
-    singular: rightsizepolicy
+    singular: attunepolicy
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
@@ -1479,7 +1479,7 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: RightSizePolicy is the Schema for the rightsizepolicies API.
+        description: AttunePolicy is the Schema for the attunepolicies API.
         properties:
           apiVersion:
             description: |-
@@ -1499,7 +1499,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: RightSizePolicySpec defines the desired state of RightSizePolicy.
+            description: AttunePolicySpec defines the desired state of AttunePolicy.
             properties:
               cpu:
                 description: CPU configures CPU resource recommendations.
@@ -1833,7 +1833,7 @@ spec:
                       before generating recommendations. Minimum 1, default 48 samples.
                       With the default queryStep of 5m, 48 samples is about 4 hours of data.
                       Defaults to 48 if not set (applied by the controller so that
-                      RightSizeDefaults cluster configuration can override it).
+                      AttuneDefaults cluster configuration can override it).
                     format: int32
                     minimum: 1
                     type: integer
@@ -1928,7 +1928,7 @@ spec:
                   with reason=Paused while this field is true.
                 type: boolean
               targetRef:
-                description: TargetRef identifies the workload(s) to be rightsized.
+                description: TargetRef identifies the workload(s) to be attuned.
                 properties:
                   kind:
                     description: Kind is the kind of the target resource.
@@ -2000,7 +2000,7 @@ spec:
                     description: |-
                       AutoRevert automatically reverts changes if degradation is detected.
                       Defaults to true if not set (applied by the controller so that
-                      RightSizeDefaults cluster configuration can override it).
+                      AttuneDefaults cluster configuration can override it).
                     type: boolean
                   canary:
                     description: Canary configures canary rollout behavior when Type
@@ -2052,7 +2052,7 @@ spec:
                       requests/limits on new pods at creation time, based on existing
                       recommendations. This eliminates the "deploy with bad defaults, wait
                       for first reconcile" gap. Requires the namespace label
-                      rightsize.io/initial-sizing=enabled. Defaults to false.
+                      attune.io/initial-sizing=enabled. Defaults to false.
                     type: boolean
                   maxConcurrentResizes:
                     default: 1
@@ -2094,7 +2094,7 @@ spec:
                         recreates the pod with updated resources. Evictions respect
                         PodDisruptionBudgets and never evict the last replica.
                       Defaults to InPlaceOnly if not set (applied by the controller so that
-                      RightSizeDefaults cluster configuration can override it).
+                      AttuneDefaults cluster configuration can override it).
                     enum:
                     - InPlaceOnly
                     - InPlaceOrRecreate
@@ -2209,7 +2209,7 @@ spec:
                         Observe: collects metrics and tracks data points but does not surface recommendations or savings.
                       Start with Recommend in production and promote after reviewing status.
                       Defaults to Recommend if not set (applied by the controller, not the webhook,
-                      so that RightSizeDefaults cluster configuration can override it).
+                      so that AttuneDefaults cluster configuration can override it).
                     enum:
                     - Observe
                     - Recommend
@@ -2234,7 +2234,7 @@ spec:
             - targetRef
             type: object
           status:
-            description: RightSizePolicyStatus defines the observed state of RightSizePolicy.
+            description: AttunePolicyStatus defines the observed state of AttunePolicy.
             properties:
               canary:
                 description: Canary tracks the canary rollout phase when autoPromote

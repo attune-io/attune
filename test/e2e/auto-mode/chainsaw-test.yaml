@@ -3,7 +3,7 @@ kind: Test
 metadata:
   name: auto-mode
 spec:
-  description: Verify that a RightSizePolicy in Auto mode discovers workloads and reaches the expected status
+  description: Verify that a AttunePolicy in Auto mode discovers workloads and reaches the expected status
   timeouts:
     apply: 30s
     assert: 2m
@@ -82,8 +82,8 @@ spec:
       try:
         - apply:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: auto-test
                 namespace: e2e-auto-mode
@@ -121,11 +121,11 @@ spec:
             timeout: 2m
             content: |
               for i in $(seq 1 24); do
-                STATUS=$(kubectl get rightsizepolicy auto-test -n e2e-auto-mode \
+                STATUS=$(kubectl get attunepolicy auto-test -n e2e-auto-mode \
                   -o jsonpath='{.status.workloads.discovered}' 2>/dev/null)
                 if [ "$STATUS" = "1" ]; then
                   echo "Policy discovered 1 workload"
-                  READY=$(kubectl get rightsizepolicy auto-test -n e2e-auto-mode \
+                  READY=$(kubectl get attunepolicy auto-test -n e2e-auto-mode \
                     -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')
                   echo "Ready condition: $READY"
                   exit 0
@@ -133,7 +133,7 @@ spec:
                 sleep 5
               done
               echo "Timed out waiting for policy to discover workloads"
-              kubectl get rightsizepolicy auto-test -n e2e-auto-mode -o yaml
+              kubectl get attunepolicy auto-test -n e2e-auto-mode -o yaml
               exit 1
     - name: verify-resize-occurred
       try:
@@ -141,7 +141,7 @@ spec:
             timeout: 5m
             content: |
               for i in $(seq 1 60); do
-                RESIZED=$(kubectl get rightsizepolicy auto-test -n e2e-auto-mode \
+                RESIZED=$(kubectl get attunepolicy auto-test -n e2e-auto-mode \
                   -o jsonpath='{.status.workloads.resized}' 2>/dev/null)
                 if [ "$RESIZED" -ge 1 ] 2>/dev/null; then
                   echo "Resize confirmed: $RESIZED pod(s) resized"
@@ -150,17 +150,17 @@ spec:
                 sleep 5
               done
               echo "No resize occurred within timeout"
-              kubectl get rightsizepolicy auto-test -n e2e-auto-mode -o yaml
+              kubectl get attunepolicy auto-test -n e2e-auto-mode -o yaml
               exit 1
   catch:
     - describe:
-        apiVersion: rightsize.io/v1alpha1
-        kind: RightSizePolicy
+        apiVersion: attune.io/v1alpha1
+        kind: AttunePolicy
         namespace: e2e-auto-mode
     - describe:
         apiVersion: apps/v1
         kind: Deployment
         namespace: e2e-auto-mode
     - podLogs:
-        namespace: kube-rightsize-system
-        selector: app.kubernetes.io/name=kube-rightsize
+        namespace: attune-system
+        selector: app.kubernetes.io/name=attune

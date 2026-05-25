@@ -1,4 +1,4 @@
-# kube-rightsize: Complete Specification
+# attune: Complete Specification
 
 > Safe, in-place Kubernetes pod resource right-sizing operator.
 > VPA done right, powered by In-Place Pod Resize (K8s 1.32+).
@@ -42,7 +42,7 @@ ground-up redesign of resource right-sizing.
 
 ### Mission
 
-kube-rightsize is the first production-grade right-sizing operator built exclusively for
+attune is the first production-grade right-sizing operator built exclusively for
 in-place resize. It exists to make VPA obsolete by delivering:
 
 1. **Zero-downtime right-sizing**: Resize pods in-place without restarts (CPU) or with
@@ -145,17 +145,17 @@ helm-docs                               latest
 ### 3.1 API Group and Version
 
 ```
-Group:   rightsize.io
+Group:   attune.io
 Version: v1alpha1
 ```
 
-### 3.2 RightSizePolicy (Namespaced)
+### 3.2 AttunePolicy (Namespaced)
 
 The primary CRD. Defines a right-sizing policy for a set of workloads.
 
 ```yaml
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizePolicy
+apiVersion: attune.io/v1alpha1
+kind: AttunePolicy
 metadata:
   name: api-services
   namespace: production
@@ -340,30 +340,30 @@ x-kubernetes-validations:
 ```
 
 ```
-$ kubectl get rightsizepolicies
+$ kubectl get attunepolicies
 NAME            MODE        WORKLOADS   RECS   RESIZED   READY   AGE
 api-services    Canary      3           3      2         True    7d
 
-$ kubectl get rightsizepolicies -o wide
+$ kubectl get attunepolicies -o wide
 NAME            MODE        WORKLOADS   RECS   RESIZED   READY   AGE   CPU SAVED   MEM SAVED
 api-services    Canary      3           3      2         True    7d    1050m       696Mi
 ```
 
-### 3.3 RightSizeDefaults (Cluster-Scoped, Optional)
+### 3.3 AttuneDefaults (Cluster-Scoped, Optional)
 
-Global defaults to avoid repetition across many RightSizePolicy resources.
+Global defaults to avoid repetition across many AttunePolicy resources.
 
-### 3.4 RightSizeNamespaceDefaults (Namespaced, Optional)
+### 3.4 AttuneNamespaceDefaults (Namespaced, Optional)
 
-Namespace-scoped defaults reuse the same spec as `RightSizeDefaults` but apply
-only within one namespace. If a `RightSizeNamespaceDefaults` exists for the
+Namespace-scoped defaults reuse the same spec as `AttuneDefaults` but apply
+only within one namespace. If a `AttuneNamespaceDefaults` exists for the
 policy namespace, the controller uses it instead of cluster-scoped
-`RightSizeDefaults`. Fields omitted there fall back to the operator's
+`AttuneDefaults`. Fields omitted there fall back to the operator's
 built-in defaults.
 
 ```yaml
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizeDefaults
+apiVersion: attune.io/v1alpha1
+kind: AttuneDefaults
 metadata:
   name: default
 spec:
@@ -407,13 +407,13 @@ Status conditions use `meta.SetStatusCondition()` from `k8s.io/apimachinery/pkg/
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│                        kube-rightsize                             │
+│                        attune                             │
 │                                                                   │
 │  ┌─────────────────────┐    ┌─────────────────────────┐         │
 │  │  Policy Controller  │    │  Metrics Collector      │         │
 │  │  ─────────────────  │    │  ───────────────────    │         │
 │  │  Reconciles         │    │  Queries Prometheus     │         │
-│  │  RightSizePolicy    │◄──►│  Aggregates usage data  │         │
+│  │  AttunePolicy    │◄──►│  Aggregates usage data  │         │
 │  │  CRs                │    │  Builds time-of-day     │         │
 │  │  Discovers target   │    │  profiles               │         │
 │  │  workloads          │    │  Detects bursts         │         │
@@ -446,10 +446,10 @@ Status conditions use `meta.SetStatusCondition()` from `k8s.io/apimachinery/pkg/
 
 ### 4.2 Controller Reconciliation Loop
 
-A single controller reconciles `RightSizePolicy` resources. The reconcile function:
+A single controller reconciles `AttunePolicy` resources. The reconcile function:
 
 ```
-1. FETCH policy and resolve one defaults source: RightSizeNamespaceDefaults for the namespace if present, otherwise RightSizeDefaults
+1. FETCH policy and resolve one defaults source: AttuneNamespaceDefaults for the namespace if present, otherwise AttuneDefaults
 2. DISCOVER target workloads (by name or label selector)
 3. For each workload:
    a. CHECK for conflicting policies (highest weight wins)
@@ -470,9 +470,9 @@ A single controller reconciles `RightSizePolicy` resources. The reconcile functi
 
 | Resource | Cache | Purpose |
 |----------|-------|---------|
-| RightSizePolicy | Full | Primary reconciliation target |
-| RightSizeNamespaceDefaults | Full | Namespace defaults lookup |
-| RightSizeDefaults | Full | Cluster defaults lookup |
+| AttunePolicy | Full | Primary reconciliation target |
+| AttuneNamespaceDefaults | Full | Namespace defaults lookup |
+| AttuneDefaults | Full | Cluster defaults lookup |
 | Deployment | Metadata-only | Discover target workloads, read replicas |
 | StatefulSet | Metadata-only | Discover target workloads |
 | DaemonSet | Metadata-only | Discover target workloads |
@@ -507,11 +507,11 @@ A single controller reconciles `RightSizePolicy` resources. The reconcile functi
   verbs: ["get", "list", "watch"]
 
 # Own CRDs: full access
-- apiGroups: ["rightsize.io"]
-  resources: ["rightsizepolicies", "rightsizepolicies/status"]
+- apiGroups: ["attune.io"]
+  resources: ["attunepolicies", "attunepolicies/status"]
   verbs: ["get", "list", "watch", "update", "patch"]
-- apiGroups: ["rightsize.io"]
-  resources: ["rightsizedefaults", "rightsizenamespacedefaults"]
+- apiGroups: ["attune.io"]
+  resources: ["attunedefaults", "attunenamespacedefaults"]
   verbs: ["get", "list", "watch"]
 ```
 
@@ -630,16 +630,16 @@ percentile, ensuring the recommendation covers the busiest hour of the day.
 
 When an HPA targets the same Deployment on CPU:
 
-1. kube-rightsize adjusts **requests** (the base resource allocation)
+1. attune adjusts **requests** (the base resource allocation)
 2. HPA adjusts **replica count** based on utilization percentage of requests
 3. By right-sizing requests, HPA's percentage calculations become more accurate
 
 To prevent conflicts:
 - Detect HPA presence via informer
-- If HPA targets CPU utilization, kube-rightsize adjusts CPU requests but NOT limits
+- If HPA targets CPU utilization, attune adjusts CPU requests but NOT limits
   (preserving the request-to-limit ratio for HPA's calculations)
 - If HPA targets custom metrics (not CPU/memory), no conflict exists
-- Log a warning if both VPA and kube-rightsize target the same workload
+- Log a warning if both VPA and attune target the same workload
 
 ---
 
@@ -658,7 +658,7 @@ To prevent conflicts:
    a. PRE-CHECK:
       - Pod is Running and Ready
       - Pod is not being deleted (DeletionTimestamp == nil)
-      - Pod is not owned by kube-rightsize itself
+      - Pod is not owned by attune itself
       - No active resize in progress (PodResizeInProgress condition)
       - QoS class will be preserved after resize
       - New values satisfy LimitRange constraints
@@ -777,7 +777,7 @@ When `autoRevert: true` (default), the Safety Monitor watches resized pods for:
 On trigger:
 1. Restore original resources via `/resize` subresource
 2. Emit Kubernetes event on the Pod
-3. Update RightSizePolicy status with revert reason
+3. Update AttunePolicy status with revert reason
 4. Increment revert counter
 5. Apply exponential backoff before retrying that workload (2x cooldown per revert)
 
@@ -786,8 +786,8 @@ On trigger:
 Before any resize:
 - Check for existing VPA targeting the same workload
 - Check for existing HPA (adjust behavior, don't block)
-- Check for other RightSizePolicy with higher weight
-- Check for `rightsize.io/skip: "true"` annotation on workload (opt-out)
+- Check for other AttunePolicy with higher weight
+- Check for `attune.io/skip: "true"` annotation on workload (opt-out)
 - Check for active rollout on the parent Deployment (don't resize during rollouts)
 
 ---
@@ -799,27 +799,27 @@ Before any resize:
 
 ```
 # Recommendation gauge (per workload, container, resource)
-kube_rightsize_recommendation_cpu_cores{namespace, workload, container}
-kube_rightsize_recommendation_memory_bytes{namespace, workload, container}
+attune_recommendation_cpu_cores{namespace, workload, container}
+attune_recommendation_memory_bytes{namespace, workload, container}
 
 # Current vs recommended delta
-kube_rightsize_savings_cpu_cores_total{namespace}
-kube_rightsize_savings_memory_bytes_total{namespace}
+attune_savings_cpu_cores_total{namespace}
+attune_savings_memory_bytes_total{namespace}
 
 # Resize operations
-kube_rightsize_resize_total{namespace, workload, resource, result}  # in-place only; result: success|failed|reverted, resource: cpu|memory
-kube_rightsize_eviction_total{namespace, workload, result}         # eviction fallback only; result: success|denied
-kube_rightsize_resize_duration_seconds{namespace, workload}
+attune_resize_total{namespace, workload, resource, result}  # in-place only; result: success|failed|reverted, resource: cpu|memory
+attune_eviction_total{namespace, workload, result}         # eviction fallback only; result: success|denied
+attune_resize_duration_seconds{namespace, workload}
 
 # Safety
-kube_rightsize_reverts_total{namespace, workload, reason}  # reason: oomkill|throttle|restart|notready
-kube_rightsize_confidence{namespace, workload, container}
+attune_reverts_total{namespace, workload, reason}  # reason: oomkill|throttle|restart|notready
+attune_confidence{namespace, workload, container}
 
 # Operator health
-kube_rightsize_reconcile_duration_seconds{controller}
-kube_rightsize_reconcile_errors_total{error_type}
-kube_rightsize_prometheus_query_duration_seconds{query_type}
-kube_rightsize_prometheus_query_errors_total{namespace, query_type}
+attune_reconcile_duration_seconds{controller}
+attune_reconcile_errors_total{error_type}
+attune_prometheus_query_duration_seconds{query_type}
+attune_prometheus_query_errors_total{namespace, query_type}
 ```
 
 ### 8.2 Kubernetes Events
@@ -887,9 +887,9 @@ Ship a pre-built Grafana dashboard JSON covering:
 **Framework**: standard `testing` + `github.com/stretchr/testify` + `controller-runtime/pkg/envtest`
 
 **What to test**:
-- RightSizePolicy CR creation, validation, defaulting
-- RightSizeNamespaceDefaults overrides cluster `RightSizeDefaults`
-- RightSizeDefaults merging with policy-level overrides
+- AttunePolicy CR creation, validation, defaulting
+- AttuneNamespaceDefaults overrides cluster `AttuneDefaults`
+- AttuneDefaults merging with policy-level overrides
 - Controller discovers workloads by name and by selector
 - Controller handles workload updates (new pods, scale events)
 - Controller resolves policy conflicts (highest weight wins)
@@ -935,8 +935,8 @@ Eventually(func(g Gomega) {
 | # | Scenario | What It Validates |
 |---|----------|-------------------|
 | 1 | Install operator via Helm | Deployment runs, CRDs registered |
-| 2 | Create RightSizePolicy in Recommend mode | Recommendations appear in status |
-| 3 | Create RightSizePolicy in OneShot mode | Single pod resized, status updated |
+| 2 | Create AttunePolicy in Recommend mode | Recommendations appear in status |
+| 3 | Create AttunePolicy in OneShot mode | Single pod resized, status updated |
 | 4 | Canary rollout | canary% pods resized first |
 | 5 | Auto-revert on OOMKill | Resize reverted after simulated OOM |
 | 6 | HPA coexistence | No conflict, both operate correctly |
@@ -1203,7 +1203,7 @@ main branch:
 **Primary installation method.** Structure:
 
 ```
-charts/kube-rightsize/
+charts/attune/
 ├── Chart.yaml
 ├── values.yaml
 ├── values.schema.json
@@ -1235,10 +1235,10 @@ charts/kube-rightsize/
 
 ```bash
 # Push Helm chart
-helm push kube-rightsize-0.1.0.tgz oci://ghcr.io/sebtardiflabs/charts
+helm push attune-0.1.0.tgz oci://ghcr.io/attune-io/charts
 
 # Install from OCI
-helm install kube-rightsize oci://ghcr.io/sebtardiflabs/charts/kube-rightsize --version 0.1.0
+helm install attune oci://ghcr.io/attune-io/charts/attune --version 0.1.0
 ```
 
 ### 11.3 kubectl Plugin (Future)
@@ -1246,11 +1246,11 @@ helm install kube-rightsize oci://ghcr.io/sebtardiflabs/charts/kube-rightsize --
 Distributed via krew:
 
 ```bash
-kubectl krew install rightsize
+kubectl krew install attune
 
-kubectl rightsize status -n production
-kubectl rightsize savings
-kubectl rightsize recommendations -n production
+kubectl attune status -n production
+kubectl attune savings
+kubectl attune recommendations -n production
 ```
 
 ### 11.4 Raw Manifests
@@ -1258,7 +1258,7 @@ kubectl rightsize recommendations -n production
 For users who don't use Helm:
 
 ```bash
-kubectl apply -f https://github.com/SebTardifLabs/kube-rightsize/releases/latest/download/install.yaml
+kubectl apply -f https://github.com/attune-io/attune/releases/latest/download/install.yaml
 ```
 
 ---
@@ -1321,7 +1321,7 @@ Create from day one (even if empty). CloudNativePG's format:
 ```markdown
 # Adopters
 
-If you are using kube-rightsize in your organization, please add your
+If you are using attune in your organization, please add your
 company to this list. It helps the project understand its user base
 and prioritize features.
 
@@ -1335,7 +1335,7 @@ and prioritize features.
 ## 13. Project Structure
 
 ```
-kube-rightsize/
+attune/
 ├── .github/
 │   ├── workflows/
 │   │   ├── ci.yaml
@@ -1350,9 +1350,9 @@ kube-rightsize/
 ├── api/
 │   └── v1alpha1/
 │       ├── groupversion_info.go
-│       ├── rightsizepolicy_types.go
-│       ├── rightsizepolicy_types_test.go
-│       ├── rightsizedefaults_types.go
+│       ├── attunepolicy_types.go
+│       ├── attunepolicy_types_test.go
+│       ├── attunedefaults_types.go
 │       ├── conditions.go
 │       ├── zz_generated.deepcopy.go
 │       └── doc.go
@@ -1361,8 +1361,8 @@ kube-rightsize/
 │       └── main.go
 ├── internal/
 │   ├── controller/
-│   │   ├── rightsizepolicy_controller.go
-│   │   ├── rightsizepolicy_controller_test.go
+│   │   ├── attunepolicy_controller.go
+│   │   ├── attunepolicy_controller_test.go
 │   │   └── suite_test.go
 │   ├── metrics/
 │   │   ├── collector.go         # Prometheus query client
@@ -1412,7 +1412,7 @@ kube-rightsize/
 │       ├── canary-mode.yaml
 │       └── defaults.yaml
 ├── charts/
-│   └── kube-rightsize/
+│   └── attune/
 │       ├── Chart.yaml
 │       ├── values.yaml
 │       ├── values.schema.json
@@ -1452,7 +1452,7 @@ kube-rightsize/
 ### Phase 1: Foundation (MVP)
 
 - [ ] Project scaffolding (Kubebuilder)
-- [ ] RightSizePolicy CRD (v1alpha1)
+- [ ] AttunePolicy CRD (v1alpha1)
 - [ ] Prometheus metrics collector
 - [ ] Percentile-based recommendation engine
 - [ ] Status reporting (recommendations, conditions)
@@ -1488,7 +1488,7 @@ kube-rightsize/
 ### Phase 4: Production Readiness
 
 - [ ] Auto mode (canary then fleet)
-- [ ] RightSizeDefaults / RightSizeNamespaceDefaults
+- [ ] AttuneDefaults / AttuneNamespaceDefaults
 - [ ] Grafana dashboard
 - [ ] MkDocs documentation site
 - [ ] Cosign image signing
@@ -1534,9 +1534,9 @@ kube-rightsize/
 | Hierarchical defaults CRD | PerfectScale | Cluster > namespace > policy precedence (3-tier) |
 | Per-step change cap in ResourceConfig | StormForge | `maxChangePercent` per resource (StormForge uses `maxPercentIncrease`/`maxPercentDecrease`) |
 | Preview/Apply progression | Datadog | Our Observe > Recommend > Canary > Auto mirrors Datadog's Preview > Apply |
-| Unified vertical CRD (not VPA+HPA) | Datadog | Single RightSizePolicy instead of separate VPA + HPA objects |
+| Unified vertical CRD (not VPA+HPA) | Datadog | Single AttunePolicy instead of separate VPA + HPA objects |
 | Cron-style scheduling | Oblik | `schedule.windows` + `daysOfWeek` (Oblik uses `cron` + `cronAddRandomMax`) |
-| Annotation-based opt-out | CAST AI, Oblik | `rightsize.io/skip: "true"` for workload exclusion |
+| Annotation-based opt-out | CAST AI, Oblik | `attune.io/skip: "true"` for workload exclusion |
 
 ### Anti-Patterns Avoided
 
@@ -1565,4 +1565,4 @@ kube-rightsize/
 | **OSS appliers** | Oblik, kube-reqsizer, Kedify | Apply VPA recommendations via cron or controller; no safety system or graduated rollout |
 | **Commercial full-stack** | CAST AI, ScaleOps, StormForge, PerfectScale, Sedai, Densify | Pod + node optimization with ML; $10k-50k+/year; SaaS dependency (except ScaleOps self-hosted) |
 | **Observability-integrated** | Datadog, nOps, Spot Ocean | Leverage existing monitoring; Datadog's `DatadogPodAutoscaler` CRD is well-designed |
-| **kube-rightsize** | (this project) | Focused on in-place resize with safety; open-source; no SaaS; Kubernetes-native CRDs |
+| **attune** | (this project) | Focused on in-place resize with safety; open-source; no SaaS; Kubernetes-native CRDs |

@@ -30,8 +30,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
-	"github.com/SebTardifLabs/kube-rightsize/internal/metrics"
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/metrics"
 )
 
 func TestMergeDefaults_NoDefaults(t *testing.T) {
@@ -40,18 +40,18 @@ func TestMergeDefaults_NoDefaults(t *testing.T) {
 		WithScheme(scheme).
 		Build()
 
-	r := &RightSizePolicyReconciler{
+	r := &AttunePolicyReconciler{
 		Client: fakeClient,
 		Scheme: scheme,
 	}
 
-	policy := &rightsizev1alpha1.RightSizePolicy{
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			CPU: rightsizev1alpha1.ResourceConfig{
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			CPU: attunev1alpha1.ResourceConfig{
 				Percentile: 95,
 				Overhead:   "20",
 			},
-			Memory: rightsizev1alpha1.ResourceConfig{
+			Memory: attunev1alpha1.ResourceConfig{
 				Percentile: 99,
 				Overhead:   "30",
 			},
@@ -71,12 +71,12 @@ func TestMergeDefaults_NoDefaults(t *testing.T) {
 
 func TestMergeDefaults_CPUPercentileMerged(t *testing.T) {
 	scheme := testScheme()
-	defaults := &rightsizev1alpha1.RightSizeDefaults{
+	defaults := &attunev1alpha1.AttuneDefaults{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "cluster-defaults",
 		},
-		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			CPU: &rightsizev1alpha1.ResourceConfig{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CPU: &attunev1alpha1.ResourceConfig{
 				Percentile: 95,
 				Overhead:   "20",
 			},
@@ -88,14 +88,14 @@ func TestMergeDefaults_CPUPercentileMerged(t *testing.T) {
 		WithObjects(defaults).
 		Build()
 
-	r := &RightSizePolicyReconciler{
+	r := &AttunePolicyReconciler{
 		Client: fakeClient,
 		Scheme: scheme,
 	}
 
-	policy := &rightsizev1alpha1.RightSizePolicy{
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			CPU: rightsizev1alpha1.ResourceConfig{
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			CPU: attunev1alpha1.ResourceConfig{
 				Percentile: 0, // zero: should be filled from defaults
 				Overhead:   "50",
 			},
@@ -113,12 +113,12 @@ func TestMergeDefaults_CPUPercentileMerged(t *testing.T) {
 
 func TestMergeDefaults_OverheadMerged(t *testing.T) {
 	scheme := testScheme()
-	defaults := &rightsizev1alpha1.RightSizeDefaults{
+	defaults := &attunev1alpha1.AttuneDefaults{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "cluster-defaults",
 		},
-		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			CPU: &rightsizev1alpha1.ResourceConfig{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CPU: &attunev1alpha1.ResourceConfig{
 				Percentile: 90,
 				Overhead:   "20",
 			},
@@ -130,14 +130,14 @@ func TestMergeDefaults_OverheadMerged(t *testing.T) {
 		WithObjects(defaults).
 		Build()
 
-	r := &RightSizePolicyReconciler{
+	r := &AttunePolicyReconciler{
 		Client: fakeClient,
 		Scheme: scheme,
 	}
 
-	policy := &rightsizev1alpha1.RightSizePolicy{
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			CPU: rightsizev1alpha1.ResourceConfig{
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			CPU: attunev1alpha1.ResourceConfig{
 				Percentile: 90,
 				Overhead:   "", // empty: should be filled from defaults
 			},
@@ -154,12 +154,12 @@ func TestMergeDefaults_OverheadMerged(t *testing.T) {
 
 func TestMergeDefaults_PolicyTakesPrecedence(t *testing.T) {
 	scheme := testScheme()
-	defaults := &rightsizev1alpha1.RightSizeDefaults{
+	defaults := &attunev1alpha1.AttuneDefaults{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "cluster-defaults",
 		},
-		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			CPU: &rightsizev1alpha1.ResourceConfig{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CPU: &attunev1alpha1.ResourceConfig{
 				Percentile: 95,
 				Overhead:   "50",
 			},
@@ -171,14 +171,14 @@ func TestMergeDefaults_PolicyTakesPrecedence(t *testing.T) {
 		WithObjects(defaults).
 		Build()
 
-	r := &RightSizePolicyReconciler{
+	r := &AttunePolicyReconciler{
 		Client: fakeClient,
 		Scheme: scheme,
 	}
 
-	policy := &rightsizev1alpha1.RightSizePolicy{
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			CPU: rightsizev1alpha1.ResourceConfig{
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			CPU: attunev1alpha1.ResourceConfig{
 				Percentile: 90,
 				Overhead:   "30",
 			},
@@ -195,30 +195,30 @@ func TestMergeDefaults_PolicyTakesPrecedence(t *testing.T) {
 }
 
 func TestFetchDefaults_NamespaceScopedOverridesCluster(t *testing.T) {
-	clusterDefaults := &rightsizev1alpha1.RightSizeDefaults{
+	clusterDefaults := &attunev1alpha1.AttuneDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
-		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			CPU: &rightsizev1alpha1.ResourceConfig{Percentile: 90},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CPU: &attunev1alpha1.ResourceConfig{Percentile: 90},
 		},
 	}
-	nsDefaults := &rightsizev1alpha1.RightSizeNamespaceDefaults{
+	nsDefaults := &attunev1alpha1.AttuneNamespaceDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "production-defaults", Namespace: "production"},
-		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			CPU: &rightsizev1alpha1.ResourceConfig{Percentile: 99},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CPU: &attunev1alpha1.ResourceConfig{Percentile: 99},
 		},
 	}
 	scheme := testScheme()
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
 		WithObjects(clusterDefaults, nsDefaults).Build()
-	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := &AttunePolicyReconciler{Client: fakeClient, Scheme: scheme}
 
-	// Namespace with a RightSizeNamespaceDefaults should use it.
+	// Namespace with a AttuneNamespaceDefaults should use it.
 	result, err := r.fetchDefaults(context.Background(), "production")
 	require.NoError(t, err)
 	assert.NotNil(t, result)
 	assert.Equal(t, int32(99), result.Spec.CPU.Percentile)
 
-	// Namespace without RightSizeNamespaceDefaults falls back to cluster.
+	// Namespace without AttuneNamespaceDefaults falls back to cluster.
 	result, err = r.fetchDefaults(context.Background(), "staging")
 	require.NoError(t, err)
 	assert.NotNil(t, result)
@@ -226,17 +226,17 @@ func TestFetchDefaults_NamespaceScopedOverridesCluster(t *testing.T) {
 }
 
 func TestFetchDefaults_NamespaceDefaultsDoNotMergeWithClusterDefaults(t *testing.T) {
-	clusterDefaults := &rightsizev1alpha1.RightSizeDefaults{
+	clusterDefaults := &attunev1alpha1.AttuneDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
-		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			CPU:    &rightsizev1alpha1.ResourceConfig{Percentile: 90, Overhead: "20"},
-			Memory: &rightsizev1alpha1.ResourceConfig{Percentile: 95, Overhead: "40"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CPU:    &attunev1alpha1.ResourceConfig{Percentile: 90, Overhead: "20"},
+			Memory: &attunev1alpha1.ResourceConfig{Percentile: 95, Overhead: "40"},
 		},
 	}
-	nsDefaults := &rightsizev1alpha1.RightSizeNamespaceDefaults{
+	nsDefaults := &attunev1alpha1.AttuneNamespaceDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "production-defaults", Namespace: "production"},
-		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			CPU: &rightsizev1alpha1.ResourceConfig{Percentile: 99, Overhead: "20"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CPU: &attunev1alpha1.ResourceConfig{Percentile: 99, Overhead: "20"},
 			// Memory intentionally omitted: namespace defaults should replace,
 			// not merge with, cluster defaults for this namespace.
 		},
@@ -244,7 +244,7 @@ func TestFetchDefaults_NamespaceDefaultsDoNotMergeWithClusterDefaults(t *testing
 	scheme := testScheme()
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
 		WithObjects(clusterDefaults, nsDefaults).Build()
-	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := &AttunePolicyReconciler{Client: fakeClient, Scheme: scheme}
 
 	defaults, err := r.fetchDefaults(context.Background(), "production")
 	require.NoError(t, err)
@@ -253,7 +253,7 @@ func TestFetchDefaults_NamespaceDefaultsDoNotMergeWithClusterDefaults(t *testing
 	assert.Equal(t, "20", defaults.Spec.CPU.Overhead)
 	assert.Nil(t, defaults.Spec.Memory)
 
-	policy := &rightsizev1alpha1.RightSizePolicy{}
+	policy := &attunev1alpha1.AttunePolicy{}
 	r.mergeDefaults(policy, defaults)
 
 	assert.Equal(t, int32(99), policy.Spec.CPU.Percentile)
@@ -263,14 +263,14 @@ func TestFetchDefaults_NamespaceDefaultsDoNotMergeWithClusterDefaults(t *testing
 }
 
 func TestMergeDefaults_NamespaceDefaultsUseBuiltInFallbackForOmittedMemory(t *testing.T) {
-	defaults := &rightsizev1alpha1.RightSizeDefaults{
-		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			CPU: &rightsizev1alpha1.ResourceConfig{Percentile: 99, Overhead: "20"},
+	defaults := &attunev1alpha1.AttuneDefaults{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CPU: &attunev1alpha1.ResourceConfig{Percentile: 99, Overhead: "20"},
 		},
 	}
-	r := &RightSizePolicyReconciler{}
+	r := &AttunePolicyReconciler{}
 
-	policy := &rightsizev1alpha1.RightSizePolicy{}
+	policy := &attunev1alpha1.AttunePolicy{}
 	r.mergeDefaults(policy, defaults)
 
 	assert.Equal(t, int32(99), policy.Spec.CPU.Percentile)
@@ -312,13 +312,13 @@ func TestFetchDefaults_ListError(t *testing.T) {
 				return fmt.Errorf("simulated API server error")
 			},
 		}).Build()
-	r := &RightSizePolicyReconciler{Client: errClient, Scheme: scheme}
+	r := &AttunePolicyReconciler{Client: errClient, Scheme: scheme}
 
 	// Both namespace and cluster List calls fail; fetchDefaults should return an error.
 	result, err := r.fetchDefaults(context.Background(), "default")
 	assert.Nil(t, result, "fetchDefaults should not return defaults when List fails")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "listing RightSizeNamespaceDefaults")
+	assert.Contains(t, err.Error(), "listing AttuneNamespaceDefaults")
 }
 
 func TestFetchDefaults_ClusterListError(t *testing.T) {
@@ -337,33 +337,33 @@ func TestFetchDefaults_ClusterListError(t *testing.T) {
 				return fmt.Errorf("simulated cluster list error")
 			},
 		}).Build()
-	r := &RightSizePolicyReconciler{Client: errClient, Scheme: scheme}
+	r := &AttunePolicyReconciler{Client: errClient, Scheme: scheme}
 
 	result, err := r.fetchDefaults(context.Background(), "default")
 	assert.Nil(t, result)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "listing RightSizeDefaults")
+	assert.Contains(t, err.Error(), "listing AttuneDefaults")
 }
 
 func TestFetchDefaults_SelectsLexicographicallySmallestClusterDefault(t *testing.T) {
 	scheme := testScheme()
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
 		WithObjects(
-			&rightsizev1alpha1.RightSizeDefaults{
+			&attunev1alpha1.AttuneDefaults{
 				ObjectMeta: metav1.ObjectMeta{Name: "zeta-defaults"},
-				Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-					CPU: &rightsizev1alpha1.ResourceConfig{Percentile: 99},
+				Spec: attunev1alpha1.AttuneDefaultsSpec{
+					CPU: &attunev1alpha1.ResourceConfig{Percentile: 99},
 				},
 			},
-			&rightsizev1alpha1.RightSizeDefaults{
+			&attunev1alpha1.AttuneDefaults{
 				ObjectMeta: metav1.ObjectMeta{Name: "alpha-defaults"},
-				Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-					CPU: &rightsizev1alpha1.ResourceConfig{Percentile: 90},
+				Spec: attunev1alpha1.AttuneDefaultsSpec{
+					CPU: &attunev1alpha1.ResourceConfig{Percentile: 90},
 				},
 			},
 		).
 		Build()
-	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := &AttunePolicyReconciler{Client: fakeClient, Scheme: scheme}
 
 	for i := 0; i < 10; i++ {
 		result, err := r.fetchDefaults(context.Background(), "default")
@@ -378,27 +378,27 @@ func TestFetchDefaults_SelectsLexicographicallySmallestNamespaceDefault(t *testi
 	scheme := testScheme()
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
 		WithObjects(
-			&rightsizev1alpha1.RightSizeDefaults{
+			&attunev1alpha1.AttuneDefaults{
 				ObjectMeta: metav1.ObjectMeta{Name: "cluster-defaults"},
-				Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-					CPU: &rightsizev1alpha1.ResourceConfig{Percentile: 80},
+				Spec: attunev1alpha1.AttuneDefaultsSpec{
+					CPU: &attunev1alpha1.ResourceConfig{Percentile: 80},
 				},
 			},
-			&rightsizev1alpha1.RightSizeNamespaceDefaults{
+			&attunev1alpha1.AttuneNamespaceDefaults{
 				ObjectMeta: metav1.ObjectMeta{Name: "zeta-defaults", Namespace: "production"},
-				Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-					CPU: &rightsizev1alpha1.ResourceConfig{Percentile: 99},
+				Spec: attunev1alpha1.AttuneDefaultsSpec{
+					CPU: &attunev1alpha1.ResourceConfig{Percentile: 99},
 				},
 			},
-			&rightsizev1alpha1.RightSizeNamespaceDefaults{
+			&attunev1alpha1.AttuneNamespaceDefaults{
 				ObjectMeta: metav1.ObjectMeta{Name: "alpha-defaults", Namespace: "production"},
-				Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-					CPU: &rightsizev1alpha1.ResourceConfig{Percentile: 95},
+				Spec: attunev1alpha1.AttuneDefaultsSpec{
+					CPU: &attunev1alpha1.ResourceConfig{Percentile: 95},
 				},
 			},
 		).
 		Build()
-	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := &AttunePolicyReconciler{Client: fakeClient, Scheme: scheme}
 
 	for i := 0; i < 10; i++ {
 		result, err := r.fetchDefaults(context.Background(), "production")
@@ -416,16 +416,16 @@ func TestFetchDefaults_DoesNotDependOnListOrder(t *testing.T) {
 
 	objects := make([]client.Object, 0, len(listOrder))
 	for idx, name := range listOrder {
-		objects = append(objects, &rightsizev1alpha1.RightSizeDefaults{
+		objects = append(objects, &attunev1alpha1.AttuneDefaults{
 			ObjectMeta: metav1.ObjectMeta{Name: name},
-			Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-				CPU: &rightsizev1alpha1.ResourceConfig{Percentile: int32(90 + idx)},
+			Spec: attunev1alpha1.AttuneDefaultsSpec{
+				CPU: &attunev1alpha1.ResourceConfig{Percentile: int32(90 + idx)},
 			},
 		})
 	}
 
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
-	r := &RightSizePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := &AttunePolicyReconciler{Client: fakeClient, Scheme: scheme}
 
 	result, err := r.fetchDefaults(context.Background(), "default")
 	require.NoError(t, err)

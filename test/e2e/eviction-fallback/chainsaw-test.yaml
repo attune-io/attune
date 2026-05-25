@@ -3,7 +3,7 @@ kind: Test
 metadata:
   name: eviction-fallback
 spec:
-  description: Verify that a RightSizePolicy with resizeMethod InPlaceOrRecreate accepts the field and resizes pods (in-place path; eviction fallback requires Infeasible pods)
+  description: Verify that a AttunePolicy with resizeMethod InPlaceOrRecreate accepts the field and resizes pods (in-place path; eviction fallback requires Infeasible pods)
   timeouts:
     apply: 30s
     assert: 2m
@@ -80,8 +80,8 @@ spec:
       try:
         - apply:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: eviction-test
                 namespace: e2e-eviction-fallback
@@ -114,8 +114,8 @@ spec:
       try:
         - assert:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: eviction-test
                 namespace: e2e-eviction-fallback
@@ -128,7 +128,7 @@ spec:
             timeout: 5m
             content: |
               for i in $(seq 1 60); do
-                RESIZED=$(kubectl get rightsizepolicy eviction-test -n e2e-eviction-fallback \
+                RESIZED=$(kubectl get attunepolicy eviction-test -n e2e-eviction-fallback \
                   -o jsonpath='{.status.workloads.resized}' 2>/dev/null)
                 if [ "$RESIZED" -ge 1 ] 2>/dev/null; then
                   echo "Eviction-fallback resize confirmed: $RESIZED workload(s) resized"
@@ -137,13 +137,13 @@ spec:
                 sleep 5
               done
               echo "No resize occurred within timeout"
-              kubectl get rightsizepolicy eviction-test -n e2e-eviction-fallback -o yaml
+              kubectl get attunepolicy eviction-test -n e2e-eviction-fallback -o yaml
               exit 1
   catch:
     - describe:
-        apiVersion: rightsize.io/v1alpha1
-        kind: RightSizePolicy
+        apiVersion: attune.io/v1alpha1
+        kind: AttunePolicy
         namespace: e2e-eviction-fallback
     - podLogs:
-        namespace: kube-rightsize-system
-        selector: app.kubernetes.io/name=kube-rightsize
+        namespace: attune-system
+        selector: app.kubernetes.io/name=attune

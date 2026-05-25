@@ -2,8 +2,8 @@
 # Example: Auto mode with schedule windows
 # Resizes only occur during the configured time windows.
 # Recommendations are always computed; only execution is gated.
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizePolicy
+apiVersion: attune.io/v1alpha1
+kind: AttunePolicy
 metadata:
   name: scheduled-resize
   namespace: production

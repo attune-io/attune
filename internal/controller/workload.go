@@ -28,13 +28,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
-	rsmetrics "github.com/SebTardifLabs/kube-rightsize/internal/metrics"
-	"github.com/SebTardifLabs/kube-rightsize/internal/operatormetrics"
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	rsmetrics "github.com/attune-io/attune/internal/metrics"
+	"github.com/attune-io/attune/internal/operatormetrics"
 )
 
 // discoverWorkloads finds workloads matching the policy's targetRef.
-func (r *RightSizePolicyReconciler) discoverWorkloads(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy) ([]client.Object, error) {
+func (r *AttunePolicyReconciler) discoverWorkloads(ctx context.Context, policy *attunev1alpha1.AttunePolicy) ([]client.Object, error) {
 	targetRef := policy.Spec.TargetRef
 	namespace := policy.Namespace
 
@@ -59,10 +59,10 @@ func (r *RightSizePolicyReconciler) discoverWorkloads(ctx context.Context, polic
 }
 
 // getWorkloadByName fetches a specific workload by kind and name.
-func (r *RightSizePolicyReconciler) getWorkloadByName(ctx context.Context, namespace, kind, name string) (client.Object, error) {
+func (r *AttunePolicyReconciler) getWorkloadByName(ctx context.Context, namespace, kind, name string) (client.Object, error) {
 	wk, ok := workloadKinds[kind]
 	if !ok {
-		return nil, fmt.Errorf("unsupported workload kind: %s; supported kinds are: %s", kind, rightsizev1alpha1.SupportedTargetKindsCSV)
+		return nil, fmt.Errorf("unsupported workload kind: %s; supported kinds are: %s", kind, attunev1alpha1.SupportedTargetKindsCSV)
 	}
 	obj := wk.newObject()
 	if err := r.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, obj); err != nil {
@@ -76,7 +76,7 @@ func (r *RightSizePolicyReconciler) getWorkloadByName(ctx context.Context, names
 }
 
 // listWorkloadsBySelector lists workloads matching a label selector.
-func (r *RightSizePolicyReconciler) listWorkloadsBySelector(ctx context.Context, namespace, kind string, selector *metav1.LabelSelector) ([]client.Object, error) {
+func (r *AttunePolicyReconciler) listWorkloadsBySelector(ctx context.Context, namespace, kind string, selector *metav1.LabelSelector) ([]client.Object, error) {
 	labelSelector, err := metav1.LabelSelectorAsSelector(selector)
 	if err != nil {
 		return nil, fmt.Errorf("parsing label selector: %w", err)
@@ -89,7 +89,7 @@ func (r *RightSizePolicyReconciler) listWorkloadsBySelector(ctx context.Context,
 
 	wk, ok := workloadKinds[kind]
 	if !ok {
-		return nil, fmt.Errorf("unsupported workload kind: %s; supported kinds are: %s", kind, rightsizev1alpha1.SupportedTargetKindsCSV)
+		return nil, fmt.Errorf("unsupported workload kind: %s; supported kinds are: %s", kind, attunev1alpha1.SupportedTargetKindsCSV)
 	}
 
 	list := wk.newList()
@@ -106,7 +106,7 @@ func (r *RightSizePolicyReconciler) listWorkloadsBySelector(ctx context.Context,
 
 // getPodsForWorkload returns the pods managed by a workload by matching
 // the workload's pod template selector labels.
-func (r *RightSizePolicyReconciler) getPodsForWorkload(ctx context.Context, workload client.Object) ([]corev1.Pod, error) {
+func (r *AttunePolicyReconciler) getPodsForWorkload(ctx context.Context, workload client.Object) ([]corev1.Pod, error) {
 	selectorLabels := r.getPodSelectorLabels(workload)
 	if len(selectorLabels) == 0 {
 		return nil, fmt.Errorf("workload %s/%s has no pod selector labels", workload.GetNamespace(), workload.GetName())
@@ -124,7 +124,7 @@ func (r *RightSizePolicyReconciler) getPodsForWorkload(ctx context.Context, work
 }
 
 // getPodSelectorLabels extracts the pod selector labels from a workload.
-func (r *RightSizePolicyReconciler) getPodSelectorLabels(workload client.Object) map[string]string {
+func (r *AttunePolicyReconciler) getPodSelectorLabels(workload client.Object) map[string]string {
 	if a := newWorkloadAdapter(workload); a != nil {
 		return a.PodSelectorLabels()
 	}
@@ -133,7 +133,7 @@ func (r *RightSizePolicyReconciler) getPodSelectorLabels(workload client.Object)
 
 // getContainers returns the container specs from a workload's pod template,
 // including native sidecar containers (init containers with restartPolicy=Always).
-func (r *RightSizePolicyReconciler) getContainers(workload client.Object) []corev1.Container {
+func (r *AttunePolicyReconciler) getContainers(workload client.Object) []corev1.Container {
 	a := newWorkloadAdapter(workload)
 	if a == nil {
 		return nil
@@ -168,7 +168,7 @@ func isBatchWorkload(workload client.Object) bool {
 }
 
 // isRollingOut checks if a workload is currently in the middle of a rollout.
-func (r *RightSizePolicyReconciler) isRollingOut(workload client.Object) bool {
+func (r *AttunePolicyReconciler) isRollingOut(workload client.Object) bool {
 	if a := newWorkloadAdapter(workload); a != nil {
 		return a.IsRollingOut()
 	}
@@ -185,7 +185,7 @@ func (r *RightSizePolicyReconciler) isRollingOut(workload client.Object) bool {
 //   - DaemonSet: <name>-<pod-hash>
 //   - Job: <name>-<pod-hash>
 //   - CronJob: <name>-<timestamp>-<pod-hash>
-func (r *RightSizePolicyReconciler) getPodRegex(workload client.Object) string {
+func (r *AttunePolicyReconciler) getPodRegex(workload client.Object) string {
 	name := rsmetrics.EscapePromQLRegex(workload.GetName())
 	if a := newWorkloadAdapter(workload); a != nil {
 		return name + a.PodNameRegexSuffix()

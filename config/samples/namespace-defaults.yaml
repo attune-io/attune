@@ -1,10 +1,10 @@
 ---
 # Example: Namespace-scoped defaults
-# Overrides cluster-scoped RightSizeDefaults for this namespace.
+# Overrides cluster-scoped AttuneDefaults for this namespace.
 # Policies inherit these values unless they specify their own.
 # Precedence: policy spec > namespace defaults > cluster defaults
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizeNamespaceDefaults
+apiVersion: attune.io/v1alpha1
+kind: AttuneNamespaceDefaults
 metadata:
   name: production-defaults
   namespace: production

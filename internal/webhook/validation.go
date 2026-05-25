@@ -27,16 +27,16 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
-	"github.com/SebTardifLabs/kube-rightsize/internal/operatormetrics"
-	"github.com/SebTardifLabs/kube-rightsize/internal/validation"
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/operatormetrics"
+	"github.com/attune-io/attune/internal/validation"
 )
 
-// RightSizePolicyValidator implements the typed Validator interface for RightSizePolicy.
-type RightSizePolicyValidator struct{}
+// AttunePolicyValidator implements the typed Validator interface for AttunePolicy.
+type AttunePolicyValidator struct{}
 
-// ValidateCreate validates a new RightSizePolicy.
-func (v *RightSizePolicyValidator) ValidateCreate(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy) (admission.Warnings, error) {
+// ValidateCreate validates a new AttunePolicy.
+func (v *AttunePolicyValidator) ValidateCreate(ctx context.Context, policy *attunev1alpha1.AttunePolicy) (admission.Warnings, error) {
 	timer := operatormetrics.NewWebhookTimer("validate_create")
 	defer timer.Observe()
 	w, err := v.validate(policy)
@@ -44,8 +44,8 @@ func (v *RightSizePolicyValidator) ValidateCreate(ctx context.Context, policy *r
 	return w, err
 }
 
-// ValidateUpdate validates an updated RightSizePolicy.
-func (v *RightSizePolicyValidator) ValidateUpdate(ctx context.Context, oldPolicy, policy *rightsizev1alpha1.RightSizePolicy) (admission.Warnings, error) {
+// ValidateUpdate validates an updated AttunePolicy.
+func (v *AttunePolicyValidator) ValidateUpdate(ctx context.Context, oldPolicy, policy *attunev1alpha1.AttunePolicy) (admission.Warnings, error) {
 	timer := operatormetrics.NewWebhookTimer("validate_update")
 	defer timer.Observe()
 	w, err := v.validate(policy)
@@ -53,12 +53,12 @@ func (v *RightSizePolicyValidator) ValidateUpdate(ctx context.Context, oldPolicy
 	return w, err
 }
 
-// ValidateDelete validates a RightSizePolicy deletion (always succeeds).
-func (v *RightSizePolicyValidator) ValidateDelete(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy) (admission.Warnings, error) {
+// ValidateDelete validates a AttunePolicy deletion (always succeeds).
+func (v *AttunePolicyValidator) ValidateDelete(ctx context.Context, policy *attunev1alpha1.AttunePolicy) (admission.Warnings, error) {
 	return nil, nil
 }
 
-func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizePolicy) (admission.Warnings, error) {
+func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (admission.Warnings, error) {
 	var warnings admission.Warnings
 
 	// CPU bounds: minAllowed must be <= maxAllowed, and maxAllowed capped at 256 cores.
@@ -92,7 +92,7 @@ func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizeP
 	}
 
 	// Canary config required when mode is Canary
-	if policy.Spec.UpdateStrategy.Type == rightsizev1alpha1.UpdateTypeCanary && policy.Spec.UpdateStrategy.Canary == nil {
+	if policy.Spec.UpdateStrategy.Type == attunev1alpha1.UpdateTypeCanary && policy.Spec.UpdateStrategy.Canary == nil {
 		return warnings, fmt.Errorf("updateStrategy.canary is required when mode is Canary")
 	}
 
@@ -139,10 +139,10 @@ func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizeP
 	}
 
 	// Validate targetRef.kind is a supported workload type.
-	if !rightsizev1alpha1.IsSupportedTargetKind(policy.Spec.TargetRef.Kind) {
+	if !attunev1alpha1.IsSupportedTargetKind(policy.Spec.TargetRef.Kind) {
 		return warnings, fmt.Errorf(
 			"targetRef.kind %q is not supported; must be one of: %s",
-			policy.Spec.TargetRef.Kind, rightsizev1alpha1.SupportedTargetKindsCSV)
+			policy.Spec.TargetRef.Kind, attunev1alpha1.SupportedTargetKindsCSV)
 	}
 
 	// Validate overhead is a valid non-negative percentage.
@@ -350,7 +350,7 @@ func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizeP
 	// Warn if paused with an active mode.
 	if policy.Spec.Paused != nil && *policy.Spec.Paused {
 		mode := policy.Spec.UpdateStrategy.Type
-		if mode == rightsizev1alpha1.UpdateTypeAuto || mode == rightsizev1alpha1.UpdateTypeOneShot || mode == rightsizev1alpha1.UpdateTypeCanary {
+		if mode == attunev1alpha1.UpdateTypeAuto || mode == attunev1alpha1.UpdateTypeOneShot || mode == attunev1alpha1.UpdateTypeCanary {
 			warnings = append(warnings, fmt.Sprintf(
 				"spec.paused is true but type is %s; no metrics collection or resizes will occur while paused", mode))
 		}
@@ -365,11 +365,11 @@ func (v *RightSizePolicyValidator) validate(policy *rightsizev1alpha1.RightSizeP
 // warnIneffectiveSettings detects configuration combinations that are
 // technically valid but have no effect, helping users catch typos and
 // misunderstandings before they wonder why nothing is happening.
-func warnIneffectiveSettings(policy *rightsizev1alpha1.RightSizePolicy) admission.Warnings {
+func warnIneffectiveSettings(policy *attunev1alpha1.AttunePolicy) admission.Warnings {
 	var w admission.Warnings
 	mode := policy.Spec.UpdateStrategy.Type
-	isNonResizing := mode == rightsizev1alpha1.UpdateTypeObserve ||
-		mode == rightsizev1alpha1.UpdateTypeRecommend ||
+	isNonResizing := mode == attunev1alpha1.UpdateTypeObserve ||
+		mode == attunev1alpha1.UpdateTypeRecommend ||
 		mode == ""
 
 	// Settings that only matter when resizes happen.
@@ -398,14 +398,14 @@ func warnIneffectiveSettings(policy *rightsizev1alpha1.RightSizePolicy) admissio
 	}
 
 	// Export in Observe mode produces nothing (no recommendations surfaced).
-	if mode == rightsizev1alpha1.UpdateTypeObserve {
+	if mode == attunev1alpha1.UpdateTypeObserve {
 		if policy.Spec.UpdateStrategy.Export != nil && policy.Spec.UpdateStrategy.Export.ConfigMap {
 			w = append(w, "export.configMap has no effect in Observe mode; recommendations are not surfaced")
 		}
 	}
 
 	// Canary config outside Canary mode.
-	if policy.Spec.UpdateStrategy.Canary != nil && mode != rightsizev1alpha1.UpdateTypeCanary {
+	if policy.Spec.UpdateStrategy.Canary != nil && mode != attunev1alpha1.UpdateTypeCanary {
 		w = append(w, fmt.Sprintf("canary configuration has no effect in %s mode", mode))
 	}
 
@@ -422,7 +422,7 @@ func warnIneffectiveSettings(policy *rightsizev1alpha1.RightSizePolicy) admissio
 	}
 
 	// maxConcurrentResizes > 1 in OneShot mode.
-	if mode == rightsizev1alpha1.UpdateTypeOneShot && policy.Spec.UpdateStrategy.MaxConcurrentResizes > 1 {
+	if mode == attunev1alpha1.UpdateTypeOneShot && policy.Spec.UpdateStrategy.MaxConcurrentResizes > 1 {
 		w = append(w, "maxConcurrentResizes > 1 has no effect in OneShot mode; only one pod is resized per cycle")
 	}
 
@@ -487,7 +487,7 @@ var validWeekdays = map[string]bool{
 	"thursday": true, "friday": true, "saturday": true, "sunday": true,
 }
 
-func validateSchedule(schedule *rightsizev1alpha1.ResizeSchedule) error {
+func validateSchedule(schedule *attunev1alpha1.ResizeSchedule) error {
 	// Validate timezone.
 	if tz := schedule.Timezone; tz != "" {
 		if _, err := time.LoadLocation(tz); err != nil {
@@ -528,7 +528,7 @@ func validateHHMM(field, value string) error {
 }
 
 // validateSLOGuardrails validates all SLO guardrail entries.
-func validateSLOGuardrails(guardrails []rightsizev1alpha1.SLOGuardrail) error {
+func validateSLOGuardrails(guardrails []attunev1alpha1.SLOGuardrail) error {
 	names := make(map[string]bool, len(guardrails))
 	for i, g := range guardrails {
 		if g.Name == "" {

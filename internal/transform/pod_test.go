@@ -31,10 +31,10 @@ func TestStripPodFields(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-pod",
 			Namespace: "default",
-			Labels:    map[string]string{"app": "test", "rightsize.io/tracked": "true"},
+			Labels:    map[string]string{"app": "test", "attune.io/tracked": "true"},
 			Annotations: map[string]string{
-				"rightsize.io/resized-at": "2026-01-01T00:00:00Z",
-				"other-annotation":        "keep",
+				"attune.io/resized-at": "2026-01-01T00:00:00Z",
+				"other-annotation":     "keep",
 			},
 			ManagedFields: []metav1.ManagedFieldsEntry{
 				{Manager: "kubectl", Operation: metav1.ManagedFieldsOperationApply},
@@ -109,8 +109,8 @@ func TestStripPodFields(t *testing.T) {
 	assert.Equal(t, "test-pod", stripped.Name)
 	assert.Equal(t, "default", stripped.Namespace)
 	assert.Equal(t, "node-1", stripped.Spec.NodeName)
-	assert.Equal(t, map[string]string{"app": "test", "rightsize.io/tracked": "true"}, stripped.Labels)
-	assert.Contains(t, stripped.Annotations, "rightsize.io/resized-at")
+	assert.Equal(t, map[string]string{"app": "test", "attune.io/tracked": "true"}, stripped.Labels)
+	assert.Contains(t, stripped.Annotations, "attune.io/resized-at")
 	assert.Contains(t, stripped.Annotations, "other-annotation")
 	assert.Equal(t, corev1.PodRunning, stripped.Status.Phase)
 	assert.Len(t, stripped.Status.Conditions, 1)

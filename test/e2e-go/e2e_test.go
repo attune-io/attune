@@ -16,7 +16,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package e2e_go provides Go-based E2E tests for kube-rightsize.
+// Package e2e_go provides Go-based E2E tests for attune.
 // Tests run against a real k3d/Kind cluster with the operator and
 // Prometheus deployed. Build tag: e2e.
 package e2e_go
@@ -45,7 +45,7 @@ import (
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 )
 
 var (
@@ -72,7 +72,7 @@ func TestMain(m *testing.M) {
 	}
 	restConfig = cfg
 
-	err = rightsizev1alpha1.AddToScheme(scheme.Scheme)
+	err = attunev1alpha1.AddToScheme(scheme.Scheme)
 	if err != nil {
 		panic("failed to add scheme: " + err.Error())
 	}
@@ -153,34 +153,34 @@ func createDeployment(t *testing.T, name, namespace string, cpuReq, memReq strin
 	return deploy
 }
 
-func createPolicy(t *testing.T, name, namespace, deployName string, mode rightsizev1alpha1.UpdateType) *rightsizev1alpha1.RightSizePolicy {
+func createPolicy(t *testing.T, name, namespace, deployName string, mode attunev1alpha1.UpdateType) *attunev1alpha1.AttunePolicy {
 	t.Helper()
-	policy := &rightsizev1alpha1.RightSizePolicy{
+	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
 		},
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			TargetRef: rightsizev1alpha1.TargetRef{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			TargetRef: attunev1alpha1.TargetRef{
 				Kind: "Deployment",
 				Name: &deployName,
 			},
-			MetricsSource: rightsizev1alpha1.MetricsSource{
-				Prometheus: &rightsizev1alpha1.PrometheusConfig{
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Prometheus: &attunev1alpha1.PrometheusConfig{
 					Address: promAddr,
 				},
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
 			},
-			CPU: rightsizev1alpha1.ResourceConfig{
+			CPU: attunev1alpha1.ResourceConfig{
 				Percentile:       95,
 				Overhead:         "20",
 				MinAllowed:       quantityPtr("50m"),
 				MaxAllowed:       quantityPtr("4000m"),
 				MaxChangePercent: int32Ptr(100),
 			},
-			Memory: rightsizev1alpha1.ResourceConfig{
+			Memory: attunev1alpha1.ResourceConfig{
 				Percentile:       99,
 				Overhead:         "30",
 				AllowDecrease:    boolPtr(true),
@@ -188,7 +188,7 @@ func createPolicy(t *testing.T, name, namespace, deployName string, mode rightsi
 				MaxAllowed:       quantityPtr("8Gi"),
 				MaxChangePercent: int32Ptr(100),
 			},
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+			UpdateStrategy: attunev1alpha1.UpdateStrategy{
 				Type:       mode,
 				Cooldown:   &metav1.Duration{Duration: time.Minute},
 				AutoRevert: boolPtr(true),
@@ -213,7 +213,7 @@ func waitForDeploymentReady(t *testing.T, name, namespace string, timeout time.D
 func waitForPolicyDiscovered(t *testing.T, name, namespace string, timeout time.Duration) {
 	t.Helper()
 	require.NoError(t, wait.PollUntilContextTimeout(ctx, 3*time.Second, timeout, true, func(ctx context.Context) (bool, error) {
-		var policy rightsizev1alpha1.RightSizePolicy
+		var policy attunev1alpha1.AttunePolicy
 		if err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, &policy); err != nil {
 			return false, nil
 		}
@@ -224,7 +224,7 @@ func waitForPolicyDiscovered(t *testing.T, name, namespace string, timeout time.
 func waitForResize(t *testing.T, policyName, namespace string, timeout time.Duration) {
 	t.Helper()
 	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, timeout, true, func(ctx context.Context) (bool, error) {
-		var policy rightsizev1alpha1.RightSizePolicy
+		var policy attunev1alpha1.AttunePolicy
 		if err := k8sClient.Get(ctx, types.NamespacedName{Name: policyName, Namespace: namespace}, &policy); err != nil {
 			return false, nil
 		}
@@ -236,7 +236,7 @@ func forcePolicyReconcile(t *testing.T, name, namespace string, timeout time.Dur
 	t.Helper()
 
 	key := types.NamespacedName{Name: name, Namespace: namespace}
-	var before rightsizev1alpha1.RightSizePolicy
+	var before attunev1alpha1.AttunePolicy
 	require.NoError(t, k8sClient.Get(ctx, key, &before))
 
 	lastReconcile := time.Time{}
@@ -249,7 +249,7 @@ func forcePolicyReconcile(t *testing.T, name, namespace string, timeout time.Dur
 	// so an annotation change alone won't trigger reconciliation.
 	specResourceVersion := ""
 	require.NoError(t, retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		var policy rightsizev1alpha1.RightSizePolicy
+		var policy attunev1alpha1.AttunePolicy
 		if err := k8sClient.Get(ctx, key, &policy); err != nil {
 			return err
 		}
@@ -271,7 +271,7 @@ func forcePolicyReconcile(t *testing.T, name, namespace string, timeout time.Dur
 	}))
 
 	require.NoError(t, wait.PollUntilContextTimeout(ctx, 2*time.Second, timeout, true, func(ctx context.Context) (bool, error) {
-		var latest rightsizev1alpha1.RightSizePolicy
+		var latest attunev1alpha1.AttunePolicy
 		if err := k8sClient.Get(ctx, key, &latest); err != nil {
 			return false, nil
 		}
@@ -294,10 +294,10 @@ func TestE2E_PolicyDiscovery(t *testing.T) {
 	createDeployment(t, "test-app", ns, "250m", "256Mi", 1)
 	waitForDeploymentReady(t, "test-app", ns, 60*time.Second)
 
-	createPolicy(t, "test-policy", ns, "test-app", rightsizev1alpha1.UpdateTypeRecommend)
+	createPolicy(t, "test-policy", ns, "test-app", attunev1alpha1.UpdateTypeRecommend)
 	waitForPolicyDiscovered(t, "test-policy", ns, 90*time.Second)
 
-	var policy rightsizev1alpha1.RightSizePolicy
+	var policy attunev1alpha1.AttunePolicy
 	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "test-policy", Namespace: ns}, &policy))
 	assert.Equal(t, int32(1), policy.Status.Workloads.Discovered)
 }
@@ -309,7 +309,7 @@ func TestE2E_AutoMode_ResizesRunningPod(t *testing.T) {
 	createDeployment(t, "auto-app", ns, "500m", "512Mi", 1)
 	waitForDeploymentReady(t, "auto-app", ns, 60*time.Second)
 
-	createPolicy(t, "auto-policy", ns, "auto-app", rightsizev1alpha1.UpdateTypeAuto)
+	createPolicy(t, "auto-policy", ns, "auto-app", attunev1alpha1.UpdateTypeAuto)
 
 	// Wait for resize to complete (pod resources should change).
 	waitForResize(t, "auto-policy", ns, 3*time.Minute)
@@ -346,12 +346,12 @@ func TestE2E_OneShotMode_ResizesOnePod(t *testing.T) {
 	createDeployment(t, "oneshot-app", ns, "500m", "512Mi", 2)
 	waitForDeploymentReady(t, "oneshot-app", ns, 60*time.Second)
 
-	createPolicy(t, "oneshot-policy", ns, "oneshot-app", rightsizev1alpha1.UpdateTypeOneShot)
+	createPolicy(t, "oneshot-policy", ns, "oneshot-app", attunev1alpha1.UpdateTypeOneShot)
 
 	waitForResize(t, "oneshot-policy", ns, 3*time.Minute)
 
 	// OneShot should resize exactly 1 pod.
-	var policy rightsizev1alpha1.RightSizePolicy
+	var policy attunev1alpha1.AttunePolicy
 	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "oneshot-policy", Namespace: ns}, &policy))
 	assert.Equal(t, int32(1), policy.Status.Workloads.Resized,
 		"OneShot mode should resize exactly 1 workload")
@@ -400,13 +400,13 @@ func TestE2E_AutoMode_RecordsResizeHistory(t *testing.T) {
 	require.NoError(t, k8sClient.Create(ctx, deploy))
 	waitForDeploymentReady(t, "revert-app", ns, 60*time.Second)
 
-	policy := createPolicy(t, "revert-policy", ns, "revert-app", rightsizev1alpha1.UpdateTypeAuto)
+	policy := createPolicy(t, "revert-policy", ns, "revert-app", attunev1alpha1.UpdateTypeAuto)
 
 	// Wait for initial resize.
 	waitForResize(t, "revert-policy", ns, 3*time.Minute)
 
 	// Verify the resize occurred and check that history entries exist.
-	var updatedPolicy rightsizev1alpha1.RightSizePolicy
+	var updatedPolicy attunev1alpha1.AttunePolicy
 	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{
 		Name: policy.Name, Namespace: ns,
 	}, &updatedPolicy))
@@ -468,24 +468,24 @@ func TestE2E_MultiContainer_ExcludesSidecar(t *testing.T) {
 	// Create policy with excludedContainers set directly to avoid update conflicts
 	// with the reconciler which starts processing immediately after creation.
 	deployName := "multi-app"
-	policy := &rightsizev1alpha1.RightSizePolicy{
+	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "multi-policy", Namespace: ns},
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			TargetRef: rightsizev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
-			MetricsSource: rightsizev1alpha1.MetricsSource{
-				Prometheus:        &rightsizev1alpha1.PrometheusConfig{Address: promAddr},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			TargetRef: attunev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Prometheus:        &attunev1alpha1.PrometheusConfig{Address: promAddr},
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
 			},
-			CPU: rightsizev1alpha1.ResourceConfig{
+			CPU: attunev1alpha1.ResourceConfig{
 				Percentile:       95,
 				Overhead:         "20",
 				MinAllowed:       quantityPtr("50m"),
 				MaxAllowed:       quantityPtr("4000m"),
 				MaxChangePercent: int32Ptr(100),
 			},
-			Memory: rightsizev1alpha1.ResourceConfig{
+			Memory: attunev1alpha1.ResourceConfig{
 				Percentile:       99,
 				Overhead:         "30",
 				AllowDecrease:    boolPtr(true),
@@ -494,8 +494,8 @@ func TestE2E_MultiContainer_ExcludesSidecar(t *testing.T) {
 				MaxChangePercent: int32Ptr(100),
 			},
 			ExcludedContainers: []string{"istio-proxy"},
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Type:       rightsizev1alpha1.UpdateTypeAuto,
+			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+				Type:       attunev1alpha1.UpdateTypeAuto,
 				Cooldown:   &metav1.Duration{Duration: time.Minute},
 				AutoRevert: boolPtr(true),
 			},
@@ -583,11 +583,11 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 	require.NoError(t, k8sClient.Create(ctx, deploy))
 	waitForDeploymentReady(t, "load-app", ns, 120*time.Second)
 
-	loadPolicy := createPolicy(t, "load-policy", ns, "load-app", rightsizev1alpha1.UpdateTypeRecommend)
+	loadPolicy := createPolicy(t, "load-policy", ns, "load-app", attunev1alpha1.UpdateTypeRecommend)
 	maxCPU, err := resource.ParseQuantity("800m")
 	require.NoError(t, err)
 	require.NoError(t, retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		var latestPolicy rightsizev1alpha1.RightSizePolicy
+		var latestPolicy attunev1alpha1.AttunePolicy
 		if err := k8sClient.Get(ctx, types.NamespacedName{Name: loadPolicy.Name, Namespace: ns}, &latestPolicy); err != nil {
 			return err
 		}
@@ -597,7 +597,7 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 
 	// Wait for the updated policy to produce a recommendation using the test-specific max bound.
 	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
-		var latestPolicy rightsizev1alpha1.RightSizePolicy
+		var latestPolicy attunev1alpha1.AttunePolicy
 		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "load-policy", Namespace: ns}, &latestPolicy); err != nil {
 			return false, nil
 		}
@@ -609,7 +609,7 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 		return latestPolicy.Status.Recommendations[0].Containers[0].Recommended.CPURequest.MilliValue() == 800, nil
 	}))
 
-	var latestPolicy rightsizev1alpha1.RightSizePolicy
+	var latestPolicy attunev1alpha1.AttunePolicy
 	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "load-policy", Namespace: ns}, &latestPolicy))
 
 	require.NotEmpty(t, latestPolicy.Status.Recommendations)
@@ -641,28 +641,28 @@ func TestE2E_BudgetCaps_DefersResize(t *testing.T) {
 
 	tightBudget := resource.MustParse("150m")
 	deployName := "budget-app"
-	policy := &rightsizev1alpha1.RightSizePolicy{
+	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "budget-policy", Namespace: ns},
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			TargetRef: rightsizev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
-			MetricsSource: rightsizev1alpha1.MetricsSource{
-				Prometheus:        &rightsizev1alpha1.PrometheusConfig{Address: promAddr},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			TargetRef: attunev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Prometheus:        &attunev1alpha1.PrometheusConfig{Address: promAddr},
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
 			},
-			CPU: rightsizev1alpha1.ResourceConfig{
+			CPU: attunev1alpha1.ResourceConfig{
 				Percentile:       95,
 				Overhead:         "20",
 				MaxChangePercent: int32Ptr(100),
 			},
-			Memory: rightsizev1alpha1.ResourceConfig{
+			Memory: attunev1alpha1.ResourceConfig{
 				Percentile:       99,
 				Overhead:         "30",
 				MaxChangePercent: int32Ptr(100),
 			},
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Type:                rightsizev1alpha1.UpdateTypeAuto,
+			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+				Type:                attunev1alpha1.UpdateTypeAuto,
 				Cooldown:            &metav1.Duration{Duration: time.Minute},
 				MaxTotalCPUIncrease: &tightBudget,
 			},
@@ -677,7 +677,7 @@ func TestE2E_BudgetCaps_DefersResize(t *testing.T) {
 	// at most one pod can be resized per cycle. Wait for at least one resize.
 	waitForResize(t, "budget-policy", ns, 3*time.Minute)
 
-	var p rightsizev1alpha1.RightSizePolicy
+	var p attunev1alpha1.AttunePolicy
 	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "budget-policy", Namespace: ns}, &p))
 	assert.Equal(t, int32(1), p.Status.Workloads.Discovered)
 
@@ -719,32 +719,32 @@ func TestE2E_ScheduleWindow_SkipsOutsideWindow(t *testing.T) {
 	}
 
 	deployName := "sched-app"
-	policy := &rightsizev1alpha1.RightSizePolicy{
+	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "sched-policy", Namespace: ns},
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			TargetRef: rightsizev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
-			MetricsSource: rightsizev1alpha1.MetricsSource{
-				Prometheus:        &rightsizev1alpha1.PrometheusConfig{Address: promAddr},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			TargetRef: attunev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Prometheus:        &attunev1alpha1.PrometheusConfig{Address: promAddr},
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
 			},
-			CPU: rightsizev1alpha1.ResourceConfig{
+			CPU: attunev1alpha1.ResourceConfig{
 				Percentile:       95,
 				Overhead:         "20",
 				MaxChangePercent: int32Ptr(100),
 			},
-			Memory: rightsizev1alpha1.ResourceConfig{
+			Memory: attunev1alpha1.ResourceConfig{
 				Percentile:       99,
 				Overhead:         "30",
 				MaxChangePercent: int32Ptr(100),
 			},
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Type:     rightsizev1alpha1.UpdateTypeAuto,
+			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+				Type:     attunev1alpha1.UpdateTypeAuto,
 				Cooldown: &metav1.Duration{Duration: time.Minute},
-				Schedule: &rightsizev1alpha1.ResizeSchedule{
+				Schedule: &attunev1alpha1.ResizeSchedule{
 					DaysOfWeek: excludedDays,
-					Windows:    []rightsizev1alpha1.TimeWindow{{Start: "00:00", End: "23:59"}},
+					Windows:    []attunev1alpha1.TimeWindow{{Start: "00:00", End: "23:59"}},
 				},
 			},
 		},
@@ -756,7 +756,7 @@ func TestE2E_ScheduleWindow_SkipsOutsideWindow(t *testing.T) {
 	// Wait for a recommendation to be computed, proving the operator has data
 	// and the only thing blocking resize is the schedule.
 	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
-		var pol rightsizev1alpha1.RightSizePolicy
+		var pol attunev1alpha1.AttunePolicy
 		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "sched-policy", Namespace: ns}, &pol); err != nil {
 			return false, nil
 		}
@@ -767,7 +767,7 @@ func TestE2E_ScheduleWindow_SkipsOutsideWindow(t *testing.T) {
 	forcePolicyReconcile(t, "sched-policy", ns, 2*time.Minute)
 
 	// Today is excluded from the schedule, so no resizes should occur.
-	var p rightsizev1alpha1.RightSizePolicy
+	var p attunev1alpha1.AttunePolicy
 	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "sched-policy", Namespace: ns}, &p))
 	assert.Equal(t, int32(0), p.Status.Workloads.Resized,
 		"no resizes should occur when today is excluded from schedule")
@@ -789,14 +789,14 @@ func TestE2E_BearerToken_Authenticates(t *testing.T) {
 	waitForDeploymentReady(t, "bearer-app", ns, 60*time.Second)
 
 	deployName := "bearer-app"
-	policy := &rightsizev1alpha1.RightSizePolicy{
+	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "bearer-policy", Namespace: ns},
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			TargetRef: rightsizev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
-			MetricsSource: rightsizev1alpha1.MetricsSource{
-				Prometheus: &rightsizev1alpha1.PrometheusConfig{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			TargetRef: attunev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Prometheus: &attunev1alpha1.PrometheusConfig{
 					Address: promAddr,
-					BearerTokenSecret: &rightsizev1alpha1.SecretKeyRef{
+					BearerTokenSecret: &attunev1alpha1.SecretKeyRef{
 						Name: "prom-token",
 						Key:  "token",
 					},
@@ -805,10 +805,10 @@ func TestE2E_BearerToken_Authenticates(t *testing.T) {
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
 			},
-			CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, Overhead: "20"},
-			Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, Overhead: "30"},
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Type:     rightsizev1alpha1.UpdateTypeRecommend,
+			CPU:    attunev1alpha1.ResourceConfig{Percentile: 95, Overhead: "20"},
+			Memory: attunev1alpha1.ResourceConfig{Percentile: 99, Overhead: "30"},
+			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+				Type:     attunev1alpha1.UpdateTypeRecommend,
 				Cooldown: &metav1.Duration{Duration: time.Minute},
 			},
 		},
@@ -819,7 +819,7 @@ func TestE2E_BearerToken_Authenticates(t *testing.T) {
 	// read the Secret, inject the bearer token, and query without error.
 	waitForPolicyDiscovered(t, "bearer-policy", ns, 2*time.Minute)
 
-	var p rightsizev1alpha1.RightSizePolicy
+	var p attunev1alpha1.AttunePolicy
 	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "bearer-policy", Namespace: ns}, &p))
 	assert.Equal(t, int32(1), p.Status.Workloads.Discovered,
 		"policy with bearer token should discover workloads")
@@ -833,24 +833,24 @@ func TestE2E_EvictionFallback_ResizesWithInPlaceOrRecreate(t *testing.T) {
 	waitForDeploymentReady(t, "evict-app", ns, 60*time.Second)
 
 	deployName := "evict-app"
-	policy := &rightsizev1alpha1.RightSizePolicy{
+	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "evict-policy", Namespace: ns},
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			TargetRef: rightsizev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
-			MetricsSource: rightsizev1alpha1.MetricsSource{
-				Prometheus:        &rightsizev1alpha1.PrometheusConfig{Address: promAddr},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			TargetRef: attunev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Prometheus:        &attunev1alpha1.PrometheusConfig{Address: promAddr},
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
 			},
-			CPU: rightsizev1alpha1.ResourceConfig{
+			CPU: attunev1alpha1.ResourceConfig{
 				Percentile:       95,
 				Overhead:         "20",
 				MinAllowed:       quantityPtr("50m"),
 				MaxAllowed:       quantityPtr("4000m"),
 				MaxChangePercent: int32Ptr(100),
 			},
-			Memory: rightsizev1alpha1.ResourceConfig{
+			Memory: attunev1alpha1.ResourceConfig{
 				Percentile:       99,
 				Overhead:         "30",
 				AllowDecrease:    boolPtr(true),
@@ -858,11 +858,11 @@ func TestE2E_EvictionFallback_ResizesWithInPlaceOrRecreate(t *testing.T) {
 				MaxAllowed:       quantityPtr("8Gi"),
 				MaxChangePercent: int32Ptr(100),
 			},
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Type:         rightsizev1alpha1.UpdateTypeAuto,
+			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+				Type:         attunev1alpha1.UpdateTypeAuto,
 				Cooldown:     &metav1.Duration{Duration: time.Minute},
 				AutoRevert:   boolPtr(true),
-				ResizeMethod: rightsizev1alpha1.ResizeMethodInPlaceOrRecreate,
+				ResizeMethod: attunev1alpha1.ResizeMethodInPlaceOrRecreate,
 			},
 		},
 	}
@@ -872,7 +872,7 @@ func TestE2E_EvictionFallback_ResizesWithInPlaceOrRecreate(t *testing.T) {
 	// either in-place or via eviction fallback.
 	waitForResize(t, "evict-policy", ns, 3*time.Minute)
 
-	var p rightsizev1alpha1.RightSizePolicy
+	var p attunev1alpha1.AttunePolicy
 	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "evict-policy", Namespace: ns}, &p))
 	assert.GreaterOrEqual(t, p.Status.Workloads.Resized, int32(1),
 		"at least one workload should be resized with InPlaceOrRecreate")
@@ -887,19 +887,19 @@ func TestE2E_RecommendMode_KeepsRecommendationsWithoutLivePods(t *testing.T) {
 	createDeployment(t, "nopods-app", ns, "500m", "256Mi", 1)
 	waitForDeploymentReady(t, "nopods-app", ns, 60*time.Second)
 
-	createPolicy(t, "nopods-policy", ns, "nopods-app", rightsizev1alpha1.UpdateTypeRecommend)
+	createPolicy(t, "nopods-policy", ns, "nopods-app", attunev1alpha1.UpdateTypeRecommend)
 	waitForPolicyDiscovered(t, "nopods-policy", ns, 2*time.Minute)
 
 	// Wait until recommendations appear.
 	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
-		var p rightsizev1alpha1.RightSizePolicy
+		var p attunev1alpha1.AttunePolicy
 		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "nopods-policy", Namespace: ns}, &p); err != nil {
 			return false, nil
 		}
 		return p.Status.Workloads.WithRecommendations > 0 && len(p.Status.Recommendations) > 0, nil
 	}))
 
-	var beforeScale rightsizev1alpha1.RightSizePolicy
+	var beforeScale attunev1alpha1.AttunePolicy
 	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "nopods-policy", Namespace: ns}, &beforeScale))
 	require.NotEmpty(t, beforeScale.Status.Recommendations)
 
@@ -924,7 +924,7 @@ func TestE2E_RecommendMode_KeepsRecommendationsWithoutLivePods(t *testing.T) {
 
 	forcePolicyReconcile(t, "nopods-policy", ns, 45*time.Second)
 
-	var final rightsizev1alpha1.RightSizePolicy
+	var final attunev1alpha1.AttunePolicy
 	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "nopods-policy", Namespace: ns}, &final))
 	assert.Equal(t, int32(1), final.Status.Workloads.Discovered,
 		"deployment with 0 replicas should still be discovered")
@@ -989,14 +989,14 @@ func TestE2E_BearerToken_SecretRotation(t *testing.T) {
 	waitForDeploymentReady(t, "rotate-app", ns, 60*time.Second)
 
 	deployName := "rotate-app"
-	policy := &rightsizev1alpha1.RightSizePolicy{
+	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "rotate-policy", Namespace: ns},
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			TargetRef: rightsizev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
-			MetricsSource: rightsizev1alpha1.MetricsSource{
-				Prometheus: &rightsizev1alpha1.PrometheusConfig{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			TargetRef: attunev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Prometheus: &attunev1alpha1.PrometheusConfig{
 					Address: promAddr,
-					BearerTokenSecret: &rightsizev1alpha1.SecretKeyRef{
+					BearerTokenSecret: &attunev1alpha1.SecretKeyRef{
 						Name: "rotate-token",
 						Key:  "token",
 					},
@@ -1005,10 +1005,10 @@ func TestE2E_BearerToken_SecretRotation(t *testing.T) {
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
 			},
-			CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, Overhead: "20"},
-			Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, Overhead: "30"},
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Type:     rightsizev1alpha1.UpdateTypeRecommend,
+			CPU:    attunev1alpha1.ResourceConfig{Percentile: 95, Overhead: "20"},
+			Memory: attunev1alpha1.ResourceConfig{Percentile: 99, Overhead: "30"},
+			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+				Type:     attunev1alpha1.UpdateTypeRecommend,
 				Cooldown: &metav1.Duration{Duration: time.Minute},
 			},
 		},
@@ -1018,7 +1018,7 @@ func TestE2E_BearerToken_SecretRotation(t *testing.T) {
 	// Wait for initial discovery with the first token.
 	waitForPolicyDiscovered(t, "rotate-policy", ns, 2*time.Minute)
 
-	var p1 rightsizev1alpha1.RightSizePolicy
+	var p1 attunev1alpha1.AttunePolicy
 	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "rotate-policy", Namespace: ns}, &p1))
 	assert.Equal(t, int32(1), p1.Status.Workloads.Discovered,
 		"policy should discover workloads with initial token")
@@ -1038,7 +1038,7 @@ func TestE2E_BearerToken_SecretRotation(t *testing.T) {
 	// and workloads are still discovered after a fresh reconcile.
 	forcePolicyReconcile(t, "rotate-policy", ns, 45*time.Second)
 
-	var p2 rightsizev1alpha1.RightSizePolicy
+	var p2 attunev1alpha1.AttunePolicy
 	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "rotate-policy", Namespace: ns}, &p2))
 	assert.Equal(t, int32(1), p2.Status.Workloads.Discovered,
 		"policy should continue discovering workloads after token rotation")
@@ -1101,19 +1101,19 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 	require.NoError(t, k8sClient.Create(ctx, deploy))
 	waitForDeploymentReady(t, "oom-app", ns, 120*time.Second)
 
-	controlledValues := rightsizev1alpha1.ControlledRequestsAndLimits
+	controlledValues := attunev1alpha1.ControlledRequestsAndLimits
 	deployName := "oom-app"
-	policy := &rightsizev1alpha1.RightSizePolicy{
+	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "oom-policy", Namespace: ns},
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			TargetRef: rightsizev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
-			MetricsSource: rightsizev1alpha1.MetricsSource{
-				Prometheus:        &rightsizev1alpha1.PrometheusConfig{Address: promAddr},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			TargetRef: attunev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Prometheus:        &attunev1alpha1.PrometheusConfig{Address: promAddr},
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
 			},
-			CPU: rightsizev1alpha1.ResourceConfig{
+			CPU: attunev1alpha1.ResourceConfig{
 				Percentile:       95,
 				Overhead:         "20",
 				ControlledValues: &controlledValues,
@@ -1121,7 +1121,7 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 				MaxAllowed:       quantityPtr("1000m"),
 				MaxChangePercent: int32Ptr(100),
 			},
-			Memory: rightsizev1alpha1.ResourceConfig{
+			Memory: attunev1alpha1.ResourceConfig{
 				Percentile:       99,
 				Overhead:         "0",
 				AllowDecrease:    boolPtr(true),
@@ -1130,13 +1130,13 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 				MaxAllowed:       quantityPtr("512Mi"),
 				MaxChangePercent: int32Ptr(100),
 			},
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Type:       rightsizev1alpha1.UpdateTypeAuto,
+			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+				Type:       attunev1alpha1.UpdateTypeAuto,
 				Cooldown:   &metav1.Duration{Duration: time.Minute},
 				AutoRevert: boolPtr(true),
 				// Short observation period so the safety monitor checks
 				// quickly after OOMKill instead of waiting the 5m default.
-				Canary: &rightsizev1alpha1.CanaryConfig{
+				Canary: &attunev1alpha1.CanaryConfig{
 					Percentage:        1, // minimum required by CRD; ignored in Auto mode
 					ObservationPeriod: metav1.Duration{Duration: time.Minute},
 				},
@@ -1231,12 +1231,12 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 	// Phase 4: Wait for the safety monitor to detect OOMKill and record a
 	// Reverted entry in the resize history.
 	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 5*time.Minute, true, func(ctx context.Context) (bool, error) {
-		var p rightsizev1alpha1.RightSizePolicy
+		var p attunev1alpha1.AttunePolicy
 		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "oom-policy", Namespace: ns}, &p); err != nil {
 			return false, nil
 		}
 		for _, h := range p.Status.ResizeHistory {
-			if h.Result == rightsizev1alpha1.ResizeResultReverted {
+			if h.Result == attunev1alpha1.ResizeResultReverted {
 				t.Logf("Revert detected: workload=%s container=%s resource=%s", h.Workload, h.Container, h.Resource)
 				return true, nil
 			}
@@ -1244,12 +1244,12 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 		return false, nil
 	}), "timed out waiting for safety revert after OOMKill")
 
-	var finalPolicy rightsizev1alpha1.RightSizePolicy
+	var finalPolicy attunev1alpha1.AttunePolicy
 	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "oom-policy", Namespace: ns}, &finalPolicy))
 	hasRevert := false
 	for i, h := range finalPolicy.Status.ResizeHistory {
 		t.Logf("  [%d] workload=%s container=%s resource=%s result=%s", i, h.Workload, h.Container, h.Resource, h.Result)
-		if h.Result == rightsizev1alpha1.ResizeResultReverted {
+		if h.Result == attunev1alpha1.ResizeResultReverted {
 			hasRevert = true
 		}
 	}
@@ -1264,24 +1264,24 @@ func TestE2E_MultiReplica_ProgressiveResize(t *testing.T) {
 	waitForDeploymentReady(t, "multi-rep-app", ns, 120*time.Second)
 
 	deployName := "multi-rep-app"
-	policy := &rightsizev1alpha1.RightSizePolicy{
+	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "multi-rep-policy", Namespace: ns},
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			TargetRef: rightsizev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
-			MetricsSource: rightsizev1alpha1.MetricsSource{
-				Prometheus:        &rightsizev1alpha1.PrometheusConfig{Address: promAddr},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			TargetRef: attunev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Prometheus:        &attunev1alpha1.PrometheusConfig{Address: promAddr},
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
 			},
-			CPU: rightsizev1alpha1.ResourceConfig{
+			CPU: attunev1alpha1.ResourceConfig{
 				Percentile:       95,
 				Overhead:         "20",
 				MinAllowed:       quantityPtr("50m"),
 				MaxAllowed:       quantityPtr("4000m"),
 				MaxChangePercent: int32Ptr(100),
 			},
-			Memory: rightsizev1alpha1.ResourceConfig{
+			Memory: attunev1alpha1.ResourceConfig{
 				Percentile:       99,
 				Overhead:         "30",
 				AllowDecrease:    boolPtr(true),
@@ -1289,8 +1289,8 @@ func TestE2E_MultiReplica_ProgressiveResize(t *testing.T) {
 				MaxAllowed:       quantityPtr("8Gi"),
 				MaxChangePercent: int32Ptr(100),
 			},
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Type:                 rightsizev1alpha1.UpdateTypeAuto,
+			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+				Type:                 attunev1alpha1.UpdateTypeAuto,
 				Cooldown:             &metav1.Duration{Duration: time.Minute},
 				MaxConcurrentResizes: 1,
 				AutoRevert:           boolPtr(true),
@@ -1344,19 +1344,19 @@ func TestE2E_GuaranteedQoS_RequestsAndLimits(t *testing.T) {
 	require.NoError(t, k8sClient.Create(ctx, deploy))
 	waitForDeploymentReady(t, "qos-app", ns, 60*time.Second)
 
-	controlledBoth := rightsizev1alpha1.ControlledRequestsAndLimits
+	controlledBoth := attunev1alpha1.ControlledRequestsAndLimits
 	deployName := "qos-app"
-	policy := &rightsizev1alpha1.RightSizePolicy{
+	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "qos-policy", Namespace: ns},
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			TargetRef: rightsizev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
-			MetricsSource: rightsizev1alpha1.MetricsSource{
-				Prometheus:        &rightsizev1alpha1.PrometheusConfig{Address: promAddr},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			TargetRef: attunev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Prometheus:        &attunev1alpha1.PrometheusConfig{Address: promAddr},
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
 			},
-			CPU: rightsizev1alpha1.ResourceConfig{
+			CPU: attunev1alpha1.ResourceConfig{
 				Percentile:       95,
 				Overhead:         "20",
 				ControlledValues: &controlledBoth,
@@ -1364,7 +1364,7 @@ func TestE2E_GuaranteedQoS_RequestsAndLimits(t *testing.T) {
 				MaxAllowed:       quantityPtr("4000m"),
 				MaxChangePercent: int32Ptr(100),
 			},
-			Memory: rightsizev1alpha1.ResourceConfig{
+			Memory: attunev1alpha1.ResourceConfig{
 				Percentile:       99,
 				Overhead:         "30",
 				AllowDecrease:    boolPtr(true),
@@ -1373,8 +1373,8 @@ func TestE2E_GuaranteedQoS_RequestsAndLimits(t *testing.T) {
 				MaxAllowed:       quantityPtr("8Gi"),
 				MaxChangePercent: int32Ptr(100),
 			},
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Type:       rightsizev1alpha1.UpdateTypeAuto,
+			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+				Type:       attunev1alpha1.UpdateTypeAuto,
 				Cooldown:   &metav1.Duration{Duration: time.Minute},
 				AutoRevert: boolPtr(true),
 			},
@@ -1438,23 +1438,23 @@ func TestE2E_LabelSelector_MultipleWorkloads(t *testing.T) {
 	waitForDeploymentReady(t, "worker-svc", ns, 60*time.Second)
 	waitForDeploymentReady(t, "unrelated-svc", ns, 60*time.Second)
 
-	policy := &rightsizev1alpha1.RightSizePolicy{
+	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "selector-policy", Namespace: ns},
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			TargetRef: rightsizev1alpha1.TargetRef{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			TargetRef: attunev1alpha1.TargetRef{
 				Kind:     "Deployment",
 				Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"team": "platform"}},
 			},
-			MetricsSource: rightsizev1alpha1.MetricsSource{
-				Prometheus:        &rightsizev1alpha1.PrometheusConfig{Address: promAddr},
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Prometheus:        &attunev1alpha1.PrometheusConfig{Address: promAddr},
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
 			},
-			CPU:    rightsizev1alpha1.ResourceConfig{Percentile: 95, Overhead: "20"},
-			Memory: rightsizev1alpha1.ResourceConfig{Percentile: 99, Overhead: "30"},
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Type: rightsizev1alpha1.UpdateTypeRecommend, Cooldown: &metav1.Duration{Duration: time.Minute},
+			CPU:    attunev1alpha1.ResourceConfig{Percentile: 95, Overhead: "20"},
+			Memory: attunev1alpha1.ResourceConfig{Percentile: 99, Overhead: "30"},
+			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+				Type: attunev1alpha1.UpdateTypeRecommend, Cooldown: &metav1.Duration{Duration: time.Minute},
 			},
 		},
 	}
@@ -1462,7 +1462,7 @@ func TestE2E_LabelSelector_MultipleWorkloads(t *testing.T) {
 
 	waitForPolicyDiscovered(t, "selector-policy", ns, 2*time.Minute)
 
-	var p rightsizev1alpha1.RightSizePolicy
+	var p attunev1alpha1.AttunePolicy
 	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "selector-policy", Namespace: ns}, &p))
 	assert.Equal(t, int32(2), p.Status.Workloads.Discovered,
 		"selector should discover exactly the 2 matching deployments")
@@ -1475,7 +1475,7 @@ func TestE2E_PolicyDeletion_CleansUpAnnotations(t *testing.T) {
 	createDeployment(t, "cleanup-app", ns, "500m", "512Mi", 1)
 	waitForDeploymentReady(t, "cleanup-app", ns, 60*time.Second)
 
-	policy := createPolicy(t, "cleanup-policy", ns, "cleanup-app", rightsizev1alpha1.UpdateTypeAuto)
+	policy := createPolicy(t, "cleanup-policy", ns, "cleanup-app", attunev1alpha1.UpdateTypeAuto)
 
 	// Wait for resize so tracking annotations are set on the pod.
 	waitForResize(t, "cleanup-policy", ns, 3*time.Minute)
@@ -1484,7 +1484,7 @@ func TestE2E_PolicyDeletion_CleansUpAnnotations(t *testing.T) {
 	var podsBefore corev1.PodList
 	require.NoError(t, k8sClient.List(ctx, &podsBefore, client.InNamespace(ns), client.MatchingLabels{"app": "cleanup-app"}))
 	require.NotEmpty(t, podsBefore.Items)
-	assert.Contains(t, podsBefore.Items[0].Labels, "rightsize.io/tracked",
+	assert.Contains(t, podsBefore.Items[0].Labels, "attune.io/tracked",
 		"pod should have tracking label before policy deletion")
 
 	// Delete the policy.
@@ -1492,7 +1492,7 @@ func TestE2E_PolicyDeletion_CleansUpAnnotations(t *testing.T) {
 
 	// Wait for the finalizer to complete (policy fully gone).
 	require.NoError(t, wait.PollUntilContextTimeout(ctx, 3*time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
-		var p rightsizev1alpha1.RightSizePolicy
+		var p attunev1alpha1.AttunePolicy
 		err := k8sClient.Get(ctx, types.NamespacedName{Name: "cleanup-policy", Namespace: ns}, &p)
 		return err != nil, nil // gone when Get fails
 	}), "timed out waiting for policy deletion")
@@ -1502,9 +1502,9 @@ func TestE2E_PolicyDeletion_CleansUpAnnotations(t *testing.T) {
 	require.NoError(t, k8sClient.List(ctx, &podsAfter, client.InNamespace(ns), client.MatchingLabels{"app": "cleanup-app"}))
 	require.NotEmpty(t, podsAfter.Items)
 	pod := podsAfter.Items[0]
-	assert.NotContains(t, pod.Labels, "rightsize.io/tracked",
+	assert.NotContains(t, pod.Labels, "attune.io/tracked",
 		"tracking label should be removed after policy deletion")
-	assert.NotContains(t, pod.Annotations, "rightsize.io/policy",
+	assert.NotContains(t, pod.Annotations, "attune.io/policy",
 		"policy annotation should be removed after policy deletion")
 }
 
@@ -1515,7 +1515,7 @@ func TestE2E_ScaleUp_NewReplicasGetResized(t *testing.T) {
 	createDeployment(t, "scaleup-app", ns, "500m", "512Mi", 1)
 	waitForDeploymentReady(t, "scaleup-app", ns, 60*time.Second)
 
-	createPolicy(t, "scaleup-policy", ns, "scaleup-app", rightsizev1alpha1.UpdateTypeAuto)
+	createPolicy(t, "scaleup-policy", ns, "scaleup-app", attunev1alpha1.UpdateTypeAuto)
 	waitForResize(t, "scaleup-policy", ns, 5*time.Minute)
 
 	// Scale up to 2 replicas.
@@ -1563,14 +1563,14 @@ func TestE2E_ConcurrentPolicies_SameNamespace(t *testing.T) {
 	waitForDeploymentReady(t, "api-app", ns, 60*time.Second)
 	waitForDeploymentReady(t, "worker-app", ns, 60*time.Second)
 
-	createPolicy(t, "api-policy", ns, "api-app", rightsizev1alpha1.UpdateTypeRecommend)
-	createPolicy(t, "worker-policy", ns, "worker-app", rightsizev1alpha1.UpdateTypeRecommend)
+	createPolicy(t, "api-policy", ns, "api-app", attunev1alpha1.UpdateTypeRecommend)
+	createPolicy(t, "worker-policy", ns, "worker-app", attunev1alpha1.UpdateTypeRecommend)
 
 	// Wait for recommendations (not just discovery) so we can assert workload names.
 	waitForRecommendations := func(policyName string) {
 		t.Helper()
 		require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
-			var p rightsizev1alpha1.RightSizePolicy
+			var p attunev1alpha1.AttunePolicy
 			if err := k8sClient.Get(ctx, types.NamespacedName{Name: policyName, Namespace: ns}, &p); err != nil {
 				return false, nil
 			}
@@ -1581,13 +1581,13 @@ func TestE2E_ConcurrentPolicies_SameNamespace(t *testing.T) {
 	waitForRecommendations("worker-policy")
 
 	// Verify each policy sees only its own workload.
-	var apiPolicy rightsizev1alpha1.RightSizePolicy
+	var apiPolicy attunev1alpha1.AttunePolicy
 	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "api-policy", Namespace: ns}, &apiPolicy))
 	assert.Equal(t, int32(1), apiPolicy.Status.Workloads.Discovered)
 	require.NotEmpty(t, apiPolicy.Status.Recommendations, "api-policy should have recommendations")
 	assert.Equal(t, "api-app", apiPolicy.Status.Recommendations[0].Workload)
 
-	var workerPolicy rightsizev1alpha1.RightSizePolicy
+	var workerPolicy attunev1alpha1.AttunePolicy
 	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "worker-policy", Namespace: ns}, &workerPolicy))
 	assert.Equal(t, int32(1), workerPolicy.Status.Workloads.Discovered)
 	require.NotEmpty(t, workerPolicy.Status.Recommendations, "worker-policy should have recommendations")
@@ -1604,24 +1604,24 @@ func TestE2E_MemoryAllowDecreaseFalse(t *testing.T) {
 	waitForDeploymentReady(t, "nodecrease-app", ns, 60*time.Second)
 
 	deployName := "nodecrease-app"
-	policy := &rightsizev1alpha1.RightSizePolicy{
+	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "nodecrease-policy", Namespace: ns},
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			TargetRef: rightsizev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
-			MetricsSource: rightsizev1alpha1.MetricsSource{
-				Prometheus:        &rightsizev1alpha1.PrometheusConfig{Address: promAddr},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			TargetRef: attunev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Prometheus:        &attunev1alpha1.PrometheusConfig{Address: promAddr},
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
 			},
-			CPU: rightsizev1alpha1.ResourceConfig{
+			CPU: attunev1alpha1.ResourceConfig{
 				Percentile:       95,
 				Overhead:         "20",
 				MinAllowed:       quantityPtr("50m"),
 				MaxAllowed:       quantityPtr("4000m"),
 				MaxChangePercent: int32Ptr(100),
 			},
-			Memory: rightsizev1alpha1.ResourceConfig{
+			Memory: attunev1alpha1.ResourceConfig{
 				Percentile: 99,
 				Overhead:   "30",
 				// AllowDecrease intentionally NOT set (nil), so the default false applies.
@@ -1629,8 +1629,8 @@ func TestE2E_MemoryAllowDecreaseFalse(t *testing.T) {
 				MaxAllowed:       quantityPtr("8Gi"),
 				MaxChangePercent: int32Ptr(100),
 			},
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Type:       rightsizev1alpha1.UpdateTypeAuto,
+			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+				Type:       attunev1alpha1.UpdateTypeAuto,
 				Cooldown:   &metav1.Duration{Duration: time.Minute},
 				AutoRevert: boolPtr(true),
 			},
@@ -1704,24 +1704,24 @@ func TestE2E_MultiContainer_SequentialResize(t *testing.T) {
 	waitForDeploymentReady(t, "multi-resize-app", ns, 60*time.Second)
 
 	deployName := "multi-resize-app"
-	policy := &rightsizev1alpha1.RightSizePolicy{
+	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "multi-resize-policy", Namespace: ns},
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			TargetRef: rightsizev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
-			MetricsSource: rightsizev1alpha1.MetricsSource{
-				Prometheus:        &rightsizev1alpha1.PrometheusConfig{Address: promAddr},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			TargetRef: attunev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Prometheus:        &attunev1alpha1.PrometheusConfig{Address: promAddr},
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
 			},
-			CPU: rightsizev1alpha1.ResourceConfig{
+			CPU: attunev1alpha1.ResourceConfig{
 				Percentile:       95,
 				Overhead:         "20",
 				MinAllowed:       quantityPtr("50m"),
 				MaxAllowed:       quantityPtr("4000m"),
 				MaxChangePercent: int32Ptr(100),
 			},
-			Memory: rightsizev1alpha1.ResourceConfig{
+			Memory: attunev1alpha1.ResourceConfig{
 				Percentile:       99,
 				Overhead:         "30",
 				AllowDecrease:    boolPtr(true),
@@ -1729,8 +1729,8 @@ func TestE2E_MultiContainer_SequentialResize(t *testing.T) {
 				MaxAllowed:       quantityPtr("8Gi"),
 				MaxChangePercent: int32Ptr(100),
 			},
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Type:       rightsizev1alpha1.UpdateTypeAuto,
+			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+				Type:       attunev1alpha1.UpdateTypeAuto,
 				Cooldown:   &metav1.Duration{Duration: time.Minute},
 				AutoRevert: boolPtr(true),
 			},
@@ -1765,7 +1765,7 @@ func TestE2E_MultiContainer_SequentialResize(t *testing.T) {
 		"both containers should be resized; sequential UpdateResize requires fresh resourceVersion propagation")
 
 	// Verify resize history records both containers.
-	var p rightsizev1alpha1.RightSizePolicy
+	var p attunev1alpha1.AttunePolicy
 	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "multi-resize-policy", Namespace: ns}, &p))
 	historyContainers := make(map[string]bool)
 	for _, h := range p.Status.ResizeHistory {
@@ -1779,6 +1779,6 @@ func TestE2E_MultiContainer_SequentialResize(t *testing.T) {
 		"resize history should include worker container")
 
 	// Verify pod annotations indicate resize tracking.
-	assert.Contains(t, pod.Labels, "rightsize.io/tracked",
+	assert.Contains(t, pod.Labels, "attune.io/tracked",
 		"resized pod should have tracking label")
 }

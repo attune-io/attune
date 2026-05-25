@@ -25,19 +25,19 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
-	"github.com/SebTardifLabs/kube-rightsize/internal/operatormetrics"
-	"github.com/SebTardifLabs/kube-rightsize/internal/validation"
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/operatormetrics"
+	"github.com/attune-io/attune/internal/validation"
 )
 
-// RightSizeDefaultsValidator validates RightSizeDefaults resources.
-type RightSizeDefaultsValidator struct{}
+// AttuneDefaultsValidator validates AttuneDefaults resources.
+type AttuneDefaultsValidator struct{}
 
-// RightSizeNamespaceDefaultsValidator validates RightSizeNamespaceDefaults resources.
-type RightSizeNamespaceDefaultsValidator struct{}
+// AttuneNamespaceDefaultsValidator validates AttuneNamespaceDefaults resources.
+type AttuneNamespaceDefaultsValidator struct{}
 
-// ValidateCreate validates a new RightSizeDefaults.
-func (v *RightSizeDefaultsValidator) ValidateCreate(_ context.Context, defaults *rightsizev1alpha1.RightSizeDefaults) (admission.Warnings, error) {
+// ValidateCreate validates a new AttuneDefaults.
+func (v *AttuneDefaultsValidator) ValidateCreate(_ context.Context, defaults *attunev1alpha1.AttuneDefaults) (admission.Warnings, error) {
 	timer := operatormetrics.NewWebhookTimer("defaults_validate_create")
 	defer timer.Observe()
 	w, err := v.validate(defaults)
@@ -45,8 +45,8 @@ func (v *RightSizeDefaultsValidator) ValidateCreate(_ context.Context, defaults 
 	return w, err
 }
 
-// ValidateUpdate validates an updated RightSizeDefaults.
-func (v *RightSizeDefaultsValidator) ValidateUpdate(_ context.Context, _, defaults *rightsizev1alpha1.RightSizeDefaults) (admission.Warnings, error) {
+// ValidateUpdate validates an updated AttuneDefaults.
+func (v *AttuneDefaultsValidator) ValidateUpdate(_ context.Context, _, defaults *attunev1alpha1.AttuneDefaults) (admission.Warnings, error) {
 	timer := operatormetrics.NewWebhookTimer("defaults_validate_update")
 	defer timer.Observe()
 	w, err := v.validate(defaults)
@@ -54,17 +54,17 @@ func (v *RightSizeDefaultsValidator) ValidateUpdate(_ context.Context, _, defaul
 	return w, err
 }
 
-// ValidateDelete validates a RightSizeDefaults deletion (always succeeds).
-func (v *RightSizeDefaultsValidator) ValidateDelete(_ context.Context, _ *rightsizev1alpha1.RightSizeDefaults) (admission.Warnings, error) {
+// ValidateDelete validates a AttuneDefaults deletion (always succeeds).
+func (v *AttuneDefaultsValidator) ValidateDelete(_ context.Context, _ *attunev1alpha1.AttuneDefaults) (admission.Warnings, error) {
 	return nil, nil
 }
 
-func (v *RightSizeDefaultsValidator) validate(defaults *rightsizev1alpha1.RightSizeDefaults) (admission.Warnings, error) {
+func (v *AttuneDefaultsValidator) validate(defaults *attunev1alpha1.AttuneDefaults) (admission.Warnings, error) {
 	return validateDefaultsSpec(defaults.Spec)
 }
 
-// ValidateCreate validates a new RightSizeNamespaceDefaults.
-func (v *RightSizeNamespaceDefaultsValidator) ValidateCreate(_ context.Context, defaults *rightsizev1alpha1.RightSizeNamespaceDefaults) (admission.Warnings, error) {
+// ValidateCreate validates a new AttuneNamespaceDefaults.
+func (v *AttuneNamespaceDefaultsValidator) ValidateCreate(_ context.Context, defaults *attunev1alpha1.AttuneNamespaceDefaults) (admission.Warnings, error) {
 	timer := operatormetrics.NewWebhookTimer("namespace_defaults_validate_create")
 	defer timer.Observe()
 	w, err := validateDefaultsSpec(defaults.Spec)
@@ -72,8 +72,8 @@ func (v *RightSizeNamespaceDefaultsValidator) ValidateCreate(_ context.Context, 
 	return w, err
 }
 
-// ValidateUpdate validates an updated RightSizeNamespaceDefaults.
-func (v *RightSizeNamespaceDefaultsValidator) ValidateUpdate(_ context.Context, _, defaults *rightsizev1alpha1.RightSizeNamespaceDefaults) (admission.Warnings, error) {
+// ValidateUpdate validates an updated AttuneNamespaceDefaults.
+func (v *AttuneNamespaceDefaultsValidator) ValidateUpdate(_ context.Context, _, defaults *attunev1alpha1.AttuneNamespaceDefaults) (admission.Warnings, error) {
 	timer := operatormetrics.NewWebhookTimer("namespace_defaults_validate_update")
 	defer timer.Observe()
 	w, err := validateDefaultsSpec(defaults.Spec)
@@ -81,12 +81,12 @@ func (v *RightSizeNamespaceDefaultsValidator) ValidateUpdate(_ context.Context, 
 	return w, err
 }
 
-// ValidateDelete validates a RightSizeNamespaceDefaults deletion (always succeeds).
-func (v *RightSizeNamespaceDefaultsValidator) ValidateDelete(_ context.Context, _ *rightsizev1alpha1.RightSizeNamespaceDefaults) (admission.Warnings, error) {
+// ValidateDelete validates a AttuneNamespaceDefaults deletion (always succeeds).
+func (v *AttuneNamespaceDefaultsValidator) ValidateDelete(_ context.Context, _ *attunev1alpha1.AttuneNamespaceDefaults) (admission.Warnings, error) {
 	return nil, nil
 }
 
-func validateDefaultsSpec(spec rightsizev1alpha1.RightSizeDefaultsSpec) (admission.Warnings, error) {
+func validateDefaultsSpec(spec attunev1alpha1.AttuneDefaultsSpec) (admission.Warnings, error) {
 	// Validate Prometheus settings if provided.
 	if spec.MetricsSource != nil && spec.MetricsSource.Prometheus != nil {
 		prometheus := spec.MetricsSource.Prometheus
@@ -173,7 +173,7 @@ func validateDefaultsSpec(spec rightsizev1alpha1.RightSizeDefaultsSpec) (admissi
 // validateResourceConfigFields validates fields that are shared between
 // policy and defaults ResourceConfig. The prefix (e.g. "cpu", "memory")
 // is used in error messages.
-func validateResourceConfigFields(prefix string, rc *rightsizev1alpha1.ResourceConfig) error {
+func validateResourceConfigFields(prefix string, rc *attunev1alpha1.ResourceConfig) error {
 	// Overhead
 	if err := validateOverhead(prefix, rc.Overhead); err != nil {
 		return err

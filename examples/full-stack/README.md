@@ -14,13 +14,13 @@ kubectl apply -f examples/full-stack/
 | `01-namespace.yaml` | Namespace | Isolated namespace for the workload |
 | `02-deployment.yaml` | Deployment | Sample app with initial resource requests |
 | `03-service-monitor.yaml` | ServiceMonitor | Prometheus scraping for the operator's metrics |
-| `04-defaults.yaml` | RightSizeDefaults | Org-wide defaults (Prometheus address, bounds) |
-| `05-policy.yaml` | RightSizePolicy | Per-workload policy in Canary mode |
+| `04-defaults.yaml` | AttuneDefaults | Org-wide defaults (Prometheus address, bounds) |
+| `05-policy.yaml` | AttunePolicy | Per-workload policy in Canary mode |
 | `06-grafana-dashboard.yaml` | ConfigMap | Auto-provisioned Grafana dashboard via sidecar |
 
 ## Prerequisites
 
 - Kubernetes 1.32+
-- kube-rightsize operator installed
+- attune operator installed
 - Prometheus Operator (for ServiceMonitor)
 - Grafana with sidecar dashboard provisioning (label: `grafana_dashboard: "1"`)

@@ -23,7 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/api/resource"
 
-	"github.com/SebTardifLabs/kube-rightsize/internal/recommendation"
+	"github.com/attune-io/attune/internal/recommendation"
 )
 
 // newTestMemEngine creates a memory recommendation engine with wide bounds

@@ -19,26 +19,26 @@ package webhook
 import (
 	"context"
 
-	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
-	"github.com/SebTardifLabs/kube-rightsize/internal/operatormetrics"
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/operatormetrics"
 )
 
-// RightSizePolicyDefaulter implements the typed Defaulter interface for RightSizePolicy.
-type RightSizePolicyDefaulter struct{}
+// AttunePolicyDefaulter implements the typed Defaulter interface for AttunePolicy.
+type AttunePolicyDefaulter struct{}
 
-// Default sets default values on a RightSizePolicy.
+// Default sets default values on a AttunePolicy.
 //
 // Most fields are NOT defaulted here. They are defaulted by the controller
 // (applyBuiltInDefaults) after mergeDefaults, so that cluster-wide
-// RightSizeDefaults and namespace-scoped RightSizeNamespaceDefaults can
+// AttuneDefaults and namespace-scoped AttuneNamespaceDefaults can
 // override built-in defaults. Only fields that are never overridable by
 // cluster defaults (like Weight) are set here.
-func (d *RightSizePolicyDefaulter) Default(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy) (err error) {
+func (d *AttunePolicyDefaulter) Default(ctx context.Context, policy *attunev1alpha1.AttunePolicy) (err error) {
 	timer := operatormetrics.NewWebhookTimer("defaulting")
 	defer timer.Observe()
 	defer func() { timer.RecordResult(err) }()
 	if policy.Spec.Weight == 0 {
-		policy.Spec.Weight = rightsizev1alpha1.DefaultWeight
+		policy.Spec.Weight = attunev1alpha1.DefaultWeight
 	}
 	return nil
 }

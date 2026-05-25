@@ -3,7 +3,7 @@ kind: Test
 metadata:
   name: opt-out
 spec:
-  description: Verify that a Deployment with rightsize.io/skip annotation is not processed by the controller
+  description: Verify that a Deployment with attune.io/skip annotation is not processed by the controller
   timeouts:
     apply: 30s
     assert: 2m
@@ -28,7 +28,7 @@ spec:
                   app: skipped-app
                   tier: api
                 annotations:
-                  rightsize.io/skip: "true"
+                  attune.io/skip: "true"
               spec:
                 replicas: 1
                 selector:
@@ -52,8 +52,8 @@ spec:
                             memory: 1Gi
         - apply:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: opt-out-test
                 namespace: e2e-opt-out
@@ -99,8 +99,8 @@ spec:
       try:
         - assert:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: opt-out-test
                 namespace: e2e-opt-out
@@ -111,14 +111,14 @@ spec:
                     reason: InsufficientData
   catch:
     - describe:
-        apiVersion: rightsize.io/v1alpha1
-        kind: RightSizePolicy
+        apiVersion: attune.io/v1alpha1
+        kind: AttunePolicy
         namespace: e2e-opt-out
     - describe:
         apiVersion: apps/v1
         kind: Deployment
         namespace: e2e-opt-out
     - podLogs:
-        namespace: kube-rightsize-system
-        selector: app.kubernetes.io/name=kube-rightsize
+        namespace: attune-system
+        selector: app.kubernetes.io/name=attune
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Copyright 2026 kube-rightsize Authors
+# Copyright 2026 attune Authors
 # SPDX-License-Identifier: Apache-2.0
 #
 # Verify that supported tool version references stay consistent across
@@ -28,8 +28,8 @@ helm_files=(
   "CONTRIBUTING.md"
   "docs/getting-started/installation.md"
   "docs/contributing/development.md"
-  "charts/kube-rightsize/README.md.gotmpl"
-  "charts/kube-rightsize/README.md"
+  "charts/attune/README.md.gotmpl"
+  "charts/attune/README.md"
 )
 
 cluster_tool_files=(

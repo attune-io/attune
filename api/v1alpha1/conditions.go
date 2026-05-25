@@ -16,7 +16,7 @@ limitations under the License.
 
 package v1alpha1
 
-// Condition type constants for RightSizePolicy.
+// Condition type constants for AttunePolicy.
 const (
 	ConditionReady           = "Ready"
 	ConditionResizing        = "Resizing"
@@ -24,7 +24,7 @@ const (
 	ConditionScheduleBlocked = "ScheduleBlocked"
 )
 
-// Condition reason constants for RightSizePolicy.
+// Condition reason constants for AttunePolicy.
 const (
 	ReasonMonitoring              = "Monitoring"
 	ReasonInsufficientData        = "InsufficientData"
@@ -42,4 +42,4 @@ const (
 )
 
 // CanaryPhaseInProgress and CanaryPhaseFullRollout are now typed constants
-// defined in rightsizepolicy_types.go as CanaryPhase values.
+// defined in attunepolicy_types.go as CanaryPhase values.

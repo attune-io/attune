@@ -33,7 +33,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 
-	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 )
 
 func TestCheckPod(t *testing.T) {
@@ -1129,7 +1129,7 @@ func TestCheckPod_SLOBreachedAbove(t *testing.T) {
 	clientset := fake.NewSimpleClientset(pod)
 	monitor := NewMonitor(clientset, testr.New(t))
 	querier := &mockSLOQuerier{value: 0.95}
-	monitor.WithSLOChecker(querier, []rightsizev1alpha1.SLOGuardrail{
+	monitor.WithSLOChecker(querier, []attunev1alpha1.SLOGuardrail{
 		{
 			Name:       "p99-latency",
 			Query:      `histogram_quantile(0.99, rate(http_request_duration_seconds_bucket{namespace="{{ .Namespace }}"}[5m]))`,
@@ -1174,7 +1174,7 @@ func TestCheckPod_SLOBreachedBelow(t *testing.T) {
 	clientset := fake.NewSimpleClientset(pod)
 	monitor := NewMonitor(clientset, testr.New(t))
 	querier := &mockSLOQuerier{value: 0.90}
-	monitor.WithSLOChecker(querier, []rightsizev1alpha1.SLOGuardrail{
+	monitor.WithSLOChecker(querier, []attunev1alpha1.SLOGuardrail{
 		{
 			Name:       "success-rate",
 			Query:      `sum(rate(http_requests_total{code=~"2.."}[5m])) / sum(rate(http_requests_total[5m]))`,
@@ -1215,7 +1215,7 @@ func TestCheckPod_SLOWithinThreshold(t *testing.T) {
 	clientset := fake.NewSimpleClientset(pod)
 	monitor := NewMonitor(clientset, testr.New(t))
 	querier := &mockSLOQuerier{value: 0.3}
-	monitor.WithSLOChecker(querier, []rightsizev1alpha1.SLOGuardrail{
+	monitor.WithSLOChecker(querier, []attunev1alpha1.SLOGuardrail{
 		{
 			Name:       "p99-latency",
 			Query:      `histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))`,
@@ -1254,7 +1254,7 @@ func TestCheckPod_SLOSkippedDuringEvalWindow(t *testing.T) {
 	clientset := fake.NewSimpleClientset(pod)
 	monitor := NewMonitor(clientset, testr.New(t))
 	querier := &mockSLOQuerier{value: 999.0} // Would breach, but should be skipped
-	monitor.WithSLOChecker(querier, []rightsizev1alpha1.SLOGuardrail{
+	monitor.WithSLOChecker(querier, []attunev1alpha1.SLOGuardrail{
 		{
 			Name:       "p99-latency",
 			Query:      `histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))`,
@@ -1294,7 +1294,7 @@ func TestCheckPod_SLOCustomEvalWindow(t *testing.T) {
 	monitor := NewMonitor(clientset, testr.New(t))
 	querier := &mockSLOQuerier{value: 1.0}
 	tenMin := metav1.Duration{Duration: 10 * time.Minute}
-	monitor.WithSLOChecker(querier, []rightsizev1alpha1.SLOGuardrail{
+	monitor.WithSLOChecker(querier, []attunev1alpha1.SLOGuardrail{
 		{
 			Name:             "p99-latency",
 			Query:            `histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))`,
@@ -1334,7 +1334,7 @@ func TestCheckPod_SLOQueryFailsOpen(t *testing.T) {
 	clientset := fake.NewSimpleClientset(pod)
 	monitor := NewMonitor(clientset, testr.New(t))
 	querier := &mockSLOQuerier{err: assert.AnError}
-	monitor.WithSLOChecker(querier, []rightsizev1alpha1.SLOGuardrail{
+	monitor.WithSLOChecker(querier, []attunev1alpha1.SLOGuardrail{
 		{
 			Name:       "p99-latency",
 			Query:      `histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))`,
@@ -1374,7 +1374,7 @@ func TestCheckPod_SLODefaultComparisonAbove(t *testing.T) {
 	clientset := fake.NewSimpleClientset(pod)
 	monitor := NewMonitor(clientset, testr.New(t))
 	querier := &mockSLOQuerier{value: 1.0}
-	monitor.WithSLOChecker(querier, []rightsizev1alpha1.SLOGuardrail{
+	monitor.WithSLOChecker(querier, []attunev1alpha1.SLOGuardrail{
 		{
 			Name:      "error-rate",
 			Query:     `sum(rate(errors_total[5m]))`,

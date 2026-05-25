@@ -2,8 +2,8 @@
 # Example: Auto mode (fully automated right-sizing)
 # Applies in-place resizes to all matching pods with safety guardrails.
 # Use after validating recommendations in Recommend or Canary mode.
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizePolicy
+apiVersion: attune.io/v1alpha1
+kind: AttunePolicy
 metadata:
   name: batch-workers
   namespace: production

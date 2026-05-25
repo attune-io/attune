@@ -10,8 +10,8 @@
 # Verify:
 #   kubectl get rsp web-with-sidecars -n production
 ---
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizePolicy
+apiVersion: attune.io/v1alpha1
+kind: AttunePolicy
 metadata:
   name: web-with-sidecars
   namespace: production

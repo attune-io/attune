@@ -1,8 +1,8 @@
-site_name: kube-rightsize
+site_name: attune
 site_description: Safe, in-place Kubernetes pod resource right-sizing
-site_url: https://sebtardiflabs.github.io/kube-rightsize/
-repo_url: https://github.com/SebTardifLabs/kube-rightsize
-repo_name: SebTardifLabs/kube-rightsize
+site_url: https://attune-io.github.io/attune/
+repo_url: https://github.com/attune-io/attune
+repo_name: attune-io/attune
 docs_dir: docs
 
 theme:
@@ -40,7 +40,7 @@ markdown_extensions:
 
 nav:
   - Home: index.md
-  - Why kube-rightsize?: why-kube-rightsize.md
+  - Why attune?: why-attune.md
   - Specification: SPEC.md
   - Savings Calculator: savings-calculator.md
   - Getting Started:

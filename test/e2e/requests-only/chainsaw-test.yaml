@@ -3,7 +3,7 @@ kind: Test
 metadata:
   name: requests-only
 spec:
-  description: Verify that a RightSizePolicy with controlledValues RequestsOnly is accepted and reconciles
+  description: Verify that a AttunePolicy with controlledValues RequestsOnly is accepted and reconciles
   timeouts:
     apply: 30s
     assert: 2m
@@ -46,8 +46,8 @@ spec:
                             memory: 512Mi
         - apply:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: reqonly-test
                 namespace: e2e-requests-only
@@ -86,8 +86,8 @@ spec:
       try:
         - assert:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: reqonly-test
                 namespace: e2e-requests-only
@@ -96,9 +96,9 @@ spec:
                   discovered: 1
   catch:
     - describe:
-        apiVersion: rightsize.io/v1alpha1
-        kind: RightSizePolicy
+        apiVersion: attune.io/v1alpha1
+        kind: AttunePolicy
         namespace: e2e-requests-only
     - podLogs:
-        namespace: kube-rightsize-system
-        selector: app.kubernetes.io/name=kube-rightsize
+        namespace: attune-system
+        selector: app.kubernetes.io/name=attune

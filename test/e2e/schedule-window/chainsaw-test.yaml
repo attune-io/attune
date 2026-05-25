@@ -3,7 +3,7 @@ kind: Test
 metadata:
   name: schedule-window
 spec:
-  description: Verify that a RightSizePolicy with a schedule excluding today blocks resizes
+  description: Verify that a AttunePolicy with a schedule excluding today blocks resizes
   timeouts:
     apply: 30s
     assert: 2m
@@ -63,8 +63,8 @@ spec:
                 fi
               done
               cat <<EOF | kubectl apply -f -
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: schedule-test
                 namespace: e2e-schedule-window
@@ -117,9 +117,9 @@ spec:
               # evaluated the schedule and decided to block resizes.
               echo "Waiting for ScheduleBlocked=True condition..."
               for i in $(seq 1 36); do
-                BLOCKED=$(kubectl get rightsizepolicy schedule-test -n e2e-schedule-window \
+                BLOCKED=$(kubectl get attunepolicy schedule-test -n e2e-schedule-window \
                   -o jsonpath='{.status.conditions[?(@.type=="ScheduleBlocked")].status}' 2>/dev/null)
-                DISC=$(kubectl get rightsizepolicy schedule-test -n e2e-schedule-window \
+                DISC=$(kubectl get attunepolicy schedule-test -n e2e-schedule-window \
                   -o jsonpath='{.status.workloads.discovered}' 2>/dev/null)
                 if [ "$BLOCKED" = "True" ] && [ "$DISC" = "1" ]; then
                   echo "OK: ScheduleBlocked=True, discovered=$DISC"
@@ -127,7 +127,7 @@ spec:
                 fi
                 if [ "$i" = "36" ]; then
                   echo "FAIL: timed out waiting for ScheduleBlocked=True (blocked=$BLOCKED discovered=$DISC)"
-                  kubectl get rightsizepolicy schedule-test -n e2e-schedule-window -o yaml
+                  kubectl get attunepolicy schedule-test -n e2e-schedule-window -o yaml
                   exit 1
                 fi
                 sleep 5
@@ -135,11 +135,11 @@ spec:
               # Poll several times over 60s to confirm resized stays 0.
               echo "Verifying no resize over 60s..."
               for i in $(seq 1 12); do
-                RESIZED=$(kubectl get rightsizepolicy schedule-test -n e2e-schedule-window \
+                RESIZED=$(kubectl get attunepolicy schedule-test -n e2e-schedule-window \
                   -o jsonpath='{.status.workloads.resized}' 2>/dev/null)
                 if [ -n "$RESIZED" ] && [ "$RESIZED" != "0" ]; then
                   echo "FAIL: resize occurred despite today being excluded from schedule (resized=$RESIZED)"
-                  kubectl get rightsizepolicy schedule-test -n e2e-schedule-window -o yaml
+                  kubectl get attunepolicy schedule-test -n e2e-schedule-window -o yaml
                   exit 1
                 fi
                 sleep 5
@@ -147,9 +147,9 @@ spec:
               echo "Schedule window correctly blocked resizes"
   catch:
     - describe:
-        apiVersion: rightsize.io/v1alpha1
-        kind: RightSizePolicy
+        apiVersion: attune.io/v1alpha1
+        kind: AttunePolicy
         namespace: e2e-schedule-window
     - podLogs:
-        namespace: kube-rightsize-system
-        selector: app.kubernetes.io/name=kube-rightsize
+        namespace: attune-system
+        selector: app.kubernetes.io/name=attune

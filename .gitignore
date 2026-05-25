@@ -2,7 +2,7 @@
 bin/
 dist/
 /manager
-/kubectl-rightsize
+/kubectl-attune
 
 # Go
 vendor/
@@ -33,7 +33,7 @@ site/
 testbin/
 
 # Helm
-charts/kube-rightsize/charts/
+charts/attune/charts/
 *.tgz
 
 # Local audit symlink

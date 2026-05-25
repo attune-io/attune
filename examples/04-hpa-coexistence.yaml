@@ -1,8 +1,8 @@
 # HPA Coexistence: right-size base requests without breaking HPA
 #
-# kube-rightsize adjusts the absolute resource request.
+# attune adjusts the absolute resource request.
 # HPA scales replicas based on percentage utilization.
-# These two don't conflict because kube-rightsize changes the base,
+# These two don't conflict because attune changes the base,
 # while HPA scales the number of pods.
 #
 # Pair this policy with an HPA targeting the same deployment.
@@ -10,8 +10,8 @@
 # Apply:
 #   kubectl apply -f examples/04-hpa-coexistence.yaml
 ---
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizePolicy
+apiVersion: attune.io/v1alpha1
+kind: AttunePolicy
 metadata:
   name: api-with-hpa
   namespace: production

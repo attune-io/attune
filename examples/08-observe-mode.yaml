@@ -7,8 +7,8 @@
 #
 # Apply:
 #   kubectl apply -f examples/08-observe-mode.yaml
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizePolicy
+apiVersion: attune.io/v1alpha1
+kind: AttunePolicy
 metadata:
   name: api-observe
   namespace: staging

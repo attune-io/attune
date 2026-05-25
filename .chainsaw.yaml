@@ -1,7 +1,7 @@
 apiVersion: chainsaw.kyverno.io/v1alpha1
 kind: Configuration
 metadata:
-  name: kube-rightsize-e2e
+  name: attune-e2e
 spec:
   timeouts:
     apply: 30s

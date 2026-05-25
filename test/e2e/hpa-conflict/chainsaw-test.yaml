@@ -3,7 +3,7 @@ kind: Test
 metadata:
   name: hpa-conflict
 spec:
-  description: Verify that a RightSizePolicy coexists with an HPA on the same Deployment (warning only, not blocking)
+  description: Verify that a AttunePolicy coexists with an HPA on the same Deployment (warning only, not blocking)
   timeouts:
     apply: 30s
     assert: 2m
@@ -67,8 +67,8 @@ spec:
                         averageUtilization: 70
         - apply:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: hpa-conflict-test
                 namespace: e2e-hpa-conflict
@@ -105,8 +105,8 @@ spec:
       try:
         - assert:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: hpa-conflict-test
                 namespace: e2e-hpa-conflict
@@ -115,13 +115,13 @@ spec:
                   discovered: 1
   catch:
     - describe:
-        apiVersion: rightsize.io/v1alpha1
-        kind: RightSizePolicy
+        apiVersion: attune.io/v1alpha1
+        kind: AttunePolicy
         namespace: e2e-hpa-conflict
     - describe:
         apiVersion: autoscaling/v2
         kind: HorizontalPodAutoscaler
         namespace: e2e-hpa-conflict
     - podLogs:
-        namespace: kube-rightsize-system
-        selector: app.kubernetes.io/name=kube-rightsize
+        namespace: attune-system
+        selector: app.kubernetes.io/name=attune

@@ -11,7 +11,7 @@ controller-runtime v0.24.1, Kubebuilder v4, K8s API v0.36.1.
 - Install deps: `go mod download`
 - Build: `make build`
 - Build plugin: `make build-plugin`
-- Build image: `make docker-build IMG=kube-rightsize:dev`
+- Build image: `make docker-build IMG=attune:dev`
 - Test (unit): `make test`
 - Test (single pkg): `go test ./internal/resize/... -race -count=1`
 - Test (integration): `make test-integration`
@@ -32,17 +32,17 @@ controller-runtime v0.24.1, Kubebuilder v4, K8s API v0.36.1.
 - Fast pre-commit checks: `make verify-quick` (no integration tests or govulncheck)
 - All CI checks locally: `make verify`
 - Clean build artifacts: `make clean`
-- Local cluster (k3d): `make k3d-create && make k3d-deploy IMG=kube-rightsize:e2e`
-- Local cluster (Kind): `make kind-create && make kind-deploy IMG=kube-rightsize:e2e`
+- Local cluster (k3d): `make k3d-create && make k3d-deploy IMG=attune:e2e`
+- Local cluster (Kind): `make kind-create && make kind-deploy IMG=attune:e2e`
 - Full local test (auto-provisions k3d): `make test-local`
 - Local smoke test (auto-provisions k3d): `make test-local-smoke`
 - E2E tests: `make test-e2e` (requires local cluster with operator deployed)
 
 ## Structure
 
-- `api/v1alpha1/` - CRD type definitions (RightSizePolicy, RightSizeDefaults)
+- `api/v1alpha1/` - CRD type definitions (AttunePolicy, AttuneDefaults)
 - `cmd/manager/` - Operator entry point
-- `cmd/kubectl-rightsize/` - kubectl plugin
+- `cmd/kubectl-attune/` - kubectl plugin
 - `internal/controller/` - Reconciler (core business logic)
 - `internal/metrics/` - Metrics collection (Prometheus, Datadog, CloudWatch), QueryBuilder interface, rate limiting
 - `internal/recommendation/` - Composable estimator chain (percentile, margin, confidence, bounds, change filter)
@@ -55,7 +55,7 @@ controller-runtime v0.24.1, Kubebuilder v4, K8s API v0.36.1.
 - `internal/throttle/` - Shared throttle checker interface (breaks import cycle)
 - `pkg/defaults/` - Shared default-value and merge logic (used by controller + kubectl plugin)
 - `config/` - Kustomize manifests (CRDs, RBAC, manager deployment)
-- `charts/kube-rightsize/` - Helm chart with cert-manager webhook support
+- `charts/attune/` - Helm chart with cert-manager webhook support
 - `test/integration/` - envtest-based integration tests
 - `test/e2e/` - Chainsaw E2E test scenarios
 - `docs/` - MkDocs documentation site
@@ -77,7 +77,7 @@ ctrl        "sigs.k8s.io/controller-runtime"
 ### Logging
 
 Use `logr` structured logging exclusively. `fmt.Print` and `fmt.Fprint` are
-forbidden by the linter (except in `cmd/kubectl-rightsize/`).
+forbidden by the linter (except in `cmd/kubectl-attune/`).
 
 ### resource.Quantity
 
@@ -90,15 +90,15 @@ for all durations (e.g., `168h` not `7d`).
 controller-runtime v0.24.x uses typed generic interfaces. Register webhooks with:
 
 ```go
-// RightSizePolicy: defaulting + validation
-ctrl.NewWebhookManagedBy(mgr, &rightsizev1alpha1.RightSizePolicy{}).
-    WithDefaulter(&webhook.RightSizePolicyDefaulter{}).
-    WithValidator(&webhook.RightSizePolicyValidator{}).
+// AttunePolicy: defaulting + validation
+ctrl.NewWebhookManagedBy(mgr, &attunev1alpha1.AttunePolicy{}).
+    WithDefaulter(&webhook.AttunePolicyDefaulter{}).
+    WithValidator(&webhook.AttunePolicyValidator{}).
     Complete()
 
-// RightSizeDefaults: validation only (costPricing fields)
-ctrl.NewWebhookManagedBy(mgr, &rightsizev1alpha1.RightSizeDefaults{}).
-    WithValidator(&webhook.RightSizeDefaultsValidator{}).
+// AttuneDefaults: validation only (costPricing fields)
+ctrl.NewWebhookManagedBy(mgr, &attunev1alpha1.AttuneDefaults{}).
+    WithValidator(&webhook.AttuneDefaultsValidator{}).
     Complete()
 ```
 
@@ -172,18 +172,18 @@ without reading operator logs.
 After changing RBAC markers, update **three places**:
 - The kubebuilder marker in `internal/controller/`
 - `config/rbac/role.yaml` (run `make manifests`)
-- `charts/kube-rightsize/templates/clusterrole.yaml` + its test
+- `charts/attune/templates/clusterrole.yaml` + its test
 
 Currently, Secrets are the only resource in `DisableFor` (get-only is safe).
 All other resources accessed via the client need `list`/`watch`.
 
 ### Adding a new defaultable field
 
-Fields that should be overridable by `RightSizeDefaults` must use
+Fields that should be overridable by `AttuneDefaults` must use
 pointer types (`*int32`, `*bool`, `*metav1.Duration`) so nil=unset
 is distinguishable from zero/false. Update all 7 locations:
 
-1. `api/v1alpha1/rightsizepolicy_types.go` - Add `*T` field with
+1. `api/v1alpha1/attunepolicy_types.go` - Add `*T` field with
    `json:"name,omitempty"` and `// +optional`
 2. `api/v1alpha1/defaults.go` - Add `DefaultXxx` constant
 3. `pkg/defaults/defaults.go` `ApplyBuiltInDefaults()` - Add
@@ -192,11 +192,11 @@ is distinguishable from zero/false. Update all 7 locations:
    clause (covers both controller and kubectl plugin)
 5. `internal/webhook/validation.go` - Add validation if needed
 6. Run `make manifests && make generate` to regenerate CRD + deepcopy
-7. `cmd/kubectl-rightsize/main.go` `printEffectiveValues()` - Add
-   display line so `kubectl rightsize explain` shows the field
+7. `cmd/kubectl-attune/main.go` `printEffectiveValues()` - Add
+   display line so `kubectl attune explain` shows the field
 
-If the field also belongs in `RightSizeDefaults`, add it to
-`api/v1alpha1/rightsizedefaults_types.go` as well.
+If the field also belongs in `AttuneDefaults`, add it to
+`api/v1alpha1/attunedefaults_types.go` as well.
 
 ### Helm values.yaml comments (helm-docs format)
 
@@ -222,10 +222,10 @@ directory. When referencing files elsewhere in the repo (e.g., `charts/`,
 
 ```markdown
 <!-- BAD: relative path outside docs/ — MkDocs strict mode rejects this -->
-[Helm README](../../charts/kube-rightsize/README.md)
+[Helm README](../../charts/attune/README.md)
 
 <!-- GOOD: absolute GitHub URL -->
-[Helm README](https://github.com/SebTardifLabs/kube-rightsize/tree/main/charts/kube-rightsize#prometheusrule)
+[Helm README](https://github.com/attune-io/attune/tree/main/charts/attune#prometheusrule)
 ```
 
 ## Testing

@@ -67,9 +67,9 @@ jobs:
             yaml:
               - 'config/**'
               - '.github/workflows/**'
-              - 'charts/kube-rightsize/Chart.yaml'
-              - 'charts/kube-rightsize/values.yaml'
-              - 'charts/kube-rightsize/ci/**'
+              - 'charts/attune/Chart.yaml'
+              - 'charts/attune/values.yaml'
+              - 'charts/attune/ci/**'
             docs:
               - 'README.md'
               - 'CONTRIBUTING.md'
@@ -79,7 +79,7 @@ jobs:
               - 'Makefile'
               - 'hack/verify-doc-defaults.sh'
               - 'hack/verify-doc-tool-versions.sh'
-              - 'charts/kube-rightsize/README.md.gotmpl'
+              - 'charts/attune/README.md.gotmpl'
 
   lint:
     name: Lint
@@ -205,7 +205,7 @@ jobs:
               indent-sequences: whatever
           EOF
           yamllint -c "$yamllint_config" \
-            config/ charts/kube-rightsize/Chart.yaml charts/kube-rightsize/values.yaml charts/kube-rightsize/ci/
+            config/ charts/attune/Chart.yaml charts/attune/values.yaml charts/attune/ci/
 
   test-unit:
     name: Unit Tests
@@ -360,7 +360,7 @@ jobs:
     if: needs.changes.outputs.go-source == 'true'
     env:
       K3D_CLUSTER_NAME: e2e-${{ github.run_id }}-${{ github.run_attempt }}
-      KUBECONFIG_BASENAME: kube-rightsize-e2e-${{ github.run_id }}-${{ github.run_attempt }}.kubeconfig
+      KUBECONFIG_BASENAME: attune-e2e-${{ github.run_id }}-${{ github.run_attempt }}.kubeconfig
     steps:
       - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
@@ -525,18 +525,18 @@ jobs:
           # Docker daemon entirely, avoiding containerd storage races (#462).
           go install github.com/google/ko@v0.18.0
           VERSION=e2e COMMIT=$(git rev-parse --short HEAD) DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
-            KO_DOCKER_REPO=kube-rightsize ko build ./cmd/manager/ \
+            KO_DOCKER_REPO=attune ko build ./cmd/manager/ \
             --bare --tags=e2e --platform=linux/$(go env GOARCH) \
-            --tarball=/tmp/kube-rightsize-e2e.tar --push=false
+            --tarball=/tmp/attune-e2e.tar --push=false
           # k3d accepts OCI tarballs directly; no docker save needed.
-          k3d image import /tmp/kube-rightsize-e2e.tar -c "$K3D_CLUSTER_NAME"
+          k3d image import /tmp/attune-e2e.tar -c "$K3D_CLUSTER_NAME"
 
       - name: Install operator via Helm
         shell: bash -Eeuo pipefail -x {0}
         run: |
-          helm install kube-rightsize ./charts/kube-rightsize \
-            --namespace kube-rightsize-system --create-namespace \
-            --set image.repository=kube-rightsize \
+          helm install attune ./charts/attune \
+            --namespace attune-system --create-namespace \
+            --set image.repository=attune \
             --set image.tag=e2e \
             --set image.pullPolicy=Never \
             --set webhooks.enabled=true \
@@ -563,7 +563,7 @@ jobs:
           echo "=== cert-manager pods ==="
           kubectl get pods -n cert-manager
           echo "=== Operator logs ==="
-          kubectl logs -n kube-rightsize-system -l app.kubernetes.io/name=kube-rightsize --tail=100 || true
+          kubectl logs -n attune-system -l app.kubernetes.io/name=attune --tail=100 || true
           echo "=== Pod status ==="
           kubectl get pods -A
           echo "=== Events ==="
@@ -601,7 +601,7 @@ jobs:
       - name: Check for drift
         shell: bash -Eeuo pipefail {0}
         run: |
-          if ! git diff --exit-code config/crd/ charts/kube-rightsize/crds/ api/v1alpha1/zz_generated.deepcopy.go config/rbac/; then
+          if ! git diff --exit-code config/crd/ charts/attune/crds/ api/v1alpha1/zz_generated.deepcopy.go config/rbac/; then
             echo "::error::Generated files are stale. Run 'make manifests generate' and commit."
             exit 1
           fi
@@ -624,14 +624,14 @@ jobs:
 
       - name: Lint chart
         shell: bash -Eeuo pipefail -x {0}
-        run: helm lint charts/kube-rightsize --kube-version v1.32.0
+        run: helm lint charts/attune --kube-version v1.32.0
 
       - name: Template validation
         shell: bash -Eeuo pipefail -x {0}
         run: |
-          for f in charts/kube-rightsize/ci/*.yaml; do
+          for f in charts/attune/ci/*.yaml; do
             echo "--- Testing with $f ---"
-            helm template kube-rightsize charts/kube-rightsize -f "$f" \
+            helm template attune charts/attune -f "$f" \
               --kube-version v1.32.0 \
               --api-versions cert-manager.io/v1 > /dev/null
           done
@@ -656,7 +656,7 @@ jobs:
           esac
           curl -fsSL "https://github.com/helm-unittest/helm-unittest/releases/download/${HELM_UNITTEST_VERSION}/helm-unittest-${HU_OS}-${HU_ARCH}-${HELM_UNITTEST_ASSET_VERSION}.tgz" \
             | tar xz -C "$PLUGINS_DIR"
-          helm unittest charts/kube-rightsize
+          helm unittest charts/attune
 
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
@@ -671,9 +671,9 @@ jobs:
           go install github.com/norwoodj/helm-docs/cmd/helm-docs@v1.14.2
           export PATH="${GOBIN}:${PATH}"
           helm-docs --chart-search-root charts/
-          if ! git diff --quiet --exit-code charts/kube-rightsize/README.md; then
+          if ! git diff --quiet --exit-code charts/attune/README.md; then
             echo "::error::Helm README is stale. Run 'make helm-docs-gen' and commit."
-            git diff charts/kube-rightsize/README.md
+            git diff charts/attune/README.md
             exit 1
           fi
 
@@ -712,9 +712,9 @@ jobs:
         shell: bash -Eeuo pipefail -x {0}
         run: |
           go build -o bin/manager ./cmd/manager/
-          go build -o bin/kubectl-rightsize ./cmd/kubectl-rightsize/
+          go build -o bin/kubectl-attune ./cmd/kubectl-attune/
 
       - name: Build container image (no push)
         shell: bash -Eeuo pipefail -x {0}
         run: |
-          make docker-build IMG=kube-rightsize:ci-${{ github.sha }}
+          make docker-build IMG=attune:ci-${{ github.sha }}

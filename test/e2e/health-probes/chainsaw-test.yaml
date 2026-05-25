@@ -15,11 +15,11 @@ spec:
             timeout: 60s
             content: |
               # Use wget (available in distroless/static via busybox) or port-forward
-              POD=$(kubectl get pods -n kube-rightsize-system -l app.kubernetes.io/name=kube-rightsize \
+              POD=$(kubectl get pods -n attune-system -l app.kubernetes.io/name=attune \
                 -o jsonpath='{.items[0].metadata.name}')
               echo "Operator pod: ${POD}"
               # Port-forward and poll until the local endpoint is ready.
-              kubectl port-forward -n kube-rightsize-system "pod/${POD}" 18081:8081 >/tmp/health-port-forward.log 2>&1 &
+              kubectl port-forward -n attune-system "pod/${POD}" 18081:8081 >/tmp/health-port-forward.log 2>&1 &
               PF_PID=$!
               for i in $(seq 1 30); do
                 if curl -sf http://localhost:18081/healthz >/dev/null 2>&1; then
@@ -44,4 +44,4 @@ spec:
       catch:
         - script:
             content: |
-              kubectl logs -n kube-rightsize-system -l app.kubernetes.io/name=kube-rightsize --tail=20
+              kubectl logs -n attune-system -l app.kubernetes.io/name=attune --tail=20

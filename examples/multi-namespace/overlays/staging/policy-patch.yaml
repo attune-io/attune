@@ -1,6 +1,6 @@
 # Staging: moderate settings, 25% canary
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizePolicy
+apiVersion: attune.io/v1alpha1
+kind: AttunePolicy
 metadata:
   name: api-servers
 spec:

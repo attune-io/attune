@@ -4,5 +4,5 @@ resources:
 - manager.yaml
 images:
 - name: controller
-  newName: ghcr.io/sebtardiflabs/kube-rightsize
+  newName: ghcr.io/attune-io/attune
   newTag: latest

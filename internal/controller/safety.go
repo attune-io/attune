@@ -31,11 +31,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
-	rsmetrics "github.com/SebTardifLabs/kube-rightsize/internal/metrics"
-	"github.com/SebTardifLabs/kube-rightsize/internal/operatormetrics"
-	"github.com/SebTardifLabs/kube-rightsize/internal/resize"
-	"github.com/SebTardifLabs/kube-rightsize/internal/safety"
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	rsmetrics "github.com/attune-io/attune/internal/metrics"
+	"github.com/attune-io/attune/internal/operatormetrics"
+	"github.com/attune-io/attune/internal/resize"
+	"github.com/attune-io/attune/internal/safety"
 )
 
 // runImmediateSafetyCheck performs an immediate safety check on a freshly
@@ -43,9 +43,9 @@ import (
 // error means the check itself failed (the caller should defer to the
 // observation cycle). A non-empty revertReason means the pod is unsafe and
 // should be reverted.
-func (r *RightSizePolicyReconciler) runImmediateSafetyCheck(
+func (r *AttunePolicyReconciler) runImmediateSafetyCheck(
 	ctx context.Context,
-	policy *rightsizev1alpha1.RightSizePolicy,
+	policy *attunev1alpha1.AttunePolicy,
 	monitor *safety.Monitor,
 	record safety.ResizeRecord,
 ) (revertReason string, err error) {
@@ -75,9 +75,9 @@ func (r *RightSizePolicyReconciler) runImmediateSafetyCheck(
 //   - The Eviction API itself enforces PodDisruptionBudgets
 //
 // Returns true if the eviction was submitted successfully.
-func (r *RightSizePolicyReconciler) tryEvictionFallback(
+func (r *AttunePolicyReconciler) tryEvictionFallback(
 	ctx context.Context,
-	policy *rightsizev1alpha1.RightSizePolicy,
+	policy *attunev1alpha1.AttunePolicy,
 	pod *corev1.Pod,
 	workload client.Object,
 	workloadName, containerName string,
@@ -142,7 +142,7 @@ func (r *RightSizePolicyReconciler) tryEvictionFallback(
 // annotated with tracking annotations. For each pod whose observation period
 // has elapsed, it runs a safety check. Unsafe pods are reverted to their
 // original resource values and the annotations are removed.
-func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.Context, policy *rightsizev1alpha1.RightSizePolicy, collector rsmetrics.MetricsCollector, workloads []client.Object) (observationsPending bool) {
+func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Context, policy *attunev1alpha1.AttunePolicy, collector rsmetrics.MetricsCollector, workloads []client.Object) (observationsPending bool) {
 	logger := log.FromContext(ctx)
 	if r.Clientset == nil {
 		return false
@@ -192,13 +192,13 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 							}
 							operatormetrics.RevertsTotal.WithLabelValues(pod.Namespace, trackedWorkload, v.Reason).Inc()
 							if r.Recorder != nil {
-								r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, string(rightsizev1alpha1.ResizeResultReverted), "revert",
+								r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, string(attunev1alpha1.ResizeResultReverted), "revert",
 									"Early safety detection reverted resize on pod %s/%s: %s", pod.Name, record.Container, v.Message)
 							}
 							for j := range policy.Status.ResizeHistory {
 								h := &policy.Status.ResizeHistory[j]
-								if h.Workload == trackedWorkload && h.Container == record.Container && h.Result == rightsizev1alpha1.ResizeResultSuccess {
-									h.Result = rightsizev1alpha1.ResizeResultReverted
+								if h.Workload == trackedWorkload && h.Container == record.Container && h.Result == attunev1alpha1.ResizeResultSuccess {
+									h.Result = attunev1alpha1.ResizeResultReverted
 								}
 							}
 						}
@@ -241,14 +241,14 @@ func (r *RightSizePolicyReconciler) checkPendingSafetyObservations(ctx context.C
 				}
 				operatormetrics.RevertsTotal.WithLabelValues(pod.Namespace, trackedWorkload, verdict.Reason).Inc()
 				if r.Recorder != nil {
-					r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, string(rightsizev1alpha1.ResizeResultReverted), "revert",
+					r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, string(attunev1alpha1.ResizeResultReverted), "revert",
 						"Safety observation reverted resize on pod %s/%s: %s", pod.Name, record.Container, verdict.Message)
 				}
 				// Mark matching history entries as reverted so status reflects the revert.
 				for i := range policy.Status.ResizeHistory {
 					h := &policy.Status.ResizeHistory[i]
-					if h.Workload == trackedWorkload && h.Container == record.Container && h.Result == rightsizev1alpha1.ResizeResultSuccess {
-						h.Result = rightsizev1alpha1.ResizeResultReverted
+					if h.Workload == trackedWorkload && h.Container == record.Container && h.Result == attunev1alpha1.ResizeResultSuccess {
+						h.Result = attunev1alpha1.ResizeResultReverted
 					}
 				}
 			}

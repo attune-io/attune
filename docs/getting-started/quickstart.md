@@ -1,6 +1,6 @@
 # Quick Start
 
-This guide walks you through creating a RightSizePolicy, reviewing its
+This guide walks you through creating a AttunePolicy, reviewing its
 recommendations, and promoting to Canary mode, all in about five minutes.
 
 !!! tip "Interactive demo"
@@ -18,9 +18,9 @@ recommendations, and promoting to Canary mode, all in about five minutes.
 !!! info "Prerequisites"
     - **Kubernetes 1.32+** — 1.32 requires the `InPlacePodVerticalScaling` feature gate; 1.33+ has it enabled by default.
     - **Prometheus** — the operator queries `container_cpu_usage_seconds_total` and `container_memory_working_set_bytes`.
-    - **kube-rightsize installed** — see [Installation](installation.md) for Helm and raw manifest options.
+    - **attune installed** — see [Installation](installation.md) for Helm and raw manifest options.
 
-## 1. Create a RightSizePolicy in Recommend mode
+## 1. Create a AttunePolicy in Recommend mode
 
 Start in **Recommend** mode so that no pods are modified. The operator will
 collect metrics and write recommendations to the resource status.
@@ -29,8 +29,8 @@ All fields have production-ready defaults (P95 CPU, P99 memory, 20%/30%
 overhead, sensible bounds). A minimal policy is just:
 
 ```yaml
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizePolicy
+apiVersion: attune.io/v1alpha1
+kind: AttunePolicy
 metadata:
   name: my-app
   namespace: default
@@ -46,15 +46,15 @@ spec:
 ```
 
 !!! tip "Skip the Prometheus address on every policy"
-    Create a cluster-scoped `RightSizeDefaults` resource with the Prometheus
+    Create a cluster-scoped `AttuneDefaults` resource with the Prometheus
     address and it will apply to all policies. If only one namespace should
-    inherit that address, use a namespaced `RightSizeNamespaceDefaults`
+    inherit that address, use a namespaced `AttuneNamespaceDefaults`
     instead. The repo includes `examples/05-cluster-defaults.yaml` for a
     cluster-wide setup and `examples/11-namespace-defaults.yaml` for a
     namespace-only setup.
     ```yaml
-    apiVersion: rightsize.io/v1alpha1
-    kind: RightSizeDefaults
+    apiVersion: attune.io/v1alpha1
+    kind: AttuneDefaults
     metadata:
       name: cluster-defaults
     spec:
@@ -71,13 +71,13 @@ spec:
     `updateStrategy.cooldown`, bounds, and more.
 
 ```bash
-kubectl apply -f rightsizepolicy.yaml
+kubectl apply -f attunepolicy.yaml
 ```
 
 ## 2. Check status
 
 ```bash
-kubectl get rightsizepolicy my-app -o wide
+kubectl get attunepolicy my-app -o wide
 ```
 
 Right after applying, the policy will be collecting data:
@@ -112,10 +112,10 @@ my-app   Recommend   1           0      0         False   5m    0           0
     `minimumDataPoints` to use the default (48) for production accuracy.
 
 > Most defaultable fields are applied by the controller at reconcile time so
-> that `RightSizeDefaults` and `RightSizeNamespaceDefaults` can override them.
+> that `AttuneDefaults` and `AttuneNamespaceDefaults` can override them.
 > That means omitted fields may still look empty in `kubectl get rsp -o yaml`
 > even though the policy is already following the built-in and inherited runtime
-> behavior unless you override those fields. Use `kubectl rightsize explain -n
+> behavior unless you override those fields. Use `kubectl attune explain -n
 > <namespace> <policy>` to inspect the effective values for the key
 > controller-applied defaults.
 
@@ -129,7 +129,7 @@ my-app   Recommend   1           1      0         True    7d    200m        256M
 ## 3. Review recommendations
 
 ```bash
-kubectl get rightsizepolicy my-app -o jsonpath='{.status.recommendations}' | jq .
+kubectl get attunepolicy my-app -o jsonpath='{.status.recommendations}' | jq .
 ```
 
 The output shows per-container current and recommended values along with the
@@ -159,13 +159,13 @@ spec:
 ```
 
 ```bash
-kubectl apply -f rightsizepolicy.yaml
+kubectl apply -f attunepolicy.yaml
 ```
 
 ## 5. Verify the resize
 
 ```bash
-kubectl get rightsizepolicy my-app
+kubectl get attunepolicy my-app
 ```
 
 The `RESIZED` column increments as pods are resized in place. If a safety

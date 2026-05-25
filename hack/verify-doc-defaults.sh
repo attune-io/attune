@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Copyright 2026 kube-rightsize Authors
+# Copyright 2026 attune Authors
 # SPDX-License-Identifier: Apache-2.0
 #
 # Verify that critical user-facing defaults are consistent across docs,
@@ -61,10 +61,10 @@ check_absent() {
 # Go code (canonical source of truth)
 check_default "minimumDataPoints (Go)" \
   "defaultMinimumDataPoints.*= 48" \
-  "internal/controller/rightsizepolicy_controller.go"
+  "internal/controller/attunepolicy_controller.go"
 
 # Go defaults.go (canonical source; CRD no longer has +kubebuilder:default
-# because defaulting moved to controller for RightSizeDefaults compatibility)
+# because defaulting moved to controller for AttuneDefaults compatibility)
 check_default "minimumDataPoints (defaults.go)" \
   "DefaultMinimumDataPoints.*= 48" \
   "api/v1alpha1/defaults.go"
@@ -81,12 +81,12 @@ check_default "minimumDataPoints (README)" \
   "README.md"
 
 minimum_data_points_crd_files=(
-  "config/crd/bases/rightsize.io_rightsizepolicies.yaml"
-  "config/crd/bases/rightsize.io_rightsizedefaults.yaml"
-  "config/crd/bases/rightsize.io_rightsizenamespacedefaults.yaml"
-  "charts/kube-rightsize/crds/rightsize.io_rightsizepolicies.yaml"
-  "charts/kube-rightsize/crds/rightsize.io_rightsizedefaults.yaml"
-  "charts/kube-rightsize/crds/rightsize.io_rightsizenamespacedefaults.yaml"
+  "config/crd/bases/attune.io_attunepolicies.yaml"
+  "config/crd/bases/attune.io_attunedefaults.yaml"
+  "config/crd/bases/attune.io_attunenamespacedefaults.yaml"
+  "charts/attune/crds/attune.io_attunepolicies.yaml"
+  "charts/attune/crds/attune.io_attunedefaults.yaml"
+  "charts/attune/crds/attune.io_attunenamespacedefaults.yaml"
 )
 
 if [ -f "$REPO_ROOT/dist/crds.yaml" ]; then
@@ -97,10 +97,10 @@ minimum_data_points_crd_files+=("$@")
 
 check_default "minimumDataPoints timing (Go godoc)" \
   "48 samples" \
-  "api/v1alpha1/rightsizepolicy_types.go"
+  "api/v1alpha1/attunepolicy_types.go"
 check_default "minimumDataPoints timing (Go godoc)" \
   "4 hours of data" \
-  "api/v1alpha1/rightsizepolicy_types.go"
+  "api/v1alpha1/attunepolicy_types.go"
 check_default "minimumDataPoints timing (README)" \
   "4 hours of data" \
   "README.md"
@@ -115,7 +115,7 @@ check_default "minimumDataPoints timing (CRDs)" \
   "${minimum_data_points_crd_files[@]}"
 check_absent "minimumDataPoints stale timing (Go godoc)" \
   "2 days" \
-  "api/v1alpha1/rightsizepolicy_types.go"
+  "api/v1alpha1/attunepolicy_types.go"
 check_absent "minimumDataPoints stale timing (README)" \
   "2 days" \
   "README.md"
@@ -196,32 +196,32 @@ check_default "collectorTTL (Go)" \
   "internal/controller/prometheus.go"
 check_default "collectorTTL (Helm values)" \
   'collectorTTL: "10m"' \
-  "charts/kube-rightsize/values.yaml"
+  "charts/attune/values.yaml"
 
 # --- networkPolicy.prometheusPort default = 9090 ---
 check_default "prometheusPort (values.yaml)" \
   "prometheusPort: 9090" \
-  "charts/kube-rightsize/values.yaml"
+  "charts/attune/values.yaml"
 check_default "prometheusPort (README)" \
   'prometheusPort.*9090' \
   "README.md"
 
-# --- why-kube-rightsize.md: pricing, overheads ---
+# --- why-attune.md: pricing, overheads ---
 check_default "cpuPricing (why page)" \
   '0\.031' \
-  "docs/why-kube-rightsize.md"
+  "docs/why-attune.md"
 check_default "memPricing (why page)" \
   '0\.004' \
-  "docs/why-kube-rightsize.md"
+  "docs/why-attune.md"
 check_default "cpuOverhead (why page)" \
   '+ 20%' \
-  "docs/why-kube-rightsize.md"
+  "docs/why-attune.md"
 check_default "memOverhead (why page)" \
   '+ 30%' \
-  "docs/why-kube-rightsize.md"
+  "docs/why-attune.md"
 check_default "cpuPercentile (why page)" \
   'P95' \
-  "docs/why-kube-rightsize.md"
+  "docs/why-attune.md"
 
 # --- savings-calculator.md: pricing input defaults ---
 check_default "cpuPricing (calculator)" \
@@ -234,10 +234,10 @@ check_default "memPricing (calculator)" \
 # --- prometheusTimeout: Go code, values.yaml, configuration.md ---
 check_default "prometheusTimeout (Go default)" \
   'promTimeout = 5 \* time.Minute' \
-  "internal/controller/rightsizepolicy_controller.go"
+  "internal/controller/attunepolicy_controller.go"
 check_default "prometheusTimeout (values.yaml)" \
   'prometheusTimeout: "5m"' \
-  "charts/kube-rightsize/values.yaml"
+  "charts/attune/values.yaml"
 check_default "prometheusTimeout (configuration.md)" \
   '"5m"' \
   "docs/reference/configuration.md"

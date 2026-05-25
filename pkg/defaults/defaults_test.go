@@ -25,7 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 )
 
 func ptrInt32(v int32) *int32 { return &v }
@@ -38,38 +38,38 @@ func quantityPtr(s string) *resource.Quantity {
 }
 
 func TestApplyBuiltInDefaults_FillsAllFields(t *testing.T) {
-	policy := &rightsizev1alpha1.RightSizePolicy{}
+	policy := &attunev1alpha1.AttunePolicy{}
 	ApplyBuiltInDefaults(policy)
 
-	assert.Equal(t, rightsizev1alpha1.DefaultUpdateType, policy.Spec.UpdateStrategy.Type)
+	assert.Equal(t, attunev1alpha1.DefaultUpdateType, policy.Spec.UpdateStrategy.Type)
 	assert.NotNil(t, policy.Spec.CPU.MaxChangePercent)
-	assert.Equal(t, rightsizev1alpha1.DefaultCPUMaxChangePercent, *policy.Spec.CPU.MaxChangePercent)
+	assert.Equal(t, attunev1alpha1.DefaultCPUMaxChangePercent, *policy.Spec.CPU.MaxChangePercent)
 	assert.NotNil(t, policy.Spec.Memory.MaxChangePercent)
-	assert.Equal(t, rightsizev1alpha1.DefaultMemoryMaxChangePercent, *policy.Spec.Memory.MaxChangePercent)
+	assert.Equal(t, attunev1alpha1.DefaultMemoryMaxChangePercent, *policy.Spec.Memory.MaxChangePercent)
 	assert.NotNil(t, policy.Spec.UpdateStrategy.Cooldown)
 	assert.NotNil(t, policy.Spec.UpdateStrategy.AutoRevert)
 	assert.True(t, *policy.Spec.UpdateStrategy.AutoRevert)
-	assert.Equal(t, rightsizev1alpha1.DefaultResizeMethod, policy.Spec.UpdateStrategy.ResizeMethod)
+	assert.Equal(t, attunev1alpha1.DefaultResizeMethod, policy.Spec.UpdateStrategy.ResizeMethod)
 	assert.NotNil(t, policy.Spec.MetricsSource.MinimumDataPoints)
-	assert.Equal(t, rightsizev1alpha1.DefaultMinimumDataPoints, *policy.Spec.MetricsSource.MinimumDataPoints)
+	assert.Equal(t, attunev1alpha1.DefaultMinimumDataPoints, *policy.Spec.MetricsSource.MinimumDataPoints)
 	assert.NotNil(t, policy.Spec.MetricsSource.HistoryWindow)
 	assert.NotNil(t, policy.Spec.MetricsSource.QueryStep)
-	assert.Equal(t, rightsizev1alpha1.DefaultQueryStep, policy.Spec.MetricsSource.QueryStep.Duration)
+	assert.Equal(t, attunev1alpha1.DefaultQueryStep, policy.Spec.MetricsSource.QueryStep.Duration)
 	assert.NotNil(t, policy.Spec.CPU.ControlledValues)
-	assert.Equal(t, rightsizev1alpha1.DefaultControlledValues, *policy.Spec.CPU.ControlledValues)
+	assert.Equal(t, attunev1alpha1.DefaultControlledValues, *policy.Spec.CPU.ControlledValues)
 	assert.NotNil(t, policy.Spec.Memory.ControlledValues)
-	assert.Equal(t, rightsizev1alpha1.DefaultControlledValues, *policy.Spec.Memory.ControlledValues)
+	assert.Equal(t, attunev1alpha1.DefaultControlledValues, *policy.Spec.Memory.ControlledValues)
 }
 
 func TestApplyBuiltInDefaults_DoesNotOverrideExistingValues(t *testing.T) {
-	mode := rightsizev1alpha1.UpdateTypeAuto
+	mode := attunev1alpha1.UpdateTypeAuto
 	maxCPU := int32(25)
-	policy := &rightsizev1alpha1.RightSizePolicy{
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: attunev1alpha1.UpdateStrategy{
 				Type: mode,
 			},
-			CPU: rightsizev1alpha1.ResourceConfig{
+			CPU: attunev1alpha1.ResourceConfig{
 				MaxChangePercent: &maxCPU,
 			},
 		},
@@ -81,9 +81,9 @@ func TestApplyBuiltInDefaults_DoesNotOverrideExistingValues(t *testing.T) {
 }
 
 func TestMergeDefaults_NilDefaultsIsNoOp(t *testing.T) {
-	policy := &rightsizev1alpha1.RightSizePolicy{
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			CPU: rightsizev1alpha1.ResourceConfig{Percentile: 95},
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			CPU: attunev1alpha1.ResourceConfig{Percentile: 95},
 		},
 	}
 	inherited := MergeDefaults(policy, nil)
@@ -93,21 +93,21 @@ func TestMergeDefaults_NilDefaultsIsNoOp(t *testing.T) {
 
 func TestMergeDefaults_InheritsUnsetFields(t *testing.T) {
 	cooldown := &metav1.Duration{Duration: 2 * time.Hour}
-	defaults := &rightsizev1alpha1.RightSizeDefaults{
-		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			CPU: &rightsizev1alpha1.ResourceConfig{
+	defaults := &attunev1alpha1.AttuneDefaults{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CPU: &attunev1alpha1.ResourceConfig{
 				Percentile: 90,
 				Overhead:   "50",
 			},
-			Memory: &rightsizev1alpha1.ResourceConfig{
+			Memory: &attunev1alpha1.ResourceConfig{
 				Percentile: 95,
 			},
-			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Cooldown: cooldown,
 			},
 		},
 	}
-	policy := &rightsizev1alpha1.RightSizePolicy{}
+	policy := &attunev1alpha1.AttunePolicy{}
 
 	inherited := MergeDefaults(policy, defaults)
 
@@ -122,17 +122,17 @@ func TestMergeDefaults_InheritsUnsetFields(t *testing.T) {
 }
 
 func TestMergeDefaults_PolicyFieldsTakePrecedence(t *testing.T) {
-	defaults := &rightsizev1alpha1.RightSizeDefaults{
-		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			CPU: &rightsizev1alpha1.ResourceConfig{
+	defaults := &attunev1alpha1.AttuneDefaults{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CPU: &attunev1alpha1.ResourceConfig{
 				Percentile: 90,
 				Overhead:   "50",
 			},
 		},
 	}
-	policy := &rightsizev1alpha1.RightSizePolicy{
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			CPU: rightsizev1alpha1.ResourceConfig{
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			CPU: attunev1alpha1.ResourceConfig{
 				Percentile: 99,
 				Overhead:   "10",
 			},
@@ -151,26 +151,26 @@ func TestMergeUpdateStrategy_AllFields(t *testing.T) {
 	maxConc := int32(3)
 	maxTotalCPU := resource.MustParse("2000m")
 	maxTotalMem := resource.MustParse("4Gi")
-	defaults := &rightsizev1alpha1.UpdateStrategy{
-		Type:                    rightsizev1alpha1.UpdateTypeAuto,
+	defaults := &attunev1alpha1.UpdateStrategy{
+		Type:                    attunev1alpha1.UpdateTypeAuto,
 		AutoRevert:              &autoRevert,
-		ResizeMethod:            rightsizev1alpha1.ResizeMethodInPlaceOrRecreate,
+		ResizeMethod:            attunev1alpha1.ResizeMethodInPlaceOrRecreate,
 		MaxConcurrentResizes:    maxConc,
 		Cooldown:                &metav1.Duration{Duration: 30 * time.Minute},
 		MaxTotalCPUIncrease:     &maxTotalCPU,
 		MaxTotalMemoryIncrease:  &maxTotalMem,
-		Schedule:                &rightsizev1alpha1.ResizeSchedule{Timezone: "UTC"},
-		Export:                  &rightsizev1alpha1.ExportConfig{ConfigMap: true},
-		Canary:                  &rightsizev1alpha1.CanaryConfig{Percentage: 10, ObservationPeriod: metav1.Duration{Duration: 5 * time.Minute}},
+		Schedule:                &attunev1alpha1.ResizeSchedule{Timezone: "UTC"},
+		Export:                  &attunev1alpha1.ExportConfig{ConfigMap: true},
+		Canary:                  &attunev1alpha1.CanaryConfig{Percentage: 10, ObservationPeriod: metav1.Duration{Duration: 5 * time.Minute}},
 		SafetyObservationPeriod: &metav1.Duration{Duration: 10 * time.Minute},
 	}
-	policy := &rightsizev1alpha1.UpdateStrategy{}
+	policy := &attunev1alpha1.UpdateStrategy{}
 
 	inherited := MergeUpdateStrategy(policy, defaults)
 
-	assert.Equal(t, rightsizev1alpha1.UpdateTypeAuto, policy.Type)
+	assert.Equal(t, attunev1alpha1.UpdateTypeAuto, policy.Type)
 	assert.True(t, *policy.AutoRevert)
-	assert.Equal(t, rightsizev1alpha1.ResizeMethodInPlaceOrRecreate, policy.ResizeMethod)
+	assert.Equal(t, attunev1alpha1.ResizeMethodInPlaceOrRecreate, policy.ResizeMethod)
 	assert.Equal(t, int32(3), policy.MaxConcurrentResizes)
 	assert.NotNil(t, policy.Cooldown)
 	require.NotNil(t, policy.MaxTotalCPUIncrease)
@@ -203,7 +203,7 @@ func TestMergeUpdateStrategy_AllFields(t *testing.T) {
 // ---------- Direct MergeResourceConfig tests ----------
 
 func TestMergeResourceConfig_AllFields(t *testing.T) {
-	defaults := &rightsizev1alpha1.ResourceConfig{
+	defaults := &attunev1alpha1.ResourceConfig{
 		Percentile:         90,
 		Overhead:           "50",
 		MinAllowed:         quantityPtr("50m"),
@@ -212,12 +212,12 @@ func TestMergeResourceConfig_AllFields(t *testing.T) {
 		BurstSensitivity:   ptrStr("0.3"),
 		AllowDecrease:      ptrBool(true),
 		MemoryFromCPURatio: ptrStr("2.0"),
-		StartupBoost:       &rightsizev1alpha1.StartupBoost{Multiplier: "3.0", Duration: metav1.Duration{Duration: 2 * time.Minute}},
+		StartupBoost:       &attunev1alpha1.StartupBoost{Multiplier: "3.0", Duration: metav1.Duration{Duration: 2 * time.Minute}},
 		MaxChangePercent:   ptrInt32(50),
 		MaxIncreasePercent: ptrInt32(60),
 		MaxDecreasePercent: ptrInt32(30),
 	}
-	policy := &rightsizev1alpha1.ResourceConfig{}
+	policy := &attunev1alpha1.ResourceConfig{}
 
 	inherited := MergeResourceConfig(policy, defaults, "cpu")
 
@@ -259,34 +259,34 @@ func TestMergeResourceConfig_AllFields(t *testing.T) {
 }
 
 func TestMergeResourceConfig_NilDefaultsIsNoOp(t *testing.T) {
-	policy := &rightsizev1alpha1.ResourceConfig{Percentile: 95}
+	policy := &attunev1alpha1.ResourceConfig{Percentile: 95}
 	inherited := MergeResourceConfig(policy, nil, "cpu")
 	assert.Empty(t, inherited)
 	assert.Equal(t, int32(95), policy.Percentile)
 }
 
 func TestMergeResourceConfig_PolicyFieldsTakePrecedence(t *testing.T) {
-	defaults := &rightsizev1alpha1.ResourceConfig{
+	defaults := &attunev1alpha1.ResourceConfig{
 		Percentile:         90,
 		Overhead:           "50",
 		ControlledValues:   ptrStr("RequestsAndLimits"),
 		BurstSensitivity:   ptrStr("0.5"),
 		AllowDecrease:      ptrBool(true),
 		MemoryFromCPURatio: ptrStr("2.0"),
-		StartupBoost:       &rightsizev1alpha1.StartupBoost{Multiplier: "3.0"},
+		StartupBoost:       &attunev1alpha1.StartupBoost{Multiplier: "3.0"},
 		MinAllowed:         quantityPtr("50m"),
 		MaxChangePercent:   ptrInt32(50),
 		MaxIncreasePercent: ptrInt32(60),
 		MaxDecreasePercent: ptrInt32(30),
 	}
-	policy := &rightsizev1alpha1.ResourceConfig{
+	policy := &attunev1alpha1.ResourceConfig{
 		Percentile:         99,
 		Overhead:           "10",
 		ControlledValues:   ptrStr("RequestsOnly"),
 		BurstSensitivity:   ptrStr("0.1"),
 		AllowDecrease:      ptrBool(false),
 		MemoryFromCPURatio: ptrStr("4.0"),
-		StartupBoost:       &rightsizev1alpha1.StartupBoost{Multiplier: "2.0"},
+		StartupBoost:       &attunev1alpha1.StartupBoost{Multiplier: "2.0"},
 		MinAllowed:         quantityPtr("100m"),
 		MaxChangePercent:   ptrInt32(40),
 		MaxIncreasePercent: ptrInt32(70),
@@ -310,13 +310,13 @@ func TestMergeResourceConfig_PolicyFieldsTakePrecedence(t *testing.T) {
 }
 
 func TestMergeResourceConfig_PrefixAppliedCorrectly(t *testing.T) {
-	defaults := &rightsizev1alpha1.ResourceConfig{Percentile: 90}
-	policy := &rightsizev1alpha1.ResourceConfig{}
+	defaults := &attunev1alpha1.ResourceConfig{Percentile: 90}
+	policy := &attunev1alpha1.ResourceConfig{}
 
 	cpuInherited := MergeResourceConfig(policy, defaults, "cpu")
 	assert.Contains(t, cpuInherited, "cpu.percentile")
 
-	policy2 := &rightsizev1alpha1.ResourceConfig{}
+	policy2 := &attunev1alpha1.ResourceConfig{}
 	memInherited := MergeResourceConfig(policy2, defaults, "memory")
 	assert.Contains(t, memInherited, "memory.percentile")
 }
@@ -324,13 +324,13 @@ func TestMergeResourceConfig_PrefixAppliedCorrectly(t *testing.T) {
 // ---------- Direct MergeMetricsSource tests ----------
 
 func TestMergeMetricsSource_AllFields(t *testing.T) {
-	defaults := &rightsizev1alpha1.MetricsSource{
+	defaults := &attunev1alpha1.MetricsSource{
 		HistoryWindow:     &metav1.Duration{Duration: 336 * time.Hour},
 		MinimumDataPoints: ptrInt32(96),
 		QueryStep:         &metav1.Duration{Duration: 10 * time.Minute},
 		RateWindow:        &metav1.Duration{Duration: 15 * time.Minute},
 	}
-	policy := &rightsizev1alpha1.MetricsSource{}
+	policy := &attunev1alpha1.MetricsSource{}
 
 	inherited := MergeMetricsSource(policy, defaults)
 
@@ -351,7 +351,7 @@ func TestMergeMetricsSource_AllFields(t *testing.T) {
 
 func TestMergeMetricsSource_NilDefaultsIsNoOp(t *testing.T) {
 	step := &metav1.Duration{Duration: 5 * time.Minute}
-	policy := &rightsizev1alpha1.MetricsSource{QueryStep: step}
+	policy := &attunev1alpha1.MetricsSource{QueryStep: step}
 
 	inherited := MergeMetricsSource(policy, nil)
 
@@ -360,13 +360,13 @@ func TestMergeMetricsSource_NilDefaultsIsNoOp(t *testing.T) {
 }
 
 func TestMergeMetricsSource_PolicyFieldsTakePrecedence(t *testing.T) {
-	defaults := &rightsizev1alpha1.MetricsSource{
+	defaults := &attunev1alpha1.MetricsSource{
 		HistoryWindow:     &metav1.Duration{Duration: 336 * time.Hour},
 		MinimumDataPoints: ptrInt32(96),
 		QueryStep:         &metav1.Duration{Duration: 10 * time.Minute},
 		RateWindow:        &metav1.Duration{Duration: 15 * time.Minute},
 	}
-	policy := &rightsizev1alpha1.MetricsSource{
+	policy := &attunev1alpha1.MetricsSource{
 		HistoryWindow:     &metav1.Duration{Duration: 168 * time.Hour},
 		MinimumDataPoints: ptrInt32(48),
 		QueryStep:         &metav1.Duration{Duration: 5 * time.Minute},
@@ -383,13 +383,13 @@ func TestMergeMetricsSource_PolicyFieldsTakePrecedence(t *testing.T) {
 }
 
 func TestMergeMetricsSource_PartialInheritance(t *testing.T) {
-	defaults := &rightsizev1alpha1.MetricsSource{
+	defaults := &attunev1alpha1.MetricsSource{
 		HistoryWindow:     &metav1.Duration{Duration: 336 * time.Hour},
 		MinimumDataPoints: ptrInt32(96),
 		QueryStep:         &metav1.Duration{Duration: 10 * time.Minute},
 		RateWindow:        &metav1.Duration{Duration: 15 * time.Minute},
 	}
-	policy := &rightsizev1alpha1.MetricsSource{
+	policy := &attunev1alpha1.MetricsSource{
 		QueryStep: &metav1.Duration{Duration: 5 * time.Minute},
 	}
 
@@ -406,43 +406,43 @@ func TestMergeMetricsSource_PartialInheritance(t *testing.T) {
 // ---------- MergeUpdateStrategy edge cases ----------
 
 func TestMergeUpdateStrategy_NilDefaultsIsNoOp(t *testing.T) {
-	policy := &rightsizev1alpha1.UpdateStrategy{Type: rightsizev1alpha1.UpdateTypeAuto}
+	policy := &attunev1alpha1.UpdateStrategy{Type: attunev1alpha1.UpdateTypeAuto}
 	inherited := MergeUpdateStrategy(policy, nil)
 	assert.Empty(t, inherited)
-	assert.Equal(t, rightsizev1alpha1.UpdateTypeAuto, policy.Type)
+	assert.Equal(t, attunev1alpha1.UpdateTypeAuto, policy.Type)
 }
 
 func TestMergeUpdateStrategy_PolicyFieldsTakePrecedence(t *testing.T) {
-	defaults := &rightsizev1alpha1.UpdateStrategy{
-		Type:                    rightsizev1alpha1.UpdateTypeAuto,
+	defaults := &attunev1alpha1.UpdateStrategy{
+		Type:                    attunev1alpha1.UpdateTypeAuto,
 		Cooldown:                &metav1.Duration{Duration: 30 * time.Minute},
 		AutoRevert:              ptrBool(false),
-		ResizeMethod:            rightsizev1alpha1.ResizeMethodInPlaceOrRecreate,
+		ResizeMethod:            attunev1alpha1.ResizeMethodInPlaceOrRecreate,
 		MaxConcurrentResizes:    5,
 		SafetyObservationPeriod: &metav1.Duration{Duration: 10 * time.Minute},
-		Schedule:                &rightsizev1alpha1.ResizeSchedule{Timezone: "UTC"},
-		Export:                  &rightsizev1alpha1.ExportConfig{ConfigMap: true},
-		Canary:                  &rightsizev1alpha1.CanaryConfig{Percentage: 10},
+		Schedule:                &attunev1alpha1.ResizeSchedule{Timezone: "UTC"},
+		Export:                  &attunev1alpha1.ExportConfig{ConfigMap: true},
+		Canary:                  &attunev1alpha1.CanaryConfig{Percentage: 10},
 	}
-	policy := &rightsizev1alpha1.UpdateStrategy{
-		Type:                    rightsizev1alpha1.UpdateTypeRecommend,
+	policy := &attunev1alpha1.UpdateStrategy{
+		Type:                    attunev1alpha1.UpdateTypeRecommend,
 		Cooldown:                &metav1.Duration{Duration: time.Hour},
 		AutoRevert:              ptrBool(true),
-		ResizeMethod:            rightsizev1alpha1.ResizeMethodInPlaceOnly,
+		ResizeMethod:            attunev1alpha1.ResizeMethodInPlaceOnly,
 		MaxConcurrentResizes:    3,
 		SafetyObservationPeriod: &metav1.Duration{Duration: 5 * time.Minute},
-		Schedule:                &rightsizev1alpha1.ResizeSchedule{Timezone: "America/New_York"},
-		Export:                  &rightsizev1alpha1.ExportConfig{ConfigMap: false},
-		Canary:                  &rightsizev1alpha1.CanaryConfig{Percentage: 20},
+		Schedule:                &attunev1alpha1.ResizeSchedule{Timezone: "America/New_York"},
+		Export:                  &attunev1alpha1.ExportConfig{ConfigMap: false},
+		Canary:                  &attunev1alpha1.CanaryConfig{Percentage: 20},
 	}
 
 	inherited := MergeUpdateStrategy(policy, defaults)
 
 	assert.Empty(t, inherited)
-	assert.Equal(t, rightsizev1alpha1.UpdateTypeRecommend, policy.Type)
+	assert.Equal(t, attunev1alpha1.UpdateTypeRecommend, policy.Type)
 	assert.Equal(t, time.Hour, policy.Cooldown.Duration)
 	assert.True(t, *policy.AutoRevert)
-	assert.Equal(t, rightsizev1alpha1.ResizeMethodInPlaceOnly, policy.ResizeMethod)
+	assert.Equal(t, attunev1alpha1.ResizeMethodInPlaceOnly, policy.ResizeMethod)
 	assert.Equal(t, int32(3), policy.MaxConcurrentResizes)
 	assert.Equal(t, 5*time.Minute, policy.SafetyObservationPeriod.Duration)
 	assert.Equal(t, "America/New_York", policy.Schedule.Timezone)
@@ -451,14 +451,14 @@ func TestMergeUpdateStrategy_PolicyFieldsTakePrecedence(t *testing.T) {
 }
 
 func TestMergeUpdateStrategy_PartialInheritance(t *testing.T) {
-	defaults := &rightsizev1alpha1.UpdateStrategy{
-		Type:                 rightsizev1alpha1.UpdateTypeAuto,
+	defaults := &attunev1alpha1.UpdateStrategy{
+		Type:                 attunev1alpha1.UpdateTypeAuto,
 		Cooldown:             &metav1.Duration{Duration: 30 * time.Minute},
 		MaxConcurrentResizes: 5,
-		Schedule:             &rightsizev1alpha1.ResizeSchedule{Timezone: "UTC"},
+		Schedule:             &attunev1alpha1.ResizeSchedule{Timezone: "UTC"},
 	}
-	policy := &rightsizev1alpha1.UpdateStrategy{
-		Type:     rightsizev1alpha1.UpdateTypeRecommend,
+	policy := &attunev1alpha1.UpdateStrategy{
+		Type:     attunev1alpha1.UpdateTypeRecommend,
 		Cooldown: &metav1.Duration{Duration: time.Hour},
 	}
 
@@ -469,6 +469,6 @@ func TestMergeUpdateStrategy_PartialInheritance(t *testing.T) {
 	assert.Contains(t, inherited, "schedule")
 	assert.NotContains(t, inherited, "type")
 	assert.NotContains(t, inherited, "cooldown")
-	assert.Equal(t, rightsizev1alpha1.UpdateTypeRecommend, policy.Type)
+	assert.Equal(t, attunev1alpha1.UpdateTypeRecommend, policy.Type)
 	assert.Equal(t, time.Hour, policy.Cooldown.Duration)
 }

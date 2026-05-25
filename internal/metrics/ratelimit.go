@@ -22,7 +22,7 @@ import (
 
 	"golang.org/x/time/rate"
 
-	"github.com/SebTardifLabs/kube-rightsize/internal/throttle"
+	"github.com/attune-io/attune/internal/throttle"
 )
 
 // RateLimitedCollector wraps a MetricsCollector with rate limiting.

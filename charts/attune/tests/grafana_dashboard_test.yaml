@@ -1,0 +1,35 @@
+suite: grafana dashboard tests
+templates:
+  - templates/grafana-dashboard.yaml
+tests:
+  - it: should not render by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render when enabled
+    set:
+      grafanaDashboard.enabled: true
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - equal:
+          path: metadata.labels["grafana_dashboard"]
+          value: "1"
+
+  - it: should include additional labels
+    set:
+      grafanaDashboard.enabled: true
+      grafanaDashboard.additionalLabels:
+        grafana_folder: kubernetes
+    asserts:
+      - equal:
+          path: metadata.labels.grafana_folder
+          value: kubernetes
+
+  - it: should contain dashboard JSON
+    set:
+      grafanaDashboard.enabled: true
+    asserts:
+      - isNotEmpty:
+          path: data["attune.json"]

@@ -3,7 +3,7 @@ kind: Test
 metadata:
   name: job-target
 spec:
-  description: Verify that a RightSizePolicy targeting a standalone Job discovers it
+  description: Verify that a AttunePolicy targeting a standalone Job discovers it
   timeouts:
     apply: 30s
     assert: 2m
@@ -41,8 +41,8 @@ spec:
                 backoffLimit: 0
         - apply:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: job-test
                 namespace: e2e-job-target
@@ -68,8 +68,8 @@ spec:
       try:
         - assert:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: job-test
                 namespace: e2e-job-target
@@ -78,9 +78,9 @@ spec:
                   discovered: 1
   catch:
     - describe:
-        apiVersion: rightsize.io/v1alpha1
-        kind: RightSizePolicy
+        apiVersion: attune.io/v1alpha1
+        kind: AttunePolicy
         namespace: e2e-job-target
     - podLogs:
-        namespace: kube-rightsize-system
-        selector: app.kubernetes.io/name=kube-rightsize
+        namespace: attune-system
+        selector: app.kubernetes.io/name=attune

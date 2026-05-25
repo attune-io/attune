@@ -15,7 +15,7 @@ limitations under the License.
 */
 
 // Package operatormetrics exposes Prometheus metrics from the
-// kube-rightsize operator itself.
+// attune operator itself.
 package operatormetrics
 
 import (
@@ -28,7 +28,7 @@ import (
 var (
 	ResizeTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "kube_rightsize_resize_total",
+			Name: "attune_resize_total",
 			Help: "Total number of resize operations performed",
 		},
 		[]string{"namespace", "workload", "resource", "result"},
@@ -36,7 +36,7 @@ var (
 
 	RevertsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "kube_rightsize_reverts_total",
+			Name: "attune_reverts_total",
 			Help: "Total number of resize reverts triggered",
 		},
 		[]string{"namespace", "workload", "reason"},
@@ -44,7 +44,7 @@ var (
 
 	ThrottleDeferredTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "kube_rightsize_throttle_deferred_total",
+			Name: "attune_throttle_deferred_total",
 			Help: "Total number of throttle safety checks deferred due to grace period",
 		},
 		[]string{"namespace", "workload"},
@@ -52,7 +52,7 @@ var (
 
 	RecommendationCPU = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name: "kube_rightsize_recommendation_cpu_cores",
+			Name: "attune_recommendation_cpu_cores",
 			Help: "Recommended CPU cores per workload/container",
 		},
 		[]string{"namespace", "workload", "container"},
@@ -60,7 +60,7 @@ var (
 
 	RecommendationMemory = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name: "kube_rightsize_recommendation_memory_bytes",
+			Name: "attune_recommendation_memory_bytes",
 			Help: "Recommended memory bytes per workload/container",
 		},
 		[]string{"namespace", "workload", "container"},
@@ -68,7 +68,7 @@ var (
 
 	SavingsCPU = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name: "kube_rightsize_savings_cpu_cores_total",
+			Name: "attune_savings_cpu_cores_total",
 			Help: "Total CPU cores saved per namespace",
 		},
 		[]string{"namespace"},
@@ -76,7 +76,7 @@ var (
 
 	SavingsMemory = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name: "kube_rightsize_savings_memory_bytes_total",
+			Name: "attune_savings_memory_bytes_total",
 			Help: "Total memory bytes saved per namespace",
 		},
 		[]string{"namespace"},
@@ -84,7 +84,7 @@ var (
 
 	SavingsEstimatedMonthly = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name: "kube_rightsize_savings_estimated_monthly_dollars",
+			Name: "attune_savings_estimated_monthly_dollars",
 			Help: "Estimated monthly cost savings in USD per namespace",
 		},
 		[]string{"namespace"},
@@ -92,7 +92,7 @@ var (
 
 	Confidence = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name: "kube_rightsize_confidence",
+			Name: "attune_confidence",
 			Help: "Recommendation confidence score (0-1) per workload/container",
 		},
 		[]string{"namespace", "workload", "container"},
@@ -100,7 +100,7 @@ var (
 
 	ResizeDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name:    "kube_rightsize_resize_duration_seconds",
+			Name:    "attune_resize_duration_seconds",
 			Help:    "Duration of individual pod resize operations",
 			Buckets: prometheus.DefBuckets,
 		},
@@ -109,7 +109,7 @@ var (
 
 	ReconcileErrorsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "kube_rightsize_reconcile_errors_total",
+			Name: "attune_reconcile_errors_total",
 			Help: "Total number of reconciliation errors by type",
 		},
 		[]string{"error_type"},
@@ -117,7 +117,7 @@ var (
 
 	ReconcileDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name:    "kube_rightsize_reconcile_duration_seconds",
+			Name:    "attune_reconcile_duration_seconds",
 			Help:    "Duration of reconciliation loops",
 			Buckets: prometheus.DefBuckets,
 		},
@@ -126,7 +126,7 @@ var (
 
 	PrometheusQueryDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name:    "kube_rightsize_prometheus_query_duration_seconds",
+			Name:    "attune_prometheus_query_duration_seconds",
 			Help:    "Duration of metrics backend queries (Prometheus, Datadog, or CloudWatch)",
 			Buckets: prometheus.DefBuckets,
 		},
@@ -135,7 +135,7 @@ var (
 
 	PrometheusQueryErrors = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "kube_rightsize_prometheus_query_errors_total",
+			Name: "attune_prometheus_query_errors_total",
 			Help: "Total number of metrics backend query errors (Prometheus, Datadog, or CloudWatch)",
 		},
 		[]string{"namespace", "query_type"},
@@ -143,7 +143,7 @@ var (
 
 	WebhookValidationTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "kube_rightsize_webhook_validation_total",
+			Name: "attune_webhook_validation_total",
 			Help: "Total number of webhook admission decisions",
 		},
 		[]string{"operation", "result"},
@@ -151,7 +151,7 @@ var (
 
 	WebhookDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name:    "kube_rightsize_webhook_duration_seconds",
+			Name:    "attune_webhook_duration_seconds",
 			Help:    "Duration of webhook validation and defaulting operations",
 			Buckets: prometheus.DefBuckets,
 		},
@@ -160,7 +160,7 @@ var (
 
 	ScheduleSkippedTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "kube_rightsize_schedule_skipped_total",
+			Name: "attune_schedule_skipped_total",
 			Help: "Total resize cycles skipped due to schedule window constraints",
 		},
 		[]string{"namespace", "policy"},
@@ -168,7 +168,7 @@ var (
 
 	BudgetExhaustedTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "kube_rightsize_budget_exhausted_total",
+			Name: "attune_budget_exhausted_total",
 			Help: "Total resize operations deferred due to per-cycle budget caps",
 		},
 		[]string{"namespace", "policy"},
@@ -176,7 +176,7 @@ var (
 
 	EvictionTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "kube_rightsize_eviction_total",
+			Name: "attune_eviction_total",
 			Help: "Total eviction attempts (InPlaceOrRecreate fallback)",
 		},
 		[]string{"namespace", "workload", "result"},
@@ -184,7 +184,7 @@ var (
 
 	InfeasibleSkippedTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "kube_rightsize_infeasible_skipped_total",
+			Name: "attune_infeasible_skipped_total",
 			Help: "Total Infeasible pods skipped with InPlaceOnly resize method",
 		},
 		[]string{"namespace", "workload"},
@@ -192,7 +192,7 @@ var (
 
 	BurstFactor = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name: "kube_rightsize_burst_factor",
+			Name: "attune_burst_factor",
 			Help: "Burst detection multiplier applied to recommendations (1.0 = no burst)",
 		},
 		[]string{"namespace", "workload", "container", "resource"},
@@ -200,7 +200,7 @@ var (
 
 	StartupBoostTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "kube_rightsize_startup_boost_total",
+			Name: "attune_startup_boost_total",
 			Help: "Total startup boost lifecycle events (applied, expired, failed)",
 		},
 		[]string{"namespace", "workload", "action"},
@@ -208,7 +208,7 @@ var (
 
 	StaleRecommendationsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "kube_rightsize_stale_recommendations_total",
+			Name: "attune_stale_recommendations_total",
 			Help: "Total times recommendations were marked stale due to Prometheus data gaps",
 		},
 		[]string{"namespace", "policy"},

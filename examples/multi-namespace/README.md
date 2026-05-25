@@ -22,7 +22,7 @@ kubectl apply -k examples/multi-namespace/overlays/prod
 
 ## Structure
 
-- `base/` - Shared policy template and RightSizeDefaults
+- `base/` - Shared policy template and AttuneDefaults
 - `overlays/dev/` - Aggressive settings, Auto mode, fast cooldown
 - `overlays/staging/` - Moderate settings, 25% canary
 - `overlays/prod/` - Conservative settings, 10% canary, long cooldown

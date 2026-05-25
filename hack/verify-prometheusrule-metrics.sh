@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Copyright 2026 SebTardifLabs
+# Copyright 2026 attune-io
 # SPDX-License-Identifier: Apache-2.0
 #
 # Verify that all metric names referenced in the PrometheusRule Helm template
 # exist in the operator's metrics registry (internal/operatormetrics/metrics.go).
 set -euo pipefail
 
-TEMPLATE="charts/kube-rightsize/templates/prometheusrule.yaml"
+TEMPLATE="charts/attune/templates/prometheusrule.yaml"
 METRICS_SRC="internal/operatormetrics/metrics.go"
 
 if [[ ! -f "$TEMPLATE" ]]; then
@@ -14,17 +14,17 @@ if [[ ! -f "$TEMPLATE" ]]; then
   exit 0
 fi
 
-# Extract metric names from the template (kube_rightsize_*).
+# Extract metric names from the template (attune_*).
 # grep for metric name patterns, strip Helm template syntax.
-metrics_in_template=$(grep -oE 'kube_rightsize_[a-z_]+' "$TEMPLATE" | sort -u)
+metrics_in_template=$(grep -oE 'attune_[a-z_]+' "$TEMPLATE" | sort -u)
 
 if [[ -z "$metrics_in_template" ]]; then
-  echo "SKIP: no kube_rightsize_* metrics found in $TEMPLATE" >&2
+  echo "SKIP: no attune_* metrics found in $TEMPLATE" >&2
   exit 0
 fi
 
 # Extract registered metric names from Go source.
-metrics_in_source=$(grep -oE '"kube_rightsize_[a-z_]+"' "$METRICS_SRC" | tr -d '"' | sort -u)
+metrics_in_source=$(grep -oE '"attune_[a-z_]+"' "$METRICS_SRC" | tr -d '"' | sort -u)
 
 rc=0
 for m in $metrics_in_template; do

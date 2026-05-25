@@ -18,12 +18,12 @@
 # Prerequisites:
 #   - Kubernetes 1.32+ with In-Place Pod Resize enabled (1.32 requires InPlacePodVerticalScaling feature gate)
 #   - Prometheus reachable at the address below
-#   - kube-rightsize operator installed
+#   - attune operator installed
 #
 # Apply:
 #   kubectl apply -f examples/14-startup-boost.yaml
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizePolicy
+apiVersion: attune.io/v1alpha1
+kind: AttunePolicy
 metadata:
   name: jvm-api
   namespace: production

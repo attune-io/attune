@@ -8,7 +8,7 @@ Knative Service).
 
 ### 1. API types -- add to the validation enum
 
-**File:** `api/v1alpha1/rightsizepolicy_types.go`
+**File:** `api/v1alpha1/attunepolicy_types.go`
 
 Add the new kind to the `kubebuilder:validation:Enum` marker on
 `TargetRef.Kind`:
@@ -58,7 +58,7 @@ case *argov1alpha1.Rollout:
 
 ### 3. RBAC markers
 
-**File:** `internal/controller/rightsizepolicy_controller.go`
+**File:** `internal/controller/attunepolicy_controller.go`
 
 Add a `kubebuilder:rbac` marker for the new resource group. For
 example, Argo Rollouts need:
@@ -71,7 +71,7 @@ Then run `make manifests` to regenerate `config/rbac/role.yaml`.
 
 ### 4. Helm chart RBAC
 
-**File:** `charts/kube-rightsize/templates/clusterrole.yaml`
+**File:** `charts/attune/templates/clusterrole.yaml`
 
 Add a new rule block:
 
@@ -88,7 +88,7 @@ Add a new rule block:
 
 ### 5. Helm chart RBAC test
 
-**File:** `charts/kube-rightsize/tests/rbac_test.yaml`
+**File:** `charts/attune/tests/rbac_test.yaml`
 
 Add a new test case:
 
@@ -123,7 +123,7 @@ Create a Chainsaw test under `test/e2e/` or a Go E2E test under
 `test/e2e/go/` that:
 
 1. Creates a workload of the new kind
-2. Creates a RightSizePolicy targeting it
+2. Creates a AttunePolicy targeting it
 3. Verifies the operator discovers the workload
 4. Verifies recommendations are computed (if Prometheus is available)
 

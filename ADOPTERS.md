@@ -1,6 +1,6 @@
 # Adopters
 
-If you are using kube-rightsize in your organization, please add your
+If you are using attune in your organization, please add your
 company to this list. It helps the project understand its user base
 and prioritize features.
 

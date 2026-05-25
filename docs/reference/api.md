@@ -1,6 +1,6 @@
-## RightSizePolicy
+## AttunePolicy
 
-**Group**: `rightsize.io`  
+**Group**: `attune.io`  
 **Version**: `v1alpha1`  
 **Scope**: Namespaced  
 **Short name**: `rsp`
@@ -13,11 +13,11 @@ webhook defaults). All other defaultable fields (`type`, `controlledValues`,
 `cooldown`, `historyWindow`, `minimumDataPoints`, `queryStep`, `rateWindow`, `autoRevert`,
 `resizeMethod`, `cpu.maxChangePercent`, `memory.maxChangePercent`,
 `safetyObservationPeriod`) are applied
-by the controller at reconcile time so that cluster-wide `RightSizeDefaults`
-and namespace-scoped `RightSizeNamespaceDefaults` can override them. These
+by the controller at reconcile time so that cluster-wide `AttuneDefaults`
+and namespace-scoped `AttuneNamespaceDefaults` can override them. These
 fields will appear empty in `kubectl get rsp -o yaml` but still control runtime
 behavior through the controller's built-in and inherited defaults unless you
-override them. Use `kubectl rightsize explain -n <namespace> <policy>` to see
+override them. Use `kubectl attune explain -n <namespace> <policy>` to see
 the effective values for the key controller-applied defaults and whether each
 came from the policy, a namespace default, a cluster default, or the built-in
 default.
@@ -25,8 +25,8 @@ default.
 ### Spec
 
 ```yaml
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizePolicy
+apiVersion: attune.io/v1alpha1
+kind: AttunePolicy
 metadata:
   name: example
   namespace: default
@@ -152,7 +152,7 @@ spec:
 | `recommendations[].containers[].name` | `string` | Container name |
 | `recommendations[].containers[].current` | `ResourceValues` | Current CPU/memory requests and limits |
 | `recommendations[].containers[].recommended` | `ResourceValues` | Proposed CPU/memory requests and limits |
-| `recommendations[].containers[].explanation` | `ContainerRecommendationExplanation` | Persisted reasoning used by `kubectl rightsize explain` |
+| `recommendations[].containers[].explanation` | `ContainerRecommendationExplanation` | Persisted reasoning used by `kubectl attune explain` |
 | `recommendations[].containers[].explanation.cpu` | `ResourceRecommendationExplanation` | CPU estimator-chain details |
 | `recommendations[].containers[].explanation.memory` | `ResourceRecommendationExplanation` | Memory estimator-chain details |
 | `recommendations[].containers[].confidence` | `float64` | Confidence score (0-1) |
@@ -215,9 +215,9 @@ Pass `-o wide` to include `CPU Saved` and `Mem Saved` columns.
 
 ### Kubernetes Events
 
-The operator emits Kubernetes events on the `RightSizePolicy` object.
-View them with `kubectl describe rightsizepolicy <name>` or
-`kubectl get events --field-selector involvedObject.kind=RightSizePolicy`.
+The operator emits Kubernetes events on the `AttunePolicy` object.
+View them with `kubectl describe attunepolicy <name>` or
+`kubectl get events --field-selector involvedObject.kind=AttunePolicy`.
 
 | Event Reason | Type | Description |
 |---|---|---|
@@ -243,38 +243,38 @@ View them with `kubectl describe rightsizepolicy <name>` or
 | `RolloutInProgress` | Normal | Resize skipped because the workload is mid-rollout |
 | `WorkloadOptOut` | Normal | Workload opted out via annotation |
 
-Events use 1-hour deduplication to prevent log spam. Identical events are emitted at most once per hour; condition changes produce new events immediately. Specific events can be suppressed per-policy using the `rightsize.io/suppress-warnings` annotation (comma-separated list of event reasons).
+Events use 1-hour deduplication to prevent log spam. Identical events are emitted at most once per hour; condition changes produce new events immediately. Specific events can be suppressed per-policy using the `attune.io/suppress-warnings` annotation (comma-separated list of event reasons).
 
 ---
 
-## RightSizeDefaults
+## AttuneDefaults
 
 **Scope**: Cluster  
 **Short name**: `rsd`
 
 ```yaml
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizeDefaults
+apiVersion: attune.io/v1alpha1
+kind: AttuneDefaults
 metadata:
   name: default
 spec:
-  metricsSource:    # same structure as RightSizePolicy.spec.metricsSource
+  metricsSource:    # same structure as AttunePolicy.spec.metricsSource
     prometheus:
       address: http://prometheus-server.monitoring:80
     historyWindow: 168h
     minimumDataPoints: 48
     queryStep: 5m
     rateWindow: 5m
-  cpu:              # same structure as RightSizePolicy.spec.cpu
+  cpu:              # same structure as AttunePolicy.spec.cpu
     percentile: 95
     overhead: "20"
     controlledValues: RequestsAndLimits
-  memory:           # same structure as RightSizePolicy.spec.memory
+  memory:           # same structure as AttunePolicy.spec.memory
     percentile: 99
     overhead: "30"
     controlledValues: RequestsAndLimits
     allowDecrease: false
-  updateStrategy:   # same structure as RightSizePolicy.spec.updateStrategy
+  updateStrategy:   # same structure as AttunePolicy.spec.updateStrategy
     type: Recommend
     cooldown: 1h
     autoRevert: true
@@ -283,7 +283,7 @@ spec:
     memoryPerGiBHour: "0.004"   # USD per GiB-hour (default: $0.004)
 ```
 
-RightSizeDefaults fields are merged into every RightSizePolicy at
+AttuneDefaults fields are merged into every AttunePolicy at
 reconciliation time. Policy-level values always take precedence.
 
 ### Cost pricing
@@ -319,7 +319,7 @@ true recoverability.
 
 ### Webhook validation
 
-`RightSizeDefaults` and `RightSizeNamespaceDefaults` both have validating
+`AttuneDefaults` and `AttuneNamespaceDefaults` both have validating
 webhooks that reject invalid `costPricing`, schedule, and Prometheus
 address values. If `cpuPerCoreHour` or `memoryPerGiBHour` is set, the
 webhook validates that each is a parseable positive float. Invalid values
@@ -328,19 +328,19 @@ Prometheus addresses are rejected at admission time.
 
 ---
 
-## RightSizeNamespaceDefaults
+## AttuneNamespaceDefaults
 
 **Scope**: Namespaced
 **Short name**: `rsnd`
 
 ```yaml
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizeNamespaceDefaults
+apiVersion: attune.io/v1alpha1
+kind: AttuneNamespaceDefaults
 metadata:
   name: production-defaults
   namespace: production
 spec:
-  # Same fields as RightSizeDefaults.spec
+  # Same fields as AttuneDefaults.spec
   metricsSource:
     prometheus:
       address: http://prometheus-server.monitoring:80
@@ -357,15 +357,15 @@ spec:
     autoRevert: true
 ```
 
-RightSizeNamespaceDefaults provides per-namespace defaults that override
-cluster-scoped RightSizeDefaults. This enables different configurations
+AttuneNamespaceDefaults provides per-namespace defaults that override
+cluster-scoped AttuneDefaults. This enables different configurations
 for different environments (e.g., conservative settings for production,
 aggressive settings for staging).
 
 **Resolution order**: policy spec first, then one defaults source.
 
-If a namespace has a RightSizeNamespaceDefaults, the controller uses it
-instead of the cluster-scoped RightSizeDefaults for all policies in that
+If a namespace has a AttuneNamespaceDefaults, the controller uses it
+instead of the cluster-scoped AttuneDefaults for all policies in that
 namespace. Fields not specified in the namespace defaults are not inherited
 from cluster defaults; they fall back to the operator's built-in defaults.
 

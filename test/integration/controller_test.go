@@ -43,11 +43,11 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	webhookserver "sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
-	"github.com/SebTardifLabs/kube-rightsize/internal/conflict"
-	"github.com/SebTardifLabs/kube-rightsize/internal/controller"
-	"github.com/SebTardifLabs/kube-rightsize/internal/metrics"
-	"github.com/SebTardifLabs/kube-rightsize/internal/webhook"
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/conflict"
+	"github.com/attune-io/attune/internal/controller"
+	"github.com/attune-io/attune/internal/metrics"
+	"github.com/attune-io/attune/internal/webhook"
 )
 
 // syntheticCollector implements metrics.MetricsCollector and returns synthetic
@@ -100,7 +100,7 @@ var (
 	k8sClient      client.Client
 	ctx            context.Context
 	cancel         context.CancelFunc
-	testReconciler *controller.RightSizePolicyReconciler
+	testReconciler *controller.AttunePolicyReconciler
 
 	metricsFactoryMu         sync.RWMutex
 	overriddenMetricsFactory controller.MetricsCollectorFactory
@@ -153,7 +153,7 @@ func TestMain(m *testing.M) {
 		panic("failed to start envtest: " + err.Error())
 	}
 
-	err = rightsizev1alpha1.AddToScheme(scheme.Scheme)
+	err = attunev1alpha1.AddToScheme(scheme.Scheme)
 	if err != nil {
 		panic("failed to add scheme: " + err.Error())
 	}
@@ -184,11 +184,11 @@ func TestMain(m *testing.M) {
 		panic("failed to create clientset: " + err.Error())
 	}
 
-	testReconciler = &controller.RightSizePolicyReconciler{
+	testReconciler = &controller.AttunePolicyReconciler{
 		Client:            mgr.GetClient(),
 		Scheme:            mgr.GetScheme(),
 		Clientset:         clientset,
-		Recorder:          mgr.GetEventRecorder("kube-rightsize-integration"),
+		Recorder:          mgr.GetEventRecorder("attune-integration"),
 		MinCooldown:       time.Second, // fast reconciliation for tests
 		PrometheusTimeout: 30 * time.Second,
 		MetricsFactory: func(address string, opts *metrics.CollectorOptions) (metrics.MetricsCollector, error) {
@@ -204,23 +204,23 @@ func TestMain(m *testing.M) {
 	}
 
 	// Register webhooks (validation + defaulting).
-	err = ctrl.NewWebhookManagedBy(mgr, &rightsizev1alpha1.RightSizePolicy{}).
-		WithDefaulter(&webhook.RightSizePolicyDefaulter{}).
-		WithValidator(&webhook.RightSizePolicyValidator{}).
+	err = ctrl.NewWebhookManagedBy(mgr, &attunev1alpha1.AttunePolicy{}).
+		WithDefaulter(&webhook.AttunePolicyDefaulter{}).
+		WithValidator(&webhook.AttunePolicyValidator{}).
 		Complete()
 	if err != nil {
 		panic("failed to setup webhook: " + err.Error())
 	}
 
-	err = ctrl.NewWebhookManagedBy(mgr, &rightsizev1alpha1.RightSizeDefaults{}).
-		WithValidator(&webhook.RightSizeDefaultsValidator{}).
+	err = ctrl.NewWebhookManagedBy(mgr, &attunev1alpha1.AttuneDefaults{}).
+		WithValidator(&webhook.AttuneDefaultsValidator{}).
 		Complete()
 	if err != nil {
 		panic("failed to setup defaults webhook: " + err.Error())
 	}
 
-	err = ctrl.NewWebhookManagedBy(mgr, &rightsizev1alpha1.RightSizeNamespaceDefaults{}).
-		WithValidator(&webhook.RightSizeNamespaceDefaultsValidator{}).
+	err = ctrl.NewWebhookManagedBy(mgr, &attunev1alpha1.AttuneNamespaceDefaults{}).
+		WithValidator(&webhook.AttuneNamespaceDefaultsValidator{}).
 		Complete()
 	if err != nil {
 		panic("failed to setup namespace defaults webhook: " + err.Error())
@@ -302,37 +302,37 @@ func newTestDeployment(name, namespace string) *appsv1.Deployment {
 	}
 }
 
-func newTestPolicy(name, namespace, deploymentName string) *rightsizev1alpha1.RightSizePolicy {
-	return &rightsizev1alpha1.RightSizePolicy{
+func newTestPolicy(name, namespace, deploymentName string) *attunev1alpha1.AttunePolicy {
+	return &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
 		},
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			TargetRef: rightsizev1alpha1.TargetRef{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			TargetRef: attunev1alpha1.TargetRef{
 				Kind: "Deployment",
 				Name: &deploymentName,
 			},
-			MetricsSource: rightsizev1alpha1.MetricsSource{
-				Prometheus: &rightsizev1alpha1.PrometheusConfig{
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Prometheus: &attunev1alpha1.PrometheusConfig{
 					Address: "http://prometheus:9090",
 				},
 				MinimumDataPoints: int32Ptr(1),
 			},
-			CPU: rightsizev1alpha1.ResourceConfig{
+			CPU: attunev1alpha1.ResourceConfig{
 				Percentile:   95,
 				Overhead: "20",
 				MinAllowed:   quantityPtr("50m"),
 				MaxAllowed:   quantityPtr("4000m"),
 			},
-			Memory: rightsizev1alpha1.ResourceConfig{
+			Memory: attunev1alpha1.ResourceConfig{
 				Percentile:   99,
 				Overhead: "30",
 				MinAllowed:   quantityPtr("64Mi"),
 				MaxAllowed:   quantityPtr("8Gi"),
 			},
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
-				Type: rightsizev1alpha1.UpdateTypeRecommend,
+			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+				Type: attunev1alpha1.UpdateTypeRecommend,
 				// Minimum valid cooldown (webhook rejects < 1m).
 				// MinCooldown=1s on the reconciler is a separate runtime floor.
 				Cooldown: &metav1.Duration{Duration: 1 * time.Minute},
@@ -350,14 +350,14 @@ func TestReconcile_CreatesPolicy_BecomesReady(t *testing.T) {
 	err := k8sClient.Create(ctx, deploy)
 	require.NoError(t, err, "failed to create deployment")
 
-	// Create a RightSizePolicy targeting the Deployment.
+	// Create a AttunePolicy targeting the Deployment.
 	policy := newTestPolicy("policy-ready", namespace, "test-app-ready")
 	err = k8sClient.Create(ctx, policy)
 	require.NoError(t, err, "failed to create policy")
 
 	// Eventually the policy status should have conditions set.
 	assert.Eventually(t, func() bool {
-		var fetched rightsizev1alpha1.RightSizePolicy
+		var fetched attunev1alpha1.AttunePolicy
 		if err := k8sClient.Get(ctx, types.NamespacedName{
 			Name:      "policy-ready",
 			Namespace: namespace,
@@ -379,7 +379,7 @@ func TestReconcile_PolicyWithNoWorkloads_SetsNoWorkloadsFound(t *testing.T) {
 
 	// Status condition should be NoWorkloadsFound (not InsufficientData).
 	assert.Eventually(t, func() bool {
-		var fetched rightsizev1alpha1.RightSizePolicy
+		var fetched attunev1alpha1.AttunePolicy
 		if err := k8sClient.Get(ctx, types.NamespacedName{
 			Name:      "policy-no-workloads",
 			Namespace: namespace,
@@ -406,7 +406,7 @@ func TestReconcile_DeletedPolicy_NoError(t *testing.T) {
 
 	// Wait for reconciler to pick it up (condition gets set).
 	assert.Eventually(t, func() bool {
-		var fetched rightsizev1alpha1.RightSizePolicy
+		var fetched attunev1alpha1.AttunePolicy
 		if err := k8sClient.Get(ctx, types.NamespacedName{
 			Name:      "policy-delete",
 			Namespace: namespace,
@@ -421,7 +421,7 @@ func TestReconcile_DeletedPolicy_NoError(t *testing.T) {
 
 	// Verify the policy is gone (no reconcile errors expected).
 	assert.Eventually(t, func() bool {
-		var fetched rightsizev1alpha1.RightSizePolicy
+		var fetched attunev1alpha1.AttunePolicy
 		err := k8sClient.Get(ctx, types.NamespacedName{
 			Name:      "policy-delete",
 			Namespace: namespace,
@@ -441,33 +441,33 @@ func TestReconcile_LabelSelectorTargetsMultipleWorkloads(t *testing.T) {
 	}
 
 	// Create a policy with a label selector targeting both deployments.
-	policy := &rightsizev1alpha1.RightSizePolicy{
+	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "policy-selector",
 			Namespace: namespace,
 		},
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			TargetRef: rightsizev1alpha1.TargetRef{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			TargetRef: attunev1alpha1.TargetRef{
 				Kind: "Deployment",
 				Selector: &metav1.LabelSelector{
 					MatchLabels: map[string]string{"tier": "api"},
 				},
 			},
-			MetricsSource: rightsizev1alpha1.MetricsSource{
-				Prometheus: &rightsizev1alpha1.PrometheusConfig{
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Prometheus: &attunev1alpha1.PrometheusConfig{
 					Address: "http://prometheus:9090",
 				},
 				MinimumDataPoints: int32Ptr(1),
 			},
-			CPU: rightsizev1alpha1.ResourceConfig{
+			CPU: attunev1alpha1.ResourceConfig{
 				Percentile:   95,
 				Overhead: "20",
 			},
-			Memory: rightsizev1alpha1.ResourceConfig{
+			Memory: attunev1alpha1.ResourceConfig{
 				Percentile:   99,
 				Overhead: "30",
 			},
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+			UpdateStrategy: attunev1alpha1.UpdateStrategy{
 				Type:     "Recommend",
 				Cooldown: &metav1.Duration{Duration: 1 * time.Minute},
 			},
@@ -476,7 +476,7 @@ func TestReconcile_LabelSelectorTargetsMultipleWorkloads(t *testing.T) {
 	require.NoError(t, k8sClient.Create(ctx, policy))
 
 	assert.Eventually(t, func() bool {
-		var fetched rightsizev1alpha1.RightSizePolicy
+		var fetched attunev1alpha1.AttunePolicy
 		if err := k8sClient.Get(ctx, types.NamespacedName{
 			Name: "policy-selector", Namespace: namespace,
 		}, &fetched); err != nil {
@@ -498,7 +498,7 @@ func TestReconcile_OptOutAnnotationSkipsWorkload(t *testing.T) {
 
 	// The workload is discovered but opted out, so no recommendations.
 	assert.Eventually(t, func() bool {
-		var fetched rightsizev1alpha1.RightSizePolicy
+		var fetched attunev1alpha1.AttunePolicy
 		if err := k8sClient.Get(ctx, types.NamespacedName{
 			Name: "policy-optout", Namespace: namespace,
 		}, &fetched); err != nil {
@@ -516,16 +516,16 @@ func TestReconcile_OptOutAnnotationSkipsWorkload(t *testing.T) {
 func TestReconcile_DefaultsMergingFromClusterDefaults(t *testing.T) {
 	namespace := "integration-test"
 
-	defaults := &rightsizev1alpha1.RightSizeDefaults{
+	defaults := &attunev1alpha1.AttuneDefaults{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "integration-defaults",
 		},
-		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			CPU: &rightsizev1alpha1.ResourceConfig{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CPU: &attunev1alpha1.ResourceConfig{
 				Percentile:   90,
 				Overhead: "50",
 			},
-			Memory: &rightsizev1alpha1.ResourceConfig{
+			Memory: &attunev1alpha1.ResourceConfig{
 				Percentile:   95,
 				Overhead: "40",
 			},
@@ -537,25 +537,25 @@ func TestReconcile_DefaultsMergingFromClusterDefaults(t *testing.T) {
 	deploy := newTestDeployment("defaults-app", namespace)
 	require.NoError(t, k8sClient.Create(ctx, deploy))
 
-	policy := &rightsizev1alpha1.RightSizePolicy{
+	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "policy-defaults",
 			Namespace: namespace,
 		},
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			TargetRef: rightsizev1alpha1.TargetRef{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			TargetRef: attunev1alpha1.TargetRef{
 				Kind: "Deployment",
 				Name: func() *string { s := "defaults-app"; return &s }(),
 			},
-			MetricsSource: rightsizev1alpha1.MetricsSource{
-				Prometheus: &rightsizev1alpha1.PrometheusConfig{
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Prometheus: &attunev1alpha1.PrometheusConfig{
 					Address: "http://prometheus:9090",
 				},
 				MinimumDataPoints: int32Ptr(1),
 			},
-			CPU:    rightsizev1alpha1.ResourceConfig{},
-			Memory: rightsizev1alpha1.ResourceConfig{},
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+			CPU:    attunev1alpha1.ResourceConfig{},
+			Memory: attunev1alpha1.ResourceConfig{},
+			UpdateStrategy: attunev1alpha1.UpdateStrategy{
 				Type:     "Recommend",
 				Cooldown: &metav1.Duration{Duration: 1 * time.Minute},
 			},
@@ -564,7 +564,7 @@ func TestReconcile_DefaultsMergingFromClusterDefaults(t *testing.T) {
 	require.NoError(t, k8sClient.Create(ctx, policy))
 
 	assert.Eventually(t, func() bool {
-		var fetched rightsizev1alpha1.RightSizePolicy
+		var fetched attunev1alpha1.AttunePolicy
 		if err := k8sClient.Get(ctx, types.NamespacedName{
 			Name: "policy-defaults", Namespace: namespace,
 		}, &fetched); err != nil {
@@ -580,14 +580,14 @@ func TestReconcile_NamespaceDefaultsDoNotMergeClusterResourceFields(t *testing.T
 	deploy := newTestDeployment("defaults-app-non-merge", namespace)
 	require.NoError(t, k8sClient.Create(ctx, deploy))
 
-	clusterDefaults := &rightsizev1alpha1.RightSizeDefaults{
+	clusterDefaults := &attunev1alpha1.AttuneDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "cluster-defaults"},
-		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			CPU: &rightsizev1alpha1.ResourceConfig{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CPU: &attunev1alpha1.ResourceConfig{
 				Percentile:   90,
 				Overhead: "50",
 			},
-			Memory: &rightsizev1alpha1.ResourceConfig{
+			Memory: &attunev1alpha1.ResourceConfig{
 				Percentile:   95,
 				Overhead: "40",
 			},
@@ -598,10 +598,10 @@ func TestReconcile_NamespaceDefaultsDoNotMergeClusterResourceFields(t *testing.T
 
 	// Namespace defaults intentionally omit memory to prove omitted fields do not
 	// inherit from cluster defaults in webhook-enabled flow.
-	nsDefaults := &rightsizev1alpha1.RightSizeNamespaceDefaults{
+	nsDefaults := &attunev1alpha1.AttuneNamespaceDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "namespace-defaults", Namespace: namespace},
-		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			CPU: &rightsizev1alpha1.ResourceConfig{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CPU: &attunev1alpha1.ResourceConfig{
 				Percentile:   99,
 				Overhead: "20",
 			},
@@ -610,25 +610,25 @@ func TestReconcile_NamespaceDefaultsDoNotMergeClusterResourceFields(t *testing.T
 	require.NoError(t, k8sClient.Create(ctx, nsDefaults))
 	defer func() { _ = k8sClient.Delete(ctx, nsDefaults) }()
 
-	policy := &rightsizev1alpha1.RightSizePolicy{
+	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "policy-namespace-defaults-non-merge",
 			Namespace: namespace,
 		},
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			TargetRef: rightsizev1alpha1.TargetRef{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			TargetRef: attunev1alpha1.TargetRef{
 				Kind: "Deployment",
 				Name: func() *string { s := "defaults-app-non-merge"; return &s }(),
 			},
-			MetricsSource: rightsizev1alpha1.MetricsSource{
-				Prometheus: &rightsizev1alpha1.PrometheusConfig{
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Prometheus: &attunev1alpha1.PrometheusConfig{
 					Address: "http://prometheus:9090",
 				},
 				MinimumDataPoints: int32Ptr(1),
 			},
-			CPU:    rightsizev1alpha1.ResourceConfig{},
-			Memory: rightsizev1alpha1.ResourceConfig{},
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+			CPU:    attunev1alpha1.ResourceConfig{},
+			Memory: attunev1alpha1.ResourceConfig{},
+			UpdateStrategy: attunev1alpha1.UpdateStrategy{
 				Type:     "Recommend",
 				Cooldown: &metav1.Duration{Duration: 1 * time.Minute},
 			},
@@ -637,7 +637,7 @@ func TestReconcile_NamespaceDefaultsDoNotMergeClusterResourceFields(t *testing.T
 	require.NoError(t, k8sClient.Create(ctx, policy))
 
 	assert.Eventually(t, func() bool {
-		var fetched rightsizev1alpha1.RightSizePolicy
+		var fetched attunev1alpha1.AttunePolicy
 		if err := k8sClient.Get(ctx, types.NamespacedName{
 			Name: "policy-namespace-defaults-non-merge", Namespace: namespace,
 		}, &fetched); err != nil {
@@ -646,7 +646,7 @@ func TestReconcile_NamespaceDefaultsDoNotMergeClusterResourceFields(t *testing.T
 		return len(fetched.Status.Conditions) > 0
 	}, 30*time.Second, 500*time.Millisecond, "policy with namespace defaults should reconcile")
 
-	var created rightsizev1alpha1.RightSizePolicy
+	var created attunev1alpha1.AttunePolicy
 	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{
 		Name: "policy-namespace-defaults-non-merge", Namespace: namespace,
 	}, &created))
@@ -666,9 +666,9 @@ func TestReconcile_ScheduleGateBlocksResizeOutsideWindow(t *testing.T) {
 	// Policy with a schedule window of 02:00-06:00 on Wednesdays only.
 	// Set mode to Auto so resize execution would be attempted (but blocked by schedule).
 	policy := newTestPolicy("policy-schedule", namespace, "schedule-app")
-	policy.Spec.UpdateStrategy.Type = rightsizev1alpha1.UpdateTypeAuto
-	policy.Spec.UpdateStrategy.Schedule = &rightsizev1alpha1.ResizeSchedule{
-		Windows:    []rightsizev1alpha1.TimeWindow{{Start: "02:00", End: "06:00"}},
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	policy.Spec.UpdateStrategy.Schedule = &attunev1alpha1.ResizeSchedule{
+		Windows:    []attunev1alpha1.TimeWindow{{Start: "02:00", End: "06:00"}},
 		DaysOfWeek: []string{"Wednesday"},
 	}
 	require.NoError(t, k8sClient.Create(ctx, policy))
@@ -681,7 +681,7 @@ func TestReconcile_ScheduleGateBlocksResizeOutsideWindow(t *testing.T) {
 
 	// The policy should reconcile and discover the workload.
 	assert.Eventually(t, func() bool {
-		var fetched rightsizev1alpha1.RightSizePolicy
+		var fetched attunev1alpha1.AttunePolicy
 		if err := k8sClient.Get(ctx, types.NamespacedName{
 			Name: "policy-schedule", Namespace: namespace,
 		}, &fetched); err != nil {
@@ -698,7 +698,7 @@ func TestReconcile_ScheduleGateBlocksResizeOutsideWindow(t *testing.T) {
 	testReconciler.SetNowFunc(func() time.Time { return wednesday })
 
 	// Force a re-reconcile by updating the policy annotation.
-	var fetched rightsizev1alpha1.RightSizePolicy
+	var fetched attunev1alpha1.AttunePolicy
 	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{
 		Name: "policy-schedule", Namespace: namespace,
 	}, &fetched))
@@ -711,7 +711,7 @@ func TestReconcile_ScheduleGateBlocksResizeOutsideWindow(t *testing.T) {
 	// The reconciler should process the policy again. The schedule gate
 	// now allows resize execution (though envtest can't complete actual resizes).
 	assert.Eventually(t, func() bool {
-		var refetched rightsizev1alpha1.RightSizePolicy
+		var refetched attunev1alpha1.AttunePolicy
 		if err := k8sClient.Get(ctx, types.NamespacedName{
 			Name: "policy-schedule", Namespace: namespace,
 		}, &refetched); err != nil {
@@ -735,33 +735,33 @@ func TestReconcile_ConcurrentResizesFieldProcessedWithoutRaces(t *testing.T) {
 		require.NoError(t, k8sClient.Create(ctx, deploy))
 	}
 
-	policy := &rightsizev1alpha1.RightSizePolicy{
+	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "policy-concurrent",
 			Namespace: namespace,
 		},
-		Spec: rightsizev1alpha1.RightSizePolicySpec{
-			TargetRef: rightsizev1alpha1.TargetRef{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			TargetRef: attunev1alpha1.TargetRef{
 				Kind: "Deployment",
 				Selector: &metav1.LabelSelector{
 					MatchLabels: map[string]string{"pool": "concurrent-test"},
 				},
 			},
-			MetricsSource: rightsizev1alpha1.MetricsSource{
-				Prometheus: &rightsizev1alpha1.PrometheusConfig{
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Prometheus: &attunev1alpha1.PrometheusConfig{
 					Address: "http://prometheus:9090",
 				},
 				MinimumDataPoints: int32Ptr(1),
 			},
-			CPU: rightsizev1alpha1.ResourceConfig{
+			CPU: attunev1alpha1.ResourceConfig{
 				Percentile:   95,
 				Overhead: "20",
 			},
-			Memory: rightsizev1alpha1.ResourceConfig{
+			Memory: attunev1alpha1.ResourceConfig{
 				Percentile:   99,
 				Overhead: "30",
 			},
-			UpdateStrategy: rightsizev1alpha1.UpdateStrategy{
+			UpdateStrategy: attunev1alpha1.UpdateStrategy{
 				Type:                 "Recommend",
 				Cooldown:             &metav1.Duration{Duration: 1 * time.Minute},
 				MaxConcurrentResizes: 5,
@@ -773,7 +773,7 @@ func TestReconcile_ConcurrentResizesFieldProcessedWithoutRaces(t *testing.T) {
 	// The policy should discover all 3 workloads and produce recommendations
 	// without any data races (verified by -race flag).
 	assert.Eventually(t, func() bool {
-		var fetched rightsizev1alpha1.RightSizePolicy
+		var fetched attunev1alpha1.AttunePolicy
 		if err := k8sClient.Get(ctx, types.NamespacedName{
 			Name: "policy-concurrent", Namespace: namespace,
 		}, &fetched); err != nil {
@@ -788,7 +788,7 @@ func TestWebhook_RejectsInvalidScheduleTimezone(t *testing.T) {
 	namespace := "integration-test"
 
 	policy := newTestPolicy("policy-bad-tz", namespace, "some-deploy")
-	policy.Spec.UpdateStrategy.Schedule = &rightsizev1alpha1.ResizeSchedule{
+	policy.Spec.UpdateStrategy.Schedule = &attunev1alpha1.ResizeSchedule{
 		Timezone: "Invalid/Timezone",
 	}
 
@@ -801,7 +801,7 @@ func TestWebhook_RejectsInvalidDayOfWeek(t *testing.T) {
 	namespace := "integration-test"
 
 	policy := newTestPolicy("policy-bad-day", namespace, "some-deploy")
-	policy.Spec.UpdateStrategy.Schedule = &rightsizev1alpha1.ResizeSchedule{
+	policy.Spec.UpdateStrategy.Schedule = &attunev1alpha1.ResizeSchedule{
 		DaysOfWeek: []string{"Notaday"},
 	}
 
@@ -814,8 +814,8 @@ func TestWebhook_AcceptsValidSchedule(t *testing.T) {
 	namespace := "integration-test"
 
 	policy := newTestPolicy("policy-valid-schedule", namespace, "some-deploy")
-	policy.Spec.UpdateStrategy.Schedule = &rightsizev1alpha1.ResizeSchedule{
-		Windows:    []rightsizev1alpha1.TimeWindow{{Start: "02:00", End: "06:00"}},
+	policy.Spec.UpdateStrategy.Schedule = &attunev1alpha1.ResizeSchedule{
+		Windows:    []attunev1alpha1.TimeWindow{{Start: "02:00", End: "06:00"}},
 		DaysOfWeek: []string{"Monday", "Wednesday", "Friday"},
 		Timezone:   "America/New_York",
 	}
@@ -825,15 +825,15 @@ func TestWebhook_AcceptsValidSchedule(t *testing.T) {
 }
 
 func TestNamespaceDefaultsWebhook_RejectsInvalidScheduleTimezone(t *testing.T) {
-	defaults := &rightsizev1alpha1.RightSizeNamespaceDefaults{
+	defaults := &attunev1alpha1.AttuneNamespaceDefaults{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "ns-defaults-bad-tz",
 			Namespace: "integration-test",
 		},
-		Spec: rightsizev1alpha1.RightSizeDefaultsSpec{
-			UpdateStrategy: &rightsizev1alpha1.UpdateStrategy{
-				Type: rightsizev1alpha1.UpdateTypeRecommend,
-				Schedule: &rightsizev1alpha1.ResizeSchedule{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Type: attunev1alpha1.UpdateTypeRecommend,
+				Schedule: &attunev1alpha1.ResizeSchedule{
 					Timezone: "Invalid/Timezone",
 				},
 			},
@@ -853,14 +853,14 @@ func TestReconcile_BearerTokenSecretReadFailureSetsPrometheusUnavailable(t *test
 	require.NoError(t, k8sClient.Create(ctx, deploy))
 
 	policy := newTestPolicy("policy-bearer-missing-secret", namespace, "bearer-missing-secret-app")
-	policy.Spec.MetricsSource.Prometheus.BearerTokenSecret = &rightsizev1alpha1.SecretKeyRef{
+	policy.Spec.MetricsSource.Prometheus.BearerTokenSecret = &attunev1alpha1.SecretKeyRef{
 		Name: "prom-auth-missing",
 		Key:  "token",
 	}
 	require.NoError(t, k8sClient.Create(ctx, policy))
 
 	assert.Eventually(t, func() bool {
-		var fetched rightsizev1alpha1.RightSizePolicy
+		var fetched attunev1alpha1.AttunePolicy
 		if err := k8sClient.Get(ctx, types.NamespacedName{
 			Name: "policy-bearer-missing-secret", Namespace: namespace,
 		}, &fetched); err != nil {
@@ -897,7 +897,7 @@ func TestReconcile_MetricsFactoryFailureSetsPrometheusUnavailable(t *testing.T) 
 	require.NoError(t, k8sClient.Create(ctx, policy))
 
 	assert.Eventually(t, func() bool {
-		var fetched rightsizev1alpha1.RightSizePolicy
+		var fetched attunev1alpha1.AttunePolicy
 		if err := k8sClient.Get(ctx, types.NamespacedName{
 			Name: "policy-factory-failure", Namespace: namespace,
 		}, &fetched); err != nil {
@@ -931,7 +931,7 @@ func TestReconcile_BearerTokenSecretWiredToCollector(t *testing.T) {
 
 	// Create a policy with bearerTokenSecret.
 	policy := newTestPolicy("policy-bearer", namespace, "bearer-test-app")
-	policy.Spec.MetricsSource.Prometheus.BearerTokenSecret = &rightsizev1alpha1.SecretKeyRef{
+	policy.Spec.MetricsSource.Prometheus.BearerTokenSecret = &attunev1alpha1.SecretKeyRef{
 		Name: "prom-auth",
 		Key:  "token",
 	}
@@ -941,7 +941,7 @@ func TestReconcile_BearerTokenSecretWiredToCollector(t *testing.T) {
 	// If the bearer token wiring is broken, the policy status would show
 	// PrometheusUnavailable. We verify it reaches Ready/InsufficientData instead.
 	assert.Eventually(t, func() bool {
-		var fetched rightsizev1alpha1.RightSizePolicy
+		var fetched attunev1alpha1.AttunePolicy
 		if err := k8sClient.Get(ctx, types.NamespacedName{
 			Name: "policy-bearer", Namespace: namespace,
 		}, &fetched); err != nil {

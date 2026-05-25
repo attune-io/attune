@@ -25,13 +25,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
-	"github.com/SebTardifLabs/kube-rightsize/internal/operatormetrics"
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/operatormetrics"
 )
 
 func TestDefault_DoesNotPreFillResourceDefaults(t *testing.T) {
-	defaulter := &RightSizePolicyDefaulter{}
-	policy := &rightsizev1alpha1.RightSizePolicy{}
+	defaulter := &AttunePolicyDefaulter{}
+	policy := &attunev1alpha1.AttunePolicy{}
 
 	err := defaulter.Default(context.Background(), policy)
 
@@ -43,8 +43,8 @@ func TestDefault_DoesNotPreFillResourceDefaults(t *testing.T) {
 }
 
 func TestDefault_PreservesExisting(t *testing.T) {
-	defaulter := &RightSizePolicyDefaulter{}
-	policy := &rightsizev1alpha1.RightSizePolicy{}
+	defaulter := &AttunePolicyDefaulter{}
+	policy := &attunev1alpha1.AttunePolicy{}
 	policy.Spec.CPU.Percentile = 90
 	policy.Spec.CPU.Overhead = "50"
 
@@ -59,22 +59,22 @@ func TestDefault_PreservesExisting(t *testing.T) {
 }
 
 func TestDefault_DoesNotSetMode(t *testing.T) {
-	defaulter := &RightSizePolicyDefaulter{}
-	policy := &rightsizev1alpha1.RightSizePolicy{}
+	defaulter := &AttunePolicyDefaulter{}
+	policy := &attunev1alpha1.AttunePolicy{}
 
 	err := defaulter.Default(context.Background(), policy)
 
 	assert.NoError(t, err)
 	// Mode is NOT set by the webhook; it's deferred to the controller's
-	// applyBuiltInDefaults so that RightSizeDefaults can override it.
+	// applyBuiltInDefaults so that AttuneDefaults can override it.
 	assert.Empty(t, policy.Spec.UpdateStrategy.Type)
 	assert.Nil(t, policy.Spec.CPU.MaxChangePercent)
 	assert.Nil(t, policy.Spec.Memory.MaxChangePercent)
 }
 
 func TestDefault_SetsWeight(t *testing.T) {
-	defaulter := &RightSizePolicyDefaulter{}
-	policy := &rightsizev1alpha1.RightSizePolicy{}
+	defaulter := &AttunePolicyDefaulter{}
+	policy := &attunev1alpha1.AttunePolicy{}
 
 	err := defaulter.Default(context.Background(), policy)
 
@@ -83,14 +83,14 @@ func TestDefault_SetsWeight(t *testing.T) {
 }
 
 func TestDefault_DoesNotSetControllerDefaultedFields(t *testing.T) {
-	defaulter := &RightSizePolicyDefaulter{}
-	policy := &rightsizev1alpha1.RightSizePolicy{}
+	defaulter := &AttunePolicyDefaulter{}
+	policy := &attunev1alpha1.AttunePolicy{}
 
 	err := defaulter.Default(context.Background(), policy)
 
 	require.NoError(t, err)
 	// All these fields are deferred to the controller's applyBuiltInDefaults
-	// so that RightSizeDefaults/RightSizeNamespaceDefaults can override them.
+	// so that AttuneDefaults/AttuneNamespaceDefaults can override them.
 	assert.Nil(t, policy.Spec.CPU.ControlledValues)
 	assert.Nil(t, policy.Spec.Memory.ControlledValues)
 	assert.Nil(t, policy.Spec.MetricsSource.HistoryWindow)
@@ -104,8 +104,8 @@ func TestDefault_RecordsWebhookMetrics(t *testing.T) {
 	operatormetrics.WebhookValidationTotal.Reset()
 	operatormetrics.WebhookDuration.Reset()
 
-	defaulter := &RightSizePolicyDefaulter{}
-	policy := &rightsizev1alpha1.RightSizePolicy{}
+	defaulter := &AttunePolicyDefaulter{}
+	policy := &attunev1alpha1.AttunePolicy{}
 
 	err := defaulter.Default(context.Background(), policy)
 	require.NoError(t, err)

@@ -1,0 +1,166 @@
+suite: rbac tests
+templates:
+  - templates/clusterrole.yaml
+tests:
+  - it: should render ClusterRole
+    asserts:
+      - isKind:
+          of: ClusterRole
+
+  - it: should include attunepolicies permissions
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - attune.io
+            resources:
+              - attunepolicies
+            verbs:
+              - get
+              - list
+              - watch
+              - patch
+
+  - it: should include pod resize permissions
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - ""
+            resources:
+              - pods/resize
+            verbs:
+              - update
+              - patch
+
+  - it: should include HPA read permissions for conflict detection
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - autoscaling
+            resources:
+              - horizontalpodautoscalers
+            verbs:
+              - get
+              - list
+              - patch
+              - update
+              - watch
+
+  - it: should include configmap permissions for recommendation export
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - ""
+            resources:
+              - configmaps
+            verbs:
+              - create
+              - delete
+              - get
+              - list
+              - update
+              - watch
+
+  - it: should include node read permissions for capacity pre-check
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - ""
+            resources:
+              - nodes
+            verbs:
+              - get
+              - list
+              - watch
+
+  - it: should include service read permissions for Prometheus auto-discovery
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - ""
+            resources:
+              - services
+            verbs:
+              - get
+              - list
+              - watch
+
+  - it: should include finalizer update permissions
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - attune.io
+            resources:
+              - attunepolicies/finalizers
+            verbs:
+              - update
+
+  - it: should include namespace defaults read permissions
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - attune.io
+            resources:
+              - attunedefaults
+              - attunenamespacedefaults
+            verbs:
+              - get
+              - list
+              - watch
+
+  - it: should include batch workload read permissions
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - batch
+            resources:
+              - cronjobs
+              - jobs
+            verbs:
+              - get
+              - list
+              - watch
+
+  - it: should include secret get-only permissions for bearer token
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - ""
+            resources:
+              - secrets
+            verbs:
+              - get
+
+  - it: should include resourcequotas and limitranges read permissions
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - ""
+            resources:
+              - resourcequotas
+              - limitranges
+            verbs:
+              - get
+              - list
+              - watch

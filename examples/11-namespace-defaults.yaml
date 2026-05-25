@@ -1,7 +1,7 @@
 # Namespace Defaults: override cluster defaults for a specific namespace
 #
-# RightSizeNamespaceDefaults provides namespace-level defaults that
-# override cluster-scoped RightSizeDefaults. Policies in this namespace
+# AttuneNamespaceDefaults provides namespace-level defaults that
+# override cluster-scoped AttuneDefaults. Policies in this namespace
 # inherit these values unless they specify their own.
 #
 # Precedence: policy spec > namespace defaults > cluster defaults
@@ -9,8 +9,8 @@
 # Apply:
 #   kubectl apply -f examples/11-namespace-defaults.yaml
 ---
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizeNamespaceDefaults
+apiVersion: attune.io/v1alpha1
+kind: AttuneNamespaceDefaults
 metadata:
   name: production-defaults
   namespace: production
@@ -33,8 +33,8 @@ spec:
     autoRevert: true
 ---
 # Staging namespace: more aggressive settings for faster iteration
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizeNamespaceDefaults
+apiVersion: attune.io/v1alpha1
+kind: AttuneNamespaceDefaults
 metadata:
   name: staging-defaults
   namespace: staging

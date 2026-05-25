@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Copyright 2026 SebTardifLabs
+# Copyright 2026 attune-io
 # SPDX-License-Identifier: Apache-2.0
 #
 # The standalone dashboard JSON is the source of truth. The Helm chart uses a
@@ -9,8 +9,8 @@ set -euo pipefail
 
 MODE="${1:-check}"
 STANDALONE="deploy/grafana/dashboard.json"
-HELM_TEMPLATE="charts/kube-rightsize/templates/grafana-dashboard.yaml"
-HELM_DASHBOARD="charts/kube-rightsize/files/grafana-dashboard.json"
+HELM_TEMPLATE="charts/attune/templates/grafana-dashboard.yaml"
+HELM_DASHBOARD="charts/attune/files/grafana-dashboard.json"
 EXPECTED="$(mktemp)"
 trap 'rm -f "$EXPECTED"' EXIT
 
@@ -43,7 +43,7 @@ def transform(value):
 
 
 dashboard = transform(dashboard)
-dashboard["uid"] = "kube-rightsize"
+dashboard["uid"] = "attune"
 target.write_text(json.dumps(dashboard, indent=2) + "\n")
 PY
 

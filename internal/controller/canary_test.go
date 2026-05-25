@@ -25,7 +25,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	rightsizev1alpha1 "github.com/SebTardifLabs/kube-rightsize/api/v1alpha1"
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 )
 
 // makeCanaryPod creates a pod for canary selection tests. When running is true
@@ -67,43 +67,43 @@ func makeRunningPods(count int) []corev1.Pod {
 
 func TestSelectPodsForResize_OneShot_SelectsExactlyOne(t *testing.T) {
 	pods := makeRunningPods(5)
-	selected := selectPodsForResize(pods, rightsizev1alpha1.UpdateTypeOneShot, 0)
+	selected := selectPodsForResize(pods, attunev1alpha1.UpdateTypeOneShot, 0)
 	assert.Len(t, selected, 1)
 }
 
 func TestSelectPodsForResize_Canary_10PercentOf20(t *testing.T) {
 	pods := makeRunningPods(20)
-	selected := selectPodsForResize(pods, rightsizev1alpha1.UpdateTypeCanary, 10)
+	selected := selectPodsForResize(pods, attunev1alpha1.UpdateTypeCanary, 10)
 	assert.Len(t, selected, 2) // 10% of 20 = 2
 }
 
 func TestSelectPodsForResize_Canary_10PercentOf3_RoundsUp(t *testing.T) {
 	pods := makeRunningPods(3)
-	selected := selectPodsForResize(pods, rightsizev1alpha1.UpdateTypeCanary, 10)
+	selected := selectPodsForResize(pods, attunev1alpha1.UpdateTypeCanary, 10)
 	assert.Len(t, selected, 1) // 10% of 3 = 0.3, rounds up to 1
 }
 
 func TestSelectPodsForResize_Canary_100Percent_SelectsAll(t *testing.T) {
 	pods := makeRunningPods(5)
-	selected := selectPodsForResize(pods, rightsizev1alpha1.UpdateTypeCanary, 100)
+	selected := selectPodsForResize(pods, attunev1alpha1.UpdateTypeCanary, 100)
 	assert.Len(t, selected, 5)
 }
 
 func TestSelectPodsForResize_Auto_SelectsAllEligible(t *testing.T) {
 	pods := makeRunningPods(5)
-	selected := selectPodsForResize(pods, rightsizev1alpha1.UpdateTypeAuto, 0)
+	selected := selectPodsForResize(pods, attunev1alpha1.UpdateTypeAuto, 0)
 	assert.Len(t, selected, 5)
 }
 
 func TestSelectPodsForResize_Observe_SelectsNone(t *testing.T) {
 	pods := makeRunningPods(5)
-	selected := selectPodsForResize(pods, rightsizev1alpha1.UpdateTypeObserve, 0)
+	selected := selectPodsForResize(pods, attunev1alpha1.UpdateTypeObserve, 0)
 	assert.Nil(t, selected)
 }
 
 func TestSelectPodsForResize_Recommend_SelectsNone(t *testing.T) {
 	pods := makeRunningPods(5)
-	selected := selectPodsForResize(pods, rightsizev1alpha1.UpdateTypeRecommend, 0)
+	selected := selectPodsForResize(pods, attunev1alpha1.UpdateTypeRecommend, 0)
 	assert.Nil(t, selected)
 }
 
@@ -113,7 +113,7 @@ func TestSelectPodsForResize_AllIneligible_ReturnsNil(t *testing.T) {
 		makeCanaryPod("pod-1", true, true),
 		makeCanaryPod("pod-2", true, true),
 	}
-	selected := selectPodsForResize(pods, rightsizev1alpha1.UpdateTypeAuto, 0)
+	selected := selectPodsForResize(pods, attunev1alpha1.UpdateTypeAuto, 0)
 	assert.Nil(t, selected)
 }
 
@@ -125,7 +125,7 @@ func TestSelectPodsForResize_MixedEligibility(t *testing.T) {
 		makeCanaryPod("pod-3", false, false), // ineligible (not running)
 		makeCanaryPod("pod-4", true, false),  // eligible
 	}
-	selected := selectPodsForResize(pods, rightsizev1alpha1.UpdateTypeAuto, 0)
+	selected := selectPodsForResize(pods, attunev1alpha1.UpdateTypeAuto, 0)
 	assert.Len(t, selected, 3)
 	for _, p := range selected {
 		assert.Equal(t, corev1.PodRunning, p.Status.Phase)

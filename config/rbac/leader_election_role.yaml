@@ -9,7 +9,7 @@ rules:
   resources:
   - leases
   resourceNames:
-  - kube-rightsize.rightsize.io
+  - attune.attune.io
   verbs:
   - get
   - update

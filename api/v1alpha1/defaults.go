@@ -45,7 +45,7 @@ const (
 	ResultEvicted  = ResizeResultEvicted
 )
 
-// Default values for RightSizePolicy fields. These are the single source
+// Default values for AttunePolicy fields. These are the single source
 // of truth, referenced by the webhook defaulter, mergeDefaults, and
 // computeRecommendations.
 const (

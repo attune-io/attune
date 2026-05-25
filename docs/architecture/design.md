@@ -1,7 +1,7 @@
 ## High-level architecture
 
-kube-rightsize is a single-binary Kubernetes operator built with
-controller-runtime. It reconciles `RightSizePolicy` custom resources and
+attune is a single-binary Kubernetes operator built with
+controller-runtime. It reconciles `AttunePolicy` custom resources and
 coordinates six internal components:
 
 ```mermaid
@@ -27,8 +27,8 @@ flowchart TB
 
 The reconciler loop in `internal/controller/`. On each reconciliation:
 
-1. Fetches the `RightSizePolicy` CR.
-2. Resolves one defaults source: `RightSizeNamespaceDefaults` for the policy namespace if present, otherwise cluster-scoped `RightSizeDefaults`.
+1. Fetches the `AttunePolicy` CR.
+2. Resolves one defaults source: `AttuneNamespaceDefaults` for the policy namespace if present, otherwise cluster-scoped `AttuneDefaults`.
 3. Resolves the Prometheus address.
 4. Discovers target workloads via name or label selector.
 5. Checks for opt-out annotations and active rollouts.
@@ -89,7 +89,7 @@ Located in `internal/conflict/`. Detects potential conflicts:
 
 - **HPA**: identifies HPAs targeting the same workload.
 - **VPA**: warns about active VPA objects (future).
-- **Opt-out**: checks for the `rightsize.io/skip: "true"` annotation.
+- **Opt-out**: checks for the `attune.io/skip: "true"` annotation.
 - **Active rollout**: detects in-progress deployments.
 
 ### Status Reporter
@@ -112,7 +112,7 @@ sequenceDiagram
     participant E as Resize Engine
     participant S as Safety Monitor
 
-    C->>K: Get RightSizePolicy
+    C->>K: Get AttunePolicy
     C->>K: List target workloads
     C->>P: QueryRange (CPU, Memory)
     P-->>C: Samples

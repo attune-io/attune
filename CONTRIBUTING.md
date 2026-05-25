@@ -1,4 +1,4 @@
-# Contributing to kube-rightsize
+# Contributing to attune
 
 Thank you for your interest in contributing! This document provides
 guidelines and instructions for contributing.
@@ -27,8 +27,8 @@ It also installs the Helm unittest plugin automatically when needed for
 
 ```bash
 # Clone the repo
-git clone https://github.com/SebTardifLabs/kube-rightsize.git
-cd kube-rightsize
+git clone https://github.com/attune-io/attune.git
+cd attune
 
 # Install Go dependencies
 go mod download
@@ -53,14 +53,14 @@ make test-integration
 # E2E tests (requires a local cluster with operator deployed)
 # Recommended: k3d, because CI and nightly workflows run on k3d/K3S
 make k3d-create                           # create k3d cluster
-make k3d-deploy IMG=kube-rightsize:e2e    # build, load, deploy
+make k3d-deploy IMG=attune:e2e    # build, load, deploy
 make test-e2e                             # run Chainsaw E2E scenarios
 make test-e2e-go                          # run full Go E2E suite
 make k3d-delete                           # clean up
 
 # Alternative: Kind (supported, but local-only and not the default CI path)
 make kind-create                          # create Kind cluster
-make kind-deploy IMG=kube-rightsize:e2e   # build, load, deploy
+make kind-deploy IMG=attune:e2e   # build, load, deploy
 make test-e2e                             # run Chainsaw E2E scenarios
 make test-e2e-go                          # run full Go E2E suite
 make kind-delete                          # clean up
@@ -95,7 +95,7 @@ git checkout config/manager/kustomization.yaml
 ### Building the Container Image
 
 ```bash
-make docker-build IMG=kube-rightsize:dev
+make docker-build IMG=attune:dev
 ```
 
 ### Pre-commit Checklist
@@ -158,21 +158,21 @@ chart or workflow is wrong.
 
 ## CI Runners
 
-CI uses a shared pool of 3 org-level self-hosted runners in `SebTardifLabs`.
+CI uses a shared pool of 3 org-level self-hosted runners in `attune-io`.
 The pool is managed through systemd services. Check the shared pool with:
 
 ```bash
 systemctl status \
-  actions.runner.SebTardifLabs.pool-1.service \
-  actions.runner.SebTardifLabs.pool-2.service \
-  actions.runner.SebTardifLabs.pool-3.service \
+  actions.runner.attune-io.pool-1.service \
+  actions.runner.attune-io.pool-2.service \
+  actions.runner.attune-io.pool-3.service \
   --no-pager
 ```
 
 The shared pool services are:
-- `actions.runner.SebTardifLabs.pool-1.service`
-- `actions.runner.SebTardifLabs.pool-2.service`
-- `actions.runner.SebTardifLabs.pool-3.service`
+- `actions.runner.attune-io.pool-1.service`
+- `actions.runner.attune-io.pool-2.service`
+- `actions.runner.attune-io.pool-3.service`
 
 To inspect raw runner processes on the host, you can also check:
 
@@ -184,12 +184,12 @@ Interpretation:
 - `Runner.Listener` present = a runner service is up on this machine
 - `Runner.Worker` present = some runner on this machine is actively executing a job
 - this view is host-wide and can include runners from other repos or projects
-- for the shared `SebTardifLabs` pool specifically, prefer `make ci-runner-status`
+- for the shared `attune-io` pool specifically, prefer `make ci-runner-status`
 
 The GitHub org runner API is still useful as supporting evidence:
 
 ```bash
-gh api orgs/SebTardifLabs/actions/runners \
+gh api orgs/attune-io/actions/runners \
   --jq '.runners[] | "\(.name): \(.status)"'
 ```
 
@@ -202,7 +202,7 @@ make ci-runner-status
 It prints:
 - queued or in-progress runs for this repo
 - local shared-pool service health with busy/idle state
-- worker processes scoped to the shared `SebTardifLabs` pool
+- worker processes scoped to the shared `attune-io` pool
 - org runner status with the `busy` flag
 
 But treat the org API as secondary to local service state and active worker processes.

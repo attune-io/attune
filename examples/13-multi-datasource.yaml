@@ -1,6 +1,6 @@
 # Multi-Datasource: Prometheus variants, Datadog, and CloudWatch
 #
-# kube-rightsize works with Prometheus (plus Thanos/Mimir), Datadog, and
+# attune works with Prometheus (plus Thanos/Mimir), Datadog, and
 # CloudWatch Container Insights. Only one metrics source can be set per
 # policy. Use headers for multi-tenant Prometheus backends and
 # bearerTokenSecret for authenticated endpoints.
@@ -9,8 +9,8 @@
 #   kubectl apply -f examples/13-multi-datasource.yaml
 ---
 # Example 1: Grafana Mimir with tenant ID header
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizePolicy
+apiVersion: attune.io/v1alpha1
+kind: AttunePolicy
 metadata:
   name: api-services-mimir
   namespace: production
@@ -35,8 +35,8 @@ spec:
     type: Recommend
 ---
 # Example 2: Thanos with custom headers
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizePolicy
+apiVersion: attune.io/v1alpha1
+kind: AttunePolicy
 metadata:
   name: api-services-thanos
   namespace: production
@@ -66,8 +66,8 @@ spec:
 #   kubectl create secret generic prom-token \
 #     --from-literal=token=<your-bearer-token> \
 #     -n production
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizePolicy
+apiVersion: attune.io/v1alpha1
+kind: AttunePolicy
 metadata:
   name: api-services-auth
   namespace: production
@@ -93,8 +93,8 @@ spec:
     type: Recommend
 ---
 # Example 4: Dev environment with self-signed TLS certificate
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizePolicy
+apiVersion: attune.io/v1alpha1
+kind: AttunePolicy
 metadata:
   name: api-services-dev
   namespace: dev
@@ -125,8 +125,8 @@ spec:
 #     --from-literal=api-key=<your-api-key> \
 #     --from-literal=app-key=<your-app-key> \
 #     -n production
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizePolicy
+apiVersion: attune.io/v1alpha1
+kind: AttunePolicy
 metadata:
   name: api-services-datadog
   namespace: production
@@ -158,8 +158,8 @@ spec:
 # - The operator's ServiceAccount annotated for IRSA/Pod Identity
 #   with cloudwatch:GetMetricData permission, or specify a roleArn
 #   for cross-account access
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizePolicy
+apiVersion: attune.io/v1alpha1
+kind: AttunePolicy
 metadata:
   name: api-services-cloudwatch
   namespace: production

@@ -19,7 +19,7 @@ package recommendation
 import (
 	"k8s.io/apimachinery/pkg/api/resource"
 
-	"github.com/SebTardifLabs/kube-rightsize/internal/metrics"
+	"github.com/attune-io/attune/internal/metrics"
 )
 
 // marginEstimator wraps another estimator and multiplies the result by a

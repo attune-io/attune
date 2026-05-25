@@ -275,17 +275,17 @@ jobs:
           # Docker daemon entirely, avoiding containerd storage races.
           go install github.com/google/ko@v0.18.0
           VERSION=e2e COMMIT=$(git rev-parse --short HEAD) DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
-            KO_DOCKER_REPO=kube-rightsize ko build ./cmd/manager/ \
+            KO_DOCKER_REPO=attune ko build ./cmd/manager/ \
             --bare --tags=e2e --platform=linux/$(go env GOARCH) \
-            --tarball=/tmp/kube-rightsize-e2e.tar --push=false
-          k3d image import /tmp/kube-rightsize-e2e.tar -c "$CLUSTER_NAME"
+            --tarball=/tmp/attune-e2e.tar --push=false
+          k3d image import /tmp/attune-e2e.tar -c "$CLUSTER_NAME"
 
       - name: Install operator via Helm
         shell: bash -Eeuo pipefail -x {0}
         run: |
-          helm install kube-rightsize ./charts/kube-rightsize \
-            --namespace kube-rightsize-system --create-namespace \
-            --set image.repository=kube-rightsize \
+          helm install attune ./charts/attune \
+            --namespace attune-system --create-namespace \
+            --set image.repository=attune \
             --set image.tag=e2e \
             --set image.pullPolicy=Never \
             --set webhooks.enabled=true \
@@ -330,7 +330,7 @@ jobs:
             echo "=== cert-manager pods ==="
             kubectl get pods -n cert-manager || true
             echo "=== operator logs ==="
-            kubectl logs -n kube-rightsize-system -l app.kubernetes.io/name=kube-rightsize --tail=100 || true
+            kubectl logs -n attune-system -l app.kubernetes.io/name=attune --tail=100 || true
             echo "=== pod status ==="
             kubectl get pods -A || true
             echo "=== pod descriptions ==="

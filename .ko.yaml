@@ -1,4 +1,4 @@
-# ko configuration for building kube-rightsize operator images.
+# ko configuration for building attune operator images.
 # See https://ko.build/configuration/
 defaultBaseImage: gcr.io/distroless/static:nonroot
 builds:

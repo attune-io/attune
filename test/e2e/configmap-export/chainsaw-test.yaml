@@ -43,8 +43,8 @@ spec:
                             memory: 128Mi
         - apply:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: export-test
                 namespace: e2e-configmap-export
@@ -86,7 +86,7 @@ spec:
             content: |
               for i in $(seq 1 36); do
                 CM=$(kubectl get configmap -n e2e-configmap-export \
-                  -l rightsize.io/policy=export-test \
+                  -l attune.io/policy=export-test \
                   -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
                 if [ -n "$CM" ]; then
                   echo "ConfigMap found: $CM"
@@ -96,7 +96,7 @@ spec:
                     echo "ConfigMap contains recommendation data"
                     # Verify owner reference
                     OWNER=$(echo "$DATA" | python3 -c "import sys,json; d=json.load(sys.stdin); refs=d.get('metadata',{}).get('ownerReferences',[]); print(refs[0]['kind'] if refs else '')" 2>/dev/null)
-                    if [ "$OWNER" = "RightSizePolicy" ]; then
+                    if [ "$OWNER" = "AttunePolicy" ]; then
                       echo "OwnerReference set correctly"
                     fi
                     exit 0
@@ -106,13 +106,13 @@ spec:
               done
               echo "No recommendation ConfigMap found"
               kubectl get configmap -n e2e-configmap-export -o yaml
-              kubectl get rightsizepolicy export-test -n e2e-configmap-export -o yaml
+              kubectl get attunepolicy export-test -n e2e-configmap-export -o yaml
               exit 1
   catch:
     - describe:
-        apiVersion: rightsize.io/v1alpha1
-        kind: RightSizePolicy
+        apiVersion: attune.io/v1alpha1
+        kind: AttunePolicy
         namespace: e2e-configmap-export
     - podLogs:
-        namespace: kube-rightsize-system
-        selector: app.kubernetes.io/name=kube-rightsize
+        namespace: attune-system
+        selector: app.kubernetes.io/name=attune

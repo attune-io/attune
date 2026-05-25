@@ -1,0 +1,86 @@
+suite: prometheusrule tests
+templates:
+  - templates/prometheusrule.yaml
+tests:
+  - it: should not render by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render when enabled
+    set:
+      metrics:
+        enabled: true
+        prometheusRule:
+          enabled: true
+    asserts:
+      - isKind:
+          of: PrometheusRule
+      - equal:
+          path: spec.groups[0].name
+          value: attune
+
+  - it: should include all five default alerts
+    set:
+      metrics:
+        enabled: true
+        prometheusRule:
+          enabled: true
+    asserts:
+      - lengthEqual:
+          path: spec.groups[0].rules
+          count: 5
+
+  - it: should disable individual rules
+    set:
+      metrics:
+        enabled: true
+        prometheusRule:
+          enabled: true
+          rules:
+            reconcileErrors:
+              enabled: false
+            degraded:
+              enabled: false
+    asserts:
+      - lengthEqual:
+          path: spec.groups[0].rules
+          count: 3
+
+  - it: should apply additional labels
+    set:
+      metrics:
+        enabled: true
+        prometheusRule:
+          enabled: true
+          additionalLabels:
+            team: platform
+    asserts:
+      - equal:
+          path: metadata.labels.team
+          value: platform
+
+  - it: should not render when metrics disabled
+    set:
+      metrics:
+        enabled: false
+        prometheusRule:
+          enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should use custom severity
+    set:
+      metrics:
+        enabled: true
+        prometheusRule:
+          enabled: true
+          rules:
+            reconcileErrors:
+              enabled: true
+              severity: critical
+    asserts:
+      - equal:
+          path: spec.groups[0].rules[0].labels.severity
+          value: critical

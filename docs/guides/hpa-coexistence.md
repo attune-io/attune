@@ -1,6 +1,6 @@
 # HPA Coexistence
 
-kube-rightsize is designed to work alongside Horizontal Pod Autoscalers
+attune is designed to work alongside Horizontal Pod Autoscalers
 (HPAs) without causing scaling conflicts or death spirals.
 
 ## Why HPA + VPA was problematic
@@ -10,9 +10,9 @@ utilization percentage drops, causing HPA to scale in. When HPA scales in,
 per-pod load increases, causing VPA to increase requests again. This feedback
 loop is the classic "death spiral."
 
-## How kube-rightsize avoids conflicts
+## How attune avoids conflicts
 
-kube-rightsize adjusts **resource requests** (and optionally limits), while
+attune adjusts **resource requests** (and optionally limits), while
 HPA adjusts **replica count**. The operator does not change the number of
 pods. Because in-place resize modifies cgroup limits on running pods without
 restarting them, the HPA's utilization metric reflects the new allocation
@@ -22,7 +22,7 @@ The conflict detector identifies HPAs targeting the same workload and logs a
 notice:
 
 ```text
-HPA my-hpa targets the same Deployment/my-app; kube-rightsize will adjust
+HPA my-hpa targets the same Deployment/my-app; attune will adjust
 requests without interfering with HPA scaling
 ```
 
@@ -58,12 +58,12 @@ actual usage.
 ### Memory is always safe
 
 Memory-based HPAs (less common) scale on `memory` utilization, not requests.
-kube-rightsize can safely adjust memory requests alongside a memory-based HPA
+attune can safely adjust memory requests alongside a memory-based HPA
 because the working set size does not change when the request changes.
 
 ## Monitoring coexistence
 
-Watch both HPA and RightSizePolicy status together:
+Watch both HPA and AttunePolicy status together:
 
 ```bash
 kubectl get hpa,rsp -o wide

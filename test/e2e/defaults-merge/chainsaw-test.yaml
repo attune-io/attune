@@ -3,7 +3,7 @@ kind: Test
 metadata:
   name: defaults-merge
 spec:
-  description: Verify that RightSizeDefaults values are merged into a policy that omits them
+  description: Verify that AttuneDefaults values are merged into a policy that omits them
   timeouts:
     apply: 60s
     assert: 2m
@@ -19,8 +19,8 @@ spec:
                 name: e2e-defaults-merge
         - apply:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizeDefaults
+              apiVersion: attune.io/v1alpha1
+              kind: AttuneDefaults
               metadata:
                 name: e2e-defaults
               spec:
@@ -64,8 +64,8 @@ spec:
                             memory: 256Mi
         - apply:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: inherits-defaults
                 namespace: e2e-defaults-merge
@@ -76,22 +76,22 @@ spec:
                 metricsSource:
                   minimumDataPoints: 1
                   historyWindow: 1h
-                # prometheus.address intentionally omitted: inherited from RightSizeDefaults
+                # prometheus.address intentionally omitted: inherited from AttuneDefaults
                 cpu:
                   percentile: 95
                   overhead: "20"
                 memory:
                   percentile: 99
                   overhead: "30"
-                # type intentionally omitted: inherited from RightSizeDefaults (Recommend)
+                # type intentionally omitted: inherited from AttuneDefaults (Recommend)
                 updateStrategy:
                   cooldown: 1m
     - name: verify-policy-reconciles
       try:
         - assert:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: inherits-defaults
                 namespace: e2e-defaults-merge
@@ -105,12 +105,12 @@ spec:
             timeout: 2m
             content: |
               for i in $(seq 1 24); do
-                REASON=$(kubectl get rightsizepolicy inherits-defaults -n e2e-defaults-merge \
+                REASON=$(kubectl get attunepolicy inherits-defaults -n e2e-defaults-merge \
                   -o jsonpath='{.status.conditions[?(@.type=="Ready")].reason}' 2>/dev/null)
                 if [ "$REASON" = "InsufficientData" ] || [ "$REASON" = "Monitoring" ]; then
                   echo "Policy is in Recommend type (reason: $REASON)"
                   # Verify the policy spec does NOT have type set (it was inherited)
-                  TYPE=$(kubectl get rightsizepolicy inherits-defaults -n e2e-defaults-merge \
+                  TYPE=$(kubectl get attunepolicy inherits-defaults -n e2e-defaults-merge \
                     -o jsonpath='{.spec.updateStrategy.type}' 2>/dev/null)
                   echo "Spec type value: '$TYPE'"
                   exit 0
@@ -118,16 +118,16 @@ spec:
                 sleep 5
               done
               echo "Timed out waiting for Ready condition"
-              kubectl get rightsizepolicy inherits-defaults -n e2e-defaults-merge -o yaml
+              kubectl get attunepolicy inherits-defaults -n e2e-defaults-merge -o yaml
               exit 1
   catch:
     - describe:
-        apiVersion: rightsize.io/v1alpha1
-        kind: RightSizePolicy
+        apiVersion: attune.io/v1alpha1
+        kind: AttunePolicy
         namespace: e2e-defaults-merge
     - describe:
-        apiVersion: rightsize.io/v1alpha1
-        kind: RightSizeDefaults
+        apiVersion: attune.io/v1alpha1
+        kind: AttuneDefaults
     - podLogs:
-        namespace: kube-rightsize-system
-        selector: app.kubernetes.io/name=kube-rightsize
+        namespace: attune-system
+        selector: app.kubernetes.io/name=attune

@@ -57,7 +57,7 @@ spec:
                 name: tune-app
                 namespace: e2e-hpa-auto-tune
                 annotations:
-                  rightsize.io/auto-tune: "true"
+                  attune.io/auto-tune: "true"
               spec:
                 scaleTargetRef:
                   apiVersion: apps/v1
@@ -103,8 +103,8 @@ spec:
       try:
         - apply:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: tune-test
                 namespace: e2e-hpa-auto-tune
@@ -138,8 +138,8 @@ spec:
       try:
         - assert:
             resource:
-              apiVersion: rightsize.io/v1alpha1
-              kind: RightSizePolicy
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
               metadata:
                 name: tune-test
                 namespace: e2e-hpa-auto-tune
@@ -153,7 +153,7 @@ spec:
             content: |
               for i in $(seq 1 60); do
                 ORIG=$(kubectl get hpa tune-app -n e2e-hpa-auto-tune \
-                  -o jsonpath='{.metadata.annotations.rightsize\.io/original-target-cpu}' 2>/dev/null)
+                  -o jsonpath='{.metadata.annotations.attune\.io/original-target-cpu}' 2>/dev/null)
                 if [ -n "$ORIG" ]; then
                   echo "HPA original-target-cpu annotation found: $ORIG"
                   CURRENT=$(kubectl get hpa tune-app -n e2e-hpa-auto-tune \
@@ -165,17 +165,17 @@ spec:
               done
               echo "HPA auto-tune annotation not found"
               kubectl get hpa tune-app -n e2e-hpa-auto-tune -o yaml
-              kubectl get rightsizepolicy tune-test -n e2e-hpa-auto-tune -o yaml
+              kubectl get attunepolicy tune-test -n e2e-hpa-auto-tune -o yaml
               exit 1
   catch:
     - describe:
-        apiVersion: rightsize.io/v1alpha1
-        kind: RightSizePolicy
+        apiVersion: attune.io/v1alpha1
+        kind: AttunePolicy
         namespace: e2e-hpa-auto-tune
     - describe:
         apiVersion: autoscaling/v2
         kind: HorizontalPodAutoscaler
         namespace: e2e-hpa-auto-tune
     - podLogs:
-        namespace: kube-rightsize-system
-        selector: app.kubernetes.io/name=kube-rightsize
+        namespace: attune-system
+        selector: app.kubernetes.io/name=attune

@@ -12,10 +12,10 @@
 #   kubectl apply -f examples/10-cronjob-policy.yaml
 #
 # Check recommendations:
-#   kubectl rightsize recommendations -n batch-jobs
+#   kubectl attune recommendations -n batch-jobs
 ---
-apiVersion: rightsize.io/v1alpha1
-kind: RightSizePolicy
+apiVersion: attune.io/v1alpha1
+kind: AttunePolicy
 metadata:
   name: nightly-reports
   namespace: batch-jobs
