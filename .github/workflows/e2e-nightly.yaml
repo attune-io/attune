@@ -45,7 +45,7 @@ env:
 jobs:
   prepare-matrix:
     name: Select nightly matrix
-    runs-on: self-hosted
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 5
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
@@ -87,7 +87,7 @@ jobs:
     name: E2E (K8s ${{ matrix.k8s-version }})
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     needs: prepare-matrix
-    runs-on: self-hosted
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 45
     env:
       SELECTED_SUITE: ${{ needs.prepare-matrix.outputs.suite }}
@@ -358,7 +358,7 @@ jobs:
 
   report:
     name: Nightly Results
-    runs-on: self-hosted
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 5
     needs: test-e2e
     if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')

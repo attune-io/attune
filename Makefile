@@ -103,7 +103,7 @@ verify-release-artifacts: kustomize ## Verify release artifacts generate cleanly
 	echo "OK: release artifacts generate cleanly."
 
 .PHONY: ci-runner-status
-ci-runner-status: ## Summarize queued repo runs and local/org self-hosted runner state
+ci-runner-status: ## Show queued/in-progress CI runs
 	@repo_slug=$$(git config --get remote.origin.url | sed -E 's#(git@github.com:|https://github.com/)##; s#\.git$$##'); \
 	echo "Repo: $$repo_slug"; \
 	echo; \
@@ -113,67 +113,6 @@ ci-runner-status: ## Summarize queued repo runs and local/org self-hosted runner
 		while IFS=$$'\t' read -r id status title url; do \
 			printf '%-12s  %-11s  %-45s  %s\n' "$$id" "$$status" "$$title" "$$url"; \
 		done <<< "$$active_runs"; \
-	else \
-		echo "none"; \
-	fi; \
-	echo; \
-	echo "== Local runner services =="; \
-	if command -v systemctl >/dev/null 2>&1; then \
-		for svc in \
-		  actions.runner.attune-io.pool-1.service \
-		  actions.runner.attune-io.pool-2.service \
-		  actions.runner.attune-io.pool-3.service; do \
-			state=$$(systemctl is-active "$$svc" 2>/dev/null || true); \
-			substate=$$(systemctl show -p SubState --value "$$svc" 2>/dev/null || true); \
-			main_pid=$$(systemctl show -p MainPID --value "$$svc" 2>/dev/null || true); \
-			activity="idle"; \
-			if [ -z "$$state" ]; then \
-				state="unknown"; \
-			fi; \
-			if [ -z "$$substate" ]; then \
-				substate="-"; \
-			fi; \
-			if [ -n "$$main_pid" ] && [ "$$main_pid" != "0" ] && pgrep -P "$$main_pid" -f "Runner.Worker" >/dev/null 2>&1; then \
-				activity="busy"; \
-			fi; \
-			printf '%-46s  %-8s  %-8s  %s\n' "$$svc" "$$state" "$$substate" "$$activity"; \
-		done; \
-	else \
-		echo "systemctl not available on this host"; \
-	fi; \
-	echo; \
-	echo "== Shared pool worker processes =="; \
-	if command -v systemctl >/dev/null 2>&1; then \
-		found_worker=false; \
-		for svc in \
-		  actions.runner.attune-io.pool-1.service \
-		  actions.runner.attune-io.pool-2.service \
-		  actions.runner.attune-io.pool-3.service; do \
-			main_pid=$$(systemctl show -p MainPID --value "$$svc" 2>/dev/null || true); \
-			if [ -z "$$main_pid" ] || [ "$$main_pid" = "0" ]; then \
-				continue; \
-			fi; \
-			workers=$$(pgrep -P "$$main_pid" -af "Runner.Worker" || true); \
-			if [ -n "$$workers" ]; then \
-				found_worker=true; \
-				while IFS= read -r worker; do \
-					printf '%-46s  %s\n' "$$svc" "$$worker"; \
-				done <<< "$$workers"; \
-			fi; \
-		done; \
-		if [ "$$found_worker" = false ]; then \
-			echo "none"; \
-		fi; \
-	else \
-		echo "systemctl not available on this host"; \
-	fi; \
-	echo; \
-	echo "== Org runner status =="; \
-	org_runners=$$(gh api orgs/attune-io/actions/runners --jq '.runners[] | "\(.name)\t\(.status)\tbusy=\(.busy)"'); \
-	if [ -n "$$org_runners" ]; then \
-		while IFS=$$'\t' read -r name status busy; do \
-			printf '%-10s  %-8s  %s\n' "$$name" "$$status" "$$busy"; \
-		done <<< "$$org_runners"; \
 	else \
 		echo "none"; \
 	fi

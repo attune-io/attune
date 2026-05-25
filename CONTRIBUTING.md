@@ -158,61 +158,15 @@ chart or workflow is wrong.
 
 ## CI Runners
 
-CI uses a shared pool of 3 org-level self-hosted runners in `attune-io`.
-The pool is managed through systemd services. Check the shared pool with:
+CI runs on GitHub-hosted `ubuntu-latest` runners by default. To switch to
+self-hosted runners, set the repository variable `RUNNER` to `self-hosted`
+in Settings > Secrets and variables > Actions > Variables.
 
-```bash
-systemctl status \
-  actions.runner.attune-io.pool-1.service \
-  actions.runner.attune-io.pool-2.service \
-  actions.runner.attune-io.pool-3.service \
-  --no-pager
-```
-
-The shared pool services are:
-- `actions.runner.attune-io.pool-1.service`
-- `actions.runner.attune-io.pool-2.service`
-- `actions.runner.attune-io.pool-3.service`
-
-To inspect raw runner processes on the host, you can also check:
-
-```bash
-ps -o pid,ppid,%cpu,etime,cmd -C Runner.Listener -C Runner.Worker
-```
-
-Interpretation:
-- `Runner.Listener` present = a runner service is up on this machine
-- `Runner.Worker` present = some runner on this machine is actively executing a job
-- this view is host-wide and can include runners from other repos or projects
-- for the shared `attune-io` pool specifically, prefer `make ci-runner-status`
-
-The GitHub org runner API is still useful as supporting evidence:
-
-```bash
-gh api orgs/attune-io/actions/runners \
-  --jq '.runners[] | "\(.name): \(.status)"'
-```
-
-For the common "why is CI queued?" case, use the one-command summary:
+To check queued or in-progress CI runs:
 
 ```bash
 make ci-runner-status
 ```
-
-It prints:
-- queued or in-progress runs for this repo
-- local shared-pool service health with busy/idle state
-- worker processes scoped to the shared `attune-io` pool
-- org runner status with the `busy` flag
-
-But treat the org API as secondary to local service state and active worker processes.
-If the shared pool is actually offline, CI jobs will queue indefinitely.
-
-Docker-using jobs on these self-hosted runners must use the shared
-`./.github/actions/setup-clean-docker-config` composite action before any
-`docker`, `buildx`, or Trivy step that reads container registry credentials.
-It forces a clean `DOCKER_CONFIG` and avoids Docker Desktop `credsStore`
-failures that can otherwise break OCI access on WSL-based runners.
 
 ## Pull Request Process
 

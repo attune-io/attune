@@ -33,7 +33,7 @@ jobs:
   # Docs-only or YAML-only PRs skip all Go CI (lint, test, build).
   changes:
     name: Detect Changes
-    runs-on: self-hosted
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 5
     outputs:
       go: ${{ steps.filter.outputs.go }}
@@ -83,7 +83,7 @@ jobs:
 
   lint:
     name: Lint
-    runs-on: self-hosted
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
     needs: changes
     if: needs.changes.outputs.go == 'true'
@@ -140,7 +140,7 @@ jobs:
 
   docs-check:
     name: Docs Check
-    runs-on: self-hosted
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
     needs: changes
     if: needs.changes.outputs.docs == 'true' || needs.changes.outputs.helm == 'true'
@@ -175,7 +175,7 @@ jobs:
 
   yaml-lint:
     name: YAML Lint
-    runs-on: self-hosted
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 5
     needs: changes
     if: needs.changes.outputs.yaml == 'true'
@@ -209,7 +209,7 @@ jobs:
 
   test-unit:
     name: Unit Tests
-    runs-on: self-hosted
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
     needs: changes
     if: needs.changes.outputs.go == 'true'
@@ -271,7 +271,7 @@ jobs:
 
   test-fuzz-bench:
     name: Fuzz & Benchmark Tests
-    runs-on: self-hosted
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
     needs: changes
     if: needs.changes.outputs.go == 'true'
@@ -298,7 +298,7 @@ jobs:
 
   test-integration:
     name: Integration Tests
-    runs-on: self-hosted
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
     needs: changes
     if: needs.changes.outputs.go == 'true'
@@ -354,7 +354,7 @@ jobs:
   # verify compilation. The nightly E2E matrix catches runtime regressions.
   test-e2e:
     name: E2E Tests
-    runs-on: self-hosted
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 45
     needs: [changes, lint, test-unit]
     if: needs.changes.outputs.go-source == 'true'
@@ -579,7 +579,7 @@ jobs:
 
   crd-freshness:
     name: CRD Freshness Check
-    runs-on: self-hosted
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
     needs: changes
     if: needs.changes.outputs.go == 'true'
@@ -608,7 +608,7 @@ jobs:
 
   helm-lint:
     name: Helm Lint
-    runs-on: self-hosted
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
     needs: changes
     if: needs.changes.outputs.helm == 'true' || needs.changes.outputs.go == 'true'
@@ -683,7 +683,7 @@ jobs:
 
   build:
     name: Build
-    runs-on: self-hosted
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
     needs: changes
     if: needs.changes.outputs.go == 'true'
