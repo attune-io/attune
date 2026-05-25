@@ -1,5 +1,6 @@
 ---
 version: 2
+dist: goreleaser-dist
 builds:
   - id: manager
     main: ./cmd/manager
