@@ -541,10 +541,11 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 	createNamespace(t, ns)
 
 	// Deploy a workload using stress-ng to generate known CPU/memory load.
-	// Overprovisioned: requests 500m / 256Mi memory, actual ~200m CPU / ~100Mi.
-	// Limits match requests (Guaranteed QoS) to constrain host CPU usage.
-	// CPU is kept at 500m (not 1000m) so the pod can schedule reliably on
-	// the shared CI k3d node where 13 parallel tests compete for ~4 CPUs.
+	// Overprovisioned: requests 300m / 128Mi memory, actual ~200m CPU / ~100Mi.
+	// Burstable QoS (no limits) so the pod schedules reliably on the shared
+	// CI k3d node where 13 parallel tests compete for ~4 CPUs. Guaranteed QoS
+	// with 500m failed intermittently because the scheduler couldn't reserve
+	// the full amount during peak contention.
 	deploy := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "load-app",
@@ -568,12 +569,8 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 							Args:  []string{"--cpu", "1", "--cpu-load", "20", "--vm", "1", "--vm-bytes", "100M", "--timeout", "0"},
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
-									corev1.ResourceCPU:    resource.MustParse("500m"),
-									corev1.ResourceMemory: resource.MustParse("256Mi"),
-								},
-								Limits: corev1.ResourceList{
-									corev1.ResourceCPU:    resource.MustParse("500m"),
-									corev1.ResourceMemory: resource.MustParse("256Mi"),
+									corev1.ResourceCPU:    resource.MustParse("300m"),
+									corev1.ResourceMemory: resource.MustParse("128Mi"),
 								},
 							},
 						},
@@ -586,7 +583,7 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 	waitForDeploymentReady(t, "load-app", ns, 120*time.Second)
 
 	loadPolicy := createPolicy(t, "load-policy", ns, "load-app", attunev1alpha1.UpdateTypeRecommend)
-	maxCPU, err := resource.ParseQuantity("400m")
+	maxCPU, err := resource.ParseQuantity("250m")
 	require.NoError(t, err)
 	require.NoError(t, retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		var latestPolicy attunev1alpha1.AttunePolicy
@@ -608,7 +605,7 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 			len(latestPolicy.Status.Recommendations[0].Containers) == 0 {
 			return false, nil
 		}
-		return latestPolicy.Status.Recommendations[0].Containers[0].Recommended.CPURequest.MilliValue() == 400, nil
+		return latestPolicy.Status.Recommendations[0].Containers[0].Recommended.CPURequest.MilliValue() == 250, nil
 	}))
 
 	var latestPolicy attunev1alpha1.AttunePolicy
@@ -620,8 +617,8 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 
 	// CPU recommendation should be clamped by the test-specific max bound.
 	recCPU := rec.Containers[0].Recommended.CPURequest
-	assert.Equal(t, int64(400), recCPU.MilliValue(),
-		"recommended CPU should honor the test-specific 400m max bound, got %s", recCPU.String())
+	assert.Equal(t, int64(250), recCPU.MilliValue(),
+		"recommended CPU should honor the test-specific 250m max bound, got %s", recCPU.String())
 
 	cpuExplain := rec.Containers[0].Explanation
 	require.NotNil(t, cpuExplain)
