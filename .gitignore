@@ -38,3 +38,6 @@ charts/attune/charts/
 
 # Local audit symlink
 audit-findings.md
+
+# GoReleaser output
+goreleaser-dist/
