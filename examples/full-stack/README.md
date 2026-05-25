@@ -21,6 +21,6 @@ kubectl apply -f examples/full-stack/
 ## Prerequisites
 
 - Kubernetes 1.32+
-- attune operator installed
+- Attune operator installed
 - Prometheus Operator (for ServiceMonitor)
 - Grafana with sidecar dashboard provisioning (label: `grafana_dashboard: "1"`)

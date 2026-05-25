@@ -1,6 +1,6 @@
 ## High-level architecture
 
-attune is a single-binary Kubernetes operator built with
+Attune is a single-binary Kubernetes operator built with
 controller-runtime. It reconciles `AttunePolicy` custom resources and
 coordinates six internal components:
 

@@ -1149,10 +1149,10 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 	waitForResize(t, "oom-policy", ns, 3*time.Minute)
 
 	// Wait for the resize to be applied in the actual pod (not just recorded
-	// in policy status). The kubelet may defer the resize when the node is
-	// under memory pressure. Without this check, the exec targets a container
-	// that still has the original 64Mi limit, and the stressor OOMs before
-	// the resize takes effect.
+	// in policy status). Check for any resource change (CPU or memory), not
+	// just memory: on K8s v1.33, ClampMemoryLimitForPolicy prevents memory
+	// limit decreases for NotRequired containers, and QoS preservation then
+	// keeps the memory request at 64Mi too. CPU still changes normally.
 	require.NoError(t, wait.PollUntilContextTimeout(ctx, 2*time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
 		var pods corev1.PodList
 		if err := k8sClient.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{"app": "oom-app"}); err != nil {
@@ -1161,9 +1161,12 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 		for _, pod := range pods.Items {
 			for _, cs := range pod.Spec.Containers {
 				if cs.Name == "app" {
+					cpuReq := cs.Resources.Requests.Cpu()
 					memReq := cs.Resources.Requests.Memory()
-					if memReq != nil && memReq.Cmp(resource.MustParse("64Mi")) != 0 {
-						t.Logf("Pod %s memory request changed to %s", pod.Name, memReq.String())
+					cpuChanged := cpuReq != nil && cpuReq.Cmp(resource.MustParse("100m")) != 0
+					memChanged := memReq != nil && memReq.Cmp(resource.MustParse("64Mi")) != 0
+					if cpuChanged || memChanged {
+						t.Logf("Pod %s resources changed: cpu=%s mem=%s", pod.Name, cpuReq.String(), memReq.String())
 						return true, nil
 					}
 				}

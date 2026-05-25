@@ -1,6 +1,6 @@
-# Your First 30 Days with attune
+# Your First 30 Days with Attune
 
-This guide walks you through what to expect after installing attune,
+This guide walks you through what to expect after installing Attune,
 from the initial data collection to full automation. Each phase builds
 confidence before moving to the next.
 

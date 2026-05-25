@@ -2,7 +2,7 @@
 
 ## Custom Resource Definitions
 
-attune introduces three CRDs:
+Attune introduces three CRDs:
 
 **AttunePolicy** (namespaced, short name `rsp`) is the primary resource.
 Each policy targets one or more workloads in a namespace, configures the
@@ -78,7 +78,7 @@ See [Algorithm](../architecture/algorithm.md) for formulas and details.
 Kubernetes 1.32 added the `/resize` subresource for in-place pod resize
 (alpha, requires feature gate). Kubernetes 1.33 graduated the feature to
 beta (enabled by default). The kubelet adjusts cgroup limits without
-restarting the container. attune calls `UpdateResize` on each pod,
+restarting the container. Attune calls `UpdateResize` on each pod,
 then polls the container status until the new resources are reported or an
 `Infeasible` condition appears.
 

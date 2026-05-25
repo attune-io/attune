@@ -1,4 +1,4 @@
-attune uses the Kubernetes 1.32+ in-place pod resize API to adjust
+Attune uses the Kubernetes 1.32+ in-place pod resize API to adjust
 container resources without restarting pods. This page explains how the
 resize API works and how the operator uses it.
 
@@ -18,7 +18,7 @@ limits without restarting it. CPU changes take effect immediately; memory
 limit increases take effect immediately but decreases only apply when the
 container's working set drops below the new limit.
 
-## How attune uses it
+## How Attune uses it
 
 The operator's resize engine (`internal/resize/engine.go`) performs
 resizes via the typed Kubernetes client:
@@ -202,7 +202,7 @@ stateDiagram-v2
 
 - **Eviction fallback restarts the pod from the current template.** When a pod
   is evicted, the workload controller (Deployment, StatefulSet) creates a
-  replacement pod from the current PodTemplate. attune does not patch
+  replacement pod from the current PodTemplate. Attune does not patch
   workload templates as part of eviction fallback, so the replacement pod may
   come back with the original resources until a later in-place resize succeeds.
   Evicted pods are recorded separately from successful in-place resizes and do

@@ -327,7 +327,7 @@ The calculator uses the same pricing model as the operator's built-in
 </div>
 
 <div class="calc-results" id="resultsSection">
-<h3>Projected Savings with attune</h3>
+<h3>Projected Savings with Attune</h3>
 <div class="results-grid">
   <div class="result-card">
     <div class="result-label">Monthly savings</div>
@@ -657,7 +657,7 @@ reports.
 
 **Ready to capture these savings?**
 
-- [Install attune](getting-started/installation.md) in 5 minutes
+- [Install Attune](getting-started/installation.md) in 5 minutes
 - [Start with Recommend mode](getting-started/quickstart.md) to validate
   the numbers in your own cluster
-- [Read why attune](why-attune.md) for the full story
+- [Read why Attune](why-attune.md) for the full story

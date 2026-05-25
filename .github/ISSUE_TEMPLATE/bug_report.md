@@ -1,6 +1,6 @@
 ---
 name: Bug Report
-about: Report a bug in attune
+about: Report a bug in Attune
 title: "[Bug] "
 labels: kind/bug
 assignees: ""
@@ -26,7 +26,7 @@ What actually happened.
 
 ## Environment
 
-- attune version:
+- Attune version:
 - Kubernetes version:
 - Container runtime:
 - Cloud provider:

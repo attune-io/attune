@@ -42,7 +42,7 @@ ground-up redesign of resource right-sizing.
 
 ### Mission
 
-attune is the first production-grade right-sizing operator built exclusively for
+Attune is the first production-grade right-sizing operator built exclusively for
 in-place resize. It exists to make VPA obsolete by delivering:
 
 1. **Zero-downtime right-sizing**: Resize pods in-place without restarts (CPU) or with
@@ -630,16 +630,16 @@ percentile, ensuring the recommendation covers the busiest hour of the day.
 
 When an HPA targets the same Deployment on CPU:
 
-1. attune adjusts **requests** (the base resource allocation)
+1. Attune adjusts **requests** (the base resource allocation)
 2. HPA adjusts **replica count** based on utilization percentage of requests
 3. By right-sizing requests, HPA's percentage calculations become more accurate
 
 To prevent conflicts:
 - Detect HPA presence via informer
-- If HPA targets CPU utilization, attune adjusts CPU requests but NOT limits
+- If HPA targets CPU utilization, Attune adjusts CPU requests but NOT limits
   (preserving the request-to-limit ratio for HPA's calculations)
 - If HPA targets custom metrics (not CPU/memory), no conflict exists
-- Log a warning if both VPA and attune target the same workload
+- Log a warning if both VPA and Attune target the same workload
 
 ---
 
@@ -1565,4 +1565,4 @@ attune/
 | **OSS appliers** | Oblik, kube-reqsizer, Kedify | Apply VPA recommendations via cron or controller; no safety system or graduated rollout |
 | **Commercial full-stack** | CAST AI, ScaleOps, StormForge, PerfectScale, Sedai, Densify | Pod + node optimization with ML; $10k-50k+/year; SaaS dependency (except ScaleOps self-hosted) |
 | **Observability-integrated** | Datadog, nOps, Spot Ocean | Leverage existing monitoring; Datadog's `DatadogPodAutoscaler` CRD is well-designed |
-| **attune** | (this project) | Focused on in-place resize with safety; open-source; no SaaS; Kubernetes-native CRDs |
+| **Attune** | (this project) | Focused on in-place resize with safety; open-source; no SaaS; Kubernetes-native CRDs |

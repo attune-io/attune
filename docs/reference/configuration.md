@@ -266,7 +266,7 @@ All fields from `AttuneDefaults` are available in
 
 ## Alternative Metrics Sources
 
-By default, attune queries Prometheus for CPU and memory usage data.
+By default, Attune queries Prometheus for CPU and memory usage data.
 The CRD also supports Datadog and CloudWatch Container Insights as
 alternative metrics sources. **At most one** of `prometheus`, `datadog`, or
 `cloudwatch` may be set per policy.

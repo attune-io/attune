@@ -1,6 +1,6 @@
 # Prometheus Setup
 
-attune relies on Prometheus for historical CPU and memory usage data.
+Attune relies on Prometheus for historical CPU and memory usage data.
 This guide covers which metrics are required, how to configure the Prometheus
 address, and how to verify the integration is working.
 
@@ -118,7 +118,7 @@ recommended baseline for most clusters.
 ### 4. Auto-discovery (Prometheus Operator)
 
 If the [Prometheus Operator](https://github.com/prometheus-operator/prometheus-operator)
-is installed, attune lists `monitoring.coreos.com/v1 Prometheus`
+is installed, Attune lists `monitoring.coreos.com/v1 Prometheus`
 resources and constructs the address from the first one found:
 
 ```
@@ -231,7 +231,7 @@ kubectl run prom-check --image=curlimages/curl --restart=Never --rm --attach --c
   curl -s 'http://prometheus-server.monitoring:80/api/v1/query?query=rate(container_cpu_usage_seconds_total{namespace="<namespace>",pod=~"<pod-prefix>.*"}[5m])'
 ```
 
-Non-empty results confirm attune can query metrics for that workload.
+Non-empty results confirm Attune can query metrics for that workload.
 
 ### Step 4: Check policy conditions
 
@@ -250,9 +250,9 @@ By default, recommendations need `minimumDataPoints: 48` Prometheus range-query
 samples. With the default `queryStep: 5m`, that is about 4 hours of data
 within the default `historyWindow: 168h`.
 
-## Operator metrics (what attune exposes)
+## Operator metrics (what Attune exposes)
 
-attune itself exposes Prometheus metrics on its `:8080/metrics`
+Attune itself exposes Prometheus metrics on its `:8080/metrics`
 endpoint. To scrape these, either:
 
 - Enable the Helm chart's **ServiceMonitor** (`metrics.serviceMonitor.enabled: true`), or

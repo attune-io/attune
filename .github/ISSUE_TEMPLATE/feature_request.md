@@ -1,6 +1,6 @@
 ---
 name: Feature Request
-about: Suggest a feature for attune
+about: Suggest a feature for Attune
 title: "[Feature] "
 labels: kind/feature
 assignees: ""

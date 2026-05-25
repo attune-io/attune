@@ -1,11 +1,11 @@
 # Scaling Guide
 
-This guide covers how to size attune for your cluster, from small
+This guide covers how to size Attune for your cluster, from small
 dev environments to large production deployments with thousands of workloads.
 
 ## Architecture Overview
 
-attune runs as a single-leader Deployment. One replica performs all
+Attune runs as a single-leader Deployment. One replica performs all
 reconciliation work while the standby (in HA mode) waits to take over via
 leader election. The operator's main scaling dimensions are:
 
@@ -142,7 +142,7 @@ The operator exposes metrics on the `/metrics` endpoint:
 | `workqueue_depth` | Controller work queue depth. Consistently > 0 means the operator can't keep up. |
 | `workqueue_longest_running_processor_seconds` | Longest in-flight reconcile. |
 
-### Prometheus sizing for attune
+### Prometheus sizing for Attune
 
 Each AttunePolicy generates 2-4 Prometheus queries per reconcile cycle
 (CPU usage, memory usage, OOM events, restart events). At steady state with

@@ -2,9 +2,14 @@
 
 ## Project
 
-Kubernetes operator for in-place pod resource right-sizing (VPA replacement).
+Attune: Kubernetes operator for in-place pod resource right-sizing (VPA replacement).
 Requires Kubernetes 1.32+ (In-Place Pod Resize; 1.32 alpha with feature gate, 1.33+ beta enabled by default). Built with Go 1.26,
 controller-runtime v0.24.1, Kubebuilder v4, K8s API v0.36.1.
+
+**Naming convention:** "Attune" (capitalized) in prose and documentation.
+`attune` (lowercase) in code, packages, namespaces, Prometheus metrics
+(`attune_resize_total`), CLI commands (`kubectl attune`), API groups
+(`attune.io`), Helm chart names, Docker images, and URLs.
 
 ## Commands
 
@@ -253,6 +258,22 @@ directory. When referencing files elsewhere in the repo (e.g., `charts/`,
   the first reconcile finds no Prometheus data, causing `waitForResize` timeouts.
   This was the root cause of the `TestE2E_OOMKill_TriggersRevert` flaky test
   (failed in 6/8 CI runs, fixed in 523292a).
+
+## CI
+
+- Runs on **GitHub-hosted runners** (`ubuntu-latest`) by default
+- All workflow jobs use `runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}`; set
+  the `RUNNER` repo variable to `self-hosted` to switch back without editing
+  workflow files
+- Fuzz tests: 1M iterations per target, 20-minute job timeout (tuned for
+  GitHub-hosted; self-hosted was 5M/10min)
+- E2E tests in CI are slower than self-hosted (~30 min for image pulls from
+  quay.io; no persistent Docker cache on ephemeral runners)
+- E2E Nightly runs the full K8s version matrix (1.32, 1.33, 1.34, 1.35)
+  sequentially; each version creates a fresh k3d cluster
+- Concurrency groups use `cancel-in-progress: false` on main to avoid killing
+  real CI runs; a stuck queued run in the group blocks all subsequent runs
+  (see self-hosted-runner skill lesson 35 for diagnosis)
 
 ## Safety
 

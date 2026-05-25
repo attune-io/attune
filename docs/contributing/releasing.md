@@ -1,6 +1,6 @@
 ## Version scheme
 
-attune follows [Semantic Versioning](https://semver.org/). The Helm
+Attune follows [Semantic Versioning](https://semver.org/). The Helm
 chart version and `appVersion` are kept in sync in `charts/attune/Chart.yaml`.
 
 ## Release process
