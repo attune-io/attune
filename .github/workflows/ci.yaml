@@ -173,6 +173,29 @@ jobs:
         shell: bash -Eeuo pipefail {0}
         run: bash hack/verify-doc-tool-versions.sh
 
+  link-check:
+    name: Link Check
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
+    steps:
+      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Check links
+        uses: lycheeverse/lychee-action@8646ba30535128ac92d33dfc9133794bfdd9b411 # v2.8.0
+        with:
+          args: >-
+            --no-progress
+            'README.md'
+            'CONTRIBUTING.md'
+            'SECURITY.md'
+            'docs/**/*.md'
+            'charts/attune/README.md'
+          fail: true
+
   yaml-lint:
     name: YAML Lint
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
@@ -262,6 +285,12 @@ jobs:
           path: test-results/
           retention-days: 7
 
+      - name: Test summary
+        if: always()
+        uses: test-summary/action@37b508cfee6d4d080eedd00b5bb240a6a784a6a5 # v2.6
+        with:
+          paths: test-results/unit.xml
+
       - name: Upload coverage
         uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6
         continue-on-error: true
@@ -341,6 +370,12 @@ jobs:
           name: integration-test-results
           path: test-results/
           retention-days: 7
+
+      - name: Test summary
+        if: always()
+        uses: test-summary/action@37b508cfee6d4d080eedd00b5bb240a6a784a6a5 # v2.6
+        with:
+          paths: test-results/integration.xml
 
   # Single-version E2E on every push/PR. Full K8s version matrix runs nightly.
   # Skipped for Dockerfile-only and workflow-only changes (e.g. Dependabot
@@ -737,6 +772,7 @@ jobs:
     needs:
       - lint
       - docs-check
+      - link-check
       - yaml-lint
       - test-unit
       - test-bench
@@ -752,6 +788,7 @@ jobs:
           results=( \
             "${{ needs.lint.result }}" \
             "${{ needs.docs-check.result }}" \
+            "${{ needs.link-check.result }}" \
             "${{ needs.yaml-lint.result }}" \
             "${{ needs.test-unit.result }}" \
             "${{ needs.test-bench.result }}" \
