@@ -1058,6 +1058,13 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 	createNamespace(t, ns)
 
 	// Phase 1: Deploy with sleep so the operator can resize first.
+	// Use 500m CPU / 64Mi memory. On K8s v1.33 the memory limit cannot
+	// decrease in-place (NotRequired resize policy), so the operator
+	// clamps memory to its current value and adjusts only CPU. A 500m
+	// initial ensures a visible delta from the recommendation (~50-100m
+	// for a sleep workload). Prior 100m initial failed on v1.33 because
+	// the recommendation landed too close to 100m after confidence
+	// inflation, triggering the "already at target" skip.
 	deploy := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "oom-app",
@@ -1085,11 +1092,11 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 						},
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{
-								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceCPU:    resource.MustParse("500m"),
 								corev1.ResourceMemory: resource.MustParse("64Mi"),
 							},
 							Limits: corev1.ResourceList{
-								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceCPU:    resource.MustParse("500m"),
 								corev1.ResourceMemory: resource.MustParse("64Mi"),
 							},
 						},
@@ -1153,7 +1160,7 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 	// just memory: on K8s v1.33, ClampMemoryLimitForPolicy prevents memory
 	// limit decreases for NotRequired containers, and QoS preservation then
 	// keeps the memory request at 64Mi too. CPU still changes normally.
-	require.NoError(t, wait.PollUntilContextTimeout(ctx, 2*time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 2*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
 		var pods corev1.PodList
 		if err := k8sClient.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{"app": "oom-app"}); err != nil {
 			return false, nil
@@ -1163,7 +1170,7 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 				if cs.Name == "app" {
 					cpuReq := cs.Resources.Requests.Cpu()
 					memReq := cs.Resources.Requests.Memory()
-					cpuChanged := cpuReq != nil && cpuReq.Cmp(resource.MustParse("100m")) != 0
+					cpuChanged := cpuReq != nil && cpuReq.Cmp(resource.MustParse("500m")) != 0
 					memChanged := memReq != nil && memReq.Cmp(resource.MustParse("64Mi")) != 0
 					if cpuChanged || memChanged {
 						t.Logf("Pod %s resources changed: cpu=%s mem=%s", pod.Name, cpuReq.String(), memReq.String())
