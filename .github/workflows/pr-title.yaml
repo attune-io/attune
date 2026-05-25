@@ -10,6 +10,7 @@ permissions:
 jobs:
   semantic-title:
     name: Semantic PR Title
+    if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
