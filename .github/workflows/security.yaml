@@ -12,14 +12,30 @@ on:
 permissions:
   contents: read
   pull-requests: read
+  security-events: write
 
 concurrency:
   group: security-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  # CodeQL requires GitHub Advanced Security (paid) for private repos.
-  # Re-enable if the repo becomes public or GHAS is purchased.
+  codeql:
+    name: CodeQL
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 15
+    steps:
+      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: github/codeql-action/init@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
+        with:
+          languages: go, actions
+      - uses: github/codeql-action/autobuild@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
+      - uses: github/codeql-action/analyze@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
+        with:
+          upload: always
+
   govulncheck:
     name: Govulncheck
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
@@ -158,18 +174,16 @@ jobs:
           export PATH="$HOME/.local/bin:$PATH"
           gitleaks detect --source . --exit-code 1
 
-  # Dependency Review requires GitHub Advanced Security (paid) for private repos.
-  # Trivy and Govulncheck already cover dependency vulnerability scanning.
-  # Re-enable if the repo becomes public or GHAS is purchased.
-  # dependency-review:
-  #   name: Dependency Review
-  #   runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
-  #   if: github.event_name == 'pull_request'
-  #   steps:
-  #     - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
-  #       with:
-  #         egress-policy: audit
-  #     - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-  #     - uses: actions/dependency-review-action@v5
-  #       with:
-  #         fail-on-severity: high
+  dependency-review:
+    name: Dependency Review
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
+        with:
+          fail-on-severity: high
