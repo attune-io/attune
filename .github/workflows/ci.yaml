@@ -414,7 +414,7 @@ jobs:
           cache: true
 
       - name: Cache E2E container images
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: |
             /tmp/cert-manager-controller.tar
