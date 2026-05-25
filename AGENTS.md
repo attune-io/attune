@@ -125,31 +125,14 @@ Use a typed `kubernetes.Clientset` and call `UpdateResize()`:
 clientset.CoreV1().Pods(ns).UpdateResize(ctx, name, pod, metav1.UpdateOptions{})
 ```
 
-`UpdateResize` must be wrapped in `retry.RetryOnConflict` because the kubelet
-concurrently updates pod status (conditions, containerStatuses) after applying
-a resize, which bumps `resourceVersion`. In multi-container pods where
-containers are resized sequentially, the second container's `UpdateResize`
-nearly always hits a 409 Conflict from the stale `resourceVersion`. The retry
-loop re-fetches the pod and reapplies the resource changes on each attempt.
+Wrap `UpdateResize` in `retry.RetryOnConflict` (kubelet and concurrent
+container resizes bump `resourceVersion`).
 See `internal/resize/engine.go` `ResizePod()`.
 
 **K8s v1.33 memory limit restriction:** Kubernetes v1.33 forbids decreasing a
-container's memory limit in-place when the resize policy is `NotRequired` (the
-default). The API server rejects with "memory limits cannot be decreased unless
-resizePolicy is RestartContainer". The operator handles this via
-`ClampMemoryLimitForPolicy` in `internal/resize/engine.go`, which preserves
-the current memory limit when a decrease would be rejected. This clamp must be
-applied **before** the QoS preservation check in `resizeContainer`, not after;
-otherwise a Guaranteed QoS pod passes the QoS check with the unclamped target
-but then has its limit preserved by the clamp, breaking requests == limits.
-K8s v1.34+ relaxed this restriction.
-
-The same clamp must also be applied on the **revert path** in
-`internal/safety/monitor.go` `RevertPod()`. A safety revert after OOMKill
-sets resources back to their original (lower) values; without the clamp,
-the memory limit decrease is rejected on v1.33 and the revert silently
-fails. This was the root cause of the `TestE2E_OOMKill_TriggersRevert`
-nightly failure on K8s v1.33 (fixed in `0e2a369`).
+container's memory limit in-place when the resize policy is `NotRequired`.
+The operator handles this via `ClampMemoryLimitForPolicy` in
+`internal/resize/engine.go`. K8s v1.34+ relaxed this restriction.
 
 ### Code generation
 
@@ -252,28 +235,21 @@ directory. When referencing files elsewhere in the repo (e.g., `charts/`,
   Every test creates a unique namespace via `uniqueNS()`, so they are fully
   isolated. Without `t.Parallel()`, 13 tests run sequentially (~12 min);
   with it, they run concurrently (~2 min, bounded by OOMKill at 127s).
-- E2E test policies must use `Cooldown: 1m` (the minimum). The operator requeues
-  after the cooldown period, even during the data collection phase (InsufficientData).
-  A longer cooldown (e.g., 10m) means the operator won't retry for 10 minutes if
-  the first reconcile finds no Prometheus data, causing `waitForResize` timeouts.
-  This was the root cause of the `TestE2E_OOMKill_TriggersRevert` flaky test
-  (failed in 6/8 CI runs, fixed in 523292a).
+- E2E test policies must use `Cooldown: 1m` (the minimum) to avoid long requeue
+  delays during data collection.
+- E2E test pods should use Burstable QoS (requests only, no CPU/memory limits)
+  unless testing QoS behavior specifically. Guaranteed QoS pods are harder to
+  schedule when 13 parallel tests compete for ~4 allocatable CPUs on the k3d
+  node. Keep CPU requests at or below 300m per test pod.
 
 ## CI
 
 - Runs on **GitHub-hosted runners** (`ubuntu-latest`) by default
-- All workflow jobs use `runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}`; set
-  the `RUNNER` repo variable to `self-hosted` to switch back without editing
-  workflow files
-- Fuzz tests: 1M iterations per target, 20-minute job timeout (tuned for
-  GitHub-hosted; self-hosted was 5M/10min)
-- E2E tests in CI are slower than self-hosted (~30 min for image pulls from
-  quay.io; no persistent Docker cache on ephemeral runners)
+- Fuzz tests: 30s time-based per target (coverage-guided, not iteration count)
 - E2E Nightly runs the full K8s version matrix (1.32, 1.33, 1.34, 1.35)
   sequentially; each version creates a fresh k3d cluster
-- Concurrency groups use `cancel-in-progress: false` on main to avoid killing
-  real CI runs; a stuck queued run in the group blocks all subsequent runs
-  (see self-hosted-runner skill lesson 35 for diagnosis)
+- Concurrency groups use `cancel-in-progress: false` on main; PRs targeting
+  main will not cancel in-flight CI runs
 
 ## Safety
 

@@ -168,12 +168,47 @@ To check queued or in-progress CI runs:
 make ci-runner-status
 ```
 
+## Developer Certificate of Origin (DCO)
+
+All contributions must be signed off under the
+[Developer Certificate of Origin](DCO) (DCO v1.1). This certifies that
+you wrote the contribution or otherwise have the right to submit it under
+the project's Apache 2.0 license.
+
+Add the sign-off by passing `-s` to `git commit`:
+
+```bash
+git commit -s -m "feat: add time-of-day-aware algorithm"
+```
+
+This appends a `Signed-off-by` trailer with your name and email:
+
+```
+Signed-off-by: Your Name <your@email.com>
+```
+
+The name and email must match your `git config user.name` and
+`git config user.email`. The [DCO GitHub App](https://github.com/apps/dco)
+checks every commit on pull requests and will block merging if any commit
+is missing the sign-off.
+
+If you forgot to sign off, amend your commits:
+
+```bash
+# Amend the last commit
+git commit --amend -s --no-edit
+
+# Sign off all commits on a branch
+git rebase --signoff main
+```
+
 ## Pull Request Process
 
 1. Fork the repository and create a branch from `main`
 2. Make your changes with tests
-3. Run `make verify` to run all CI checks locally
-4. Submit a pull request
+3. Sign off every commit (`git commit -s`)
+4. Run `make verify` to run all CI checks locally
+5. Submit a pull request
 
 ### Commit Messages
 
