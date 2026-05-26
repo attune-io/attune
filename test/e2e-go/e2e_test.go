@@ -569,8 +569,8 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 							Args:  []string{"--cpu", "1", "--cpu-load", "20", "--vm", "1", "--vm-bytes", "100M", "--timeout", "0"},
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
-									corev1.ResourceCPU:    resource.MustParse("300m"),
-									corev1.ResourceMemory: resource.MustParse("128Mi"),
+									corev1.ResourceCPU:    resource.MustParse("150m"),
+									corev1.ResourceMemory: resource.MustParse("96Mi"),
 								},
 							},
 						},
