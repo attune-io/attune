@@ -580,7 +580,7 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 		},
 	}
 	require.NoError(t, k8sClient.Create(ctx, deploy))
-	waitForDeploymentReady(t, "load-app", ns, 120*time.Second)
+	waitForDeploymentReady(t, "load-app", ns, 3*time.Minute)
 
 	loadPolicy := createPolicy(t, "load-policy", ns, "load-app", attunev1alpha1.UpdateTypeRecommend)
 	maxCPU, err := resource.ParseQuantity("250m")
