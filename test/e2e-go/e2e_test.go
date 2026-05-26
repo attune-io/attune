@@ -596,7 +596,11 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 
 	// Wait for the updated policy to produce a recommendation below the current request,
 	// proving the operator detected overprovisioning.
-	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
+	// CI note: this test is intentionally load-sensitive (synthetic stress-ng + recommendation engine
+	// + Prometheus scrape). Under parallel E2E load on GitHub-hosted k3d nodes it can take
+	// several minutes for the first recommendation + MaxAllowed bound to appear. We give it extra
+	// patience here only; all other Go E2E tests use shorter deadlines.
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 6*time.Minute, true, func(ctx context.Context) (bool, error) {
 		var latestPolicy attunev1alpha1.AttunePolicy
 		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "load-policy", Namespace: ns}, &latestPolicy); err != nil {
 			return false, nil
@@ -604,6 +608,8 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 		if latestPolicy.Status.Workloads.WithRecommendations == 0 ||
 			len(latestPolicy.Status.Recommendations) == 0 ||
 			len(latestPolicy.Status.Recommendations[0].Containers) == 0 {
+			t.Logf("load-policy: still waiting for first recommendation (withRecommendations=%d recs=%d)",
+				latestPolicy.Status.Workloads.WithRecommendations, len(latestPolicy.Status.Recommendations))
 			return false, nil
 		}
 		recCPU := latestPolicy.Status.Recommendations[0].Containers[0].Recommended.CPURequest.MilliValue()
