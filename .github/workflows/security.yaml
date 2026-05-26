@@ -11,8 +11,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: read
-  security-events: write
 
 concurrency:
   group: security-${{ github.ref }}
@@ -21,6 +19,9 @@ concurrency:
 jobs:
   codeql:
     name: CodeQL
+    permissions:
+      contents: read
+      security-events: write
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
     steps:

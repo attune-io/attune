@@ -5,12 +5,14 @@ on:
     types: [closed]
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   backport:
     name: Backport
+    permissions:
+      contents: write
+      pull-requests: write
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
     if: >
