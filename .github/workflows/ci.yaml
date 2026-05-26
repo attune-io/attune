@@ -27,6 +27,7 @@ env:
   CERT_MANAGER_VERSION: "v1.17.2"
   PROMETHEUS_IMAGE: "quay.io/prometheus/prometheus:v3.4.1"
   PROMETHEUS_CHART_VERSION: "27.22.0"
+  STRESS_NG_IMAGE: "ghcr.io/alexei-led/stress-ng:0.20.01"
 
 jobs:
   # Detect which files changed so downstream jobs can skip irrelevant work.
@@ -467,6 +468,7 @@ jobs:
           cert-manager-version: ${{ env.CERT_MANAGER_VERSION }}
           prometheus-image: ${{ env.PROMETHEUS_IMAGE }}
           prometheus-chart-version: ${{ env.PROMETHEUS_CHART_VERSION }}
+          stress-ng-image: ${{ env.STRESS_NG_IMAGE }}
 
       - name: Install Chainsaw
         uses: kyverno/action-install-chainsaw@1223ef75bedeb59c4e7b5455463d4316e76dff01 # v0.2.15
@@ -518,6 +520,7 @@ jobs:
           cert-manager-version: ${{ env.CERT_MANAGER_VERSION }}
           prometheus-image: ${{ env.PROMETHEUS_IMAGE }}
           prometheus-chart-version: ${{ env.PROMETHEUS_CHART_VERSION }}
+          stress-ng-image: ${{ env.STRESS_NG_IMAGE }}
 
       - name: Run Go E2E tests
         shell: bash -Eeuo pipefail -x {0}

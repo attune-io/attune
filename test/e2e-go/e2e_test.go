@@ -48,6 +48,8 @@ import (
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 )
 
+const defaultStressNGImage = "ghcr.io/alexei-led/stress-ng:0.20.01"
+
 var (
 	k8sClient  client.Client
 	clientset  *kubernetes.Clientset
@@ -55,10 +57,16 @@ var (
 	ctx        context.Context
 	cancel     context.CancelFunc
 	promAddr   = "http://prometheus-server.monitoring:80"
+	stressNGImage string
 )
 
 func TestMain(m *testing.M) {
 	ctx, cancel = context.WithTimeout(context.Background(), 20*time.Minute)
+
+	stressNGImage = os.Getenv("STRESS_NG_IMAGE")
+	if stressNGImage == "" {
+		stressNGImage = defaultStressNGImage
+	}
 
 	kubeconfig := os.Getenv("KUBECONFIG")
 	if kubeconfig == "" {
@@ -567,7 +575,7 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 					Containers: []corev1.Container{
 						{
 							Name:  "app",
-							Image: "ghcr.io/alexei-led/stress-ng:0.20.01",
+							Image: stressNGImage,
 							Args:  []string{"--cpu", "1", "--cpu-load", "20", "--timeout", "0"},
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
@@ -1091,7 +1099,7 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{{
 						Name:    "app",
-						Image:   "ghcr.io/alexei-led/stress-ng:0.20.01",
+						Image:   stressNGImage,
 						Command: []string{"/stress-ng", "--sleep", "1", "--timeout", "3600"},
 						ResizePolicy: []corev1.ContainerResizePolicy{
 							{ResourceName: corev1.ResourceCPU, RestartPolicy: corev1.NotRequired},
