@@ -13,7 +13,7 @@ spec:
     - name: attune
       rules:
         {{- if .Values.metrics.prometheusRule.rules.reconcileErrors.enabled }}
-        - alert: KubeRightsizeReconcileErrors
+        - alert: AttuneReconcileErrors
           expr: sum(rate(attune_reconcile_errors_total[5m])) > {{ .Values.metrics.prometheusRule.rules.reconcileErrors.threshold }}
           for: {{ .Values.metrics.prometheusRule.rules.reconcileErrors.for }}
           labels:
@@ -26,7 +26,7 @@ spec:
               Check the operator logs for details.
         {{- end }}
         {{- if .Values.metrics.prometheusRule.rules.prometheusUnreachable.enabled }}
-        - alert: KubeRightsizePrometheusUnreachable
+        - alert: AttunePrometheusUnreachable
           expr: sum(rate(attune_prometheus_query_errors_total[5m])) > 0
           for: {{ .Values.metrics.prometheusRule.rules.prometheusUnreachable.for }}
           labels:
@@ -39,7 +39,7 @@ spec:
               Verify the Prometheus address and connectivity.
         {{- end }}
         {{- if .Values.metrics.prometheusRule.rules.degraded.enabled }}
-        - alert: KubeRightsizeDegraded
+        - alert: AttuneDegraded
           expr: sum by (namespace, workload) (increase(attune_reverts_total[15m])) > 3
           for: {{ .Values.metrics.prometheusRule.rules.degraded.for }}
           labels:
@@ -53,7 +53,7 @@ spec:
               instability.
         {{- end }}
         {{- if .Values.metrics.prometheusRule.rules.highRevertRate.enabled }}
-        - alert: KubeRightsizeHighRevertRate
+        - alert: AttuneHighRevertRate
           expr: >-
             (
               sum(increase(attune_reverts_total[1h]))
@@ -72,7 +72,7 @@ spec:
               overhead settings and workload behavior.
         {{- end }}
         {{- if .Values.metrics.prometheusRule.rules.reconcileStale.enabled }}
-        - alert: KubeRightsizeReconcileStale
+        - alert: AttuneReconcileStale
           expr: changes(attune_reconcile_duration_seconds_count[{{ .Values.metrics.prometheusRule.rules.reconcileStale.staleDuration }}]) == 0
           for: {{ .Values.metrics.prometheusRule.rules.reconcileStale.for }}
           labels:

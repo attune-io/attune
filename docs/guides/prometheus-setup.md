@@ -289,10 +289,10 @@ This creates four alerts:
 
 | Alert | Fires when | Default severity |
 |-------|-----------|-----------------|
-| `KubeRightsizeReconcileErrors` | Reconcile error rate > 0 sustained for 10m | warning |
-| `KubeRightsizePrometheusUnreachable` | Prometheus query errors sustained for 10m | warning |
-| `KubeRightsizeDegraded` | More than 3 reverts in 15m for a workload | critical |
-| `KubeRightsizeReconcileStale` | No reconcile completes within 30m | warning |
+| `AttuneReconcileErrors` | Reconcile error rate > 0 sustained for 10m | warning |
+| `AttunePrometheusUnreachable` | Prometheus query errors sustained for 10m | warning |
+| `AttuneDegraded` | More than 3 reverts in 15m for a workload | critical |
+| `AttuneReconcileStale` | No reconcile completes within 30m | warning |
 
 Individual alerts can be disabled or tuned:
 
