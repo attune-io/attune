@@ -540,7 +540,11 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 	ns := uniqueNS("load")
 	createNamespace(t, ns)
 
-	// Deploy a workload using stress-ng to generate known CPU/memory load.
+	// Deploy a workload using stress-ng to generate known CPU load.
+	// Only the --cpu stressor is used; the --vm stressor is omitted because
+	// stress-ng exits with code 2 on K8s 1.33+ k3s builds (containerd/cgroup
+	// incompatibility). cAdvisor still reports memory working set bytes for
+	// the running container, so the operator gets both CPU and memory data.
 	// Moderate requests (150m/64Mi) so the pod schedules on the shared CI
 	// k3d node where 13 parallel E2E tests compete for ~4 CPUs. Burstable QoS
 	// (no limits) lets the container burst to its actual ~200m CPU usage.
@@ -564,7 +568,7 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 						{
 							Name:  "app",
 							Image: "ghcr.io/alexei-led/stress-ng:0.20.01",
-							Args:  []string{"--cpu", "1", "--cpu-load", "20", "--vm", "1", "--vm-bytes", "100M", "--timeout", "0"},
+							Args:  []string{"--cpu", "1", "--cpu-load", "20", "--timeout", "0"},
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
 									corev1.ResourceCPU:    resource.MustParse("150m"),
