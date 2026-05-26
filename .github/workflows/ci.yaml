@@ -420,222 +420,85 @@ jobs:
         with:
           paths: test-results/integration.xml
 
-  # Single-version E2E on every push/PR. Full K8s version matrix runs nightly.
-  # Skipped for Dockerfile-only and workflow-only changes (e.g. Dependabot
-  # base-image or action version bumps) because build + unit tests already
-  # verify compilation. The nightly E2E matrix catches runtime regressions.
-  test-e2e:
-    name: E2E Tests
+  # E2E tests split into two parallel jobs (Chainsaw + Go) for faster wall time.
+  # Each provisions its own k3d cluster via the shared setup-e2e-cluster action.
+  # Full K8s version matrix runs nightly; PR CI runs a single version.
+  # Skipped for Dockerfile-only and workflow-only changes.
+  test-e2e-chainsaw:
+    name: E2E Chainsaw
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
-    timeout-minutes: 75
+    timeout-minutes: 30
     needs: [changes, lint, test-unit]
     if: needs.changes.outputs.go-source == 'true'
     env:
-      K3D_CLUSTER_NAME: e2e-${{ github.run_id }}-${{ github.run_attempt }}
-      KUBECONFIG_BASENAME: attune-e2e-${{ github.run_id }}-${{ github.run_attempt }}.kubeconfig
+      K3D_CLUSTER_NAME: e2e-chainsaw-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
           egress-policy: audit
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - uses: ./.github/actions/setup-clean-docker-config
-
-      - name: Verify Docker and buildx
-        shell: bash -Eeuo pipefail {0}
-        run: |
-          echo "Docker version: $(docker version --format '{{.Client.Version}}')"
-          if ! docker buildx version >/dev/null 2>&1; then
-            echo "::error::Docker buildx is not available. Check that cli-plugins are accessible from DOCKER_CONFIG."
-            exit 1
-          fi
-          echo "buildx: $(docker buildx version)"
-
-      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+      - uses: ./.github/actions/setup-e2e-cluster
         with:
+          cluster-name: ${{ env.K3D_CLUSTER_NAME }}
+          kubeconfig-path: ${{ runner.temp }}/attune-e2e-chainsaw-${{ github.run_id }}.kubeconfig
           go-version: ${{ env.GO_VERSION }}
-          cache: true
-
-      - name: Cache E2E container images
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: |
-            /tmp/cert-manager-controller.tar
-            /tmp/cert-manager-webhook.tar
-            /tmp/cert-manager-cainjector.tar
-            /tmp/prometheus.tar
-          key: e2e-images-${{ runner.os }}-cm${{ env.CERT_MANAGER_VERSION }}-prom${{ env.PROMETHEUS_CHART_VERSION }}
-
-      - name: Install k3d
-        shell: bash -Eeuo pipefail -x {0}
-        run: |
-          mkdir -p "$HOME/.local/bin"
-          if command -v k3d &>/dev/null; then
-            echo "k3d already installed: $(k3d version)"
-          else
-            curl -s https://raw.githubusercontent.com/k3d-io/k3d/${{ env.K3D_VERSION }}/install.sh | K3D_INSTALL_DIR="$HOME/.local/bin" USE_SUDO=false bash
-          fi
-
-      - name: Prepare isolated kubeconfig
-        shell: bash -Eeuo pipefail -x {0}
-        run: |
-          kubeconfig_path="${RUNNER_TEMP:-/tmp}/${KUBECONFIG_BASENAME}"
-          printf 'KUBECONFIG=%s\n' "$kubeconfig_path" >> "$GITHUB_ENV"
-
-      - name: Cleanup stale k3d clusters and Docker resources
-        shell: bash -Eeuo pipefail -x {0}
-        run: |
-          export PATH="$HOME/.local/bin:$PATH"
-          for cluster in $(k3d cluster list -o json 2>/dev/null | jq -r '.[].name // empty'); do
-            started=$(docker inspect --format '{{.State.StartedAt}}' "k3d-${cluster}-server-0" 2>/dev/null) || continue
-            started_epoch=$(date -d "$started" +%s 2>/dev/null) || continue
-            age=$(( $(date +%s) - started_epoch ))
-            if (( age > 3600 )); then
-              echo "Deleting stale k3d cluster '$cluster' (age: ${age}s)"
-              k3d cluster delete "$cluster" || true
-            fi
-          done
-          docker builder prune -f || true
-          docker system prune -f || true
-
-      - name: Pre-pull cert-manager and Prometheus images
-        shell: bash -Eeuo pipefail -x {0}
-        run: |
-          # Pull images with docker (parallel layer downloads) and save as
-          # tarballs for k3d import. Skip images already restored from cache.
-          pull_and_save() {
-            local image="$1" tarball="$2"
-            [[ -f "$tarball" ]] && { echo "Cached: $tarball"; return 0; }
-            docker pull --platform linux/amd64 "$image"
-            docker save "$image" -o "$tarball"
-          }
-          pull_and_save "quay.io/jetstack/cert-manager-controller:${{ env.CERT_MANAGER_VERSION }}" /tmp/cert-manager-controller.tar
-          pull_and_save "quay.io/jetstack/cert-manager-webhook:${{ env.CERT_MANAGER_VERSION }}" /tmp/cert-manager-webhook.tar
-          pull_and_save "quay.io/jetstack/cert-manager-cainjector:${{ env.CERT_MANAGER_VERSION }}" /tmp/cert-manager-cainjector.tar
-          pull_and_save "${{ env.PROMETHEUS_IMAGE }}" /tmp/prometheus.tar
-
-      - name: Create k3d cluster
-        shell: bash -Eeuo pipefail -x {0}
-        run: |
-          export PATH="$HOME/.local/bin:$PATH"
-          for attempt in 1 2 3; do
-            if k3d cluster create "$K3D_CLUSTER_NAME" \
-              --image ${{ env.K3S_IMAGE }} \
-              --kubeconfig-update-default=false \
-              --kubeconfig-switch-context=false \
-              --k3s-arg "--disable=traefik,servicelb@server:*" \
-              --wait --timeout 120s; then
-              break
-            fi
-            echo "::warning::k3d cluster create attempt $attempt failed, retrying in 10s..."
-            k3d cluster delete "$K3D_CLUSTER_NAME" 2>/dev/null || true
-            sleep 10
-            if (( attempt == 3 )); then
-              echo "::error::k3d cluster creation failed after 3 attempts"
-              exit 1
-            fi
-          done
-          k3d kubeconfig write "$K3D_CLUSTER_NAME" --output "$KUBECONFIG"
-          chmod 600 "$KUBECONFIG"
-
-      - name: Wait for node Ready
-        shell: bash -Eeuo pipefail -x {0}
-        run: |
-          echo "Waiting for k3d node to become Ready..."
-          kubectl wait --for=condition=Ready nodes --all --timeout=360s
-
-      - name: Load cert-manager images into cluster
-        shell: bash -Eeuo pipefail -x {0}
-        run: |
-          export PATH="$HOME/.local/bin:$PATH"
-          k3d image import \
-            /tmp/cert-manager-controller.tar \
-            /tmp/cert-manager-webhook.tar \
-            /tmp/cert-manager-cainjector.tar \
-            -c "$K3D_CLUSTER_NAME"
-
-      - name: Install cert-manager
-        shell: bash -Eeuo pipefail -x {0}
-        run: |
-          kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/${{ env.CERT_MANAGER_VERSION }}/cert-manager.yaml
-          kubectl wait --for=condition=Available deployment/cert-manager -n cert-manager --timeout=120s
-          kubectl wait --for=condition=Available deployment/cert-manager-webhook -n cert-manager --timeout=120s
-          kubectl wait --for=condition=Available deployment/cert-manager-cainjector -n cert-manager --timeout=120s
-
-      - name: Load Prometheus image into cluster
-        shell: bash -Eeuo pipefail -x {0}
-        run: |
-          export PATH="$HOME/.local/bin:$PATH"
-          k3d image import /tmp/prometheus.tar -c "$K3D_CLUSTER_NAME"
-
-      - name: Install Prometheus
-        shell: bash -Eeuo pipefail -x {0}
-        run: |
-          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-          helm repo update
-          helm install prometheus prometheus-community/prometheus \
-            --version ${{ env.PROMETHEUS_CHART_VERSION }} \
-            --namespace monitoring --create-namespace \
-            --set server.image.repository=quay.io/prometheus/prometheus \
-            --set server.image.tag=v3.4.1 \
-            --set server.persistentVolume.enabled=false \
-            --set alertmanager.enabled=false \
-            --set prometheus-pushgateway.enabled=false \
-            --set server.global.scrape_interval=15s \
-            --wait --timeout 5m
-
-      - name: Wait for cAdvisor metrics in Prometheus
-        shell: bash -Eeuo pipefail -x {0}
-        run: |
-          echo "Waiting for Prometheus to scrape cAdvisor metrics..."
-          PROM_POD=$(kubectl get pods -n monitoring -l app.kubernetes.io/name=prometheus,app.kubernetes.io/component=server -o name | head -1)
-          for i in $(seq 1 30); do
-            result=$(kubectl exec -n monitoring "$PROM_POD" -- \
-              wget -qO- 'http://localhost:9090/api/v1/query?query=container_cpu_usage_seconds_total' 2>/dev/null || true)
-            if echo "$result" | grep -q '"result":\[{'; then
-              echo "cAdvisor metrics available after ${i}x5s"
-              break
-            fi
-            if [ "$i" -eq 30 ]; then
-              echo "WARNING: cAdvisor metrics not found after 150s, proceeding anyway"
-            fi
-            sleep 5
-          done
-
-      - name: Build and load operator image
-        shell: bash -Eeuo pipefail -x {0}
-        run: |
-          export PATH="$HOME/.local/bin:$PATH"
-          # Use ko to build the image as an OCI tarball. This bypasses the
-          # Docker daemon entirely, avoiding containerd storage races (#462).
-          go install github.com/google/ko@v0.18.0
-          VERSION=e2e COMMIT=$(git rev-parse --short HEAD) DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
-            KO_DOCKER_REPO=attune ko build ./cmd/manager/ \
-            --bare --tags=e2e --platform=linux/$(go env GOARCH) \
-            --tarball=/tmp/attune-e2e.tar --push=false
-          # k3d accepts OCI tarballs directly; no docker save needed.
-          k3d image import /tmp/attune-e2e.tar -c "$K3D_CLUSTER_NAME"
-
-      - name: Install operator via Helm
-        shell: bash -Eeuo pipefail -x {0}
-        run: |
-          helm install attune ./charts/attune \
-            --namespace attune-system --create-namespace \
-            --set image.repository=attune \
-            --set image.tag=e2e \
-            --set image.pullPolicy=Never \
-            --set webhooks.enabled=true \
-            --set metrics.enabled=true \
-            --set leaderElection.enabled=false \
-            --set maxConcurrentReconciles=4 \
-            --set resources.limits.memory=512Mi \
-            --set resources.requests.memory=256Mi \
-            --wait --timeout 3m
+          k3d-version: ${{ env.K3D_VERSION }}
+          k3s-image: ${{ env.K3S_IMAGE }}
+          cert-manager-version: ${{ env.CERT_MANAGER_VERSION }}
+          prometheus-image: ${{ env.PROMETHEUS_IMAGE }}
+          prometheus-chart-version: ${{ env.PROMETHEUS_CHART_VERSION }}
 
       - name: Install Chainsaw
         uses: kyverno/action-install-chainsaw@1223ef75bedeb59c4e7b5455463d4316e76dff01 # v0.2.15
       - shell: bash -Eeuo pipefail -x {0}
         run: chainsaw test test/e2e/ --config .chainsaw.yaml
+
+      - name: Collect debug info on failure
+        if: failure()
+        shell: bash -Eeuo pipefail {0}
+        run: |
+          echo "=== cert-manager pods ==="
+          kubectl get pods -n cert-manager
+          echo "=== Operator logs ==="
+          kubectl logs -n attune-system -l app.kubernetes.io/name=attune --tail=100 || true
+          echo "=== Pod status ==="
+          kubectl get pods -A
+          echo "=== Events ==="
+          kubectl get events -A --sort-by='.lastTimestamp' | tail -30
+
+      - name: Cleanup k3d cluster
+        if: always()
+        shell: bash -Eeuo pipefail {0}
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          k3d cluster delete "$K3D_CLUSTER_NAME" 2>/dev/null || true
+          rm -f "$KUBECONFIG"
+
+  test-e2e-go:
+    name: E2E Go
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    needs: [changes, lint, test-unit]
+    if: needs.changes.outputs.go-source == 'true'
+    env:
+      K3D_CLUSTER_NAME: e2e-go-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - uses: ./.github/actions/setup-e2e-cluster
+        with:
+          cluster-name: ${{ env.K3D_CLUSTER_NAME }}
+          kubeconfig-path: ${{ runner.temp }}/attune-e2e-go-${{ github.run_id }}.kubeconfig
+          go-version: ${{ env.GO_VERSION }}
+          k3d-version: ${{ env.K3D_VERSION }}
+          k3s-image: ${{ env.K3S_IMAGE }}
+          cert-manager-version: ${{ env.CERT_MANAGER_VERSION }}
+          prometheus-image: ${{ env.PROMETHEUS_IMAGE }}
+          prometheus-chart-version: ${{ env.PROMETHEUS_CHART_VERSION }}
 
       - name: Run Go E2E tests
         shell: bash -Eeuo pipefail -x {0}
@@ -820,7 +683,8 @@ jobs:
       - test-unit
       - test-bench
       - test-integration
-      - test-e2e
+      - test-e2e-chainsaw
+      - test-e2e-go
       - crd-freshness
       - helm-lint
       - build
@@ -836,7 +700,8 @@ jobs:
             "${{ needs.test-unit.result }}" \
             "${{ needs.test-bench.result }}" \
             "${{ needs.test-integration.result }}" \
-            "${{ needs.test-e2e.result }}" \
+            "${{ needs.test-e2e-chainsaw.result }}" \
+            "${{ needs.test-e2e-go.result }}" \
             "${{ needs.crd-freshness.result }}" \
             "${{ needs.helm-lint.result }}" \
             "${{ needs.build.result }}" \
