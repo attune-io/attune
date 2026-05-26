@@ -300,11 +300,21 @@ jobs:
           fail_ci_if_error: false
 
   test-bench:
-    name: Benchmark Tests
+    name: Benchmark Tests (${{ matrix.pkg }})
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
     needs: changes
     if: needs.changes.outputs.go == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - pkg: controller
+            path: ./internal/controller/...
+          - pkg: metrics
+            path: ./internal/metrics/...
+          - pkg: recommendation
+            path: ./internal/recommendation/...
     steps:
       - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
@@ -324,13 +334,13 @@ jobs:
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: bench-baseline.txt
-          key: bench-baseline-${{ runner.os }}-${{ hashFiles('go.sum') }}
-          restore-keys: bench-baseline-${{ runner.os }}-
+          key: bench-baseline-${{ matrix.pkg }}-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: bench-baseline-${{ matrix.pkg }}-${{ runner.os }}-
 
       - name: Run benchmarks
         shell: bash -Eeuo pipefail -x {0}
         run: |
-          go test ./internal/... -bench=. -benchmem -run='^$' \
+          go test ${{ matrix.path }} -bench=. -benchmem -run='^$' \
             -count=5 -timeout=10m | tee bench-current.txt
 
       - name: Compare with baseline
@@ -360,7 +370,7 @@ jobs:
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: bench-baseline.txt
-          key: bench-baseline-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          key: bench-baseline-${{ matrix.pkg }}-${{ runner.os }}-${{ hashFiles('go.sum') }}
 
   test-integration:
     name: Integration Tests
