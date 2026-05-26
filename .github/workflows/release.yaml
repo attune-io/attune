@@ -10,9 +10,10 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
+  actions: read     # For SLSA provenance
   contents: write
   packages: write
-  id-token: write  # For cosign keyless signing
+  id-token: write   # For cosign keyless signing
 
 env:
   GO_VERSION: "1.26"
@@ -25,6 +26,9 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      hashes: ${{ steps.hash.outputs.hashes }}
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
@@ -59,6 +63,12 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate provenance subjects
+        id: hash
+        shell: bash -Eeuo pipefail {0}
+        run: |
+          echo "hashes=$(cat goreleaser-dist/checksums.txt | base64 -w0)" >> "$GITHUB_OUTPUT"
 
       - name: Build and push multi-arch image
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
@@ -166,3 +176,33 @@ jobs:
           VERSION="${VERSION#v}"
           cosign sign --yes \
             ${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/attune:${VERSION}
+
+  # SLSA Level 3 provenance for GoReleaser binary artifacts.
+  # Runs as a reusable workflow (required for non-forgeable provenance).
+  provenance:
+    name: Binary Provenance
+    needs: [release]
+    permissions:
+      actions: read
+      id-token: write
+      contents: write
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@f7dd8c54c2067bafc12ca7a55595d5ee9b75204a # v2.1.0
+    with:
+      base64-subjects: "${{ needs.release.outputs.hashes }}"
+      upload-assets: true
+
+  # SLSA Level 3 provenance for the container image.
+  container-provenance:
+    name: Container Provenance
+    needs: [release]
+    permissions:
+      actions: read
+      id-token: write
+      packages: write
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@f7dd8c54c2067bafc12ca7a55595d5ee9b75204a # v2.1.0
+    with:
+      image: ghcr.io/${{ github.repository }}
+      digest: ${{ needs.release.outputs.digest }}
+      registry-username: ${{ github.actor }}
+    secrets:
+      registry-password: ${{ secrets.GITHUB_TOKEN }}
