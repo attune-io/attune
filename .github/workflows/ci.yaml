@@ -312,9 +312,12 @@ jobs:
           - pkg: controller-core
             path: ./internal/controller/...
             bench: '^Benchmark(BuildPrometheusQuery|Reconcile$|ComputeRecommendations)'
-          - pkg: controller-scale
+          - pkg: controller-workloads
             path: ./internal/controller/...
-            bench: '^BenchmarkReconcile_(Many|Concurrent)'
+            bench: '^BenchmarkReconcile_ManyWorkloads'
+          - pkg: controller-policies
+            path: ./internal/controller/...
+            bench: '^BenchmarkReconcile_(ManyPolicies|Concurrent)'
           - pkg: metrics
             path: ./internal/metrics/...
             bench: '.'
