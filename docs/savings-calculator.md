@@ -451,13 +451,13 @@ function calculate() {
   const breakdown = [];
 
   workloads.forEach(w => {
-    const cpuRightsized = Math.max(w.cpuP95 * cpuMargin, w.cpuP95);
-    const memRightsized = Math.max(w.memP95 * memMargin, w.memP95);
+    const cpuTuned = Math.max(w.cpuP95 * cpuMargin, w.cpuP95);
+    const memTuned = Math.max(w.memP95 * memMargin, w.memP95);
 
     const cpuCurrentCost = (w.cpuReq / 1000) * cpuPrice * hoursPerMonth * w.replicas;
     const memCurrentCost = (w.memReq / 1024) * memPrice * hoursPerMonth * w.replicas;
-    const cpuNewCost = (Math.min(cpuRightsized, w.cpuReq) / 1000) * cpuPrice * hoursPerMonth * w.replicas;
-    const memNewCost = (Math.min(memRightsized, w.memReq) / 1024) * memPrice * hoursPerMonth * w.replicas;
+    const cpuNewCost = (Math.min(cpuTuned, w.cpuReq) / 1000) * cpuPrice * hoursPerMonth * w.replicas;
+    const memNewCost = (Math.min(memTuned, w.memReq) / 1024) * memPrice * hoursPerMonth * w.replicas;
 
     const monthlySaved = (cpuCurrentCost + memCurrentCost) - (cpuNewCost + memNewCost);
     totalMonthlySavings += monthlySaved;
@@ -469,15 +469,15 @@ function calculate() {
     totalMemReq += w.memReq * w.replicas;
     totalMemP95 += w.memP95 * w.replicas;
 
-    const cpuUnderProv = cpuRightsized > w.cpuReq && w.cpuReq > 0;
-    const memUnderProv = memRightsized > w.memReq && w.memReq > 0;
+    const cpuUnderProv = cpuTuned > w.cpuReq && w.cpuReq > 0;
+    const memUnderProv = memTuned > w.memReq && w.memReq > 0;
 
     breakdown.push({
       name: w.name,
       cpuReq: w.cpuReq,
-      cpuNew: Math.round(cpuUnderProv ? cpuRightsized : Math.min(cpuRightsized, w.cpuReq)),
+      cpuNew: Math.round(cpuUnderProv ? cpuTuned : Math.min(cpuTuned, w.cpuReq)),
       memReq: w.memReq,
-      memNew: Math.round(memUnderProv ? memRightsized : Math.min(memRightsized, w.memReq)),
+      memNew: Math.round(memUnderProv ? memTuned : Math.min(memTuned, w.memReq)),
       saved: monthlySaved,
       underProv: cpuUnderProv || memUnderProv
     });
@@ -494,18 +494,18 @@ function calculate() {
   document.getElementById('overallReduction').textContent = reduction + '%';
 
   const cpuUtilBefore = totalCpuReq > 0 ? Math.round((totalCpuP95 / totalCpuReq) * 100) : 0;
-  const cpuRightsizedTotal = totalCpuP95 * cpuMargin;
-  const cpuUtilAfter = cpuRightsizedTotal > 0
-    ? Math.min(100, Math.round((totalCpuP95 / Math.min(cpuRightsizedTotal, totalCpuReq)) * 100))
+  const cpuTunedTotal = totalCpuP95 * cpuMargin;
+  const cpuUtilAfter = cpuTunedTotal > 0
+    ? Math.min(100, Math.round((totalCpuP95 / Math.min(cpuTunedTotal, totalCpuReq)) * 100))
     : 0;
   document.getElementById('cpuUtilBefore').textContent = cpuUtilBefore + '%';
   document.getElementById('cpuUtilAfter').textContent = cpuUtilAfter + '%';
   document.getElementById('cpuBar').style.width = cpuUtilAfter + '%';
 
   const memUtilBefore = totalMemReq > 0 ? Math.round((totalMemP95 / totalMemReq) * 100) : 0;
-  const memRightsizedTotal = totalMemP95 * memMargin;
-  const memUtilAfter = memRightsizedTotal > 0
-    ? Math.min(100, Math.round((totalMemP95 / Math.min(memRightsizedTotal, totalMemReq)) * 100))
+  const memTunedTotal = totalMemP95 * memMargin;
+  const memUtilAfter = memTunedTotal > 0
+    ? Math.min(100, Math.round((totalMemP95 / Math.min(memTunedTotal, totalMemReq)) * 100))
     : 0;
   document.getElementById('memUtilBefore').textContent = memUtilBefore + '%';
   document.getElementById('memUtilAfter').textContent = memUtilAfter + '%';

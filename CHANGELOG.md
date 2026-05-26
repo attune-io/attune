@@ -25,7 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Per-policy reconcile duration panel in Grafana dashboard (p99/p50 by namespace and policy)
 - ReplicaSet as a supported target workload kind with adapter, RBAC, and Helm clusterrole
 - Cross-namespace Secret reference rejection in webhook validation
-- `KubeRightsizeHighRevertRate` PrometheusRule alert in Helm chart
+- `AttuneHighRevertRate` PrometheusRule alert in Helm chart
 - Configurable `burstSensitivity` per resource: controls how much burst detection inflates recommendations (default 0.1, set 0 to disable)
 - Canary auto-promotion resets on spec change: editing a policy restarts the observation cycle so new configuration is re-validated
 - `attune_burst_factor` Prometheus metric and Grafana dashboard panel showing burst detection multiplier per workload
