@@ -158,7 +158,7 @@ jobs:
       - name: Install MkDocs
         shell: bash -Eeuo pipefail {0}
         run: |
-          python3 -m pip install --user --break-system-packages mkdocs-material
+          python3 -m pip install --user --break-system-packages mkdocs-material==9.7.6
           echo "$(python3 -m site --user-base)/bin" >> "$GITHUB_PATH"
 
       - name: Build docs site
