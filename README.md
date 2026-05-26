@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/logo.jpg" alt="Attune logo" width="200">
+  <img src="docs/logo.png" alt="Attune logo" width="200">
 </p>
 
 # Attune
