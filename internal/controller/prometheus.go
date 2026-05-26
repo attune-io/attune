@@ -161,7 +161,7 @@ func secretForCacheKey(val string) string {
 		return ""
 	}
 	h := fnv.New64a()
-	h.Write([]byte(val))
+	_, _ = h.Write([]byte(val))
 	return fmt.Sprintf("%x", h.Sum64())
 }
 
