@@ -309,12 +309,21 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - pkg: controller
+          - pkg: controller-core
             path: ./internal/controller/...
+            bench: '^Benchmark(BuildPrometheusQuery|Reconcile$|ComputeRecommendations)'
+          - pkg: controller-workloads
+            path: ./internal/controller/...
+            bench: '^BenchmarkReconcile_ManyWorkloads'
+          - pkg: controller-policies
+            path: ./internal/controller/...
+            bench: '^BenchmarkReconcile_(ManyPolicies|Concurrent)'
           - pkg: metrics
             path: ./internal/metrics/...
+            bench: '.'
           - pkg: recommendation
             path: ./internal/recommendation/...
+            bench: '.'
     steps:
       - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
@@ -340,7 +349,7 @@ jobs:
       - name: Run benchmarks
         shell: bash -Eeuo pipefail -x {0}
         run: |
-          go test ${{ matrix.path }} -bench=. -benchmem -run='^$' \
+          go test ${{ matrix.path }} -bench='${{ matrix.bench }}' -benchmem -run='^$' \
             -count=5 -timeout=10m | tee bench-current.txt
 
       - name: Compare with baseline
