@@ -9,3 +9,4 @@ exclude_loopback = true
 max_concurrency = 8
 timeout = 30
 max_retries = 3
+retry_wait_time = 5

@@ -689,6 +689,8 @@ jobs:
   # Gate job: always runs, aggregates all conditional job results.
   # This is the ONLY required status check for branch protection,
   # so docs-only PRs (where Go jobs are skipped) can still merge.
+  # Note: link-check is excluded from the gate because external sites
+  # (e.g. kubernetes.io) have transient connectivity issues on CI runners.
   ci-gate:
     name: CI Gate
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
@@ -697,7 +699,6 @@ jobs:
     needs:
       - lint
       - docs-check
-      - link-check
       - yaml-lint
       - test-unit
       - test-bench
@@ -714,7 +715,6 @@ jobs:
           results=( \
             "${{ needs.lint.result }}" \
             "${{ needs.docs-check.result }}" \
-            "${{ needs.link-check.result }}" \
             "${{ needs.yaml-lint.result }}" \
             "${{ needs.test-unit.result }}" \
             "${{ needs.test-bench.result }}" \
