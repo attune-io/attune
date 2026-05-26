@@ -202,6 +202,20 @@ someValue: "default"
 Using `# --` on every line causes helm-docs to treat each line as a
 separate parameter description, producing garbled output.
 
+### Pull request titles and commit messages
+
+The repository enforces semantic PR titles via [.github/workflows/pr-title.yaml](.github/workflows/pr-title.yaml) (the `amannn/action-semantic-pull-request` action).
+
+- Allowed types: `feat`, `fix`, `docs`, `ci`, `refactor`, `test`, `chore`, `perf`, `build`, `revert`.
+- The subject (text after `type: `) **must start with a lowercase letter** (`subjectPattern: ^[a-z].+$`).
+  - Good: `fix: e2e nightly RealisticLoad timeout + safe cache keys for secrets (no SHA256)`
+  - Bad: `fix: E2E nightly ...` (capital E fails the regex and blocks the PR immediately).
+- The check runs on PR open/edit/synchronize and validates the PR title (and frequently the head commit message).
+- Dependabot PRs are automatically exempted by the workflow.
+- Always commit with `-s` (`git commit -s` or `git commit --amend -s`) so DCO passes. Never leave unexpanded shell like `$(git config user.name)` in the `Signed-off-by` line.
+
+When creating branches, commits, or PRs, make the first line a valid semantic title so the gate passes on the first attempt. This avoids immediate CI failures and repeated title edits.
+
 ### MkDocs documentation links
 
 MkDocs strict mode rejects relative links that resolve outside the `docs/`
