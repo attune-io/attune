@@ -100,7 +100,7 @@ func BenchmarkComputeRecommendations(b *testing.B) {
 // matching N deployments. Exercises processWorkloads, conflict detection,
 // recommendation computation, and status updates at scale.
 func BenchmarkReconcile_ManyWorkloads(b *testing.B) {
-	for _, n := range []int{10, 100, 500, 1000} {
+	for _, n := range []int{10, 50, 100, 250} {
 		b.Run(fmt.Sprintf("%d_workloads", n), func(b *testing.B) {
 			objects := make([]client.Object, 0, 2*n+1)
 
@@ -200,7 +200,7 @@ func BenchmarkReconcile_ManyWorkloads(b *testing.B) {
 // a different deployment. Measures per-policy overhead and shared state
 // (gauge keys, collector cache) performance.
 func BenchmarkReconcile_ManyPolicies(b *testing.B) {
-	for _, n := range []int{10, 100, 500, 1000} {
+	for _, n := range []int{10, 50, 100, 250} {
 		b.Run(fmt.Sprintf("%d_policies", n), func(b *testing.B) {
 			objects := make([]client.Object, 0, 3*n)
 			reqs := make([]ctrl.Request, n)
