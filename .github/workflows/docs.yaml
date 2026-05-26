@@ -12,8 +12,6 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: docs
@@ -29,7 +27,7 @@ jobs:
 
       - name: Install MkDocs
         run: |
-          python3 -m pip install --user --break-system-packages mkdocs-material
+          python3 -m pip install --user --break-system-packages mkdocs-material==9.7.6
           echo "$(python3 -m site --user-base)/bin" >> "$GITHUB_PATH"
 
       - name: Build site
@@ -45,6 +43,9 @@ jobs:
     needs: build
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 5
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
