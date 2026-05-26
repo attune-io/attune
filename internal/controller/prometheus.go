@@ -181,7 +181,7 @@ func collectorCacheKey(config *attunev1alpha1.PrometheusConfig, opts *rsmetrics.
 	}
 	key := collectorConfigPrefix(config.Address, headers, tlsConfig)
 	if opts != nil && opts.BearerToken != "" {
-		sum := sha256.Sum256([]byte(opts.BearerToken))
+		sum := sha256.Sum256([]byte(opts.BearerToken)) //nolint:gosec // cache key derivation, not password storage
 		key += fmt.Sprintf("|bearer:%x", sum[:8])
 	}
 	if opts != nil && len(opts.QueryParameters) > 0 {
@@ -557,7 +557,7 @@ func (r *AttunePolicyReconciler) resolveDatadogCollector(ctx context.Context, po
 
 	// Cache the collector keyed by site + API key hash, with full
 	// TTL eviction, capacity bound, and race-safe LoadOrStore.
-	cacheKey := fmt.Sprintf("datadog:%s|%x", site, sha256.Sum256([]byte(apiKey)))
+	cacheKey := fmt.Sprintf("datadog:%s|%x", site, sha256.Sum256([]byte(apiKey))) //nolint:gosec // cache key derivation, not password storage
 	collector, err := r.getOrCreateCollectorByKey(cacheKey, "datadog:"+site, func() (rsmetrics.MetricsCollector, error) {
 		inner := rsmetrics.NewDatadogCollector(site, apiKey, appKey, log.FromContext(ctx).WithName("datadog"))
 		// Datadog: 300 requests/hour => ~0.08 QPS; burst of 3 for concurrent queries.
