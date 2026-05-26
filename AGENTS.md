@@ -247,7 +247,7 @@ directory. When referencing files elsewhere in the repo (e.g., `charts/`,
 - Runs on **GitHub-hosted runners** (`ubuntu-latest`) by default
 - Fuzz tests: 30s time-based per target (coverage-guided, not iteration count)
 - E2E Nightly runs the full K8s version matrix (1.32, 1.33, 1.34, 1.35)
-  sequentially; each version creates a fresh k3d cluster
+  in parallel (max-parallel: 4); each version creates a fresh k3d cluster
 - Concurrency groups use `cancel-in-progress: false` on main; PRs targeting
   main will not cancel in-flight CI runs
 
