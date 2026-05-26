@@ -212,6 +212,7 @@ The repository enforces semantic PR titles via [.github/workflows/pr-title.yaml]
   - Bad: `fix: E2E nightly ...` (capital E fails the regex and blocks the PR immediately).
 - The check runs on PR open/edit/synchronize and validates the PR title (and frequently the head commit message).
 - Dependabot PRs are automatically exempted by the workflow.
+- Always commit with `-s` (`git commit -s` or `git commit --amend -s`) so DCO passes. Never leave unexpanded shell like `$(git config user.name)` in the `Signed-off-by` line.
 
 When creating branches, commits, or PRs, make the first line a valid semantic title so the gate passes on the first attempt. This avoids immediate CI failures and repeated title edits.
 
