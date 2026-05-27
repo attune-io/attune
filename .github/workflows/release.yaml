@@ -214,7 +214,9 @@ jobs:
       actions: read
       id-token: write
       contents: write
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@f7dd8c54c2067bafc12ca7a55595d5ee9b75204a # v2.1.0
+    # NOTE: SLSA reusable workflows require tag refs (not SHA pins) for
+    # self-verification of the builder binary.
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
     with:
       base64-subjects: "${{ needs.release.outputs.hashes }}"
       upload-assets: true
@@ -227,7 +229,9 @@ jobs:
       actions: read
       id-token: write
       packages: write
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@f7dd8c54c2067bafc12ca7a55595d5ee9b75204a # v2.1.0
+    # NOTE: SLSA reusable workflows require tag refs (not SHA pins) for
+    # self-verification of the builder binary.
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v2.1.0
     with:
       image: ghcr.io/${{ github.repository }}
       digest: ${{ needs.release.outputs.digest }}
