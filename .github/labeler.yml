@@ -1,0 +1,33 @@
+area/api:
+  - changed-files:
+      - any-glob-to-any-file: "api/**"
+
+area/controller:
+  - changed-files:
+      - any-glob-to-any-file: "internal/**"
+
+area/helm:
+  - changed-files:
+      - any-glob-to-any-file: "charts/**"
+
+area/ci:
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/**"
+          - "Makefile"
+
+area/docs:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "docs/**"
+          - "*.md"
+
+area/e2e:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "test/**"
+          - ".chainsaw.yaml"
+
+area/cli:
+  - changed-files:
+      - any-glob-to-any-file: "cmd/kubectl-attune/**"
