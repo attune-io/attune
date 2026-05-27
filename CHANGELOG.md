@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.4](https://github.com/attune-io/attune/compare/v0.1.3...v0.1.4) (2026-05-27)
+
+
+### Features
+
+* add arm/v7, ppc64le, and s390x architecture support ([bc3f814](https://github.com/attune-io/attune/commit/bc3f814283533990e4377c94c0f43750bd554aac))
+
+
+### Bug Fixes
+
+* use stable checksums filename for SLSA provenance ([6e5c151](https://github.com/attune-io/attune/commit/6e5c151989e8f6c99118dac5a29ef72126fbdd3d))
+
 ## [0.1.3](https://github.com/attune-io/attune/compare/v0.1.2...v0.1.3) (2026-05-27)
 
 
