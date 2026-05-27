@@ -44,6 +44,8 @@ import (
 	"k8s.io/client-go/tools/remotecommand"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	crlog "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 )
@@ -61,6 +63,7 @@ var (
 )
 
 func TestMain(m *testing.M) {
+	crlog.SetLogger(zap.New(zap.WriteTo(io.Discard)))
 	ctx, cancel = context.WithTimeout(context.Background(), 20*time.Minute)
 
 	stressNGImage = os.Getenv("STRESS_NG_IMAGE")
