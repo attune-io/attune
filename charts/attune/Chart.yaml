@@ -5,7 +5,7 @@ description: Safe, in-place Kubernetes pod resource right-sizing operator
 type: application
 version: 0.1.0
 appVersion: "0.1.0"
-icon: https://raw.githubusercontent.com/attune-io/attune/main/docs/logo.jpg
+icon: https://raw.githubusercontent.com/attune-io/attune/main/docs/logo.png
 home: https://github.com/attune-io/attune
 sources:
   - https://github.com/attune-io/attune
@@ -25,6 +25,24 @@ kubeVersion: ">= 1.32.0-0"
 annotations:
   artifacthub.io/license: Apache-2.0
   artifacthub.io/operator: "true"
-  artifacthub.io/operatorCapabilities: Seamless Upgrades
+  artifacthub.io/operatorCapabilities: Full Lifecycle
   artifacthub.io/prerelease: "true"
-  artifacthub.io/signKey: ""
+  artifacthub.io/crds: |
+    - kind: AttunePolicy
+      version: v1alpha1
+      name: attunepolicies.attune.io
+      displayName: Attune Policy
+      description: Defines resource right-sizing policy for matched pods
+    - kind: AttuneDefaults
+      version: v1alpha1
+      name: attunedefaults.attune.io
+      displayName: Attune Defaults
+      description: Cluster-wide default values for Attune policies
+  artifacthub.io/links: |
+    - name: Documentation
+      url: https://attune-io.github.io/attune/
+    - name: Source
+      url: https://github.com/attune-io/attune
+  artifacthub.io/images: |
+    - name: attune
+      image: ghcr.io/attune-io/attune:latest
