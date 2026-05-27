@@ -590,18 +590,16 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 	ns := uniqueNS("load")
 	createNamespace(t, ns)
 
-	// Deploy a workload using stress-ng to generate known CPU load.
-	// Uses Command (not Args) with explicit /stress-ng path to match the
-	// working OOMKill test pattern and eliminate ENTRYPOINT ambiguity.
-	// Only the --cpu stressor is used; the --vm stressor is omitted because
-	// stress-ng exits with code 2 on K8s 1.33+ k3s builds (containerd/cgroup
-	// incompatibility). cAdvisor still reports memory working set bytes for
-	// the running container, so the operator gets both CPU and memory data.
+	// Deploy a workload using stress-ng to generate CPU load.
+	// Uses only --cpu (no --cpu-load or --vm); the --cpu-load option
+	// exits with code 2 on stress-ng 0.20.01 (ghcr.io/alexei-led image).
+	// Running at 100% on 1 worker still produces a recommendation capped
+	// by MaxAllowed (80m), which is what the test validates.
 	// Low requests (100m/32Mi) reduce scheduling pressure on the shared CI
-	// k3d node where 21 parallel E2E tests compete for ~4 CPUs. The request
+	// k3d node where parallel E2E tests compete for ~4 CPUs. The request
 	// must stay above MaxAllowed (80m) so the workload is "overprovisioned"
 	// and the savings estimate is non-zero. Burstable QoS (no limits) lets
-	// the container burst to its actual ~200m CPU usage.
+	// the container burst beyond its request.
 	deploy := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "load-app",
@@ -622,7 +620,7 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 						{
 							Name:    "app",
 							Image:   stressNGImage,
-							Command: []string{"/stress-ng", "--cpu", "1", "--cpu-load", "20", "--timeout", "86400"},
+							Command: []string{"/stress-ng", "--cpu", "1", "--timeout", "86400"},
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
 									corev1.ResourceCPU:    resource.MustParse("100m"),
