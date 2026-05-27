@@ -1,0 +1,3 @@
+# Hash-pinned for OpenSSF Scorecard PinnedDependencies compliance.
+# To update: pip download <pkg>==<ver> --no-deps -d /tmp && pip hash /tmp/<whl>
+mkdocs-material==9.7.6 --hash=sha256:71b84353921b8ea1ba84fe11c50912cc512da8fe0881038fcc9a0761c0e635ba

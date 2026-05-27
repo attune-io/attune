@@ -27,7 +27,7 @@ jobs:
 
       - name: Install MkDocs
         run: |
-          python3 -m pip install --user --break-system-packages mkdocs-material==9.7.6
+          python3 -m pip install --user --break-system-packages --require-hashes -r docs/requirements.txt
           echo "$(python3 -m site --user-base)/bin" >> "$GITHUB_PATH"
 
       - name: Build site
