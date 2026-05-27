@@ -257,7 +257,13 @@ directory. When referencing files elsewhere in the repo (e.g., `charts/`,
   node. Keep CPU requests at or below 300m per test pod.
 - E2E wait helpers (`waitForDeploymentReady`, `waitForResize`, etc.) must
   log diagnostic state on timeout (pod phase, container state, events).
-  Silent timeouts make CI failures undiagnosable. See issue #84.
+  Silent timeouts make CI failures undiagnosable.
+- Chainsaw assertions must target **stable** operator states, not transient
+  ones. With `minimumDataPoints: 1`, the operator can transition from
+  `InsufficientData` to `Monitoring` within seconds. A static assert on
+  the transient state races with the reconcile loop and intermittently
+  times out. Use script-based assertions that accept multiple valid states
+  when the assertion target can change during the poll window.
 - When an E2E test fails intermittently in the nightly K8s version matrix,
   check the failure pattern across multiple runs before blaming a specific
   version. If the failure rotates randomly across versions, the root cause
