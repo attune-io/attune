@@ -84,18 +84,29 @@ spec:
                 readyReplicas: 1
     - name: verify-policy-has-condition
       try:
-        - assert:
-            resource:
-              apiVersion: attune.io/v1alpha1
-              kind: AttunePolicy
-              metadata:
-                name: observe-test
-                namespace: e2e-observe-mode
-              status:
-                conditions:
-                  - type: Ready
-                    status: "False"
-                    reason: InsufficientData
+        - script:
+            timeout: 3m
+            content: |
+              # The operator may transition quickly from InsufficientData to Monitoring
+              # when minimumDataPoints is 1 and Prometheus scrapes fast. Accept either
+              # state as valid — both prove the policy discovered the workload.
+              for i in $(seq 1 36); do
+                reason=$(kubectl get attunepolicy observe-test -n e2e-observe-mode \
+                  -o jsonpath='{.status.conditions[?(@.type=="Ready")].reason}' 2>/dev/null)
+                discovered=$(kubectl get attunepolicy observe-test -n e2e-observe-mode \
+                  -o jsonpath='{.status.workloads.discovered}' 2>/dev/null)
+                if [ "$discovered" = "1" ]; then
+                  if [ "$reason" = "InsufficientData" ] || [ "$reason" = "Monitoring" ]; then
+                    echo "OK: workloads discovered=$discovered, Ready reason=$reason"
+                    exit 0
+                  fi
+                fi
+                echo "Waiting... discovered=$discovered reason=$reason"
+                sleep 5
+              done
+              echo "FAIL: timed out waiting for policy to discover workloads"
+              kubectl get attunepolicy observe-test -n e2e-observe-mode -o yaml
+              exit 1
     - name: verify-no-resizes
       try:
         - assert:

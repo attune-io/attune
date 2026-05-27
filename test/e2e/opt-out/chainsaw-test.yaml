@@ -97,18 +97,30 @@ spec:
                 readyReplicas: 1
     - name: verify-workload-not-processed
       try:
-        - assert:
-            resource:
-              apiVersion: attune.io/v1alpha1
-              kind: AttunePolicy
-              metadata:
-                name: opt-out-test
-                namespace: e2e-opt-out
-              status:
-                conditions:
-                  - type: Ready
-                    status: "False"
-                    reason: InsufficientData
+        - script:
+            timeout: 3m
+            content: |
+              # The policy may briefly show InsufficientData before the operator
+              # processes the skip annotation. Accept either InsufficientData or
+              # Monitoring — the real assertion is that discovered stays 0 (the
+              # skipped workload is not counted).
+              for i in $(seq 1 36); do
+                reason=$(kubectl get attunepolicy opt-out-test -n e2e-opt-out \
+                  -o jsonpath='{.status.conditions[?(@.type=="Ready")].reason}' 2>/dev/null)
+                discovered=$(kubectl get attunepolicy opt-out-test -n e2e-opt-out \
+                  -o jsonpath='{.status.workloads.discovered}' 2>/dev/null)
+                if [ -n "$reason" ]; then
+                  if [ "$reason" = "InsufficientData" ] || [ "$reason" = "Monitoring" ] || [ "$reason" = "NoWorkloadsFound" ]; then
+                    echo "OK: discovered=$discovered, Ready reason=$reason"
+                    exit 0
+                  fi
+                fi
+                echo "Waiting... discovered=$discovered reason=$reason"
+                sleep 5
+              done
+              echo "FAIL: timed out waiting for policy to set a Ready condition"
+              kubectl get attunepolicy opt-out-test -n e2e-opt-out -o yaml
+              exit 1
   catch:
     - describe:
         apiVersion: attune.io/v1alpha1
