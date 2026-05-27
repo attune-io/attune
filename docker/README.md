@@ -24,6 +24,9 @@ with feature gate in 1.32). No pod restarts, no HPA conflicts, no outages.
 
 - `linux/amd64`
 - `linux/arm64`
+- `linux/arm/v7`
+- `linux/ppc64le`
+- `linux/s390x`
 
 ## How to use this image
 

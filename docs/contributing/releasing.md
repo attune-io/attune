@@ -37,7 +37,7 @@ tag matching `v*` is pushed.
 
 GoReleaser produces:
 
-- Linux binaries for amd64 and arm64
+- Linux binaries for amd64, arm64, arm (v7), ppc64le, and s390x
 - A container image pushed to `ghcr.io/attune-io/attune`
 - A GitHub release with checksums and release notes
 
