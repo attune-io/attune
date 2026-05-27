@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1](https://github.com/attune-io/attune/compare/v0.1.0...v0.1.1) (2026-05-27)
+
+
+### Bug Fixes
+
+* **ci:** pin all transitive pip dependencies with hashes ([#85](https://github.com/attune-io/attune/issues/85)) ([9cafc42](https://github.com/attune-io/attune/commit/9cafc4221dd6b3fa14ea1a15479e70f14a9d0611))
+* convert logo from JPG to PNG with transparent corners ([#43](https://github.com/attune-io/attune/issues/43)) ([fcb3b23](https://github.com/attune-io/attune/commit/fcb3b23355ee934f7e6e9b9cee89cef89c5ca209))
+* correct hallucinated email in artifacthub-repo.yml ([#56](https://github.com/attune-io/attune/issues/56)) ([4a50290](https://github.com/attune-io/attune/commit/4a50290e156723339fea0a7cf91e591faebc5aea))
+* e2e nightly RealisticLoad timeout + safe cache keys for secrets (no SHA256) ([#44](https://github.com/attune-io/attune/issues/44)) ([2bed71a](https://github.com/attune-io/attune/commit/2bed71a0fcb58a241b17385d463ffd61070f183a))
+* **e2e:** replace stress-ng with busybox CPU burn and update SECURITY.md ([#86](https://github.com/attune-io/attune/issues/86)) ([de76adc](https://github.com/attune-io/attune/commit/de76adc97cb994096f4ca6779b48b7dfd8c5da7f))
+* **e2e:** resolve recommend-mode Chainsaw intermittent timeout ([#92](https://github.com/attune-io/attune/issues/92)) ([c50e2ac](https://github.com/attune-io/attune/commit/c50e2acdf288d2040d86d2bb653311db6c4d53a8))
+* **e2e:** use explicit Command for stress-ng and add deployment diagnostics ([#83](https://github.com/attune-io/attune/issues/83)) ([c269cdf](https://github.com/attune-io/attune/commit/c269cdf908adc125bb0190bce5f2192bf666cb24))
+* remove stress-ng --vm stressor from RealisticLoad E2E test ([#59](https://github.com/attune-io/attune/issues/59)) ([6b7efa9](https://github.com/attune-io/attune/commit/6b7efa9a39682680c4d8ff5d7d5cc17f55d35aca))
+* scope workflow token permissions to job level for Scorecard ([#42](https://github.com/attune-io/attune/issues/42)) ([5251468](https://github.com/attune-io/attune/commit/52514682e36a307e1a0c4a235d0a76255888f79a))
+* stabilize Chainsaw tests and add govulncheck to CI gate ([#95](https://github.com/attune-io/attune/issues/95)) ([011c8ad](https://github.com/attune-io/attune/commit/011c8adc56ee9c6a0e43cf2c13dfec27f18862f4))
+
 ## [Unreleased]
 
 ## [0.1.0] - 2025-05-26
