@@ -4,6 +4,7 @@ exclude = [
   "0\\.0\\.0\\.0",
   "example\\.com",
   "medium\\.com",
+  "hub\\.docker\\.com",
 ]
 exclude_loopback = true
 max_concurrency = 8

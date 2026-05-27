@@ -39,6 +39,11 @@ helm install attune \
     (`prometheus-server`, `prometheus-kube-prometheus-prometheus`) in
     common namespaces.
 
+!!! info "Also available on Docker Hub"
+    The container image is also published to Docker Hub at
+    `docker.io/attuneio/attune` for discoverability. For production
+    use, GHCR is recommended (no rate limits on public packages).
+
 ### Upgrading
 
 !!! important "CRDs are not updated by `helm upgrade`"

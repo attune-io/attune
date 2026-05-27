@@ -53,7 +53,16 @@ cosign verify \
   ghcr.io/attune-io/attune:v0.2.0
 ```
 
-### 5. Helm chart publishing
+### 5. Docker Hub publishing
+
+The release workflow also pushes the same multi-arch image to Docker Hub
+at `docker.io/attuneio/attune`. The Docker Hub README is synced from
+`docker/README.md` on each release.
+
+Both the GHCR and Docker Hub images share the same digest and are
+cosign-signed independently.
+
+### 6. Helm chart publishing
 
 The Helm chart is published as an OCI artifact to `ghcr.io/attune-io/charts/attune`.
 
@@ -71,7 +80,7 @@ helm package charts/attune
 helm push attune-0.2.0.tgz oci://ghcr.io/attune-io/charts
 ```
 
-### 6. Static install manifest
+### 7. Static install manifest
 
 Generate the combined install manifest for users who do not use Helm:
 
