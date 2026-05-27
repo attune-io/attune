@@ -553,9 +553,11 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 	// stress-ng exits with code 2 on K8s 1.33+ k3s builds (containerd/cgroup
 	// incompatibility). cAdvisor still reports memory working set bytes for
 	// the running container, so the operator gets both CPU and memory data.
-	// Minimal requests (50m/32Mi) so the pod schedules quickly on the shared
-	// CI k3d node where 13 parallel E2E tests compete for ~4 CPUs. Burstable
-	// QoS (no limits) lets the container burst to its actual ~200m CPU usage.
+	// Low requests (100m/32Mi) reduce scheduling pressure on the shared CI
+	// k3d node where 13 parallel E2E tests compete for ~4 CPUs. The request
+	// must stay above MaxAllowed (80m) so the workload is "overprovisioned"
+	// and the savings estimate is non-zero. Burstable QoS (no limits) lets
+	// the container burst to its actual ~200m CPU usage.
 	deploy := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "load-app",
@@ -579,7 +581,7 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 							Args:  []string{"--cpu", "1", "--cpu-load", "20", "--timeout", "0"},
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
-									corev1.ResourceCPU:    resource.MustParse("50m"),
+									corev1.ResourceCPU:    resource.MustParse("100m"),
 									corev1.ResourceMemory: resource.MustParse("32Mi"),
 								},
 							},
