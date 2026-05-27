@@ -8,6 +8,7 @@
 [![Security](https://github.com/attune-io/attune/actions/workflows/security.yaml/badge.svg)](https://github.com/attune-io/attune/actions/workflows/security.yaml)
 [![Go Version](https://img.shields.io/badge/go-1.26-blue)](go.mod)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/12998/badge)](https://www.bestpractices.dev/projects/12998)
 
 **Safe, in-place Kubernetes pod resource right-sizing. VPA done right.**
 
