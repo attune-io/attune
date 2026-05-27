@@ -212,13 +212,52 @@ func createPolicy(t *testing.T, name, namespace, deployName string, mode attunev
 
 func waitForDeploymentReady(t *testing.T, name, namespace string, timeout time.Duration) {
 	t.Helper()
+	start := time.Now()
+	lastDiag := time.Time{}
 	require.NoError(t, wait.PollUntilContextTimeout(ctx, 2*time.Second, timeout, true, func(ctx context.Context) (bool, error) {
 		var deploy appsv1.Deployment
 		if err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, &deploy); err != nil {
 			return false, nil
 		}
-		return deploy.Status.ReadyReplicas == *deploy.Spec.Replicas, nil
-	}))
+		if deploy.Status.ReadyReplicas == *deploy.Spec.Replicas {
+			return true, nil
+		}
+		// Log diagnostics every 30s so failures are debuggable.
+		if elapsed := time.Since(start); elapsed > 30*time.Second && time.Since(lastDiag) > 30*time.Second {
+			lastDiag = time.Now()
+			var pods corev1.PodList
+			if err := k8sClient.List(ctx, &pods, client.InNamespace(namespace), client.MatchingLabels(deploy.Spec.Selector.MatchLabels)); err == nil {
+				if len(pods.Items) == 0 {
+					t.Logf("waitForDeploymentReady(%s/%s): no matching pods after %s", namespace, name, elapsed.Round(time.Second))
+				}
+				for _, pod := range pods.Items {
+					t.Logf("waitForDeploymentReady(%s/%s): pod=%s phase=%s ready=%d/%d restarts=%d",
+						namespace, name, pod.Name, pod.Status.Phase,
+						deploy.Status.ReadyReplicas, *deploy.Spec.Replicas,
+						podRestartCount(pod))
+					for _, cs := range pod.Status.ContainerStatuses {
+						switch {
+						case cs.State.Waiting != nil:
+							t.Logf("  container %s: Waiting reason=%s", cs.Name, cs.State.Waiting.Reason)
+						case cs.State.Terminated != nil:
+							t.Logf("  container %s: Terminated reason=%s exit=%d", cs.Name, cs.State.Terminated.Reason, cs.State.Terminated.ExitCode)
+						case cs.State.Running != nil:
+							t.Logf("  container %s: Running", cs.Name)
+						}
+					}
+				}
+			}
+		}
+		return false, nil
+	}), "deployment %s/%s did not become ready within %s", namespace, name, timeout)
+}
+
+func podRestartCount(pod corev1.Pod) int32 {
+	var total int32
+	for _, cs := range pod.Status.ContainerStatuses {
+		total += cs.RestartCount
+	}
+	return total
 }
 
 func waitForPolicyDiscovered(t *testing.T, name, namespace string, timeout time.Duration) {
@@ -551,16 +590,16 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 	ns := uniqueNS("load")
 	createNamespace(t, ns)
 
-	// Deploy a workload using stress-ng to generate known CPU load.
-	// Only the --cpu stressor is used; the --vm stressor is omitted because
-	// stress-ng exits with code 2 on K8s 1.33+ k3s builds (containerd/cgroup
-	// incompatibility). cAdvisor still reports memory working set bytes for
-	// the running container, so the operator gets both CPU and memory data.
+	// Deploy a workload using stress-ng to generate CPU load.
+	// Only --cpu is used; --cpu-load exits with code 2 on stress-ng
+	// 0.20.01, and --vm exits with code 2 on K8s 1.33+ k3s builds.
+	// Running at 100% on 1 worker still produces a recommendation
+	// capped by MaxAllowed (80m), which is what the test validates.
 	// Low requests (100m/32Mi) reduce scheduling pressure on the shared CI
-	// k3d node where 13 parallel E2E tests compete for ~4 CPUs. The request
+	// k3d node where parallel E2E tests compete for ~4 CPUs. The request
 	// must stay above MaxAllowed (80m) so the workload is "overprovisioned"
 	// and the savings estimate is non-zero. Burstable QoS (no limits) lets
-	// the container burst to its actual ~200m CPU usage.
+	// the container burst beyond its request.
 	deploy := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "load-app",
@@ -581,7 +620,7 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 						{
 							Name:  "app",
 							Image: stressNGImage,
-							Args:  []string{"--cpu", "1", "--cpu-load", "20", "--timeout", "0"},
+							Args:  []string{"--cpu", "1", "--timeout", "86400"},
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
 									corev1.ResourceCPU:    resource.MustParse("100m"),

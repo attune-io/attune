@@ -255,6 +255,13 @@ directory. When referencing files elsewhere in the repo (e.g., `charts/`,
   unless testing QoS behavior specifically. Guaranteed QoS pods are harder to
   schedule when 13 parallel tests compete for ~4 allocatable CPUs on the k3d
   node. Keep CPU requests at or below 300m per test pod.
+- E2E wait helpers (`waitForDeploymentReady`, `waitForResize`, etc.) must
+  log diagnostic state on timeout (pod phase, container state, events).
+  Silent timeouts make CI failures undiagnosable. See issue #84.
+- When an E2E test fails intermittently in the nightly K8s version matrix,
+  check the failure pattern across multiple runs before blaming a specific
+  version. If the failure rotates randomly across versions, the root cause
+  is NOT version-specific; look for test setup differences instead.
 
 ## CI
 
