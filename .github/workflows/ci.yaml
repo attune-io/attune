@@ -557,6 +557,29 @@ jobs:
           k3d cluster delete "$K3D_CLUSTER_NAME" 2>/dev/null || true
           rm -f "$KUBECONFIG"
 
+  govulncheck:
+    name: Govulncheck
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
+    steps:
+      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Run govulncheck
+        shell: bash -Eeuo pipefail -x {0}
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.3.0
+          govulncheck ./...
+
   crd-freshness:
     name: CRD Freshness Check
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
@@ -717,6 +740,7 @@ jobs:
       - test-bench
       - test-integration
       - test-e2e
+      - govulncheck
       - crd-freshness
       - helm-lint
       - build
@@ -732,6 +756,7 @@ jobs:
             "${{ needs.test-bench.result }}" \
             "${{ needs.test-integration.result }}" \
             "${{ needs.test-e2e.result }}" \
+            "${{ needs.govulncheck.result }}" \
             "${{ needs.crd-freshness.result }}" \
             "${{ needs.helm-lint.result }}" \
             "${{ needs.build.result }}" \
