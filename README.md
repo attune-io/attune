@@ -9,6 +9,7 @@
 [![Go Version](https://img.shields.io/badge/go-1.26-blue)](go.mod)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/12998/badge)](https://www.bestpractices.dev/projects/12998)
+[![Docker Hub](https://img.shields.io/docker/pulls/attuneio/attune)](https://hub.docker.com/r/attuneio/attune)
 
 **Safe, in-place Kubernetes pod resource right-sizing. VPA done right.**
 
