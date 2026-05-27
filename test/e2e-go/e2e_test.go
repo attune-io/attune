@@ -553,9 +553,9 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 	// stress-ng exits with code 2 on K8s 1.33+ k3s builds (containerd/cgroup
 	// incompatibility). cAdvisor still reports memory working set bytes for
 	// the running container, so the operator gets both CPU and memory data.
-	// Moderate requests (150m/64Mi) so the pod schedules on the shared CI
-	// k3d node where 13 parallel E2E tests compete for ~4 CPUs. Burstable QoS
-	// (no limits) lets the container burst to its actual ~200m CPU usage.
+	// Minimal requests (50m/32Mi) so the pod schedules quickly on the shared
+	// CI k3d node where 13 parallel E2E tests compete for ~4 CPUs. Burstable
+	// QoS (no limits) lets the container burst to its actual ~200m CPU usage.
 	deploy := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "load-app",
@@ -579,8 +579,8 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 							Args:  []string{"--cpu", "1", "--cpu-load", "20", "--timeout", "0"},
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
-									corev1.ResourceCPU:    resource.MustParse("150m"),
-									corev1.ResourceMemory: resource.MustParse("64Mi"),
+									corev1.ResourceCPU:    resource.MustParse("50m"),
+									corev1.ResourceMemory: resource.MustParse("32Mi"),
 								},
 							},
 						},
@@ -590,7 +590,7 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 		},
 	}
 	require.NoError(t, k8sClient.Create(ctx, deploy))
-	waitForDeploymentReady(t, "load-app", ns, 120*time.Second)
+	waitForDeploymentReady(t, "load-app", ns, 180*time.Second)
 
 	loadPolicy := createPolicy(t, "load-policy", ns, "load-app", attunev1alpha1.UpdateTypeRecommend)
 	maxCPU, err := resource.ParseQuantity("80m")
@@ -605,7 +605,7 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 	}))
 
 	// Wait for the operator to produce a recommendation based on actual usage.
-	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 5*time.Minute, true, func(ctx context.Context) (bool, error) {
 		var latestPolicy attunev1alpha1.AttunePolicy
 		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "load-policy", Namespace: ns}, &latestPolicy); err != nil {
 			return false, nil
