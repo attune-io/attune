@@ -240,6 +240,38 @@ and open a backport PR targeting that release branch.
 If the cherry-pick has conflicts, the backport PR is created with conflict
 markers for manual resolution.
 
+## Go Module Layout and Dependabot
+
+The project uses a **single-module layout** with one `go.mod` at the repo
+root. All packages (`api/`, `cmd/`, `internal/`, `pkg/`, `test/`) are part
+of the same module.
+
+Dependabot is configured for four ecosystems:
+
+| Ecosystem | Directory | Interval | Notes |
+|-----------|-----------|----------|-------|
+| `gomod` | `/` | weekly | K8s deps grouped separately |
+| `github-actions` | `/` | weekly | All actions grouped |
+| `pip` | `/docs` | monthly | MkDocs site dependencies |
+| `docker` | `/` | weekly | Base image updates |
+
+**If you add a new `go.mod`** (e.g., `tools/go.mod` for build tooling):
+
+1. Add a corresponding entry in `.github/dependabot.yml`
+2. Create a `go.work` file at the repo root:
+   ```
+   go 1.26
+   use (
+       .
+       ./tools
+   )
+   ```
+3. Add `go.work` and `go.work.sum` to version control
+4. Update `make verify` to run `go mod tidy` in the new module directory
+
+Currently there is no `go.work` file because the single-module layout does
+not require one.
+
 ## Code of Conduct
 
 This project follows the [CNCF Code of Conduct](https://github.com/cncf/foundation/blob/main/code-of-conduct.md).
