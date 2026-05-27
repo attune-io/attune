@@ -192,13 +192,17 @@ jobs:
           # when Docker containers vanish mid-creation due to daemon
           # contention with concurrent CI runs.
           # K8s 1.32 needs the InPlacePodVerticalScaling alpha feature gate enabled explicitly.
+          # IMPORTANT: use += (not =) to APPEND to k3s default feature gates instead of
+          # replacing them. k3s's GetArgs() in pkg/util/args.go deletes all defaults for a
+          # key when = is used, which drops internal gates and can cause intermittent apiserver
+          # initialization failures where the /resize subresource is never registered.
           EXTRA_K3S_ARGS=()
           if [[ "${{ matrix.k8s-version }}" == "v1.32" ]]; then
             EXTRA_K3S_ARGS=(
-              --k3s-arg "--kube-apiserver-arg=feature-gates=InPlacePodVerticalScaling=true@server:*"
-              --k3s-arg "--kube-controller-manager-arg=feature-gates=InPlacePodVerticalScaling=true@server:*"
-              --k3s-arg "--kube-scheduler-arg=feature-gates=InPlacePodVerticalScaling=true@server:*"
-              --k3s-arg "--kubelet-arg=feature-gates=InPlacePodVerticalScaling=true@server:*"
+              --k3s-arg "--kube-apiserver-arg=feature-gates+=InPlacePodVerticalScaling=true@server:*"
+              --k3s-arg "--kube-controller-manager-arg=feature-gates+=InPlacePodVerticalScaling=true@server:*"
+              --k3s-arg "--kube-scheduler-arg=feature-gates+=InPlacePodVerticalScaling=true@server:*"
+              --k3s-arg "--kubelet-arg=feature-gates+=InPlacePodVerticalScaling=true@server:*"
             )
           fi
           for attempt in 1 2 3; do
@@ -224,6 +228,24 @@ jobs:
       - name: Wait for node Ready
         shell: bash -Eeuo pipefail -x {0}
         run: kubectl wait --for=condition=Ready nodes --all --timeout=360s
+
+      - name: Verify resize subresource (K8s 1.32)
+        if: matrix.k8s-version == 'v1.32'
+        shell: bash -Eeuo pipefail -x {0}
+        run: |
+          echo "Verifying InPlacePodVerticalScaling feature gate is active..."
+          for i in $(seq 1 12); do
+            if kubectl get --raw /api/v1 | jq -e '.resources[] | select(.name == "pods/resize")' >/dev/null 2>&1; then
+              echo "pods/resize subresource is registered"
+              exit 0
+            fi
+            echo "Waiting for pods/resize subresource (attempt $i/12)..."
+            sleep 5
+          done
+          echo "::error::pods/resize subresource not found after 60s. The InPlacePodVerticalScaling feature gate did not take effect."
+          echo "Checking apiserver feature gates:"
+          docker exec "k3d-${CLUSTER_NAME}-server-0" sh -c "ps aux | grep feature-gates" || true
+          exit 1
 
       - name: Load cert-manager images into cluster
         shell: bash -Eeuo pipefail -x {0}
