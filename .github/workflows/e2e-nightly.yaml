@@ -42,6 +42,7 @@ env:
   PROMETHEUS_IMAGE: "quay.io/prometheus/prometheus:v3.4.1"
   PROMETHEUS_CHART_VERSION: "27.22.0"
   STRESS_NG_IMAGE: "ghcr.io/alexei-led/stress-ng:0.20.01"
+  CPU_BURN_IMAGE: "docker.io/library/busybox:1.37"
 
 jobs:
   prepare-matrix:
@@ -134,7 +135,8 @@ jobs:
             /tmp/cert-manager-cainjector.tar
             /tmp/prometheus.tar
             /tmp/stress-ng.tar
-          key: e2e-images-${{ runner.os }}-cm${{ env.CERT_MANAGER_VERSION }}-prom${{ env.PROMETHEUS_CHART_VERSION }}-stress0.20.01
+            /tmp/busybox.tar
+          key: e2e-images-${{ runner.os }}-cm${{ env.CERT_MANAGER_VERSION }}-prom${{ env.PROMETHEUS_CHART_VERSION }}-stress0.20.01-busybox1.37
 
       - name: Install k3d
         shell: bash -Eeuo pipefail -x {0}
@@ -182,6 +184,7 @@ jobs:
           pull_and_save "quay.io/jetstack/cert-manager-cainjector:${{ env.CERT_MANAGER_VERSION }}" /tmp/cert-manager-cainjector.tar
           pull_and_save "${{ env.PROMETHEUS_IMAGE }}" /tmp/prometheus.tar
           pull_and_save "${{ env.STRESS_NG_IMAGE }}" /tmp/stress-ng.tar
+          pull_and_save "${{ env.CPU_BURN_IMAGE }}" /tmp/busybox.tar
 
       - name: Create k3d cluster
         shell: bash -Eeuo pipefail -x {0}
@@ -269,7 +272,7 @@ jobs:
         shell: bash -Eeuo pipefail -x {0}
         run: |
           export PATH="$HOME/.local/bin:$PATH"
-          k3d image import /tmp/prometheus.tar /tmp/stress-ng.tar -c "$CLUSTER_NAME"
+          k3d image import /tmp/prometheus.tar /tmp/stress-ng.tar /tmp/busybox.tar -c "$CLUSTER_NAME"
 
       - name: Install Prometheus
         shell: bash -Eeuo pipefail -x {0}

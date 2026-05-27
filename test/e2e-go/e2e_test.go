@@ -51,6 +51,7 @@ import (
 )
 
 const defaultStressNGImage = "ghcr.io/alexei-led/stress-ng:0.20.01"
+const cpuBurnImage = "docker.io/library/busybox:1.37"
 
 var (
 	k8sClient  client.Client
@@ -590,11 +591,11 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 	ns := uniqueNS("load")
 	createNamespace(t, ns)
 
-	// Deploy a workload using stress-ng to generate CPU load.
-	// Only --cpu is used; --cpu-load exits with code 2 on stress-ng
-	// 0.20.01, and --vm exits with code 2 on K8s 1.33+ k3s builds.
-	// Running at 100% on 1 worker still produces a recommendation
-	// capped by MaxAllowed (80m), which is what the test validates.
+	// Deploy a workload that generates CPU load via a busybox shell loop.
+	// stress-ng --cpu exits with code 2 on certain k3s builds (v1.33, v1.35)
+	// due to containerd/seccomp differences, so we use a simple busy loop
+	// instead. The loop burns CPU, which shows up in cAdvisor/Prometheus
+	// metrics. The recommendation gets capped by MaxAllowed (80m).
 	// Low requests (100m/32Mi) reduce scheduling pressure on the shared CI
 	// k3d node where parallel E2E tests compete for ~4 CPUs. The request
 	// must stay above MaxAllowed (80m) so the workload is "overprovisioned"
@@ -618,9 +619,9 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
 						{
-							Name:  "app",
-							Image: stressNGImage,
-							Args:  []string{"--cpu", "1", "--timeout", "86400"},
+							Name:    "app",
+							Image:   cpuBurnImage,
+							Command: []string{"sh", "-c", "while true; do :; done"},
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
 									corev1.ResourceCPU:    resource.MustParse("100m"),
