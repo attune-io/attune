@@ -263,24 +263,62 @@ func podRestartCount(pod corev1.Pod) int32 {
 
 func waitForPolicyDiscovered(t *testing.T, name, namespace string, timeout time.Duration) {
 	t.Helper()
+	start := time.Now()
+	lastDiag := time.Time{}
 	require.NoError(t, wait.PollUntilContextTimeout(ctx, 3*time.Second, timeout, true, func(ctx context.Context) (bool, error) {
 		var policy attunev1alpha1.AttunePolicy
 		if err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, &policy); err != nil {
 			return false, nil
 		}
-		return policy.Status.Workloads.Discovered > 0, nil
-	}))
+		if policy.Status.Workloads.Discovered > 0 {
+			return true, nil
+		}
+		if elapsed := time.Since(start); elapsed > 30*time.Second && time.Since(lastDiag) > 30*time.Second {
+			lastDiag = time.Now()
+			t.Logf("waitForPolicyDiscovered(%s/%s): discovered=%d after %s",
+				namespace, name, policy.Status.Workloads.Discovered, elapsed.Round(time.Second))
+			for _, c := range policy.Status.Conditions {
+				t.Logf("  condition %s: status=%s reason=%s", c.Type, c.Status, c.Reason)
+			}
+		}
+		return false, nil
+	}), "policy %s/%s workloads.discovered still 0 after %s", namespace, name, timeout)
 }
 
 func waitForResize(t *testing.T, policyName, namespace string, timeout time.Duration) {
 	t.Helper()
+	start := time.Now()
+	lastDiag := time.Time{}
 	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, timeout, true, func(ctx context.Context) (bool, error) {
 		var policy attunev1alpha1.AttunePolicy
 		if err := k8sClient.Get(ctx, types.NamespacedName{Name: policyName, Namespace: namespace}, &policy); err != nil {
 			return false, nil
 		}
-		return policy.Status.Workloads.Resized > 0, nil
-	}))
+		if policy.Status.Workloads.Resized > 0 {
+			return true, nil
+		}
+		if elapsed := time.Since(start); elapsed > 30*time.Second && time.Since(lastDiag) > 30*time.Second {
+			lastDiag = time.Now()
+			w := policy.Status.Workloads
+			t.Logf("waitForResize(%s/%s): discovered=%d recommendations=%d pending=%d resized=%d after %s",
+				namespace, policyName, w.Discovered, w.WithRecommendations, w.Pending, w.Resized, elapsed.Round(time.Second))
+			for _, c := range policy.Status.Conditions {
+				t.Logf("  condition %s: status=%s reason=%s", c.Type, c.Status, c.Reason)
+			}
+			for _, rec := range policy.Status.Recommendations {
+				for _, cr := range rec.Containers {
+					t.Logf("  recommendation %s/%s: currentCPU=%s recCPU=%s currentMem=%s recMem=%s",
+						rec.Workload, cr.Name,
+						cr.Current.CPURequest.String(), cr.Recommended.CPURequest.String(),
+						cr.Current.MemoryRequest.String(), cr.Recommended.MemoryRequest.String())
+				}
+			}
+			for _, we := range policy.Status.WorkloadErrors {
+				t.Logf("  workloadError %s: %s", we.Workload, we.Error)
+			}
+		}
+		return false, nil
+	}), "policy %s/%s workloads.resized still 0 after %s", namespace, policyName, timeout)
 }
 
 func forcePolicyReconcile(t *testing.T, name, namespace string, timeout time.Duration) {

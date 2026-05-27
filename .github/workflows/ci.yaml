@@ -482,7 +482,7 @@ jobs:
           echo "=== cert-manager pods ==="
           kubectl get pods -n cert-manager
           echo "=== Operator logs ==="
-          kubectl logs -n attune-system -l app.kubernetes.io/name=attune --tail=100 || true
+          kubectl logs -n attune-system -l app.kubernetes.io/name=attune --tail=300 || true
           echo "=== Pod status ==="
           kubectl get pods -A
           echo "=== Events ==="
@@ -533,7 +533,7 @@ jobs:
           echo "=== cert-manager pods ==="
           kubectl get pods -n cert-manager
           echo "=== Operator logs ==="
-          kubectl logs -n attune-system -l app.kubernetes.io/name=attune --tail=100 || true
+          kubectl logs -n attune-system -l app.kubernetes.io/name=attune --tail=300 || true
           echo "=== Pod status ==="
           kubectl get pods -A
           echo "=== Events ==="
