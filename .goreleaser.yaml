@@ -28,5 +28,7 @@ archives:
   - id: kubectl-plugin
     builds: [kubectl-attune]
     name_template: "kubectl-attune_{{ .Os }}_{{ .Arch }}"
+checksum:
+  name_template: checksums.txt
 changelog:
   use: github-native
