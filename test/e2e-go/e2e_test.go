@@ -591,10 +591,10 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 	createNamespace(t, ns)
 
 	// Deploy a workload using stress-ng to generate CPU load.
-	// Uses only --cpu (no --cpu-load or --vm); the --cpu-load option
-	// exits with code 2 on stress-ng 0.20.01 (ghcr.io/alexei-led image).
-	// Running at 100% on 1 worker still produces a recommendation capped
-	// by MaxAllowed (80m), which is what the test validates.
+	// Only --cpu is used; --cpu-load exits with code 2 on stress-ng
+	// 0.20.01, and --vm exits with code 2 on K8s 1.33+ k3s builds.
+	// Running at 100% on 1 worker still produces a recommendation
+	// capped by MaxAllowed (80m), which is what the test validates.
 	// Low requests (100m/32Mi) reduce scheduling pressure on the shared CI
 	// k3d node where parallel E2E tests compete for ~4 CPUs. The request
 	// must stay above MaxAllowed (80m) so the workload is "overprovisioned"
@@ -618,9 +618,9 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
 						{
-							Name:    "app",
-							Image:   stressNGImage,
-							Command: []string{"/stress-ng", "--cpu", "1", "--timeout", "86400"},
+							Name:  "app",
+							Image: stressNGImage,
+							Args:  []string{"--cpu", "1", "--timeout", "86400"},
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
 									corev1.ResourceCPU:    resource.MustParse("100m"),
