@@ -6,6 +6,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
+  issues: write
 
 jobs:
   size-label:
@@ -43,11 +44,13 @@ jobs:
 
           echo "PR #${PR_NUMBER}: +${ADDITIONS} -${DELETIONS} = ${TOTAL} lines -> ${SIZE}"
 
-          # Remove any existing size labels, then add the correct one
-          for label in size/xs size/s size/m size/l size/xl; do
-            gh pr edit "$PR_NUMBER" --repo "${{ github.repository }}" --remove-label "$label" 2>/dev/null || true
-          done
-          gh pr edit "$PR_NUMBER" --repo "${{ github.repository }}" --add-label "$SIZE"
+          # Fetch current labels, swap the size/* label in one API call
+          REPO="${{ github.repository }}"
+          KEEP=$(gh api "repos/${REPO}/issues/${PR_NUMBER}" --jq \
+            '[.labels[].name | select(startswith("size/") | not)]')
+          FINAL=$(echo "$KEEP" | jq --arg s "$SIZE" '. + [$s]')
+          echo "$FINAL" | jq '{labels: .}' | \
+            gh api "repos/${REPO}/issues/${PR_NUMBER}/labels" --method PUT --input -
 
           # Post a warning comment for XL PRs
           if [ "$SIZE" = "size/xl" ]; then
