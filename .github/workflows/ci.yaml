@@ -440,18 +440,19 @@ jobs:
         with:
           paths: test-results/integration.xml
 
-  # E2E tests split into two parallel jobs (Chainsaw + Go) for faster wall time.
-  # Each provisions its own k3d cluster via the shared setup-e2e-cluster action.
-  # Full K8s version matrix runs nightly; PR CI runs a single version.
-  # Skipped for Dockerfile-only and workflow-only changes.
-  test-e2e-chainsaw:
-    name: E2E Chainsaw
+  # E2E tests run in a single job with one shared k3d cluster.
+  # Cluster setup starts immediately (needs: changes only) and overlaps with
+  # lint/unit. A gate step polls the GitHub API until lint+unit complete,
+  # then both Chainsaw and Go E2E run concurrently on the shared cluster.
+  # This saves ~3 min vs two separate jobs blocked on lint/unit.
+  test-e2e:
+    name: E2E
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 30
-    needs: [changes, lint, test-unit]
+    needs: [changes]
     if: needs.changes.outputs.go-source == 'true'
     env:
-      K3D_CLUSTER_NAME: e2e-chainsaw-${{ github.run_id }}-${{ github.run_attempt }}
+      K3D_CLUSTER_NAME: e2e-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
@@ -461,7 +462,7 @@ jobs:
       - uses: ./.github/actions/setup-e2e-cluster
         with:
           cluster-name: ${{ env.K3D_CLUSTER_NAME }}
-          kubeconfig-path: ${{ runner.temp }}/attune-e2e-chainsaw-${{ github.run_id }}.kubeconfig
+          kubeconfig-path: ${{ runner.temp }}/attune-e2e-${{ github.run_id }}.kubeconfig
           go-version: ${{ env.GO_VERSION }}
           k3d-version: ${{ env.K3D_VERSION }}
           k3s-image: ${{ env.K3S_IMAGE }}
@@ -469,75 +470,84 @@ jobs:
           prometheus-image: ${{ env.PROMETHEUS_IMAGE }}
           prometheus-chart-version: ${{ env.PROMETHEUS_CHART_VERSION }}
           stress-ng-image: ${{ env.STRESS_NG_IMAGE }}
+
+      # Wait for lint and unit tests before running E2E.
+      # Cluster setup above already ran in parallel with those jobs.
+      - name: Wait for lint and unit gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash -Eeuo pipefail {0}
+        run: |
+          echo "Waiting for lint and test-unit jobs to complete..."
+          for i in $(seq 1 60); do
+            jobs_json=$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs?per_page=100" \
+              --jq '[.jobs[] | select(.name == "Lint" or .name == "Unit Tests") | {name: .name, status: .status, conclusion: .conclusion}]')
+
+            all_done=true
+            any_failed=false
+            for row in $(echo "$jobs_json" | jq -c '.[]'); do
+              status=$(echo "$row" | jq -r '.status')
+              conclusion=$(echo "$row" | jq -r '.conclusion')
+              name=$(echo "$row" | jq -r '.name')
+              if [[ "$status" != "completed" ]]; then
+                all_done=false
+              elif [[ "$conclusion" != "success" && "$conclusion" != "skipped" ]]; then
+                echo "::error::$name failed ($conclusion), aborting E2E"
+                any_failed=true
+              fi
+            done
+
+            if [[ "$any_failed" == "true" ]]; then
+              exit 1
+            fi
+            if [[ "$all_done" == "true" ]]; then
+              echo "Lint and unit tests passed, proceeding with E2E"
+              break
+            fi
+
+            if (( i == 60 )); then
+              echo "::error::Timed out waiting for lint/unit (5 min)"
+              exit 1
+            fi
+            sleep 5
+          done
 
       - name: Install Chainsaw
         uses: kyverno/action-install-chainsaw@1223ef75bedeb59c4e7b5455463d4316e76dff01 # v0.2.15
-      - shell: bash -Eeuo pipefail -x {0}
-        run: chainsaw test test/e2e/ --config .chainsaw.yaml
 
-      - name: Collect debug info on failure
-        if: failure()
-        shell: bash -Eeuo pipefail {0}
-        run: |
-          echo "=== cert-manager pods ==="
-          kubectl get pods -n cert-manager
-          echo "=== Operator logs ==="
-          kubectl logs -n attune-system -l app.kubernetes.io/name=attune --tail=300 || true
-          echo "=== Pod status ==="
-          kubectl get pods -A
-          echo "=== Events ==="
-          kubectl get events -A --sort-by='.lastTimestamp' | tail -30
-
-      - name: Cleanup k3d cluster
-        if: always()
-        shell: bash -Eeuo pipefail {0}
-        run: |
-          export PATH="$HOME/.local/bin:$PATH"
-          k3d cluster delete "$K3D_CLUSTER_NAME" 2>/dev/null || true
-          rm -f "$KUBECONFIG"
-
-  test-e2e-go:
-    name: E2E Go
-    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
-    timeout-minutes: 30
-    needs: [changes, lint, test-unit]
-    if: needs.changes.outputs.go-source == 'true'
-    env:
-      K3D_CLUSTER_NAME: e2e-go-${{ github.run_id }}-${{ github.run_attempt }}
-    steps:
-      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
-        with:
-          egress-policy: audit
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-
-      - uses: ./.github/actions/setup-e2e-cluster
-        with:
-          cluster-name: ${{ env.K3D_CLUSTER_NAME }}
-          kubeconfig-path: ${{ runner.temp }}/attune-e2e-go-${{ github.run_id }}.kubeconfig
-          go-version: ${{ env.GO_VERSION }}
-          k3d-version: ${{ env.K3D_VERSION }}
-          k3s-image: ${{ env.K3S_IMAGE }}
-          cert-manager-version: ${{ env.CERT_MANAGER_VERSION }}
-          prometheus-image: ${{ env.PROMETHEUS_IMAGE }}
-          prometheus-chart-version: ${{ env.PROMETHEUS_CHART_VERSION }}
-          stress-ng-image: ${{ env.STRESS_NG_IMAGE }}
-
-      - name: Run Go E2E tests
+      - name: Run Chainsaw and Go E2E concurrently
         shell: bash -Eeuo pipefail -x {0}
-        run: go test -tags=e2e ./test/e2e-go/... -race -count=1 -timeout=15m -v
+        run: |
+          mkdir -p test-results
+
+          chainsaw test test/e2e/ --config .chainsaw.yaml 2>&1 | tee test-results/chainsaw.log &
+          chainsaw_pid=$!
+
+          go test -tags=e2e ./test/e2e-go/... -race -count=1 -timeout=15m -v 2>&1 | tee test-results/go-e2e.log &
+          go_pid=$!
+
+          chainsaw_rc=0
+          go_rc=0
+          wait $chainsaw_pid || chainsaw_rc=$?
+          wait $go_pid || go_rc=$?
+
+          echo "Chainsaw exit=$chainsaw_rc, Go E2E exit=$go_rc"
+          if (( chainsaw_rc != 0 || go_rc != 0 )); then
+            exit 1
+          fi
 
       - name: Collect debug info on failure
         if: failure()
         shell: bash -Eeuo pipefail {0}
         run: |
           echo "=== cert-manager pods ==="
-          kubectl get pods -n cert-manager
+          kubectl get pods -n cert-manager || true
           echo "=== Operator logs ==="
           kubectl logs -n attune-system -l app.kubernetes.io/name=attune --tail=300 || true
           echo "=== Pod status ==="
-          kubectl get pods -A
+          kubectl get pods -A || true
           echo "=== Events ==="
-          kubectl get events -A --sort-by='.lastTimestamp' | tail -30
+          kubectl get events -A --sort-by='.lastTimestamp' | tail -50
 
       - name: Cleanup k3d cluster
         if: always()
@@ -706,8 +716,7 @@ jobs:
       - test-unit
       - test-bench
       - test-integration
-      - test-e2e-chainsaw
-      - test-e2e-go
+      - test-e2e
       - crd-freshness
       - helm-lint
       - build
@@ -722,8 +731,7 @@ jobs:
             "${{ needs.test-unit.result }}" \
             "${{ needs.test-bench.result }}" \
             "${{ needs.test-integration.result }}" \
-            "${{ needs.test-e2e-chainsaw.result }}" \
-            "${{ needs.test-e2e-go.result }}" \
+            "${{ needs.test-e2e.result }}" \
             "${{ needs.crd-freshness.result }}" \
             "${{ needs.helm-lint.result }}" \
             "${{ needs.build.result }}" \

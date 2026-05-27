@@ -1,0 +1,57 @@
+name: PR Size
+on:
+  pull_request_target:
+    types: [opened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  size-label:
+    name: Label PR size
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Calculate diff size and apply label
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          ADDITIONS=${{ github.event.pull_request.additions }}
+          DELETIONS=${{ github.event.pull_request.deletions }}
+          TOTAL=$((ADDITIONS + DELETIONS))
+
+          if [ "$TOTAL" -lt 10 ]; then
+            SIZE="size/xs"
+          elif [ "$TOTAL" -lt 50 ]; then
+            SIZE="size/s"
+          elif [ "$TOTAL" -lt 250 ]; then
+            SIZE="size/m"
+          elif [ "$TOTAL" -lt 500 ]; then
+            SIZE="size/l"
+          else
+            SIZE="size/xl"
+          fi
+
+          echo "PR #${PR_NUMBER}: +${ADDITIONS} -${DELETIONS} = ${TOTAL} lines -> ${SIZE}"
+
+          # Remove any existing size labels, then add the correct one
+          for label in size/xs size/s size/m size/l size/xl; do
+            gh pr edit "$PR_NUMBER" --repo "${{ github.repository }}" --remove-label "$label" 2>/dev/null || true
+          done
+          gh pr edit "$PR_NUMBER" --repo "${{ github.repository }}" --add-label "$SIZE"
+
+          # Post a warning comment for XL PRs
+          if [ "$SIZE" = "size/xl" ]; then
+            gh pr comment "$PR_NUMBER" --repo "${{ github.repository }}" \
+              --body "> **Large PR** (+${ADDITIONS} -${DELETIONS} = ${TOTAL} lines). Consider splitting into smaller, focused PRs for easier review." \
+              2>/dev/null || true
+          fi
