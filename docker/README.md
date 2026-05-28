@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/attune-io/attune/main/docs/logo.png" alt="Attune logo" width="150">
+</p>
+
 # Attune
 
 Safe, in-place Kubernetes pod resource right-sizing. VPA done right.
