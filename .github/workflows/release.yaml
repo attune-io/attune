@@ -2,7 +2,7 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
   workflow_dispatch: {}
 
 concurrency:
@@ -18,9 +18,44 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  # Release Please runs on every push to main. When a release PR is merged,
+  # it creates a GitHub Release + tag and sets release_created=true, which
+  # triggers the downstream release jobs in this same workflow run.
+  # This avoids the GITHUB_TOKEN limitation where tags created by Actions
+  # do not trigger separate tag-push workflows.
+  release-please:
+    name: Release Please
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
   release:
     name: Release
-    if: startsWith(github.ref, 'refs/tags/')
+    needs: [release-please]
+    # Run when release-please created a release, OR on manual workflow_dispatch
+    # with a tag ref. always() is needed because release-please is skipped on
+    # workflow_dispatch, which would otherwise skip this job too.
+    if: |-
+      always() &&
+      !failure() &&
+      !cancelled() &&
+      (needs.release-please.outputs.release_created == 'true' ||
+       (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/')))
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: release
@@ -32,13 +67,25 @@ jobs:
     outputs:
       hashes: ${{ steps.hash.outputs.hashes }}
       digest: ${{ steps.build.outputs.digest }}
+      tag: ${{ steps.tag.outputs.name }}
     steps:
       - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
           egress-policy: audit
+
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        run: |
+          # On release-please: use its output. On workflow_dispatch: use the ref.
+          TAG="${{ needs.release-please.outputs.tag_name || github.ref_name }}"
+          echo "name=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Releasing: ${TAG}"
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
+          ref: ${{ steps.tag.outputs.name }}
 
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
@@ -90,18 +137,18 @@ jobs:
           platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/ppc64le,linux/s390x
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.name }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-            docker.io/attuneio/attune:${{ github.ref_name }}
+            docker.io/attuneio/attune:${{ steps.tag.outputs.name }}
             docker.io/attuneio/attune:latest
           build-args: |
-            VERSION=${{ github.ref_name }}
+            VERSION=${{ steps.tag.outputs.name }}
             COMMIT=${{ github.sha }}
             DATE=${{ steps.build_date.outputs.date }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=${{ github.ref_name }}
+            org.opencontainers.image.version=${{ steps.tag.outputs.name }}
 
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
@@ -142,7 +189,7 @@ jobs:
       - name: Generate install manifest and CRDs bundle
         shell: bash -Eeuo pipefail -x {0}
         run: |
-          make build-installer IMG=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}
+          make build-installer IMG=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.name }}
           make build-crds
 
       - name: Attach install manifest, CRDs, and SBOM to release
@@ -167,6 +214,8 @@ jobs:
         with:
           egress-policy: audit
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ needs.release.outputs.tag }}
 
       - uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5
         with:
@@ -195,7 +244,7 @@ jobs:
         shell: bash -Eeuo pipefail -x {0}
         run: |
           # Update chart version to match tag
-          VERSION="${{ github.ref_name }}"
+          VERSION="${{ needs.release.outputs.tag }}"
           VERSION="${VERSION#v}"  # Strip 'v' prefix
           sed -i "s/^version:.*/version: ${VERSION}/" charts/attune/Chart.yaml
           sed -i "s/^appVersion:.*/appVersion: ${VERSION}/" charts/attune/Chart.yaml
@@ -210,7 +259,7 @@ jobs:
       - name: Sign Helm chart
         shell: bash -Eeuo pipefail -x {0}
         run: |
-          VERSION="${{ github.ref_name }}"
+          VERSION="${{ needs.release.outputs.tag }}"
           VERSION="${VERSION#v}"
           cosign sign --yes \
             ${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/attune:${VERSION}
