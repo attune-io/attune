@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5](https://github.com/attune-io/attune/compare/v0.1.4...v0.1.5) (2026-05-28)
+
+
+### Features
+
+* add Artifact Hub listing with verified publisher metadata ([9f72677](https://github.com/attune-io/attune/commit/9f72677ef3e1db0c478e4ac7dee8cdcee0fb90d1)), closes [#106](https://github.com/attune-io/attune/issues/106)
+* enrich Helm chart metadata for Artifact Hub listing ([cf9bcc7](https://github.com/attune-io/attune/commit/cf9bcc72a038a4b3715eb4111f7a564098a52fa7))
+
+
+### Bug Fixes
+
+* add logo.jpg for Artifact Hub compatibility ([3c7b13b](https://github.com/attune-io/attune/commit/3c7b13b96abee314a4ace36fbf4a8164a433b8d3))
+* remove logo.jpg, keep only PNG ([c4560b2](https://github.com/attune-io/attune/commit/c4560b2d558645a8533a348bd2818476af5e8d20))
+
 ## [0.1.4](https://github.com/attune-io/attune/compare/v0.1.3...v0.1.4) (2026-05-27)
 
 
