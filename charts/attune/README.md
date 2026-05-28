@@ -31,6 +31,9 @@ helm install attune oci://ghcr.io/attune-io/charts/attune \
 | defaults.updateStrategy.maxConcurrentResizes | int | `1` | Max concurrent pod resizes per cycle (1-50) |
 | defaults.updateStrategy.resizeMethod | string | `"InPlaceOnly"` | Resize method: InPlaceOnly or InPlaceOrRecreate |
 | defaults.updateStrategy.type | string | `"Recommend"` | Resize type: Observe, Recommend, OneShot, Canary, Auto |
+| fips | object | `{"enabled":false,"mode":"on"}` | FIPS 140-3 compliance mode. When enabled, sets GODEBUG=fips140=<mode> to activate Go's CMVP-validated cryptographic module (Certificate #5247). The binary always embeds the module; this toggle controls whether it is active at runtime. |
+| fips.enabled | bool | `false` | Enable FIPS 140-3 mode |
+| fips.mode | string | `"on"` | FIPS enforcement level: "on" (approved algorithms preferred, fallbacks allowed) or "only" (non-approved algorithms panic). Use "on" for Kubernetes operators because client-go uses X25519 which is not FIPS-approved. |
 | fullnameOverride | string | `""` | Override the full name |
 | grafanaDashboard.additionalLabels | object | `{}` | Additional labels for the dashboard ConfigMap (e.g., for folder selection) |
 | grafanaDashboard.enabled | bool | `false` | Create a ConfigMap with the Grafana dashboard (auto-discovered by Grafana sidecar) |

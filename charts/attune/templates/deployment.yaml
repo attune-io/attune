@@ -73,6 +73,11 @@ spec:
             - --zap-encoder=console
             {{- end }}
             {{- end }}
+          {{- if .Values.fips.enabled }}
+          env:
+            - name: GODEBUG
+              value: "fips140={{ .Values.fips.mode }}"
+          {{- end }}
           ports:
             {{- if .Values.metrics.enabled }}
             - name: metrics

@@ -225,6 +225,18 @@ maxConcurrentReconciles: ""
 # namespaces. Cluster-scoped resources (Nodes, AttuneDefaults) are always watched regardless.
 watchNamespaces: []
 
+# -- FIPS 140-3 compliance mode.
+# When enabled, sets GODEBUG=fips140=<mode> to activate Go's CMVP-validated
+# cryptographic module (Certificate #5247). The binary always embeds the module;
+# this toggle controls whether it is active at runtime.
+fips:
+  # -- Enable FIPS 140-3 mode
+  enabled: false
+  # -- FIPS enforcement level: "on" (approved algorithms preferred, fallbacks allowed)
+  # or "only" (non-approved algorithms panic). Use "on" for Kubernetes operators
+  # because client-go uses X25519 which is not FIPS-approved.
+  mode: "on"
+
 # -- Logging configuration
 logging:
   # -- Log level (debug, info, warn, error)

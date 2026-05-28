@@ -285,6 +285,37 @@ tests:
           path: spec.template.spec.containers[0].args
           content: --watch-namespaces=my-namespace
 
+  # --- FIPS 140-3 ---
+
+  - it: should not set GODEBUG env when fips disabled (default)
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].env
+
+  - it: should set GODEBUG fips140=on when fips enabled
+    set:
+      fips:
+        enabled: true
+        mode: "on"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GODEBUG
+            value: "fips140=on"
+
+  - it: should set GODEBUG fips140=only when mode is only
+    set:
+      fips:
+        enabled: true
+        mode: "only"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GODEBUG
+            value: "fips140=only"
+
   - it: should let explicit values override large preset
     set:
       clusterSize: large

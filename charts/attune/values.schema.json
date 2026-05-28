@@ -472,6 +472,24 @@
       "default": [],
       "description": "Namespaces to watch for AttunePolicy resources. Empty means all namespaces. Reduces informer cache memory on large clusters."
     },
+    "fips": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "FIPS 140-3 compliance mode",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable FIPS 140-3 mode (sets GODEBUG=fips140=<mode>)"
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["on", "only"],
+          "default": "on",
+          "description": "FIPS enforcement level: on (fallbacks allowed) or only (non-approved algorithms panic)"
+        }
+      }
+    },
     "logging": {
       "type": "object",
       "additionalProperties": false,
