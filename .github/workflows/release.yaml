@@ -210,6 +210,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: [release]
+    # Explicit condition required: release-please is skipped on workflow_dispatch,
+    # and GitHub Actions propagates skips transitively through the needs chain.
+    # Without this, downstream jobs are skipped even when release succeeded.
+    if: ${{ !cancelled() && needs.release.result == 'success' }}
     permissions:
       contents: read
       packages: write
@@ -293,6 +297,7 @@ jobs:
   provenance:
     name: Binary Provenance
     needs: [release]
+    if: ${{ !cancelled() && needs.release.result == 'success' }}
     permissions:
       actions: read
       id-token: write
@@ -308,6 +313,7 @@ jobs:
   container-provenance:
     name: Container Provenance
     needs: [release]
+    if: ${{ !cancelled() && needs.release.result == 'success' }}
     permissions:
       actions: read
       id-token: write
@@ -328,6 +334,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     needs: [release]
+    if: ${{ !cancelled() && needs.release.result == 'success' }}
     steps:
       - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
