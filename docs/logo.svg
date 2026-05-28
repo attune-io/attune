@@ -1,38 +1,23 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <defs>
-    <linearGradient id="hex" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#4A90E2"/>
-      <stop offset="100%" stop-color="#3B78D0"/>
-    </linearGradient>
-    <linearGradient id="arrow" x1="0" y1="1" x2="1" y2="0">
-      <stop offset="0%" stop-color="#34A853"/>
-      <stop offset="100%" stop-color="#4CC764"/>
-    </linearGradient>
-  </defs>
-  <!-- Hexagonal background (Kubernetes-style) -->
-  <path d="M256 32 L460 150 L460 362 L256 480 L52 362 L52 150 Z"
-        fill="url(#hex)" stroke="none"/>
-  <!-- Left face shadow for 3D depth -->
-  <path d="M256 480 L52 362 L52 150 L256 268 Z"
-        fill="#3568B8" opacity="0.35"/>
-  <!-- Circular target / resize gauge -->
-  <g transform="translate(256,256)">
-    <!-- Outer ring -->
-    <path d="M0,-110 A110,110 0 1,1 -95.26,55 L-68,39.3 A78,78 0 1,0 0,-78 Z"
-          fill="white"/>
-    <!-- Bottom-left segment -->
-    <path d="M-95.26,55 A110,110 0 0,1 95.26,55 L67.6,39 A78,78 0 0,0 -67.6,39 Z"
-          fill="white"/>
-    <!-- Right segment -->
-    <path d="M95.26,55 A110,110 0 0,1 0,-110 L0,-78 A78,78 0 0,0 67.6,39 Z"
-          fill="white"/>
-    <!-- Center dot -->
-    <circle cx="0" cy="0" r="22" fill="white"/>
-  </g>
-  <!-- Green upward arrow -->
-  <g transform="translate(256,256)">
-    <path d="M-10,60 L-10,-20 L-35,-20 L10,-80 L55,-20 L30,-20 L30,60 Z"
-          fill="url(#arrow)" transform="rotate(-35)"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Rounded-rectangle background -->
+  <rect x="0" y="0" width="1024" height="1024" rx="180" ry="180" fill="#2C51A1"/>
+
+  <!-- Gauge arc: center at (512,640), outer R=340, inner r=200 -->
+  <g>
+    <!-- Red segment: 195° to 237° -->
+    <path d="M 183.6,552.0 A 340,340 0 0,1 326.8,354.9 L 403.1,472.3 A 200,200 0 0,0 318.8,588.2 Z" fill="#E44F39"/>
+
+    <!-- Yellow segment: 237° to 312° -->
+    <path d="M 326.8,354.9 A 340,340 0 0,1 739.5,387.3 L 645.8,491.4 A 200,200 0 0,0 403.1,472.3 Z" fill="#FBC917"/>
+
+    <!-- Green segment: 312° to 345° -->
+    <path d="M 739.5,387.3 A 340,340 0 0,1 840.4,552.0 L 705.2,588.2 A 200,200 0 0,0 645.8,491.4 Z" fill="#44AC4D"/>
+
+    <!-- White teardrop needle pointing into green zone -->
+    <polygon points="700,505 550,637 526,605" fill="white"/>
+
+    <!-- Center pivot circle -->
+    <circle cx="512" cy="640" r="32" fill="white"/>
   </g>
 </svg>
