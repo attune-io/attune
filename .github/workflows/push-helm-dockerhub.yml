@@ -43,6 +43,6 @@ jobs:
             echo "=== Processing v${VERSION} ==="
             helm pull oci://ghcr.io/attune-io/charts/attune --version "${VERSION}"
             helm push "attune-${VERSION}.tgz" oci://registry-1.docker.io/attuneio
-            cosign sign --yes "registry-1.docker.io/attuneio/attune:${VERSION}"
+            cosign sign --yes "docker.io/attuneio/attune:${VERSION}"
             rm -f "attune-${VERSION}.tgz"
           done
