@@ -22,33 +22,33 @@ spec:
   caveats: |
     Requires the Attune operator to be installed in the cluster.
   platforms:
-    - selector:
-        matchLabels:
-          os: linux
-          arch: amd64
-      {{addURIAndSha "https://github.com/attune-io/attune/releases/download/{{ .TagName }}/kubectl-attune_linux_amd64.tar.gz" .TagName }}
-      bin: kubectl-attune
-    - selector:
-        matchLabels:
-          os: linux
-          arch: arm64
-      {{addURIAndSha "https://github.com/attune-io/attune/releases/download/{{ .TagName }}/kubectl-attune_linux_arm64.tar.gz" .TagName }}
-      bin: kubectl-attune
-    - selector:
-        matchLabels:
-          os: linux
-          arch: arm
-      {{addURIAndSha "https://github.com/attune-io/attune/releases/download/{{ .TagName }}/kubectl-attune_linux_arm.tar.gz" .TagName }}
-      bin: kubectl-attune
-    - selector:
-        matchLabels:
-          os: darwin
-          arch: amd64
-      {{addURIAndSha "https://github.com/attune-io/attune/releases/download/{{ .TagName }}/kubectl-attune_darwin_amd64.tar.gz" .TagName }}
-      bin: kubectl-attune
-    - selector:
-        matchLabels:
-          os: darwin
-          arch: arm64
-      {{addURIAndSha "https://github.com/attune-io/attune/releases/download/{{ .TagName }}/kubectl-attune_darwin_arm64.tar.gz" .TagName }}
-      bin: kubectl-attune
+  - selector:
+      matchLabels:
+        os: linux
+        arch: amd64
+    {{addURIAndSha "https://github.com/attune-io/attune/releases/download/{{ .TagName }}/kubectl-attune_linux_amd64.tar.gz" .TagName }}
+    bin: kubectl-attune
+  - selector:
+      matchLabels:
+        os: linux
+        arch: arm64
+    {{addURIAndSha "https://github.com/attune-io/attune/releases/download/{{ .TagName }}/kubectl-attune_linux_arm64.tar.gz" .TagName }}
+    bin: kubectl-attune
+  - selector:
+      matchLabels:
+        os: linux
+        arch: arm
+    {{addURIAndSha "https://github.com/attune-io/attune/releases/download/{{ .TagName }}/kubectl-attune_linux_arm.tar.gz" .TagName }}
+    bin: kubectl-attune
+  - selector:
+      matchLabels:
+        os: darwin
+        arch: amd64
+    {{addURIAndSha "https://github.com/attune-io/attune/releases/download/{{ .TagName }}/kubectl-attune_darwin_amd64.tar.gz" .TagName }}
+    bin: kubectl-attune
+  - selector:
+      matchLabels:
+        os: darwin
+        arch: arm64
+    {{addURIAndSha "https://github.com/attune-io/attune/releases/download/{{ .TagName }}/kubectl-attune_darwin_arm64.tar.gz" .TagName }}
+    bin: kubectl-attune
