@@ -14,10 +14,17 @@
     <!-- Green segment: 312° to 345° -->
     <path d="M 739.5,387.3 A 340,340 0 0,1 840.4,552.0 L 705.2,588.2 A 200,200 0 0,0 645.8,491.4 Z" fill="#44AC4D"/>
 
-    <!-- White teardrop needle pointing into green zone -->
-    <polygon points="700,505 550,637 526,605" fill="white"/>
+    <!-- Teardrop needle: upper edge bezier, hidden base, two-segment lower edge to tip -->
+    <path d="M 725,447
+             C 658,500 540,575 480,610
+             L 530,650
+             C 578,664 590,618 605,600
+             C 645,551 685,503 725,454
+             Q 728,450 725,447
+             Z" fill="white"/>
 
-    <!-- Center pivot circle -->
-    <circle cx="512" cy="640" r="32" fill="white"/>
+    <!-- Center pivot circle with inner ring -->
+    <circle cx="512" cy="640" r="48" fill="white"/>
+    <circle cx="512" cy="640" r="14" fill="#2C51A1"/>
   </g>
 </svg>
