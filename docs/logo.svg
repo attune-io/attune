@@ -3,28 +3,27 @@
   <!-- Rounded-rectangle background -->
   <rect x="0" y="0" width="1024" height="1024" rx="180" ry="180" fill="#2C51A1"/>
 
-  <!-- Gauge arc: center at (512,640), outer R=340, inner r=200 -->
+  <!-- Gauge arc: center at (512,648), outer R=340, inner r=200 -->
   <g>
-    <!-- Red segment: 195° to 237° -->
-    <path d="M 183.6,552.0 A 340,340 0 0,1 326.8,354.9 L 403.1,472.3 A 200,200 0 0,0 318.8,588.2 Z" fill="#E44F39"/>
+    <!-- Red segment: 180° to 227° -->
+    <path d="M 172.0,648.0 A 340,340 0 0,1 280.1,399.3 L 375.6,501.7 A 200,200 0 0,0 312.0,648.0 Z" fill="#E44F39"/>
 
-    <!-- Yellow segment: 237° to 312° -->
-    <path d="M 326.8,354.9 A 340,340 0 0,1 739.5,387.3 L 645.8,491.4 A 200,200 0 0,0 403.1,472.3 Z" fill="#FBC917"/>
+    <!-- Yellow segment: 227° to 311° -->
+    <path d="M 280.1,399.3 A 340,340 0 0,1 735.1,391.4 L 643.2,497.1 A 200,200 0 0,0 375.6,501.7 Z" fill="#FBC917"/>
 
-    <!-- Green segment: 312° to 345° -->
-    <path d="M 739.5,387.3 A 340,340 0 0,1 840.4,552.0 L 705.2,588.2 A 200,200 0 0,0 645.8,491.4 Z" fill="#44AC4D"/>
+    <!-- Green segment: 311° to 364° -->
+    <path d="M 735.1,391.4 A 340,340 0 0,1 851.2,671.7 L 711.5,662.0 A 200,200 0 0,0 643.2,497.1 Z" fill="#44AC4D"/>
 
-    <!-- Teardrop needle: upper edge bezier, hidden base, two-segment lower edge to tip -->
-    <path d="M 725,447
-             C 658,500 540,575 480,610
-             L 530,650
-             C 578,664 590,618 605,600
-             C 645,551 685,503 725,454
-             Q 728,450 725,447
+    <!-- Teardrop needle: upper edge, hidden base through pivot, two-segment lower edge -->
+    <path d="M 727,449
+             C 680,470 535,575 470,635
+             C 490,660 530,670 555,658
+             C 570,650 620,580 647,549
+             C 667,524 700,483 727,452
              Z" fill="white"/>
 
     <!-- Center pivot circle with inner ring -->
-    <circle cx="512" cy="640" r="48" fill="white"/>
-    <circle cx="512" cy="640" r="14" fill="#2C51A1"/>
+    <circle cx="512" cy="648" r="44" fill="white"/>
+    <circle cx="512" cy="648" r="18" fill="#2C51A1"/>
   </g>
 </svg>
