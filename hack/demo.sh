@@ -164,8 +164,8 @@ run kubectl get pods -n demo-app -o custom-columns=\
 'NAME:.metadata.name,CPU_REQ:.spec.containers[0].resources.requests.cpu,MEM_REQ:.spec.containers[0].resources.requests.memory'
 echo
 
-# ── Step 5: Create a AttunePolicy in Recommend mode ──────────────────────
-banner "Step 5: Create a AttunePolicy (Recommend mode)"
+# ── Step 5: Create an AttunePolicy in Recommend mode ─────────────────────
+banner "Step 5: Create an AttunePolicy (Recommend mode)"
 
 info "Applying a policy with fast demo settings..."
 info "(minimumDataPoints: 3, historyWindow: 15m, reconcileInterval: 30s)"
