@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.6](https://github.com/attune-io/attune/compare/v0.1.5...v0.1.6) (2026-05-28)
+
+
+### Bug Fixes
+
+* krew-release-bot template uses unsupported PluginOwner/PluginRepo vars ([3a26c65](https://github.com/attune-io/attune/commit/3a26c6593931d6f708d005203a4a71d478d531b5))
+* **release:** add Docker Hub login for Helm chart cosign signing ([76fdfce](https://github.com/attune-io/attune/commit/76fdfce16ba418c953e76789d6900569446e7b6f)), closes [#128](https://github.com/attune-io/attune/issues/128)
+* remove unsupported ppc64le/s390x from krew manifest ([28de433](https://github.com/attune-io/attune/commit/28de4339aee61b752437e628231840fed1e6ebf1))
+* SVG logo arc proportions, needle shape, and pivot position ([bee00fc](https://github.com/attune-io/attune/commit/bee00fc4f60e2f46d652a33dd4531038b766b150)), closes [#126](https://github.com/attune-io/attune/issues/126)
+* SVG logo needle and pivot to match PNG reference ([bf47fca](https://github.com/attune-io/attune/commit/bf47fca848d907ed5107bd43b4a523c008151ce7)), closes [#126](https://github.com/attune-io/attune/issues/126)
+
 ## [0.1.5](https://github.com/attune-io/attune/compare/v0.1.4...v0.1.5) (2026-05-28)
 
 
