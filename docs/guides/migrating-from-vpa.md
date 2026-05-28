@@ -20,7 +20,7 @@ with no downtime.
 Both can run in the same cluster. Install Attune per the
 [Installation guide](../getting-started/installation.md).
 
-### 2. Create a AttunePolicy in Recommend mode
+### 2. Create an AttunePolicy in Recommend mode
 
 For each VPA object, create a matching AttunePolicy. Map the VPA config
 to AttunePolicy fields:

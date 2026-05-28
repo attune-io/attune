@@ -364,7 +364,7 @@ aggressive settings for staging).
 
 **Resolution order**: policy spec first, then one defaults source.
 
-If a namespace has a AttuneNamespaceDefaults, the controller uses it
+If a namespace has an AttuneNamespaceDefaults, the controller uses it
 instead of the cluster-scoped AttuneDefaults for all policies in that
 namespace. Fields not specified in the namespace defaults are not inherited
 from cluster defaults; they fall back to the operator's built-in defaults.

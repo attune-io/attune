@@ -123,7 +123,7 @@ Create a Chainsaw test under `test/e2e/` or a Go E2E test under
 `test/e2e/go/` that:
 
 1. Creates a workload of the new kind
-2. Creates a AttunePolicy targeting it
+2. Creates an AttunePolicy targeting it
 3. Verifies the operator discovers the workload
 4. Verifies recommendations are computed (if Prometheus is available)
 

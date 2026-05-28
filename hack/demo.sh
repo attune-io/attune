@@ -2,7 +2,7 @@
 # hack/demo.sh - Interactive demo of attune on a local k3d cluster.
 #
 # This script provisions a cluster, deploys the operator, creates an
-# over-provisioned workload, applies a AttunePolicy in Recommend mode,
+# over-provisioned workload, applies an AttunePolicy in Recommend mode,
 # waits for recommendations to appear, then promotes to Auto mode and
 # shows the in-place resize happening.
 #

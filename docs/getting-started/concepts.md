@@ -145,8 +145,8 @@ node's allocatable resources.
 The Prometheus address is resolved in order:
 
 1. `spec.metricsSource.prometheus.address` on the AttunePolicy
-2. `spec.metricsSource.prometheus.address` on a AttuneNamespaceDefaults resource in the same namespace
-3. `spec.metricsSource.prometheus.address` on a AttuneDefaults resource
+2. `spec.metricsSource.prometheus.address` on an AttuneNamespaceDefaults resource in the same namespace
+3. `spec.metricsSource.prometheus.address` on an AttuneDefaults resource
 4. Auto-discovery: Prometheus Operator CRD (`monitoring.coreos.com/v1 Prometheus`)
 5. Auto-discovery: well-known service names (`prometheus-server`,
    `prometheus-kube-prometheus-prometheus`) in common namespaces

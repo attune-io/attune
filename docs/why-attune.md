@@ -136,7 +136,7 @@ not retrofitted onto a VPA architecture that was never meant for it.
 ### How it works
 
 ```
- You deploy a AttunePolicy CR
+ You deploy an AttunePolicy CR
             │
             ▼
  ┌─────────────────────┐     ┌──────────────┐

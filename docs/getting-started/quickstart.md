@@ -1,6 +1,6 @@
 # Quick Start
 
-This guide walks you through creating a AttunePolicy, reviewing its
+This guide walks you through creating an AttunePolicy, reviewing its
 recommendations, and promoting to Canary mode, all in about five minutes.
 
 !!! tip "Interactive demo"
@@ -20,7 +20,7 @@ recommendations, and promoting to Canary mode, all in about five minutes.
     - **Prometheus** — the operator queries `container_cpu_usage_seconds_total` and `container_memory_working_set_bytes`.
     - **Attune installed** — see [Installation](installation.md) for Helm and raw manifest options.
 
-## 1. Create a AttunePolicy in Recommend mode
+## 1. Create an AttunePolicy in Recommend mode
 
 Start in **Recommend** mode so that no pods are modified. The operator will
 collect metrics and write recommendations to the resource status.

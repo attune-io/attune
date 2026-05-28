@@ -148,9 +148,9 @@ networkPolicy:
   # -- TCP port allowed by NetworkPolicy for Prometheus backend pods
   prometheusPort: 9090
 
-# -- Cluster-wide defaults (creates a AttuneDefaults CR)
+# -- Cluster-wide defaults (creates an AttuneDefaults CR)
 defaults:
-  # -- Create a AttuneDefaults resource with the values below
+  # -- Create an AttuneDefaults resource with the values below
   enabled: false
   # -- Prometheus metrics source defaults. Set `metricsSource.prometheus.address`
   # to share a Prometheus endpoint across all policies.
