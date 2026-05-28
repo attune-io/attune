@@ -10,6 +10,8 @@
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/12998/badge)](https://www.bestpractices.dev/projects/12998)
 [![Docker Hub](https://img.shields.io/docker/pulls/attuneio/attune)](https://hub.docker.com/r/attuneio/attune)
+[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/attune)](https://artifacthub.io/packages/helm/attune/attune)
+[![kubectl plugin](https://img.shields.io/badge/kubectl_plugin-krew-blue)](https://krew.sigs.k8s.io/plugins/)
 
 **Safe, in-place Kubernetes pod resource right-sizing. VPA done right.**
 
@@ -167,15 +169,12 @@ savings, recommendations, resize history, and recommendation reasoning
 without raw YAML parsing.
 
 ```bash
-# Build the plugin
+# Install via Krew (recommended)
+kubectl krew install attune
+
+# Or build from source
 make build-plugin
-
-# Copy to your PATH (system-wide)
 sudo cp bin/kubectl-attune /usr/local/bin/
-
-# Or install for the current user only
-install -Dm755 bin/kubectl-attune "$HOME/.local/bin/kubectl-attune"
-export PATH="$HOME/.local/bin:$PATH"
 
 # Usage
 kubectl attune status -n production
