@@ -3,5 +3,6 @@
 .github
 tests/
 ci/
-*.md
+CHANGELOG.md
+CONTRIBUTING.md
 LICENSE
