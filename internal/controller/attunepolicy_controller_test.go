@@ -159,7 +159,7 @@ func newTestPod(name, namespace string, labels map[string]string) *corev1.Pod {
 	}
 }
 
-// newTestPolicy creates a AttunePolicy for testing.
+// newTestPolicy creates an AttunePolicy for testing.
 func newTestPolicy(name, namespace string) *attunev1alpha1.AttunePolicy {
 	return &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{
@@ -311,7 +311,7 @@ func newResizeRecommendation(workload, curCPU, curMem, curCPULim, curMemLim, rec
 	}
 }
 
-// newReconcilerWithClient creates a AttunePolicyReconciler with the given
+// newReconcilerWithClient creates an AttunePolicyReconciler with the given
 // objects pre-loaded. Reduces the 5-line scheme+client+reconciler setup
 // that repeats in nearly every test.
 func newReconcilerWithClient(objects ...client.Object) *AttunePolicyReconciler {

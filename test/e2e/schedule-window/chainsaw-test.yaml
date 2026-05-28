@@ -3,7 +3,7 @@ kind: Test
 metadata:
   name: schedule-window
 spec:
-  description: Verify that a AttunePolicy with a schedule excluding today blocks resizes
+  description: Verify that an AttunePolicy with a schedule excluding today blocks resizes
   timeouts:
     apply: 30s
     assert: 2m

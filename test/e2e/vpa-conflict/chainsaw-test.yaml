@@ -3,7 +3,7 @@ kind: Test
 metadata:
   name: vpa-conflict
 spec:
-  description: Verify that a AttunePolicy coexists with a VPA on the same Deployment (warning only, not blocking)
+  description: Verify that an AttunePolicy coexists with a VPA on the same Deployment (warning only, not blocking)
   timeouts:
     apply: 30s
     assert: 2m

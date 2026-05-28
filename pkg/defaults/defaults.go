@@ -79,7 +79,7 @@ func ApplyBuiltInDefaults(policy *attunev1alpha1.AttunePolicy) {
 	}
 }
 
-// MergeDefaults merges values from a AttuneDefaults resource into the
+// MergeDefaults merges values from an AttuneDefaults resource into the
 // policy where the policy has not specified its own values. Returns the
 // list of field names that were inherited (for debug logging by callers).
 func MergeDefaults(policy *attunev1alpha1.AttunePolicy, defaults *attunev1alpha1.AttuneDefaults) []string {

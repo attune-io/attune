@@ -3,7 +3,7 @@ kind: Test
 metadata:
   name: daemonset-target
 spec:
-  description: Verify that a AttunePolicy can target a DaemonSet workload
+  description: Verify that an AttunePolicy can target a DaemonSet workload
   timeouts:
     apply: 30s
     assert: 2m

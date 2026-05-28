@@ -3,7 +3,7 @@ kind: Test
 metadata:
   name: recommend-mode
 spec:
-  description: Verify that a AttunePolicy in Recommend mode discovers workloads and reaches Ready condition
+  description: Verify that an AttunePolicy in Recommend mode discovers workloads and reaches Ready condition
   timeouts:
     apply: 30s
     assert: 2m

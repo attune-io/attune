@@ -21,7 +21,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// UpdateType defines the operating mode of a AttunePolicy.
+// UpdateType defines the operating mode of an AttunePolicy.
 type UpdateType string
 
 const (

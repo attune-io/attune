@@ -3,7 +3,7 @@ kind: Test
 metadata:
   name: requests-only
 spec:
-  description: Verify that a AttunePolicy with controlledValues RequestsOnly is accepted and reconciles
+  description: Verify that an AttunePolicy with controlledValues RequestsOnly is accepted and reconciles
   timeouts:
     apply: 30s
     assert: 2m

@@ -124,7 +124,7 @@ const (
 //+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;delete
 //+kubebuilder:rbac:groups="",resources=resourcequotas;limitranges,verbs=get;list;watch
 
-// AttunePolicyReconciler reconciles a AttunePolicy object.
+// AttunePolicyReconciler reconciles an AttunePolicy object.
 type AttunePolicyReconciler struct {
 	client.Client
 	Scheme                  *runtime.Scheme

@@ -53,7 +53,7 @@ func (v *AttunePolicyValidator) ValidateUpdate(ctx context.Context, oldPolicy, p
 	return w, err
 }
 
-// ValidateDelete validates a AttunePolicy deletion (always succeeds).
+// ValidateDelete validates an AttunePolicy deletion (always succeeds).
 func (v *AttunePolicyValidator) ValidateDelete(ctx context.Context, policy *attunev1alpha1.AttunePolicy) (admission.Warnings, error) {
 	return nil, nil
 }

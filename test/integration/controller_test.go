@@ -350,7 +350,7 @@ func TestReconcile_CreatesPolicy_BecomesReady(t *testing.T) {
 	err := k8sClient.Create(ctx, deploy)
 	require.NoError(t, err, "failed to create deployment")
 
-	// Create a AttunePolicy targeting the Deployment.
+	// Create an AttunePolicy targeting the Deployment.
 	policy := newTestPolicy("policy-ready", namespace, "test-app-ready")
 	err = k8sClient.Create(ctx, policy)
 	require.NoError(t, err, "failed to create policy")

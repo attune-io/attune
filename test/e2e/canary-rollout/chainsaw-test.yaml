@@ -3,7 +3,7 @@ kind: Test
 metadata:
   name: canary-rollout
 spec:
-  description: Verify that a AttunePolicy in Canary mode with 33% percentage reaches Ready condition
+  description: Verify that an AttunePolicy in Canary mode with 33% percentage reaches Ready condition
   timeouts:
     apply: 30s
     assert: 2m

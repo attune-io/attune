@@ -3,7 +3,7 @@ kind: Test
 metadata:
   name: cronjob-target
 spec:
-  description: Verify that a AttunePolicy targeting a CronJob discovers it and operates in recommend-only mode
+  description: Verify that an AttunePolicy targeting a CronJob discovers it and operates in recommend-only mode
   timeouts:
     apply: 30s
     assert: 2m

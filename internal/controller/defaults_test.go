@@ -212,7 +212,7 @@ func TestFetchDefaults_NamespaceScopedOverridesCluster(t *testing.T) {
 		WithObjects(clusterDefaults, nsDefaults).Build()
 	r := &AttunePolicyReconciler{Client: fakeClient, Scheme: scheme}
 
-	// Namespace with a AttuneNamespaceDefaults should use it.
+	// Namespace with an AttuneNamespaceDefaults should use it.
 	result, err := r.fetchDefaults(context.Background(), "production")
 	require.NoError(t, err)
 	assert.NotNil(t, result)

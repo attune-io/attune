@@ -3,7 +3,7 @@ kind: Test
 metadata:
   name: auto-mode
 spec:
-  description: Verify that a AttunePolicy in Auto mode discovers workloads and reaches the expected status
+  description: Verify that an AttunePolicy in Auto mode discovers workloads and reaches the expected status
   timeouts:
     apply: 30s
     assert: 2m

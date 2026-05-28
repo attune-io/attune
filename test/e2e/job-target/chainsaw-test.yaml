@@ -3,7 +3,7 @@ kind: Test
 metadata:
   name: job-target
 spec:
-  description: Verify that a AttunePolicy targeting a standalone Job discovers it
+  description: Verify that an AttunePolicy targeting a standalone Job discovers it
   timeouts:
     apply: 30s
     assert: 2m

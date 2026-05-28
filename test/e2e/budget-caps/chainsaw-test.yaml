@@ -3,7 +3,7 @@ kind: Test
 metadata:
   name: budget-caps
 spec:
-  description: Verify that a AttunePolicy with per-cycle budget caps is accepted and discovers workloads
+  description: Verify that an AttunePolicy with per-cycle budget caps is accepted and discovers workloads
   timeouts:
     apply: 30s
     assert: 2m

@@ -128,7 +128,7 @@ func (r *AttunePolicyReconciler) getOrCreateCollectorByKey(cacheKey, description
 		return count < maxCollectors
 	})
 	if count >= maxCollectors {
-		return nil, fmt.Errorf("collector cache full (%d entries); refusing new collector %q; consolidate policies to use fewer distinct addresses, or use a AttuneDefaults resource to share a single address across all policies", maxCollectors, description)
+		return nil, fmt.Errorf("collector cache full (%d entries); refusing new collector %q; consolidate policies to use fewer distinct addresses, or use an AttuneDefaults resource to share a single address across all policies", maxCollectors, description)
 	}
 
 	collector, err := factory()

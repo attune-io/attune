@@ -3,7 +3,7 @@ kind: Test
 metadata:
   name: observe-mode
 spec:
-  description: Verify that a AttunePolicy in Observe mode reaches a condition without generating recommendations or performing resizes
+  description: Verify that an AttunePolicy in Observe mode reaches a condition without generating recommendations or performing resizes
   timeouts:
     apply: 30s
     assert: 2m

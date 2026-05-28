@@ -26,7 +26,7 @@ import (
 // AttunePolicyDefaulter implements the typed Defaulter interface for AttunePolicy.
 type AttunePolicyDefaulter struct{}
 
-// Default sets default values on a AttunePolicy.
+// Default sets default values on an AttunePolicy.
 //
 // Most fields are NOT defaulted here. They are defaulted by the controller
 // (applyBuiltInDefaults) after mergeDefaults, so that cluster-wide

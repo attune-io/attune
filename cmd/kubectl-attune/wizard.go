@@ -147,9 +147,9 @@ func resolveNamespace(ctx context.Context, dynClient dynamic.Interface, namespac
 	return selectNamespace(ctx, dynClient, p)
 }
 
-// wizardCreate guides the user through creating a AttunePolicy.
+// wizardCreate guides the user through creating an AttunePolicy.
 func wizardCreate(ctx context.Context, dynClient dynamic.Interface, namespace string, p prompter) error {
-	fmt.Println("Welcome to attune! Let's create a AttunePolicy.")
+	fmt.Println("Welcome to attune! Let's create an AttunePolicy.")
 	fmt.Println()
 
 	// 1. Namespace selection.

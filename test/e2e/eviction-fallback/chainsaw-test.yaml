@@ -3,7 +3,7 @@ kind: Test
 metadata:
   name: eviction-fallback
 spec:
-  description: Verify that a AttunePolicy with resizeMethod InPlaceOrRecreate accepts the field and resizes pods (in-place path; eviction fallback requires Infeasible pods)
+  description: Verify that an AttunePolicy with resizeMethod InPlaceOrRecreate accepts the field and resizes pods (in-place path; eviction fallback requires Infeasible pods)
   timeouts:
     apply: 30s
     assert: 2m

@@ -3,7 +3,7 @@ kind: Test
 metadata:
   name: concurrent-resize
 spec:
-  description: Verify that a AttunePolicy with maxConcurrentResizes is accepted and discovers workloads
+  description: Verify that an AttunePolicy with maxConcurrentResizes is accepted and discovers workloads
   timeouts:
     apply: 30s
     assert: 2m

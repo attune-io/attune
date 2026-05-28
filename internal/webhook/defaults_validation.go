@@ -54,7 +54,7 @@ func (v *AttuneDefaultsValidator) ValidateUpdate(_ context.Context, _, defaults 
 	return w, err
 }
 
-// ValidateDelete validates a AttuneDefaults deletion (always succeeds).
+// ValidateDelete validates an AttuneDefaults deletion (always succeeds).
 func (v *AttuneDefaultsValidator) ValidateDelete(_ context.Context, _ *attunev1alpha1.AttuneDefaults) (admission.Warnings, error) {
 	return nil, nil
 }
@@ -81,7 +81,7 @@ func (v *AttuneNamespaceDefaultsValidator) ValidateUpdate(_ context.Context, _, 
 	return w, err
 }
 
-// ValidateDelete validates a AttuneNamespaceDefaults deletion (always succeeds).
+// ValidateDelete validates an AttuneNamespaceDefaults deletion (always succeeds).
 func (v *AttuneNamespaceDefaultsValidator) ValidateDelete(_ context.Context, _ *attunev1alpha1.AttuneNamespaceDefaults) (admission.Warnings, error) {
 	return nil, nil
 }
