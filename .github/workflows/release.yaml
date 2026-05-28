@@ -73,6 +73,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Update Krew plugin manifest
+        uses: rajatjindal/krew-release-bot@c970b8a8f6dbc2f2285a26e3ae160903b87002c3 # v0.0.51
+
       - name: Generate provenance subjects
         id: hash
         shell: bash -Eeuo pipefail {0}

@@ -1,0 +1,66 @@
+apiVersion: krew.googlecontainertools.github.com/v1alpha2
+kind: Plugin
+metadata:
+  name: attune
+spec:
+  version: "{{ .TagName }}"
+  homepage: https://github.com/{{ .Repository }}
+  shortDescription: Inspect and explain Attune pod right-sizing policies
+  description: |
+    Shows policy status, savings estimates, per-container recommendations,
+    recommendation reasoning, and resize history for Attune policies.
+
+    Subcommands:
+      status            Show policy status, workload counts, and conditions
+      savings           Show estimated CPU/memory savings per policy
+      recommendations   Show per-container sizing recommendations
+      explain           Show recommendation reasoning for one policy
+      preview           Preview per-pod resource changes before promoting type
+      history           Show resize history (including eviction fallbacks)
+      diff              Show resource change diffs from recommendations
+      wizard            Interactive policy creation and type promotion
+  caveats: |
+    Requires the Attune operator to be installed in the cluster.
+  platforms:
+    - selector:
+        matchLabels:
+          os: linux
+          arch: amd64
+      {{addURIAndSha "https://github.com/{{ .Repository }}/releases/download/{{ .TagName }}/kubectl-attune_linux_amd64.tar.gz" .TagName }}
+      bin: kubectl-attune
+    - selector:
+        matchLabels:
+          os: linux
+          arch: arm64
+      {{addURIAndSha "https://github.com/{{ .Repository }}/releases/download/{{ .TagName }}/kubectl-attune_linux_arm64.tar.gz" .TagName }}
+      bin: kubectl-attune
+    - selector:
+        matchLabels:
+          os: linux
+          arch: arm
+      {{addURIAndSha "https://github.com/{{ .Repository }}/releases/download/{{ .TagName }}/kubectl-attune_linux_arm.tar.gz" .TagName }}
+      bin: kubectl-attune
+    - selector:
+        matchLabels:
+          os: linux
+          arch: ppc64le
+      {{addURIAndSha "https://github.com/{{ .Repository }}/releases/download/{{ .TagName }}/kubectl-attune_linux_ppc64le.tar.gz" .TagName }}
+      bin: kubectl-attune
+    - selector:
+        matchLabels:
+          os: linux
+          arch: s390x
+      {{addURIAndSha "https://github.com/{{ .Repository }}/releases/download/{{ .TagName }}/kubectl-attune_linux_s390x.tar.gz" .TagName }}
+      bin: kubectl-attune
+    - selector:
+        matchLabels:
+          os: darwin
+          arch: amd64
+      {{addURIAndSha "https://github.com/{{ .Repository }}/releases/download/{{ .TagName }}/kubectl-attune_darwin_amd64.tar.gz" .TagName }}
+      bin: kubectl-attune
+    - selector:
+        matchLabels:
+          os: darwin
+          arch: arm64
+      {{addURIAndSha "https://github.com/{{ .Repository }}/releases/download/{{ .TagName }}/kubectl-attune_darwin_arm64.tar.gz" .TagName }}
+      bin: kubectl-attune
