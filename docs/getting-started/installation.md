@@ -106,6 +106,21 @@ attunenamespacedefaults.attune.io    2026-01-15T00:00:00Z
 attunepolicies.attune.io             2026-01-15T00:00:00Z
 ```
 
+## kubectl plugin (optional)
+
+The `kubectl attune` plugin provides quick access to recommendations,
+savings estimates, and resize history.
+
+```bash
+# Install via Krew (recommended)
+kubectl krew install attune
+
+# Or build from source
+make build-plugin && sudo cp bin/kubectl-attune /usr/local/bin/
+```
+
+See the [CLI Reference](../reference/cli.md) for available commands.
+
 ## Next steps
 
 Head to the [Quick Start](quickstart.md) to create your first AttunePolicy.

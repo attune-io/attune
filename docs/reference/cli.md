@@ -5,15 +5,12 @@ reasoning.
 ## Installation
 
 ```bash
-# Build from source
+# Install via Krew (recommended)
+kubectl krew install attune
+
+# Or build from source
 make build-plugin
-
-# Copy to your PATH (system-wide)
 sudo cp bin/kubectl-attune /usr/local/bin/
-
-# Or install for the current user only
-install -Dm755 bin/kubectl-attune "$HOME/.local/bin/kubectl-attune"
-export PATH="$HOME/.local/bin:$PATH"
 ```
 
 ## Commands

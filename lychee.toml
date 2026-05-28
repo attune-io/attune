@@ -5,6 +5,7 @@ exclude = [
   "example\\.com",
   "medium\\.com",
   "hub\\.docker\\.com",
+  "securityscorecards\\.dev",
 ]
 exclude_loopback = true
 max_concurrency = 8
