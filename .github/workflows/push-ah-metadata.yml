@@ -1,0 +1,17 @@
+name: Push Artifact Hub metadata
+on: workflow_dispatch
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oras-project/setup-oras@v1
+      - name: Login to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u $ --password-stdin
+      - name: Push metadata
+        run: |
+          oras push ghcr.io/attune-io/charts/attune:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml
