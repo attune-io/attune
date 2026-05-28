@@ -120,11 +120,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Update Krew plugin manifest
-        uses: rajatjindal/krew-release-bot@c970b8a8f6dbc2f2285a26e3ae160903b87002c3 # v0.0.51
-        with:
-          krew_plugin_release_tag: ${{ steps.tag.outputs.name }}
-
       - name: Generate provenance subjects
         id: hash
         shell: bash -Eeuo pipefail {0}
@@ -201,6 +196,14 @@ jobs:
             dist/install.yaml
             dist/crds.yaml
             sbom.spdx.json
+
+      # Krew manifest update runs last with continue-on-error so a Krew
+      # failure never blocks Docker images, signatures, or provenance.
+      - name: Update Krew plugin manifest
+        continue-on-error: true
+        uses: rajatjindal/krew-release-bot@c970b8a8f6dbc2f2285a26e3ae160903b87002c3 # v0.0.51
+        with:
+          krew_plugin_release_tag: ${{ steps.tag.outputs.name }}
 
   helm-release:
     name: Helm Chart Release
