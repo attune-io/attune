@@ -546,8 +546,12 @@ func validateSLOGuardrails(guardrails []attunev1alpha1.SLOGuardrail) error {
 		if g.Threshold == "" {
 			return fmt.Errorf("updateStrategy.sloGuardrails[%d].threshold is required", i)
 		}
-		if _, err := strconv.ParseFloat(g.Threshold, 64); err != nil {
+		tv, err := strconv.ParseFloat(g.Threshold, 64)
+		if err != nil {
 			return fmt.Errorf("updateStrategy.sloGuardrails[%d].threshold %q is not a valid number: %w", i, g.Threshold, err)
+		}
+		if math.IsNaN(tv) || math.IsInf(tv, 0) {
+			return fmt.Errorf("updateStrategy.sloGuardrails[%d].threshold must be a finite number, got %s", i, g.Threshold)
 		}
 
 		if g.Comparison != "" && g.Comparison != "above" && g.Comparison != "below" {

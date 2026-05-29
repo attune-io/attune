@@ -1135,6 +1135,30 @@ func TestValidate_SLOGuardrailInvalidThreshold(t *testing.T) {
 	assert.Contains(t, err.Error(), "not a valid number")
 }
 
+func TestValidate_SLOGuardrailNaNThreshold(t *testing.T) {
+	validator := &AttunePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.SLOGuardrails = []attunev1alpha1.SLOGuardrail{
+		{Name: "test", Query: "up", Threshold: "NaN"},
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "finite number")
+}
+
+func TestValidate_SLOGuardrailInfThreshold(t *testing.T) {
+	validator := &AttunePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.SLOGuardrails = []attunev1alpha1.SLOGuardrail{
+		{Name: "test", Query: "up", Threshold: "Inf"},
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "finite number")
+}
+
 func TestValidate_SLOGuardrailInvalidComparison(t *testing.T) {
 	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
