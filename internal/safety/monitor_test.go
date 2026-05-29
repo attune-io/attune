@@ -1567,6 +1567,9 @@ func TestCheckPod_SLONaNThresholdSkipped(t *testing.T) {
 }
 
 func TestCheckPod_SLOInfThresholdSkipped(t *testing.T) {
+	// Use "below" comparison so the test is honest: without the Inf guard,
+	// 0.95 < Inf = true = breached = unsafe. With the guard, Inf is
+	// detected and the guardrail is skipped = safe.
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "web-0", Namespace: "default"},
 		Status: corev1.PodStatus{
@@ -1584,7 +1587,7 @@ func TestCheckPod_SLOInfThresholdSkipped(t *testing.T) {
 	monitor := NewMonitor(clientset, testr.New(t))
 	querier := &mockSLOQuerier{value: 0.95}
 	monitor.WithSLOChecker(querier, []attunev1alpha1.SLOGuardrail{
-		{Name: "latency", Query: "up", Threshold: "Inf", Comparison: "above"},
+		{Name: "latency", Query: "up", Threshold: "Inf", Comparison: "below"},
 	})
 
 	record := ResizeRecord{
