@@ -88,7 +88,7 @@ When a violation is detected, `RevertPod` restores the original resources via
 Located in `internal/conflict/`. Detects potential conflicts:
 
 - **HPA**: identifies HPAs targeting the same workload.
-- **VPA**: warns about active VPA objects (future).
+- **VPA**: warns about active VPA objects targeting the same workload.
 - **Opt-out**: checks for the `attune.io/skip: "true"` annotation.
 - **Active rollout**: detects in-progress deployments.
 

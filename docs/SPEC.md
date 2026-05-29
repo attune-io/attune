@@ -1241,9 +1241,9 @@ helm push attune-0.1.0.tgz oci://ghcr.io/attune-io/charts
 helm install attune oci://ghcr.io/attune-io/charts/attune --version 0.1.0
 ```
 
-### 11.3 kubectl Plugin (Future)
+### 11.3 kubectl Plugin
 
-Distributed via krew:
+Distributed via Krew:
 
 ```bash
 kubectl krew install attune
