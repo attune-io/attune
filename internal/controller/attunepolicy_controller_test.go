@@ -1183,7 +1183,7 @@ func TestComputeSavings_ReturnsCorrectStructure(t *testing.T) {
 			},
 		},
 	}
-	savings := r.computeSavings(recs, nil)
+	savings, _ := r.computeSavings(recs, nil)
 	assert.NotEmpty(t, savings.CPURequestReduction)
 	assert.Equal(t, "500m", savings.CPURequestReduction)
 }

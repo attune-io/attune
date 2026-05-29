@@ -71,7 +71,9 @@ func accumulateSavings(recommendations []attunev1alpha1.WorkloadRecommendation) 
 }
 
 // computeSavings calculates the aggregate resource savings across all recommendations.
-func (r *AttunePolicyReconciler) computeSavings(recommendations []attunev1alpha1.WorkloadRecommendation, defaults *attunev1alpha1.AttuneDefaults) attunev1alpha1.SavingsStatus {
+// It also returns the accumulator so callers can pass it to updateSavingsGauges
+// without re-iterating the recommendations.
+func (r *AttunePolicyReconciler) computeSavings(recommendations []attunev1alpha1.WorkloadRecommendation, defaults *attunev1alpha1.AttuneDefaults) (attunev1alpha1.SavingsStatus, savingsAccumulator) {
 	acc := accumulateSavings(recommendations)
 
 	savings := attunev1alpha1.SavingsStatus{}
@@ -110,15 +112,14 @@ func (r *AttunePolicyReconciler) computeSavings(recommendations []attunev1alpha1
 		savings.EstimatedMonthlyCostIncrease = fmt.Sprintf("$%.2f", monthlyCostIncrease)
 	}
 
-	return savings
+	return savings, acc
 }
 
 // updateSavingsGauges publishes savings metrics to Prometheus gauges.
 // Called from Reconcile after computeSavings. Separated so computeSavings
 // remains a pure function that tests can call without registering collectors.
-func updateSavingsGauges(namespace string, recommendations []attunev1alpha1.WorkloadRecommendation, defaults *attunev1alpha1.AttuneDefaults) {
-	acc := accumulateSavings(recommendations)
-
+// Accepts a pre-computed accumulator to avoid re-iterating recommendations.
+func updateSavingsGauges(namespace string, acc savingsAccumulator, defaults *attunev1alpha1.AttuneDefaults) {
 	cpuCoresSaved := float64(acc.totalCPUSaved) / 1000.0
 	memGiBSaved := float64(acc.totalMemSaved) / (1024 * 1024 * 1024)
 	operatormetrics.SavingsCPU.WithLabelValues(namespace).Set(cpuCoresSaved)

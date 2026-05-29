@@ -352,11 +352,12 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		logger.V(1).Info("Observe mode: recommendations computed but not surfaced in status",
 			"workloadsWithRecs", len(recommendations))
 		// Reset savings gauges in Observe mode so they don't show stale values.
-		updateSavingsGauges(policy.Namespace, nil, nil)
+		updateSavingsGauges(policy.Namespace, savingsAccumulator{}, nil)
 	} else {
 		policy.Status.Recommendations = recommendations
-		policy.Status.Savings = r.computeSavings(recommendations, defaults)
-		updateSavingsGauges(policy.Namespace, recommendations, defaults)
+		var acc savingsAccumulator
+		policy.Status.Savings, acc = r.computeSavings(recommendations, defaults)
+		updateSavingsGauges(policy.Namespace, acc, defaults)
 	}
 
 	// Export recommendations to ConfigMaps for GitOps workflows if configured.
