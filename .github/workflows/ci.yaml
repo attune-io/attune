@@ -140,6 +140,10 @@ jobs:
         shell: bash -Eeuo pipefail {0}
         run: bash hack/verify-dashboard-metrics.sh
 
+      - name: Verify PrometheusRule metrics sync
+        shell: bash -Eeuo pipefail {0}
+        run: bash hack/verify-prometheusrule-metrics.sh
+
   docs-check:
     name: Docs Check
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}

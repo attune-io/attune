@@ -38,6 +38,11 @@ annotations:
       name: attunedefaults.attune.io
       displayName: Attune Defaults
       description: Cluster-wide default values for Attune policies
+    - kind: AttuneNamespaceDefaults
+      version: v1alpha1
+      name: attunenamespacedefaults.attune.io
+      displayName: Attune Namespace Defaults
+      description: Namespace-scoped default values for Attune policies
   artifacthub.io/links: |
     - name: Documentation
       url: https://attune-io.github.io/attune/

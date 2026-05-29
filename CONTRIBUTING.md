@@ -188,8 +188,8 @@ Signed-off-by: Your Name <your@email.com>
 ```
 
 The name and email must match your `git config user.name` and
-`git config user.email`. The [DCO GitHub App](https://github.com/apps/dco)
-checks every commit on pull requests and will block merging if any commit
+`git config user.email`. The DCO CI check (`.github/workflows/dco.yaml`)
+verifies every commit on pull requests and will block merging if any commit
 is missing the sign-off.
 
 If you forgot to sign off, amend your commits:
