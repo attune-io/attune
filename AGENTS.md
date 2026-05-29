@@ -90,6 +90,14 @@ Use `resource.ParseQuantity()` (returns error) instead of `resource.MustParse()`
 (panics). Use DecimalSI format for CPU, BinarySI for memory. Use Go `time.Duration`
 for all durations (e.g., `168h` not `7d`).
 
+### Float parsing
+
+`strconv.ParseFloat("NaN", 64)` and `strconv.ParseFloat("Inf", 64)` succeed
+with nil error, returning `math.NaN()` and `math.Inf()`. All float comparisons
+with NaN return false, silently disabling any threshold or guardrail that uses
+the parsed value. Always check `math.IsNaN(v) || math.IsInf(v, 0)` after
+`strconv.ParseFloat` in validation code.
+
 ### Webhooks
 
 controller-runtime v0.24.x uses typed generic interfaces. Register webhooks with:
