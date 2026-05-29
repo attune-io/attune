@@ -9172,6 +9172,92 @@ func TestBuildRecommendationEngines_ExplicitMaxChangePercent(t *testing.T) {
 	assert.Equal(t, float64(40), memExpl.MaxChangePercent)
 }
 
+func TestResolveChangeCaps(t *testing.T) {
+	tests := []struct {
+		name             string
+		rc               attunev1alpha1.ResourceConfig
+		builtInDefault   int32
+		wantIncrease     float64
+		wantDecrease     float64
+	}{
+		{
+			name:           "all nil uses built-in default",
+			rc:             attunev1alpha1.ResourceConfig{},
+			builtInDefault: 50,
+			wantIncrease:   50,
+			wantDecrease:   50,
+		},
+		{
+			name: "MaxChangePercent overrides default for both",
+			rc: attunev1alpha1.ResourceConfig{
+				MaxChangePercent: int32Ptr(30),
+			},
+			builtInDefault: 50,
+			wantIncrease:   30,
+			wantDecrease:   30,
+		},
+		{
+			name: "MaxIncreasePercent overrides increase only",
+			rc: attunev1alpha1.ResourceConfig{
+				MaxChangePercent:   int32Ptr(30),
+				MaxIncreasePercent: int32Ptr(80),
+			},
+			builtInDefault: 50,
+			wantIncrease:   80,
+			wantDecrease:   30,
+		},
+		{
+			name: "MaxDecreasePercent overrides decrease only",
+			rc: attunev1alpha1.ResourceConfig{
+				MaxChangePercent:   int32Ptr(30),
+				MaxDecreasePercent: int32Ptr(15),
+			},
+			builtInDefault: 50,
+			wantIncrease:   30,
+			wantDecrease:   15,
+		},
+		{
+			name: "all three set uses directional overrides",
+			rc: attunev1alpha1.ResourceConfig{
+				MaxChangePercent:   int32Ptr(30),
+				MaxIncreasePercent: int32Ptr(90),
+				MaxDecreasePercent: int32Ptr(10),
+			},
+			builtInDefault: 50,
+			wantIncrease:   90,
+			wantDecrease:   10,
+		},
+		{
+			name: "clamps below 1 to 1",
+			rc: attunev1alpha1.ResourceConfig{
+				MaxIncreasePercent: int32Ptr(0),
+				MaxDecreasePercent: int32Ptr(-5),
+			},
+			builtInDefault: 50,
+			wantIncrease:   1,
+			wantDecrease:   1,
+		},
+		{
+			name: "clamps above 100 to 100",
+			rc: attunev1alpha1.ResourceConfig{
+				MaxIncreasePercent: int32Ptr(200),
+				MaxDecreasePercent: int32Ptr(150),
+			},
+			builtInDefault: 50,
+			wantIncrease:   100,
+			wantDecrease:   100,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotIncrease, gotDecrease := resolveChangeCaps(tt.rc, tt.builtInDefault)
+			assert.Equal(t, tt.wantIncrease, gotIncrease, "increase")
+			assert.Equal(t, tt.wantDecrease, gotDecrease, "decrease")
+		})
+	}
+}
+
 func TestShouldSkipResize_LimitRangeViolation(t *testing.T) {
 	scheme := testScheme()
 	// LimitRange requiring at least 100m CPU.
