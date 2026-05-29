@@ -118,7 +118,7 @@ func TestWorkload_IsBatchWorkload(t *testing.T) {
 
 func TestWorkload_GetContainers(t *testing.T) {
 	always := corev1.ContainerRestartPolicyAlways
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 
 	tests := []struct {
 		name      string
@@ -204,7 +204,7 @@ func TestWorkload_GetContainers(t *testing.T) {
 // ---------- isRollingOut ----------
 
 func TestWorkload_IsRollingOut(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 
 	tests := []struct {
 		name     string
@@ -293,7 +293,7 @@ func TestWorkload_IsRollingOut(t *testing.T) {
 // ---------- getPodSelectorLabels ----------
 
 func TestWorkload_GetPodSelectorLabels(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 
 	tests := []struct {
 		name     string
@@ -729,7 +729,8 @@ func TestWorkload_DiscoverWorkloads(t *testing.T) {
 			if len(tt.objects) > 0 {
 				builder = builder.WithObjects(tt.objects...)
 			}
-			r := &AttunePolicyReconciler{Client: builder.Build()}
+			r := NewAttunePolicyReconciler()
+	r.Client = builder.Build()
 
 			got, err := r.discoverWorkloads(ctx, tt.policy)
 			if tt.wantErr != "" {
@@ -805,7 +806,8 @@ func TestWorkload_GetPodsForWorkload(t *testing.T) {
 			if len(tt.objects) > 0 {
 				builder = builder.WithObjects(tt.objects...)
 			}
-			r := &AttunePolicyReconciler{Client: builder.Build()}
+			r := NewAttunePolicyReconciler()
+	r.Client = builder.Build()
 
 			pods, err := r.getPodsForWorkload(ctx, tt.workload)
 			if tt.wantErr != "" {

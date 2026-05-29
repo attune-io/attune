@@ -49,7 +49,7 @@ func TestSetResizingCondition_InProgress(t *testing.T) {
 			Workloads: attunev1alpha1.WorkloadStatus{Resized: 2},
 		},
 	}
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	r.setResizingCondition(policy, false)
 
 	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionResizing)
@@ -64,7 +64,7 @@ func TestSetResizingCondition_CooldownActive(t *testing.T) {
 			UpdateStrategy: attunev1alpha1.UpdateStrategy{Type: attunev1alpha1.UpdateTypeAuto},
 		},
 	}
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	r.setResizingCondition(policy, true)
 
 	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionResizing)
@@ -79,7 +79,7 @@ func TestSetResizingCondition_Idle(t *testing.T) {
 			UpdateStrategy: attunev1alpha1.UpdateStrategy{Type: attunev1alpha1.UpdateTypeAuto},
 		},
 	}
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	r.setResizingCondition(policy, false)
 
 	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionResizing)
@@ -94,7 +94,7 @@ func TestSetResizingCondition_ObserveMode_NoCondition(t *testing.T) {
 			UpdateStrategy: attunev1alpha1.UpdateStrategy{Type: attunev1alpha1.UpdateTypeObserve},
 		},
 	}
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	r.setResizingCondition(policy, false)
 
 	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionResizing)
@@ -115,7 +115,7 @@ func TestSetDegradedCondition_HighRevertRate(t *testing.T) {
 			},
 		},
 	}
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	r.setDegradedCondition(policy)
 
 	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionDegraded)
@@ -136,7 +136,7 @@ func TestSetDegradedCondition_LowRevertRate(t *testing.T) {
 			},
 		},
 	}
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	r.setDegradedCondition(policy)
 
 	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionDegraded)
@@ -145,7 +145,7 @@ func TestSetDegradedCondition_LowRevertRate(t *testing.T) {
 
 func TestSetDegradedCondition_EmptyHistory(t *testing.T) {
 	policy := &attunev1alpha1.AttunePolicy{}
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	r.setDegradedCondition(policy)
 
 	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionDegraded)
@@ -180,7 +180,7 @@ func TestConsecutiveReverts(t *testing.T) {
 // ---------- Exponential backoff ----------
 
 func TestGetEffectiveCooldown_NoReverts(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	cooldown := 1 * time.Hour
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
@@ -193,7 +193,7 @@ func TestGetEffectiveCooldown_NoReverts(t *testing.T) {
 }
 
 func TestGetEffectiveCooldown_TwoReverts(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	cooldown := 1 * time.Hour
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
@@ -212,7 +212,7 @@ func TestGetEffectiveCooldown_TwoReverts(t *testing.T) {
 }
 
 func TestGetEffectiveCooldown_CappedAt16x(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	cooldown := 1 * time.Hour
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
@@ -247,7 +247,8 @@ var zeroCurrent = corev1.ResourceRequirements{
 func TestCheckQuotaCompatibility_NoLimitRange(t *testing.T) {
 	scheme := testScheme()
 	c := fake.NewClientBuilder().WithScheme(scheme).Build()
-	r := &AttunePolicyReconciler{Client: c}
+	r := NewAttunePolicyReconciler()
+	r.Client = c
 
 	target := corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
@@ -275,7 +276,8 @@ func TestCheckQuotaCompatibility_BelowMinimum(t *testing.T) {
 	}
 	scheme := testScheme()
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(lr).Build()
-	r := &AttunePolicyReconciler{Client: c}
+	r := NewAttunePolicyReconciler()
+	r.Client = c
 
 	target := corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
@@ -304,7 +306,8 @@ func TestCheckQuotaCompatibility_AboveMaximum(t *testing.T) {
 	}
 	scheme := testScheme()
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(lr).Build()
-	r := &AttunePolicyReconciler{Client: c}
+	r := NewAttunePolicyReconciler()
+	r.Client = c
 
 	target := corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
@@ -333,7 +336,8 @@ func TestCheckQuotaCompatibility_MemoryBelowMinimum(t *testing.T) {
 	}
 	scheme := testScheme()
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(lr).Build()
-	r := &AttunePolicyReconciler{Client: c}
+	r := NewAttunePolicyReconciler()
+	r.Client = c
 
 	target := corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
@@ -363,7 +367,8 @@ func TestCheckQuotaCompatibility_CPUAboveMaximum(t *testing.T) {
 	}
 	scheme := testScheme()
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(lr).Build()
-	r := &AttunePolicyReconciler{Client: c}
+	r := NewAttunePolicyReconciler()
+	r.Client = c
 
 	target := corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
@@ -393,7 +398,8 @@ func TestCheckQuotaCompatibility_QuotaExceeded(t *testing.T) {
 	}
 	scheme := testScheme()
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(quota).Build()
-	r := &AttunePolicyReconciler{Client: c}
+	r := NewAttunePolicyReconciler()
+	r.Client = c
 
 	current := corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
@@ -427,7 +433,8 @@ func TestCheckQuotaCompatibility_QuotaWithHeadroom(t *testing.T) {
 	}
 	scheme := testScheme()
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(quota).Build()
-	r := &AttunePolicyReconciler{Client: c}
+	r := NewAttunePolicyReconciler()
+	r.Client = c
 
 	current := corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
@@ -460,7 +467,8 @@ func TestCheckQuotaCompatibility_DecreaseAlwaysPasses(t *testing.T) {
 	}
 	scheme := testScheme()
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(quota).Build()
-	r := &AttunePolicyReconciler{Client: c}
+	r := NewAttunePolicyReconciler()
+	r.Client = c
 
 	current := corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
@@ -493,7 +501,8 @@ func TestCheckQuotaCompatibility_MemoryQuotaExceeded(t *testing.T) {
 	}
 	scheme := testScheme()
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(quota).Build()
-	r := &AttunePolicyReconciler{Client: c}
+	r := NewAttunePolicyReconciler()
+	r.Client = c
 
 	current := corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
@@ -530,7 +539,8 @@ func TestCheckQuotaCompatibility_LimitsAboveMaximum(t *testing.T) {
 	}
 	scheme := testScheme()
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(lr).Build()
-	r := &AttunePolicyReconciler{Client: c}
+	r := NewAttunePolicyReconciler()
+	r.Client = c
 
 	// Requests are within bounds, but limits exceed the LimitRange max.
 	target := corev1.ResourceRequirements{
@@ -566,7 +576,8 @@ func TestCheckQuotaCompatibility_MemoryLimitAboveMaximum(t *testing.T) {
 	}
 	scheme := testScheme()
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(lr).Build()
-	r := &AttunePolicyReconciler{Client: c}
+	r := NewAttunePolicyReconciler()
+	r.Client = c
 
 	// CPU limit is within bounds, but memory limit exceeds the LimitRange max.
 	target := corev1.ResourceRequirements{
@@ -589,9 +600,8 @@ func TestCheckQuotaCompatibility_MemoryLimitAboveMaximum(t *testing.T) {
 
 func TestComputeSavings_EstimatedMonthlySavings(t *testing.T) {
 	scheme := testScheme()
-	r := &AttunePolicyReconciler{
-		Client: fake.NewClientBuilder().WithScheme(scheme).Build(),
-	}
+	r := NewAttunePolicyReconciler()
+	r.Client = fake.NewClientBuilder().WithScheme(scheme).Build()
 	recommendations := []attunev1alpha1.WorkloadRecommendation{
 		{
 			Workload: "test",
@@ -632,9 +642,8 @@ func TestComputeSavings_CustomCostPricing(t *testing.T) {
 		},
 	}
 	scheme := testScheme()
-	r := &AttunePolicyReconciler{
-		Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(defaults).Build(),
-	}
+	r := NewAttunePolicyReconciler()
+	r.Client = fake.NewClientBuilder().WithScheme(scheme).WithObjects(defaults).Build()
 	recommendations := []attunev1alpha1.WorkloadRecommendation{
 		{
 			Workload: "test",
@@ -672,7 +681,9 @@ func TestSetFailedCondition_SuccessOnFirstAttempt(t *testing.T) {
 		WithObjects(policy).
 		WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
 		Build()
-	r := &AttunePolicyReconciler{Client: c, Scheme: scheme}
+	r := NewAttunePolicyReconciler()
+	r.Client = c
+	r.Scheme = scheme
 
 	r.setFailedCondition(context.Background(), policy, attunev1alpha1.ReasonInvalidConfig, "bad config")
 
@@ -711,7 +722,9 @@ func TestSetFailedCondition_ConflictRetrySucceeds(t *testing.T) {
 		}).
 		Build()
 
-	r := &AttunePolicyReconciler{Client: wrappedClient, Scheme: scheme}
+	r := NewAttunePolicyReconciler()
+	r.Client = wrappedClient
+	r.Scheme = scheme
 	r.setFailedCondition(context.Background(), policy, attunev1alpha1.ReasonInvalidConfig, "retry test")
 
 	assert.Equal(t, int32(2), updateCalls.Load(), "expected 2 update calls (1 conflict + 1 success)")
@@ -747,7 +760,9 @@ func TestSetFailedCondition_ExhaustedRetries(t *testing.T) {
 		}).
 		Build()
 
-	r := &AttunePolicyReconciler{Client: wrappedClient, Scheme: scheme}
+	r := NewAttunePolicyReconciler()
+	r.Client = wrappedClient
+	r.Scheme = scheme
 	r.setFailedCondition(context.Background(), policy, attunev1alpha1.ReasonInvalidConfig, "exhausted test")
 
 	// 3 attempts in the for loop, all return conflict
@@ -772,7 +787,9 @@ func TestSetFailedCondition_NonConflictError(t *testing.T) {
 		}).
 		Build()
 
-	r := &AttunePolicyReconciler{Client: wrappedClient, Scheme: scheme}
+	r := NewAttunePolicyReconciler()
+	r.Client = wrappedClient
+	r.Scheme = scheme
 	r.setFailedCondition(context.Background(), policy, attunev1alpha1.ReasonInvalidConfig, "non-conflict test")
 
 	// Non-conflict error should not retry
@@ -800,7 +817,9 @@ func TestSetFailedCondition_RefetchFailure(t *testing.T) {
 		}).
 		Build()
 
-	r := &AttunePolicyReconciler{Client: wrappedClient, Scheme: scheme}
+	r := NewAttunePolicyReconciler()
+	r.Client = wrappedClient
+	r.Scheme = scheme
 	r.setFailedCondition(context.Background(), policy, attunev1alpha1.ReasonInvalidConfig, "refetch failure test")
 
 	// Conflict on first update, then re-fetch fails -> returns immediately
@@ -810,7 +829,7 @@ func TestSetFailedCondition_RefetchFailure(t *testing.T) {
 // ---------- setCooldownStatus ----------
 
 func TestSetCooldownStatus_NoReverts(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
 			UpdateStrategy: attunev1alpha1.UpdateStrategy{
@@ -826,7 +845,7 @@ func TestSetCooldownStatus_NoReverts(t *testing.T) {
 }
 
 func TestSetCooldownStatus_WithReverts(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
 			UpdateStrategy: attunev1alpha1.UpdateStrategy{
@@ -850,7 +869,7 @@ func TestSetCooldownStatus_WithReverts(t *testing.T) {
 }
 
 func TestSetCooldownStatus_CappedAt16x(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	entries := make([]attunev1alpha1.ResizeHistoryEntry, 10)
 	for i := range entries {
 		entries[i].Result = attunev1alpha1.ResizeResultReverted
@@ -875,7 +894,7 @@ func TestSetCooldownStatus_CappedAt16x(t *testing.T) {
 // ---------- setScheduleBlockedCondition ----------
 
 func TestSetScheduleBlockedCondition_NoSchedule(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	policy := &attunev1alpha1.AttunePolicy{}
 	r.setScheduleBlockedCondition(policy, true)
 	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionScheduleBlocked)
@@ -883,7 +902,7 @@ func TestSetScheduleBlockedCondition_NoSchedule(t *testing.T) {
 }
 
 func TestSetScheduleBlockedCondition_OutsideWindow(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
 			UpdateStrategy: attunev1alpha1.UpdateStrategy{
@@ -901,7 +920,7 @@ func TestSetScheduleBlockedCondition_OutsideWindow(t *testing.T) {
 }
 
 func TestSetScheduleBlockedCondition_InsideWindow(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
 			UpdateStrategy: attunev1alpha1.UpdateStrategy{
@@ -921,7 +940,7 @@ func TestSetScheduleBlockedCondition_InsideWindow(t *testing.T) {
 // ---------- getRateWindow ----------
 
 func TestGetRateWindow_DefaultsFallbackToQueryStep(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
 			MetricsSource: attunev1alpha1.MetricsSource{
@@ -934,7 +953,7 @@ func TestGetRateWindow_DefaultsFallbackToQueryStep(t *testing.T) {
 }
 
 func TestGetRateWindow_ExplicitValue(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
 			MetricsSource: attunev1alpha1.MetricsSource{
@@ -947,7 +966,7 @@ func TestGetRateWindow_ExplicitValue(t *testing.T) {
 }
 
 func TestGetRateWindow_ClampedMin(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
 			MetricsSource: attunev1alpha1.MetricsSource{

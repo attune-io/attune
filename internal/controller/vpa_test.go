@@ -76,10 +76,9 @@ func TestComputeVPARecommendationsForWorkload_Basic(t *testing.T) {
 		WithObjects(deploy).
 		Build()
 
-	reconciler := &AttunePolicyReconciler{
-		Client: fakeClient,
-		Scheme: testScheme(),
-	}
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = testScheme()
 
 	rec, maxDP, err := reconciler.computeVPARecommendationsForWorkload(
 		context.Background(), policy, deploy, vpaRecs, nil, nil, nil,
@@ -119,10 +118,9 @@ func TestComputeVPARecommendationsForWorkload_ExcludesContainer(t *testing.T) {
 		WithObjects(deploy).
 		Build()
 
-	reconciler := &AttunePolicyReconciler{
-		Client: fakeClient,
-		Scheme: testScheme(),
-	}
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = testScheme()
 
 	rec, _, err := reconciler.computeVPARecommendationsForWorkload(
 		context.Background(), policy, deploy, vpaRecs, nil, nil, nil,
@@ -152,10 +150,9 @@ func TestComputeVPARecommendationsForWorkload_NoMatchingContainer(t *testing.T) 
 		WithObjects(deploy).
 		Build()
 
-	reconciler := &AttunePolicyReconciler{
-		Client: fakeClient,
-		Scheme: testScheme(),
-	}
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = testScheme()
 
 	rec, _, err := reconciler.computeVPARecommendationsForWorkload(
 		context.Background(), policy, deploy, vpaRecs, nil, nil, nil,
@@ -255,10 +252,9 @@ func TestReconcile_VPASource_Recommendations(t *testing.T) {
 		WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
 		Build()
 
-	reconciler := &AttunePolicyReconciler{
-		Client: fakeClient,
-		Scheme: scheme,
-	}
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = scheme
 
 	result, err := reconciler.Reconcile(context.Background(), ctrl.Request{
 		NamespacedName: types.NamespacedName{Name: "vpa-policy", Namespace: "default"},
@@ -295,10 +291,9 @@ func TestReconcile_VPASource_VPANotFound(t *testing.T) {
 		WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
 		Build()
 
-	reconciler := &AttunePolicyReconciler{
-		Client: fakeClient,
-		Scheme: scheme,
-	}
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = scheme
 
 	result, err := reconciler.Reconcile(context.Background(), ctrl.Request{
 		NamespacedName: types.NamespacedName{Name: "vpa-policy", Namespace: "default"},
@@ -374,10 +369,9 @@ func TestReconcile_VPASource_DefaultsNamespace(t *testing.T) {
 		WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
 		Build()
 
-	reconciler := &AttunePolicyReconciler{
-		Client: fakeClient,
-		Scheme: scheme,
-	}
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = scheme
 
 	result, err := reconciler.Reconcile(context.Background(), ctrl.Request{
 		NamespacedName: types.NamespacedName{Name: "vpa-policy", Namespace: "prod"},
@@ -399,10 +393,9 @@ func TestResolveMetricsCollector_VPA(t *testing.T) {
 	scheme := testScheme()
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 
-	reconciler := &AttunePolicyReconciler{
-		Client: fakeClient,
-		Scheme: scheme,
-	}
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = scheme
 
 	collector, qb, err := reconciler.resolveMetricsCollector(
 		context.Background(), policy, nil,
@@ -426,10 +419,9 @@ func TestReconcile_VPASource_EmptyRecommendations(t *testing.T) {
 		WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
 		Build()
 
-	reconciler := &AttunePolicyReconciler{
-		Client: fakeClient,
-		Scheme: scheme,
-	}
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = scheme
 
 	result, err := reconciler.Reconcile(context.Background(), ctrl.Request{
 		NamespacedName: types.NamespacedName{Name: "vpa-policy", Namespace: "default"},

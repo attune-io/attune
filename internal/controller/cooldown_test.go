@@ -27,7 +27,7 @@ import (
 )
 
 func TestIsCooldownActive_NoAnnotation(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
 			UpdateStrategy: attunev1alpha1.UpdateStrategy{
@@ -39,7 +39,7 @@ func TestIsCooldownActive_NoAnnotation(t *testing.T) {
 }
 
 func TestIsCooldownActive_RecentTime(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Annotations: map[string]string{
@@ -57,7 +57,7 @@ func TestIsCooldownActive_RecentTime(t *testing.T) {
 }
 
 func TestIsCooldownActive_OldTime(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Annotations: map[string]string{
@@ -75,7 +75,7 @@ func TestIsCooldownActive_OldTime(t *testing.T) {
 }
 
 func TestIsCooldownActive_InvalidAnnotation(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Annotations: map[string]string{
@@ -93,7 +93,7 @@ func TestIsCooldownActive_InvalidAnnotation(t *testing.T) {
 }
 
 func TestIsCooldownActive_CustomCooldownDuration(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Annotations: map[string]string{
