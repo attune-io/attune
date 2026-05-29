@@ -200,7 +200,29 @@ When enabled, the operator creates one ConfigMap per workload, named
 for automatic cleanup when the policy itself is deleted.
 
 The ConfigMap contains per-container recommended CPU and memory values plus
-a `last-updated` timestamp.
+a `last-updated` timestamp (RFC3339).
+
+Example ConfigMap content:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: my-app-my-deployment-recommendations
+  namespace: default
+  labels:
+    attune.io/policy: my-app
+    attune.io/workload: my-deployment
+data:
+  workload: my-deployment
+  kind: Deployment
+  main.cpu-request: "250m"
+  main.memory-request: "512Mi"
+  main.cpu-limit: "500m"
+  main.memory-limit: "1Gi"
+  main.confidence: "0.92"
+  last-updated: "2026-05-29T14:30:00Z"
+```
 
 **Orphan cleanup**: When a workload leaves the policy's selector (for example
 after a selector change or workload deletion while the policy still exists),

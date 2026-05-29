@@ -72,3 +72,19 @@ adjusts.
 | Ongoing optimization of stable services | Use Auto mode; commit periodically based on savings reports |
 | Pre-deployment sizing | Use Recommend mode, review, commit before promoting |
 | Cost reporting | Use `kubectl attune savings` or the Grafana dashboard |
+| Pure GitOps (no direct resizes) | Recommend + export.configMap; CI pipeline consumes the ConfigMaps and proposes Git patches (see below) |
+
+## Export mode for GitOps pipelines
+
+For environments that want the operator to compute recommendations but require **all** resource changes to flow through Git (ArgoCD, Flux, etc.):
+
+1. Set `updateStrategy.type: Recommend` (or `Auto` with `export` also enabled) plus `export.configMap: true`.
+2. The operator creates one ConfigMap per workload (named `<policy>-<workload>-recommendations`) containing per-container CPU/memory recommendations, confidence, and a RFC3339 `last-updated` timestamp. The ConfigMap carries the `attune.io/policy` label.
+3. Your CI/CD pipeline (or a lightweight sidecar) reads the ConfigMaps and proposes patches to the Deployment/StatefulSet specs stored in Git.
+4. GitOps applies the patches through the normal sync/approval flow.
+
+See the [Auto mode guide](auto-mode.md#exporting-recommendations-to-configmaps) for the exact ConfigMap schema, example output, and owner-reference cleanup behavior.
+
+**Orphan cleanup (stale recommendation removal)**: When a workload leaves the policy selector (selector change, scale-to-zero, or deletion while the policy still exists), the operator automatically deletes the corresponding recommendation ConfigMap on the next reconcile. Only ConfigMaps bearing the matching `attune.io/policy` label are considered. This guarantees GitOps consumers never see stale recommendations for workloads no longer in scope.
+
+This is the primary integration pattern for strict GitOps shops: the operator provides the intelligence (usage-based recommendations), Git remains the source of truth, and the export + orphan cleanup mechanism keeps the hand-off clean and auditable.

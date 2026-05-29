@@ -51,6 +51,8 @@ resource requests and limits using [In-Place Pod Resize](https://kubernetes.io/b
 - Helm 3.16+ or 4.x
 - [cert-manager](https://cert-manager.io/docs/installation/) (for admission webhook TLS; to skip, install with `--set webhooks.enabled=false`)
 
+**Optional GitOps export mode**: Recommendations can be written to ConfigMaps instead of (or in addition to) direct resizing. Ideal for ArgoCD/Flux workflows. See the [Auto mode guide](docs/guides/auto-mode.md#exporting-recommendations-to-configmaps).
+
 ### Install
 
 ```bash
