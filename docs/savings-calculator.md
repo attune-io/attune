@@ -1,5 +1,9 @@
 # Savings Calculator
 
+> **Note:** This page is an interactive calculator that requires JavaScript.
+> If you are viewing this on GitHub, visit the
+> [live version](https://attune-io.github.io/attune/savings-calculator/) instead.
+
 Estimate how much you could save by right-sizing your Kubernetes workloads
 with attune. Enter your current resource allocation and actual usage
 below, and see the projected monthly and annual savings instantly.
