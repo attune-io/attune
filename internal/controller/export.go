@@ -39,6 +39,34 @@ func (r *AttunePolicyReconciler) exportRecommendationConfigMaps(
 	recommendations []attunev1alpha1.WorkloadRecommendation,
 ) {
 	logger := log.FromContext(ctx)
+
+	// Cleanup orphaned ConfigMaps for workloads that have left the policy's
+	// selector scope (e.g. selector change or workload deletion). Owner refs
+	// only handle policy deletion. See #140.
+	existingCMs := &corev1.ConfigMapList{}
+	listOpts := []client.ListOption{
+		client.InNamespace(policy.Namespace),
+		client.MatchingLabels{"attune.io/policy": policy.Name},
+	}
+	if err := r.List(ctx, existingCMs, listOpts...); err == nil {
+		currentWorkloads := map[string]bool{}
+		for _, rec := range recommendations {
+			currentWorkloads[rec.Workload] = true
+		}
+		for i := range existingCMs.Items {
+			cm := &existingCMs.Items[i]
+			if wl := cm.Labels["attune.io/workload"]; wl != "" && !currentWorkloads[wl] {
+				if delErr := r.Delete(ctx, cm); delErr != nil && !apierrors.IsNotFound(delErr) {
+					logger.Error(delErr, "Failed to delete orphaned recommendation ConfigMap", "configmap", cm.Name)
+				} else {
+					logger.V(1).Info("Deleted orphaned recommendation ConfigMap", "configmap", cm.Name, "workload", wl)
+				}
+			}
+		}
+	} else {
+		logger.Error(err, "Failed to list recommendation ConfigMaps for orphan cleanup")
+	}
+
 	for _, rec := range recommendations {
 		cmName := fmt.Sprintf("%s-%s-recommendations", policy.Name, rec.Workload)
 		data := map[string]string{
