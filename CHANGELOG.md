@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.8](https://github.com/attune-io/attune/compare/v0.1.7...v0.1.8) (2026-05-29)
+
+
+### Features
+
+* **ci:** automate OperatorHub bundle submission in release workflow ([4aacfa7](https://github.com/attune-io/attune/commit/4aacfa700a6eb94971973091221fe04301d8dd9d)), closes [#131](https://github.com/attune-io/attune/issues/131)
+* **helm:** add AttuneBudgetExhausted PrometheusRule alert ([6bc68e3](https://github.com/attune-io/attune/commit/6bc68e3fd29eb4ee06d9c2592caac3ec45698886))
+* **krew:** add ppc64le and s390x platform support ([89ae79d](https://github.com/attune-io/attune/commit/89ae79d8a0cb2007b468bed349d5082db07537ca))
+* replace personal PAT with GitHub App for OperatorHub PRs ([4804109](https://github.com/attune-io/attune/commit/480410907c8094cdd50234538879d42ae8a22104)), closes [#135](https://github.com/attune-io/attune/issues/135)
+
+
+### Bug Fixes
+
+* add NaN/Inf guards to remaining ParseFloat call sites ([315801c](https://github.com/attune-io/attune/commit/315801cbe040bf43f5df635faf1e85a557277e42))
+* add reviewers to OperatorHub ci.yaml for auto-merge ([a5349c2](https://github.com/attune-io/attune/commit/a5349c2e684ae13a1b8b2998c89fb980525678a2))
+* **ci:** disable errexit around E2E gate API polling ([894ca93](https://github.com/attune-io/attune/commit/894ca939b2d0683a5930e302ab6cf88ce1bb0909))
+* **ci:** handle transient API failures in E2E lint/unit gate polling ([d70ed2e](https://github.com/attune-io/attune/commit/d70ed2e4961e5b40fbdf2a9f32e993998718e172))
+* **ci:** make release workflow idempotent for re-runs ([b698035](https://github.com/attune-io/attune/commit/b698035ee8d0047d178192cc980e7204d356a201))
+* **ci:** pass explicit tag_name to softprops/action-gh-release ([fcf0d95](https://github.com/attune-io/attune/commit/fcf0d95c7fdf451bd39b7618c75a26df7ffc2223))
+* **ci:** replace E2E gate polling with needs dependency ([b6aeebf](https://github.com/attune-io/attune/commit/b6aeebfa8d22cc73efaf506d875496619a2b3062))
+* **ci:** separate API call from jq to prevent gate false-failures ([2a32234](https://github.com/attune-io/attune/commit/2a3223417e48a82251bddf0585f91e0d64b60596))
+* **ci:** use GitHub App token for release-please ([247d0d0](https://github.com/attune-io/attune/commit/247d0d01a8a54d478655d02b8663058cf3c5052b))
+* **ci:** use SVG logo in OLM bundle and generate icon at build time ([#132](https://github.com/attune-io/attune/issues/132)) ([e47df9a](https://github.com/attune-io/attune/commit/e47df9ae1b171372f2454795abd5c944378d5621))
+* **helm:** set operator capability level to Auto Pilot ([825a77f](https://github.com/attune-io/attune/commit/825a77f913de4bfd03763f42ac827b7154c40635))
+* **plugin:** show burst factor in explain output and improve CRD-missing error ([88e753c](https://github.com/attune-io/attune/commit/88e753c1373b02af89bb00a2fd96e56ac645b344))
+* **webhook:** reject NaN and Inf in SLO guardrail threshold ([e978e35](https://github.com/attune-io/attune/commit/e978e35a25caa5c6b49c17846729c5aee265019a))
+
 ## [0.1.7](https://github.com/attune-io/attune/compare/v0.1.6...v0.1.7) (2026-05-29)
 
 
