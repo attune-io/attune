@@ -7,18 +7,9 @@ spec:
   homepage: https://github.com/attune-io/attune
   shortDescription: Inspect and explain Attune pod right-sizing policies
   description: |
-    Shows policy status, savings estimates, per-container recommendations,
-    recommendation reasoning, and resize history for Attune policies.
-
-    Subcommands:
-      status            Show policy status, workload counts, and conditions
-      savings           Show estimated CPU/memory savings per policy
-      recommendations   Show per-container sizing recommendations
-      explain           Show recommendation reasoning for one policy
-      preview           Preview per-pod resource changes before promoting type
-      history           Show resize history (including eviction fallbacks)
-      diff              Show resource change diffs from recommendations
-      wizard            Interactive policy creation and type promotion
+    The kubectl-attune plugin provides visibility into Attune, a Kubernetes
+    operator for safe, in-place pod resource right-sizing. View policy status,
+    savings estimates, per-container recommendations, and resize history.
   caveats: |
     Requires the Attune operator to be installed in the cluster.
   platforms:
