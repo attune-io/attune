@@ -378,10 +378,19 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app-token
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: attune-io
+          repositories: community-operators
+
       - name: Generate OLM bundle and create PR
         env:
           VERSION: ${{ needs.release.outputs.tag }}
-          GH_TOKEN: ${{ secrets.OPERATORHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          FORK_OWNER: attune-io
         run: |
           # Strip 'v' prefix from tag
           export VERSION="${VERSION#v}"

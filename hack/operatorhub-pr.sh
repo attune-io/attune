@@ -18,7 +18,7 @@ set -Eeuo pipefail
 : "${VERSION:?VERSION is required (e.g., 0.1.7)}"
 : "${GH_TOKEN:?GH_TOKEN is required}"
 
-FORK_OWNER="${FORK_OWNER:-SebTardif}"
+FORK_OWNER="${FORK_OWNER:-attune-io}"
 GIT_USER_NAME="${GIT_USER_NAME:-github-actions[bot]}"
 GIT_USER_EMAIL="${GIT_USER_EMAIL:-41898282+github-actions[bot]@users.noreply.github.com}"
 UPSTREAM_REPO="k8s-operatorhub/community-operators"
