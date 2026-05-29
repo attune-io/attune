@@ -8566,6 +8566,74 @@ func TestApplyStartupBoosts_AppliesBoostToNewPod(t *testing.T) {
 	assert.True(t, foundResize, "expected a resize action for startup boost")
 }
 
+func TestApplyStartupBoosts_NaNMultiplierSkipped(t *testing.T) {
+	// NaN multiplier must be treated as invalid and skip the boost entirely.
+	// Before the fix, NaN <= 1 evaluated to false, so NaN passed the guard.
+	scheme := testScheme()
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			CPU: attunev1alpha1.ResourceConfig{
+				StartupBoost: &attunev1alpha1.StartupBoost{
+					Multiplier: "NaN",
+					Duration:   metav1.Duration{Duration: 2 * time.Minute},
+				},
+			},
+		},
+	}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "my-app-abc",
+			Namespace:         "default",
+			CreationTimestamp: metav1.NewTime(now.Add(-30 * time.Second)),
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("100m"),
+						},
+					},
+				},
+			},
+		},
+	}
+	clientset := kubefake.NewSimpleClientset(pod)
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod).Build()
+	r := &AttunePolicyReconciler{
+		Client:    fakeClient,
+		Scheme:    scheme,
+		Clientset: clientset,
+	}
+	r.SetNowFunc(func() time.Time { return now })
+
+	logger := ctrl.Log.WithName("test")
+	resizer := resize.NewPodResizer(clientset, logger)
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "my-app",
+			Kind:     "Deployment",
+			Containers: []attunev1alpha1.ContainerRecommendation{
+				{Name: "main", Recommended: attunev1alpha1.ResourceValues{CPURequest: resource.MustParse("200m")}},
+			},
+		},
+	}
+	podsByWorkload := map[string][]corev1.Pod{"my-app": {*pod}}
+
+	r.applyStartupBoosts(context.Background(), policy, podsByWorkload, recs, resizer, nil)
+
+	// NaN multiplier should be skipped -- no resize action should occur.
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			t.Fatal("expected no resize action for NaN multiplier")
+		}
+	}
+}
+
 func TestApplyStartupBoosts_SkipsPodOutsideWindow(t *testing.T) {
 	scheme := testScheme()
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)

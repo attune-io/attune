@@ -1530,6 +1530,75 @@ func TestInterpolateSLOQuery(t *testing.T) {
 	}
 }
 
+func TestCheckPod_SLONaNThresholdSkipped(t *testing.T) {
+	// NaN threshold must be treated as a parse failure and skipped,
+	// not silently disable the guardrail (NaN comparisons always false).
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "web-0", Namespace: "default"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "app", RestartCount: 0},
+			},
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+
+	clientset := fake.NewSimpleClientset(pod)
+	monitor := NewMonitor(clientset, testr.New(t))
+	querier := &mockSLOQuerier{value: 0.95}
+	monitor.WithSLOChecker(querier, []attunev1alpha1.SLOGuardrail{
+		{Name: "latency", Query: "up", Threshold: "NaN", Comparison: "above"},
+	})
+
+	record := ResizeRecord{
+		PodName:   "web-0",
+		Namespace: "default",
+		Container: "app",
+		ResizedAt: time.Now().Add(-6 * time.Minute),
+	}
+
+	verdict, err := monitor.CheckPod(context.Background(), record, time.Now())
+	require.NoError(t, err)
+	// NaN threshold is skipped (logged as parse error), so verdict is safe.
+	assert.True(t, verdict.Safe)
+}
+
+func TestCheckPod_SLOInfThresholdSkipped(t *testing.T) {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "web-0", Namespace: "default"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "app", RestartCount: 0},
+			},
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+
+	clientset := fake.NewSimpleClientset(pod)
+	monitor := NewMonitor(clientset, testr.New(t))
+	querier := &mockSLOQuerier{value: 0.95}
+	monitor.WithSLOChecker(querier, []attunev1alpha1.SLOGuardrail{
+		{Name: "latency", Query: "up", Threshold: "Inf", Comparison: "above"},
+	})
+
+	record := ResizeRecord{
+		PodName:   "web-0",
+		Namespace: "default",
+		Container: "app",
+		ResizedAt: time.Now().Add(-6 * time.Minute),
+	}
+
+	verdict, err := monitor.CheckPod(context.Background(), record, time.Now())
+	require.NoError(t, err)
+	assert.True(t, verdict.Safe)
+}
+
 func TestCheckPod_SLONoQuerier(t *testing.T) {
 	// When no SLO querier is configured, SLO checks should be skipped.
 	pod := &corev1.Pod{

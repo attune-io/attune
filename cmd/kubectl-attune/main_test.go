@@ -1150,6 +1150,9 @@ func TestParseDollarCents(t *testing.T) {
 		{"-", 0},
 		{"", 0},
 		{"invalid", 0},
+		{"NaN", 0},
+		{"Inf", 0},
+		{"-Inf", 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
