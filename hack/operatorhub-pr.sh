@@ -69,10 +69,13 @@ mkdir -p "${OPERATOR_DIR}/${VERSION}/manifests" "${OPERATOR_DIR}/${VERSION}/meta
 cp "${OLDPWD}/${BUNDLE_DIR}/manifests/"* "${OPERATOR_DIR}/${VERSION}/manifests/"
 cp "${OLDPWD}/${BUNDLE_DIR}/metadata/"* "${OPERATOR_DIR}/${VERSION}/metadata/"
 
-# Ensure ci.yaml exists at the operator root
-if [ ! -f "${OPERATOR_DIR}/ci.yaml" ]; then
-    echo "updateGraph: semver-mode" > "${OPERATOR_DIR}/ci.yaml"
-fi
+# Ensure ci.yaml exists at the operator root with reviewers for auto-merge
+cat > "${OPERATOR_DIR}/ci.yaml" <<'EOF'
+updateGraph: semver-mode
+reviewers:
+  - SebTardif
+  - attune-release-bot[bot]
+EOF
 
 # Commit with DCO sign-off
 git add "${OPERATOR_DIR}/"
