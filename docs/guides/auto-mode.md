@@ -197,8 +197,17 @@ spec:
 
 When enabled, the operator creates one ConfigMap per workload, named
 `<policy>-<workload>-recommendations`, with an owner reference to the policy
-for automatic cleanup. The ConfigMap contains per-container recommended CPU
-and memory values.
+for automatic cleanup when the policy itself is deleted.
+
+The ConfigMap contains per-container recommended CPU and memory values plus
+a `last-updated` timestamp.
+
+**Orphan cleanup**: When a workload leaves the policy's selector (for example
+after a selector change or workload deletion while the policy still exists),
+the corresponding recommendation ConfigMap is automatically deleted on the
+next reconcile. This prevents stale recommendation data from lingering for
+GitOps consumers. Only ConfigMaps carrying the `attune.io/policy` label for
+that specific policy are considered for cleanup.
 
 This is useful in GitOps workflows where:
 
