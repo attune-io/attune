@@ -22,6 +22,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 	"text/template"
@@ -262,7 +263,7 @@ func (m *Monitor) checkSLOGuardrails(ctx context.Context, record ResizeRecord, n
 		}
 
 		threshold, err := strconv.ParseFloat(g.Threshold, 64)
-		if err != nil {
+		if err != nil || math.IsNaN(threshold) || math.IsInf(threshold, 0) {
 			m.logger.Error(err, "SLO guardrail threshold parse failed, skipping",
 				"guardrail", g.Name, "threshold", g.Threshold)
 			continue

@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"math"
 	"strconv"
 	"time"
 
@@ -49,7 +50,7 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 	}
 	logger := log.FromContext(ctx)
 	multiplier, err := strconv.ParseFloat(boostConfig.Multiplier, 64)
-	if err != nil || multiplier <= 1 {
+	if err != nil || math.IsNaN(multiplier) || math.IsInf(multiplier, 0) || multiplier <= 1 {
 		logger.V(1).Info("Startup boost multiplier invalid or <= 1, skipping boost",
 			"multiplier", boostConfig.Multiplier, "parseError", err)
 		return

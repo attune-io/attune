@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"math"
 	"os"
 	"os/signal"
 	"sort"
@@ -1057,7 +1058,7 @@ func parseDollarCents(s string) int64 {
 	}
 	s = strings.TrimPrefix(s, "$")
 	f, err := strconv.ParseFloat(s, 64)
-	if err != nil {
+	if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
 		return 0
 	}
 	return int64(f * 100)
