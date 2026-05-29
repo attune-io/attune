@@ -55,6 +55,55 @@ func validPolicy() *attunev1alpha1.AttunePolicy {
 	}
 }
 
+// FuzzValidateFloatFields feeds arbitrary strings into every CRD field that
+// goes through strconv.ParseFloat in the webhook validator. The property under
+// test: no input string may cause a panic, and any string that ParseFloat
+// silently accepts as non-finite (NaN, Inf, -Inf) must be rejected.
+func FuzzValidateFloatFields(f *testing.F) {
+	// Seed corpus: known edge cases that ParseFloat handles unexpectedly.
+	for _, s := range []string{
+		"NaN", "nan", "NAN", "Inf", "inf", "INF", "-Inf", "-inf",
+		"+Inf", "+inf", "Infinity", "-Infinity",
+		"0", "-0", "1.5", "-1.5", "1e308", "1e309", // overflow to Inf
+		"", " ", "abc", "1.2.3", "0x1p-1",
+	} {
+		f.Add(s)
+	}
+
+	f.Fuzz(func(t *testing.T, input string) {
+		validator := &AttunePolicyValidator{}
+
+		// Test overhead (CPU and memory).
+		p := validPolicy()
+		p.Spec.CPU.Overhead = input
+		_, _ = validator.ValidateCreate(context.Background(), p) // must not panic
+
+		p = validPolicy()
+		p.Spec.Memory.Overhead = input
+		_, _ = validator.ValidateCreate(context.Background(), p)
+
+		// Test burstSensitivity.
+		p = validPolicy()
+		p.Spec.CPU.BurstSensitivity = &input
+		_, _ = validator.ValidateCreate(context.Background(), p)
+
+		// Test startup boost multiplier.
+		p = validPolicy()
+		p.Spec.CPU.StartupBoost = &attunev1alpha1.StartupBoost{
+			Multiplier: input,
+			Duration:   metav1.Duration{Duration: 30 * time.Second},
+		}
+		_, _ = validator.ValidateCreate(context.Background(), p)
+
+		// Test SLO guardrail threshold.
+		p = validPolicy()
+		p.Spec.UpdateStrategy.SLOGuardrails = []attunev1alpha1.SLOGuardrail{
+			{Name: "fuzz", Query: "up", Threshold: input},
+		}
+		_, _ = validator.ValidateCreate(context.Background(), p)
+	})
+}
+
 func TestValidate_ValidPolicy(t *testing.T) {
 	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
