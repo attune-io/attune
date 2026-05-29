@@ -1,0 +1,57 @@
+name: DCO
+
+on:
+  pull_request:
+    branches: [main]
+  merge_group: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dco-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dco:
+    name: DCO
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 5
+    steps:
+      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 0
+
+      - name: Check DCO sign-off
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          missing=()
+          for sha in $(git rev-list "${BASE_SHA}..${HEAD_SHA}"); do
+            if ! git log -1 --format='%B' "$sha" | grep -qE '^Signed-off-by: .+ <.+>'; then
+              missing+=("$sha")
+            fi
+          done
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::The following commits are missing a 'Signed-off-by' line:"
+            for sha in "${missing[@]}"; do
+              echo "  - $(git log -1 --format='%h %s' "$sha")"
+            done
+            echo ""
+            echo "Add a sign-off with: git commit -s"
+            echo "Or amend: git commit --amend -s --no-edit"
+            exit 1
+          fi
+          echo "All $(git rev-list --count "${BASE_SHA}..${HEAD_SHA}") commit(s) have DCO sign-off."
+
+      - name: DCO (merge queue)
+        if: github.event_name == 'merge_group'
+        run: echo "DCO already verified on the pull request."
