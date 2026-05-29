@@ -226,6 +226,15 @@
                     "for": { "type": "string", "default": "5m" },
                     "severity": { "type": "string", "default": "warning" }
                   }
+                },
+                "budgetExhausted": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": { "type": "boolean", "default": true },
+                    "for": { "type": "string", "default": "30m" },
+                    "severity": { "type": "string", "default": "warning" }
+                  }
                 }
               }
             }

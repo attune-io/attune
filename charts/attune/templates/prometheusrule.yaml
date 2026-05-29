@@ -84,4 +84,19 @@ spec:
               {{ .Values.metrics.prometheusRule.rules.reconcileStale.staleDuration }}.
               The operator may be stuck, crashed, or unable to process policies.
         {{- end }}
+        {{- if .Values.metrics.prometheusRule.rules.budgetExhausted.enabled }}
+        - alert: AttuneBudgetExhausted
+          expr: sum by (namespace, policy) (increase(attune_budget_exhausted_total[1h])) > 0
+          for: {{ .Values.metrics.prometheusRule.rules.budgetExhausted.for }}
+          labels:
+            severity: {{ .Values.metrics.prometheusRule.rules.budgetExhausted.severity }}
+          annotations:
+            summary: attune per-cycle budget repeatedly exhausted
+            description: >-
+              Policy {{ "{{ $labels.namespace }}" }}/{{ "{{ $labels.policy }}" }}
+              has exhausted its per-cycle resize budget for over 30 minutes.
+              Resizes are being deferred. Consider increasing
+              maxTotalCPUIncrease/maxTotalMemoryIncrease or reducing the
+              number of targeted workloads.
+        {{- end }}
 {{- end }}
