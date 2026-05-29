@@ -179,11 +179,10 @@ func BenchmarkReconcile_ManyWorkloads(b *testing.B) {
 				WithObjects(objects...).
 				WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
 				Build()
-			r := &AttunePolicyReconciler{
-				Client:         fakeClient,
-				Scheme:         scheme,
-				MetricsFactory: mockMetricsFactory(mc),
-			}
+			r := NewAttunePolicyReconciler()
+			r.Client = fakeClient
+			r.Scheme = scheme
+			r.MetricsFactory = mockMetricsFactory(mc)
 
 			req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "scale-policy", Namespace: "bench"}}
 
@@ -279,11 +278,10 @@ func BenchmarkReconcile_ManyPolicies(b *testing.B) {
 				WithObjects(objects...).
 				WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
 				Build()
-			r := &AttunePolicyReconciler{
-				Client:         fakeClient,
-				Scheme:         scheme,
-				MetricsFactory: mockMetricsFactory(mc),
-			}
+			r := NewAttunePolicyReconciler()
+			r.Client = fakeClient
+			r.Scheme = scheme
+			r.MetricsFactory = mockMetricsFactory(mc)
 
 			b.ResetTimer()
 			b.ReportAllocs()
@@ -379,11 +377,10 @@ func BenchmarkReconcile_ConcurrentPolicies(b *testing.B) {
 				WithObjects(objects...).
 				WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
 				Build()
-			r := &AttunePolicyReconciler{
-				Client:         fakeClient,
-				Scheme:         scheme,
-				MetricsFactory: mockMetricsFactory(mc),
-			}
+			r := NewAttunePolicyReconciler()
+			r.Client = fakeClient
+			r.Scheme = scheme
+			r.MetricsFactory = mockMetricsFactory(mc)
 
 			b.ResetTimer()
 			b.ReportAllocs()

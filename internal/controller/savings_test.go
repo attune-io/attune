@@ -28,9 +28,11 @@ import (
 
 func newSavingsReconciler() *AttunePolicyReconciler {
 	scheme := testScheme()
-	return &AttunePolicyReconciler{
-		Client: fake.NewClientBuilder().WithScheme(scheme).Build(),
-	}
+	c := fake.NewClientBuilder().WithScheme(scheme).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = c
+	r.Scheme = scheme
+	return r
 }
 
 func TestComputeSavings_Empty(t *testing.T) {

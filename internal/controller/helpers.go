@@ -217,11 +217,6 @@ func (r *AttunePolicyReconciler) emitEventOnce(
 	if r.Recorder == nil {
 		return
 	}
-	r.eventDedupOnce.Do(func() {
-		if r.eventDedup == nil {
-			r.eventDedup = newEventDedup(time.Hour)
-		}
-	})
 	var uid string
 	if accessor, ok := obj.(metav1.ObjectMetaAccessor); ok {
 		uid = string(accessor.GetObjectMeta().GetUID())

@@ -184,19 +184,18 @@ func TestMain(m *testing.M) {
 		panic("failed to create clientset: " + err.Error())
 	}
 
-	testReconciler = &controller.AttunePolicyReconciler{
-		Client:            mgr.GetClient(),
-		Scheme:            mgr.GetScheme(),
-		Clientset:         clientset,
-		Recorder:          mgr.GetEventRecorder("attune-integration"),
-		MinCooldown:       time.Second, // fast reconciliation for tests
-		PrometheusTimeout: 30 * time.Second,
-		MetricsFactory: func(address string, opts *metrics.CollectorOptions) (metrics.MetricsCollector, error) {
-			if factory := getMetricsFactoryOverride(); factory != nil {
-				return factory(address, opts)
-			}
-			return defaultMetricsFactory(address, opts)
-		},
+	testReconciler = controller.NewAttunePolicyReconciler()
+	testReconciler.Client = mgr.GetClient()
+	testReconciler.Scheme = mgr.GetScheme()
+	testReconciler.Clientset = clientset
+	testReconciler.Recorder = mgr.GetEventRecorder("attune-integration")
+	testReconciler.MinCooldown = time.Second // fast reconciliation for tests
+	testReconciler.PrometheusTimeout = 30 * time.Second
+	testReconciler.MetricsFactory = func(address string, opts *metrics.CollectorOptions) (metrics.MetricsCollector, error) {
+		if factory := getMetricsFactoryOverride(); factory != nil {
+			return factory(address, opts)
+		}
+		return defaultMetricsFactory(address, opts)
 	}
 	err = testReconciler.SetupWithManager(mgr)
 	if err != nil {

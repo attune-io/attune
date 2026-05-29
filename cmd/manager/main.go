@@ -186,22 +186,22 @@ func main() {
 	}
 
 	// Setup the AttunePolicyReconciler with a real Prometheus metrics factory and clientset.
-	if err = (&controller.AttunePolicyReconciler{
-		Client:                  mgr.GetClient(),
-		Scheme:                  mgr.GetScheme(),
-		Clientset:               clientset,
-		Recorder:                mgr.GetEventRecorder("attune"),
-		CollectorTTL:            collectorTTL,
-		MaxConcurrentReconciles: maxConcurrentReconciles,
-		PrometheusTimeout:       prometheusTimeout,
-		MetricsFactory: func(address string, opts *metrics.CollectorOptions) (metrics.MetricsCollector, error) {
-			collector, err := metrics.NewPrometheusCollectorWithOptions(address, ctrl.Log.WithName("prometheus"), opts)
-			if err != nil {
-				return nil, fmt.Errorf("creating Prometheus collector for %s: %w", address, err)
-			}
-			return metrics.NewRateLimitedCollector(collector, prometheusQPS, prometheusBurst), nil
-		},
-	}).SetupWithManager(mgr); err != nil {
+	reconciler := controller.NewAttunePolicyReconciler()
+	reconciler.Client = mgr.GetClient()
+	reconciler.Scheme = mgr.GetScheme()
+	reconciler.Clientset = clientset
+	reconciler.Recorder = mgr.GetEventRecorder("attune")
+	reconciler.CollectorTTL = collectorTTL
+	reconciler.MaxConcurrentReconciles = maxConcurrentReconciles
+	reconciler.PrometheusTimeout = prometheusTimeout
+	reconciler.MetricsFactory = func(address string, opts *metrics.CollectorOptions) (metrics.MetricsCollector, error) {
+		collector, err := metrics.NewPrometheusCollectorWithOptions(address, ctrl.Log.WithName("prometheus"), opts)
+		if err != nil {
+			return nil, fmt.Errorf("creating Prometheus collector for %s: %w", address, err)
+		}
+		return metrics.NewRateLimitedCollector(collector, prometheusQPS, prometheusBurst), nil
+	}
+	if err = reconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "AttunePolicy")
 		os.Exit(1)
 	}

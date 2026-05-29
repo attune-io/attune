@@ -40,10 +40,9 @@ func TestMergeDefaults_NoDefaults(t *testing.T) {
 		WithScheme(scheme).
 		Build()
 
-	r := &AttunePolicyReconciler{
-		Client: fakeClient,
-		Scheme: scheme,
-	}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
 
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
@@ -88,10 +87,9 @@ func TestMergeDefaults_CPUPercentileMerged(t *testing.T) {
 		WithObjects(defaults).
 		Build()
 
-	r := &AttunePolicyReconciler{
-		Client: fakeClient,
-		Scheme: scheme,
-	}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
 
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
@@ -130,10 +128,9 @@ func TestMergeDefaults_OverheadMerged(t *testing.T) {
 		WithObjects(defaults).
 		Build()
 
-	r := &AttunePolicyReconciler{
-		Client: fakeClient,
-		Scheme: scheme,
-	}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
 
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
@@ -171,10 +168,9 @@ func TestMergeDefaults_PolicyTakesPrecedence(t *testing.T) {
 		WithObjects(defaults).
 		Build()
 
-	r := &AttunePolicyReconciler{
-		Client: fakeClient,
-		Scheme: scheme,
-	}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
 
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
@@ -210,7 +206,9 @@ func TestFetchDefaults_NamespaceScopedOverridesCluster(t *testing.T) {
 	scheme := testScheme()
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
 		WithObjects(clusterDefaults, nsDefaults).Build()
-	r := &AttunePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
 
 	// Namespace with an AttuneNamespaceDefaults should use it.
 	result, err := r.fetchDefaults(context.Background(), "production")
@@ -244,7 +242,9 @@ func TestFetchDefaults_NamespaceDefaultsDoNotMergeWithClusterDefaults(t *testing
 	scheme := testScheme()
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
 		WithObjects(clusterDefaults, nsDefaults).Build()
-	r := &AttunePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
 
 	defaults, err := r.fetchDefaults(context.Background(), "production")
 	require.NoError(t, err)
@@ -268,7 +268,7 @@ func TestMergeDefaults_NamespaceDefaultsUseBuiltInFallbackForOmittedMemory(t *te
 			CPU: &attunev1alpha1.ResourceConfig{Percentile: 99, Overhead: "20"},
 		},
 	}
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 
 	policy := &attunev1alpha1.AttunePolicy{}
 	r.mergeDefaults(policy, defaults)
@@ -312,7 +312,9 @@ func TestFetchDefaults_ListError(t *testing.T) {
 				return fmt.Errorf("simulated API server error")
 			},
 		}).Build()
-	r := &AttunePolicyReconciler{Client: errClient, Scheme: scheme}
+	r := NewAttunePolicyReconciler()
+	r.Client = errClient
+	r.Scheme = scheme
 
 	// Both namespace and cluster List calls fail; fetchDefaults should return an error.
 	result, err := r.fetchDefaults(context.Background(), "default")
@@ -337,7 +339,9 @@ func TestFetchDefaults_ClusterListError(t *testing.T) {
 				return fmt.Errorf("simulated cluster list error")
 			},
 		}).Build()
-	r := &AttunePolicyReconciler{Client: errClient, Scheme: scheme}
+	r := NewAttunePolicyReconciler()
+	r.Client = errClient
+	r.Scheme = scheme
 
 	result, err := r.fetchDefaults(context.Background(), "default")
 	assert.Nil(t, result)
@@ -363,7 +367,9 @@ func TestFetchDefaults_SelectsLexicographicallySmallestClusterDefault(t *testing
 			},
 		).
 		Build()
-	r := &AttunePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
 
 	for i := 0; i < 10; i++ {
 		result, err := r.fetchDefaults(context.Background(), "default")
@@ -398,7 +404,9 @@ func TestFetchDefaults_SelectsLexicographicallySmallestNamespaceDefault(t *testi
 			},
 		).
 		Build()
-	r := &AttunePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
 
 	for i := 0; i < 10; i++ {
 		result, err := r.fetchDefaults(context.Background(), "production")
@@ -425,7 +433,9 @@ func TestFetchDefaults_DoesNotDependOnListOrder(t *testing.T) {
 	}
 
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
-	r := &AttunePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
 
 	result, err := r.fetchDefaults(context.Background(), "default")
 	require.NoError(t, err)

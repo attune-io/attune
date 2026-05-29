@@ -316,35 +316,35 @@ func newResizeRecommendation(workload, curCPU, curMem, curCPULim, curMemLim, rec
 // that repeats in nearly every test.
 func newReconcilerWithClient(objects ...client.Object) *AttunePolicyReconciler {
 	scheme := testScheme()
-	builder := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...)
-	return &AttunePolicyReconciler{
-		Client: builder.Build(),
-		Scheme: scheme,
-	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = c
+	r.Scheme = scheme
+	return r
 }
 
 // newReconcilerForReconcile creates a reconciler with status subresource
 // support and a mock metrics factory, ready for Reconcile tests.
 func newReconcilerForReconcile(mc rsmetrics.MetricsCollector, objects ...client.Object) (*AttunePolicyReconciler, client.Client) {
 	scheme := testScheme()
-	fakeClient := fake.NewClientBuilder().
+	c := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithObjects(objects...).
 		WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
 		Build()
-	return &AttunePolicyReconciler{
-		Client:         fakeClient,
-		Scheme:         scheme,
-		MetricsFactory: mockMetricsFactory(mc),
-	}, fakeClient
+	r := NewAttunePolicyReconciler()
+	r.Client = c
+	r.Scheme = scheme
+	r.MetricsFactory = mockMetricsFactory(mc)
+	return r, c
 }
 
 func newReconcilerForReconcileWithClient(mc rsmetrics.MetricsCollector, c client.Client, scheme *runtime.Scheme) *AttunePolicyReconciler {
-	return &AttunePolicyReconciler{
-		Client:         c,
-		Scheme:         scheme,
-		MetricsFactory: mockMetricsFactory(mc),
-	}
+	r := NewAttunePolicyReconciler()
+	r.Client = c
+	r.Scheme = scheme
+	r.MetricsFactory = mockMetricsFactory(mc)
+	return r
 }
 
 // newResizeReconciler creates a reconciler with both a controller-runtime
@@ -352,13 +352,13 @@ func newReconcilerForReconcileWithClient(mc rsmetrics.MetricsCollector, c client
 func newResizeReconciler(pod *corev1.Pod, objects ...client.Object) (*AttunePolicyReconciler, client.Client) {
 	scheme := testScheme()
 	allObjects := append(objects, pod)
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(allObjects...).Build()
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(allObjects...).Build()
 	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
-	return &AttunePolicyReconciler{
-		Client:    fakeClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}, fakeClient
+	r := NewAttunePolicyReconciler()
+	r.Client = c
+	r.Scheme = scheme
+	r.Clientset = clientset
+	return r, c
 }
 
 // podMap builds a podsByWorkload map for use in executeResizes tests.
@@ -515,10 +515,9 @@ func TestReconcile_PausedPolicySkipsReconciliation(t *testing.T) {
 		WithStatusSubresource(policy).
 		Build()
 
-	reconciler := &AttunePolicyReconciler{
-		Client: fakeClient,
-		Scheme: scheme,
-	}
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = scheme
 
 	result, err := reconciler.Reconcile(context.Background(), ctrl.Request{
 		NamespacedName: types.NamespacedName{Name: "paused-policy", Namespace: "default"},
@@ -641,10 +640,9 @@ func TestHandleDeletion_CleansAnnotationsAndGauges(t *testing.T) {
 		WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
 		Build()
 
-	reconciler := &AttunePolicyReconciler{
-		Client: fakeClient,
-		Scheme: scheme,
-	}
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = scheme
 
 	// Seed gauge keys.
 	operatormetrics.RecommendationCPU.WithLabelValues("default", "app", "main").Set(0.5)
@@ -702,10 +700,9 @@ func TestHandleDeletion_CleansNamespaceSavingsGauges(t *testing.T) {
 		WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
 		Build()
 
-	reconciler := &AttunePolicyReconciler{
-		Client: fakeClient,
-		Scheme: scheme,
-	}
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = scheme
 
 	// Seed per-workload gauge keys so handleDeletion can clean them.
 	operatormetrics.RecommendationCPU.WithLabelValues("default", "app", "main").Set(0.5)
@@ -785,10 +782,9 @@ func TestHandleDeletion_SkipsPodsFromOtherPolicy(t *testing.T) {
 		WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
 		Build()
 
-	reconciler := &AttunePolicyReconciler{
-		Client: fakeClient,
-		Scheme: scheme,
-	}
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = scheme
 
 	result, err := reconciler.handleDeletion(context.Background(), policy)
 	require.NoError(t, err)
@@ -844,7 +840,9 @@ func TestHandleDeletion_ListErrorRetainsFinalizer(t *testing.T) {
 			},
 		}).Build()
 
-	reconciler := &AttunePolicyReconciler{Client: failingClient, Scheme: scheme}
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = failingClient
+	reconciler.Scheme = scheme
 	_, err := reconciler.handleDeletion(context.Background(), policy)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "listing tracked pods")
@@ -897,7 +895,9 @@ func TestHandleDeletion_ContinuesOnPodUpdateError(t *testing.T) {
 			},
 		}).Build()
 
-	reconciler := &AttunePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = scheme
 	_, err := reconciler.handleDeletion(context.Background(), policy)
 	require.Error(t, err, "should return error for failed pod cleanup")
 	assert.Contains(t, err.Error(), "pod-fail")
@@ -950,7 +950,9 @@ func TestHandleDeletion_PodDeletedBetweenListAndPatch(t *testing.T) {
 			},
 		}).Build()
 
-	reconciler := &AttunePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = scheme
 	result, err := reconciler.handleDeletion(context.Background(), policy)
 	require.NoError(t, err, "IsNotFound on pod patch should not cause error")
 	assert.Equal(t, ctrl.Result{}, result)
@@ -1004,13 +1006,13 @@ func TestParseFloat64_Invalid(t *testing.T) {
 }
 
 func TestIsRollingOut_DeploymentStable(t *testing.T) {
-	reconciler := &AttunePolicyReconciler{}
+	reconciler := NewAttunePolicyReconciler()
 	deploy := newTestDeployment("test", "default", nil)
 	assert.False(t, reconciler.isRollingOut(deploy))
 }
 
 func TestIsRollingOut_DeploymentMidRollout(t *testing.T) {
-	reconciler := &AttunePolicyReconciler{}
+	reconciler := NewAttunePolicyReconciler()
 	deploy := newTestDeployment("test", "default", nil)
 	deploy.Status.UpdatedReplicas = 1 // Only 1 of 2 updated.
 	assert.True(t, reconciler.isRollingOut(deploy))
@@ -1166,7 +1168,8 @@ func TestParseOverheadPercent(t *testing.T) {
 
 func TestComputeSavings_ReturnsCorrectStructure(t *testing.T) {
 	scheme := testScheme()
-	r := &AttunePolicyReconciler{Client: fake.NewClientBuilder().WithScheme(scheme).Build()}
+	r := NewAttunePolicyReconciler()
+	r.Client = fake.NewClientBuilder().WithScheme(scheme).Build()
 	recs := []attunev1alpha1.WorkloadRecommendation{
 		{
 			Workload: "api-server",
@@ -1189,7 +1192,7 @@ func TestComputeSavings_ReturnsCorrectStructure(t *testing.T) {
 }
 
 func TestGetContainers_Deployment(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	dep := &appsv1.Deployment{
 		Spec: appsv1.DeploymentSpec{
 			Template: corev1.PodTemplateSpec{
@@ -1209,7 +1212,7 @@ func TestGetContainers_Deployment(t *testing.T) {
 }
 
 func TestGetContainers_StatefulSet(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	sts := &appsv1.StatefulSet{
 		Spec: appsv1.StatefulSetSpec{
 			Template: corev1.PodTemplateSpec{
@@ -1227,7 +1230,7 @@ func TestGetContainers_StatefulSet(t *testing.T) {
 }
 
 func TestGetPodRegex(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 
 	tests := []struct {
 		name     string
@@ -1280,13 +1283,13 @@ func TestGetPodRegex(t *testing.T) {
 }
 
 func TestParseHistoryWindow_Default(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	policy := &attunev1alpha1.AttunePolicy{}
 	assert.Equal(t, 7*24*time.Hour, r.parseHistoryWindow(policy))
 }
 
 func TestParseHistoryWindow_Custom(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	policy := &attunev1alpha1.AttunePolicy{}
 	d := metav1.Duration{Duration: 14 * 24 * time.Hour}
 	policy.Spec.MetricsSource.HistoryWindow = &d
@@ -1294,7 +1297,7 @@ func TestParseHistoryWindow_Custom(t *testing.T) {
 }
 
 func TestParseHistoryWindow_ClampedTooSmall(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	policy := &attunev1alpha1.AttunePolicy{}
 	d := metav1.Duration{Duration: 10 * time.Minute}
 	policy.Spec.MetricsSource.HistoryWindow = &d
@@ -1302,7 +1305,7 @@ func TestParseHistoryWindow_ClampedTooSmall(t *testing.T) {
 }
 
 func TestParseHistoryWindow_ClampedTooLarge(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	policy := &attunev1alpha1.AttunePolicy{}
 	d := metav1.Duration{Duration: 1000 * time.Hour}
 	policy.Spec.MetricsSource.HistoryWindow = &d
@@ -1310,54 +1313,54 @@ func TestParseHistoryWindow_ClampedTooLarge(t *testing.T) {
 }
 
 func TestGetMinimumDataPoints_Default(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	policy := &attunev1alpha1.AttunePolicy{}
 	assert.Equal(t, int32(48), r.getMinimumDataPoints(policy))
 }
 
 func TestGetMinimumDataPoints_Custom(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	policy := &attunev1alpha1.AttunePolicy{}
 	policy.Spec.MetricsSource.MinimumDataPoints = int32Ptr(42)
 	assert.Equal(t, int32(42), r.getMinimumDataPoints(policy))
 }
 
 func TestGetQueryStep_Default(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	policy := &attunev1alpha1.AttunePolicy{}
 	assert.Equal(t, 5*time.Minute, r.getQueryStep(policy))
 }
 
 func TestGetQueryStep_Custom(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	policy := &attunev1alpha1.AttunePolicy{}
 	policy.Spec.MetricsSource.QueryStep = &metav1.Duration{Duration: 30 * time.Second}
 	assert.Equal(t, 30*time.Second, r.getQueryStep(policy))
 }
 
 func TestGetQueryStep_ClampedTooSmall(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	policy := &attunev1alpha1.AttunePolicy{}
 	policy.Spec.MetricsSource.QueryStep = &metav1.Duration{Duration: 1 * time.Second}
 	assert.Equal(t, 10*time.Second, r.getQueryStep(policy))
 }
 
 func TestGetQueryStep_Zero(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	policy := &attunev1alpha1.AttunePolicy{}
 	policy.Spec.MetricsSource.QueryStep = &metav1.Duration{Duration: 0}
 	assert.Equal(t, 10*time.Second, r.getQueryStep(policy))
 }
 
 func TestGetQueryStep_ClampedTooLarge(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	policy := &attunev1alpha1.AttunePolicy{}
 	policy.Spec.MetricsSource.QueryStep = &metav1.Duration{Duration: 2 * time.Hour}
 	assert.Equal(t, 1*time.Hour, r.getQueryStep(policy))
 }
 
 func TestIsRollingOut_StatefulSetStable(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	replicas := int32(3)
 	sts := &appsv1.StatefulSet{
 		Spec:   appsv1.StatefulSetSpec{Replicas: &replicas},
@@ -1367,7 +1370,7 @@ func TestIsRollingOut_StatefulSetStable(t *testing.T) {
 }
 
 func TestIsRollingOut_StatefulSetMidRollout(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	replicas := int32(3)
 	sts := &appsv1.StatefulSet{
 		Spec:   appsv1.StatefulSetSpec{Replicas: &replicas},
@@ -1377,7 +1380,7 @@ func TestIsRollingOut_StatefulSetMidRollout(t *testing.T) {
 }
 
 func TestIsRollingOut_DaemonSet(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	ds := &appsv1.DaemonSet{
 		Status: appsv1.DaemonSetStatus{
 			DesiredNumberScheduled: 5,
@@ -1388,7 +1391,7 @@ func TestIsRollingOut_DaemonSet(t *testing.T) {
 }
 
 func TestIsRollingOut_DaemonSetMidRollout(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	ds := &appsv1.DaemonSet{
 		Status: appsv1.DaemonSetStatus{
 			DesiredNumberScheduled: 5,
@@ -1399,13 +1402,13 @@ func TestIsRollingOut_DaemonSetMidRollout(t *testing.T) {
 }
 
 func TestParseCooldown_Default(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	policy := &attunev1alpha1.AttunePolicy{}
 	assert.Equal(t, 1*time.Hour, r.parseCooldown(policy))
 }
 
 func TestParseCooldown_Custom(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	policy := &attunev1alpha1.AttunePolicy{}
 	d := metav1.Duration{Duration: 5 * time.Minute}
 	policy.Spec.UpdateStrategy.Cooldown = &d
@@ -1413,7 +1416,7 @@ func TestParseCooldown_Custom(t *testing.T) {
 }
 
 func TestParseCooldown_SubMinuteClampedTo1m(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	policy := &attunev1alpha1.AttunePolicy{}
 	d := metav1.Duration{Duration: 30 * time.Second}
 	policy.Spec.UpdateStrategy.Cooldown = &d
@@ -1465,7 +1468,7 @@ func generateSamples(count int, baseValue float64) []rsmetrics.Sample {
 // ---------- getOrCreateCollector ----------
 
 func TestGetOrCreateCollector_CacheHit(t *testing.T) {
-	reconciler := &AttunePolicyReconciler{}
+	reconciler := NewAttunePolicyReconciler()
 	mc := &mockCollector{}
 	staleTime := time.Now().Add(-5 * time.Minute)
 	reconciler.collectors.Store("http://prom:9090", &collectorEntry{
@@ -1489,11 +1492,10 @@ func TestGetOrCreateCollector_CacheHit(t *testing.T) {
 
 func TestGetOrCreateCollector_CacheMiss(t *testing.T) {
 	mc := &mockCollector{}
-	reconciler := &AttunePolicyReconciler{
-		MetricsFactory: func(address string, _ *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
-			assert.Equal(t, "http://new:9090", address)
-			return mc, nil
-		},
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.MetricsFactory = func(address string, _ *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
+		assert.Equal(t, "http://new:9090", address)
+		return mc, nil
 	}
 
 	got, err := reconciler.getOrCreateCollector(&attunev1alpha1.PrometheusConfig{Address: "http://new:9090"}, nil)
@@ -1502,10 +1504,9 @@ func TestGetOrCreateCollector_CacheMiss(t *testing.T) {
 }
 
 func TestGetOrCreateCollector_FactoryError(t *testing.T) {
-	reconciler := &AttunePolicyReconciler{
-		MetricsFactory: func(string, *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
-			return nil, fmt.Errorf("connection refused")
-		},
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.MetricsFactory = func(string, *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
+		return nil, fmt.Errorf("connection refused")
 	}
 
 	_, err := reconciler.getOrCreateCollector(&attunev1alpha1.PrometheusConfig{Address: "http://broken:9090"}, nil)
@@ -1514,10 +1515,9 @@ func TestGetOrCreateCollector_FactoryError(t *testing.T) {
 }
 
 func TestGetOrCreateCollector_CacheFull(t *testing.T) {
-	reconciler := &AttunePolicyReconciler{
-		MetricsFactory: func(string, *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
-			return &mockCollector{}, nil
-		},
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.MetricsFactory = func(string, *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
+		return nil, nil
 	}
 	// Fill the cache to maxCollectors.
 	for i := 0; i < maxCollectors; i++ {
@@ -1534,11 +1534,10 @@ func TestGetOrCreateCollector_CacheFull(t *testing.T) {
 
 func TestGetOrCreateCollector_CustomTTL(t *testing.T) {
 	customTTL := 2 * time.Minute
-	reconciler := &AttunePolicyReconciler{
-		CollectorTTL: customTTL,
-		MetricsFactory: func(string, *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
-			return &mockCollector{}, nil
-		},
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.CollectorTTL = customTTL
+	reconciler.MetricsFactory = func(string, *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
+		return &mockCollector{}, nil
 	}
 
 	// Store an entry that is stale under custom TTL but fresh under default TTL.
@@ -1557,10 +1556,9 @@ func TestGetOrCreateCollector_CustomTTL(t *testing.T) {
 }
 
 func TestGetOrCreateCollector_EvictsStaleEntries(t *testing.T) {
-	reconciler := &AttunePolicyReconciler{
-		MetricsFactory: func(string, *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
-			return &mockCollector{}, nil
-		},
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.MetricsFactory = func(string, *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
+		return &mockCollector{}, nil
 	}
 	// Fill the cache to maxCollectors with stale entries.
 	staleTime := time.Now().Add(-(collectorTTL + time.Minute))
@@ -1578,11 +1576,10 @@ func TestGetOrCreateCollector_EvictsStaleEntries(t *testing.T) {
 }
 
 func TestGetOrCreateCollector_ConcurrentAccess(t *testing.T) {
-	reconciler := &AttunePolicyReconciler{
-		CollectorTTL: 50 * time.Millisecond,
-		MetricsFactory: func(string, *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
-			return &mockCollector{}, nil
-		},
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.CollectorTTL = 50 * time.Millisecond
+	reconciler.MetricsFactory = func(string, *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
+		return &mockCollector{}, nil
 	}
 
 	// Seed some entries that will become stale mid-test.
@@ -1637,11 +1634,10 @@ func TestGetOrCreateCollector_EvictionClosesCollector(t *testing.T) {
 	closable := &closableMockCollector{}
 
 	now := time.Now()
-	reconciler := &AttunePolicyReconciler{
-		CollectorTTL: time.Millisecond,
-		MetricsFactory: func(_ string, _ *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
-			return &mockCollector{}, nil
-		},
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.CollectorTTL = time.Millisecond
+	reconciler.MetricsFactory = func(_ string, _ *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
+		return &closableMockCollector{}, nil
 	}
 	reconciler.SetNowFunc(func() time.Time { return now })
 
@@ -1668,15 +1664,14 @@ func TestGetOrCreateCollector_ConcurrentRaceClosesUnused(t *testing.T) {
 	var mu sync.Mutex
 	var created []*closableMockCollector
 
-	reconciler := &AttunePolicyReconciler{
-		CollectorTTL: collectorTTL,
-		MetricsFactory: func(_ string, _ *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
-			c := &closableMockCollector{}
-			mu.Lock()
-			created = append(created, c)
-			mu.Unlock()
-			return c, nil
-		},
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.CollectorTTL = collectorTTL
+	reconciler.MetricsFactory = func(_ string, _ *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
+		c := &closableMockCollector{}
+		mu.Lock()
+		created = append(created, c)
+		mu.Unlock()
+		return c, nil
 	}
 
 	// All goroutines race to create the same address.
@@ -2495,7 +2490,7 @@ func TestCollectorCacheKey_QueryParametersDeterministic(t *testing.T) {
 // ---------- buildCollectorOptions ----------
 
 func TestBuildCollectorOptions_NilWhenNoAuthOrTLS(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	config := &attunev1alpha1.PrometheusConfig{Address: "http://prom:9090"}
 	opts, err := r.buildCollectorOptions(context.Background(), "default", config)
 	assert.NoError(t, err)
@@ -2503,7 +2498,7 @@ func TestBuildCollectorOptions_NilWhenNoAuthOrTLS(t *testing.T) {
 }
 
 func TestBuildCollectorOptions_WithHeaders(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	config := &attunev1alpha1.PrometheusConfig{
 		Address: "http://prom:9090",
 		Headers: map[string]string{"X-Scope-OrgID": "tenant-1"},
@@ -2515,7 +2510,7 @@ func TestBuildCollectorOptions_WithHeaders(t *testing.T) {
 }
 
 func TestBuildCollectorOptions_WithQueryParameters(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	config := &attunev1alpha1.PrometheusConfig{
 		Address:         "http://prom:9090",
 		QueryParameters: map[string]string{"dedup": "true"},
@@ -2527,7 +2522,7 @@ func TestBuildCollectorOptions_WithQueryParameters(t *testing.T) {
 }
 
 func TestBuildCollectorOptions_RejectsReservedQueryParameters(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	config := &attunev1alpha1.PrometheusConfig{
 		Address:         "http://prom:9090",
 		QueryParameters: map[string]string{"query": "up"},
@@ -2539,7 +2534,7 @@ func TestBuildCollectorOptions_RejectsReservedQueryParameters(t *testing.T) {
 }
 
 func TestBuildCollectorOptions_WithTLS(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	config := &attunev1alpha1.PrometheusConfig{
 		Address: "https://prom:9090",
 		TLS:     &attunev1alpha1.TLSConfig{InsecureSkipVerify: true},
@@ -2557,7 +2552,9 @@ func TestBuildCollectorOptions_WithBearerToken(t *testing.T) {
 	}
 	scheme := testScheme()
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret).Build()
-	r := &AttunePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
 
 	config := &attunev1alpha1.PrometheusConfig{
 		Address: "http://prom:9090",
@@ -2575,7 +2572,9 @@ func TestBuildCollectorOptions_WithBearerToken(t *testing.T) {
 func TestBuildCollectorOptions_SecretNotFound(t *testing.T) {
 	scheme := testScheme()
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-	r := &AttunePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
 
 	config := &attunev1alpha1.PrometheusConfig{
 		Address: "http://prom:9090",
@@ -2599,7 +2598,9 @@ func TestReadSecretKey_Success(t *testing.T) {
 	}
 	scheme := testScheme()
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret).Build()
-	r := &AttunePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
 
 	token, err := r.readSecretKey(context.Background(), "default", "prom-token", "token")
 	assert.NoError(t, err)
@@ -2609,7 +2610,9 @@ func TestReadSecretKey_Success(t *testing.T) {
 func TestReadSecretKey_SecretNotFound(t *testing.T) {
 	scheme := testScheme()
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-	r := &AttunePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
 
 	_, err := r.readSecretKey(context.Background(), "default", "missing-secret", "token")
 	assert.Error(t, err)
@@ -2623,7 +2626,9 @@ func TestReadSecretKey_KeyNotFound(t *testing.T) {
 	}
 	scheme := testScheme()
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret).Build()
-	r := &AttunePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
 
 	_, err := r.readSecretKey(context.Background(), "default", "prom-token", "token")
 	assert.Error(t, err)
@@ -3667,7 +3672,7 @@ func TestCheckPendingSafetyObservations_EarlyCriticalHealthySkipped(t *testing.T
 // ---------- isCooldownActive parse error ----------
 
 func TestIsCooldownActive_MalformedDate(t *testing.T) {
-	reconciler := &AttunePolicyReconciler{}
+	reconciler := NewAttunePolicyReconciler()
 	policy := newTestPolicy("test-policy", "default")
 	policy.Annotations = map[string]string{
 		lastResizeAnnotation: "not-a-valid-date",
@@ -3678,7 +3683,7 @@ func TestIsCooldownActive_MalformedDate(t *testing.T) {
 // ---------- executeResizes ----------
 
 func TestExecuteResizes_NoClientset(t *testing.T) {
-	reconciler := &AttunePolicyReconciler{}
+	reconciler := NewAttunePolicyReconciler()
 	policy := newTestPolicy("test-policy", "default")
 
 	count, history := reconciler.executeResizes(context.Background(), policy, nil, nil, nil, nil, nil)
@@ -3925,7 +3930,7 @@ func TestDiscoverWorkloads_FindsJobByName(t *testing.T) {
 }
 
 func TestGetContainers_CronJob(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	cj := &batchv1.CronJob{
 		Spec: batchv1.CronJobSpec{
 			JobTemplate: batchv1.JobTemplateSpec{
@@ -3949,7 +3954,7 @@ func TestGetContainers_CronJob(t *testing.T) {
 }
 
 func TestGetPodSelectorLabels_CronJob(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	cj := &batchv1.CronJob{
 		Spec: batchv1.CronJobSpec{
 			JobTemplate: batchv1.JobTemplateSpec{
@@ -4022,7 +4027,7 @@ func TestDiscoverWorkloads_UnsupportedKind(t *testing.T) {
 // ---------- getPodSelectorLabels (StatefulSet + DaemonSet) ----------
 
 func TestGetPodSelectorLabels_StatefulSet(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	sts := &appsv1.StatefulSet{
 		Spec: appsv1.StatefulSetSpec{
 			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "db"}},
@@ -4033,7 +4038,7 @@ func TestGetPodSelectorLabels_StatefulSet(t *testing.T) {
 }
 
 func TestGetPodSelectorLabels_DaemonSet(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	ds := &appsv1.DaemonSet{
 		Spec: appsv1.DaemonSetSpec{
 			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "agent"}},
@@ -4044,7 +4049,7 @@ func TestGetPodSelectorLabels_DaemonSet(t *testing.T) {
 }
 
 func TestGetPodSelectorLabels_NilSelector(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	dep := &appsv1.Deployment{Spec: appsv1.DeploymentSpec{}}
 	labels := r.getPodSelectorLabels(dep)
 	assert.Nil(t, labels)
@@ -4053,7 +4058,7 @@ func TestGetPodSelectorLabels_NilSelector(t *testing.T) {
 // ---------- getContainers (DaemonSet) ----------
 
 func TestGetContainers_DaemonSet(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	ds := &appsv1.DaemonSet{
 		Spec: appsv1.DaemonSetSpec{
 			Template: corev1.PodTemplateSpec{
@@ -4071,13 +4076,13 @@ func TestGetContainers_DaemonSet(t *testing.T) {
 }
 
 func TestGetContainers_UnknownType(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	containers := r.getContainers(&corev1.Pod{})
 	assert.Nil(t, containers)
 }
 
 func TestGetContainers_IncludesNativeSidecars(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	always := corev1.ContainerRestartPolicyAlways
 	deploy := &appsv1.Deployment{
 		Spec: appsv1.DeploymentSpec{
@@ -4101,7 +4106,7 @@ func TestGetContainers_IncludesNativeSidecars(t *testing.T) {
 }
 
 func TestGetContainers_NoNativeSidecars(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	deploy := &appsv1.Deployment{
 		Spec: appsv1.DeploymentSpec{
 			Template: corev1.PodTemplateSpec{
@@ -4591,7 +4596,7 @@ func TestResolveCanaryPhase_InitializesOnFirstCall(t *testing.T) {
 		AutoPromote:       true,
 	}
 
-	reconciler := &AttunePolicyReconciler{}
+	reconciler := NewAttunePolicyReconciler()
 	mode := reconciler.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
 
 	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode, "first call should stay in canary mode")
@@ -4618,7 +4623,7 @@ func TestResolveCanaryPhase_PromotesAfterObservation(t *testing.T) {
 		{Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: metav1.NewTime(startTime.Add(1 * time.Minute))},
 	}
 
-	reconciler := &AttunePolicyReconciler{}
+	reconciler := NewAttunePolicyReconciler()
 	mode := reconciler.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
 
 	assert.Equal(t, attunev1alpha1.UpdateTypeAuto, mode, "should promote to auto after observation passes")
@@ -4642,7 +4647,7 @@ func TestResolveCanaryPhase_LegacyHistoryWithoutMethodPromotesCanary(t *testing.
 		{Result: attunev1alpha1.ResizeResultSuccess, Timestamp: metav1.NewTime(startTime.Add(1 * time.Minute))},
 	}
 
-	reconciler := &AttunePolicyReconciler{}
+	reconciler := NewAttunePolicyReconciler()
 	mode := reconciler.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
 
 	assert.Equal(t, attunev1alpha1.UpdateTypeAuto, mode, "legacy in-place history without method should still promote canary")
@@ -4666,7 +4671,7 @@ func TestResolveCanaryPhase_EvictionDoesNotPromoteCanary(t *testing.T) {
 		{Method: "Eviction", Result: attunev1alpha1.ResizeResultEvicted, Timestamp: metav1.NewTime(startTime.Add(1 * time.Minute))},
 	}
 
-	reconciler := &AttunePolicyReconciler{}
+	reconciler := NewAttunePolicyReconciler()
 	mode := reconciler.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
 
 	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode, "eviction-only history should not count as a successful canary resize")
@@ -4687,7 +4692,7 @@ func TestResolveCanaryPhase_WaitsDuringObservation(t *testing.T) {
 		StartTime: &startTime,
 	}
 
-	reconciler := &AttunePolicyReconciler{}
+	reconciler := NewAttunePolicyReconciler()
 	mode := reconciler.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
 
 	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode, "should stay in canary during observation")
@@ -4711,7 +4716,7 @@ func TestResolveCanaryPhase_BlocksOnRevert(t *testing.T) {
 		{Result: attunev1alpha1.ResizeResultReverted, Timestamp: metav1.NewTime(startTime.Add(2 * time.Minute))},
 	}
 
-	reconciler := &AttunePolicyReconciler{}
+	reconciler := NewAttunePolicyReconciler()
 	mode := reconciler.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
 
 	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode, "should block promotion when revert happened")
@@ -4724,7 +4729,7 @@ func TestResolveCanaryPhase_FullRolloutStaysAuto(t *testing.T) {
 		Phase: attunev1alpha1.CanaryPhaseFullRollout,
 	}
 
-	reconciler := &AttunePolicyReconciler{}
+	reconciler := NewAttunePolicyReconciler()
 	mode := reconciler.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
 
 	assert.Equal(t, attunev1alpha1.UpdateTypeAuto, mode, "FullRollout should map to Auto")
@@ -4747,7 +4752,7 @@ func TestResolveCanaryPhase_ResetsOnSpecChange(t *testing.T) {
 		ObservedGeneration: 2,
 	}
 
-	reconciler := &AttunePolicyReconciler{}
+	reconciler := NewAttunePolicyReconciler()
 	mode := reconciler.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
 
 	// Should reset and re-initialize, staying in canary mode.
@@ -4776,7 +4781,7 @@ func TestResolveCanaryPhase_NoResetWhenGenerationMatches(t *testing.T) {
 		{Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: metav1.NewTime(startTime.Add(1 * time.Minute))},
 	}
 
-	reconciler := &AttunePolicyReconciler{}
+	reconciler := NewAttunePolicyReconciler()
 	mode := reconciler.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
 
 	// Same generation: should promote normally after observation period.
@@ -5448,7 +5453,7 @@ func TestCheckPendingSafetyObservations_ThrottleDeferredLifecycle(t *testing.T) 
 }
 
 func TestCheckPendingSafetyObservations_NilClientset(t *testing.T) {
-	reconciler := &AttunePolicyReconciler{}
+	reconciler := NewAttunePolicyReconciler()
 	policy := newTestPolicy("test-policy", "default")
 
 	assert.NotPanics(t, func() {
@@ -5845,11 +5850,10 @@ func TestCheckPendingSafetyObservations_ListErrorIncrementsCounter(t *testing.T)
 			},
 		}).Build()
 
-	r := &AttunePolicyReconciler{
-		Client:    failingClient,
-		Scheme:    scheme,
-		Clientset: kubefake.NewSimpleClientset(),
-	}
+	r := NewAttunePolicyReconciler()
+	r.Client = failingClient
+	r.Scheme = scheme
+	r.Clientset = kubefake.NewSimpleClientset()
 
 	policy := newTestPolicy("test-policy", "default")
 	before := promtestutil.ToFloat64(operatormetrics.ReconcileErrorsTotal.WithLabelValues("safety_observation"))
@@ -5912,14 +5916,14 @@ func TestBuildPrometheusQuery_EscapesSpecialChars(t *testing.T) {
 func TestGetPodRegex_EscapesSpecialCharsInName(t *testing.T) {
 	// The dot in "my.app" should be regex-escaped then PromQL-string-escaped
 	// by getPodRegex so the PromQL regex matches a literal dot.
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 	dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "my.app"}}
 	regex := r.getPodRegex(dep)
 	assert.Equal(t, `my\\.app-[a-z0-9]+-[a-z0-9]{5}`, regex)
 }
 
 func TestGetPodRegex_BatchPatternsDoNotMatchSimilarlyNamedWorkloads(t *testing.T) {
-	r := &AttunePolicyReconciler{}
+	r := NewAttunePolicyReconciler()
 
 	jobRegex := regexp.MustCompile("^" + r.getPodRegex(&batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "data-migrate"}}) + "$")
 	assert.True(t, jobRegex.MatchString("data-migrate-abc12"))
@@ -6369,7 +6373,9 @@ func TestDiscoverPrometheus_OperatorCRD_DefaultPort(t *testing.T) {
 		&unstructured.Unstructured{},
 	)
 	fakeClient := fake.NewClientBuilder().WithScheme(s).WithObjects(prom).Build()
-	reconciler := &AttunePolicyReconciler{Client: fakeClient, Scheme: s}
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = s
 
 	addr := reconciler.discoverPrometheus(context.Background())
 	assert.Equal(t, "http://prometheus-k8s.monitoring:9090", addr)
@@ -6394,7 +6400,9 @@ func TestDiscoverPrometheus_OperatorCRD_CustomPort(t *testing.T) {
 		&unstructured.Unstructured{},
 	)
 	fakeClient := fake.NewClientBuilder().WithScheme(s).WithObjects(prom).Build()
-	reconciler := &AttunePolicyReconciler{Client: fakeClient, Scheme: s}
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = s
 
 	addr := reconciler.discoverPrometheus(context.Background())
 	assert.Equal(t, "http://prometheus-k8s.monitoring:8080", addr)
@@ -6708,11 +6716,10 @@ func TestExecuteResizes_RevertsOnAnnotationUpdateFailure(t *testing.T) {
 	// that persists annotations, while letting all other operations succeed.
 	wrappedClient := &failOnPodUpdateClient{Client: fakeClient}
 
-	reconciler := &AttunePolicyReconciler{
-		Client:    wrappedClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = wrappedClient
+	reconciler.Scheme = scheme
+	reconciler.Clientset = clientset
 
 	recorder := events.NewFakeRecorder(10)
 	reconciler.Recorder = recorder
@@ -6828,11 +6835,10 @@ func TestExecuteResizes_AnnotationConflictRetrySucceeds(t *testing.T) {
 
 	wrappedClient := &conflictThenSucceedClient{Client: fakeClient, conflictsLeft: 1}
 
-	reconciler := &AttunePolicyReconciler{
-		Client:    wrappedClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = wrappedClient
+	reconciler.Scheme = scheme
+	reconciler.Clientset = clientset
 
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeOneShot
@@ -6885,11 +6891,10 @@ func TestExecuteResizes_RevertFailureMarksHistoryAsFailed(t *testing.T) {
 		return false, nil, nil
 	})
 
-	reconciler := &AttunePolicyReconciler{
-		Client:    wrappedClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = wrappedClient
+	reconciler.Scheme = scheme
+	reconciler.Clientset = clientset
 
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeOneShot
@@ -6934,11 +6939,10 @@ func TestExecuteResizes_RevertsOnReFetchFailure(t *testing.T) {
 		return false, nil, nil
 	})
 
-	reconciler := &AttunePolicyReconciler{
-		Client:    fakeClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = scheme
+	reconciler.Clientset = clientset
 
 	recorder := events.NewFakeRecorder(10)
 	reconciler.Recorder = recorder
@@ -7084,11 +7088,10 @@ func TestTryEvictionFallback_EvictsWhenMultipleReplicas(t *testing.T) {
 	scheme := testScheme()
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
 		WithObjects(policy, deploy, pod1, pod2).Build()
-	r := &AttunePolicyReconciler{
-		Client:    fakeClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
 	resizer := resize.NewPodResizer(clientset, ctrl.Log)
 
 	evictionBefore := promtestutil.ToFloat64(operatormetrics.EvictionTotal.WithLabelValues("default", "api-server", "success"))
@@ -7121,11 +7124,10 @@ func TestTryEvictionFallback_SkipsLastReplica(t *testing.T) {
 	scheme := testScheme()
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
 		WithObjects(policy, deploy, pod).Build()
-	r := &AttunePolicyReconciler{
-		Client:    fakeClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
 	resizer := resize.NewPodResizer(clientset, ctrl.Log)
 
 	evicted := r.tryEvictionFallback(context.Background(), policy, pod, deploy,
@@ -7152,11 +7154,10 @@ func TestResizeContainer_InfeasiblePodEvictedDirectly(t *testing.T) {
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
 		WithObjects(deploy, pod1, pod2).Build()
 	clientset := kubefake.NewSimpleClientset(pod1.DeepCopy(), pod2.DeepCopy())
-	r := &AttunePolicyReconciler{
-		Client:    fakeClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
 
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
@@ -7226,12 +7227,11 @@ func TestResizeContainer_InfeasiblePodSkippedWithInPlaceOnly(t *testing.T) {
 		WithObjects(deploy, pod).Build()
 	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
 	recorder := events.NewFakeRecorder(10)
-	r := &AttunePolicyReconciler{
-		Client:    fakeClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-		Recorder:  recorder,
-	}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
+	r.Recorder = recorder
 
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
@@ -7418,11 +7418,10 @@ func TestExecuteResizes_BudgetCapsSkipDoesNotConsumeBudget(t *testing.T) {
 	scheme := testScheme()
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod1, pod2).Build()
 	clientset := kubefake.NewSimpleClientset(pod1.DeepCopy(), pod2.DeepCopy())
-	reconciler := &AttunePolicyReconciler{
-		Client:    fakeClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = scheme
+	reconciler.Clientset = clientset
 
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
@@ -7460,11 +7459,10 @@ func TestExecuteResizes_BudgetCapsResizeFailureDoesNotConsumeBudget(t *testing.T
 		}
 		return false, nil, nil
 	})
-	reconciler := &AttunePolicyReconciler{
-		Client:    fakeClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = scheme
+	reconciler.Clientset = clientset
 
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
@@ -7497,11 +7495,10 @@ func TestExecuteResizes_EvictionDoesNotConsumeBudgetNeededByNextPod(t *testing.T
 	scheme := testScheme()
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod1, pod2).Build()
 	clientset := kubefake.NewSimpleClientset(pod1.DeepCopy(), pod2.DeepCopy())
-	reconciler := &AttunePolicyReconciler{
-		Client:    fakeClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = scheme
+	reconciler.Clientset = clientset
 
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
@@ -7574,11 +7571,10 @@ func TestExecuteResizes_MixedOutcomePodDoesNotLeakSuccessOrBudget(t *testing.T) 
 		}
 		return false, nil, nil
 	})
-	reconciler := &AttunePolicyReconciler{
-		Client:    fakeClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = scheme
+	reconciler.Clientset = clientset
 
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
@@ -7651,11 +7647,10 @@ func TestExecuteResizes_BudgetCapsRevertDoesNotConsumeBudget(t *testing.T) {
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod1, pod2).Build()
 	clientset := kubefake.NewSimpleClientset(pod1.DeepCopy(), pod2.DeepCopy())
 	wrappedClient := &failOnNamedPodUpdateClient{Client: fakeClient, failPodName: pod1.Name}
-	reconciler := &AttunePolicyReconciler{
-		Client:    wrappedClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = wrappedClient
+	reconciler.Scheme = scheme
+	reconciler.Clientset = clientset
 
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
@@ -7690,11 +7685,10 @@ func TestExecuteResizes_ConcurrentResizes(t *testing.T) {
 	scheme := testScheme()
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod1, pod2).Build()
 	clientset := kubefake.NewSimpleClientset(pod1.DeepCopy(), pod2.DeepCopy())
-	reconciler := &AttunePolicyReconciler{
-		Client:    fakeClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = scheme
+	reconciler.Clientset = clientset
 
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
@@ -7752,11 +7746,10 @@ func TestExecuteResizes_MultiContainerSequential(t *testing.T) {
 	scheme := testScheme()
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod).Build()
 	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
-	reconciler := &AttunePolicyReconciler{
-		Client:    fakeClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = scheme
+	reconciler.Clientset = clientset
 
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeOneShot
@@ -7868,11 +7861,10 @@ func TestExecuteResizes_MultiContainer_BudgetExhaustion(t *testing.T) {
 	clientset := kubefake.NewSimpleClientset(pod.DeepCopy(), workerPod.DeepCopy())
 
 	autoRevert := false
-	reconciler := &AttunePolicyReconciler{
-		Client:    fakeClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = scheme
+	reconciler.Clientset = clientset
 
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
@@ -7986,11 +7978,10 @@ func TestReconcile_NowFuncControlsScheduleGate(t *testing.T) {
 	// Wednesday 10:00 UTC -- outside the 02:00-06:00 window.
 	outsideWindow := time.Date(2026, 1, 7, 10, 0, 0, 0, time.UTC)
 
-	r := &AttunePolicyReconciler{
-		Client:    fakeClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
 	r.SetNowFunc(func() time.Time { return outsideWindow })
 
 	result := r.now()
@@ -8125,11 +8116,10 @@ func TestTryEvictionFallback_EvictionDeniedByPDB(t *testing.T) {
 	scheme := testScheme()
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
 		WithObjects(policy, deploy, pod1, pod2).Build()
-	r := &AttunePolicyReconciler{
-		Client:    fakeClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
 	resizer := resize.NewPodResizer(clientset, ctrl.Log)
 
 	evicted := r.tryEvictionFallback(context.Background(), policy, pod1, deploy,
@@ -8158,11 +8148,10 @@ func TestTryEvictionFallback_NilSelectorSkipsEviction(t *testing.T) {
 	scheme := testScheme()
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
 		WithObjects(policy, deploy, pod).Build()
-	r := &AttunePolicyReconciler{
-		Client:    fakeClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
 	resizer := resize.NewPodResizer(clientset, ctrl.Log)
 
 	evicted := r.tryEvictionFallback(context.Background(), policy, pod, deploy,
@@ -8187,10 +8176,9 @@ func TestExportRecommendationConfigMaps_CreatesConfigMap(t *testing.T) {
 		},
 	}
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(policy).Build()
-	r := &AttunePolicyReconciler{
-		Client: fakeClient,
-		Scheme: scheme,
-	}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
 	r.SetNowFunc(func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) })
 
 	recs := []attunev1alpha1.WorkloadRecommendation{
@@ -8243,10 +8231,9 @@ func TestExportRecommendationConfigMaps_UpdatesExisting(t *testing.T) {
 		Data: map[string]string{"main.cpu-request": "100m"},
 	}
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(policy, existingCM).Build()
-	r := &AttunePolicyReconciler{
-		Client: fakeClient,
-		Scheme: scheme,
-	}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
 	r.SetNowFunc(func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) })
 
 	recs := []attunev1alpha1.WorkloadRecommendation{
@@ -8289,7 +8276,9 @@ func TestExportRecommendationConfigMaps_CreateFailure(t *testing.T) {
 				return fmt.Errorf("simulated create failure")
 			},
 		}).Build()
-	r := &AttunePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
 	r.SetNowFunc(func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) })
 
 	recs := []attunev1alpha1.WorkloadRecommendation{
@@ -8322,7 +8311,9 @@ func TestExportRecommendationConfigMaps_GetFailure(t *testing.T) {
 				return nil
 			},
 		}).Build()
-	r := &AttunePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
 	r.SetNowFunc(func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) })
 
 	recs := []attunev1alpha1.WorkloadRecommendation{
@@ -8355,7 +8346,9 @@ func TestExportRecommendationConfigMaps_UpdateFailure(t *testing.T) {
 				return nil
 			},
 		}).Build()
-	r := &AttunePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
 	r.SetNowFunc(func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) })
 
 	recs := []attunev1alpha1.WorkloadRecommendation{
@@ -8389,7 +8382,9 @@ func TestExportRecommendationConfigMaps_PreservesExistingLabels(t *testing.T) {
 		Data: map[string]string{"main.cpu-request": "100m"},
 	}
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(policy, existingCM).Build()
-	r := &AttunePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
 	r.SetNowFunc(func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) })
 
 	recs := []attunev1alpha1.WorkloadRecommendation{
@@ -8444,10 +8439,9 @@ func TestAdjustHPATargets_ScalesTargetUtilization(t *testing.T) {
 	}
 
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&hpas[0]).Build()
-	r := &AttunePolicyReconciler{
-		Client: fakeClient,
-		Scheme: scheme,
-	}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
 
 	// CPU went from 200m to 400m, so target should halve: 80 * (200/400) = 40.
 	r.adjustHPATargets(context.Background(), hpas, "my-app", "Deployment",
@@ -8503,10 +8497,9 @@ func TestAdjustHPATargets_PreservesThirdPartyAnnotations(t *testing.T) {
 	freshHPA.Annotations["argocd.argoproj.io/managed-by"] = "argo-controller"
 
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(freshHPA).Build()
-	r := &AttunePolicyReconciler{
-		Client: fakeClient,
-		Scheme: scheme,
-	}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
 
 	r.adjustHPATargets(context.Background(), []autoscalingv2.HorizontalPodAutoscaler{staleHPA},
 		"my-app", "Deployment",
@@ -8566,11 +8559,10 @@ func TestApplyStartupBoosts_AppliesBoostToNewPod(t *testing.T) {
 	}
 	clientset := kubefake.NewSimpleClientset(pod)
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod).Build()
-	r := &AttunePolicyReconciler{
-		Client:    fakeClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
 	r.SetNowFunc(func() time.Time { return now })
 
 	logger := ctrl.Log.WithName("test")
@@ -8648,11 +8640,10 @@ func TestApplyStartupBoosts_NaNMultiplierSkipped(t *testing.T) {
 	}
 	clientset := kubefake.NewSimpleClientset(pod)
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod).Build()
-	r := &AttunePolicyReconciler{
-		Client:    fakeClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
 	r.SetNowFunc(func() time.Time { return now })
 
 	logger := ctrl.Log.WithName("test")
@@ -8712,11 +8703,10 @@ func TestApplyStartupBoosts_SkipsPodOutsideWindow(t *testing.T) {
 	}
 	clientset := kubefake.NewSimpleClientset(pod)
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod).Build()
-	r := &AttunePolicyReconciler{
-		Client:    fakeClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
 	r.SetNowFunc(func() time.Time { return now })
 
 	logger := ctrl.Log.WithName("test")
@@ -8777,10 +8767,9 @@ func TestAdjustHPATargets_IdempotentOnSecondCall(t *testing.T) {
 	}
 
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&hpas[0]).Build()
-	r := &AttunePolicyReconciler{
-		Client: fakeClient,
-		Scheme: scheme,
-	}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
 
 	// First call: 200m -> 400m, target should halve: 80 * (200/400) = 40.
 	r.adjustHPATargets(context.Background(), hpas, "my-app", "Deployment",
@@ -8850,11 +8839,10 @@ func TestApplyStartupBoosts_ExpiresBoostAfterDuration(t *testing.T) {
 	}
 	clientset := kubefake.NewSimpleClientset(pod)
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod).Build()
-	r := &AttunePolicyReconciler{
-		Client:    fakeClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
 	r.SetNowFunc(func() time.Time { return now })
 
 	logger := ctrl.Log.WithName("test")
@@ -8925,11 +8913,10 @@ func TestApplyStartupBoosts_MalformedAnnotationSkipsGracefully(t *testing.T) {
 	}
 	clientset := kubefake.NewSimpleClientset(pod)
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod).Build()
-	r := &AttunePolicyReconciler{
-		Client:    fakeClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
 	r.SetNowFunc(func() time.Time { return now })
 
 	logger := ctrl.Log.WithName("test")
@@ -8994,11 +8981,10 @@ func TestApplyStartupBoosts_SkipsWhenExceedsNodeAllocatable(t *testing.T) {
 	clientset := kubefake.NewSimpleClientset(pod)
 	resizer := resize.NewPodResizer(clientset, ctrl.Log)
 
-	r := &AttunePolicyReconciler{
-		Client:    fakeClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
 	r.SetNowFunc(func() time.Time { return now })
 
 	policy := &attunev1alpha1.AttunePolicy{
@@ -9077,11 +9063,10 @@ func TestApplyStartupBoosts_CapsAtCPULimit(t *testing.T) {
 	}
 	clientset := kubefake.NewSimpleClientset(pod)
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod).Build()
-	r := &AttunePolicyReconciler{
-		Client:    fakeClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
 	r.SetNowFunc(func() time.Time { return now })
 
 	resizer := resize.NewPodResizer(clientset, ctrl.Log)
@@ -9160,11 +9145,10 @@ func TestApplyStartupBoosts_ExpiryKeepsAnnotationOnFailure(t *testing.T) {
 		return false, nil, nil
 	})
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod).Build()
-	r := &AttunePolicyReconciler{
-		Client:    fakeClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
 	r.SetNowFunc(func() time.Time { return now })
 
 	policy := &attunev1alpha1.AttunePolicy{
@@ -9259,10 +9243,9 @@ func TestAdjustHPATargets_SkipsWithoutAnnotation(t *testing.T) {
 	}
 
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&hpas[0]).Build()
-	r := &AttunePolicyReconciler{
-		Client: fakeClient,
-		Scheme: scheme,
-	}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
 
 	r.adjustHPATargets(context.Background(), hpas, "my-app", "Deployment",
 		resource.MustParse("200m"), resource.MustParse("400m"))
@@ -9313,10 +9296,9 @@ func TestAdjustHPATargets_GetErrorDoesNotCrash(t *testing.T) {
 
 	// Empty client: HPA does not exist, Get will fail.
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-	r := &AttunePolicyReconciler{
-		Client: fakeClient,
-		Scheme: scheme,
-	}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
 
 	// Should not panic; logs the Get error and moves on.
 	r.adjustHPATargets(context.Background(), hpas, "my-app", "Deployment",
@@ -9361,10 +9343,9 @@ func TestAdjustHPATargets_UpdateErrorPreservesOriginal(t *testing.T) {
 				return fmt.Errorf("simulated conflict")
 			},
 		}).Build()
-	r := &AttunePolicyReconciler{
-		Client: fakeClient,
-		Scheme: scheme,
-	}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
 
 	// Should not panic; logs the Update error.
 	r.adjustHPATargets(context.Background(), []autoscalingv2.HorizontalPodAutoscaler{hpa},
@@ -9414,7 +9395,9 @@ func TestAdjustHPATargets_ClampsAbove100(t *testing.T) {
 		},
 	}
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&hpa).Build()
-	r := &AttunePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
 
 	// old=1000m, new=100m -> 80 * 1000/100 = 800, clamped to 100
 	r.adjustHPATargets(context.Background(), []autoscalingv2.HorizontalPodAutoscaler{hpa},
@@ -9460,7 +9443,9 @@ func TestAdjustHPATargets_ClampsBelow1(t *testing.T) {
 		},
 	}
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&hpa).Build()
-	r := &AttunePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
 
 	// old=10m, new=10000m -> 50 * 10/10000 = 0.05, int32 = 0, clamped to 1
 	r.adjustHPATargets(context.Background(), []autoscalingv2.HorizontalPodAutoscaler{hpa},
@@ -9634,7 +9619,9 @@ func TestShouldSkipResize_LimitRangeViolation(t *testing.T) {
 		},
 	}
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(lr).Build()
-	r := &AttunePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
 
 	policy := &attunev1alpha1.AttunePolicy{}
 	pod := &corev1.Pod{
@@ -9685,7 +9672,9 @@ func TestShouldSkipResize_QuotaHeadroomExceeded(t *testing.T) {
 		},
 	}
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(quota).Build()
-	r := &AttunePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
 
 	policy := &attunev1alpha1.AttunePolicy{}
 	pod := &corev1.Pod{
@@ -9738,7 +9727,9 @@ func TestShouldSkipResize_NodeAllocatableExceeded(t *testing.T) {
 		},
 	}
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
-	r := &AttunePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
 
 	policy := &attunev1alpha1.AttunePolicy{}
 	pod := &corev1.Pod{
@@ -9797,7 +9788,9 @@ func TestShouldSkipResize_NodeAllocatableNotExceeded(t *testing.T) {
 		},
 	}
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
-	r := &AttunePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
 
 	policy := &attunev1alpha1.AttunePolicy{}
 	pod := &corev1.Pod{
@@ -9840,7 +9833,9 @@ func TestShouldSkipResize_NodeAllocatableNotExceeded(t *testing.T) {
 func TestShouldSkipResize_AlreadyAtTarget(t *testing.T) {
 	scheme := testScheme()
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-	r := &AttunePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
 
 	policy := &attunev1alpha1.AttunePolicy{}
 	pod := &corev1.Pod{
@@ -9880,7 +9875,9 @@ func TestShouldSkipResize_PreChecksLimitRange(t *testing.T) {
 	scheme := testScheme()
 	// No objects in the client; LimitRange is passed via pre-fetched checks.
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-	r := &AttunePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
 
 	policy := &attunev1alpha1.AttunePolicy{}
 	pod := &corev1.Pod{
@@ -9929,7 +9926,9 @@ func TestShouldSkipResize_PreChecksLimitRange(t *testing.T) {
 func TestShouldSkipResize_NodeCacheHit(t *testing.T) {
 	scheme := testScheme()
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-	r := &AttunePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
 
 	policy := &attunev1alpha1.AttunePolicy{}
 	pod := &corev1.Pod{
@@ -9990,7 +9989,9 @@ func TestShouldSkipResize_NodeCacheMiss(t *testing.T) {
 		},
 	}
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
-	r := &AttunePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
 
 	policy := &attunev1alpha1.AttunePolicy{}
 	pod := &corev1.Pod{
@@ -10036,7 +10037,9 @@ func TestShouldSkipResize_NodeCacheMiss(t *testing.T) {
 func TestShouldSkipResize_QoSClassChange(t *testing.T) {
 	scheme := testScheme()
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-	r := &AttunePolicyReconciler{Client: fakeClient, Scheme: scheme}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
 
 	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
@@ -10329,9 +10332,8 @@ func TestSetReadyCondition(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := &AttunePolicyReconciler{
-				PrometheusTimeout: tt.promTimeout,
-			}
+			r := NewAttunePolicyReconciler()
+			r.PrometheusTimeout = tt.promTimeout
 			policy := &attunev1alpha1.AttunePolicy{}
 			policy.Generation = 5
 
@@ -10402,11 +10404,10 @@ func TestProcessWorkloads_Parallel(t *testing.T) {
 	policy.Spec.TargetRef.Name = nil
 	policy.Spec.TargetRef.Selector = &metav1.LabelSelector{}
 
-	r := &AttunePolicyReconciler{
-		Client:         fakeClient,
-		Scheme:         scheme,
-		MetricsFactory: mockMetricsFactory(collector),
-	}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.MetricsFactory = mockMetricsFactory(collector)
 	r.SetNowFunc(func() time.Time { return now })
 
 	result := r.processWorkloads(context.Background(), policy, workloads, collector, nil)
@@ -10482,11 +10483,10 @@ func TestProcessWorkloads_ParallelPartialFailure(t *testing.T) {
 	policy.Spec.TargetRef.Name = nil
 	policy.Spec.TargetRef.Selector = &metav1.LabelSelector{}
 
-	r := &AttunePolicyReconciler{
-		Client:         fakeClient,
-		Scheme:         scheme,
-		MetricsFactory: mockMetricsFactory(collector),
-	}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.MetricsFactory = mockMetricsFactory(collector)
 	r.SetNowFunc(func() time.Time { return now })
 
 	result := r.processWorkloads(context.Background(), policy, workloads, collector, nil)
@@ -10564,11 +10564,10 @@ func TestExecuteResizes_AnnotationConflictExhaustedRetries(t *testing.T) {
 	// so all retry attempts fail with 409 Conflict.
 	wrappedClient := &conflictThenSucceedClient{Client: fakeClient, conflictsLeft: 3}
 
-	reconciler := &AttunePolicyReconciler{
-		Client:    wrappedClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = wrappedClient
+	reconciler.Scheme = scheme
+	reconciler.Clientset = clientset
 
 	recorder := events.NewFakeRecorder(10)
 	reconciler.Recorder = recorder
@@ -10670,11 +10669,10 @@ func TestCheckPendingSafetyObservations_AnnotationCleanupConflictRetry(t *testin
 	// First annotation cleanup Update returns 409 Conflict, second succeeds.
 	wrappedClient := &conflictThenSucceedClient{Client: fakeClient, conflictsLeft: 1}
 
-	reconciler := &AttunePolicyReconciler{
-		Client:    wrappedClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = wrappedClient
+	reconciler.Scheme = scheme
+	reconciler.Clientset = clientset
 
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.AutoRevert = boolPtr(true)
@@ -10737,11 +10735,10 @@ func TestCheckPendingSafetyObservations_AnnotationCleanupConflictExhausted(t *te
 	// All 3 cleanup attempts return 409 Conflict.
 	wrappedClient := &conflictThenSucceedClient{Client: fakeClient, conflictsLeft: 3}
 
-	reconciler := &AttunePolicyReconciler{
-		Client:    wrappedClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = wrappedClient
+	reconciler.Scheme = scheme
+	reconciler.Clientset = clientset
 
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.AutoRevert = boolPtr(true)
@@ -10833,11 +10830,10 @@ func TestApplyStartupBoosts_ExpiryPassesShouldSkipResizeWithMemory(t *testing.T)
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod, node, limitRange).Build()
 	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
 
-	reconciler := &AttunePolicyReconciler{
-		Client:    fakeClient,
-		Scheme:    scheme,
-		Clientset: clientset,
-	}
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = scheme
+	reconciler.Clientset = clientset
 
 	policy := newTestPolicy("test-policy", "default")
 	dur := metav1.Duration{Duration: 5 * time.Minute}

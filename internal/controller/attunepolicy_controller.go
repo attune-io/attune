@@ -148,15 +148,22 @@ type AttunePolicyReconciler struct {
 	// eventDedup suppresses repeated K8s events for the same condition.
 	// Events with the same key are suppressed for 1 hour, then re-emitted
 	// so persistent conditions are periodically surfaced without flooding.
-	// Initialized eagerly in SetupWithManager; sync.Once provides a
-	// thread-safe fallback for test reconcilers.
-	eventDedup     *eventDedup
-	eventDedupOnce sync.Once
+	// Always initialized by NewAttunePolicyReconciler.
+	eventDedup *eventDedup
 
 	// discoveredPromMu guards the cached Prometheus auto-discovery result.
 	discoveredPromMu   sync.Mutex
 	discoveredPromAddr string
 	discoveredPromTime time.Time
+}
+
+// NewAttunePolicyReconciler creates a reconciler with all internal state
+// initialized. Callers should set exported fields (Client, Scheme, Recorder,
+// etc.) before calling SetupWithManager or using the reconciler directly.
+func NewAttunePolicyReconciler() *AttunePolicyReconciler {
+	return &AttunePolicyReconciler{
+		eventDedup: newEventDedup(time.Hour),
+	}
 }
 
 // gaugeKey identifies a specific gauge label combination set by a policy.
@@ -929,11 +936,6 @@ func (specOrDeletePredicate) Update(e event.UpdateEvent) bool {
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *AttunePolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	// Eagerly initialize eventDedup to avoid a data race. processWorkloads
-	// runs concurrent goroutines that call emitEventOnce; lazy init there
-	// would read-check-write r.eventDedup without synchronization.
-	r.eventDedup = newEventDedup(time.Hour)
-
 	maxConcurrent := r.MaxConcurrentReconciles
 	if maxConcurrent <= 0 {
 		maxConcurrent = 1
