@@ -147,6 +147,14 @@ The operator handles this via `ClampMemoryLimitForPolicy` in
 Run `make manifests` after changing CRD types or RBAC markers. Run
 `make generate` after changing API types. Commit the generated output.
 
+### Reconciler construction (contributor note)
+
+`AttunePolicyReconciler` has required internal state (e.g. `eventDedup`).
+Always create instances via `NewAttunePolicyReconciler()` (then set exported
+fields like `Client`, `Scheme`, `MetricsFactory` as needed). Direct struct
+literals bypass initialization and are no longer used in the test suite
+(tracked in #141). This applies to any new tests or extensions.
+
 ### RBAC markers and the controller-runtime cache
 
 Any resource accessed via the controller-runtime client (`r.Get()`, `r.List()`,
