@@ -163,6 +163,9 @@ func TestMergeUpdateStrategy_AllFields(t *testing.T) {
 		Export:                  &attunev1alpha1.ExportConfig{ConfigMap: true},
 		Canary:                  &attunev1alpha1.CanaryConfig{Percentage: 10, ObservationPeriod: metav1.Duration{Duration: 5 * time.Minute}},
 		SafetyObservationPeriod: &metav1.Duration{Duration: 10 * time.Minute},
+		SLOGuardrails: []attunev1alpha1.SLOGuardrail{
+			{Name: "p99-latency", Query: "histogram_quantile(0.99, rate(http_duration_seconds_bucket[5m]))", Threshold: "0.5"},
+		},
 	}
 	policy := &attunev1alpha1.UpdateStrategy{}
 
@@ -186,7 +189,9 @@ func TestMergeUpdateStrategy_AllFields(t *testing.T) {
 	assert.Equal(t, 5*time.Minute, policy.Canary.ObservationPeriod.Duration)
 	require.NotNil(t, policy.SafetyObservationPeriod)
 	assert.Equal(t, 10*time.Minute, policy.SafetyObservationPeriod.Duration)
-	assert.Len(t, inherited, 11)
+	require.Len(t, policy.SLOGuardrails, 1)
+	assert.Equal(t, "p99-latency", policy.SLOGuardrails[0].Name)
+	assert.Len(t, inherited, 12)
 	assert.Contains(t, inherited, "type")
 	assert.Contains(t, inherited, "autoRevert")
 	assert.Contains(t, inherited, "resizeMethod")
@@ -198,6 +203,7 @@ func TestMergeUpdateStrategy_AllFields(t *testing.T) {
 	assert.Contains(t, inherited, "export")
 	assert.Contains(t, inherited, "canary")
 	assert.Contains(t, inherited, "safetyObservationPeriod")
+	assert.Contains(t, inherited, "sloGuardrails")
 }
 
 // ---------- Direct MergeResourceConfig tests ----------

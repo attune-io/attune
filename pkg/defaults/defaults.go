@@ -232,5 +232,9 @@ func MergeUpdateStrategy(policy *attunev1alpha1.UpdateStrategy, defaults *attune
 		policy.SafetyObservationPeriod = defaults.SafetyObservationPeriod
 		inherited = append(inherited, "safetyObservationPeriod")
 	}
+	if len(policy.SLOGuardrails) == 0 && len(defaults.SLOGuardrails) > 0 {
+		policy.SLOGuardrails = defaults.SLOGuardrails
+		inherited = append(inherited, "sloGuardrails")
+	}
 	return inherited
 }
