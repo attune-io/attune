@@ -61,6 +61,28 @@ helm upgrade attune \
   --namespace attune-system
 ```
 
+## Install with OLM (OperatorHub)
+
+If your cluster has the [Operator Lifecycle Manager](https://olm.operatorframework.io/)
+installed, you can install Attune directly from
+[OperatorHub.io](https://operatorhub.io/operator/attune).
+
+**On OpenShift**, search for "Attune" in the built-in OperatorHub catalog and
+click Install.
+
+**On other clusters with OLM**, install the operator by creating a
+`Subscription`:
+
+```bash
+# Ensure OLM is installed (https://olm.operatorframework.io/docs/getting-started/)
+# Then create the subscription:
+kubectl create -f https://operatorhub.io/install/attune.yaml
+```
+
+This subscribes to the `stable` channel and auto-updates when new versions
+are published. The OLM bundle includes all CRDs, RBAC, and the operator
+deployment.
+
 ## Install with raw manifests
 
 If you prefer not to use Helm, apply the static install manifest:

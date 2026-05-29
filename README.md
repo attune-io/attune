@@ -58,6 +58,11 @@ helm install attune oci://ghcr.io/attune-io/charts/attune \
   --namespace attune-system --create-namespace
 ```
 
+Also available via [OperatorHub.io](https://operatorhub.io/operator/attune)
+(OLM) and raw manifests. See the
+[Installation Guide](https://attune-io.github.io/attune/getting-started/installation/)
+for all options.
+
 ### Create a Policy
 
 Start in **Recommend** mode (safe, no changes applied):
