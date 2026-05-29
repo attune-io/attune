@@ -5,7 +5,7 @@
 #
 # Required env vars:
 #   VERSION         - Release version without 'v' prefix (e.g., 0.1.7)
-#   GH_TOKEN        - GitHub PAT with public_repo scope for the fork owner
+#   GH_TOKEN        - GitHub token (App token from CI, or PAT for local use)
 #
 # Optional env vars:
 #   FORK_OWNER      - GitHub user owning the fork (default: SebTardif)

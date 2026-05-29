@@ -482,9 +482,8 @@ jobs:
         run: |
           echo "Waiting for lint and test-unit jobs to complete..."
           for i in $(seq 1 60); do
-            jobs_json=$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs?per_page=100" \
-              --jq '[.jobs[] | select(.name == "Lint" or .name == "Unit Tests") | {name: .name, status: .status, conclusion: .conclusion}]') || { echo "API call failed, retrying..."; sleep 5; continue; }
-            echo "$jobs_json" | jq empty 2>/dev/null || { echo "Malformed JSON from API, retrying..."; sleep 5; continue; }
+            raw=$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs?per_page=100" 2>/dev/null) || { echo "API call failed (attempt $i), retrying..."; sleep 5; continue; }
+            jobs_json=$(echo "$raw" | jq -c '[.jobs[] | select(.name == "Lint" or .name == "Unit Tests") | {name: .name, status: .status, conclusion: .conclusion}]' 2>/dev/null) || { echo "JSON parse failed (attempt $i), retrying..."; sleep 5; continue; }
 
             all_done=true
             any_failed=false
