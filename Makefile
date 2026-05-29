@@ -215,6 +215,7 @@ test-e2e-smoke: chainsaw ## Run a minimal E2E smoke suite (requires a pre-provis
 test-fuzz: ## Run fuzz tests (coverage-guided, 30s per target)
 	go test ./internal/recommendation/... -run='^$$' -fuzz=FuzzPercentileEstimator -fuzztime=30s
 	go test ./internal/recommendation/... -run='^$$' -fuzz=FuzzRecommendationEngine -fuzztime=30s
+	go test ./internal/webhook/... -run='^$$' -fuzz=FuzzValidateFloatFields -fuzztime=30s
 
 .PHONY: test-bench
 test-bench: ## Run benchmark tests

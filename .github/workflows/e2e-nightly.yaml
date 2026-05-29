@@ -424,6 +424,7 @@ jobs:
           # full branch coverage faster than 1M random iterations.
           go test ./internal/recommendation/... -run='^$' -fuzz=FuzzPercentileEstimator -fuzztime=30s
           go test ./internal/recommendation/... -run='^$' -fuzz=FuzzRecommendationEngine -fuzztime=30s
+          go test ./internal/webhook/... -run='^$' -fuzz=FuzzValidateFloatFields -fuzztime=30s
 
   report:
     name: Nightly Results
