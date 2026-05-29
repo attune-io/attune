@@ -2368,7 +2368,7 @@ func TestResolveCloudWatchCollector_CacheKeyIncludesRoleARN(t *testing.T) {
 	// Pre-seed two entries with different role ARNs.
 	mc1 := &mockCollector{}
 	mc2 := &mockCollector{}
-	reconciler.collectors.Store("cloudwatch:us-east-1|cluster||", &collectorEntry{collector: mc1, lastUsed: time.Now()})
+	reconciler.collectors.Store("cloudwatch:us-east-1|cluster|", &collectorEntry{collector: mc1, lastUsed: time.Now()})
 	reconciler.collectors.Store("cloudwatch:us-east-1|cluster|arn:aws:iam::111:role/x", &collectorEntry{collector: mc2, lastUsed: time.Now()})
 
 	policy1 := &attunev1alpha1.AttunePolicy{
@@ -2399,6 +2399,8 @@ func TestResolveCloudWatchCollector_CacheKeyIncludesRoleARN(t *testing.T) {
 	require.NoError(t, err1)
 	c2, _, err2 := reconciler.resolveCloudWatchCollector(context.Background(), policy2)
 	require.NoError(t, err2)
+	assert.Same(t, mc1, c1, "no-role policy should return pre-seeded mc1")
+	assert.Same(t, mc2, c2, "role-arn policy should return pre-seeded mc2")
 	assert.NotSame(t, c1, c2, "different role ARNs should resolve to different collectors")
 }
 
