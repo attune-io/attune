@@ -48,12 +48,6 @@ spec:
     bin: kubectl-attune
   - selector:
       matchLabels:
-        os: linux
-        arch: s390x
-    {{addURIAndSha "https://github.com/attune-io/attune/releases/download/{{ .TagName }}/kubectl-attune_linux_s390x.tar.gz" .TagName }}
-    bin: kubectl-attune
-  - selector:
-      matchLabels:
         os: darwin
         arch: amd64
     {{addURIAndSha "https://github.com/attune-io/attune/releases/download/{{ .TagName }}/kubectl-attune_darwin_amd64.tar.gz" .TagName }}
