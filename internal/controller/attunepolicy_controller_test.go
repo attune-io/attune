@@ -5592,10 +5592,12 @@ func TestCheckPendingSafetyObservations_UnsafeVerdictMarksHistoryReverted(t *tes
 
 	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
 
-	// Verify that matching Success entries were marked as Reverted.
+	// Verify that matching Success entries were marked as Reverted with reason.
 	for _, h := range policy.Status.ResizeHistory {
 		assert.Equal(t, attunev1alpha1.ResizeResultReverted, h.Result,
 			"history entry %s/%s should be Reverted, got %s", h.Workload, h.Container, h.Result)
+		assert.NotEmpty(t, h.Reason,
+			"history entry %s/%s should have a revert reason", h.Workload, h.Container)
 	}
 }
 

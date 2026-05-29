@@ -199,6 +199,7 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 								h := &policy.Status.ResizeHistory[j]
 								if h.Workload == trackedWorkload && h.Container == record.Container && h.Result == attunev1alpha1.ResizeResultSuccess {
 									h.Result = attunev1alpha1.ResizeResultReverted
+									h.Reason = v.Reason
 								}
 							}
 						}
@@ -249,6 +250,7 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 					h := &policy.Status.ResizeHistory[i]
 					if h.Workload == trackedWorkload && h.Container == record.Container && h.Result == attunev1alpha1.ResizeResultSuccess {
 						h.Result = attunev1alpha1.ResizeResultReverted
+						h.Reason = verdict.Reason
 					}
 				}
 			}
