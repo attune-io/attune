@@ -8405,6 +8405,73 @@ func TestExportRecommendationConfigMaps_PreservesExistingLabels(t *testing.T) {
 	assert.Equal(t, "test-policy", cm.Labels["attune.io/policy"], "operator labels should be set")
 }
 
+func TestExportRecommendationConfigMaps_OrphanCleanup(t *testing.T) {
+	scheme := testScheme()
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-policy",
+			Namespace: "default",
+			UID:       "abc-123",
+		},
+	}
+
+	// Pre-create ConfigMaps for two workloads under this policy
+	activeCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-policy-my-app-recommendations",
+			Namespace: "default",
+			Labels: map[string]string{
+				"attune.io/policy":   "test-policy",
+				"attune.io/workload": "my-app",
+			},
+		},
+		Data: map[string]string{"main.cpu-request": "100m"},
+	}
+	orphanCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-policy-old-workload-recommendations",
+			Namespace: "default",
+			Labels: map[string]string{
+				"attune.io/policy":   "test-policy",
+				"attune.io/workload": "old-workload",
+			},
+		},
+		Data: map[string]string{"main.cpu-request": "50m"},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(policy, activeCM, orphanCM).Build()
+	r := &AttunePolicyReconciler{
+		Client: fakeClient,
+		Scheme: scheme,
+	}
+
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "my-app",
+			Kind:     "Deployment",
+			Containers: []attunev1alpha1.ContainerRecommendation{
+				{Name: "main", Confidence: 0.9, Recommended: attunev1alpha1.ResourceValues{
+					CPURequest:    resource.MustParse("200m"),
+					MemoryRequest: resource.MustParse("256Mi"),
+				}},
+			},
+		},
+	}
+
+	r.exportRecommendationConfigMaps(context.Background(), policy, recs)
+
+	// Active workload ConfigMap should still exist and be updated
+	var active corev1.ConfigMap
+	err := fakeClient.Get(context.Background(), client.ObjectKey{Namespace: "default", Name: "test-policy-my-app-recommendations"}, &active)
+	require.NoError(t, err)
+	assert.Equal(t, "200m", active.Data["main.cpu-request"])
+
+	// Orphaned workload ConfigMap should have been deleted
+	var orphan corev1.ConfigMap
+	err = fakeClient.Get(context.Background(), client.ObjectKey{Namespace: "default", Name: "test-policy-old-workload-recommendations"}, &orphan)
+	assert.True(t, apierrors.IsNotFound(err), "orphaned ConfigMap should be deleted")
+}
+
 func TestAdjustHPATargets_ScalesTargetUtilization(t *testing.T) {
 	scheme := testScheme()
 	oldTarget := int32(80)
