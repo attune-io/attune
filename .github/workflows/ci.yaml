@@ -478,12 +478,26 @@ jobs:
       - name: Wait for lint and unit gate
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash -Eeuo pipefail {0}
         run: |
           echo "Waiting for lint and test-unit jobs to complete..."
           for i in $(seq 1 60); do
-            raw=$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs?per_page=100" 2>/dev/null) || { echo "API call failed (attempt $i), retrying..."; sleep 5; continue; }
-            jobs_json=$(echo "$raw" | jq -c '[.jobs[] | select(.name == "Lint" or .name == "Unit Tests") | {name: .name, status: .status, conclusion: .conclusion}]' 2>/dev/null) || { echo "JSON parse failed (attempt $i), retrying..."; sleep 5; continue; }
+            # Disable errexit for API+jq; command substitution under
+            # bash -Eeuo pipefail kills the script before || can catch.
+            set +eo pipefail
+            raw=$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs?per_page=100" 2>/dev/null)
+            api_rc=$?
+            jq_rc=1
+            jobs_json=""
+            if [[ $api_rc -eq 0 ]]; then
+              jobs_json=$(echo "$raw" | jq -c '[.jobs[] | select(.name == "Lint" or .name == "Unit Tests") | {name: .name, status: .status, conclusion: .conclusion}]' 2>/dev/null)
+              jq_rc=$?
+            fi
+            set -eo pipefail
+
+            if [[ $api_rc -ne 0 || $jq_rc -ne 0 || -z "$jobs_json" ]]; then
+              echo "API/JSON failed (attempt $i, api=$api_rc jq=$jq_rc), retrying..."
+              sleep 5; continue
+            fi
 
             all_done=true
             any_failed=false
