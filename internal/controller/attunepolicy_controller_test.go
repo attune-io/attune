@@ -2157,6 +2157,251 @@ func TestResolvePrometheusConfig_RejectsBlockedDefaultsAddress(t *testing.T) {
 	assert.Contains(t, err.Error(), "SSRF blocked")
 }
 
+// ---------- resolveDatadogCollector ----------
+
+func TestResolveDatadogCollector_HappyPath(t *testing.T) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "dd-keys", Namespace: "default"},
+		Data: map[string][]byte{
+			"api-key": []byte("test-api-key-12345"),
+		},
+	}
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Datadog: &attunev1alpha1.DatadogConfig{
+					Site:            "datadoghq.eu",
+					APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "dd-keys", Key: "api-key"},
+				},
+			},
+		},
+	}
+	reconciler := newReconcilerWithClient(secret)
+
+	collector, qb, err := reconciler.resolveDatadogCollector(context.Background(), policy)
+	require.NoError(t, err)
+	assert.NotNil(t, collector, "collector should be non-nil")
+	assert.IsType(t, &rsmetrics.DatadogQueryBuilder{}, qb, "should return DatadogQueryBuilder")
+}
+
+func TestResolveDatadogCollector_DefaultSite(t *testing.T) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "dd-keys", Namespace: "default"},
+		Data: map[string][]byte{
+			"api-key": []byte("test-api-key"),
+		},
+	}
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Datadog: &attunev1alpha1.DatadogConfig{
+					Site:            "", // empty = default
+					APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "dd-keys", Key: "api-key"},
+				},
+			},
+		},
+	}
+	reconciler := newReconcilerWithClient(secret)
+
+	collector, _, err := reconciler.resolveDatadogCollector(context.Background(), policy)
+	require.NoError(t, err)
+	assert.NotNil(t, collector, "collector should be created with default site")
+}
+
+func TestResolveDatadogCollector_WithAppKey(t *testing.T) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "dd-keys", Namespace: "default"},
+		Data: map[string][]byte{
+			"api-key": []byte("test-api-key"),
+			"app-key": []byte("test-app-key"),
+		},
+	}
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Datadog: &attunev1alpha1.DatadogConfig{
+					Site:            "us5.datadoghq.com",
+					APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "dd-keys", Key: "api-key"},
+				},
+			},
+		},
+	}
+	reconciler := newReconcilerWithClient(secret)
+
+	collector, _, err := reconciler.resolveDatadogCollector(context.Background(), policy)
+	require.NoError(t, err)
+	assert.NotNil(t, collector, "collector should succeed when app-key is present")
+}
+
+func TestResolveDatadogCollector_MissingSecret(t *testing.T) {
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Datadog: &attunev1alpha1.DatadogConfig{
+					APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "nonexistent-secret", Key: "api-key"},
+				},
+			},
+		},
+	}
+	reconciler := newReconcilerWithClient() // no secret
+
+	_, _, err := reconciler.resolveDatadogCollector(context.Background(), policy)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Datadog API key")
+}
+
+func TestResolveDatadogCollector_MissingKeyInSecret(t *testing.T) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "dd-keys", Namespace: "default"},
+		Data: map[string][]byte{
+			"wrong-key": []byte("value"),
+		},
+	}
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Datadog: &attunev1alpha1.DatadogConfig{
+					APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "dd-keys", Key: "api-key"},
+				},
+			},
+		},
+	}
+	reconciler := newReconcilerWithClient(secret)
+
+	_, _, err := reconciler.resolveDatadogCollector(context.Background(), policy)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Datadog API key")
+}
+
+func TestResolveDatadogCollector_CachesCollector(t *testing.T) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "dd-keys", Namespace: "default"},
+		Data: map[string][]byte{
+			"api-key": []byte("test-api-key"),
+		},
+	}
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Datadog: &attunev1alpha1.DatadogConfig{
+					Site:            "datadoghq.com",
+					APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "dd-keys", Key: "api-key"},
+				},
+			},
+		},
+	}
+	reconciler := newReconcilerWithClient(secret)
+
+	c1, _, err1 := reconciler.resolveDatadogCollector(context.Background(), policy)
+	require.NoError(t, err1)
+	c2, _, err2 := reconciler.resolveDatadogCollector(context.Background(), policy)
+	require.NoError(t, err2)
+	assert.Same(t, c1, c2, "second call should return cached collector")
+}
+
+// ---------- resolveCloudWatchCollector ----------
+
+func TestResolveCloudWatchCollector_CreatesCollector(t *testing.T) {
+	// NewCloudWatchCollector succeeds at construction time (the AWS SDK
+	// loads config from env/files without making API calls). Verify the
+	// collector and query builder are created correctly.
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			MetricsSource: attunev1alpha1.MetricsSource{
+				CloudWatch: &attunev1alpha1.CloudWatchConfig{
+					Region:      "us-east-1",
+					ClusterName: "test-cluster",
+				},
+			},
+		},
+	}
+	reconciler := newReconcilerWithClient()
+
+	collector, qb, err := reconciler.resolveCloudWatchCollector(context.Background(), policy)
+	require.NoError(t, err)
+	assert.NotNil(t, collector, "collector should be created")
+	cwQB, ok := qb.(*rsmetrics.CloudWatchQueryBuilder)
+	require.True(t, ok, "should return CloudWatchQueryBuilder")
+	assert.Equal(t, "test-cluster", cwQB.ClusterName)
+}
+
+func TestResolveCloudWatchCollector_QueryBuilder(t *testing.T) {
+	// Even though the collector creation fails, we can verify the function's
+	// structure by testing a cached path. Pre-seed the cache with a mock.
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			MetricsSource: attunev1alpha1.MetricsSource{
+				CloudWatch: &attunev1alpha1.CloudWatchConfig{
+					Region:      "eu-west-1",
+					ClusterName: "prod-cluster",
+					RoleARN:     "arn:aws:iam::123456789012:role/test",
+				},
+			},
+		},
+	}
+	reconciler := newReconcilerWithClient()
+
+	// Pre-seed the collector cache so the factory is not called (avoids AWS SDK).
+	cacheKey := fmt.Sprintf("cloudwatch:%s|%s|%s", "eu-west-1", "prod-cluster", "arn:aws:iam::123456789012:role/test")
+	mc := &mockCollector{}
+	reconciler.collectors.Store(cacheKey, &collectorEntry{collector: mc, lastUsed: time.Now()})
+
+	collector, qb, err := reconciler.resolveCloudWatchCollector(context.Background(), policy)
+	require.NoError(t, err)
+	assert.Same(t, mc, collector, "should return pre-seeded cached collector")
+	cwQB, ok := qb.(*rsmetrics.CloudWatchQueryBuilder)
+	require.True(t, ok, "should return CloudWatchQueryBuilder")
+	assert.Equal(t, "prod-cluster", cwQB.ClusterName, "ClusterName should match policy")
+}
+
+func TestResolveCloudWatchCollector_CacheKeyIncludesRoleARN(t *testing.T) {
+	reconciler := newReconcilerWithClient()
+
+	// Pre-seed two entries with different role ARNs.
+	mc1 := &mockCollector{}
+	mc2 := &mockCollector{}
+	reconciler.collectors.Store("cloudwatch:us-east-1|cluster||", &collectorEntry{collector: mc1, lastUsed: time.Now()})
+	reconciler.collectors.Store("cloudwatch:us-east-1|cluster|arn:aws:iam::111:role/x", &collectorEntry{collector: mc2, lastUsed: time.Now()})
+
+	policy1 := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "p1", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			MetricsSource: attunev1alpha1.MetricsSource{
+				CloudWatch: &attunev1alpha1.CloudWatchConfig{
+					Region:      "us-east-1",
+					ClusterName: "cluster",
+				},
+			},
+		},
+	}
+	policy2 := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "p2", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			MetricsSource: attunev1alpha1.MetricsSource{
+				CloudWatch: &attunev1alpha1.CloudWatchConfig{
+					Region:      "us-east-1",
+					ClusterName: "cluster",
+					RoleARN:     "arn:aws:iam::111:role/x",
+				},
+			},
+		},
+	}
+
+	c1, _, err1 := reconciler.resolveCloudWatchCollector(context.Background(), policy1)
+	require.NoError(t, err1)
+	c2, _, err2 := reconciler.resolveCloudWatchCollector(context.Background(), policy2)
+	require.NoError(t, err2)
+	assert.NotSame(t, c1, c2, "different role ARNs should resolve to different collectors")
+}
+
 // ---------- collectorCacheKey ----------
 
 func TestCollectorCacheKey_AddressOnly(t *testing.T) {
@@ -9174,11 +9419,11 @@ func TestBuildRecommendationEngines_ExplicitMaxChangePercent(t *testing.T) {
 
 func TestResolveChangeCaps(t *testing.T) {
 	tests := []struct {
-		name             string
-		rc               attunev1alpha1.ResourceConfig
-		builtInDefault   int32
-		wantIncrease     float64
-		wantDecrease     float64
+		name           string
+		rc             attunev1alpha1.ResourceConfig
+		builtInDefault int32
+		wantIncrease   float64
+		wantDecrease   float64
 	}{
 		{
 			name:           "all nil uses built-in default",
