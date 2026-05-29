@@ -355,10 +355,22 @@ func structuredOutputCommandError(cmd, output string) error {
 func fetchPolicies(ctx context.Context, dynClient dynamic.Interface, namespace string) *unstructured.UnstructuredList {
 	list, err := dynClient.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
+		if apierrors.IsNotFound(err) || isNoResourceMatch(err) {
+			fmt.Fprintln(os.Stderr, "Error: Attune CRDs are not installed in this cluster.")
+			fmt.Fprintln(os.Stderr, "Install the operator first:")
+			fmt.Fprintln(os.Stderr, "  helm install attune oci://ghcr.io/attune-io/charts/attune")
+			os.Exit(1)
+		}
 		fmt.Fprintf(os.Stderr, "Error listing policies: %v\n", err)
 		os.Exit(1)
 	}
 	return list
+}
+
+// isNoResourceMatch checks if the error indicates the CRD/resource type
+// does not exist on the API server (common when the operator isn't installed).
+func isNoResourceMatch(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "the server could not find the requested resource")
 }
 
 func printStatus(ctx context.Context, dynClient dynamic.Interface, namespace, sortByFlag, filterFlag string) {
@@ -990,6 +1002,11 @@ func printResourceExplanation(resourceName string, current, recommended, explana
 	fmt.Printf("      + Overhead (%s%%):           %s\n",
 		formatFloat(nestedFloat(resourceExplanation, "overhead")),
 		nestedString(resourceExplanation, "afterOverhead"))
+	if bf := nestedFloat(resourceExplanation, "burstFactor"); bf > 1.0 {
+		fmt.Printf("      x Burst factor (%s):        %s\n",
+			formatFloat(bf),
+			nestedString(resourceExplanation, "afterBurst"))
+	}
 	fmt.Printf("      x Confidence factor (%s, confidence %.2f): %s\n",
 		formatFloat(nestedFloat(resourceExplanation, "confidenceFactor")),
 		nestedFloat(resourceExplanation, "confidence"),
