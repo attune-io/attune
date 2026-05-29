@@ -112,6 +112,17 @@ jobs:
         id: build_date
         run: echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
+      - name: Clean existing release assets (idempotent re-runs)
+        shell: bash
+        run: |
+          TAG="${{ steps.tag.outputs.name }}"
+          for asset in $(gh release view "$TAG" --json assets --jq '.assets[].name' 2>/dev/null || true); do
+            echo "Deleting existing asset: $asset"
+            gh release delete-asset "$TAG" "$asset" -y || true
+          done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89 # v7.2.2
         with:
@@ -193,6 +204,7 @@ jobs:
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3
         with:
           tag_name: ${{ steps.tag.outputs.name }}
+          fail_on_unmatched_files: true
           files: |
             dist/install.yaml
             dist/crds.yaml
