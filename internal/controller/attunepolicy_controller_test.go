@@ -10333,7 +10333,7 @@ func TestSetReadyCondition(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := NewAttunePolicyReconciler()
-	r.PrometheusTimeout = tt.promTimeout
+			r.PrometheusTimeout = tt.promTimeout
 			policy := &attunev1alpha1.AttunePolicy{}
 			policy.Generation = 5
 

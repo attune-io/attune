@@ -730,7 +730,7 @@ func TestWorkload_DiscoverWorkloads(t *testing.T) {
 				builder = builder.WithObjects(tt.objects...)
 			}
 			r := NewAttunePolicyReconciler()
-	r.Client = builder.Build()
+			r.Client = builder.Build()
 
 			got, err := r.discoverWorkloads(ctx, tt.policy)
 			if tt.wantErr != "" {
@@ -807,7 +807,7 @@ func TestWorkload_GetPodsForWorkload(t *testing.T) {
 				builder = builder.WithObjects(tt.objects...)
 			}
 			r := NewAttunePolicyReconciler()
-	r.Client = builder.Build()
+			r.Client = builder.Build()
 
 			pods, err := r.getPodsForWorkload(ctx, tt.workload)
 			if tt.wantErr != "" {
