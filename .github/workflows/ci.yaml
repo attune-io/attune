@@ -451,7 +451,7 @@ jobs:
     name: E2E
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 30
-    needs: [changes]
+    needs: [changes, lint, test-unit]
     if: needs.changes.outputs.go-source == 'true'
     env:
       K3D_CLUSTER_NAME: e2e-${{ github.run_id }}-${{ github.run_attempt }}
@@ -473,60 +473,7 @@ jobs:
           prometheus-chart-version: ${{ env.PROMETHEUS_CHART_VERSION }}
           stress-ng-image: ${{ env.STRESS_NG_IMAGE }}
 
-      # Wait for lint and unit tests before running E2E.
-      # Cluster setup above already ran in parallel with those jobs.
-      - name: Wait for lint and unit gate
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          echo "Waiting for lint and test-unit jobs to complete..."
-          for i in $(seq 1 60); do
-            # Disable errexit for API+jq; command substitution under
-            # bash -Eeuo pipefail kills the script before || can catch.
-            set +eo pipefail
-            raw=$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs?per_page=100" 2>/dev/null)
-            api_rc=$?
-            jq_rc=1
-            jobs_json=""
-            if [[ $api_rc -eq 0 ]]; then
-              jobs_json=$(echo "$raw" | jq -c '[.jobs[] | select(.name == "Lint" or .name == "Unit Tests") | {name: .name, status: .status, conclusion: .conclusion}]' 2>/dev/null)
-              jq_rc=$?
-            fi
-            set -eo pipefail
-
-            if [[ $api_rc -ne 0 || $jq_rc -ne 0 || -z "$jobs_json" ]]; then
-              echo "API/JSON failed (attempt $i, api=$api_rc jq=$jq_rc), retrying..."
-              sleep 5; continue
-            fi
-
-            all_done=true
-            any_failed=false
-            for row in $(echo "$jobs_json" | jq -c '.[]'); do
-              status=$(echo "$row" | jq -r '.status')
-              conclusion=$(echo "$row" | jq -r '.conclusion')
-              name=$(echo "$row" | jq -r '.name')
-              if [[ "$status" != "completed" ]]; then
-                all_done=false
-              elif [[ "$conclusion" != "success" && "$conclusion" != "skipped" ]]; then
-                echo "::error::$name failed ($conclusion), aborting E2E"
-                any_failed=true
-              fi
-            done
-
-            if [[ "$any_failed" == "true" ]]; then
-              exit 1
-            fi
-            if [[ "$all_done" == "true" ]]; then
-              echo "Lint and unit tests passed, proceeding with E2E"
-              break
-            fi
-
-            if (( i == 60 )); then
-              echo "::error::Timed out waiting for lint/unit (5 min)"
-              exit 1
-            fi
-            sleep 5
-          done
+      # Lint and unit tests are guaranteed complete via needs: [lint, test-unit].
 
       - name: Install Chainsaw
         uses: kyverno/action-install-chainsaw@1223ef75bedeb59c4e7b5455463d4316e76dff01 # v0.2.15
