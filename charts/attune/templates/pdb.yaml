@@ -1,4 +1,4 @@
-{{- if gt (int .Values.replicaCount) 1 }}
+{{- if gt (include "attune.replicaCount" . | int) 1 }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:

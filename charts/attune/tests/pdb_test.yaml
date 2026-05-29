@@ -18,3 +18,23 @@ tests:
       - equal:
           path: spec.minAvailable
           value: 1
+
+  - it: should render PDB when clusterSize auto-bumps replicas
+    set:
+      clusterSize: large
+    asserts:
+      - isKind:
+          of: PodDisruptionBudget
+      - equal:
+          path: spec.minAvailable
+          value: 1
+
+  - it: should render PDB when clusterSize is xlarge
+    set:
+      clusterSize: xlarge
+    asserts:
+      - isKind:
+          of: PodDisruptionBudget
+      - equal:
+          path: spec.minAvailable
+          value: 1
