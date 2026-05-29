@@ -25,7 +25,7 @@ kubeVersion: ">= 1.32.0-0"
 annotations:
   artifacthub.io/license: Apache-2.0
   artifacthub.io/operator: "true"
-  artifacthub.io/operatorCapabilities: Full Lifecycle
+  artifacthub.io/operatorCapabilities: Auto Pilot
   artifacthub.io/prerelease: "true"
   artifacthub.io/crds: |
     - kind: AttunePolicy
