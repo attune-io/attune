@@ -3,6 +3,7 @@ bin/
 dist/
 /manager
 /kubectl-attune
+/kubectl-rightsize
 
 # Go
 vendor/
