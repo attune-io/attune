@@ -18,6 +18,10 @@
 #   kubectl apply -f examples/01-getting-started.yaml
 #
 # Check progress:
+#   kubectl get attunepolicy -n my-app
+#   kubectl describe attunepolicy my-first-policy -n my-app
+#
+# With the optional kubectl plugin (see examples/README.md):
 #   kubectl attune status -n my-app
 #   kubectl attune recommendations -n my-app
 #

@@ -9,6 +9,10 @@
 #   kubectl apply -f examples/02-canary-rollout.yaml
 #
 # Watch progress:
+#   kubectl get attunepolicy -n production
+#   kubectl describe attunepolicy api-canary -n production
+#
+# With the optional kubectl plugin (see examples/README.md):
 #   kubectl attune status -n production
 ---
 apiVersion: attune.io/v1alpha1

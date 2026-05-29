@@ -51,4 +51,33 @@ All examples assume:
 
 - Kubernetes 1.32+ (1.32 requires the `InPlacePodVerticalScaling` feature gate; 1.33+ enabled by default)
 - Prometheus reachable inside the cluster
-- Attune operator installed (for example: `helm install attune oci://ghcr.io/attune-io/charts/attune --namespace attune-system --create-namespace`)
+- Attune operator installed:
+
+```bash
+helm install attune oci://ghcr.io/attune-io/charts/attune \
+  --namespace attune-system --create-namespace
+```
+
+## kubectl plugin (optional)
+
+The operator works without any kubectl plugin. You can inspect policies
+with standard commands:
+
+```bash
+kubectl get attunepolicy -A
+kubectl describe attunepolicy <name> -n <namespace>
+```
+
+For a richer experience, install the optional `kubectl attune` plugin:
+
+```bash
+# Via Krew (recommended)
+kubectl krew install attune
+
+# Or download from GitHub Releases
+# https://github.com/attune-io/attune/releases
+```
+
+The plugin adds commands like `kubectl attune status`, `kubectl attune recommendations`,
+and `kubectl attune explain`. Some examples reference these commands, but they always
+show the standard kubectl equivalent first.
