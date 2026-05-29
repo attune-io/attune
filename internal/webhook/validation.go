@@ -153,6 +153,11 @@ func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (a
 		return warnings, err
 	}
 
+	// Validate memoryFromCpuRatio is a valid positive float.
+	if err := validateMemoryFromCPURatio(policy.Spec.Memory.MemoryFromCPURatio); err != nil {
+		return warnings, err
+	}
+
 	// Validate burstSensitivity is a valid non-negative float, max 1.0.
 	if err := validateBurstSensitivity("cpu", policy.Spec.CPU.BurstSensitivity); err != nil {
 		return warnings, err
@@ -457,6 +462,26 @@ func validateOverhead(resource, overhead string) error {
 	// 900% overhead = 10x multiplier, matching the old overhead max of 10.0.
 	if v > 900 {
 		return fmt.Errorf("%s.overhead must be <= 900, got %s", resource, overhead)
+	}
+	return nil
+}
+
+func validateMemoryFromCPURatio(ratio *string) error {
+	if ratio == nil || *ratio == "" {
+		return nil
+	}
+	v, err := strconv.ParseFloat(*ratio, 64)
+	if err != nil {
+		return fmt.Errorf("memory.memoryFromCpuRatio %q is not a valid number: %w", *ratio, err)
+	}
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return fmt.Errorf("memory.memoryFromCpuRatio must be a finite number, got %s", *ratio)
+	}
+	if v <= 0 {
+		return fmt.Errorf("memory.memoryFromCpuRatio must be positive, got %s", *ratio)
+	}
+	if v > 1000 { //nolint:mnd // 1000 matches the controller ceiling for GiB-per-core ratios
+		return fmt.Errorf("memory.memoryFromCpuRatio must be <= 1000, got %s", *ratio)
 	}
 	return nil
 }

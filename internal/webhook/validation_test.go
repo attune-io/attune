@@ -575,6 +575,53 @@ func TestValidate_BurstSensitivityValid(t *testing.T) {
 	}
 }
 
+func TestValidate_MemoryFromCPURatioInvalid(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		wantErr string
+	}{
+		{"not a number", "abc", "not a valid number"},
+		{"negative", "-5", "must be positive"},
+		{"zero", "0", "must be positive"},
+		{"NaN", "NaN", "must be a finite number"},
+		{"Inf", "Inf", "must be a finite number"},
+		{"exceeds max", "1001", "must be <= 1000"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			validator := &AttunePolicyValidator{}
+			policy := validPolicy()
+			policy.Spec.Memory.MemoryFromCPURatio = &tt.value
+
+			_, err := validator.ValidateCreate(context.Background(), policy)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
+func TestValidate_MemoryFromCPURatioValid(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+	}{
+		{"typical", "2.0"},
+		{"small", "0.5"},
+		{"max", "1000"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			validator := &AttunePolicyValidator{}
+			policy := validPolicy()
+			policy.Spec.Memory.MemoryFromCPURatio = &tt.value
+
+			_, err := validator.ValidateCreate(context.Background(), policy)
+			assert.NoError(t, err)
+		})
+	}
+}
+
 func TestValidate_HistoryWindowBounds(t *testing.T) {
 	tests := []struct {
 		name    string
