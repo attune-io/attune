@@ -3,7 +3,7 @@
 This page covers breaking changes between versions. If you are upgrading from an
 earlier pre-release, apply every section below your current version.
 
-## v1alpha1 Field Renames (Unreleased)
+## v1alpha1 Field Renames (v0.1.0)
 
 Five CRD fields were renamed to align with ecosystem conventions. Existing
 `AttunePolicy`, `AttuneDefaults`, and `AttuneNamespaceDefaults`
