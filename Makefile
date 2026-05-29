@@ -390,6 +390,22 @@ build-crds: manifests ## Generate standalone CRDs bundle for manual upgrades
 	mkdir -p dist
 	cat charts/attune/crds/*.yaml > dist/crds.yaml
 
+.PHONY: generate-olm-bundle
+generate-olm-bundle: manifests ## Generate OLM bundle for OperatorHub submission
+	@VERSION=$${VERSION:-$(shell git describe --tags --abbrev=0 | sed "s/^v//")} && \
+	DATE=$$(date -u +%Y-%m-%dT00:00:00Z) && \
+	BUNDLE_DIR=dist/olm-bundle/$$VERSION && \
+	echo "Generating OLM bundle for version $$VERSION..." && \
+	mkdir -p "$$BUNDLE_DIR/manifests" "$$BUNDLE_DIR/metadata" && \
+	sed "s/__VERSION__/$$VERSION/g; s/__DATE__/$$DATE/g" \
+		config/olm/template/manifests/attune-operator.clusterserviceversion.yaml \
+		> "$$BUNDLE_DIR/manifests/attune-operator.clusterserviceversion.yaml" && \
+	cp config/olm/template/metadata/annotations.yaml "$$BUNDLE_DIR/metadata/" && \
+	cp config/crd/bases/attune.io_attunepolicies.yaml "$$BUNDLE_DIR/manifests/" && \
+	cp config/crd/bases/attune.io_attunedefaults.yaml "$$BUNDLE_DIR/manifests/" && \
+	cp config/crd/bases/attune.io_attunenamespacedefaults.yaml "$$BUNDLE_DIR/manifests/" && \
+	echo "OLM bundle generated at $$BUNDLE_DIR"
+
 ##@ Tools
 
 # Version-aware tool installs: embed version in binary filename so a version

@@ -353,6 +353,40 @@ jobs:
     secrets:
       registry-password: ${{ secrets.GITHUB_TOKEN }}
 
+  # Submit an OLM bundle PR to k8s-operatorhub/community-operators.
+  # Uses continue-on-error so OperatorHub failures never block releases.
+  operatorhub-pr:
+    name: OperatorHub PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [release]
+    if: ${{ !cancelled() && needs.release.result == 'success' }}
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Generate OLM bundle and create PR
+        env:
+          VERSION: ${{ needs.release.outputs.tag }}
+          GH_TOKEN: ${{ secrets.OPERATORHUB_TOKEN }}
+        run: |
+          # Strip 'v' prefix from tag
+          export VERSION="${VERSION#v}"
+          hack/operatorhub-pr.sh
+
   # Sync docker/README.md to the Docker Hub repository description.
   dockerhub-readme:
     name: Docker Hub README
