@@ -163,22 +163,24 @@ Chainsaw configuration is in `.chainsaw.yaml` (timeouts, parallelism).
 
 ## Fuzz testing
 
-Fuzz tests exercise the recommendation engine with random inputs to catch
-panics and edge cases:
+Fuzz tests exercise the recommendation engine and webhook validation with
+random inputs to catch panics and edge cases:
 
 ```bash
 make test-fuzz
 ```
 
-This runs each fuzz target with a fixed execution budget, which keeps the
-CI run deterministic instead of relying on a wall-clock fuzz deadline:
+This runs each fuzz target for 30 seconds (coverage-guided):
 
 ```bash
-go test ./internal/recommendation/... -run='^$' -fuzz=FuzzPercentileEstimator -fuzztime=5000000x
-go test ./internal/recommendation/... -run='^$' -fuzz=FuzzRecommendationEngine -fuzztime=5000000x
+go test ./internal/recommendation/... -run='^$' -fuzz=FuzzPercentileEstimator -fuzztime=30s
+go test ./internal/recommendation/... -run='^$' -fuzz=FuzzRecommendationEngine -fuzztime=30s
+go test ./internal/webhook/...        -run='^$' -fuzz=FuzzValidateFloatFields  -fuzztime=30s
 ```
 
-Fuzz targets are defined in `internal/recommendation/fuzz_test.go`.
+Fuzz targets are defined in `internal/recommendation/fuzz_test.go`
+(estimator and engine) and `internal/webhook/validation_test.go`
+(float-field parsing via `strconv.ParseFloat`).
 
 ## Running all tests
 
@@ -217,6 +219,7 @@ make verify        # all CI checks locally
 | `test/e2e/` | E2E (Chainsaw) | Chainsaw (`make test-e2e`) |
 | `test/e2e-go/` | E2E (Go) | Go testing + real cluster (`make test-e2e-go`) |
 | `internal/recommendation/fuzz_test.go` | Fuzz | Go native fuzzing (`make test-fuzz`) |
+| `internal/webhook/validation_test.go` (`FuzzValidateFloatFields`) | Fuzz | Go native fuzzing (`make test-fuzz`) |
 
 ### Full Go E2E suite
 
