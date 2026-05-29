@@ -172,9 +172,10 @@ func isSuppressed(annotations map[string]string, reason string) bool {
 // expires or the condition changes. The map is in-memory only; after operator
 // restart events re-emit once (acceptable).
 type eventDedup struct {
-	mu   sync.Mutex
-	seen map[string]time.Time
-	ttl  time.Duration
+	mu    sync.Mutex
+	seen  map[string]time.Time
+	ttl   time.Duration
+	calls int
 }
 
 func newEventDedup(ttl time.Duration) *eventDedup {
@@ -186,9 +187,20 @@ func newEventDedup(ttl time.Duration) *eventDedup {
 
 // shouldEmit returns true if the event should be emitted (not recently seen).
 // key should be "policyUID/reason" or "policyUID/reason/detail" for uniqueness.
+// Every 1000 calls, expired entries are pruned to prevent unbounded map growth
+// from messages containing unique identifiers (e.g., pod names).
 func (d *eventDedup) shouldEmit(key string) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	d.calls++
+	if d.calls%1000 == 0 {
+		now := time.Now()
+		for k, t := range d.seen {
+			if now.Sub(t) >= d.ttl {
+				delete(d.seen, k)
+			}
+		}
+	}
 	if last, ok := d.seen[key]; ok && time.Since(last) < d.ttl {
 		return false
 	}
@@ -205,10 +217,11 @@ func (r *AttunePolicyReconciler) emitEventOnce(
 	if r.Recorder == nil {
 		return
 	}
-	// Lazy-init the dedup map.
-	if r.eventDedup == nil {
-		r.eventDedup = newEventDedup(time.Hour)
-	}
+	r.eventDedupOnce.Do(func() {
+		if r.eventDedup == nil {
+			r.eventDedup = newEventDedup(time.Hour)
+		}
+	})
 	var uid string
 	if accessor, ok := obj.(metav1.ObjectMetaAccessor); ok {
 		uid = string(accessor.GetObjectMeta().GetUID())

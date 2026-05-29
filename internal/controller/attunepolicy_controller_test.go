@@ -6496,6 +6496,48 @@ func TestEventDedup_ReEmitsAfterTTL(t *testing.T) {
 	assert.True(t, d.shouldEmit("policy1/HPAConflict/msg"), "should re-emit after TTL")
 }
 
+func TestEventDedup_PrunesExpiredEntries(t *testing.T) {
+	d := newEventDedup(1 * time.Millisecond)
+
+	// Insert 5 entries that will expire.
+	for i := 0; i < 5; i++ {
+		d.shouldEmit(fmt.Sprintf("expired-%d", i))
+	}
+	time.Sleep(5 * time.Millisecond)
+
+	// Add entries up to the 1000-call sweep threshold.
+	for i := 5; i < 999; i++ {
+		d.shouldEmit(fmt.Sprintf("filler-%d", i))
+	}
+	// At call 1000, the sweep should remove the 5 expired entries.
+	d.shouldEmit("trigger-sweep")
+
+	d.mu.Lock()
+	for i := 0; i < 5; i++ {
+		_, exists := d.seen[fmt.Sprintf("expired-%d", i)]
+		assert.False(t, exists, "expired entry %d should have been pruned", i)
+	}
+	// Recent entries should still exist.
+	_, exists := d.seen["trigger-sweep"]
+	assert.True(t, exists, "recent entry should survive pruning")
+	d.mu.Unlock()
+}
+
+func TestEventDedup_ConcurrentAccess(t *testing.T) {
+	d := newEventDedup(time.Hour)
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 50; j++ {
+				d.shouldEmit(fmt.Sprintf("goroutine-%d", j))
+			}
+		}()
+	}
+	wg.Wait()
+}
+
 // ---------- Throttle integration ----------
 
 // mockThrottleCollector extends mockCollector with ThrottleChecker.
