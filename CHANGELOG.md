@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.7](https://github.com/attune-io/attune/compare/v0.1.6...v0.1.7) (2026-05-29)
+
+
+### Features
+
+* add FIPS 140-3 compliance toggle ([f0406c5](https://github.com/attune-io/attune/commit/f0406c573b2b95ff417e943acd6468b119ca5378))
+
+
+### Bug Fixes
+
+* krew template indentation for addURIAndSha output ([0e3fa5f](https://github.com/attune-io/attune/commit/0e3fa5f9f007421f4de63d9395de2e2d982a5629))
+
 ## [0.1.6](https://github.com/attune-io/attune/compare/v0.1.5...v0.1.6) (2026-05-28)
 
 
