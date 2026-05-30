@@ -737,14 +737,17 @@ func runExportList(ctx context.Context, dynClient dynamic.Interface, namespace s
 		fmt.Fprintf(os.Stderr, "Error: export list takes no additional arguments (flags like -n/-A control scope)\n")
 		return 1
 	}
-	printExportList(ctx, dynClient, namespace, allNamespaces)
+	if err := printExportList(ctx, dynClient, namespace, allNamespaces); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return 1
+	}
 	return 0
 }
 
 // printExportList renders the GitOps export artifacts (recommendation ConfigMaps).
 // This completes the CLI side of the export story (#145/#146) with last-updated visibility
 // that is not present in AttunePolicy status.
-func printExportList(ctx context.Context, dynClient dynamic.Interface, namespace string, allNamespaces bool) {
+func printExportList(ctx context.Context, dynClient dynamic.Interface, namespace string, allNamespaces bool) error {
 	effectiveNS := namespace
 	if allNamespaces {
 		effectiveNS = ""
@@ -755,17 +758,15 @@ func printExportList(ctx context.Context, dynClient dynamic.Interface, namespace
 	})
 	if err != nil {
 		if apierrors.IsNotFound(err) || isNoResourceMatch(err) {
-			fmt.Fprintln(os.Stderr, "Error: ConfigMap API unavailable (operator not installed or RBAC missing).")
-			os.Exit(1)
+			return fmt.Errorf("ConfigMap API unavailable (operator not installed or RBAC missing)")
 		}
-		fmt.Fprintf(os.Stderr, "Error listing recommendation ConfigMaps: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("listing recommendation ConfigMaps: %w", err)
 	}
 
 	if len(cms.Items) == 0 {
 		fmt.Println("No exported recommendation ConfigMaps found.")
 		fmt.Println("(Policies with updateStrategy.export.configMap: true create them once recommendations are available.)")
-		return
+		return nil
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 3, ' ', 0)
@@ -821,6 +822,8 @@ func printExportList(ctx context.Context, dynClient dynamic.Interface, namespace
 	fmt.Fprintln(os.Stderr, "\nThese ConfigMaps are the GitOps handoff (ArgoCD/Flux consume them for resource patches).")
 	fmt.Fprintln(os.Stderr, "Run 'kubectl attune recommendations' for the status view (equivalent except in Observe mode).")
 	fmt.Fprintln(os.Stderr, "Full per-container values: kubectl get cm <name> -o yaml")
+
+	return nil
 }
 
 func printExplain(ctx context.Context, dynClient dynamic.Interface, namespace, policyName string) {

@@ -2429,9 +2429,111 @@ func TestRun_ExportList_BadSubcommand(t *testing.T) {
 	assert.Equal(t, 1, code)
 }
 
-// Note: full happy-path test for printExportList requires a properly faked dynamic client
-// with cmGVR registered (similar to status tests). The format + status integration +
-// dispatch error path + build success provide the coverage for this feature.
+func TestPrintExportList(t *testing.T) {
+	scheme := runtime.NewScheme()
+
+	cm1 := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata": map[string]interface{}{
+				"name":      "my-app-my-deployment-recommendations",
+				"namespace": "production",
+				"labels": map[string]interface{}{
+					"attune.io/policy":   "my-app",
+					"attune.io/workload": "my-deployment",
+				},
+			},
+			"data": map[string]interface{}{
+				"workload":            "my-deployment",
+				"kind":                "Deployment",
+				"main.cpu-request":    "250m",
+				"main.memory-request": "512Mi",
+				"main.confidence":     "0.92",
+				"last-updated":        "2026-05-30T12:00:00Z",
+			},
+		},
+	}
+
+	cm2 := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata": map[string]interface{}{
+				"name":      "my-app-my-statefulset-recommendations",
+				"namespace": "production",
+				"labels": map[string]interface{}{
+					"attune.io/policy":   "my-app",
+					"attune.io/workload": "my-statefulset",
+				},
+			},
+			"data": map[string]interface{}{
+				"workload":              "my-statefulset",
+				"kind":                  "StatefulSet",
+				"worker.cpu-request":    "500m",
+				"worker.memory-request": "1Gi",
+				"last-updated":          "2026-05-30T12:05:00Z",
+			},
+		},
+	}
+
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{
+			gvr:   "AttunePolicyList",
+			cmGVR: "ConfigMapList",
+		},
+		cm1, cm2,
+	)
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	printExportList(context.Background(), dynClient, "production", false)
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	output := buf.String()
+
+	assert.Contains(t, output, "my-app")
+	assert.Contains(t, output, "my-deployment")
+	assert.Contains(t, output, "my-statefulset")
+	assert.Contains(t, output, "2") // container count for first CM (only cpu-request key)
+	assert.Contains(t, output, "2026-05-30T12:00:00Z")
+	assert.Contains(t, output, "2026-05-30T12:05:00Z")
+}
+
+func TestPrintExportList_NoConfigMaps(t *testing.T) {
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{
+			gvr:   "AttunePolicyList",
+			cmGVR: "ConfigMapList",
+		},
+	)
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	printExportList(context.Background(), dynClient, "production", false)
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	output := buf.String()
+
+	assert.Contains(t, output, "No exported recommendation ConfigMaps found")
+}
 
 func ptrInt32(v int32) *int32 { return &v }
 func ptrBool(v bool) *bool    { return &v }
