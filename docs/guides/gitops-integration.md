@@ -96,7 +96,7 @@ CPU_REQ=$(kubectl get cm my-app-my-deployment-recommendations -n prod \
 # Then propose a patch to your Deployment in Git (or use kustomize/helm values update)
 ```
 
-**Note on tooling (as of v0.1.x):** The `kubectl attune` plugin has limited built-in awareness of export mode. Use standard `kubectl get attunepolicy` and `kubectl get cm *-recommendations` to inspect export state and output. Richer CLI support for export workflows is tracked in follow-up work.
+**CLI support:** `kubectl attune export list` (or just `kubectl attune export`) shows all exported recommendation ConfigMaps with last-updated timestamps, workload/kind, and container counts. `kubectl attune status` includes an `EXPORT` column (`CM` vs `-`). `kubectl attune explain` surfaces the `export` effective value and prints a GitOps-mode note when Recommend+export (or Observe+export) is active. `kubectl attune recommendations` also prints an export footer note. This makes the recommended pure-GitOps workflow fully first-class in the plugin.
 
 See the full schema and more examples in the [Auto mode guide](auto-mode.md#exporting-recommendations-to-configmaps).
 

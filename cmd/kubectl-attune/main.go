@@ -61,6 +61,12 @@ var gvr = schema.GroupVersionResource{
 	Resource: "attunepolicies",
 }
 
+var cmGVR = schema.GroupVersionResource{
+	Group:    "",
+	Version:  "v1",
+	Resource: "configmaps",
+}
+
 var defaultsGVR = schema.GroupVersionResource{
 	Group:    "attune.io",
 	Version:  "v1alpha1",
@@ -107,6 +113,7 @@ func run(args []string, buildClient dynamicClientFactory) int {
 		fmt.Fprintln(os.Stderr, "  status            Show policy status, workload counts, and conditions")
 		fmt.Fprintln(os.Stderr, "  savings           Show estimated CPU/memory savings per policy")
 		fmt.Fprintln(os.Stderr, "  recommendations   Show per-container sizing recommendations")
+		fmt.Fprintln(os.Stderr, "  export            List exported recommendations from ConfigMaps (GitOps)")
 		fmt.Fprintln(os.Stderr, "  explain           Show recommendation reasoning for one policy")
 		fmt.Fprintln(os.Stderr, "  preview           Preview per-pod resource changes before promoting type")
 		fmt.Fprintln(os.Stderr, "  history           Show resize history (including eviction fallbacks)")
@@ -172,7 +179,7 @@ func run(args []string, buildClient dynamicClientFactory) int {
 
 	isMultiCtx := *allContexts || *contexts != ""
 	if isMultiCtx {
-		if cmd == "explain" || cmd == "preview" || cmd == "wizard" {
+		if cmd == "explain" || cmd == "preview" || cmd == "wizard" || cmd == "export" {
 			fmt.Fprintf(os.Stderr, "Error: %s requires a single cluster context; remove --contexts/--all-contexts\n", cmd)
 			return 1
 		}
@@ -255,6 +262,8 @@ func run(args []string, buildClient dynamicClientFactory) int {
 		printSavings(ctx, dynClient, *namespace, *sortBy)
 	case "recommendations":
 		printRecommendations(ctx, dynClient, *namespace)
+	case "export":
+		return runExportList(ctx, dynClient, *namespace, *allNamespaces, parsedArgs)
 	case "explain":
 		printExplain(ctx, dynClient, *namespace, policyName)
 	case "history":
@@ -296,7 +305,7 @@ func buildDynamicClient(kubeconfigPath, contextOverride string) (dynamic.Interfa
 
 func isKnownCommand(cmd string) bool {
 	switch cmd {
-	case "status", "savings", "recommendations", "explain", "history", "preview", "version", "wizard", "diff":
+	case "status", "savings", "recommendations", "explain", "history", "preview", "version", "wizard", "diff", "export":
 		return true
 	default:
 		return false
@@ -395,9 +404,9 @@ func printStatusItems(allItems []unstructured.Unstructured, sortByFlag, filterFl
 	showCluster := hasClusterAnnotation(items)
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 3, ' ', 0)
 	if showCluster {
-		fmt.Fprintln(w, "CLUSTER\tNAMESPACE\tNAME\tTYPE\tWORKLOADS\tPENDING\tRESIZED\tREADY\tRESIZING\tDEGRADED\tSCHEDULE\tCANARY\tAGE")
+		fmt.Fprintln(w, "CLUSTER\tNAMESPACE\tNAME\tTYPE\tWORKLOADS\tPENDING\tRESIZED\tREADY\tRESIZING\tDEGRADED\tSCHEDULE\tCANARY\tEXPORT\tAGE")
 	} else {
-		fmt.Fprintln(w, "NAMESPACE\tNAME\tTYPE\tWORKLOADS\tPENDING\tRESIZED\tREADY\tRESIZING\tDEGRADED\tSCHEDULE\tCANARY\tAGE")
+		fmt.Fprintln(w, "NAMESPACE\tNAME\tTYPE\tWORKLOADS\tPENDING\tRESIZED\tREADY\tRESIZING\tDEGRADED\tSCHEDULE\tCANARY\tEXPORT\tAGE")
 	}
 
 	for _, item := range items {
@@ -412,14 +421,15 @@ func printStatusItems(allItems []unstructured.Unstructured, sortByFlag, filterFl
 		degraded := getConditionReason(item, "Degraded")
 		schedule := getConditionReason(item, "ScheduleBlocked")
 		canary := formatCanaryStatus(item)
+		exportMode := formatExportMode(item)
 		age := formatAge(item.GetCreationTimestamp().Time)
 
 		if showCluster {
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\n",
-				itemCluster(item), ns, name, mode, workloads, pending, resized, ready, resizing, degraded, schedule, canary, age)
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				itemCluster(item), ns, name, mode, workloads, pending, resized, ready, resizing, degraded, schedule, canary, exportMode, age)
 		} else {
-			fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\n",
-				ns, name, mode, workloads, pending, resized, ready, resizing, degraded, schedule, canary, age)
+			fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				ns, name, mode, workloads, pending, resized, ready, resizing, degraded, schedule, canary, exportMode, age)
 		}
 	}
 
@@ -580,6 +590,14 @@ func getNestedInt64(obj unstructured.Unstructured, fields ...string) int64 {
 	return val
 }
 
+func getNestedBool(obj unstructured.Unstructured, fields ...string) bool {
+	val, found, err := unstructured.NestedBool(obj.Object, fields...)
+	if err != nil || !found {
+		return false
+	}
+	return val
+}
+
 // getConditionReason returns "Status/Reason" for the named condition, or "-".
 func getConditionReason(obj unstructured.Unstructured, conditionType string) string {
 	conditions, found, err := unstructured.NestedSlice(obj.Object, "status", "conditions")
@@ -689,6 +707,120 @@ func printRecommendationsItems(items []unstructured.Unstructured) {
 		fmt.Fprintf(os.Stderr, "\n%d %s collecting data. Run 'kubectl attune status' for details.\n",
 			collecting, noun)
 	}
+
+	// Export mode awareness (issues #145, #146): surface that some policies write
+	// recommendations to ConfigMaps instead of (or in addition to) direct resizes.
+	hasExport := false
+	for _, item := range items {
+		if getNestedBool(item, "spec", "updateStrategy", "export", "configMap") {
+			hasExport = true
+			break
+		}
+	}
+	if hasExport {
+		fmt.Fprintln(os.Stderr, "\nOne or more policies use export mode (ConfigMap). Recommendations are also written to <policy>-<workload>-recommendations ConfigMaps for GitOps.")
+		fmt.Fprintln(os.Stderr, "Run 'kubectl attune export list' to inspect the exported values with last-updated timestamps. In Recommend+export, no direct resizes occur.")
+	}
+}
+
+// runExportList handles the "export" top-level command and its subcommands (currently only "list").
+func runExportList(ctx context.Context, dynClient dynamic.Interface, namespace string, allNamespaces bool, args []string) int {
+	sub := "list"
+	if len(args) > 0 {
+		sub = args[0]
+	}
+	if sub != "list" {
+		fmt.Fprintf(os.Stderr, "Error: 'export' supports only the 'list' subcommand (kubectl attune export or kubectl attune export list)\n")
+		return 1
+	}
+	if len(args) > 1 {
+		fmt.Fprintf(os.Stderr, "Error: export list takes no additional arguments (flags like -n/-A control scope)\n")
+		return 1
+	}
+	printExportList(ctx, dynClient, namespace, allNamespaces)
+	return 0
+}
+
+// printExportList renders the GitOps export artifacts (recommendation ConfigMaps).
+// This completes the CLI side of the export story (#145/#146) with last-updated visibility
+// that is not present in AttunePolicy status.
+func printExportList(ctx context.Context, dynClient dynamic.Interface, namespace string, allNamespaces bool) {
+	effectiveNS := namespace
+	if allNamespaces {
+		effectiveNS = ""
+	}
+
+	cms, err := dynClient.Resource(cmGVR).Namespace(effectiveNS).List(ctx, metav1.ListOptions{
+		LabelSelector: "attune.io/policy",
+	})
+	if err != nil {
+		if apierrors.IsNotFound(err) || isNoResourceMatch(err) {
+			fmt.Fprintln(os.Stderr, "Error: ConfigMap API unavailable (operator not installed or RBAC missing).")
+			os.Exit(1)
+		}
+		fmt.Fprintf(os.Stderr, "Error listing recommendation ConfigMaps: %v\n", err)
+		os.Exit(1)
+	}
+
+	if len(cms.Items) == 0 {
+		fmt.Println("No exported recommendation ConfigMaps found.")
+		fmt.Println("(Policies with updateStrategy.export.configMap: true create them once recommendations are available.)")
+		return
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 4, 3, ' ', 0)
+	fmt.Fprintln(w, "NAMESPACE\tPOLICY\tWORKLOAD\tKIND\tCONTAINERS\tLAST UPDATED")
+
+	for _, cm := range cms.Items {
+		ns := cm.GetNamespace()
+		name := cm.GetName()
+		labels := cm.GetLabels()
+		policy := labels["attune.io/policy"]
+		if policy == "" {
+			policy = "-"
+		}
+		data, found, _ := unstructured.NestedStringMap(cm.Object, "data")
+		if !found {
+			data = map[string]string{}
+		}
+		workload := data["workload"]
+		if workload == "" {
+			// derive from conventional name: <policy>-<workload>-recommendations
+			workload = strings.TrimSuffix(strings.TrimPrefix(name, policy+"-"), "-recommendations")
+			if workload == "" {
+				workload = "-"
+			}
+		}
+		kind := data["kind"]
+		if kind == "" {
+			kind = "-"
+		}
+		last := data["last-updated"]
+		if last == "" {
+			last = "-"
+		}
+		// count containers by .cpu-request suffix keys
+		containerCount := 0
+		for k := range data {
+			if strings.HasSuffix(k, ".cpu-request") {
+				containerCount++
+			}
+		}
+		contStr := "-"
+		if containerCount > 0 {
+			contStr = fmt.Sprintf("%d", containerCount)
+		}
+
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", ns, policy, workload, kind, contStr, last)
+	}
+
+	if err := w.Flush(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error flushing output: %v\n", err)
+	}
+
+	fmt.Fprintln(os.Stderr, "\nThese ConfigMaps are the GitOps handoff (ArgoCD/Flux consume them for resource patches).")
+	fmt.Fprintln(os.Stderr, "Run 'kubectl attune recommendations' for the status view (equivalent except in Observe mode).")
+	fmt.Fprintln(os.Stderr, "Full per-container values: kubectl get cm <name> -o yaml")
 }
 
 func printExplain(ctx context.Context, dynClient dynamic.Interface, namespace, policyName string) {
@@ -842,6 +974,17 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *attu
 	printEffectiveField("Max concurrent resizes", formatInt64Field(item, "spec", "updateStrategy", "maxConcurrentResizes"), formatInt32Val(effective.Spec.UpdateStrategy.MaxConcurrentResizes), selected, updateDefaults != nil && updateDefaults.MaxConcurrentResizes != 0)
 	printEffectiveField("Rate window", getNestedString(item, "spec", "metricsSource", "rateWindow"), formatDurationPtr(effective.Spec.MetricsSource.RateWindow), selected, metricsDefaults != nil && metricsDefaults.RateWindow != nil)
 
+	// Export awareness in explain (full support for #145/#146)
+	exportConfigured := ""
+	if getNestedBool(item, "spec", "updateStrategy", "export", "configMap") {
+		exportConfigured = "true"
+	}
+	exportEffective := ""
+	if effective.Spec.UpdateStrategy.Export != nil && effective.Spec.UpdateStrategy.Export.ConfigMap {
+		exportEffective = "ConfigMap"
+	}
+	printEffectiveField("Export", exportConfigured, exportEffective, selected, updateDefaults != nil && updateDefaults.Export != nil && updateDefaults.Export.ConfigMap)
+
 	var cpuDefaults, memDefaults *attunev1alpha1.ResourceConfig
 	if selected.defaults != nil {
 		cpuDefaults = selected.defaults.Spec.CPU
@@ -859,6 +1002,19 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *attu
 	printEffectiveField("  Overhead", getNestedString(item, "spec", "memory", "overhead"), effective.Spec.Memory.Overhead, selected, memDefaults != nil && memDefaults.Overhead != "")
 	printEffectiveField("  Controlled values", getNestedString(item, "spec", "memory", "controlledValues"), formatStringPtr(effective.Spec.Memory.ControlledValues), selected, memDefaults != nil && memDefaults.ControlledValues != nil)
 	printEffectiveField("  Max change", formatPercentInt64Ptr(rawInt64Field(item, "spec", "memory", "maxChangePercent")), formatPercentPtr(effective.Spec.Memory.MaxChangePercent), selected, memDefaults != nil && memDefaults.MaxChangePercent != nil)
+
+	// Pure export / GitOps mode note (makes the recommended workflow first-class in CLI)
+	if effective.Spec.UpdateStrategy.Export != nil && effective.Spec.UpdateStrategy.Export.ConfigMap {
+		mode := effective.Spec.UpdateStrategy.Type
+		fmt.Println()
+		if mode == attunev1alpha1.UpdateTypeRecommend || mode == attunev1alpha1.UpdateTypeObserve {
+			fmt.Println("Note: This policy is in pure export (GitOps) mode. Recommendations are written to ConfigMaps named")
+			fmt.Println("      <policy>-<workload>-recommendations (with attune.io/policy label). No direct pod resizes occur.")
+			fmt.Println("      Consume these from ArgoCD/Flux pipelines. See docs/guides/gitops-integration.md.")
+		} else {
+			fmt.Printf("Note: Export to ConfigMaps is enabled alongside %s mode (resizes will occur; ConfigMaps provide additional GitOps handoff).\n", mode)
+		}
+	}
 }
 
 func printEffectiveField(label, configured, effective string, selected selectedDefaults, inherited bool) {
@@ -1276,6 +1432,16 @@ func formatCanaryStatus(item unstructured.Unstructured) string {
 		return fmt.Sprintf("%s (%d pods)", phase, len(pods))
 	}
 	return phase
+}
+
+// formatExportMode returns "CM" when the policy has export.configMap enabled
+// (recommendations are written to <policy>-<workload>-recommendations ConfigMaps),
+// or "-" otherwise. Used in status table for GitOps visibility.
+func formatExportMode(item unstructured.Unstructured) string {
+	if getNestedBool(item, "spec", "updateStrategy", "export", "configMap") {
+		return "CM"
+	}
+	return "-"
 }
 
 func formatAge(created time.Time) string {
