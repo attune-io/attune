@@ -2535,5 +2535,58 @@ func TestPrintExportList_NoConfigMaps(t *testing.T) {
 	assert.Contains(t, output, "No exported recommendation ConfigMaps found")
 }
 
+func TestWorkloadFromConfigMap(t *testing.T) {
+	tests := []struct {
+		name     string
+		cmName   string
+		labels   map[string]string
+		data     map[string]string
+		expected string
+	}{
+		{
+			name:     "prefers data.workload",
+			cmName:   "my-app-my-deployment-recommendations",
+			labels:   map[string]string{"attune.io/policy": "my-app"},
+			data:     map[string]string{"workload": "my-deployment"},
+			expected: "my-deployment",
+		},
+		{
+			name:     "prefers attune.io/workload label over name derivation",
+			cmName:   "my-app-my-deployment-recommendations",
+			labels:   map[string]string{"attune.io/policy": "my-app", "attune.io/workload": "my-deployment"},
+			data:     nil,
+			expected: "my-deployment",
+		},
+		{
+			name:     "falls back to name derivation when no labels or data",
+			cmName:   "my-app-my-deployment-recommendations",
+			labels:   map[string]string{"attune.io/policy": "my-app"},
+			data:     nil,
+			expected: "my-deployment",
+		},
+		{
+			name:     "handles policy and workload with hyphens",
+			cmName:   "my-cool-app-my-fancy-deployment-recommendations",
+			labels:   map[string]string{"attune.io/policy": "my-cool-app"},
+			data:     nil,
+			expected: "my-fancy-deployment",
+		},
+		{
+			name:     "returns empty when nothing available",
+			cmName:   "weird-name",
+			labels:   nil,
+			data:     nil,
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := workloadFromConfigMap(tt.cmName, tt.labels, tt.data)
+			assert.Equal(t, tt.expected, got)
+		})
+	}
+}
+
 func ptrInt32(v int32) *int32 { return &v }
 func ptrBool(v bool) *bool    { return &v }

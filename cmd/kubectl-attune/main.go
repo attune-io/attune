@@ -784,13 +784,9 @@ func printExportList(ctx context.Context, dynClient dynamic.Interface, namespace
 		if !found {
 			data = map[string]string{}
 		}
-		workload := data["workload"]
+		workload := workloadFromConfigMap(name, labels, data)
 		if workload == "" {
-			// derive from conventional name: <policy>-<workload>-recommendations
-			workload = strings.TrimSuffix(strings.TrimPrefix(name, policy+"-"), "-recommendations")
-			if workload == "" {
-				workload = "-"
-			}
+			workload = "-"
 		}
 		kind := data["kind"]
 		if kind == "" {
@@ -824,6 +820,40 @@ func printExportList(ctx context.Context, dynClient dynamic.Interface, namespace
 	fmt.Fprintln(os.Stderr, "Full per-container values: kubectl get cm <name> -o yaml")
 
 	return nil
+}
+
+// workloadFromConfigMap extracts the workload name, preferring explicit data
+// or labels set by the operator, then falling back to a best-effort derivation
+// from the conventional ConfigMap name (<policy>-<workload>-recommendations).
+// This is more robust than pure name parsing when policy or workload names
+// contain hyphens.
+func workloadFromConfigMap(name string, labels, data map[string]string) string {
+	if data != nil {
+		if w := data["workload"]; w != "" {
+			return w
+		}
+	}
+	if labels != nil {
+		if w := labels["attune.io/workload"]; w != "" {
+			return w
+		}
+	}
+
+	// Fallback: derive from name. This is best-effort only.
+	// We try to strip the known suffix first, then the policy prefix if present.
+	workload := strings.TrimSuffix(name, "-recommendations")
+
+	if policy := labels["attune.io/policy"]; policy != "" {
+		workload = strings.TrimPrefix(workload, policy+"-")
+	}
+
+	// If after stripping we ended up with something that looks like the
+	// original name or is empty, treat it as unparseable.
+	if workload == "" || workload == name {
+		return ""
+	}
+
+	return workload
 }
 
 func printExplain(ctx context.Context, dynClient dynamic.Interface, namespace, policyName string) {
