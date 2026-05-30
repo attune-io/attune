@@ -174,7 +174,9 @@ yaml-lint: ## Lint YAML files (mirrors CI)
 
 .PHONY: lint-chainsaw
 lint-chainsaw: chainsaw ## Fast validation of Chainsaw test definitions (no cluster required)
-	$(CHAINSAW) test test/e2e/ --config .chainsaw.yaml --dry-run
+	@for f in test/e2e/*/chainsaw-test.yaml; do \
+		$(CHAINSAW) lint test -f "$$f" || exit 1; \
+	done
 
 .PHONY: lint-fix
 lint-fix: golangci-lint ## Run golangci-lint with auto-fix
