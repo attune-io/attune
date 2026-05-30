@@ -2554,7 +2554,8 @@ func TestPrintExportList(t *testing.T) {
 	require.NoError(t, err)
 	os.Stdout = w
 
-	printExportList(context.Background(), dynClient, "production", false)
+	err = printExportList(context.Background(), dynClient, "production", false)
+	require.NoError(t, err)
 
 	w.Close()
 	os.Stdout = old
@@ -2640,7 +2641,8 @@ func TestPrintExportList_AllNamespaces(t *testing.T) {
 	require.NoError(t, err)
 	os.Stdout = w
 
-	printExportList(context.Background(), dynClient, "", true) // all namespaces
+	err = printExportList(context.Background(), dynClient, "", true) // all namespaces
+	require.NoError(t, err)
 
 	w.Close()
 	os.Stdout = old
@@ -2712,7 +2714,8 @@ func TestPrintExportList_MixedGoodAndBad(t *testing.T) {
 	os.Stdout = wOut
 	os.Stderr = wErr
 
-	printExportList(context.Background(), dynClient, "default", false)
+	printExportListErr := printExportList(context.Background(), dynClient, "default", false)
+	require.NoError(t, printExportListErr)
 
 	wOut.Close()
 	wErr.Close()
@@ -2720,8 +2723,10 @@ func TestPrintExportList_MixedGoodAndBad(t *testing.T) {
 	os.Stderr = oldErr
 
 	var bufOut, bufErr bytes.Buffer
-	bufOut.ReadFrom(rOut)
-	bufErr.ReadFrom(rErr)
+	_, err := bufOut.ReadFrom(rOut)
+	require.NoError(t, err)
+	_, err = bufErr.ReadFrom(rErr)
+	require.NoError(t, err)
 
 	output := bufOut.String()
 	stderr := bufErr.String()
@@ -2752,7 +2757,8 @@ func TestPrintExportList_NoConfigMaps(t *testing.T) {
 	require.NoError(t, err)
 	os.Stdout = w
 
-	printExportList(context.Background(), dynClient, "production", false)
+	err = printExportList(context.Background(), dynClient, "production", false)
+	require.NoError(t, err)
 
 	w.Close()
 	os.Stdout = old
@@ -2806,7 +2812,8 @@ func TestPrintExportList_DerivationWarning(t *testing.T) {
 	os.Stdout = wOut
 	os.Stderr = wErr
 
-	printExportList(context.Background(), dynClient, "production", false)
+	printExportListErr := printExportList(context.Background(), dynClient, "production", false)
+	require.NoError(t, printExportListErr)
 
 	wOut.Close()
 	wErr.Close()
@@ -2814,8 +2821,10 @@ func TestPrintExportList_DerivationWarning(t *testing.T) {
 	os.Stderr = oldErr
 
 	var bufOut, bufErr bytes.Buffer
-	bufOut.ReadFrom(rOut)
-	bufErr.ReadFrom(rErr)
+	_, err := bufOut.ReadFrom(rOut)
+	require.NoError(t, err)
+	_, err = bufErr.ReadFrom(rErr)
+	require.NoError(t, err)
 
 	output := bufOut.String()
 	stderr := bufErr.String()
