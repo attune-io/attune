@@ -18,6 +18,7 @@ package safety
 
 import (
 	"context"
+	"math"
 	"testing"
 	"time"
 
@@ -1599,6 +1600,81 @@ func TestCheckPod_SLOInfThresholdSkipped(t *testing.T) {
 
 	verdict, err := monitor.CheckPod(context.Background(), record, time.Now())
 	require.NoError(t, err)
+	assert.True(t, verdict.Safe)
+}
+
+func TestCheckPod_SLONaNValueSkipped(t *testing.T) {
+	// When Prometheus returns NaN (e.g. 0/0 in a rate query), the guardrail
+	// must be skipped rather than silently treated as "safe". Without the
+	// NaN guard, both NaN > threshold and NaN < threshold evaluate to false
+	// (IEEE 754), making an indeterminate result pass as safe.
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "web-0", Namespace: "default"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "app", RestartCount: 0},
+			},
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+
+	clientset := fake.NewSimpleClientset(pod)
+	monitor := NewMonitor(clientset, testr.New(t))
+	querier := &mockSLOQuerier{value: math.NaN()}
+	monitor.WithSLOChecker(querier, []attunev1alpha1.SLOGuardrail{
+		{Name: "latency", Query: "up", Threshold: "0.99", Comparison: "above"},
+	})
+
+	record := ResizeRecord{
+		PodName:   "web-0",
+		Namespace: "default",
+		Container: "app",
+		ResizedAt: time.Now().Add(-6 * time.Minute),
+	}
+
+	verdict, err := monitor.CheckPod(context.Background(), record, time.Now())
+	require.NoError(t, err)
+	// NaN value is skipped (logged), so verdict is safe.
+	assert.True(t, verdict.Safe)
+}
+
+func TestCheckPod_SLOInfValueSkipped(t *testing.T) {
+	// Inf query values must be detected and skipped. Without the guard,
+	// Inf > 0.99 = true = breach = unsafe, which is incorrect because
+	// the value is non-finite and should not trigger a revert.
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "web-0", Namespace: "default"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "app", RestartCount: 0},
+			},
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+
+	clientset := fake.NewSimpleClientset(pod)
+	monitor := NewMonitor(clientset, testr.New(t))
+	querier := &mockSLOQuerier{value: math.Inf(1)}
+	monitor.WithSLOChecker(querier, []attunev1alpha1.SLOGuardrail{
+		{Name: "latency", Query: "up", Threshold: "0.99", Comparison: "above"},
+	})
+
+	record := ResizeRecord{
+		PodName:   "web-0",
+		Namespace: "default",
+		Container: "app",
+		ResizedAt: time.Now().Add(-6 * time.Minute),
+	}
+
+	verdict, err := monitor.CheckPod(context.Background(), record, time.Now())
+	require.NoError(t, err)
+	// Inf value is skipped (logged), so verdict is safe.
 	assert.True(t, verdict.Safe)
 }
 

@@ -261,6 +261,11 @@ func (m *Monitor) checkSLOGuardrails(ctx context.Context, record ResizeRecord, n
 				"guardrail", g.Name, "pod", record.PodName, "namespace", record.Namespace)
 			continue
 		}
+		if math.IsNaN(value) || math.IsInf(value, 0) {
+			m.logger.Info("SLO guardrail query returned non-finite value, skipping",
+				"guardrail", g.Name, "value", value, "pod", record.PodName, "namespace", record.Namespace)
+			continue
+		}
 
 		threshold, err := strconv.ParseFloat(g.Threshold, 64)
 		if err != nil || math.IsNaN(threshold) || math.IsInf(threshold, 0) {
