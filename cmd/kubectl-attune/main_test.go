@@ -2463,8 +2463,9 @@ func TestRun_ExportList_HappyPath(t *testing.T) {
 		cm,
 	)
 
-	// Exercise runExportList directly (the main dispatch logic for the export command)
+	// Exercise runExportList directly (the main dispatch logic for the export command).
 	// This is much closer to the real command path than calling printExportList in isolation.
+	// CI trigger commit.
 	code := runExportList(context.Background(), dynClient, "default", false, []string{"list"})
 	assert.Equal(t, 0, code)
 }
