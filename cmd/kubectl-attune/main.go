@@ -728,6 +728,9 @@ func runExportList(ctx context.Context, dynClient dynamic.Interface, namespace s
 	sub := "list"
 	if len(args) > 0 {
 		sub = args[0]
+	} else {
+		// Small UX hint when user types just "kubectl attune export"
+		fmt.Fprintln(os.Stderr, "(defaulting to 'list')")
 	}
 	if sub != "list" {
 		fmt.Fprintf(os.Stderr, "Error: 'export' supports only the 'list' subcommand (kubectl attune export or kubectl attune export list)\n")
@@ -737,39 +740,46 @@ func runExportList(ctx context.Context, dynClient dynamic.Interface, namespace s
 		fmt.Fprintf(os.Stderr, "Error: export list takes no additional arguments (flags like -n/-A control scope)\n")
 		return 1
 	}
-	printExportList(ctx, dynClient, namespace, allNamespaces)
+	if err := printExportList(ctx, dynClient, namespace, allNamespaces); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return 1
+	}
 	return 0
 }
 
 // printExportList renders the GitOps export artifacts (recommendation ConfigMaps).
 // This completes the CLI side of the export story (#145/#146) with last-updated visibility
 // that is not present in AttunePolicy status.
-func printExportList(ctx context.Context, dynClient dynamic.Interface, namespace string, allNamespaces bool) {
+func printExportList(ctx context.Context, dynClient dynamic.Interface, namespace string, allNamespaces bool) error {
 	effectiveNS := namespace
 	if allNamespaces {
 		effectiveNS = ""
 	}
+
+	// Track whether we've already emitted the derivation warning (only once per run).
+	var warnedAboutDerivationFailure bool
 
 	cms, err := dynClient.Resource(cmGVR).Namespace(effectiveNS).List(ctx, metav1.ListOptions{
 		LabelSelector: "attune.io/policy",
 	})
 	if err != nil {
 		if apierrors.IsNotFound(err) || isNoResourceMatch(err) {
-			fmt.Fprintln(os.Stderr, "Error: ConfigMap API unavailable (operator not installed or RBAC missing).")
-			os.Exit(1)
+			return fmt.Errorf("ConfigMap API unavailable (operator not installed or RBAC missing)")
 		}
-		fmt.Fprintf(os.Stderr, "Error listing recommendation ConfigMaps: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("listing recommendation ConfigMaps: %w", err)
 	}
 
 	if len(cms.Items) == 0 {
 		fmt.Println("No exported recommendation ConfigMaps found.")
-		fmt.Println("(Policies with updateStrategy.export.configMap: true create them once recommendations are available.)")
-		return
+		fmt.Println("Tip: Policies with updateStrategy.export.configMap: true will create them once they have recommendations.")
+		return nil
 	}
 
-	w := tabwriter.NewWriter(os.Stdout, 0, 4, 3, ' ', 0)
-	fmt.Fprintln(w, "NAMESPACE\tPOLICY\tWORKLOAD\tKIND\tCONTAINERS\tLAST UPDATED")
+	// Collect rows first so we can sort them for stable, predictable output.
+	type row struct {
+		ns, policy, workload, kind, contStr, last string
+	}
+	var rows []row
 
 	for _, cm := range cms.Items {
 		ns := cm.GetNamespace()
@@ -783,12 +793,13 @@ func printExportList(ctx context.Context, dynClient dynamic.Interface, namespace
 		if !found {
 			data = map[string]string{}
 		}
-		workload := data["workload"]
+		workload := workloadFromConfigMap(name, labels, data)
 		if workload == "" {
-			// derive from conventional name: <policy>-<workload>-recommendations
-			workload = strings.TrimSuffix(strings.TrimPrefix(name, policy+"-"), "-recommendations")
-			if workload == "" {
-				workload = "-"
+			workload = "-"
+			// Warn once per run if derivation completely failed.
+			if !warnedAboutDerivationFailure {
+				fmt.Fprintln(os.Stderr, "Warning: could not determine workload name for one or more ConfigMaps (missing attune.io/workload label). Showing '-' for affected rows.")
+				warnedAboutDerivationFailure = true
 			}
 		}
 		kind := data["kind"]
@@ -799,19 +810,43 @@ func printExportList(ctx context.Context, dynClient dynamic.Interface, namespace
 		if last == "" {
 			last = "-"
 		}
-		// count containers by .cpu-request suffix keys
-		containerCount := 0
+		// Count unique containers by looking for any key starting with "<container>."
+		// (either cpu-request or memory-request). This is more robust than only
+		// counting .cpu-request.
+		seenContainers := make(map[string]struct{})
 		for k := range data {
-			if strings.HasSuffix(k, ".cpu-request") {
-				containerCount++
+			if idx := strings.Index(k, "."); idx > 0 {
+				prefix := k[:idx]
+				if strings.HasSuffix(k, ".cpu-request") || strings.HasSuffix(k, ".memory-request") {
+					seenContainers[prefix] = struct{}{}
+				}
 			}
 		}
+		containerCount := len(seenContainers)
 		contStr := "-"
 		if containerCount > 0 {
 			contStr = fmt.Sprintf("%d", containerCount)
 		}
 
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", ns, policy, workload, kind, contStr, last)
+		rows = append(rows, row{ns, policy, workload, kind, contStr, last})
+	}
+
+	// Sort for deterministic, user-friendly output (namespace → policy → workload)
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].ns != rows[j].ns {
+			return rows[i].ns < rows[j].ns
+		}
+		if rows[i].policy != rows[j].policy {
+			return rows[i].policy < rows[j].policy
+		}
+		return rows[i].workload < rows[j].workload
+	})
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 4, 3, ' ', 0)
+	fmt.Fprintln(w, "NAMESPACE\tPOLICY\tWORKLOAD\tKIND\tCONTAINERS\tLAST UPDATED")
+
+	for _, r := range rows {
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", r.ns, r.policy, r.workload, r.kind, r.contStr, r.last)
 	}
 
 	if err := w.Flush(); err != nil {
@@ -819,8 +854,45 @@ func printExportList(ctx context.Context, dynClient dynamic.Interface, namespace
 	}
 
 	fmt.Fprintln(os.Stderr, "\nThese ConfigMaps are the GitOps handoff (ArgoCD/Flux consume them for resource patches).")
+	fmt.Fprintln(os.Stderr, "Workload names are taken from labels when present (most reliable).")
 	fmt.Fprintln(os.Stderr, "Run 'kubectl attune recommendations' for the status view (equivalent except in Observe mode).")
 	fmt.Fprintln(os.Stderr, "Full per-container values: kubectl get cm <name> -o yaml")
+
+	return nil
+}
+
+// workloadFromConfigMap extracts the workload name, preferring explicit data
+// or labels set by the operator, then falling back to a best-effort derivation
+// from the conventional ConfigMap name (<policy>-<workload>-recommendations).
+// This is more robust than pure name parsing when policy or workload names
+// contain hyphens.
+func workloadFromConfigMap(name string, labels, data map[string]string) string {
+	if data != nil {
+		if w := data["workload"]; w != "" {
+			return w
+		}
+	}
+	if labels != nil {
+		if w := labels["attune.io/workload"]; w != "" {
+			return w
+		}
+	}
+
+	// Fallback: derive from name. This is best-effort only.
+	// We try to strip the known suffix first, then the policy prefix if present.
+	workload := strings.TrimSuffix(name, "-recommendations")
+
+	if policy := labels["attune.io/policy"]; policy != "" {
+		workload = strings.TrimPrefix(workload, policy+"-")
+	}
+
+	// If after stripping we ended up with something that looks like the
+	// original name or is empty, treat it as unparseable.
+	if workload == "" || workload == name {
+		return ""
+	}
+
+	return workload
 }
 
 func printExplain(ctx context.Context, dynClient dynamic.Interface, namespace, policyName string) {
