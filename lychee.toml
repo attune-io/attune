@@ -6,9 +6,14 @@ exclude = [
   "medium\\.com",
   "hub\\.docker\\.com",
   "securityscorecards\\.dev",
+  "twitter\\.com",
+  "x\\.com",
+  "linkedin\\.com",
+  "facebook\\.com",
+  "instagram\\.com",
 ]
 exclude_loopback = true
 max_concurrency = 8
 timeout = 30
-max_retries = 3
+max_retries = 4
 retry_wait_time = 5
