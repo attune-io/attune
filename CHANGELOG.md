@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.10](https://github.com/attune-io/attune/compare/v0.1.9...v0.1.10) (2026-05-30)
+
+
+### Features
+
+* add full export mode awareness and `kubectl attune export list` to CLI ([#147](https://github.com/attune-io/attune/issues/147)) ([673217a](https://github.com/attune-io/attune/commit/673217a68b56d8391ab795143358f03564215364))
+* show all effective fields in kubectl attune explain ([#158](https://github.com/attune-io/attune/issues/158)) ([6df1d9b](https://github.com/attune-io/attune/commit/6df1d9bfadca9dd69357bb41b3f3726ff9989325))
+
+
+### Bug Fixes
+
+* **defaults:** merge SLOGuardrails from AttuneDefaults into policies ([e5f106f](https://github.com/attune-io/attune/commit/e5f106f18aa1c365cd42ea4dde940e757f349a98))
+* eliminate eventDedup race condition and unbounded map growth ([a2b1f08](https://github.com/attune-io/attune/commit/a2b1f08aec17673591e361f776b9e418d90e8a29))
+* **helm:** set category to monitoring-logging, remove prerelease flag ([a10d5fd](https://github.com/attune-io/attune/commit/a10d5fd50b35bdf442e84911060c02f920ef6f24))
+* **helm:** use computed replica count for PDB rendering ([d7fd9ee](https://github.com/attune-io/attune/commit/d7fd9ee2b5408567e9d49085c6a329826266f111))
+* orphan cleanup for recommendation ConfigMaps when workloads leave policy scope ([#140](https://github.com/attune-io/attune/issues/140)) ([b280079](https://github.com/attune-io/attune/commit/b28007990f6b9f11106a7716ca76c56894ac2a8c))
+* replace inline Python with jq in orphan-cleanup E2E test ([#153](https://github.com/attune-io/attune/issues/153)) ([d333fe9](https://github.com/attune-io/attune/commit/d333fe9eff8258a66a47912f34f9669f968d34fc)), closes [#150](https://github.com/attune-io/attune/issues/150)
+* replace last direct AttunePolicyReconciler struct literal with constructor ([#160](https://github.com/attune-io/attune/issues/160)) ([ecb6b47](https://github.com/attune-io/attune/commit/ecb6b4710985baf6a20f96cb1ff87b72b3c20963)), closes [#141](https://github.com/attune-io/attune/issues/141)
+* resolve lint and YAML formatting issues ([#155](https://github.com/attune-io/attune/issues/155)) ([15606f2](https://github.com/attune-io/attune/commit/15606f2781a20b0e29110e18decc04da83bf6162))
+* review findings from 24h audit ([#154](https://github.com/attune-io/attune/issues/154)) ([a486428](https://github.com/attune-io/attune/commit/a48642870646e457a33f02ab06106b7047758156))
+* **safety:** propagate revert reason to resize history entries ([afdcdfa](https://github.com/attune-io/attune/commit/afdcdfa02279cf513f3c89bc6cca24e36a1b5e58))
+* update stale DCO reference, add missing CRD metadata, wire verify script ([9a87766](https://github.com/attune-io/attune/commit/9a87766f4b4302355fe883221224f55e48db3647))
+* use spec.targetRef.selector in orphan-cleanup E2E test ([#156](https://github.com/attune-io/attune/issues/156)) ([e3d8971](https://github.com/attune-io/attune/commit/e3d89717da574e586669ebceccbd1ceb321145b3))
+* **webhook:** validate memoryFromCpuRatio value at admission ([57e754f](https://github.com/attune-io/attune/commit/57e754f5d9f36abeb9ed272370da33c051d3a851))
+
 ## [0.1.9](https://github.com/attune-io/attune/compare/v0.1.8...v0.1.9) (2026-05-29)
 
 
