@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -2429,9 +2430,464 @@ func TestRun_ExportList_BadSubcommand(t *testing.T) {
 	assert.Equal(t, 1, code)
 }
 
-// Note: full happy-path test for printExportList requires a properly faked dynamic client
-// with cmGVR registered (similar to status tests). The format + status integration +
-// dispatch error path + build success provide the coverage for this feature.
+func TestRun_ExportList_HappyPath(t *testing.T) {
+	scheme := runtime.NewScheme()
+
+	cm := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata": map[string]interface{}{
+				"name":      "my-team-my-service-recommendations",
+				"namespace": "default",
+				"labels": map[string]interface{}{
+					"attune.io/policy":   "my-team",
+					"attune.io/workload": "my-service",
+				},
+			},
+			"data": map[string]interface{}{
+				"workload":            "my-service",
+				"kind":                "Deployment",
+				"main.cpu-request":    "150m",
+				"main.memory-request": "256Mi",
+				"last-updated":        "2026-05-30T12:00:00Z",
+			},
+		},
+	}
+
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{
+			gvr:   "AttunePolicyList",
+			cmGVR: "ConfigMapList",
+		},
+		cm,
+	)
+
+	// Exercise runExportList directly (the main dispatch logic for the export command).
+	// This is much closer to the real command path than calling printExportList in isolation.
+	// CI trigger commit.
+	code := runExportList(context.Background(), dynClient, "default", false, []string{"list"})
+	assert.Equal(t, 0, code)
+}
+
+func TestPrintExportList(t *testing.T) {
+	scheme := runtime.NewScheme()
+
+	cm1 := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata": map[string]interface{}{
+				"name":      "my-app-my-deployment-recommendations",
+				"namespace": "production",
+				"labels": map[string]interface{}{
+					"attune.io/policy":   "my-app",
+					"attune.io/workload": "my-deployment",
+				},
+			},
+			"data": map[string]interface{}{
+				"workload":            "my-deployment",
+				"kind":                "Deployment",
+				"main.cpu-request":    "250m",
+				"main.memory-request": "512Mi",
+				"main.confidence":     "0.92",
+				"last-updated":        "2026-05-30T12:00:00Z",
+			},
+		},
+	}
+
+	cm2 := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata": map[string]interface{}{
+				"name":      "my-app-my-statefulset-recommendations",
+				"namespace": "production",
+				"labels": map[string]interface{}{
+					"attune.io/policy":   "my-app",
+					"attune.io/workload": "my-statefulset",
+				},
+			},
+			"data": map[string]interface{}{
+				"workload":              "my-statefulset",
+				"kind":                  "StatefulSet",
+				"worker.cpu-request":    "500m",
+				"worker.memory-request": "1Gi",
+				"last-updated":          "2026-05-30T12:05:00Z",
+			},
+		},
+	}
+
+	// Third ConfigMap exercising hyphenated policy + workload names (common in real clusters).
+	// Uses proper labels (the preferred path after our robustness improvements).
+	cm3 := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata": map[string]interface{}{
+				"name":      "my-cool-app-my-fancy-deployment-recommendations",
+				"namespace": "production",
+				"labels": map[string]interface{}{
+					"attune.io/policy":   "my-cool-app",
+					"attune.io/workload": "my-fancy-deployment",
+				},
+			},
+			"data": map[string]interface{}{
+				"workload":           "my-fancy-deployment",
+				"kind":               "Deployment",
+				"app.cpu-request":    "100m",
+				"app.memory-request": "256Mi",
+				"last-updated":       "2026-05-30T12:10:00Z",
+			},
+		},
+	}
+
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{
+			gvr:   "AttunePolicyList",
+			cmGVR: "ConfigMapList",
+		},
+		cm1, cm2, cm3,
+	)
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	err = printExportList(context.Background(), dynClient, "production", false)
+	require.NoError(t, err)
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	output := buf.String()
+
+	assert.Contains(t, output, "my-app")
+	assert.Contains(t, output, "my-deployment")
+	assert.Contains(t, output, "my-statefulset")
+	assert.Contains(t, output, "my-cool-app")
+	assert.Contains(t, output, "my-fancy-deployment")
+	assert.Contains(t, output, "2") // container count for first CM (only cpu-request key)
+	assert.Contains(t, output, "2026-05-30T12:00:00Z")
+	assert.Contains(t, output, "2026-05-30T12:05:00Z")
+	assert.Contains(t, output, "2026-05-30T12:10:00Z")
+
+	// Verify sorted order (namespace, then policy, then workload)
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	// Skip header
+	dataLines := lines[1:]
+	assert.GreaterOrEqual(t, len(dataLines), 3)
+	// Rough order check: my-app entries should come before any other, and within same ns/policy, workloads are sorted
+	assert.Contains(t, strings.Join(dataLines, "\n"), "my-deployment")
+	assert.Contains(t, strings.Join(dataLines, "\n"), "my-fancy-deployment")
+}
+
+func TestPrintExportList_AllNamespaces(t *testing.T) {
+	scheme := runtime.NewScheme()
+
+	cmNs1 := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata": map[string]interface{}{
+				"name":      "team-a-app1-recommendations",
+				"namespace": "ns-one",
+				"labels": map[string]interface{}{
+					"attune.io/policy":   "team-a",
+					"attune.io/workload": "app1",
+				},
+			},
+			"data": map[string]interface{}{
+				"workload":         "app1",
+				"kind":             "Deployment",
+				"main.cpu-request": "100m",
+			},
+		},
+	}
+
+	cmNs2 := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata": map[string]interface{}{
+				"name":      "team-b-app2-recommendations",
+				"namespace": "ns-two",
+				"labels": map[string]interface{}{
+					"attune.io/policy":   "team-b",
+					"attune.io/workload": "app2",
+				},
+			},
+			"data": map[string]interface{}{
+				"workload":         "app2",
+				"kind":             "Deployment",
+				"main.cpu-request": "200m",
+			},
+		},
+	}
+
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{
+			gvr:   "AttunePolicyList",
+			cmGVR: "ConfigMapList",
+		},
+		cmNs1, cmNs2,
+	)
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	err = printExportList(context.Background(), dynClient, "", true) // all namespaces
+	require.NoError(t, err)
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	output := buf.String()
+
+	assert.Contains(t, output, "ns-one")
+	assert.Contains(t, output, "ns-two")
+	assert.Contains(t, output, "team-a")
+	assert.Contains(t, output, "team-b")
+}
+
+func TestPrintExportList_MixedGoodAndBad(t *testing.T) {
+	scheme := runtime.NewScheme()
+
+	goodCM := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata": map[string]interface{}{
+				"name":      "good-policy-good-workload-recommendations",
+				"namespace": "default",
+				"labels": map[string]interface{}{
+					"attune.io/policy":   "good-policy",
+					"attune.io/workload": "good-workload",
+				},
+			},
+			"data": map[string]interface{}{
+				"workload":         "good-workload",
+				"kind":             "Deployment",
+				"main.cpu-request": "50m",
+			},
+		},
+	}
+
+	badCM := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata": map[string]interface{}{
+				"name":      "totally-unrelated-configmap-name",
+				"namespace": "default",
+				"labels": map[string]interface{}{
+					"attune.io/policy": "bad-policy",
+				},
+			},
+			"data": map[string]interface{}{
+				"kind":             "Deployment",
+				"main.cpu-request": "10m",
+			},
+		},
+	}
+
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{
+			gvr:   "AttunePolicyList",
+			cmGVR: "ConfigMapList",
+		},
+		goodCM, badCM,
+	)
+
+	oldOut := os.Stdout
+	oldErr := os.Stderr
+	rOut, wOut, _ := os.Pipe()
+	rErr, wErr, _ := os.Pipe()
+	os.Stdout = wOut
+	os.Stderr = wErr
+
+	printExportListErr := printExportList(context.Background(), dynClient, "default", false)
+	require.NoError(t, printExportListErr)
+
+	wOut.Close()
+	wErr.Close()
+	os.Stdout = oldOut
+	os.Stderr = oldErr
+
+	var bufOut, bufErr bytes.Buffer
+	_, err := bufOut.ReadFrom(rOut)
+	require.NoError(t, err)
+	_, err = bufErr.ReadFrom(rErr)
+	require.NoError(t, err)
+
+	output := bufOut.String()
+	stderr := bufErr.String()
+
+	// Good data should still appear
+	assert.Contains(t, output, "good-policy")
+	assert.Contains(t, output, "good-workload")
+
+	// Bad row should show '-' for workload (derivation failed)
+	assert.Contains(t, output, "bad-policy")
+	assert.Contains(t, output, "-               Deployment") // workload column shows '-' for the bad row (tabwriter spacing)
+
+	// Warning should have fired once
+	assert.Contains(t, stderr, "Warning: could not determine workload name")
+}
+
+func TestPrintExportList_NoConfigMaps(t *testing.T) {
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{
+			gvr:   "AttunePolicyList",
+			cmGVR: "ConfigMapList",
+		},
+	)
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	err = printExportList(context.Background(), dynClient, "production", false)
+	require.NoError(t, err)
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	output := buf.String()
+
+	assert.Contains(t, output, "No exported recommendation ConfigMaps found")
+}
+
+func TestPrintExportList_DerivationWarning(t *testing.T) {
+	scheme := runtime.NewScheme()
+
+	// ConfigMap that is missing the attune.io/workload label and data["workload"].
+	// The name also does not follow the expected convention relative to the policy label,
+	// so name derivation will fail and the warning should be emitted.
+	badCM := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata": map[string]interface{}{
+				"name":      "random-configmap-name-that-wont-parse",
+				"namespace": "production",
+				"labels": map[string]interface{}{
+					"attune.io/policy": "bad-policy",
+				},
+			},
+			"data": map[string]interface{}{
+				"kind":             "Deployment",
+				"main.cpu-request": "100m",
+				"last-updated":     "2026-05-30T12:00:00Z",
+			},
+		},
+	}
+
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{
+			gvr:   "AttunePolicyList",
+			cmGVR: "ConfigMapList",
+		},
+		badCM,
+	)
+
+	// Capture both stdout and stderr
+	oldOut := os.Stdout
+	oldErr := os.Stderr
+	rOut, wOut, _ := os.Pipe()
+	rErr, wErr, _ := os.Pipe()
+	os.Stdout = wOut
+	os.Stderr = wErr
+
+	printExportListErr := printExportList(context.Background(), dynClient, "production", false)
+	require.NoError(t, printExportListErr)
+
+	wOut.Close()
+	wErr.Close()
+	os.Stdout = oldOut
+	os.Stderr = oldErr
+
+	var bufOut, bufErr bytes.Buffer
+	_, err := bufOut.ReadFrom(rOut)
+	require.NoError(t, err)
+	_, err = bufErr.ReadFrom(rErr)
+	require.NoError(t, err)
+
+	output := bufOut.String()
+	stderr := bufErr.String()
+
+	assert.Contains(t, output, "bad-policy")
+	assert.Contains(t, output, "-") // workload should be '-'
+	assert.Contains(t, stderr, "Warning: could not determine workload name")
+	assert.Contains(t, stderr, "missing attune.io/workload label")
+}
+
+func TestWorkloadFromConfigMap(t *testing.T) {
+	tests := []struct {
+		name     string
+		cmName   string
+		labels   map[string]string
+		data     map[string]string
+		expected string
+	}{
+		{
+			name:     "prefers data.workload",
+			cmName:   "my-app-my-deployment-recommendations",
+			labels:   map[string]string{"attune.io/policy": "my-app"},
+			data:     map[string]string{"workload": "my-deployment"},
+			expected: "my-deployment",
+		},
+		{
+			name:     "prefers attune.io/workload label over name derivation",
+			cmName:   "my-app-my-deployment-recommendations",
+			labels:   map[string]string{"attune.io/policy": "my-app", "attune.io/workload": "my-deployment"},
+			data:     nil,
+			expected: "my-deployment",
+		},
+		{
+			name:     "falls back to name derivation when no labels or data",
+			cmName:   "my-app-my-deployment-recommendations",
+			labels:   map[string]string{"attune.io/policy": "my-app"},
+			data:     nil,
+			expected: "my-deployment",
+		},
+		{
+			name:     "handles policy and workload with hyphens",
+			cmName:   "my-cool-app-my-fancy-deployment-recommendations",
+			labels:   map[string]string{"attune.io/policy": "my-cool-app"},
+			data:     nil,
+			expected: "my-fancy-deployment",
+		},
+		{
+			name:     "returns empty when nothing available",
+			cmName:   "weird-name",
+			labels:   nil,
+			data:     nil,
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := workloadFromConfigMap(tt.cmName, tt.labels, tt.data)
+			assert.Equal(t, tt.expected, got)
+		})
+	}
+}
 
 func ptrInt32(v int32) *int32 { return &v }
 func ptrBool(v bool) *bool    { return &v }
