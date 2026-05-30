@@ -1044,7 +1044,10 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *attu
 	printEffectiveField("Auto revert", formatBoolField(item, "spec", "updateStrategy", "autoRevert"), formatBoolPtr(effective.Spec.UpdateStrategy.AutoRevert), selected, updateDefaults != nil && updateDefaults.AutoRevert != nil)
 	printEffectiveField("Initial sizing", formatBoolField(item, "spec", "updateStrategy", "initialSizing"), formatBoolPtr(effective.Spec.UpdateStrategy.InitialSizing), selected, updateDefaults != nil && updateDefaults.InitialSizing != nil)
 	printEffectiveField("Max concurrent resizes", formatInt64Field(item, "spec", "updateStrategy", "maxConcurrentResizes"), formatInt32Val(effective.Spec.UpdateStrategy.MaxConcurrentResizes), selected, updateDefaults != nil && updateDefaults.MaxConcurrentResizes != 0)
+	printEffectiveField("History window", getNestedString(item, "spec", "metricsSource", "historyWindow"), formatDurationPtr(effective.Spec.MetricsSource.HistoryWindow), selected, metricsDefaults != nil && metricsDefaults.HistoryWindow != nil)
 	printEffectiveField("Rate window", getNestedString(item, "spec", "metricsSource", "rateWindow"), formatDurationPtr(effective.Spec.MetricsSource.RateWindow), selected, metricsDefaults != nil && metricsDefaults.RateWindow != nil)
+	printEffectiveField("Max total CPU increase", getNestedString(item, "spec", "updateStrategy", "maxTotalCPUIncrease"), formatQuantityPtr(effective.Spec.UpdateStrategy.MaxTotalCPUIncrease), selected, updateDefaults != nil && updateDefaults.MaxTotalCPUIncrease != nil)
+	printEffectiveField("Max total memory increase", getNestedString(item, "spec", "updateStrategy", "maxTotalMemoryIncrease"), formatQuantityPtr(effective.Spec.UpdateStrategy.MaxTotalMemoryIncrease), selected, updateDefaults != nil && updateDefaults.MaxTotalMemoryIncrease != nil)
 
 	// Export awareness in explain (full support for #145/#146)
 	exportConfigured := ""
@@ -1066,14 +1069,27 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *attu
 	fmt.Println("  CPU:")
 	printEffectiveField("  Percentile", formatInt64Field(item, "spec", "cpu", "percentile"), formatInt32Val(effective.Spec.CPU.Percentile), selected, cpuDefaults != nil && cpuDefaults.Percentile != 0)
 	printEffectiveField("  Overhead", getNestedString(item, "spec", "cpu", "overhead"), effective.Spec.CPU.Overhead, selected, cpuDefaults != nil && cpuDefaults.Overhead != "")
+	printEffectiveField("  Min allowed", getNestedString(item, "spec", "cpu", "minAllowed"), formatQuantityPtr(effective.Spec.CPU.MinAllowed), selected, cpuDefaults != nil && cpuDefaults.MinAllowed != nil)
+	printEffectiveField("  Max allowed", getNestedString(item, "spec", "cpu", "maxAllowed"), formatQuantityPtr(effective.Spec.CPU.MaxAllowed), selected, cpuDefaults != nil && cpuDefaults.MaxAllowed != nil)
 	printEffectiveField("  Controlled values", getNestedString(item, "spec", "cpu", "controlledValues"), formatStringPtr(effective.Spec.CPU.ControlledValues), selected, cpuDefaults != nil && cpuDefaults.ControlledValues != nil)
+	printEffectiveField("  Allow decrease", formatBoolField(item, "spec", "cpu", "allowDecrease"), formatBoolPtr(effective.Spec.CPU.AllowDecrease), selected, cpuDefaults != nil && cpuDefaults.AllowDecrease != nil)
+	printEffectiveField("  Burst sensitivity", getNestedString(item, "spec", "cpu", "burstSensitivity"), formatStringPtr(effective.Spec.CPU.BurstSensitivity), selected, cpuDefaults != nil && cpuDefaults.BurstSensitivity != nil)
 	printEffectiveField("  Max change", formatPercentInt64Ptr(rawInt64Field(item, "spec", "cpu", "maxChangePercent")), formatPercentPtr(effective.Spec.CPU.MaxChangePercent), selected, cpuDefaults != nil && cpuDefaults.MaxChangePercent != nil)
+	printEffectiveField("  Max increase", formatPercentInt64Ptr(rawInt64Field(item, "spec", "cpu", "maxIncreasePercent")), formatPercentPtr(effective.Spec.CPU.MaxIncreasePercent), selected, cpuDefaults != nil && cpuDefaults.MaxIncreasePercent != nil)
+	printEffectiveField("  Max decrease", formatPercentInt64Ptr(rawInt64Field(item, "spec", "cpu", "maxDecreasePercent")), formatPercentPtr(effective.Spec.CPU.MaxDecreasePercent), selected, cpuDefaults != nil && cpuDefaults.MaxDecreasePercent != nil)
 
 	fmt.Println("  Memory:")
 	printEffectiveField("  Percentile", formatInt64Field(item, "spec", "memory", "percentile"), formatInt32Val(effective.Spec.Memory.Percentile), selected, memDefaults != nil && memDefaults.Percentile != 0)
 	printEffectiveField("  Overhead", getNestedString(item, "spec", "memory", "overhead"), effective.Spec.Memory.Overhead, selected, memDefaults != nil && memDefaults.Overhead != "")
+	printEffectiveField("  Min allowed", getNestedString(item, "spec", "memory", "minAllowed"), formatQuantityPtr(effective.Spec.Memory.MinAllowed), selected, memDefaults != nil && memDefaults.MinAllowed != nil)
+	printEffectiveField("  Max allowed", getNestedString(item, "spec", "memory", "maxAllowed"), formatQuantityPtr(effective.Spec.Memory.MaxAllowed), selected, memDefaults != nil && memDefaults.MaxAllowed != nil)
 	printEffectiveField("  Controlled values", getNestedString(item, "spec", "memory", "controlledValues"), formatStringPtr(effective.Spec.Memory.ControlledValues), selected, memDefaults != nil && memDefaults.ControlledValues != nil)
+	printEffectiveField("  Allow decrease", formatBoolField(item, "spec", "memory", "allowDecrease"), formatBoolPtr(effective.Spec.Memory.AllowDecrease), selected, memDefaults != nil && memDefaults.AllowDecrease != nil)
+	printEffectiveField("  Burst sensitivity", getNestedString(item, "spec", "memory", "burstSensitivity"), formatStringPtr(effective.Spec.Memory.BurstSensitivity), selected, memDefaults != nil && memDefaults.BurstSensitivity != nil)
 	printEffectiveField("  Max change", formatPercentInt64Ptr(rawInt64Field(item, "spec", "memory", "maxChangePercent")), formatPercentPtr(effective.Spec.Memory.MaxChangePercent), selected, memDefaults != nil && memDefaults.MaxChangePercent != nil)
+	printEffectiveField("  Max increase", formatPercentInt64Ptr(rawInt64Field(item, "spec", "memory", "maxIncreasePercent")), formatPercentPtr(effective.Spec.Memory.MaxIncreasePercent), selected, memDefaults != nil && memDefaults.MaxIncreasePercent != nil)
+	printEffectiveField("  Max decrease", formatPercentInt64Ptr(rawInt64Field(item, "spec", "memory", "maxDecreasePercent")), formatPercentPtr(effective.Spec.Memory.MaxDecreasePercent), selected, memDefaults != nil && memDefaults.MaxDecreasePercent != nil)
+	printEffectiveField("  Memory from CPU ratio", getNestedString(item, "spec", "memory", "memoryFromCpuRatio"), formatStringPtr(effective.Spec.Memory.MemoryFromCPURatio), selected, memDefaults != nil && memDefaults.MemoryFromCPURatio != nil)
 
 	// Pure export / GitOps mode note (makes the recommended workflow first-class in CLI)
 	if effective.Spec.UpdateStrategy.Export != nil && effective.Spec.UpdateStrategy.Export.ConfigMap {
@@ -1193,6 +1209,13 @@ func formatStringPtr(value *string) string {
 		return ""
 	}
 	return *value
+}
+
+func formatQuantityPtr(value *resource.Quantity) string {
+	if value == nil {
+		return ""
+	}
+	return value.String()
 }
 
 func formatPercentInt64Ptr(value *int64) string {
