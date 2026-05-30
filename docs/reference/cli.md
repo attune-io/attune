@@ -39,6 +39,7 @@ kubectl attune status --watch          # live-refresh every 10s
 | RESIZING | `InProgress`, `Idle`, `CooldownActive`, or `-` (non-resize modes) |
 | DEGRADED | `HighRevertRate` or `-` |
 | CANARY | Canary phase and pod count (e.g., `CanaryInProgress (2 pods)`) when mode is Canary, `-` otherwise |
+| EXPORT | `CM` when `export.configMap: true` (recommendations written to ConfigMaps for GitOps), `-` otherwise |
 
 When any policy has per-workload errors, they are printed below the table
 with the workload name and error message.
@@ -92,7 +93,8 @@ kubectl attune preview -n production api-services
 
 Shows per-container current vs recommended values with confidence scores.
 When a policy is still collecting data, the last column shows the current
-status message instead.
+status message instead. When any policy uses export mode, a footer note points
+to `kubectl attune export list` for the GitOps ConfigMap view and last-export timestamps.
 
 ```bash
 kubectl attune recommendations
@@ -111,15 +113,44 @@ kubectl attune recommendations -n production
 | MEM REC | Recommended memory request |
 | CONFIDENCE / STATUS | Confidence percentage when recommendations exist, otherwise the current `Ready` message or reason |
 
+### export
+
+Lists recommendation exports written to ConfigMaps when a policy has `updateStrategy.export.configMap: true`
+(the primary GitOps integration pattern with ArgoCD, Flux, etc.).
+
+```bash
+kubectl attune export
+kubectl attune export list
+kubectl attune export list -n production
+kubectl attune export list -A
+```
+
+The `LAST UPDATED` column shows the RFC3339 timestamp when the operator last wrote that workload's recommendations
+(the value inside the ConfigMap's `last-updated` key). This is the authoritative handoff for GitOps pipelines.
+
+| Column     | Description |
+|------------|-------------|
+| POLICY     | AttunePolicy that owns the export |
+| WORKLOAD   | Workload name (e.g. Deployment name) |
+| KIND       | Workload kind (Deployment, StatefulSet, etc.) |
+| CONTAINERS | Number of containers with recommendations in the export |
+| LAST UPDATED | When the ConfigMap was last refreshed by the operator |
+
+`kubectl attune export` (no subcommand) is equivalent to `export list`. The output is the exact data your
+GitOps system should consume; `kubectl attune recommendations` shows the same values from status (except
+in Observe mode, where only the ConfigMaps are populated).
+
+See [GitOps Integration guide](../guides/gitops-integration.md) for the full workflow.
+
 ### explain
 
 Shows the stored recommendation reasoning for a single policy, including
 percentile selection, overhead, confidence adjustment, bounds, and
 change filtering for CPU and memory. It also prints the effective values for
 key controller-applied defaults such as `type`, `cooldown`, `queryStep`,
-`minimumDataPoints`, `resizeMethod`, and max change percentages, along with
+`minimumDataPoints`, `resizeMethod`, `export` (for GitOps ConfigMap export), and max change percentages, along with
 whether each value came from the policy, a namespace default, a cluster
-default, or the built-in default.
+default, or the built-in default. When export mode + Recommend/Observe is active, a note explains the GitOps implications.
 
 ```bash
 kubectl attune explain -n production api-services

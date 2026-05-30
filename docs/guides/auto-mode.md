@@ -224,6 +224,14 @@ data:
   last-updated: "2026-05-29T14:30:00Z"
 ```
 
+Inspect exports with the plugin (recommended over raw `kubectl get cm`):
+
+```bash
+kubectl attune export list -n <ns>
+# or with last-updated and container counts across all ns
+kubectl attune export -A
+```
+
 **Orphan cleanup**: When a workload leaves the policy's selector (for example
 after a selector change or workload deletion while the policy still exists),
 the corresponding recommendation ConfigMap is automatically deleted on the

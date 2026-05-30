@@ -187,6 +187,7 @@ sudo cp bin/kubectl-attune /usr/local/bin/
 kubectl attune status -n production
 kubectl attune savings -n production
 kubectl attune recommendations -n production
+kubectl attune export -n production          # GitOps ConfigMap exports + last-updated
 kubectl attune history -n production
 kubectl attune explain -n production api-services
 
