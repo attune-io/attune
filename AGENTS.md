@@ -218,6 +218,14 @@ someValue: "default"
 Using `# --` on every line causes helm-docs to treat each line as a
 separate parameter description, producing garbled output.
 
+### Hard process rule: Never push directly to main
+
+**All changes — no matter how small — must go through a feature branch and Pull Request.** Direct pushes to `main` (including `git push origin main`, force-pushes, or bypassing the merge queue) are forbidden, even for the repo owner.
+
+This applies to code, CI/workflows, Makefile, scripts, and documentation.
+
+See the "Never Push Directly to Main (HARD RULE)" section in `~/.grok/skills/attune-contrib/SKILL.md` for the full rationale and correct workflow.
+
 ### Pull request titles and commit messages
 
 The repository enforces semantic PR titles via [.github/workflows/pr-title.yaml](.github/workflows/pr-title.yaml) (the `amannn/action-semantic-pull-request` action).
