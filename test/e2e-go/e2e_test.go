@@ -50,16 +50,18 @@ import (
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 )
 
-const defaultStressNGImage = "ghcr.io/alexei-led/stress-ng:0.20.01"
-const cpuBurnImage = "docker.io/library/busybox:1.37"
+const (
+	defaultStressNGImage = "ghcr.io/alexei-led/stress-ng:0.20.01"
+	cpuBurnImage         = "docker.io/library/busybox:1.37"
+)
 
 var (
-	k8sClient  client.Client
-	clientset  *kubernetes.Clientset
-	restConfig *rest.Config
-	ctx        context.Context
-	cancel     context.CancelFunc
-	promAddr   = "http://prometheus-server.monitoring:80"
+	k8sClient     client.Client
+	clientset     *kubernetes.Clientset
+	restConfig    *rest.Config
+	ctx           context.Context
+	cancel        context.CancelFunc
+	promAddr      = "http://prometheus-server.monitoring:80"
 	stressNGImage string
 )
 
