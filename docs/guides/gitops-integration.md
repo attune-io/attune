@@ -87,4 +87,15 @@ See the [Auto mode guide](auto-mode.md#exporting-recommendations-to-configmaps) 
 
 **Orphan cleanup (stale recommendation removal)**: When a workload leaves the policy selector (selector change, scale-to-zero, or deletion while the policy still exists), the operator automatically deletes the corresponding recommendation ConfigMap on the next reconcile. Only ConfigMaps bearing the matching `attune.io/policy` label are considered. This guarantees GitOps consumers never see stale recommendations for workloads no longer in scope.
 
+**Consuming the ConfigMap from CI (example)**:
+
+```bash
+# In your pipeline, extract the recommendation for a container
+CPU_REQ=$(kubectl get cm my-app-my-deployment-recommendations -n prod \
+  -o jsonpath='{.data.main\.cpu-request}')
+# Then propose a patch to your Deployment in Git (or use kustomize/helm values update)
+```
+
+See the full schema and more examples in the [Auto mode guide](auto-mode.md#exporting-recommendations-to-configmaps).
+
 This is the primary integration pattern for strict GitOps shops: the operator provides the intelligence (usage-based recommendations), Git remains the source of truth, and the export + orphan cleanup mechanism keeps the hand-off clean and auditable.
