@@ -248,3 +248,70 @@ func TestBuildProfile_TwoPassCountingCorrectness(t *testing.T) {
 	assert.InDelta(t, 60.0, profile.OverallPercentiles.Max, 0.01)
 	assert.InDelta(t, 35.0, profile.OverallPercentiles.P50, 0.1) // median of [10,20,30,40,50,60]
 }
+
+func TestComputePercentiles(t *testing.T) {
+	tests := []struct {
+		name   string
+		values []float64
+		expect PercentileSet
+	}{
+		{
+			name:   "empty input returns zero set",
+			values: nil,
+			expect: PercentileSet{},
+		},
+		{
+			name:   "single value returns that value for all percentiles",
+			values: []float64{42.0},
+			expect: PercentileSet{P50: 42, P90: 42, P95: 42, P99: 42, Max: 42},
+		},
+		{
+			name:   "two values interpolate correctly",
+			values: []float64{10, 20},
+			expect: PercentileSet{P50: 15, P90: 19, P95: 19.5, P99: 19.9, Max: 20},
+		},
+		{
+			name:   "five values with known percentiles",
+			values: []float64{1, 2, 3, 4, 5},
+			// rank = p * (n-1): P50=2.0->3, P90=3.6->4.6, P95=3.8->4.8, P99=3.96->4.96
+			expect: PercentileSet{P50: 3, P90: 4.6, P95: 4.8, P99: 4.96, Max: 5},
+		},
+		{
+			name:   "unsorted input is sorted before computing",
+			values: []float64{5, 1, 3, 2, 4},
+			expect: PercentileSet{P50: 3, P90: 4.6, P95: 4.8, P99: 4.96, Max: 5},
+		},
+		{
+			name:   "identical values return that value for all percentiles",
+			values: []float64{7, 7, 7, 7},
+			expect: PercentileSet{P50: 7, P90: 7, P95: 7, P99: 7, Max: 7},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := computePercentiles(tt.values)
+			assert.InDelta(t, tt.expect.P50, result.P50, 0.01, "P50")
+			assert.InDelta(t, tt.expect.P90, result.P90, 0.01, "P90")
+			assert.InDelta(t, tt.expect.P95, result.P95, 0.01, "P95")
+			assert.InDelta(t, tt.expect.P99, result.P99, 0.01, "P99")
+			assert.InDelta(t, tt.expect.Max, result.Max, 0.01, "Max")
+		})
+	}
+}
+
+func TestPercentile_EmptySlice(t *testing.T) {
+	assert.Equal(t, 0.0, percentile(nil, 0.5))
+	assert.Equal(t, 0.0, percentile([]float64{}, 0.95))
+}
+
+func TestPercentile_ExactBoundary(t *testing.T) {
+	// When rank falls exactly on an index (lower == upper), no interpolation
+	// should occur. With 11 values [0..10], P50 rank = 0.5*10 = 5.0 (exact).
+	sorted := make([]float64, 11)
+	for i := range sorted {
+		sorted[i] = float64(i)
+	}
+	assert.InDelta(t, 5.0, percentile(sorted, 0.50), 0.001)
+	assert.InDelta(t, 10.0, percentile(sorted, 1.0), 0.001)
+	assert.InDelta(t, 0.0, percentile(sorted, 0.0), 0.001)
+}
