@@ -753,6 +753,9 @@ func printExportList(ctx context.Context, dynClient dynamic.Interface, namespace
 		effectiveNS = ""
 	}
 
+	// Track whether we've already emitted the derivation warning (only once per run).
+	var warnedAboutDerivationFailure bool
+
 	cms, err := dynClient.Resource(cmGVR).Namespace(effectiveNS).List(ctx, metav1.ListOptions{
 		LabelSelector: "attune.io/policy",
 	})
@@ -765,7 +768,7 @@ func printExportList(ctx context.Context, dynClient dynamic.Interface, namespace
 
 	if len(cms.Items) == 0 {
 		fmt.Println("No exported recommendation ConfigMaps found.")
-		fmt.Println("(Policies with updateStrategy.export.configMap: true create them once recommendations are available.)")
+		fmt.Println("Tip: Policies with updateStrategy.export.configMap: true will create them once they have recommendations.")
 		return nil
 	}
 
@@ -787,6 +790,11 @@ func printExportList(ctx context.Context, dynClient dynamic.Interface, namespace
 		workload := workloadFromConfigMap(name, labels, data)
 		if workload == "" {
 			workload = "-"
+			// Warn once per run if derivation completely failed.
+			if !warnedAboutDerivationFailure {
+				fmt.Fprintln(os.Stderr, "Warning: could not determine workload name for one or more ConfigMaps (missing attune.io/workload label). Showing '-' for affected rows.")
+				warnedAboutDerivationFailure = true
+			}
 		}
 		kind := data["kind"]
 		if kind == "" {
@@ -816,6 +824,7 @@ func printExportList(ctx context.Context, dynClient dynamic.Interface, namespace
 	}
 
 	fmt.Fprintln(os.Stderr, "\nThese ConfigMaps are the GitOps handoff (ArgoCD/Flux consume them for resource patches).")
+	fmt.Fprintln(os.Stderr, "Workload names are taken from labels when present (most reliable).")
 	fmt.Fprintln(os.Stderr, "Run 'kubectl attune recommendations' for the status view (equivalent except in Observe mode).")
 	fmt.Fprintln(os.Stderr, "Full per-container values: kubectl get cm <name> -o yaml")
 

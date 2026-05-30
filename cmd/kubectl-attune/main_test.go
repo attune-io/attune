@@ -2477,12 +2477,36 @@ func TestPrintExportList(t *testing.T) {
 		},
 	}
 
+	// Third ConfigMap exercising hyphenated policy + workload names (common in real clusters).
+	// Uses proper labels (the preferred path after our robustness improvements).
+	cm3 := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata": map[string]interface{}{
+				"name":      "my-cool-app-my-fancy-deployment-recommendations",
+				"namespace": "production",
+				"labels": map[string]interface{}{
+					"attune.io/policy":   "my-cool-app",
+					"attune.io/workload": "my-fancy-deployment",
+				},
+			},
+			"data": map[string]interface{}{
+				"workload":           "my-fancy-deployment",
+				"kind":               "Deployment",
+				"app.cpu-request":    "100m",
+				"app.memory-request": "256Mi",
+				"last-updated":       "2026-05-30T12:10:00Z",
+			},
+		},
+	}
+
 	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
 		map[schema.GroupVersionResource]string{
 			gvr:   "AttunePolicyList",
 			cmGVR: "ConfigMapList",
 		},
-		cm1, cm2,
+		cm1, cm2, cm3,
 	)
 
 	old := os.Stdout
@@ -2503,9 +2527,12 @@ func TestPrintExportList(t *testing.T) {
 	assert.Contains(t, output, "my-app")
 	assert.Contains(t, output, "my-deployment")
 	assert.Contains(t, output, "my-statefulset")
+	assert.Contains(t, output, "my-cool-app")
+	assert.Contains(t, output, "my-fancy-deployment")
 	assert.Contains(t, output, "2") // container count for first CM (only cpu-request key)
 	assert.Contains(t, output, "2026-05-30T12:00:00Z")
 	assert.Contains(t, output, "2026-05-30T12:05:00Z")
+	assert.Contains(t, output, "2026-05-30T12:10:00Z")
 }
 
 func TestPrintExportList_NoConfigMaps(t *testing.T) {
