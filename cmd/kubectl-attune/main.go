@@ -380,7 +380,12 @@ func fetchPolicies(ctx context.Context, dynClient dynamic.Interface, namespace s
 // isNoResourceMatch checks if the error indicates the CRD/resource type
 // does not exist on the API server (common when the operator isn't installed).
 func isNoResourceMatch(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "the server could not find the requested resource")
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "the server could not find the requested resource") ||
+		strings.Contains(msg, "no matches for kind")
 }
 
 func printStatus(ctx context.Context, dynClient dynamic.Interface, namespace, sortByFlag, filterFlag string) {
@@ -763,8 +768,11 @@ func printExportList(ctx context.Context, dynClient dynamic.Interface, namespace
 		LabelSelector: "attune.io/policy",
 	})
 	if err != nil {
+		if apierrors.IsForbidden(err) {
+			return fmt.Errorf("insufficient RBAC permissions to list ConfigMaps (check ServiceAccount/ClusterRole)")
+		}
 		if apierrors.IsNotFound(err) || isNoResourceMatch(err) {
-			return fmt.Errorf("ConfigMap API unavailable (operator not installed or RBAC missing)")
+			return fmt.Errorf("failed to list ConfigMaps (unexpected API error)")
 		}
 		return fmt.Errorf("listing recommendation ConfigMaps: %w", err)
 	}

@@ -8339,9 +8339,9 @@ func TestExportRecommendationConfigMaps_UpdateFailure(t *testing.T) {
 	}
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(policy, existingCM).
 		WithInterceptorFuncs(interceptor.Funcs{
-			Update: func(_ context.Context, _ client.WithWatch, obj client.Object, _ ...client.UpdateOption) error {
+			Patch: func(_ context.Context, _ client.WithWatch, obj client.Object, _ client.Patch, _ ...client.PatchOption) error {
 				if _, ok := obj.(*corev1.ConfigMap); ok {
-					return fmt.Errorf("simulated update failure")
+					return fmt.Errorf("simulated patch failure")
 				}
 				return nil
 			},
@@ -8440,10 +8440,9 @@ func TestExportRecommendationConfigMaps_OrphanCleanup(t *testing.T) {
 	}
 
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(policy, activeCM, orphanCM).Build()
-	r := &AttunePolicyReconciler{
-		Client: fakeClient,
-		Scheme: scheme,
-	}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
 
 	recs := []attunev1alpha1.WorkloadRecommendation{
 		{
