@@ -94,11 +94,13 @@ spec:
                   DATA=$(kubectl get configmap "$CM" -n e2e-configmap-export -o json)
                   if echo "$DATA" | grep -q "confidence"; then
                     echo "ConfigMap contains recommendation data"
-                    # Verify owner reference
-                    OWNER=$(echo "$DATA" | python3 -c "import sys,json; d=json.load(sys.stdin); refs=d.get('metadata',{}).get('ownerReferences',[]); print(refs[0]['kind'] if refs else '')" 2>/dev/null)
-                    if [ "$OWNER" = "AttunePolicy" ]; then
-                      echo "OwnerReference set correctly"
+                    # Verify owner reference is set to AttunePolicy
+                    OWNER=$(echo "$DATA" | jq -r '.metadata.ownerReferences[0].kind // ""')
+                    if [ "$OWNER" != "AttunePolicy" ]; then
+                      echo "FAIL: expected ownerReference kind=AttunePolicy, got '$OWNER'"
+                      exit 1
                     fi
+                    echo "OwnerReference set correctly"
                     exit 0
                   fi
                 fi
