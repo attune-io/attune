@@ -231,6 +231,11 @@ next reconcile. This prevents stale recommendation data from lingering for
 GitOps consumers. Only ConfigMaps carrying the `attune.io/policy` label for
 that specific policy are considered for cleanup.
 
+Any ConfigMap in the policy's namespace bearing the `attune.io/policy` label
+is treated as owned by this AttunePolicy for cleanup purposes. This is an
+intentional part of the feature's trust model (label-based management within
+the namespace).
+
 This is useful in GitOps workflows where:
 
 1. The operator runs in Recommend mode to compute recommendations.
