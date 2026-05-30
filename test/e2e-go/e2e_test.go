@@ -395,7 +395,7 @@ func TestE2E_AutoMode_ResizesRunningPod(t *testing.T) {
 	t.Parallel()
 	ns := uniqueNS("auto")
 	createNamespace(t, ns)
-	createDeployment(t, "auto-app", ns, "500m", "512Mi", 1)
+	createDeployment(t, "auto-app", ns, "250m", "256Mi", 1)
 	waitForDeploymentReady(t, "auto-app", ns, 60*time.Second)
 
 	createPolicy(t, "auto-policy", ns, "auto-app", attunev1alpha1.UpdateTypeAuto)
@@ -416,8 +416,8 @@ func TestE2E_AutoMode_ResizesRunningPod(t *testing.T) {
 	// Verify the resize actually changed the pod's resources.
 	// We don't assert direction (up/down) because the recommendation
 	// depends on actual Prometheus data which varies per run.
-	origCPU := resource.MustParse("500m")
-	origMem := resource.MustParse("512Mi")
+	origCPU := resource.MustParse("250m")
+	origMem := resource.MustParse("256Mi")
 	cpuReq := pod.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
 	memReq := pod.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory]
 	assert.True(t, cpuReq.Cmp(origCPU) != 0 || memReq.Cmp(origMem) != 0,
@@ -432,7 +432,7 @@ func TestE2E_OneShotMode_ResizesOnePod(t *testing.T) {
 	t.Parallel()
 	ns := uniqueNS("oneshot")
 	createNamespace(t, ns)
-	createDeployment(t, "oneshot-app", ns, "500m", "512Mi", 2)
+	createDeployment(t, "oneshot-app", ns, "250m", "256Mi", 2)
 	waitForDeploymentReady(t, "oneshot-app", ns, 60*time.Second)
 
 	createPolicy(t, "oneshot-policy", ns, "oneshot-app", attunev1alpha1.UpdateTypeOneShot)
@@ -476,8 +476,8 @@ func TestE2E_AutoMode_RecordsResizeHistory(t *testing.T) {
 							Image: "registry.k8s.io/pause:3.9",
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
-									corev1.ResourceCPU:    resource.MustParse("500m"),
-									corev1.ResourceMemory: resource.MustParse("512Mi"),
+									corev1.ResourceCPU:    resource.MustParse("250m"),
+									corev1.ResourceMemory: resource.MustParse("256Mi"),
 								},
 							},
 						},
@@ -531,8 +531,8 @@ func TestE2E_MultiContainer_ExcludesSidecar(t *testing.T) {
 							Image: "registry.k8s.io/pause:3.9",
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
-									corev1.ResourceCPU:    resource.MustParse("500m"),
-									corev1.ResourceMemory: resource.MustParse("512Mi"),
+									corev1.ResourceCPU:    resource.MustParse("250m"),
+									corev1.ResourceMemory: resource.MustParse("256Mi"),
 								},
 							},
 						},
@@ -615,8 +615,8 @@ func TestE2E_MultiContainer_ExcludesSidecar(t *testing.T) {
 				"istio-proxy memory should be unchanged")
 		}
 		if c.Name == "app" {
-			origCPU := resource.MustParse("500m")
-			origMem := resource.MustParse("512Mi")
+			origCPU := resource.MustParse("250m")
+			origMem := resource.MustParse("256Mi")
 			assert.True(t, c.Resources.Requests.Cpu().Cmp(origCPU) != 0 ||
 				c.Resources.Requests.Memory().Cmp(origMem) != 0,
 				"app container should have at least one resource changed")
@@ -808,7 +808,7 @@ func TestE2E_ScheduleWindow_SkipsOutsideWindow(t *testing.T) {
 	t.Parallel()
 	ns := uniqueNS("sched")
 	createNamespace(t, ns)
-	createDeployment(t, "sched-app", ns, "500m", "512Mi", 1)
+	createDeployment(t, "sched-app", ns, "250m", "256Mi", 1)
 	waitForDeploymentReady(t, "sched-app", ns, 60*time.Second)
 
 	// Build a daysOfWeek list that excludes today.
@@ -932,7 +932,7 @@ func TestE2E_EvictionFallback_ResizesWithInPlaceOrRecreate(t *testing.T) {
 	t.Parallel()
 	ns := uniqueNS("evict")
 	createNamespace(t, ns)
-	createDeployment(t, "evict-app", ns, "500m", "512Mi", 2)
+	createDeployment(t, "evict-app", ns, "250m", "256Mi", 2)
 	waitForDeploymentReady(t, "evict-app", ns, 60*time.Second)
 
 	deployName := "evict-app"
@@ -987,7 +987,7 @@ func TestE2E_RecommendMode_KeepsRecommendationsWithoutLivePods(t *testing.T) {
 	createNamespace(t, ns)
 
 	// Create a deployment so Prometheus collects metrics.
-	createDeployment(t, "nopods-app", ns, "500m", "256Mi", 1)
+	createDeployment(t, "nopods-app", ns, "250m", "256Mi", 1)
 	waitForDeploymentReady(t, "nopods-app", ns, 60*time.Second)
 
 	createPolicy(t, "nopods-policy", ns, "nopods-app", attunev1alpha1.UpdateTypeRecommend)
@@ -1373,7 +1373,7 @@ func TestE2E_MultiReplica_ProgressiveResize(t *testing.T) {
 	t.Parallel()
 	ns := uniqueNS("multi-rep")
 	createNamespace(t, ns)
-	createDeployment(t, "multi-rep-app", ns, "500m", "512Mi", 3)
+	createDeployment(t, "multi-rep-app", ns, "250m", "256Mi", 3)
 	waitForDeploymentReady(t, "multi-rep-app", ns, 120*time.Second)
 
 	deployName := "multi-rep-app"
@@ -1441,11 +1441,11 @@ func TestE2E_GuaranteedQoS_RequestsAndLimits(t *testing.T) {
 						Image: "registry.k8s.io/pause:3.9",
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{
-								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceCPU:    resource.MustParse("250m"),
 								corev1.ResourceMemory: resource.MustParse("256Mi"),
 							},
 							Limits: corev1.ResourceList{
-								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceCPU:    resource.MustParse("250m"),
 								corev1.ResourceMemory: resource.MustParse("256Mi"),
 							},
 						},
@@ -1514,7 +1514,7 @@ func TestE2E_GuaranteedQoS_RequestsAndLimits(t *testing.T) {
 		"memory requests and limits should match after resize (Guaranteed QoS)")
 
 	// At least one resource should have changed from the initial values.
-	origCPU := resource.MustParse("500m")
+	origCPU := resource.MustParse("250m")
 	origMem := resource.MustParse("256Mi")
 	assert.True(t, c.Resources.Requests.Cpu().Cmp(origCPU) != 0 || c.Resources.Requests.Memory().Cmp(origMem) != 0,
 		"at least one resource should have changed, cpu=%s mem=%s", c.Resources.Requests.Cpu().String(), c.Resources.Requests.Memory().String())
@@ -1537,7 +1537,7 @@ func TestE2E_LabelSelector_MultipleWorkloads(t *testing.T) {
 					Spec: corev1.PodSpec{Containers: []corev1.Container{{
 						Name: "app", Image: "registry.k8s.io/pause:3.9",
 						Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{
-							corev1.ResourceCPU: resource.MustParse("500m"), corev1.ResourceMemory: resource.MustParse("256Mi"),
+							corev1.ResourceCPU: resource.MustParse("250m"), corev1.ResourceMemory: resource.MustParse("256Mi"),
 						}},
 					}}},
 				},
@@ -1585,7 +1585,7 @@ func TestE2E_PolicyDeletion_CleansUpAnnotations(t *testing.T) {
 	t.Parallel()
 	ns := uniqueNS("cleanup")
 	createNamespace(t, ns)
-	createDeployment(t, "cleanup-app", ns, "500m", "512Mi", 1)
+	createDeployment(t, "cleanup-app", ns, "250m", "256Mi", 1)
 	waitForDeploymentReady(t, "cleanup-app", ns, 60*time.Second)
 
 	policy := createPolicy(t, "cleanup-policy", ns, "cleanup-app", attunev1alpha1.UpdateTypeAuto)
@@ -1625,7 +1625,7 @@ func TestE2E_ScaleUp_NewReplicasGetResized(t *testing.T) {
 	t.Parallel()
 	ns := uniqueNS("scaleup")
 	createNamespace(t, ns)
-	createDeployment(t, "scaleup-app", ns, "500m", "512Mi", 1)
+	createDeployment(t, "scaleup-app", ns, "250m", "256Mi", 1)
 	waitForDeploymentReady(t, "scaleup-app", ns, 60*time.Second)
 
 	createPolicy(t, "scaleup-policy", ns, "scaleup-app", attunev1alpha1.UpdateTypeAuto)
@@ -1652,7 +1652,7 @@ func TestE2E_ScaleUp_NewReplicasGetResized(t *testing.T) {
 			return false, nil
 		}
 		resizedCount := 0
-		origCPU := resource.MustParse("500m")
+		origCPU := resource.MustParse("250m")
 		for _, pod := range podList.Items {
 			if pod.Status.Phase != corev1.PodRunning {
 				continue
@@ -1671,7 +1671,7 @@ func TestE2E_ConcurrentPolicies_SameNamespace(t *testing.T) {
 	t.Parallel()
 	ns := uniqueNS("concurrent")
 	createNamespace(t, ns)
-	createDeployment(t, "api-app", ns, "500m", "512Mi", 1)
+	createDeployment(t, "api-app", ns, "250m", "256Mi", 1)
 	createDeployment(t, "worker-app", ns, "250m", "256Mi", 1)
 	waitForDeploymentReady(t, "api-app", ns, 60*time.Second)
 	waitForDeploymentReady(t, "worker-app", ns, 60*time.Second)
@@ -1713,7 +1713,7 @@ func TestE2E_MemoryAllowDecreaseFalse(t *testing.T) {
 	createNamespace(t, ns)
 
 	// High memory request (512Mi) but pause container uses ~0 memory.
-	createDeployment(t, "nodecrease-app", ns, "500m", "512Mi", 1)
+	createDeployment(t, "nodecrease-app", ns, "250m", "256Mi", 1)
 	waitForDeploymentReady(t, "nodecrease-app", ns, 60*time.Second)
 
 	deployName := "nodecrease-app"
@@ -1758,7 +1758,7 @@ func TestE2E_MemoryAllowDecreaseFalse(t *testing.T) {
 	require.NotEmpty(t, podList.Items)
 	c := podList.Items[0].Spec.Containers[0]
 
-	origMem := resource.MustParse("512Mi")
+	origMem := resource.MustParse("256Mi")
 	assert.GreaterOrEqual(t, c.Resources.Requests.Memory().Value(), origMem.Value(),
 		"memory should not decrease when allowDecrease is nil (default false), got %s", c.Resources.Requests.Memory().String())
 }
@@ -1769,7 +1769,7 @@ func TestE2E_MultiContainer_SequentialResize(t *testing.T) {
 	createNamespace(t, ns)
 
 	// Two containers, both eligible for resize (no excludedContainers).
-	// Both start with 500m CPU, which is high for pause containers.
+	// Both start with 250m CPU (kept under 300m to reduce scheduling pressure).
 	// The operator should resize both sequentially, each UpdateResize call
 	// bumping resourceVersion. The *pod = *freshPod propagation (PR #412)
 	// ensures the second resize uses the fresh resourceVersion from the first.
@@ -1793,7 +1793,7 @@ func TestE2E_MultiContainer_SequentialResize(t *testing.T) {
 							Image: "registry.k8s.io/pause:3.9",
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
-									corev1.ResourceCPU:    resource.MustParse("500m"),
+									corev1.ResourceCPU:    resource.MustParse("250m"),
 									corev1.ResourceMemory: resource.MustParse("256Mi"),
 								},
 							},
@@ -1803,7 +1803,7 @@ func TestE2E_MultiContainer_SequentialResize(t *testing.T) {
 							Image: "registry.k8s.io/pause:3.9",
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
-									corev1.ResourceCPU:    resource.MustParse("500m"),
+									corev1.ResourceCPU:    resource.MustParse("250m"),
 									corev1.ResourceMemory: resource.MustParse("256Mi"),
 								},
 							},
@@ -1862,7 +1862,7 @@ func TestE2E_MultiContainer_SequentialResize(t *testing.T) {
 	require.NotEmpty(t, podList.Items)
 
 	pod := podList.Items[0]
-	origCPU := resource.MustParse("500m")
+	origCPU := resource.MustParse("250m")
 	origMem := resource.MustParse("256Mi")
 	resizedContainers := 0
 	for _, c := range pod.Spec.Containers {
