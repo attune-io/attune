@@ -728,6 +728,9 @@ func runExportList(ctx context.Context, dynClient dynamic.Interface, namespace s
 	sub := "list"
 	if len(args) > 0 {
 		sub = args[0]
+	} else {
+		// Small UX hint when user types just "kubectl attune export"
+		fmt.Fprintln(os.Stderr, "(defaulting to 'list')")
 	}
 	if sub != "list" {
 		fmt.Fprintf(os.Stderr, "Error: 'export' supports only the 'list' subcommand (kubectl attune export or kubectl attune export list)\n")

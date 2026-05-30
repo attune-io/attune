@@ -2430,6 +2430,45 @@ func TestRun_ExportList_BadSubcommand(t *testing.T) {
 	assert.Equal(t, 1, code)
 }
 
+func TestRun_ExportList_HappyPath(t *testing.T) {
+	scheme := runtime.NewScheme()
+
+	cm := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata": map[string]interface{}{
+				"name":      "my-team-my-service-recommendations",
+				"namespace": "default",
+				"labels": map[string]interface{}{
+					"attune.io/policy":   "my-team",
+					"attune.io/workload": "my-service",
+				},
+			},
+			"data": map[string]interface{}{
+				"workload":            "my-service",
+				"kind":                "Deployment",
+				"main.cpu-request":    "150m",
+				"main.memory-request": "256Mi",
+				"last-updated":        "2026-05-30T12:00:00Z",
+			},
+		},
+	}
+
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{
+			gvr:   "AttunePolicyList",
+			cmGVR: "ConfigMapList",
+		},
+		cm,
+	)
+
+	// Exercise runExportList directly (the main dispatch logic for the export command)
+	// This is much closer to the real command path than calling printExportList in isolation.
+	code := runExportList(context.Background(), dynClient, "default", false, []string{"list"})
+	assert.Equal(t, 0, code)
+}
+
 func TestPrintExportList(t *testing.T) {
 	scheme := runtime.NewScheme()
 
@@ -2744,9 +2783,9 @@ func TestPrintExportList_DerivationWarning(t *testing.T) {
 				},
 			},
 			"data": map[string]interface{}{
-				"kind":               "Deployment",
-				"main.cpu-request":   "100m",
-				"last-updated":       "2026-05-30T12:00:00Z",
+				"kind":             "Deployment",
+				"main.cpu-request": "100m",
+				"last-updated":     "2026-05-30T12:00:00Z",
 			},
 		},
 	}
