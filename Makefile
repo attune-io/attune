@@ -118,7 +118,7 @@ ci-runner-status: ## Show queued/in-progress CI runs
 	fi
 
 .PHONY: verify-quick
-verify-quick: lint yaml-lint test helm-lint helm-docs-check helm-unittest verify-boilerplate tidy-check verify-doc-defaults verify-helm-rbac verify-dashboard-metrics verify-doc-tool-versions verify-prometheusrule-metrics verify-release-artifacts ## Fast pre-commit checks (no integration tests or govulncheck)
+verify-quick: lint yaml-lint lint-chainsaw test helm-lint helm-docs-check helm-unittest verify-boilerplate tidy-check verify-doc-defaults verify-helm-rbac verify-dashboard-metrics verify-doc-tool-versions verify-prometheusrule-metrics verify-release-artifacts ## Fast pre-commit checks (no integration tests or govulncheck)
 
 .PHONY: verify
 verify: verify-quick test-integration govulncheck ## Run all CI checks locally (includes integration tests)
@@ -166,11 +166,15 @@ yaml-lint: ## Lint YAML files (mirrors CI)
 	@command -v yamllint >/dev/null 2>&1 || python3 -c "import yamllint" 2>/dev/null || { echo "Installing yamllint..."; python3 -m pip install --user --break-system-packages yamllint 2>/dev/null || python3 -m pip install --user yamllint; }
 	@if command -v yamllint >/dev/null 2>&1; then \
 		yamllint -d '{extends: default, rules: {line-length: {max: 200}, truthy: {check-keys: false}, indentation: {spaces: 2, indent-sequences: whatever}}}' \
-			config/ charts/attune/Chart.yaml charts/attune/values.yaml charts/attune/ci/; \
+			config/ charts/attune/Chart.yaml charts/attune/values.yaml charts/attune/ci/ test/e2e/; \
 	else \
 		python3 -m yamllint -d '{extends: default, rules: {line-length: {max: 200}, truthy: {check-keys: false}, indentation: {spaces: 2, indent-sequences: whatever}}}' \
-			config/ charts/attune/Chart.yaml charts/attune/values.yaml charts/attune/ci/; \
+			config/ charts/attune/Chart.yaml charts/attune/values.yaml charts/attune/ci/ test/e2e/; \
 	fi
+
+.PHONY: lint-chainsaw
+lint-chainsaw: chainsaw ## Fast validation of Chainsaw test definitions (no cluster required)
+	$(CHAINSAW) test test/e2e/ --config .chainsaw.yaml --dry-run
 
 .PHONY: lint-fix
 lint-fix: golangci-lint ## Run golangci-lint with auto-fix
