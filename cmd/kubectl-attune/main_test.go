@@ -2562,6 +2562,67 @@ func TestPrintExportList_NoConfigMaps(t *testing.T) {
 	assert.Contains(t, output, "No exported recommendation ConfigMaps found")
 }
 
+func TestPrintExportList_DerivationWarning(t *testing.T) {
+	scheme := runtime.NewScheme()
+
+	// ConfigMap that is missing the attune.io/workload label and data["workload"].
+	// The name also does not follow the expected convention relative to the policy label,
+	// so name derivation will fail and the warning should be emitted.
+	badCM := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata": map[string]interface{}{
+				"name":      "random-configmap-name-that-wont-parse",
+				"namespace": "production",
+				"labels": map[string]interface{}{
+					"attune.io/policy": "bad-policy",
+				},
+			},
+			"data": map[string]interface{}{
+				"kind":               "Deployment",
+				"main.cpu-request":   "100m",
+				"last-updated":       "2026-05-30T12:00:00Z",
+			},
+		},
+	}
+
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{
+			gvr:   "AttunePolicyList",
+			cmGVR: "ConfigMapList",
+		},
+		badCM,
+	)
+
+	// Capture both stdout and stderr
+	oldOut := os.Stdout
+	oldErr := os.Stderr
+	rOut, wOut, _ := os.Pipe()
+	rErr, wErr, _ := os.Pipe()
+	os.Stdout = wOut
+	os.Stderr = wErr
+
+	printExportList(context.Background(), dynClient, "production", false)
+
+	wOut.Close()
+	wErr.Close()
+	os.Stdout = oldOut
+	os.Stderr = oldErr
+
+	var bufOut, bufErr bytes.Buffer
+	bufOut.ReadFrom(rOut)
+	bufErr.ReadFrom(rErr)
+
+	output := bufOut.String()
+	stderr := bufErr.String()
+
+	assert.Contains(t, output, "bad-policy")
+	assert.Contains(t, output, "-") // workload should be '-'
+	assert.Contains(t, stderr, "Warning: could not determine workload name")
+	assert.Contains(t, stderr, "missing attune.io/workload label")
+}
+
 func TestWorkloadFromConfigMap(t *testing.T) {
 	tests := []struct {
 		name     string

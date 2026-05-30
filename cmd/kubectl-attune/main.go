@@ -772,8 +772,11 @@ func printExportList(ctx context.Context, dynClient dynamic.Interface, namespace
 		return nil
 	}
 
-	w := tabwriter.NewWriter(os.Stdout, 0, 4, 3, ' ', 0)
-	fmt.Fprintln(w, "NAMESPACE\tPOLICY\tWORKLOAD\tKIND\tCONTAINERS\tLAST UPDATED")
+	// Collect rows first so we can sort them for stable, predictable output.
+	type row struct {
+		ns, policy, workload, kind, contStr, last string
+	}
+	var rows []row
 
 	for _, cm := range cms.Items {
 		ns := cm.GetNamespace()
@@ -816,7 +819,25 @@ func printExportList(ctx context.Context, dynClient dynamic.Interface, namespace
 			contStr = fmt.Sprintf("%d", containerCount)
 		}
 
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", ns, policy, workload, kind, contStr, last)
+		rows = append(rows, row{ns, policy, workload, kind, contStr, last})
+	}
+
+	// Sort for deterministic, user-friendly output (namespace → policy → workload)
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].ns != rows[j].ns {
+			return rows[i].ns < rows[j].ns
+		}
+		if rows[i].policy != rows[j].policy {
+			return rows[i].policy < rows[j].policy
+		}
+		return rows[i].workload < rows[j].workload
+	})
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 4, 3, ' ', 0)
+	fmt.Fprintln(w, "NAMESPACE\tPOLICY\tWORKLOAD\tKIND\tCONTAINERS\tLAST UPDATED")
+
+	for _, r := range rows {
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", r.ns, r.policy, r.workload, r.kind, r.contStr, r.last)
 	}
 
 	if err := w.Flush(); err != nil {
