@@ -8127,6 +8127,40 @@ func TestTryEvictionFallback_EvictionDeniedByPDB(t *testing.T) {
 	assert.False(t, evicted, "should return false when eviction is denied by PDB")
 }
 
+func TestTryEvictionFallback_ListErrorSkipsEviction(t *testing.T) {
+	pod := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.ResizeMethod = attunev1alpha1.ResizeMethodInPlaceOrRecreate
+
+	clientset := kubefake.NewSimpleClientset(pod)
+	scheme := testScheme()
+	// Use an interceptor to make List fail, simulating API server unreachable.
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(policy, deploy, pod).
+		WithInterceptorFuncs(interceptor.Funcs{
+			List: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) error {
+				return fmt.Errorf("connection refused")
+			},
+		}).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
+	resizer := resize.NewPodResizer(clientset, ctrl.Log)
+
+	evicted := r.tryEvictionFallback(context.Background(), policy, pod, deploy,
+		"api-server", "app", resizer)
+	assert.False(t, evicted, "should skip eviction when pod list fails")
+
+	// Verify no eviction was attempted.
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "create" && a.GetResource().Resource == "pods" && a.GetSubresource() == "eviction" {
+			t.Error("eviction should not be attempted when List fails")
+		}
+	}
+}
+
 func TestTryEvictionFallback_NilSelectorSkipsEviction(t *testing.T) {
 	pod := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
 	// Create a deployment with nil Selector to exercise the nil-guard.
