@@ -811,9 +811,7 @@ func (r *AttunePolicyReconciler) setReadyCondition(
 // AttunePolicy is being deleted. Only pods tagged with annotationPolicy
 // matching this policy's name are cleaned. After cleanup, the finalizer is
 // removed so Kubernetes can garbage-collect the resource.
-//
-//nolint:unparam // ctrl.Result is always zero but the signature matches controller-runtime convention
-func (r *AttunePolicyReconciler) handleDeletion(ctx context.Context, policy *attunev1alpha1.AttunePolicy) (ctrl.Result, error) {
+func (r *AttunePolicyReconciler) handleDeletion(ctx context.Context, policy *attunev1alpha1.AttunePolicy) (ctrl.Result, error) { //nolint:unparam // ctrl.Result always zero, signature matches controller-runtime convention
 	logger := log.FromContext(ctx)
 
 	if !controllerutil.ContainsFinalizer(policy, finalizerName) {

@@ -35,8 +35,6 @@ import (
 // VPA target values as the raw recommendation input. The VPA target is fed into
 // the standard recommendation engines (overhead, confidence, bounds, change
 // filter) as a synthetic UsageProfile.
-//
-//nolint:unparam // error return is part of the interface contract for future use
 func (r *AttunePolicyReconciler) computeVPARecommendationsForWorkload(
 	ctx context.Context,
 	policy *attunev1alpha1.AttunePolicy,
@@ -44,7 +42,7 @@ func (r *AttunePolicyReconciler) computeVPARecommendationsForWorkload(
 	vpaRecs []rsmetrics.VPAContainerRecommendation,
 	cpuEngine, memEngine *recommendation.RecommendationEngine,
 	excludeSet map[string]bool,
-) (rec *attunev1alpha1.WorkloadRecommendation, maxDataPoints int, err error) {
+) (rec *attunev1alpha1.WorkloadRecommendation, maxDataPoints int, err error) { //nolint:unparam // error return kept for interface contract
 	logger := log.FromContext(ctx)
 	containers := r.getContainers(workload)
 	if len(containers) == 0 {

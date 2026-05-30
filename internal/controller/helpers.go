@@ -410,10 +410,8 @@ func (r *AttunePolicyReconciler) markResizeTime(ctx context.Context, policy *att
 }
 
 // appendHistory appends new entries to existing history, capping at maxEntries.
-//
-//nolint:unparam // maxEntries is a parameter for configurability
 func appendHistory(existing []attunev1alpha1.ResizeHistoryEntry,
-	newEntries []attunev1alpha1.ResizeHistoryEntry, maxEntries int,
+	newEntries []attunev1alpha1.ResizeHistoryEntry, maxEntries int, //nolint:unparam // parameter kept for configurability
 ) []attunev1alpha1.ResizeHistoryEntry {
 	result := append(existing, newEntries...)
 	if len(result) > maxEntries {

@@ -71,6 +71,8 @@ linters:
         linters: [gosec, bodyclose, forbidigo]
       - path: cmd/kubectl-attune/
         linters: [forbidigo]
+      - path: zz_generated
+        linters: [goimports]
 
 formatters:
   enable:
