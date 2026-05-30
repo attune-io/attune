@@ -148,12 +148,7 @@ spec:
                       echo "ConfigMap $cm missing recommendation data"
                       exit 1
                     fi
-                    WL=$(echo "$DATA" | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-labels = d.get('metadata', {}).get('labels', {})
-print(labels.get('attune.io/workload', ''))
-" 2>/dev/null)
+                    WL=$(echo "$DATA" | jq -r '.metadata.labels["attune.io/workload"] // ""')
                     if [ -z "$WL" ]; then
                       echo "ConfigMap $cm missing attune.io/workload label (required for orphan cleanup)"
                       exit 1
