@@ -165,4 +165,3 @@ spec:
     - podLogs:
         namespace: attune-system
         selector: app.kubernetes.io/name=attune
-

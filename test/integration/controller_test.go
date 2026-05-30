@@ -319,16 +319,16 @@ func newTestPolicy(name, namespace, deploymentName string) *attunev1alpha1.Attun
 				MinimumDataPoints: int32Ptr(1),
 			},
 			CPU: attunev1alpha1.ResourceConfig{
-				Percentile:   95,
-				Overhead: "20",
-				MinAllowed:   quantityPtr("50m"),
-				MaxAllowed:   quantityPtr("4000m"),
+				Percentile: 95,
+				Overhead:   "20",
+				MinAllowed: quantityPtr("50m"),
+				MaxAllowed: quantityPtr("4000m"),
 			},
 			Memory: attunev1alpha1.ResourceConfig{
-				Percentile:   99,
-				Overhead: "30",
-				MinAllowed:   quantityPtr("64Mi"),
-				MaxAllowed:   quantityPtr("8Gi"),
+				Percentile: 99,
+				Overhead:   "30",
+				MinAllowed: quantityPtr("64Mi"),
+				MaxAllowed: quantityPtr("8Gi"),
 			},
 			UpdateStrategy: attunev1alpha1.UpdateStrategy{
 				Type: attunev1alpha1.UpdateTypeRecommend,
@@ -341,7 +341,6 @@ func newTestPolicy(name, namespace, deploymentName string) *attunev1alpha1.Attun
 }
 
 func TestReconcile_CreatesPolicy_BecomesReady(t *testing.T) {
-
 	namespace := "integration-test"
 
 	// Create a Deployment.
@@ -368,7 +367,6 @@ func TestReconcile_CreatesPolicy_BecomesReady(t *testing.T) {
 }
 
 func TestReconcile_PolicyWithNoWorkloads_SetsNoWorkloadsFound(t *testing.T) {
-
 	namespace := "integration-test"
 
 	// Create a policy targeting a non-existent Deployment.
@@ -395,7 +393,6 @@ func TestReconcile_PolicyWithNoWorkloads_SetsNoWorkloadsFound(t *testing.T) {
 }
 
 func TestReconcile_DeletedPolicy_NoError(t *testing.T) {
-
 	namespace := "integration-test"
 
 	// Create and delete a policy.
@@ -459,12 +456,12 @@ func TestReconcile_LabelSelectorTargetsMultipleWorkloads(t *testing.T) {
 				MinimumDataPoints: int32Ptr(1),
 			},
 			CPU: attunev1alpha1.ResourceConfig{
-				Percentile:   95,
-				Overhead: "20",
+				Percentile: 95,
+				Overhead:   "20",
 			},
 			Memory: attunev1alpha1.ResourceConfig{
-				Percentile:   99,
-				Overhead: "30",
+				Percentile: 99,
+				Overhead:   "30",
 			},
 			UpdateStrategy: attunev1alpha1.UpdateStrategy{
 				Type:     "Recommend",
@@ -521,12 +518,12 @@ func TestReconcile_DefaultsMergingFromClusterDefaults(t *testing.T) {
 		},
 		Spec: attunev1alpha1.AttuneDefaultsSpec{
 			CPU: &attunev1alpha1.ResourceConfig{
-				Percentile:   90,
-				Overhead: "50",
+				Percentile: 90,
+				Overhead:   "50",
 			},
 			Memory: &attunev1alpha1.ResourceConfig{
-				Percentile:   95,
-				Overhead: "40",
+				Percentile: 95,
+				Overhead:   "40",
 			},
 		},
 	}
@@ -583,12 +580,12 @@ func TestReconcile_NamespaceDefaultsDoNotMergeClusterResourceFields(t *testing.T
 		ObjectMeta: metav1.ObjectMeta{Name: "cluster-defaults"},
 		Spec: attunev1alpha1.AttuneDefaultsSpec{
 			CPU: &attunev1alpha1.ResourceConfig{
-				Percentile:   90,
-				Overhead: "50",
+				Percentile: 90,
+				Overhead:   "50",
 			},
 			Memory: &attunev1alpha1.ResourceConfig{
-				Percentile:   95,
-				Overhead: "40",
+				Percentile: 95,
+				Overhead:   "40",
 			},
 		},
 	}
@@ -601,8 +598,8 @@ func TestReconcile_NamespaceDefaultsDoNotMergeClusterResourceFields(t *testing.T
 		ObjectMeta: metav1.ObjectMeta{Name: "namespace-defaults", Namespace: namespace},
 		Spec: attunev1alpha1.AttuneDefaultsSpec{
 			CPU: &attunev1alpha1.ResourceConfig{
-				Percentile:   99,
-				Overhead: "20",
+				Percentile: 99,
+				Overhead:   "20",
 			},
 		},
 	}
@@ -653,7 +650,6 @@ func TestReconcile_NamespaceDefaultsDoNotMergeClusterResourceFields(t *testing.T
 	assert.Empty(t, created.Spec.CPU.Overhead, "webhook should not prefill CPU overhead")
 	assert.Zero(t, created.Spec.Memory.Percentile, "webhook should not prefill memory percentile")
 	assert.Empty(t, created.Spec.Memory.Overhead, "webhook should not prefill memory overhead")
-
 }
 
 func TestReconcile_ScheduleGateBlocksResizeOutsideWindow(t *testing.T) {
@@ -753,12 +749,12 @@ func TestReconcile_ConcurrentResizesFieldProcessedWithoutRaces(t *testing.T) {
 				MinimumDataPoints: int32Ptr(1),
 			},
 			CPU: attunev1alpha1.ResourceConfig{
-				Percentile:   95,
-				Overhead: "20",
+				Percentile: 95,
+				Overhead:   "20",
 			},
 			Memory: attunev1alpha1.ResourceConfig{
-				Percentile:   99,
-				Overhead: "30",
+				Percentile: 99,
+				Overhead:   "30",
 			},
 			UpdateStrategy: attunev1alpha1.UpdateStrategy{
 				Type:                 "Recommend",

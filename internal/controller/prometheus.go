@@ -214,8 +214,6 @@ func collectorCacheKey(config *attunev1alpha1.PrometheusConfig, opts *rsmetrics.
 	return key
 }
 
-//
-//nolint:unparam // error return is part of the interface contract for future use
 func (r *AttunePolicyReconciler) computeRecommendations(
 	ctx context.Context,
 	policy *attunev1alpha1.AttunePolicy,
@@ -224,7 +222,7 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 	qb rsmetrics.QueryBuilder,
 	cpuEngine, memEngine *recommendation.RecommendationEngine,
 	excludeSet map[string]bool,
-) (rec *attunev1alpha1.WorkloadRecommendation, queryErrors int, failedMetricTypes []string, maxDataPoints int, err error) {
+) (rec *attunev1alpha1.WorkloadRecommendation, queryErrors int, failedMetricTypes []string, maxDataPoints int, err error) { //nolint:unparam // error return kept for interface contract
 	logger := log.FromContext(ctx)
 	containers := r.getContainers(workload)
 	if len(containers) == 0 {

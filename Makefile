@@ -165,16 +165,18 @@ lint: golangci-lint ## Run golangci-lint
 yaml-lint: ## Lint YAML files (mirrors CI)
 	@command -v yamllint >/dev/null 2>&1 || python3 -c "import yamllint" 2>/dev/null || { echo "Installing yamllint..."; python3 -m pip install --user --break-system-packages yamllint 2>/dev/null || python3 -m pip install --user yamllint; }
 	@if command -v yamllint >/dev/null 2>&1; then \
-		yamllint -d '{extends: default, rules: {line-length: {max: 200}, truthy: {check-keys: false}, indentation: {spaces: 2, indent-sequences: whatever}}}' \
+		yamllint -d '{extends: default, rules: {line-length: {max: 200}, truthy: {check-keys: false}, indentation: {spaces: 2, indent-sequences: whatever}, document-start: disable}}' \
 			config/ charts/attune/Chart.yaml charts/attune/values.yaml charts/attune/ci/ test/e2e/; \
 	else \
-		python3 -m yamllint -d '{extends: default, rules: {line-length: {max: 200}, truthy: {check-keys: false}, indentation: {spaces: 2, indent-sequences: whatever}}}' \
+		python3 -m yamllint -d '{extends: default, rules: {line-length: {max: 200}, truthy: {check-keys: false}, indentation: {spaces: 2, indent-sequences: whatever}, document-start: disable}}' \
 			config/ charts/attune/Chart.yaml charts/attune/values.yaml charts/attune/ci/ test/e2e/; \
 	fi
 
 .PHONY: lint-chainsaw
 lint-chainsaw: chainsaw ## Fast validation of Chainsaw test definitions (no cluster required)
-	$(CHAINSAW) test test/e2e/ --config .chainsaw.yaml --dry-run
+	@for f in test/e2e/*/chainsaw-test.yaml; do \
+		$(CHAINSAW) lint test -f "$$f" || exit 1; \
+	done
 
 .PHONY: lint-fix
 lint-fix: golangci-lint ## Run golangci-lint with auto-fix
