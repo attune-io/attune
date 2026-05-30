@@ -807,13 +807,19 @@ func printExportList(ctx context.Context, dynClient dynamic.Interface, namespace
 		if last == "" {
 			last = "-"
 		}
-		// count containers by .cpu-request suffix keys
-		containerCount := 0
+		// Count unique containers by looking for any key starting with "<container>."
+		// (either cpu-request or memory-request). This is more robust than only
+		// counting .cpu-request.
+		seenContainers := make(map[string]struct{})
 		for k := range data {
-			if strings.HasSuffix(k, ".cpu-request") {
-				containerCount++
+			if idx := strings.Index(k, "."); idx > 0 {
+				prefix := k[:idx]
+				if strings.HasSuffix(k, ".cpu-request") || strings.HasSuffix(k, ".memory-request") {
+					seenContainers[prefix] = struct{}{}
+				}
 			}
 		}
+		containerCount := len(seenContainers)
 		contStr := "-"
 		if containerCount > 0 {
 			contStr = fmt.Sprintf("%d", containerCount)

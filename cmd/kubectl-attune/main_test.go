@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -2533,6 +2534,169 @@ func TestPrintExportList(t *testing.T) {
 	assert.Contains(t, output, "2026-05-30T12:00:00Z")
 	assert.Contains(t, output, "2026-05-30T12:05:00Z")
 	assert.Contains(t, output, "2026-05-30T12:10:00Z")
+
+	// Verify sorted order (namespace, then policy, then workload)
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	// Skip header
+	dataLines := lines[1:]
+	assert.GreaterOrEqual(t, len(dataLines), 3)
+	// Rough order check: my-app entries should come before any other, and within same ns/policy, workloads are sorted
+	assert.Contains(t, strings.Join(dataLines, "\n"), "my-deployment")
+	assert.Contains(t, strings.Join(dataLines, "\n"), "my-fancy-deployment")
+}
+
+func TestPrintExportList_AllNamespaces(t *testing.T) {
+	scheme := runtime.NewScheme()
+
+	cmNs1 := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata": map[string]interface{}{
+				"name":      "team-a-app1-recommendations",
+				"namespace": "ns-one",
+				"labels": map[string]interface{}{
+					"attune.io/policy":   "team-a",
+					"attune.io/workload": "app1",
+				},
+			},
+			"data": map[string]interface{}{
+				"workload":         "app1",
+				"kind":             "Deployment",
+				"main.cpu-request": "100m",
+			},
+		},
+	}
+
+	cmNs2 := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata": map[string]interface{}{
+				"name":      "team-b-app2-recommendations",
+				"namespace": "ns-two",
+				"labels": map[string]interface{}{
+					"attune.io/policy":   "team-b",
+					"attune.io/workload": "app2",
+				},
+			},
+			"data": map[string]interface{}{
+				"workload":         "app2",
+				"kind":             "Deployment",
+				"main.cpu-request": "200m",
+			},
+		},
+	}
+
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{
+			gvr:   "AttunePolicyList",
+			cmGVR: "ConfigMapList",
+		},
+		cmNs1, cmNs2,
+	)
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	printExportList(context.Background(), dynClient, "", true) // all namespaces
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	output := buf.String()
+
+	assert.Contains(t, output, "ns-one")
+	assert.Contains(t, output, "ns-two")
+	assert.Contains(t, output, "team-a")
+	assert.Contains(t, output, "team-b")
+}
+
+func TestPrintExportList_MixedGoodAndBad(t *testing.T) {
+	scheme := runtime.NewScheme()
+
+	goodCM := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata": map[string]interface{}{
+				"name":      "good-policy-good-workload-recommendations",
+				"namespace": "default",
+				"labels": map[string]interface{}{
+					"attune.io/policy":   "good-policy",
+					"attune.io/workload": "good-workload",
+				},
+			},
+			"data": map[string]interface{}{
+				"workload":         "good-workload",
+				"kind":             "Deployment",
+				"main.cpu-request": "50m",
+			},
+		},
+	}
+
+	badCM := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata": map[string]interface{}{
+				"name":      "totally-unrelated-configmap-name",
+				"namespace": "default",
+				"labels": map[string]interface{}{
+					"attune.io/policy": "bad-policy",
+				},
+			},
+			"data": map[string]interface{}{
+				"kind":             "Deployment",
+				"main.cpu-request": "10m",
+			},
+		},
+	}
+
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{
+			gvr:   "AttunePolicyList",
+			cmGVR: "ConfigMapList",
+		},
+		goodCM, badCM,
+	)
+
+	oldOut := os.Stdout
+	oldErr := os.Stderr
+	rOut, wOut, _ := os.Pipe()
+	rErr, wErr, _ := os.Pipe()
+	os.Stdout = wOut
+	os.Stderr = wErr
+
+	printExportList(context.Background(), dynClient, "default", false)
+
+	wOut.Close()
+	wErr.Close()
+	os.Stdout = oldOut
+	os.Stderr = oldErr
+
+	var bufOut, bufErr bytes.Buffer
+	bufOut.ReadFrom(rOut)
+	bufErr.ReadFrom(rErr)
+
+	output := bufOut.String()
+	stderr := bufErr.String()
+
+	// Good data should still appear
+	assert.Contains(t, output, "good-policy")
+	assert.Contains(t, output, "good-workload")
+
+	// Bad row should show '-' for workload (derivation failed)
+	assert.Contains(t, output, "bad-policy")
+	assert.Contains(t, output, "-               Deployment") // workload column shows '-' for the bad row (tabwriter spacing)
+
+	// Warning should have fired once
+	assert.Contains(t, stderr, "Warning: could not determine workload name")
 }
 
 func TestPrintExportList_NoConfigMaps(t *testing.T) {
