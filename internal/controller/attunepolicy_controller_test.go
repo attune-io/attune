@@ -8471,6 +8471,51 @@ func TestExportRecommendationConfigMaps_OrphanCleanup(t *testing.T) {
 	assert.True(t, apierrors.IsNotFound(err), "orphaned ConfigMap should be deleted")
 }
 
+func TestExportRecommendationConfigMaps_SkipsLongName(t *testing.T) {
+	scheme := testScheme()
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-policy",
+			Namespace: "default",
+			UID:       "abc-123",
+		},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(policy).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.SetNowFunc(func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) })
+
+	// Build a workload name that makes the ConfigMap name exceed 253 chars.
+	// Format: "test-policy-<workload>-recommendations" = 12 + len(workload) + 16 = 28 + len(workload)
+	// Need 28 + len(workload) > 253, so len(workload) >= 226
+	longWorkload := strings.Repeat("x", 226)
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		{
+			Workload: longWorkload,
+			Kind:     "Deployment",
+			Containers: []attunev1alpha1.ContainerRecommendation{
+				{Name: "main", Confidence: 0.9, Recommended: attunev1alpha1.ResourceValues{
+					CPURequest:    resource.MustParse("100m"),
+					MemoryRequest: resource.MustParse("128Mi"),
+				}},
+			},
+		},
+	}
+
+	r.exportRecommendationConfigMaps(context.Background(), policy, recs)
+
+	// ConfigMap should NOT have been created because the name exceeds 253 chars.
+	cmName := fmt.Sprintf("test-policy-%s-recommendations", longWorkload)
+	assert.Greater(t, len(cmName), 253)
+	var cm corev1.ConfigMap
+	err := fakeClient.Get(context.Background(), client.ObjectKey{
+		Namespace: "default",
+		Name:      cmName,
+	}, &cm)
+	assert.True(t, apierrors.IsNotFound(err), "ConfigMap with name >253 chars should not be created")
+}
+
 func TestAdjustHPATargets_ScalesTargetUtilization(t *testing.T) {
 	scheme := testScheme()
 	oldTarget := int32(80)

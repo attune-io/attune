@@ -2889,5 +2889,45 @@ func TestWorkloadFromConfigMap(t *testing.T) {
 	}
 }
 
+func TestIsNoResourceMatch(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{
+			name:     "nil error",
+			err:      nil,
+			expected: false,
+		},
+		{
+			name:     "server could not find the requested resource",
+			err:      fmt.Errorf("the server could not find the requested resource"),
+			expected: true,
+		},
+		{
+			name:     "no matches for kind",
+			err:      fmt.Errorf("no matches for kind \"AttunePolicy\" in version \"attune.io/v1alpha1\""),
+			expected: true,
+		},
+		{
+			name:     "wrapped error with resource not found",
+			err:      fmt.Errorf("failed to list: %w", fmt.Errorf("the server could not find the requested resource")),
+			expected: true,
+		},
+		{
+			name:     "unrelated error",
+			err:      fmt.Errorf("connection refused"),
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, isNoResourceMatch(tt.err))
+		})
+	}
+}
+
 func ptrInt32(v int32) *int32 { return &v }
 func ptrBool(v bool) *bool    { return &v }
