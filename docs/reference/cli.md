@@ -140,7 +140,7 @@ The `LAST UPDATED` column shows the RFC3339 timestamp when the operator last wro
 GitOps system should consume; `kubectl attune recommendations` shows the same values from status (except
 in Observe mode, where only the ConfigMaps are populated).
 
-See [GitOps Integration guide](../guides/gitops-integration.md) for the full workflow.
+See the [GitOps Integration guide](https://github.com/attune-io/attune/blob/main/docs/guides/gitops-integration.md) for the full workflow.
 
 ### explain
 
