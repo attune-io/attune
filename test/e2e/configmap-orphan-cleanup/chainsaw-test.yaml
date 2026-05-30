@@ -1,0 +1,226 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: configmap-orphan-cleanup
+spec:
+  description: |
+    Verify orphan recommendation ConfigMap cleanup when workloads leave policy scope.
+    This exercises the export GitOps path + the label-based diff logic in
+    cleanupOrphanedRecommendationConfigMaps (see #140, #144).
+    A policy with a broad selector exports recommendations for multiple workloads.
+    Narrowing the selector must cause the now-orphaned ConfigMap(s) to be deleted
+    (separate from ownerReference GC on policy deletion).
+  timeouts:
+    apply: 30s
+    assert: 5m
+    delete: 30s
+  steps:
+    - name: create-resources
+      try:
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: e2e-configmap-orphan
+        - apply:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: api-1
+                namespace: e2e-configmap-orphan
+                labels:
+                  tier: api
+              spec:
+                replicas: 1
+                selector:
+                  matchLabels:
+                    app: api-1
+                template:
+                  metadata:
+                    labels:
+                      app: api-1
+                      tier: api
+                  spec:
+                    containers:
+                      - name: app
+                        image: registry.k8s.io/pause:3.9
+                        resources:
+                          requests:
+                            cpu: 100m
+                            memory: 128Mi
+        - apply:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: worker-1
+                namespace: e2e-configmap-orphan
+                labels:
+                  tier: worker
+              spec:
+                replicas: 1
+                selector:
+                  matchLabels:
+                    app: worker-1
+                template:
+                  metadata:
+                    labels:
+                      app: worker-1
+                      tier: worker
+                  spec:
+                    containers:
+                      - name: app
+                        image: registry.k8s.io/pause:3.9
+                        resources:
+                          requests:
+                            cpu: 150m
+                            memory: 192Mi
+        - apply:
+            resource:
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
+              metadata:
+                name: orphan-test
+                namespace: e2e-configmap-orphan
+              spec:
+                selector:
+                  matchExpressions:
+                    - key: tier
+                      operator: In
+                      values: ["api", "worker"]
+                metricsSource:
+                  prometheus:
+                    address: http://prometheus-server.monitoring:80
+                  minimumDataPoints: 1
+                  historyWindow: 1h
+                cpu:
+                  percentile: 95
+                  overhead: "20"
+                memory:
+                  percentile: 99
+                  overhead: "30"
+                updateStrategy:
+                  type: Recommend
+                  cooldown: 1m
+                  export:
+                    configMap: true
+
+    - name: verify-deployments-ready
+      try:
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: api-1
+                namespace: e2e-configmap-orphan
+              status:
+                readyReplicas: 1
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: worker-1
+                namespace: e2e-configmap-orphan
+              status:
+                readyReplicas: 1
+
+    - name: verify-both-configmaps-created
+      try:
+        - script:
+            timeout: 4m
+            content: |
+              set -e
+              for i in $(seq 1 48); do
+                COUNT=$(kubectl get configmap -n e2e-configmap-orphan \
+                  -l 'attune.io/policy=orphan-test' \
+                  --no-headers 2>/dev/null | wc -l | tr -d ' ')
+                if [ "$COUNT" = "2" ]; then
+                  echo "Both recommendation ConfigMaps found (count=$COUNT)"
+                  # Verify labels and that they contain recommendation data
+                  for cm in $(kubectl get configmap -n e2e-configmap-orphan \
+                    -l 'attune.io/policy=orphan-test' -o jsonpath='{.items[*].metadata.name}'); do
+                    DATA=$(kubectl get configmap "$cm" -n e2e-configmap-orphan -o json)
+                    if ! echo "$DATA" | grep -q "confidence"; then
+                      echo "ConfigMap $cm missing recommendation data"
+                      exit 1
+                    fi
+                    WL=$(echo "$DATA" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+labels = d.get('metadata', {}).get('labels', {})
+print(labels.get('attune.io/workload', ''))
+" 2>/dev/null)
+                    if [ -z "$WL" ]; then
+                      echo "ConfigMap $cm missing attune.io/workload label (required for orphan cleanup)"
+                      exit 1
+                    fi
+                    echo "  $cm: workload=$WL OK"
+                  done
+                  exit 0
+                fi
+                echo "Waiting for 2 ConfigMaps (have $COUNT)..."
+                sleep 5
+              done
+              echo "Did not get 2 recommendation ConfigMaps"
+              kubectl get configmap -n e2e-configmap-orphan -l 'attune.io/policy=orphan-test' -o yaml
+              kubectl get attunepolicy orphan-test -n e2e-configmap-orphan -o yaml
+              exit 1
+
+    - name: narrow-selector-to-exclude-worker
+      try:
+        - patch:
+            resource:
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
+              metadata:
+                name: orphan-test
+                namespace: e2e-configmap-orphan
+              spec:
+                selector:
+                  matchLabels:
+                    tier: api
+
+    - name: verify-orphaned-configmap-deleted
+      try:
+        - script:
+            timeout: 3m
+            content: |
+              set -e
+              # After selector change, the worker-1 recommendations ConfigMap must be deleted
+              # by the orphan cleanup logic (while api-1's remains).
+              for i in $(seq 1 36); do
+                REMAINING=$(kubectl get configmap -n e2e-configmap-orphan \
+                  -l 'attune.io/policy=orphan-test' \
+                  --no-headers 2>/dev/null | wc -l | tr -d ' ')
+                if [ "$REMAINING" = "1" ]; then
+                  # Confirm the remaining one is for api-1, not worker-1
+                  LEFT=$(kubectl get configmap -n e2e-configmap-orphan \
+                    -l 'attune.io/policy=orphan-test' -o jsonpath='{.items[0].metadata.labels.attune\.io/workload}' 2>/dev/null)
+                  if [ "$LEFT" = "api-1" ]; then
+                    echo "Orphan cleanup successful: only api-1 ConfigMap remains (worker-1 was deleted)"
+                    exit 0
+                  else
+                    echo "Unexpected remaining workload: $LEFT (expected api-1)"
+                    exit 1
+                  fi
+                fi
+                echo "Waiting for orphan cleanup (still $REMAINING ConfigMap(s))..."
+                sleep 5
+              done
+              echo "Orphan cleanup did not complete in time"
+              kubectl get configmap -n e2e-configmap-orphan -l 'attune.io/policy=orphan-test' -o yaml
+              kubectl get attunepolicy orphan-test -n e2e-configmap-orphan -o yaml
+              kubectl -n attune-system logs -l app.kubernetes.io/name=attune --tail=200 --since=5m
+              exit 1
+  catch:
+    - describe:
+        apiVersion: attune.io/v1alpha1
+        kind: AttunePolicy
+        namespace: e2e-configmap-orphan
+    - podLogs:
+        namespace: attune-system
+        selector: app.kubernetes.io/name=attune
