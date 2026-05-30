@@ -8440,10 +8440,9 @@ func TestExportRecommendationConfigMaps_OrphanCleanup(t *testing.T) {
 	}
 
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(policy, activeCM, orphanCM).Build()
-	r := &AttunePolicyReconciler{
-		Client: fakeClient,
-		Scheme: scheme,
-	}
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
 
 	recs := []attunev1alpha1.WorkloadRecommendation{
 		{
