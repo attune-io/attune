@@ -44,6 +44,14 @@ func (r *AttunePolicyReconciler) exportRecommendationConfigMaps(
 
 	for _, rec := range recommendations {
 		cmName := fmt.Sprintf("%s-%s-recommendations", policy.Name, rec.Workload)
+		// Kubernetes resource names are limited to 253 characters.
+		if len(cmName) > 253 {
+			logger.Error(nil, "Recommendation ConfigMap name exceeds 253 characters, skipping",
+				"configmap", cmName, "length", len(cmName))
+			r.emitEventOnce(policy, corev1.EventTypeWarning, "ExportFailed", "export",
+				"ConfigMap name %q is %d chars (max 253); shorten the policy or workload name", cmName, len(cmName))
+			continue
+		}
 		data := map[string]string{
 			"workload": rec.Workload,
 			"kind":     rec.Kind,
@@ -93,20 +101,20 @@ func (r *AttunePolicyReconciler) exportRecommendationConfigMaps(
 			}
 			continue
 		}
+		// Use a merge patch to avoid 409 Conflict with concurrent updates
+		// (e.g., GitOps tools annotating the same ConfigMap).
+		patch := client.MergeFrom(existing.DeepCopy())
 		existing.Data = data
-		// Merge operator labels into existing labels instead of replacing
-		// all labels. This preserves labels set by users, GitOps tools, or
-		// other controllers.
 		if existing.Labels == nil {
 			existing.Labels = make(map[string]string)
 		}
 		for k, v := range cm.Labels {
 			existing.Labels[k] = v
 		}
-		if updateErr := r.Update(ctx, &existing); updateErr != nil {
-			logger.Error(updateErr, "Failed to update recommendation ConfigMap", "configmap", cmName)
+		if patchErr := r.Patch(ctx, &existing, patch); patchErr != nil {
+			logger.Error(patchErr, "Failed to patch recommendation ConfigMap", "configmap", cmName)
 			r.emitEventOnce(policy, corev1.EventTypeWarning, "ExportFailed", "export",
-				"Failed to update recommendation ConfigMap %s: %v", cmName, updateErr)
+				"Failed to update recommendation ConfigMap %s: %v", cmName, patchErr)
 		} else {
 			logger.V(1).Info("Exported recommendations to ConfigMap",
 				"configMap", cmName, "workload", rec.Workload)

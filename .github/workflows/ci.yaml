@@ -239,7 +239,26 @@ jobs:
               indent-sequences: whatever
           EOF
           yamllint -c "$yamllint_config" \
-            config/ charts/attune/Chart.yaml charts/attune/values.yaml charts/attune/ci/
+            config/ charts/attune/Chart.yaml charts/attune/values.yaml charts/attune/ci/ test/e2e/
+
+  lint-chainsaw:
+    name: Lint Chainsaw Tests
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 5
+    needs: changes
+    if: needs.changes.outputs.e2e == 'true'
+    steps:
+      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Chainsaw dry-run (parse validation)
+        shell: bash -Eeuo pipefail {0}
+        run: make lint-chainsaw
 
   test-unit:
     name: Unit Tests
@@ -718,6 +737,7 @@ jobs:
     if: always()
     needs:
       - lint
+      - lint-chainsaw
       - docs-check
       - yaml-lint
       - test-unit
@@ -734,6 +754,7 @@ jobs:
         run: |
           results=( \
             "${{ needs.lint.result }}" \
+            "${{ needs.lint-chainsaw.result }}" \
             "${{ needs.docs-check.result }}" \
             "${{ needs.yaml-lint.result }}" \
             "${{ needs.test-unit.result }}" \
