@@ -1,10 +1,9 @@
----
 apiVersion: v2
 name: attune
 description: Safe, in-place Kubernetes pod resource right-sizing operator
 type: application
-version: 0.1.11
-appVersion: "0.1.11"
+version: 0.1.12
+appVersion: 0.1.12
 icon: https://raw.githubusercontent.com/attune-io/attune/main/docs/logo.png
 home: https://github.com/attune-io/attune
 sources:
@@ -21,10 +20,10 @@ keywords:
   - cost-optimization
   - finops
   - in-place-resize
-kubeVersion: ">= 1.32.0-0"
+kubeVersion: '>= 1.32.0-0'
 annotations:
   artifacthub.io/license: Apache-2.0
-  artifacthub.io/operator: "true"
+  artifacthub.io/operator: 'true'
   artifacthub.io/category: monitoring-logging
   artifacthub.io/operatorCapabilities: Auto Pilot
   artifacthub.io/crds: |
