@@ -64,9 +64,12 @@ cosign-signed independently.
 
 ### 6. Helm chart publishing
 
-The Helm chart is published as an OCI artifact to GHCR at
-`ghcr.io/attune-io/charts/attune`. The chart version in
-`charts/attune/Chart.yaml` is bumped automatically by release-please.
+The Helm chart is published as an OCI artifact to two registries:
+
+- **GHCR:** `ghcr.io/attune-io/charts/attune` (primary)
+- **Docker Hub:** `docker.io/attuneio/attune-chart` (separate from the container image repo)
+
+The chart version in `charts/attune/Chart.yaml` is bumped automatically by release-please.
 
 The CI pipeline packages, pushes, and cosign-signs the chart:
 
