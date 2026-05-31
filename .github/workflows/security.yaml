@@ -19,24 +19,48 @@ concurrency:
 
 jobs:
   codeql:
-    name: CodeQL
+    name: CodeQL (${{ matrix.language }})
     permissions:
+      actions: read
       contents: read
       security-events: write
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: go
+            build-mode: manual
+          - language: actions
+            build-mode: none
     steps:
       - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
           egress-policy: audit
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        if: matrix.language == 'go'
+        with:
+          go-version: "1.26"
+          cache: true
+
       - uses: github/codeql-action/init@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
         with:
-          languages: go, actions
-      - uses: github/codeql-action/autobuild@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          queries: security-and-quality
+          dependency-caching: true
+
+      - name: Build (Go)
+        if: matrix.build-mode == 'manual'
+        run: go build ./...
+
       - uses: github/codeql-action/analyze@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
         with:
           upload: always
+          category: "/language:${{ matrix.language }}"
 
   govulncheck:
     name: Govulncheck

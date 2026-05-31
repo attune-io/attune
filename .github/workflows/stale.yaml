@@ -9,6 +9,10 @@ permissions:
   issues: write
   pull-requests: write
 
+concurrency:
+  group: stale
+  cancel-in-progress: true
+
 jobs:
   stale:
     name: Close stale issues and PRs

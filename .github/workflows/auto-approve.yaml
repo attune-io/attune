@@ -1,0 +1,35 @@
+name: Auto Approve
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: auto-approve-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  auto-approve:
+    name: Auto Approve
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.event.pull_request.user.login == 'SebTardif'
+    steps:
+      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - name: Generate App Token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.AUTO_APPROVE_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Auto Approve
+        uses: hmarr/auto-approve-action@f0939ea97e9205ef24d872e76833fa908a770363 # v4.0.0
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
