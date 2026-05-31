@@ -192,6 +192,26 @@ func TestBuildProfile_BurstMagnitude(t *testing.T) {
 	assert.Greater(t, profile.BurstMagnitude, 3.0)
 }
 
+func TestBuildProfile_AllNaNInfReturnsZeroProfile(t *testing.T) {
+	// When every sample is NaN or Inf, validCount hits 0 after the
+	// filtering loop (distinct from empty input which returns early
+	// before the loop). The profile must be zero-valued and safe.
+	samples := []Sample{
+		{Timestamp: makeTimestamp(0, 0, 0), Value: math.NaN()},
+		{Timestamp: makeTimestamp(0, 1, 0), Value: math.Inf(1)},
+		{Timestamp: makeTimestamp(0, 2, 0), Value: math.Inf(-1)},
+		{Timestamp: makeTimestamp(0, 3, 0), Value: math.NaN()},
+	}
+
+	profile := BuildProfile(samples)
+
+	assert.Equal(t, 0, profile.DataPoints)
+	assert.Equal(t, float64(0), profile.Confidence)
+	assert.Equal(t, float64(0), profile.OverallPercentiles.P50)
+	assert.Equal(t, float64(0), profile.OverallPercentiles.Max)
+	assert.False(t, profile.BurstDetected)
+}
+
 func TestBuildProfile_NaNInfFiltered(t *testing.T) {
 	// Mix valid samples with NaN and Inf. The profile should only
 	// contain valid values; NaN/Inf must not corrupt percentiles.

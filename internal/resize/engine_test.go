@@ -981,3 +981,47 @@ func TestClampMemoryLimitForPolicy(t *testing.T) {
 		})
 	}
 }
+
+func TestClampMemoryLimitForPolicy_InitContainer(t *testing.T) {
+	// Sidecar containers (init containers with restartPolicy: Always) also
+	// support in-place resize. Verify the clamp logic finds the container
+	// when it is an init container, not a regular container.
+	pod := &corev1.Pod{
+		Spec: corev1.PodSpec{
+			InitContainers: []corev1.Container{
+				{
+					Name: "sidecar",
+					ResizePolicy: []corev1.ContainerResizePolicy{
+						{ResourceName: corev1.ResourceMemory, RestartPolicy: corev1.NotRequired},
+					},
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
+						Limits: corev1.ResourceList{
+							corev1.ResourceMemory: resource.MustParse("512Mi"),
+						},
+					},
+				},
+			},
+			Containers: []corev1.Container{
+				{Name: "main", Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("128Mi")},
+				}},
+			},
+		},
+	}
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("128Mi")},
+		Limits:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("256Mi")},
+	}
+
+	result := ClampMemoryLimitForPolicy(pod, "sidecar", target)
+
+	// NotRequired policy on init container: memory limit decrease from 512Mi
+	// to 256Mi should be clamped back to 512Mi.
+	expected := resource.MustParse("512Mi")
+	actual := result.Limits[corev1.ResourceMemory]
+	assert.True(t, expected.Equal(actual),
+		"expected memory limit %s, got %s", expected.String(), actual.String())
+}
