@@ -402,6 +402,23 @@ func TestGetThrottleRatio_NaNReturnsZero(t *testing.T) {
 	assert.Zero(t, ratio)
 }
 
+func TestGetThrottleRatio_InfReturnsZero(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		// Prometheus can return +Inf for extreme rate ratios.
+		_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1700000000,"+Inf"]}]}}`))
+	}))
+	defer server.Close()
+
+	collector, err := NewPrometheusCollector(server.URL, logr.Discard(), http.DefaultTransport)
+	require.NoError(t, err)
+
+	ratio, err := collector.GetThrottleRatio(context.Background(), "default", "pod-1", "app", time.Now())
+	require.NoError(t, err)
+	assert.Zero(t, ratio)
+}
+
 func TestEscapePromQLRegex(t *testing.T) {
 	tests := []struct {
 		input    string
