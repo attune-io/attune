@@ -1743,6 +1743,34 @@ func TestComputeRecommendations_InsufficientDataPoints(t *testing.T) {
 	assert.Nil(t, rec) // No recommendation because data points are insufficient
 }
 
+func TestComputeRecommendations_AllNaNInfSamplesLogsDataQuality(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	deploy := newTestDeployment("api-server", "default", nil)
+	reconciler := newReconcilerWithClient()
+
+	// Return samples with all NaN values. BuildProfile filters them out,
+	// producing DataPoints == 0 while len(samples) > 0. This exercises
+	// the V(1) "All CPU/memory samples were NaN/Inf" log path added in #171.
+	nanSamples := make([]rsmetrics.Sample, 50)
+	now := time.Now()
+	for i := range nanSamples {
+		nanSamples[i] = rsmetrics.Sample{
+			Timestamp: now.Add(-time.Duration(50-i) * time.Hour),
+			Value:     math.NaN(),
+		}
+	}
+
+	mc := &mockCollector{
+		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return nanSamples, nil
+		},
+	}
+
+	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
+	assert.NoError(t, err)
+	assert.Nil(t, rec, "no recommendation when all samples are NaN")
+}
+
 func TestComputeRecommendations_QueryError(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	deploy := newTestDeployment("api-server", "default", nil)
@@ -7078,6 +7106,25 @@ func TestBuildResizeTarget_NoClampsWhenRequestsBelowLimits(t *testing.T) {
 	assert.Equal(t, resource.MustParse("256Mi"), target.Requests[corev1.ResourceMemory],
 		"Memory request should not be modified when below limit")
 	assert.Empty(t, clamped, "no resources should be clamped when requests are below limits")
+}
+
+func TestBuildResizeTarget_PartialClamping(t *testing.T) {
+	rec := attunev1alpha1.ContainerRecommendation{
+		Name: "main",
+		Recommended: attunev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("800m"),
+			MemoryRequest: resource.MustParse("256Mi"),
+			CPULimit:      resource.MustParse("500m"),  // Limit < Request (clamped)
+			MemoryLimit:   resource.MustParse("512Mi"), // Limit > Request (not clamped)
+		},
+	}
+	target, clamped := buildResizeTarget(rec)
+	assert.Equal(t, resource.MustParse("500m"), target.Requests[corev1.ResourceCPU],
+		"CPU request should be clamped to limit")
+	assert.Equal(t, resource.MustParse("256Mi"), target.Requests[corev1.ResourceMemory],
+		"Memory request should not be modified when below limit")
+	assert.Equal(t, []string{"cpu"}, clamped,
+		"only CPU should be reported as clamped")
 }
 
 func TestTryEvictionFallback_EvictsWhenMultipleReplicas(t *testing.T) {
