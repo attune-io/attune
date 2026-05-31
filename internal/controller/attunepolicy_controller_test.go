@@ -1771,6 +1771,52 @@ func TestComputeRecommendations_AllNaNInfSamplesLogsDataQuality(t *testing.T) {
 	assert.Nil(t, rec, "no recommendation when all samples are NaN")
 }
 
+func TestComputeRecommendations_CPUAllNaNMemoryValid(t *testing.T) {
+	// CPU samples are all NaN, but memory samples are valid.
+	// The recommendation should still be produced using memory data,
+	// with CPU staying at the current value.
+	policy := newTestPolicy("test-policy", "default")
+	deploy := newTestDeployment("api-server", "default", nil)
+	deploy.Spec.Template.Spec.Containers[0].Resources = corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("100m"),
+			corev1.ResourceMemory: resource.MustParse("128Mi"),
+		},
+	}
+	reconciler := newReconcilerWithClient()
+
+	nanSamples := make([]rsmetrics.Sample, 50)
+	now := time.Now()
+	for i := range nanSamples {
+		nanSamples[i] = rsmetrics.Sample{
+			Timestamp: now.Add(-time.Duration(50-i) * time.Hour),
+			Value:     math.NaN(),
+		}
+	}
+
+	mc := &mockCollector{
+		queryRangeGroupedFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) (map[string][]rsmetrics.Sample, error) {
+			if strings.Contains(query, "memory_working_set_bytes") {
+				// Valid memory samples (~256Mi usage).
+				return map[string][]rsmetrics.Sample{"main": generateSamples(200, 256*1024*1024)}, nil
+			}
+			// CPU: all NaN.
+			return map[string][]rsmetrics.Sample{"main": nanSamples}, nil
+		},
+	}
+
+	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
+	require.NoError(t, err)
+	require.NotNil(t, rec, "recommendation should be produced from memory data even when CPU is all NaN")
+	require.Len(t, rec.Containers, 1)
+	// CPU should stay at current because CPU had no valid data points.
+	assert.Equal(t, resource.MustParse("100m"), rec.Containers[0].Recommended.CPURequest,
+		"CPU should stay at current when CPU samples are all NaN")
+	// Memory should differ from current (recommendations engine processes valid memory data).
+	assert.NotEqual(t, resource.MustParse("128Mi"), rec.Containers[0].Recommended.MemoryRequest,
+		"Memory recommendation should change when memory samples are valid")
+}
+
 func TestComputeRecommendations_QueryError(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	deploy := newTestDeployment("api-server", "default", nil)
@@ -7332,6 +7378,59 @@ func TestResizeContainer_InfeasiblePodSkippedWithInPlaceOnly(t *testing.T) {
 			t.Error("should NOT have attempted eviction with InPlaceOnly")
 		}
 	}
+}
+
+func TestBudgetIncrease_PositiveIncrease(t *testing.T) {
+	pod := newResizePod("api-server", "200m", "256Mi", "0", "0")
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("500m"),
+			corev1.ResourceMemory: resource.MustParse("512Mi"),
+		},
+	}
+	cpu, mem := budgetIncrease(pod, "main", target)
+	assert.Equal(t, int64(300), cpu, "CPU increase should be 300m")
+	assert.Equal(t, int64(256*1024*1024), mem, "Memory increase should be 256Mi")
+}
+
+func TestBudgetIncrease_DecreaseClampsToZero(t *testing.T) {
+	pod := newResizePod("api-server", "500m", "512Mi", "0", "0")
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("200m"),
+			corev1.ResourceMemory: resource.MustParse("256Mi"),
+		},
+	}
+	cpu, mem := budgetIncrease(pod, "main", target)
+	assert.Equal(t, int64(0), cpu, "CPU decrease should not count as budget increase")
+	assert.Equal(t, int64(0), mem, "Memory decrease should not count as budget increase")
+}
+
+func TestBudgetIncrease_ContainerNotFound(t *testing.T) {
+	pod := newResizePod("api-server", "200m", "256Mi", "0", "0")
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("500m"),
+			corev1.ResourceMemory: resource.MustParse("512Mi"),
+		},
+	}
+	cpu, mem := budgetIncrease(pod, "nonexistent", target)
+	assert.Equal(t, int64(0), cpu, "should return 0 for missing container")
+	assert.Equal(t, int64(0), mem, "should return 0 for missing container")
+}
+
+func TestBudgetIncrease_MixedDirections(t *testing.T) {
+	// CPU increases, memory decreases.
+	pod := newResizePod("api-server", "200m", "512Mi", "0", "0")
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("500m"),
+			corev1.ResourceMemory: resource.MustParse("256Mi"),
+		},
+	}
+	cpu, mem := budgetIncrease(pod, "main", target)
+	assert.Equal(t, int64(300), cpu, "CPU increase should be 300m")
+	assert.Equal(t, int64(0), mem, "Memory decrease should be clamped to 0")
 }
 
 func TestExecuteResizes_BudgetCapsDefersExcessiveIncrease(t *testing.T) {
