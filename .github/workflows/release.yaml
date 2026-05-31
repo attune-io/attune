@@ -203,6 +203,14 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: 1
 
+      - name: Sign SBOM
+        shell: bash -Eeuo pipefail -x {0}
+        run: |
+          cosign sign-blob --yes \
+            --output-signature sbom.spdx.json.sig \
+            --output-certificate sbom.spdx.json.cert \
+            sbom.spdx.json
+
       - name: Generate install manifest and CRDs bundle
         shell: bash -Eeuo pipefail -x {0}
         run: |
@@ -218,6 +226,8 @@ jobs:
             dist/install.yaml
             dist/crds.yaml
             sbom.spdx.json
+            sbom.spdx.json.sig
+            sbom.spdx.json.cert
 
       # Krew manifest update runs last with continue-on-error so a Krew
       # failure never blocks Docker images, signatures, or provenance.
@@ -265,18 +275,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Login to Docker Hub (Docker/cosign)
-        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Login to Docker Hub (Helm)
-        shell: bash -Eeuo pipefail -x {0}
-        run: |
-          echo "${{ secrets.DOCKERHUB_TOKEN }}" | helm registry login registry-1.docker.io \
-            --username ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
-
       - name: Package and push Helm chart
         shell: bash -Eeuo pipefail -x {0}
         run: |
@@ -288,7 +286,6 @@ jobs:
 
           helm package charts/attune
           helm push attune-${VERSION}.tgz oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts
-          helm push attune-${VERSION}.tgz oci://registry-1.docker.io/attuneio
 
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
@@ -301,27 +298,17 @@ jobs:
           cosign sign --yes \
             ${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/attune:${VERSION}
 
-      - name: Sign Helm chart (Docker Hub)
-        shell: bash -Eeuo pipefail -x {0}
-        run: |
-          VERSION="${{ needs.release.outputs.tag }}"
-          VERSION="${VERSION#v}"
-          cosign sign --yes \
-            docker.io/attuneio/attune:${VERSION}
+      - uses: oras-project/setup-oras@v1
+        with:
+          version: "1.3.2"
 
       - name: Push Artifact Hub metadata
         shell: bash -Eeuo pipefail -x {0}
         run: |
-          # Install ORAS CLI
-          ORAS_VERSION="1.3.2"
-          curl -sLO "https://github.com/oras-project/oras/releases/download/v${ORAS_VERSION}/oras_${ORAS_VERSION}_linux_amd64.tar.gz"
-          tar -xzf "oras_${ORAS_VERSION}_linux_amd64.tar.gz" oras
-          chmod +x oras
-
           # Push artifacthub-repo.yml as OCI artifact for Verified Publisher status
-          echo "${{ secrets.GITHUB_TOKEN }}" | ./oras login ${{ env.REGISTRY }} \
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ${{ env.REGISTRY }} \
             --username ${{ github.actor }} --password-stdin
-          ./oras push \
+          oras push \
             ${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/attune:artifacthub.io \
             --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
             artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml
@@ -342,6 +329,7 @@ jobs:
     with:
       base64-subjects: "${{ needs.release.outputs.hashes }}"
       upload-assets: true
+      upload-tag-name: ${{ needs.release.outputs.tag }}
 
   # SLSA Level 3 provenance for the container image.
   container-provenance:
@@ -362,17 +350,19 @@ jobs:
     secrets:
       registry-password: ${{ secrets.GITHUB_TOKEN }}
 
-  # Submit an OLM bundle PR to k8s-operatorhub/community-operators.
-  # Uses continue-on-error so OperatorHub failures never block releases.
+  # Submit OLM bundle PRs to OperatorHub repos.
+  # Step-level continue-on-error keeps the job green while exposing the
+  # actual outcome via outputs for the release-notify job.
   operatorhub-pr:
     name: OperatorHub PR
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     needs: [release]
     if: ${{ !cancelled() && needs.release.result == 'success' }}
-    continue-on-error: true
     permissions:
       contents: read
+    outputs:
+      outcome: ${{ steps.create-pr.outcome }}
     steps:
       - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
@@ -393,9 +383,11 @@ jobs:
           client-id: ${{ vars.APP_CLIENT_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
           owner: attune-io
-          repositories: community-operators
+          repositories: community-operators,community-operators-prod
 
-      - name: Generate OLM bundle and create PR
+      - name: Generate OLM bundle and create PRs
+        id: create-pr
+        continue-on-error: true
         env:
           VERSION: ${{ needs.release.outputs.tag }}
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -427,3 +419,40 @@ jobs:
           repository: attuneio/attune
           readme-filepath: docker/README.md
           short-description: "Safe, in-place Kubernetes pod resource right-sizing. VPA done right."
+
+  # Create a GitHub Issue if any optional post-release job failed.
+  # This prevents silent failures from going unnoticed.
+  release-notify:
+    name: Release Health Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [release, operatorhub-pr, helm-release]
+    if: always() && needs.release.result == 'success'
+    permissions:
+      issues: write
+    steps:
+      - name: Check for failures and create issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPERATORHUB_OUTCOME: ${{ needs.operatorhub-pr.outputs.outcome }}
+          HELM_RESULT: ${{ needs.helm-release.result }}
+          TAG: ${{ needs.release.outputs.tag }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          FAILURES=""
+          if [ "${OPERATORHUB_OUTCOME}" = "failure" ]; then
+            FAILURES="${FAILURES}- OperatorHub PR creation failed\n"
+          fi
+          if [ "${HELM_RESULT}" = "failure" ]; then
+            FAILURES="${FAILURES}- Helm chart release failed\n"
+          fi
+          if [ -n "${FAILURES}" ]; then
+            BODY="The release ${TAG} succeeded, but some post-release jobs failed:\n\n${FAILURES}\n[View workflow run](${RUN_URL})\n\nThese failures do not affect the core release (container images, binaries, signatures) but may leave the OperatorHub listing or Helm chart out of date."
+            gh issue create \
+              --repo "${{ github.repository }}" \
+              --title "Release ${TAG}: post-release job failures" \
+              --label "bug" \
+              --body "$(echo -e "${BODY}")"
+          else
+            echo "All post-release jobs succeeded."
+          fi
