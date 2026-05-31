@@ -33,16 +33,21 @@ jobs:
         run: |
           for TAG in ${TAGS}; do
             echo "::group::Signing ${TAG}"
-            mkdir -p "/tmp/${TAG}" && cd "/tmp/${TAG}"
+            WORKDIR="/tmp/sign-${TAG}"
+            mkdir -p "${WORKDIR}"
             gh release download "${TAG}" \
               --repo "${{ github.repository }}" \
-              --pattern checksums.txt
+              --pattern checksums.txt \
+              --dir "${WORKDIR}"
             cosign sign-blob --yes \
-              --output-signature checksums.txt.sig \
-              --output-certificate checksums.txt.pem \
-              checksums.txt
+              --output-signature "${WORKDIR}/checksums.txt.sig" \
+              --output-certificate "${WORKDIR}/checksums.txt.pem" \
+              --bundle "${WORKDIR}/checksums.txt.bundle" \
+              "${WORKDIR}/checksums.txt"
             gh release upload "${TAG}" \
-              checksums.txt.sig checksums.txt.pem \
+              "${WORKDIR}/checksums.txt.sig" \
+              "${WORKDIR}/checksums.txt.pem" \
+              "${WORKDIR}/checksums.txt.bundle" \
               --repo "${{ github.repository }}" \
               --clobber
             echo "Signed ${TAG}"
