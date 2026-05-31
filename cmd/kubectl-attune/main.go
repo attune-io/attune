@@ -47,7 +47,7 @@ import (
 var version = "dev"
 
 const (
-	structuredOutputUsage = "Output raw AttunePolicy objects as json or yaml (status only)"
+	structuredOutputUsage = "Output raw AttunePolicy objects as json or yaml (status and diff)"
 	sourcePolicy          = "policy"
 	sourceNamespace       = "namespace default"
 	sourceCluster         = "cluster default"
