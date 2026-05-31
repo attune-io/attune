@@ -58,6 +58,7 @@ controller-runtime v0.24.1, Kubebuilder v4, K8s API v0.36.1.
 - `internal/operatormetrics/` - Operator-level Prometheus metrics (init-registered)
 - `internal/validation/` - Shared validation (Prometheus address SSRF checks)
 - `internal/throttle/` - Shared throttle checker interface (breaks import cycle)
+- `internal/transform/` - Informer cache transform functions (strip unused pod fields to reduce memory)
 - `pkg/defaults/` - Shared default-value and merge logic (used by controller + kubectl plugin)
 - `config/` - Kustomize manifests (CRDs, RBAC, manager deployment)
 - `charts/attune/` - Helm chart with cert-manager webhook support
