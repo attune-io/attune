@@ -35,7 +35,7 @@ builds:
       - -X main.version={{.Version}}
 archives:
   - id: kubectl-plugin
-    builds: [kubectl-attune]
+    ids: [kubectl-attune]
     name_template: "kubectl-attune_{{ .Os }}_{{ .Arch }}"
 checksum:
   name_template: checksums.txt
