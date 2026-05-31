@@ -45,5 +45,15 @@ archives:
     name_template: "kubectl-attune_{{ .Os }}_{{ .Arch }}"
 checksum:
   name_template: checksums.txt
+signs:
+  - cmd: cosign
+    artifacts: checksum
+    args:
+      - sign-blob
+      - "--yes"
+      - "--output-signature=${signature}"
+      - "--output-certificate=${certificate}"
+      - "${artifact}"
+    certificate: '${artifact}.pem'
 changelog:
   use: github-native
