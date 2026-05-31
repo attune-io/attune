@@ -228,3 +228,174 @@ func TestComputeSavings_Mixed(t *testing.T) {
 	// Cost increase: 0.2 cores * $0.031/hr * 730 hrs = $4.53
 	assert.Equal(t, "$4.53", savings.EstimatedMonthlyCostIncrease)
 }
+
+// --- Defense-in-depth parsing helpers ---
+
+func TestParseFloat64_ValidValue(t *testing.T) {
+	assert.Equal(t, 3.5, parseFloat64("3.5", 1.0))
+}
+
+func TestParseFloat64_EmptyReturnsFallback(t *testing.T) {
+	assert.Equal(t, 1.0, parseFloat64("", 1.0))
+}
+
+func TestParseFloat64_NaNReturnsFallback(t *testing.T) {
+	assert.Equal(t, 1.0, parseFloat64("NaN", 1.0))
+}
+
+func TestParseFloat64_InfReturnsFallback(t *testing.T) {
+	assert.Equal(t, 1.0, parseFloat64("Inf", 1.0))
+}
+
+func TestParseFloat64_NegativeInfReturnsFallback(t *testing.T) {
+	assert.Equal(t, 1.0, parseFloat64("-Inf", 1.0))
+}
+
+func TestParseFloat64_NegativeReturnsFallback(t *testing.T) {
+	assert.Equal(t, 1.0, parseFloat64("-0.5", 1.0))
+}
+
+func TestParseFloat64_ZeroReturnsFallback(t *testing.T) {
+	assert.Equal(t, 1.0, parseFloat64("0", 1.0))
+}
+
+func TestParseFloat64_ExceedsMaxReturnsFallback(t *testing.T) {
+	assert.Equal(t, 1.0, parseFloat64("11.0", 1.0))
+}
+
+func TestParseFloat64_BoundaryMaxAccepted(t *testing.T) {
+	assert.Equal(t, 10.0, parseFloat64("10.0", 1.0))
+}
+
+func TestParseFloat64_InvalidStringReturnsFallback(t *testing.T) {
+	assert.Equal(t, 1.0, parseFloat64("abc", 1.0))
+}
+
+func TestParseFloat64Ratio_ValidValue(t *testing.T) {
+	assert.Equal(t, 2.5, parseFloat64Ratio("2.5"))
+}
+
+func TestParseFloat64Ratio_EmptyReturnsZero(t *testing.T) {
+	assert.Equal(t, 0.0, parseFloat64Ratio(""))
+}
+
+func TestParseFloat64Ratio_NaNReturnsZero(t *testing.T) {
+	assert.Equal(t, 0.0, parseFloat64Ratio("NaN"))
+}
+
+func TestParseFloat64Ratio_InfReturnsZero(t *testing.T) {
+	assert.Equal(t, 0.0, parseFloat64Ratio("Inf"))
+}
+
+func TestParseFloat64Ratio_NegativeReturnsZero(t *testing.T) {
+	assert.Equal(t, 0.0, parseFloat64Ratio("-1.0"))
+}
+
+func TestParseFloat64Ratio_ExceedsMaxReturnsZero(t *testing.T) {
+	assert.Equal(t, 0.0, parseFloat64Ratio("1001"))
+}
+
+func TestParseFloat64Ratio_BoundaryMaxAccepted(t *testing.T) {
+	assert.Equal(t, 1000.0, parseFloat64Ratio("1000"))
+}
+
+func TestParseOverheadPercent_ValidValue(t *testing.T) {
+	assert.Equal(t, 20.0, parseOverheadPercent("20", 15.0))
+}
+
+func TestParseOverheadPercent_EmptyReturnsFallback(t *testing.T) {
+	assert.Equal(t, 15.0, parseOverheadPercent("", 15.0))
+}
+
+func TestParseOverheadPercent_NaNReturnsFallback(t *testing.T) {
+	assert.Equal(t, 15.0, parseOverheadPercent("NaN", 15.0))
+}
+
+func TestParseOverheadPercent_InfReturnsFallback(t *testing.T) {
+	assert.Equal(t, 15.0, parseOverheadPercent("Inf", 15.0))
+}
+
+func TestParseOverheadPercent_NegativeReturnsFallback(t *testing.T) {
+	assert.Equal(t, 15.0, parseOverheadPercent("-5", 15.0))
+}
+
+func TestParseOverheadPercent_ZeroIsValid(t *testing.T) {
+	assert.Equal(t, 0.0, parseOverheadPercent("0", 15.0))
+}
+
+func TestParseOverheadPercent_ExceedsMaxReturnsFallback(t *testing.T) {
+	assert.Equal(t, 15.0, parseOverheadPercent("901", 15.0))
+}
+
+func TestParseFloat64NonNeg_ValidValue(t *testing.T) {
+	assert.Equal(t, 0.5, parseFloat64NonNeg("0.5", 0.1))
+}
+
+func TestParseFloat64NonNeg_EmptyReturnsFallback(t *testing.T) {
+	assert.Equal(t, 0.1, parseFloat64NonNeg("", 0.1))
+}
+
+func TestParseFloat64NonNeg_NaNReturnsFallback(t *testing.T) {
+	assert.Equal(t, 0.1, parseFloat64NonNeg("NaN", 0.1))
+}
+
+func TestParseFloat64NonNeg_InfReturnsFallback(t *testing.T) {
+	assert.Equal(t, 0.1, parseFloat64NonNeg("Inf", 0.1))
+}
+
+func TestParseFloat64NonNeg_NegativeReturnsFallback(t *testing.T) {
+	assert.Equal(t, 0.1, parseFloat64NonNeg("-0.5", 0.1))
+}
+
+func TestParseFloat64NonNeg_ZeroIsValid(t *testing.T) {
+	assert.Equal(t, 0.0, parseFloat64NonNeg("0", 0.1))
+}
+
+func TestParseFloat64NonNeg_ExceedsOneCapsAtOne(t *testing.T) {
+	assert.Equal(t, 1.0, parseFloat64NonNeg("5.0", 0.1))
+}
+
+func TestParseFloat64NonNeg_ExactlyOneIsValid(t *testing.T) {
+	assert.Equal(t, 1.0, parseFloat64NonNeg("1.0", 0.1))
+}
+
+func TestScaleLimits_NormalCase(t *testing.T) {
+	// Current limit 1000m with request 500m gives ratio 2.0.
+	// New request 250m * 2.0 = 500m new limit.
+	result := scaleLimits(
+		resource.MustParse("500m"),
+		resource.MustParse("1000m"),
+		resource.MustParse("250m"),
+	)
+	expected := resource.MustParse("500m")
+	assert.True(t, result.Cmp(expected) == 0, "expected %s, got %s", expected.String(), result.String())
+}
+
+func TestScaleLimits_ZeroRequestReturnsZero(t *testing.T) {
+	result := scaleLimits(
+		resource.MustParse("0"),
+		resource.MustParse("1000m"),
+		resource.MustParse("250m"),
+	)
+	assert.True(t, result.IsZero())
+}
+
+func TestScaleLimits_ZeroLimitReturnsZero(t *testing.T) {
+	result := scaleLimits(
+		resource.MustParse("500m"),
+		resource.MustParse("0"),
+		resource.MustParse("250m"),
+	)
+	assert.True(t, result.IsZero())
+}
+
+func TestScaleLimits_EqualRequestAndLimit(t *testing.T) {
+	// Ratio is 1.0 so new limit equals new request.
+	result := scaleLimits(
+		resource.MustParse("500m"),
+		resource.MustParse("500m"),
+		resource.MustParse("300m"),
+	)
+	expected := resource.MustParse("300m")
+	assert.True(t, result.Cmp(expected) == 0, "expected %s, got %s", expected.String(), result.String())
+}
