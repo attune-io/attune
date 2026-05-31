@@ -26,6 +26,10 @@ FORK_REPO="${FORK_OWNER}/community-operators"
 BRANCH="attune-v${VERSION}"
 OPERATOR_DIR="operators/attune"
 
+# Save checkout root before any cd operations (OLDPWD is unreliable
+# after multiple cd commands).
+CHECKOUT_DIR="$(pwd)"
+
 # Generate the OLM bundle if not pre-generated
 BUNDLE_DIR="${BUNDLE_DIR:-dist/olm-bundle/${VERSION}}"
 if [ ! -d "${BUNDLE_DIR}/manifests" ]; then
@@ -66,8 +70,8 @@ git checkout -B "${BRANCH}" upstream/main
 
 # Copy the bundle
 mkdir -p "${OPERATOR_DIR}/${VERSION}/manifests" "${OPERATOR_DIR}/${VERSION}/metadata"
-cp "${OLDPWD}/${BUNDLE_DIR}/manifests/"* "${OPERATOR_DIR}/${VERSION}/manifests/"
-cp "${OLDPWD}/${BUNDLE_DIR}/metadata/"* "${OPERATOR_DIR}/${VERSION}/metadata/"
+cp "${CHECKOUT_DIR}/${BUNDLE_DIR}/manifests/"* "${OPERATOR_DIR}/${VERSION}/manifests/"
+cp "${CHECKOUT_DIR}/${BUNDLE_DIR}/metadata/"* "${OPERATOR_DIR}/${VERSION}/metadata/"
 
 # Ensure ci.yaml exists at the operator root with reviewers for auto-merge
 cat > "${OPERATOR_DIR}/ci.yaml" <<'EOF'
