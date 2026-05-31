@@ -293,6 +293,21 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 		cpuProfile := rsmetrics.BuildProfile(cpuSamples)
 		memProfile := rsmetrics.BuildProfile(memSamples)
 
+		// Detect when all samples were non-finite (NaN/Inf). This means
+		// Prometheus returned data but every value was unusable.
+		if len(cpuSamples) > 0 && cpuProfile.DataPoints == 0 {
+			operatormetrics.NanInfSamplesTotal.WithLabelValues(
+				policy.Namespace, policy.Name, containerName, "cpu").Inc()
+			logger.V(1).Info("All CPU samples are NaN/Inf, data quality issue",
+				"container", containerName, "rawSamples", len(cpuSamples))
+		}
+		if len(memSamples) > 0 && memProfile.DataPoints == 0 {
+			operatormetrics.NanInfSamplesTotal.WithLabelValues(
+				policy.Namespace, policy.Name, containerName, "memory").Inc()
+			logger.V(1).Info("All memory samples are NaN/Inf, data quality issue",
+				"container", containerName, "rawSamples", len(memSamples))
+		}
+
 		// Track maximum data points across all containers.
 		if pts := cpuProfile.DataPoints; pts > maxDataPoints {
 			maxDataPoints = pts

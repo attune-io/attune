@@ -258,6 +258,10 @@ func (r *AttunePolicyReconciler) executeResizes(
 						logger.V(1).Info("Requests clamped to limits",
 							"pod", pod.Name, "container", containerRec.Name,
 							"clampedResources", clamped)
+						for _, res := range clamped {
+							operatormetrics.RequestClampedTotal.WithLabelValues(
+								policy.Namespace, policy.Name, containerRec.Name, res).Inc()
+						}
 					}
 					cpuIncrease, memIncrease := budgetIncrease(&pod, containerRec.Name, target)
 
@@ -670,6 +674,7 @@ func (r *AttunePolicyReconciler) persistResizeAnnotations(
 // Limits are included when non-zero: for RequestsOnly they equal the current limits (no-op),
 // for RequestsAndLimits they are scaled proportionally. Pods that never had limits produce
 // zero-valued limit fields, which are omitted to avoid Kubernetes rejecting the resize.
+// Returns the target resources and the list of resource names that were clamped.
 func buildResizeTarget(rec attunev1alpha1.ContainerRecommendation) (corev1.ResourceRequirements, []string) {
 	target := corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
