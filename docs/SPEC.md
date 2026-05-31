@@ -852,15 +852,14 @@ Ship a pre-built Grafana dashboard JSON covering:
 ```
                     ┌───────────┐
                     │   E2E     │  Chainsaw: real cluster, full lifecycle
-                    │   Tests   │  ~10 scenarios
+                    │   Tests   │  36 Chainsaw + 22 Go E2E scenarios
                     ├───────────┤
                     │Integration│  envtest: real API server + etcd
                     │   Tests   │  Controller reconciliation, CRD validation
-                    │           │  ~50 test cases
                     ├───────────┤
                     │   Unit    │  Standard Go testing + testify
                     │   Tests   │  Algorithm, estimators, resize logic
-                    │           │  ~200+ test cases
+                    │           │  1500+ test cases
                     └───────────┘
 ```
 
@@ -1357,47 +1356,46 @@ attune/
 │       ├── zz_generated.deepcopy.go
 │       └── doc.go
 ├── cmd/
-│   └── manager/
-│       └── main.go
+│   ├── manager/
+│   │   └── main.go              # Operator entry point
+│   └── kubectl-attune/
+│       └── main.go              # kubectl plugin
 ├── internal/
-│   ├── controller/
-│   │   ├── attunepolicy_controller.go
-│   │   ├── attunepolicy_controller_test.go
-│   │   └── suite_test.go
-│   ├── metrics/
-│   │   ├── collector.go         # Prometheus query client
-│   │   ├── collector_test.go
-│   │   ├── profile.go           # UsageProfile construction
-│   │   └── profile_test.go
-│   ├── recommendation/
-│   │   ├── estimator.go         # Estimator interface
-│   │   ├── percentile.go        # Percentile estimator
-│   │   ├── percentile_test.go
-│   │   ├── margin.go            # Safety margin estimator
-│   │   ├── margin_test.go
-│   │   ├── confidence.go        # Confidence multiplier
-│   │   ├── confidence_test.go
-│   │   ├── bounds.go            # Bounds clamper
-│   │   ├── bounds_test.go
-│   │   ├── chain.go             # Composable chain
-│   │   ├── chain_test.go
-│   │   └── fuzz_test.go
-│   ├── resize/
-│   │   ├── engine.go            # Pod resize via /resize
-│   │   ├── engine_test.go
-│   │   ├── status.go            # Resize status polling
-│   │   └── status_test.go
-│   ├── safety/
-│   │   ├── monitor.go           # OOMKill, throttle, restart detection
-│   │   ├── monitor_test.go
-│   │   ├── revert.go            # Auto-revert logic
-│   │   └── revert_test.go
 │   ├── conflict/
 │   │   ├── detector.go          # VPA, HPA, policy conflict detection
 │   │   └── detector_test.go
+│   ├── controller/              # Reconciler (core business logic)
+│   │   ├── attunepolicy_controller.go
+│   │   ├── attunepolicy_controller_test.go
+│   │   └── ...                  # helpers, resize, prometheus, export, etc.
+│   ├── metrics/
+│   │   ├── collector.go         # Prometheus/Datadog/CloudWatch query client
+│   │   ├── collector_test.go
+│   │   ├── profile.go           # UsageProfile construction
+│   │   └── profile_test.go
+│   ├── operatormetrics/         # Operator-level Prometheus metrics (init-registered)
+│   │   └── metrics.go
+│   ├── recommendation/
+│   │   ├── estimator.go         # Estimator interface
+│   │   ├── percentile.go        # Percentile estimator
+│   │   ├── margin.go            # Safety margin estimator
+│   │   ├── confidence.go        # Confidence multiplier
+│   │   ├── bounds.go            # Bounds clamper
+│   │   ├── chain.go             # Composable chain
+│   │   └── fuzz_test.go
+│   ├── resize/
+│   │   ├── engine.go            # Pod resize via /resize subresource
+│   │   └── engine_test.go
+│   ├── safety/
+│   │   ├── monitor.go           # OOMKill, throttle, restart, auto-revert
+│   │   └── monitor_test.go
+│   ├── throttle/                # Shared throttle checker interface
+│   ├── transform/               # Informer cache transform functions
+│   ├── validation/              # Shared validation (Prometheus SSRF checks)
 │   └── webhook/
 │       ├── defaulting.go        # Defaulting webhook
-│       └── validation.go        # Validation webhook (for complex rules)
+│       ├── validation.go        # Validation webhook
+│       └── defaults_validation.go # AttuneDefaults validation
 ├── config/
 │   ├── crd/
 │   │   └── bases/               # Generated CRD manifests
@@ -1451,58 +1449,58 @@ attune/
 
 ### Phase 1: Foundation (MVP)
 
-- [ ] Project scaffolding (Kubebuilder)
-- [ ] AttunePolicy CRD (v1alpha1)
-- [ ] Prometheus metrics collector
-- [ ] Percentile-based recommendation engine
-- [ ] Status reporting (recommendations, conditions)
-- [ ] Observe and Recommend modes only (no resize)
-- [ ] Helm chart
-- [ ] Unit tests (75%+ coverage)
-- [ ] envtest integration tests
-- [ ] CI pipeline (lint, test, build)
-- [ ] README with quickstart
+- [x] Project scaffolding (Kubebuilder)
+- [x] AttunePolicy CRD (v1alpha1)
+- [x] Prometheus metrics collector
+- [x] Percentile-based recommendation engine
+- [x] Status reporting (recommendations, conditions)
+- [x] Observe and Recommend modes only (no resize)
+- [x] Helm chart
+- [x] Unit tests (75%+ coverage)
+- [x] envtest integration tests
+- [x] CI pipeline (lint, test, build)
+- [x] README with quickstart
 
 ### Phase 2: Resize Engine
 
-- [ ] In-place resize via /resize subresource
-- [ ] OneShot mode
-- [ ] Canary mode with graduated rollout
-- [ ] Resize status polling and timeout handling
-- [ ] QoS preservation checks
-- [ ] LimitRange/ResourceQuota compatibility
-- [ ] E2E tests (Chainsaw)
-- [ ] Security scanning in CI
+- [x] In-place resize via /resize subresource
+- [x] OneShot mode
+- [x] Canary mode with graduated rollout
+- [x] Resize status polling and timeout handling
+- [x] QoS preservation checks
+- [x] LimitRange/ResourceQuota compatibility
+- [x] E2E tests (Chainsaw)
+- [x] Security scanning in CI
 
 ### Phase 3: Safety & Intelligence
 
-- [ ] Safety monitor (OOMKill, throttle, restart detection)
-- [ ] Auto-revert mechanism
-- [ ] Confidence-based recommendation widening
-- [ ] Time-of-day-aware algorithm
-- [ ] Burst detection
-- [ ] HPA coexistence logic
-- [ ] VPA conflict detection
-- [ ] Policy weight-based conflict resolution
+- [x] Safety monitor (OOMKill, throttle, restart detection)
+- [x] Auto-revert mechanism
+- [x] Confidence-based recommendation widening
+- [x] Time-of-day-aware algorithm
+- [x] Burst detection
+- [x] HPA coexistence logic
+- [x] VPA conflict detection
+- [x] Policy weight-based conflict resolution
 
 ### Phase 4: Production Readiness
 
-- [ ] Auto mode (canary then fleet)
-- [ ] AttuneDefaults / AttuneNamespaceDefaults
-- [ ] Grafana dashboard
-- [ ] MkDocs documentation site
-- [ ] Cosign image signing
-- [ ] SBOM generation
-- [ ] Release automation (GoReleaser)
-- [ ] OCI Helm chart distribution
-- [ ] Fuzz tests
-- [ ] Benchmark tests
+- [x] Auto mode (canary then fleet)
+- [x] AttuneDefaults / AttuneNamespaceDefaults
+- [x] Grafana dashboard
+- [x] MkDocs documentation site
+- [x] Cosign image signing
+- [x] SBOM generation
+- [x] Release automation (GoReleaser)
+- [x] OCI Helm chart distribution
+- [x] Fuzz tests
+- [x] Benchmark tests
 
 ### Phase 5: Ecosystem
 
-- [ ] kubectl plugin (via krew)
-- [ ] Datadog/CloudWatch metrics support
-- [ ] Memory decrease support (with gradual decrease)
+- [x] kubectl plugin (via krew)
+- [x] Datadog/CloudWatch metrics support
+- [x] Memory decrease support (with gradual decrease)
 - [ ] Multi-cluster aggregated reporting
 - [ ] CNCF Sandbox application
 - [ ] KubeCon talk proposal
