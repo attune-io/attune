@@ -466,6 +466,82 @@
         "x": 0,
         "y": 31
       },
+      "id": 106,
+      "title": "Data Quality",
+      "type": "row"
+    },
+    {
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10
+          },
+          "unit": "ops"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 32
+      },
+      "id": 29,
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "title": "NaN/Inf Recommendations",
+      "description": "Rate of recommendations discarded due to NaN or Inf values from upstream metrics.",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum by (namespace) (rate(attune_recommendation_nan_inf_total{namespace=~\"$namespace\"}[$__rate_interval]))",
+          "legendFormat": "{{ namespace }}"
+        }
+      ]
+    },
+    {
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10
+          },
+          "unit": "ops"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 32
+      },
+      "id": 30,
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "title": "Request Clamping",
+      "description": "Rate of recommendations clamped to min/max resource bounds defined in AttunePolicy.",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum by (namespace, resource) (rate(attune_recommendation_request_clamped_total{namespace=~\"$namespace\"}[$__rate_interval]))",
+          "legendFormat": "{{ namespace }} {{ resource }}"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 40
+      },
       "id": 102,
       "title": "Recommendations",
       "type": "row"
@@ -484,7 +560,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 32
+        "y": 41
       },
       "id": 7,
       "options": {
@@ -515,7 +591,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 32
+        "y": 41
       },
       "id": 8,
       "options": {
@@ -565,7 +641,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 40
+        "y": 49
       },
       "id": 9,
       "options": {
@@ -609,7 +685,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 40
+        "y": 49
       },
       "id": 120,
       "title": "Burst Factor",
@@ -628,7 +704,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 49
+        "y": 58
       },
       "id": 103,
       "title": "Operator Health",
@@ -648,7 +724,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 49
+        "y": 58
       },
       "id": 10,
       "options": {
@@ -683,7 +759,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 57
+        "y": 66
       },
       "id": 28,
       "options": {
@@ -719,7 +795,7 @@
         "h": 8,
         "w": 8,
         "x": 12,
-        "y": 49
+        "y": 58
       },
       "id": 11,
       "options": {
@@ -763,7 +839,7 @@
         "h": 8,
         "w": 4,
         "x": 20,
-        "y": 49
+        "y": 58
       },
       "id": 12,
       "options": {
@@ -797,7 +873,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 57
+        "y": 66
       },
       "id": 26,
       "title": "Reconcile Errors",
@@ -816,7 +892,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 65
+        "y": 74
       },
       "id": 105,
       "title": "Webhook Health",
@@ -832,7 +908,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 58
+        "y": 67
       },
       "id": 14,
       "title": "Webhook Validation Rate",
@@ -855,7 +931,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 58
+        "y": 67
       },
       "id": 15,
       "title": "Webhook Duration (p99)",

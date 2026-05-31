@@ -1025,3 +1025,44 @@ func TestClampMemoryLimitForPolicy_InitContainer(t *testing.T) {
 	assert.True(t, expected.Equal(actual),
 		"expected memory limit %s, got %s", expected.String(), actual.String())
 }
+
+func TestClampMemoryLimitForPolicy_ContainerNotFound(t *testing.T) {
+	// When the container name doesn't match any container in the pod,
+	// the loop exhausts without finding a match and returns the target
+	// unmodified (line 318 fallthrough).
+	pod := &corev1.Pod{
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "app",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
+						Limits: corev1.ResourceList{
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("100m"),
+			corev1.ResourceMemory: resource.MustParse("64Mi"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceMemory: resource.MustParse("128Mi"),
+		},
+	}
+
+	result := ClampMemoryLimitForPolicy(pod, "nonexistent", target)
+
+	// Target should be returned unmodified when the container is not found.
+	expectedMem := resource.MustParse("128Mi")
+	actualMem := result.Limits[corev1.ResourceMemory]
+	assert.True(t, expectedMem.Equal(actualMem),
+		"expected target memory limit %s unchanged, got %s", expectedMem.String(), actualMem.String())
+}

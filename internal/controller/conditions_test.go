@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -30,7 +31,10 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
+	kubefake "k8s.io/client-go/kubernetes/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -976,4 +980,128 @@ func TestGetRateWindow_ClampedMin(t *testing.T) {
 	}
 	got := r.getRateWindow(policy)
 	assert.Equal(t, 30*time.Second, got, "should clamp to 30s minimum")
+}
+
+// ---------- emitEventOnce suppression ----------
+
+func TestEmitEventOnce_Suppressed(t *testing.T) {
+	r := NewAttunePolicyReconciler()
+
+	var emitted bool
+	r.Recorder = &fakeEventRecorder{emitFunc: func() { emitted = true }}
+
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-policy",
+			Namespace: "default",
+			UID:       "uid-123",
+			Annotations: map[string]string{
+				annotationSuppressWarnings: "HPAConflict,ConfigClamped",
+			},
+		},
+	}
+
+	// Emit with a reason that IS suppressed.
+	r.emitEventOnce(policy, corev1.EventTypeWarning, "HPAConflict", "config", "HPA conflict on %s", "web")
+	assert.False(t, emitted, "suppressed reason should not emit an event")
+
+	// Emit with a reason that is NOT suppressed.
+	r.emitEventOnce(policy, corev1.EventTypeWarning, "ResizeFailed", "resize", "resize failed")
+	assert.True(t, emitted, "non-suppressed reason should emit an event")
+}
+
+// fakeEventRecorder captures whether Eventf was called.
+type fakeEventRecorder struct {
+	emitFunc func()
+}
+
+func (f *fakeEventRecorder) Eventf(regarding, related runtime.Object, eventtype, reason, action, note string, args ...interface{}) {
+	if f.emitFunc != nil {
+		f.emitFunc()
+	}
+}
+
+// ---------- updateStatusWithRetry ----------
+
+func TestUpdateStatusWithRetry_FetchError(t *testing.T) {
+	scheme := testScheme()
+
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            "test-policy",
+			Namespace:       "default",
+			ResourceVersion: "1",
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(policy).
+		WithStatusSubresource(policy).
+		WithInterceptorFuncs(interceptor.Funcs{
+			SubResourceUpdate: func(_ context.Context, _ client.Client, _ string, _ client.Object, _ ...client.SubResourceUpdateOption) error {
+				return apierrors.NewConflict(schema.GroupResource{}, "test-policy", fmt.Errorf("conflict"))
+			},
+			Get: func(_ context.Context, _ client.WithWatch, _ client.ObjectKey, _ client.Object, _ ...client.GetOption) error {
+				return fmt.Errorf("network error")
+			},
+		}).
+		Build()
+
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+
+	err := r.updateStatusWithRetry(context.Background(), policy, types.NamespacedName{Name: "test-policy", Namespace: "default"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "network error")
+}
+
+// ---------- newSafetyMonitor ----------
+
+func TestNewSafetyMonitor_NoThrottleChecker(t *testing.T) {
+	r := NewAttunePolicyReconciler()
+	r.Clientset = kubefake.NewSimpleClientset()
+
+	// mockCollector does not implement ThrottleChecker.
+	collector := &mockCollector{}
+	monitor := r.newSafetyMonitor(logr.Discard(), collector)
+	assert.NotNil(t, monitor)
+}
+
+func TestNewSafetyMonitor_WithThrottleChecker(t *testing.T) {
+	r := NewAttunePolicyReconciler()
+	r.Clientset = kubefake.NewSimpleClientset()
+
+	collector := &mockThrottleCollector{throttleRatio: 0.5}
+	monitor := r.newSafetyMonitor(logr.Discard(), collector)
+	assert.NotNil(t, monitor)
+}
+
+func TestNewSafetyMonitor_WithSLOGuardrails(t *testing.T) {
+	r := NewAttunePolicyReconciler()
+	r.Clientset = kubefake.NewSimpleClientset()
+
+	// mockCollector implements Query() which satisfies SLOQuerier.
+	collector := &mockCollector{}
+	guardrails := []attunev1alpha1.SLOGuardrail{
+		{
+			Name:       "p99-latency",
+			Query:      `histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))`,
+			Threshold:  "0.5",
+			Comparison: "below",
+		},
+	}
+	monitor := r.newSafetyMonitor(logr.Discard(), collector, guardrails)
+	assert.NotNil(t, monitor)
+}
+
+func TestNewSafetyMonitor_EmptyGuardrails(t *testing.T) {
+	r := NewAttunePolicyReconciler()
+	r.Clientset = kubefake.NewSimpleClientset()
+
+	// Pass guardrails variadic but with an empty slice: should not enter SLO path.
+	collector := &mockCollector{}
+	monitor := r.newSafetyMonitor(logr.Discard(), collector, []attunev1alpha1.SLOGuardrail{})
+	assert.NotNil(t, monitor)
 }

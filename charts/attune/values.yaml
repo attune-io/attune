@@ -126,6 +126,16 @@ metrics:
         # -- How long the condition must persist before firing
         for: 30m
         severity: warning
+      dataQuality:
+        enabled: true
+        # -- How long the condition must persist before firing
+        for: 30m
+        severity: warning
+      requestsClamped:
+        enabled: true
+        # -- How long the condition must persist before firing
+        for: 1h
+        severity: info
 
 grafanaDashboard:
   # -- Create a ConfigMap with the Grafana dashboard (auto-discovered by Grafana sidecar)

@@ -99,4 +99,31 @@ spec:
               maxTotalCPUIncrease/maxTotalMemoryIncrease or reducing the
               number of targeted workloads.
         {{- end }}
+        {{- if .Values.metrics.prometheusRule.rules.dataQuality.enabled }}
+        - alert: AttuneDataQuality
+          expr: sum by (namespace, policy, container) (rate(attune_nan_inf_samples_total[1h])) > 0
+          for: {{ .Values.metrics.prometheusRule.rules.dataQuality.for }}
+          labels:
+            severity: {{ .Values.metrics.prometheusRule.rules.dataQuality.severity }}
+          annotations:
+            summary: attune receiving non-finite Prometheus data
+            description: >-
+              Container {{ "{{ $labels.container }}" }} in policy
+              {{ "{{ $labels.namespace }}" }}/{{ "{{ $labels.policy }}" }} has been receiving
+              only NaN/Inf samples for {{ .Values.metrics.prometheusRule.rules.dataQuality.for }}.
+              Right-sizing is blocked. Check Prometheus scrape config and recording rules.
+        {{- end }}
+        {{- if .Values.metrics.prometheusRule.rules.requestsClamped.enabled }}
+        - alert: AttuneRequestsClamped
+          expr: sum by (namespace, policy) (rate(attune_request_clamped_total[1h])) > 0
+          for: {{ .Values.metrics.prometheusRule.rules.requestsClamped.for }}
+          labels:
+            severity: {{ .Values.metrics.prometheusRule.rules.requestsClamped.severity }}
+          annotations:
+            summary: attune recommendations capped at container limits
+            description: >-
+              Policy {{ "{{ $labels.namespace }}" }}/{{ "{{ $labels.policy }}" }} has been
+              clamping resource requests to container limits for {{ .Values.metrics.prometheusRule.rules.requestsClamped.for }}.
+              Consider increasing limits or switching to controlledValues: RequestsAndLimits.
+        {{- end }}
 {{- end }}
