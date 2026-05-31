@@ -1,0 +1,50 @@
+name: Sign Old Releases
+
+on:
+  workflow_dispatch:
+    inputs:
+      tags:
+        description: "Space-separated tags to sign (e.g., v0.1.8 v0.1.9 v0.1.10 v0.1.11)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  sign:
+    name: Sign Releases
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Sign each release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAGS: ${{ inputs.tags }}
+        run: |
+          for TAG in ${TAGS}; do
+            echo "::group::Signing ${TAG}"
+            mkdir -p "/tmp/${TAG}" && cd "/tmp/${TAG}"
+            gh release download "${TAG}" \
+              --repo "${{ github.repository }}" \
+              --pattern checksums.txt
+            cosign sign-blob --yes \
+              --output-signature checksums.txt.sig \
+              --output-certificate checksums.txt.pem \
+              checksums.txt
+            gh release upload "${TAG}" \
+              checksums.txt.sig checksums.txt.pem \
+              --repo "${{ github.repository }}" \
+              --clobber
+            echo "Signed ${TAG}"
+            echo "::endgroup::"
+          done
