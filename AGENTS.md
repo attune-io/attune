@@ -203,6 +203,31 @@ is distinguishable from zero/false. Update all 7 locations:
 If the field also belongs in `AttuneDefaults`, add it to
 `api/v1alpha1/attunedefaults_types.go` as well.
 
+### Adding a new Prometheus operator metric
+
+When adding a new metric to `internal/operatormetrics/metrics.go`,
+update all 5 locations:
+
+1. `internal/operatormetrics/metrics.go` - Define the metric var and
+   register it in `init()`
+2. The emitting call site (e.g., `internal/controller/`) - Increment
+   or observe the metric at the right code path
+3. `docs/reference/metrics.md` - Add the metric definition with labels
+   table and an example PromQL query
+4. `docs/guides/troubleshooting.md` - If the metric surfaces a user-visible
+   condition (NaN data, clamped requests), add a reference and PromQL
+   alert example in the relevant troubleshooting section
+5. `charts/attune/files/grafana-dashboard.json` - Add a panel (or update
+   an existing row) so the metric is visible in Grafana
+6. `charts/attune/templates/prometheusrule.yaml` + `values.yaml` - If the
+   metric indicates a condition worth alerting on, add an opt-in
+   PrometheusRule alert with configurable threshold
+
+This checklist was added after PR #177 added `attune_request_clamped_total`
+and `attune_nan_inf_samples_total` to the code but missed locations 3-6.
+The doc gap was caught in the cycle 18 post-cycle gate; the dashboard and
+alert gaps became issues #179 and #181.
+
 ### Helm values.yaml comments (helm-docs format)
 
 `helm-docs` reads `# --` comments from `values.yaml` to generate README
