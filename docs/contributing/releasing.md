@@ -64,20 +64,16 @@ cosign-signed independently.
 
 ### 6. Helm chart publishing
 
-The Helm chart is published as an OCI artifact to `ghcr.io/attune-io/charts/attune`.
+The Helm chart is published as an OCI artifact to GHCR at
+`ghcr.io/attune-io/charts/attune`. The chart version in
+`charts/attune/Chart.yaml` is bumped automatically by release-please.
 
-Update the chart version in `charts/attune/Chart.yaml`:
-
-```yaml
-version: 0.2.0
-appVersion: "0.2.0"
-```
-
-The CI pipeline packages and pushes the chart automatically:
+The CI pipeline packages, pushes, and cosign-signs the chart:
 
 ```bash
 helm package charts/attune
 helm push attune-0.2.0.tgz oci://ghcr.io/attune-io/charts
+cosign sign --yes ghcr.io/attune-io/charts/attune:0.2.0
 ```
 
 ### 7. Static install manifest

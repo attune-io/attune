@@ -5,6 +5,9 @@ builds:
   - id: manager
     main: ./cmd/manager
     binary: manager
+    env:
+      - CGO_ENABLED=0
+      - GOFIPS140=latest
     goos: [linux]
     goarch: [amd64, arm64, arm, ppc64le, s390x]
     goarm: ["7"]
@@ -18,6 +21,9 @@ builds:
   - id: kubectl-attune
     main: ./cmd/kubectl-attune
     binary: kubectl-attune
+    env:
+      - CGO_ENABLED=0
+      - GOFIPS140=latest
     goos: [linux, darwin]
     goarch: [amd64, arm64, arm, ppc64le, s390x]
     goarm: ["7"]
