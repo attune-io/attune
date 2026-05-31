@@ -622,6 +622,49 @@ helm upgrade attune attune/attune \
   --set logging.level=info
 ```
 
+### NaN or Inf values in Prometheus data
+
+**Symptom**: Debug logs (V(1)) show messages like `All CPU samples were
+NaN/Inf` or `All memory samples were NaN/Inf`, and the policy remains in
+`InsufficientData` state despite Prometheus being reachable.
+
+**Cause**: Prometheus queries can return NaN (e.g., 0/0 division in rate
+queries when no samples exist yet) or Inf when scrape data is missing or
+contains malformed values. The operator filters out non-finite values
+before computing recommendations to prevent corrupted percentile
+calculations.
+
+**Fix**:
+
+1. Check if Prometheus has cAdvisor metrics for your namespace:
+
+    ```bash
+    kubectl exec -n monitoring prometheus-0 -- \
+      wget -qO- 'http://localhost:9090/api/v1/query?query=container_cpu_usage_seconds_total{namespace="YOUR_NS"}' \
+      | head -c 200
+    ```
+
+2. If the query returns data but values are NaN, check for recording rules
+   or relabeling that might divide by zero.
+3. Wait for more scrape cycles. NaN values are common during the first few
+   minutes after pod creation when Prometheus has only one data point
+   (rate computation needs at least two).
+
+### Requests clamped to limits
+
+**Symptom**: Debug logs (V(1)) show `Requests clamped to limits` with a
+list of affected resources (e.g., `cpu`, `memory`).
+
+**Cause**: The recommended CPU or memory request exceeds the container's
+current limit. This happens when `controlledValues` is set to
+`RequestsOnly` (limits stay at their current values) and the
+recommendation grows beyond those limits. The operator caps the request
+at the limit to prevent the API server from rejecting the resize.
+
+**Fix**: Either increase the container's limits, or switch to
+`controlledValues: RequestsAndLimits` so the operator can scale limits
+proportionally with requests.
+
 ## Debug commands
 
 Operator logs:
