@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.11](https://github.com/attune-io/attune/compare/v0.1.10...v0.1.11) (2026-05-31)
+
+
+### Bug Fixes
+
+* replace deprecated archives.builds with archives.ids ([#189](https://github.com/attune-io/attune/issues/189)) ([21c3ef3](https://github.com/attune-io/attune/commit/21c3ef346f4eb0437832b8ab0ca9dee1cbab4609))
+* use explicit checkout path in operatorhub-pr.sh instead of OLDPWD ([#190](https://github.com/attune-io/attune/issues/190)) ([a118898](https://github.com/attune-io/attune/commit/a11889812f96de0d1e34bfdd5c49c7ebdd815685))
+
 ## [0.1.10](https://github.com/attune-io/attune/compare/v0.1.9...v0.1.10) (2026-05-31)
 
 
