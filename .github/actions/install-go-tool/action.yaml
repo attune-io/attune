@@ -1,0 +1,38 @@
+name: Install Go Tool (cached)
+description: |
+  Install a Go tool binary and cache it across runs.
+  On cache hit the binary is restored from cache without recompilation.
+  On cache miss the tool is compiled via 'go install' and saved for future runs.
+
+inputs:
+  name:
+    description: Binary name produced by go install (e.g. gotestsum, govulncheck)
+    required: true
+  version:
+    description: Version tag (e.g. v1.13.0)
+    required: true
+  package:
+    description: Go module path (e.g. gotest.tools/gotestsum)
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Restore ${{ inputs.name }} from cache
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      id: tool-cache
+      with:
+        path: ${{ runner.temp }}/go-tool-cache/${{ inputs.name }}
+        key: go-tool-${{ inputs.name }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.version }}
+
+    - name: Install ${{ inputs.name }}
+      if: steps.tool-cache.outputs.cache-hit != 'true'
+      shell: bash -Eeuo pipefail {0}
+      run: |
+        tool_dir="${RUNNER_TEMP}/go-tool-cache/${{ inputs.name }}"
+        mkdir -p "$tool_dir"
+        GOBIN="$tool_dir" go install "${{ inputs.package }}@${{ inputs.version }}"
+
+    - name: Add ${{ inputs.name }} to PATH
+      shell: bash -Eeuo pipefail {0}
+      run: echo "${RUNNER_TEMP}/go-tool-cache/${{ inputs.name }}" >> "$GITHUB_PATH"

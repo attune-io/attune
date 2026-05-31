@@ -9,6 +9,9 @@ on:
 permissions:
   contents: read
 
+env:
+  FOSSA_CLI_VERSION: "3.17.10"
+
 jobs:
   fossa:
     name: FOSSA License Scan
@@ -20,9 +23,19 @@ jobs:
         with:
           egress-policy: audit
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - uses: fossas/fossa-action@ff70fe9fe17cbd2040648f1c45e8ec4e4884dcf3 # v1.9.0
+
+      - uses: ./.github/actions/install-binary-tool
         with:
-          api-key: ${{ secrets.FOSSA_API_KEY }}
+          name: fossa
+          version: ${{ env.FOSSA_CLI_VERSION }}
+          install-command: |
+            curl -sfL "https://github.com/fossas/fossa-cli/releases/download/v${{ env.FOSSA_CLI_VERSION }}/fossa_${{ env.FOSSA_CLI_VERSION }}_linux_amd64.tar.gz" \
+              | tar xz -C "$TOOL_DIR" fossa
+
+      - name: Run FOSSA analysis
+        run: fossa analyze
+        env:
+          FOSSA_API_KEY: ${{ secrets.FOSSA_API_KEY }}
 
   fossa-test:
     name: FOSSA License Check
@@ -35,7 +48,16 @@ jobs:
         with:
           egress-policy: audit
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - uses: fossas/fossa-action@ff70fe9fe17cbd2040648f1c45e8ec4e4884dcf3 # v1.9.0
+
+      - uses: ./.github/actions/install-binary-tool
         with:
-          api-key: ${{ secrets.FOSSA_API_KEY }}
-          run-tests: true
+          name: fossa
+          version: ${{ env.FOSSA_CLI_VERSION }}
+          install-command: |
+            curl -sfL "https://github.com/fossas/fossa-cli/releases/download/v${{ env.FOSSA_CLI_VERSION }}/fossa_${{ env.FOSSA_CLI_VERSION }}_linux_amd64.tar.gz" \
+              | tar xz -C "$TOOL_DIR" fossa
+
+      - name: Run FOSSA license check
+        run: fossa test
+        env:
+          FOSSA_API_KEY: ${{ secrets.FOSSA_API_KEY }}
