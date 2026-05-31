@@ -663,6 +663,7 @@ jobs:
         shell: bash -Eeuo pipefail {0}
         run: |
           PLUGINS_DIR="$(helm env HELM_PLUGINS)/unittest"
+          mkdir -p "$(dirname "$PLUGINS_DIR")"
           rm -rf "$PLUGINS_DIR"
           ln -s "${RUNNER_TEMP}/bin-tool-cache/helm-unittest" "$PLUGINS_DIR"
 
