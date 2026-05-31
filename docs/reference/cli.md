@@ -230,8 +230,9 @@ kubectl attune version
 
 ## Structured output
 
-`--output` / `-o` is supported only with the `status` command and prints the
-raw `AttunePolicy` objects returned by the cluster as JSON or YAML.
+`--output` / `-o` is supported with the `status` command (JSON or YAML) and the
+`diff` command (YAML only). It prints the raw `AttunePolicy` objects returned by
+the cluster.
 
 ```bash
 kubectl attune status -o json
@@ -248,7 +249,7 @@ with `kubectl get attunepolicy -o json|yaml`.
 | `--namespace` | `-n` | Target namespace (defaults to current context) |
 | `--all-namespaces` | `-A` | List across all namespaces |
 | `--kubeconfig` | | Path to kubeconfig file |
-| `--output` | `-o` | Output raw `AttunePolicy` objects as `json` or `yaml` (`status` only) |
+| `--output` | `-o` | Output raw `AttunePolicy` objects as `json` or `yaml` (`status` and `diff`) |
 | `--watch` | `-w` | Continuously refresh status every 10 seconds (`status` only) |
 | `--sort-by` | | Sort output: `name`, `namespace`, `savings`, `age` (`status` and `savings` only) |
 | `--filter` | | Filter by condition: `degraded`, `pending`, `collecting`, `ready`, `noworkloads` (`status` only) |
