@@ -71,12 +71,15 @@ The Helm chart is published as an OCI artifact to two registries:
 
 The chart version in `charts/attune/Chart.yaml` is bumped automatically by release-please.
 
-The CI pipeline packages, pushes, and cosign-signs the chart:
+The CI pipeline packages, pushes to GHCR, mirrors to Docker Hub via `oras cp`,
+and cosign-signs both copies:
 
 ```bash
 helm package charts/attune
 helm push attune-0.2.0.tgz oci://ghcr.io/attune-io/charts
+oras cp ghcr.io/attune-io/charts/attune:0.2.0 registry-1.docker.io/attuneio/attune-chart:0.2.0
 cosign sign --yes ghcr.io/attune-io/charts/attune:0.2.0
+cosign sign --yes docker.io/attuneio/attune-chart:0.2.0
 ```
 
 ### 7. Static install manifest
