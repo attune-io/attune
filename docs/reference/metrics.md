@@ -122,6 +122,33 @@ Total times recommendations were marked stale due to Prometheus data gaps.
 | `namespace` | Policy namespace |
 | `policy` | Policy name |
 
+### attune_request_clamped_total
+
+Total times a recommended resource request was capped at the container's
+current limit. Fires when `controlledValues` is `RequestsOnly` and the
+recommendation exceeds the limit. See [Troubleshooting: Requests clamped
+to limits](../guides/troubleshooting.md#requests-clamped-to-limits).
+
+| Label | Description |
+|-------|-------------|
+| `namespace` | Policy namespace |
+| `policy` | Policy name |
+| `container` | Container name |
+| `resource` | `cpu` or `memory` |
+
+### attune_nan_inf_samples_total
+
+Total times all Prometheus samples for a container metric were non-finite
+(NaN or Inf), making the metric unusable for recommendations. See
+[Troubleshooting: NaN or Inf values](../guides/troubleshooting.md#nan-or-inf-values-in-prometheus-data).
+
+| Label | Description |
+|-------|-------------|
+| `namespace` | Policy namespace |
+| `policy` | Policy name |
+| `container` | Container name |
+| `metric_type` | `cpu` or `memory` |
+
 ## Gauges
 
 ### attune_recommendation_cpu_cores
@@ -357,4 +384,16 @@ Reconcile enqueue rate (items added to queue per second):
 
 ```promql
 rate(workqueue_adds_total{name="attunepolicy"}[5m])
+```
+
+Containers with persistent NaN/Inf data quality issues:
+
+```promql
+rate(attune_nan_inf_samples_total[1h]) > 0
+```
+
+Policies where requests are frequently clamped to limits:
+
+```promql
+sum by (namespace, policy) (rate(attune_request_clamped_total[1h])) > 0
 ```
