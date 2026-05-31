@@ -1,0 +1,39 @@
+name: Install Binary Tool (cached)
+description: |
+  Download a pre-built binary and cache it across runs.
+  On cache hit the binary is restored without re-downloading.
+  On cache miss the install-command runs and the result is saved.
+
+inputs:
+  name:
+    description: Tool name used as cache key prefix (e.g. gitleaks, k3d)
+    required: true
+  version:
+    description: Version string for the cache key (e.g. 8.30.1)
+    required: true
+  install-command:
+    description: Shell command that installs the binary into $TOOL_DIR
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Restore ${{ inputs.name }} from cache
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      id: tool-cache
+      with:
+        path: ${{ runner.temp }}/bin-tool-cache/${{ inputs.name }}
+        key: bin-tool-${{ inputs.name }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.version }}
+
+    - name: Install ${{ inputs.name }}
+      if: steps.tool-cache.outputs.cache-hit != 'true'
+      shell: bash -Eeuo pipefail {0}
+      env:
+        TOOL_DIR: ${{ runner.temp }}/bin-tool-cache/${{ inputs.name }}
+      run: |
+        mkdir -p "$TOOL_DIR"
+        ${{ inputs.install-command }}
+
+    - name: Add ${{ inputs.name }} to PATH
+      shell: bash -Eeuo pipefail {0}
+      run: echo "${RUNNER_TEMP}/bin-tool-cache/${{ inputs.name }}" >> "$GITHUB_PATH"

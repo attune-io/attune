@@ -25,6 +25,7 @@ env:
   K3S_IMAGE: "rancher/k3s:v1.35.4-k3s1"
   ENVTEST_K8S_VERSION: "1.35.0"
   HELM_UNITTEST_VERSION: "v0.7.2"
+  BENCHSTAT_VERSION: "v0.0.0-20260512194132-3cf34090a3db"
   CERT_MANAGER_VERSION: "v1.17.2"
   PROMETHEUS_IMAGE: "quay.io/prometheus/prometheus:v3.4.1"
   PROMETHEUS_CHART_VERSION: "27.22.0"
@@ -104,17 +105,15 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
+      - uses: ./.github/actions/install-go-tool
+        with:
+          name: golangci-lint
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          package: github.com/golangci/golangci-lint/v2/cmd/golangci-lint
+
       - name: golangci-lint
         shell: bash -Eeuo pipefail {0}
-        run: |
-          lint_root=$(mktemp -d "${RUNNER_TEMP:-/tmp}/golangci-lint-${GITHUB_RUN_ID:-local}-${GITHUB_JOB:-lint}-XXXXXX")
-          trap 'rm -rf "$lint_root"' EXIT
-          lint_bindir="$lint_root/bin"
-          lint_cachedir="$lint_root/cache"
-          mkdir -p "$lint_bindir" "$lint_cachedir"
-          GOBIN="$lint_bindir" make golangci-lint LOCALBIN="$lint_bindir"
-          GOLANGCI_LINT_CACHE="$lint_cachedir" \
-            "$lint_bindir/golangci-lint-${{ env.GOLANGCI_LINT_VERSION }}" run --timeout 5m --allow-serial-runners
+        run: golangci-lint run --timeout 5m --allow-serial-runners
 
       - name: Check go mod tidy
         shell: bash -Eeuo pipefail {0}
@@ -165,11 +164,14 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.x"
+          cache: pip
+
       - name: Install MkDocs
         shell: bash -Eeuo pipefail {0}
-        run: |
-          python3 -m pip install --user --break-system-packages mkdocs-material==9.7.6
-          echo "$(python3 -m site --user-base)/bin" >> "$GITHUB_PATH"
+        run: pip install mkdocs-material==9.7.6
 
       - name: Build docs site
         shell: bash -Eeuo pipefail {0}
@@ -219,13 +221,17 @@ jobs:
           egress-policy: audit
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.x"
+
+      - name: Install yamllint
+        shell: bash -Eeuo pipefail {0}
+        run: pip install yamllint
+
       - name: YAML lint
         shell: bash -Eeuo pipefail {0}
         run: |
-          if ! command -v yamllint &>/dev/null; then
-            python3 -m pip install --user --break-system-packages yamllint 2>/dev/null
-            export PATH="$(python3 -m site --user-base)/bin:$PATH"
-          fi
           yamllint_config="${RUNNER_TEMP:-/tmp}/yamllint-${GITHUB_RUN_ID}-${GITHUB_JOB}.yaml"
           cat > "$yamllint_config" <<'EOF'
           extends: default
@@ -277,13 +283,11 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      - name: Install gotestsum
-        shell: bash -Eeuo pipefail {0}
-        run: |
-          export GOBIN="${RUNNER_TEMP}/gobin-${GITHUB_RUN_ID}-${GITHUB_JOB}"
-          mkdir -p "$GOBIN"
-          go install gotest.tools/gotestsum@${{ env.GOTESTSUM_VERSION }}
-          echo "${GOBIN}" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/install-go-tool
+        with:
+          name: gotestsum
+          version: ${{ env.GOTESTSUM_VERSION }}
+          package: gotest.tools/gotestsum
 
       - name: Run unit tests
         shell: bash -Eeuo pipefail -x {0}
@@ -365,9 +369,11 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      - name: Install benchstat
-        shell: bash -Eeuo pipefail {0}
-        run: go install golang.org/x/perf/cmd/benchstat@latest
+      - uses: ./.github/actions/install-go-tool
+        with:
+          name: benchstat
+          version: v0.0.0-20260512194132-3cf34090a3db
+          package: golang.org/x/perf/cmd/benchstat
 
       - name: Restore baseline benchmarks
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -428,22 +434,21 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      - name: Install gotestsum
-        shell: bash -Eeuo pipefail {0}
-        run: |
-          export GOBIN="${RUNNER_TEMP}/gobin-${GITHUB_RUN_ID}-${GITHUB_JOB}"
-          mkdir -p "$GOBIN"
-          go install gotest.tools/gotestsum@${{ env.GOTESTSUM_VERSION }}
-          echo "${GOBIN}" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/install-go-tool
+        with:
+          name: gotestsum
+          version: ${{ env.GOTESTSUM_VERSION }}
+          package: gotest.tools/gotestsum
 
-      - name: Setup envtest
+      - uses: ./.github/actions/install-go-tool
+        with:
+          name: setup-envtest
+          version: v0.24.1
+          package: sigs.k8s.io/controller-runtime/tools/setup-envtest
+
+      - name: Setup envtest assets
         shell: bash -Eeuo pipefail -x {0}
-        run: |
-          export GOBIN="${RUNNER_TEMP}/gobin-${GITHUB_RUN_ID}-${GITHUB_JOB}"
-          mkdir -p "$GOBIN"
-          go install sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.24
-          echo "${GOBIN}" >> "$GITHUB_PATH"
-          echo "KUBEBUILDER_ASSETS=$(setup-envtest use ${{ env.ENVTEST_K8S_VERSION }} -p path)" >> "$GITHUB_ENV"
+        run: echo "KUBEBUILDER_ASSETS=$(setup-envtest use ${{ env.ENVTEST_K8S_VERSION }} -p path)" >> "$GITHUB_ENV"
 
       - name: Run integration tests
         shell: bash -Eeuo pipefail -x {0}
@@ -543,7 +548,6 @@ jobs:
         if: always()
         shell: bash -Eeuo pipefail {0}
         run: |
-          export PATH="$HOME/.local/bin:$PATH"
           k3d cluster delete "$K3D_CLUSTER_NAME" 2>/dev/null || true
           rm -f "$KUBECONFIG"
 
@@ -564,11 +568,15 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
+      - uses: ./.github/actions/install-go-tool
+        with:
+          name: govulncheck
+          version: v1.3.0
+          package: golang.org/x/vuln/cmd/govulncheck
+
       - name: Run govulncheck
         shell: bash -Eeuo pipefail -x {0}
-        run: |
-          go install golang.org/x/vuln/cmd/govulncheck@v1.3.0
-          govulncheck ./...
+        run: govulncheck ./...
 
   crd-freshness:
     name: CRD Freshness Check
@@ -629,40 +637,53 @@ jobs:
               --api-versions cert-manager.io/v1 > /dev/null
           done
 
+      - uses: ./.github/actions/install-binary-tool
+        with:
+          name: helm-unittest
+          version: ${{ env.HELM_UNITTEST_VERSION }}
+          install-command: |
+            # Remove stale helm-unittest plugins that conflict on self-hosted runners
+            rm -rf "$(helm env HELM_PLUGINS)/helm-unittest.git" 2>/dev/null || true
+            ASSET_VERSION="${{ env.HELM_UNITTEST_VERSION }}"
+            ASSET_VERSION="${ASSET_VERSION#v}"
+            case "$(uname -s)" in
+              Linux)  HU_OS=linux  ;;
+              Darwin) HU_OS=macos  ;;
+              *)      echo "unsupported OS: $(uname -s)" >&2; exit 1 ;;
+            esac
+            case "$(uname -m)" in
+              x86_64)       HU_ARCH=amd64 ;;
+              aarch64|arm64) HU_ARCH=arm64 ;;
+              *)            echo "unsupported arch: $(uname -m)" >&2; exit 1 ;;
+            esac
+            curl -fsSL "https://github.com/helm-unittest/helm-unittest/releases/download/${{ env.HELM_UNITTEST_VERSION }}/helm-unittest-${HU_OS}-${HU_ARCH}-${ASSET_VERSION}.tgz" \
+              | tar xz -C "$TOOL_DIR"
+
+      - name: Link helm-unittest plugin
+        shell: bash -Eeuo pipefail {0}
+        run: |
+          PLUGINS_DIR="$(helm env HELM_PLUGINS)/unittest"
+          rm -rf "$PLUGINS_DIR"
+          ln -s "${RUNNER_TEMP}/bin-tool-cache/helm-unittest" "$PLUGINS_DIR"
+
       - name: Run chart unit tests
         shell: bash -Eeuo pipefail -x {0}
-        run: |
-          # Remove stale helm-unittest plugins that conflict on self-hosted runners
-          rm -rf "$(helm env HELM_PLUGINS)/helm-unittest.git" 2>/dev/null || true
-          PLUGINS_DIR="$(helm env HELM_PLUGINS)/unittest"
-          mkdir -p "$PLUGINS_DIR"
-          HELM_UNITTEST_ASSET_VERSION="${HELM_UNITTEST_VERSION#v}"
-          case "$(uname -s)" in
-            Linux)  HU_OS=linux  ;;
-            Darwin) HU_OS=macos  ;;
-            *)      echo "unsupported OS: $(uname -s)" >&2; exit 1 ;;
-          esac
-          case "$(uname -m)" in
-            x86_64)       HU_ARCH=amd64 ;;
-            aarch64|arm64) HU_ARCH=arm64 ;;
-            *)            echo "unsupported arch: $(uname -m)" >&2; exit 1 ;;
-          esac
-          curl -fsSL "https://github.com/helm-unittest/helm-unittest/releases/download/${HELM_UNITTEST_VERSION}/helm-unittest-${HU_OS}-${HU_ARCH}-${HELM_UNITTEST_ASSET_VERSION}.tgz" \
-            | tar xz -C "$PLUGINS_DIR"
-          helm unittest charts/attune
+        run: helm unittest charts/attune
 
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
+      - uses: ./.github/actions/install-go-tool
+        with:
+          name: helm-docs
+          version: v1.14.2
+          package: github.com/norwoodj/helm-docs/cmd/helm-docs
+
       - name: Helm docs freshness
         shell: bash -Eeuo pipefail {0}
         run: |
-          export GOBIN="${RUNNER_TEMP}/gobin-${GITHUB_RUN_ID}-${GITHUB_JOB}"
-          mkdir -p "$GOBIN"
-          go install github.com/norwoodj/helm-docs/cmd/helm-docs@v1.14.2
-          export PATH="${GOBIN}:${PATH}"
           helm-docs --chart-search-root charts/
           if ! git diff --quiet --exit-code charts/attune/README.md; then
             echo "::error::Helm README is stale. Run 'make helm-docs-gen' and commit."
