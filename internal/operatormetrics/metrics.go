@@ -213,6 +213,22 @@ var (
 		},
 		[]string{"namespace", "policy"},
 	)
+
+	RequestClampedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "attune_request_clamped_total",
+			Help: "Total times a recommended request was capped at the container's limit value",
+		},
+		[]string{"namespace", "policy", "container", "resource"},
+	)
+
+	NanInfSamplesTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "attune_nan_inf_samples_total",
+			Help: "Total times all samples for a container metric were non-finite (NaN or Inf)",
+		},
+		[]string{"namespace", "policy", "container", "metric_type"},
+	)
 )
 
 // WebhookTimer tracks webhook operation duration and result.
@@ -265,5 +281,7 @@ func init() {
 		BurstFactor,
 		StartupBoostTotal,
 		StaleRecommendationsTotal,
+		RequestClampedTotal,
+		NanInfSamplesTotal,
 	)
 }

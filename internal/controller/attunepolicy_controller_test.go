@@ -7030,11 +7030,12 @@ func TestBuildResizeTarget_OmitsLimitsWhenZero(t *testing.T) {
 			MemoryRequest: resource.MustParse("128Mi"),
 		},
 	}
-	target, _ := buildResizeTarget(rec)
+	target, clamped := buildResizeTarget(rec)
 	assert.Equal(t, int64(100), target.Requests.Cpu().MilliValue())
 	wantMem := resource.MustParse("128Mi")
 	assert.Equal(t, wantMem.Value(), target.Requests.Memory().Value())
 	assert.Nil(t, target.Limits, "Limits should be nil when recommendation limits are zero")
+	assert.Empty(t, clamped, "nothing should be clamped when no limits present")
 }
 
 func TestBuildResizeTarget_IncludesLimitsWhenNonZero(t *testing.T) {
@@ -7047,11 +7048,12 @@ func TestBuildResizeTarget_IncludesLimitsWhenNonZero(t *testing.T) {
 			MemoryLimit:   resource.MustParse("256Mi"),
 		},
 	}
-	target, _ := buildResizeTarget(rec)
+	target, clamped := buildResizeTarget(rec)
 	require.NotNil(t, target.Limits)
 	assert.Equal(t, int64(200), target.Limits.Cpu().MilliValue())
 	wantMemLim := resource.MustParse("256Mi")
 	assert.Equal(t, wantMemLim.Value(), target.Limits.Memory().Value())
+	assert.Empty(t, clamped, "nothing should be clamped when requests are below limits")
 }
 
 func TestBuildResizeTarget_PartialLimits(t *testing.T) {
@@ -7063,11 +7065,12 @@ func TestBuildResizeTarget_PartialLimits(t *testing.T) {
 			MemoryRequest: resource.MustParse("128Mi"),
 		},
 	}
-	target, _ := buildResizeTarget(rec)
+	target, clamped := buildResizeTarget(rec)
 	require.NotNil(t, target.Limits, "Limits should be non-nil when any limit is non-zero")
 	assert.Equal(t, int64(200), target.Limits.Cpu().MilliValue())
 	_, hasMemLimit := target.Limits[corev1.ResourceMemory]
 	assert.False(t, hasMemLimit, "Memory limit should not be set when zero in recommendation")
+	assert.Empty(t, clamped, "nothing should be clamped when requests are below limits")
 }
 
 func TestBuildResizeTarget_ClampsRequestsToLimits(t *testing.T) {
@@ -7125,6 +7128,78 @@ func TestBuildResizeTarget_PartialClamping(t *testing.T) {
 		"Memory request should not be modified when below limit")
 	assert.Equal(t, []string{"cpu"}, clamped,
 		"only CPU should be reported as clamped")
+}
+
+func TestComputeRecommendations_NanInfSamplesMetric(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	deploy := newTestDeployment("api-server", "default", nil)
+	reconciler := newReconcilerWithClient()
+
+	// Return NaN/Inf samples so BuildProfile yields 0 data points.
+	mc := &mockCollector{
+		queryRangeGroupedFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) (map[string][]rsmetrics.Sample, error) {
+			return map[string][]rsmetrics.Sample{
+				"main": {
+					{Timestamp: time.Now().Add(-1 * time.Hour), Value: math.NaN()},
+					{Timestamp: time.Now().Add(-2 * time.Hour), Value: math.Inf(1)},
+					{Timestamp: time.Now().Add(-3 * time.Hour), Value: math.Inf(-1)},
+				},
+			}, nil
+		},
+	}
+
+	before := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("default", "test-policy", "main", "cpu"))
+	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
+	assert.NoError(t, err)
+	assert.Nil(t, rec, "should produce no recommendation when all data is NaN/Inf")
+	after := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("default", "test-policy", "main", "cpu"))
+	assert.Equal(t, before+1, after, "NanInfSamplesTotal should increment for CPU")
+}
+
+func TestExecuteResizes_RequestClampedMetric(t *testing.T) {
+	pod := newResizePod("api-server", "600m", "1Gi", "500m", "512Mi")
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	clientset := kubefake.NewSimpleClientset(pod)
+
+	reconciler := newReconcilerWithClient(pod, deploy)
+	reconciler.Clientset = clientset
+
+	recommendations := []attunev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "api-server",
+			Kind:     "Deployment",
+			Containers: []attunev1alpha1.ContainerRecommendation{
+				{
+					Name: "main",
+					Recommended: attunev1alpha1.ResourceValues{
+						CPURequest:    resource.MustParse("800m"), // Will be clamped to 500m limit
+						MemoryRequest: resource.MustParse("2Gi"),  // Will be clamped to 512Mi limit
+						CPULimit:      resource.MustParse("500m"),
+						MemoryLimit:   resource.MustParse("512Mi"),
+					},
+					Current: attunev1alpha1.ResourceValues{
+						CPURequest:    resource.MustParse("600m"),
+						MemoryRequest: resource.MustParse("1Gi"),
+						CPULimit:      resource.MustParse("500m"),
+						MemoryLimit:   resource.MustParse("512Mi"),
+					},
+				},
+			},
+		},
+	}
+
+	beforeCPU := promtestutil.ToFloat64(operatormetrics.RequestClampedTotal.WithLabelValues("default", "test-policy", "main", "cpu"))
+	beforeMem := promtestutil.ToFloat64(operatormetrics.RequestClampedTotal.WithLabelValues("default", "test-policy", "main", "memory"))
+
+	reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
+		recommendations, podMap("api-server", pod), nil, nil)
+
+	afterCPU := promtestutil.ToFloat64(operatormetrics.RequestClampedTotal.WithLabelValues("default", "test-policy", "main", "cpu"))
+	afterMem := promtestutil.ToFloat64(operatormetrics.RequestClampedTotal.WithLabelValues("default", "test-policy", "main", "memory"))
+	assert.Equal(t, beforeCPU+1, afterCPU, "RequestClampedTotal should increment for CPU")
+	assert.Equal(t, beforeMem+1, afterMem, "RequestClampedTotal should increment for memory")
 }
 
 func TestTryEvictionFallback_EvictsWhenMultipleReplicas(t *testing.T) {
