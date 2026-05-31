@@ -20,7 +20,7 @@ tests:
           path: spec.groups[0].name
           value: attune
 
-  - it: should include all six default alerts
+  - it: should include all eight default alerts
     set:
       metrics:
         enabled: true
@@ -29,7 +29,7 @@ tests:
     asserts:
       - lengthEqual:
           path: spec.groups[0].rules
-          count: 6
+          count: 8
 
   - it: should disable individual rules
     set:
@@ -45,7 +45,7 @@ tests:
     asserts:
       - lengthEqual:
           path: spec.groups[0].rules
-          count: 4
+          count: 6
 
   - it: should apply additional labels
     set:

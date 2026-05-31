@@ -797,30 +797,23 @@ Before any resize:
 
 ### 8.1 Prometheus Metrics Exposed
 
-```
-# Recommendation gauge (per workload, container, resource)
-attune_recommendation_cpu_cores{namespace, workload, container}
-attune_recommendation_memory_bytes{namespace, workload, container}
+All metrics use the `attune_` prefix and are exposed on the operator's
+metrics endpoint (default port 8080). The operator registers 25 metrics
+across five categories:
 
-# Current vs recommended delta
-attune_savings_cpu_cores_total{namespace}
-attune_savings_memory_bytes_total{namespace}
+| Category | Metrics | Examples |
+|----------|---------|----------|
+| Recommendations | 3 gauges | `attune_recommendation_cpu_cores`, `attune_recommendation_memory_bytes`, `attune_confidence` |
+| Resize operations | 4 counters + 1 histogram | `attune_resize_total`, `attune_eviction_total`, `attune_resize_duration_seconds` |
+| Safety | 2 counters | `attune_reverts_total`, `attune_throttle_deferred_total` |
+| Savings | 3 gauges | `attune_savings_cpu_cores_total`, `attune_savings_memory_bytes_total`, `attune_savings_estimated_monthly_dollars` |
+| Data quality | 2 counters | `attune_nan_inf_samples_total`, `attune_request_clamped_total` |
+| Operational guards | 4 counters + 1 gauge | `attune_schedule_skipped_total`, `attune_budget_exhausted_total`, `attune_startup_boost_total`, `attune_burst_factor` |
+| Operator health | 2 counters + 2 histograms | `attune_reconcile_errors_total`, `attune_reconcile_duration_seconds`, `attune_prometheus_query_duration_seconds` |
+| Webhooks | 1 counter + 1 histogram | `attune_webhook_validation_total`, `attune_webhook_duration_seconds` |
 
-# Resize operations
-attune_resize_total{namespace, workload, resource, result}  # in-place only; result: success|failed|reverted, resource: cpu|memory
-attune_eviction_total{namespace, workload, result}         # eviction fallback only; result: success|denied
-attune_resize_duration_seconds{namespace, workload}
-
-# Safety
-attune_reverts_total{namespace, workload, reason}  # reason: oomkill|throttle|restart|notready
-attune_confidence{namespace, workload, container}
-
-# Operator health
-attune_reconcile_duration_seconds{controller}
-attune_reconcile_errors_total{error_type}
-attune_prometheus_query_duration_seconds{query_type}
-attune_prometheus_query_errors_total{namespace, query_type}
-```
+For the complete list with labels, descriptions, and query examples, see the
+[Metrics Reference](reference/metrics.md).
 
 ### 8.2 Kubernetes Events
 

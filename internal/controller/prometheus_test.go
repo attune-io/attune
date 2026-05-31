@@ -39,6 +39,46 @@ func newTestMemEngine() *recommendation.RecommendationEngine {
 	)
 }
 
+func Test_secretForCacheKey(t *testing.T) {
+	tests := []struct {
+		name    string
+		val     string
+		wantLen int // 0 means empty, >0 means non-empty hex string
+	}{
+		{
+			name:    "empty string returns empty",
+			val:     "",
+			wantLen: 0,
+		},
+		{
+			name:    "non-empty string returns hex hash",
+			val:     "my-secret-token",
+			wantLen: 16, // FNV-64a produces 16 hex chars
+		},
+		{
+			name:    "different values produce different hashes",
+			val:     "another-token",
+			wantLen: 16,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := secretForCacheKey(tt.val)
+			if tt.wantLen == 0 {
+				assert.Empty(t, got)
+			} else {
+				assert.Len(t, got, tt.wantLen, "expected %d hex chars", tt.wantLen)
+			}
+		})
+	}
+
+	// Verify distinct inputs produce distinct outputs.
+	a := secretForCacheKey("token-A")
+	b := secretForCacheKey("token-B")
+	assert.NotEqual(t, a, b, "different secrets must produce different cache keys")
+}
+
 func TestDeriveMemoryFromCPU(t *testing.T) {
 	tests := []struct {
 		name          string

@@ -235,6 +235,24 @@
                     "for": { "type": "string", "default": "30m" },
                     "severity": { "type": "string", "default": "warning" }
                   }
+                },
+                "dataQuality": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": { "type": "boolean", "default": true },
+                    "for": { "type": "string", "default": "30m" },
+                    "severity": { "type": "string", "default": "warning" }
+                  }
+                },
+                "requestsClamped": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": { "type": "boolean", "default": true },
+                    "for": { "type": "string", "default": "1h" },
+                    "severity": { "type": "string", "default": "info" }
+                  }
                 }
               }
             }
