@@ -99,6 +99,13 @@ with NaN return false, silently disabling any threshold or guardrail that uses
 the parsed value. Always check `math.IsNaN(v) || math.IsInf(v, 0)` after
 `strconv.ParseFloat` in validation code.
 
+The same guard applies at **runtime query boundaries**, not just parse-time.
+Prometheus queries, API responses, and external computations can return NaN
+(e.g., `0/0` in PromQL) or Inf without any string parsing involved. Any
+`float64` received from an external system must be checked before comparison.
+Example: `internal/safety/monitor.go` SLO query values (PR #167),
+`internal/metrics/collector.go` `GetThrottleRatio` (line 349).
+
 ### Webhooks
 
 controller-runtime v0.24.x uses typed generic interfaces. Register webhooks with:
