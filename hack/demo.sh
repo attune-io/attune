@@ -183,23 +183,20 @@ spec:
   metricsSource:
     prometheus:
       address: http://prometheus-server.monitoring:80
+    historyWindow: 15m
+    minimumDataPoints: 3
   cpu:
     percentile: 95
     overhead: "20"
-    bounds:
-      min: "50m"
-      max: "2000m"
+    minAllowed: "50m"
+    maxAllowed: "2000m"
   memory:
     percentile: 99
     overhead: "30"
-    bounds:
-      min: "64Mi"
-      max: "4Gi"
-  confidence:
-    minimumDataPoints: 3
-  historyWindow: 15m
+    minAllowed: "64Mi"
+    maxAllowed: "4Gi"
   updateStrategy:
-    mode: Recommend
+    type: Recommend
     reconcileInterval: 30s
 EOF
 echo
@@ -254,7 +251,7 @@ banner "Step 7: Promote to Auto mode (in-place resize)"
 
 info "Switching from Recommend to Auto mode..."
 run kubectl patch attunepolicies web-api -n demo-app --type merge \
-  -p '{"spec":{"updateStrategy":{"mode":"Auto","autoRevert":true}}}'
+  -p '{"spec":{"updateStrategy":{"type":"Auto","autoRevert":true}}}'
 echo
 
 info "Waiting for the operator to resize pods in-place..."
