@@ -338,6 +338,21 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 			continue
 		}
 
+		// Log per-resource NaN/Inf data quality issues even when the
+		// container has enough data from the other resource to produce a
+		// recommendation. Without this, a user sees CPU unchanged with no
+		// explanation when only CPU samples are non-finite.
+		if len(cpuSamples) > 0 && cpuProfile.DataPoints == 0 {
+			logger.V(1).Info("All CPU samples were NaN/Inf, using current CPU request",
+				"container", containerName,
+				"sampleCount", len(cpuSamples))
+		}
+		if len(memSamples) > 0 && memProfile.DataPoints == 0 {
+			logger.V(1).Info("All memory samples were NaN/Inf, using current memory request",
+				"container", containerName,
+				"sampleCount", len(memSamples))
+		}
+
 		// Get current resource values.
 		currentCPUReq := container.Resources.Requests.Cpu().DeepCopy()
 		currentCPULim := container.Resources.Limits.Cpu().DeepCopy()

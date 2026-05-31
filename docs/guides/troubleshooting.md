@@ -650,6 +650,14 @@ calculations.
    minutes after pod creation when Prometheus has only one data point
    (rate computation needs at least two).
 
+The `attune_nan_inf_samples_total` counter increments each time this
+happens, broken down by container and metric type (`cpu` or `memory`).
+Use it to alert on persistent data quality issues:
+
+```promql
+rate(attune_nan_inf_samples_total[1h]) > 0
+```
+
 ### Requests clamped to limits
 
 **Symptom**: Debug logs (V(1)) show `Requests clamped to limits` with a
@@ -664,6 +672,14 @@ at the limit to prevent the API server from rejecting the resize.
 **Fix**: Either increase the container's limits, or switch to
 `controlledValues: RequestsAndLimits` so the operator can scale limits
 proportionally with requests.
+
+The `attune_request_clamped_total` counter increments each time a request
+is capped, broken down by container and resource. Use it to detect
+policies where limits are consistently too tight:
+
+```promql
+rate(attune_request_clamped_total[1h]) > 0
+```
 
 ## Debug commands
 
