@@ -253,7 +253,12 @@ func (r *AttunePolicyReconciler) executeResizes(
 				// Each UpdateResize bumps resourceVersion; using a stale copy
 				// for the next container causes a 409 Conflict.
 				for _, containerRec := range rec.Containers {
-					target := buildResizeTarget(containerRec)
+					target, clamped := buildResizeTarget(containerRec)
+					if len(clamped) > 0 {
+						logger.V(1).Info("Requests clamped to limits",
+							"pod", pod.Name, "container", containerRec.Name,
+							"clampedResources", clamped)
+					}
 					cpuIncrease, memIncrease := budgetIncrease(&pod, containerRec.Name, target)
 
 					// Reserve budget before resizing so concurrent goroutines cannot
@@ -665,7 +670,7 @@ func (r *AttunePolicyReconciler) persistResizeAnnotations(
 // Limits are included when non-zero: for RequestsOnly they equal the current limits (no-op),
 // for RequestsAndLimits they are scaled proportionally. Pods that never had limits produce
 // zero-valued limit fields, which are omitted to avoid Kubernetes rejecting the resize.
-func buildResizeTarget(rec attunev1alpha1.ContainerRecommendation) corev1.ResourceRequirements {
+func buildResizeTarget(rec attunev1alpha1.ContainerRecommendation) (corev1.ResourceRequirements, []string) {
 	target := corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
 			corev1.ResourceCPU:    rec.Recommended.CPURequest.DeepCopy(),
@@ -684,8 +689,8 @@ func buildResizeTarget(rec attunev1alpha1.ContainerRecommendation) corev1.Resour
 	// Clamp requests to not exceed limits. When ControlledValues is
 	// RequestsOnly, limits stay at current values and a growing request
 	// can exceed them, causing the API server to reject the resize.
-	clampRequestsToLimits(&target)
-	return target
+	clamped := clampRequestsToLimits(&target)
+	return target, clamped
 }
 
 // clampRequestsToLimits ensures requests do not exceed limits for each resource.

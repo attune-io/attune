@@ -303,6 +303,18 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 
 		// Check for sufficient data points.
 		if cpuProfile.DataPoints < int(minimumDataPoints) && memProfile.DataPoints < int(minimumDataPoints) {
+			// Distinguish "no data from Prometheus" from "data received but
+			// all values were NaN/Inf" to help debug data quality issues.
+			if len(cpuSamples) > 0 && cpuProfile.DataPoints == 0 {
+				logger.V(1).Info("All CPU samples were NaN/Inf",
+					"container", containerName,
+					"sampleCount", len(cpuSamples))
+			}
+			if len(memSamples) > 0 && memProfile.DataPoints == 0 {
+				logger.V(1).Info("All memory samples were NaN/Inf",
+					"container", containerName,
+					"sampleCount", len(memSamples))
+			}
 			logger.Info("Insufficient data points",
 				"container", containerName,
 				"cpuPoints", cpuProfile.DataPoints,

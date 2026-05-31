@@ -7002,7 +7002,7 @@ func TestBuildResizeTarget_OmitsLimitsWhenZero(t *testing.T) {
 			MemoryRequest: resource.MustParse("128Mi"),
 		},
 	}
-	target := buildResizeTarget(rec)
+	target, _ := buildResizeTarget(rec)
 	assert.Equal(t, int64(100), target.Requests.Cpu().MilliValue())
 	wantMem := resource.MustParse("128Mi")
 	assert.Equal(t, wantMem.Value(), target.Requests.Memory().Value())
@@ -7019,7 +7019,7 @@ func TestBuildResizeTarget_IncludesLimitsWhenNonZero(t *testing.T) {
 			MemoryLimit:   resource.MustParse("256Mi"),
 		},
 	}
-	target := buildResizeTarget(rec)
+	target, _ := buildResizeTarget(rec)
 	require.NotNil(t, target.Limits)
 	assert.Equal(t, int64(200), target.Limits.Cpu().MilliValue())
 	wantMemLim := resource.MustParse("256Mi")
@@ -7035,7 +7035,7 @@ func TestBuildResizeTarget_PartialLimits(t *testing.T) {
 			MemoryRequest: resource.MustParse("128Mi"),
 		},
 	}
-	target := buildResizeTarget(rec)
+	target, _ := buildResizeTarget(rec)
 	require.NotNil(t, target.Limits, "Limits should be non-nil when any limit is non-zero")
 	assert.Equal(t, int64(200), target.Limits.Cpu().MilliValue())
 	_, hasMemLimit := target.Limits[corev1.ResourceMemory]
@@ -7052,12 +7052,14 @@ func TestBuildResizeTarget_ClampsRequestsToLimits(t *testing.T) {
 			MemoryLimit:   resource.MustParse("512Mi"), // Limit < Request
 		},
 	}
-	target := buildResizeTarget(rec)
+	target, clamped := buildResizeTarget(rec)
 	// Requests should be clamped to limits.
 	assert.Equal(t, resource.MustParse("500m"), target.Requests[corev1.ResourceCPU],
 		"CPU request should be clamped to limit")
 	assert.Equal(t, resource.MustParse("512Mi"), target.Requests[corev1.ResourceMemory],
 		"Memory request should be clamped to limit")
+	assert.ElementsMatch(t, []string{"cpu", "memory"}, clamped,
+		"both CPU and memory should be reported as clamped")
 }
 
 func TestBuildResizeTarget_NoClampsWhenRequestsBelowLimits(t *testing.T) {
@@ -7070,11 +7072,12 @@ func TestBuildResizeTarget_NoClampsWhenRequestsBelowLimits(t *testing.T) {
 			MemoryLimit:   resource.MustParse("512Mi"),
 		},
 	}
-	target := buildResizeTarget(rec)
+	target, clamped := buildResizeTarget(rec)
 	assert.Equal(t, resource.MustParse("200m"), target.Requests[corev1.ResourceCPU],
 		"CPU request should not be modified when below limit")
 	assert.Equal(t, resource.MustParse("256Mi"), target.Requests[corev1.ResourceMemory],
 		"Memory request should not be modified when below limit")
+	assert.Empty(t, clamped, "no resources should be clamped when requests are below limits")
 }
 
 func TestTryEvictionFallback_EvictsWhenMultipleReplicas(t *testing.T) {
