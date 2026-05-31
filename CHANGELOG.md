@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.12](https://github.com/attune-io/attune/compare/v0.1.11...v0.1.12) (2026-05-31)
+
+
+### Bug Fixes
+
+* docker Hub chart separation + nightly E2E install-binary-tool PATH fix ([#208](https://github.com/attune-io/attune/issues/208)) ([f8db24e](https://github.com/attune-io/attune/commit/f8db24e53da35a66aee84e895c0c41bd81c90b3d))
+* release pipeline audit fixes ([#207](https://github.com/attune-io/attune/issues/207)) ([4bdb78f](https://github.com/attune-io/attune/commit/4bdb78fab2839ab8f871c2eecc1d4a684fc5b6ff)), closes [#198](https://github.com/attune-io/attune/issues/198) [#199](https://github.com/attune-io/attune/issues/199) [#200](https://github.com/attune-io/attune/issues/200) [#201](https://github.com/attune-io/attune/issues/201) [#202](https://github.com/attune-io/attune/issues/202) [#203](https://github.com/attune-io/attune/issues/203) [#204](https://github.com/attune-io/attune/issues/204) [#205](https://github.com/attune-io/attune/issues/205) [#206](https://github.com/attune-io/attune/issues/206)
+* use PAT for OperatorHub upstream PR creation ([#196](https://github.com/attune-io/attune/issues/196)) ([f469ec2](https://github.com/attune-io/attune/commit/f469ec269618d432cbf3514500db44474381a93e)), closes [#195](https://github.com/attune-io/attune/issues/195)
+
 ## [0.1.11](https://github.com/attune-io/attune/compare/v0.1.10...v0.1.11) (2026-05-31)
 
 
