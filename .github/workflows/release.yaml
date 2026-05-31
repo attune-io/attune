@@ -162,6 +162,8 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/ppc64le,linux/s390x
           push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.name }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
