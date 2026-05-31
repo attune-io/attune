@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
 # Create or update a PR to k8s-operatorhub/community-operators for a new Attune release.
 #
-# Usage: VERSION=0.1.7 GH_TOKEN=<pat> hack/operatorhub-pr.sh
+# Usage: VERSION=0.1.7 GH_TOKEN=<token> hack/operatorhub-pr.sh
 #
 # Required env vars:
 #   VERSION         - Release version without 'v' prefix (e.g., 0.1.7)
-#   GH_TOKEN        - GitHub token (App token from CI, or PAT for local use)
+#   GH_TOKEN        - GitHub App token for pushing to the fork repo
 #
 # Optional env vars:
+#   UPSTREAM_GH_TOKEN - PAT with public_repo scope for creating PRs on
+#                       k8s-operatorhub/community-operators. Required because
+#                       GitHub App tokens can only act on repos where the app
+#                       is installed (our fork), not the upstream repo.
+#                       Falls back to GH_TOKEN if not set.
 #   FORK_OWNER      - GitHub user owning the fork (default: SebTardif)
 #   GIT_USER_NAME   - Git commit author name (default: github-actions[bot])
 #   GIT_USER_EMAIL  - Git commit author email (default: 41898282+github-actions[bot]@users.noreply.github.com)
@@ -103,8 +108,13 @@ See [release notes](https://github.com/attune-io/attune/releases/tag/v${VERSION}
 ---
 *This PR was automatically created by the Attune release workflow.*"
 
+# Switch to a token that can create PRs on the upstream public repo.
+# GitHub App tokens only work on repos where the app is installed (our fork).
+# Creating cross-fork PRs requires a PAT with public_repo scope.
+PR_TOKEN="${UPSTREAM_GH_TOKEN:-${GH_TOKEN}}"
+
 # Check if a PR already exists for this branch
-EXISTING_PR=$(gh pr list \
+EXISTING_PR=$(GH_TOKEN="${PR_TOKEN}" gh pr list \
     --repo "${UPSTREAM_REPO}" \
     --head "${FORK_OWNER}:${BRANCH}" \
     --state open \
@@ -113,14 +123,14 @@ EXISTING_PR=$(gh pr list \
 
 if [ -n "${EXISTING_PR}" ]; then
     echo "Updating existing PR #${EXISTING_PR}"
-    gh pr edit "${EXISTING_PR}" \
+    GH_TOKEN="${PR_TOKEN}" gh pr edit "${EXISTING_PR}" \
         --repo "${UPSTREAM_REPO}" \
         --title "${PR_TITLE}" \
         --body "${PR_BODY}"
     echo "PR updated: https://github.com/${UPSTREAM_REPO}/pull/${EXISTING_PR}"
 else
     echo "Creating new PR..."
-    PR_URL=$(gh pr create \
+    PR_URL=$(GH_TOKEN="${PR_TOKEN}" gh pr create \
         --repo "${UPSTREAM_REPO}" \
         --head "${FORK_OWNER}:${BRANCH}" \
         --base main \
