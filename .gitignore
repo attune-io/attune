@@ -42,3 +42,6 @@ audit-findings.md
 
 # GoReleaser output
 goreleaser-dist/
+
+# Release image build context (generated from goreleaser-dist/)
+.release-image/

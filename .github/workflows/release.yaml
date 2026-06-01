@@ -158,24 +158,38 @@ jobs:
         run: |
           echo "hashes=$(cat goreleaser-dist/checksums.txt | base64 -w0)" >> "$GITHUB_OUTPUT"
 
+      - name: Prepare release image context
+        shell: bash -Eeuo pipefail {0}
+        run: |
+          # Map GoReleaser output dirs to Docker TARGETARCH layout.
+          # GoReleaser names dirs like manager_linux_{arch}_{variant},
+          # e.g. manager_linux_amd64_v1, manager_linux_arm_7, manager_linux_s390x.
+          for dir in goreleaser-dist/manager_linux_*/; do
+            arch=$(basename "$dir" | sed 's/^manager_linux_//' | sed 's/_.*//')
+            mkdir -p ".release-image/${arch}"
+            cp "${dir}manager" ".release-image/${arch}/manager"
+          done
+          # Verify all target platforms have a binary
+          for arch in amd64 arm64 arm ppc64le s390x; do
+            if [ ! -f ".release-image/${arch}/manager" ]; then
+              echo "ERROR: missing manager binary for ${arch}" >&2
+              exit 1
+            fi
+          done
+
       - name: Build and push multi-arch image
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         id: build
         with:
-          context: .
+          context: .release-image
+          file: Dockerfile.release
           platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/ppc64le,linux/s390x
           push: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.name }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             docker.io/attuneio/attune:${{ steps.tag.outputs.name }}
             docker.io/attuneio/attune:latest
-          build-args: |
-            VERSION=${{ steps.tag.outputs.name }}
-            COMMIT=${{ github.sha }}
-            DATE=${{ steps.build_date.outputs.date }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
