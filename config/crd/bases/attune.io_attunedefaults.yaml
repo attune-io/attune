@@ -14,7 +14,7 @@ spec:
     listKind: AttuneDefaultsList
     plural: attunedefaults
     shortNames:
-    - rsd
+    - ad
     singular: attunedefaults
   scope: Cluster
   versions:

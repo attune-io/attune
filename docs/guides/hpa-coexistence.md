@@ -66,7 +66,7 @@ because the working set size does not change when the request changes.
 Watch both HPA and AttunePolicy status together:
 
 ```bash
-kubectl get hpa,rsp -o wide
+kubectl get hpa,ap -o wide
 ```
 
 Check for conflict-related events:

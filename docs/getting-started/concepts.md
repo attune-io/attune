@@ -4,14 +4,14 @@
 
 Attune introduces three CRDs:
 
-**AttunePolicy** (namespaced, short name `rsp`) is the primary resource.
+**AttunePolicy** (namespaced, short name `ap`) is the primary resource.
 Each policy targets one or more workloads in a namespace, configures the
 recommendation parameters, and controls how resizes are applied.
 
-**AttuneDefaults** (cluster-scoped, short name `rsd`) sets global default
+**AttuneDefaults** (cluster-scoped, short name `ad`) sets global default
 values for metrics source, resource config, and update strategy.
 
-**AttuneNamespaceDefaults** (namespaced, short name `rsnd`) sets
+**AttuneNamespaceDefaults** (namespaced, short name `and`) sets
 per-namespace defaults for policies in the same namespace. If a namespace
 has a `AttuneNamespaceDefaults`, the controller uses it instead of the
 cluster-scoped `AttuneDefaults`. Fields omitted there fall back to the

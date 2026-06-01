@@ -8,7 +8,7 @@
 #   kubectl apply -f examples/07-sidecar-exclusion.yaml
 #
 # Verify:
-#   kubectl get rsp web-with-sidecars -n production
+#   kubectl get ap web-with-sidecars -n production
 ---
 apiVersion: attune.io/v1alpha1
 kind: AttunePolicy

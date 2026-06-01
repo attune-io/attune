@@ -992,7 +992,7 @@ Validate compatibility with Kubernetes API conventions:
 - CRD structural schema validation passes `kubectl apply --dry-run=server`
 - Status subresource works correctly
 - Printer columns render
-- Short names work (`kubectl get rsp`)
+- Short names work (`kubectl get ap`)
 - Scale subresource (if applicable)
 
 ---

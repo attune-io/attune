@@ -426,7 +426,7 @@ kubectl attune savings -n default
 
 ```bash
 # Try on 10% of pods first (autoPromote handles the rest)
-kubectl patch rsp my-app --type merge \
+kubectl patch ap my-app --type merge \
   -p '{"spec":{"updateStrategy":{"type":"Canary","canary":{"percentage":10,"autoPromote":true},"autoRevert":true}}}'
 ```
 

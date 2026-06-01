@@ -14,7 +14,7 @@ spec:
     listKind: AttunePolicyList
     plural: attunepolicies
     shortNames:
-    - rsp
+    - ap
     singular: attunepolicy
   scope: Namespaced
   versions:
