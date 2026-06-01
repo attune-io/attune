@@ -2,7 +2,7 @@
 apiVersion: operators.coreos.com/v1alpha1
 kind: ClusterServiceVersion
 metadata:
-  name: attune-operator.v__VERSION__
+  name: attune.v__VERSION__
   namespace: placeholder
   annotations:
     alm-examples: |-

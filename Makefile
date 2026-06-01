@@ -406,8 +406,8 @@ generate-olm-bundle: manifests ## Generate OLM bundle for OperatorHub submission
 	mkdir -p "$$BUNDLE_DIR/manifests" "$$BUNDLE_DIR/metadata" && \
 	ICON_B64=$$(base64 < docs/logo.svg | tr -d '\n') && \
 	sed "s/__VERSION__/$$VERSION/g; s/__DATE__/$$DATE/g; s/__ICON_BASE64__/$$ICON_B64/g" \
-		config/olm/template/manifests/attune-operator.clusterserviceversion.yaml \
-		> "$$BUNDLE_DIR/manifests/attune-operator.clusterserviceversion.yaml" && \
+		config/olm/template/manifests/attune.clusterserviceversion.yaml \
+		> "$$BUNDLE_DIR/manifests/attune.clusterserviceversion.yaml" && \
 	cp config/olm/template/metadata/annotations.yaml "$$BUNDLE_DIR/metadata/" && \
 	cp config/crd/bases/attune.io_attunepolicies.yaml "$$BUNDLE_DIR/manifests/" && \
 	cp config/crd/bases/attune.io_attunedefaults.yaml "$$BUNDLE_DIR/manifests/" && \

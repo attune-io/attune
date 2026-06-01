@@ -47,7 +47,7 @@ fi
 
 # Verify bundle contents
 for f in \
-    "${BUNDLE_DIR}/manifests/attune-operator.clusterserviceversion.yaml" \
+    "${BUNDLE_DIR}/manifests/attune.clusterserviceversion.yaml" \
     "${BUNDLE_DIR}/manifests/attune.io_attunepolicies.yaml" \
     "${BUNDLE_DIR}/manifests/attune.io_attunedefaults.yaml" \
     "${BUNDLE_DIR}/manifests/attune.io_attunenamespacedefaults.yaml" \
