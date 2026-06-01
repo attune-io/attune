@@ -6,6 +6,22 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.13](https://github.com/attune-io/attune/compare/v0.1.12...v0.1.13) (2026-06-01)
+
+
+### Bug Fixes
+
+* add --use-signing-config=false for cosign old bundle format ([#232](https://github.com/attune-io/attune/issues/232)) ([88c7a7f](https://github.com/attune-io/attune/commit/88c7a7fe7f47ccef6a81d07a36bfc73b2ee9e938))
+* add cosign signing to GoReleaser and workflow for retroactive release signing ([#228](https://github.com/attune-io/attune/issues/228)) ([365c124](https://github.com/attune-io/attune/commit/365c1240939ada7ab10d5572702591ac70315ddb))
+* address 4 GitHub AI code quality findings ([#235](https://github.com/attune-io/attune/issues/235)) ([0c2fbd3](https://github.com/attune-io/attune/commit/0c2fbd3f1ee81db617075bd8013cf9f9443469a1))
+* cosign signing with --new-bundle-format=false for scorecard ([#231](https://github.com/attune-io/attune/issues/231)) ([ac9b124](https://github.com/attune-io/attune/commit/ac9b1241b080683095ac02a27945e074d2a61139))
+* docs, CI consistency, and demo script fixes from multi-perspective review ([#226](https://github.com/attune-io/attune/issues/226)) ([d300a11](https://github.com/attune-io/attune/commit/d300a114a775114986ce1133d69e0bf538673f17))
+* exclude helm.sh from lychee link checks ([#236](https://github.com/attune-io/attune/issues/236)) ([6fe7766](https://github.com/attune-io/attune/commit/6fe77668374bbc42e4f5d37b2930f35c91578fd5))
+* pin setup-oras to SHA that includes ORAS CLI 1.3.2 ([#224](https://github.com/attune-io/attune/issues/224)) ([a206aef](https://github.com/attune-io/attune/commit/a206aef889a16d9079f4c3810b7f55ef72e92e94)), closes [#221](https://github.com/attune-io/attune/issues/221)
+* switch auto-approve to GITHUB_TOKEN pattern and fix retroactive signing ([#229](https://github.com/attune-io/attune/issues/229)) ([2a096d4](https://github.com/attune-io/attune/commit/2a096d4b8f2469afa7620de85ad31e61c48b6fc9))
+* use cosign --bundle flag for SBOM signing ([#213](https://github.com/attune-io/attune/issues/213)) ([afc6026](https://github.com/attune-io/attune/commit/afc602623ba631534f73f9697144ae7e214e3c5b))
+* use oras cp for Docker Hub Helm chart push ([#220](https://github.com/attune-io/attune/issues/220)) ([6ecbaee](https://github.com/attune-io/attune/commit/6ecbaeed0221445cc4f4a484f3dd21423769924b)), closes [#218](https://github.com/attune-io/attune/issues/218)
+
 ## [0.1.12](https://github.com/attune-io/attune/compare/v0.1.11...v0.1.12) (2026-05-31)
 
 
