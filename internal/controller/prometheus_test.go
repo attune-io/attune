@@ -238,6 +238,52 @@ func TestDeriveMemoryFromCPU_MinBoundEnforced(t *testing.T) {
 		"memory %s should be clamped to minBound %s", memRec.String(), minBound.String())
 }
 
+func Test_appendNote(t *testing.T) {
+	tests := []struct {
+		name     string
+		existing string
+		note     string
+		want     string
+	}{
+		{
+			name:     "empty existing returns note only",
+			existing: "",
+			note:     "clamped to bounds",
+			want:     "clamped to bounds",
+		},
+		{
+			name:     "non-empty existing appends with separator",
+			existing: "applied overhead",
+			note:     "clamped to bounds",
+			want:     "applied overhead; clamped to bounds",
+		},
+		{
+			name:     "chaining three notes",
+			existing: "a; b",
+			note:     "c",
+			want:     "a; b; c",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := appendNote(tt.existing, tt.note)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func Test_mustParseFloat_ValidInput(t *testing.T) {
+	assert.Equal(t, 1.5, mustParseFloat("1.5"))
+	assert.Equal(t, 0.0, mustParseFloat("0"))
+	assert.Equal(t, -3.14, mustParseFloat("-3.14"))
+}
+
+func Test_mustParseFloat_InvalidInput_Panics(t *testing.T) {
+	assert.Panics(t, func() {
+		mustParseFloat("not-a-number")
+	}, "mustParseFloat should panic on invalid input")
+}
+
 func TestDeriveMemoryFromCPU_ExactMath(t *testing.T) {
 	// Verify the core math: 1000m CPU * ratio 2.0 = 2 GiB raw.
 	// The engine applies overhead (0% in test engine) but the confidence

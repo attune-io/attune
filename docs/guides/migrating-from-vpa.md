@@ -98,7 +98,7 @@ Compare the VPA recommendations with Attune recommendations:
 
 ```bash
 kubectl get vpa my-app -o jsonpath='{.status.recommendation}' | jq .
-kubectl get rsp my-app -o jsonpath='{.status.recommendations}' | jq .
+kubectl get attunepolicy my-app -o jsonpath='{.status.recommendations}' | jq .
 ```
 
 ### 4. Disable VPA for the workload
@@ -112,7 +112,7 @@ kubectl delete vpa my-app
 ### 5. Promote Attune to Canary
 
 ```bash
-kubectl patch rsp my-app --type merge \
+kubectl patch attunepolicy my-app --type merge \
   -p '{"spec":{"updateStrategy":{"type":"Canary","canary":{"percentage":10,"observationPeriod":"30m"}}}}'
 ```
 

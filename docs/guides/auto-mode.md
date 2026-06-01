@@ -112,7 +112,7 @@ The operator sets a `Degraded` condition when 3 or more of the last 5 resizes ar
 Monitor this with:
 
 ```bash
-kubectl get rsp -A -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}: {range .status.conditions[*]}{.type}={.reason} {end}{"\n"}{end}'
+kubectl get attunepolicy -A -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}: {range .status.conditions[*]}{.type}={.reason} {end}{"\n"}{end}'
 ```
 
 ### Prometheus metrics
@@ -255,14 +255,14 @@ This is useful in GitOps workflows where:
 ### From Recommend mode
 
 ```bash
-kubectl patch rsp my-app --type merge \
+kubectl patch attunepolicy my-app --type merge \
   -p '{"spec":{"updateStrategy":{"type":"Auto","autoRevert":true}}}'
 ```
 
 ### From Canary mode
 
 ```bash
-kubectl patch rsp my-app --type merge \
+kubectl patch attunepolicy my-app --type merge \
   -p '{"spec":{"updateStrategy":{"type":"Auto"}}}'
 ```
 
@@ -271,7 +271,7 @@ kubectl patch rsp my-app --type merge \
 If Auto mode causes issues, switch back to Recommend immediately:
 
 ```bash
-kubectl patch rsp my-app --type merge \
+kubectl patch attunepolicy my-app --type merge \
   -p '{"spec":{"updateStrategy":{"type":"Recommend"}}}'
 ```
 

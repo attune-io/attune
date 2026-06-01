@@ -153,6 +153,7 @@ rules:
       - delete
       - get
       - list
+      - patch
       - update
       - watch
   # Secrets: get-only (bearer token for Prometheus auth; no informer cache)

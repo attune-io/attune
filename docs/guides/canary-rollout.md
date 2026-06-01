@@ -58,7 +58,7 @@ The operator tracks which pods were selected for the canary subset in
 (the CANARY column), or list the exact pod names:
 
 ```bash
-kubectl get rsp my-app -o jsonpath='{.status.canary.pods}' | jq .
+kubectl get attunepolicy my-app -o jsonpath='{.status.canary.pods}' | jq .
 ```
 
 Watch resize events:
@@ -82,7 +82,7 @@ When the safety monitor detects a problem, it reverts the pod's resources
 and records the event in `.status.resizeHistory` with `result: Reverted`.
 
 ```bash
-kubectl get rsp my-app -o jsonpath='{.status.resizeHistory}' | jq '.[] | select(.result=="Reverted")'
+kubectl get attunepolicy my-app -o jsonpath='{.status.resizeHistory}' | jq '.[] | select(.result=="Reverted")'
 ```
 
 !!! warning
@@ -105,7 +105,7 @@ When `autoPromote: true`, the operator handles promotion automatically:
 Check the canary phase:
 
 ```bash
-kubectl get rsp my-app -o jsonpath='{.status.canary.phase}'
+kubectl get attunepolicy my-app -o jsonpath='{.status.canary.phase}'
 # CanaryInProgress -> FullRollout
 ```
 
@@ -120,14 +120,14 @@ When `autoPromote` is false (default), promote to **Auto** mode manually
 after canary pods have run successfully through multiple cooldown cycles:
 
 ```bash
-kubectl patch rsp my-app --type merge \
+kubectl patch attunepolicy my-app --type merge \
   -p '{"spec":{"updateStrategy":{"type":"Auto"}}}'
 ```
 
 Or increase the canary percentage gradually:
 
 ```bash
-kubectl patch rsp my-app --type merge \
+kubectl patch attunepolicy my-app --type merge \
   -p '{"spec":{"updateStrategy":{"canary":{"percentage":50}}}}'
 ```
 
@@ -136,7 +136,7 @@ kubectl patch rsp my-app --type merge \
 To stop all resizing immediately, switch back to Recommend mode:
 
 ```bash
-kubectl patch rsp my-app --type merge \
+kubectl patch attunepolicy my-app --type merge \
   -p '{"spec":{"updateStrategy":{"type":"Recommend"}}}'
 ```
 
