@@ -180,18 +180,43 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Extract legacy .sig and .pem from Sigstore bundle
+        shell: bash -Eeuo pipefail {0}
+        run: |
+          # GoReleaser now signs with --bundle, producing a .sigstore.json.
+          # Extract separate .sig and .pem files for backward compatibility
+          # with downstream verification scripts.
+          BUNDLE="goreleaser-dist/checksums.txt.sigstore.json"
+          if [ -f "$BUNDLE" ] && [ ! -f "goreleaser-dist/checksums.txt.sig" ]; then
+            echo "Extracting .sig and .pem from Sigstore bundle"
+            jq -r '.messageSignature.signature' "$BUNDLE" \
+              > goreleaser-dist/checksums.txt.sig
+            jq -r '.verificationMaterial.certificate.rawBytes' "$BUNDLE" \
+              | base64 -d | openssl x509 -inform DER -outform PEM \
+              > goreleaser-dist/checksums.txt.pem
+            gh release upload "${{ steps.tag.outputs.name }}" \
+              goreleaser-dist/checksums.txt.sig \
+              goreleaser-dist/checksums.txt.pem \
+              --repo "${{ github.repository }}" --clobber
+          elif [ -f "goreleaser-dist/checksums.txt.sig" ]; then
+            echo "Legacy .sig already exists (produced by GoReleaser directly)"
+          else
+            echo "No bundle or signatures found; fallback step will handle this"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Sign checksums (fallback for older tags without signs config)
         if: inputs.tag != ''
         shell: bash
         run: |
-          # If GoReleaser's .goreleaser.yaml at this tag lacks the signs
-          # section, the signature files won't exist. Sign them manually.
-          if [ ! -f goreleaser-dist/checksums.txt.sig ]; then
+          # If GoReleaser's .goreleaser.yaml at this tag lacks any signs
+          # config, neither .sigstore.json nor .sig will exist. Sign manually.
+          if [ ! -f goreleaser-dist/checksums.txt.sig ] && [ ! -f goreleaser-dist/checksums.txt.sigstore.json ]; then
             echo "GoReleaser did not produce signatures; signing checksums manually"
             cosign sign-blob --yes \
               --bundle goreleaser-dist/checksums.txt.bundle \
               goreleaser-dist/checksums.txt
-            # Extract .sig and .pem from the Sigstore bundle for backward compatibility
             jq -r '.messageSignature.signature' goreleaser-dist/checksums.txt.bundle \
               > goreleaser-dist/checksums.txt.sig
             jq -r '.verificationMaterial.certificate.rawBytes' goreleaser-dist/checksums.txt.bundle \
@@ -199,7 +224,8 @@ jobs:
               > goreleaser-dist/checksums.txt.pem
             gh release upload "${{ steps.tag.outputs.name }}" \
               goreleaser-dist/checksums.txt.sig \
-              goreleaser-dist/checksums.txt.pem
+              goreleaser-dist/checksums.txt.pem \
+              --repo "${{ github.repository }}" --clobber
           else
             echo "GoReleaser already produced signatures"
           fi
