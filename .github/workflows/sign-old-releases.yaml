@@ -39,15 +39,17 @@ jobs:
               --repo "${{ github.repository }}" \
               --pattern checksums.txt \
               --dir "${WORKDIR}"
+            # --new-bundle-format=false required: cosign defaults to new bundle
+            # format which ignores --output-signature. Scorecard only recognizes
+            # .sig files, not .bundle files.
             cosign sign-blob --yes \
+              --new-bundle-format=false \
               --output-signature "${WORKDIR}/checksums.txt.sig" \
               --output-certificate "${WORKDIR}/checksums.txt.pem" \
-              --bundle "${WORKDIR}/checksums.txt.bundle" \
               "${WORKDIR}/checksums.txt"
             gh release upload "${TAG}" \
               "${WORKDIR}/checksums.txt.sig" \
               "${WORKDIR}/checksums.txt.pem" \
-              "${WORKDIR}/checksums.txt.bundle" \
               --repo "${{ github.repository }}" \
               --clobber
             echo "Signed ${TAG}"
