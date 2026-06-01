@@ -111,6 +111,7 @@ jobs:
           cache: true
 
       - name: Login to GHCR
+        if: inputs.tag == ''
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
           registry: ${{ env.REGISTRY }}
@@ -118,19 +119,23 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Login to Docker Hub
+        if: inputs.tag == ''
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Set up Docker Buildx
+        if: inputs.tag == ''
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
 
       - name: Capture build date
+        if: inputs.tag == ''
         id: build_date
         run: echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
       - name: Clean existing release assets (idempotent re-runs)
+        if: inputs.tag == ''
         shell: bash
         run: |
           TAG="${{ steps.tag.outputs.name }}"
@@ -159,6 +164,7 @@ jobs:
           echo "hashes=$(cat goreleaser-dist/checksums.txt | base64 -w0)" >> "$GITHUB_OUTPUT"
 
       - name: Prepare release image context
+        if: inputs.tag == ''
         shell: bash -Eeuo pipefail {0}
         run: |
           # Map GoReleaser output dirs to Docker TARGETARCH layout.
@@ -178,6 +184,7 @@ jobs:
           done
 
       - name: Compute image tags
+        if: inputs.tag == ''
         id: image-tags
         shell: bash
         run: |
@@ -195,6 +202,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Build and push multi-arch image
+        if: inputs.tag == ''
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         id: build
         with:
@@ -209,18 +217,21 @@ jobs:
             org.opencontainers.image.version=${{ steps.tag.outputs.name }}
 
       - name: Sign GHCR image
+        if: inputs.tag == ''
         shell: bash -Eeuo pipefail -x {0}
         run: |
           cosign sign --yes \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
 
       - name: Sign Docker Hub image
+        if: inputs.tag == ''
         shell: bash -Eeuo pipefail -x {0}
         run: |
           cosign sign --yes \
             docker.io/attuneio/attune@${{ steps.build.outputs.digest }}
 
       - name: Attest container image
+        if: inputs.tag == ''
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
         with:
           subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
@@ -228,6 +239,7 @@ jobs:
           push-to-registry: true
 
       - name: Generate SBOM
+        if: inputs.tag == ''
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
@@ -235,6 +247,7 @@ jobs:
           output-file: sbom.spdx.json
 
       - name: Trivy scan released image
+        if: inputs.tag == ''
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
@@ -242,6 +255,7 @@ jobs:
           exit-code: 1
 
       - name: Sign SBOM
+        if: inputs.tag == ''
         shell: bash -Eeuo pipefail -x {0}
         run: |
           cosign sign-blob --yes \
@@ -249,12 +263,14 @@ jobs:
             sbom.spdx.json
 
       - name: Generate install manifest and CRDs bundle
+        if: inputs.tag == ''
         shell: bash -Eeuo pipefail -x {0}
         run: |
           make build-installer IMG=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.name }}
           make build-crds
 
       - name: Attach install manifest, CRDs, and SBOM to release
+        if: inputs.tag == ''
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3
         with:
           tag_name: ${{ steps.tag.outputs.name }}
@@ -268,6 +284,7 @@ jobs:
       # Krew manifest update runs last with continue-on-error so a Krew
       # failure never blocks Docker images, signatures, or provenance.
       - name: Update Krew plugin manifest
+        if: inputs.tag == ''
         continue-on-error: true
         uses: rajatjindal/krew-release-bot@c970b8a8f6dbc2f2285a26e3ae160903b87002c3 # v0.0.51
         with:
@@ -401,7 +418,8 @@ jobs:
   container-provenance:
     name: Container Provenance
     needs: [release]
-    if: ${{ !cancelled() && needs.release.result == 'success' }}
+    # Skip on re-releases: no Docker image is built, so there is no digest.
+    if: ${{ !cancelled() && needs.release.result == 'success' && inputs.tag == '' }}
     permissions:
       actions: read
       id-token: write
