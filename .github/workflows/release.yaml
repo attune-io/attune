@@ -177,6 +177,23 @@ jobs:
             fi
           done
 
+      - name: Compute image tags
+        id: image-tags
+        shell: bash
+        run: |
+          TAG="${{ steps.tag.outputs.name }}"
+          NL=$'\n'
+          TAGS="${REGISTRY}/${IMAGE_NAME}:${TAG}${NL}docker.io/attuneio/attune:${TAG}"
+          # Skip :latest on re-releases to avoid overwriting a newer release
+          if [ -z "${{ inputs.tag }}" ]; then
+            TAGS="${TAGS}${NL}${REGISTRY}/${IMAGE_NAME}:latest${NL}docker.io/attuneio/attune:latest"
+          fi
+          {
+            echo "tags<<EOF"
+            echo "$TAGS"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build and push multi-arch image
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         id: build
@@ -185,11 +202,7 @@ jobs:
           file: Dockerfile.release
           platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/ppc64le,linux/s390x
           push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.name }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-            docker.io/attuneio/attune:${{ steps.tag.outputs.name }}
-            docker.io/attuneio/attune:latest
+          tags: ${{ steps.image-tags.outputs.tags }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
@@ -268,7 +281,9 @@ jobs:
     # Explicit condition required: release-please is skipped on workflow_dispatch,
     # and GitHub Actions propagates skips transitively through the needs chain.
     # Without this, downstream jobs are skipped even when release succeeded.
-    if: ${{ !cancelled() && needs.release.result == 'success' }}
+    # Skip on re-releases (inputs.tag set) since re-releases only fix release
+    # artifacts; Helm chart versions are immutable once published.
+    if: ${{ !cancelled() && needs.release.result == 'success' && inputs.tag == '' }}
     permissions:
       contents: read
       packages: write
@@ -409,7 +424,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [release]
-    if: ${{ !cancelled() && needs.release.result == 'success' }}
+    # Skip on re-releases; OLM bundles were already submitted for this version.
+    if: ${{ !cancelled() && needs.release.result == 'success' && inputs.tag == '' }}
     permissions:
       contents: read
     outputs:
@@ -455,7 +471,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     needs: [release]
-    if: ${{ !cancelled() && needs.release.result == 'success' }}
+    # Skip on re-releases; the README content at the re-released tag may be
+    # older than what is currently on Docker Hub.
+    if: ${{ !cancelled() && needs.release.result == 'success' && inputs.tag == '' }}
     steps:
       - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
