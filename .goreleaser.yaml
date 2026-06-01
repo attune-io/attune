@@ -48,14 +48,12 @@ checksum:
 signs:
   - cmd: cosign
     artifacts: checksum
+    signature: "${artifact}.sigstore.json"
     args:
       - sign-blob
-      - "--yes"
-      - "--new-bundle-format=false"
-      - "--use-signing-config=false"
-      - "--output-signature=${signature}"
-      - "--output-certificate=${certificate}"
+      - "--bundle=${signature}"
       - "${artifact}"
-    certificate: '${artifact}.pem'
+      - "--yes"
+    output: true
 changelog:
   use: github-native
