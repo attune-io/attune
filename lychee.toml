@@ -12,6 +12,7 @@ exclude = [
   "facebook\\.com",
   "instagram\\.com",
   "cast\\.ai",
+  "helm\\.sh",
 ]
 exclude_loopback = true
 max_concurrency = 8
