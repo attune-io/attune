@@ -9,6 +9,7 @@
 [![Go Version](https://img.shields.io/badge/go-1.26-blue)](go.mod)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/12998/badge)](https://www.bestpractices.dev/projects/12998)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/attune-io/attune/badge)](https://scorecard.dev/viewer/?uri=github.com/attune-io/attune)
 [![Docker Hub](https://img.shields.io/docker/pulls/attuneio/attune)](https://hub.docker.com/r/attuneio/attune)
 [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/attune)](https://artifacthub.io/packages/helm/attune/attune)
 [![kubectl plugin](https://img.shields.io/badge/kubectl_plugin-krew-blue)](https://krew.sigs.k8s.io/plugins/)
