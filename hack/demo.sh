@@ -60,7 +60,7 @@ wait_for() {
   local timeout="${1:-120}"; shift || true
   echo -ne "${GREEN}▸${RESET} Waiting: ${msg}..."
   local elapsed=0
-  while ! eval "$@" >/dev/null 2>&1; do
+  while ! "$@" >/dev/null 2>&1; do
     sleep 2
     elapsed=$((elapsed + 2))
     if [ "$elapsed" -ge "$timeout" ]; then
@@ -127,7 +127,7 @@ banner "Step 3: Build and deploy attune"
 
 cd "$REPO_ROOT"
 info "Building operator image..."
-run make docker-build IMG="$IMG" 2>/dev/null
+run make docker-build IMG="$IMG"
 
 info "Loading image into cluster..."
 k3d image import "$IMG" -c "$CLUSTER_NAME"

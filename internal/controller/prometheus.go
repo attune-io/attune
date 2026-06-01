@@ -97,7 +97,7 @@ func (r *AttunePolicyReconciler) getOrCreateCollectorByKey(cacheKey, description
 	if cached, ok := r.collectors.Load(cacheKey); ok {
 		entry, _ := cached.(*collectorEntry)
 		if entry != nil {
-			r.collectors.Store(cacheKey, &collectorEntry{collector: entry.collector, lastUsed: now})
+			r.collectors.CompareAndSwap(cacheKey, cached, &collectorEntry{collector: entry.collector, lastUsed: now})
 			return entry.collector, nil
 		}
 	}

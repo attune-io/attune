@@ -103,13 +103,21 @@ func TestResizePod_CallsUpdateResize(t *testing.T) {
 			assert.Equal(t, "web-0", updatedPod.Name)
 			assert.Equal(t, "default", updatedPod.Namespace)
 
-			gotCPU := updatedPod.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
-			assert.True(t, gotCPU.Equal(resource.MustParse("250m")),
-				"expected cpu request 250m, got %s", gotCPU.String())
+			gotCPUReq := updatedPod.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
+			assert.True(t, gotCPUReq.Equal(resource.MustParse("250m")),
+				"expected cpu request 250m, got %s", gotCPUReq.String())
 
-			gotMem := updatedPod.Spec.Containers[0].Resources.Limits[corev1.ResourceMemory]
-			assert.True(t, gotMem.Equal(resource.MustParse("1Gi")),
-				"expected memory limit 1Gi, got %s", gotMem.String())
+			gotMemReq := updatedPod.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory]
+			assert.True(t, gotMemReq.Equal(resource.MustParse("512Mi")),
+				"expected memory request 512Mi, got %s", gotMemReq.String())
+
+			gotCPULim := updatedPod.Spec.Containers[0].Resources.Limits[corev1.ResourceCPU]
+			assert.True(t, gotCPULim.Equal(resource.MustParse("500m")),
+				"expected cpu limit 500m, got %s", gotCPULim.String())
+
+			gotMemLim := updatedPod.Spec.Containers[0].Resources.Limits[corev1.ResourceMemory]
+			assert.True(t, gotMemLim.Equal(resource.MustParse("1Gi")),
+				"expected memory limit 1Gi, got %s", gotMemLim.String())
 			break
 		}
 	}
