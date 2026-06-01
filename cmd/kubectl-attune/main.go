@@ -1307,7 +1307,6 @@ func getConditionMessage(obj unstructured.Unstructured, conditionType string) st
 	return ""
 }
 
-// savingsPercent computes the CPU savings percentage from reduction and total strings.
 // parseDollarCents parses a dollar string like "$12.78" into cents (1278).
 // Returns 0 for empty, dash, or unparseable values.
 func parseDollarCents(s string) int64 {
@@ -1323,6 +1322,7 @@ func parseDollarCents(s string) int64 {
 	return int64(f * 100)
 }
 
+// savingsPercent computes the CPU savings percentage from reduction and total strings.
 func savingsPercent(saved, total string) string {
 	if saved == "-" || saved == "" || total == "" {
 		return "-"
