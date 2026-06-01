@@ -268,4 +268,3 @@ func TestRunImmediateSafetyCheck_SafePod(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Empty(t, reason, "healthy pod should not trigger revert")
 }
-
