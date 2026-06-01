@@ -66,6 +66,17 @@ the full story.
 - [Quick Start](getting-started/quickstart.md) -- Create your first policy
 - [Migrating from VPA](guides/migrating-from-vpa.md) -- Step-by-step replacement
 
+## Metrics Sources
+
+Attune works with multiple metrics backends. One source is configured per
+policy:
+
+| Backend | Guide | Use case |
+|---------|-------|----------|
+| **Prometheus** (+ Thanos, Mimir, VictoriaMetrics) | [Prometheus Setup](guides/prometheus-setup.md) | Default for most clusters; auto-discovery available |
+| **Datadog** | [Datadog Setup](guides/datadog-setup.md) | Teams already using Datadog for Kubernetes monitoring |
+| **CloudWatch** Container Insights | [CloudWatch Setup](guides/cloudwatch-setup.md) | EKS clusters using AWS-native observability |
+
 ## Reference
 
 - [API Reference](reference/api.md)
