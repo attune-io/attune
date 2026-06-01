@@ -180,6 +180,27 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Sign checksums (fallback for older tags without signs config)
+        if: inputs.tag != ''
+        shell: bash
+        run: |
+          # If GoReleaser's .goreleaser.yaml at this tag lacks the signs
+          # section, the signature files won't exist. Sign them manually.
+          if [ ! -f goreleaser-dist/checksums.txt.sig ]; then
+            echo "GoReleaser did not produce signatures; signing checksums manually"
+            cosign sign-blob --yes \
+              --output-signature goreleaser-dist/checksums.txt.sig \
+              --output-certificate goreleaser-dist/checksums.txt.pem \
+              goreleaser-dist/checksums.txt
+            gh release upload "${{ steps.tag.outputs.name }}" \
+              goreleaser-dist/checksums.txt.sig \
+              goreleaser-dist/checksums.txt.pem
+          else
+            echo "GoReleaser already produced signatures"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Generate provenance subjects
         id: hash
         shell: bash -Eeuo pipefail {0}
