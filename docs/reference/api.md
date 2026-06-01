@@ -15,7 +15,7 @@ webhook defaults). All other defaultable fields (`type`, `controlledValues`,
 `safetyObservationPeriod`) are applied
 by the controller at reconcile time so that cluster-wide `AttuneDefaults`
 and namespace-scoped `AttuneNamespaceDefaults` can override them. These
-fields will appear empty in `kubectl get rsp -o yaml` but still control runtime
+fields will appear empty in `kubectl get attunepolicy -o yaml` but still control runtime
 behavior through the controller's built-in and inherited defaults unless you
 override them. Use `kubectl attune explain -n <namespace> <policy>` to see
 the effective values for the key controller-applied defaults and whether each
@@ -204,7 +204,7 @@ the estimator chain: `rawPercentile`, `overhead`, `afterOverhead`,
 ### Print columns
 
 ```bash
-kubectl get rsp
+kubectl get attunepolicy
 ```
 
 ```text

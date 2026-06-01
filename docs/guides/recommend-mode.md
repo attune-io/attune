@@ -43,7 +43,7 @@ spec:
 ## Reading recommendations from status
 
 ```bash
-kubectl get rsp api-services -o jsonpath='{.status.recommendations[*]}' | jq .
+kubectl get attunepolicy api-services -o jsonpath='{.status.recommendations[*]}' | jq .
 ```
 
 Each entry in the array contains:
@@ -78,7 +78,7 @@ The confidence score reflects how much data backs the recommendation:
 The policy status includes aggregated savings:
 
 ```bash
-kubectl get rsp api-services -o jsonpath='{.status.savings}' | jq .
+kubectl get attunepolicy api-services -o jsonpath='{.status.savings}' | jq .
 ```
 
 ```json

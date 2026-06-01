@@ -112,7 +112,7 @@ The operator sets a `Degraded` condition when 3 or more of the last 5 resizes ar
 Monitor this with:
 
 ```bash
-kubectl get rsp -A -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}: {range .status.conditions[*]}{.type}={.reason} {end}{"\n"}{end}'
+kubectl get attunepolicy -A -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}: {range .status.conditions[*]}{.type}={.reason} {end}{"\n"}{end}'
 ```
 
 ### Prometheus metrics

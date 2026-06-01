@@ -5,7 +5,7 @@
 Check the policy's conditions for a quick diagnosis:
 
 ```bash
-kubectl get rsp <name> -o jsonpath='{.status.conditions}' | jq .
+kubectl get attunepolicy <name> -o jsonpath='{.status.conditions}' | jq .
 ```
 
 ### PrometheusUnavailable
@@ -383,14 +383,14 @@ consecutive revert, capped at 16x).
 Check the current backoff state:
 
 ```bash
-kubectl get rsp <name> -o jsonpath='{.status.cooldown}'
+kubectl get attunepolicy <name> -o jsonpath='{.status.cooldown}'
 # Example: {"backoffMultiplier":8,"consecutiveReverts":3,"effectiveCooldown":"8h0m0s"}
 ```
 
 **Fix**: Investigate the revert reasons:
 
 ```bash
-kubectl get rsp <name> -o jsonpath='{.status.resizeHistory}' | \
+kubectl get attunepolicy <name> -o jsonpath='{.status.resizeHistory}' | \
   jq '[.[] | select(.result=="Reverted")]'
 ```
 
@@ -692,7 +692,7 @@ kubectl -n attune-system logs -l app.kubernetes.io/name=attune --tail=100
 List all policies with status:
 
 ```bash
-kubectl get rsp --all-namespaces -o wide
+kubectl get attunepolicy --all-namespaces -o wide
 ```
 
 Inspect a specific policy in detail:

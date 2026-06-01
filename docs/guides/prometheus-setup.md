@@ -236,7 +236,7 @@ Non-empty results confirm Attune can query metrics for that workload.
 ### Step 4: Check policy conditions
 
 ```bash
-kubectl get rsp -A
+kubectl get attunepolicy -A
 ```
 
 | Condition | Meaning |

@@ -98,7 +98,7 @@ Compare the VPA recommendations with Attune recommendations:
 
 ```bash
 kubectl get vpa my-app -o jsonpath='{.status.recommendation}' | jq .
-kubectl get rsp my-app -o jsonpath='{.status.recommendations}' | jq .
+kubectl get attunepolicy my-app -o jsonpath='{.status.recommendations}' | jq .
 ```
 
 ### 4. Disable VPA for the workload
