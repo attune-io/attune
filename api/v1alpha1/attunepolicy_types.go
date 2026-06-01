@@ -902,7 +902,7 @@ type SavingsStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:shortName=rsp,categories={attune}
+// +kubebuilder:resource:shortName=ap,categories={attune}
 // +kubebuilder:printcolumn:name="Type",type=string,JSONPath=`.spec.updateStrategy.type`
 // +kubebuilder:printcolumn:name="Workloads",type=integer,JSONPath=`.status.workloads.discovered`
 // +kubebuilder:printcolumn:name="Recs",type=integer,JSONPath=`.status.workloads.withRecommendations`

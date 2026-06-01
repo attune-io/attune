@@ -14,7 +14,7 @@ spec:
     listKind: AttuneNamespaceDefaultsList
     plural: attunenamespacedefaults
     shortNames:
-    - rsnd
+    - and
     singular: attunenamespacedefaults
   scope: Namespaced
   versions:

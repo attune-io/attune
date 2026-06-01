@@ -117,7 +117,7 @@ Once you trust the recommendations, switch to Canary mode to test on a
 small subset of pods:
 
 ```bash
-kubectl patch rsp my-first-policy -n my-app --type=merge \
+kubectl patch ap my-first-policy -n my-app --type=merge \
   -p '{"spec":{"updateStrategy":{"type":"Canary","canary":{"percentage":10}}}}'
 ```
 
@@ -141,7 +141,7 @@ notready, throttle).
 After successful canary resizes with no reverts, promote to Auto:
 
 ```bash
-kubectl patch rsp my-first-policy -n my-app --type=merge \
+kubectl patch ap my-first-policy -n my-app --type=merge \
   -p '{"spec":{"updateStrategy":{"type":"Auto"}}}'
 ```
 

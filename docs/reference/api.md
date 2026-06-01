@@ -3,7 +3,7 @@
 **Group**: `attune.io`  
 **Version**: `v1alpha1`  
 **Scope**: Namespaced  
-**Short name**: `rsp`
+**Short name**: `ap`
 
 ### Defaulting Behavior
 
@@ -250,7 +250,7 @@ Events use 1-hour deduplication to prevent log spam. Identical events are emitte
 ## AttuneDefaults
 
 **Scope**: Cluster  
-**Short name**: `rsd`
+**Short name**: `ad`
 
 ```yaml
 apiVersion: attune.io/v1alpha1
@@ -331,7 +331,7 @@ Prometheus addresses are rejected at admission time.
 ## AttuneNamespaceDefaults
 
 **Scope**: Namespaced
-**Short name**: `rsnd`
+**Short name**: `and`
 
 ```yaml
 apiVersion: attune.io/v1alpha1

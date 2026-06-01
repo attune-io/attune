@@ -14,7 +14,7 @@ spec:
     listKind: AttuneDefaultsList
     plural: attunedefaults
     shortNames:
-    - rsd
+    - ad
     singular: attunedefaults
   scope: Cluster
   versions:
@@ -729,7 +729,7 @@ spec:
     listKind: AttuneNamespaceDefaultsList
     plural: attunenamespacedefaults
     shortNames:
-    - rsnd
+    - and
     singular: attunenamespacedefaults
   scope: Namespaced
   versions:
@@ -1445,7 +1445,7 @@ spec:
     listKind: AttunePolicyList
     plural: attunepolicies
     shortNames:
-    - rsp
+    - ap
     singular: attunepolicy
   scope: Namespaced
   versions:

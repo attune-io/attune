@@ -69,11 +69,11 @@ spec:
               # The first reconcile may set InsufficientData (before reaching Prometheus)
               # and the second sets PrometheusUnavailable (after query fails). Accept either.
               for i in $(seq 1 36); do
-                reason=$(kubectl get rsp unreachable-prom -n e2e-prom-unreachable \
+                reason=$(kubectl get ap unreachable-prom -n e2e-prom-unreachable \
                   -o jsonpath='{.status.conditions[?(@.type=="Ready")].reason}' 2>/dev/null)
-                status=$(kubectl get rsp unreachable-prom -n e2e-prom-unreachable \
+                status=$(kubectl get ap unreachable-prom -n e2e-prom-unreachable \
                   -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)
-                discovered=$(kubectl get rsp unreachable-prom -n e2e-prom-unreachable \
+                discovered=$(kubectl get ap unreachable-prom -n e2e-prom-unreachable \
                   -o jsonpath='{.status.workloads.discovered}' 2>/dev/null)
                 if [ "$status" = "False" ] && [ "$discovered" = "1" ]; then
                   if [ "$reason" = "PrometheusUnavailable" ] || [ "$reason" = "InsufficientData" ]; then
@@ -84,7 +84,7 @@ spec:
                 sleep 5
               done
               echo "FAIL: timed out waiting for graceful degradation"
-              kubectl get rsp unreachable-prom -n e2e-prom-unreachable -o yaml
+              kubectl get ap unreachable-prom -n e2e-prom-unreachable -o yaml
               exit 1
   catch:
     - describe:

@@ -59,7 +59,7 @@ type CostPricing struct {
 }
 
 // +kubebuilder:object:root=true
-// +kubebuilder:resource:scope=Cluster,shortName=rsd,categories={attune}
+// +kubebuilder:resource:scope=Cluster,shortName=ad,categories={attune}
 // +kubebuilder:printcolumn:name="Prometheus",type=string,JSONPath=`.spec.metricsSource.prometheus.address`
 // +kubebuilder:printcolumn:name="Type",type=string,JSONPath=`.spec.updateStrategy.type`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
@@ -83,7 +83,7 @@ type AttuneDefaultsList struct {
 }
 
 // +kubebuilder:object:root=true
-// +kubebuilder:resource:shortName=rsnd,categories={attune}
+// +kubebuilder:resource:shortName=and,categories={attune}
 // +kubebuilder:printcolumn:name="Prometheus",type=string,JSONPath=`.spec.metricsSource.prometheus.address`
 // +kubebuilder:printcolumn:name="Type",type=string,JSONPath=`.spec.updateStrategy.type`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
