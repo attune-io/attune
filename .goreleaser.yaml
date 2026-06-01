@@ -52,6 +52,7 @@ signs:
       - sign-blob
       - "--yes"
       - "--new-bundle-format=false"
+      - "--use-signing-config=false"
       - "--output-signature=${signature}"
       - "--output-certificate=${certificate}"
       - "${artifact}"
