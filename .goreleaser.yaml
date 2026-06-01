@@ -51,6 +51,7 @@ signs:
     args:
       - sign-blob
       - "--yes"
+      - "--new-bundle-format=false"
       - "--output-signature=${signature}"
       - "--output-certificate=${certificate}"
       - "${artifact}"
