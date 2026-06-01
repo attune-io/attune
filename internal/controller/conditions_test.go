@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/safety"
 )
 
 // ---------- Resizing condition ----------
@@ -1104,4 +1105,243 @@ func TestNewSafetyMonitor_EmptyGuardrails(t *testing.T) {
 	collector := &mockCollector{}
 	monitor := r.newSafetyMonitor(logr.Discard(), collector, []attunev1alpha1.SLOGuardrail{})
 	assert.NotNil(t, monitor)
+}
+
+// ---------- checkQuotaCompatibility List failure paths ----------
+
+func TestCheckQuotaCompatibility_LimitRangeListError(t *testing.T) {
+	scheme := testScheme()
+
+	// Inject a List error only for LimitRange objects.
+	c := fake.NewClientBuilder().WithScheme(scheme).
+		WithInterceptorFuncs(interceptor.Funcs{
+			List: func(ctx context.Context, cl client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+				if _, ok := list.(*corev1.LimitRangeList); ok {
+					return fmt.Errorf("simulated LimitRange list failure")
+				}
+				return cl.List(ctx, list, opts...)
+			},
+		}).
+		Build()
+
+	r := NewAttunePolicyReconciler()
+	r.Client = c
+
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("500m"),
+			corev1.ResourceMemory: resource.MustParse("256Mi"),
+		},
+	}
+
+	// Should log-and-continue (no error returned) with empty LimitRange list.
+	err := r.checkQuotaCompatibility(context.Background(), "default", zeroCurrent, target)
+	assert.NoError(t, err)
+}
+
+func TestCheckQuotaCompatibility_ResourceQuotaListError(t *testing.T) {
+	scheme := testScheme()
+
+	// Inject a List error only for ResourceQuota objects.
+	c := fake.NewClientBuilder().WithScheme(scheme).
+		WithInterceptorFuncs(interceptor.Funcs{
+			List: func(ctx context.Context, cl client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+				if _, ok := list.(*corev1.ResourceQuotaList); ok {
+					return fmt.Errorf("simulated ResourceQuota list failure")
+				}
+				return cl.List(ctx, list, opts...)
+			},
+		}).
+		Build()
+
+	r := NewAttunePolicyReconciler()
+	r.Client = c
+
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("500m"),
+			corev1.ResourceMemory: resource.MustParse("256Mi"),
+		},
+	}
+
+	// Should log-and-continue (no error returned) with empty ResourceQuota list.
+	err := r.checkQuotaCompatibility(context.Background(), "default", zeroCurrent, target)
+	assert.NoError(t, err)
+}
+
+// ---------- SetNowFunc nil path ----------
+
+func TestSetNowFunc_NilClearsToRealTime(t *testing.T) {
+	r := NewAttunePolicyReconciler()
+
+	// Set a fake clock.
+	fixed := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+	r.SetNowFunc(func() time.Time { return fixed })
+	assert.Equal(t, fixed, r.now(), "expected fake clock to be used")
+
+	// Clear back to nil; should revert to real time.
+	r.SetNowFunc(nil)
+
+	got := r.now()
+	assert.WithinDuration(t, time.Now(), got, 2*time.Second, "expected real time after clearing clock")
+}
+
+// ---------- Strengthened newSafetyMonitor tests ----------
+
+func TestNewSafetyMonitor_NoThrottleChecker_DoesNotRevertOnThrottle(t *testing.T) {
+	r := NewAttunePolicyReconciler()
+
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pod", Namespace: "default"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "app", Ready: true, RestartCount: 0, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
+			},
+		},
+	}
+	r.Clientset = kubefake.NewSimpleClientset(pod)
+
+	// mockCollector does NOT implement ThrottleChecker.
+	collector := &mockCollector{}
+	monitor := r.newSafetyMonitor(logr.Discard(), collector)
+	require.NotNil(t, monitor)
+
+	record := safety.ResizeRecord{
+		PodName:      "test-pod",
+		Namespace:    "default",
+		Container:    "app",
+		ResizedAt:    time.Now().Add(-10 * time.Minute),
+		RestartCount: 0,
+	}
+	verdict, err := monitor.CheckPod(context.Background(), record, time.Now())
+	assert.NoError(t, err)
+	assert.True(t, verdict.Safe, "expected safe verdict when no throttle checker is configured")
+	assert.Empty(t, verdict.Reason)
+}
+
+func TestNewSafetyMonitor_WithThrottleChecker_DetectsThrottle(t *testing.T) {
+	r := NewAttunePolicyReconciler()
+
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pod", Namespace: "default"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "app", Ready: true, RestartCount: 0, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
+			},
+		},
+	}
+	r.Clientset = kubefake.NewSimpleClientset(pod)
+
+	// High throttle ratio should trigger a revert.
+	collector := &mockThrottleCollector{throttleRatio: 0.9}
+	monitor := r.newSafetyMonitor(logr.Discard(), collector)
+	require.NotNil(t, monitor)
+
+	record := safety.ResizeRecord{
+		PodName:      "test-pod",
+		Namespace:    "default",
+		Container:    "app",
+		ResizedAt:    time.Now().Add(-10 * time.Minute),
+		RestartCount: 0,
+	}
+	verdict, err := monitor.CheckPod(context.Background(), record, time.Now())
+	assert.NoError(t, err)
+	assert.False(t, verdict.Safe, "expected unsafe verdict with high throttle ratio")
+	assert.Equal(t, "throttle", verdict.Reason)
+}
+
+func TestNewSafetyMonitor_WithSLOGuardrails_DetectsBreachedSLO(t *testing.T) {
+	r := NewAttunePolicyReconciler()
+
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pod", Namespace: "default"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "app", Ready: true, RestartCount: 0, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
+			},
+		},
+	}
+	r.Clientset = kubefake.NewSimpleClientset(pod)
+
+	// SLO query returns 1.2 which is above the threshold of 0.5 -> breached.
+	collector := &mockCollector{
+		queryFunc: func(_ context.Context, _ string, _ time.Time) (float64, error) {
+			return 1.2, nil
+		},
+	}
+	guardrails := []attunev1alpha1.SLOGuardrail{
+		{
+			Name:       "p99-latency",
+			Query:      `histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))`,
+			Threshold:  "0.5",
+			Comparison: "above",
+		},
+	}
+	monitor := r.newSafetyMonitor(logr.Discard(), collector, guardrails)
+	require.NotNil(t, monitor)
+
+	record := safety.ResizeRecord{
+		PodName:      "test-pod",
+		Namespace:    "default",
+		Container:    "app",
+		ResizedAt:    time.Now().Add(-10 * time.Minute),
+		RestartCount: 0,
+	}
+	verdict, err := monitor.CheckPod(context.Background(), record, time.Now())
+	assert.NoError(t, err)
+	assert.False(t, verdict.Safe, "expected unsafe verdict when SLO guardrail is breached")
+	assert.Equal(t, "slo:p99-latency", verdict.Reason)
+}
+
+func TestNewSafetyMonitor_EmptyGuardrails_NoSLOCheck(t *testing.T) {
+	r := NewAttunePolicyReconciler()
+
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pod", Namespace: "default"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "app", Ready: true, RestartCount: 0, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
+			},
+		},
+	}
+	r.Clientset = kubefake.NewSimpleClientset(pod)
+
+	// queryFunc should NOT be called because guardrails is empty.
+	queryCalled := false
+	collector := &mockCollector{
+		queryFunc: func(_ context.Context, _ string, _ time.Time) (float64, error) {
+			queryCalled = true
+			return 999, nil
+		},
+	}
+	monitor := r.newSafetyMonitor(logr.Discard(), collector, []attunev1alpha1.SLOGuardrail{})
+	require.NotNil(t, monitor)
+
+	record := safety.ResizeRecord{
+		PodName:      "test-pod",
+		Namespace:    "default",
+		Container:    "app",
+		ResizedAt:    time.Now().Add(-10 * time.Minute),
+		RestartCount: 0,
+	}
+	verdict, err := monitor.CheckPod(context.Background(), record, time.Now())
+	assert.NoError(t, err)
+	assert.True(t, verdict.Safe, "expected safe verdict with empty guardrails")
+	assert.False(t, queryCalled, "SLO query should not be called when guardrails is empty")
 }
