@@ -17,7 +17,7 @@ recommendations, and promoting to Canary mode, all in about five minutes.
 
 !!! info "Prerequisites"
     - **Kubernetes 1.32+** — 1.32 requires the `InPlacePodVerticalScaling` feature gate; 1.33+ has it enabled by default.
-    - **Prometheus** — the operator queries `container_cpu_usage_seconds_total` and `container_memory_working_set_bytes`.
+    - **A metrics source** — Prometheus (default), Datadog, or CloudWatch Container Insights. This guide uses Prometheus; see [Datadog Setup](../guides/datadog-setup.md) or [CloudWatch Setup](../guides/cloudwatch-setup.md) for alternatives.
     - **Attune installed** — see [Installation](installation.md) for Helm and raw manifest options.
 
 ## 1. Create an AttunePolicy in Recommend mode

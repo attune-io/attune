@@ -55,6 +55,8 @@ nav:
       - Startup Boost: guides/startup-boost.md
       - HPA Coexistence: guides/hpa-coexistence.md
       - Prometheus Setup: guides/prometheus-setup.md
+      - Datadog Setup: guides/datadog-setup.md
+      - CloudWatch Setup: guides/cloudwatch-setup.md
       - Istio Integration: guides/istio-integration.md
       - GitOps Integration: guides/gitops-integration.md
       - Migrating from VPA: guides/migrating-from-vpa.md
