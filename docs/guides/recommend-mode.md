@@ -101,6 +101,6 @@ When you are satisfied with the recommendations, change the mode:
 - Use **Auto** to resize all eligible pods (best for non-critical workloads).
 
 ```bash
-kubectl patch rsp api-services --type merge \
+kubectl patch attunepolicy api-services --type merge \
   -p '{"spec":{"updateStrategy":{"type":"Canary","canary":{"percentage":10,"observationPeriod":"30m"}}}}'
 ```

@@ -120,14 +120,14 @@ When `autoPromote` is false (default), promote to **Auto** mode manually
 after canary pods have run successfully through multiple cooldown cycles:
 
 ```bash
-kubectl patch rsp my-app --type merge \
+kubectl patch attunepolicy my-app --type merge \
   -p '{"spec":{"updateStrategy":{"type":"Auto"}}}'
 ```
 
 Or increase the canary percentage gradually:
 
 ```bash
-kubectl patch rsp my-app --type merge \
+kubectl patch attunepolicy my-app --type merge \
   -p '{"spec":{"updateStrategy":{"canary":{"percentage":50}}}}'
 ```
 
@@ -136,7 +136,7 @@ kubectl patch rsp my-app --type merge \
 To stop all resizing immediately, switch back to Recommend mode:
 
 ```bash
-kubectl patch rsp my-app --type merge \
+kubectl patch attunepolicy my-app --type merge \
   -p '{"spec":{"updateStrategy":{"type":"Recommend"}}}'
 ```
 

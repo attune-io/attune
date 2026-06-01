@@ -112,7 +112,7 @@ kubectl delete vpa my-app
 ### 5. Promote Attune to Canary
 
 ```bash
-kubectl patch rsp my-app --type merge \
+kubectl patch attunepolicy my-app --type merge \
   -p '{"spec":{"updateStrategy":{"type":"Canary","canary":{"percentage":10,"observationPeriod":"30m"}}}}'
 ```
 

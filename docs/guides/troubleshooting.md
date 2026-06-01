@@ -232,7 +232,7 @@ elapsed.
 **Fix**: Wait for the cooldown to expire, or shorten it:
 
 ```bash
-kubectl patch rsp <name> --type merge \
+kubectl patch attunepolicy <name> --type merge \
   -p '{"spec":{"updateStrategy":{"cooldown":"30m"}}}'
 ```
 
@@ -698,7 +698,7 @@ kubectl get attunepolicy --all-namespaces -o wide
 Inspect a specific policy in detail:
 
 ```bash
-kubectl describe rsp <name>
+kubectl describe attunepolicy <name>
 ```
 
 Check operator metrics:

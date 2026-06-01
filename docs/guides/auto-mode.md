@@ -255,14 +255,14 @@ This is useful in GitOps workflows where:
 ### From Recommend mode
 
 ```bash
-kubectl patch rsp my-app --type merge \
+kubectl patch attunepolicy my-app --type merge \
   -p '{"spec":{"updateStrategy":{"type":"Auto","autoRevert":true}}}'
 ```
 
 ### From Canary mode
 
 ```bash
-kubectl patch rsp my-app --type merge \
+kubectl patch attunepolicy my-app --type merge \
   -p '{"spec":{"updateStrategy":{"type":"Auto"}}}'
 ```
 
@@ -271,7 +271,7 @@ kubectl patch rsp my-app --type merge \
 If Auto mode causes issues, switch back to Recommend immediately:
 
 ```bash
-kubectl patch rsp my-app --type merge \
+kubectl patch attunepolicy my-app --type merge \
   -p '{"spec":{"updateStrategy":{"type":"Recommend"}}}'
 ```
 
