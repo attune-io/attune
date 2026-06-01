@@ -189,9 +189,14 @@ jobs:
           if [ ! -f goreleaser-dist/checksums.txt.sig ]; then
             echo "GoReleaser did not produce signatures; signing checksums manually"
             cosign sign-blob --yes \
-              --output-signature goreleaser-dist/checksums.txt.sig \
-              --output-certificate goreleaser-dist/checksums.txt.pem \
+              --bundle goreleaser-dist/checksums.txt.bundle \
               goreleaser-dist/checksums.txt
+            # Extract .sig and .pem from the Sigstore bundle for backward compatibility
+            jq -r '.messageSignature.signature' goreleaser-dist/checksums.txt.bundle \
+              > goreleaser-dist/checksums.txt.sig
+            jq -r '.verificationMaterial.certificate.rawBytes' goreleaser-dist/checksums.txt.bundle \
+              | base64 -d | openssl x509 -inform DER -outform PEM \
+              > goreleaser-dist/checksums.txt.pem
             gh release upload "${{ steps.tag.outputs.name }}" \
               goreleaser-dist/checksums.txt.sig \
               goreleaser-dist/checksums.txt.pem
