@@ -44,7 +44,7 @@ Go's defaults.
 | Modern | TLS 1.3 | `tls.VersionTLS13` |
 | Intermediate (default) | TLS 1.2 | `tls.VersionTLS12` |
 | Old | TLS 1.0 | `tls.VersionTLS10` |
-| Custom | Depends on configuration | Mapped from profile |
+| Custom | Parsed from `custom.minTLSVersion` | e.g. `VersionTLS13` -> `tls.VersionTLS13` |
 
 ### How it works
 

@@ -53,13 +53,40 @@ func TLSMinVersionForProfile(profile string) uint16 {
 
 // openshiftAPIServer is a minimal representation of the OpenShift
 // apiserver.config.openshift.io/v1 resource, enough to extract the
-// TLS profile type.
+// TLS profile type and custom profile settings.
 type openshiftAPIServer struct {
 	Spec struct {
-		TLSSecurityProfile *struct {
-			Type string `json:"type"`
-		} `json:"tlsSecurityProfile"`
+		TLSSecurityProfile *openshiftTLSSecurityProfile `json:"tlsSecurityProfile"`
 	} `json:"spec"`
+}
+
+// openshiftTLSSecurityProfile represents the tlsSecurityProfile block.
+type openshiftTLSSecurityProfile struct {
+	Type   string                     `json:"type"`
+	Custom *openshiftCustomTLSProfile `json:"custom,omitempty"`
+}
+
+// openshiftCustomTLSProfile holds the explicit TLS settings for Custom profiles.
+type openshiftCustomTLSProfile struct {
+	MinTLSVersion string `json:"minTLSVersion"`
+}
+
+// parseOpenShiftTLSVersion converts an OpenShift version string
+// (e.g. "VersionTLS12", "VersionTLS13") to a Go tls.Config MinVersion.
+// Returns 0 for unrecognized strings (caller should use Go defaults).
+func parseOpenShiftTLSVersion(s string) uint16 {
+	switch s {
+	case "VersionTLS10":
+		return tls.VersionTLS10 //nolint:gosec // mirrors OpenShift Custom profile
+	case "VersionTLS11":
+		return tls.VersionTLS11 //nolint:gosec // mirrors OpenShift Custom profile
+	case "VersionTLS12":
+		return tls.VersionTLS12
+	case "VersionTLS13":
+		return tls.VersionTLS13
+	default:
+		return 0
+	}
 }
 
 // DetectOpenShiftTLSProfile reads the OpenShift APIServer cluster config
@@ -121,6 +148,27 @@ func DetectOpenShiftTLSProfile(clientset *kubernetes.Clientset, logger logr.Logg
 	}
 
 	profileType := apiServer.Spec.TLSSecurityProfile.Type
+
+	// Custom profiles carry an explicit minTLSVersion string instead of
+	// using the predefined Old/Intermediate/Modern mapping.
+	if profileType == TLSProfileCustom {
+		custom := apiServer.Spec.TLSSecurityProfile.Custom
+		if custom == nil || custom.MinTLSVersion == "" {
+			logger.Info("OpenShift Custom TLS profile has no minTLSVersion, using Intermediate defaults")
+			return tls.VersionTLS12
+		}
+		minVer := parseOpenShiftTLSVersion(custom.MinTLSVersion)
+		if minVer == 0 {
+			logger.Info("Unrecognized OpenShift Custom TLS version, using Intermediate defaults",
+				"minTLSVersion", custom.MinTLSVersion)
+			return tls.VersionTLS12
+		}
+		logger.Info("Detected OpenShift Custom TLS profile",
+			"minTLSVersion", custom.MinTLSVersion,
+			"tlsMinVersionHex", fmt.Sprintf("0x%04x", minVer))
+		return minVer
+	}
+
 	minVer := TLSMinVersionForProfile(profileType)
 	logger.Info("Detected OpenShift TLS profile",
 		"profile", profileType,
