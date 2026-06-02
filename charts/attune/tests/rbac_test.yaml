@@ -139,6 +139,19 @@ tests:
               - list
               - watch
 
+  - it: should include OpenShift APIServer read permissions for TLS profile detection
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - config.openshift.io
+            resources:
+              - apiservers
+            verbs:
+              - get
+              - list
+
   - it: should include secret get-only permissions for bearer token
     asserts:
       - contains:
