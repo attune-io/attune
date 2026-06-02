@@ -529,11 +529,8 @@ spec:
                       consumption (e.g. GitOps workflows with ArgoCD or Flux).
                     properties:
                       configMap:
-                        description: |-
-                          ConfigMap enables exporting recommendations to ConfigMaps.
-                          One ConfigMap per workload is created, named
-                          "<policy>-<workload>-recommendations", with an owner reference
-                          to the policy for automatic cleanup.
+                        description: ConfigMap enables exporting recommendations to
+                          ConfigMaps.
                         type: boolean
                     type: object
                   initialSizing:
@@ -1245,11 +1242,8 @@ spec:
                       consumption (e.g. GitOps workflows with ArgoCD or Flux).
                     properties:
                       configMap:
-                        description: |-
-                          ConfigMap enables exporting recommendations to ConfigMaps.
-                          One ConfigMap per workload is created, named
-                          "<policy>-<workload>-recommendations", with an owner reference
-                          to the policy for automatic cleanup.
+                        description: ConfigMap enables exporting recommendations to
+                          ConfigMaps.
                         type: boolean
                     type: object
                   initialSizing:
@@ -2039,11 +2033,8 @@ spec:
                       consumption (e.g. GitOps workflows with ArgoCD or Flux).
                     properties:
                       configMap:
-                        description: |-
-                          ConfigMap enables exporting recommendations to ConfigMaps.
-                          One ConfigMap per workload is created, named
-                          "<policy>-<workload>-recommendations", with an owner reference
-                          to the policy for automatic cleanup.
+                        description: ConfigMap enables exporting recommendations to
+                          ConfigMaps.
                         type: boolean
                     type: object
                   initialSizing:
