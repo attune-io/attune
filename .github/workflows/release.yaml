@@ -52,7 +52,7 @@ jobs:
         with:
           client-id: ${{ vars.APP_CLIENT_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
-      - uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         id: release
         with:
           config-file: release-please-config.json
@@ -307,7 +307,7 @@ jobs:
 
       - name: Attest container image
         if: steps.docker-check.outputs.enabled == 'true'
-        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           subject-digest: ${{ steps.build.outputs.digest }}
@@ -423,7 +423,7 @@ jobs:
           helm package charts/attune
           helm push attune-${VERSION}.tgz oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts
 
-      - uses: oras-project/setup-oras@94695ea835c8fd3d6bb0ffe5fb6d24d8848e72ef # v2 (includes 1.3.2)
+      - uses: oras-project/setup-oras@ae766895f02b3941ff5d1d809f428d623db3ce11 # v2 (includes 1.3.2)
         with:
           version: "1.3.2"
 
