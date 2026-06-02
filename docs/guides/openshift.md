@@ -71,10 +71,12 @@ On OpenShift with an Intermediate profile:
 {"level":"info","msg":"Detected OpenShift TLS profile","profile":"Intermediate","tlsMinVersion":"0x0303"}
 ```
 
-On vanilla Kubernetes:
+On vanilla Kubernetes, no TLS-related messages appear at the default log
+level (the fallback to Go defaults is silent). Enable debug logging to
+confirm:
 
 ```json
-{"level":"info","msg":"OpenShift config API not found, using Go TLS defaults"}
+{"level":"debug","msg":"OpenShift config API not found, using Go TLS defaults"}
 ```
 
 ## Security Context Constraints
