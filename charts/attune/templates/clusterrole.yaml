@@ -117,6 +117,7 @@ rules:
       - get
       - list
       - watch
+  {{- if .Values.openshift.enabled }}
   # OpenShift TLS profile: read-only (TLS security profile detection)
   - apiGroups:
       - config.openshift.io
@@ -125,6 +126,7 @@ rules:
     verbs:
       - get
       - list
+  {{- end }}
   # Prometheus Operator: read-only (auto-discovery)
   - apiGroups:
       - monitoring.coreos.com

@@ -139,7 +139,23 @@ tests:
               - list
               - watch
 
-  - it: should include OpenShift APIServer read permissions for TLS profile detection
+  - it: should not include OpenShift RBAC by default
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            apiGroups:
+              - config.openshift.io
+            resources:
+              - apiservers
+            verbs:
+              - get
+              - list
+
+  - it: should include OpenShift RBAC when openshift.enabled is true
+    set:
+      openshift:
+        enabled: true
     asserts:
       - contains:
           path: rules

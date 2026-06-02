@@ -68,6 +68,8 @@ helm install attune oci://ghcr.io/attune-io/charts/attune \
 | networkPolicy.enabled | bool | `true` | Enable NetworkPolicy for the operator pod |
 | networkPolicy.prometheusPort | int | `9090` | TCP port allowed by NetworkPolicy for Prometheus backend pods |
 | nodeSelector | object | `{}` | Node selector |
+| openshift | object | `{"enabled":false}` | OpenShift integration |
+| openshift.enabled | bool | `false` | Enable OpenShift-specific features (TLS profile auto-detection). When enabled, the ClusterRole includes read access to config.openshift.io/apiservers for TLS security profile detection. |
 | podAnnotations | object | `{}` | Pod annotations |
 | podSecurityContext | object | `{"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}}` | Pod security context |
 | priorityClassName | string | `""` | Priority class name for the operator pod (recommended: system-cluster-critical for production) |

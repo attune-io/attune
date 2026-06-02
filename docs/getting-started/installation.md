@@ -68,7 +68,8 @@ installed, you can install Attune directly from
 [OperatorHub.io](https://operatorhub.io/operator/attune).
 
 **On OpenShift**, search for "Attune" in the built-in OperatorHub catalog and
-click Install.
+click Install. See the [OpenShift guide](../guides/openshift.md) for
+TLS profile integration and OpenShift-specific configuration.
 
 **On other clusters with OLM**, install the operator by creating a
 `Subscription`:

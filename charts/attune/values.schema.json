@@ -517,6 +517,18 @@
         }
       }
     },
+    "openshift": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "OpenShift integration",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable OpenShift-specific features (TLS profile auto-detection RBAC)"
+        }
+      }
+    },
     "logging": {
       "type": "object",
       "additionalProperties": false,
