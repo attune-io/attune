@@ -179,6 +179,46 @@ func TestQueryRangeGrouped_Success(t *testing.T) {
 	assert.InDelta(t, 0.05, grouped["sidecar"][0].Value, 0.001)
 }
 
+func TestQueryRangeGrouped_NaNInfFiltered(t *testing.T) {
+	response := `{
+		"status": "success",
+		"data": {
+			"resultType": "matrix",
+			"result": [
+				{
+					"metric": {"__name__": "cpu_usage", "container": "app"},
+					"values": [
+						[1700000000, "0.25"],
+						[1700000060, "NaN"],
+						[1700000120, "Inf"],
+						[1700000180, "-Inf"],
+						[1700000240, "0.75"]
+					]
+				}
+			]
+		}
+	}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(response))
+	}))
+	defer server.Close()
+
+	collector, err := NewPrometheusCollector(server.URL, logr.Discard(), http.DefaultTransport)
+	require.NoError(t, err)
+
+	start := time.Unix(1700000000, 0)
+	end := time.Unix(1700000300, 0)
+	step := 60 * time.Second
+
+	grouped, err := collector.QueryRangeGrouped(context.Background(), "cpu_usage", start, end, step)
+	require.NoError(t, err)
+	require.Len(t, grouped["app"], 2, "NaN, +Inf, and -Inf samples should be filtered out")
+	assert.InDelta(t, 0.25, grouped["app"][0].Value, 0.001)
+	assert.InDelta(t, 0.75, grouped["app"][1].Value, 0.001)
+}
+
 func TestQuery_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

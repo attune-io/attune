@@ -126,4 +126,18 @@ spec:
               clamping resource requests to container limits for {{ .Values.metrics.prometheusRule.rules.requestsClamped.for }}.
               Consider increasing limits or switching to controlledValues: RequestsAndLimits.
         {{- end }}
+        {{- if .Values.metrics.prometheusRule.rules.revertFailures.enabled }}
+        - alert: AttuneRevertFailures
+          expr: sum by (namespace, workload) (rate(attune_revert_failures_total[5m])) > 0
+          for: {{ .Values.metrics.prometheusRule.rules.revertFailures.for }}
+          labels:
+            severity: {{ .Values.metrics.prometheusRule.rules.revertFailures.severity }}
+          annotations:
+            summary: attune resize revert is failing
+            description: >-
+              Workload {{ "{{ $labels.namespace }}" }}/{{ "{{ $labels.workload }}" }}
+              had a resize revert failure. The pod may be running with
+              problematic resources. Check operator logs for the revert error
+              and verify RBAC for the pods/resize subresource.
+        {{- end }}
 {{- end }}

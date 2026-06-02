@@ -160,7 +160,6 @@ func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return t.base.RoundTrip(req)
 	}
 	clone := req.Clone(req.Context())
-	clone.Header = req.Header.Clone()
 	for k, v := range t.headers {
 		clone.Header.Set(k, v)
 	}
@@ -295,9 +294,13 @@ func (c *PrometheusCollector) QueryRangeGrouped(ctx context.Context, query strin
 	for _, series := range matrix {
 		container := string(series.Metric[model.LabelName("container")])
 		for _, sp := range series.Values {
+			v := float64(sp.Value)
+			if math.IsNaN(v) || math.IsInf(v, 0) {
+				continue
+			}
 			grouped[container] = append(grouped[container], Sample{
 				Timestamp: sp.Timestamp.Time(),
-				Value:     float64(sp.Value),
+				Value:     v,
 			})
 		}
 	}

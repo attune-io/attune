@@ -24,6 +24,24 @@ Total number of resize reverts triggered by the safety monitor.
 | `workload` | Workload name |
 | `reason` | `oomkill`, `throttle`, `restart`, `notready`, `re-fetch-failed`, or `annotation-persist-failed` |
 
+### attune_revert_failures_total
+
+Total number of failed resize revert attempts. A non-zero value means the
+operator tried to restore a pod's original resources but the `/resize`
+subresource call failed, leaving the pod running with post-resize resources
+that may be causing issues.
+
+| Label | Description |
+|-------|-------------|
+| `namespace` | Workload namespace |
+| `workload` | Workload name |
+| `reason` | Same reason labels as `attune_reverts_total` |
+
+```promql
+# Alert when reverts are failing
+sum by (namespace, workload) (rate(attune_revert_failures_total[5m])) > 0
+```
+
 ### attune_prometheus_query_errors_total
 
 Total number of failed Prometheus queries.

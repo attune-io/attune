@@ -401,6 +401,34 @@ Common causes:
 - **restart**: the application crashes at the new resource level. Check application logs.
 - **notready**: readiness probe fails post-resize. Verify probe configuration.
 
+### Revert failures
+
+**Symptom**: Entries in `.status.resizeHistory` show `result: Failed`, or
+`attune_revert_failures_total` is incrementing.
+
+**Cause**: The operator detected a safety issue (OOMKill, throttle, etc.)
+and tried to revert the pod to its original resources, but the `/resize`
+subresource call failed. The pod remains at the post-resize resource level.
+
+**Fix**: Check operator logs for the revert error:
+
+```bash
+kubectl logs -l app.kubernetes.io/name=attune --tail=100 | grep "Failed to revert"
+```
+
+Common causes:
+
+- **Conflict**: another controller (HPA, VPA) is modifying the same pod.
+  Use `attune_revert_failures_total` to track frequency.
+- **Pod evicted**: the pod was evicted between the safety check and revert.
+- **RBAC**: the operator ServiceAccount lacks `update` on the `pods/resize`
+  subresource.
+
+```promql
+# Alert when reverts are failing
+sum by (namespace, workload) (rate(attune_revert_failures_total[5m])) > 0
+```
+
 ### Resizes not happening during expected window
 
 **Symptom**: Operator logs "Outside resize window, skipping resize" even

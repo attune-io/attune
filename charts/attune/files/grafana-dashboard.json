@@ -307,6 +307,40 @@
             "drawStyle": "line",
             "fillOpacity": 10
           },
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "red"
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 3
+      },
+      "id": 32,
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "title": "Revert Failures",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum by (namespace, workload) (rate(attune_revert_failures_total[$__rate_interval]))",
+          "legendFormat": "{{ namespace }}/{{ workload }}"
+        }
+      ]
+    },
+    {
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10
+          },
           "unit": "s"
         }
       },

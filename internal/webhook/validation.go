@@ -61,8 +61,10 @@ func (v *AttunePolicyValidator) ValidateDelete(ctx context.Context, policy *attu
 func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (admission.Warnings, error) {
 	var warnings admission.Warnings
 
-	if policy.Spec.UpdateStrategy == nil {
-		policy.Spec.UpdateStrategy = &attunev1alpha1.UpdateStrategy{}
+	// Use a local pointer to avoid mutating the input object.
+	us := policy.Spec.UpdateStrategy
+	if us == nil {
+		us = &attunev1alpha1.UpdateStrategy{}
 	}
 
 	// CPU bounds: minAllowed must be <= maxAllowed, and maxAllowed capped at 256 cores.
@@ -96,13 +98,13 @@ func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (a
 	}
 
 	// Canary config required when mode is Canary
-	if policy.Spec.UpdateStrategy.Type == attunev1alpha1.UpdateTypeCanary && policy.Spec.UpdateStrategy.Canary == nil {
+	if us.Type == attunev1alpha1.UpdateTypeCanary && us.Canary == nil {
 		return warnings, fmt.Errorf("updateStrategy.canary is required when mode is Canary")
 	}
 
 	// Validate canary observation period has a minimum floor.
-	if policy.Spec.UpdateStrategy.Canary != nil {
-		op := policy.Spec.UpdateStrategy.Canary.ObservationPeriod.Duration
+	if us.Canary != nil {
+		op := us.Canary.ObservationPeriod.Duration
 		if op < 0 {
 			return warnings, fmt.Errorf("updateStrategy.canary.observationPeriod must be non-negative, got %s", op)
 		}
@@ -115,8 +117,8 @@ func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (a
 	}
 
 	// Validate safetyObservationPeriod has a minimum floor.
-	if policy.Spec.UpdateStrategy.SafetyObservationPeriod != nil {
-		sop := policy.Spec.UpdateStrategy.SafetyObservationPeriod.Duration
+	if us.SafetyObservationPeriod != nil {
+		sop := us.SafetyObservationPeriod.Duration
 		if sop < 0 {
 			return warnings, fmt.Errorf("updateStrategy.safetyObservationPeriod must be non-negative, got %s", sop)
 		}
@@ -199,8 +201,8 @@ func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (a
 	}
 
 	// Validate cooldown has a minimum floor to prevent resource exhaustion via tight reconciliation loops.
-	if policy.Spec.UpdateStrategy.Cooldown != nil {
-		cd := policy.Spec.UpdateStrategy.Cooldown.Duration
+	if us.Cooldown != nil {
+		cd := us.Cooldown.Duration
 		if cd < 0 {
 			return warnings, fmt.Errorf("updateStrategy.cooldown must be non-negative, got %s", cd)
 		}
@@ -210,10 +212,10 @@ func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (a
 	}
 
 	// Validate budget caps are non-negative.
-	if q := policy.Spec.UpdateStrategy.MaxTotalCPUIncrease; q != nil && q.MilliValue() < 0 {
+	if q := us.MaxTotalCPUIncrease; q != nil && q.MilliValue() < 0 {
 		return warnings, fmt.Errorf("updateStrategy.maxTotalCpuIncrease must be non-negative, got %s", q)
 	}
-	if q := policy.Spec.UpdateStrategy.MaxTotalMemoryIncrease; q != nil && q.Value() < 0 {
+	if q := us.MaxTotalMemoryIncrease; q != nil && q.Value() < 0 {
 		return warnings, fmt.Errorf("updateStrategy.maxTotalMemoryIncrease must be non-negative, got %s", q)
 	}
 
@@ -340,12 +342,12 @@ func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (a
 	}
 
 	// Validate SLO guardrails.
-	if err := validateSLOGuardrails(policy.Spec.UpdateStrategy.SLOGuardrails); err != nil {
+	if err := validateSLOGuardrails(us.SLOGuardrails); err != nil {
 		return warnings, err
 	}
 
 	// Validate schedule fields.
-	if schedule := policy.Spec.UpdateStrategy.Schedule; schedule != nil {
+	if schedule := us.Schedule; schedule != nil {
 		if err := validateSchedule(schedule); err != nil {
 			return warnings, err
 		}
@@ -358,7 +360,7 @@ func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (a
 
 	// Warn if paused with an active mode.
 	if policy.Spec.Paused != nil && *policy.Spec.Paused {
-		mode := policy.Spec.UpdateStrategy.Type
+		mode := us.Type
 		if mode == attunev1alpha1.UpdateTypeAuto || mode == attunev1alpha1.UpdateTypeOneShot || mode == attunev1alpha1.UpdateTypeCanary {
 			warnings = append(warnings, fmt.Sprintf(
 				"spec.paused is true but type is %s; no metrics collection or resizes will occur while paused", mode))
@@ -376,6 +378,9 @@ func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (a
 // misunderstandings before they wonder why nothing is happening.
 func warnIneffectiveSettings(policy *attunev1alpha1.AttunePolicy) admission.Warnings {
 	var w admission.Warnings
+	if policy.Spec.UpdateStrategy == nil {
+		return w
+	}
 	mode := policy.Spec.UpdateStrategy.Type
 	isNonResizing := mode == attunev1alpha1.UpdateTypeObserve ||
 		mode == attunev1alpha1.UpdateTypeRecommend ||
