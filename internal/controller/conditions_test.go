@@ -148,6 +148,33 @@ func TestSetDegradedCondition_LowRevertRate(t *testing.T) {
 	assert.Nil(t, cond)
 }
 
+func TestSetDegradedCondition_LowRevertRate_ClearsExistingDegraded(t *testing.T) {
+	policy := &attunev1alpha1.AttunePolicy{
+		Status: attunev1alpha1.AttunePolicyStatus{
+			Conditions: []metav1.Condition{
+				{
+					Type:    attunev1alpha1.ConditionDegraded,
+					Status:  metav1.ConditionTrue,
+					Reason:  attunev1alpha1.ReasonHighRevertRate,
+					Message: "previously degraded",
+				},
+			},
+			ResizeHistory: []attunev1alpha1.ResizeHistoryEntry{
+				{Result: attunev1alpha1.ResizeResultSuccess},
+				{Result: attunev1alpha1.ResizeResultSuccess},
+				{Result: attunev1alpha1.ResizeResultReverted},
+				{Result: attunev1alpha1.ResizeResultSuccess},
+				{Result: attunev1alpha1.ResizeResultSuccess},
+			},
+		},
+	}
+	r := NewAttunePolicyReconciler()
+	r.setDegradedCondition(policy)
+
+	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionDegraded)
+	assert.Nil(t, cond, "low revert rate should clear pre-existing Degraded condition")
+}
+
 func TestSetDegradedCondition_EmptyHistory(t *testing.T) {
 	policy := &attunev1alpha1.AttunePolicy{}
 	r := NewAttunePolicyReconciler()

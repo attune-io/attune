@@ -798,12 +798,14 @@ func TestEvictPod_CallsEvictionAPI(t *testing.T) {
 }
 
 func TestResizePod_InitContainer(t *testing.T) {
+	always := corev1.ContainerRestartPolicyAlways
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "job-0", Namespace: "batch"},
 		Spec: corev1.PodSpec{
 			InitContainers: []corev1.Container{
 				{
-					Name: "init-sidecar",
+					Name:          "init-sidecar",
+					RestartPolicy: &always,
 					Resources: corev1.ResourceRequirements{
 						Requests: corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("100m"),
