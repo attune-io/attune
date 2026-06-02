@@ -256,7 +256,7 @@ func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (a
 		if rw < 30*time.Second {
 			return warnings, fmt.Errorf("metricsSource.rateWindow must be at least 30s, got %s", rw)
 		}
-		maxWindow := 168 * time.Hour // default history window
+		maxWindow, _ := time.ParseDuration(attunev1alpha1.DefaultHistoryWindow)
 		if policy.Spec.MetricsSource.HistoryWindow != nil {
 			maxWindow = policy.Spec.MetricsSource.HistoryWindow.Duration
 		}

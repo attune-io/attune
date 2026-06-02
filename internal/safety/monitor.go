@@ -101,6 +101,7 @@ type Monitor struct {
 	throttleThreshold float64
 	sloQuerier        SLOQuerier
 	sloGuardrails     []attunev1alpha1.SLOGuardrail
+	sloTemplates      map[string]*template.Template // cached parsed templates keyed by query string
 }
 
 // NewMonitor creates a Monitor backed by the given Kubernetes client.
@@ -122,10 +123,21 @@ func (m *Monitor) WithThrottleChecker(checker ThrottleChecker, threshold float64
 }
 
 // WithSLOChecker adds application-level SLO guardrail checking. The querier
-// is used to execute instant PromQL queries for each guardrail.
+// is used to execute instant PromQL queries for each guardrail. Templates are
+// parsed once and cached for the lifetime of the Monitor.
 func (m *Monitor) WithSLOChecker(querier SLOQuerier, guardrails []attunev1alpha1.SLOGuardrail) *Monitor {
 	m.sloQuerier = querier
 	m.sloGuardrails = guardrails
+	m.sloTemplates = make(map[string]*template.Template, len(guardrails))
+	for _, g := range guardrails {
+		tmpl, err := template.New(g.Name).Parse(g.Query)
+		if err != nil {
+			m.logger.Error(err, "Failed to parse SLO query template, will retry per-invocation",
+				"guardrail", g.Name)
+			continue
+		}
+		m.sloTemplates[g.Query] = tmpl
+	}
 	return m
 }
 
@@ -248,7 +260,7 @@ func (m *Monitor) checkSLOGuardrails(ctx context.Context, record ResizeRecord, n
 			continue // evaluation window not yet elapsed
 		}
 
-		query, err := interpolateSLOQuery(g.Query, record)
+		query, err := interpolateSLOQuery(g.Query, record, m.sloTemplates[g.Query])
 		if err != nil {
 			m.logger.Error(err, "SLO guardrail query interpolation failed, skipping",
 				"guardrail", g.Name, "pod", record.PodName, "namespace", record.Namespace)
@@ -301,10 +313,16 @@ func (m *Monitor) checkSLOGuardrails(ctx context.Context, record ResizeRecord, n
 
 // interpolateSLOQuery renders Go template variables in a PromQL query string.
 // Supported variables: {{ .Namespace }}, {{ .WorkloadName }}, {{ .PodName }}.
-func interpolateSLOQuery(queryTemplate string, record ResizeRecord) (string, error) {
-	tmpl, err := template.New("slo").Parse(queryTemplate)
-	if err != nil {
-		return "", fmt.Errorf("parsing SLO query template: %w", err)
+// If a pre-parsed template is provided (from the cache), it is used directly;
+// otherwise the template is parsed on the fly.
+func interpolateSLOQuery(queryTemplate string, record ResizeRecord, cached *template.Template) (string, error) {
+	tmpl := cached
+	if tmpl == nil {
+		var err error
+		tmpl, err = template.New("slo").Parse(queryTemplate)
+		if err != nil {
+			return "", fmt.Errorf("parsing SLO query template: %w", err)
+		}
 	}
 	data := sloTemplateData{
 		Namespace:    record.Namespace,
