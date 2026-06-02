@@ -186,6 +186,22 @@ After changing RBAC markers, update **three places**:
 - `config/rbac/role.yaml` (run `make manifests`)
 - `charts/attune/templates/clusterrole.yaml` + its test
 
+**Kubebuilder RBAC markers must be in `internal/controller/`.** `controller-gen`
+only scans packages specified in its invocation (typically
+`internal/controller/...`). Placing a `+kubebuilder:rbac` marker in a utility
+package (e.g., `internal/metrics/`, `internal/safety/`) has no effect; the marker
+is silently ignored because controller-gen never reads that package. If a utility
+function accesses a new API resource, add the RBAC marker to
+`internal/controller/attunepolicy_controller.go` (where all other RBAC markers
+live), not to the file that contains the function.
+
+Learned from PR #269/PR #270 where `DetectClusterTLSProfile()` in
+`internal/metrics/tlsprofile.go` reads `apiservers.config.openshift.io/v1`, but
+the RBAC marker was initially placed in `internal/metrics/tlsprofile.go`. Running
+`make manifests` produced no change because controller-gen never scanned that
+package. Moving the marker to `internal/controller/attunepolicy_controller.go`
+fixed it.
+
 Currently, Secrets are the only resource in `DisableFor` (get-only is safe).
 All other resources accessed via the client need `list`/`watch`.
 
