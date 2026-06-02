@@ -16,7 +16,7 @@
 [![OperatorHub](https://img.shields.io/badge/OperatorHub.io-Attune-brightgreen?logo=kubernetes)](https://operatorhub.io/operator/attune)
 [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/attune)](https://artifacthub.io/packages/helm/attune/attune)
 [![Docker Hub](https://img.shields.io/docker/pulls/attuneio/attune)](https://hub.docker.com/r/attuneio/attune)
-[![GHCR](https://ghcr-badge.egpl.dev/attune-io/attune/latest_tag?trim=major&label=ghcr.io)](https://github.com/attune-io/attune/pkgs/container/attune)
+[![GHCR](https://img.shields.io/badge/ghcr.io-attune-blue?logo=github)](https://github.com/attune-io/attune/pkgs/container/attune)
 [![kubectl plugin](https://img.shields.io/badge/kubectl_plugin-krew-blue)](https://krew.sigs.k8s.io/plugins/)
 
 **Safe, in-place Kubernetes pod resource right-sizing. VPA done right.**
