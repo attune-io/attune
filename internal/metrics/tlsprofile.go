@@ -70,10 +70,16 @@ func DetectOpenShiftTLSProfile(clientset *kubernetes.Clientset, logger logr.Logg
 	defer cancel()
 
 	// Check if the OpenShift config API group exists.
+	// ServerGroupsAndResources may return partial results alongside an error
+	// (e.g., one API group fails discovery while others succeed). If we got
+	// partial results, still check for the OpenShift group among them.
 	_, resources, err := clientset.Discovery().ServerGroupsAndResources()
 	if err != nil {
-		logger.V(1).Info("Cannot list API resources for TLS profile detection", "error", err)
-		return 0
+		if resources == nil {
+			logger.V(1).Info("Cannot list API resources for TLS profile detection", "error", err)
+			return 0
+		}
+		logger.V(1).Info("Partial API discovery failure, checking available groups", "error", err)
 	}
 
 	found := false
