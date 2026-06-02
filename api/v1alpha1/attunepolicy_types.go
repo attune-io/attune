@@ -511,11 +511,24 @@ type SLOGuardrail struct {
 }
 
 // ExportConfig controls recommendation export to external systems.
+//
+// When ConfigMap is true, the operator creates one ConfigMap per workload
+// named "<policy>-<workload>-recommendations" in the policy's namespace,
+// labeled with attune.io/policy and attune.io/workload.
+//
+// Data keys use the format "<container>.<resource>" (e.g. "app.cpu-request",
+// "app.memory-limit"), plus "workload", "kind", "last-updated", and
+// "<container>.confidence".
+//
+// Updates use merge-patch to avoid conflicts with GitOps tools (ArgoCD, Flux)
+// that may annotate the same ConfigMap.
+//
+// Cleanup:
+//   - Owner reference: ConfigMaps are garbage-collected when the AttunePolicy is deleted.
+//   - Orphan cleanup: when a workload leaves the policy's selector scope, the operator
+//     deletes its recommendation ConfigMap on the next reconcile.
 type ExportConfig struct {
 	// ConfigMap enables exporting recommendations to ConfigMaps.
-	// One ConfigMap per workload is created, named
-	// "<policy>-<workload>-recommendations", with an owner reference
-	// to the policy for automatic cleanup.
 	// +optional
 	ConfigMap bool `json:"configMap,omitempty"`
 }
