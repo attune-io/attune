@@ -286,6 +286,13 @@ spec:
                 - list
                 - watch
             - apiGroups:
+                - config.openshift.io
+              resources:
+                - apiservers
+              verbs:
+                - get
+                - list
+            - apiGroups:
                 - events.k8s.io
               resources:
                 - events
