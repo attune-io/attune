@@ -64,7 +64,10 @@ func NewDatadogCollector(site, apiKey, appKey string, logger logr.Logger) *Datad
 		site = "datadoghq.com"
 	}
 	return &DatadogCollector{
-		httpClient:    &http.Client{Timeout: 30 * time.Second},
+		httpClient: &http.Client{
+			Timeout:   30 * time.Second,
+			Transport: &http.Transport{Proxy: http.ProxyFromEnvironment},
+		},
 		baseURL:       fmt.Sprintf("https://api.%s", site),
 		apiKey:        apiKey,
 		appKey:        appKey,

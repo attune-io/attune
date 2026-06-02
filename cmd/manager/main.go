@@ -185,6 +185,10 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Detect OpenShift TLS profile for outbound connections. On vanilla K8s
+	// this returns 0 (use Go defaults, i.e. TLS 1.2 with modern ciphers).
+	clusterTLSMinVersion := metrics.DetectOpenShiftTLSProfile(mgr.GetConfig(), setupLog)
+
 	// Setup the AttunePolicyReconciler with a real Prometheus metrics factory and clientset.
 	reconciler := controller.NewAttunePolicyReconciler()
 	reconciler.Client = mgr.GetClient()
@@ -195,6 +199,12 @@ func main() {
 	reconciler.MaxConcurrentReconciles = maxConcurrentReconciles
 	reconciler.PrometheusTimeout = prometheusTimeout
 	reconciler.MetricsFactory = func(address string, opts *metrics.CollectorOptions) (metrics.MetricsCollector, error) {
+		if opts == nil {
+			opts = &metrics.CollectorOptions{}
+		}
+		if opts.TLSMinVersion == 0 && clusterTLSMinVersion != 0 {
+			opts.TLSMinVersion = clusterTLSMinVersion
+		}
 		collector, err := metrics.NewPrometheusCollectorWithOptions(address, ctrl.Log.WithName("prometheus"), opts)
 		if err != nil {
 			return nil, fmt.Errorf("creating Prometheus collector for %s: %w", address, err)

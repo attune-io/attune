@@ -18,6 +18,7 @@ package metrics
 
 import (
 	"context"
+	"crypto/tls"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -646,6 +647,46 @@ func TestNewPrometheusCollectorWithOptions_NilOpts(t *testing.T) {
 
 	_, err = collector.Query(context.Background(), "up", time.Now())
 	require.NoError(t, err)
+}
+
+func TestSSRFSafeTransport_HasProxyFromEnvironment(t *testing.T) {
+	rt := ssrfSafeTransport()
+	tr, ok := rt.(*http.Transport)
+	require.True(t, ok, "ssrfSafeTransport must return *http.Transport")
+	assert.NotNil(t, tr.Proxy, "transport must have Proxy set for proxy-aware support")
+}
+
+func TestNewPrometheusCollectorWithOptions_AppliesTLSMinVersion(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(cannedInstantResponse()))
+	}))
+	defer server.Close()
+
+	opts := &CollectorOptions{TLSMinVersion: tls.VersionTLS13}
+	collector, err := NewPrometheusCollectorWithOptions(server.URL, logr.Discard(), opts)
+	require.NoError(t, err)
+
+	tr := collector.transport
+	require.NotNil(t, tr)
+	require.NotNil(t, tr.TLSClientConfig, "TLS config must be set when TLSMinVersion is specified")
+	assert.Equal(t, uint16(tls.VersionTLS13), tr.TLSClientConfig.MinVersion)
+}
+
+func TestNewPrometheusCollectorWithOptions_DefaultTLSMinVersion(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(cannedInstantResponse()))
+	}))
+	defer server.Close()
+
+	collector, err := NewPrometheusCollectorWithOptions(server.URL, logr.Discard(), nil)
+	require.NoError(t, err)
+
+	tr := collector.transport
+	require.NotNil(t, tr)
+	// With no options, TLS config should not be set (Go defaults apply).
+	assert.Nil(t, tr.TLSClientConfig)
 }
 
 func TestSSRFSafeTransport_BlocksLoopback(t *testing.T) {
