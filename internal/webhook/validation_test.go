@@ -114,6 +114,41 @@ func TestValidate_ValidPolicy(t *testing.T) {
 	assert.Empty(t, warnings)
 }
 
+func TestValidate_NilUpdateStrategy(t *testing.T) {
+	validator := &AttunePolicyValidator{}
+	name := "my-app"
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			TargetRef: attunev1alpha1.TargetRef{
+				Kind: "Deployment",
+				Name: &name,
+			},
+			CPU: attunev1alpha1.ResourceConfig{
+				Percentile: 95,
+				Overhead:   "20",
+			},
+			Memory: attunev1alpha1.ResourceConfig{
+				Percentile: 99,
+				Overhead:   "30",
+			},
+			// UpdateStrategy intentionally nil: the defaulting webhook does not
+			// set it (deferred to controller's ApplyBuiltInDefaults). Validation
+			// must handle nil without panicking.
+		},
+	}
+	require.Nil(t, policy.Spec.UpdateStrategy, "precondition: UpdateStrategy must be nil")
+
+	warnings, err := validator.ValidateCreate(context.Background(), policy)
+
+	assert.NoError(t, err, "nil UpdateStrategy should pass validation")
+	assert.Empty(t, warnings)
+
+	// Also verify UpdateUpdate path.
+	warnings, err = validator.ValidateUpdate(context.Background(), policy, policy)
+	assert.NoError(t, err, "nil UpdateStrategy should pass update validation")
+	assert.Empty(t, warnings)
+}
+
 func TestValidate_CPUBoundsInvalid(t *testing.T) {
 	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
