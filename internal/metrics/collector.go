@@ -84,6 +84,7 @@ func (c *PrometheusCollector) Close() error {
 func ssrfSafeTransport() http.RoundTripper {
 	dialer := &net.Dialer{Timeout: 10 * time.Second}
 	return &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			host, port, err := net.SplitHostPort(addr)
 			if err != nil {
@@ -133,6 +134,9 @@ type CollectorOptions struct {
 	BearerToken string
 	// InsecureSkipVerify disables TLS certificate verification.
 	InsecureSkipVerify bool
+	// TLSMinVersion is the minimum TLS version to accept (e.g. tls.VersionTLS12).
+	// Zero means use Go defaults (TLS 1.2).
+	TLSMinVersion uint16
 }
 
 // headerTransport wraps an http.RoundTripper and injects custom headers
@@ -207,12 +211,17 @@ func NewPrometheusCollectorWithOptions(address string, logger logr.Logger, opts 
 	} else {
 		base := ssrfSafeTransport()
 		httpTransport, _ = base.(*http.Transport)
-		if opts != nil && opts.InsecureSkipVerify {
-			if httpTransport != nil {
+		if opts != nil && httpTransport != nil {
+			if opts.InsecureSkipVerify || opts.TLSMinVersion != 0 {
 				if httpTransport.TLSClientConfig == nil {
 					httpTransport.TLSClientConfig = &tls.Config{} //nolint:gosec // user-configured
 				}
-				httpTransport.TLSClientConfig.InsecureSkipVerify = true //nolint:gosec // user-configured
+				if opts.InsecureSkipVerify {
+					httpTransport.TLSClientConfig.InsecureSkipVerify = true //nolint:gosec // user-configured
+				}
+				if opts.TLSMinVersion != 0 {
+					httpTransport.TLSClientConfig.MinVersion = opts.TLSMinVersion
+				}
 			}
 		}
 		rt = base
