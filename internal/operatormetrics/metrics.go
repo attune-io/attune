@@ -229,6 +229,14 @@ var (
 		},
 		[]string{"namespace", "policy", "container", "metric_type"},
 	)
+
+	RevertFailuresTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "attune_revert_failures_total",
+			Help: "Total number of failed resize revert attempts",
+		},
+		[]string{"namespace", "workload", "reason"},
+	)
 )
 
 // WebhookTimer tracks webhook operation duration and result.
@@ -283,5 +291,6 @@ func init() {
 		StaleRecommendationsTotal,
 		RequestClampedTotal,
 		NanInfSamplesTotal,
+		RevertFailuresTotal,
 	)
 }

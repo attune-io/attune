@@ -136,6 +136,11 @@ metrics:
         # -- How long the condition must persist before firing
         for: 1h
         severity: info
+      revertFailures:
+        enabled: true
+        # -- How long the condition must persist before firing
+        for: 5m
+        severity: critical
 
 grafanaDashboard:
   # -- Create a ConfigMap with the Grafana dashboard (auto-discovered by Grafana sidecar)

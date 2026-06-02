@@ -550,6 +550,7 @@ func (r *AttunePolicyReconciler) resizeContainer(
 		revertFailed := false
 		if revertErr := monitor.RevertPod(ctx, revertRecord); revertErr != nil {
 			logger.Error(revertErr, "Failed to revert pod after "+reason, "pod", pod.Name)
+			operatormetrics.RevertFailuresTotal.WithLabelValues(pod.Namespace, workloadName, reason).Inc()
 			revertFailed = true
 		}
 		if !revertFailed {

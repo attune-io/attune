@@ -375,8 +375,20 @@ func (m *Monitor) RevertPod(ctx context.Context, record ResizeRecord) error {
 			return nil
 		}
 
-		m.logger.Info("reverting pod resize", "pod", record.PodName,
-			"namespace", record.Namespace, "container", record.Container)
+		logFields := []any{
+			"pod", record.PodName,
+			"namespace", record.Namespace,
+			"container", record.Container,
+			"toCPU", record.OriginalResources.Requests.Cpu().String(),
+			"toMemory", record.OriginalResources.Requests.Memory().String(),
+		}
+		if len(record.NewResources.Requests) > 0 {
+			logFields = append(logFields,
+				"fromCPU", record.NewResources.Requests.Cpu().String(),
+				"fromMemory", record.NewResources.Requests.Memory().String(),
+			)
+		}
+		m.logger.Info("reverting pod resize", logFields...)
 
 		_, err = m.client.CoreV1().Pods(record.Namespace).UpdateResize(ctx, record.PodName, updated, metav1.UpdateOptions{})
 		if err != nil {

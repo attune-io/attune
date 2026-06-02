@@ -253,6 +253,15 @@
                     "for": { "type": "string", "default": "1h" },
                     "severity": { "type": "string", "default": "info" }
                   }
+                },
+                "revertFailures": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": { "type": "boolean", "default": true },
+                    "for": { "type": "string", "default": "5m" },
+                    "severity": { "type": "string", "default": "critical" }
+                  }
                 }
               }
             }
