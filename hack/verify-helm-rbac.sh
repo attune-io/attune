@@ -34,8 +34,10 @@ normalize_rules() {
 kustomize_rules=$(yq -o=json '.rules' "$KUSTOMIZE_ROLE" | normalize_rules)
 
 # Render Helm template and extract ClusterRole rules.
+# Enable all conditional features so the rendered rules match the full kustomize set.
 helm_rules=$(helm template rbac-check "$HELM_CHART" \
   --set webhooks.enabled=false \
+  --set openshift.enabled=true \
   --show-only templates/clusterrole.yaml \
   --kube-version v1.32.0 \
   | yq -o=json '.rules' | normalize_rules)

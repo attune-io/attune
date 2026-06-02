@@ -252,6 +252,13 @@ fips:
   # because client-go uses X25519 which is not FIPS-approved.
   mode: "on"
 
+# -- OpenShift integration
+openshift:
+  # -- Enable OpenShift-specific features (TLS profile auto-detection).
+  # When enabled, the ClusterRole includes read access to
+  # config.openshift.io/apiservers for TLS security profile detection.
+  enabled: false
+
 # -- Logging configuration
 logging:
   # -- Log level (debug, info, warn, error)
