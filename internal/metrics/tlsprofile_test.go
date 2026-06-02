@@ -228,3 +228,104 @@ func TestDetectOpenShiftTLSProfile_UnreachableAPI(t *testing.T) {
 	result := DetectOpenShiftTLSProfile(cs, logr.Discard())
 	assert.Equal(t, uint16(0), result, "unreachable API should return 0 (Go defaults)")
 }
+
+// fakeAPIServerCustomTLS builds an httptest.Server that simulates an OpenShift
+// cluster with a Custom TLS security profile containing an explicit minTLSVersion.
+func fakeAPIServerCustomTLS(t *testing.T, minTLSVersion string) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(metav1.APIVersions{Versions: []string{"v1"}})
+	})
+	mux.HandleFunc("/apis", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(metav1.APIGroupList{Groups: []metav1.APIGroup{{
+			Name: "config.openshift.io",
+			Versions: []metav1.GroupVersionForDiscovery{
+				{GroupVersion: "config.openshift.io/v1", Version: "v1"},
+			},
+		}}})
+	})
+	mux.HandleFunc("/apis/config.openshift.io/v1", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(metav1.APIResourceList{
+			GroupVersion: "config.openshift.io/v1",
+			APIResources: []metav1.APIResource{
+				{Name: "apiservers", Kind: "APIServer", Namespaced: false},
+			},
+		})
+	})
+	mux.HandleFunc("/apis/config.openshift.io/v1/apiservers/cluster", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		spec := map[string]interface{}{
+			"tlsSecurityProfile": map[string]interface{}{
+				"type": "Custom",
+				"custom": map[string]interface{}{
+					"minTLSVersion": minTLSVersion,
+				},
+			},
+		}
+		resp := map[string]interface{}{
+			"apiVersion": "config.openshift.io/v1",
+			"kind":       "APIServer",
+			"metadata":   map[string]string{"name": "cluster"},
+			"spec":       spec,
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	})
+	return httptest.NewServer(mux)
+}
+
+func TestDetectOpenShiftTLSProfile_CustomTLS13(t *testing.T) {
+	server := fakeAPIServerCustomTLS(t, "VersionTLS13")
+	defer server.Close()
+
+	result := DetectOpenShiftTLSProfile(clientsetForServer(t, server), logr.Discard())
+	assert.Equal(t, uint16(tls.VersionTLS13), result, "Custom profile with VersionTLS13 should return TLS 1.3")
+}
+
+func TestDetectOpenShiftTLSProfile_CustomTLS12(t *testing.T) {
+	server := fakeAPIServerCustomTLS(t, "VersionTLS12")
+	defer server.Close()
+
+	result := DetectOpenShiftTLSProfile(clientsetForServer(t, server), logr.Discard())
+	assert.Equal(t, uint16(tls.VersionTLS12), result, "Custom profile with VersionTLS12 should return TLS 1.2")
+}
+
+func TestDetectOpenShiftTLSProfile_CustomUnrecognizedVersion(t *testing.T) {
+	server := fakeAPIServerCustomTLS(t, "VersionTLS99")
+	defer server.Close()
+
+	result := DetectOpenShiftTLSProfile(clientsetForServer(t, server), logr.Discard())
+	assert.Equal(t, uint16(tls.VersionTLS12), result, "Custom profile with unrecognized version should fall back to TLS 1.2")
+}
+
+func TestDetectOpenShiftTLSProfile_CustomNoMinVersion(t *testing.T) {
+	// Custom profile without the minTLSVersion field.
+	server := fakeAPIServer(t, true, "Custom")
+	defer server.Close()
+
+	result := DetectOpenShiftTLSProfile(clientsetForServer(t, server), logr.Discard())
+	assert.Equal(t, uint16(tls.VersionTLS12), result, "Custom profile without minTLSVersion should fall back to TLS 1.2")
+}
+
+func TestParseOpenShiftTLSVersion(t *testing.T) {
+	tests := []struct {
+		version string
+		want    uint16
+	}{
+		{"VersionTLS10", tls.VersionTLS10},
+		{"VersionTLS11", tls.VersionTLS11},
+		{"VersionTLS12", tls.VersionTLS12},
+		{"VersionTLS13", tls.VersionTLS13},
+		{"VersionTLS99", 0},
+		{"", 0},
+		{"TLS13", 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.version, func(t *testing.T) {
+			assert.Equal(t, tt.want, parseOpenShiftTLSVersion(tt.version))
+		})
+	}
+}
