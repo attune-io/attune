@@ -132,6 +132,19 @@ watchNamespaces:
 |-----|------|---------|-------------|
 | `maxConcurrentReconciles` | int/string | `""` (1) | Maximum number of AttunePolicy reconciles running in parallel. Maps to the `--max-concurrent-reconciles` manager flag. The default (1) processes policies sequentially. Increase for clusters with many policies to reduce reconcile queue latency. Auto-set by `clusterSize` preset (small=1, medium=2, large=4, xlarge=8). The Prometheus rate limiter (`prometheusQPS`) is shared across all goroutines, so concurrent reconciles won't overwhelm Prometheus. |
 
+## OpenShift
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `openshift.enabled` | bool | `false` | Enable OpenShift-specific features. Adds RBAC for `config.openshift.io/apiservers` (read-only) to auto-detect the cluster TLS security profile and apply it to outbound Prometheus connections. See the [OpenShift guide](../guides/openshift.md). |
+
+## FIPS 140-3
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `fips.enabled` | bool | `false` | Enable FIPS 140-3 mode. Sets `GODEBUG=fips140=<mode>` to activate Go's CMVP-validated cryptographic module. |
+| `fips.mode` | string | `on` | FIPS enforcement level: `on` (prefer FIPS, allow fallback) or `only` (strict, rejects non-FIPS algorithms). See the [FIPS guide](../guides/fips-compliance.md). |
+
 ## Logging
 
 | Key | Type | Default | Description |
