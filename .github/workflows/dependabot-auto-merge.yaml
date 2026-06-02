@@ -2,14 +2,12 @@ name: Dependabot Auto-Merge
 
 on:
   pull_request_target:
-  push:
-    branches: [main]
 
 permissions:
   contents: read
 
 concurrency:
-  group: dependabot-auto-merge-${{ github.event.pull_request.number || github.sha }}
+  group: dependabot-auto-merge-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
@@ -48,31 +46,12 @@ jobs:
         if: steps.metadata.outputs.update-type == 'version-update:semver-major'
         run: echo "Skipping major version update — requires manual review"
 
-  # When main changes (e.g. another Dependabot PR merges), update all
-  # open Dependabot PRs so they stay current and auto-merge can proceed
-  # without waiting for Dependabot's slow rebase scheduler.
-  rebase-dependabot:
-    name: Rebase open Dependabot PRs
-    permissions:
-      contents: write
-      pull-requests: write
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    if: github.event_name == 'push'
-    steps:
-      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
-        with:
-          egress-policy: audit
-
-      - name: Update Dependabot PR branches
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          prs=$(gh pr list --repo "$GITHUB_REPOSITORY" \
-            --author "app/dependabot" --state open \
-            --json number --jq '.[].number')
-          for pr in $prs; do
-            echo "Updating PR #$pr..."
-            gh pr update-branch "$pr" --repo "$GITHUB_REPOSITORY" --rebase || \
-              echo "  Skipped (already up to date or conflict)"
-          done
+  # NOTE: A rebase-dependabot job was removed here. It updated open
+  # Dependabot PR branches on every push to main, but caused more harm
+  # than good: GITHUB_TOKEN pushes do not trigger other workflows (GitHub
+  # infinite-loop prevention), so the rebase invalidated existing CI
+  # results without starting new ones, leaving PRs stuck in "no required
+  # checks reported" limbo. With strict_required_status_checks_policy
+  # disabled in the branch ruleset, PRs can merge when behind main, so
+  # auto-rebase is unnecessary. Dependabot handles its own rebases when
+  # conflicts arise.
