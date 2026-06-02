@@ -61,8 +61,17 @@ func (c *RateLimitedCollector) Query(ctx context.Context, query string, ts time.
 	return c.inner.Query(ctx, query, ts)
 }
 
+// SupportsThrottle reports whether the inner collector supports CPU
+// throttle ratio queries. Callers should check this before registering
+// the RateLimitedCollector as a ThrottleChecker, since GetThrottleRatio
+// returns 0 (no throttling) when the inner does not support it.
+func (c *RateLimitedCollector) SupportsThrottle() bool {
+	_, ok := c.inner.(throttle.Checker)
+	return ok
+}
+
 // GetThrottleRatio delegates to the inner collector if it implements
-// safety.ThrottleChecker. Returns 0.0 if the inner collector does not
+// throttle.Checker. Returns 0.0 if the inner collector does not
 // support throttle queries.
 func (c *RateLimitedCollector) GetThrottleRatio(ctx context.Context, namespace, pod, container string, ts time.Time) (float64, error) {
 	if tc, ok := c.inner.(throttle.Checker); ok {

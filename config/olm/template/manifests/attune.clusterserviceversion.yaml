@@ -55,8 +55,8 @@ metadata:
     features.operators.openshift.io/proxy-aware: "true"
     features.operators.openshift.io/tls-profiles: "true"
     features.operators.openshift.io/token-auth-aws: "true"
-    features.operators.openshift.io/token-auth-gcp: "true"
-    features.operators.openshift.io/token-auth-azure: "true"
+    features.operators.openshift.io/token-auth-gcp: "false"
+    features.operators.openshift.io/token-auth-azure: "false"
     features.operators.openshift.io/disconnected: "true"
 spec:
   displayName: Attune

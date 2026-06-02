@@ -713,7 +713,18 @@ func (r *AttunePolicyReconciler) updateStatusWithRetry(ctx context.Context, poli
 func (r *AttunePolicyReconciler) newSafetyMonitor(logger logr.Logger, collector rsmetrics.MetricsCollector, guardrails ...[]attunev1alpha1.SLOGuardrail) *safety.Monitor {
 	monitor := safety.NewMonitor(r.Clientset, logger)
 	if tc, ok := collector.(safety.ThrottleChecker); ok {
-		monitor.WithThrottleChecker(tc, safety.DefaultThrottleThreshold)
+		// RateLimitedCollector always satisfies ThrottleChecker, but the
+		// inner collector may not support throttle queries (e.g. Datadog,
+		// CloudWatch). Check before registering to avoid false safety
+		// clearance from the silent 0.0 return.
+		register := true
+		if rl, ok := collector.(*rsmetrics.RateLimitedCollector); ok && !rl.SupportsThrottle() {
+			register = false
+			logger.V(1).Info("Throttle safety check disabled: metrics backend does not support CPU throttle queries")
+		}
+		if register {
+			monitor.WithThrottleChecker(tc, safety.DefaultThrottleThreshold)
+		}
 	}
 	if len(guardrails) > 0 && len(guardrails[0]) > 0 {
 		if sq, ok := collector.(safety.SLOQuerier); ok {

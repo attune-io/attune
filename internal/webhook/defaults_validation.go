@@ -156,6 +156,45 @@ func validateDefaultsSpec(spec attunev1alpha1.AttuneDefaultsSpec) (admission.War
 		}
 	}
 
+	// Validate budget caps are non-negative.
+	if spec.UpdateStrategy != nil {
+		if q := spec.UpdateStrategy.MaxTotalCPUIncrease; q != nil && q.MilliValue() < 0 {
+			return warnings, fmt.Errorf("updateStrategy.maxTotalCpuIncrease must be non-negative, got %s", q)
+		}
+		if q := spec.UpdateStrategy.MaxTotalMemoryIncrease; q != nil && q.Value() < 0 {
+			return warnings, fmt.Errorf("updateStrategy.maxTotalMemoryIncrease must be non-negative, got %s", q)
+		}
+	}
+
+	// Validate safetyObservationPeriod has a minimum floor.
+	if spec.UpdateStrategy != nil && spec.UpdateStrategy.SafetyObservationPeriod != nil {
+		sop := spec.UpdateStrategy.SafetyObservationPeriod.Duration
+		if sop < 0 {
+			return warnings, fmt.Errorf("updateStrategy.safetyObservationPeriod must be non-negative, got %s", sop)
+		}
+		if sop > 0 && sop < time.Minute {
+			return warnings, fmt.Errorf("updateStrategy.safetyObservationPeriod must be at least 1m, got %s", sop)
+		}
+	}
+
+	// Validate canary observation period has a minimum floor.
+	if spec.UpdateStrategy != nil && spec.UpdateStrategy.Canary != nil {
+		op := spec.UpdateStrategy.Canary.ObservationPeriod.Duration
+		if op < 0 {
+			return warnings, fmt.Errorf("updateStrategy.canary.observationPeriod must be non-negative, got %s", op)
+		}
+		if op > 0 && op < time.Minute {
+			return warnings, fmt.Errorf("updateStrategy.canary.observationPeriod must be at least 1m, got %s", op)
+		}
+	}
+
+	// Validate SLO guardrails.
+	if spec.UpdateStrategy != nil {
+		if err := validateSLOGuardrails(spec.UpdateStrategy.SLOGuardrails); err != nil {
+			return warnings, err
+		}
+	}
+
 	// Validate historyWindow bounds.
 	if spec.MetricsSource != nil && spec.MetricsSource.HistoryWindow != nil {
 		hw := spec.MetricsSource.HistoryWindow.Duration
@@ -164,6 +203,21 @@ func validateDefaultsSpec(spec attunev1alpha1.AttuneDefaultsSpec) (admission.War
 		}
 		if hw > 720*time.Hour {
 			return warnings, fmt.Errorf("metricsSource.historyWindow must be at most 720h (30d), got %s", hw)
+		}
+	}
+
+	// Validate rateWindow bounds (30s to historyWindow).
+	if spec.MetricsSource != nil && spec.MetricsSource.RateWindow != nil {
+		rw := spec.MetricsSource.RateWindow.Duration
+		if rw < 30*time.Second {
+			return warnings, fmt.Errorf("metricsSource.rateWindow must be at least 30s, got %s", rw)
+		}
+		maxWindow, _ := time.ParseDuration(attunev1alpha1.DefaultHistoryWindow)
+		if spec.MetricsSource.HistoryWindow != nil {
+			maxWindow = spec.MetricsSource.HistoryWindow.Duration
+		}
+		if rw > maxWindow {
+			return warnings, fmt.Errorf("metricsSource.rateWindow (%s) must not exceed historyWindow (%s)", rw, maxWindow)
 		}
 	}
 

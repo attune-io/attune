@@ -1520,7 +1520,7 @@ func TestInterpolateSLOQuery(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := interpolateSLOQuery(tt.template, tt.record)
+			got, err := interpolateSLOQuery(tt.template, tt.record, nil)
 			if tt.wantErr {
 				assert.Error(t, err)
 				return
