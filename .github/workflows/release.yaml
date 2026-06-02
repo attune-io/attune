@@ -113,7 +113,10 @@ jobs:
       - name: Check if Docker build is possible
         id: docker-check
         run: |
-          if [ -f Dockerfile.release ]; then
+          if [ -n "${{ inputs.tag }}" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Skipping Docker build on re-release to preserve OLM bundle digest"
+          elif [ -f Dockerfile.release ]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           else
             echo "enabled=false" >> "$GITHUB_OUTPUT"
