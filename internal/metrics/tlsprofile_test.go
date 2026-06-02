@@ -26,6 +26,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 )
 
@@ -112,12 +113,20 @@ func fakeAPIServer(t *testing.T, includeOpenShift bool, tlsProfileType string) *
 	return httptest.NewServer(mux)
 }
 
+func clientsetForServer(t *testing.T, server *httptest.Server) *kubernetes.Clientset {
+	t.Helper()
+	cs, err := kubernetes.NewForConfig(&rest.Config{Host: server.URL})
+	if err != nil {
+		t.Fatalf("creating clientset: %v", err)
+	}
+	return cs
+}
+
 func TestDetectOpenShiftTLSProfile_VanillaKubernetes(t *testing.T) {
 	server := fakeAPIServer(t, false, "")
 	defer server.Close()
 
-	cfg := &rest.Config{Host: server.URL}
-	result := DetectOpenShiftTLSProfile(cfg, logr.Discard())
+	result := DetectOpenShiftTLSProfile(clientsetForServer(t, server), logr.Discard())
 	assert.Equal(t, uint16(0), result, "vanilla K8s should return 0 (Go defaults)")
 }
 
@@ -125,8 +134,7 @@ func TestDetectOpenShiftTLSProfile_OpenShiftModern(t *testing.T) {
 	server := fakeAPIServer(t, true, "Modern")
 	defer server.Close()
 
-	cfg := &rest.Config{Host: server.URL}
-	result := DetectOpenShiftTLSProfile(cfg, logr.Discard())
+	result := DetectOpenShiftTLSProfile(clientsetForServer(t, server), logr.Discard())
 	assert.Equal(t, uint16(tls.VersionTLS13), result)
 }
 
@@ -134,8 +142,7 @@ func TestDetectOpenShiftTLSProfile_OpenShiftIntermediate(t *testing.T) {
 	server := fakeAPIServer(t, true, "Intermediate")
 	defer server.Close()
 
-	cfg := &rest.Config{Host: server.URL}
-	result := DetectOpenShiftTLSProfile(cfg, logr.Discard())
+	result := DetectOpenShiftTLSProfile(clientsetForServer(t, server), logr.Discard())
 	assert.Equal(t, uint16(tls.VersionTLS12), result)
 }
 
@@ -143,8 +150,7 @@ func TestDetectOpenShiftTLSProfile_OpenShiftOld(t *testing.T) {
 	server := fakeAPIServer(t, true, "Old")
 	defer server.Close()
 
-	cfg := &rest.Config{Host: server.URL}
-	result := DetectOpenShiftTLSProfile(cfg, logr.Discard())
+	result := DetectOpenShiftTLSProfile(clientsetForServer(t, server), logr.Discard())
 	assert.Equal(t, uint16(tls.VersionTLS10), result)
 }
 
@@ -152,13 +158,15 @@ func TestDetectOpenShiftTLSProfile_NoTLSProfileSet(t *testing.T) {
 	server := fakeAPIServer(t, true, "")
 	defer server.Close()
 
-	cfg := &rest.Config{Host: server.URL}
-	result := DetectOpenShiftTLSProfile(cfg, logr.Discard())
+	result := DetectOpenShiftTLSProfile(clientsetForServer(t, server), logr.Discard())
 	assert.Equal(t, uint16(tls.VersionTLS12), result, "unset profile should default to Intermediate (TLS 1.2)")
 }
 
-func TestDetectOpenShiftTLSProfile_InvalidConfig(t *testing.T) {
-	cfg := &rest.Config{Host: "http://127.0.0.1:1"} // unreachable
-	result := DetectOpenShiftTLSProfile(cfg, logr.Discard())
-	assert.Equal(t, uint16(0), result, "unreachable API should return 0")
+func TestDetectOpenShiftTLSProfile_UnreachableAPI(t *testing.T) {
+	cs, err := kubernetes.NewForConfig(&rest.Config{Host: "http://127.0.0.1:1"})
+	if err != nil {
+		t.Fatalf("creating clientset: %v", err)
+	}
+	result := DetectOpenShiftTLSProfile(cs, logr.Discard())
+	assert.Equal(t, uint16(0), result, "unreachable API should return 0 (Go defaults)")
 }
