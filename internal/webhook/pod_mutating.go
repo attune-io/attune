@@ -140,7 +140,7 @@ func (h *PodMutatingHandler) findMatchingPolicy(
 		policy := &policies[i]
 
 		// Check initial sizing is enabled.
-		if policy.Spec.UpdateStrategy.InitialSizing == nil || !*policy.Spec.UpdateStrategy.InitialSizing {
+		if policy.Spec.UpdateStrategy == nil || policy.Spec.UpdateStrategy.InitialSizing == nil || !*policy.Spec.UpdateStrategy.InitialSizing {
 			continue
 		}
 

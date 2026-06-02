@@ -61,6 +61,10 @@ func (v *AttunePolicyValidator) ValidateDelete(ctx context.Context, policy *attu
 func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (admission.Warnings, error) {
 	var warnings admission.Warnings
 
+	if policy.Spec.UpdateStrategy == nil {
+		policy.Spec.UpdateStrategy = &attunev1alpha1.UpdateStrategy{}
+	}
+
 	// CPU bounds: minAllowed must be <= maxAllowed, and maxAllowed capped at 256 cores.
 	if policy.Spec.CPU.MinAllowed != nil && policy.Spec.CPU.MaxAllowed != nil {
 		if policy.Spec.CPU.MinAllowed.Cmp(*policy.Spec.CPU.MaxAllowed) > 0 {
