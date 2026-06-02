@@ -30,7 +30,7 @@ func TestIsCooldownActive_NoAnnotation(t *testing.T) {
 	r := NewAttunePolicyReconciler()
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Cooldown: &metav1.Duration{Duration: 1 * time.Hour},
 			},
 		},
@@ -47,7 +47,7 @@ func TestIsCooldownActive_RecentTime(t *testing.T) {
 			},
 		},
 		Spec: attunev1alpha1.AttunePolicySpec{
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Cooldown: &metav1.Duration{Duration: 1 * time.Hour},
 			},
 		},
@@ -65,7 +65,7 @@ func TestIsCooldownActive_OldTime(t *testing.T) {
 			},
 		},
 		Spec: attunev1alpha1.AttunePolicySpec{
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Cooldown: &metav1.Duration{Duration: 1 * time.Hour},
 			},
 		},
@@ -83,7 +83,7 @@ func TestIsCooldownActive_InvalidAnnotation(t *testing.T) {
 			},
 		},
 		Spec: attunev1alpha1.AttunePolicySpec{
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Cooldown: &metav1.Duration{Duration: 1 * time.Hour},
 			},
 		},
@@ -101,7 +101,7 @@ func TestIsCooldownActive_CustomCooldownDuration(t *testing.T) {
 			},
 		},
 		Spec: attunev1alpha1.AttunePolicySpec{
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Cooldown: &metav1.Duration{Duration: 30 * time.Minute},
 			},
 		},

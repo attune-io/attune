@@ -98,7 +98,7 @@ func testPolicy(name, ns, targetKind, targetName string, initialSizing bool, upd
 				Kind: targetKind,
 				Name: strPtr(targetName),
 			},
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Type:          updateType,
 				InitialSizing: boolPtr(initialSizing),
 			},

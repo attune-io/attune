@@ -48,7 +48,7 @@ import (
 func TestSetResizingCondition_InProgress(t *testing.T) {
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{Type: attunev1alpha1.UpdateTypeAuto},
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{Type: attunev1alpha1.UpdateTypeAuto},
 		},
 		Status: attunev1alpha1.AttunePolicyStatus{
 			Workloads: attunev1alpha1.WorkloadStatus{Resized: 2},
@@ -66,7 +66,7 @@ func TestSetResizingCondition_InProgress(t *testing.T) {
 func TestSetResizingCondition_CooldownActive(t *testing.T) {
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{Type: attunev1alpha1.UpdateTypeAuto},
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{Type: attunev1alpha1.UpdateTypeAuto},
 		},
 	}
 	r := NewAttunePolicyReconciler()
@@ -81,7 +81,7 @@ func TestSetResizingCondition_CooldownActive(t *testing.T) {
 func TestSetResizingCondition_Idle(t *testing.T) {
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{Type: attunev1alpha1.UpdateTypeAuto},
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{Type: attunev1alpha1.UpdateTypeAuto},
 		},
 	}
 	r := NewAttunePolicyReconciler()
@@ -96,7 +96,7 @@ func TestSetResizingCondition_Idle(t *testing.T) {
 func TestSetResizingCondition_ObserveMode_NoCondition(t *testing.T) {
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{Type: attunev1alpha1.UpdateTypeObserve},
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{Type: attunev1alpha1.UpdateTypeObserve},
 		},
 	}
 	r := NewAttunePolicyReconciler()
@@ -148,6 +148,33 @@ func TestSetDegradedCondition_LowRevertRate(t *testing.T) {
 	assert.Nil(t, cond)
 }
 
+func TestSetDegradedCondition_LowRevertRate_ClearsExistingDegraded(t *testing.T) {
+	policy := &attunev1alpha1.AttunePolicy{
+		Status: attunev1alpha1.AttunePolicyStatus{
+			Conditions: []metav1.Condition{
+				{
+					Type:    attunev1alpha1.ConditionDegraded,
+					Status:  metav1.ConditionTrue,
+					Reason:  attunev1alpha1.ReasonHighRevertRate,
+					Message: "previously degraded",
+				},
+			},
+			ResizeHistory: []attunev1alpha1.ResizeHistoryEntry{
+				{Result: attunev1alpha1.ResizeResultSuccess},
+				{Result: attunev1alpha1.ResizeResultSuccess},
+				{Result: attunev1alpha1.ResizeResultReverted},
+				{Result: attunev1alpha1.ResizeResultSuccess},
+				{Result: attunev1alpha1.ResizeResultSuccess},
+			},
+		},
+	}
+	r := NewAttunePolicyReconciler()
+	r.setDegradedCondition(policy)
+
+	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionDegraded)
+	assert.Nil(t, cond, "low revert rate should clear pre-existing Degraded condition")
+}
+
 func TestSetDegradedCondition_EmptyHistory(t *testing.T) {
 	policy := &attunev1alpha1.AttunePolicy{}
 	r := NewAttunePolicyReconciler()
@@ -189,7 +216,7 @@ func TestGetEffectiveCooldown_NoReverts(t *testing.T) {
 	cooldown := 1 * time.Hour
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Cooldown: &metav1.Duration{Duration: cooldown},
 			},
 		},
@@ -202,7 +229,7 @@ func TestGetEffectiveCooldown_TwoReverts(t *testing.T) {
 	cooldown := 1 * time.Hour
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Cooldown: &metav1.Duration{Duration: cooldown},
 			},
 		},
@@ -221,7 +248,7 @@ func TestGetEffectiveCooldown_CappedAt16x(t *testing.T) {
 	cooldown := 1 * time.Hour
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Cooldown: &metav1.Duration{Duration: cooldown},
 			},
 		},
@@ -837,7 +864,7 @@ func TestSetCooldownStatus_NoReverts(t *testing.T) {
 	r := NewAttunePolicyReconciler()
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Cooldown: &metav1.Duration{Duration: 10 * time.Minute},
 			},
 		},
@@ -853,7 +880,7 @@ func TestSetCooldownStatus_WithReverts(t *testing.T) {
 	r := NewAttunePolicyReconciler()
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Cooldown: &metav1.Duration{Duration: 10 * time.Minute},
 			},
 		},
@@ -881,7 +908,7 @@ func TestSetCooldownStatus_CappedAt16x(t *testing.T) {
 	}
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Cooldown: &metav1.Duration{Duration: time.Hour},
 			},
 		},
@@ -910,7 +937,7 @@ func TestSetScheduleBlockedCondition_OutsideWindow(t *testing.T) {
 	r := NewAttunePolicyReconciler()
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Schedule: &attunev1alpha1.ResizeSchedule{
 					Windows: []attunev1alpha1.TimeWindow{{Start: "02:00", End: "06:00"}},
 				},
@@ -928,7 +955,7 @@ func TestSetScheduleBlockedCondition_InsideWindow(t *testing.T) {
 	r := NewAttunePolicyReconciler()
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Schedule: &attunev1alpha1.ResizeSchedule{
 					Windows: []attunev1alpha1.TimeWindow{{Start: "02:00", End: "06:00"}},
 				},

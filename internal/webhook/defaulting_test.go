@@ -67,7 +67,7 @@ func TestDefault_DoesNotSetMode(t *testing.T) {
 	assert.NoError(t, err)
 	// Mode is NOT set by the webhook; it's deferred to the controller's
 	// applyBuiltInDefaults so that AttuneDefaults can override it.
-	assert.Empty(t, policy.Spec.UpdateStrategy.Type)
+	assert.True(t, policy.Spec.UpdateStrategy == nil || policy.Spec.UpdateStrategy.Type == "")
 	assert.Nil(t, policy.Spec.CPU.MaxChangePercent)
 	assert.Nil(t, policy.Spec.Memory.MaxChangePercent)
 }
@@ -94,10 +94,8 @@ func TestDefault_DoesNotSetControllerDefaultedFields(t *testing.T) {
 	assert.Nil(t, policy.Spec.CPU.ControlledValues)
 	assert.Nil(t, policy.Spec.Memory.ControlledValues)
 	assert.Nil(t, policy.Spec.MetricsSource.HistoryWindow)
-	assert.Nil(t, policy.Spec.UpdateStrategy.Cooldown)
-	assert.Nil(t, policy.Spec.UpdateStrategy.AutoRevert)
+	assert.Nil(t, policy.Spec.UpdateStrategy, "updateStrategy should not be initialized by webhook")
 	assert.Nil(t, policy.Spec.MetricsSource.MinimumDataPoints)
-	assert.Empty(t, policy.Spec.UpdateStrategy.ResizeMethod)
 }
 
 func TestDefault_RecordsWebhookMetrics(t *testing.T) {

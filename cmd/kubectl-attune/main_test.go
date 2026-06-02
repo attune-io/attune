@@ -2237,7 +2237,7 @@ func TestPrintEffectivePolicySummary_DoesNotPanic(t *testing.T) {
 				QueryStep:  &metav1.Duration{Duration: 5 * time.Minute},
 				RateWindow: &metav1.Duration{Duration: 10 * time.Minute},
 			},
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Type:                 attunev1alpha1.UpdateTypeAuto,
 				Cooldown:             &metav1.Duration{Duration: time.Hour},
 				AutoRevert:           &autoRevert,
@@ -2393,7 +2393,7 @@ func TestMergeDefaultsIntoPolicy_PolicyFieldsNotOverwritten(t *testing.T) {
 				Overhead:         "20",
 				ControlledValues: &policyCV,
 			},
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Type:                 attunev1alpha1.UpdateTypeRecommend,
 				MaxConcurrentResizes: 3,
 			},

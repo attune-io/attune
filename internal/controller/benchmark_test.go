@@ -119,7 +119,7 @@ func BenchmarkReconcile_ManyWorkloads(b *testing.B) {
 					},
 					CPU:    attunev1alpha1.ResourceConfig{Percentile: 95, Overhead: "20"},
 					Memory: attunev1alpha1.ResourceConfig{Percentile: 99, Overhead: "30"},
-					UpdateStrategy: attunev1alpha1.UpdateStrategy{
+					UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 						Type: attunev1alpha1.UpdateTypeRecommend,
 					},
 				},
@@ -223,7 +223,7 @@ func BenchmarkReconcile_ManyPolicies(b *testing.B) {
 							},
 							CPU:    attunev1alpha1.ResourceConfig{Percentile: 95, Overhead: "20"},
 							Memory: attunev1alpha1.ResourceConfig{Percentile: 99, Overhead: "30"},
-							UpdateStrategy: attunev1alpha1.UpdateStrategy{
+							UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 								Type: attunev1alpha1.UpdateTypeRecommend,
 							},
 						},
@@ -322,7 +322,7 @@ func BenchmarkReconcile_ConcurrentPolicies(b *testing.B) {
 							},
 							CPU:    attunev1alpha1.ResourceConfig{Percentile: 95, Overhead: "20"},
 							Memory: attunev1alpha1.ResourceConfig{Percentile: 99, Overhead: "30"},
-							UpdateStrategy: attunev1alpha1.UpdateStrategy{
+							UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 								Type: attunev1alpha1.UpdateTypeRecommend,
 							},
 						},

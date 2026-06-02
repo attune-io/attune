@@ -36,6 +36,9 @@ import (
 // are NOT set here; they are handled defensively at their usage sites in
 // buildRecommendationEngines.
 func ApplyBuiltInDefaults(policy *attunev1alpha1.AttunePolicy) {
+	if policy.Spec.UpdateStrategy == nil {
+		policy.Spec.UpdateStrategy = &attunev1alpha1.UpdateStrategy{}
+	}
 	if policy.Spec.UpdateStrategy.Type == "" {
 		policy.Spec.UpdateStrategy.Type = attunev1alpha1.DefaultUpdateType
 	}
@@ -92,7 +95,10 @@ func MergeDefaults(policy *attunev1alpha1.AttunePolicy, defaults *attunev1alpha1
 	inherited = append(inherited, MergeResourceConfig(&policy.Spec.CPU, spec.CPU, "cpu")...)
 	inherited = append(inherited, MergeResourceConfig(&policy.Spec.Memory, spec.Memory, "memory")...)
 	inherited = append(inherited, MergeMetricsSource(&policy.Spec.MetricsSource, spec.MetricsSource)...)
-	inherited = append(inherited, MergeUpdateStrategy(&policy.Spec.UpdateStrategy, spec.UpdateStrategy)...)
+	if policy.Spec.UpdateStrategy == nil {
+		policy.Spec.UpdateStrategy = &attunev1alpha1.UpdateStrategy{}
+	}
+	inherited = append(inherited, MergeUpdateStrategy(policy.Spec.UpdateStrategy, spec.UpdateStrategy)...)
 	return inherited
 }
 

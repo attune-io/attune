@@ -261,7 +261,8 @@ func (r *AttunePolicyReconciler) warnConfigClamping(policy *attunev1alpha1.Attun
 				"rateWindow %s clamped to 30s (minimum)", rw.Duration)
 		}
 	}
-	if cd := policy.Spec.UpdateStrategy.Cooldown; cd != nil {
+	if policy.Spec.UpdateStrategy != nil && policy.Spec.UpdateStrategy.Cooldown != nil {
+		cd := policy.Spec.UpdateStrategy.Cooldown
 		minCooldown := r.MinCooldown
 		if minCooldown == 0 {
 			minCooldown = time.Minute
@@ -330,7 +331,7 @@ func (r *AttunePolicyReconciler) getRateWindow(policy *attunev1alpha1.AttunePoli
 
 // parseCooldown returns the cooldown duration from the policy's update strategy.
 func (r *AttunePolicyReconciler) parseCooldown(policy *attunev1alpha1.AttunePolicy) time.Duration {
-	if policy.Spec.UpdateStrategy.Cooldown != nil {
+	if policy.Spec.UpdateStrategy != nil && policy.Spec.UpdateStrategy.Cooldown != nil {
 		cd := policy.Spec.UpdateStrategy.Cooldown.Duration
 		// Defense-in-depth: enforce minimum floor even if webhook validation is bypassed.
 		minCooldown := r.MinCooldown
@@ -490,7 +491,7 @@ func (r *AttunePolicyReconciler) setResizingCondition(policy *attunev1alpha1.Att
 // based on whether a resize schedule is configured and whether the current
 // time falls within the allowed window.
 func (r *AttunePolicyReconciler) setScheduleBlockedCondition(policy *attunev1alpha1.AttunePolicy, withinWindow bool) {
-	if policy.Spec.UpdateStrategy.Schedule == nil || len(policy.Spec.UpdateStrategy.Schedule.Windows) == 0 {
+	if policy.Spec.UpdateStrategy == nil || policy.Spec.UpdateStrategy.Schedule == nil || len(policy.Spec.UpdateStrategy.Schedule.Windows) == 0 {
 		meta.RemoveStatusCondition(&policy.Status.Conditions, attunev1alpha1.ConditionScheduleBlocked)
 		return
 	}
@@ -732,8 +733,8 @@ func appendUnique(slice []string, value string) []string {
 
 // autoRevertEnabled returns true when the policy's AutoRevert setting is nil
 // (defaulting to true) or explicitly set to true.
-func autoRevertEnabled(s attunev1alpha1.UpdateStrategy) bool {
-	return s.AutoRevert == nil || *s.AutoRevert
+func autoRevertEnabled(s *attunev1alpha1.UpdateStrategy) bool {
+	return s == nil || s.AutoRevert == nil || *s.AutoRevert
 }
 
 // getObservationPeriod returns the safety observation period using the

@@ -202,7 +202,7 @@ func createPolicy(t *testing.T, name, namespace, deployName string, mode attunev
 				MaxAllowed:       quantityPtr("8Gi"),
 				MaxChangePercent: int32Ptr(100),
 			},
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Type:       mode,
 				Cooldown:   &metav1.Duration{Duration: time.Minute},
 				AutoRevert: boolPtr(true),
@@ -585,7 +585,7 @@ func TestE2E_MultiContainer_ExcludesSidecar(t *testing.T) {
 				MaxChangePercent: int32Ptr(100),
 			},
 			ExcludedContainers: []string{"istio-proxy"},
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Type:       attunev1alpha1.UpdateTypeAuto,
 				Cooldown:   &metav1.Duration{Duration: time.Minute},
 				AutoRevert: boolPtr(true),
@@ -766,7 +766,7 @@ func TestE2E_BudgetCaps_DefersResize(t *testing.T) {
 				Overhead:         "30",
 				MaxChangePercent: int32Ptr(100),
 			},
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Type:                attunev1alpha1.UpdateTypeAuto,
 				Cooldown:            &metav1.Duration{Duration: time.Minute},
 				MaxTotalCPUIncrease: &tightBudget,
@@ -844,7 +844,7 @@ func TestE2E_ScheduleWindow_SkipsOutsideWindow(t *testing.T) {
 				Overhead:         "30",
 				MaxChangePercent: int32Ptr(100),
 			},
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Type:     attunev1alpha1.UpdateTypeAuto,
 				Cooldown: &metav1.Duration{Duration: time.Minute},
 				Schedule: &attunev1alpha1.ResizeSchedule{
@@ -912,7 +912,7 @@ func TestE2E_BearerToken_Authenticates(t *testing.T) {
 			},
 			CPU:    attunev1alpha1.ResourceConfig{Percentile: 95, Overhead: "20"},
 			Memory: attunev1alpha1.ResourceConfig{Percentile: 99, Overhead: "30"},
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Type:     attunev1alpha1.UpdateTypeRecommend,
 				Cooldown: &metav1.Duration{Duration: time.Minute},
 			},
@@ -963,7 +963,7 @@ func TestE2E_EvictionFallback_ResizesWithInPlaceOrRecreate(t *testing.T) {
 				MaxAllowed:       quantityPtr("8Gi"),
 				MaxChangePercent: int32Ptr(100),
 			},
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Type:         attunev1alpha1.UpdateTypeAuto,
 				Cooldown:     &metav1.Duration{Duration: time.Minute},
 				AutoRevert:   boolPtr(true),
@@ -1112,7 +1112,7 @@ func TestE2E_BearerToken_SecretRotation(t *testing.T) {
 			},
 			CPU:    attunev1alpha1.ResourceConfig{Percentile: 95, Overhead: "20"},
 			Memory: attunev1alpha1.ResourceConfig{Percentile: 99, Overhead: "30"},
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Type:     attunev1alpha1.UpdateTypeRecommend,
 				Cooldown: &metav1.Duration{Duration: time.Minute},
 			},
@@ -1242,7 +1242,7 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 				MaxAllowed:       quantityPtr("512Mi"),
 				MaxChangePercent: int32Ptr(100),
 			},
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Type:       attunev1alpha1.UpdateTypeAuto,
 				Cooldown:   &metav1.Duration{Duration: time.Minute},
 				AutoRevert: boolPtr(true),
@@ -1404,7 +1404,7 @@ func TestE2E_MultiReplica_ProgressiveResize(t *testing.T) {
 				MaxAllowed:       quantityPtr("8Gi"),
 				MaxChangePercent: int32Ptr(100),
 			},
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Type:                 attunev1alpha1.UpdateTypeAuto,
 				Cooldown:             &metav1.Duration{Duration: time.Minute},
 				MaxConcurrentResizes: 1,
@@ -1488,7 +1488,7 @@ func TestE2E_GuaranteedQoS_RequestsAndLimits(t *testing.T) {
 				MaxAllowed:       quantityPtr("8Gi"),
 				MaxChangePercent: int32Ptr(100),
 			},
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Type:       attunev1alpha1.UpdateTypeAuto,
 				Cooldown:   &metav1.Duration{Duration: time.Minute},
 				AutoRevert: boolPtr(true),
@@ -1568,7 +1568,7 @@ func TestE2E_LabelSelector_MultipleWorkloads(t *testing.T) {
 			},
 			CPU:    attunev1alpha1.ResourceConfig{Percentile: 95, Overhead: "20"},
 			Memory: attunev1alpha1.ResourceConfig{Percentile: 99, Overhead: "30"},
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Type: attunev1alpha1.UpdateTypeRecommend, Cooldown: &metav1.Duration{Duration: time.Minute},
 			},
 		},
@@ -1744,7 +1744,7 @@ func TestE2E_MemoryAllowDecreaseFalse(t *testing.T) {
 				MaxAllowed:       quantityPtr("8Gi"),
 				MaxChangePercent: int32Ptr(100),
 			},
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Type:       attunev1alpha1.UpdateTypeAuto,
 				Cooldown:   &metav1.Duration{Duration: time.Minute},
 				AutoRevert: boolPtr(true),
@@ -1844,7 +1844,7 @@ func TestE2E_MultiContainer_SequentialResize(t *testing.T) {
 				MaxAllowed:       quantityPtr("8Gi"),
 				MaxChangePercent: int32Ptr(100),
 			},
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Type:       attunev1alpha1.UpdateTypeAuto,
 				Cooldown:   &metav1.Duration{Duration: time.Minute},
 				AutoRevert: boolPtr(true),

@@ -103,7 +103,7 @@ func TestRunImmediateSafetyCheck_AutoRevertDisabled(t *testing.T) {
 	r := NewAttunePolicyReconciler()
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				// AutoRevert defaults to nil, but set explicitly to false.
 				AutoRevert: boolPtr(false),
 			},
@@ -132,7 +132,7 @@ func TestRunImmediateSafetyCheck_CheckPodError(t *testing.T) {
 
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				AutoRevert: boolPtr(true),
 			},
 		},
@@ -182,7 +182,7 @@ func TestRunImmediateSafetyCheck_UnsafePod(t *testing.T) {
 
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				AutoRevert: boolPtr(true),
 			},
 		},
@@ -241,7 +241,7 @@ func TestRunImmediateSafetyCheck_SafePod(t *testing.T) {
 
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				AutoRevert: boolPtr(true),
 			},
 		},
