@@ -23,6 +23,7 @@ set -Eeuo pipefail
 
 : "${VERSION:?VERSION is required (e.g., 0.1.7)}"
 : "${GH_TOKEN:?GH_TOKEN is required}"
+: "${IMAGE_DIGEST:?IMAGE_DIGEST is required (e.g., sha256:abc...)}"
 
 FORK_OWNER="${FORK_OWNER:-attune-io}"
 GIT_USER_NAME="${GIT_USER_NAME:-github-actions[bot]}"
@@ -42,7 +43,7 @@ trap cleanup EXIT
 BUNDLE_DIR="${BUNDLE_DIR:-dist/olm-bundle/${VERSION}}"
 if [ ! -d "${BUNDLE_DIR}/manifests" ]; then
     echo "Generating OLM bundle..."
-    make generate-olm-bundle VERSION="${VERSION}"
+    make generate-olm-bundle VERSION="${VERSION}" IMAGE_DIGEST="${IMAGE_DIGEST}"
 fi
 
 # Verify bundle contents

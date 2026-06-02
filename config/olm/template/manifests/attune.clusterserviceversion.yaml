@@ -44,7 +44,7 @@ metadata:
       ]
     categories: "Application Runtime,Monitoring"
     capabilities: Auto Pilot
-    containerImage: ghcr.io/attune-io/attune:v__VERSION__
+    containerImage: ghcr.io/attune-io/attune@__IMAGE_DIGEST__
     createdAt: "__DATE__"
     support: attune-io
     repository: https://github.com/attune-io/attune
@@ -325,7 +325,7 @@ spec:
                     type: RuntimeDefault
                 containers:
                   - name: manager
-                    image: ghcr.io/attune-io/attune:v__VERSION__
+                    image: ghcr.io/attune-io/attune@__IMAGE_DIGEST__
                     imagePullPolicy: IfNotPresent
                     args:
                       - --leader-elect
@@ -392,3 +392,7 @@ spec:
         kind: AttuneNamespaceDefaults
         displayName: Attune Namespace Defaults
         description: Namespace-scoped default values for AttunePolicy fields. Overrides cluster defaults for a specific namespace.
+
+  relatedImages:
+    - name: attune
+      image: ghcr.io/attune-io/attune@__IMAGE_DIGEST__
