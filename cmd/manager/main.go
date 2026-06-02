@@ -187,7 +187,7 @@ func main() {
 
 	// Detect OpenShift TLS profile for outbound connections. On vanilla K8s
 	// this returns 0 (use Go defaults, i.e. TLS 1.2 with modern ciphers).
-	clusterTLSMinVersion := metrics.DetectOpenShiftTLSProfile(mgr.GetConfig(), setupLog)
+	clusterTLSMinVersion := metrics.DetectOpenShiftTLSProfile(clientset, setupLog)
 
 	// Setup the AttunePolicyReconciler with a real Prometheus metrics factory and clientset.
 	reconciler := controller.NewAttunePolicyReconciler()

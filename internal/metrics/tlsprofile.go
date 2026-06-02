@@ -25,7 +25,6 @@ import (
 
 	"github.com/go-logr/logr"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 )
 
 // OpenShift TLS profile names as defined by config.openshift.io/v1.
@@ -66,15 +65,9 @@ type openshiftAPIServer struct {
 // DetectOpenShiftTLSProfile reads the OpenShift APIServer cluster config
 // and returns the TLS minimum version. On vanilla Kubernetes (where the
 // OpenShift API does not exist), it returns 0 (Go defaults).
-func DetectOpenShiftTLSProfile(cfg *rest.Config, logger logr.Logger) uint16 {
+func DetectOpenShiftTLSProfile(clientset *kubernetes.Clientset, logger logr.Logger) uint16 {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-
-	clientset, err := kubernetes.NewForConfig(cfg)
-	if err != nil {
-		logger.V(1).Info("Cannot create clientset for TLS profile detection", "error", err)
-		return 0
-	}
 
 	// Check if the OpenShift config API group exists.
 	_, resources, err := clientset.Discovery().ServerGroupsAndResources()
