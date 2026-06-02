@@ -550,6 +550,7 @@ jobs:
         continue-on-error: true
         env:
           VERSION: ${{ needs.release.outputs.tag }}
+          IMAGE_DIGEST: ${{ needs.release.outputs.digest }}
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           UPSTREAM_GH_TOKEN: ${{ secrets.OPERATORHUB_PAT }}
           FORK_OWNER: attune-io

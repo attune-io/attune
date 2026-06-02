@@ -400,12 +400,22 @@ build-crds: manifests ## Generate standalone CRDs bundle for manual upgrades
 .PHONY: generate-olm-bundle
 generate-olm-bundle: manifests ## Generate OLM bundle for OperatorHub submission
 	@VERSION=$${VERSION:-$(shell git describe --tags --abbrev=0 | sed "s/^v//")} && \
+	if [ -z "$${IMAGE_DIGEST:-}" ]; then \
+		echo "Resolving image digest for ghcr.io/attune-io/attune:v$$VERSION..." && \
+		IMAGE_DIGEST=$$(docker manifest inspect "ghcr.io/attune-io/attune:v$$VERSION" 2>/dev/null \
+			| python3 -c "import sys,json,hashlib; d=sys.stdin.buffer.read(); print('sha256:'+hashlib.sha256(d).hexdigest())") && \
+		if [ -z "$$IMAGE_DIGEST" ] || [ "$$IMAGE_DIGEST" = "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" ]; then \
+			echo "ERROR: Could not resolve image digest. Set IMAGE_DIGEST manually." >&2; exit 1; \
+		fi; \
+	else \
+		IMAGE_DIGEST=$${IMAGE_DIGEST}; \
+	fi && \
 	DATE=$$(date -u +%Y-%m-%dT00:00:00Z) && \
 	BUNDLE_DIR=dist/olm-bundle/$$VERSION && \
-	echo "Generating OLM bundle for version $$VERSION..." && \
+	echo "Generating OLM bundle for version $$VERSION (digest: $$IMAGE_DIGEST)..." && \
 	mkdir -p "$$BUNDLE_DIR/manifests" "$$BUNDLE_DIR/metadata" && \
 	ICON_B64=$$(base64 < docs/logo.svg | tr -d '\n') && \
-	sed "s/__VERSION__/$$VERSION/g; s/__DATE__/$$DATE/g; s/__ICON_BASE64__/$$ICON_B64/g" \
+	sed "s/__VERSION__/$$VERSION/g; s/__DATE__/$$DATE/g; s/__ICON_BASE64__/$$ICON_B64/g; s|__IMAGE_DIGEST__|$$IMAGE_DIGEST|g" \
 		config/olm/template/manifests/attune.clusterserviceversion.yaml \
 		> "$$BUNDLE_DIR/manifests/attune.clusterserviceversion.yaml" && \
 	cp config/olm/template/metadata/annotations.yaml "$$BUNDLE_DIR/metadata/" && \
