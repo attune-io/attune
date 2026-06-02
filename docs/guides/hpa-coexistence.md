@@ -72,7 +72,7 @@ kubectl get hpa,ap -o wide
 Check for conflict-related events:
 
 ```bash
-kubectl get events --field-selector reason=ConflictDetected
+kubectl get events --field-selector reason=HPAConflict
 ```
 
 ## When to avoid combining them

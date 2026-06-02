@@ -330,7 +330,7 @@ func newTestPolicy(name, namespace, deploymentName string) *attunev1alpha1.Attun
 				MinAllowed: quantityPtr("64Mi"),
 				MaxAllowed: quantityPtr("8Gi"),
 			},
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Type: attunev1alpha1.UpdateTypeRecommend,
 				// Minimum valid cooldown (webhook rejects < 1m).
 				// MinCooldown=1s on the reconciler is a separate runtime floor.
@@ -463,7 +463,7 @@ func TestReconcile_LabelSelectorTargetsMultipleWorkloads(t *testing.T) {
 				Percentile: 99,
 				Overhead:   "30",
 			},
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Type:     "Recommend",
 				Cooldown: &metav1.Duration{Duration: 1 * time.Minute},
 			},
@@ -551,7 +551,7 @@ func TestReconcile_DefaultsMergingFromClusterDefaults(t *testing.T) {
 			},
 			CPU:    attunev1alpha1.ResourceConfig{},
 			Memory: attunev1alpha1.ResourceConfig{},
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Type:     "Recommend",
 				Cooldown: &metav1.Duration{Duration: 1 * time.Minute},
 			},
@@ -624,7 +624,7 @@ func TestReconcile_NamespaceDefaultsDoNotMergeClusterResourceFields(t *testing.T
 			},
 			CPU:    attunev1alpha1.ResourceConfig{},
 			Memory: attunev1alpha1.ResourceConfig{},
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Type:     "Recommend",
 				Cooldown: &metav1.Duration{Duration: 1 * time.Minute},
 			},
@@ -756,7 +756,7 @@ func TestReconcile_ConcurrentResizesFieldProcessedWithoutRaces(t *testing.T) {
 				Percentile: 99,
 				Overhead:   "30",
 			},
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Type:                 "Recommend",
 				Cooldown:             &metav1.Duration{Duration: 1 * time.Minute},
 				MaxConcurrentResizes: 5,

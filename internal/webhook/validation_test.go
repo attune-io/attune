@@ -48,7 +48,7 @@ func validPolicy() *attunev1alpha1.AttunePolicy {
 				Percentile: 99,
 				Overhead:   "30",
 			},
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Type: attunev1alpha1.UpdateTypeRecommend,
 			},
 		},

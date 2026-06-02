@@ -66,7 +66,7 @@ func TestApplyBuiltInDefaults_DoesNotOverrideExistingValues(t *testing.T) {
 	maxCPU := int32(25)
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Type: mode,
 			},
 			CPU: attunev1alpha1.ResourceConfig{

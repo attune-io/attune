@@ -188,7 +188,7 @@ func newVPAPolicy(name, namespace, vpaName string) *attunev1alpha1.AttunePolicy 
 				MinAllowed: quantityPtr("64Mi"),
 				MaxAllowed: quantityPtr("8Gi"),
 			},
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Type: attunev1alpha1.UpdateTypeRecommend,
 			},
 		},

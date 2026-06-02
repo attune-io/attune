@@ -189,7 +189,7 @@ func newTestPolicy(name, namespace string) *attunev1alpha1.AttunePolicy {
 				MinAllowed: quantityPtr("64Mi"),
 				MaxAllowed: quantityPtr("8Gi"),
 			},
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Type: attunev1alpha1.UpdateTypeRecommend,
 				Cooldown: &metav1.Duration{
 					Duration: 1 * time.Hour,
@@ -501,7 +501,7 @@ func TestReconcile_PausedPolicySkipsReconciliation(t *testing.T) {
 				Kind: "Deployment",
 				Name: func() *string { s := "my-app"; return &s }(),
 			},
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Type: attunev1alpha1.UpdateTypeAuto,
 			},
 		},
@@ -1410,6 +1410,7 @@ func TestParseCooldown_Default(t *testing.T) {
 func TestParseCooldown_Custom(t *testing.T) {
 	r := NewAttunePolicyReconciler()
 	policy := &attunev1alpha1.AttunePolicy{}
+	policy.Spec.UpdateStrategy = &attunev1alpha1.UpdateStrategy{}
 	d := metav1.Duration{Duration: 5 * time.Minute}
 	policy.Spec.UpdateStrategy.Cooldown = &d
 	assert.Equal(t, 5*time.Minute, r.parseCooldown(policy))
@@ -1418,6 +1419,7 @@ func TestParseCooldown_Custom(t *testing.T) {
 func TestParseCooldown_SubMinuteClampedTo1m(t *testing.T) {
 	r := NewAttunePolicyReconciler()
 	policy := &attunev1alpha1.AttunePolicy{}
+	policy.Spec.UpdateStrategy = &attunev1alpha1.UpdateStrategy{}
 	d := metav1.Duration{Duration: 30 * time.Second}
 	policy.Spec.UpdateStrategy.Cooldown = &d
 	assert.Equal(t, 1*time.Minute, r.parseCooldown(policy))
@@ -3049,7 +3051,7 @@ func TestRequeueShortenedByObservationPeriod(t *testing.T) {
 	// When observation period exceeds cooldown, cooldown wins.
 	longObs := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
-			UpdateStrategy: attunev1alpha1.UpdateStrategy{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Cooldown: &metav1.Duration{Duration: 5 * time.Minute},
 				Canary: &attunev1alpha1.CanaryConfig{
 					ObservationPeriod: metav1.Duration{Duration: 10 * time.Minute},
@@ -4354,6 +4356,7 @@ func TestApplyBuiltInDefaults_PreservesUserValues(t *testing.T) {
 	r := newReconcilerWithClient()
 	// Create a policy with explicit user values.
 	policy := &attunev1alpha1.AttunePolicy{}
+	policy.Spec.UpdateStrategy = &attunev1alpha1.UpdateStrategy{}
 	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
 	policy.Spec.CPU.MaxChangePercent = int32Ptr(80)
 	policy.Spec.Memory.MaxChangePercent = int32Ptr(60)

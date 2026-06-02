@@ -98,7 +98,7 @@ type AttunePolicySpec struct {
 
 	// UpdateStrategy configures how and when to apply resource changes.
 	// +optional
-	UpdateStrategy UpdateStrategy `json:"updateStrategy,omitempty"`
+	UpdateStrategy *UpdateStrategy `json:"updateStrategy,omitempty"`
 
 	// ExcludedContainers is a list of container names to skip when computing
 	// recommendations and performing resizes. Use this for sidecar containers

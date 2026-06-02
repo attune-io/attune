@@ -252,7 +252,11 @@ func (in *AttunePolicySpec) DeepCopyInto(out *AttunePolicySpec) {
 		*out = new(bool)
 		**out = **in
 	}
-	in.UpdateStrategy.DeepCopyInto(&out.UpdateStrategy)
+	if in.UpdateStrategy != nil {
+		in, out := &in.UpdateStrategy, &out.UpdateStrategy
+		*out = new(UpdateStrategy)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.ExcludedContainers != nil {
 		in, out := &in.ExcludedContainers, &out.ExcludedContainers
 		*out = make([]string, len(*in))
