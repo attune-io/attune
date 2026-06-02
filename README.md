@@ -6,12 +6,17 @@
 
 [![CI](https://github.com/attune-io/attune/actions/workflows/ci.yaml/badge.svg)](https://github.com/attune-io/attune/actions/workflows/ci.yaml)
 [![Security](https://github.com/attune-io/attune/actions/workflows/security.yaml/badge.svg)](https://github.com/attune-io/attune/actions/workflows/security.yaml)
-[![Go Version](https://img.shields.io/badge/go-1.26-blue)](go.mod)
+[![Go Report Card](https://goreportcard.com/badge/github.com/attune-io/attune)](https://goreportcard.com/report/github.com/attune-io/attune)
+[![Release](https://img.shields.io/github/v/release/attune-io/attune?logo=github&color=green)](https://github.com/attune-io/attune/releases/latest)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/attune-io/attune?logo=go)](go.mod)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+[![FIPS 140-3](https://img.shields.io/badge/FIPS_140--3-Compliant-success)](https://attune-io.github.io/attune/guides/fips-compliance/)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/12998/badge)](https://www.bestpractices.dev/projects/12998)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/attune-io/attune/badge)](https://scorecard.dev/viewer/?uri=github.com/attune-io/attune)
-[![Docker Hub](https://img.shields.io/docker/pulls/attuneio/attune)](https://hub.docker.com/r/attuneio/attune)
+[![OperatorHub](https://img.shields.io/badge/OperatorHub.io-Attune-brightgreen?logo=kubernetes)](https://operatorhub.io/operator/attune)
 [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/attune)](https://artifacthub.io/packages/helm/attune/attune)
+[![Docker Hub](https://img.shields.io/docker/pulls/attuneio/attune)](https://hub.docker.com/r/attuneio/attune)
+[![GHCR](https://ghcr-badge.egpl.dev/attune-io/attune/latest_tag?trim=major&label=ghcr.io)](https://github.com/attune-io/attune/pkgs/container/attune)
 [![kubectl plugin](https://img.shields.io/badge/kubectl_plugin-krew-blue)](https://krew.sigs.k8s.io/plugins/)
 
 **Safe, in-place Kubernetes pod resource right-sizing. VPA done right.**
