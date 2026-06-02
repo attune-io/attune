@@ -2,12 +2,14 @@ name: Dependabot Auto-Merge
 
 on:
   pull_request_target:
+  push:
+    branches: [main]
 
 permissions:
   contents: read
 
 concurrency:
-  group: dependabot-auto-merge-${{ github.event.pull_request.number }}
+  group: dependabot-auto-merge-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
 jobs:
@@ -18,7 +20,9 @@ jobs:
       pull-requests: write
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    if: >
+      github.event_name == 'pull_request_target' &&
+      github.event.pull_request.user.login == 'dependabot[bot]'
     steps:
       - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
@@ -42,3 +46,32 @@ jobs:
       - name: Skip major updates
         if: steps.metadata.outputs.update-type == 'version-update:semver-major'
         run: echo "Skipping major version update — requires manual review"
+
+  # When main changes (e.g. another Dependabot PR merges), update all
+  # open Dependabot PRs so they stay current and auto-merge can proceed
+  # without waiting for Dependabot's slow rebase scheduler.
+  rebase-dependabot:
+    name: Rebase open Dependabot PRs
+    permissions:
+      contents: write
+      pull-requests: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.event_name == 'push'
+    steps:
+      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - name: Update Dependabot PR branches
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          prs=$(gh pr list --repo "$GITHUB_REPOSITORY" \
+            --author "app/dependabot" --state open \
+            --json number --jq '.[].number')
+          for pr in $prs; do
+            echo "Updating PR #$pr..."
+            gh pr update-branch "$pr" --repo "$GITHUB_REPOSITORY" || \
+              echo "  Skipped (already up to date or conflict)"
+          done
