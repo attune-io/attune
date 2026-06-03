@@ -93,9 +93,12 @@ runs:
       run: |
         # Pull images with docker (parallel layer downloads) and save as
         # tarballs for k3d import. Skip images already restored from cache.
-        # Retries handle transient Docker Hub connectivity issues.
+        # Accepts an optional 3rd argument: a fallback image reference to try
+        # when the primary registry is unreachable (e.g. quay.io outage).
+        # If the fallback succeeds, the image is retagged to the primary name
+        # so downstream manifests (cert-manager.yaml) resolve correctly.
         pull_and_save() {
-          local image="$1" tarball="$2"
+          local image="$1" tarball="$2" fallback="${3:-}"
           [[ -f "$tarball" ]] && { echo "Cached: $tarball"; return 0; }
           for attempt in 1 2 3; do
             if docker pull --platform linux/amd64 "$image"; then
@@ -105,13 +108,29 @@ runs:
             echo "::warning::docker pull attempt $attempt for $image failed, retrying in 10s..."
             sleep 10
           done
-          echo "::error::Failed to pull $image after 3 attempts"
+          if [[ -n "$fallback" ]]; then
+            echo "::warning::Primary registry failed for $image, trying fallback: $fallback"
+            for attempt in 1 2 3; do
+              if docker pull --platform linux/amd64 "$fallback"; then
+                docker tag "$fallback" "$image"
+                docker save "$image" -o "$tarball"
+                return 0
+              fi
+              echo "::warning::fallback pull attempt $attempt for $fallback failed, retrying in 10s..."
+              sleep 10
+            done
+          fi
+          echo "::error::Failed to pull $image after all attempts"
           return 1
         }
-        pull_and_save "quay.io/jetstack/cert-manager-controller:${{ inputs.cert-manager-version }}" /tmp/cert-manager-controller.tar
-        pull_and_save "quay.io/jetstack/cert-manager-webhook:${{ inputs.cert-manager-version }}" /tmp/cert-manager-webhook.tar
-        pull_and_save "quay.io/jetstack/cert-manager-cainjector:${{ inputs.cert-manager-version }}" /tmp/cert-manager-cainjector.tar
-        pull_and_save "${{ inputs.prometheus-image }}" /tmp/prometheus.tar
+        CM_VER="${{ inputs.cert-manager-version }}"
+        OWNER="attune-io"
+        pull_and_save "quay.io/jetstack/cert-manager-controller:${CM_VER}" /tmp/cert-manager-controller.tar "ghcr.io/${OWNER}/mirrors/cert-manager-controller:${CM_VER}"
+        pull_and_save "quay.io/jetstack/cert-manager-webhook:${CM_VER}" /tmp/cert-manager-webhook.tar "ghcr.io/${OWNER}/mirrors/cert-manager-webhook:${CM_VER}"
+        pull_and_save "quay.io/jetstack/cert-manager-cainjector:${CM_VER}" /tmp/cert-manager-cainjector.tar "ghcr.io/${OWNER}/mirrors/cert-manager-cainjector:${CM_VER}"
+        PROM_TAG="${{ inputs.prometheus-image }}"
+        PROM_TAG="${PROM_TAG##*:}"
+        pull_and_save "${{ inputs.prometheus-image }}" /tmp/prometheus.tar "docker.io/prom/prometheus:${PROM_TAG}"
         pull_and_save "${{ inputs.stress-ng-image }}" /tmp/stress-ng.tar
         pull_and_save "${{ inputs.k3s-image }}" /tmp/k3s.tar
 

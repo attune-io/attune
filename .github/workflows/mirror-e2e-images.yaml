@@ -1,0 +1,90 @@
+# Mirror E2E dependency images to GHCR so CI has a fallback when
+# upstream registries (quay.io) are unreachable from GitHub-hosted runners.
+#
+# After the first run, make each ghcr.io/attune-io/mirrors/* package
+# public via Settings > Packages > Package settings > Danger zone.
+name: Mirror E2E Images
+
+on:
+  schedule:
+    # Weekly Sunday 06:00 UTC (keeps GHCR copies warm)
+    - cron: "0 6 * * 0"
+  push:
+    branches: [main]
+    paths:
+      # Re-mirror whenever image versions change
+      - ".github/workflows/ci.yaml"
+      - ".github/workflows/e2e-nightly.yaml"
+      - ".github/workflows/mirror-e2e-images.yaml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: mirror-e2e-images
+  cancel-in-progress: true
+
+jobs:
+  mirror:
+    name: Mirror cert-manager to GHCR
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    steps:
+      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          sparse-checkout: .github/workflows/ci.yaml
+          sparse-checkout-cone-mode: false
+
+      - name: Read pinned versions from ci.yaml
+        id: versions
+        shell: bash
+        run: |
+          CM=$(grep 'CERT_MANAGER_VERSION:' .github/workflows/ci.yaml \
+               | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          PROM=$(grep 'PROMETHEUS_IMAGE:' .github/workflows/ci.yaml \
+                 | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          echo "cert_manager=${CM}" >> "$GITHUB_OUTPUT"
+          echo "prometheus=${PROM}" >> "$GITHUB_OUTPUT"
+          echo "Mirror targets: cert-manager=${CM}  prometheus=${PROM}"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Mirror cert-manager images
+        shell: bash
+        env:
+          CM_VERSION: ${{ steps.versions.outputs.cert_manager }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          for component in controller webhook cainjector; do
+            src="quay.io/jetstack/cert-manager-${component}:${CM_VERSION}"
+            dst="ghcr.io/${OWNER}/mirrors/cert-manager-${component}:${CM_VERSION}"
+            echo "::group::${component}"
+            docker pull --platform linux/amd64 "$src"
+            docker tag "$src" "$dst"
+            docker push "$dst"
+            echo "::endgroup::"
+          done
+
+      - name: Mirror Prometheus image
+        shell: bash
+        env:
+          PROM_IMAGE: ${{ steps.versions.outputs.prometheus }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          # Extract tag from full image ref (quay.io/prometheus/prometheus:v3.4.1 -> v3.4.1)
+          PROM_TAG="${PROM_IMAGE##*:}"
+          dst="ghcr.io/${OWNER}/mirrors/prometheus:${PROM_TAG}"
+          docker pull --platform linux/amd64 "$PROM_IMAGE"
+          docker tag "$PROM_IMAGE" "$dst"
+          docker push "$dst"
