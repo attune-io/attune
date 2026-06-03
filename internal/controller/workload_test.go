@@ -897,6 +897,8 @@ func TestWorkload_AdapterPodSelectorLabels(t *testing.T) {
 				},
 			},
 		}, false, []string{"app"}},
+		{"StatefulSet without selector returns nil", &appsv1.StatefulSet{}, true, nil},
+		{"DaemonSet without selector returns nil", &appsv1.DaemonSet{}, true, nil},
 	}
 
 	for _, tt := range tests {

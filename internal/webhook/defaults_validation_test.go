@@ -656,6 +656,207 @@ func TestDefaultsValidate_CooldownInvalid(t *testing.T) {
 	}
 }
 
+func TestDefaultsValidate_BudgetCapInvalid(t *testing.T) {
+	tests := []struct {
+		name    string
+		spec    attunev1alpha1.AttuneDefaultsSpec
+		wantErr string
+	}{
+		{
+			name: "negative maxTotalCpuIncrease",
+			spec: attunev1alpha1.AttuneDefaultsSpec{
+				UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+					MaxTotalCPUIncrease: resourcePtr("-500m"),
+				},
+			},
+			wantErr: "maxTotalCpuIncrease must be non-negative",
+		},
+		{
+			name: "negative maxTotalMemoryIncrease",
+			spec: attunev1alpha1.AttuneDefaultsSpec{
+				UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+					MaxTotalMemoryIncrease: resourcePtr("-1Gi"),
+				},
+			},
+			wantErr: "maxTotalMemoryIncrease must be non-negative",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			v := &AttuneDefaultsValidator{}
+			defaults := &attunev1alpha1.AttuneDefaults{
+				ObjectMeta: metav1.ObjectMeta{Name: "default"},
+				Spec:       tc.spec,
+			}
+
+			_, err := v.ValidateCreate(context.Background(), defaults)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
+func resourcePtr(s string) *resource.Quantity {
+	q := resource.MustParse(s)
+	return &q
+}
+
+func TestDefaultsValidate_SafetyObservationPeriodInvalid(t *testing.T) {
+	tests := []struct {
+		name    string
+		period  time.Duration
+		wantErr string
+	}{
+		{"negative", -time.Minute, "safetyObservationPeriod must be non-negative"},
+		{"below minimum", 30 * time.Second, "safetyObservationPeriod must be at least 1m"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			v := &AttuneDefaultsValidator{}
+			defaults := &attunev1alpha1.AttuneDefaults{
+				ObjectMeta: metav1.ObjectMeta{Name: "default"},
+				Spec: attunev1alpha1.AttuneDefaultsSpec{
+					UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+						SafetyObservationPeriod: &metav1.Duration{Duration: tc.period},
+					},
+				},
+			}
+
+			_, err := v.ValidateCreate(context.Background(), defaults)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
+func TestDefaultsValidate_CanaryObservationPeriodInvalid(t *testing.T) {
+	tests := []struct {
+		name    string
+		period  time.Duration
+		wantErr string
+	}{
+		{"negative", -time.Minute, "canary.observationPeriod must be non-negative"},
+		{"below minimum", 30 * time.Second, "canary.observationPeriod must be at least 1m"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			v := &AttuneDefaultsValidator{}
+			defaults := &attunev1alpha1.AttuneDefaults{
+				ObjectMeta: metav1.ObjectMeta{Name: "default"},
+				Spec: attunev1alpha1.AttuneDefaultsSpec{
+					UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+						Canary: &attunev1alpha1.CanaryConfig{
+							Percentage:        10,
+							ObservationPeriod: metav1.Duration{Duration: tc.period},
+						},
+					},
+				},
+			}
+
+			_, err := v.ValidateCreate(context.Background(), defaults)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
+func TestDefaultsValidate_SLOGuardrailsInvalid(t *testing.T) {
+	tests := []struct {
+		name       string
+		guardrails []attunev1alpha1.SLOGuardrail
+		wantErr    string
+	}{
+		{
+			name: "empty name",
+			guardrails: []attunev1alpha1.SLOGuardrail{
+				{Name: "", Query: "up", Threshold: "1"},
+			},
+			wantErr: "name is required",
+		},
+		{
+			name: "duplicate name",
+			guardrails: []attunev1alpha1.SLOGuardrail{
+				{Name: "slo1", Query: "up", Threshold: "1"},
+				{Name: "slo1", Query: "down", Threshold: "0"},
+			},
+			wantErr: "is duplicated",
+		},
+		{
+			name: "empty query",
+			guardrails: []attunev1alpha1.SLOGuardrail{
+				{Name: "slo1", Query: "", Threshold: "1"},
+			},
+			wantErr: "query is required",
+		},
+		{
+			name: "empty threshold",
+			guardrails: []attunev1alpha1.SLOGuardrail{
+				{Name: "slo1", Query: "up", Threshold: ""},
+			},
+			wantErr: "threshold is required",
+		},
+		{
+			name: "non-numeric threshold",
+			guardrails: []attunev1alpha1.SLOGuardrail{
+				{Name: "slo1", Query: "up", Threshold: "abc"},
+			},
+			wantErr: "not a valid number",
+		},
+		{
+			name: "NaN threshold",
+			guardrails: []attunev1alpha1.SLOGuardrail{
+				{Name: "slo1", Query: "up", Threshold: "NaN"},
+			},
+			wantErr: "must be a finite number",
+		},
+		{
+			name: "Inf threshold",
+			guardrails: []attunev1alpha1.SLOGuardrail{
+				{Name: "slo1", Query: "up", Threshold: "Inf"},
+			},
+			wantErr: "must be a finite number",
+		},
+		{
+			name: "invalid comparison",
+			guardrails: []attunev1alpha1.SLOGuardrail{
+				{Name: "slo1", Query: "up", Threshold: "1", Comparison: "equals"},
+			},
+			wantErr: "must be \"above\" or \"below\"",
+		},
+		{
+			name: "negative evaluationWindow",
+			guardrails: []attunev1alpha1.SLOGuardrail{
+				{Name: "slo1", Query: "up", Threshold: "1", EvaluationWindow: &metav1.Duration{Duration: -time.Minute}},
+			},
+			wantErr: "evaluationWindow must be non-negative",
+		},
+		{
+			name: "evaluationWindow below minimum",
+			guardrails: []attunev1alpha1.SLOGuardrail{
+				{Name: "slo1", Query: "up", Threshold: "1", EvaluationWindow: &metav1.Duration{Duration: 30 * time.Second}},
+			},
+			wantErr: "evaluationWindow must be at least 1m",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			v := &AttuneDefaultsValidator{}
+			defaults := &attunev1alpha1.AttuneDefaults{
+				ObjectMeta: metav1.ObjectMeta{Name: "default"},
+				Spec: attunev1alpha1.AttuneDefaultsSpec{
+					UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+						SLOGuardrails: tc.guardrails,
+					},
+				},
+			}
+
+			_, err := v.ValidateCreate(context.Background(), defaults)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
 func TestDefaultsValidate_HistoryWindowInvalid(t *testing.T) {
 	tests := []struct {
 		name    string

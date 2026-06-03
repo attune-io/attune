@@ -8,8 +8,8 @@ inputs:
   kubeconfig-path:
     description: Path to write the kubeconfig file
     required: true
-  go-version:
-    description: Go version to install
+  go-version-file:
+    description: Path to go.mod for Go version resolution
     required: true
   k3d-version:
     description: k3d version
@@ -47,7 +47,7 @@ runs:
 
     - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
       with:
-        go-version: ${{ inputs.go-version }}
+        go-version-file: ${{ inputs.go-version-file }}
         cache: true
 
     - name: Cache E2E container images
