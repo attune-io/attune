@@ -18,9 +18,7 @@ package controller
 
 import (
 	"context"
-	"fmt"
 
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -143,34 +141,14 @@ func (r *AttunePolicyReconciler) computeVPARecommendationsForWorkload(
 		// Compute CPU recommendation through the standard engine pipeline.
 		cpuRec, cpuExplain, _ := cpuEngine.RecommendWithExplanation(cpuProfile, currentCPUReq)
 		cpuAllowDecrease := policy.Spec.CPU.AllowDecrease == nil || *policy.Spec.CPU.AllowDecrease
-		if !cpuAllowDecrease && cpuRec.Cmp(currentCPUReq) < 0 {
-			unclampedCPU := cpuRec.String()
-			if r.Recorder != nil {
-				r.Recorder.Eventf(policy, nil, corev1.EventTypeNormal, "DecreaseSuppressed", "recommend",
-					"CPU decrease blocked by allowDecrease=false for container %s (current: %s)",
-					containerName, currentCPUReq.String())
-			}
-			cpuRec = currentCPUReq.DeepCopy()
-			cpuExplain.Final = cpuRec.DeepCopy()
-			cpuExplain.FinalAdjustment = fmt.Sprintf("CPU decrease from %s to %s blocked by allowDecrease=false", currentCPUReq.String(), unclampedCPU)
-		}
+		cpuRec = r.enforceAllowDecrease(cpuAllowDecrease, cpuRec, currentCPUReq, &cpuExplain, policy, containerName, "CPU")
 		cRec.Recommended.CPURequest = cpuRec
 		explanation.CPU = toAPIRecommendationExplanation(cpuExplain)
 
 		// Compute memory recommendation through the standard engine pipeline.
 		memRec, memExplain, _ := memEngine.RecommendWithExplanation(memProfile, currentMemReq)
-		allowDecrease := policy.Spec.Memory.AllowDecrease != nil && *policy.Spec.Memory.AllowDecrease
-		if !allowDecrease && memRec.Cmp(currentMemReq) < 0 {
-			unclampedMem := memRec.String()
-			if r.Recorder != nil {
-				r.Recorder.Eventf(policy, nil, corev1.EventTypeNormal, "DecreaseSuppressed", "recommend",
-					"Memory decrease blocked by allowDecrease=false for container %s (current: %s)",
-					containerName, currentMemReq.String())
-			}
-			memRec = currentMemReq.DeepCopy()
-			memExplain.Final = memRec.DeepCopy()
-			memExplain.FinalAdjustment = fmt.Sprintf("memory decrease from %s to %s blocked by allowDecrease=false", currentMemReq.String(), unclampedMem)
-		}
+		memAllowDecrease := policy.Spec.Memory.AllowDecrease != nil && *policy.Spec.Memory.AllowDecrease
+		memRec = r.enforceAllowDecrease(memAllowDecrease, memRec, currentMemReq, &memExplain, policy, containerName, "memory")
 		cRec.Recommended.MemoryRequest = memRec
 		explanation.Memory = toAPIRecommendationExplanation(memExplain)
 		explanation.CPU.FinalAdjustment = appendNote(explanation.CPU.FinalAdjustment, "source: VPA")
