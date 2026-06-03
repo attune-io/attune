@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
 
 concurrency:
   group: auto-approve-${{ github.event.pull_request.number || github.run_id }}
@@ -18,6 +17,8 @@ jobs:
     name: Auto Approve
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      pull-requests: write
     if: >
       github.actor == 'SebTardif' ||
       github.actor == 'dependabot[bot]'

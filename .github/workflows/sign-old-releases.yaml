@@ -11,6 +11,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: sign-old-releases
+  cancel-in-progress: false
+
 jobs:
   sign:
     name: Sign Releases
