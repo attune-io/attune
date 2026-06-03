@@ -133,6 +133,20 @@ func (m *mockThrottleCollector) GetThrottleRatio(_ context.Context, _, _, _ stri
 	return m.throttleRatio, nil
 }
 
+func TestRateLimitedCollector_SupportsThrottle(t *testing.T) {
+	t.Run("inner implements ThrottleChecker", func(t *testing.T) {
+		inner := &mockThrottleCollector{}
+		rl := NewRateLimitedCollector(inner, 10, 20)
+		assert.True(t, rl.SupportsThrottle())
+	})
+
+	t.Run("inner does not implement ThrottleChecker", func(t *testing.T) {
+		inner := &mockCollector{}
+		rl := NewRateLimitedCollector(inner, 10, 20)
+		assert.False(t, rl.SupportsThrottle())
+	})
+}
+
 func TestRateLimitedCollector_GetThrottleRatio_Delegates(t *testing.T) {
 	inner := &mockThrottleCollector{throttleRatio: 0.75}
 	rl := NewRateLimitedCollector(inner, 10, 20)
