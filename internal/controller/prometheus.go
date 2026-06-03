@@ -467,25 +467,10 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 		}
 
 		// Scale limits proportionally if ControlledValues is RequestsAndLimits.
-		cpuControlled := attunev1alpha1.ControlledRequestsOnly
-		if policy.Spec.CPU.ControlledValues != nil {
-			cpuControlled = *policy.Spec.CPU.ControlledValues
-		}
-		memControlled := attunev1alpha1.ControlledRequestsOnly
-		if policy.Spec.Memory.ControlledValues != nil {
-			memControlled = *policy.Spec.Memory.ControlledValues
-		}
-		if cpuControlled == attunev1alpha1.ControlledRequestsAndLimits {
-			rec.Recommended.CPULimit = scaleLimits(currentCPUReq, currentCPULim, rec.Recommended.CPURequest)
-		}
-		if memControlled == attunev1alpha1.ControlledRequestsAndLimits {
-			rec.Recommended.MemoryLimit = scaleLimits(currentMemReq, currentMemLim, rec.Recommended.MemoryRequest)
-		}
+		scaleControlledLimits(policy, &rec, currentCPUReq, currentCPULim, currentMemReq, currentMemLim)
 
 		// Set recommendation gauges for this container.
-		operatormetrics.RecommendationCPU.WithLabelValues(policy.Namespace, workload.GetName(), containerName).Set(float64(rec.Recommended.CPURequest.MilliValue()) / 1000.0)
-		operatormetrics.RecommendationMemory.WithLabelValues(policy.Namespace, workload.GetName(), containerName).Set(float64(rec.Recommended.MemoryRequest.Value()))
-		operatormetrics.Confidence.WithLabelValues(policy.Namespace, workload.GetName(), containerName).Set(rec.Confidence)
+		setRecommendationGauges(policy.Namespace, workload.GetName(), containerName, &rec)
 		if rec.Explanation != nil {
 			if rec.Explanation.CPU != nil {
 				operatormetrics.BurstFactor.WithLabelValues(policy.Namespace, workload.GetName(), containerName, "cpu").Set(rec.Explanation.CPU.BurstFactor)
