@@ -97,9 +97,9 @@ func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (a
 		}
 	}
 
-	// Canary config required when mode is Canary
+	// Canary config required when type is Canary
 	if us.Type == attunev1alpha1.UpdateTypeCanary && us.Canary == nil {
-		return warnings, fmt.Errorf("updateStrategy.canary is required when mode is Canary")
+		return warnings, fmt.Errorf("updateStrategy.canary is required when updateStrategy.type is Canary")
 	}
 
 	// Validate canary observation period has a minimum floor.

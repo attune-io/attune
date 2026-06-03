@@ -99,7 +99,7 @@ spec:
   updateStrategy:
     type: Recommend            # Observe | Recommend | OneShot | Canary | Auto
     initialSizing: false       # optional: set pod resources at creation time via webhook
-    canary:                    # required when mode is Canary
+    canary:                    # required when type is Canary
       percentage: 10           # % of pods to resize first
       observationPeriod: 30m   # watch canary pods before proceeding (minimum: 1m)
       autoPromote: true        # promote to full fleet after safe observation (default: false)

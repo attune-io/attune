@@ -222,7 +222,7 @@ func TestValidate_CanaryModeWithoutConfig(t *testing.T) {
 	warnings, err := validator.ValidateCreate(context.Background(), policy)
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "updateStrategy.canary is required when mode is Canary")
+	assert.Contains(t, err.Error(), "updateStrategy.canary is required when updateStrategy.type is Canary")
 	assert.Empty(t, warnings)
 }
 
