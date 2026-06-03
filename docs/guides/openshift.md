@@ -12,6 +12,11 @@ OpenShift includes a built-in OperatorHub catalog. Search for "Attune"
 in the web console under **Operators > OperatorHub** and click Install.
 The OLM bundle includes all CRDs, RBAC, and the operator deployment.
 
+You can also browse the listing online:
+
+- [Red Hat Ecosystem Catalog](https://catalog.redhat.com/software/search?target_platforms=Operator&q=attune) (OpenShift embedded catalog)
+- [OperatorHub.io](https://operatorhub.io/operator/attune) (community catalog for any OLM-enabled cluster)
+
 ### Via Helm
 
 ```bash
