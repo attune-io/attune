@@ -135,7 +135,8 @@ jobs:
             /tmp/prometheus.tar
             /tmp/stress-ng.tar
             /tmp/busybox.tar
-          key: e2e-images-${{ runner.os }}-cm${{ env.CERT_MANAGER_VERSION }}-prom${{ env.PROMETHEUS_CHART_VERSION }}-stress0.20.01-busybox1.37
+            /tmp/k3s.tar
+          key: e2e-images-${{ runner.os }}-cm${{ env.CERT_MANAGER_VERSION }}-prom${{ env.PROMETHEUS_CHART_VERSION }}-stress0.20.01-busybox1.37-k3s${{ matrix.k3s-image }}
 
       - uses: ./.github/actions/install-binary-tool
         with:
@@ -163,16 +164,25 @@ jobs:
           docker builder prune -f || true
           docker system prune -f || true
 
-      - name: Pre-pull cert-manager and Prometheus images
+      - name: Pre-pull container images
         shell: bash -Eeuo pipefail -x {0}
         run: |
           # Pull images with docker (parallel layer downloads) and save as
           # tarballs for k3d import. Skip images already restored from cache.
+          # Retries handle transient Docker Hub connectivity issues.
           pull_and_save() {
             local image="$1" tarball="$2"
             [[ -f "$tarball" ]] && { echo "Cached: $tarball"; return 0; }
-            docker pull --platform linux/amd64 "$image"
-            docker save "$image" -o "$tarball"
+            for attempt in 1 2 3; do
+              if docker pull --platform linux/amd64 "$image"; then
+                docker save "$image" -o "$tarball"
+                return 0
+              fi
+              echo "::warning::docker pull attempt $attempt for $image failed, retrying in 10s..."
+              sleep 10
+            done
+            echo "::error::Failed to pull $image after 3 attempts"
+            return 1
           }
           pull_and_save "quay.io/jetstack/cert-manager-controller:${{ env.CERT_MANAGER_VERSION }}" /tmp/cert-manager-controller.tar
           pull_and_save "quay.io/jetstack/cert-manager-webhook:${{ env.CERT_MANAGER_VERSION }}" /tmp/cert-manager-webhook.tar
@@ -180,11 +190,15 @@ jobs:
           pull_and_save "${{ env.PROMETHEUS_IMAGE }}" /tmp/prometheus.tar
           pull_and_save "${{ env.STRESS_NG_IMAGE }}" /tmp/stress-ng.tar
           pull_and_save "${{ env.CPU_BURN_IMAGE }}" /tmp/busybox.tar
+          pull_and_save "rancher/k3s:${{ matrix.k3s-image }}" /tmp/k3s.tar
 
       - name: Create k3d cluster
         shell: bash -Eeuo pipefail -x {0}
         run: |
           rm -f "$KUBECONFIG"
+          # Load the pre-pulled k3s image into Docker so k3d uses it
+          # without pulling from Docker Hub (avoids rate-limit/timeout failures).
+          docker load -i /tmp/k3s.tar
           # Retry cluster creation up to 3 times. k3d can fail transiently
           # when Docker containers vanish mid-creation due to daemon
           # contention with concurrent CI runs.
