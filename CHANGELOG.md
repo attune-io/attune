@@ -6,6 +6,40 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.14](https://github.com/attune-io/attune/compare/v0.1.13...v0.1.14) (2026-06-03)
+
+
+### Features
+
+* implement OpenShift feature annotations support ([#269](https://github.com/attune-io/attune/issues/269)) ([9cfa42b](https://github.com/attune-io/attune/commit/9cfa42b6390e8e02fa7b46a5f02df45cff45065e)), closes [#264](https://github.com/attune-io/attune/issues/264)
+* make OpenShift RBAC conditional via openshift.enabled Helm value ([#272](https://github.com/attune-io/attune/issues/272)) ([5fb9804](https://github.com/attune-io/attune/commit/5fb98044da6c0e4060599032c925900ff8657a1b))
+* migrate cosign signing from deprecated flags to --bundle format ([#248](https://github.com/attune-io/attune/issues/248)) ([92aa773](https://github.com/attune-io/attune/commit/92aa773d52ec7845cad4d6940992dd516193dd68))
+
+
+### Bug Fixes
+
+* add fallback cosign signing for re-releases of older tags ([#246](https://github.com/attune-io/attune/issues/246)) ([12a01c1](https://github.com/attune-io/attune/commit/12a01c134f52a0fc6423f8f9478f22e57817629c))
+* add missing RBAC for OpenShift TLS profile detection ([#270](https://github.com/attune-io/attune/issues/270)) ([e3fe1f9](https://github.com/attune-io/attune/commit/e3fe1f9da72f5f601cab3dcb46904abe9c054e50))
+* cosign fallback signing uses --bundle for newer cosign versions ([#247](https://github.com/attune-io/attune/issues/247)) ([4aa1f93](https://github.com/attune-io/attune/commit/4aa1f9389fecd87b7a637cccbb360c049e75d988)), closes [#241](https://github.com/attune-io/attune/issues/241)
+* cycle 19 improvements (RBAC fix, test coverage, doc consistency) ([#250](https://github.com/attune-io/attune/issues/250)) ([44a7014](https://github.com/attune-io/attune/commit/44a7014e5fa8bf709f306d18fc8de0a9a9b6340f))
+* dependabot auto-merge signature verification and rebase method ([#267](https://github.com/attune-io/attune/issues/267)) ([6f4abce](https://github.com/attune-io/attune/commit/6f4abceebd63514c6931f79d5bf93c10b3a626ee))
+* docs HPA event reason + UpdateStrategy value-to-pointer type ([#255](https://github.com/attune-io/attune/issues/255)) ([050a1d5](https://github.com/attune-io/attune/commit/050a1d5c400e65e1f7a4b778a54eaf2e5e1ebcae))
+* handle partial API discovery and fix OpenShift doc log level ([#273](https://github.com/attune-io/attune/issues/273)) ([b549724](https://github.com/attune-io/attune/commit/b549724b0bef6128ef63ec8aac0088c7aaba19cd))
+* modernize CRD short names (rsp-&gt;ap, rsd-&gt;ad, rsnd-&gt;and) ([#251](https://github.com/attune-io/attune/issues/251)) ([1783f79](https://github.com/attune-io/attune/commit/1783f79c795e3cffbdfb3fca58c345f50eeda056)), closes [#249](https://github.com/attune-io/attune/issues/249)
+* parse Custom TLS profile minTLSVersion on OpenShift clusters ([#276](https://github.com/attune-io/attune/issues/276)) ([5482c4d](https://github.com/attune-io/attune/commit/5482c4dad88a41a0851b0d35ae7479574e4d63f7))
+* pin OLM bundle images by digest and add relatedImages ([#263](https://github.com/attune-io/attune/issues/263)) ([5b5ea0f](https://github.com/attune-io/attune/commit/5b5ea0fb987312a29046c039636f646b8324d23e))
+* pre-pull and cache k3s node image to prevent E2E cluster creation failures ([#287](https://github.com/attune-io/attune/issues/287)) ([3805728](https://github.com/attune-io/attune/commit/3805728febcb0940aba8677ddcfe0705ece54186))
+* re-release workflow skips :latest tags and downstream jobs ([#242](https://github.com/attune-io/attune/issues/242)) ([2b6b5ac](https://github.com/attune-io/attune/commit/2b6b5ac2dc33ed120d748cd8d2c3a234b69bebef)), closes [#241](https://github.com/attune-io/attune/issues/241)
+* remove auto-rebase job that silently broke Dependabot CI ([#268](https://github.com/attune-io/attune/issues/268)) ([9896a12](https://github.com/attune-io/attune/commit/9896a12f9531edd4d163aef1cb2995bfb590dcc7))
+* rename OLM bundle CSV from attune-operator to attune ([#252](https://github.com/attune-io/attune/issues/252)) ([8bd71e7](https://github.com/attune-io/attune/commit/8bd71e72bccfe4a46bee008eaee0731549d6d0e3))
+* resolve tech-debt issues [#278](https://github.com/attune-io/attune/issues/278)-[#281](https://github.com/attune-io/attune/issues/281) ([#283](https://github.com/attune-io/attune/issues/283)) ([0b2ad96](https://github.com/attune-io/attune/commit/0b2ad963f15f6e32d91f6544cf7df3546b66afbc))
+* revert failure metric, NaN/Inf guard, and validator mutation ([#277](https://github.com/attune-io/attune/issues/277)) ([e12c537](https://github.com/attune-io/attune/commit/e12c537873297a20972d6f7ea5e1f8e643ca3b83))
+* scorecard token-permissions and AI code quality findings ([#289](https://github.com/attune-io/attune/issues/289)) ([18d9497](https://github.com/attune-io/attune/commit/18d9497e01e0148ceee69a0fbbaa73b1db94c503))
+* skip Docker build and downstream steps on re-releases ([#244](https://github.com/attune-io/attune/issues/244)) ([c92c9ff](https://github.com/attune-io/attune/commit/c92c9ff37196fc55b82594cb8bfa2248e028ce6e)), closes [#241](https://github.com/attune-io/attune/issues/241)
+* skip Docker build on re-release to preserve OLM bundle digest ([#275](https://github.com/attune-io/attune/issues/275)) ([4ed8302](https://github.com/attune-io/attune/commit/4ed83026539863bc9d3ab49727810cbcc108ce16))
+* skip Docker build on re-release when Dockerfile.release is missing ([#245](https://github.com/attune-io/attune/issues/245)) ([4f56811](https://github.com/attune-io/attune/commit/4f56811b9a4ff76cfd69ed1fb928373376492cfa)), closes [#241](https://github.com/attune-io/attune/issues/241)
+* update Go 1.26.3 to 1.26.4 for stdlib CVE fixes ([#284](https://github.com/attune-io/attune/issues/284)) ([1a098cb](https://github.com/attune-io/attune/commit/1a098cb19ff71dba57763cc61434b64b3ca94bd9))
+
 ## [0.1.13](https://github.com/attune-io/attune/compare/v0.1.12...v0.1.13) (2026-06-01)
 
 
