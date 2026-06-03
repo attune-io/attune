@@ -37,6 +37,7 @@ import (
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 	rsmetrics "github.com/attune-io/attune/internal/metrics"
+	"github.com/attune-io/attune/internal/recommendation"
 	"github.com/attune-io/attune/internal/resize"
 	"github.com/attune-io/attune/internal/safety"
 )
@@ -758,4 +759,32 @@ func getObservationPeriod(policy *attunev1alpha1.AttunePolicy) time.Duration {
 		return policy.Spec.UpdateStrategy.Canary.ObservationPeriod.Duration
 	}
 	return defaultObservationPeriod
+}
+
+// enforceAllowDecrease clamps a recommendation to the current value when
+// decreases are not allowed. It emits a DecreaseSuppressed event and
+// updates the explanation. Returns the (possibly clamped) recommendation.
+func (r *AttunePolicyReconciler) enforceAllowDecrease(
+	allowDecrease bool,
+	rec resource.Quantity,
+	current resource.Quantity,
+	explain *recommendation.RecommendationExplanation,
+	policy *attunev1alpha1.AttunePolicy,
+	containerName string,
+	resourceType string,
+) resource.Quantity {
+	if allowDecrease || rec.Cmp(current) >= 0 {
+		return rec
+	}
+	unclamped := rec.String()
+	if r.Recorder != nil {
+		r.Recorder.Eventf(policy, nil, corev1.EventTypeNormal, "DecreaseSuppressed", "recommend",
+			"%s decrease blocked by allowDecrease=false for container %s (current: %s)",
+			resourceType, containerName, current.String())
+	}
+	clamped := current.DeepCopy()
+	explain.Final = clamped.DeepCopy()
+	explain.FinalAdjustment = fmt.Sprintf("%s decrease from %s to %s blocked by allowDecrease=false",
+		resourceType, current.String(), unclamped)
+	return clamped
 }

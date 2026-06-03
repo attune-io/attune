@@ -57,6 +57,7 @@ import (
 	"github.com/attune-io/attune/internal/conflict"
 	rsmetrics "github.com/attune-io/attune/internal/metrics"
 	"github.com/attune-io/attune/internal/operatormetrics"
+	"github.com/attune-io/attune/internal/recommendation"
 	"github.com/attune-io/attune/internal/resize"
 )
 
@@ -1950,6 +1951,69 @@ func TestComputeRecommendations_CPUAllowDecreaseNilAllowsDecrease(t *testing.T) 
 	cpuRec := rec.Containers[0].Recommended.CPURequest
 	assert.True(t, cpuRec.Cmp(resource.MustParse("4000m")) < 0,
 		"CPU should decrease below current when AllowDecrease is nil, got %s", cpuRec.String())
+}
+
+func TestEnforceAllowDecrease(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+
+	tests := []struct {
+		name           string
+		allowDecrease  bool
+		rec            string
+		current        string
+		wantClamped    bool
+		wantAdjustment string
+	}{
+		{
+			name:          "decrease allowed, rec < current",
+			allowDecrease: true,
+			rec:           "100m",
+			current:       "500m",
+			wantClamped:   false,
+		},
+		{
+			name:           "decrease blocked, rec < current",
+			allowDecrease:  false,
+			rec:            "100m",
+			current:        "500m",
+			wantClamped:    true,
+			wantAdjustment: "CPU decrease from 500m to 100m blocked by allowDecrease=false",
+		},
+		{
+			name:          "decrease blocked, rec > current (increase always allowed)",
+			allowDecrease: false,
+			rec:           "1000m",
+			current:       "500m",
+			wantClamped:   false,
+		},
+		{
+			name:          "decrease blocked, rec == current (no change)",
+			allowDecrease: false,
+			rec:           "500m",
+			current:       "500m",
+			wantClamped:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reconciler := newReconcilerWithClient()
+			rec := resource.MustParse(tt.rec)
+			current := resource.MustParse(tt.current)
+			explain := recommendation.RecommendationExplanation{}
+
+			result := reconciler.enforceAllowDecrease(tt.allowDecrease, rec, current, &explain, policy, "test-container", "CPU")
+
+			if tt.wantClamped {
+				assert.Equal(t, current.String(), result.String(), "should be clamped to current")
+				assert.Equal(t, tt.wantAdjustment, explain.FinalAdjustment)
+				assert.Equal(t, current.String(), explain.Final.String())
+			} else {
+				assert.Equal(t, rec.String(), result.String(), "should not be clamped")
+				assert.Empty(t, explain.FinalAdjustment)
+			}
+		})
+	}
 }
 
 func TestComputeRecommendations_CPUAllowDecreaseBlocked(t *testing.T) {

@@ -385,20 +385,10 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 		// Compute CPU recommendation.
 		if cpuProfile.DataPoints >= int(minimumDataPoints) {
 			cpuRec, cpuExplain, _ := cpuEngine.RecommendWithExplanation(cpuProfile, currentCPUReq)
-			// Enforce AllowDecrease: for CPU, nil defaults to true (decreases
-			// allowed) because CPU throttle is detected by the safety monitor.
+			// CPU AllowDecrease defaults to true (nil || *ptr) because CPU
+			// throttle is detected by the safety monitor.
 			cpuAllowDecrease := policy.Spec.CPU.AllowDecrease == nil || *policy.Spec.CPU.AllowDecrease
-			if !cpuAllowDecrease && cpuRec.Cmp(currentCPUReq) < 0 {
-				unclampedCPU := cpuRec.String()
-				if r.Recorder != nil {
-					r.Recorder.Eventf(policy, nil, corev1.EventTypeNormal, "DecreaseSuppressed", "recommend",
-						"CPU decrease blocked by allowDecrease=false for container %s (current: %s)",
-						containerName, currentCPUReq.String())
-				}
-				cpuRec = currentCPUReq.DeepCopy()
-				cpuExplain.Final = cpuRec.DeepCopy()
-				cpuExplain.FinalAdjustment = fmt.Sprintf("CPU decrease from %s to %s blocked by allowDecrease=false", currentCPUReq.String(), unclampedCPU)
-			}
+			cpuRec = r.enforceAllowDecrease(cpuAllowDecrease, cpuRec, currentCPUReq, &cpuExplain, policy, containerName, "CPU")
 			rec.Recommended.CPURequest = cpuRec
 			explanation.CPU = toAPIRecommendationExplanation(cpuExplain)
 		}
@@ -419,19 +409,10 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 			}
 		} else if memProfile.DataPoints >= int(minimumDataPoints) {
 			memRec, memExplain, _ := memEngine.RecommendWithExplanation(memProfile, currentMemReq)
-			// Enforce AllowDecrease: skip memory decreases unless explicitly allowed.
-			allowDecrease := policy.Spec.Memory.AllowDecrease != nil && *policy.Spec.Memory.AllowDecrease
-			if !allowDecrease && memRec.Cmp(currentMemReq) < 0 {
-				unclampedMem := memRec.String()
-				if r.Recorder != nil {
-					r.Recorder.Eventf(policy, nil, corev1.EventTypeNormal, "DecreaseSuppressed", "recommend",
-						"Memory decrease blocked by allowDecrease=false for container %s (current: %s)",
-						containerName, currentMemReq.String())
-				}
-				memRec = currentMemReq.DeepCopy()
-				memExplain.Final = memRec.DeepCopy()
-				memExplain.FinalAdjustment = fmt.Sprintf("memory decrease from %s to %s blocked by allowDecrease=false", currentMemReq.String(), unclampedMem)
-			}
+			// Memory AllowDecrease defaults to false (!= nil && *ptr) to
+			// prevent OOMKills from memory reduction.
+			memAllowDecrease := policy.Spec.Memory.AllowDecrease != nil && *policy.Spec.Memory.AllowDecrease
+			memRec = r.enforceAllowDecrease(memAllowDecrease, memRec, currentMemReq, &memExplain, policy, containerName, "memory")
 			rec.Recommended.MemoryRequest = memRec
 			explanation.Memory = toAPIRecommendationExplanation(memExplain)
 		}
