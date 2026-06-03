@@ -29,7 +29,6 @@ on:
 
 permissions:
   contents: read
-  issues: write
 
 concurrency:
   group: e2e-nightly-${{ github.ref }}-${{ github.event_name }}-${{ inputs.k8s-version || 'all' }}-${{ inputs.suite || 'all' }}
@@ -457,6 +456,8 @@ jobs:
     name: Nightly Results
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 5
+    permissions:
+      issues: write
     needs: [test-e2e, fuzz]
     if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
     steps:

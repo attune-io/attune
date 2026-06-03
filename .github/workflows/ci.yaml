@@ -563,6 +563,15 @@ jobs:
           echo "=== Events ==="
           kubectl get events -A --sort-by='.lastTimestamp' | tail -50
 
+      - name: Upload debug logs on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: e2e-debug-logs
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
       - name: Cleanup k3d cluster
         if: always()
         shell: bash -Eeuo pipefail {0}
