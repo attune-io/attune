@@ -313,9 +313,9 @@ x-kubernetes-validations:
   - rule: "!has(self.minAllowed) || !has(self.maxAllowed) || self.minAllowed <= self.maxAllowed"
     message: "memory.minAllowed must be less than or equal to memory.maxAllowed"
 
-# updateStrategy: canary config required when mode is Canary
+# updateStrategy: canary config required when type is Canary
   - rule: "self.updateStrategy.type != 'Canary' || has(self.updateStrategy.canary)"
-    message: "canary configuration is required when mode is Canary"
+    message: "canary configuration is required when updateStrategy.type is Canary"
 
 # weight: immutable after creation (prevents runtime priority races)
   - rule: "self.weight == oldSelf.weight"
