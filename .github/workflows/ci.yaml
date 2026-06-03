@@ -18,7 +18,6 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
-  GO_VERSION: "1.26.4"
   GOLANGCI_LINT_VERSION: "v2.12.2"
   GOTESTSUM_VERSION: "v1.13.0"
   K3D_VERSION: "v5.8.3"
@@ -103,7 +102,7 @@ jobs:
 
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: go.mod
           cache: true
 
       - uses: ./.github/actions/install-go-tool
@@ -162,7 +161,7 @@ jobs:
 
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: go.mod
           cache: true
 
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -261,7 +260,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: go.mod
           cache: true
       - name: Chainsaw dry-run (parse validation)
         shell: bash -Eeuo pipefail {0}
@@ -286,7 +285,7 @@ jobs:
 
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: go.mod
           cache: true
 
       - uses: ./.github/actions/install-go-tool
@@ -386,7 +385,7 @@ jobs:
 
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: go.mod
           cache: true
 
       - uses: ./.github/actions/install-go-tool
@@ -451,7 +450,7 @@ jobs:
 
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: go.mod
           cache: true
 
       - uses: ./.github/actions/install-go-tool
@@ -517,7 +516,7 @@ jobs:
         with:
           cluster-name: ${{ env.K3D_CLUSTER_NAME }}
           kubeconfig-path: ${{ runner.temp }}/attune-e2e-${{ github.run_id }}.kubeconfig
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: go.mod
           k3d-version: ${{ env.K3D_VERSION }}
           k3s-image: ${{ env.K3S_IMAGE }}
           cert-manager-version: ${{ env.CERT_MANAGER_VERSION }}
@@ -585,7 +584,7 @@ jobs:
 
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: go.mod
           cache: true
 
       - uses: ./.github/actions/install-go-tool
@@ -612,7 +611,7 @@ jobs:
 
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: go.mod
           cache: true
 
       - name: Regenerate manifests and deepcopy
@@ -693,7 +692,7 @@ jobs:
 
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: go.mod
           cache: true
 
       - uses: ./.github/actions/install-go-tool
@@ -730,7 +729,7 @@ jobs:
 
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: go.mod
           cache: true
 
       - uses: ./.github/actions/setup-clean-docker-config
