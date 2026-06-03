@@ -37,6 +37,7 @@ import (
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 	rsmetrics "github.com/attune-io/attune/internal/metrics"
+	"github.com/attune-io/attune/internal/operatormetrics"
 	"github.com/attune-io/attune/internal/recommendation"
 	"github.com/attune-io/attune/internal/resize"
 	"github.com/attune-io/attune/internal/safety"
@@ -759,6 +760,33 @@ func getObservationPeriod(policy *attunev1alpha1.AttunePolicy) time.Duration {
 		return policy.Spec.UpdateStrategy.Canary.ObservationPeriod.Duration
 	}
 	return defaultObservationPeriod
+}
+
+// scaleControlledLimits scales CPU and memory limits proportionally when the
+// policy's ControlledValues is RequestsAndLimits. This avoids duplicating the
+// ControlledValues resolution logic across prometheus.go and vpa.go.
+func scaleControlledLimits(policy *attunev1alpha1.AttunePolicy, rec *attunev1alpha1.ContainerRecommendation, currentCPUReq, currentCPULim, currentMemReq, currentMemLim resource.Quantity) {
+	cpuControlled := attunev1alpha1.ControlledRequestsOnly
+	if policy.Spec.CPU.ControlledValues != nil {
+		cpuControlled = *policy.Spec.CPU.ControlledValues
+	}
+	memControlled := attunev1alpha1.ControlledRequestsOnly
+	if policy.Spec.Memory.ControlledValues != nil {
+		memControlled = *policy.Spec.Memory.ControlledValues
+	}
+	if cpuControlled == attunev1alpha1.ControlledRequestsAndLimits {
+		rec.Recommended.CPULimit = scaleLimits(currentCPUReq, currentCPULim, rec.Recommended.CPURequest)
+	}
+	if memControlled == attunev1alpha1.ControlledRequestsAndLimits {
+		rec.Recommended.MemoryLimit = scaleLimits(currentMemReq, currentMemLim, rec.Recommended.MemoryRequest)
+	}
+}
+
+// setRecommendationGauges updates Prometheus gauges for the recommendation.
+func setRecommendationGauges(namespace, workloadName, containerName string, rec *attunev1alpha1.ContainerRecommendation) {
+	operatormetrics.RecommendationCPU.WithLabelValues(namespace, workloadName, containerName).Set(float64(rec.Recommended.CPURequest.MilliValue()) / 1000.0)
+	operatormetrics.RecommendationMemory.WithLabelValues(namespace, workloadName, containerName).Set(float64(rec.Recommended.MemoryRequest.Value()))
+	operatormetrics.Confidence.WithLabelValues(namespace, workloadName, containerName).Set(rec.Confidence)
 }
 
 // enforceAllowDecrease clamps a recommendation to the current value when

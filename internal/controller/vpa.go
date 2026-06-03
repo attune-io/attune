@@ -25,7 +25,6 @@ import (
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 	rsmetrics "github.com/attune-io/attune/internal/metrics"
-	"github.com/attune-io/attune/internal/operatormetrics"
 	"github.com/attune-io/attune/internal/recommendation"
 )
 
@@ -157,25 +156,10 @@ func (r *AttunePolicyReconciler) computeVPARecommendationsForWorkload(
 		cRec.Explanation = explanation
 
 		// Scale limits proportionally if ControlledValues is RequestsAndLimits.
-		cpuControlled := attunev1alpha1.ControlledRequestsOnly
-		if policy.Spec.CPU.ControlledValues != nil {
-			cpuControlled = *policy.Spec.CPU.ControlledValues
-		}
-		memControlled := attunev1alpha1.ControlledRequestsOnly
-		if policy.Spec.Memory.ControlledValues != nil {
-			memControlled = *policy.Spec.Memory.ControlledValues
-		}
-		if cpuControlled == attunev1alpha1.ControlledRequestsAndLimits {
-			cRec.Recommended.CPULimit = scaleLimits(currentCPUReq, currentCPULim, cRec.Recommended.CPURequest)
-		}
-		if memControlled == attunev1alpha1.ControlledRequestsAndLimits {
-			cRec.Recommended.MemoryLimit = scaleLimits(currentMemReq, currentMemLim, cRec.Recommended.MemoryRequest)
-		}
+		scaleControlledLimits(policy, &cRec, currentCPUReq, currentCPULim, currentMemReq, currentMemLim)
 
 		// Set recommendation gauges for this container.
-		operatormetrics.RecommendationCPU.WithLabelValues(policy.Namespace, workload.GetName(), containerName).Set(float64(cRec.Recommended.CPURequest.MilliValue()) / 1000.0)
-		operatormetrics.RecommendationMemory.WithLabelValues(policy.Namespace, workload.GetName(), containerName).Set(float64(cRec.Recommended.MemoryRequest.Value()))
-		operatormetrics.Confidence.WithLabelValues(policy.Namespace, workload.GetName(), containerName).Set(cRec.Confidence)
+		setRecommendationGauges(policy.Namespace, workload.GetName(), containerName, &cRec)
 
 		logger.V(1).Info("Computed VPA-based recommendation",
 			"container", containerName,

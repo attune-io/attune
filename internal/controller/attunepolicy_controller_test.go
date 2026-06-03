@@ -2016,6 +2016,83 @@ func TestEnforceAllowDecrease(t *testing.T) {
 	}
 }
 
+func TestScaleControlledLimits(t *testing.T) {
+	tests := []struct {
+		name          string
+		cpuControlled *string
+		memControlled *string
+		wantCPULim    string
+		wantMemLim    string
+	}{
+		{
+			name:       "nil (default RequestsOnly) keeps original limits",
+			wantCPULim: "1",
+			wantMemLim: "1Gi",
+		},
+		{
+			name:          "RequestsOnly keeps original limits",
+			cpuControlled: stringPtr("RequestsOnly"),
+			memControlled: stringPtr("RequestsOnly"),
+			wantCPULim:    "1",
+			wantMemLim:    "1Gi",
+		},
+		{
+			name:          "RequestsAndLimits scales limits proportionally",
+			cpuControlled: stringPtr("RequestsAndLimits"),
+			memControlled: stringPtr("RequestsAndLimits"),
+			wantCPULim:    "2",      // 500m->1000m req means 1000m->2000m lim (2:1 ratio)
+			wantMemLim:    "1536Mi", // 512Mi->768Mi req means 1Gi->1536Mi lim (2:1 ratio)
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			policy := newTestPolicy("test-policy", "default")
+			policy.Spec.CPU.ControlledValues = tt.cpuControlled
+			policy.Spec.Memory.ControlledValues = tt.memControlled
+
+			rec := attunev1alpha1.ContainerRecommendation{
+				Recommended: attunev1alpha1.ResourceValues{
+					CPURequest:    resource.MustParse("1000m"),
+					CPULimit:      resource.MustParse("1000m"),
+					MemoryRequest: resource.MustParse("768Mi"),
+					MemoryLimit:   resource.MustParse("1Gi"),
+				},
+			}
+
+			scaleControlledLimits(policy, &rec,
+				resource.MustParse("500m"),  // currentCPUReq
+				resource.MustParse("1000m"), // currentCPULim
+				resource.MustParse("512Mi"), // currentMemReq
+				resource.MustParse("1Gi"),   // currentMemLim
+			)
+
+			assert.Equal(t, tt.wantCPULim, rec.Recommended.CPULimit.String())
+			assert.Equal(t, tt.wantMemLim, rec.Recommended.MemoryLimit.String())
+		})
+	}
+}
+
+func TestSetRecommendationGauges(t *testing.T) {
+	rec := &attunev1alpha1.ContainerRecommendation{
+		Recommended: attunev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("500m"),
+			MemoryRequest: resource.MustParse("256Mi"),
+		},
+		Confidence: 0.85,
+	}
+
+	setRecommendationGauges("test-ns", "my-deploy", "main", rec)
+
+	cpuGauge := promtestutil.ToFloat64(operatormetrics.RecommendationCPU.WithLabelValues("test-ns", "my-deploy", "main"))
+	memGauge := promtestutil.ToFloat64(operatormetrics.RecommendationMemory.WithLabelValues("test-ns", "my-deploy", "main"))
+	confGauge := promtestutil.ToFloat64(operatormetrics.Confidence.WithLabelValues("test-ns", "my-deploy", "main"))
+
+	assert.InDelta(t, 0.5, cpuGauge, 1e-9)
+	assert.Equal(t, float64(256*1024*1024), memGauge)
+	assert.InDelta(t, 0.85, confGauge, 1e-9)
+}
+
 func TestComputeRecommendations_CPUAllowDecreaseBlocked(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	// Explicitly disable CPU decreases. nil defaults to true for CPU.
