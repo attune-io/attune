@@ -239,18 +239,24 @@ jobs:
           # The k3s config file (/etc/rancher/k3s/config.yaml) is loaded
           # during server bootstrap before any component starts, avoiding
           # the CLI arg processing race entirely.
+          #
+          # We use += (append) not = (replace) in the config file to
+          # preserve any feature gates k3s sets internally. The config
+          # file args go through the same GetArgs() function, but the
+          # timing race that broke CLI += does not apply here because
+          # config file processing happens after defaults are populated.
           EXTRA_K3D_ARGS=()
           if [[ "${{ matrix.k8s-version }}" == "v1.32" ]]; then
             K3S_CONFIG="/tmp/k3s-v132-config.yaml"
             cat > "$K3S_CONFIG" <<'K3SEOF'
           kube-apiserver-arg:
-            - "feature-gates=InPlacePodVerticalScaling=true"
+            - "feature-gates+=InPlacePodVerticalScaling=true"
           kube-controller-manager-arg:
-            - "feature-gates=InPlacePodVerticalScaling=true"
+            - "feature-gates+=InPlacePodVerticalScaling=true"
           kube-scheduler-arg:
-            - "feature-gates=InPlacePodVerticalScaling=true"
+            - "feature-gates+=InPlacePodVerticalScaling=true"
           kubelet-arg:
-            - "feature-gates=InPlacePodVerticalScaling=true"
+            - "feature-gates+=InPlacePodVerticalScaling=true"
           K3SEOF
             EXTRA_K3D_ARGS=(--volume "${K3S_CONFIG}:/etc/rancher/k3s/config.yaml@server:*")
           fi
