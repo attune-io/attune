@@ -220,37 +220,58 @@ jobs:
           # Retry cluster creation up to 3 times. k3d can fail transiently
           # when Docker containers vanish mid-creation due to daemon
           # contention with concurrent CI runs.
-          # K8s 1.32 needs the InPlacePodVerticalScaling alpha feature gate enabled explicitly.
-          # IMPORTANT: use += (not =) to APPEND to k3s default feature gates instead of
-          # replacing them. k3s's GetArgs() in pkg/util/args.go deletes all defaults for a
-          # key when = is used, which drops internal gates and can cause intermittent apiserver
-          # initialization failures where the /resize subresource is never registered.
-          EXTRA_K3S_ARGS=()
+          #
+          # K8s 1.32 feature gate: InPlacePodVerticalScaling is alpha and off
+          # by default. We enable it via a k3s config file mounted into the
+          # server container, NOT via --k3s-arg CLI flags.
+          #
+          # Why config file instead of --k3s-arg:
+          # k3s processes --kube-apiserver-arg flags through GetArgs() in
+          # pkg/util/args.go. The += syntax (append to existing feature gates)
+          # depends on k3s having already populated its default feature gates
+          # into the args map. Under resource contention on CI runners, the
+          # ordering is not guaranteed: if GetArgs() processes CLI extras
+          # before defaults are set, += finds nothing to append to and the
+          # feature gate silently fails to register. This caused intermittent
+          # nightly failures (issue #296) where ps aux showed correct args
+          # but pods/resize was never registered.
+          #
+          # The k3s config file (/etc/rancher/k3s/config.yaml) is loaded
+          # during server bootstrap before any component starts, avoiding
+          # the CLI arg processing race entirely.
+          EXTRA_K3D_ARGS=()
           if [[ "${{ matrix.k8s-version }}" == "v1.32" ]]; then
-            EXTRA_K3S_ARGS=(
-              --k3s-arg "--kube-apiserver-arg=feature-gates+=InPlacePodVerticalScaling=true@server:*"
-              --k3s-arg "--kube-controller-manager-arg=feature-gates+=InPlacePodVerticalScaling=true@server:*"
-              --k3s-arg "--kube-scheduler-arg=feature-gates+=InPlacePodVerticalScaling=true@server:*"
-              --k3s-arg "--kubelet-arg=feature-gates+=InPlacePodVerticalScaling=true@server:*"
-            )
+            K3S_CONFIG="/tmp/k3s-v132-config.yaml"
+            cat > "$K3S_CONFIG" <<'K3SEOF'
+          kube-apiserver-arg:
+            - "feature-gates=InPlacePodVerticalScaling=true"
+          kube-controller-manager-arg:
+            - "feature-gates=InPlacePodVerticalScaling=true"
+          kube-scheduler-arg:
+            - "feature-gates=InPlacePodVerticalScaling=true"
+          kubelet-arg:
+            - "feature-gates=InPlacePodVerticalScaling=true"
+          K3SEOF
+            EXTRA_K3D_ARGS=(--volume "${K3S_CONFIG}:/etc/rancher/k3s/config.yaml@server:*")
           fi
           for attempt in 1 2 3; do
-            if k3d cluster create "$CLUSTER_NAME" \
+            if ! k3d cluster create "$CLUSTER_NAME" \
               --image rancher/k3s:${{ matrix.k3s-image }} \
               --k3s-arg "--disable=traefik,servicelb@server:*" \
-              "${EXTRA_K3S_ARGS[@]}" \
+              "${EXTRA_K3D_ARGS[@]}" \
               --wait --timeout 120s \
               --kubeconfig-update-default=false \
               --kubeconfig-switch-context=false; then
-              break
+              echo "::warning::k3d cluster create attempt $attempt failed, retrying in 10s..."
+              k3d cluster delete "$CLUSTER_NAME" 2>/dev/null || true
+              sleep 10
+              if (( attempt == 3 )); then
+                echo "::error::k3d cluster creation failed after 3 attempts"
+                exit 1
+              fi
+              continue
             fi
-            echo "::warning::k3d cluster create attempt $attempt failed, retrying in 10s..."
-            k3d cluster delete "$CLUSTER_NAME" 2>/dev/null || true
-            sleep 10
-            if (( attempt == 3 )); then
-              echo "::error::k3d cluster creation failed after 3 attempts"
-              exit 1
-            fi
+            break
           done
           k3d kubeconfig merge "$CLUSTER_NAME" --output "$KUBECONFIG" --overwrite
 
@@ -263,17 +284,22 @@ jobs:
         shell: bash -Eeuo pipefail -x {0}
         run: |
           echo "Verifying InPlacePodVerticalScaling feature gate is active..."
-          for i in $(seq 1 12); do
+          # Verify the config file was loaded by checking the apiserver process.
+          echo "k3s config inside container:"
+          docker exec "k3d-${CLUSTER_NAME}-server-0" cat /etc/rancher/k3s/config.yaml || true
+          for i in $(seq 1 24); do
             if kubectl get --raw /api/v1 | jq -e '.resources[] | select(.name == "pods/resize")' >/dev/null 2>&1; then
               echo "pods/resize subresource is registered"
               exit 0
             fi
-            echo "Waiting for pods/resize subresource (attempt $i/12)..."
+            echo "Waiting for pods/resize subresource (attempt $i/24)..."
             sleep 5
           done
-          echo "::error::pods/resize subresource not found after 60s. The InPlacePodVerticalScaling feature gate did not take effect."
-          echo "Checking apiserver feature gates:"
-          docker exec "k3d-${CLUSTER_NAME}-server-0" sh -c "ps aux | grep feature-gates" || true
+          echo "::error::pods/resize subresource not found after 120s. The InPlacePodVerticalScaling feature gate did not take effect."
+          echo "Diagnostic: apiserver process args:"
+          docker exec "k3d-${CLUSTER_NAME}-server-0" sh -c "ps aux | grep -E 'kube-apiserver|feature-gates'" || true
+          echo "Diagnostic: k3s logs (last 50 lines):"
+          docker logs "k3d-${CLUSTER_NAME}-server-0" --tail 50 || true
           exit 1
 
       - name: Load cert-manager images into cluster
