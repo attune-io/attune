@@ -251,6 +251,49 @@ and `attune_nan_inf_samples_total` to the code but missed locations 3-6.
 The doc gap was caught in the cycle 18 post-cycle gate; the dashboard and
 alert gaps became issues #179 and #181.
 
+### Adding a new operator feature
+
+When adding a new user-visible feature (e.g., SLO guardrails, scheduled
+windows, startup boost), update all applicable locations. Code alone
+compiles and passes tests; the documentation gaps only surface when users
+try to use the feature or when improvement cycles audit docs.
+
+1. `api/v1alpha1/attunepolicy_types.go` - Add struct/fields with
+   kubebuilder markers and godoc
+2. `internal/` implementation package - Core logic
+3. `internal/webhook/validation.go` - Validation rules if needed
+4. `internal/controller/` - Wire into reconciliation loop
+5. `pkg/defaults/defaults.go` - Defaults and merge logic if fields
+   are defaultable (see "Adding a new defaultable field" checklist)
+6. Run `make manifests && make generate` - Regenerate CRD + deepcopy
+7. `docs/reference/configuration.md` - Add all new fields to the
+   parameter table
+8. `docs/reference/status-conditions.md` - Document new status
+   conditions or reason values
+9. `docs/reference/metrics.md` - Document new metric label values
+   (e.g., new revert reasons)
+10. `docs/guides/` - Add or update the feature guide (e.g.,
+    `slo-guardrails.md`, `scheduling.md`)
+11. `docs/guides/quickstart.md` - Mention the feature in the overview
+12. `docs/guides/troubleshooting.md` - Add diagnostic entries for
+    common user-visible failure modes
+13. `docs/architecture/safety.md` or relevant architecture doc -
+    Explain the feature's flow and interactions
+14. `docs/architecture/resize-api.md` - Update flow diagrams if the
+    feature adds a new step to the resize lifecycle
+15. `docs/getting-started/why-attune.md` - Update feature list and
+    comparison table with competitors
+16. `SPEC.md` - Update specification with new behavior, directory
+    tree, and safety checklists
+17. `test/e2e/` - Add Chainsaw E2E test for the feature
+18. `charts/attune/` - Helm values, templates, and tests if the
+    feature has configurable knobs
+
+This checklist was added after SLO guardrails (PR #306) required
+updates across 15+ files that took 4 improvement cycles to fully
+flush out. Each cycle found 2-5 stale doc references that the
+previous cycle missed.
+
 ### Helm values.yaml comments (helm-docs format)
 
 `helm-docs` reads `# --` comments from `values.yaml` to generate README
@@ -341,6 +384,12 @@ directory. When referencing files elsewhere in the repo (e.g., `charts/`,
   check the failure pattern across multiple runs before blaming a specific
   version. If the failure rotates randomly across versions, the root cause
   is NOT version-specific; look for test setup differences instead.
+- **Deterministic Prometheus data in E2E tests:** Use `vector(1)` (or
+  `vector(N)`) as a PromQL query that always returns a fixed value without
+  waiting for real metric scrapes. Useful for testing features that evaluate
+  PromQL queries (e.g., SLO guardrails). Example: set `query: "vector(1)"`
+  with `threshold: "0.5"` to guarantee a breach, or `query: "vector(0)"`
+  to guarantee no breach. See `test/e2e/slo-guardrails/chainsaw-test.yaml`.
 
 ## CI
 
