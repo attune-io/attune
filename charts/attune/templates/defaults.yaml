@@ -65,4 +65,11 @@ spec:
     export:
       {{- toYaml . | nindent 6 }}
     {{- end }}
+    {{- if kindIs "bool" .Values.defaults.updateStrategy.initialSizing }}
+    initialSizing: {{ .Values.defaults.updateStrategy.initialSizing }}
+    {{- end }}
+    {{- with .Values.defaults.updateStrategy.sloGuardrails }}
+    sloGuardrails:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
 {{- end }}
