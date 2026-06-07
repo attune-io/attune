@@ -110,6 +110,14 @@ reviewers:
   - attune-release-bot[bot]
 CIEOF
 
+    # Remove upstream workflow files from the branch to avoid GitHub App
+    # push rejection ("refusing to allow a GitHub App to create or update
+    # workflow without 'workflows' permission"). We only need the operator
+    # bundle, not the upstream CI workflows.
+    if [ -d ".github/workflows" ]; then
+        git rm -rf --quiet .github/workflows || true
+    fi
+
     # Commit with DCO sign-off
     git add "${OPERATOR_DIR}/"
     git commit -s -m "operator attune (${VERSION})"
