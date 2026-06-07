@@ -78,6 +78,44 @@ This page documents every value in the Helm chart's `values.yaml`.
 | `metrics.serviceMonitor.additionalLabels` | object | `{}` | Extra labels for the ServiceMonitor |
 | `metrics.serviceMonitor.interval` | string | `30s` | Scrape interval |
 
+### PrometheusRule alerts
+
+Create a `PrometheusRule` resource for out-of-the-box alerting. Requires the Prometheus Operator CRDs (`monitoring.coreos.com/v1`).
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `metrics.prometheusRule.enabled` | bool | `false` | Create a PrometheusRule with all alert rules below |
+| `metrics.prometheusRule.additionalLabels` | object | `{}` | Extra labels for the PrometheusRule resource |
+
+Each alert rule supports `enabled`, `for`, and `severity`. Some rules have additional tuning parameters.
+
+| Rule | Default severity | Default `for` | Extra parameters | Description |
+|------|-----------------|---------------|------------------|-------------|
+| `reconcileErrors` | warning | 10m | `threshold` (default `"0"`) | Fires when reconcile error rate exceeds threshold |
+| `prometheusUnreachable` | warning | 10m | | Fires when Prometheus queries fail |
+| `degraded` | critical | 5m | | Fires when workloads are in Degraded state |
+| `highRevertRate` | critical | 15m | `threshold` (default `"0.5"`) | Fires when revert rate exceeds 50% |
+| `reconcileStale` | warning | 5m | `staleDuration` (default `30m`) | Fires when no reconcile completes within the stale duration |
+| `budgetExhausted` | warning | 30m | | Fires when a policy's resize budget is exhausted |
+| `dataQuality` | warning | 30m | | Fires when NaN/Inf values are detected in Prometheus data |
+| `requestsClamped` | info | 1h | | Fires when recommended requests are clamped to limits |
+| `staleRecommendations` | warning | 1h | | Fires when recommendations are marked stale due to Prometheus data gaps |
+| `revertFailures` | critical | 5m | | Fires when resize revert operations fail |
+
+To disable a specific rule:
+
+```yaml
+metrics:
+  prometheusRule:
+    enabled: true
+    rules:
+      requestsClamped:
+        enabled: false
+```
+
+For detailed PromQL expressions and alert tuning, see the
+[Prometheus setup guide](../guides/prometheus-setup.md#built-in-alerts).
+
 ## Webhooks
 
 | Key | Type | Default | Description |
@@ -152,10 +190,31 @@ watchNamespaces:
 | `logging.level` | string | `info` | Log level: `debug`, `info`, `warn`, `error` |
 | `logging.format` | string | `json` | Log format: `json` or `text` |
 
+## Cluster-wide Defaults (Helm-managed)
+
+The Helm chart can create an `AttuneDefaults` CR automatically when
+`defaults.enabled: true` is set. This is equivalent to creating the
+CR manually but managed through Helm values.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `defaults.enabled` | bool | `false` | Create an AttuneDefaults resource with the values below |
+| `defaults.cpu.*` | object | | CPU resource defaults (see [Resource Config](#resource-configuration) below) |
+| `defaults.memory.*` | object | | Memory resource defaults (see [Resource Config](#resource-configuration) below) |
+| `defaults.costPricing.cpuPerCoreHour` | string | `"0.031"` | Cost per vCPU-hour for savings estimates |
+| `defaults.costPricing.memoryPerGiBHour` | string | `"0.004"` | Cost per GiB-hour for savings estimates |
+| `defaults.metricsSource.*` | object | | Default metrics source (e.g., shared Prometheus address) |
+| `defaults.updateStrategy.*` | object | | Default update strategy (type, cooldown, autoRevert, etc.) |
+
+The rendered CR has the same spec as a manually created `AttuneDefaults`
+(documented below). All fields from the CRD are available in the Helm
+values; see `values.yaml` for the full set.
+
 ## CRD Configuration (AttuneDefaults)
 
-These fields are set on the `AttuneDefaults` cluster-scoped CRD, not in
-the Helm `values.yaml`. They apply to all `AttunePolicy` resources.
+These fields are set on the `AttuneDefaults` cluster-scoped CRD, either
+directly or via the Helm `defaults.*` values above. They apply to all
+`AttunePolicy` resources.
 
 ### Cost Pricing
 
