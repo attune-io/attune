@@ -100,10 +100,20 @@ func TestRecommendationEngine_RealisticMemory(t *testing.T) {
 
 	current := resource.MustParse("512Mi")
 
-	recommended, changed := engine.Recommend(profile, current)
+	recommended, explanation, changed := engine.RecommendWithExplanation(profile, current)
 	assert.True(t, changed)
-	assert.Greater(t, recommended.MilliValue(), int64(0))
-	t.Logf("Memory recommendation: %s (from current %s)", recommended.String(), current.String())
+	// Chain: P99=256Mi → overhead(20%)=~307Mi → confidence(0.95, ~1.0025x)=~308Mi
+	//   → bounds OK → change filter: ~39.8% decrease < 50% max, allowed.
+	assert.Equal(t, int64(268435456), explanation.RawPercentile.Value(),
+		"raw P99 should be 256Mi in bytes")
+	assert.Greater(t, recommended.Value(), int64(280*1024*1024),
+		"recommendation should be at least ~280Mi (above raw percentile + partial overhead)")
+	assert.Less(t, recommended.Value(), int64(350*1024*1024),
+		"recommendation should be below ~350Mi (overhead + confidence, not capped)")
+	assert.Empty(t, explanation.ChangeFilterApplied,
+		"~39.8%% decrease should not trigger the 50%% max change cap")
+	assert.True(t, recommended.Cmp(current) < 0,
+		"recommendation %s should be less than current %s", recommended.String(), current.String())
 }
 
 func TestRecommendationEngine_SmallChangeFiltered(t *testing.T) {
