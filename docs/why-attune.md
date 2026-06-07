@@ -318,7 +318,7 @@ across the capabilities that matter most.
 | **Primary function** | Recommend + apply | VPA dashboard | CLI recommender | VPA applier | Usage-based controller | **Recommend + in-place apply** |
 | **Resize method** | Evict/recreate, InPlaceOrRecreate (1.33+) | No resize | No resize | Cron-based rollout | Rolling restart | **In-place only** |
 | **HPA compatible** | No (conflicts on CPU metric) | N/A | N/A | N/A | No | **Yes** |
-| **Safety system** | Minimal (PDB only) | N/A | N/A | min-diff thresholds | None | **Multi-layer (OOMKill, throttle, revert)** |
+| **Safety system** | Minimal (PDB only) | N/A | N/A | min-diff thresholds | None | **Multi-layer (OOMKill, throttle, restart, NotReady, SLO guardrails)** |
 | **Time-of-day aware** | No (24h half-life histogram) | No | No | No | No | **Yes (hourly profiles)** |
 | **Graduated rollout** | No (all-or-nothing) | N/A | N/A | No | No | **5 modes (Observe to Auto)** |
 | **Per-resource config** | containerPolicies[] | N/A | CLI flags | Annotations per resource | N/A | **Typed CRD (cpu/memory sections)** |

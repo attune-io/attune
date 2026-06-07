@@ -1388,7 +1388,7 @@ attune/
 │   │   ├── engine.go            # Pod resize via /resize subresource
 │   │   └── engine_test.go
 │   ├── safety/
-│   │   ├── monitor.go           # OOMKill, throttle, restart, auto-revert
+│   │   ├── monitor.go           # OOMKill, throttle, restart, NotReady, SLO guardrails, auto-revert
 │   │   └── monitor_test.go
 │   ├── throttle/                # Shared throttle checker interface
 │   ├── transform/               # Informer cache transform functions
@@ -1475,7 +1475,7 @@ attune/
 
 ### Phase 3: Safety & Intelligence
 
-- [x] Safety monitor (OOMKill, throttle, restart detection)
+- [x] Safety monitor (OOMKill, throttle, restart, NotReady, SLO guardrails)
 - [x] Auto-revert mechanism
 - [x] Confidence-based recommendation widening
 - [x] Time-of-day-aware algorithm
