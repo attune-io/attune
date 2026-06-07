@@ -6,6 +6,16 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.15](https://github.com/attune-io/attune/compare/v0.1.14...v0.1.15) (2026-06-07)
+
+
+### Bug Fixes
+
+* dashboard metric names, costPricing field names, PromQL escaping, and stale recommendations alert ([#301](https://github.com/attune-io/attune/issues/301)) ([cfd41f1](https://github.com/attune-io/attune/commit/cfd41f119bd7e8e761fd540b2c1793b61afdad74))
+* strengthen memory test assertion and cache cert-manager manifest in E2E ([#310](https://github.com/attune-io/attune/issues/310)) ([e379079](https://github.com/attune-io/attune/commit/e379079e5d8bf5167d34c00462625f789f3c9bec))
+* use feature-gates+= (append) in k3s config file, not = (replace) ([#300](https://github.com/attune-io/attune/issues/300)) ([bb3922e](https://github.com/attune-io/attune/commit/bb3922e055fe375fcd23e7dcaedac3ed291c06c5)), closes [#299](https://github.com/attune-io/attune/issues/299)
+* use k3s config file for v1.32 feature gate instead of CLI args ([#297](https://github.com/attune-io/attune/issues/297)) ([0437ce4](https://github.com/attune-io/attune/commit/0437ce4a48a1aa8ac48bce96195736cafd0523da))
+
 ## [0.1.14](https://github.com/attune-io/attune/compare/v0.1.13...v0.1.14) (2026-06-03)
 
 
