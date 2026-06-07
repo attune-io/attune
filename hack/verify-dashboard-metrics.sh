@@ -76,3 +76,28 @@ PY
 )
 
 echo "OK: Helm dashboard JSON matches $STANDALONE ($panel_count panels)."
+
+# Verify that all attune_* metric names in the dashboard exist in the
+# operator's metrics registry. This catches typos and stale metric names
+# that would cause Grafana panels to show "No data".
+METRICS_SRC="internal/operatormetrics/metrics.go"
+metrics_in_dashboard=$(grep -oE 'attune_[a-z_]+' "$STANDALONE" | sort -u)
+metrics_in_source=$(grep -oE '"attune_[a-z_]+"' "$METRICS_SRC" | tr -d '"' | sort -u)
+
+rc=0
+for m in $metrics_in_dashboard; do
+  # Strip histogram suffixes (_count, _sum, _bucket) and _total for
+  # counter base-name matching.
+  base="${m%_count}"
+  base="${base%_sum}"
+  base="${base%_bucket}"
+  if ! echo "$metrics_in_source" | grep -qF "$base"; then
+    echo "ERROR: metric '$m' (base '$base') in $STANDALONE not found in $METRICS_SRC" >&2
+    rc=1
+  fi
+done
+
+if [[ $rc -ne 0 ]]; then
+  exit 1
+fi
+echo "OK: all dashboard metrics match registered operator metrics."
