@@ -1,0 +1,205 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: slo-guardrails
+spec:
+  description: Verify that an SLO guardrail breach during safety observation triggers auto-revert
+  timeouts:
+    apply: 30s
+    assert: 3m
+    delete: 30s
+  steps:
+    - name: create-deployment
+      try:
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: e2e-slo-guardrails
+        - apply:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: slo-app
+                namespace: e2e-slo-guardrails
+              spec:
+                replicas: 1
+                selector:
+                  matchLabels:
+                    app: slo-app
+                template:
+                  metadata:
+                    labels:
+                      app: slo-app
+                  spec:
+                    containers:
+                      - name: app
+                        image: registry.k8s.io/pause:3.9
+                        resizePolicy:
+                          - resourceName: cpu
+                            restartPolicy: NotRequired
+                          - resourceName: memory
+                            restartPolicy: NotRequired
+                        resources:
+                          requests:
+                            cpu: 200m
+                            memory: 128Mi
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: slo-app
+                namespace: e2e-slo-guardrails
+              status:
+                readyReplicas: 1
+    - name: wait-for-metrics
+      try:
+        - script:
+            timeout: 2m
+            content: |
+              PROM_POD=$(kubectl get pods -n monitoring -l app.kubernetes.io/name=prometheus,app.kubernetes.io/component=server -o name | head -1)
+              NS="e2e-slo-guardrails"
+              ENCODED_QUERY="container_cpu_usage_seconds_total%7Bnamespace%3D%22${NS}%22%2Ccontainer%21%3D%22%22%7D"
+              for i in $(seq 1 24); do
+                result=$(kubectl exec -n monitoring "$PROM_POD" -- \
+                  wget -qO- "http://localhost:9090/api/v1/query?query=${ENCODED_QUERY}" 2>/dev/null || true)
+                if echo "$result" | grep -q '"result":\[{'; then
+                  echo "cAdvisor metrics available for namespace $NS after ${i}x5s"
+                  exit 0
+                fi
+                sleep 5
+              done
+              echo "WARNING: No cAdvisor metrics for $NS after 120s, proceeding"
+    - name: create-policy-with-slo-guardrail
+      description: |
+        Create an AttunePolicy in Auto mode with an SLO guardrail that always
+        breaches. vector(1) returns 1.0, which is above the threshold of 0.5.
+        After the operator resizes the pod and the evaluationWindow elapses,
+        the safety monitor detects the breach and reverts the resize.
+      try:
+        - apply:
+            resource:
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
+              metadata:
+                name: slo-test
+                namespace: e2e-slo-guardrails
+              spec:
+                targetRef:
+                  kind: Deployment
+                  name: slo-app
+                metricsSource:
+                  prometheus:
+                    address: http://prometheus-server.monitoring:80
+                  minimumDataPoints: 1
+                  historyWindow: 1h
+                  queryStep: 1m
+                  rateWindow: 5m
+                cpu:
+                  percentile: 95
+                  overhead: "20"
+                  minAllowed: 50m
+                  maxAllowed: "4000m"
+                  maxChangePercent: 100
+                memory:
+                  percentile: 99
+                  overhead: "30"
+                  minAllowed: 64Mi
+                  maxAllowed: 8Gi
+                  maxChangePercent: 100
+                updateStrategy:
+                  type: Auto
+                  cooldown: 1m
+                  autoRevert: true
+                  safetyObservationPeriod: 2m
+                  sloGuardrails:
+                    - name: always-breach
+                      query: "vector(1)"
+                      threshold: "0.5"
+                      comparison: above
+                      evaluationWindow: 1m
+    - name: verify-policy-discovers-workload
+      try:
+        - script:
+            timeout: 2m
+            content: |
+              for i in $(seq 1 24); do
+                DISCOVERED=$(kubectl get attunepolicy slo-test -n e2e-slo-guardrails \
+                  -o jsonpath='{.status.workloads.discovered}' 2>/dev/null)
+                if [ "$DISCOVERED" -ge 1 ] 2>/dev/null; then
+                  echo "Policy discovered $DISCOVERED workload(s)"
+                  exit 0
+                fi
+                sleep 5
+              done
+              echo "Timed out waiting for policy to discover workloads"
+              kubectl get attunepolicy slo-test -n e2e-slo-guardrails -o yaml
+              exit 1
+    - name: verify-resize-occurred
+      try:
+        - script:
+            timeout: 5m
+            content: |
+              for i in $(seq 1 60); do
+                RESIZED=$(kubectl get attunepolicy slo-test -n e2e-slo-guardrails \
+                  -o jsonpath='{.status.workloads.resized}' 2>/dev/null)
+                if [ "$RESIZED" -ge 1 ] 2>/dev/null; then
+                  echo "Resize confirmed: $RESIZED pod(s) resized"
+                  exit 0
+                fi
+                sleep 5
+              done
+              echo "No resize occurred within timeout"
+              kubectl get attunepolicy slo-test -n e2e-slo-guardrails -o yaml
+              kubectl describe pods -n e2e-slo-guardrails -l app=slo-app
+              kubectl get events -n e2e-slo-guardrails --sort-by='.lastTimestamp' | tail -20
+              exit 1
+    - name: verify-slo-revert
+      description: |
+        After evaluationWindow (1m) elapses post-resize, the safety monitor
+        queries vector(1) which returns 1.0, breaching the threshold of 0.5.
+        This triggers an auto-revert. Verify that resizeHistory contains
+        a Reverted entry with reason slo:always-breach.
+      try:
+        - script:
+            timeout: 5m
+            content: |
+              for i in $(seq 1 60); do
+                # Check resizeHistory for a Reverted entry with SLO reason
+                HISTORY=$(kubectl get attunepolicy slo-test -n e2e-slo-guardrails \
+                  -o jsonpath='{range .status.resizeHistory[*]}{.result}={.reason}{"\n"}{end}' 2>/dev/null)
+                if echo "$HISTORY" | grep -q "Reverted=slo:always-breach"; then
+                  echo "SLO guardrail revert confirmed:"
+                  echo "$HISTORY"
+                  # Also verify the event was emitted
+                  kubectl get events -n e2e-slo-guardrails --field-selector reason=Reverted \
+                    -o jsonpath='{range .items[*]}{.message}{"\n"}{end}' 2>/dev/null | head -5
+                  exit 0
+                fi
+                sleep 5
+              done
+              echo "Timed out waiting for SLO guardrail revert"
+              echo "--- Policy status ---"
+              kubectl get attunepolicy slo-test -n e2e-slo-guardrails -o yaml
+              echo "--- Pod status ---"
+              kubectl get pods -n e2e-slo-guardrails -l app=slo-app -o yaml
+              echo "--- Events ---"
+              kubectl get events -n e2e-slo-guardrails --sort-by='.lastTimestamp' | tail -20
+              echo "--- Operator logs ---"
+              kubectl logs -n attune-system -l app.kubernetes.io/name=attune --tail=50
+              exit 1
+  catch:
+    - describe:
+        apiVersion: attune.io/v1alpha1
+        kind: AttunePolicy
+        namespace: e2e-slo-guardrails
+    - describe:
+        apiVersion: apps/v1
+        kind: Deployment
+        namespace: e2e-slo-guardrails
+    - podLogs:
+        namespace: attune-system
+        selector: app.kubernetes.io/name=attune
