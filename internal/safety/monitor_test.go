@@ -1511,6 +1511,15 @@ func TestInterpolateSLOQuery(t *testing.T) {
 			want:     `sum(rate(http_requests_total[5m]))`,
 		},
 		{
+			name:     "escapes special characters in variables",
+			template: `rate(errors_total{namespace="{{ .Namespace }}", pod="{{ .PodName }}"}[5m])`,
+			record: ResizeRecord{
+				Namespace: `ns"with"quotes`,
+				PodName:   "pod\\name\nnewline",
+			},
+			want: `rate(errors_total{namespace="ns\"with\"quotes", pod="pod\\name\nnewline"}[5m])`,
+		},
+		{
 			name:     "invalid template",
 			template: `{{ .Invalid`,
 			record:   ResizeRecord{},
