@@ -177,7 +177,7 @@ spec:
 | `resizeHistory[].to` | `string` | New value |
 | `resizeHistory[].method` | `string` | `InPlace` or `Eviction` |
 | `resizeHistory[].result` | `string` | `Success`, `Failed`, `Reverted`, or `Evicted` |
-| `resizeHistory[].reason` | `string` | Why a resize was reverted or failed (e.g. `oomkill`, `restart`, `notready`). Empty for successful resizes. |
+| `resizeHistory[].reason` | `string` | Why a resize was reverted or failed (e.g. `oomkill`, `restart`, `notready`, `slo:<name>`). Empty for successful resizes. |
 | `workloadErrors[].workload` | `string` | Workload name that encountered an error during reconciliation |
 | `workloadErrors[].error` | `string` | Human-readable error description |
 | `canary.phase` | `string` | `CanaryInProgress` or `FullRollout` |
@@ -229,7 +229,7 @@ View them with `kubectl describe attunepolicy <name>` or
 | `BudgetExhausted` | Warning | The per-reconcile resize budget was exhausted before all workloads could be resized |
 | `InfeasibleBlocked` | Warning | A resize was blocked because it would exceed node capacity |
 | `ResizeSkipped` | Warning | A resize was skipped (e.g. pod in bad state, rolling out) |
-| `Reverted` | Warning | A resize was reverted due to safety observation failure (OOMKill, CPU throttle, restarts) |
+| `Reverted` | Warning | A resize was reverted due to safety observation failure (OOMKill, CPU throttle, restarts, or SLO guardrail breach) |
 | `Evicted` | Warning | A pod was evicted as a fallback when in-place resize was not possible |
 | `StaleRecommendation` | Warning | Recommendations are stale (no fresh Prometheus data) |
 | `CooldownActive` | Normal | Resize deferred because the cooldown period has not elapsed |

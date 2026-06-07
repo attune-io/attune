@@ -158,7 +158,7 @@ stateDiagram-v2
 
     state SafetyObservation {
         direction TB
-        [*] --> Monitoring: Watching for OOMKill, throttle, restarts
+        [*] --> Monitoring: Watching for OOMKill, throttle, restarts, NotReady, SLO breach
         Monitoring --> Safe: No violations after observation period
         Monitoring --> Unsafe: Violation detected
     }

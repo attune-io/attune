@@ -243,6 +243,10 @@ that do not set them explicitly. Policy-level values always take precedence.
 | `maxTotalMemoryIncrease` | quantity | (none) | Max aggregate memory increase per cycle |
 | `schedule` | object | (none) | Time windows, days of week, timezone |
 | `export` | object | (none) | Metrics export configuration |
+| `safetyObservationPeriod` | duration | `5m` | Post-resize observation window (min: 1m) |
+| `sloGuardrails` | list | `[]` | Application-level SLO PromQL checks after resize |
+| `canary` | object | (none) | Canary rollout configuration (percentage, observationPeriod) |
+| `initialSizing` | bool | `false` | Enable mutating webhook for pod creation |
 
 Example: set a cluster-wide maintenance window and budget cap via
 `AttuneDefaults`, then individual policies inherit them unless overridden:

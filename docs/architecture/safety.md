@@ -91,6 +91,25 @@ The pod's Ready condition is `False`, meaning readiness probes are failing.
 allocation changes. Some applications expose health endpoints that degrade
 under CPU throttling.
 
+### SLO guardrails
+
+After a resize, the safety monitor can evaluate application-level PromQL
+queries to detect degradation. Each guardrail specifies a query, a
+threshold, and a comparison direction (`above` or `below`).
+
+The check runs only after the guardrail's `evaluationWindow` (default: 5m,
+minimum: 1m) elapses post-resize. This delay gives the application time
+to stabilize before comparing against SLO thresholds.
+
+If a guardrail query breaches its threshold, the resize is reverted with
+reason `slo:<guardrail-name>`. The monitor **fails open**: if a query
+returns an error, NaN, or Inf, the guardrail is skipped with a log
+message rather than triggering a false revert.
+
+**Mitigation**: review the guardrail's PromQL query and threshold in
+`updateStrategy.sloGuardrails`. Adjust the threshold, widen the
+`evaluationWindow`, or remove the guardrail if the metric is unreliable.
+
 ## Observation period
 
 After a resize, the operator observes the pod for a configurable period
@@ -252,5 +271,5 @@ Before resizing, the controller checks for potential conflicts:
 When multiple consecutive resizes are reverted (visible in
 `.status.resizeHistory`), the policy's parameters likely need adjustment
 before further resizes should be attempted. Check the revert reasons
-(`oomkill`, `restart`, `notready`) and adjust overheads or cooldown
+(`oomkill`, `restart`, `notready`, `throttle`, `slo:<name>`) and adjust overheads or cooldown
 accordingly.

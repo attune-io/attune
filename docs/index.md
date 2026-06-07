@@ -50,7 +50,7 @@ the operator built to use it.
 
 - **In-place resize** via the Kubernetes 1.32+ `/resize` subresource
 - **Graduated rollout**: Observe, Recommend, OneShot, Canary, Auto
-- **Auto-revert** on OOMKill, CPU throttle, restart spikes, or pod NotReady
+- **Auto-revert** on OOMKill, CPU throttle, restart spikes, pod NotReady, or SLO guardrail breach
 - **HPA coexistence** without death spirals
 - **Confidence scaling** for sparse data
 - **Time-of-day awareness** for bursty workloads

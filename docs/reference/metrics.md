@@ -22,7 +22,7 @@ Total number of resize reverts triggered by the safety monitor.
 |-------|-------------|
 | `namespace` | Workload namespace |
 | `workload` | Workload name |
-| `reason` | `oomkill`, `throttle`, `restart`, `notready`, `re-fetch-failed`, or `annotation-persist-failed` |
+| `reason` | `oomkill`, `throttle`, `restart`, `notready`, `slo:<name>`, `re-fetch-failed`, or `annotation-persist-failed` |
 
 ### attune_revert_failures_total
 

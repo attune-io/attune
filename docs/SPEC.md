@@ -224,8 +224,15 @@ spec:
       observationPeriod: 30m  # monitor canary pods for this long (minimum: 1m)
     # Cooldown between resize cycles
     cooldown: 1h              # default: 1h, min: 1m
-    # Automatic revert on OOMKill or excessive CPU throttle
+    # Automatic revert on OOMKill, throttle, restarts, NotReady, or SLO breach
     autoRevert: true          # default: true
+    safetyObservationPeriod: 5m  # observe pod post-resize (default: 5m, min: 1m)
+    sloGuardrails:            # optional: application-level SLO checks post-resize
+      - name: p99-latency
+        query: "histogram_quantile(0.99, rate(http_duration_seconds_bucket{namespace=\"{{ .Namespace }}\"}[5m]))"
+        threshold: "0.5"
+        comparison: above     # revert if value > threshold
+        evaluationWindow: 5m  # wait before checking (default: 5m, min: 1m)
 
   # Priority/weight for conflict resolution
   # When multiple policies match a workload, highest weight wins
@@ -773,6 +780,7 @@ When `autoRevert: true` (default), the Safety Monitor watches resized pods for:
 2. **CPU Throttle**: CPU throttle ratio exceeds 50% (configurable) post-resize
 3. **Excessive Restarts**: Container restart count increases by 2+ post-resize
 4. **Pod Not Ready**: Pod becomes NotReady within observation period
+5. **SLO Guardrail Breach**: Application-level PromQL query breached its threshold after `evaluationWindow` elapsed (fails open on query errors)
 
 On trigger:
 1. Restore original resources via `/resize` subresource
@@ -1380,7 +1388,7 @@ attune/
 │   │   ├── engine.go            # Pod resize via /resize subresource
 │   │   └── engine_test.go
 │   ├── safety/
-│   │   ├── monitor.go           # OOMKill, throttle, restart, auto-revert
+│   │   ├── monitor.go           # OOMKill, throttle, restart, NotReady, SLO guardrails, auto-revert
 │   │   └── monitor_test.go
 │   ├── throttle/                # Shared throttle checker interface
 │   ├── transform/               # Informer cache transform functions
@@ -1467,7 +1475,7 @@ attune/
 
 ### Phase 3: Safety & Intelligence
 
-- [x] Safety monitor (OOMKill, throttle, restart detection)
+- [x] Safety monitor (OOMKill, throttle, restart, NotReady, SLO guardrails)
 - [x] Auto-revert mechanism
 - [x] Confidence-based recommendation widening
 - [x] Time-of-day-aware algorithm
