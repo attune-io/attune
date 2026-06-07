@@ -268,8 +268,8 @@ try to use the feature or when improvement cycles audit docs.
 6. Run `make manifests && make generate` - Regenerate CRD + deepcopy
 7. `docs/reference/configuration.md` - Add all new fields to the
    parameter table
-8. `docs/reference/status-conditions.md` - Document new status
-   conditions or reason values
+8. `docs/reference/configuration.md` (Status Conditions section) -
+   Document new status conditions or reason values
 9. `docs/reference/metrics.md` - Document new metric label values
    (e.g., new revert reasons)
 10. `docs/guides/` - Add or update the feature guide (e.g.,
