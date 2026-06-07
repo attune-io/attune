@@ -384,6 +384,24 @@ directory. When referencing files elsewhere in the repo (e.g., `charts/`,
   check the failure pattern across multiple runs before blaming a specific
   version. If the failure rotates randomly across versions, the root cause
   is NOT version-specific; look for test setup differences instead.
+- **Testify `%%` escaping:** Testify `assert.*` functions only apply
+  `fmt.Sprintf` to the message when `len(msgAndArgs) > 1` (i.e., format
+  args are passed alongside the message string). With a single message
+  string, `%%` prints literally as `%%`. Use plain `%` when there are no
+  format args; use `%%` only when format args are present.
+
+  ```go
+  // WRONG: single message arg, no Sprintf, %% prints literally
+  assert.Equal(t, 250, v, "50%% cap from 500m")
+
+  // CORRECT: no format args, use plain %
+  assert.Equal(t, 250, v, "50% cap from 500m")
+
+  // CORRECT: format args present, Sprintf runs, %% needed
+  assert.InDelta(t, 0, diff, 5,
+      "within 5%% of 2Gi (got %.1f%% diff)", v, d)
+  ```
+
 - **Deterministic Prometheus data in E2E tests:** Use `vector(1)` (or
   `vector(N)`) as a PromQL query that always returns a fixed value without
   waiting for real metric scrapes. Useful for testing features that evaluate
