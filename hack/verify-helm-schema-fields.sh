@@ -68,7 +68,8 @@ for k in sorted(props.keys()):
     if ! echo "$schema_fields" | grep -qx "$field"; then
       # Only warn if the section uses additionalProperties: false
       local strict
-      strict=$(jq -r "${jq_path} | parent | .additionalProperties // true" "$SCHEMA" 2>/dev/null)
+      local section_path="${jq_path%.properties}"
+      strict=$(jq -r "${section_path} | .additionalProperties // true" "$SCHEMA" 2>/dev/null)
       if [ "$strict" = "false" ]; then
         echo "WARNING: defaults.${section} CRD has '${field}' but schema omits it (users cannot set this via Helm)"
       fi

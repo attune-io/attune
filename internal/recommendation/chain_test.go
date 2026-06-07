@@ -67,7 +67,7 @@ func TestRecommendationEngine_RealisticCPU(t *testing.T) {
 	//   → bounds OK → change filter: 241m vs 500m = 52% decrease > 50%
 	//   → capped at 500m - 250m = 250m.
 	assert.Equal(t, int64(250), recommended.MilliValue(),
-		"50%% max decrease from 500m should cap at 250m")
+		"50% max decrease from 500m should cap at 250m")
 }
 
 func TestRecommendationEngine_RealisticMemory(t *testing.T) {
@@ -111,7 +111,7 @@ func TestRecommendationEngine_RealisticMemory(t *testing.T) {
 	assert.Less(t, recommended.Value(), int64(350*1024*1024),
 		"recommendation should be below ~350Mi (overhead + confidence, not capped)")
 	assert.Empty(t, explanation.ChangeFilterApplied,
-		"~39.8%% decrease should not trigger the 50%% max change cap")
+		"~39.8% decrease should not trigger the 50% max change cap")
 	assert.True(t, recommended.Cmp(current) < 0,
 		"recommendation %s should be less than current %s", recommended.String(), current.String())
 }
@@ -151,7 +151,7 @@ func TestRecommendationEngine_SmallChangeFiltered(t *testing.T) {
 	current := resource.MustParse("500m")
 	recommended, changed := engine.Recommend(profile, current)
 
-	assert.False(t, changed, "change <10%% should be filtered out")
+	assert.False(t, changed, "change <10% should be filtered out")
 	assert.Equal(t, current.MilliValue(), recommended.MilliValue(),
 		"filtered recommendation should equal current")
 }
@@ -176,7 +176,7 @@ func TestRecommendationEngine_LargeChangeCapped(t *testing.T) {
 	recommended, changed := engine.Recommend(profile, current)
 	assert.True(t, changed)
 	assert.Equal(t, int64(300), recommended.MilliValue(),
-		"50%% max increase from 200m should cap at 300m")
+		"50% max increase from 200m should cap at 300m")
 }
 
 func TestRecommendationEngine_HighVsLowConfidence(t *testing.T) {

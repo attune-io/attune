@@ -117,7 +117,7 @@ func TestChangeFilter_BinarySIMemoryCapping(t *testing.T) {
 	// The code computes in millis: current=536870912000, delta=268435456000,
 	// capped=805306368000, then divides by 1000 and ceils: 805306368.
 	assert.Equal(t, int64(805306368), result.Value(),
-		"50%% increase from 512Mi should produce 768Mi")
+		"50% increase from 512Mi should produce 768Mi")
 }
 
 func TestChangeFilter_BinarySIMemoryDecreaseCapping(t *testing.T) {
@@ -135,7 +135,7 @@ func TestChangeFilter_BinarySIMemoryDecreaseCapping(t *testing.T) {
 	assert.Equal(t, resource.BinarySI, result.Format)
 	// 1Gi = 1073741824 bytes. 50% decrease = 536870912.
 	assert.Equal(t, int64(536870912), result.Value(),
-		"50%% decrease from 1Gi should produce 512Mi")
+		"50% decrease from 1Gi should produce 512Mi")
 }
 
 func TestChangeFilter_ZeroCurrent(t *testing.T) {
