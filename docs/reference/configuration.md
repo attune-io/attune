@@ -99,7 +99,7 @@ Each alert rule supports `enabled`, `for`, and `severity`. Some rules have addit
 | `budgetExhausted` | warning | 30m | | Fires when a policy's resize budget is exhausted |
 | `dataQuality` | warning | 30m | | Fires when NaN/Inf values are detected in Prometheus data |
 | `requestsClamped` | info | 1h | | Fires when recommended requests are clamped to limits |
-| `staleRecommendations` | warning | 1h | `threshold` (default `3600`) | Fires when no new recommendation is generated within threshold seconds |
+| `staleRecommendations` | warning | 1h | | Fires when recommendations are marked stale due to Prometheus data gaps |
 | `revertFailures` | critical | 5m | | Fires when resize revert operations fail |
 
 To disable a specific rule:
@@ -190,10 +190,31 @@ watchNamespaces:
 | `logging.level` | string | `info` | Log level: `debug`, `info`, `warn`, `error` |
 | `logging.format` | string | `json` | Log format: `json` or `text` |
 
+## Cluster-wide Defaults (Helm-managed)
+
+The Helm chart can create an `AttuneDefaults` CR automatically when
+`defaults.enabled: true` is set. This is equivalent to creating the
+CR manually but managed through Helm values.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `defaults.enabled` | bool | `false` | Create an AttuneDefaults resource with the values below |
+| `defaults.cpu.*` | object | | CPU resource defaults (see [Resource Config](#resource-configuration) below) |
+| `defaults.memory.*` | object | | Memory resource defaults (see [Resource Config](#resource-configuration) below) |
+| `defaults.costPricing.cpuPerCoreHour` | string | `"0.031"` | Cost per vCPU-hour for savings estimates |
+| `defaults.costPricing.memoryPerGiBHour` | string | `"0.004"` | Cost per GiB-hour for savings estimates |
+| `defaults.metricsSource.*` | object | | Default metrics source (e.g., shared Prometheus address) |
+| `defaults.updateStrategy.*` | object | | Default update strategy (type, cooldown, autoRevert, etc.) |
+
+The rendered CR has the same spec as a manually created `AttuneDefaults`
+(documented below). All fields from the CRD are available in the Helm
+values; see `values.yaml` for the full set.
+
 ## CRD Configuration (AttuneDefaults)
 
-These fields are set on the `AttuneDefaults` cluster-scoped CRD, not in
-the Helm `values.yaml`. They apply to all `AttunePolicy` resources.
+These fields are set on the `AttuneDefaults` cluster-scoped CRD, either
+directly or via the Helm `defaults.*` values above. They apply to all
+`AttunePolicy` resources.
 
 ### Cost Pricing
 
