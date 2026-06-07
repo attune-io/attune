@@ -332,6 +332,7 @@ The dashboard includes:
 | [First 30 Days](docs/getting-started/first-30-days.md) | Day-by-day guide from install to production Auto mode |
 | [Migrating from VPA](docs/guides/migrating-from-vpa.md) | Step-by-step VPA replacement |
 | [HPA Coexistence](docs/guides/hpa-coexistence.md) | Running alongside HPA |
+| [Multi-Cluster](docs/guides/multi-cluster.md) | Deployment patterns, cross-cluster operations, and graduated rollouts |
 | [Scaling Guide](docs/guides/scaling.md) | Cluster size presets, tuning, and HA deployment |
 | [Canary Rollout](docs/guides/canary-rollout.md) | Graduated rollout strategy |
 | [CLI Reference](docs/reference/cli.md) | kubectl plugin commands |

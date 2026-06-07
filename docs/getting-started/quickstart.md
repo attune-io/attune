@@ -69,7 +69,7 @@ spec:
     RequestsOnly`). If your containers have CPU/memory limits set, the
     recommendation may be capped at the limit value. Set
     `controlledValues: RequestsAndLimits` on the policy if you want Attune
-    to scale both. See [Configuration Reference](../reference/configuration.md#controlledvalues)
+    to scale both. See [Configuration Reference](../reference/configuration.md#available-fields)
     for details.
 
 ??? note "Full configuration reference"
