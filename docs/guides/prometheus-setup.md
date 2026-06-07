@@ -263,18 +263,31 @@ See [Metrics Reference](../reference/metrics.md) for the full list of
 
 ## Grafana dashboard
 
-Enable the Helm chart's dashboard ConfigMap to auto-provision a
-Grafana dashboard:
+### Option A: Auto-provision via sidecar (kube-prometheus-stack)
+
+If you use the Grafana sidecar from kube-prometheus-stack, enable the
+dashboard ConfigMap:
 
 ```bash
 helm upgrade attune oci://ghcr.io/attune-io/charts/attune \
   --set grafanaDashboard.enabled=true
 ```
 
+This creates a ConfigMap with the `grafana_dashboard: "1"` label. The
+Grafana sidecar automatically detects it and imports the dashboard.
+
+### Option B: Manual import (standalone Grafana)
+
+If your Grafana is not using the sidecar pattern:
+
+1. Download the dashboard JSON from
+   [deploy/grafana/dashboard.json](https://github.com/attune-io/attune/blob/main/deploy/grafana/dashboard.json)
+2. In Grafana, go to **Dashboards > New > Import**
+3. Paste the JSON or upload the file
+4. Select your Prometheus data source when prompted
+
 The dashboard covers resizes, reverts, savings, recommendations, confidence
-scores, reconcile latency, and Prometheus query health. See
-[deploy/grafana/dashboard.json](https://github.com/attune-io/attune/blob/main/deploy/grafana/dashboard.json)
-for the raw JSON.
+scores, reconcile latency, and Prometheus query health.
 
 ## Alerting with PrometheusRule
 
@@ -285,14 +298,20 @@ helm upgrade attune oci://ghcr.io/attune-io/charts/attune \
   --set metrics.prometheusRule.enabled=true
 ```
 
-This creates four alerts:
+This creates 10 alerts covering the key operational signals:
 
 | Alert | Fires when | Default severity |
 |-------|-----------|-----------------|
 | `AttuneReconcileErrors` | Reconcile error rate > 0 sustained for 10m | warning |
 | `AttunePrometheusUnreachable` | Prometheus query errors sustained for 10m | warning |
-| `AttuneDegraded` | More than 3 reverts in 15m for a workload | critical |
+| `AttuneDegraded` | High revert rate sustained for 5m | critical |
+| `AttuneHighRevertRate` | More than 50% of resizes reverted in 15m | critical |
 | `AttuneReconcileStale` | No reconcile completes within 30m | warning |
+| `AttuneBudgetExhausted` | Resize budget exhausted for 30m | warning |
+| `AttuneDataQuality` | NaN/Inf values from Prometheus for 30m | warning |
+| `AttuneRequestsClamped` | Recommendations capped at limits for 1h | info |
+| `AttuneStaleRecommendations` | Recommendations stale due to data gaps for 1h | warning |
+| `AttuneRevertFailures` | Resize revert failed for 5m | critical |
 
 Individual alerts can be disabled or tuned:
 
@@ -311,3 +330,29 @@ metrics:
 
 See the [Helm chart README](https://github.com/attune-io/attune/blob/main/charts/attune/README.md) for the
 full list of configurable parameters.
+
+### Full observability stack
+
+To enable metrics scraping, alerts, and the Grafana dashboard in one
+command:
+
+```bash
+helm upgrade attune oci://ghcr.io/attune-io/charts/attune \
+  --set metrics.enabled=true \
+  --set metrics.serviceMonitor.enabled=true \
+  --set metrics.prometheusRule.enabled=true \
+  --set grafanaDashboard.enabled=true
+```
+
+Or in a values file:
+
+```yaml
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+  prometheusRule:
+    enabled: true
+grafanaDashboard:
+  enabled: true
+```

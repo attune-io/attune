@@ -64,6 +64,14 @@ spec:
     ```
     With this set, your policies only need `targetRef`.
 
+!!! info "Requests only vs requests and limits"
+    By default, Attune adjusts **requests only** (`controlledValues:
+    RequestsOnly`). If your containers have CPU/memory limits set, the
+    recommendation may be capped at the limit value. Set
+    `controlledValues: RequestsAndLimits` on the policy if you want Attune
+    to scale both. See [Configuration Reference](../reference/configuration.md#controlledvalues)
+    for details.
+
 ??? note "Full configuration reference"
     All defaults can be overridden per-policy. See
     [Configuration Reference](../reference/configuration.md) for the complete
@@ -178,6 +186,10 @@ auto-reverts the affected pods.
 
 ## Next steps
 
+- Follow the [First 30 Days](first-30-days.md) guide for a day-by-day
+  walkthrough from first install to production Auto mode.
 - Read [Concepts](concepts.md) to understand modes, estimators, and safety.
+- Set up [Prometheus integration](../guides/prometheus-setup.md) with
+  ServiceMonitor, Grafana dashboard, and PrometheusRule alerts.
 - Explore the [Canary Rollout guide](../guides/canary-rollout.md) for
   production best practices.
