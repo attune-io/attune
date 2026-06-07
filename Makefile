@@ -339,6 +339,7 @@ k3d-delete: ## Delete the k3d cluster
 	k3d cluster delete $(K3D_CLUSTER_NAME)
 
 # Internal: install cert-manager, Prometheus, and operator (called after image load)
+.PHONY: _deploy-stack
 _deploy-stack:
 	@echo "Installing cert-manager..."
 	kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/$(CERT_MANAGER_VERSION)/cert-manager.yaml

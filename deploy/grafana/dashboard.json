@@ -574,7 +574,7 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
+        "w": 8,
         "x": 0,
         "y": 32
       },
@@ -589,7 +589,7 @@
       "type": "timeseries",
       "targets": [
         {
-          "expr": "sum by (namespace) (rate(attune_recommendation_nan_inf_total{namespace=~\"$namespace\"}[$__rate_interval]))",
+          "expr": "sum by (namespace) (rate(attune_nan_inf_samples_total{namespace=~\"$namespace\"}[$__rate_interval]))",
           "legendFormat": "{{ namespace }}"
         }
       ]
@@ -610,8 +610,8 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
-        "x": 12,
+        "w": 8,
+        "x": 8,
         "y": 32
       },
       "id": 30,
@@ -625,8 +625,44 @@
       "type": "timeseries",
       "targets": [
         {
-          "expr": "sum by (namespace, resource) (rate(attune_recommendation_request_clamped_total{namespace=~\"$namespace\"}[$__rate_interval]))",
+          "expr": "sum by (namespace, resource) (rate(attune_request_clamped_total{namespace=~\"$namespace\"}[$__rate_interval]))",
           "legendFormat": "{{ namespace }} {{ resource }}"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10
+          },
+          "unit": "ops"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 32
+      },
+      "id": 31,
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "title": "Stale Recommendations",
+      "description": "Rate of recommendations marked stale due to Prometheus data gaps.",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum by (namespace) (rate(attune_stale_recommendations_total{namespace=~\"$namespace\"}[$__rate_interval]))",
+          "legendFormat": "{{ namespace }}"
         }
       ]
     },

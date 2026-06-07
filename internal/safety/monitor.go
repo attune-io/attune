@@ -36,6 +36,7 @@ import (
 	"k8s.io/client-go/util/retry"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	rsmetrics "github.com/attune-io/attune/internal/metrics"
 	"github.com/attune-io/attune/internal/resize"
 	"github.com/attune-io/attune/internal/throttle"
 )
@@ -325,9 +326,9 @@ func interpolateSLOQuery(queryTemplate string, record ResizeRecord, cached *temp
 		}
 	}
 	data := sloTemplateData{
-		Namespace:    record.Namespace,
-		WorkloadName: record.WorkloadName,
-		PodName:      record.PodName,
+		Namespace:    rsmetrics.EscapePromQL(record.Namespace),
+		WorkloadName: rsmetrics.EscapePromQL(record.WorkloadName),
+		PodName:      rsmetrics.EscapePromQL(record.PodName),
 	}
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {

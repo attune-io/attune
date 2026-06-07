@@ -374,6 +374,9 @@ func TestEscapePromQL(t *testing.T) {
 		{`with"quote`, `with\"quote`},
 		{`with\backslash`, `with\\backslash`},
 		{`both\"chars`, `both\\\"chars`},
+		{"with\nnewline", `with\nnewline`},
+		{"with\rcarriage", `with\rcarriage`},
+		{"with\ttab", `with\ttab`},
 		{"", ""},
 	}
 	for _, tt := range tests {

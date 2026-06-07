@@ -471,11 +471,19 @@ func (r *AttunePolicyReconciler) setResizingCondition(policy *attunev1alpha1.Att
 			ObservedGeneration: policy.Generation,
 		})
 	} else if cooldownActive {
+		cooldownMsg := "Waiting for cooldown period to expire"
+		if cs := policy.Status.Cooldown; cs != nil && cs.EffectiveCooldown != nil {
+			if cs.BackoffMultiplier > 1 {
+				cooldownMsg = fmt.Sprintf("Waiting for cooldown to expire (effective: %s, backoff: %dx)", cs.EffectiveCooldown.Duration, cs.BackoffMultiplier)
+			} else {
+				cooldownMsg = fmt.Sprintf("Waiting for cooldown to expire (effective: %s)", cs.EffectiveCooldown.Duration)
+			}
+		}
 		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
 			Type:               attunev1alpha1.ConditionResizing,
 			Status:             metav1.ConditionFalse,
 			Reason:             attunev1alpha1.ReasonCooldownActive,
-			Message:            "Waiting for cooldown period to expire",
+			Message:            cooldownMsg,
 			ObservedGeneration: policy.Generation,
 		})
 	} else {

@@ -58,9 +58,9 @@ check_absent() {
 }
 
 # --- minimumDataPoints default = 48 ---
-# Go code (canonical source of truth)
+# Go code (must reference the canonical constant, not hardcode the value)
 check_default "minimumDataPoints (Go)" \
-  "defaultMinimumDataPoints.*= 48" \
+  "defaultMinimumDataPoints.*= attunev1alpha1.DefaultMinimumDataPoints" \
   "internal/controller/attunepolicy_controller.go"
 
 # Go defaults.go (canonical source; CRD no longer has +kubebuilder:default

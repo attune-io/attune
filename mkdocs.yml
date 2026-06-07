@@ -62,6 +62,7 @@ nav:
       - Migrating from VPA: guides/migrating-from-vpa.md
       - OpenShift: guides/openshift.md
       - FIPS 140-3 Compliance: guides/fips-compliance.md
+      - Multi-Cluster: guides/multi-cluster.md
       - Scaling: guides/scaling.md
       - Troubleshooting: guides/troubleshooting.md
       - Upgrading: guides/upgrading.md

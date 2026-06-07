@@ -1085,6 +1085,14 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *attu
 	printEffectiveField("  Max change", formatPercentInt64Ptr(rawInt64Field(item, "spec", "cpu", "maxChangePercent")), formatPercentPtr(effective.Spec.CPU.MaxChangePercent), selected, cpuDefaults != nil && cpuDefaults.MaxChangePercent != nil)
 	printEffectiveField("  Max increase", formatPercentInt64Ptr(rawInt64Field(item, "spec", "cpu", "maxIncreasePercent")), formatPercentPtr(effective.Spec.CPU.MaxIncreasePercent), selected, cpuDefaults != nil && cpuDefaults.MaxIncreasePercent != nil)
 	printEffectiveField("  Max decrease", formatPercentInt64Ptr(rawInt64Field(item, "spec", "cpu", "maxDecreasePercent")), formatPercentPtr(effective.Spec.CPU.MaxDecreasePercent), selected, cpuDefaults != nil && cpuDefaults.MaxDecreasePercent != nil)
+	if effective.Spec.CPU.StartupBoost != nil {
+		configuredBoost := ""
+		if m := getNestedString(item, "spec", "cpu", "startupBoost", "multiplier"); m != "" {
+			configuredBoost = m + "x for " + getNestedString(item, "spec", "cpu", "startupBoost", "duration")
+		}
+		effectiveBoost := effective.Spec.CPU.StartupBoost.Multiplier + "x for " + effective.Spec.CPU.StartupBoost.Duration.Duration.String()
+		printEffectiveField("  Startup boost", configuredBoost, effectiveBoost, selected, cpuDefaults != nil && cpuDefaults.StartupBoost != nil)
+	}
 
 	fmt.Println("  Memory:")
 	printEffectiveField("  Percentile", formatInt64Field(item, "spec", "memory", "percentile"), formatInt32Val(effective.Spec.Memory.Percentile), selected, memDefaults != nil && memDefaults.Percentile != 0)

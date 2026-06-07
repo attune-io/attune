@@ -254,6 +254,15 @@
                     "severity": { "type": "string", "default": "info" }
                   }
                 },
+                "staleRecommendations": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": { "type": "boolean", "default": true },
+                    "for": { "type": "string", "default": "1h" },
+                    "severity": { "type": "string", "default": "warning" }
+                  }
+                },
                 "revertFailures": {
                   "type": "object",
                   "additionalProperties": false,
@@ -348,7 +357,12 @@
             "maxAllowed": { "type": "string" },
             "controlledValues": { "type": "string", "enum": ["RequestsOnly", "RequestsAndLimits"] },
             "burstSensitivity": { "type": "string" },
-            "maxChangePercent": { "type": "integer", "minimum": 1, "maximum": 100, "description": "Max change percentage per reconcile cycle (default: 50 for CPU)" }
+            "maxChangePercent": { "type": "integer", "minimum": 1, "maximum": 100, "description": "Max change percentage per reconcile cycle (default: 50 for CPU)" },
+            "allowDecrease": { "type": "boolean", "description": "Allow decreasing resource values (default: true for CPU)" },
+            "memoryFromCpuRatio": { "type": "string", "description": "Derive memory from CPU using this ratio (e.g. 4.0 = 4 GiB per core)" },
+            "startupBoost": { "type": "object", "properties": { "multiplier": { "type": "string" }, "duration": { "type": "string" } }, "description": "Temporary CPU inflation for cold-start optimization" },
+            "maxIncreasePercent": { "type": "integer", "minimum": 1, "maximum": 100, "description": "Max increase percentage per cycle (overrides maxChangePercent for upward changes)" },
+            "maxDecreasePercent": { "type": "integer", "minimum": 1, "maximum": 100, "description": "Max decrease percentage per cycle (overrides maxChangePercent for downward changes)" }
           }
         },
         "memory": {
@@ -362,15 +376,21 @@
             "maxAllowed": { "type": "string" },
             "controlledValues": { "type": "string", "enum": ["RequestsOnly", "RequestsAndLimits"] },
             "burstSensitivity": { "type": "string" },
-            "maxChangePercent": { "type": "integer", "minimum": 1, "maximum": 100, "description": "Max change percentage per reconcile cycle (default: 30 for memory)" }
+            "maxChangePercent": { "type": "integer", "minimum": 1, "maximum": 100, "description": "Max change percentage per reconcile cycle (default: 30 for memory)" },
+            "allowDecrease": { "type": "boolean", "description": "Allow decreasing resource values (default: false for memory)" },
+            "memoryFromCpuRatio": { "type": "string", "description": "Derive memory from CPU using this ratio (e.g. 4.0 = 4 GiB per core)" },
+            "startupBoost": { "type": "object", "properties": { "multiplier": { "type": "string" }, "duration": { "type": "string" } }, "description": "No effect on memory; startup boost only applies to CPU resources" },
+            "maxIncreasePercent": { "type": "integer", "minimum": 1, "maximum": 100, "description": "Max increase percentage per cycle (overrides maxChangePercent for upward changes)" },
+            "maxDecreasePercent": { "type": "integer", "minimum": 1, "maximum": 100, "description": "Max decrease percentage per cycle (overrides maxChangePercent for downward changes)" }
           }
         },
         "costPricing": {
           "type": "object",
+          "additionalProperties": false,
           "description": "Cost pricing for savings estimates",
           "properties": {
-            "cpuPerCorePerHour": { "type": "string" },
-            "memoryPerGiBPerHour": { "type": "string" }
+            "cpuPerCoreHour": { "type": "string" },
+            "memoryPerGiBHour": { "type": "string" }
           }
         },
         "updateStrategy": {
@@ -459,6 +479,23 @@
                   "type": "boolean",
                   "default": false,
                   "description": "Enable exporting recommendations to ConfigMaps (one per workload)"
+                }
+              }
+            },
+            "initialSizing": {
+              "type": "boolean",
+              "description": "Set initial pod resources from existing recommendations at creation time"
+            },
+            "sloGuardrails": {
+              "type": "array",
+              "description": "Application-level SLO metrics to check after resize",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string", "description": "Guardrail name for logging and status" },
+                  "query": { "type": "string", "description": "PromQL query returning a scalar value" },
+                  "threshold": { "type": "string", "description": "Value that triggers a revert" },
+                  "comparison": { "type": "string", "enum": ["above", "below"], "description": "Revert when value is above or below threshold" }
                 }
               }
             }

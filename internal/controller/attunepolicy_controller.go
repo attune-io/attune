@@ -86,13 +86,15 @@ const (
 	finalizerName = "attune.io/cleanup"
 
 	// defaultHistoryWindow is the default history window if not specified.
+	// Canonical source: attunev1alpha1.DefaultHistoryWindow ("168h").
 	defaultHistoryWindow = 7 * 24 * time.Hour
 
 	// defaultCooldown is the default cooldown between reconciliation cycles.
+	// Canonical source: attunev1alpha1.DefaultCooldown ("1h").
 	defaultCooldown = 1 * time.Hour
 
 	// defaultMinimumDataPoints is the minimum number of data points required.
-	defaultMinimumDataPoints int32 = 48
+	defaultMinimumDataPoints = attunev1alpha1.DefaultMinimumDataPoints
 
 	// defaultObservationPeriod is the default safety observation window after resize.
 	defaultObservationPeriod = 5 * time.Minute

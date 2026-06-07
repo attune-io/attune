@@ -380,6 +380,7 @@ The controller sets these conditions on each `AttunePolicy`:
 | `Ready` | `Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `PrometheusUnavailable`, `InvalidConfig`, `WorkloadDiscoveryFailed`, `Paused` | Overall health |
 | `Resizing` | `InProgress`, `Idle`, `CooldownActive` | Active resize operation state (only in resize modes) |
 | `Degraded` | `HighRevertRate` | Set when 3+ of the last 5 resizes were reverted |
+| `ScheduleBlocked` | `OutsideWindow`, `WithinWindow` | Set when `updateStrategy.schedule` is configured; indicates whether the current time is within an allowed resize window |
 
 ## Exponential Backoff
 

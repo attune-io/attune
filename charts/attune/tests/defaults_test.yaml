@@ -113,3 +113,35 @@ tests:
       - equal:
           path: spec.updateStrategy.maxTotalMemoryIncrease
           value: "4Gi"
+
+  - it: should render initialSizing when set
+    set:
+      defaults:
+        enabled: true
+        updateStrategy:
+          initialSizing: true
+    asserts:
+      - equal:
+          path: spec.updateStrategy.initialSizing
+          value: true
+
+  - it: should render sloGuardrails when set
+    set:
+      defaults:
+        enabled: true
+        updateStrategy:
+          sloGuardrails:
+            - name: error-rate
+              query: 'rate(http_errors_total{namespace="{{ .Namespace }}"}[5m])'
+              threshold: "0.01"
+              comparison: above
+    asserts:
+      - equal:
+          path: spec.updateStrategy.sloGuardrails[0].name
+          value: error-rate
+      - equal:
+          path: spec.updateStrategy.sloGuardrails[0].threshold
+          value: "0.01"
+      - equal:
+          path: spec.updateStrategy.sloGuardrails[0].comparison
+          value: above

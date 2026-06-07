@@ -136,6 +136,11 @@ metrics:
         # -- How long the condition must persist before firing
         for: 1h
         severity: info
+      staleRecommendations:
+        enabled: true
+        # -- How long the condition must persist before firing
+        for: 1h
+        severity: warning
       revertFailures:
         enabled: true
         # -- How long the condition must persist before firing
@@ -194,8 +199,8 @@ defaults:
   #   maxAllowed: "8Gi"
   # -- Cost pricing defaults for savings estimates
   # costPricing:
-  #   cpuPerCorePerHour: "0.031"
-  #   memoryPerGiBPerHour: "0.004"
+  #   cpuPerCoreHour: "0.031"
+  #   memoryPerGiBHour: "0.004"
   # -- Default update strategy applied to all policies that don't override it
   updateStrategy:
     # -- Resize type: Observe, Recommend, OneShot, Canary, Auto
