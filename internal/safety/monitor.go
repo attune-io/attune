@@ -85,7 +85,7 @@ type ResizeRecord struct {
 // SafetyVerdict is the result of checking a resized pod for problems.
 type SafetyVerdict struct {
 	Safe    bool
-	Reason  string // "oomkill", "throttle", "restart", "notready", ""
+	Reason  string // "oomkill", "throttle", "restart", "notready", "slo:<name>", ""
 	Message string
 	// ThrottleDeferred is true when the throttle check was skipped because the
 	// resize happened less than 5 minutes ago (the Prometheus rate window still
@@ -181,7 +181,9 @@ func CheckCriticalStatuses(pod *corev1.Pod, record ResizeRecord) *SafetyVerdict 
 //  1. Pod existence (deleted pods are considered safe).
 //  2. OOMKill events that occurred after the resize.
 //  3. Restart count increases of 2 or more since the resize.
-//  4. Pod Ready condition.
+//  4. CPU throttle ratio (after a 5m grace period).
+//  5. SLO guardrail queries (if configured, after evaluationWindow).
+//  6. Pod Ready condition.
 func (m *Monitor) CheckPod(ctx context.Context, record ResizeRecord, now time.Time) (SafetyVerdict, error) {
 	pod, err := m.client.CoreV1().Pods(record.Namespace).Get(ctx, record.PodName, metav1.GetOptions{})
 	if err != nil {
