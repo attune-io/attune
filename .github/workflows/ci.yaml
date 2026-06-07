@@ -147,6 +147,10 @@ jobs:
         shell: bash -Eeuo pipefail {0}
         run: bash hack/verify-prometheusrule-metrics.sh
 
+      - name: Verify Helm schema field names match CRD
+        shell: bash -Eeuo pipefail {0}
+        run: bash hack/verify-helm-schema-fields.sh
+
   docs-check:
     name: Docs Check
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}

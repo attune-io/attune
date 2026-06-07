@@ -80,6 +80,10 @@ verify-doc-tool-versions: ## Verify supported tool version references stay consi
 verify-prometheusrule-metrics: ## Verify PrometheusRule alert expressions use real operator metrics
 	@bash hack/verify-prometheusrule-metrics.sh
 
+.PHONY: verify-helm-schema-fields
+verify-helm-schema-fields: ## Verify Helm values.schema.json field names match CRD field names
+	@bash hack/verify-helm-schema-fields.sh
+
 .PHONY: verify-release-artifacts
 verify-release-artifacts: kustomize ## Verify release artifacts generate cleanly and, if present, match current sources
 	@repo_root=$$(pwd); \
@@ -118,7 +122,7 @@ ci-runner-status: ## Show queued/in-progress CI runs
 	fi
 
 .PHONY: verify-quick
-verify-quick: lint yaml-lint lint-chainsaw test helm-lint helm-docs-check helm-unittest verify-boilerplate tidy-check verify-doc-defaults verify-helm-rbac verify-dashboard-metrics verify-doc-tool-versions verify-prometheusrule-metrics verify-release-artifacts ## Fast pre-commit checks (no integration tests or govulncheck)
+verify-quick: lint yaml-lint lint-chainsaw test helm-lint helm-docs-check helm-unittest verify-boilerplate tidy-check verify-doc-defaults verify-helm-rbac verify-dashboard-metrics verify-doc-tool-versions verify-prometheusrule-metrics verify-helm-schema-fields verify-release-artifacts ## Fast pre-commit checks (no integration tests or govulncheck)
 
 .PHONY: verify
 verify: verify-quick test-integration govulncheck ## Run all CI checks locally (includes integration tests)
