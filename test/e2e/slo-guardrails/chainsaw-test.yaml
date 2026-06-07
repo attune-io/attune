@@ -24,6 +24,8 @@ spec:
               metadata:
                 name: slo-app
                 namespace: e2e-slo-guardrails
+                labels:
+                  app: slo-app
               spec:
                 replicas: 1
                 selector:

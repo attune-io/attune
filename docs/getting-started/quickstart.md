@@ -177,7 +177,7 @@ kubectl get attunepolicy my-app
 ```
 
 The `RESIZED` column increments as pods are resized in place. If a safety
-violation occurs (OOMKill, excessive restarts, pod NotReady), the operator
+violation occurs (OOMKill, excessive restarts, pod NotReady, or SLO guardrail breach), the operator
 auto-reverts the affected pods.
 
 !!! tip

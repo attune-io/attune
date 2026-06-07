@@ -45,7 +45,7 @@ spec:
    pods. Only running pods without an active resize or pending deletion qualify.
 3. **In-place resize**: the operator calls `UpdateResize` on each selected pod.
 4. **Observation**: during `observationPeriod`, the safety monitor checks for
-   OOMKill, restart spikes, and pod NotReady.
+   OOMKill, restart spikes, pod NotReady, CPU throttle, and SLO guardrail breaches.
 5. **Verdict**: if all canary pods remain healthy, the resize is considered
    successful. If any violation is detected, the operator auto-reverts.
 6. **Cooldown**: the operator waits for the `cooldown` duration before the
@@ -86,7 +86,7 @@ kubectl get attunepolicy my-app -o jsonpath='{.status.resizeHistory}' | jq '.[] 
 ```
 
 !!! warning
-    If you see repeated reverts, review the `reason` field (oomkill, restart,
+    If you see repeated reverts, review the `reason` field (oomkill, restart, throttle, slo:&lt;name&gt;,
     notready) and consider increasing the overhead or adjusting bounds
     before retrying.
 

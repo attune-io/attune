@@ -400,6 +400,7 @@ Common causes:
 - **throttle**: CPU throttle ratio exceeded 50% post-resize. Increase `cpu.overhead`.
 - **restart**: the application crashes at the new resource level. Check application logs.
 - **notready**: readiness probe fails post-resize. Verify probe configuration.
+- **slo:&lt;name&gt;**: an SLO guardrail query breached its threshold after resize. Review the guardrail's PromQL query and threshold in `updateStrategy.sloGuardrails`.
 
 ### Revert failures
 

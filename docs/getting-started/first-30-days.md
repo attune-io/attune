@@ -130,7 +130,7 @@ kubectl attune history -n my-app
 
 The history command shows each resize with its result and reason. If a
 resize is reverted, the **REASON** column tells you why (oomkill, restart,
-notready, throttle).
+notready, throttle, or slo:&lt;name&gt; for SLO guardrail breaches).
 
 !!! warning
     If you see repeated reverts, increase the overhead or adjust
