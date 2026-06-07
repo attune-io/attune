@@ -364,10 +364,14 @@ func (c *PrometheusCollector) GetThrottleRatio(ctx context.Context, namespace, p
 	return val, nil
 }
 
-// EscapePromQL escapes backslashes and quotes for safe interpolation into PromQL strings.
+// EscapePromQL escapes backslashes, quotes, and control characters for safe
+// interpolation into PromQL strings. PromQL uses Go-style string escaping.
 func EscapePromQL(s string) string {
 	s = strings.ReplaceAll(s, `\`, `\\`)
 	s = strings.ReplaceAll(s, `"`, `\"`)
+	s = strings.ReplaceAll(s, "\n", `\n`)
+	s = strings.ReplaceAll(s, "\r", `\r`)
+	s = strings.ReplaceAll(s, "\t", `\t`)
 	return s
 }
 

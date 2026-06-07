@@ -83,7 +83,7 @@ kubectl get attunepolicy my-app -o wide
 Right after applying, the policy will be collecting data:
 
 ```text
-NAME     MODE        WORKLOADS   RECS   RESIZED   READY   AGE   CPU SAVED   MEM SAVED
+NAME     TYPE        WORKLOADS   RECS   RESIZED   READY   AGE   CPU SAVED   MEM SAVED
 my-app   Recommend   1           0      0         False   5m    0           0
 ```
 
@@ -122,7 +122,7 @@ my-app   Recommend   1           0      0         False   5m    0           0
 After enough data has accumulated:
 
 ```text
-NAME     MODE        WORKLOADS   RECS   RESIZED   READY   AGE   CPU SAVED   MEM SAVED
+NAME     TYPE        WORKLOADS   RECS   RESIZED   READY   AGE   CPU SAVED   MEM SAVED
 my-app   Recommend   1           1      0         True    7d    200m        256Mi
 ```
 

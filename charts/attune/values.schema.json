@@ -254,6 +254,15 @@
                     "severity": { "type": "string", "default": "info" }
                   }
                 },
+                "staleRecommendations": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": { "type": "boolean", "default": true },
+                    "for": { "type": "string", "default": "1h" },
+                    "severity": { "type": "string", "default": "warning" }
+                  }
+                },
                 "revertFailures": {
                   "type": "object",
                   "additionalProperties": false,
@@ -369,8 +378,8 @@
           "type": "object",
           "description": "Cost pricing for savings estimates",
           "properties": {
-            "cpuPerCorePerHour": { "type": "string" },
-            "memoryPerGiBPerHour": { "type": "string" }
+            "cpuPerCoreHour": { "type": "string" },
+            "memoryPerGiBHour": { "type": "string" }
           }
         },
         "updateStrategy": {

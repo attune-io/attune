@@ -126,6 +126,20 @@ spec:
               clamping resource requests to container limits for {{ .Values.metrics.prometheusRule.rules.requestsClamped.for }}.
               Consider increasing limits or switching to controlledValues: RequestsAndLimits.
         {{- end }}
+        {{- if .Values.metrics.prometheusRule.rules.staleRecommendations.enabled }}
+        - alert: AttuneStaleRecommendations
+          expr: sum by (namespace, policy) (rate(attune_stale_recommendations_total[1h])) > 0
+          for: {{ .Values.metrics.prometheusRule.rules.staleRecommendations.for }}
+          labels:
+            severity: {{ .Values.metrics.prometheusRule.rules.staleRecommendations.severity }}
+          annotations:
+            summary: attune recommendations marked stale due to data gaps
+            description: >-
+              Policy {{ "{{ $labels.namespace }}" }}/{{ "{{ $labels.policy }}" }} has stale
+              recommendations because Prometheus data is too old or missing.
+              Verify that Prometheus is scraping target pods and that the
+              configured historyWindow covers available data.
+        {{- end }}
         {{- if .Values.metrics.prometheusRule.rules.revertFailures.enabled }}
         - alert: AttuneRevertFailures
           expr: sum by (namespace, workload) (rate(attune_revert_failures_total[5m])) > 0

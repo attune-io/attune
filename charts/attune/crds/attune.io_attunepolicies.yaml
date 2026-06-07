@@ -160,12 +160,14 @@ spec:
                       Overhead is the percentage of additional resources added on top of the
                       percentile recommendation. Expressed as a string (e.g. "20" means 20%
                       extra headroom above the target percentile). Must be >= 0, max 900.
+                      Defaults to "20" for CPU and "30" for memory.
                     pattern: ^([0-9]+(\.[0-9]+)?)?$
                     type: string
                   percentile:
                     description: |-
                       Percentile is the usage percentile to target for recommendations.
-                      Supported values: 50, 90, 95, 99. Omit or set to 0 to use the default.
+                      Supported values: 50, 90, 95, 99. Omit or set to 0 to use the default
+                      (95 for CPU, 99 for memory).
                     enum:
                     - 0
                     - 50
@@ -208,6 +210,7 @@ spec:
                   and should not be right-sized.
                 items:
                   type: string
+                maxItems: 100
                 type: array
               memory:
                 description: Memory configures memory resource recommendations.
@@ -299,12 +302,14 @@ spec:
                       Overhead is the percentage of additional resources added on top of the
                       percentile recommendation. Expressed as a string (e.g. "20" means 20%
                       extra headroom above the target percentile). Must be >= 0, max 900.
+                      Defaults to "20" for CPU and "30" for memory.
                     pattern: ^([0-9]+(\.[0-9]+)?)?$
                     type: string
                   percentile:
                     description: |-
                       Percentile is the usage percentile to target for recommendations.
-                      Supported values: 50, 90, 95, 99. Omit or set to 0 to use the default.
+                      Supported values: 50, 90, 95, 99. Omit or set to 0 to use the default
+                      (95 for CPU, 99 for memory).
                     enum:
                     - 0
                     - 50

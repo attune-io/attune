@@ -105,6 +105,7 @@ type AttunePolicySpec struct {
 	// (e.g., istio-proxy, linkerd-proxy) that are managed by a service mesh
 	// and should not be right-sized.
 	// +optional
+	// +kubebuilder:validation:MaxItems=100
 	ExcludedContainers []string `json:"excludedContainers,omitempty"`
 
 	// Weight determines the priority of this policy when multiple policies
@@ -267,7 +268,8 @@ type CloudWatchConfig struct {
 // ResourceConfig defines resource recommendation parameters.
 type ResourceConfig struct {
 	// Percentile is the usage percentile to target for recommendations.
-	// Supported values: 50, 90, 95, 99. Omit or set to 0 to use the default.
+	// Supported values: 50, 90, 95, 99. Omit or set to 0 to use the default
+	// (95 for CPU, 99 for memory).
 	// +kubebuilder:validation:Enum=0;50;90;95;99
 	// +optional
 	Percentile int32 `json:"percentile,omitempty"`
@@ -275,6 +277,7 @@ type ResourceConfig struct {
 	// Overhead is the percentage of additional resources added on top of the
 	// percentile recommendation. Expressed as a string (e.g. "20" means 20%
 	// extra headroom above the target percentile). Must be >= 0, max 900.
+	// Defaults to "20" for CPU and "30" for memory.
 	// +optional
 	// +kubebuilder:validation:Pattern=`^([0-9]+(\.[0-9]+)?)?$`
 	Overhead string `json:"overhead,omitempty"`
