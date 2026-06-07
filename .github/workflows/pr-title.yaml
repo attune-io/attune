@@ -9,7 +9,7 @@ permissions:
 
 concurrency:
   group: pr-title-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   semantic-title:
