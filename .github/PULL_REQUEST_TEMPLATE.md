@@ -4,9 +4,14 @@ Brief description of the change.
 
 ## Why
 
-Motivation and context. Link to related issue(s).
+Motivation and context.
 
-Fixes #
+## Related Issues
+
+<!-- Use "Closes #N" for issues this PR fixes (auto-closes on merge).
+     Use "Ref #N" for issues that are related but NOT fixed by this PR.
+     Delete this section if no issues are related. -->
+Closes #
 
 ## How to Test
 
