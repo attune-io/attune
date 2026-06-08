@@ -222,8 +222,22 @@ runs:
       run: |
         helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
         helm repo update
-        helm install prometheus prometheus-community/prometheus \
-          --version ${{ inputs.prometheus-chart-version }} \
+        # Pre-pull the chart tarball with retry to avoid transient CDN failures
+        # (e.g. 504 Gateway Timeout from GitHub-hosted chart assets).
+        for attempt in 1 2 3; do
+          if helm pull prometheus-community/prometheus \
+            --version ${{ inputs.prometheus-chart-version }} \
+            --destination /tmp; then
+            break
+          fi
+          echo "::warning::helm pull attempt $attempt failed, retrying in 10s..."
+          sleep 10
+          if (( attempt == 3 )); then
+            echo "::error::Failed to pull Prometheus chart after 3 attempts"
+            exit 1
+          fi
+        done
+        helm install prometheus /tmp/prometheus-${{ inputs.prometheus-chart-version }}.tgz \
           --namespace monitoring --create-namespace \
           --set server.image.repository=quay.io/prometheus/prometheus \
           --set server.image.tag=v3.4.1 \

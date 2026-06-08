@@ -334,8 +334,22 @@ jobs:
         run: |
           helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
           helm repo update
-          helm install prometheus prometheus-community/prometheus \
-            --version ${{ env.PROMETHEUS_CHART_VERSION }} \
+          # Pre-pull the chart tarball with retry to avoid transient CDN failures
+          # (e.g. 504 Gateway Timeout from GitHub-hosted chart assets).
+          for attempt in 1 2 3; do
+            if helm pull prometheus-community/prometheus \
+              --version ${{ env.PROMETHEUS_CHART_VERSION }} \
+              --destination /tmp; then
+              break
+            fi
+            echo "::warning::helm pull attempt $attempt failed, retrying in 10s..."
+            sleep 10
+            if (( attempt == 3 )); then
+              echo "::error::Failed to pull Prometheus chart after 3 attempts"
+              exit 1
+            fi
+          done
+          helm install prometheus /tmp/prometheus-${{ env.PROMETHEUS_CHART_VERSION }}.tgz \
             --namespace monitoring --create-namespace \
             --set server.image.repository=quay.io/prometheus/prometheus \
             --set server.image.tag=v3.4.1 \
@@ -399,7 +413,29 @@ jobs:
 
       - name: Install Chainsaw
         if: inputs.suite != 'go-e2e'
-        uses: kyverno/action-install-chainsaw@1223ef75bedeb59c4e7b5455463d4316e76dff01 # v0.2.15
+        uses: ./.github/actions/install-binary-tool
+        with:
+          name: chainsaw
+          version: v0.2.15
+          install-command: |
+            ARCH=$(uname -m)
+            case "$ARCH" in
+              x86_64)  ARCH=amd64 ;;
+              aarch64) ARCH=arm64 ;;
+            esac
+            URL="https://github.com/kyverno/chainsaw/releases/download/v0.2.15/chainsaw_linux_${ARCH}.tar.gz"
+            for attempt in 1 2 3; do
+              if curl -fsSL "$URL" -o chainsaw.tar.gz; then
+                tar -xf chainsaw.tar.gz -C "$TOOL_DIR" chainsaw
+                rm chainsaw.tar.gz
+                chmod +x "$TOOL_DIR/chainsaw"
+                exit 0
+              fi
+              echo "::warning::Chainsaw download attempt $attempt failed, retrying in 10s..."
+              sleep 10
+            done
+            echo "::error::Failed to download Chainsaw after 3 attempts"
+            exit 1
 
       - name: Run Chainsaw suite
         if: inputs.suite != 'go-e2e'
