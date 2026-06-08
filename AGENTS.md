@@ -332,6 +332,20 @@ The repository enforces semantic PR titles via [.github/workflows/pr-title.yaml]
 
 When creating branches, commits, or PRs, make the first line a valid semantic title so the gate passes on the first attempt. This avoids immediate CI failures and repeated title edits.
 
+### Issue closure in PR descriptions
+
+Before running `gh pr create`, check open issues and include `Closes #N`
+for each issue this PR fixes:
+
+```bash
+gh issue list --state open --json number,title --jq '.[] | "#\(.number) \(.title)"'
+```
+
+The `Issue Linker` workflow ([.github/workflows/issue-linker.yaml](.github/workflows/issue-linker.yaml))
+comments on PRs that reference open issues without a closure keyword.
+Use `Closes #N` (auto-closes on merge), `Fixes #N` (same), or
+`Ref #N` (informational, no auto-close).
+
 ### MkDocs documentation links
 
 MkDocs strict mode rejects relative links that resolve outside the `docs/`
