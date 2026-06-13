@@ -228,36 +228,31 @@ jobs:
           #
           # Why config file instead of --k3s-arg:
           # k3s processes --kube-apiserver-arg flags through GetArgs() in
-          # pkg/util/args.go. The += syntax (append to existing feature gates)
-          # depends on k3s having already populated its default feature gates
-          # into the args map. Under resource contention on CI runners, the
-          # ordering is not guaranteed: if GetArgs() processes CLI extras
-          # before defaults are set, += finds nothing to append to and the
-          # feature gate silently fails to register. This caused intermittent
-          # nightly failures (issue #296) where ps aux showed correct args
-          # but pods/resize was never registered.
+          # pkg/util/args.go. CLI args have a timing race where GetArgs()
+          # may process extras before defaults are populated (issue #296).
+          # The config file is loaded during server bootstrap, reducing
+          # but not eliminating the race (issue #325 showed += still fails
+          # intermittently even via config file).
           #
-          # The k3s config file (/etc/rancher/k3s/config.yaml) is loaded
-          # during server bootstrap before any component starts, avoiding
-          # the CLI arg processing race entirely.
-          #
-          # We use += (append) not = (replace) in the config file to
-          # preserve any feature gates k3s sets internally. The config
-          # file args go through the same GetArgs() function, but the
-          # timing race that broke CLI += does not apply here because
-          # config file processing happens after defaults are populated.
+          # We use = (set) not += (append) to avoid the GetArgs() timing
+          # race entirely. The = syntax sets the feature gate directly
+          # without depending on any existing value being populated first.
+          # This is safe for K8s 1.32: k3s's default apiserver feature
+          # gates at this version are all GA (locked on/off, not present
+          # in --feature-gates), so there are no alpha/beta defaults to
+          # preserve.
           EXTRA_K3D_ARGS=()
           if [[ "${{ matrix.k8s-version }}" == "v1.32" ]]; then
             K3S_CONFIG="/tmp/k3s-v132-config.yaml"
             cat > "$K3S_CONFIG" <<'K3SEOF'
           kube-apiserver-arg:
-            - "feature-gates+=InPlacePodVerticalScaling=true"
+            - "feature-gates=InPlacePodVerticalScaling=true"
           kube-controller-manager-arg:
-            - "feature-gates+=InPlacePodVerticalScaling=true"
+            - "feature-gates=InPlacePodVerticalScaling=true"
           kube-scheduler-arg:
-            - "feature-gates+=InPlacePodVerticalScaling=true"
+            - "feature-gates=InPlacePodVerticalScaling=true"
           kubelet-arg:
-            - "feature-gates+=InPlacePodVerticalScaling=true"
+            - "feature-gates=InPlacePodVerticalScaling=true"
           K3SEOF
             EXTRA_K3D_ARGS=(--volume "${K3S_CONFIG}:/etc/rancher/k3s/config.yaml@server:*")
           fi
@@ -303,10 +298,14 @@ jobs:
             sleep 5
           done
           echo "::error::pods/resize subresource not found after 120s. The InPlacePodVerticalScaling feature gate did not take effect."
-          echo "Diagnostic: apiserver process args:"
-          docker exec "k3d-${CLUSTER_NAME}-server-0" sh -c "ps aux | grep -E 'kube-apiserver|feature-gates'" || true
-          echo "Diagnostic: k3s logs (last 50 lines):"
-          docker logs "k3d-${CLUSTER_NAME}-server-0" --tail 50 || true
+          echo "Diagnostic: k3s config file:"
+          docker exec "k3d-${CLUSTER_NAME}-server-0" cat /etc/rancher/k3s/config.yaml || true
+          echo "Diagnostic: k3s process (apiserver runs embedded):"
+          docker exec "k3d-${CLUSTER_NAME}-server-0" sh -c "ps aux | grep k3s" || true
+          echo "Diagnostic: API resources containing 'resize':"
+          kubectl get --raw /api/v1 | jq '[.resources[] | select(.name | contains("resize"))]' || true
+          echo "Diagnostic: k3s logs (last 100 lines):"
+          docker logs "k3d-${CLUSTER_NAME}-server-0" --tail 100 2>&1 | grep -iE 'feature|gate|resize|error|fatal|panic' || true
           exit 1
 
       - name: Load cert-manager images into cluster
