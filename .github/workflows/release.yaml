@@ -425,7 +425,7 @@ jobs:
           helm package charts/attune
           helm push attune-${VERSION}.tgz oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts
 
-      - uses: oras-project/setup-oras@ae766895f02b3941ff5d1d809f428d623db3ce11 # v2 (includes 1.3.2)
+      - uses: oras-project/setup-oras@f8710a5536385a773dd14a148cf030021e293aef # v2 (includes 1.3.2)
         with:
           version: "1.3.2"
 
