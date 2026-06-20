@@ -64,6 +64,19 @@ jobs:
               | tar xz -C "$TOOL_DIR" fossa
 
       - name: Run FOSSA license check
-        run: fossa test
         env:
           FOSSA_API_KEY: ${{ secrets.FOSSA_API_KEY }}
+        run: |
+          set +e
+          fossa test --format json > fossa-results.json 2>fossa-stderr.txt
+          TEST_EXIT=$?
+          set -e
+
+          if [ "$TEST_EXIT" -eq 0 ]; then
+            echo "FOSSA test passed with no issues."
+            exit 0
+          fi
+
+          echo "FOSSA test found issues. Filtering known false positives..."
+          cat fossa-stderr.txt
+          python3 scripts/fossa-filter.py fossa-results.json fossa-stderr.txt
