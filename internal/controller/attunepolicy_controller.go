@@ -445,7 +445,7 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				for _, c := range rec.Containers {
 					totalOldCPU += c.Current.CPURequest.MilliValue()
 					totalNewCPU += c.Recommended.CPURequest.MilliValue()
-					totalCPULimit += c.Current.CPULimit.MilliValue()
+					totalCPULimit += c.Recommended.CPULimit.MilliValue()
 				}
 				if totalOldCPU != totalNewCPU {
 					r.adjustHPATargets(ctx, hpaList.Items, rec.Workload, rec.Kind,
