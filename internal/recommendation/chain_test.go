@@ -425,6 +425,26 @@ func TestRecommendationEngine_ExplainChain(t *testing.T) {
 	assert.Equal(t, int64(250), explanation.AfterChangeFilter.MilliValue())
 }
 
+func TestRecommendationEngine_ZeroConfidenceGivesMaxBuffer(t *testing.T) {
+	// With confidence=0.0 (no data), the confidence factor should be 2.0
+	// (100% buffer). The old vestigial floor at 0.1 would cap this at ~1.81.
+	engine := NewEngine(
+		95,
+		20.0,
+		resource.MustParse("50m"),
+		resource.MustParse("4000m"),
+		200, 200, // wide change limits so they don't interfere
+		EngineOpts{IsCPU: true},
+	)
+	profile := buildRealisticCPUProfile(0.200, 0.0)
+	current := resource.MustParse("500m")
+
+	_, explanation, _ := engine.RecommendWithExplanation(profile, current)
+	// factor = 1 + 1.0 * (1 - 0.0)^2 = 2.0
+	assert.InDelta(t, 2.0, explanation.ConfidenceFactor, 0.0001,
+		"zero confidence should produce factor 2.0 (100% buffer)")
+}
+
 func TestRecommendationEngine_ZeroCurrentBypassesChangeFilter(t *testing.T) {
 	// When the current allocation is 0m (container with no explicit resource
 	// requests), the change filter cannot compute a percentage change and is

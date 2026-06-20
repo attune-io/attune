@@ -33,7 +33,7 @@ func (r *AttunePolicyReconciler) adjustHPATargets(
 	ctx context.Context,
 	hpas []autoscalingv2.HorizontalPodAutoscaler,
 	workloadName, workloadKind string,
-	oldCPURequest, newCPURequest resource.Quantity,
+	oldCPURequest, newCPURequest, cpuLimit resource.Quantity,
 ) {
 	logger := log.FromContext(ctx)
 	for i := range hpas {
@@ -66,10 +66,17 @@ func (r *AttunePolicyReconciler) adjustHPATargets(
 					baseTarget = int32(v)
 				}
 			}
-			// newTarget = baseTarget * (oldRequest / newRequest), capped at 100.
+			// newTarget = baseTarget * (oldRequest / newRequest), with a
+			// QoS-aware upper cap: Burstable pods (limit > request) can
+			// use targets above 100% up to floor(limit/request*100);
+			// Guaranteed pods (limit == request) are capped at 100%.
 			newTarget := int32(float64(baseTarget) * float64(oldCPURequest.MilliValue()) / float64(newCPURequest.MilliValue()))
-			if newTarget > 100 {
-				newTarget = 100
+			maxTarget := int32(100)
+			if !cpuLimit.IsZero() && cpuLimit.Cmp(newCPURequest) > 0 {
+				maxTarget = int32(float64(cpuLimit.MilliValue()) / float64(newCPURequest.MilliValue()) * 100)
+			}
+			if newTarget > maxTarget {
+				newTarget = maxTarget
 			}
 			if newTarget < 1 {
 				newTarget = 1

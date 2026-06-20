@@ -48,6 +48,38 @@ spec:
     the utilization percentage, which may cause HPA to scale out. Set
     conservative bounds to prevent requests from dropping too far.
 
+### QoS-aware HPA target adjustment
+
+When Attune lowers a pod's CPU request, it recalculates the HPA target to
+preserve the same absolute CPU threshold:
+
+```
+newTarget = baseTarget * (oldRequest / newRequest)
+```
+
+The upper cap on this target depends on the pod's QoS class:
+
+- **Burstable** (limit > request): targets above 100% are allowed, up to
+  `floor(limit / request * 100)`. The container can burst up to its CPU
+  limit, so utilization above 100% of request is achievable. This preserves
+  the absolute threshold without triggering premature scale-outs.
+- **Guaranteed** (limit == request): targets are capped at 100%. Utilization
+  cannot exceed 100% when cgroups enforce `limit == request`.
+- **BestEffort** (no requests/limits): not applicable; HPA resource metrics
+  require requests to be set.
+
+For example, if a Burstable pod has `request: 300m` and `limit: 1000m` with
+HPA target 70%, and requests drop from 500m to 300m:
+
+```
+newTarget = 70 * (500 / 300) = 116%
+burstableCap = floor(1000 / 300 * 100) = 333%
+finalTarget = min(116, 333) = 116%
+```
+
+The 116% target preserves the original 350m absolute threshold
+(`116% * 300m = 348m`).
+
 ### Set appropriate bounds
 
 Choose a `min` bound for CPU that keeps the HPA utilization target in a
