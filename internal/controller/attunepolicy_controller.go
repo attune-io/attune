@@ -441,15 +441,17 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				if !resizedWorkloads[rec.Workload] {
 					continue
 				}
-				var totalOldCPU, totalNewCPU int64
+				var totalOldCPU, totalNewCPU, totalCPULimit int64
 				for _, c := range rec.Containers {
 					totalOldCPU += c.Current.CPURequest.MilliValue()
 					totalNewCPU += c.Recommended.CPURequest.MilliValue()
+					totalCPULimit += c.Current.CPULimit.MilliValue()
 				}
 				if totalOldCPU != totalNewCPU {
 					r.adjustHPATargets(ctx, hpaList.Items, rec.Workload, rec.Kind,
 						*resource.NewMilliQuantity(totalOldCPU, resource.DecimalSI),
-						*resource.NewMilliQuantity(totalNewCPU, resource.DecimalSI))
+						*resource.NewMilliQuantity(totalNewCPU, resource.DecimalSI),
+						*resource.NewMilliQuantity(totalCPULimit, resource.DecimalSI))
 				}
 			}
 		}
