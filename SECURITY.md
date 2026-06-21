@@ -25,8 +25,8 @@ feature: [Report a vulnerability](https://github.com/attune-io/attune/security/a
 - Container images and binaries are signed with
   [cosign](https://github.com/sigstore/cosign) using keyless signing
   (Sigstore OIDC)
-- [SLSA Level 3](https://slsa.dev) provenance is generated for both
-  binary artifacts and container images
+- [SLSA](https://slsa.dev) build provenance is generated for binary
+  artifacts and container images using GitHub's native attestations
 - SBOMs are generated for every release (SPDX format) and attached to
   the GitHub release
 - [FOSSA](https://fossa.com) license compliance scanning runs on every push
