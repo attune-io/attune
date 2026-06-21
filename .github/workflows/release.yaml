@@ -82,7 +82,6 @@ jobs:
       pull-requests: write
       id-token: write
     outputs:
-      hashes: ${{ steps.hash.outputs.hashes }}
       digest: ${{ steps.build.outputs.digest }}
       tag: ${{ steps.tag.outputs.name }}
     steps:
@@ -247,11 +246,42 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Generate provenance subjects
-        id: hash
+      - name: Attest binary archives
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: goreleaser-dist/*.tar.gz
+
+      - name: Attest checksums
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: goreleaser-dist/checksums.txt
+
+      - name: Upload attestation bundles to release
         shell: bash -Eeuo pipefail {0}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.name }}
         run: |
-          echo "hashes=$(cat goreleaser-dist/checksums.txt | base64 -w0)" >> "$GITHUB_OUTPUT"
+          mkdir -p attestation-bundles
+          for asset in goreleaser-dist/*.tar.gz goreleaser-dist/checksums.txt; do
+            [ -f "$asset" ] || continue
+            name=$(basename "$asset")
+            tmpdir=$(mktemp -d)
+            pushd "$tmpdir" > /dev/null
+            if gh attestation download "$OLDPWD/$asset" \
+              --repo "${{ github.repository }}" 2>/dev/null; then
+              for bundle in *.jsonl; do
+                [ -f "$bundle" ] || continue
+                cp "$bundle" "$OLDPWD/attestation-bundles/${name}.intoto.jsonl"
+                break
+              done
+            fi
+            popd > /dev/null
+            rm -rf "$tmpdir"
+          done
+          if ls attestation-bundles/*.intoto.jsonl 1>/dev/null 2>&1; then
+            gh release upload "$TAG" attestation-bundles/*.intoto.jsonl --clobber
+          fi
 
       - name: Prepare release image context
         if: steps.docker-check.outputs.enabled == 'true'
@@ -517,44 +547,6 @@ jobs:
             ${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/attune:artifacthub.io \
             --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
             artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml
-
-  # SLSA Level 3 provenance for GoReleaser binary artifacts.
-  # Runs as a reusable workflow (required for non-forgeable provenance).
-  provenance:
-    name: Binary Provenance
-    needs: [release]
-    if: ${{ !cancelled() && needs.release.result == 'success' }}
-    permissions:
-      actions: read
-      id-token: write
-      contents: write
-    # NOTE: SLSA reusable workflows require tag refs (not SHA pins) for
-    # self-verification of the builder binary.
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
-    with:
-      base64-subjects: "${{ needs.release.outputs.hashes }}"
-      upload-assets: true
-      upload-tag-name: ${{ needs.release.outputs.tag }}
-
-  # SLSA Level 3 provenance for the container image.
-  container-provenance:
-    name: Container Provenance
-    needs: [release]
-    # Only runs when Docker built an image (digest is non-empty).
-    if: ${{ !cancelled() && needs.release.result == 'success' && needs.release.outputs.digest != '' }}
-    permissions:
-      actions: read
-      id-token: write
-      packages: write
-    # NOTE: SLSA reusable workflows require tag refs (not SHA pins) for
-    # self-verification of the builder binary.
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v2.1.0
-    with:
-      image: ghcr.io/${{ github.repository }}
-      digest: ${{ needs.release.outputs.digest }}
-      registry-username: ${{ github.actor }}
-    secrets:
-      registry-password: ${{ secrets.GITHUB_TOKEN }}
 
   # Submit OLM bundle PRs to OperatorHub repos.
   # Step-level continue-on-error keeps the job green while exposing the
