@@ -68,7 +68,7 @@ cosign verify \
 
 - Runs as non-root (UID 65532)
 - Distroless base image (no shell, no package manager)
-- Signed with cosign + SLSA Level 3 provenance
+- Signed with cosign + SLSA build provenance
 - Trivy-scanned on every release
 
 ## Source
