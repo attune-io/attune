@@ -790,6 +790,38 @@ func scaleControlledLimits(policy *attunev1alpha1.AttunePolicy, rec *attunev1alp
 	}
 }
 
+// newContainerRecommendation initializes a ContainerRecommendation with current
+// resources copied into both Current and Recommended. The Recommended values
+// serve as defaults that are overwritten by the CPU/memory engine outputs.
+// This is shared between the Prometheus and VPA recommendation paths.
+func newContainerRecommendation(container corev1.Container, dataPoints int32, confidence float64, now time.Time) attunev1alpha1.ContainerRecommendation {
+	currentCPUReq := container.Resources.Requests.Cpu().DeepCopy()
+	currentCPULim := container.Resources.Limits.Cpu().DeepCopy()
+	currentMemReq := container.Resources.Requests.Memory().DeepCopy()
+	currentMemLim := container.Resources.Limits.Memory().DeepCopy()
+
+	return attunev1alpha1.ContainerRecommendation{
+		Name:       container.Name,
+		DataPoints: dataPoints,
+		Confidence: confidence,
+		LastUpdated: metav1.Time{
+			Time: now,
+		},
+		Current: attunev1alpha1.ResourceValues{
+			CPURequest:    currentCPUReq,
+			CPULimit:      currentCPULim,
+			MemoryRequest: currentMemReq,
+			MemoryLimit:   currentMemLim,
+		},
+		Recommended: attunev1alpha1.ResourceValues{
+			CPURequest:    currentCPUReq.DeepCopy(),
+			CPULimit:      currentCPULim.DeepCopy(),
+			MemoryRequest: currentMemReq.DeepCopy(),
+			MemoryLimit:   currentMemLim.DeepCopy(),
+		},
+	}
+}
+
 // setRecommendationGauges updates Prometheus gauges for the recommendation.
 func setRecommendationGauges(namespace, workloadName, containerName string, rec *attunev1alpha1.ContainerRecommendation) {
 	operatormetrics.RecommendationCPU.WithLabelValues(namespace, workloadName, containerName).Set(float64(rec.Recommended.CPURequest.MilliValue()) / 1000.0)

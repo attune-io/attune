@@ -341,42 +341,19 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 				"sampleCount", len(memSamples))
 		}
 
-		// Get current resource values.
-		currentCPUReq := container.Resources.Requests.Cpu().DeepCopy()
-		currentCPULim := container.Resources.Limits.Cpu().DeepCopy()
-		currentMemReq := container.Resources.Requests.Memory().DeepCopy()
-		currentMemLim := container.Resources.Limits.Memory().DeepCopy()
-
-		rec := attunev1alpha1.ContainerRecommendation{
-			Name:       containerName,
-			DataPoints: safeInt32(cpuProfile.DataPoints + memProfile.DataPoints),
-			Confidence: (cpuProfile.Confidence + memProfile.Confidence) / 2.0,
-			LastUpdated: metav1.Time{
-				Time: now,
-			},
-			Current: attunev1alpha1.ResourceValues{
-				CPURequest:    currentCPUReq,
-				CPULimit:      currentCPULim,
-				MemoryRequest: currentMemReq,
-				MemoryLimit:   currentMemLim,
-			},
-			Recommended: attunev1alpha1.ResourceValues{
-				CPURequest:    currentCPUReq,
-				CPULimit:      currentCPULim,
-				MemoryRequest: currentMemReq,
-				MemoryLimit:   currentMemLim,
-			},
-		}
+		rec := newContainerRecommendation(container,
+			safeInt32(cpuProfile.DataPoints+memProfile.DataPoints),
+			(cpuProfile.Confidence+memProfile.Confidence)/2.0, now)
 
 		explanation := &attunev1alpha1.ContainerRecommendationExplanation{}
 
 		// Compute CPU recommendation.
 		if cpuProfile.DataPoints >= int(minimumDataPoints) {
-			cpuRec, cpuExplain, _ := cpuEngine.RecommendWithExplanation(cpuProfile, currentCPUReq)
+			cpuRec, cpuExplain, _ := cpuEngine.RecommendWithExplanation(cpuProfile, rec.Current.CPURequest)
 			// CPU AllowDecrease defaults to true (nil || *ptr) because CPU
 			// throttle is detected by the safety monitor.
 			cpuAllowDecrease := policy.Spec.CPU.AllowDecrease == nil || *policy.Spec.CPU.AllowDecrease
-			cpuRec = r.enforceAllowDecrease(cpuAllowDecrease, cpuRec, currentCPUReq, &cpuExplain, policy, containerName, "CPU")
+			cpuRec = r.enforceAllowDecrease(cpuAllowDecrease, cpuRec, rec.Current.CPURequest, &cpuExplain, policy, containerName, "CPU")
 			rec.Recommended.CPURequest = cpuRec
 			explanation.CPU = toAPIRecommendationExplanation(cpuExplain)
 		}
@@ -388,7 +365,7 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 			ratio := parseFloat64Ratio(*policy.Spec.Memory.MemoryFromCPURatio)
 			allowDecrease := policy.Spec.Memory.AllowDecrease != nil && *policy.Spec.Memory.AllowDecrease
 			memRec, memExplain, applied := deriveMemoryFromCPU(
-				rec.Recommended.CPURequest, ratio, memEngine, minimumDataPoints, currentMemReq, allowDecrease)
+				rec.Recommended.CPURequest, ratio, memEngine, minimumDataPoints, rec.Current.MemoryRequest, allowDecrease)
 			if applied {
 				rec.Recommended.MemoryRequest = memRec
 				memExplain.FinalAdjustment = appendNote(memExplain.FinalAdjustment,
@@ -396,11 +373,11 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 				explanation.Memory = toAPIRecommendationExplanation(memExplain)
 			}
 		} else if memProfile.DataPoints >= int(minimumDataPoints) {
-			memRec, memExplain, _ := memEngine.RecommendWithExplanation(memProfile, currentMemReq)
+			memRec, memExplain, _ := memEngine.RecommendWithExplanation(memProfile, rec.Current.MemoryRequest)
 			// Memory AllowDecrease defaults to false (!= nil && *ptr) to
 			// prevent OOMKills from memory reduction.
 			memAllowDecrease := policy.Spec.Memory.AllowDecrease != nil && *policy.Spec.Memory.AllowDecrease
-			memRec = r.enforceAllowDecrease(memAllowDecrease, memRec, currentMemReq, &memExplain, policy, containerName, "memory")
+			memRec = r.enforceAllowDecrease(memAllowDecrease, memRec, rec.Current.MemoryRequest, &memExplain, policy, containerName, "memory")
 			rec.Recommended.MemoryRequest = memRec
 			explanation.Memory = toAPIRecommendationExplanation(memExplain)
 		}
@@ -455,7 +432,7 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 		}
 
 		// Scale limits proportionally if ControlledValues is RequestsAndLimits.
-		scaleControlledLimits(policy, &rec, currentCPUReq, currentCPULim, currentMemReq, currentMemLim)
+		scaleControlledLimits(policy, &rec, rec.Current.CPURequest, rec.Current.CPULimit, rec.Current.MemoryRequest, rec.Current.MemoryLimit)
 
 		// Set recommendation gauges for this container.
 		setRecommendationGauges(policy.Namespace, workload.GetName(), containerName, &rec)

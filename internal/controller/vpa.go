@@ -108,46 +108,24 @@ func (r *AttunePolicyReconciler) computeVPARecommendationsForWorkload(
 			maxDataPoints = vpaDataPoints
 		}
 
-		// Get current resource values.
-		currentCPUReq := container.Resources.Requests.Cpu().DeepCopy()
-		currentCPULim := container.Resources.Limits.Cpu().DeepCopy()
-		currentMemReq := container.Resources.Requests.Memory().DeepCopy()
-		currentMemLim := container.Resources.Limits.Memory().DeepCopy()
-
-		cRec := attunev1alpha1.ContainerRecommendation{
-			Name:       containerName,
-			DataPoints: safeInt32(cpuProfile.DataPoints + memProfile.DataPoints),
-			Confidence: 1.0, // VPA does its own confidence internally
-			LastUpdated: metav1.Time{
-				Time: now,
-			},
-			Current: attunev1alpha1.ResourceValues{
-				CPURequest:    currentCPUReq,
-				CPULimit:      currentCPULim,
-				MemoryRequest: currentMemReq,
-				MemoryLimit:   currentMemLim,
-			},
-			Recommended: attunev1alpha1.ResourceValues{
-				CPURequest:    currentCPUReq,
-				CPULimit:      currentCPULim,
-				MemoryRequest: currentMemReq,
-				MemoryLimit:   currentMemLim,
-			},
-		}
+		cRec := newContainerRecommendation(container,
+			safeInt32(cpuProfile.DataPoints+memProfile.DataPoints),
+			1.0, // VPA does its own confidence internally
+			now)
 
 		explanation := &attunev1alpha1.ContainerRecommendationExplanation{}
 
 		// Compute CPU recommendation through the standard engine pipeline.
-		cpuRec, cpuExplain, _ := cpuEngine.RecommendWithExplanation(cpuProfile, currentCPUReq)
+		cpuRec, cpuExplain, _ := cpuEngine.RecommendWithExplanation(cpuProfile, cRec.Current.CPURequest)
 		cpuAllowDecrease := policy.Spec.CPU.AllowDecrease == nil || *policy.Spec.CPU.AllowDecrease
-		cpuRec = r.enforceAllowDecrease(cpuAllowDecrease, cpuRec, currentCPUReq, &cpuExplain, policy, containerName, "CPU")
+		cpuRec = r.enforceAllowDecrease(cpuAllowDecrease, cpuRec, cRec.Current.CPURequest, &cpuExplain, policy, containerName, "CPU")
 		cRec.Recommended.CPURequest = cpuRec
 		explanation.CPU = toAPIRecommendationExplanation(cpuExplain)
 
 		// Compute memory recommendation through the standard engine pipeline.
-		memRec, memExplain, _ := memEngine.RecommendWithExplanation(memProfile, currentMemReq)
+		memRec, memExplain, _ := memEngine.RecommendWithExplanation(memProfile, cRec.Current.MemoryRequest)
 		memAllowDecrease := policy.Spec.Memory.AllowDecrease != nil && *policy.Spec.Memory.AllowDecrease
-		memRec = r.enforceAllowDecrease(memAllowDecrease, memRec, currentMemReq, &memExplain, policy, containerName, "memory")
+		memRec = r.enforceAllowDecrease(memAllowDecrease, memRec, cRec.Current.MemoryRequest, &memExplain, policy, containerName, "memory")
 		cRec.Recommended.MemoryRequest = memRec
 		explanation.Memory = toAPIRecommendationExplanation(memExplain)
 		explanation.CPU.FinalAdjustment = appendNote(explanation.CPU.FinalAdjustment, "source: VPA")
@@ -156,7 +134,7 @@ func (r *AttunePolicyReconciler) computeVPARecommendationsForWorkload(
 		cRec.Explanation = explanation
 
 		// Scale limits proportionally if ControlledValues is RequestsAndLimits.
-		scaleControlledLimits(policy, &cRec, currentCPUReq, currentCPULim, currentMemReq, currentMemLim)
+		scaleControlledLimits(policy, &cRec, cRec.Current.CPURequest, cRec.Current.CPULimit, cRec.Current.MemoryRequest, cRec.Current.MemoryLimit)
 
 		// Set recommendation gauges for this container.
 		setRecommendationGauges(policy.Namespace, workload.GetName(), containerName, &cRec)
