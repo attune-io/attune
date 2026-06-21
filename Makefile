@@ -122,7 +122,7 @@ ci-runner-status: ## Show queued/in-progress CI runs
 	fi
 
 .PHONY: verify-quick
-verify-quick: lint yaml-lint lint-chainsaw test helm-lint helm-docs-check helm-unittest verify-boilerplate tidy-check verify-doc-defaults verify-helm-rbac verify-dashboard-metrics verify-doc-tool-versions verify-prometheusrule-metrics verify-helm-schema-fields verify-release-artifacts ## Fast pre-commit checks (no integration tests or govulncheck)
+verify-quick: lint yaml-lint lint-chainsaw test python-test helm-lint helm-docs-check helm-unittest verify-boilerplate tidy-check verify-doc-defaults verify-helm-rbac verify-dashboard-metrics verify-doc-tool-versions verify-prometheusrule-metrics verify-helm-schema-fields verify-release-artifacts ## Fast pre-commit checks (no integration tests or govulncheck)
 
 .PHONY: verify
 verify: verify-quick test-integration govulncheck ## Run all CI checks locally (includes integration tests)
@@ -226,6 +226,10 @@ test-fuzz: ## Run fuzz tests (coverage-guided, 30s per target)
 	go test ./internal/recommendation/... -run='^$$' -fuzz=FuzzPercentileEstimator -fuzztime=30s
 	go test ./internal/recommendation/... -run='^$$' -fuzz=FuzzRecommendationEngine -fuzztime=30s
 	go test ./internal/webhook/... -run='^$$' -fuzz=FuzzValidateFloatFields -fuzztime=30s
+
+.PHONY: python-test
+python-test: ## Run Python script tests (fossa-filter)
+	python3 scripts/test_fossa_filter.py -v
 
 .PHONY: test-bench
 test-bench: ## Run benchmark tests
