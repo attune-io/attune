@@ -147,12 +147,9 @@ func validateDefaultsSpec(spec attunev1alpha1.AttuneDefaultsSpec) (admission.War
 
 	// Validate cooldown minimum floor.
 	if spec.UpdateStrategy != nil && spec.UpdateStrategy.Cooldown != nil {
-		cd := spec.UpdateStrategy.Cooldown.Duration
-		if cd < 0 {
-			return warnings, fmt.Errorf("updateStrategy.cooldown must be non-negative, got %s", cd)
-		}
-		if cd > 0 && cd < time.Minute {
-			return warnings, fmt.Errorf("updateStrategy.cooldown must be at least 1m to prevent excessive reconciliation, got %s", cd)
+		if err := validateDurationFloor("updateStrategy.cooldown",
+			spec.UpdateStrategy.Cooldown.Duration, time.Minute); err != nil {
+			return warnings, err
 		}
 	}
 
@@ -168,23 +165,17 @@ func validateDefaultsSpec(spec attunev1alpha1.AttuneDefaultsSpec) (admission.War
 
 	// Validate safetyObservationPeriod has a minimum floor.
 	if spec.UpdateStrategy != nil && spec.UpdateStrategy.SafetyObservationPeriod != nil {
-		sop := spec.UpdateStrategy.SafetyObservationPeriod.Duration
-		if sop < 0 {
-			return warnings, fmt.Errorf("updateStrategy.safetyObservationPeriod must be non-negative, got %s", sop)
-		}
-		if sop > 0 && sop < time.Minute {
-			return warnings, fmt.Errorf("updateStrategy.safetyObservationPeriod must be at least 1m, got %s", sop)
+		if err := validateDurationFloor("updateStrategy.safetyObservationPeriod",
+			spec.UpdateStrategy.SafetyObservationPeriod.Duration, time.Minute); err != nil {
+			return warnings, err
 		}
 	}
 
 	// Validate canary observation period has a minimum floor.
 	if spec.UpdateStrategy != nil && spec.UpdateStrategy.Canary != nil {
-		op := spec.UpdateStrategy.Canary.ObservationPeriod.Duration
-		if op < 0 {
-			return warnings, fmt.Errorf("updateStrategy.canary.observationPeriod must be non-negative, got %s", op)
-		}
-		if op > 0 && op < time.Minute {
-			return warnings, fmt.Errorf("updateStrategy.canary.observationPeriod must be at least 1m, got %s", op)
+		if err := validateDurationFloor("updateStrategy.canary.observationPeriod",
+			spec.UpdateStrategy.Canary.ObservationPeriod.Duration, time.Minute); err != nil {
+			return warnings, err
 		}
 	}
 

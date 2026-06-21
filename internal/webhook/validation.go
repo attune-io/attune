@@ -67,26 +67,23 @@ func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (a
 		us = &attunev1alpha1.UpdateStrategy{}
 	}
 
-	// CPU bounds: minAllowed must be <= maxAllowed, and maxAllowed capped at 256 cores.
-	if policy.Spec.CPU.MinAllowed != nil && policy.Spec.CPU.MaxAllowed != nil {
-		if policy.Spec.CPU.MinAllowed.Cmp(*policy.Spec.CPU.MaxAllowed) > 0 {
-			return warnings, fmt.Errorf("cpu.minAllowed (%s) must be <= cpu.maxAllowed (%s)",
-				policy.Spec.CPU.MinAllowed.String(), policy.Spec.CPU.MaxAllowed.String())
-		}
+	// Validate shared ResourceConfig fields (overhead, burstSensitivity,
+	// memoryFromCpuRatio, percentile, bounds, startupBoost) for CPU and memory.
+	// These checks are shared with AttuneDefaults validation.
+	if err := validateResourceConfigFields("cpu", &policy.Spec.CPU); err != nil {
+		return warnings, err
 	}
+	if err := validateResourceConfigFields("memory", &policy.Spec.Memory); err != nil {
+		return warnings, err
+	}
+
+	// Policy-specific caps beyond what ResourceConfig validates:
+	// CPU maxAllowed capped at 256 cores, memory maxAllowed capped at 16Ti.
 	if policy.Spec.CPU.MaxAllowed != nil {
 		maxCPU := resource.MustParse("256")
 		if policy.Spec.CPU.MaxAllowed.Cmp(maxCPU) > 0 {
 			return warnings, fmt.Errorf("cpu.maxAllowed (%s) exceeds the maximum allowed value of 256 cores",
 				policy.Spec.CPU.MaxAllowed.String())
-		}
-	}
-
-	// Memory bounds: minAllowed must be <= maxAllowed, and maxAllowed capped at 16Ti.
-	if policy.Spec.Memory.MinAllowed != nil && policy.Spec.Memory.MaxAllowed != nil {
-		if policy.Spec.Memory.MinAllowed.Cmp(*policy.Spec.Memory.MaxAllowed) > 0 {
-			return warnings, fmt.Errorf("memory.minAllowed (%s) must be <= memory.maxAllowed (%s)",
-				policy.Spec.Memory.MinAllowed.String(), policy.Spec.Memory.MaxAllowed.String())
 		}
 	}
 	if policy.Spec.Memory.MaxAllowed != nil {
@@ -97,6 +94,11 @@ func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (a
 		}
 	}
 
+	// Warn if memory startup boost is set (only CPU boost is implemented).
+	if policy.Spec.Memory.StartupBoost != nil {
+		warnings = append(warnings, "memory.startupBoost has no effect; startup boost only applies to CPU resources")
+	}
+
 	// Canary config required when type is Canary
 	if us.Type == attunev1alpha1.UpdateTypeCanary && us.Canary == nil {
 		return warnings, fmt.Errorf("updateStrategy.canary is required when updateStrategy.type is Canary")
@@ -104,26 +106,20 @@ func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (a
 
 	// Validate canary observation period has a minimum floor.
 	if us.Canary != nil {
-		op := us.Canary.ObservationPeriod.Duration
-		if op < 0 {
-			return warnings, fmt.Errorf("updateStrategy.canary.observationPeriod must be non-negative, got %s", op)
+		if err := validateDurationFloor("updateStrategy.canary.observationPeriod",
+			us.Canary.ObservationPeriod.Duration, time.Minute); err != nil {
+			return warnings, err
 		}
-		if op > 0 && op < time.Minute {
-			return warnings, fmt.Errorf("updateStrategy.canary.observationPeriod must be at least 1m, got %s", op)
-		}
-		if op == 0 {
+		if us.Canary.ObservationPeriod.Duration == 0 {
 			warnings = append(warnings, "updateStrategy.canary.observationPeriod is 0; the default observation period will be used")
 		}
 	}
 
 	// Validate safetyObservationPeriod has a minimum floor.
 	if us.SafetyObservationPeriod != nil {
-		sop := us.SafetyObservationPeriod.Duration
-		if sop < 0 {
-			return warnings, fmt.Errorf("updateStrategy.safetyObservationPeriod must be non-negative, got %s", sop)
-		}
-		if sop > 0 && sop < time.Minute {
-			return warnings, fmt.Errorf("updateStrategy.safetyObservationPeriod must be at least 1m, got %s", sop)
+		if err := validateDurationFloor("updateStrategy.safetyObservationPeriod",
+			us.SafetyObservationPeriod.Duration, time.Minute); err != nil {
+			return warnings, err
 		}
 	}
 
@@ -151,63 +147,11 @@ func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (a
 			policy.Spec.TargetRef.Kind, attunev1alpha1.SupportedTargetKindsCSV)
 	}
 
-	// Validate overhead is a valid non-negative percentage.
-	if err := validateOverhead("cpu", policy.Spec.CPU.Overhead); err != nil {
-		return warnings, err
-	}
-	if err := validateOverhead("memory", policy.Spec.Memory.Overhead); err != nil {
-		return warnings, err
-	}
-
-	// Validate memoryFromCpuRatio is a valid positive float.
-	if err := validateMemoryFromCPURatio(policy.Spec.Memory.MemoryFromCPURatio); err != nil {
-		return warnings, err
-	}
-
-	// Validate burstSensitivity is a valid non-negative float, max 1.0.
-	if err := validateBurstSensitivity("cpu", policy.Spec.CPU.BurstSensitivity); err != nil {
-		return warnings, err
-	}
-	if err := validateBurstSensitivity("memory", policy.Spec.Memory.BurstSensitivity); err != nil {
-		return warnings, err
-	}
-
-	// Validate CPU startup boost if configured.
-	if sb := policy.Spec.CPU.StartupBoost; sb != nil {
-		m, err := strconv.ParseFloat(sb.Multiplier, 64)
-		if err != nil {
-			return warnings, fmt.Errorf("cpu.startupBoost.multiplier %q is not a valid number: %w", sb.Multiplier, err)
-		}
-		if math.IsNaN(m) || math.IsInf(m, 0) {
-			return warnings, fmt.Errorf("cpu.startupBoost.multiplier must be a finite number, got %s", sb.Multiplier)
-		}
-		if m <= 1 {
-			return warnings, fmt.Errorf("cpu.startupBoost.multiplier must be > 1.0, got %s", sb.Multiplier)
-		}
-		if m > 10 {
-			return warnings, fmt.Errorf("cpu.startupBoost.multiplier must be <= 10.0, got %s", sb.Multiplier)
-		}
-		if sb.Duration.Duration < 10*time.Second {
-			return warnings, fmt.Errorf("cpu.startupBoost.duration must be at least 10s, got %s", sb.Duration.Duration)
-		}
-		if sb.Duration.Duration > 1*time.Hour {
-			return warnings, fmt.Errorf("cpu.startupBoost.duration must be at most 1h, got %s", sb.Duration.Duration)
-		}
-	}
-
-	// Warn if memory startup boost is set (only CPU boost is implemented).
-	if policy.Spec.Memory.StartupBoost != nil {
-		warnings = append(warnings, "memory.startupBoost has no effect; startup boost only applies to CPU resources")
-	}
-
 	// Validate cooldown has a minimum floor to prevent resource exhaustion via tight reconciliation loops.
 	if us.Cooldown != nil {
-		cd := us.Cooldown.Duration
-		if cd < 0 {
-			return warnings, fmt.Errorf("updateStrategy.cooldown must be non-negative, got %s", cd)
-		}
-		if cd > 0 && cd < time.Minute {
-			return warnings, fmt.Errorf("updateStrategy.cooldown must be at least 1m to prevent excessive reconciliation, got %s", cd)
+		if err := validateDurationFloor("updateStrategy.cooldown",
+			us.Cooldown.Duration, time.Minute); err != nil {
+			return warnings, err
 		}
 	}
 
@@ -217,15 +161,6 @@ func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (a
 	}
 	if q := us.MaxTotalMemoryIncrease; q != nil && q.Value() < 0 {
 		return warnings, fmt.Errorf("updateStrategy.maxTotalMemoryIncrease must be non-negative, got %s", q)
-	}
-
-	// Validate percentile values are in the supported set.
-	supportedPercentiles := map[int32]bool{50: true, 90: true, 95: true, 99: true}
-	if p := policy.Spec.CPU.Percentile; p != 0 && !supportedPercentiles[p] {
-		return warnings, fmt.Errorf("cpu.percentile %d is not supported; must be one of: 50, 90, 95, 99", p)
-	}
-	if p := policy.Spec.Memory.Percentile; p != 0 && !supportedPercentiles[p] {
-		return warnings, fmt.Errorf("memory.percentile %d is not supported; must be one of: 50, 90, 95, 99", p)
 	}
 
 	// Validate historyWindow is within reasonable bounds (1h to 720h/30d).
@@ -515,6 +450,19 @@ func validateBurstSensitivity(resource string, value *string) error {
 	return nil
 }
 
+// validateDurationFloor checks that a duration is non-negative and, if positive,
+// at least the specified minimum floor. This pattern is used for cooldown,
+// observation periods, and evaluation windows throughout validation.
+func validateDurationFloor(field string, d time.Duration, minFloor time.Duration) error { //nolint:unparam // minFloor kept as parameter for readability and future use
+	if d < 0 {
+		return fmt.Errorf("%s must be non-negative, got %s", field, d)
+	}
+	if d > 0 && d < minFloor {
+		return fmt.Errorf("%s must be at least %s, got %s", field, minFloor, d)
+	}
+	return nil
+}
+
 // validWeekdays is the set of accepted day-of-week names (case-insensitive).
 var validWeekdays = map[string]bool{
 	"monday": true, "tuesday": true, "wednesday": true,
@@ -593,12 +541,10 @@ func validateSLOGuardrails(guardrails []attunev1alpha1.SLOGuardrail) error {
 		}
 
 		if g.EvaluationWindow != nil {
-			ew := g.EvaluationWindow.Duration
-			if ew < 0 {
-				return fmt.Errorf("updateStrategy.sloGuardrails[%d].evaluationWindow must be non-negative, got %s", i, ew)
-			}
-			if ew > 0 && ew < time.Minute {
-				return fmt.Errorf("updateStrategy.sloGuardrails[%d].evaluationWindow must be at least 1m, got %s", i, ew)
+			if err := validateDurationFloor(
+				fmt.Sprintf("updateStrategy.sloGuardrails[%d].evaluationWindow", i),
+				g.EvaluationWindow.Duration, time.Minute); err != nil {
+				return err
 			}
 		}
 	}
