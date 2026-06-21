@@ -18,11 +18,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
+      contents: write
       pull-requests: write
     if: >
-      github.actor == 'SebTardif' ||
-      github.actor == 'dependabot[bot]' ||
-      github.actor == 'attune-release-bot[bot]'
+      github.event.pull_request.user.login != 'github-actions[bot]' &&
+      (github.actor == 'SebTardif' ||
+       github.actor == 'dependabot[bot]' ||
+       github.actor == 'attune-release-bot[bot]')
     steps:
       - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
@@ -32,3 +34,20 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh pr review --approve "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}"
+
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        if: >-
+          github.event.pull_request.user.login != 'attune-release-bot[bot]' &&
+          !contains(github.event.pull_request.labels.*.name, 'autorelease: pending')
+        id: app-token
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Enable auto-merge
+        if: >-
+          github.event.pull_request.user.login != 'attune-release-bot[bot]' &&
+          !contains(github.event.pull_request.labels.*.name, 'autorelease: pending')
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: gh pr merge --auto --squash "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}"
