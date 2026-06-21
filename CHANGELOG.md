@@ -6,6 +6,24 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.16](https://github.com/attune-io/attune/compare/v0.1.15...v0.1.16) (2026-06-21)
+
+
+### Features
+
+* support optional RELEASE_NOTES.md override for curated release notes ([#339](https://github.com/attune-io/attune/issues/339)) ([dca0a52](https://github.com/attune-io/attune/commit/dca0a524f40fc83d007734a70805fa267d9dcf7f))
+
+
+### Bug Fixes
+
+* add retry and caching to cert-manager manifest download in e2e-nightly ([#324](https://github.com/attune-io/attune/issues/324)) ([3d232b7](https://github.com/attune-io/attune/commit/3d232b7be39da3324b02315da3ffa1d70ad6897f)), closes [#322](https://github.com/attune-io/attune/issues/322)
+* e2e transient download failures with cached Chainsaw and helm retry ([#321](https://github.com/attune-io/attune/issues/321)) ([49855a3](https://github.com/attune-io/attune/commit/49855a31a921ec4f9c2e39aef13a440823f23c57)), closes [#317](https://github.com/attune-io/attune/issues/317)
+* filter FOSSA false positive for pinned k8s.io/client-go ([#334](https://github.com/attune-io/attune/issues/334)) ([11ae86b](https://github.com/attune-io/attune/commit/11ae86b550b1bd4ba4dc94a01c41e9526d8b5d76))
+* remove confidence floor and add QoS-aware HPA target cap ([#335](https://github.com/attune-io/attune/issues/335)) ([f92e9d4](https://github.com/attune-io/attune/commit/f92e9d48fe26b530ba347f6989b62cd7bebe6c93))
+* unnecessary %% escapes in test messages and invalid jq parent filter ([#314](https://github.com/attune-io/attune/issues/314)) ([82e4670](https://github.com/attune-io/attune/commit/82e4670a6d87b8f3e5d39f66a1ee899c4c897223))
+* use feature-gates= (set) instead of += (append) in k3s v1.32 config ([#326](https://github.com/attune-io/attune/issues/326)) ([d8bb805](https://github.com/attune-io/attune/commit/d8bb805b12ef43dd428bbc24de9af7d41121f2a2)), closes [#325](https://github.com/attune-io/attune/issues/325)
+* use post-resize CPU limit for HPA QoS-aware cap ([#336](https://github.com/attune-io/attune/issues/336)) ([779ab52](https://github.com/attune-io/attune/commit/779ab52175e2e019fefe1b2780deb571107c6454))
+
 ## [0.1.15](https://github.com/attune-io/attune/compare/v0.1.14...v0.1.15) (2026-06-07)
 
 
