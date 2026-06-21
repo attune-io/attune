@@ -79,6 +79,7 @@ jobs:
       attestations: write
       contents: write
       packages: write
+      pull-requests: write
       id-token: write
     outputs:
       hashes: ${{ steps.hash.outputs.hashes }}
@@ -181,6 +182,18 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Apply custom release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.name }}
+        run: |
+          if [ -f RELEASE_NOTES.md ]; then
+            echo "Custom release notes found, updating release body..."
+            gh release edit "$TAG" --notes-file RELEASE_NOTES.md
+          else
+            echo "No custom release notes, using auto-generated notes"
+          fi
 
       - name: Extract legacy .sig and .pem from Sigstore bundle
         shell: bash -Eeuo pipefail {0}
@@ -366,6 +379,38 @@ jobs:
         uses: rajatjindal/krew-release-bot@c970b8a8f6dbc2f2285a26e3ae160903b87002c3 # v0.0.51
         with:
           krew_plugin_release_tag: ${{ steps.tag.outputs.name }}
+
+      # Clean up RELEASE_NOTES.md from main after the release is published.
+      # Branch protection blocks direct pushes, so we create a short-lived PR.
+      # Uses the GitHub App token so the PR triggers CI and auto-approve.
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: cleanup-token
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+      - name: Clean up release notes file
+        env:
+          GH_TOKEN: ${{ steps.cleanup-token.outputs.token }}
+          TAG: ${{ steps.tag.outputs.name }}
+        run: |
+          if git ls-tree HEAD --name-only | grep -q '^RELEASE_NOTES.md$'; then
+            BRANCH="chore/cleanup-release-notes-${TAG}"
+            gh api "repos/${{ github.repository }}/git/refs" \
+              -f ref="refs/heads/$BRANCH" \
+              -f sha="$(git rev-parse HEAD)"
+            FILE_SHA=$(gh api \
+              "repos/${{ github.repository }}/contents/RELEASE_NOTES.md?ref=$BRANCH" \
+              --jq '.sha')
+            gh api --method DELETE \
+              "repos/${{ github.repository }}/contents/RELEASE_NOTES.md" \
+              -f message="chore: remove release notes override" \
+              -f sha="$FILE_SHA" \
+              -f branch="$BRANCH"
+            PR_URL=$(gh pr create --base main --head "$BRANCH" \
+              --title "chore: remove release notes override" \
+              --body "Auto-cleanup after ${TAG} release.")
+            gh pr merge "$PR_URL" --auto --squash
+          fi
 
   helm-release:
     name: Helm Chart Release
