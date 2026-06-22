@@ -332,6 +332,49 @@ The repository enforces semantic PR titles via [.github/workflows/pr-title.yaml]
 
 When creating branches, commits, or PRs, make the first line a valid semantic title so the gate passes on the first attempt. This avoids immediate CI failures and repeated title edits.
 
+### Handling Dependabot PRs (Scorecard hygiene + minimal babysitting)
+
+Dependabot PRs (#348, #349 etc.) are important for **Dependency-Update-Tool (10)** and overall supply-chain health on Scorecard. We keep high scores on **CI-Tests (10)**, **Branch-Protection (currently 8)**, **Token-Permissions**, and DCO-related hygiene by ensuring:
+
+- Every Dependabot change still runs (and must pass) the full relevant CI.
+- DCO is enforced on real changes.
+- We avoid patterns that regress Branch-Protection or CI-Tests.
+
+**How to help an open Dependabot PR without hurting Scorecard or creating more work:**
+
+1. **Never merge `main` into the dependabot branch** (or click "Update branch" if it produces a merge commit). Merge commits have non-bot authors and lack `Signed-off-by`, so they fail DCO even though the bot commit itself is skipped.
+2. **Always rebase cleanly** (use the helper for convenience):
+   ```bash
+   scripts/rebase-dependabot.sh 348
+   # or
+   scripts/rebase-dependabot.sh origin/dependabot/...
+   ```
+   Or manually:
+   ```bash
+   git fetch origin
+   git checkout -B temp-dependabot origin/dependabot/...
+   git rebase origin/main
+   git push origin HEAD:dependabot/... --force-with-lease
+   ```
+3. The DCO workflow now explicitly skips merge commits (in addition to `[bot]` authors) so that occasional update accidents don't block PRs, while the meaningful diff commit still satisfies the spirit of the rule.
+4. After a clean rebase/push, new workflow runs will use the latest workflow definitions (important for auto-approve paths).
+5. Let the existing "Auto-merge Dependabot PRs" + "Auto Approve" jobs do their work once CI is green. They set `--auto --squash`.
+6. If the PR is behind and you want it to move faster, the rebase above + `gh pr comment` or just wait is preferred over broad CI skips.
+
+**Why this protects the best possible Scorecard:**
+
+- CI-Tests stays at 10 only if real tests run on the changes that get merged.
+- Branch-Protection already requires up-to-date branches + status checks on main.
+- Adding broad skips or risky auto-rebase jobs (GITHUB_TOKEN pushes don't retrigger workflows reliably) has historically caused "limbo" states and lower effective scores.
+- Token-Permissions warnings are minimized by scoping writes only where gh commands truly need them (see the dependabot-auto-merge and auto-approve jobs).
+
+See also:
+- `.github/workflows/dependabot-auto-merge.yaml` (the NOTE about the removed rebase job)
+- `.github/workflows/dco.yaml` (bot + merge-commit skips)
+- `pr-title.yaml` (Dependabot is exempted from semantic title)
+
+When in doubt, prefer letting Dependabot open a fresh PR on conflict rather than force-updating an old one.
+
 ### Issue closure in PR descriptions
 
 Before running `gh pr create`, check open issues and include `Closes #N`

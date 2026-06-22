@@ -43,6 +43,16 @@ jobs:
               echo "Skipping bot commit $sha ($author)"
               continue
             fi
+            # Skip merge commits (multiple parents). We squash-merge PRs (including
+            # Dependabot ones), so merge commits created when updating a branch
+            # (e.g. via GitHub "Update branch" button) are transient. Skipping them
+            # reduces babysitting while preserving DCO for real changes. This helps
+            # maintain high Scorecard scores without unnecessary friction.
+            num_parents=$(git log -1 --format=%P "$sha" | wc -w)
+            if [ "$num_parents" -gt 1 ]; then
+              echo "Skipping merge commit $sha"
+              continue
+            fi
             if ! git log -1 --format='%B' "$sha" | grep -qE '^Signed-off-by: .+ <.+>'; then
               missing+=("$sha")
             fi

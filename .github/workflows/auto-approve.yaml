@@ -18,6 +18,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
+      # contents: write is required for the gh pr merge --auto step (when using
+      # the App token). Top-level is contents: read. This setup (with job-level
+      # scoping and comments) helps the Token-Permissions Scorecard check.
+      # See also the dedicated dependabot-auto-merge.yaml (pull_request_target)
+      # which handles Dependabot exclusively.
       contents: write
       pull-requests: write
     if: >
