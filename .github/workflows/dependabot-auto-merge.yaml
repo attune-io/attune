@@ -14,6 +14,9 @@ jobs:
   auto-merge:
     name: Auto-merge Dependabot PRs
     permissions:
+      # contents:write + pull-requests:write required for gh pr review + gh pr merge --auto.
+      # This is the minimum for the auto-merge functionality on pull_request_target.
+      # See Scorecard Token-Permissions: writes are justified here but kept scoped to the job.
       contents: write
       pull-requests: write
     runs-on: ubuntu-latest
@@ -55,3 +58,8 @@ jobs:
   # disabled in the branch ruleset, PRs can merge when behind main, so
   # auto-rebase is unnecessary. Dependabot handles its own rebases when
   # conflicts arise.
+  #
+  # See AGENTS.md "Handling Dependabot PRs" for the supported process
+  # (always rebase cleanly when helping a PR; the DCO workflow skips merge
+  # commits to avoid blocking legitimate updates). This design protects
+  # our high Scorecard scores (CI-Tests=10, Branch-Protection, etc.).
