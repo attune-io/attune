@@ -357,9 +357,18 @@ Dependabot PRs (#348, #349 etc.) are important for **Dependency-Update-Tool (10)
    git push origin HEAD:dependabot/... --force-with-lease
    ```
 3. The DCO workflow now explicitly skips merge commits (in addition to `[bot]` authors) so that occasional update accidents don't block PRs, while the meaningful diff commit still satisfies the spirit of the rule.
-4. After a clean rebase/push, new workflow runs will use the latest workflow definitions (important for auto-approve paths).
-5. Let the existing "Auto-merge Dependabot PRs" + "Auto Approve" jobs do their work once CI is green. They set `--auto --squash`.
+4. After a clean rebase/push, new workflow runs will use the latest workflow definitions.
+5. Let `dependabot-auto-merge.yaml` (`pull_request_target`) handle approval
+   and auto-merge. It approves and enables `--auto --squash` for all semver
+   types (patch, minor, and major). `auto-approve.yaml` (`pull_request`)
+   excludes `dependabot[bot]` because secrets are unavailable in that context.
 6. If the PR is behind and you want it to move faster, the rebase above + `gh pr comment` or just wait is preferred over broad CI skips.
+
+**Grouped updates and semver classification:** `dependabot/fetch-metadata`
+classifies grouped updates by the **highest** semver type in the group. If
+any package has a major bump (e.g. `actions/cache` v5 to v6), the entire
+group is classified as `version-update:semver-major`. Do not gate auto-merge
+on `update-type`; CI is the real safety gate.
 
 **Why this protects the best possible Scorecard:**
 

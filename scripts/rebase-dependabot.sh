@@ -32,7 +32,8 @@ if [[ "$TARGET" =~ ^[0-9]+$ ]]; then
   BRANCH=$(gh pr view "$TARGET" --json headRefName --jq .headRefName)
   echo "Branch: $BRANCH"
 else
-  BRANCH="$TARGET"
+  # Strip origin/ prefix if present so we always work with bare branch names
+  BRANCH="${TARGET#origin/}"
 fi
 
 echo "Fetching..."
@@ -41,7 +42,7 @@ git fetch origin
 LOCAL_BRANCH="rebase-dependabot-$(date +%s)"
 
 echo "Checking out clean worktree for $BRANCH ..."
-git checkout -B "$LOCAL_BRANCH" "$BRANCH"
+git checkout -B "$LOCAL_BRANCH" "origin/$BRANCH"
 
 echo "Rebasing onto origin/main ..."
 git rebase origin/main
