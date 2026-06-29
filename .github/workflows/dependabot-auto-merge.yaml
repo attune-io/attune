@@ -35,19 +35,14 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           skip-commit-verification: true
 
-      - name: Approve and enable auto-merge (patch/minor only)
-        if: steps.metadata.outputs.update-type != 'version-update:semver-major'
+      - name: Approve and enable auto-merge
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_URL: ${{ github.event.pull_request.html_url }}
         run: |
           gh pr review --approve "$PR_URL"
           gh pr merge --auto --squash "$PR_URL"
-          echo "Auto-merge enabled — will merge when CI passes"
-
-      - name: Skip major updates
-        if: steps.metadata.outputs.update-type == 'version-update:semver-major'
-        run: echo "Skipping major version update — requires manual review"
+          echo "Auto-merge enabled for ${{ steps.metadata.outputs.update-type }} update"
 
   # NOTE: A rebase-dependabot job was removed here. It updated open
   # Dependabot PR branches on every push to main, but caused more harm
