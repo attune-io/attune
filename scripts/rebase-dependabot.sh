@@ -32,7 +32,8 @@ if [[ "$TARGET" =~ ^[0-9]+$ ]]; then
   BRANCH=$(gh pr view "$TARGET" --json headRefName --jq .headRefName)
   echo "Branch: $BRANCH"
 else
-  BRANCH="$TARGET"
+  # Strip origin/ prefix if present so we always work with bare branch names
+  BRANCH="${TARGET#origin/}"
 fi
 
 echo "Fetching..."
