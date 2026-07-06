@@ -124,7 +124,7 @@ jobs:
 
       - name: Login to GHCR
         if: steps.docker-check.outputs.enabled == 'true'
-        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -132,14 +132,14 @@ jobs:
 
       - name: Login to Docker Hub
         if: steps.docker-check.outputs.enabled == 'true'
-        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Set up Docker Buildx
         if: steps.docker-check.outputs.enabled == 'true'
-        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
 
       - name: Capture build date
         if: steps.docker-check.outputs.enabled == 'true'
@@ -175,7 +175,7 @@ jobs:
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
       - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89 # v7.2.2
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
           version: "~> v2"
           args: release --clean
@@ -323,7 +323,7 @@ jobs:
 
       - name: Build and push multi-arch image
         if: steps.docker-check.outputs.enabled == 'true'
-        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         id: build
         with:
           context: .release-image
@@ -476,14 +476,14 @@ jobs:
             --username ${{ github.actor }} --password-stdin
 
       - name: Login to GHCR (Docker/cosign)
-        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Login to Docker Hub (Docker/cosign)
-        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -500,7 +500,7 @@ jobs:
           helm package charts/attune
           helm push attune-${VERSION}.tgz oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts
 
-      - uses: oras-project/setup-oras@4aa197ce33a6a1bfca64d7500bf1220cb2588086 # v2 (includes 1.3.2)
+      - uses: oras-project/setup-oras@fb503f0785cc233c3803ff36d5e209a4f91cf678 # v2 (includes 1.3.2)
         with:
           version: "1.3.2"
 
