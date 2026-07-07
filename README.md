@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/attune-io/attune/actions/workflows/ci.yaml/badge.svg)](https://github.com/attune-io/attune/actions/workflows/ci.yaml)
 [![Security](https://github.com/attune-io/attune/actions/workflows/security.yaml/badge.svg)](https://github.com/attune-io/attune/actions/workflows/security.yaml)
-[![Go Report Card](https://goreportcard.com/badge/github.com/attune-io/attune)](https://goreportcard.com/report/github.com/attune-io/attune)
+[![Coverage](https://img.shields.io/badge/coverage-90%25%2B-brightgreen)](https://github.com/attune-io/attune/blob/main/docs/contributing/testing.md)
 [![Release](https://img.shields.io/github/v/release/attune-io/attune?logo=github&color=green)](https://github.com/attune-io/attune/releases/latest)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/attune-io/attune?logo=go)](go.mod)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
