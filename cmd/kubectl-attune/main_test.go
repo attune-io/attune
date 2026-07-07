@@ -1258,7 +1258,8 @@ func TestPrintSavings_NoSavings(t *testing.T) {
 	output := buf.String()
 
 	assert.Contains(t, output, "fresh-policy")
-	assert.Contains(t, output, "-")
+	// Empty savings cells render as table placeholders for each metric column.
+	assert.Regexp(t, `fresh-policy\s+-\s+-\s+-\s+-`, output)
 }
 
 // ---------- printRecommendations ----------
@@ -2831,7 +2832,8 @@ func TestPrintExportList_DerivationWarning(t *testing.T) {
 	stderr := bufErr.String()
 
 	assert.Contains(t, output, "bad-policy")
-	assert.Contains(t, output, "-") // workload should be '-'
+	// Missing workload label renders as a dedicated "-" WORKLOAD column.
+	assert.Regexp(t, `bad-policy\s+-\s+Deployment`, output)
 	assert.Contains(t, stderr, "Warning: could not determine workload name")
 	assert.Contains(t, stderr, "missing attune.io/workload label")
 }
