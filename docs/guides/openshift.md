@@ -8,14 +8,37 @@ security considerations.
 
 ### Via OperatorHub (recommended for OpenShift)
 
-OpenShift includes a built-in OperatorHub catalog. Search for "Attune"
-in the web console under **Operators > OperatorHub** and click Install.
-The OLM bundle includes all CRDs, RBAC, and the operator deployment.
+OpenShift includes a built-in OperatorHub catalog. Search for **Attune**
+(OLM package name **`attune`**) in the web console under
+**Operators > OperatorHub** and click Install. The OLM bundle includes
+all CRDs, RBAC, and the operator deployment.
+
+| Field | Value |
+|---|---|
+| **Display name** | Attune |
+| **Package name** | `attune` |
+| **CSV name** | `attune.vX.Y.Z` (for example `attune.v0.1.16`) |
+| **Channel** | `stable` |
+| **Catalog** | Community Operators (`community-operator-index`) |
+| **OpenShift versions** | **4.19+** (Attune requires Kubernetes 1.32+) |
+
+CLI check on an OpenShift cluster:
+
+```bash
+oc get packagemanifests -n openshift-marketplace attune
+# or
+oc get packagemanifests -n openshift-marketplace | grep -i attune
+```
 
 You can also browse the listing online:
 
-- [Red Hat Ecosystem Catalog](https://catalog.redhat.com/software/search?target_platforms=Operator&q=attune) (OpenShift embedded catalog)
-- [OperatorHub.io](https://operatorhub.io/operator/attune) (community catalog for any OLM-enabled cluster)
+- [Red Hat Ecosystem Catalog](https://catalog.redhat.com/software/search?target_platforms=Operator&q=attune) (OpenShift community catalog; package **`attune`**)
+- [OperatorHub.io](https://operatorhub.io/operator/attune) (community catalog for any OLM-enabled cluster; same package name)
+
+!!! note "Catalog filters"
+    In OperatorHub filters, select the **Community** source if the list
+    is large. Do not search for `attune-operator`; that is not the
+    package or CSV name used in the catalog.
 
 ### Via Helm
 

@@ -67,8 +67,11 @@ helm install attune oci://ghcr.io/attune-io/charts/attune \
 ```
 
 Also available via [OperatorHub.io](https://operatorhub.io/operator/attune)
-(OLM) and raw manifests. See the
+(OLM package **`attune`**) and on OpenShift 4.19+ in the built-in OperatorHub
+Community catalog under the same name. Raw manifests are published with each
+release. See the
 [Installation Guide](https://attune-io.github.io/attune/getting-started/installation/)
+and [OpenShift guide](https://attune-io.github.io/attune/guides/openshift/)
 for all options.
 
 ### Create a Policy
