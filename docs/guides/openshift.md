@@ -30,10 +30,18 @@ oc get packagemanifests -n openshift-marketplace attune
 oc get packagemanifests -n openshift-marketplace | grep -i attune
 ```
 
-You can also browse the listing online:
+**Where to find it in a browser:** use
+[OperatorHub.io/operator/attune](https://operatorhub.io/operator/attune)
+(same package name **`attune`**). That site is the public web listing for
+the community OLM package.
 
-- [Red Hat Ecosystem Catalog](https://catalog.redhat.com/software/search?target_platforms=Operator&q=attune) (OpenShift community catalog; package **`attune`**)
-- [OperatorHub.io](https://operatorhub.io/operator/attune) (community catalog for any OLM-enabled cluster; same package name)
+!!! note "Red Hat Ecosystem Catalog website"
+    `catalog.redhat.com` search URLs do **not** reliably surface community
+    operators (and some query links drop the search terms on redirect).
+    The OpenShift **in-cluster** Community Operators catalog is the source
+    of truth for installability on OpenShift, not the public website product
+    search. Prefer OperatorHub.io for browsing, or the console / CLI checks
+    above for a live cluster.
 
 !!! note "Catalog filters"
     In OperatorHub filters, select the **Community** source if the list

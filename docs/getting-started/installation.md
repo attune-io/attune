@@ -76,10 +76,12 @@ in the web console under **Operators > OperatorHub**, or verify with:
 oc get packagemanifests -n openshift-marketplace attune
 ```
 
-You can also browse the
-[Red Hat Ecosystem Catalog](https://catalog.redhat.com/software/search?target_platforms=Operator&q=attune).
-See the [OpenShift guide](../guides/openshift.md) for catalog details,
-TLS profile integration, and OpenShift-specific configuration.
+For a public web listing of the same package, use
+[OperatorHub.io/operator/attune](https://operatorhub.io/operator/attune)
+(the Red Hat Ecosystem Catalog website search does not reliably list
+community operators). See the [OpenShift guide](../guides/openshift.md)
+for catalog details, TLS profile integration, and OpenShift-specific
+configuration.
 
 **On other clusters with OLM**, install the operator by creating a
 `Subscription`:
