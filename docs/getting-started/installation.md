@@ -67,12 +67,19 @@ If your cluster has the [Operator Lifecycle Manager](https://olm.operatorframewo
 installed, you can install Attune directly from
 [OperatorHub.io](https://operatorhub.io/operator/attune).
 
-**On OpenShift**, the operator is available in the built-in OperatorHub catalog.
-Search for "Attune" in the web console under **Operators > OperatorHub** and
-click Install. You can also browse the listing on the
+**On OpenShift 4.19+**, the operator is in the built-in OperatorHub
+**Community** catalog under package name **`attune`** (display name
+**Attune**; CSV names look like `attune.v0.1.16`). Search for "Attune"
+in the web console under **Operators > OperatorHub**, or verify with:
+
+```bash
+oc get packagemanifests -n openshift-marketplace attune
+```
+
+You can also browse the
 [Red Hat Ecosystem Catalog](https://catalog.redhat.com/software/search?target_platforms=Operator&q=attune).
-See the [OpenShift guide](../guides/openshift.md) for TLS profile integration
-and OpenShift-specific configuration.
+See the [OpenShift guide](../guides/openshift.md) for catalog details,
+TLS profile integration, and OpenShift-specific configuration.
 
 **On other clusters with OLM**, install the operator by creating a
 `Subscription`:
