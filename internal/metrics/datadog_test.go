@@ -297,6 +297,12 @@ func TestDatadogCollector_Query_ReturnsLatestTimestamp(t *testing.T) {
 	assert.InDelta(t, 5.0, val, 0.001, "should return the sample with the latest timestamp")
 }
 
+func TestDatadogCollector_Close(t *testing.T) {
+	c := &DatadogCollector{}
+	require.NoError(t, c.Close(), "Close is a no-op and must succeed")
+	require.NoError(t, c.Close(), "Close must be idempotent")
+}
+
 func TestLatestSampleValue(t *testing.T) {
 	tests := []struct {
 		name    string

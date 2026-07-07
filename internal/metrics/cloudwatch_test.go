@@ -322,5 +322,11 @@ func TestParseCloudWatchLabel(t *testing.T) {
 	}
 }
 
+func TestCloudWatchCollector_Close(t *testing.T) {
+	c := &CloudWatchCollector{}
+	require.NoError(t, c.Close(), "Close is a no-op and must succeed")
+	require.NoError(t, c.Close(), "Close must be idempotent")
+}
+
 // Verify CloudWatchCollector implements MetricsCollector.
 var _ MetricsCollector = &CloudWatchCollector{}

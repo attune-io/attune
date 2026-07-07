@@ -285,19 +285,65 @@ jobs:
         if: matrix.k8s-version == 'v1.32'
         shell: bash -Eeuo pipefail -x {0}
         run: |
+          # InPlacePodVerticalScaling is alpha on 1.32. k3s has an intermittent
+          # embedded-apiserver race (k3s-io/k3s#14286, tracked in attune #352)
+          # where the gate is present in process args but pods/resize is never
+          # registered. Recreating the cluster once recovers in practice.
+          verify_resize() {
+            local attempt
+            for attempt in $(seq 1 24); do
+              if kubectl get --raw /api/v1 | jq -e '.resources[] | select(.name == "pods/resize")' >/dev/null 2>&1; then
+                echo "pods/resize subresource is registered"
+                return 0
+              fi
+              echo "Waiting for pods/resize subresource (attempt ${attempt}/24)..."
+              sleep 5
+            done
+            return 1
+          }
+
+          recreate_v132_cluster() {
+            echo "Recreating k3d cluster ${CLUSTER_NAME} for feature-gate race recovery..."
+            k3d cluster delete "$CLUSTER_NAME" 2>/dev/null || true
+            K3S_CONFIG="/tmp/k3s-v132-config.yaml"
+            cat > "$K3S_CONFIG" <<'K3SEOF'
+          kube-apiserver-arg:
+            - "feature-gates=InPlacePodVerticalScaling=true"
+          kube-controller-manager-arg:
+            - "feature-gates=InPlacePodVerticalScaling=true"
+          kube-scheduler-arg:
+            - "feature-gates=InPlacePodVerticalScaling=true"
+          kubelet-arg:
+            - "feature-gates=InPlacePodVerticalScaling=true"
+          K3SEOF
+            k3d cluster create "$CLUSTER_NAME" \
+              --image "rancher/k3s:${{ matrix.k3s-image }}" \
+              --k3s-arg "--disable=traefik,servicelb@server:*" \
+              --volume "${K3S_CONFIG}:/etc/rancher/k3s/config.yaml@server:*" \
+              --wait --timeout 120s \
+              --kubeconfig-update-default=false \
+              --kubeconfig-switch-context=false
+            k3d kubeconfig merge "$CLUSTER_NAME" --output "$KUBECONFIG" --overwrite
+            kubectl wait --for=condition=Ready nodes --all --timeout=360s
+          }
+
           echo "Verifying InPlacePodVerticalScaling feature gate is active..."
-          # Verify the config file was loaded by checking the apiserver process.
           echo "k3s config inside container:"
           docker exec "k3d-${CLUSTER_NAME}-server-0" cat /etc/rancher/k3s/config.yaml || true
-          for i in $(seq 1 24); do
-            if kubectl get --raw /api/v1 | jq -e '.resources[] | select(.name == "pods/resize")' >/dev/null 2>&1; then
-              echo "pods/resize subresource is registered"
-              exit 0
-            fi
-            echo "Waiting for pods/resize subresource (attempt $i/24)..."
-            sleep 5
-          done
-          echo "::error::pods/resize subresource not found after 120s. The InPlacePodVerticalScaling feature gate did not take effect."
+
+          if verify_resize; then
+            exit 0
+          fi
+
+          echo "::warning::pods/resize missing after first cluster (known k3s race, #352). Recreating once..."
+          recreate_v132_cluster
+          echo "k3s config inside recreated container:"
+          docker exec "k3d-${CLUSTER_NAME}-server-0" cat /etc/rancher/k3s/config.yaml || true
+          if verify_resize; then
+            exit 0
+          fi
+
+          echo "::error::pods/resize subresource not found after recreate. The InPlacePodVerticalScaling feature gate did not take effect."
           echo "Diagnostic: k3s config file:"
           docker exec "k3d-${CLUSTER_NAME}-server-0" cat /etc/rancher/k3s/config.yaml || true
           echo "Diagnostic: k3s process (apiserver runs embedded):"
