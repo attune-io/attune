@@ -62,4 +62,5 @@ jobs:
 
       - name: Skip auto-merge for draft PRs
         if: github.event.pull_request.draft
-        run: echo "Draft PR #${{ github.event.pull_request.number }}: approved if eligible; auto-merge deferred until ready for review."
+        run: |
+          echo "Draft PR ${{ github.event.pull_request.number }}: auto-merge deferred until ready for review."
