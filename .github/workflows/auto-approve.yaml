@@ -49,10 +49,18 @@ jobs:
           client-id: ${{ vars.APP_CLIENT_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
+      # Draft PRs cannot have auto-merge enabled (GitHub API rejects it).
+      # Skip cleanly so the required Auto Approve check stays green on drafts.
       - name: Enable auto-merge
         if: >-
+          !github.event.pull_request.draft &&
           github.event.pull_request.user.login != 'attune-release-bot[bot]' &&
           !contains(github.event.pull_request.labels.*.name, 'autorelease: pending')
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: gh pr merge --auto --squash "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}"
+
+      - name: Skip auto-merge for draft PRs
+        if: github.event.pull_request.draft
+        run: |
+          echo "Draft PR ${{ github.event.pull_request.number }}: auto-merge deferred until ready for review."
