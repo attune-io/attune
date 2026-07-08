@@ -6,6 +6,16 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.17](https://github.com/attune-io/attune/compare/v0.1.16...v0.1.17) (2026-07-08)
+
+
+### Bug Fixes
+
+* auto-approve PRs from attune-release-bot ([#345](https://github.com/attune-io/attune/issues/345)) ([d4fb798](https://github.com/attune-io/attune/commit/d4fb7981fd0e64a05b2b12abd5a4cf98fcd9c3bd))
+* dco merge skip, dependabot docs, token perms tightening + rebase helper for best scorecard ([#350](https://github.com/attune-io/attune/issues/350)) ([e301fbd](https://github.com/attune-io/attune/commit/e301fbd62a606797cafa434a1eb1971fbee9c0e6))
+* exclude dependabot from auto-approve and allow all semver types in auto-merge ([#355](https://github.com/attune-io/attune/issues/355)) ([e2a667b](https://github.com/attune-io/attune/commit/e2a667bb64a2b1e780dc474e1bf05f94e73cf67a))
+* rebase-dependabot.sh missing origin/ prefix and update Dependabot docs ([#356](https://github.com/attune-io/attune/issues/356)) ([c5d8c67](https://github.com/attune-io/attune/commit/c5d8c67a19ab202b8cb52ace3f0930e6892f15b4))
+
 ## [0.1.16](https://github.com/attune-io/attune/compare/v0.1.15...v0.1.16) (2026-06-21)
 
 
