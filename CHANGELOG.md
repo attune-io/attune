@@ -6,6 +6,14 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.18](https://github.com/attune-io/attune/compare/v0.1.17...v0.1.18) (2026-07-11)
+
+
+### Bug Fixes
+
+* bump Go to 1.26.5 for CVE-2026-39822 and GO-2026-5856 ([#381](https://github.com/attune-io/attune/issues/381)) ([b09ead8](https://github.com/attune-io/attune/commit/b09ead8cf01634d18a58399d9a408f8e2c672353))
+* verify operator image inside k3d node after import ([#379](https://github.com/attune-io/attune/issues/379)) ([a444dfb](https://github.com/attune-io/attune/commit/a444dfb2e6428b83db27079fce78ffce675cc94f)), closes [#377](https://github.com/attune-io/attune/issues/377)
+
 ## [0.1.17](https://github.com/attune-io/attune/compare/v0.1.16...v0.1.17) (2026-07-08)
 
 
