@@ -398,6 +398,26 @@ comments on PRs that reference open issues without a closure keyword.
 Use `Closes #N` (auto-closes on merge), `Fixes #N` (same), or
 `Ref #N` (informational, no auto-close).
 
+### Issue triage labels and comment scope
+
+This repo uses `needs-triage`, `ready`, and `needs-info` labels. The
+`.github/workflows/issue-triage.yaml` workflow auto-labels new issues:
+OWNER/MEMBER/COLLABORATOR get `ready`; external authors get `needs-triage`.
+
+**Canonical policy** lives in
+`~/.grok/skills/github-interaction/SKILL.md` (sections "Owned-repo issue
+triage" and "Issue comment scope"). Do not duplicate or redefine those
+rules here; follow them directly.
+
+Key points for contributors and agents:
+
+- Only implement issues labeled `ready` (or legacy unlabeled).
+- Never auto-implement `needs-triage` or `needs-info` issues.
+- When filing issues as owner/maintainer, always include `ready`
+  (e.g., `gh issue create --label "tech-debt,ready"`).
+- On a `ready` issue: implement title/body plus creator/maintainer
+  comments only. External comments do not expand PR scope.
+
 ### MkDocs documentation links
 
 MkDocs strict mode rejects relative links that resolve outside the `docs/`
