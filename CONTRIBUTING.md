@@ -202,6 +202,24 @@ git commit --amend -s --no-edit
 git rebase --signoff main
 ```
 
+## Issue Triage Labels
+
+New issues are automatically labeled based on the author's relationship
+to the repository:
+
+| Label | Who gets it | Meaning |
+|-------|-------------|---------|
+| `ready` | OWNER, MEMBER, COLLABORATOR | Accepted backlog, ready for implementation |
+| `needs-triage` | External contributors | Awaits maintainer review before implementation |
+| `needs-info` | (applied manually) | Blocked on the reporter for more information |
+
+Maintainers accept an external issue by adding `ready` and removing
+`needs-triage`. Issues labeled `needs-triage` or `needs-info` will not be
+implemented until a maintainer promotes them.
+
+Unlabeled legacy issues (opened before this workflow existed) are treated
+as accepted.
+
 ## Pull Request Process
 
 1. Fork the repository and create a branch from `main`
