@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strings"
@@ -212,6 +213,9 @@ func latestSampleValue(samples []Sample, backend string) (float64, error) {
 		if s.Timestamp.After(latest.Timestamp) {
 			latest = s
 		}
+	}
+	if math.IsNaN(latest.Value) || math.IsInf(latest.Value, 0) {
+		return 0, fmt.Errorf("non-finite value from %s instant query: %v", backend, latest.Value)
 	}
 	return latest.Value, nil
 }

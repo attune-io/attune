@@ -306,37 +306,22 @@ status:
       result: Evicted
 ```
 
-#### CRD Validation (CEL Rules)
+#### CRD Validation (Webhook)
 
-```yaml
-# Applied via +kubebuilder:validation:XValidation markers on the Go types
+Validation is implemented in the admission webhook (`internal/webhook/validation.go`),
+not via CEL `x-kubernetes-validations` markers. The webhook enforces:
 
-# cpu: minAllowed must be less than maxAllowed
-x-kubernetes-validations:
-  - rule: "!has(self.minAllowed) || !has(self.maxAllowed) || self.minAllowed <= self.maxAllowed"
-    message: "cpu.minAllowed must be less than or equal to cpu.maxAllowed"
-
-# memory: minAllowed must be less than maxAllowed
-  - rule: "!has(self.minAllowed) || !has(self.maxAllowed) || self.minAllowed <= self.maxAllowed"
-    message: "memory.minAllowed must be less than or equal to memory.maxAllowed"
-
-# updateStrategy: canary config required when type is Canary
-  - rule: "self.updateStrategy.type != 'Canary' || has(self.updateStrategy.canary)"
-    message: "canary configuration is required when updateStrategy.type is Canary"
-
-# weight: immutable after creation (prevents runtime priority races)
-  - rule: "self.weight == oldSelf.weight"
-    message: "weight cannot be changed after creation"
-
-# historyWindow: reasonable bounds
-  - rule: "self.metricsSource.historyWindow >= duration('1h')"
-    message: "historyWindow must be at least 1 hour"
-```
+- `minAllowed <= maxAllowed` for both CPU and memory resource configs
+- Canary config required when `updateStrategy.type` is `Canary`
+- `historyWindow` bounded between 1h and 720h (30 days)
+- `safetyMargin` bounded between 0 and 10.0
+- All float fields (percentile, overhead, etc.) reject NaN and Inf
+- Prometheus address SSRF protection (scheme, host, and IP validation)
 
 #### Printer Columns
 
 ```go
-// +kubebuilder:printcolumn:name="Mode",type=string,JSONPath=`.spec.updateStrategy.type`
+// +kubebuilder:printcolumn:name="Type",type=string,JSONPath=`.spec.updateStrategy.type`
 // +kubebuilder:printcolumn:name="Workloads",type=integer,JSONPath=`.status.workloads.discovered`
 // +kubebuilder:printcolumn:name="Recs",type=integer,JSONPath=`.status.workloads.withRecommendations`
 // +kubebuilder:printcolumn:name="Resized",type=integer,JSONPath=`.status.workloads.resized`
@@ -401,6 +386,7 @@ spec:
 | `Ready` | `Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `PrometheusUnavailable`, `InvalidConfig`, `WorkloadDiscoveryFailed`, `Paused` | Overall health |
 | `Resizing` | `InProgress`, `Idle`, `CooldownActive` | Active resize operation |
 | `Degraded` | `HighRevertRate` | Some resizes failing |
+| `ScheduleBlocked` | `OutsideWindow`, `InsideWindow` | Whether the current time is within the configured resize schedule window |
 
 Status conditions use `meta.SetStatusCondition()` from `k8s.io/apimachinery/pkg/api/meta`
 (the Kyverno pattern) with `observedGeneration` on every condition.
@@ -806,7 +792,7 @@ Before any resize:
 ### 8.1 Prometheus Metrics Exposed
 
 All metrics use the `attune_` prefix and are exposed on the operator's
-metrics endpoint (default port 8080). The operator registers 25 metrics
+metrics endpoint (default port 8080). The operator registers 26 metrics
 across five categories:
 
 | Category | Metrics | Examples |
@@ -945,7 +931,7 @@ Eventually(func(g Gomega) {
 | 9 | Insufficient data | Policy reports InsufficientData condition |
 | 10 | Upgrade operator version | CRDs migrated, no downtime |
 
-**Test cluster**: CI uses k3d, not Kind. The push/PR E2E job runs a single K3S version (`v1.35.4-k3s1`), and `e2e-nightly.yaml` runs the full Kubernetes `v1.33` / `v1.34` / `v1.35` matrix. Prometheus is installed in-cluster from the Helm chart and cert-manager is bootstrapped before the operator tests run.
+**Test cluster**: CI uses k3d, not Kind. The push/PR E2E job runs a single K3S version (`v1.35.4-k3s1`), and `e2e-nightly.yaml` runs the full Kubernetes `v1.32` / `v1.33` / `v1.34` / `v1.35` matrix. Prometheus is installed in-cluster from the Helm chart and cert-manager is bootstrapped before the operator tests run.
 
 ### 9.5 Fuzz Tests
 
@@ -1142,8 +1128,8 @@ Jobs:
   auto-merge:
     - Triggers from successful `CI` workflow runs on Dependabot PRs
     - Finds the PR by head SHA
-    - Approves and squash-merges patch/minor updates
-    - Skips semver-major updates for manual review
+    - Approves and squash-merges all semver types (patch, minor, major)
+    - CI is the safety gate; no semver-type filter
 ```
 
 ### 10.2 CI Configuration Files
