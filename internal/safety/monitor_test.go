@@ -711,8 +711,7 @@ func TestRevertPod_PodNotFound(t *testing.T) {
 	}
 
 	err := monitor.RevertPod(context.Background(), record)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "getting pod for revert")
+	assert.NoError(t, err, "revert should succeed (no-op) for a deleted pod")
 }
 
 func TestRevertPod_ContainerNotInPod(t *testing.T) {

@@ -1043,6 +1043,11 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *attu
 	printEffectiveField("Query step", getNestedString(item, "spec", "metricsSource", "queryStep"), formatDurationPtr(effective.Spec.MetricsSource.QueryStep), selected, metricsDefaults != nil && metricsDefaults.QueryStep != nil)
 	printEffectiveField("Minimum data points", formatInt64Ptr(rawInt64Field(item, "spec", "metricsSource", "minimumDataPoints")), formatInt32Ptr(effective.Spec.MetricsSource.MinimumDataPoints), selected, metricsDefaults != nil && metricsDefaults.MinimumDataPoints != nil)
 	printEffectiveField("Paused", formatBoolField(item, "spec", "paused"), formatBoolPtr(effective.Spec.Paused), selected, false)
+	printEffectiveField("Weight", formatInt64Field(item, "spec", "weight"), formatInt32Val(effective.Spec.Weight), selected, false)
+	if len(effective.Spec.ExcludedContainers) > 0 {
+		configured := getNestedString(item, "spec", "excludedContainers")
+		printEffectiveField("Excluded containers", configured, strings.Join(effective.Spec.ExcludedContainers, ", "), selected, false)
+	}
 	printEffectiveField("Resize method", getNestedString(item, "spec", "updateStrategy", "resizeMethod"), string(effective.Spec.UpdateStrategy.ResizeMethod), selected, updateDefaults != nil && updateDefaults.ResizeMethod != "")
 	obsConfigured := getNestedString(item, "spec", "updateStrategy", "safetyObservationPeriod")
 	if obsConfigured == "" {
@@ -1067,6 +1072,41 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *attu
 		exportEffective = "ConfigMap"
 	}
 	printEffectiveField("Export", exportConfigured, exportEffective, selected, updateDefaults != nil && updateDefaults.Export != nil && updateDefaults.Export.ConfigMap)
+
+	// Schedule window display
+	if sched := effective.Spec.UpdateStrategy.Schedule; sched != nil {
+		tz := sched.Timezone
+		if tz == "" {
+			tz = "UTC"
+		}
+		schedParts := []string{"tz=" + tz}
+		if len(sched.DaysOfWeek) > 0 {
+			schedParts = append(schedParts, "days="+strings.Join(sched.DaysOfWeek, ","))
+		}
+		for _, w := range sched.Windows {
+			schedParts = append(schedParts, w.Start+"-"+w.End)
+		}
+		printEffectiveField("Schedule", getNestedString(item, "spec", "updateStrategy", "schedule", "timezone"), strings.Join(schedParts, " "), selected, updateDefaults != nil && updateDefaults.Schedule != nil)
+	}
+
+	// Canary config display
+	if canary := effective.Spec.UpdateStrategy.Canary; canary != nil {
+		canaryDesc := fmt.Sprintf("%d%% for %s (autoPromote=%v)", canary.Percentage, canary.ObservationPeriod.Duration.String(), canary.AutoPromote)
+		configuredCanary := getNestedString(item, "spec", "updateStrategy", "canary", "percentage")
+		printEffectiveField("Canary", configuredCanary, canaryDesc, selected, updateDefaults != nil && updateDefaults.Canary != nil)
+	}
+
+	// SLO guardrails display
+	if len(effective.Spec.UpdateStrategy.SLOGuardrails) > 0 {
+		fmt.Printf("  SLO guardrails: %d configured\n", len(effective.Spec.UpdateStrategy.SLOGuardrails))
+		for _, g := range effective.Spec.UpdateStrategy.SLOGuardrails {
+			evalWindow := "5m0s"
+			if g.EvaluationWindow != nil {
+				evalWindow = g.EvaluationWindow.Duration.String()
+			}
+			fmt.Printf("    %s: %s %s %s (window: %s)\n", g.Name, g.Comparison, g.Threshold, g.Query, evalWindow)
+		}
+	}
 
 	var cpuDefaults, memDefaults *attunev1alpha1.ResourceConfig
 	if selected.defaults != nil {

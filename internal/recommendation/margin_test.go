@@ -109,3 +109,41 @@ func TestScaleQuantity_BinarySI(t *testing.T) {
 	expected := resource.MustParse("384Mi")
 	assert.Equal(t, expected.Value(), result.Value())
 }
+
+func TestScaleQuantity_OverflowClamp(t *testing.T) {
+	// A very large quantity multiplied by a factor that exceeds int64 range
+	// should clamp to MaxInt64 instead of wrapping to a negative value.
+	huge := *resource.NewQuantity(math.MaxInt64/2, resource.BinarySI)
+	result := scaleQuantity(huge, 3.0)
+	assert.True(t, result.Value() > 0, "overflow must not produce negative quantity")
+	assert.Equal(t, int64(math.MaxInt64), result.Value(), "overflow should clamp to MaxInt64")
+}
+
+func TestScaleQuantity_MilliOverflowClamp(t *testing.T) {
+	// DecimalSI path: millivalue overflow should also clamp.
+	huge := *resource.NewMilliQuantity(math.MaxInt64/2, resource.DecimalSI)
+	result := scaleQuantity(huge, 3.0)
+	assert.True(t, result.MilliValue() > 0, "milli overflow must not produce negative quantity")
+	assert.Equal(t, int64(math.MaxInt64), result.MilliValue(), "milli overflow should clamp to MaxInt64")
+}
+
+func TestSafeIntScale(t *testing.T) {
+	tests := []struct {
+		name   string
+		base   float64
+		factor float64
+		want   int64
+	}{
+		{"normal", 100, 1.5, 150},
+		{"overflow", float64(math.MaxInt64), 2.0, math.MaxInt64},
+		{"+Inf result", 1e308, 1e308, math.MaxInt64},
+		{"NaN result", math.NaN(), 1.0, 0},
+		{"negative result", -100, 1.0, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := safeIntScale(tt.base, tt.factor)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}

@@ -61,12 +61,27 @@ type RecommendationExplanation struct {
 
 // scaleQuantity multiplies q by factor, preserving BinarySI vs DecimalSI format.
 // Returns q unchanged if factor is NaN, Inf, or non-positive (defense-in-depth).
+// Clamps the result to math.MaxInt64 to prevent int64 overflow (which would
+// wrap to a negative quantity).
 func scaleQuantity(q resource.Quantity, factor float64) resource.Quantity {
 	if math.IsNaN(factor) || math.IsInf(factor, 0) || factor <= 0 {
 		return q.DeepCopy()
 	}
 	if q.Format == resource.BinarySI {
-		return *resource.NewQuantity(int64(math.Ceil(float64(q.Value())*factor)), resource.BinarySI)
+		return *resource.NewQuantity(safeIntScale(float64(q.Value()), factor), resource.BinarySI)
 	}
-	return *resource.NewMilliQuantity(int64(math.Ceil(float64(q.MilliValue())*factor)), resource.DecimalSI)
+	return *resource.NewMilliQuantity(safeIntScale(float64(q.MilliValue()), factor), resource.DecimalSI)
+}
+
+// safeIntScale multiplies base by factor, rounds up, and clamps to
+// [0, math.MaxInt64] to prevent int64 overflow.
+func safeIntScale(base, factor float64) int64 {
+	v := math.Ceil(base * factor)
+	if v >= float64(math.MaxInt64) || math.IsInf(v, 1) {
+		return math.MaxInt64
+	}
+	if v < 0 || math.IsNaN(v) {
+		return 0
+	}
+	return int64(v)
 }

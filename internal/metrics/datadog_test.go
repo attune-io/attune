@@ -19,6 +19,7 @@ package metrics
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -328,6 +329,21 @@ func TestLatestSampleValue(t *testing.T) {
 				{Timestamp: time.Unix(2000, 0), Value: 2.0},
 			},
 			want: 3.0,
+		},
+		{
+			name:    "NaN value returns error",
+			samples: []Sample{{Timestamp: time.Unix(1000, 0), Value: math.NaN()}},
+			wantErr: "non-finite value from TestBackend instant query",
+		},
+		{
+			name:    "Inf value returns error",
+			samples: []Sample{{Timestamp: time.Unix(1000, 0), Value: math.Inf(1)}},
+			wantErr: "non-finite value from TestBackend instant query",
+		},
+		{
+			name:    "negative Inf value returns error",
+			samples: []Sample{{Timestamp: time.Unix(1000, 0), Value: math.Inf(-1)}},
+			wantErr: "non-finite value from TestBackend instant query",
 		},
 	}
 	for _, tt := range tests {
