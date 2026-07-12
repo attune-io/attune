@@ -212,6 +212,9 @@ func (m *Monitor) CheckPod(ctx context.Context, record ResizeRecord, now time.Ti
 			if err != nil {
 				m.logger.Error(err, "Safety throttle check failed, skipping throttle detection",
 					"pod", record.PodName, "namespace", record.Namespace, "container", record.Container)
+			} else if math.IsNaN(ratio) || math.IsInf(ratio, 0) {
+				m.logger.Info("Safety throttle check returned non-finite value, skipping",
+					"pod", record.PodName, "namespace", record.Namespace, "container", record.Container, "ratio", ratio)
 			} else if ratio > m.throttleThreshold {
 				return SafetyVerdict{
 					Safe:    false,
@@ -347,6 +350,11 @@ func (m *Monitor) RevertPod(ctx context.Context, record ResizeRecord) error {
 	// resourceVersion. This mirrors the retry logic in ResizePod.
 	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
 		pod, err := m.client.CoreV1().Pods(record.Namespace).Get(ctx, record.PodName, metav1.GetOptions{})
+		if apierrors.IsNotFound(err) {
+			m.logger.Info("pod deleted during observation, skipping revert",
+				"pod", record.PodName, "namespace", record.Namespace)
+			return nil
+		}
 		if err != nil {
 			return fmt.Errorf("getting pod for revert %s/%s: %w", record.Namespace, record.PodName, err)
 		}
