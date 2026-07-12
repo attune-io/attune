@@ -386,6 +386,45 @@ Per-resource fields in `cpu` and `memory` that limit how much a recommendation c
 | `maxDecreasePercent` | int32 | `30` | Maximum percentage decrease allowed per resize cycle |
 | `maxChangePercent` | int32 | `50`/`30` | Symmetric change cap (overridden by directional caps if set) |
 
+### Controlled Values
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `controlledValues` | string | `RequestsOnly` | `RequestsOnly` adjusts only requests, leaving limits unchanged. `RequestsAndLimits` adjusts both in lockstep. Use `RequestsAndLimits` for Guaranteed-QoS pods (where requests equal limits) or when you want limits to track recommendations. |
+
+### Allow Decrease
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `cpu.allowDecrease` | bool | `true` | Whether CPU requests can be decreased. When `true`, the safety monitor checks for throttling after each decrease. |
+| `memory.allowDecrease` | bool | `false` | Whether memory requests can be decreased. Defaults to `false` to prevent OOMKill from sudden memory reductions. |
+
+### Startup Boost
+
+Temporarily increases CPU requests for newly created or restarted pods to accelerate JVM/.NET class loading, JIT compilation, and cache warming.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `startupBoost.multiplier` | string | (none) | Scales the recommended CPU request during startup. For example, `"3.0"` means 3x the steady-state recommendation. Must be > 1.0 and <= 10.0. |
+| `startupBoost.duration` | duration | (none) | How long the boost lasts before reducing to the steady-state recommendation. Must be >= 10s and <= 1h. |
+
+Example:
+
+```yaml
+cpu:
+  startupBoost:
+    multiplier: "3.0"
+    duration: 2m
+```
+
+See the [startup boost guide](../guides/startup-boost.md) for details.
+
+### Burst Sensitivity
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `burstSensitivity` | string | `"0.1"` | Controls how much burst detection inflates the recommendation. Multiplied by log2(burstMagnitude). Default `"0.1"` gives ~20% boost for magnitude 4, ~30% for 8, ~40% for 16. Set `"0"` to disable burst boost entirely. |
+
 ### Memory-from-CPU Derivation
 
 | Field | Type | Default | Description |

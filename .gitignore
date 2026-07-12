@@ -19,6 +19,10 @@ vendor/
 .DS_Store
 Thumbs.db
 
+# Python
+__pycache__/
+*.pyc
+
 # Test
 coverage.out
 cover.out
