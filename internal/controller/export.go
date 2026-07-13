@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"math"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -66,7 +67,11 @@ func (r *AttunePolicyReconciler) exportRecommendationConfigMaps(
 			if !c.Recommended.MemoryLimit.IsZero() {
 				data[prefix+"memory-limit"] = c.Recommended.MemoryLimit.String()
 			}
-			data[prefix+"confidence"] = fmt.Sprintf("%.2f", c.Confidence)
+			conf := c.Confidence
+			if math.IsNaN(conf) || math.IsInf(conf, 0) {
+				conf = 0
+			}
+			data[prefix+"confidence"] = fmt.Sprintf("%.2f", conf)
 		}
 		data["last-updated"] = r.now().UTC().Format(time.RFC3339)
 
