@@ -478,3 +478,23 @@ func TestMergeUpdateStrategy_PartialInheritance(t *testing.T) {
 	assert.Equal(t, attunev1alpha1.UpdateTypeRecommend, policy.Type)
 	assert.Equal(t, time.Hour, policy.Cooldown.Duration)
 }
+
+func TestMergeUpdateStrategy_BothEmptyTypeNoInheritance(t *testing.T) {
+	// When both policy.Type and defaults.Type are empty strings,
+	// Type should NOT be reported as inherited (it should remain empty
+	// for ApplyBuiltInDefaults to fill in later).
+	defaults := &attunev1alpha1.UpdateStrategy{
+		Type:     "",
+		Cooldown: &metav1.Duration{Duration: 30 * time.Minute},
+	}
+	policy := &attunev1alpha1.UpdateStrategy{
+		Type: "",
+	}
+
+	inherited := MergeUpdateStrategy(policy, defaults)
+
+	assert.NotContains(t, inherited, "type", "empty default Type should not be inherited")
+	assert.Contains(t, inherited, "cooldown")
+	assert.Equal(t, attunev1alpha1.UpdateType(""), policy.Type,
+		"Type should remain empty when default is also empty")
+}
