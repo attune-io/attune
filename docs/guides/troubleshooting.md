@@ -710,6 +710,40 @@ policies where limits are consistently too tight:
 rate(attune_request_clamped_total[1h]) > 0
 ```
 
+## Sidecar not resized (or proxy resized unexpectedly)
+
+### Known sidecar auto-exclude is on (default)
+
+Attune skips well-known mesh and sidecar container names by default
+(`excludeKnownSidecars: true`), including `istio-proxy`, `linkerd-proxy`,
+`consul-dataplane`, `kuma-dp`, `vault-agent`, and common Cloud SQL proxy
+names. Operator logs show `reason=known sidecar auto-exclude` when this
+path applies.
+
+**If you want to right-size those containers again** (previous behavior):
+
+```yaml
+spec:
+  excludeKnownSidecars: false
+```
+
+Or set the same field on `AttuneDefaults` / `AttuneNamespaceDefaults` for
+cluster- or namespace-wide opt-out when policies leave the field unset.
+
+### Custom sidecars still resized
+
+Names not on the built-in list are still right-sized unless listed in
+`excludedContainers`. Add the container name explicitly:
+
+```yaml
+spec:
+  excludedContainers:
+    - my-company-agent
+```
+
+`kubectl attune explain <policy>` prints `Exclude known sidecars` and the
+**effective** excluded set (known list union user list).
+
 ## Debug commands
 
 Operator logs:

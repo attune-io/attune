@@ -43,6 +43,14 @@ type AttuneDefaultsSpec struct {
 	// on-demand Linux pricing ($0.031/vCPU-hour, $0.004/GiB-hour).
 	// +optional
 	CostPricing *CostPricing `json:"costPricing,omitempty"`
+
+	// ExcludeKnownSidecars, when true (the default when unset on both
+	// defaults and policy), automatically skips well-known mesh and
+	// sidecar container names. Set to false cluster-wide to restore
+	// exclude-only-via-excludedContainers behavior for policies that
+	// do not set the field themselves.
+	// +optional
+	ExcludeKnownSidecars *bool `json:"excludeKnownSidecars,omitempty"`
 }
 
 // CostPricing defines per-unit resource pricing for cost estimation.

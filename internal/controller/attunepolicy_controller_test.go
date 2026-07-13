@@ -4491,6 +4491,8 @@ func TestApplyBuiltInDefaults_FillsAllFields(t *testing.T) {
 	assert.Equal(t, attunev1alpha1.DefaultControlledValues, *policy.Spec.CPU.ControlledValues)
 	require.NotNil(t, policy.Spec.Memory.ControlledValues)
 	assert.Equal(t, attunev1alpha1.DefaultControlledValues, *policy.Spec.Memory.ControlledValues)
+	require.NotNil(t, policy.Spec.ExcludeKnownSidecars)
+	assert.True(t, *policy.Spec.ExcludeKnownSidecars)
 }
 
 func TestApplyBuiltInDefaults_PreservesUserValues(t *testing.T) {
@@ -4511,6 +4513,8 @@ func TestApplyBuiltInDefaults_PreservesUserValues(t *testing.T) {
 	cv := attunev1alpha1.ControlledRequestsAndLimits
 	policy.Spec.CPU.ControlledValues = &cv
 	policy.Spec.Memory.ControlledValues = &cv
+	excludeKnown := false
+	policy.Spec.ExcludeKnownSidecars = &excludeKnown
 
 	r.applyBuiltInDefaults(policy)
 
@@ -4526,6 +4530,8 @@ func TestApplyBuiltInDefaults_PreservesUserValues(t *testing.T) {
 	assert.Equal(t, 30*time.Second, policy.Spec.MetricsSource.QueryStep.Duration)
 	assert.Equal(t, attunev1alpha1.ControlledRequestsAndLimits, *policy.Spec.CPU.ControlledValues)
 	assert.Equal(t, attunev1alpha1.ControlledRequestsAndLimits, *policy.Spec.Memory.ControlledValues)
+	require.NotNil(t, policy.Spec.ExcludeKnownSidecars)
+	assert.False(t, *policy.Spec.ExcludeKnownSidecars)
 }
 
 func TestMergeDefaults_ClusterDefaultsTakeEffect(t *testing.T) {
@@ -6447,6 +6453,118 @@ func TestComputeRecommendations_ExcludeAllContainers(t *testing.T) {
 	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
 	assert.NoError(t, err)
 	assert.Nil(t, rec, "all containers excluded, should return nil")
+}
+
+func TestComputeRecommendations_KnownSidecarsExcludedByDefault(t *testing.T) {
+	// No ExcludedContainers and no ExcludeKnownSidecars set: default true
+	// still skips istio-proxy via EffectiveExcludedContainers.
+	policy := newTestPolicy("test-policy", "default")
+
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "api-server", Namespace: "default"},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: int32Ptr(1),
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "api-server"}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "api-server"}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "main",
+							Image: "nginx",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("500m"),
+									corev1.ResourceMemory: resource.MustParse("512Mi"),
+								},
+							},
+						},
+						{
+							Name:  "istio-proxy",
+							Image: "istio/proxyv2",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("100m"),
+									corev1.ResourceMemory: resource.MustParse("128Mi"),
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		Status: appsv1.DeploymentStatus{Replicas: 1, UpdatedReplicas: 1, AvailableReplicas: 1},
+	}
+	reconciler := newReconcilerWithClient()
+	mc := &mockCollector{
+		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return generateSamples(200, 0.1), nil
+		},
+	}
+
+	// Pass nil excludeSet so computeRecommendations builds via EffectiveExcludedContainers.
+	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
+	require.NoError(t, err)
+	require.NotNil(t, rec)
+	assert.Len(t, rec.Containers, 1)
+	assert.Equal(t, "main", rec.Containers[0].Name)
+}
+
+func TestComputeRecommendations_KnownSidecarsOptOut(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	falseVal := false
+	policy.Spec.ExcludeKnownSidecars = &falseVal
+
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "api-server", Namespace: "default"},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: int32Ptr(1),
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "api-server"}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "api-server"}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "main",
+							Image: "nginx",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("500m"),
+									corev1.ResourceMemory: resource.MustParse("512Mi"),
+								},
+							},
+						},
+						{
+							Name:  "istio-proxy",
+							Image: "istio/proxyv2",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("100m"),
+									corev1.ResourceMemory: resource.MustParse("128Mi"),
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		Status: appsv1.DeploymentStatus{Replicas: 1, UpdatedReplicas: 1, AvailableReplicas: 1},
+	}
+	reconciler := newReconcilerWithClient()
+	mc := &mockCollector{
+		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return generateSamples(200, 0.1), nil
+		},
+	}
+
+	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
+	require.NoError(t, err)
+	require.NotNil(t, rec)
+	names := make([]string, 0, len(rec.Containers))
+	for _, c := range rec.Containers {
+		names = append(names, c.Name)
+	}
+	assert.ElementsMatch(t, []string{"main", "istio-proxy"}, names)
 }
 
 // ---------- node capacity pre-check ----------

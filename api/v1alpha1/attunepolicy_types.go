@@ -101,12 +101,19 @@ type AttunePolicySpec struct {
 	UpdateStrategy *UpdateStrategy `json:"updateStrategy,omitempty"`
 
 	// ExcludedContainers is a list of container names to skip when computing
-	// recommendations and performing resizes. Use this for sidecar containers
-	// (e.g., istio-proxy, linkerd-proxy) that are managed by a service mesh
-	// and should not be right-sized.
+	// recommendations and performing resizes. Use this for custom sidecars
+	// or agents. When ExcludeKnownSidecars is true (the default), this list
+	// is unioned with the built-in known-sidecar names (istio-proxy, etc.).
 	// +optional
 	// +kubebuilder:validation:MaxItems=100
 	ExcludedContainers []string `json:"excludedContainers,omitempty"`
+
+	// ExcludeKnownSidecars, when true (the default), automatically skips
+	// well-known mesh and sidecar container names (for example istio-proxy,
+	// linkerd-proxy) in addition to ExcludedContainers. Set to false to
+	// restore pre-feature behavior where only ExcludedContainers is used.
+	// +optional
+	ExcludeKnownSidecars *bool `json:"excludeKnownSidecars,omitempty"`
 
 	// Weight determines the priority of this policy when multiple policies
 	// match the same workload. Higher values take precedence.

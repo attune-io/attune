@@ -1,7 +1,8 @@
 ---
 # Example: Auto mode with sidecar container exclusion
-# Excludes service mesh sidecars from right-sizing so they remain
-# managed by their respective controllers (e.g., istio-proxy by Istio).
+# Known mesh/sidecar names (istio-proxy, linkerd-proxy, ...) are skipped
+# automatically (excludeKnownSidecars defaults to true). List extra names
+# in excludedContainers if needed.
 apiVersion: attune.io/v1alpha1
 kind: AttunePolicy
 metadata:
@@ -24,9 +25,9 @@ spec:
     overhead: "30"
     minAllowed: "64Mi"
     maxAllowed: "8Gi"
+  # excludeKnownSidecars: true  # default
   excludedContainers:
-    - istio-proxy
-    - linkerd-proxy
+    - my-company-agent
   updateStrategy:
     type: Auto
     autoRevert: true

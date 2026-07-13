@@ -1,8 +1,9 @@
 # Sidecar Exclusion: right-size app containers without touching service mesh proxies
 #
-# When pods include sidecar containers injected by a service mesh (Istio,
-# Linkerd, Cilium), those containers have their own resource management.
-# Use excludedContainers to skip them entirely.
+# Well-known mesh/sidecar names (istio-proxy, linkerd-proxy, etc.) are
+# auto-excluded by default (excludeKnownSidecars: true). Use
+# excludedContainers for extra custom agents. Set excludeKnownSidecars:
+# false only if you intentionally want Attune to right-size known proxies.
 #
 # Apply:
 #   kubectl apply -f examples/07-sidecar-exclusion.yaml
@@ -19,9 +20,9 @@ spec:
   targetRef:
     kind: Deployment
     name: web-frontend
+  # excludeKnownSidecars: true   # default: skips istio-proxy, linkerd-proxy, ...
   excludedContainers:
-    - istio-proxy          # Istio sidecar
-    - linkerd-proxy        # Linkerd sidecar
+    - my-company-agent     # extra skip beyond the known list
   metricsSource:
     prometheus:
       address: http://prometheus-server.monitoring:80

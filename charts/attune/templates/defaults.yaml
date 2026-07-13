@@ -22,6 +22,9 @@ spec:
   costPricing:
     {{- toYaml . | nindent 4 }}
   {{- end }}
+  {{- if kindIs "bool" .Values.defaults.excludeKnownSidecars }}
+  excludeKnownSidecars: {{ .Values.defaults.excludeKnownSidecars }}
+  {{- end }}
   {{- with .Values.defaults.updateStrategy }}
   updateStrategy:
     type: {{ .type | default "Recommend" }}

@@ -126,14 +126,24 @@ View savings via `kubectl attune savings` or the Grafana dashboard.
 
 ## Multi-container support
 
-By default, the operator computes recommendations for every container in a pod.
-For pods with sidecar containers managed by a service mesh (e.g., `istio-proxy`,
-`linkerd-proxy`), use `excludedContainers` to skip them:
+By default, the operator computes recommendations for every container in a pod,
+except well-known mesh and sidecar names (`istio-proxy`, `linkerd-proxy`,
+`consul-dataplane`, `kuma-dp`, `vault-agent`, Cloud SQL proxy names, and
+similar). That list is applied when `excludeKnownSidecars` is true (the
+default). Add more names with `excludedContainers` (union with the known list).
 
 ```yaml
 spec:
+  # excludeKnownSidecars: true  # default
   excludedContainers:
-    - istio-proxy
+    - my-company-agent   # extra skips beyond the known list
+```
+
+To right-size known sidecars again (pre-auto-exclude behavior):
+
+```yaml
+spec:
+  excludeKnownSidecars: false
 ```
 
 Before executing a resize, the operator also checks that the total resource

@@ -1044,9 +1044,21 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *attu
 	printEffectiveField("Minimum data points", formatInt64Ptr(rawInt64Field(item, "spec", "metricsSource", "minimumDataPoints")), formatInt32Ptr(effective.Spec.MetricsSource.MinimumDataPoints), selected, metricsDefaults != nil && metricsDefaults.MinimumDataPoints != nil)
 	printEffectiveField("Paused", formatBoolField(item, "spec", "paused"), formatBoolPtr(effective.Spec.Paused), selected, false)
 	printEffectiveField("Weight", formatInt64Field(item, "spec", "weight"), formatInt32Val(effective.Spec.Weight), selected, false)
-	if len(effective.Spec.ExcludedContainers) > 0 {
-		configured := getNestedString(item, "spec", "excludedContainers")
-		printEffectiveField("Excluded containers", configured, strings.Join(effective.Spec.ExcludedContainers, ", "), selected, false)
+	knownInherited := selected.defaults != nil && selected.defaults.Spec.ExcludeKnownSidecars != nil
+	printEffectiveField("Exclude known sidecars", formatBoolField(item, "spec", "excludeKnownSidecars"), formatBoolPtr(effective.Spec.ExcludeKnownSidecars), selected, knownInherited)
+	effectiveExclude := pkgdefaults.EffectiveExcludedContainers(effective)
+	if len(effectiveExclude) > 0 {
+		names := make([]string, 0, len(effectiveExclude))
+		for name := range effectiveExclude {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		configuredList, found, _ := unstructured.NestedStringSlice(item.Object, "spec", "excludedContainers")
+		configured := unsetValue
+		if found && len(configuredList) > 0 {
+			configured = strings.Join(configuredList, ", ")
+		}
+		printEffectiveField("Excluded containers (effective)", configured, strings.Join(names, ", "), selected, false)
 	}
 	printEffectiveField("Resize method", getNestedString(item, "spec", "updateStrategy", "resizeMethod"), string(effective.Spec.UpdateStrategy.ResizeMethod), selected, updateDefaults != nil && updateDefaults.ResizeMethod != "")
 	obsConfigured := getNestedString(item, "spec", "updateStrategy", "safetyObservationPeriod")
