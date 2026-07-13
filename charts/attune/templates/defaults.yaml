@@ -22,19 +22,20 @@ spec:
   costPricing:
     {{- toYaml . | nindent 4 }}
   {{- end }}
+  {{- with .Values.defaults.updateStrategy }}
   updateStrategy:
-    type: {{ .Values.defaults.updateStrategy.type | default "Recommend" }}
-    {{- if .Values.defaults.updateStrategy.cooldown }}
-    cooldown: {{ .Values.defaults.updateStrategy.cooldown }}
+    type: {{ .type | default "Recommend" }}
+    {{- if .cooldown }}
+    cooldown: {{ .cooldown }}
     {{- end }}
-    {{- if kindIs "bool" .Values.defaults.updateStrategy.autoRevert }}
-    autoRevert: {{ .Values.defaults.updateStrategy.autoRevert }}
+    {{- if kindIs "bool" .autoRevert }}
+    autoRevert: {{ .autoRevert }}
     {{- else }}
     autoRevert: true
     {{- end }}
-    resizeMethod: {{ .Values.defaults.updateStrategy.resizeMethod | default "InPlaceOnly" }}
-    maxConcurrentResizes: {{ .Values.defaults.updateStrategy.maxConcurrentResizes | default 1 }}
-    {{- with .Values.defaults.updateStrategy.schedule }}
+    resizeMethod: {{ .resizeMethod | default "InPlaceOnly" }}
+    maxConcurrentResizes: {{ .maxConcurrentResizes | default 1 }}
+    {{- with .schedule }}
     schedule:
       {{- with .windows }}
       windows:
@@ -48,28 +49,29 @@ spec:
       timezone: {{ . }}
       {{- end }}
     {{- end }}
-    {{- with .Values.defaults.updateStrategy.maxTotalCpuIncrease }}
+    {{- with .maxTotalCpuIncrease }}
     maxTotalCpuIncrease: {{ . }}
     {{- end }}
-    {{- with .Values.defaults.updateStrategy.maxTotalMemoryIncrease }}
+    {{- with .maxTotalMemoryIncrease }}
     maxTotalMemoryIncrease: {{ . }}
     {{- end }}
-    {{- with .Values.defaults.updateStrategy.safetyObservationPeriod }}
+    {{- with .safetyObservationPeriod }}
     safetyObservationPeriod: {{ . }}
     {{- end }}
-    {{- with .Values.defaults.updateStrategy.canary }}
+    {{- with .canary }}
     canary:
       {{- toYaml . | nindent 6 }}
     {{- end }}
-    {{- with .Values.defaults.updateStrategy.export }}
+    {{- with .export }}
     export:
       {{- toYaml . | nindent 6 }}
     {{- end }}
-    {{- if kindIs "bool" .Values.defaults.updateStrategy.initialSizing }}
-    initialSizing: {{ .Values.defaults.updateStrategy.initialSizing }}
+    {{- if kindIs "bool" .initialSizing }}
+    initialSizing: {{ .initialSizing }}
     {{- end }}
-    {{- with .Values.defaults.updateStrategy.sloGuardrails }}
+    {{- with .sloGuardrails }}
     sloGuardrails:
       {{- toYaml . | nindent 6 }}
     {{- end }}
+  {{- end }}
 {{- end }}
