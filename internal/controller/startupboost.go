@@ -263,7 +263,6 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 	}
 }
 
-// adjustHPATargets checks for HPAs with the auto-tune annotation and adjusts
 // boostResizeAndRefetch resizes a single container's CPU to targetCPU
 // (preserving the current memory request) and re-fetches the pod from the API
 // server. On resize failure it returns (original pod, err) so the caller can
