@@ -89,6 +89,11 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 					}
 					boostedMillis := int64(float64(recCPU.MilliValue()) * multiplier)
 					boostedCPU := *resource.NewMilliQuantity(boostedMillis, resource.DecimalSI)
+					// Cap at the policy's maxAllowed to respect admin-configured
+					// ceilings even during temporary boost.
+					if policy.Spec.CPU.MaxAllowed != nil && boostedCPU.Cmp(*policy.Spec.CPU.MaxAllowed) > 0 {
+						boostedCPU = policy.Spec.CPU.MaxAllowed.DeepCopy()
+					}
 					// Cap at the container's CPU limit to avoid requests > limits
 					// rejection from the API server.
 					if cpuLim, hasLim := c.Resources.Limits[corev1.ResourceCPU]; hasLim && boostedCPU.Cmp(cpuLim) > 0 {
