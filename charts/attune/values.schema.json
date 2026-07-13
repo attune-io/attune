@@ -393,6 +393,10 @@
             "memoryPerGiBHour": { "type": "string" }
           }
         },
+        "excludeKnownSidecars": {
+          "type": "boolean",
+          "description": "When true (operator built-in default if unset), auto-exclude known mesh/sidecar container names. Set false to restore exclude-only-via-excludedContainers for policies that leave the field unset."
+        },
         "updateStrategy": {
           "type": "object",
           "additionalProperties": false,

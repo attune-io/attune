@@ -203,6 +203,7 @@ CR manually but managed through Helm values.
 | `defaults.memory.*` | object | | Memory resource defaults (see [Resource Config](#resource-configuration) below) |
 | `defaults.costPricing.cpuPerCoreHour` | string | `"0.031"` | Cost per vCPU-hour for savings estimates |
 | `defaults.costPricing.memoryPerGiBHour` | string | `"0.004"` | Cost per GiB-hour for savings estimates |
+| `defaults.excludeKnownSidecars` | bool | (operator default `true` if unset) | When set on the AttuneDefaults CR, policies that leave the field unset inherit this value. `false` restores exclude-only-via-`excludedContainers`. |
 | `defaults.metricsSource.*` | object | | Default metrics source (e.g., shared Prometheus address) |
 | `defaults.updateStrategy.*` | object | | Default update strategy (type, cooldown, autoRevert, etc.) |
 
@@ -226,6 +227,12 @@ directly or via the Helm `defaults.*` values above. They apply to all
 These values are used to compute `status.savings.estimatedMonthlySavings`
 on each `AttunePolicy`. Adjust for your cloud provider or reserved
 instance pricing.
+
+### Exclude known sidecars
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `excludeKnownSidecars` | bool | `true` (built-in when unset) | When true, auto-exclude well-known mesh/sidecar container names (`istio-proxy`, `linkerd-proxy`, and others). When false, only each policy's `excludedContainers` list is used (pre-feature behavior). Inherited by policies that leave the field unset. |
 
 ### Inheritable UpdateStrategy Fields
 
@@ -375,6 +382,16 @@ alternative metrics sources. **At most one** of `prometheus`, `datadog`, or
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `paused` | bool | `false` | Halts all reconciliation for this policy: no metrics collection, no recommendations, no resizes. Existing resizes are not reverted. The operator sets `Ready=False` with `reason=Paused`. |
+
+### Container exclusion
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `excludeKnownSidecars` | bool | `true` | When true, skip well-known mesh/sidecar names in addition to `excludedContainers`. Set `false` to restore list-only behavior. |
+| `excludedContainers` | []string | `[]` | Extra container names to skip. When `excludeKnownSidecars` is true, this list is **unioned** with the built-in known list (never replaces it). |
+
+Built-in known names include `istio-proxy`, `linkerd-proxy`, `consul-dataplane`,
+`kuma-dp`, `vault-agent`, `cloud-sql-proxy`, `cloudsql-proxy`, and `gce-proxy`.
 
 ### Directional Change Caps
 

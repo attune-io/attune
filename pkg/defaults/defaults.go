@@ -144,7 +144,9 @@ func EffectiveExcludedContainers(policy *attunev1alpha1.AttunePolicy) map[string
 
 // ExclusionReason returns a short reason string for why a container name
 // is excluded. Callers should only use this when the name is present in
-// EffectiveExcludedContainers.
+// EffectiveExcludedContainers. When the known list is on and the name is
+// both a known sidecar and listed in excludedContainers, the known-list
+// reason wins.
 func ExclusionReason(policy *attunev1alpha1.AttunePolicy, containerName string) string {
 	knownOn := true
 	if policy != nil && policy.Spec.ExcludeKnownSidecars != nil {

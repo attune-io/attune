@@ -145,3 +145,20 @@ tests:
       - equal:
           path: spec.updateStrategy.sloGuardrails[0].comparison
           value: above
+  - it: should render excludeKnownSidecars when set to false
+    set:
+      defaults:
+        enabled: true
+        excludeKnownSidecars: false
+    asserts:
+      - equal:
+          path: spec.excludeKnownSidecars
+          value: false
+
+  - it: should omit excludeKnownSidecars when unset
+    set:
+      defaults:
+        enabled: true
+    asserts:
+      - notExists:
+          path: spec.excludeKnownSidecars
