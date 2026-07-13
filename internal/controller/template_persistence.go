@@ -104,7 +104,24 @@ func materializeContainerResources(
 	if len(limits) > 0 {
 		out.Limits = limits
 	}
+	// Match resize path: requests must not exceed limits when both are set.
+	_ = clampRequestsToLimits(&out)
 	return out
+}
+
+// canaryBlocksTemplatePersistence returns true while a canary rollout is
+// still partial. Patching the template mid-canary would roll out all pods
+// and defeat the canary gate (D6).
+func canaryBlocksTemplatePersistence(policy *attunev1alpha1.AttunePolicy) bool {
+	if policy.Spec.UpdateStrategy.Type != attunev1alpha1.UpdateTypeCanary {
+		return false
+	}
+	cs := policy.Status.Canary
+	if cs == nil {
+		// Canary mode with no status yet: treat as in-progress.
+		return true
+	}
+	return cs.Phase != attunev1alpha1.CanaryPhaseFullRollout
 }
 
 // resourcesEqual compares requests/limits for CPU and memory only.
@@ -149,6 +166,15 @@ func (r *AttunePolicyReconciler) applyTemplatePersistence(
 		return nil
 	}
 	if templatePersistenceWhen(policy.Spec.UpdateStrategy) != mode {
+		return nil
+	}
+	// Observe never mutates cluster state (status, export, template).
+	if policy.Spec.UpdateStrategy.Type == attunev1alpha1.UpdateTypeObserve {
+		return nil
+	}
+	if canaryBlocksTemplatePersistence(policy) {
+		logger.V(1).Info("Skipping template persistence during canary phase",
+			"policy", policy.Name)
 		return nil
 	}
 	if len(recommendations) == 0 {
@@ -374,6 +400,24 @@ func workloadKindName(w client.Object) string {
 func successfulResizeWorkloads(history []attunev1alpha1.ResizeHistoryEntry) map[string]bool {
 	out := make(map[string]bool)
 	for _, h := range history {
+		if isSuccessfulInPlaceHistory(h) {
+			out[h.Workload] = true
+		}
+	}
+	return out
+}
+
+// laggingAfterResizeWorkloads returns workloads that should retry template
+// persistence after a prior successful in-place resize (e.g. patch failed or
+// was skipped mid-rollout). Includes this-cycle successes and any prior
+// InPlace Success still present in status history. applyTemplatePersistence
+// no-ops when the template already matches, so re-attempts are safe.
+func laggingAfterResizeWorkloads(
+	cycleHistory []attunev1alpha1.ResizeHistoryEntry,
+	statusHistory []attunev1alpha1.ResizeHistoryEntry,
+) map[string]bool {
+	out := successfulResizeWorkloads(cycleHistory)
+	for _, h := range statusHistory {
 		if isSuccessfulInPlaceHistory(h) {
 			out[h.Workload] = true
 		}

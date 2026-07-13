@@ -440,3 +440,387 @@ func TestSuccessfulResizeWorkloads(t *testing.T) {
 	assert.False(t, got["b"])
 	assert.False(t, got["c"])
 }
+
+func TestLaggingAfterResizeWorkloads(t *testing.T) {
+	got := laggingAfterResizeWorkloads(
+		[]attunev1alpha1.ResizeHistoryEntry{
+			{Workload: "cycle", Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess},
+		},
+		[]attunev1alpha1.ResizeHistoryEntry{
+			{Workload: "prior", Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess},
+			{Workload: "failed", Method: "InPlace", Result: attunev1alpha1.ResizeResultFailed},
+		},
+	)
+	assert.True(t, got["cycle"])
+	assert.True(t, got["prior"])
+	assert.False(t, got["failed"])
+}
+
+func TestCanaryBlocksTemplatePersistence(t *testing.T) {
+	policy := newTestPolicy("p", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	assert.False(t, canaryBlocksTemplatePersistence(policy))
+
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeCanary
+	assert.True(t, canaryBlocksTemplatePersistence(policy), "nil canary status blocks")
+
+	policy.Status.Canary = &attunev1alpha1.CanaryStatus{Phase: attunev1alpha1.CanaryPhaseInProgress}
+	assert.True(t, canaryBlocksTemplatePersistence(policy))
+
+	policy.Status.Canary.Phase = attunev1alpha1.CanaryPhaseFullRollout
+	assert.False(t, canaryBlocksTemplatePersistence(policy))
+}
+
+func TestMaterializeContainerResources_ClampsRequestsToLimits(t *testing.T) {
+	policy := &attunev1alpha1.AttunePolicy{}
+	// RequestsOnly default: recommended request may exceed retained limit.
+	c := attunev1alpha1.ContainerRecommendation{
+		Name: "app",
+		Current: attunev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("100m"),
+			CPULimit:      resource.MustParse("200m"),
+			MemoryRequest: resource.MustParse("128Mi"),
+			MemoryLimit:   resource.MustParse("256Mi"),
+		},
+		Recommended: attunev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("500m"), // > current limit 200m
+			CPULimit:      resource.MustParse("200m"), // RequestsOnly path keeps limit
+			MemoryRequest: resource.MustParse("512Mi"),
+			MemoryLimit:   resource.MustParse("256Mi"),
+		},
+	}
+	// With RequestsOnly, materialize does not set limits from recommendation
+	// unless ControlledValues is RequestsAndLimits. So clamp only applies
+	// when limits are present on the output. Force limits via ControlledValues.
+	cv := attunev1alpha1.ControlledRequestsAndLimits
+	policy.Spec.CPU.ControlledValues = &cv
+	policy.Spec.Memory.ControlledValues = &cv
+	// Recommended request > recommended limit → clamp
+	c.Recommended.CPURequest = resource.MustParse("800m")
+	c.Recommended.CPULimit = resource.MustParse("400m")
+	c.Recommended.MemoryRequest = resource.MustParse("1Gi")
+	c.Recommended.MemoryLimit = resource.MustParse("512Mi")
+
+	got := materializeContainerResources(policy, c)
+	assert.Equal(t, int64(400), got.Requests.Cpu().MilliValue(), "CPU request clamped to limit")
+	assert.True(t, got.Requests.Memory().Equal(resource.MustParse("512Mi")), "memory request clamped to limit")
+}
+
+func TestApplyTemplatePersistence_SkipsObserveMode(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
+
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "default"},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: int32Ptr(1),
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "api"}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "api"}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:  "app",
+						Image: "nginx",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("512Mi"),
+							},
+						},
+					}},
+				},
+			},
+		},
+		Status: appsv1.DeploymentStatus{Replicas: 1, UpdatedReplicas: 1, AvailableReplicas: 1},
+	}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = cl
+	r.Scheme = scheme
+
+	policy := newTestPolicy("p", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeObserve
+	policy.Spec.UpdateStrategy.TemplatePersistence = &attunev1alpha1.TemplatePersistence{
+		Enabled: boolPtrTP(true),
+		When:    attunev1alpha1.TemplatePersistenceOnRecommendation,
+	}
+	recs := []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "api",
+		Kind:     "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "app",
+			Current: attunev1alpha1.ResourceValues{
+				CPURequest:    resource.MustParse("500m"),
+				MemoryRequest: resource.MustParse("512Mi"),
+			},
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest:    resource.MustParse("200m"),
+				MemoryRequest: resource.MustParse("256Mi"),
+			},
+		}},
+	}}
+
+	history := r.applyTemplatePersistence(context.Background(), policy, []client.Object{deploy}, recs,
+		attunev1alpha1.TemplatePersistenceOnRecommendation, nil)
+	assert.Empty(t, history, "Observe mode must not patch templates")
+
+	var updated appsv1.Deployment
+	require.NoError(t, cl.Get(context.Background(), client.ObjectKeyFromObject(deploy), &updated))
+	assert.Equal(t, int64(500), updated.Spec.Template.Spec.Containers[0].Resources.Requests.Cpu().MilliValue())
+}
+
+func TestApplyTemplatePersistence_SkipsCanaryInProgress(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
+
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "default"},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: int32Ptr(1),
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "api"}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "api"}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:  "app",
+						Image: "nginx",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("512Mi"),
+							},
+						},
+					}},
+				},
+			},
+		},
+		Status: appsv1.DeploymentStatus{Replicas: 1, UpdatedReplicas: 1, AvailableReplicas: 1},
+	}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = cl
+	r.Scheme = scheme
+
+	policy := newTestPolicy("p", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeCanary
+	policy.Status.Canary = &attunev1alpha1.CanaryStatus{Phase: attunev1alpha1.CanaryPhaseInProgress}
+	policy.Spec.UpdateStrategy.TemplatePersistence = &attunev1alpha1.TemplatePersistence{
+		Enabled: boolPtrTP(true),
+		When:    attunev1alpha1.TemplatePersistenceAfterSuccessfulResize,
+	}
+	recs := []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "api",
+		Kind:     "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "app",
+			Current: attunev1alpha1.ResourceValues{
+				CPURequest:    resource.MustParse("500m"),
+				MemoryRequest: resource.MustParse("512Mi"),
+			},
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest:    resource.MustParse("200m"),
+				MemoryRequest: resource.MustParse("256Mi"),
+			},
+		}},
+	}}
+
+	history := r.applyTemplatePersistence(context.Background(), policy, []client.Object{deploy}, recs,
+		attunev1alpha1.TemplatePersistenceAfterSuccessfulResize, map[string]bool{"api": true})
+	assert.Empty(t, history, "canary InProgress must not patch templates")
+
+	// FullRollout allows patch.
+	policy.Status.Canary.Phase = attunev1alpha1.CanaryPhaseFullRollout
+	history = r.applyTemplatePersistence(context.Background(), policy, []client.Object{deploy}, recs,
+		attunev1alpha1.TemplatePersistenceAfterSuccessfulResize, map[string]bool{"api": true})
+	require.Len(t, history, 1)
+	assert.Equal(t, attunev1alpha1.ResizeResultTemplatePatched, history[0].Result)
+}
+
+func TestApplyTemplatePersistence_SkipsMidRollout(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
+
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "default"},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: int32Ptr(2),
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "api"}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "api"}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:  "app",
+						Image: "nginx",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("512Mi"),
+							},
+						},
+					}},
+				},
+			},
+		},
+		// Mid-rollout: not all replicas updated.
+		Status: appsv1.DeploymentStatus{Replicas: 2, UpdatedReplicas: 1, AvailableReplicas: 1},
+	}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = cl
+	r.Scheme = scheme
+
+	policy := newTestPolicy("p", "default")
+	policy.Spec.UpdateStrategy.TemplatePersistence = &attunev1alpha1.TemplatePersistence{
+		Enabled: boolPtrTP(true),
+		When:    attunev1alpha1.TemplatePersistenceOnRecommendation,
+	}
+	recs := []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "api",
+		Kind:     "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "app",
+			Current: attunev1alpha1.ResourceValues{
+				CPURequest:    resource.MustParse("500m"),
+				MemoryRequest: resource.MustParse("512Mi"),
+			},
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest:    resource.MustParse("200m"),
+				MemoryRequest: resource.MustParse("256Mi"),
+			},
+		}},
+	}}
+
+	history := r.applyTemplatePersistence(context.Background(), policy, []client.Object{deploy}, recs,
+		attunev1alpha1.TemplatePersistenceOnRecommendation, nil)
+	assert.Empty(t, history, "mid-rollout must not patch")
+}
+
+func TestApplyTemplatePersistence_NoOpWhenTemplateMatches(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
+
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "default"},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: int32Ptr(1),
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "api"}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "api"}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:  "app",
+						Image: "nginx",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("200m"),
+								corev1.ResourceMemory: resource.MustParse("256Mi"),
+							},
+						},
+					}},
+				},
+			},
+		},
+		Status: appsv1.DeploymentStatus{Replicas: 1, UpdatedReplicas: 1, AvailableReplicas: 1},
+	}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = cl
+	r.Scheme = scheme
+
+	policy := newTestPolicy("p", "default")
+	// Allow memory decrease so materialize keeps recommended 256Mi (matches template).
+	memDec := true
+	policy.Spec.Memory.AllowDecrease = &memDec
+	policy.Spec.UpdateStrategy.TemplatePersistence = &attunev1alpha1.TemplatePersistence{
+		Enabled: boolPtrTP(true),
+		When:    attunev1alpha1.TemplatePersistenceOnRecommendation,
+	}
+	// Recommendation differs from "current" (live pod) but template already has desired.
+	recs := []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "api",
+		Kind:     "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "app",
+			Current: attunev1alpha1.ResourceValues{
+				CPURequest:    resource.MustParse("500m"),
+				MemoryRequest: resource.MustParse("512Mi"),
+			},
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest:    resource.MustParse("200m"),
+				MemoryRequest: resource.MustParse("256Mi"),
+			},
+		}},
+	}}
+
+	history := r.applyTemplatePersistence(context.Background(), policy, []client.Object{deploy}, recs,
+		attunev1alpha1.TemplatePersistenceOnRecommendation, nil)
+	assert.Empty(t, history, "template already matches desired; no history entry")
+}
+
+func TestApplyTemplatePersistence_DisabledByDefault(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
+
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "default"},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: int32Ptr(1),
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "api"}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "api"}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:  "app",
+						Image: "nginx",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m")},
+						},
+					}},
+				},
+			},
+		},
+		Status: appsv1.DeploymentStatus{Replicas: 1, UpdatedReplicas: 1, AvailableReplicas: 1},
+	}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = cl
+	r.Scheme = scheme
+
+	policy := newTestPolicy("p", "default")
+	// TemplatePersistence nil / disabled
+	recs := []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "api",
+		Kind:     "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "app",
+			Current: attunev1alpha1.ResourceValues{
+				CPURequest: resource.MustParse("500m"),
+			},
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest: resource.MustParse("200m"),
+			},
+		}},
+	}}
+
+	history := r.applyTemplatePersistence(context.Background(), policy, []client.Object{deploy}, recs,
+		attunev1alpha1.TemplatePersistenceOnRecommendation, nil)
+	assert.Empty(t, history)
+
+	policy.Spec.UpdateStrategy.TemplatePersistence = &attunev1alpha1.TemplatePersistence{
+		Enabled: boolPtrTP(false),
+		When:    attunev1alpha1.TemplatePersistenceOnRecommendation,
+	}
+	history = r.applyTemplatePersistence(context.Background(), policy, []client.Object{deploy}, recs,
+		attunev1alpha1.TemplatePersistenceOnRecommendation, nil)
+	assert.Empty(t, history)
+}

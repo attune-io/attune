@@ -381,8 +381,10 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	// Template persistence (OnRecommendation): write accepted recs into templates.
+	// Observe mode is gated inside applyTemplatePersistence; Canary InProgress too.
 	if templatePersistenceEnabled(policy.Spec.UpdateStrategy) &&
 		templatePersistenceWhen(policy.Spec.UpdateStrategy) == attunev1alpha1.TemplatePersistenceOnRecommendation &&
+		policy.Spec.UpdateStrategy.Type != attunev1alpha1.UpdateTypeObserve &&
 		len(recommendations) > 0 {
 		tplHistory := r.applyTemplatePersistence(ctx, &policy, workloads, recommendations,
 			attunev1alpha1.TemplatePersistenceOnRecommendation, nil)
@@ -431,26 +433,16 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		preChecks = r.buildResizePreChecks(ctx, &policy)
 	}
 
+	var cycleResizeHistory []attunev1alpha1.ResizeHistoryEntry
 	if isResizeMode(mode) && !cooldownActive && withinWindow {
 		resizedCount, history := r.executeResizes(ctx, &policy, workloads, recommendations, podsByWorkload, collector, preChecks)
 		newResizedCount = resizedCount
+		cycleResizeHistory = history
 		// Always record history entries (including immediate reverts) so
 		// the escalation mechanisms (consecutiveReverts, Degraded condition,
 		// exponential backoff) work for all revert reasons.
 		if len(history) > 0 {
 			policy.Status.ResizeHistory = appendHistory(policy.Status.ResizeHistory, history, maxHistoryEntries)
-		}
-		// Template persistence after successful in-place resizes.
-		if templatePersistenceEnabled(policy.Spec.UpdateStrategy) &&
-			templatePersistenceWhen(policy.Spec.UpdateStrategy) == attunev1alpha1.TemplatePersistenceAfterSuccessfulResize {
-			resizedWLs := successfulResizeWorkloads(history)
-			if len(resizedWLs) > 0 {
-				tplHistory := r.applyTemplatePersistence(ctx, &policy, workloads, recommendations,
-					attunev1alpha1.TemplatePersistenceAfterSuccessfulResize, resizedWLs)
-				if len(tplHistory) > 0 {
-					policy.Status.ResizeHistory = appendHistory(policy.Status.ResizeHistory, tplHistory, maxHistoryEntries)
-				}
-			}
 		}
 		if resizedCount > 0 {
 			policy.Status.Workloads.Resized = safeInt32(resizedCount)
@@ -478,6 +470,21 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 						*resource.NewMilliQuantity(totalNewCPU, resource.DecimalSI),
 						*resource.NewMilliQuantity(totalCPULimit, resource.DecimalSI))
 				}
+			}
+		}
+	}
+	// Template persistence after successful in-place resizes (this cycle and
+	// lagging retry for prior successes). Runs outside cooldown so a failed
+	// template patch can still be retried while resize is cooling down.
+	if templatePersistenceEnabled(policy.Spec.UpdateStrategy) &&
+		templatePersistenceWhen(policy.Spec.UpdateStrategy) == attunev1alpha1.TemplatePersistenceAfterSuccessfulResize &&
+		len(recommendations) > 0 {
+		resizedWLs := laggingAfterResizeWorkloads(cycleResizeHistory, policy.Status.ResizeHistory)
+		if len(resizedWLs) > 0 {
+			tplHistory := r.applyTemplatePersistence(ctx, &policy, workloads, recommendations,
+				attunev1alpha1.TemplatePersistenceAfterSuccessfulResize, resizedWLs)
+			if len(tplHistory) > 0 {
+				policy.Status.ResizeHistory = appendHistory(policy.Status.ResizeHistory, tplHistory, maxHistoryEntries)
 			}
 		}
 	}

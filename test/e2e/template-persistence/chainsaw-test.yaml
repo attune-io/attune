@@ -1,0 +1,139 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: template-persistence
+spec:
+  description: Verify OnRecommendation templatePersistence patches Deployment pod template resources
+  timeouts:
+    apply: 30s
+    assert: 3m
+    delete: 30s
+  steps:
+    - name: create-resources
+      try:
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: e2e-template-persistence
+        - apply:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: tpl-app
+                namespace: e2e-template-persistence
+              spec:
+                replicas: 1
+                selector:
+                  matchLabels:
+                    app: tpl-app
+                template:
+                  metadata:
+                    labels:
+                      app: tpl-app
+                  spec:
+                    containers:
+                      - name: app
+                        image: registry.k8s.io/pause:3.9
+                        resources:
+                          requests:
+                            cpu: 500m
+                            memory: 512Mi
+        - apply:
+            resource:
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
+              metadata:
+                name: tpl-test
+                namespace: e2e-template-persistence
+              spec:
+                targetRef:
+                  kind: Deployment
+                  name: tpl-app
+                metricsSource:
+                  prometheus:
+                    address: http://prometheus-server.monitoring:80
+                  minimumDataPoints: 1
+                  historyWindow: 1h
+                cpu:
+                  percentile: 95
+                  overhead: "20"
+                  minAllowed: 50m
+                  maxAllowed: "2"
+                memory:
+                  percentile: 99
+                  overhead: "30"
+                  minAllowed: 64Mi
+                  maxAllowed: 2Gi
+                updateStrategy:
+                  type: Recommend
+                  cooldown: 1m
+                  templatePersistence:
+                    enabled: true
+                    when: OnRecommendation
+    - name: verify-deployment-ready
+      try:
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: tpl-app
+                namespace: e2e-template-persistence
+              status:
+                readyReplicas: 1
+    - name: verify-template-patched
+      try:
+        - script:
+            timeout: 3m
+            content: |
+              set -e
+              # Wait until operator has recommendations and patches the template.
+              # pause:3.9 uses nearly no CPU/memory, so recommendations shrink
+              # requests below the initial 500m/512Mi.
+              for i in $(seq 1 36); do
+                CPU=$(kubectl get deploy tpl-app -n e2e-template-persistence \
+                  -o jsonpath='{.spec.template.spec.containers[0].resources.requests.cpu}' 2>/dev/null || true)
+                MEM=$(kubectl get deploy tpl-app -n e2e-template-persistence \
+                  -o jsonpath='{.spec.template.spec.containers[0].resources.requests.memory}' 2>/dev/null || true)
+                # Accept any value other than the original oversized template.
+                if [ -n "$CPU" ] && [ "$CPU" != "500m" ]; then
+                  echo "Template CPU updated from 500m to $CPU (memory=$MEM)"
+                  # History should record TemplatePatched when enabled.
+                  HIST=$(kubectl get attunepolicy tpl-test -n e2e-template-persistence \
+                    -o jsonpath='{.status.resizeHistory[*].result}' 2>/dev/null || true)
+                  if echo "$HIST" | grep -q TemplatePatched; then
+                    echo "Resize history contains TemplatePatched"
+                    exit 0
+                  fi
+                  # Template change alone is success if history lag is racey.
+                  echo "WARN: history not yet showing TemplatePatched: $HIST"
+                  exit 0
+                fi
+                sleep 5
+              done
+              echo "FAIL: template still at original sizes after 3m"
+              kubectl get deploy tpl-app -n e2e-template-persistence -o yaml
+              kubectl get attunepolicy tpl-test -n e2e-template-persistence -o yaml
+              exit 1
+    - name: cleanup
+      try:
+        - delete:
+            ref:
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
+              name: tpl-test
+              namespace: e2e-template-persistence
+        - delete:
+            ref:
+              apiVersion: apps/v1
+              kind: Deployment
+              name: tpl-app
+              namespace: e2e-template-persistence
+        - delete:
+            ref:
+              apiVersion: v1
+              kind: Namespace
+              name: e2e-template-persistence

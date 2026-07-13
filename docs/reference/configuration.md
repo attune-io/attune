@@ -400,7 +400,7 @@ Built-in known names include `istio-proxy`, `linkerd-proxy`, `consul-dataplane`,
 | `updateStrategy.templatePersistence.enabled` | bool | `false` | When true, write recommended resources into Deployment/StatefulSet pod templates so new pods start correctly sized. **Opt-in only.** Do not enable under unmanaged GitOps without adopting recommendations in Git; prefer `export` or `initialSizing` instead. |
 | `updateStrategy.templatePersistence.when` | string | `AfterSuccessfulResize` | `AfterSuccessfulResize`: patch template only after a successful in-place resize. `OnRecommendation`: patch when a recommendation is accepted (works in Recommend mode). |
 
-Template changes trigger a rolling update. The operator no-ops when the template already matches and skips patches mid-rollout.
+Template changes trigger a rolling update. The operator no-ops when the template already matches and skips patches mid-rollout. **Observe mode never patches.** **Canary** defers template writes until `FullRollout` so a partial canary resize does not roll the whole fleet via the template. Requests are clamped to limits the same way as live resize.
 
 ### Directional Change Caps
 

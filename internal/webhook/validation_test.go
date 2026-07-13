@@ -1554,6 +1554,36 @@ func TestWarn_ExportInObserveMode(t *testing.T) {
 	assert.Contains(t, w, "export.configMap has no effect in Observe mode; recommendations are not surfaced")
 }
 
+func TestWarn_TemplatePersistenceInObserveMode(t *testing.T) {
+	validator := &AttunePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeObserve
+	enabled := true
+	policy.Spec.UpdateStrategy.TemplatePersistence = &attunev1alpha1.TemplatePersistence{
+		Enabled: &enabled,
+		When:    attunev1alpha1.TemplatePersistenceOnRecommendation,
+	}
+
+	w, err := validator.ValidateCreate(context.Background(), policy)
+	assert.NoError(t, err)
+	assert.Contains(t, w, "templatePersistence has no effect in Observe mode; recommendations are not applied")
+}
+
+func TestWarn_TemplatePersistenceAfterSuccessfulResizeInRecommendMode(t *testing.T) {
+	validator := &AttunePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeRecommend
+	enabled := true
+	policy.Spec.UpdateStrategy.TemplatePersistence = &attunev1alpha1.TemplatePersistence{
+		Enabled: &enabled,
+		When:    attunev1alpha1.TemplatePersistenceAfterSuccessfulResize,
+	}
+
+	w, err := validator.ValidateCreate(context.Background(), policy)
+	assert.NoError(t, err)
+	assert.Contains(t, w, "templatePersistence.when=AfterSuccessfulResize has no effect in Recommend mode; use OnRecommendation or a resizing mode")
+}
+
 func TestWarn_BudgetCapsInRecommendMode(t *testing.T) {
 	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
