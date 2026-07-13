@@ -39,7 +39,8 @@ rules:
       - get
       - list
       - watch
-  # Workload controllers: read-only
+  # Workload controllers: read for discovery; patch/update Deployments and
+  # StatefulSets when templatePersistence is enabled.
   - apiGroups:
       - apps
     resources:
@@ -51,6 +52,14 @@ rules:
       - get
       - list
       - watch
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+      - statefulsets
+    verbs:
+      - patch
+      - update
   # Batch workloads: read-only (Job/CronJob recommend-only support)
   - apiGroups:
       - batch

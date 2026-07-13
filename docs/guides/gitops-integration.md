@@ -72,7 +72,8 @@ adjusts.
 | Ongoing optimization of stable services | Use Auto mode; commit periodically based on savings reports |
 | Pre-deployment sizing | Use Recommend mode, review, commit before promoting |
 | Cost reporting | Use `kubectl attune savings` or the Grafana dashboard |
-| Pure GitOps (no direct resizes) | Recommend + export.configMap; CI pipeline consumes the ConfigMaps and proposes Git patches (see below) |
+| Pure GitOps (no direct resizes) | Recommend + export.configMap; CI pipeline consumes the ConfigMaps and proposes Git patches (see below). **Do not** enable `templatePersistence` under unmanaged sync; the operator would patch live templates and Git would thrash them. |
+| Cluster is source of truth | Optional `updateStrategy.templatePersistence` (Deployment/StatefulSet) so new pods inherit recommended sizes after resize or on recommendation; see configuration reference |
 
 ## Export mode for GitOps pipelines
 

@@ -237,6 +237,14 @@ var (
 		},
 		[]string{"namespace", "workload", "reason"},
 	)
+
+	TemplatePatchTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "attune_template_patch_total",
+			Help: "Total number of workload pod template resource patches",
+		},
+		[]string{"namespace", "workload", "result"},
+	)
 )
 
 // WebhookTimer tracks webhook operation duration and result.
@@ -292,5 +300,6 @@ func init() {
 		RequestClampedTotal,
 		NanInfSamplesTotal,
 		RevertFailuresTotal,
+		TemplatePatchTotal,
 	)
 }

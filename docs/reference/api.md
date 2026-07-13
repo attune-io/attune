@@ -112,6 +112,9 @@ spec:
     maxTotalMemoryIncrease: "4Gi"   # max aggregate memory increase per cycle (default: unlimited)
     export:                         # optional: export recommendations to ConfigMaps
       configMap: true               # creates <policy>-<workload>-recommendations ConfigMap
+    templatePersistence:            # optional: write recs into Deploy/STS template
+      enabled: false                # default off; triggers rolling update when true
+      when: AfterSuccessfulResize   # or OnRecommendation
     sloGuardrails:                  # optional: revert if application SLOs breach after resize
       - name: p99-latency
         query: 'histogram_quantile(0.99, rate(http_request_duration_seconds_bucket{namespace="{{ .Namespace }}"}[5m]))'

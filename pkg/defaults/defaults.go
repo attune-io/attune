@@ -316,5 +316,9 @@ func MergeUpdateStrategy(policy *attunev1alpha1.UpdateStrategy, defaults *attune
 		policy.SLOGuardrails = defaults.SLOGuardrails
 		inherited = append(inherited, "sloGuardrails")
 	}
+	if policy.TemplatePersistence == nil && defaults.TemplatePersistence != nil {
+		policy.TemplatePersistence = defaults.TemplatePersistence
+		inherited = append(inherited, "templatePersistence")
+	}
 	return inherited
 }

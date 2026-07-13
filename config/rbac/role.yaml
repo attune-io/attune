@@ -60,12 +60,21 @@ rules:
   - apps
   resources:
   - daemonsets
-  - deployments
   - replicasets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
   - statefulsets
   verbs:
   - get
   - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - attune.io

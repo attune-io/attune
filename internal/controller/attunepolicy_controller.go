@@ -113,6 +113,7 @@ const (
 //+kubebuilder:rbac:groups=attune.io,resources=attunedefaults,verbs=get;list;watch
 //+kubebuilder:rbac:groups=attune.io,resources=attunenamespacedefaults,verbs=get;list;watch
 //+kubebuilder:rbac:groups=apps,resources=deployments;statefulsets;daemonsets;replicasets,verbs=get;list;watch
+//+kubebuilder:rbac:groups=apps,resources=deployments;statefulsets,verbs=patch;update
 //+kubebuilder:rbac:groups=batch,resources=cronjobs;jobs,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;update;patch
 //+kubebuilder:rbac:groups="",resources=pods/resize,verbs=update;patch
@@ -379,6 +380,17 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		r.exportRecommendationConfigMaps(ctx, &policy, recommendations)
 	}
 
+	// Template persistence (OnRecommendation): write accepted recs into templates.
+	if templatePersistenceEnabled(policy.Spec.UpdateStrategy) &&
+		templatePersistenceWhen(policy.Spec.UpdateStrategy) == attunev1alpha1.TemplatePersistenceOnRecommendation &&
+		len(recommendations) > 0 {
+		tplHistory := r.applyTemplatePersistence(ctx, &policy, workloads, recommendations,
+			attunev1alpha1.TemplatePersistenceOnRecommendation, nil)
+		if len(tplHistory) > 0 {
+			policy.Status.ResizeHistory = appendHistory(policy.Status.ResizeHistory, tplHistory, maxHistoryEntries)
+		}
+	}
+
 	// Step 9: Execute resizes if mode allows.
 	mode := policy.Spec.UpdateStrategy.Type
 	cooldownActive := r.isCooldownActive(&policy)
@@ -427,6 +439,18 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		// exponential backoff) work for all revert reasons.
 		if len(history) > 0 {
 			policy.Status.ResizeHistory = appendHistory(policy.Status.ResizeHistory, history, maxHistoryEntries)
+		}
+		// Template persistence after successful in-place resizes.
+		if templatePersistenceEnabled(policy.Spec.UpdateStrategy) &&
+			templatePersistenceWhen(policy.Spec.UpdateStrategy) == attunev1alpha1.TemplatePersistenceAfterSuccessfulResize {
+			resizedWLs := successfulResizeWorkloads(history)
+			if len(resizedWLs) > 0 {
+				tplHistory := r.applyTemplatePersistence(ctx, &policy, workloads, recommendations,
+					attunev1alpha1.TemplatePersistenceAfterSuccessfulResize, resizedWLs)
+				if len(tplHistory) > 0 {
+					policy.Status.ResizeHistory = appendHistory(policy.Status.ResizeHistory, tplHistory, maxHistoryEntries)
+				}
+			}
 		}
 		if resizedCount > 0 {
 			policy.Status.Workloads.Resized = safeInt32(resizedCount)
