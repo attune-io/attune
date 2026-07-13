@@ -186,7 +186,7 @@
                     "enabled": { "type": "boolean", "default": true },
                     "threshold": { "type": "string", "default": "0" },
                     "for": { "type": "string", "default": "10m" },
-                    "severity": { "type": "string", "default": "warning" }
+                    "severity": { "type": "string", "default": "warning", "enum": ["critical", "warning", "info"] }
                   }
                 },
                 "prometheusUnreachable": {
@@ -195,7 +195,7 @@
                   "properties": {
                     "enabled": { "type": "boolean", "default": true },
                     "for": { "type": "string", "default": "10m" },
-                    "severity": { "type": "string", "default": "warning" }
+                    "severity": { "type": "string", "default": "warning", "enum": ["critical", "warning", "info"] }
                   }
                 },
                 "degraded": {
@@ -204,7 +204,7 @@
                   "properties": {
                     "enabled": { "type": "boolean", "default": true },
                     "for": { "type": "string", "default": "5m" },
-                    "severity": { "type": "string", "default": "critical" }
+                    "severity": { "type": "string", "default": "critical", "enum": ["critical", "warning", "info"] }
                   }
                 },
                 "highRevertRate": {
@@ -214,7 +214,7 @@
                     "enabled": { "type": "boolean", "default": true },
                     "threshold": { "type": "string", "default": "0.5" },
                     "for": { "type": "string", "default": "15m" },
-                    "severity": { "type": "string", "default": "critical" }
+                    "severity": { "type": "string", "default": "critical", "enum": ["critical", "warning", "info"] }
                   }
                 },
                 "reconcileStale": {
@@ -224,7 +224,7 @@
                     "enabled": { "type": "boolean", "default": true },
                     "staleDuration": { "type": "string", "default": "30m" },
                     "for": { "type": "string", "default": "5m" },
-                    "severity": { "type": "string", "default": "warning" }
+                    "severity": { "type": "string", "default": "warning", "enum": ["critical", "warning", "info"] }
                   }
                 },
                 "budgetExhausted": {
@@ -233,7 +233,7 @@
                   "properties": {
                     "enabled": { "type": "boolean", "default": true },
                     "for": { "type": "string", "default": "30m" },
-                    "severity": { "type": "string", "default": "warning" }
+                    "severity": { "type": "string", "default": "warning", "enum": ["critical", "warning", "info"] }
                   }
                 },
                 "dataQuality": {
@@ -242,7 +242,7 @@
                   "properties": {
                     "enabled": { "type": "boolean", "default": true },
                     "for": { "type": "string", "default": "30m" },
-                    "severity": { "type": "string", "default": "warning" }
+                    "severity": { "type": "string", "default": "warning", "enum": ["critical", "warning", "info"] }
                   }
                 },
                 "requestsClamped": {
@@ -251,7 +251,7 @@
                   "properties": {
                     "enabled": { "type": "boolean", "default": true },
                     "for": { "type": "string", "default": "1h" },
-                    "severity": { "type": "string", "default": "info" }
+                    "severity": { "type": "string", "default": "info", "enum": ["critical", "warning", "info"] }
                   }
                 },
                 "staleRecommendations": {
@@ -260,7 +260,7 @@
                   "properties": {
                     "enabled": { "type": "boolean", "default": true },
                     "for": { "type": "string", "default": "1h" },
-                    "severity": { "type": "string", "default": "warning" }
+                    "severity": { "type": "string", "default": "warning", "enum": ["critical", "warning", "info"] }
                   }
                 },
                 "revertFailures": {
@@ -269,7 +269,7 @@
                   "properties": {
                     "enabled": { "type": "boolean", "default": true },
                     "for": { "type": "string", "default": "5m" },
-                    "severity": { "type": "string", "default": "critical" }
+                    "severity": { "type": "string", "default": "critical", "enum": ["critical", "warning", "info"] }
                   }
                 }
               }
@@ -465,9 +465,11 @@
             "canary": {
               "type": "object",
               "description": "Canary rollout configuration",
+              "additionalProperties": false,
               "properties": {
                 "percentage": { "type": "integer", "minimum": 1, "maximum": 100 },
-                "observationPeriod": { "type": "string" }
+                "observationPeriod": { "type": "string" },
+                "autoPromote": { "type": "boolean" }
               }
             },
             "export": {
@@ -491,11 +493,14 @@
               "description": "Application-level SLO metrics to check after resize",
               "items": {
                 "type": "object",
+                "required": ["name", "query", "threshold"],
+                "additionalProperties": false,
                 "properties": {
                   "name": { "type": "string", "description": "Guardrail name for logging and status" },
                   "query": { "type": "string", "description": "PromQL query returning a scalar value" },
                   "threshold": { "type": "string", "description": "Value that triggers a revert" },
-                  "comparison": { "type": "string", "enum": ["above", "below"], "description": "Revert when value is above or below threshold" }
+                  "comparison": { "type": "string", "enum": ["above", "below"], "description": "Revert when value is above or below threshold" },
+                  "evaluationWindow": { "type": "string", "description": "How long after resize to check (default: 5m)" }
                 }
               }
             }
