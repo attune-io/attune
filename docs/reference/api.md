@@ -182,8 +182,8 @@ spec:
 | `resizeHistory[].resource` | `string` | `cpu`, `memory`, or `cpu+memory` |
 | `resizeHistory[].from` | `string` | Previous value |
 | `resizeHistory[].to` | `string` | New value |
-| `resizeHistory[].method` | `string` | `InPlace` or `Eviction` |
-| `resizeHistory[].result` | `string` | `Success`, `Failed`, `Reverted`, or `Evicted` |
+| `resizeHistory[].method` | `string` | `InPlace`, `Eviction`, or `TemplatePersistence` |
+| `resizeHistory[].result` | `string` | `Success`, `Failed`, `Reverted`, `Evicted`, or `TemplatePatched` |
 | `resizeHistory[].reason` | `string` | Why a resize was reverted or failed (e.g. `oomkill`, `restart`, `notready`, `slo:<name>`). Empty for successful resizes. |
 | `workloadErrors[].workload` | `string` | Workload name that encountered an error during reconciliation |
 | `workloadErrors[].error` | `string` | Human-readable error description |

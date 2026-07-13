@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -442,18 +443,33 @@ func TestSuccessfulResizeWorkloads(t *testing.T) {
 }
 
 func TestLaggingAfterResizeWorkloads(t *testing.T) {
+	t0 := metav1.NewTime(metav1.Now().Add(-2 * time.Hour))
+	t1 := metav1.NewTime(metav1.Now().Add(-1 * time.Hour))
+	t2 := metav1.Now()
+
 	got := laggingAfterResizeWorkloads(
 		[]attunev1alpha1.ResizeHistoryEntry{
 			{Workload: "cycle", Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess},
 		},
 		[]attunev1alpha1.ResizeHistoryEntry{
-			{Workload: "prior", Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess},
-			{Workload: "failed", Method: "InPlace", Result: attunev1alpha1.ResizeResultFailed},
+			// prior: success without later TemplatePatched → lagging
+			{Workload: "prior", Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: t0},
+			// failed resize alone does not lag
+			{Workload: "failed", Method: "InPlace", Result: attunev1alpha1.ResizeResultFailed, Timestamp: t0},
+			// done: success then TemplatePatched → no lag
+			{Workload: "done", Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: t0},
+			{Workload: "done", Method: "TemplatePersistence", Result: attunev1alpha1.ResizeResultTemplatePatched, Timestamp: t1},
+			// retry: success after a prior TemplatePatched (new resize) → lag again
+			{Workload: "retry", Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: t0},
+			{Workload: "retry", Method: "TemplatePersistence", Result: attunev1alpha1.ResizeResultTemplatePatched, Timestamp: t1},
+			{Workload: "retry", Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: t2},
 		},
 	)
 	assert.True(t, got["cycle"])
 	assert.True(t, got["prior"])
 	assert.False(t, got["failed"])
+	assert.False(t, got["done"])
+	assert.True(t, got["retry"])
 }
 
 func TestCanaryBlocksTemplatePersistence(t *testing.T) {
@@ -471,9 +487,12 @@ func TestCanaryBlocksTemplatePersistence(t *testing.T) {
 	assert.False(t, canaryBlocksTemplatePersistence(policy))
 }
 
-func TestMaterializeContainerResources_ClampsRequestsToLimits(t *testing.T) {
+func TestMaterializeContainerResources_ClampsRequestsOnlyDefault(t *testing.T) {
+	// Default ControlledValues is RequestsOnly. Recommended limits carry the
+	// current limits (resize path parity) so growing requests clamp to them.
 	policy := &attunev1alpha1.AttunePolicy{}
-	// RequestsOnly default: recommended request may exceed retained limit.
+	memDec := true
+	policy.Spec.Memory.AllowDecrease = &memDec
 	c := attunev1alpha1.ContainerRecommendation{
 		Name: "app",
 		Current: attunev1alpha1.ResourceValues{
@@ -483,27 +502,43 @@ func TestMaterializeContainerResources_ClampsRequestsToLimits(t *testing.T) {
 			MemoryLimit:   resource.MustParse("256Mi"),
 		},
 		Recommended: attunev1alpha1.ResourceValues{
-			CPURequest:    resource.MustParse("500m"), // > current limit 200m
-			CPULimit:      resource.MustParse("200m"), // RequestsOnly path keeps limit
+			CPURequest:    resource.MustParse("500m"), // > limit 200m
+			CPULimit:      resource.MustParse("200m"), // current limit (RequestsOnly)
 			MemoryRequest: resource.MustParse("512Mi"),
 			MemoryLimit:   resource.MustParse("256Mi"),
 		},
 	}
-	// With RequestsOnly, materialize does not set limits from recommendation
-	// unless ControlledValues is RequestsAndLimits. So clamp only applies
-	// when limits are present on the output. Force limits via ControlledValues.
+	got := materializeContainerResources(policy, c)
+	assert.Equal(t, int64(200), got.Requests.Cpu().MilliValue(), "CPU request clamped to current limit")
+	assert.True(t, got.Requests.Memory().Equal(resource.MustParse("256Mi")), "memory request clamped to current limit")
+	assert.Nil(t, got.Limits, "RequestsOnly must not write limits into the template payload")
+}
+
+func TestMaterializeContainerResources_ClampsRequestsAndLimits(t *testing.T) {
+	policy := &attunev1alpha1.AttunePolicy{}
 	cv := attunev1alpha1.ControlledRequestsAndLimits
 	policy.Spec.CPU.ControlledValues = &cv
 	policy.Spec.Memory.ControlledValues = &cv
-	// Recommended request > recommended limit → clamp
-	c.Recommended.CPURequest = resource.MustParse("800m")
-	c.Recommended.CPULimit = resource.MustParse("400m")
-	c.Recommended.MemoryRequest = resource.MustParse("1Gi")
-	c.Recommended.MemoryLimit = resource.MustParse("512Mi")
-
+	memDec := true
+	policy.Spec.Memory.AllowDecrease = &memDec
+	c := attunev1alpha1.ContainerRecommendation{
+		Name: "app",
+		Current: attunev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("100m"),
+			MemoryRequest: resource.MustParse("128Mi"),
+		},
+		Recommended: attunev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("800m"),
+			CPULimit:      resource.MustParse("400m"),
+			MemoryRequest: resource.MustParse("1Gi"),
+			MemoryLimit:   resource.MustParse("512Mi"),
+		},
+	}
 	got := materializeContainerResources(policy, c)
 	assert.Equal(t, int64(400), got.Requests.Cpu().MilliValue(), "CPU request clamped to limit")
 	assert.True(t, got.Requests.Memory().Equal(resource.MustParse("512Mi")), "memory request clamped to limit")
+	require.NotNil(t, got.Limits)
+	assert.Equal(t, int64(400), got.Limits.Cpu().MilliValue())
 }
 
 func TestApplyTemplatePersistence_SkipsObserveMode(t *testing.T) {

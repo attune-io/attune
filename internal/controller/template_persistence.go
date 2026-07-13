@@ -93,10 +93,13 @@ func materializeContainerResources(
 		memCV = *policy.Spec.Memory.ControlledValues
 	}
 
-	if cpuCV == attunev1alpha1.ControlledRequestsAndLimits && !c.Recommended.CPULimit.IsZero() {
+	// Include recommended limits for clamp parity with buildResizeTarget.
+	// Under RequestsOnly, Recommended.*Limit is the current limit (see
+	// newContainerRecommendation); under RequestsAndLimits it is scaled.
+	if !c.Recommended.CPULimit.IsZero() {
 		limits[corev1.ResourceCPU] = c.Recommended.CPULimit.DeepCopy()
 	}
-	if memCV == attunev1alpha1.ControlledRequestsAndLimits && !c.Recommended.MemoryLimit.IsZero() {
+	if !c.Recommended.MemoryLimit.IsZero() {
 		limits[corev1.ResourceMemory] = c.Recommended.MemoryLimit.DeepCopy()
 	}
 
@@ -106,6 +109,22 @@ func materializeContainerResources(
 	}
 	// Match resize path: requests must not exceed limits when both are set.
 	_ = clampRequestsToLimits(&out)
+
+	// Only write limits into the template when ControlledValues says so.
+	// RequestsOnly must leave existing template limits untouched (merge keeps them).
+	if cpuCV != attunev1alpha1.ControlledRequestsAndLimits && memCV != attunev1alpha1.ControlledRequestsAndLimits {
+		out.Limits = nil
+	} else if out.Limits != nil {
+		if cpuCV != attunev1alpha1.ControlledRequestsAndLimits {
+			delete(out.Limits, corev1.ResourceCPU)
+		}
+		if memCV != attunev1alpha1.ControlledRequestsAndLimits {
+			delete(out.Limits, corev1.ResourceMemory)
+		}
+		if len(out.Limits) == 0 {
+			out.Limits = nil
+		}
+	}
 	return out
 }
 
@@ -407,20 +426,53 @@ func successfulResizeWorkloads(history []attunev1alpha1.ResizeHistoryEntry) map[
 	return out
 }
 
-// laggingAfterResizeWorkloads returns workloads that should retry template
-// persistence after a prior successful in-place resize (e.g. patch failed or
-// was skipped mid-rollout). Includes this-cycle successes and any prior
-// InPlace Success still present in status history. applyTemplatePersistence
-// no-ops when the template already matches, so re-attempts are safe.
+// laggingAfterResizeWorkloads returns workloads that should (re)try template
+// persistence after a successful in-place resize. Includes this-cycle
+// successes always. From status history, only includes a workload when its
+// latest InPlace Success is not followed by a TemplatePatched entry (failed
+// patch, mid-rollout skip, or never attempted). This avoids turning
+// AfterSuccessfulResize into permanent OnRecommendation after one success.
 func laggingAfterResizeWorkloads(
 	cycleHistory []attunev1alpha1.ResizeHistoryEntry,
 	statusHistory []attunev1alpha1.ResizeHistoryEntry,
 ) map[string]bool {
 	out := successfulResizeWorkloads(cycleHistory)
+
+	type wlState struct {
+		lastSuccess metav1.Time
+		hasSuccess  bool
+		lastPatched metav1.Time
+		hasPatched  bool
+	}
+	byWL := map[string]*wlState{}
 	for _, h := range statusHistory {
-		if isSuccessfulInPlaceHistory(h) {
-			out[h.Workload] = true
+		st := byWL[h.Workload]
+		if st == nil {
+			st = &wlState{}
+			byWL[h.Workload] = st
 		}
+		if isSuccessfulInPlaceHistory(h) {
+			if !st.hasSuccess || h.Timestamp.After(st.lastSuccess.Time) {
+				st.hasSuccess = true
+				st.lastSuccess = h.Timestamp
+			}
+		}
+		if h.Method == "TemplatePersistence" && h.Result == attunev1alpha1.ResizeResultTemplatePatched {
+			if !st.hasPatched || h.Timestamp.After(st.lastPatched.Time) {
+				st.hasPatched = true
+				st.lastPatched = h.Timestamp
+			}
+		}
+	}
+	for wl, st := range byWL {
+		if !st.hasSuccess {
+			continue
+		}
+		// Template already patched at or after the last successful resize.
+		if st.hasPatched && !st.lastSuccess.After(st.lastPatched.Time) {
+			continue
+		}
+		out[wl] = true
 	}
 	return out
 }
