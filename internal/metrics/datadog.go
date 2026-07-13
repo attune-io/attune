@@ -135,6 +135,9 @@ func (c *DatadogCollector) QueryRangeGrouped(ctx context.Context, query string, 
 		for _, point := range series.Pointlist {
 			ts := time.Unix(int64(point[0])/1000, 0) // Datadog timestamps are milliseconds
 			value := point[1]
+			if math.IsNaN(value) || math.IsInf(value, 0) {
+				continue
+			}
 			// Convert nanocores to cores for CPU metrics.
 			if isCPU {
 				value /= 1e9

@@ -209,6 +209,67 @@ func TestConsecutiveReverts(t *testing.T) {
 	}
 }
 
+func TestMarkLatestCycleReverted(t *testing.T) {
+	now := time.Now()
+	earlier := now.Add(-1 * time.Hour)
+
+	tests := []struct {
+		name       string
+		history    []attunev1alpha1.ResizeHistoryEntry
+		workload   string
+		container  string
+		wantResult []attunev1alpha1.ResizeResult
+	}{
+		{
+			name: "marks both entries from same cycle",
+			history: []attunev1alpha1.ResizeHistoryEntry{
+				{Workload: "w", Container: "c", Resource: "cpu", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: metav1.NewTime(now)},
+				{Workload: "w", Container: "c", Resource: "memory", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: metav1.NewTime(now)},
+			},
+			workload:   "w",
+			container:  "c",
+			wantResult: []attunev1alpha1.ResizeResult{attunev1alpha1.ResizeResultReverted, attunev1alpha1.ResizeResultReverted},
+		},
+		{
+			name: "only marks latest cycle, not older",
+			history: []attunev1alpha1.ResizeHistoryEntry{
+				{Workload: "w", Container: "c", Resource: "cpu", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: metav1.NewTime(earlier)},
+				{Workload: "w", Container: "c", Resource: "memory", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: metav1.NewTime(earlier)},
+				{Workload: "w", Container: "c", Resource: "cpu", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: metav1.NewTime(now)},
+				{Workload: "w", Container: "c", Resource: "memory", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: metav1.NewTime(now)},
+			},
+			workload:   "w",
+			container:  "c",
+			wantResult: []attunev1alpha1.ResizeResult{attunev1alpha1.ResizeResultSuccess, attunev1alpha1.ResizeResultSuccess, attunev1alpha1.ResizeResultReverted, attunev1alpha1.ResizeResultReverted},
+		},
+		{
+			name: "does not affect other workloads",
+			history: []attunev1alpha1.ResizeHistoryEntry{
+				{Workload: "other", Container: "c", Resource: "cpu", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: metav1.NewTime(now)},
+				{Workload: "w", Container: "c", Resource: "cpu", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: metav1.NewTime(now)},
+			},
+			workload:   "w",
+			container:  "c",
+			wantResult: []attunev1alpha1.ResizeResult{attunev1alpha1.ResizeResultSuccess, attunev1alpha1.ResizeResultReverted},
+		},
+		{
+			name:       "empty history is a no-op",
+			history:    nil,
+			workload:   "w",
+			container:  "c",
+			wantResult: nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			markLatestCycleReverted(tt.history, tt.workload, tt.container, "test-reason")
+			for i, want := range tt.wantResult {
+				assert.Equal(t, want, tt.history[i].Result, "entry %d", i)
+			}
+		})
+	}
+}
+
 // ---------- Exponential backoff ----------
 
 func TestGetEffectiveCooldown_NoReverts(t *testing.T) {

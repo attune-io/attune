@@ -153,6 +153,10 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 	if err := r.List(ctx, &podList, client.InNamespace(policy.Namespace), client.MatchingLabels{labelTracked: "true"}); err != nil {
 		logger.Error(err, "Failed to list pods for safety observation")
 		operatormetrics.ReconcileErrorsTotal.WithLabelValues("safety_observation").Inc()
+		// Fail safe: assume observations are pending so the reconciler
+		// requeues at the short observation interval instead of the full
+		// cooldown, avoiding a delayed safety detection window.
+		observationsPending = true
 		return
 	}
 
@@ -195,13 +199,12 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 								r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, string(attunev1alpha1.ResizeResultReverted), "revert",
 									"Early safety detection reverted resize on pod %s/%s: %s", pod.Name, record.Container, v.Message)
 							}
-							for j := range policy.Status.ResizeHistory {
-								h := &policy.Status.ResizeHistory[j]
-								if h.Workload == trackedWorkload && h.Container == record.Container && h.Result == attunev1alpha1.ResizeResultSuccess {
-									h.Result = attunev1alpha1.ResizeResultReverted
-									h.Reason = v.Reason
-								}
-							}
+							// Mark history entries from the most recent resize cycle
+							// as reverted. Only entries whose timestamp matches the
+							// first (newest) match are marked, so entries from prior
+							// successful cycles are not poisoned and consecutiveReverts
+							// is not inflated.
+							markLatestCycleReverted(policy.Status.ResizeHistory, trackedWorkload, record.Container, v.Reason)
 						}
 					}
 				}
@@ -245,14 +248,7 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 					r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, string(attunev1alpha1.ResizeResultReverted), "revert",
 						"Safety observation reverted resize on pod %s/%s: %s", pod.Name, record.Container, verdict.Message)
 				}
-				// Mark matching history entries as reverted so status reflects the revert.
-				for i := range policy.Status.ResizeHistory {
-					h := &policy.Status.ResizeHistory[i]
-					if h.Workload == trackedWorkload && h.Container == record.Container && h.Result == attunev1alpha1.ResizeResultSuccess {
-						h.Result = attunev1alpha1.ResizeResultReverted
-						h.Reason = verdict.Reason
-					}
-				}
+				markLatestCycleReverted(policy.Status.ResizeHistory, trackedWorkload, record.Container, verdict.Reason)
 			}
 		}
 

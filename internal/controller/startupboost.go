@@ -24,6 +24,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -153,17 +154,34 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 				// resize succeeded. Without this guard, a failed boost
 				// would trigger a spurious expiry resize on the next reconcile.
 				if boostedAny {
-					if pod.Annotations == nil {
-						pod.Annotations = make(map[string]string)
-					}
-					pod.Annotations[annotationStartupBoostAt] = now.UTC().Format(time.RFC3339)
-					pod.Annotations[annotationPolicy] = policy.Name
-					if pod.Labels == nil {
-						pod.Labels = make(map[string]string)
-					}
-					pod.Labels[labelTracked] = "true"
-					if updateErr := r.Update(ctx, pod); updateErr != nil {
-						logger.Error(updateErr, "Failed to persist startup boost annotation", "pod", pod.Name)
+					// Re-fetch from API server and retry on conflict to handle
+					// kubelet status churn after resize. Without retry, a 409
+					// leaves the annotation unset and the boost never expires.
+					const maxBoostAnnotationRetries = 3
+					for attempt := range maxBoostAnnotationRetries {
+						freshPod, getErr := r.Clientset.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
+						if getErr != nil {
+							logger.Error(getErr, "Failed to re-fetch pod for boost annotation", "pod", pod.Name)
+							break
+						}
+						if freshPod.Annotations == nil {
+							freshPod.Annotations = make(map[string]string)
+						}
+						freshPod.Annotations[annotationStartupBoostAt] = now.UTC().Format(time.RFC3339)
+						freshPod.Annotations[annotationPolicy] = policy.Name
+						if freshPod.Labels == nil {
+							freshPod.Labels = make(map[string]string)
+						}
+						freshPod.Labels[labelTracked] = "true"
+						if updateErr := r.Update(ctx, freshPod); updateErr == nil {
+							*pod = *freshPod
+							break
+						} else if !apierrors.IsConflict(updateErr) {
+							logger.Error(updateErr, "Failed to persist startup boost annotation", "pod", pod.Name)
+							break
+						}
+						logger.V(1).Info("Boost annotation conflict, retrying",
+							"pod", pod.Name, "attempt", attempt+1)
 					}
 				}
 			} else if boostAtStr != "" {

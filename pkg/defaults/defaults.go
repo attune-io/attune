@@ -190,7 +190,7 @@ func MergeUpdateStrategy(policy *attunev1alpha1.UpdateStrategy, defaults *attune
 		return nil
 	}
 	var inherited []string
-	if policy.Type == "" {
+	if policy.Type == "" && defaults.Type != "" {
 		policy.Type = defaults.Type
 		inherited = append(inherited, "type")
 	}

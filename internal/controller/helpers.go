@@ -669,6 +669,33 @@ func checkQuotaHeadroom(quota corev1.ResourceQuota, current, target corev1.Resou
 	return nil
 }
 
+// markLatestCycleReverted marks history entries from the most recent resize
+// cycle as reverted. It walks the history in reverse and marks all matching
+// entries whose timestamp equals the first (newest) match. Entries from
+// earlier resize cycles (different timestamps) are left untouched, preventing
+// consecutiveReverts from being inflated by a single revert event.
+func markLatestCycleReverted(history []attunev1alpha1.ResizeHistoryEntry, workload, container, reason string) {
+	var matched bool
+	var matchTS time.Time
+	for i := len(history) - 1; i >= 0; i-- {
+		h := &history[i]
+		if h.Workload == workload && h.Container == container && h.Result == attunev1alpha1.ResizeResultSuccess {
+			if !matched {
+				matchTS = h.Timestamp.Time
+				matched = true
+			}
+			if h.Timestamp.Time.Equal(matchTS) {
+				h.Result = attunev1alpha1.ResizeResultReverted
+				h.Reason = reason
+			} else {
+				break // older cycle
+			}
+		} else if matched {
+			break
+		}
+	}
+}
+
 // consecutiveReverts returns the number of consecutive reverted entries at the
 // end of the resize history.
 func consecutiveReverts(history []attunev1alpha1.ResizeHistoryEntry) int {
