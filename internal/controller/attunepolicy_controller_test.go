@@ -11666,3 +11666,168 @@ func TestWarnConfigClamping(t *testing.T) {
 		})
 	}
 }
+
+func TestApplyStartupBoosts_CapsAtMaxAllowed(t *testing.T) {
+	// When the boosted CPU (3x 200m = 600m) exceeds the policy's
+	// maxAllowed (400m), the boost should be capped at maxAllowed
+	// to respect admin-configured ceilings.
+	scheme := testScheme()
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	maxAllowed := resource.MustParse("400m")
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			CPU: attunev1alpha1.ResourceConfig{
+				MaxAllowed: &maxAllowed,
+				StartupBoost: &attunev1alpha1.StartupBoost{
+					Multiplier: "3.0",
+					Duration:   metav1.Duration{Duration: 2 * time.Minute},
+				},
+			},
+		},
+	}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "maxallowed-app-abc",
+			Namespace:         "default",
+			CreationTimestamp: metav1.NewTime(now.Add(-30 * time.Second)),
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("100m"),
+							corev1.ResourceMemory: resource.MustParse("128Mi"),
+						},
+					},
+				},
+			},
+		},
+	}
+	clientset := kubefake.NewSimpleClientset(pod)
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
+	r.SetNowFunc(func() time.Time { return now })
+
+	resizer := resize.NewPodResizer(clientset, ctrl.Log)
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "maxallowed-app",
+			Kind:     "Deployment",
+			Containers: []attunev1alpha1.ContainerRecommendation{
+				{
+					Name:        "main",
+					Recommended: attunev1alpha1.ResourceValues{CPURequest: resource.MustParse("200m")},
+				},
+			},
+		},
+	}
+	podsByWorkload := map[string][]corev1.Pod{"maxallowed-app": {*pod}}
+
+	r.applyStartupBoosts(context.Background(), policy, podsByWorkload, recs, resizer, nil)
+
+	var foundResize bool
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			foundResize = true
+			updatedPod := a.(k8stesting.UpdateAction).GetObject().(*corev1.Pod)
+			cpuReq := updatedPod.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
+			assert.True(t, cpuReq.Cmp(maxAllowed) <= 0,
+				"boosted CPU (%s) should not exceed maxAllowed (400m)", cpuReq.String())
+			assert.True(t, cpuReq.Cmp(resource.MustParse("100m")) > 0,
+				"CPU should be boosted above original 100m")
+			break
+		}
+	}
+	assert.True(t, foundResize, "expected a resize action for maxAllowed-capped startup boost")
+}
+
+func TestExportRecommendationConfigMaps_NaNInfConfidenceWritesZero(t *testing.T) {
+	scheme := testScheme()
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-policy",
+			Namespace: "default",
+			UID:       "abc-123",
+		},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(policy).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.SetNowFunc(func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) })
+
+	tests := []struct {
+		name       string
+		confidence float64
+	}{
+		{"NaN", math.NaN()},
+		{"positive Inf", math.Inf(1)},
+		{"negative Inf", math.Inf(-1)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recs := []attunev1alpha1.WorkloadRecommendation{
+				{
+					Workload: "my-app",
+					Kind:     "Deployment",
+					Containers: []attunev1alpha1.ContainerRecommendation{
+						{
+							Name:       "main",
+							Confidence: tt.confidence,
+							Recommended: attunev1alpha1.ResourceValues{
+								CPURequest:    resource.MustParse("250m"),
+								MemoryRequest: resource.MustParse("256Mi"),
+							},
+						},
+					},
+				},
+			}
+
+			r.exportRecommendationConfigMaps(context.Background(), policy, recs)
+
+			var cm corev1.ConfigMap
+			err := fakeClient.Get(context.Background(), client.ObjectKey{
+				Namespace: "default",
+				Name:      "test-policy-my-app-recommendations",
+			}, &cm)
+			require.NoError(t, err)
+			assert.Equal(t, "0.00", cm.Data["main.confidence"],
+				"%s confidence should be written as 0.00", tt.name)
+
+			// Clean up for next subtest.
+			_ = fakeClient.Delete(context.Background(), &cm)
+		})
+	}
+}
+
+func TestCheckPendingSafetyObservations_ListErrorReturnsObservationsPending(t *testing.T) {
+	// When the pod list fails, observationsPending must be true (fail-safe)
+	// so the reconciler requeues at the short observation interval instead
+	// of the full cooldown. This prevents a delayed safety detection window.
+	scheme := testScheme()
+	failingClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithInterceptorFuncs(interceptor.Funcs{
+			List: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) error {
+				return fmt.Errorf("simulated API server error")
+			},
+		}).Build()
+
+	r := NewAttunePolicyReconciler()
+	r.Client = failingClient
+	r.Scheme = scheme
+	r.Clientset = kubefake.NewSimpleClientset()
+
+	policy := newTestPolicy("test-policy", "default")
+
+	pending := r.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
+
+	assert.True(t, pending,
+		"observationsPending should be true on List error (fail-safe requeue)")
+}
