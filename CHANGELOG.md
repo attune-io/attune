@@ -6,6 +6,17 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.19](https://github.com/attune-io/attune/compare/v0.1.18...v0.1.19) (2026-07-13)
+
+
+### Bug Fixes
+
+* cap startup boost at maxAllowed and guard NaN/Inf confidence in export ([#388](https://github.com/attune-io/attune/issues/388)) ([fbecbc3](https://github.com/attune-io/attune/commit/fbecbc3c30bd00e4ae2a77c417da1e0214cae551))
+* guard NaN/Inf in latestSampleValue and fix stale docs ([#385](https://github.com/attune-io/attune/issues/385)) ([d8eff72](https://github.com/attune-io/attune/commit/d8eff72fc5c503c1304e4bdb20136f57b2f863a6))
+* helm defaults template nil guard and schema validation gaps ([#387](https://github.com/attune-io/attune/issues/387)) ([67c0223](https://github.com/attune-io/attune/commit/67c0223a88a93b5ef339113a90fc7352b4127d03))
+* remove orphan adjustHPATargets comment fragment ([#398](https://github.com/attune-io/attune/issues/398)) ([1e3119e](https://github.com/attune-io/attune/commit/1e3119ee1e69d229765c207e01236f8336b5e739))
+* safety revert over-marking, boost annotation conflict, Datadog NaN/Inf, merge logging ([#389](https://github.com/attune-io/attune/issues/389)) ([d410721](https://github.com/attune-io/attune/commit/d4107212bbc810e633c8b406c7f7cf9d133e4adb))
+
 ## [0.1.18](https://github.com/attune-io/attune/compare/v0.1.17...v0.1.18) (2026-07-11)
 
 
