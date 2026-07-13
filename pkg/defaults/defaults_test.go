@@ -59,11 +59,15 @@ func TestApplyBuiltInDefaults_FillsAllFields(t *testing.T) {
 	assert.Equal(t, attunev1alpha1.DefaultControlledValues, *policy.Spec.CPU.ControlledValues)
 	assert.NotNil(t, policy.Spec.Memory.ControlledValues)
 	assert.Equal(t, attunev1alpha1.DefaultControlledValues, *policy.Spec.Memory.ControlledValues)
+	require.NotNil(t, policy.Spec.ExcludeKnownSidecars)
+	assert.True(t, *policy.Spec.ExcludeKnownSidecars)
+	assert.Equal(t, attunev1alpha1.DefaultExcludeKnownSidecars, *policy.Spec.ExcludeKnownSidecars)
 }
 
 func TestApplyBuiltInDefaults_DoesNotOverrideExistingValues(t *testing.T) {
 	mode := attunev1alpha1.UpdateTypeAuto
 	maxCPU := int32(25)
+	falseVal := false
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
 			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
@@ -72,12 +76,15 @@ func TestApplyBuiltInDefaults_DoesNotOverrideExistingValues(t *testing.T) {
 			CPU: attunev1alpha1.ResourceConfig{
 				MaxChangePercent: &maxCPU,
 			},
+			ExcludeKnownSidecars: &falseVal,
 		},
 	}
 	ApplyBuiltInDefaults(policy)
 
 	assert.Equal(t, mode, policy.Spec.UpdateStrategy.Type)
 	assert.Equal(t, int32(25), *policy.Spec.CPU.MaxChangePercent)
+	require.NotNil(t, policy.Spec.ExcludeKnownSidecars)
+	assert.False(t, *policy.Spec.ExcludeKnownSidecars)
 }
 
 func TestMergeDefaults_NilDefaultsIsNoOp(t *testing.T) {
@@ -93,6 +100,7 @@ func TestMergeDefaults_NilDefaultsIsNoOp(t *testing.T) {
 
 func TestMergeDefaults_InheritsUnsetFields(t *testing.T) {
 	cooldown := &metav1.Duration{Duration: 2 * time.Hour}
+	excludeKnown := false
 	defaults := &attunev1alpha1.AttuneDefaults{
 		Spec: attunev1alpha1.AttuneDefaultsSpec{
 			CPU: &attunev1alpha1.ResourceConfig{
@@ -105,6 +113,7 @@ func TestMergeDefaults_InheritsUnsetFields(t *testing.T) {
 			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
 				Cooldown: cooldown,
 			},
+			ExcludeKnownSidecars: &excludeKnown,
 		},
 	}
 	policy := &attunev1alpha1.AttunePolicy{}
@@ -115,10 +124,32 @@ func TestMergeDefaults_InheritsUnsetFields(t *testing.T) {
 	assert.Equal(t, "50", policy.Spec.CPU.Overhead)
 	assert.Equal(t, int32(95), policy.Spec.Memory.Percentile)
 	assert.Equal(t, cooldown, policy.Spec.UpdateStrategy.Cooldown)
+	require.NotNil(t, policy.Spec.ExcludeKnownSidecars)
+	assert.False(t, *policy.Spec.ExcludeKnownSidecars)
 	assert.Contains(t, inherited, "cpu.percentile")
 	assert.Contains(t, inherited, "cpu.overhead")
 	assert.Contains(t, inherited, "memory.percentile")
 	assert.Contains(t, inherited, "cooldown")
+	assert.Contains(t, inherited, "excludeKnownSidecars")
+}
+
+func TestMergeDefaults_ExcludeKnownSidecarsPolicyTakesPrecedence(t *testing.T) {
+	defaultsFalse := false
+	policyTrue := true
+	defaults := &attunev1alpha1.AttuneDefaults{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			ExcludeKnownSidecars: &defaultsFalse,
+		},
+	}
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			ExcludeKnownSidecars: &policyTrue,
+		},
+	}
+	inherited := MergeDefaults(policy, defaults)
+	assert.NotContains(t, inherited, "excludeKnownSidecars")
+	require.NotNil(t, policy.Spec.ExcludeKnownSidecars)
+	assert.True(t, *policy.Spec.ExcludeKnownSidecars)
 }
 
 func TestMergeDefaults_PolicyFieldsTakePrecedence(t *testing.T) {

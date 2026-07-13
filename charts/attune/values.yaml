@@ -201,6 +201,10 @@ defaults:
   # costPricing:
   #   cpuPerCoreHour: "0.031"
   #   memoryPerGiBHour: "0.004"
+  # -- When true (operator built-in default if unset), auto-exclude known
+  # mesh/sidecar container names. Set false to restore exclude-only-via
+  # excludedContainers for policies that leave the field unset.
+  # excludeKnownSidecars: true
   # -- Default update strategy applied to all policies that don't override it
   updateStrategy:
     # -- Resize type: Observe, Recommend, OneShot, Canary, Auto

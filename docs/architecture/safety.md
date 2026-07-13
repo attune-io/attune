@@ -248,8 +248,10 @@ without the check.
 
 ## Container exclusion
 
-The `excludedContainers` field on the policy spec allows skipping specific
-containers (e.g., service mesh sidecars like `istio-proxy` or `linkerd-proxy`)
+Well-known mesh and sidecar names are auto-excluded by default
+(`excludeKnownSidecars: true`). The `excludedContainers` field adds more
+names to skip (union with the known list), for custom agents beyond
+built-in names such as `istio-proxy` or `linkerd-proxy`
 from both recommendations and resizes. Excluded containers are not queried for
 metrics and are not considered for resize.
 

@@ -40,6 +40,7 @@ import (
 	"github.com/attune-io/attune/internal/operatormetrics"
 	"github.com/attune-io/attune/internal/recommendation"
 	"github.com/attune-io/attune/internal/validation"
+	pkgdefaults "github.com/attune-io/attune/pkg/defaults"
 )
 
 // collectorEntry wraps a MetricsCollector with a last-used timestamp
@@ -234,10 +235,7 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 		cpuEngine, memEngine = buildRecommendationEngines(policy)
 	}
 	if excludeSet == nil {
-		excludeSet = make(map[string]bool, len(policy.Spec.ExcludedContainers))
-		for _, name := range policy.Spec.ExcludedContainers {
-			excludeSet[name] = true
-		}
+		excludeSet = pkgdefaults.EffectiveExcludedContainers(policy)
 	}
 
 	historyWindow := r.parseHistoryWindow(policy)
@@ -282,7 +280,9 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 		containerName := container.Name
 
 		if excludeSet[containerName] {
-			logger.Info("Skipping excluded container", "container", containerName)
+			logger.Info("Skipping excluded container",
+				"container", containerName,
+				"reason", pkgdefaults.ExclusionReason(policy, containerName))
 			continue
 		}
 

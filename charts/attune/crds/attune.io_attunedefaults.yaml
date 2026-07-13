@@ -205,6 +205,14 @@ spec:
                     - multiplier
                     type: object
                 type: object
+              excludeKnownSidecars:
+                description: |-
+                  ExcludeKnownSidecars, when true (the default when unset on both
+                  defaults and policy), automatically skips well-known mesh and
+                  sidecar container names. Set to false cluster-wide to restore
+                  exclude-only-via-excludedContainers behavior for policies that
+                  do not set the field themselves.
+                type: boolean
               memory:
                 description: Memory configures default memory resource recommendation
                   parameters.

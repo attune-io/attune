@@ -64,7 +64,26 @@ const (
 	DefaultMinimumDataPoints      int32 = 48
 	DefaultAutoRevert                   = true
 	DefaultQueryStep                    = 5 * time.Minute
+	// DefaultExcludeKnownSidecars skips well-known mesh/sidecar container
+	// names unless the policy or AttuneDefaults sets excludeKnownSidecars
+	// to false.
+	DefaultExcludeKnownSidecars = true
 )
+
+// KnownSidecarContainers is the curated list of container names that are
+// auto-excluded when excludeKnownSidecars is true (the default). Names are
+// exact matches only. Keep this list conservative: no generic names such as
+// "envoy" or "proxy".
+var KnownSidecarContainers = []string{
+	"istio-proxy",
+	"linkerd-proxy",
+	"consul-dataplane",
+	"kuma-dp",
+	"vault-agent",
+	"cloud-sql-proxy",
+	"cloudsql-proxy",
+	"gce-proxy",
+}
 
 // Default resource bounds applied when a policy does not specify explicit bounds.
 // These are package-level vars (parsed once at init) rather than inline

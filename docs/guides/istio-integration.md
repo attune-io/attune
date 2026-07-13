@@ -7,14 +7,15 @@ covers configuration for each mode.
 
 | Istio Mode | How it works | Operator config |
 |---|---|---|
-| **Sidecar** (traditional) | Injects `istio-proxy` as a regular container | Use `excludedContainers: [istio-proxy]` |
+| **Sidecar** (traditional) | Injects `istio-proxy` as a regular container | Auto-excluded by default (`excludeKnownSidecars: true`) |
 | **Ambient** (ztunnel, GA in Istio 1.24+) | Per-node DaemonSet, no per-pod sidecar | No special config needed |
-| **Native sidecar** (`ENABLE_NATIVE_SIDECARS=true`) | Injects `istio-proxy` as init container with `restartPolicy: Always` | Use `excludedContainers: [istio-proxy]` |
+| **Native sidecar** (`ENABLE_NATIVE_SIDECARS=true`) | Injects `istio-proxy` as init container with `restartPolicy: Always` | Auto-excluded by default (same known list) |
 
 ## Sidecar mode (traditional)
 
-Istio injects `istio-proxy` as a regular container. You should exclude it
-from right-sizing since the mesh manages its resource allocation:
+Istio injects `istio-proxy` as a regular container. Attune **auto-excludes**
+`istio-proxy` by default (`excludeKnownSidecars` defaults to `true`), so a
+normal policy already right-sizes only your application containers:
 
 ```yaml
 apiVersion: attune.io/v1alpha1
@@ -25,8 +26,7 @@ spec:
   targetRef:
     kind: Deployment
     name: my-app
-  excludedContainers:
-    - istio-proxy
+  # excludeKnownSidecars: true  # default; istio-proxy is skipped automatically
   metricsSource:
     prometheus:
       address: http://prometheus-server.monitoring:80
@@ -43,6 +43,19 @@ spec:
 The operator will compute recommendations and resize only your application
 containers, leaving `istio-proxy` untouched.
 
+### Right-size the proxy on purpose
+
+To restore older behavior (size every container, including `istio-proxy`):
+
+```yaml
+spec:
+  excludeKnownSidecars: false
+```
+
+To size `istio-proxy` but still skip other custom agents, set
+`excludeKnownSidecars: false` and list only the names you still want
+skipped in `excludedContainers`.
+
 ## Ambient mode
 
 In ambient mode, Istio uses a per-node ztunnel DaemonSet instead of
@@ -58,15 +71,11 @@ pod's lifetime and are visible to attune.
 
 The operator automatically detects native sidecar containers (init
 containers with `restartPolicy=Always`) and includes them in workload
-analysis. Use `excludedContainers` to prevent resizing:
+analysis. The known-sidecar list still matches on name, so `istio-proxy`
+is auto-excluded by default (same as traditional sidecar mode). Set
+`excludeKnownSidecars: false` only if you intentionally want Attune to
+right-size the proxy.
 
-```yaml
-spec:
-  excludedContainers:
-    - istio-proxy
-```
-
-This works identically to the traditional sidecar mode configuration.
 The operator's safety monitor also checks native sidecar container
 statuses for OOMKill and restart spike detection.
 

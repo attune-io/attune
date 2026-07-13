@@ -124,10 +124,14 @@ spec:
       daysOfWeek: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
       timezone: "America/New_York" # IANA timezone (default: UTC)
 
-  # Containers to skip (e.g., service mesh sidecars).
+  # Auto-exclude well-known mesh/sidecar names (default: true).
+  # Set false to restore pre-feature behavior (only excludedContainers).
+  excludeKnownSidecars: true
+
+  # Extra container names to skip (unioned with the known list when
+  # excludeKnownSidecars is true).
   excludedContainers:
-    - istio-proxy
-    - linkerd-proxy
+    - my-company-agent
 
   # Policy priority (1-1000, higher wins). Default: 100.
   weight: 100

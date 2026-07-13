@@ -48,6 +48,7 @@ import (
 	rsmetrics "github.com/attune-io/attune/internal/metrics"
 	"github.com/attune-io/attune/internal/operatormetrics"
 	"github.com/attune-io/attune/internal/resize"
+	pkgdefaults "github.com/attune-io/attune/pkg/defaults"
 )
 
 const (
@@ -599,10 +600,7 @@ func (r *AttunePolicyReconciler) processWorkloads(
 	}
 
 	cpuEngine, memEngine := buildRecommendationEngines(policy)
-	excludeSet := make(map[string]bool, len(policy.Spec.ExcludedContainers))
-	for _, name := range policy.Spec.ExcludedContainers {
-		excludeSet[name] = true
-	}
+	excludeSet := pkgdefaults.EffectiveExcludedContainers(policy)
 
 	// When VPA is the metrics source, read VPA recommendations once before
 	// the workload loop so all workloads share the same VPA data.

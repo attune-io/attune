@@ -80,6 +80,10 @@ func ApplyBuiltInDefaults(policy *attunev1alpha1.AttunePolicy) {
 		cv := attunev1alpha1.DefaultControlledValues
 		policy.Spec.Memory.ControlledValues = &cv
 	}
+	if policy.Spec.ExcludeKnownSidecars == nil {
+		v := attunev1alpha1.DefaultExcludeKnownSidecars
+		policy.Spec.ExcludeKnownSidecars = &v
+	}
 }
 
 // MergeDefaults merges values from an AttuneDefaults resource into the
@@ -99,7 +103,61 @@ func MergeDefaults(policy *attunev1alpha1.AttunePolicy, defaults *attunev1alpha1
 		policy.Spec.UpdateStrategy = &attunev1alpha1.UpdateStrategy{}
 	}
 	inherited = append(inherited, MergeUpdateStrategy(policy.Spec.UpdateStrategy, spec.UpdateStrategy)...)
+	if policy.Spec.ExcludeKnownSidecars == nil && spec.ExcludeKnownSidecars != nil {
+		policy.Spec.ExcludeKnownSidecars = spec.ExcludeKnownSidecars
+		inherited = append(inherited, "excludeKnownSidecars")
+	}
 	return inherited
+}
+
+// EffectiveExcludedContainers returns the set of container names that must
+// be skipped for recommendations and resizes. When excludeKnownSidecars is
+// true (default), the built-in known-sidecar list is unioned with
+// policy.Spec.ExcludedContainers. When false, only the policy list applies.
+//
+// Call ApplyBuiltInDefaults (or ensure ExcludeKnownSidecars is non-nil)
+// before relying on the default-true behavior; a nil pointer is treated as
+// true so hot paths that skip defaulting still get the safe default.
+func EffectiveExcludedContainers(policy *attunev1alpha1.AttunePolicy) map[string]bool {
+	if policy == nil {
+		return map[string]bool{}
+	}
+	knownOn := true
+	if policy.Spec.ExcludeKnownSidecars != nil {
+		knownOn = *policy.Spec.ExcludeKnownSidecars
+	}
+	n := len(policy.Spec.ExcludedContainers)
+	if knownOn {
+		n += len(attunev1alpha1.KnownSidecarContainers)
+	}
+	set := make(map[string]bool, n)
+	if knownOn {
+		for _, name := range attunev1alpha1.KnownSidecarContainers {
+			set[name] = true
+		}
+	}
+	for _, name := range policy.Spec.ExcludedContainers {
+		set[name] = true
+	}
+	return set
+}
+
+// ExclusionReason returns a short reason string for why a container name
+// is excluded. Callers should only use this when the name is present in
+// EffectiveExcludedContainers.
+func ExclusionReason(policy *attunev1alpha1.AttunePolicy, containerName string) string {
+	knownOn := true
+	if policy != nil && policy.Spec.ExcludeKnownSidecars != nil {
+		knownOn = *policy.Spec.ExcludeKnownSidecars
+	}
+	if knownOn {
+		for _, name := range attunev1alpha1.KnownSidecarContainers {
+			if name == containerName {
+				return "known sidecar auto-exclude"
+			}
+		}
+	}
+	return "listed in excludedContainers"
 }
 
 // MergeResourceConfig merges default resource config values into the policy.

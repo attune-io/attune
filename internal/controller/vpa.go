@@ -26,6 +26,7 @@ import (
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 	rsmetrics "github.com/attune-io/attune/internal/metrics"
 	"github.com/attune-io/attune/internal/recommendation"
+	pkgdefaults "github.com/attune-io/attune/pkg/defaults"
 )
 
 // computeVPARecommendationsForWorkload builds WorkloadRecommendation by using
@@ -51,10 +52,7 @@ func (r *AttunePolicyReconciler) computeVPARecommendationsForWorkload(
 		cpuEngine, memEngine = buildRecommendationEngines(policy)
 	}
 	if excludeSet == nil {
-		excludeSet = make(map[string]bool, len(policy.Spec.ExcludedContainers))
-		for _, name := range policy.Spec.ExcludedContainers {
-			excludeSet[name] = true
-		}
+		excludeSet = pkgdefaults.EffectiveExcludedContainers(policy)
 	}
 
 	// Index VPA recommendations by container name for O(1) lookup.
@@ -73,7 +71,9 @@ func (r *AttunePolicyReconciler) computeVPARecommendationsForWorkload(
 		containerName := container.Name
 
 		if excludeSet[containerName] {
-			logger.Info("Skipping excluded container", "container", containerName)
+			logger.Info("Skipping excluded container",
+				"container", containerName,
+				"reason", pkgdefaults.ExclusionReason(policy, containerName))
 			continue
 		}
 
