@@ -121,25 +121,16 @@ func isWithinResizeWindow(schedule *attunev1alpha1.ResizeSchedule, now time.Time
 	}
 	localNow := now.In(loc)
 
-	// Check day-of-week constraint.
-	if len(schedule.DaysOfWeek) > 0 {
-		dayName := localNow.Weekday().String()
-		dayAllowed := false
-		for _, d := range schedule.DaysOfWeek {
-			if strings.EqualFold(d, dayName) {
-				dayAllowed = true
-				break
-			}
-		}
-		if !dayAllowed {
-			return false
-		}
-	}
-
-	// Check time windows. If no windows are specified, all times are allowed.
+	// Check time windows first, then validate day-of-week (which may need
+	// to check the previous day for overnight windows).
 	if len(schedule.Windows) == 0 {
+		// No windows: all times are allowed, just check day-of-week.
+		if len(schedule.DaysOfWeek) > 0 {
+			return isDayAllowed(localNow.Weekday(), schedule.DaysOfWeek)
+		}
 		return true
 	}
+
 	nowMinutes := localNow.Hour()*60 + localNow.Minute()
 	for _, w := range schedule.Windows {
 		start := parseHHMM(w.Start)
@@ -150,13 +141,40 @@ func isWithinResizeWindow(schedule *attunev1alpha1.ResizeSchedule, now time.Time
 		if start <= end {
 			// Normal window: e.g. 02:00-06:00
 			if nowMinutes >= start && nowMinutes < end {
+				if len(schedule.DaysOfWeek) > 0 && !isDayAllowed(localNow.Weekday(), schedule.DaysOfWeek) {
+					continue
+				}
 				return true
 			}
 		} else {
 			// Overnight window: e.g. 22:00-06:00
-			if nowMinutes >= start || nowMinutes < end {
+			if nowMinutes >= start {
+				// Pre-midnight portion: check today's day-of-week.
+				if len(schedule.DaysOfWeek) > 0 && !isDayAllowed(localNow.Weekday(), schedule.DaysOfWeek) {
+					continue
+				}
 				return true
 			}
+			if nowMinutes < end {
+				// Post-midnight portion: the window opened yesterday,
+				// so check yesterday's day-of-week.
+				if len(schedule.DaysOfWeek) > 0 && !isDayAllowed(localNow.Add(-24*time.Hour).Weekday(), schedule.DaysOfWeek) {
+					continue
+				}
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// isDayAllowed checks whether the given weekday is in the allowed list
+// (case-insensitive comparison).
+func isDayAllowed(day time.Weekday, allowed []string) bool {
+	dayName := day.String()
+	for _, d := range allowed {
+		if strings.EqualFold(d, dayName) {
+			return true
 		}
 	}
 	return false

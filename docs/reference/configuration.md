@@ -382,9 +382,9 @@ Per-resource fields in `cpu` and `memory` that limit how much a recommendation c
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `maxIncreasePercent` | int32 | `50` | Maximum percentage increase allowed per resize cycle |
-| `maxDecreasePercent` | int32 | `30` | Maximum percentage decrease allowed per resize cycle |
-| `maxChangePercent` | int32 | `50`/`30` | Symmetric change cap (overridden by directional caps if set) |
+| `maxIncreasePercent` | int32 | inherits `maxChangePercent` | Maximum percentage increase allowed per resize cycle. If unset, falls back to `maxChangePercent` (CPU: 50, memory: 30). |
+| `maxDecreasePercent` | int32 | inherits `maxChangePercent` | Maximum percentage decrease allowed per resize cycle. If unset, falls back to `maxChangePercent` (CPU: 50, memory: 30). |
+| `maxChangePercent` | int32 | CPU: `50`, memory: `30` | Symmetric change cap. Used as fallback for `maxIncreasePercent` and `maxDecreasePercent` when they are unset. |
 
 ### Controlled Values
 

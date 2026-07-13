@@ -153,6 +153,10 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 	if err := r.List(ctx, &podList, client.InNamespace(policy.Namespace), client.MatchingLabels{labelTracked: "true"}); err != nil {
 		logger.Error(err, "Failed to list pods for safety observation")
 		operatormetrics.ReconcileErrorsTotal.WithLabelValues("safety_observation").Inc()
+		// Fail safe: assume observations are pending so the reconciler
+		// requeues at the short observation interval instead of the full
+		// cooldown, avoiding a delayed safety detection window.
+		observationsPending = true
 		return
 	}
 

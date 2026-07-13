@@ -8403,6 +8403,23 @@ func TestIsWithinResizeWindow_OvernightWindow(t *testing.T) {
 	assert.False(t, isWithinResizeWindow(schedule, time.Date(2026, 1, 7, 10, 0, 0, 0, time.UTC)))
 }
 
+func TestIsWithinResizeWindow_OvernightWindowWithDayOfWeek(t *testing.T) {
+	schedule := &attunev1alpha1.ResizeSchedule{
+		Windows:    []attunev1alpha1.TimeWindow{{Start: "22:00", End: "06:00"}},
+		DaysOfWeek: []string{"Wednesday"},
+	}
+	// Wed 23:00: pre-midnight portion, today is Wednesday -> allowed
+	assert.True(t, isWithinResizeWindow(schedule, time.Date(2026, 1, 7, 23, 0, 0, 0, time.UTC)))
+	// Thu 03:00: post-midnight portion, window opened on Wednesday -> allowed
+	assert.True(t, isWithinResizeWindow(schedule, time.Date(2026, 1, 8, 3, 0, 0, 0, time.UTC)))
+	// Thu 23:00: pre-midnight portion, today is Thursday (not in list) -> blocked
+	assert.False(t, isWithinResizeWindow(schedule, time.Date(2026, 1, 8, 23, 0, 0, 0, time.UTC)))
+	// Fri 03:00: post-midnight portion, window would have opened Thu (not in list) -> blocked
+	assert.False(t, isWithinResizeWindow(schedule, time.Date(2026, 1, 9, 3, 0, 0, 0, time.UTC)))
+	// Wed 10:00: outside the window entirely -> blocked
+	assert.False(t, isWithinResizeWindow(schedule, time.Date(2026, 1, 7, 10, 0, 0, 0, time.UTC)))
+}
+
 func TestIsWithinResizeWindow_InvalidTimezoneFailsOpen(t *testing.T) {
 	schedule := &attunev1alpha1.ResizeSchedule{
 		Timezone: "Invalid/Zone",
