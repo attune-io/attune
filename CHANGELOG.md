@@ -6,6 +6,8 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
 ## [0.1.19](https://github.com/attune-io/attune/compare/v0.1.18...v0.1.19) (2026-07-13)
 
 
@@ -274,9 +276,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * scope workflow token permissions to job level for Scorecard ([#42](https://github.com/attune-io/attune/issues/42)) ([5251468](https://github.com/attune-io/attune/commit/52514682e36a307e1a0c4a235d0a76255888f79a))
 * stabilize Chainsaw tests and add govulncheck to CI gate ([#95](https://github.com/attune-io/attune/issues/95)) ([011c8ad](https://github.com/attune-io/attune/commit/011c8adc56ee9c6a0e43cf2c13dfec27f18862f4))
 
-## [Unreleased]
-
-## [0.1.0] - 2025-05-26
+## [0.1.0](https://github.com/attune-io/attune/releases/tag/v0.1.0) (2025-05-26)
 
 ### Added
 
