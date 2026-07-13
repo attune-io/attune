@@ -51,8 +51,9 @@ func ApplyBuiltInDefaults(policy *attunev1alpha1.AttunePolicy) {
 		policy.Spec.Memory.MaxChangePercent = &v
 	}
 	if policy.Spec.UpdateStrategy.Cooldown == nil {
-		d, _ := time.ParseDuration(attunev1alpha1.DefaultCooldown)
-		policy.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: d}
+		policy.Spec.UpdateStrategy.Cooldown = &metav1.Duration{
+			Duration: mustParseBuiltInDuration(attunev1alpha1.DefaultCooldown),
+		}
 	}
 	if policy.Spec.UpdateStrategy.AutoRevert == nil {
 		v := attunev1alpha1.DefaultAutoRevert
@@ -66,8 +67,9 @@ func ApplyBuiltInDefaults(policy *attunev1alpha1.AttunePolicy) {
 		policy.Spec.MetricsSource.MinimumDataPoints = &v
 	}
 	if policy.Spec.MetricsSource.HistoryWindow == nil {
-		d, _ := time.ParseDuration(attunev1alpha1.DefaultHistoryWindow)
-		policy.Spec.MetricsSource.HistoryWindow = &metav1.Duration{Duration: d}
+		policy.Spec.MetricsSource.HistoryWindow = &metav1.Duration{
+			Duration: mustParseBuiltInDuration(attunev1alpha1.DefaultHistoryWindow),
+		}
 	}
 	if policy.Spec.MetricsSource.QueryStep == nil {
 		policy.Spec.MetricsSource.QueryStep = &metav1.Duration{Duration: attunev1alpha1.DefaultQueryStep}
@@ -84,6 +86,18 @@ func ApplyBuiltInDefaults(policy *attunev1alpha1.AttunePolicy) {
 		v := attunev1alpha1.DefaultExcludeKnownSidecars
 		policy.Spec.ExcludeKnownSidecars = &v
 	}
+}
+
+// mustParseBuiltInDuration parses a package-level default duration constant.
+// It panics on error because the constants are fixed strings in this module;
+// a parse failure means a broken default was introduced at build time, not a
+// runtime user input problem.
+func mustParseBuiltInDuration(s string) time.Duration {
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		panic("invalid built-in default duration " + s + ": " + err.Error())
+	}
+	return d
 }
 
 // MergeDefaults merges values from an AttuneDefaults resource into the

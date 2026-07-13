@@ -222,19 +222,21 @@ func TestMergeUpdateStrategy_AllFields(t *testing.T) {
 	assert.Equal(t, 10*time.Minute, policy.SafetyObservationPeriod.Duration)
 	require.Len(t, policy.SLOGuardrails, 1)
 	assert.Equal(t, "p99-latency", policy.SLOGuardrails[0].Name)
-	assert.Len(t, inherited, 12)
-	assert.Contains(t, inherited, "type")
-	assert.Contains(t, inherited, "autoRevert")
-	assert.Contains(t, inherited, "resizeMethod")
-	assert.Contains(t, inherited, "maxConcurrentResizes")
-	assert.Contains(t, inherited, "cooldown")
-	assert.Contains(t, inherited, "maxTotalCpuIncrease")
-	assert.Contains(t, inherited, "maxTotalMemoryIncrease")
-	assert.Contains(t, inherited, "schedule")
-	assert.Contains(t, inherited, "export")
-	assert.Contains(t, inherited, "canary")
-	assert.Contains(t, inherited, "safetyObservationPeriod")
-	assert.Contains(t, inherited, "sloGuardrails")
+	expectedInherited := []string{
+		"type",
+		"autoRevert",
+		"resizeMethod",
+		"maxConcurrentResizes",
+		"cooldown",
+		"maxTotalCpuIncrease",
+		"maxTotalMemoryIncrease",
+		"schedule",
+		"export",
+		"canary",
+		"safetyObservationPeriod",
+		"sloGuardrails",
+	}
+	assert.ElementsMatch(t, expectedInherited, inherited)
 }
 
 // ---------- Direct MergeResourceConfig tests ----------
@@ -280,19 +282,21 @@ func TestMergeResourceConfig_AllFields(t *testing.T) {
 	assert.Equal(t, int32(60), *policy.MaxIncreasePercent)
 	require.NotNil(t, policy.MaxDecreasePercent)
 	assert.Equal(t, int32(30), *policy.MaxDecreasePercent)
-	assert.Len(t, inherited, 12)
-	assert.Contains(t, inherited, "cpu.percentile")
-	assert.Contains(t, inherited, "cpu.overhead")
-	assert.Contains(t, inherited, "cpu.minAllowed")
-	assert.Contains(t, inherited, "cpu.maxAllowed")
-	assert.Contains(t, inherited, "cpu.controlledValues")
-	assert.Contains(t, inherited, "cpu.burstSensitivity")
-	assert.Contains(t, inherited, "cpu.allowDecrease")
-	assert.Contains(t, inherited, "cpu.memoryFromCpuRatio")
-	assert.Contains(t, inherited, "cpu.startupBoost")
-	assert.Contains(t, inherited, "cpu.maxChangePercent")
-	assert.Contains(t, inherited, "cpu.maxIncreasePercent")
-	assert.Contains(t, inherited, "cpu.maxDecreasePercent")
+	expectedInherited := []string{
+		"cpu.percentile",
+		"cpu.overhead",
+		"cpu.minAllowed",
+		"cpu.maxAllowed",
+		"cpu.controlledValues",
+		"cpu.burstSensitivity",
+		"cpu.allowDecrease",
+		"cpu.memoryFromCpuRatio",
+		"cpu.startupBoost",
+		"cpu.maxChangePercent",
+		"cpu.maxIncreasePercent",
+		"cpu.maxDecreasePercent",
+	}
+	assert.ElementsMatch(t, expectedInherited, inherited)
 }
 
 func TestMergeResourceConfig_NilDefaultsIsNoOp(t *testing.T) {
@@ -528,4 +532,18 @@ func TestMergeUpdateStrategy_BothEmptyTypeNoInheritance(t *testing.T) {
 	assert.Contains(t, inherited, "cooldown")
 	assert.Equal(t, attunev1alpha1.UpdateType(""), policy.Type,
 		"Type should remain empty when default is also empty")
+}
+
+func TestMustParseBuiltInDuration_ValidConstants(t *testing.T) {
+	// Guard against typoed default strings silently becoming zero durations.
+	cooldown := mustParseBuiltInDuration(attunev1alpha1.DefaultCooldown)
+	assert.Equal(t, time.Hour, cooldown)
+	history := mustParseBuiltInDuration(attunev1alpha1.DefaultHistoryWindow)
+	assert.Equal(t, 168*time.Hour, history)
+}
+
+func TestMustParseBuiltInDuration_InvalidPanics(t *testing.T) {
+	assert.Panics(t, func() {
+		mustParseBuiltInDuration("not-a-duration")
+	})
 }
