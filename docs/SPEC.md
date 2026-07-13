@@ -286,7 +286,7 @@ status:
     memoryRequestReduction: "696Mi"
     estimatedMonthlySavings: "$142.50"  # if costModel is configured
 
-  # Resize history (last 10)
+  # Resize history (last 50)
   resizeHistory:
     - timestamp: "2026-01-15T09:00:00Z"
       workload: api-server
@@ -314,7 +314,7 @@ not via CEL `x-kubernetes-validations` markers. The webhook enforces:
 - `minAllowed <= maxAllowed` for both CPU and memory resource configs
 - Canary config required when `updateStrategy.type` is `Canary`
 - `historyWindow` bounded between 1h and 720h (30 days)
-- `safetyMargin` bounded between 0 and 10.0
+- `burstSensitivity` bounded between 0 and 10.0
 - All float fields (percentile, overhead, etc.) reject NaN and Inf
 - Prometheus address SSRF protection (scheme, host, and IP validation)
 
@@ -536,7 +536,7 @@ Raw Prometheus Data
 ┌──────────────────┐
 │ Confidence       │  Widen recommendation when data is sparse:
 │ Multiplier       │  result *= 1 + multiplier * (1 - confidence) ^ exponent
-│                  │  confidence = min(days_of_data, sqrt(data_points/24))
+│                  │  confidence = clamp(min(days, sqrt(points/24)) / 7, 0, 1)
 │                  │  Factor ranges from 1.0 (7d data) to ~1.8 (4h data)
 └──────┬───────────┘
        │
