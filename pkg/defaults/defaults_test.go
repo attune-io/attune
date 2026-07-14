@@ -663,3 +663,44 @@ func TestCombineDefaultsLayers_AllSpecSectionsAndCostPricing(t *testing.T) {
 	require.NotNil(t, got.Spec.CostPricing)
 	assert.Equal(t, "0.01", got.Spec.CostPricing.CPUPerCoreHour)
 }
+
+func TestCombineDefaultsLayers_NamespaceSetsAllSectionsOverCluster(t *testing.T) {
+	// Ensures applyDefaultsSpecToPolicy copies every optional Spec section from namespace
+	// when both layers exist (not only CPU).
+	trueVal := true
+	cluster := &attunev1alpha1.AttuneDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CPU: &attunev1alpha1.ResourceConfig{Percentile: 50},
+		},
+	}
+	ns := &attunev1alpha1.AttuneDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "ns"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CPU:    &attunev1alpha1.ResourceConfig{Percentile: 91, Overhead: "10"},
+			Memory: &attunev1alpha1.ResourceConfig{Percentile: 92, Overhead: "15"},
+			MetricsSource: &attunev1alpha1.MetricsSource{
+				QueryStep: &metav1.Duration{Duration: 2 * time.Minute},
+			},
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Type: attunev1alpha1.UpdateTypeRecommend,
+			},
+			ExcludeKnownSidecars: &trueVal,
+			CostPricing: &attunev1alpha1.CostPricing{
+				MemoryPerGiBHour: "0.009",
+			},
+		},
+	}
+	got := CombineDefaultsLayers(cluster, ns)
+	require.NotNil(t, got)
+	assert.Equal(t, int32(91), got.Spec.CPU.Percentile)
+	assert.Equal(t, "10", got.Spec.CPU.Overhead)
+	assert.Equal(t, int32(92), got.Spec.Memory.Percentile)
+	assert.Equal(t, "15", got.Spec.Memory.Overhead)
+	require.NotNil(t, got.Spec.MetricsSource.QueryStep)
+	assert.Equal(t, 2*time.Minute, got.Spec.MetricsSource.QueryStep.Duration)
+	assert.Equal(t, attunev1alpha1.UpdateTypeRecommend, got.Spec.UpdateStrategy.Type)
+	require.NotNil(t, got.Spec.ExcludeKnownSidecars)
+	assert.True(t, *got.Spec.ExcludeKnownSidecars)
+	assert.Equal(t, "0.009", got.Spec.CostPricing.MemoryPerGiBHour)
+}
