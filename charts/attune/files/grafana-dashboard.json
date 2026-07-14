@@ -1012,6 +1012,46 @@
           "legendFormat": "p50 {{operation}}"
         }
       ]
+    },
+    {
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "orange",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 100
+      },
+      "id": 121,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "title": "Template Patches",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "sum(attune_template_patch_total)",
+          "legendFormat": "patches"
+        }
+      ]
     }
   ],
   "schemaVersion": 39,

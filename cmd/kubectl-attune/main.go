@@ -1067,6 +1067,14 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *attu
 	}
 	printEffectiveField("Observation period", obsConfigured, effectiveObservationPeriod(effective), selected, updateDefaults != nil && updateDefaults.SafetyObservationPeriod != nil)
 	printEffectiveField("Auto revert", formatBoolField(item, "spec", "updateStrategy", "autoRevert"), formatBoolPtr(effective.Spec.UpdateStrategy.AutoRevert), selected, updateDefaults != nil && updateDefaults.AutoRevert != nil)
+	if effective.Spec.UpdateStrategy.TemplatePersistence != nil && effective.Spec.UpdateStrategy.TemplatePersistence.Enabled != nil {
+		printEffectiveField("Template persistence", formatBoolField(item, "spec", "updateStrategy", "templatePersistence", "enabled"), formatBoolPtr(effective.Spec.UpdateStrategy.TemplatePersistence.Enabled), selected, updateDefaults != nil && updateDefaults.TemplatePersistence != nil)
+		when := string(effective.Spec.UpdateStrategy.TemplatePersistence.When)
+		if when == "" {
+			when = string(attunev1alpha1.TemplatePersistenceAfterSuccessfulResize)
+		}
+		printEffectiveField("Template persistence when", getNestedString(item, "spec", "updateStrategy", "templatePersistence", "when"), when, selected, false)
+	}
 	printEffectiveField("Initial sizing", formatBoolField(item, "spec", "updateStrategy", "initialSizing"), formatBoolPtr(effective.Spec.UpdateStrategy.InitialSizing), selected, updateDefaults != nil && updateDefaults.InitialSizing != nil)
 	printEffectiveField("Max concurrent resizes", formatInt64Field(item, "spec", "updateStrategy", "maxConcurrentResizes"), formatInt32Val(effective.Spec.UpdateStrategy.MaxConcurrentResizes), selected, updateDefaults != nil && updateDefaults.MaxConcurrentResizes != 0)
 	printEffectiveField("History window", getNestedString(item, "spec", "metricsSource", "historyWindow"), formatDurationPtr(effective.Spec.MetricsSource.HistoryWindow), selected, metricsDefaults != nil && metricsDefaults.HistoryWindow != nil)

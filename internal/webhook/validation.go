@@ -353,6 +353,22 @@ func warnIneffectiveSettings(policy *attunev1alpha1.AttunePolicy) admission.Warn
 		}
 	}
 
+	// Template persistence: AfterSuccessfulResize needs a resizing mode.
+	if policy.Spec.UpdateStrategy.TemplatePersistence != nil &&
+		policy.Spec.UpdateStrategy.TemplatePersistence.Enabled != nil &&
+		*policy.Spec.UpdateStrategy.TemplatePersistence.Enabled {
+		when := policy.Spec.UpdateStrategy.TemplatePersistence.When
+		if when == "" {
+			when = attunev1alpha1.TemplatePersistenceAfterSuccessfulResize
+		}
+		if when == attunev1alpha1.TemplatePersistenceAfterSuccessfulResize && isNonResizing {
+			w = append(w, fmt.Sprintf("templatePersistence.when=AfterSuccessfulResize has no effect in %s mode; use OnRecommendation or a resizing mode", mode))
+		}
+		if mode == attunev1alpha1.UpdateTypeObserve {
+			w = append(w, "templatePersistence has no effect in Observe mode; recommendations are not applied")
+		}
+	}
+
 	// Canary config outside Canary mode.
 	if policy.Spec.UpdateStrategy.Canary != nil && mode != attunev1alpha1.UpdateTypeCanary {
 		w = append(w, fmt.Sprintf("canary configuration has no effect in %s mode", mode))

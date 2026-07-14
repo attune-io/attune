@@ -182,6 +182,7 @@ func TestMergeUpdateStrategy_AllFields(t *testing.T) {
 	maxConc := int32(3)
 	maxTotalCPU := resource.MustParse("2000m")
 	maxTotalMem := resource.MustParse("4Gi")
+	tpEnabled := true
 	defaults := &attunev1alpha1.UpdateStrategy{
 		Type:                    attunev1alpha1.UpdateTypeAuto,
 		AutoRevert:              &autoRevert,
@@ -196,6 +197,10 @@ func TestMergeUpdateStrategy_AllFields(t *testing.T) {
 		SafetyObservationPeriod: &metav1.Duration{Duration: 10 * time.Minute},
 		SLOGuardrails: []attunev1alpha1.SLOGuardrail{
 			{Name: "p99-latency", Query: "histogram_quantile(0.99, rate(http_duration_seconds_bucket[5m]))", Threshold: "0.5"},
+		},
+		TemplatePersistence: &attunev1alpha1.TemplatePersistence{
+			Enabled: &tpEnabled,
+			When:    attunev1alpha1.TemplatePersistenceOnRecommendation,
 		},
 	}
 	policy := &attunev1alpha1.UpdateStrategy{}
@@ -222,6 +227,9 @@ func TestMergeUpdateStrategy_AllFields(t *testing.T) {
 	assert.Equal(t, 10*time.Minute, policy.SafetyObservationPeriod.Duration)
 	require.Len(t, policy.SLOGuardrails, 1)
 	assert.Equal(t, "p99-latency", policy.SLOGuardrails[0].Name)
+	require.NotNil(t, policy.TemplatePersistence)
+	assert.True(t, *policy.TemplatePersistence.Enabled)
+	assert.Equal(t, attunev1alpha1.TemplatePersistenceOnRecommendation, policy.TemplatePersistence.When)
 	expectedInherited := []string{
 		"type",
 		"autoRevert",
@@ -235,6 +243,7 @@ func TestMergeUpdateStrategy_AllFields(t *testing.T) {
 		"canary",
 		"safetyObservationPeriod",
 		"sloGuardrails",
+		"templatePersistence",
 	}
 	assert.ElementsMatch(t, expectedInherited, inherited)
 }

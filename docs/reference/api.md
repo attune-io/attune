@@ -112,6 +112,9 @@ spec:
     maxTotalMemoryIncrease: "4Gi"   # max aggregate memory increase per cycle (default: unlimited)
     export:                         # optional: export recommendations to ConfigMaps
       configMap: true               # creates <policy>-<workload>-recommendations ConfigMap
+    templatePersistence:            # optional: write recs into Deploy/STS template
+      enabled: false                # default off; triggers rolling update when true
+      when: AfterSuccessfulResize   # or OnRecommendation
     sloGuardrails:                  # optional: revert if application SLOs breach after resize
       - name: p99-latency
         query: 'histogram_quantile(0.99, rate(http_request_duration_seconds_bucket{namespace="{{ .Namespace }}"}[5m]))'
@@ -179,8 +182,8 @@ spec:
 | `resizeHistory[].resource` | `string` | `cpu`, `memory`, or `cpu+memory` |
 | `resizeHistory[].from` | `string` | Previous value |
 | `resizeHistory[].to` | `string` | New value |
-| `resizeHistory[].method` | `string` | `InPlace` or `Eviction` |
-| `resizeHistory[].result` | `string` | `Success`, `Failed`, `Reverted`, or `Evicted` |
+| `resizeHistory[].method` | `string` | `InPlace`, `Eviction`, or `TemplatePersistence` |
+| `resizeHistory[].result` | `string` | `Success`, `Failed`, `Reverted`, `Evicted`, or `TemplatePatched` |
 | `resizeHistory[].reason` | `string` | Why a resize was reverted or failed (e.g. `oomkill`, `restart`, `notready`, `slo:<name>`). Empty for successful resizes. |
 | `workloadErrors[].workload` | `string` | Workload name that encountered an error during reconciliation |
 | `workloadErrors[].error` | `string` | Human-readable error description |

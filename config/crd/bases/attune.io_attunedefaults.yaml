@@ -698,6 +698,28 @@ spec:
                       type: object
                     maxItems: 10
                     type: array
+                  templatePersistence:
+                    description: |-
+                      TemplatePersistence optionally writes recommended resources into the
+                      workload pod template (Deployment/StatefulSet) so new pods start
+                      correctly sized. Default off. Do not enable under unmanaged GitOps
+                      sync without adopting recommendations in Git; prefer export or
+                      initialSizing in that case.
+                    properties:
+                      enabled:
+                        description: |-
+                          Enabled turns on template persistence. When false or unset, templates
+                          are never mutated.
+                        type: boolean
+                      when:
+                        description: |-
+                          When selects the trigger. Defaults to AfterSuccessfulResize when
+                          Enabled is true and When is empty.
+                        enum:
+                        - AfterSuccessfulResize
+                        - OnRecommendation
+                        type: string
+                    type: object
                   type:
                     description: |-
                       Mode determines the update behavior, graduated from safe to automated:

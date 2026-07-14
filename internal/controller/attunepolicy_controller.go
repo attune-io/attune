@@ -113,6 +113,7 @@ const (
 //+kubebuilder:rbac:groups=attune.io,resources=attunedefaults,verbs=get;list;watch
 //+kubebuilder:rbac:groups=attune.io,resources=attunenamespacedefaults,verbs=get;list;watch
 //+kubebuilder:rbac:groups=apps,resources=deployments;statefulsets;daemonsets;replicasets,verbs=get;list;watch
+//+kubebuilder:rbac:groups=apps,resources=deployments;statefulsets,verbs=patch;update
 //+kubebuilder:rbac:groups=batch,resources=cronjobs;jobs,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;update;patch
 //+kubebuilder:rbac:groups="",resources=pods/resize,verbs=update;patch
@@ -379,6 +380,19 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		r.exportRecommendationConfigMaps(ctx, &policy, recommendations)
 	}
 
+	// Template persistence (OnRecommendation): write accepted recs into templates.
+	// Observe mode is gated inside applyTemplatePersistence; Canary InProgress too.
+	if templatePersistenceEnabled(policy.Spec.UpdateStrategy) &&
+		templatePersistenceWhen(policy.Spec.UpdateStrategy) == attunev1alpha1.TemplatePersistenceOnRecommendation &&
+		policy.Spec.UpdateStrategy.Type != attunev1alpha1.UpdateTypeObserve &&
+		len(recommendations) > 0 {
+		tplHistory := r.applyTemplatePersistence(ctx, &policy, workloads, recommendations,
+			attunev1alpha1.TemplatePersistenceOnRecommendation, nil)
+		if len(tplHistory) > 0 {
+			policy.Status.ResizeHistory = appendHistory(policy.Status.ResizeHistory, tplHistory, maxHistoryEntries)
+		}
+	}
+
 	// Step 9: Execute resizes if mode allows.
 	mode := policy.Spec.UpdateStrategy.Type
 	cooldownActive := r.isCooldownActive(&policy)
@@ -419,9 +433,11 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		preChecks = r.buildResizePreChecks(ctx, &policy)
 	}
 
+	var cycleResizeHistory []attunev1alpha1.ResizeHistoryEntry
 	if isResizeMode(mode) && !cooldownActive && withinWindow {
 		resizedCount, history := r.executeResizes(ctx, &policy, workloads, recommendations, podsByWorkload, collector, preChecks)
 		newResizedCount = resizedCount
+		cycleResizeHistory = history
 		// Always record history entries (including immediate reverts) so
 		// the escalation mechanisms (consecutiveReverts, Degraded condition,
 		// exponential backoff) work for all revert reasons.
@@ -454,6 +470,21 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 						*resource.NewMilliQuantity(totalNewCPU, resource.DecimalSI),
 						*resource.NewMilliQuantity(totalCPULimit, resource.DecimalSI))
 				}
+			}
+		}
+	}
+	// Template persistence after successful in-place resizes (this cycle and
+	// lagging retry for prior successes). Runs outside cooldown so a failed
+	// template patch can still be retried while resize is cooling down.
+	if templatePersistenceEnabled(policy.Spec.UpdateStrategy) &&
+		templatePersistenceWhen(policy.Spec.UpdateStrategy) == attunev1alpha1.TemplatePersistenceAfterSuccessfulResize &&
+		len(recommendations) > 0 {
+		resizedWLs := laggingAfterResizeWorkloads(cycleResizeHistory, policy.Status.ResizeHistory)
+		if len(resizedWLs) > 0 {
+			tplHistory := r.applyTemplatePersistence(ctx, &policy, workloads, recommendations,
+				attunev1alpha1.TemplatePersistenceAfterSuccessfulResize, resizedWLs)
+			if len(tplHistory) > 0 {
+				policy.Status.ResizeHistory = appendHistory(policy.Status.ResizeHistory, tplHistory, maxHistoryEntries)
 			}
 		}
 	}

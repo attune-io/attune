@@ -42,6 +42,21 @@ that may be causing issues.
 sum by (namespace, workload) (rate(attune_revert_failures_total[5m])) > 0
 ```
 
+### attune_template_patch_total
+
+Total number of workload pod template resource patches (template persistence).
+
+| Label | Description |
+|-------|-------------|
+| `namespace` | Policy namespace |
+| `workload` | Workload name |
+| `result` | `success` or `failed` |
+
+```promql
+sum by (namespace) (rate(attune_template_patch_total{result="failed"}[15m])) > 0
+```
+
+
 ### attune_prometheus_query_errors_total
 
 Total number of failed Prometheus queries.

@@ -52,10 +52,24 @@ const (
 type ResizeResult string
 
 const (
-	ResizeResultSuccess  ResizeResult = "Success"
-	ResizeResultFailed   ResizeResult = "Failed"
-	ResizeResultReverted ResizeResult = "Reverted"
-	ResizeResultEvicted  ResizeResult = "Evicted"
+	ResizeResultSuccess         ResizeResult = "Success"
+	ResizeResultFailed          ResizeResult = "Failed"
+	ResizeResultReverted        ResizeResult = "Reverted"
+	ResizeResultEvicted         ResizeResult = "Evicted"
+	ResizeResultTemplatePatched ResizeResult = "TemplatePatched"
+)
+
+// TemplatePersistenceWhen controls when workload pod templates are updated.
+type TemplatePersistenceWhen string
+
+const (
+	// TemplatePersistenceAfterSuccessfulResize patches the template only after
+	// an in-place resize succeeds for the workload.
+	TemplatePersistenceAfterSuccessfulResize TemplatePersistenceWhen = "AfterSuccessfulResize"
+	// TemplatePersistenceOnRecommendation patches the template when a
+	// recommendation is accepted (change filter / bounds passed), without
+	// requiring a resize.
+	TemplatePersistenceOnRecommendation TemplatePersistenceWhen = "OnRecommendation"
 )
 
 // SupportedTargetKindsCSV is the canonical runtime list of workload kinds
@@ -494,6 +508,29 @@ type UpdateStrategy struct {
 	// +optional
 	// +kubebuilder:validation:MaxItems=10
 	SLOGuardrails []SLOGuardrail `json:"sloGuardrails,omitempty"`
+
+	// TemplatePersistence optionally writes recommended resources into the
+	// workload pod template (Deployment/StatefulSet) so new pods start
+	// correctly sized. Default off. Do not enable under unmanaged GitOps
+	// sync without adopting recommendations in Git; prefer export or
+	// initialSizing in that case.
+	// +optional
+	TemplatePersistence *TemplatePersistence `json:"templatePersistence,omitempty"`
+}
+
+// TemplatePersistence configures opt-in writes of recommendations into the
+// owning workload's pod template.
+type TemplatePersistence struct {
+	// Enabled turns on template persistence. When false or unset, templates
+	// are never mutated.
+	// +optional
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// When selects the trigger. Defaults to AfterSuccessfulResize when
+	// Enabled is true and When is empty.
+	// +kubebuilder:validation:Enum=AfterSuccessfulResize;OnRecommendation
+	// +optional
+	When TemplatePersistenceWhen `json:"when,omitempty"`
 }
 
 // SLOGuardrail defines an application-level metric that is checked after
