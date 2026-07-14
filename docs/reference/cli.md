@@ -150,12 +150,12 @@ change filtering for CPU and memory. It also prints the effective values for
 all controller-applied defaults: `type`, `cooldown`, `queryStep`,
 `minimumDataPoints`, `historyWindow`, `resizeMethod`, `autoRevert`,
 `initialSizing`, `maxConcurrentResizes`, `rateWindow`, `export`,
-budget caps (`maxTotalCPUIncrease`, `maxTotalMemoryIncrease`), and per-resource
-fields (`percentile`, `overhead`, `minAllowed`, `maxAllowed`,
-`controlledValues`, `allowDecrease`, `burstSensitivity`,
-`maxChangePercent`, `maxIncreasePercent`, `maxDecreasePercent`,
-`memoryFromCpuRatio`). Each value shows
-whether it came from the policy, a namespace default, a cluster
+`templatePersistence`, budget caps (`maxTotalCPUIncrease`,
+`maxTotalMemoryIncrease`), and per-resource fields (`percentile`,
+`overhead`, `minAllowed`, `maxAllowed`, `controlledValues`,
+`allowDecrease`, `burstSensitivity`, `maxChangePercent`,
+`maxIncreasePercent`, `maxDecreasePercent`, `memoryFromCpuRatio`).
+Each value shows whether it came from the policy, a namespace default, a cluster
 default, or the built-in default. When export mode + Recommend/Observe is active, a note explains the GitOps implications.
 
 ```bash
