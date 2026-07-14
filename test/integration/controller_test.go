@@ -571,10 +571,12 @@ func TestReconcile_DefaultsMergingFromClusterDefaults(t *testing.T) {
 	}, 30*time.Second, 500*time.Millisecond, "policy with defaults should reconcile")
 }
 
-func TestReconcile_NamespaceDefaultsDoNotMergeClusterResourceFields(t *testing.T) {
+func TestReconcile_DefaultsDoNotPrefillPolicySpec(t *testing.T) {
+	// Defaults (cluster + namespace) are applied at reconcile time only; the
+	// webhook must not write inherited values into policy Spec.
 	namespace := "integration-test"
 
-	deploy := newTestDeployment("defaults-app-non-merge", namespace)
+	deploy := newTestDeployment("defaults-app-non-prefill", namespace)
 	require.NoError(t, k8sClient.Create(ctx, deploy))
 
 	clusterDefaults := &attunev1alpha1.AttuneDefaults{
@@ -593,8 +595,6 @@ func TestReconcile_NamespaceDefaultsDoNotMergeClusterResourceFields(t *testing.T
 	require.NoError(t, k8sClient.Create(ctx, clusterDefaults))
 	defer func() { _ = k8sClient.Delete(ctx, clusterDefaults) }()
 
-	// Namespace defaults intentionally omit memory to prove omitted fields do not
-	// inherit from cluster defaults in webhook-enabled flow.
 	nsDefaults := &attunev1alpha1.AttuneNamespaceDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "namespace-defaults", Namespace: namespace},
 		Spec: attunev1alpha1.AttuneDefaultsSpec{
@@ -609,13 +609,13 @@ func TestReconcile_NamespaceDefaultsDoNotMergeClusterResourceFields(t *testing.T
 
 	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "policy-namespace-defaults-non-merge",
+			Name:      "policy-namespace-defaults-non-prefill",
 			Namespace: namespace,
 		},
 		Spec: attunev1alpha1.AttunePolicySpec{
 			TargetRef: attunev1alpha1.TargetRef{
 				Kind: "Deployment",
-				Name: func() *string { s := "defaults-app-non-merge"; return &s }(),
+				Name: func() *string { s := "defaults-app-non-prefill"; return &s }(),
 			},
 			MetricsSource: attunev1alpha1.MetricsSource{
 				Prometheus: &attunev1alpha1.PrometheusConfig{
@@ -636,7 +636,7 @@ func TestReconcile_NamespaceDefaultsDoNotMergeClusterResourceFields(t *testing.T
 	assert.Eventually(t, func() bool {
 		var fetched attunev1alpha1.AttunePolicy
 		if err := k8sClient.Get(ctx, types.NamespacedName{
-			Name: "policy-namespace-defaults-non-merge", Namespace: namespace,
+			Name: "policy-namespace-defaults-non-prefill", Namespace: namespace,
 		}, &fetched); err != nil {
 			return false
 		}
@@ -645,7 +645,7 @@ func TestReconcile_NamespaceDefaultsDoNotMergeClusterResourceFields(t *testing.T
 
 	var created attunev1alpha1.AttunePolicy
 	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{
-		Name: "policy-namespace-defaults-non-merge", Namespace: namespace,
+		Name: "policy-namespace-defaults-non-prefill", Namespace: namespace,
 	}, &created))
 	assert.Zero(t, created.Spec.CPU.Percentile, "webhook should not prefill CPU percentile")
 	assert.Empty(t, created.Spec.CPU.Overhead, "webhook should not prefill CPU overhead")
