@@ -25,8 +25,6 @@ import (
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 )
 
-func boolPtr(v bool) *bool { return &v }
-
 func TestEffectiveExcludedContainers_DefaultKnownOn(t *testing.T) {
 	policy := &attunev1alpha1.AttunePolicy{}
 	set := EffectiveExcludedContainers(policy)
@@ -41,7 +39,7 @@ func TestEffectiveExcludedContainers_UnionWithUserList(t *testing.T) {
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
 			ExcludedContainers:   []string{"my-agent"},
-			ExcludeKnownSidecars: boolPtr(true),
+			ExcludeKnownSidecars: ptrBool(true),
 		},
 	}
 	set := EffectiveExcludedContainers(policy)
@@ -53,7 +51,7 @@ func TestEffectiveExcludedContainers_OptOutRestoresListOnly(t *testing.T) {
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
 			ExcludedContainers:   []string{"my-agent"},
-			ExcludeKnownSidecars: boolPtr(false),
+			ExcludeKnownSidecars: ptrBool(false),
 		},
 	}
 	set := EffectiveExcludedContainers(policy)
@@ -70,7 +68,7 @@ func TestEffectiveExcludedContainers_NilPolicy(t *testing.T) {
 func TestExclusionReason(t *testing.T) {
 	on := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
-			ExcludeKnownSidecars: boolPtr(true),
+			ExcludeKnownSidecars: ptrBool(true),
 			ExcludedContainers:   []string{"custom"},
 		},
 	}
@@ -79,7 +77,7 @@ func TestExclusionReason(t *testing.T) {
 
 	off := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
-			ExcludeKnownSidecars: boolPtr(false),
+			ExcludeKnownSidecars: ptrBool(false),
 			ExcludedContainers:   []string{"istio-proxy"},
 		},
 	}

@@ -143,7 +143,7 @@ func TestValidate_NilUpdateStrategy(t *testing.T) {
 	assert.NoError(t, err, "nil UpdateStrategy should pass validation")
 	assert.Empty(t, warnings)
 
-	// Also verify UpdateUpdate path.
+	// Also verify Update path.
 	warnings, err = validator.ValidateUpdate(context.Background(), policy, policy)
 	assert.NoError(t, err, "nil UpdateStrategy should pass update validation")
 	assert.Empty(t, warnings)

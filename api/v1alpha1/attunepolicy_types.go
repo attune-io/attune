@@ -898,8 +898,9 @@ type ResizeHistoryEntry struct {
 	// Container is the name of the resized container.
 	Container string `json:"container"`
 
-	// Resource is the resource type that was resized.
-	// +kubebuilder:validation:Enum=cpu;memory;cpu+memory
+	// Resource is the resource type that was resized, or "template" when the
+	// history entry records a workload template persistence patch.
+	// +kubebuilder:validation:Enum=cpu;memory;cpu+memory;template
 	Resource string `json:"resource"`
 
 	// From is the previous resource value.
@@ -909,11 +910,11 @@ type ResizeHistoryEntry struct {
 	To string `json:"to"`
 
 	// Method is the resize method used.
-	// +kubebuilder:validation:Enum=InPlace;Eviction
+	// +kubebuilder:validation:Enum=InPlace;Eviction;TemplatePersistence
 	Method string `json:"method"`
 
 	// Result is the outcome of the resize operation.
-	// +kubebuilder:validation:Enum=Success;Failed;Reverted;Evicted
+	// +kubebuilder:validation:Enum=Success;Failed;Reverted;Evicted;TemplatePatched
 	Result ResizeResult `json:"result"`
 
 	// Reason explains why the resize was reverted or failed.
