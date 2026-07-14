@@ -282,7 +282,15 @@ spec:
 override cluster-scoped `AttuneDefaults`. Policies in the same namespace
 inherit these values unless they specify their own.
 
-**Precedence order:** policy spec > namespace defaults > cluster defaults > built-in defaults
+**Precedence order (per field):** policy spec > namespace defaults >
+cluster defaults > built-in defaults.
+
+When both cluster and namespace defaults exist, fields set on the
+namespace object win; fields left unset on the namespace object are
+filled from the cluster `AttuneDefaults` (not from built-ins alone).
+Example: cluster sets `cooldown=10m` and `percentile=95`; namespace sets
+only `percentile=90` → effective defaults use `percentile=90` and
+`cooldown=10m`.
 
 The spec is identical to `AttuneDefaults` (all fields in
 `AttuneDefaultsSpec` are available). When multiple

@@ -2068,7 +2068,8 @@ func TestPrintExplain_UsesClusterDefaultsWhenNoNamespaceDefaultsExist(t *testing
 	assert.Contains(t, output, "Resize method: InPlaceOrRecreate (source: cluster default, configured: <unset>)")
 }
 
-func TestPrintExplain_NamespaceDefaultsDoNotInheritMissingFieldsFromClusterDefaults(t *testing.T) {
+func TestPrintExplain_NamespaceDefaultsInheritMissingFieldsFromClusterDefaults(t *testing.T) {
+	// Issue #394: 3-tier merge — namespace min data points; cluster fills queryStep and type.
 	nsMinimumDataPoints := int32(96)
 	nsDefaultsObj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&attunev1alpha1.AttuneNamespaceDefaults{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "attune.io/v1alpha1", Kind: "AttuneNamespaceDefaults"},
@@ -2141,10 +2142,11 @@ func TestPrintExplain_NamespaceDefaultsDoNotInheritMissingFieldsFromClusterDefau
 	output := buf.String()
 
 	assert.Contains(t, output, "Minimum data points: 96 (source: namespace default, configured: <unset>)")
-	assert.Contains(t, output, "Query step: 5m0s (source: built-in default, configured: <unset>)")
-	assert.Contains(t, output, "Type: Recommend (source: built-in default, configured: <unset>)")
-	assert.NotContains(t, output, "Query step: 1m0s")
-	assert.NotContains(t, output, "Type: Auto")
+	// Cluster fills gaps left by the sparse namespace object (3-tier merge).
+	assert.Contains(t, output, "Query step: 1m0s (source: namespace default, configured: <unset>)")
+	assert.Contains(t, output, "Type: Auto (source: namespace default, configured: <unset>)")
+	assert.NotContains(t, output, "Query step: 5m0s (source: built-in default")
+	assert.NotContains(t, output, "Type: Recommend (source: built-in default")
 }
 
 // ---------- policyReadyReason ----------

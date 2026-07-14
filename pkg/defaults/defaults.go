@@ -100,6 +100,81 @@ func mustParseBuiltInDuration(s string) time.Duration {
 	return d
 }
 
+// CombineDefaultsLayers builds effective defaults from optional cluster and
+// namespace layers. Namespace fields win; cluster fills fields left unset on
+// the namespace object. Returns nil if both layers are nil.
+//
+// Precedence when both exist: cluster < namespace (policy still overrides later
+// via MergeDefaults). CostPricing and all other Spec fields follow the same rule.
+func CombineDefaultsLayers(cluster, namespace *attunev1alpha1.AttuneDefaults) *attunev1alpha1.AttuneDefaults {
+	if namespace == nil {
+		return cluster
+	}
+	if cluster == nil {
+		return namespace
+	}
+
+	// Seed a synthetic policy with namespace values (higher priority), then
+	// MergeDefaults fills gaps from cluster (lower priority).
+	policy := &attunev1alpha1.AttunePolicy{}
+	applyDefaultsSpecToPolicy(policy, namespace.Spec)
+	_ = MergeDefaults(policy, cluster)
+
+	out := &attunev1alpha1.AttuneDefaults{
+		ObjectMeta: namespace.ObjectMeta,
+		Spec:       policyToDefaultsSpec(policy, pickCostPricing(namespace.Spec.CostPricing, cluster.Spec.CostPricing)),
+	}
+	return out
+}
+
+// applyDefaultsSpecToPolicy copies set fields from a defaults Spec onto a policy.
+func applyDefaultsSpecToPolicy(policy *attunev1alpha1.AttunePolicy, spec attunev1alpha1.AttuneDefaultsSpec) {
+	if spec.CPU != nil {
+		policy.Spec.CPU = *spec.CPU.DeepCopy()
+	}
+	if spec.Memory != nil {
+		policy.Spec.Memory = *spec.Memory.DeepCopy()
+	}
+	if spec.MetricsSource != nil {
+		policy.Spec.MetricsSource = *spec.MetricsSource.DeepCopy()
+	}
+	if spec.UpdateStrategy != nil {
+		policy.Spec.UpdateStrategy = spec.UpdateStrategy.DeepCopy()
+	}
+	if spec.ExcludeKnownSidecars != nil {
+		v := *spec.ExcludeKnownSidecars
+		policy.Spec.ExcludeKnownSidecars = &v
+	}
+}
+
+// policyToDefaultsSpec converts a fully merged policy Spec back into defaults Spec.
+// CostPricing is not stored on AttunePolicy and is passed separately.
+func policyToDefaultsSpec(policy *attunev1alpha1.AttunePolicy, cost *attunev1alpha1.CostPricing) attunev1alpha1.AttuneDefaultsSpec {
+	spec := attunev1alpha1.AttuneDefaultsSpec{CostPricing: cost}
+	// ResourceConfig.DeepCopy and MetricsSource.DeepCopy return pointers.
+	spec.CPU = policy.Spec.CPU.DeepCopy()
+	spec.Memory = policy.Spec.Memory.DeepCopy()
+	spec.MetricsSource = policy.Spec.MetricsSource.DeepCopy()
+	if policy.Spec.UpdateStrategy != nil {
+		spec.UpdateStrategy = policy.Spec.UpdateStrategy.DeepCopy()
+	}
+	if policy.Spec.ExcludeKnownSidecars != nil {
+		v := *policy.Spec.ExcludeKnownSidecars
+		spec.ExcludeKnownSidecars = &v
+	}
+	return spec
+}
+
+func pickCostPricing(namespace, cluster *attunev1alpha1.CostPricing) *attunev1alpha1.CostPricing {
+	if namespace != nil {
+		return namespace.DeepCopy()
+	}
+	if cluster != nil {
+		return cluster.DeepCopy()
+	}
+	return nil
+}
+
 // MergeDefaults merges values from an AttuneDefaults resource into the
 // policy where the policy has not specified its own values. Returns the
 // list of field names that were inherited (for debug logging by callers).

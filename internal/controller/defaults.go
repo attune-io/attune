@@ -30,47 +30,50 @@ import (
 	pkgdefaults "github.com/attune-io/attune/pkg/defaults"
 )
 
-// fetchDefaults returns the effective defaults for the given namespace, checking
-// namespace-scoped AttuneNamespaceDefaults first, then falling back to
-// cluster-scoped AttuneDefaults. Returns nil if neither exists.
+// fetchDefaults returns the effective defaults for the given namespace.
+//
+// Precedence (per field): built-in < cluster AttuneDefaults < namespace
+// AttuneNamespaceDefaults < policy (policy applied later via mergeDefaults).
+// When both cluster and namespace defaults exist, namespace values win for
+// fields they set; cluster values fill fields left unset on the namespace
+// object (3-tier merge).
 //
 // If multiple defaults objects exist at the same scope, selection is
 // deterministic: the lexicographically smallest metadata.name wins.
 func (r *AttunePolicyReconciler) fetchDefaults(ctx context.Context, namespace string) (*attunev1alpha1.AttuneDefaults, error) {
-	// Check namespace-scoped defaults first.
 	var nsList attunev1alpha1.AttuneNamespaceDefaultsList
 	if err := r.List(ctx, &nsList, client.InNamespace(namespace)); err != nil {
 		return nil, fmt.Errorf("listing AttuneNamespaceDefaults in %s: %w", namespace, err)
 	}
+	var nsDefaults *attunev1alpha1.AttuneDefaults
 	if len(nsList.Items) > 0 {
-		nsDefaults := nsList.Items[0]
+		picked := nsList.Items[0]
 		for i := 1; i < len(nsList.Items); i++ {
-			if nsList.Items[i].Name < nsDefaults.Name {
-				nsDefaults = nsList.Items[i]
+			if nsList.Items[i].Name < picked.Name {
+				picked = nsList.Items[i]
 			}
 		}
-		// Convert to AttuneDefaults so callers don't need to know the source.
-		return &attunev1alpha1.AttuneDefaults{
-			ObjectMeta: nsDefaults.ObjectMeta,
-			Spec:       nsDefaults.Spec,
-		}, nil
+		nsDefaults = &attunev1alpha1.AttuneDefaults{
+			ObjectMeta: picked.ObjectMeta,
+			Spec:       picked.Spec,
+		}
 	}
 
-	// Fall back to cluster-scoped defaults.
 	var clusterList attunev1alpha1.AttuneDefaultsList
 	if err := r.List(ctx, &clusterList); err != nil {
 		return nil, fmt.Errorf("listing AttuneDefaults: %w", err)
 	}
-	if len(clusterList.Items) == 0 {
-		return nil, nil
-	}
-	clusterDefaults := &clusterList.Items[0]
-	for i := 1; i < len(clusterList.Items); i++ {
-		if clusterList.Items[i].Name < clusterDefaults.Name {
-			clusterDefaults = &clusterList.Items[i]
+	var clusterDefaults *attunev1alpha1.AttuneDefaults
+	if len(clusterList.Items) > 0 {
+		clusterDefaults = &clusterList.Items[0]
+		for i := 1; i < len(clusterList.Items); i++ {
+			if clusterList.Items[i].Name < clusterDefaults.Name {
+				clusterDefaults = &clusterList.Items[i]
+			}
 		}
 	}
-	return clusterDefaults, nil
+
+	return pkgdefaults.CombineDefaultsLayers(clusterDefaults, nsDefaults), nil
 }
 
 // applyBuiltInDefaults fills strategy and metrics fields still unset after
@@ -87,12 +90,12 @@ func (r *AttunePolicyReconciler) applyBuiltInDefaults(policy *attunev1alpha1.Att
 // mergeDefaults delegates to the shared defaults package and logs inherited fields.
 func (r *AttunePolicyReconciler) mergeDefaults(policy *attunev1alpha1.AttunePolicy, defaults *attunev1alpha1.AttuneDefaults) {
 	if defaults == nil {
-		ctrl.Log.V(1).Info("No cluster defaults configured, using built-in values only")
+		ctrl.Log.V(1).Info("No AttuneDefaults configured, using built-in values only")
 		return
 	}
 	inherited := pkgdefaults.MergeDefaults(policy, defaults)
 	if len(inherited) > 0 {
-		ctrl.Log.V(1).Info("Merged cluster defaults into policy",
+		ctrl.Log.V(1).Info("Merged effective defaults into policy",
 			"defaultsName", defaults.Name,
 			"fieldsInherited", inherited)
 	} else {
