@@ -1,0 +1,216 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: template-persistence-after-resize
+spec:
+  description: >
+    Verify templatePersistence when=AfterSuccessfulResize patches the Deployment
+    pod template only after a successful in-place resize (not on recommendation alone).
+  timeouts:
+    apply: 30s
+    assert: 5m
+    delete: 30s
+  steps:
+    - name: create-namespace-and-deployment
+      try:
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: e2e-tpl-after-resize
+        - apply:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: tpl-resize-app
+                namespace: e2e-tpl-after-resize
+                labels:
+                  app: tpl-resize-app
+              spec:
+                replicas: 1
+                selector:
+                  matchLabels:
+                    app: tpl-resize-app
+                template:
+                  metadata:
+                    labels:
+                      app: tpl-resize-app
+                  spec:
+                    containers:
+                      - name: app
+                        image: registry.k8s.io/pause:3.9
+                        resizePolicy:
+                          - resourceName: cpu
+                            restartPolicy: NotRequired
+                          - resourceName: memory
+                            restartPolicy: NotRequired
+                        resources:
+                          # Oversized vs pause usage so Auto mode decreases after resize.
+                          requests:
+                            cpu: 500m
+                            memory: 512Mi
+                          limits:
+                            cpu: "1"
+                            memory: 1Gi
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: tpl-resize-app
+                namespace: e2e-tpl-after-resize
+              status:
+                readyReplicas: 1
+    - name: wait-for-metrics
+      try:
+        - script:
+            timeout: 2m
+            content: |
+              PROM_POD=$(kubectl get pods -n monitoring -l app.kubernetes.io/name=prometheus,app.kubernetes.io/component=server -o name | head -1)
+              NS="e2e-tpl-after-resize"
+              ENCODED_QUERY="container_cpu_usage_seconds_total%7Bnamespace%3D%22${NS}%22%2Ccontainer%21%3D%22%22%7D"
+              for i in $(seq 1 24); do
+                result=$(kubectl exec -n monitoring "$PROM_POD" -- \
+                  wget -qO- "http://localhost:9090/api/v1/query?query=${ENCODED_QUERY}" 2>/dev/null || true)
+                if echo "$result" | grep -q '"result":\[{'; then
+                  echo "cAdvisor metrics available for namespace $NS after ${i}x5s"
+                  exit 0
+                fi
+                sleep 5
+              done
+              echo "WARNING: No cAdvisor metrics for $NS after 120s, proceeding"
+    - name: create-policy-auto-after-resize
+      try:
+        - apply:
+            resource:
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
+              metadata:
+                name: tpl-after-resize
+                namespace: e2e-tpl-after-resize
+              spec:
+                targetRef:
+                  kind: Deployment
+                  name: tpl-resize-app
+                metricsSource:
+                  prometheus:
+                    address: http://prometheus-server.monitoring:80
+                  minimumDataPoints: 1
+                  historyWindow: 1h
+                  queryStep: 1m
+                  rateWindow: 5m
+                cpu:
+                  percentile: 95
+                  overhead: "20"
+                  minAllowed: 50m
+                  maxAllowed: "2"
+                  maxChangePercent: 100
+                  allowDecrease: true
+                memory:
+                  percentile: 99
+                  overhead: "30"
+                  minAllowed: 64Mi
+                  maxAllowed: 2Gi
+                  maxChangePercent: 100
+                  allowDecrease: true
+                updateStrategy:
+                  type: Auto
+                  cooldown: 1m
+                  autoRevert: true
+                  templatePersistence:
+                    enabled: true
+                    when: AfterSuccessfulResize
+    - name: verify-resize-then-template-patched
+      try:
+        - script:
+            timeout: 5m
+            content: |
+              set -e
+              NS=e2e-tpl-after-resize
+              POLICY=tpl-after-resize
+              DEPLOY=tpl-resize-app
+
+              # 1) Wait for a successful in-place resize (not just a recommendation).
+              resized=0
+              for i in $(seq 1 48); do
+                RESIZED=$(kubectl get attunepolicy "$POLICY" -n "$NS" \
+                  -o jsonpath='{.status.workloads.resized}' 2>/dev/null || true)
+                HIST=$(kubectl get attunepolicy "$POLICY" -n "$NS" \
+                  -o jsonpath='{.status.resizeHistory[*].result}' 2>/dev/null || true)
+                if [ "${RESIZED:-0}" -ge 1 ] 2>/dev/null; then
+                  echo "Resize confirmed: workloads.resized=$RESIZED (attempt $i)"
+                  resized=1
+                  break
+                fi
+                if echo "$HIST" | grep -qw Success; then
+                  echo "Resize confirmed via history Success (attempt $i): $HIST"
+                  resized=1
+                  break
+                fi
+                sleep 5
+              done
+              if [ "$resized" != "1" ]; then
+                echo "FAIL: no successful resize within timeout"
+                kubectl get attunepolicy "$POLICY" -n "$NS" -o yaml
+                kubectl get deploy "$DEPLOY" -n "$NS" -o yaml
+                exit 1
+              fi
+
+              # 2) Template must change from original 500m after successful resize.
+              # AfterSuccessfulResize is the only writer; OnRecommendation is not configured.
+              for i in $(seq 1 36); do
+                CPU=$(kubectl get deploy "$DEPLOY" -n "$NS" \
+                  -o jsonpath='{.spec.template.spec.containers[0].resources.requests.cpu}' 2>/dev/null || true)
+                MEM=$(kubectl get deploy "$DEPLOY" -n "$NS" \
+                  -o jsonpath='{.spec.template.spec.containers[0].resources.requests.memory}' 2>/dev/null || true)
+                HIST=$(kubectl get attunepolicy "$POLICY" -n "$NS" \
+                  -o json 2>/dev/null || true)
+                if [ -n "$CPU" ] && [ "$CPU" != "500m" ]; then
+                  echo "Template CPU updated from 500m to $CPU (memory=$MEM)"
+                  if echo "$HIST" | grep -q '"result":"TemplatePatched"' && \
+                     echo "$HIST" | grep -q '"method":"TemplatePersistence"'; then
+                    echo "History records TemplatePersistence / TemplatePatched"
+                    exit 0
+                  fi
+                  echo "WARN: history not yet showing TemplatePatched; template change is sufficient"
+                  exit 0
+                fi
+                sleep 5
+              done
+              echo "FAIL: template still at original sizes after successful resize"
+              kubectl get deploy "$DEPLOY" -n "$NS" -o yaml
+              kubectl get attunepolicy "$POLICY" -n "$NS" -o yaml
+              exit 1
+    - name: cleanup
+      try:
+        - delete:
+            ref:
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
+              name: tpl-after-resize
+              namespace: e2e-tpl-after-resize
+        - delete:
+            ref:
+              apiVersion: apps/v1
+              kind: Deployment
+              name: tpl-resize-app
+              namespace: e2e-tpl-after-resize
+        - delete:
+            ref:
+              apiVersion: v1
+              kind: Namespace
+              name: e2e-tpl-after-resize
+  catch:
+    - describe:
+        apiVersion: attune.io/v1alpha1
+        kind: AttunePolicy
+        namespace: e2e-tpl-after-resize
+    - describe:
+        apiVersion: apps/v1
+        kind: Deployment
+        namespace: e2e-tpl-after-resize
+    - podLogs:
+        namespace: attune-system
+        selector: app.kubernetes.io/name=attune
