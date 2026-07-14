@@ -2875,6 +2875,7 @@ spec:
                       enum:
                       - InPlace
                       - Eviction
+                      - TemplatePersistence
                       type: string
                     reason:
                       description: |-
@@ -2884,11 +2885,14 @@ spec:
                         annotation-conflict, immediate-safety-check, slo:<name>.
                       type: string
                     resource:
-                      description: Resource is the resource type that was resized.
+                      description: |-
+                        Resource is the resource type that was resized, or "template" when the
+                        history entry records a workload template persistence patch.
                       enum:
                       - cpu
                       - memory
                       - cpu+memory
+                      - template
                       type: string
                     result:
                       description: Result is the outcome of the resize operation.
@@ -2897,6 +2901,7 @@ spec:
                       - Failed
                       - Reverted
                       - Evicted
+                      - TemplatePatched
                       type: string
                     timestamp:
                       description: Timestamp is when the resize operation occurred.

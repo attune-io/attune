@@ -179,7 +179,7 @@ spec:
 | `resizeHistory[].timestamp` | `Time` | When the resize occurred |
 | `resizeHistory[].workload` | `string` | Resized workload name |
 | `resizeHistory[].container` | `string` | Resized container name |
-| `resizeHistory[].resource` | `string` | `cpu`, `memory`, or `cpu+memory` |
+| `resizeHistory[].resource` | `string` | `cpu`, `memory`, `cpu+memory`, or `template` |
 | `resizeHistory[].from` | `string` | Previous value |
 | `resizeHistory[].to` | `string` | New value |
 | `resizeHistory[].method` | `string` | `InPlace`, `Eviction`, or `TemplatePersistence` |

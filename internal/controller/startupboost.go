@@ -251,11 +251,37 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 					// so the next reconciliation retries. Without this guard, a
 					// transient failure would leave the pod permanently at
 					// boosted CPU with no future expiry attempt.
-					if !boostReduceFailed {
-						delete(pod.Annotations, annotationStartupBoostAt)
+					// Skip the Update entirely when nothing changed (all
+					// containers skipped / already at target) to avoid API churn.
+					if boostReduceFailed {
+						continue
 					}
-					if updateErr := r.Update(ctx, pod); updateErr != nil {
-						logger.Error(updateErr, "Failed to update pod after startup boost expiry", "pod", pod.Name)
+					// Re-fetch + conflict retry (same pattern as boost apply).
+					const maxExpiryAnnotationRetries = 3
+					for attempt := range maxExpiryAnnotationRetries {
+						freshPod, getErr := r.Clientset.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
+						if getErr != nil {
+							logger.Error(getErr, "Failed to re-fetch pod for startup boost expiry annotation", "pod", pod.Name)
+							break
+						}
+						if freshPod.Annotations == nil {
+							break
+						}
+						if _, ok := freshPod.Annotations[annotationStartupBoostAt]; !ok {
+							// Already cleared (race with another reconciler).
+							*pod = *freshPod
+							break
+						}
+						delete(freshPod.Annotations, annotationStartupBoostAt)
+						if updateErr := r.Update(ctx, freshPod); updateErr == nil {
+							*pod = *freshPod
+							break
+						} else if !apierrors.IsConflict(updateErr) {
+							logger.Error(updateErr, "Failed to update pod after startup boost expiry", "pod", pod.Name)
+							break
+						}
+						logger.V(1).Info("Boost expiry annotation conflict, retrying",
+							"pod", pod.Name, "attempt", attempt+1)
 					}
 				}
 			}
