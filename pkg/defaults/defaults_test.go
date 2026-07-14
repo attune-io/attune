@@ -616,3 +616,50 @@ func TestCombineDefaultsLayers_ThreeTier(t *testing.T) {
 	assert.Equal(t, "20", policy.Spec.CPU.Overhead)
 	assert.Equal(t, 10*time.Minute, policy.Spec.UpdateStrategy.Cooldown.Duration)
 }
+
+func TestCombineDefaultsLayers_AllSpecSectionsAndCostPricing(t *testing.T) {
+	falseVal := false
+	cluster := &attunev1alpha1.AttuneDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			Memory: &attunev1alpha1.ResourceConfig{Percentile: 99, Overhead: "30"},
+			MetricsSource: &attunev1alpha1.MetricsSource{
+				HistoryWindow: &metav1.Duration{Duration: 48 * time.Hour},
+			},
+			ExcludeKnownSidecars: &falseVal,
+			CostPricing: &attunev1alpha1.CostPricing{
+				CPUPerCoreHour: "0.05",
+			},
+		},
+	}
+	ns := &attunev1alpha1.AttuneDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "ns"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CPU: &attunev1alpha1.ResourceConfig{Percentile: 80},
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Type: attunev1alpha1.UpdateTypeAuto,
+			},
+			// CostPricing omitted → inherit cluster.
+		},
+	}
+	got := CombineDefaultsLayers(cluster, ns)
+	require.NotNil(t, got)
+	assert.Equal(t, int32(80), got.Spec.CPU.Percentile)
+	require.NotNil(t, got.Spec.Memory)
+	assert.Equal(t, int32(99), got.Spec.Memory.Percentile)
+	require.NotNil(t, got.Spec.MetricsSource)
+	require.NotNil(t, got.Spec.MetricsSource.HistoryWindow)
+	assert.Equal(t, 48*time.Hour, got.Spec.MetricsSource.HistoryWindow.Duration)
+	require.NotNil(t, got.Spec.UpdateStrategy)
+	assert.Equal(t, attunev1alpha1.UpdateTypeAuto, got.Spec.UpdateStrategy.Type)
+	require.NotNil(t, got.Spec.ExcludeKnownSidecars)
+	assert.False(t, *got.Spec.ExcludeKnownSidecars)
+	require.NotNil(t, got.Spec.CostPricing)
+	assert.Equal(t, "0.05", got.Spec.CostPricing.CPUPerCoreHour)
+
+	// Namespace CostPricing wins when set.
+	ns.Spec.CostPricing = &attunev1alpha1.CostPricing{CPUPerCoreHour: "0.01"}
+	got = CombineDefaultsLayers(cluster, ns)
+	require.NotNil(t, got.Spec.CostPricing)
+	assert.Equal(t, "0.01", got.Spec.CostPricing.CPUPerCoreHour)
+}
