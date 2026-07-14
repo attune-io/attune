@@ -169,13 +169,18 @@ spec:
                   -o json 2>/dev/null || true)
                 if [ -n "$CPU" ] && [ "$CPU" != "500m" ]; then
                   echo "Template CPU updated from 500m to $CPU (memory=$MEM)"
-                  # Require history so we prove AfterSuccessfulResize path, not a manual template edit.
-                  if echo "$HIST" | grep -q '"result":"TemplatePatched"' && \
-                     echo "$HIST" | grep -q '"method":"TemplatePersistence"'; then
-                    echo "History records TemplatePersistence / TemplatePatched"
+                  # Prove AfterSuccessfulResize wrote history (not only a template field change).
+                  # kubectl -o json may space after colons; match result/method values loosely.
+                  RESULTS=$(kubectl get attunepolicy "$POLICY" -n "$NS" \
+                    -o jsonpath='{range .status.resizeHistory[*]}{.result}{" "}{.method}{"\n"}{end}' 2>/dev/null || true)
+                  if echo "$RESULTS" | grep -q 'TemplatePatched' && \
+                     echo "$RESULTS" | grep -q 'TemplatePersistence'; then
+                    echo "History records TemplatePersistence / TemplatePatched:"
+                    echo "$RESULTS"
                     exit 0
                   fi
                   echo "Template changed but history not yet TemplatePatched; waiting (attempt $i)"
+                  echo "history rows: $RESULTS"
                 fi
                 sleep 5
               done
