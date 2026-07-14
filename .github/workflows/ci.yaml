@@ -498,16 +498,21 @@ jobs:
           paths: test-results/integration.xml
 
   # E2E tests run in a single job with one shared k3d cluster.
-  # Cluster setup starts immediately (needs: changes only) and overlaps with
-  # lint/unit. A gate step polls the GitHub API until lint+unit complete,
-  # then both Chainsaw and Go E2E run concurrently on the shared cluster.
-  # This saves ~3 min vs two separate jobs blocked on lint/unit.
+  # needs includes lint/unit when they run; when they are path-skipped
+  # (e2e-only PRs), always() + success|skipped checks still allow E2E.
+  # Without that, GitHub skips dependents of skipped jobs and e2e-only
+  # PRs never execute Chainsaw (seen on #407).
   test-e2e:
     name: E2E
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 30
     needs: [changes, lint, test-unit]
-    if: needs.changes.outputs.go-source == 'true' || needs.changes.outputs.e2e == 'true'
+    if: |
+      always()
+      && needs.changes.result == 'success'
+      && (needs.changes.outputs.go-source == 'true' || needs.changes.outputs.e2e == 'true')
+      && (needs.lint.result == 'success' || needs.lint.result == 'skipped')
+      && (needs.test-unit.result == 'success' || needs.test-unit.result == 'skipped')
     env:
       K3D_CLUSTER_NAME: e2e-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
@@ -528,7 +533,7 @@ jobs:
           prometheus-chart-version: ${{ env.PROMETHEUS_CHART_VERSION }}
           stress-ng-image: ${{ env.STRESS_NG_IMAGE }}
 
-      # Lint and unit tests are guaranteed complete via needs: [lint, test-unit].
+      # Lint/unit either succeeded or were path-skipped (see job if: above).
 
       - name: Install Chainsaw
         uses: ./.github/actions/install-binary-tool
