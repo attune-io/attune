@@ -744,6 +744,52 @@ spec:
 `kubectl attune explain <policy>` prints `Exclude known sidecars` and the
 **effective** excluded set (known list union user list).
 
+## Template persistence not updating the workload template
+
+Opt-in `updateStrategy.templatePersistence` patches Deployment/StatefulSet
+pod templates so replacement pods start correctly sized. If the live template
+never changes, check these first.
+
+### Feature disabled or wrong `when`
+
+Default is off. Enable explicitly:
+
+```yaml
+spec:
+  updateStrategy:
+    type: Auto # or Recommend with when: OnRecommendation
+    templatePersistence:
+      enabled: true
+      when: AfterSuccessfulResize # default when enabled
+```
+
+- **`AfterSuccessfulResize`**: only after a successful in-place resize. In
+  Recommend/Observe modes this never fires (webhook warns). Use
+  `when: OnRecommendation` for Recommend.
+- **`OnRecommendation`**: still skipped in **Observe** mode.
+- **Canary**: template patches wait until canary reaches `FullRollout`.
+
+### Mid-rollout or no-op
+
+The operator skips patches while a Deployment/StatefulSet is rolling out,
+and no-ops when the template already matches. Events:
+
+- `TemplatePatched` (Normal) on success
+- `TemplatePatchFailed` (Warning) on API errors
+
+History entries use `method=TemplatePersistence` and
+`result=TemplatePatched` (or `Failed`). Metric:
+
+```promql
+rate(attune_template_patch_total{result="failed"}[15m]) > 0
+```
+
+### GitOps thrash
+
+If Argo CD / Flux reverts the template every sync, do **not** enable
+template persistence under unmanaged sync. Prefer `export.configMap` or
+`initialSizing` (see [GitOps integration](gitops-integration.md)).
+
 ## Debug commands
 
 Operator logs:

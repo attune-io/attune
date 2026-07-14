@@ -291,6 +291,10 @@ func TestApplyTemplatePersistence_OnRecommendation_Deployment(t *testing.T) {
 		attunev1alpha1.TemplatePersistenceOnRecommendation, nil)
 	require.Len(t, history, 1)
 	assert.Equal(t, attunev1alpha1.ResizeResultTemplatePatched, history[0].Result)
+	assert.Equal(t, "template", history[0].Resource)
+	assert.Equal(t, "TemplatePersistence", history[0].Method)
+	assert.Equal(t, "workload-template", history[0].From)
+	assert.Equal(t, "recommended", history[0].To)
 
 	var updated appsv1.Deployment
 	require.NoError(t, cl.Get(context.Background(), client.ObjectKeyFromObject(deploy), &updated))
