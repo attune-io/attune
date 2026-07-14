@@ -227,6 +227,11 @@ spec:
     # Automatic revert on OOMKill, throttle, restarts, NotReady, or SLO breach
     autoRevert: true          # default: true
     safetyObservationPeriod: 5m  # observe pod post-resize (default: 5m, min: 1m)
+    # Opt-in: write recommendations into Deploy/STS pod templates so replacement
+    # pods start correctly sized (default off; avoid unmanaged GitOps thrash).
+    # templatePersistence:
+    #   enabled: true
+    #   when: AfterSuccessfulResize  # or OnRecommendation
     sloGuardrails:            # optional: application-level SLO checks post-resize
       - name: p99-latency
         query: "histogram_quantile(0.99, rate(http_duration_seconds_bucket{namespace=\"{{ .Namespace }}\"}[5m]))"
@@ -734,7 +739,7 @@ func (r *ResizeEngine) WaitForResize(ctx context.Context, ns, podName,
 
 | Scenario | Handling |
 |----------|---------|
-| Pod deleted during resize | Ignore; new pod from Deployment will use original template |
+| Pod deleted during resize | New pod uses workload template; with opt-in `templatePersistence`, template tracks recommended/applied sizes so replacements start correctly sized (default off) |
 | Node has insufficient resources | Resize marked Deferred; retry on next reconciliation |
 | QoS class would change | Pre-check rejects the resize |
 | LimitRange violation | API server rejects; log and skip |
