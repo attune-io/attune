@@ -152,6 +152,84 @@ func TestApplyResourcesToPodSpec_UpdatesContainer(t *testing.T) {
 	assert.Equal(t, int64(200), spec.Containers[0].Resources.Requests.Cpu().MilliValue())
 }
 
+func TestApplyResourcesToPodSpec_NativeSidecarInitContainer(t *testing.T) {
+	always := corev1.ContainerRestartPolicyAlways
+	spec := &corev1.PodSpec{
+		Containers: []corev1.Container{{
+			Name: "app",
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m")},
+			},
+		}},
+		InitContainers: []corev1.Container{
+			{
+				Name:          "mesh",
+				RestartPolicy: &always,
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("50m")},
+				},
+			},
+			{
+				// Regular init (no Always restart) must not be patched.
+				Name: "setup",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("10m")},
+				},
+			},
+		},
+	}
+	desired := map[string]corev1.ResourceRequirements{
+		"mesh": {
+			Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("80m")},
+		},
+		"setup": {
+			Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("99m")},
+		},
+	}
+	assert.True(t, applyResourcesToPodSpec(spec, desired))
+	assert.Equal(t, int64(80), spec.InitContainers[0].Resources.Requests.Cpu().MilliValue())
+	assert.Equal(t, int64(10), spec.InitContainers[1].Resources.Requests.Cpu().MilliValue(),
+		"non-native init container must not be modified")
+}
+
+func TestMergeTemplateResources_PreservesUncontrolledLimits(t *testing.T) {
+	current := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("100m"),
+			corev1.ResourceMemory: resource.MustParse("128Mi"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("500m"),
+			corev1.ResourceMemory: resource.MustParse("512Mi"),
+		},
+	}
+	// RequestsOnly payload: requests only.
+	want := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("200m"),
+			corev1.ResourceMemory: resource.MustParse("256Mi"),
+		},
+	}
+	got := mergeTemplateResources(current, want)
+	assert.Equal(t, int64(200), got.Requests.Cpu().MilliValue())
+	assert.True(t, got.Requests.Memory().Equal(resource.MustParse("256Mi")))
+	require.NotNil(t, got.Limits)
+	assert.Equal(t, int64(500), got.Limits.Cpu().MilliValue(), "existing CPU limit preserved")
+	assert.True(t, got.Limits.Memory().Equal(resource.MustParse("512Mi")), "existing memory limit preserved")
+}
+
+func TestQuantityEqual_MissingAsZero(t *testing.T) {
+	a := corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("0")}
+	b := corev1.ResourceList{}
+	assert.True(t, quantityEqual(a, b, corev1.ResourceCPU))
+	assert.True(t, quantityEqual(b, a, corev1.ResourceCPU))
+	assert.False(t, quantityEqual(
+		corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m")},
+		b,
+		corev1.ResourceCPU,
+	))
+}
+
 func TestApplyTemplatePersistence_OnRecommendation_Deployment(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, appsv1.AddToScheme(scheme))
