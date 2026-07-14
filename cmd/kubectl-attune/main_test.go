@@ -1936,7 +1936,8 @@ func TestPrintExplain_ShowsPolicyNamespaceAndBuiltInEffectiveValues(t *testing.T
 	assert.Contains(t, output, "Cooldown: 30m0s (source: policy, configured: 30m)")
 	assert.Contains(t, output, "Query step: 10m0s (source: policy, configured: 10m)")
 	assert.Contains(t, output, "Minimum data points: 120 (source: policy, configured: 120)")
-	assert.Contains(t, output, "Resize method: InPlaceOrRecreate (source: namespace default, configured: <unset>)")
+	// Both cluster and namespace defaults exist → merged source label (3-tier).
+	assert.Contains(t, output, "Resize method: InPlaceOrRecreate (source: merged defaults (namespace+cluster), configured: <unset>)")
 	assert.Contains(t, output, "Max change: 70% (source: policy, configured: 70%)")
 	assert.Contains(t, output, "Max change: 30% (source: built-in default, configured: <unset>)")
 	assert.Contains(t, output, "Observation period: 5m0s (source: built-in default, configured: <unset>)")
@@ -2141,10 +2142,10 @@ func TestPrintExplain_NamespaceDefaultsInheritMissingFieldsFromClusterDefaults(t
 	require.NoError(t, err)
 	output := buf.String()
 
-	assert.Contains(t, output, "Minimum data points: 96 (source: namespace default, configured: <unset>)")
+	assert.Contains(t, output, "Minimum data points: 96 (source: merged defaults (namespace+cluster), configured: <unset>)")
 	// Cluster fills gaps left by the sparse namespace object (3-tier merge).
-	assert.Contains(t, output, "Query step: 1m0s (source: namespace default, configured: <unset>)")
-	assert.Contains(t, output, "Type: Auto (source: namespace default, configured: <unset>)")
+	assert.Contains(t, output, "Query step: 1m0s (source: merged defaults (namespace+cluster), configured: <unset>)")
+	assert.Contains(t, output, "Type: Auto (source: merged defaults (namespace+cluster), configured: <unset>)")
 	assert.NotContains(t, output, "Query step: 5m0s (source: built-in default")
 	assert.NotContains(t, output, "Type: Recommend (source: built-in default")
 }

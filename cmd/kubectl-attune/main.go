@@ -51,8 +51,11 @@ const (
 	sourcePolicy          = "policy"
 	sourceNamespace       = "namespace default"
 	sourceCluster         = "cluster default"
-	sourceBuiltIn         = "built-in default"
-	unsetValue            = "<unset>"
+	// sourceMergedDefaults is used when both cluster and namespace defaults CRs
+	// exist and were combined (3-tier merge); individual fields may come from either layer.
+	sourceMergedDefaults = "merged defaults (namespace+cluster)"
+	sourceBuiltIn        = "built-in default"
+	unsetValue           = "<unset>"
 )
 
 var gvr = schema.GroupVersionResource{
@@ -990,7 +993,7 @@ func fetchSelectedDefaults(ctx context.Context, dynClient dynamic.Interface, nam
 	}
 	source := sourceCluster
 	if namespaceDefaults != nil && clusterDefaults != nil {
-		source = sourceNamespace // primary layer is namespace; cluster filled gaps
+		source = sourceMergedDefaults
 	} else if namespaceDefaults != nil {
 		source = sourceNamespace
 	}
