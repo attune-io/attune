@@ -265,15 +265,15 @@ func (r *AttunePolicyReconciler) applyTemplatePersistence(
 			logger.Error(err, "Failed to patch workload template",
 				"workload", rec.Workload, "kind", kind)
 			operatormetrics.TemplatePatchTotal.WithLabelValues(policy.Namespace, rec.Workload, "failed").Inc()
-			if r.Recorder != nil {
-				r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "TemplatePatchFailed", "template",
-					"Failed to patch template for %s/%s: %v", kind, rec.Workload, err)
-			}
+			r.emitEventOnce(policy, corev1.EventTypeWarning, "TemplatePatchFailed", "template",
+				"Failed to patch template for %s/%s: %v", kind, rec.Workload, err)
 			history = append(history, attunev1alpha1.ResizeHistoryEntry{
 				Timestamp: now,
 				Workload:  rec.Workload,
 				Container: "*",
 				Resource:  "template",
+				From:      "workload-template",
+				To:        "recommended",
 				Method:    "TemplatePersistence",
 				Result:    attunev1alpha1.ResizeResultFailed,
 				Reason:    err.Error(),
@@ -286,15 +286,15 @@ func (r *AttunePolicyReconciler) applyTemplatePersistence(
 			continue
 		}
 		operatormetrics.TemplatePatchTotal.WithLabelValues(policy.Namespace, rec.Workload, "success").Inc()
-		if r.Recorder != nil {
-			r.Recorder.Eventf(policy, nil, corev1.EventTypeNormal, "TemplatePatched", "template",
-				"Patched pod template resources for %s/%s (%s)", kind, rec.Workload, mode)
-		}
+		r.emitEventOnce(policy, corev1.EventTypeNormal, "TemplatePatched", "template",
+			"Patched pod template resources for %s/%s (%s)", kind, rec.Workload, mode)
 		history = append(history, attunev1alpha1.ResizeHistoryEntry{
 			Timestamp: now,
 			Workload:  rec.Workload,
 			Container: "*",
 			Resource:  "template",
+			From:      "workload-template",
+			To:        "recommended",
 			Method:    "TemplatePersistence",
 			Result:    attunev1alpha1.ResizeResultTemplatePatched,
 			Reason:    string(mode),
