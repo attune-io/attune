@@ -6,6 +6,21 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.20](https://github.com/attune-io/attune/compare/v0.1.19...v0.1.20) (2026-07-14)
+
+
+### Features
+
+* auto-exclude known mesh/sidecar containers by default ([#400](https://github.com/attune-io/attune/issues/400)) ([9b73e67](https://github.com/attune-io/attune/commit/9b73e674d4a15ae64452896a512a480b985a123d))
+* opt-in workload template persistence for Deploy/STS ([#403](https://github.com/attune-io/attune/issues/403)) ([053464e](https://github.com/attune-io/attune/commit/053464ecf21ed266078537df90e59ae139b45f29))
+* three-tier defaults merge for cluster and namespace CRs ([#409](https://github.com/attune-io/attune/issues/409)) ([adb3480](https://github.com/attune-io/attune/commit/adb348098ae60722a39cf3c4396ee9f26130a6ed))
+
+
+### Bug Fixes
+
+* allow template history enums in CRD status schema ([#404](https://github.com/attune-io/attune/issues/404)) ([6c48a20](https://github.com/attune-io/attune/commit/6c48a20ba239116c60ce45c48716a22ea95860dc))
+* harden template persistence polish from MPI ([#406](https://github.com/attune-io/attune/issues/406)) ([1ce5ac8](https://github.com/attune-io/attune/commit/1ce5ac8e805e3cdbbc65bf9921e510696ae31e89))
+
 ## [Unreleased]
 
 ### Changed

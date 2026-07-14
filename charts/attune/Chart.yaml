@@ -2,8 +2,8 @@ apiVersion: v2
 name: attune
 description: Safe, in-place Kubernetes pod resource right-sizing operator
 type: application
-version: 0.1.19
-appVersion: 0.1.19
+version: 0.1.20
+appVersion: 0.1.20
 icon: https://raw.githubusercontent.com/attune-io/attune/main/docs/logo.png
 home: https://github.com/attune-io/attune
 sources:
