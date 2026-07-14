@@ -28,7 +28,7 @@ flowchart TB
 The reconciler loop in `internal/controller/`. On each reconciliation:
 
 1. Fetches the `AttunePolicy` CR.
-2. Resolves one defaults source: `AttuneNamespaceDefaults` for the policy namespace if present, otherwise cluster-scoped `AttuneDefaults`.
+2. Resolves effective defaults with 3-tier merge: cluster-scoped `AttuneDefaults` as baseline, then `AttuneNamespaceDefaults` (namespace fields win; cluster fills unset fields), then per-policy overrides.
 3. Resolves the Prometheus address.
 4. Discovers target workloads via name or label selector.
 5. Checks for opt-out annotations and active rollouts.

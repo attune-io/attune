@@ -556,3 +556,63 @@ func TestMustParseBuiltInDuration_InvalidPanics(t *testing.T) {
 		mustParseBuiltInDuration("not-a-duration")
 	})
 }
+
+func TestCombineDefaultsLayers_NilBoth(t *testing.T) {
+	assert.Nil(t, CombineDefaultsLayers(nil, nil))
+}
+
+func TestCombineDefaultsLayers_NamespaceOnly(t *testing.T) {
+	ns := &attunev1alpha1.AttuneDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "ns"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CPU: &attunev1alpha1.ResourceConfig{Percentile: 99},
+		},
+	}
+	got := CombineDefaultsLayers(nil, ns)
+	require.NotNil(t, got)
+	assert.Equal(t, int32(99), got.Spec.CPU.Percentile)
+}
+
+func TestCombineDefaultsLayers_ClusterOnly(t *testing.T) {
+	cl := &attunev1alpha1.AttuneDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "cl"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CPU: &attunev1alpha1.ResourceConfig{Percentile: 80},
+		},
+	}
+	got := CombineDefaultsLayers(cl, nil)
+	require.NotNil(t, got)
+	assert.Equal(t, int32(80), got.Spec.CPU.Percentile)
+}
+
+func TestCombineDefaultsLayers_ThreeTier(t *testing.T) {
+	cluster := &attunev1alpha1.AttuneDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CPU: &attunev1alpha1.ResourceConfig{Percentile: 95, Overhead: "20"},
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Cooldown: &metav1.Duration{Duration: 10 * time.Minute},
+			},
+		},
+	}
+	ns := &attunev1alpha1.AttuneDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "ns"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CPU: &attunev1alpha1.ResourceConfig{Percentile: 90},
+		},
+	}
+	got := CombineDefaultsLayers(cluster, ns)
+	require.NotNil(t, got)
+	assert.Equal(t, int32(90), got.Spec.CPU.Percentile)
+	assert.Equal(t, "20", got.Spec.CPU.Overhead)
+	require.NotNil(t, got.Spec.UpdateStrategy.Cooldown)
+	assert.Equal(t, 10*time.Minute, got.Spec.UpdateStrategy.Cooldown.Duration)
+
+	// Policy still overrides both via MergeDefaults.
+	policy := &attunev1alpha1.AttunePolicy{}
+	policy.Spec.CPU.Percentile = 85
+	MergeDefaults(policy, got)
+	assert.Equal(t, int32(85), policy.Spec.CPU.Percentile)
+	assert.Equal(t, "20", policy.Spec.CPU.Overhead)
+	assert.Equal(t, 10*time.Minute, policy.Spec.UpdateStrategy.Cooldown.Duration)
+}

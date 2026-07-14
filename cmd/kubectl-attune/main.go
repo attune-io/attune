@@ -977,18 +977,24 @@ func fetchSelectedDefaults(ctx context.Context, dynClient dynamic.Interface, nam
 	if err != nil {
 		return selectedDefaults{}, fmt.Errorf("listing AttuneNamespaceDefaults in %s: %w", namespace, err)
 	}
-	if namespaceDefaults != nil {
-		return selectedDefaults{defaults: namespaceDefaults, source: sourceNamespace}, nil
-	}
 
 	clusterDefaults, err := fetchSingleDefaults(ctx, dynClient, defaultsGVR, "")
 	if err != nil {
 		return selectedDefaults{}, fmt.Errorf("listing AttuneDefaults: %w", err)
 	}
-	if clusterDefaults != nil {
-		return selectedDefaults{defaults: clusterDefaults, source: sourceCluster}, nil
+
+	// Match controller fetchDefaults: 3-tier merge when both layers exist.
+	combined := pkgdefaults.CombineDefaultsLayers(clusterDefaults, namespaceDefaults)
+	if combined == nil {
+		return selectedDefaults{source: sourceBuiltIn}, nil
 	}
-	return selectedDefaults{source: sourceBuiltIn}, nil
+	source := sourceCluster
+	if namespaceDefaults != nil && clusterDefaults != nil {
+		source = sourceNamespace // primary layer is namespace; cluster filled gaps
+	} else if namespaceDefaults != nil {
+		source = sourceNamespace
+	}
+	return selectedDefaults{defaults: combined, source: source}, nil
 }
 
 func fetchSingleDefaults(ctx context.Context, dynClient dynamic.Interface, resource schema.GroupVersionResource, namespace string) (*attunev1alpha1.AttuneDefaults, error) {

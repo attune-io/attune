@@ -94,7 +94,7 @@ Use namespace defaults when different teams or environments need different
 Prometheus backends.
 
 Because the controller resolves a single defaults source per namespace, a
-`AttuneNamespaceDefaults` object shadows cluster defaults for Prometheus
+`AttuneNamespaceDefaults` object overrides set fields on cluster defaults for Prometheus
 config too. If it exists but omits `metricsSource.prometheus.address`, the
 controller falls through to auto-discovery, not to `AttuneDefaults`.
 

@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+* 3-tier defaults merge: namespace AttuneNamespaceDefaults now fills unset fields from cluster AttuneDefaults instead of replacing the whole cluster object (#394)
+
+
 ## [0.1.19](https://github.com/attune-io/attune/compare/v0.1.18...v0.1.19) (2026-07-13)
 
 

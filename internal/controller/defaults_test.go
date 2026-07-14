@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -223,20 +224,22 @@ func TestFetchDefaults_NamespaceScopedOverridesCluster(t *testing.T) {
 	assert.Equal(t, int32(90), result.Spec.CPU.Percentile)
 }
 
-func TestFetchDefaults_NamespaceDefaultsDoNotMergeWithClusterDefaults(t *testing.T) {
+func TestFetchDefaults_NamespaceMergesWithClusterDefaults(t *testing.T) {
+	// Issue #394: 3-tier merge — namespace wins for set fields; cluster fills gaps.
 	clusterDefaults := &attunev1alpha1.AttuneDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
 		Spec: attunev1alpha1.AttuneDefaultsSpec{
-			CPU:    &attunev1alpha1.ResourceConfig{Percentile: 90, Overhead: "20"},
-			Memory: &attunev1alpha1.ResourceConfig{Percentile: 95, Overhead: "40"},
+			CPU: &attunev1alpha1.ResourceConfig{Percentile: 95, Overhead: "20"},
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Cooldown: &metav1.Duration{Duration: 10 * time.Minute},
+			},
 		},
 	}
 	nsDefaults := &attunev1alpha1.AttuneNamespaceDefaults{
 		ObjectMeta: metav1.ObjectMeta{Name: "production-defaults", Namespace: "production"},
 		Spec: attunev1alpha1.AttuneDefaultsSpec{
-			CPU: &attunev1alpha1.ResourceConfig{Percentile: 99, Overhead: "20"},
-			// Memory intentionally omitted: namespace defaults should replace,
-			// not merge with, cluster defaults for this namespace.
+			// Override percentile only; cooldown should come from cluster.
+			CPU: &attunev1alpha1.ResourceConfig{Percentile: 90},
 		},
 	}
 	scheme := testScheme()
@@ -249,17 +252,21 @@ func TestFetchDefaults_NamespaceDefaultsDoNotMergeWithClusterDefaults(t *testing
 	defaults, err := r.fetchDefaults(context.Background(), "production")
 	require.NoError(t, err)
 	require.NotNil(t, defaults)
-	assert.Equal(t, int32(99), defaults.Spec.CPU.Percentile)
-	assert.Equal(t, "20", defaults.Spec.CPU.Overhead)
-	assert.Nil(t, defaults.Spec.Memory)
+	require.NotNil(t, defaults.Spec.CPU)
+	assert.Equal(t, int32(90), defaults.Spec.CPU.Percentile, "namespace percentile wins")
+	assert.Equal(t, "20", defaults.Spec.CPU.Overhead, "cluster overhead fills namespace gap")
+	require.NotNil(t, defaults.Spec.UpdateStrategy)
+	require.NotNil(t, defaults.Spec.UpdateStrategy.Cooldown)
+	assert.Equal(t, 10*time.Minute, defaults.Spec.UpdateStrategy.Cooldown.Duration,
+		"cluster cooldown fills namespace gap")
 
 	policy := &attunev1alpha1.AttunePolicy{}
 	r.mergeDefaults(policy, defaults)
-
-	assert.Equal(t, int32(99), policy.Spec.CPU.Percentile)
+	assert.Equal(t, int32(90), policy.Spec.CPU.Percentile)
 	assert.Equal(t, "20", policy.Spec.CPU.Overhead)
-	assert.Zero(t, policy.Spec.Memory.Percentile)
-	assert.Empty(t, policy.Spec.Memory.Overhead)
+	require.NotNil(t, policy.Spec.UpdateStrategy)
+	require.NotNil(t, policy.Spec.UpdateStrategy.Cooldown)
+	assert.Equal(t, 10*time.Minute, policy.Spec.UpdateStrategy.Cooldown.Duration)
 }
 
 func TestMergeDefaults_NamespaceDefaultsUseBuiltInFallbackForOmittedMemory(t *testing.T) {
