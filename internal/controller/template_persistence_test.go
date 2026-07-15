@@ -34,8 +34,6 @@ import (
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 )
 
-func boolPtrTP(v bool) *bool { return &v }
-
 func TestTemplatePersistenceEnabled(t *testing.T) {
 	assert.False(t, templatePersistenceEnabled(nil))
 	assert.False(t, templatePersistenceEnabled(&attunev1alpha1.UpdateStrategy{}))
@@ -43,18 +41,18 @@ func TestTemplatePersistenceEnabled(t *testing.T) {
 		TemplatePersistence: &attunev1alpha1.TemplatePersistence{},
 	}))
 	assert.True(t, templatePersistenceEnabled(&attunev1alpha1.UpdateStrategy{
-		TemplatePersistence: &attunev1alpha1.TemplatePersistence{Enabled: boolPtrTP(true)},
+		TemplatePersistence: &attunev1alpha1.TemplatePersistence{Enabled: boolPtr(true)},
 	}))
 }
 
 func TestTemplatePersistenceWhenDefault(t *testing.T) {
 	assert.Equal(t, attunev1alpha1.TemplatePersistenceAfterSuccessfulResize, templatePersistenceWhen(nil))
 	assert.Equal(t, attunev1alpha1.TemplatePersistenceAfterSuccessfulResize, templatePersistenceWhen(&attunev1alpha1.UpdateStrategy{
-		TemplatePersistence: &attunev1alpha1.TemplatePersistence{Enabled: boolPtrTP(true)},
+		TemplatePersistence: &attunev1alpha1.TemplatePersistence{Enabled: boolPtr(true)},
 	}))
 	assert.Equal(t, attunev1alpha1.TemplatePersistenceOnRecommendation, templatePersistenceWhen(&attunev1alpha1.UpdateStrategy{
 		TemplatePersistence: &attunev1alpha1.TemplatePersistence{
-			Enabled: boolPtrTP(true),
+			Enabled: boolPtr(true),
 			When:    attunev1alpha1.TemplatePersistenceOnRecommendation,
 		},
 	}))
@@ -267,7 +265,7 @@ func TestApplyTemplatePersistence_OnRecommendation_Deployment(t *testing.T) {
 	policy := newTestPolicy("p", "default")
 	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeRecommend
 	policy.Spec.UpdateStrategy.TemplatePersistence = &attunev1alpha1.TemplatePersistence{
-		Enabled: boolPtrTP(true),
+		Enabled: boolPtr(true),
 		When:    attunev1alpha1.TemplatePersistenceOnRecommendation,
 	}
 
@@ -338,7 +336,7 @@ func TestApplyTemplatePersistence_AfterSuccessfulResize_OnlyResizedWorkloads(t *
 	policy := newTestPolicy("p", "default")
 	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
 	policy.Spec.UpdateStrategy.TemplatePersistence = &attunev1alpha1.TemplatePersistence{
-		Enabled: boolPtrTP(true),
+		Enabled: boolPtr(true),
 		When:    attunev1alpha1.TemplatePersistenceAfterSuccessfulResize,
 	}
 
@@ -405,7 +403,7 @@ func TestApplyTemplatePersistence_StatefulSet(t *testing.T) {
 
 	policy := newTestPolicy("p", "default")
 	policy.Spec.UpdateStrategy.TemplatePersistence = &attunev1alpha1.TemplatePersistence{
-		Enabled: boolPtrTP(true),
+		Enabled: boolPtr(true),
 		When:    attunev1alpha1.TemplatePersistenceOnRecommendation,
 	}
 	recs := []attunev1alpha1.WorkloadRecommendation{{
@@ -475,7 +473,7 @@ func TestApplyTemplatePersistence_SkipsExcludedContainers(t *testing.T) {
 
 	policy := newTestPolicy("p", "default")
 	policy.Spec.UpdateStrategy.TemplatePersistence = &attunev1alpha1.TemplatePersistence{
-		Enabled: boolPtrTP(true),
+		Enabled: boolPtr(true),
 		When:    attunev1alpha1.TemplatePersistenceOnRecommendation,
 	}
 	// only sidecar differs — should no-op entire patch if app has no change
@@ -510,7 +508,10 @@ func TestApplyTemplatePersistence_SkipsExcludedContainers(t *testing.T) {
 
 	var updated appsv1.Deployment
 	require.NoError(t, cl.Get(context.Background(), client.ObjectKeyFromObject(deploy), &updated))
-	assert.Equal(t, int64(100), updated.Spec.Template.Spec.Containers[1].Resources.Requests.Cpu().MilliValue())
+	assert.Equal(t, int64(500), updated.Spec.Template.Spec.Containers[0].Resources.Requests.Cpu().MilliValue(),
+		"app container should remain untouched")
+	assert.Equal(t, int64(100), updated.Spec.Template.Spec.Containers[1].Resources.Requests.Cpu().MilliValue(),
+		"known sidecar should remain untouched")
 }
 
 func TestSuccessfulResizeWorkloads(t *testing.T) {
@@ -525,9 +526,10 @@ func TestSuccessfulResizeWorkloads(t *testing.T) {
 }
 
 func TestLaggingAfterResizeWorkloads(t *testing.T) {
-	t0 := metav1.NewTime(metav1.Now().Add(-2 * time.Hour))
-	t1 := metav1.NewTime(metav1.Now().Add(-1 * time.Hour))
-	t2 := metav1.Now()
+	now := metav1.Now()
+	t0 := metav1.NewTime(now.Add(-2 * time.Hour))
+	t1 := metav1.NewTime(now.Add(-1 * time.Hour))
+	t2 := now
 
 	got := laggingAfterResizeWorkloads(
 		[]attunev1alpha1.ResizeHistoryEntry{
@@ -660,7 +662,7 @@ func TestApplyTemplatePersistence_SkipsObserveMode(t *testing.T) {
 	policy := newTestPolicy("p", "default")
 	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeObserve
 	policy.Spec.UpdateStrategy.TemplatePersistence = &attunev1alpha1.TemplatePersistence{
-		Enabled: boolPtrTP(true),
+		Enabled: boolPtr(true),
 		When:    attunev1alpha1.TemplatePersistenceOnRecommendation,
 	}
 	recs := []attunev1alpha1.WorkloadRecommendation{{
@@ -726,7 +728,7 @@ func TestApplyTemplatePersistence_SkipsCanaryInProgress(t *testing.T) {
 	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeCanary
 	policy.Status.Canary = &attunev1alpha1.CanaryStatus{Phase: attunev1alpha1.CanaryPhaseInProgress}
 	policy.Spec.UpdateStrategy.TemplatePersistence = &attunev1alpha1.TemplatePersistence{
-		Enabled: boolPtrTP(true),
+		Enabled: boolPtr(true),
 		When:    attunev1alpha1.TemplatePersistenceAfterSuccessfulResize,
 	}
 	recs := []attunev1alpha1.WorkloadRecommendation{{
@@ -794,7 +796,7 @@ func TestApplyTemplatePersistence_SkipsMidRollout(t *testing.T) {
 
 	policy := newTestPolicy("p", "default")
 	policy.Spec.UpdateStrategy.TemplatePersistence = &attunev1alpha1.TemplatePersistence{
-		Enabled: boolPtrTP(true),
+		Enabled: boolPtr(true),
 		When:    attunev1alpha1.TemplatePersistenceOnRecommendation,
 	}
 	recs := []attunev1alpha1.WorkloadRecommendation{{
@@ -857,7 +859,7 @@ func TestApplyTemplatePersistence_NoOpWhenTemplateMatches(t *testing.T) {
 	memDec := true
 	policy.Spec.Memory.AllowDecrease = &memDec
 	policy.Spec.UpdateStrategy.TemplatePersistence = &attunev1alpha1.TemplatePersistence{
-		Enabled: boolPtrTP(true),
+		Enabled: boolPtr(true),
 		When:    attunev1alpha1.TemplatePersistenceOnRecommendation,
 	}
 	// Recommendation differs from "current" (live pod) but template already has desired.
@@ -934,7 +936,7 @@ func TestApplyTemplatePersistence_DisabledByDefault(t *testing.T) {
 	assert.Empty(t, history)
 
 	policy.Spec.UpdateStrategy.TemplatePersistence = &attunev1alpha1.TemplatePersistence{
-		Enabled: boolPtrTP(false),
+		Enabled: boolPtr(false),
 		When:    attunev1alpha1.TemplatePersistenceOnRecommendation,
 	}
 	history = r.applyTemplatePersistence(context.Background(), policy, []client.Object{deploy}, recs,

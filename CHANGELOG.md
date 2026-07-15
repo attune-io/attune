@@ -6,6 +6,8 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
 ## [0.1.20](https://github.com/attune-io/attune/compare/v0.1.19...v0.1.20) (2026-07-14)
 
 
@@ -20,12 +22,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 * allow template history enums in CRD status schema ([#404](https://github.com/attune-io/attune/issues/404)) ([6c48a20](https://github.com/attune-io/attune/commit/6c48a20ba239116c60ce45c48716a22ea95860dc))
 * harden template persistence polish from MPI ([#406](https://github.com/attune-io/attune/issues/406)) ([1ce5ac8](https://github.com/attune-io/attune/commit/1ce5ac8e805e3cdbbc65bf9921e510696ae31e89))
-
-## [Unreleased]
-
-### Changed
-
-* 3-tier defaults merge: namespace AttuneNamespaceDefaults now fills unset fields from cluster AttuneDefaults instead of replacing the whole cluster object (#394)
 
 
 ## [0.1.19](https://github.com/attune-io/attune/compare/v0.1.18...v0.1.19) (2026-07-13)
