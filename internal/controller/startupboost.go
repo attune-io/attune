@@ -158,6 +158,7 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 					// kubelet status churn after resize. Without retry, a 409
 					// leaves the annotation unset and the boost never expires.
 					const maxBoostAnnotationRetries = 3
+					annotationPersisted := false
 					for attempt := range maxBoostAnnotationRetries {
 						freshPod, getErr := r.Clientset.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
 						if getErr != nil {
@@ -175,6 +176,7 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 						freshPod.Labels[labelTracked] = "true"
 						if updateErr := r.Update(ctx, freshPod); updateErr == nil {
 							*pod = *freshPod
+							annotationPersisted = true
 							break
 						} else if !apierrors.IsConflict(updateErr) {
 							logger.Error(updateErr, "Failed to persist startup boost annotation", "pod", pod.Name)
@@ -182,6 +184,10 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 						}
 						logger.V(1).Info("Boost annotation conflict, retrying",
 							"pod", pod.Name, "attempt", attempt+1)
+					}
+					if !annotationPersisted {
+						logger.V(1).Info("Startup boost annotation was not persisted after retries",
+							"pod", pod.Name, "retries", maxBoostAnnotationRetries)
 					}
 				}
 			} else if boostAtStr != "" {
@@ -258,6 +264,7 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 					}
 					// Re-fetch + conflict retry (same pattern as boost apply).
 					const maxExpiryAnnotationRetries = 3
+					annotationCleared := false
 					for attempt := range maxExpiryAnnotationRetries {
 						freshPod, getErr := r.Clientset.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
 						if getErr != nil {
@@ -265,16 +272,21 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 							break
 						}
 						if freshPod.Annotations == nil {
+							// Annotation map gone: boost marker is already absent.
+							*pod = *freshPod
+							annotationCleared = true
 							break
 						}
 						if _, ok := freshPod.Annotations[annotationStartupBoostAt]; !ok {
 							// Already cleared (race with another reconciler).
 							*pod = *freshPod
+							annotationCleared = true
 							break
 						}
 						delete(freshPod.Annotations, annotationStartupBoostAt)
 						if updateErr := r.Update(ctx, freshPod); updateErr == nil {
 							*pod = *freshPod
+							annotationCleared = true
 							break
 						} else if !apierrors.IsConflict(updateErr) {
 							logger.Error(updateErr, "Failed to update pod after startup boost expiry", "pod", pod.Name)
@@ -282,6 +294,10 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 						}
 						logger.V(1).Info("Boost expiry annotation conflict, retrying",
 							"pod", pod.Name, "attempt", attempt+1)
+					}
+					if !annotationCleared {
+						logger.V(1).Info("Startup boost expiry annotation was not cleared after retries",
+							"pod", pod.Name, "retries", maxExpiryAnnotationRetries)
 					}
 				}
 			}

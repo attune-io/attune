@@ -545,10 +545,15 @@ func TestMergeUpdateStrategy_BothEmptyTypeNoInheritance(t *testing.T) {
 
 func TestMustParseBuiltInDuration_ValidConstants(t *testing.T) {
 	// Guard against typoed default strings silently becoming zero durations.
+	// Only string duration constants need parse guards; Duration-typed
+	// constants are compile-time values (asserted below).
 	cooldown := mustParseBuiltInDuration(attunev1alpha1.DefaultCooldown)
 	assert.Equal(t, time.Hour, cooldown)
 	history := mustParseBuiltInDuration(attunev1alpha1.DefaultHistoryWindow)
 	assert.Equal(t, 168*time.Hour, history)
+
+	// Duration-typed built-ins (not parseable strings).
+	assert.Equal(t, 5*time.Minute, attunev1alpha1.DefaultQueryStep)
 }
 
 func TestMustParseBuiltInDuration_InvalidPanics(t *testing.T) {
