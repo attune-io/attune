@@ -32,7 +32,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     -o manager ./cmd/manager/
 
 # Runtime stage
-FROM gcr.io/distroless/static:nonroot@sha256:d29e660cc75a5b6b1334e03c5c81ccf9bc0884a002c6000dbf0fb96034814478
+FROM gcr.io/distroless/static:nonroot@sha256:f7f8f729987ad0fdf6b05eeeae94b26e6a0f613bdf46feea7fc40f7bd72953e6
 
 LABEL org.opencontainers.image.source="https://github.com/attune-io/attune"
 LABEL org.opencontainers.image.title="attune"
