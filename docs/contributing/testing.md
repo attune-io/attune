@@ -173,9 +173,9 @@ make test-fuzz
 FUZZTIME=5s make test-fuzz
 ```
 
-`make test-fuzz` runs [`scripts/run-fuzz.sh`](https://github.com/attune-io/attune/blob/main/scripts/run-fuzz.sh),
-which executes each coverage-guided target for 30 seconds by default
-(`FUZZTIME`, overridable). Targets:
+`make test-fuzz` runs `scripts/run-fuzz.sh`, which executes each
+coverage-guided target for 30 seconds by default (`FUZZTIME`,
+overridable). Targets:
 
 - `FuzzPercentileEstimator` (`./internal/recommendation/...`)
 - `FuzzRecommendationEngine` (`./internal/recommendation/...`)
