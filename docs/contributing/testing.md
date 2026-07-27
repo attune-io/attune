@@ -169,19 +169,28 @@ random inputs to catch panics and edge cases:
 
 ```bash
 make test-fuzz
+# faster local loop:
+FUZZTIME=5s make test-fuzz
 ```
 
-This runs each fuzz target for 30 seconds (coverage-guided):
+`make test-fuzz` runs [`scripts/run-fuzz.sh`](https://github.com/attune-io/attune/blob/main/scripts/run-fuzz.sh),
+which executes each coverage-guided target for 30 seconds by default
+(`FUZZTIME`, overridable). Targets:
 
-```bash
-go test ./internal/recommendation/... -run='^$' -fuzz=FuzzPercentileEstimator -fuzztime=30s
-go test ./internal/recommendation/... -run='^$' -fuzz=FuzzRecommendationEngine -fuzztime=30s
-go test ./internal/webhook/...        -run='^$' -fuzz=FuzzValidateFloatFields  -fuzztime=30s
-```
+- `FuzzPercentileEstimator` (`./internal/recommendation/...`)
+- `FuzzRecommendationEngine` (`./internal/recommendation/...`)
+- `FuzzValidateFloatFields` (`./internal/webhook/...`)
+
+The runner continues across targets so one failure does not hide others,
+and retries once only when the log is a pure Go fuzz deadline flake
+(`context deadline exceeded` with no crash corpus or assert; see
+[golang/go#75804](https://github.com/golang/go/issues/75804)). Real
+failures (panic, `failing input written`, `t.Error`) are never retried.
 
 Fuzz targets are defined in `internal/recommendation/fuzz_test.go`
 (estimator and engine) and `internal/webhook/validation_test.go`
-(float-field parsing via `strconv.ParseFloat`).
+(float-field parsing via `strconv.ParseFloat`). Classifier unit tests:
+`bash scripts/test_run_fuzz.sh` (also via `make python-test`).
 
 ## Running all tests
 

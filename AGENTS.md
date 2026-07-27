@@ -498,7 +498,9 @@ directory. When referencing files elsewhere in the repo (e.g., `charts/`,
 ## CI
 
 - Runs on **GitHub-hosted runners** (`ubuntu-latest`) by default
-- Fuzz tests: 30s time-based per target (coverage-guided, not iteration count)
+- Fuzz tests: `scripts/run-fuzz.sh` (30s per target via `FUZZTIME`; coverage-guided).
+  Retries once only on pure `context deadline exceeded` flakes (golang/go#75804);
+  never retries real crashes/asserts. Classifier tests: `scripts/test_run_fuzz.sh`
 - E2E Nightly runs the full K8s version matrix (1.32, 1.33, 1.34, 1.35)
   in parallel (max-parallel: 4); each version creates a fresh k3d cluster
 - Concurrency groups use `cancel-in-progress: false` on main; PRs targeting

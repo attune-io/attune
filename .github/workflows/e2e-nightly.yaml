@@ -601,13 +601,15 @@ jobs:
 
       - name: Run fuzz tests (coverage-guided, 30s per target)
         shell: bash -Eeuo pipefail -x {0}
-        run: |
+        env:
           # Time-based limits let Go's coverage-guided engine focus on
           # inputs that explore new code paths. 30s per target achieves
           # full branch coverage faster than 1M random iterations.
-          go test ./internal/recommendation/... -run='^$' -fuzz=FuzzPercentileEstimator -fuzztime=30s
-          go test ./internal/recommendation/... -run='^$' -fuzz=FuzzRecommendationEngine -fuzztime=30s
-          go test ./internal/webhook/... -run='^$' -fuzz=FuzzValidateFloatFields -fuzztime=30s
+          # scripts/run-fuzz.sh retries once on pure "context deadline
+          # exceeded" flakes (golang/go#75804) without masking real crashes.
+          FUZZTIME: 30s
+          FUZZ_MAX_RETRIES: "1"
+        run: ./scripts/run-fuzz.sh
 
   report:
     name: Nightly Results
