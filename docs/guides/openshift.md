@@ -175,3 +175,10 @@ OpenShift integration works alongside all other Attune features:
 - **NetworkPolicy**: The default NetworkPolicy allows egress to
   Prometheus and the Kubernetes API. No OpenShift-specific changes are
   needed.
+- **GitOps (OpenShift GitOps / Argo CD)**: Default in-place resize does
+  **not** update Git or Deployment templates. After a rollout, new pods
+  start from Git resources until Attune re-resizes. For durable sizes
+  across deploys, use Recommend + export ConfigMaps and
+  `kubectl attune diff -o yaml` to open PRs, or opt into
+  `templatePersistence` only if you accept live template mutation. See
+  the [GitOps integration guide](gitops-integration.md).

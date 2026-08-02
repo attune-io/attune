@@ -17,36 +17,56 @@ Your Git-stored Deployment spec remains unchanged. This means:
 - **No feedback loop**: The operator doesn't write back to Git. The
   recommended values live only in the `AttunePolicy` status.
 
-## Recommended workflow
+## Recommended workflow (GitOps-durable recommendations)
 
-### 1. Start in Recommend mode
+Default in-place resize does **not** update Git or workload templates. After a
+deploy, new pods start with Git resources until Attune re-collects metrics and
+resizes again. Use this flow so recommended sizes **survive the next deploy**.
 
-Deploy `AttunePolicy` resources in your GitOps repo with `type: Recommend`.
-The operator computes recommendations without modifying anything.
+### 1. Start in Recommend mode with export
+
+Deploy `AttunePolicy` resources in your GitOps repo with `type: Recommend`
+and ConfigMap export enabled.
 
 ```yaml
 spec:
   updateStrategy:
     type: Recommend
+    export:
+      configMap: true
 ```
 
 ### 2. Review recommendations
 
 ```bash
 kubectl attune recommendations -n production
+kubectl attune explain -n production api-services
+kubectl attune export list -n production
 ```
 
-### 3. Apply recommendations to Git (manual)
+### 3. Emit a workload template patch and open a PR
 
-Update the Deployment resource requests in your Git repository based on the
-recommendations. This makes the optimization permanent and survives rollouts.
+```bash
+# Strategic-merge-style YAML for Deployment/StatefulSet/CronJob templates
+kubectl attune diff -n production -o yaml > /tmp/attune-resource-patches.yaml
+```
 
-### 4. Use Auto mode for continuous optimization
+Review the patch, apply it to your Git repo (or feed it to kustomize/helm
+values), and let Argo CD / Flux sync. New pods then start near recommended
+sizes without waiting for a full re-observation cycle.
 
-Once you trust the operator's recommendations for a workload, switch to
-`Auto` mode. The operator will continuously right-size pods between
-deployments. After each deployment, it re-learns the usage pattern and
-adjusts.
+Alternatively, read ConfigMaps named
+`<policy>-<workload>-recommendations` (schema key `schema-version: v1`).
+
+### 4. Optional continuous in-place between deploys
+
+Once you trust recommendations, switch to `Auto` (or Canary first). In-place
+resizes keep running pods healthy between deploys; keep committing template
+updates periodically so rollouts stay near target.
+
+**Do not** enable `templatePersistence` under unmanaged GitOps sync unless you
+intentionally want the cluster template to diverge from Git (see configuration
+reference).
 
 ## ArgoCD-specific notes
 

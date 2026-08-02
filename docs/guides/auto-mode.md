@@ -199,8 +199,21 @@ When enabled, the operator creates one ConfigMap per workload, named
 `<policy>-<workload>-recommendations`, with an owner reference to the policy
 for automatic cleanup when the policy itself is deleted.
 
-The ConfigMap contains per-container recommended CPU and memory values plus
-a `last-updated` timestamp (RFC3339).
+The ConfigMap is a versioned export artifact (`schema-version: v1`). Breaking
+key renames require a schema bump and docs update.
+
+| Key | Description |
+|-----|-------------|
+| `schema-version` | Export schema version (`v1`) |
+| `policy` | AttunePolicy name |
+| `namespace` | Policy namespace |
+| `workload` / `kind` | Target workload identity |
+| `<container>.cpu-request` / `memory-request` | Recommended requests |
+| `<container>.cpu-limit` / `memory-limit` | Recommended limits (when non-zero) |
+| `<container>.confidence` | Confidence score string |
+| `last-updated` / `generated-at` | RFC3339 generation time |
+
+Labels: `attune.io/policy`, `attune.io/workload`, `attune.io/export-schema=v1`.
 
 Example ConfigMap content:
 
@@ -213,7 +226,11 @@ metadata:
   labels:
     attune.io/policy: my-app
     attune.io/workload: my-deployment
+    attune.io/export-schema: v1
 data:
+  schema-version: v1
+  policy: my-app
+  namespace: default
   workload: my-deployment
   kind: Deployment
   main.cpu-request: "250m"
@@ -222,6 +239,7 @@ data:
   main.memory-limit: "1Gi"
   main.confidence: "0.92"
   last-updated: "2026-05-29T14:30:00Z"
+  generated-at: "2026-05-29T14:30:00Z"
 ```
 
 Inspect exports with the plugin (recommended over raw `kubectl get cm`):
@@ -230,6 +248,8 @@ Inspect exports with the plugin (recommended over raw `kubectl get cm`):
 kubectl attune export list -n <ns>
 # or with last-updated and container counts across all ns
 kubectl attune export -A
+# Ready-to-apply template patch for Git (Deployment / StatefulSet / CronJob)
+kubectl attune diff -n <ns> -o yaml
 ```
 
 **Orphan cleanup**: When a workload leaves the policy's selector (for example
