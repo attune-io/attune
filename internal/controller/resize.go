@@ -118,6 +118,7 @@ func (r *AttunePolicyReconciler) executeResizes(
 	}
 
 	resizer := resize.NewPodResizer(r.Clientset, logger)
+	resizer.AllowInPlaceMemoryLimitDecrease = r.AllowInPlaceMemoryLimitDecrease
 	monitor := r.newSafetyMonitor(logger, collector, policy.Spec.UpdateStrategy.SLOGuardrails)
 
 	var totalResized int
@@ -376,7 +377,7 @@ func (r *AttunePolicyReconciler) resizeContainer(
 	// the QoS check with the unclamped target but then have its memory
 	// limit preserved by the resize engine, breaking requests == limits.
 	preClamped := target.DeepCopy()
-	target = resize.ClampMemoryLimitForPolicy(pod, containerRec.Name, target)
+	target = resize.ClampMemoryLimitForPolicy(pod, containerRec.Name, target, r.AllowInPlaceMemoryLimitDecrease)
 	if memLim, ok := preClamped.Limits[corev1.ResourceMemory]; ok {
 		if clampedLim, cok := target.Limits[corev1.ResourceMemory]; cok && !memLim.Equal(clampedLim) {
 			logger.Info("Memory limit decrease clamped by resize policy",

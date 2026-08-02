@@ -41,6 +41,7 @@ import (
 	"github.com/attune-io/attune/internal/controller"
 	"github.com/attune-io/attune/internal/metrics"
 	_ "github.com/attune-io/attune/internal/operatormetrics"
+	"github.com/attune-io/attune/internal/resize"
 	"github.com/attune-io/attune/internal/transform"
 	"github.com/attune-io/attune/internal/webhook"
 )
@@ -195,6 +196,14 @@ func main() {
 	reconciler.Scheme = mgr.GetScheme()
 	reconciler.Clientset = clientset
 	reconciler.Recorder = mgr.GetEventRecorder("attune")
+	if sv, err := clientset.Discovery().ServerVersion(); err != nil {
+		setupLog.Error(err, "unable to detect Kubernetes version; memory limit decreases will remain clamped")
+	} else {
+		allow := resize.AllowsInPlaceMemoryLimitDecrease(sv.GitVersion)
+		reconciler.AllowInPlaceMemoryLimitDecrease = allow
+		setupLog.Info("Kubernetes version for memory limit decrease policy",
+			"gitVersion", sv.GitVersion, "allowInPlaceMemoryLimitDecrease", allow)
+	}
 	reconciler.CollectorTTL = collectorTTL
 	reconciler.MaxConcurrentReconciles = maxConcurrentReconciles
 	reconciler.PrometheusTimeout = prometheusTimeout
