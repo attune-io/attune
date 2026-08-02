@@ -322,6 +322,27 @@ featureGates:
 On **Kubernetes 1.33+**, this feature gate is enabled by default and no
 action is needed.
 
+### Recommendation looks wrong or never resizes
+
+**Symptom**: `kubectl attune recommendations` shows values you do not trust, or Auto/Canary never applies them.
+
+**Diagnose**:
+
+```bash
+kubectl attune explain -n <ns> <policy>
+kubectl get attunepolicy <policy> -n <ns> -o jsonpath='{.status.conditions}' | jq .
+kubectl attune history -n <ns>
+```
+
+Use the explanation chain (percentile → overhead → confidence → bounds → change filter) to see which stage moved the number. See [Recommend mode: reading recommendations](recommend-mode.md#reading-recommendations-from-status) for the field table and skip reasons (cooldown, budget, canary, Deferred/Infeasible, stale, schedule).
+
+**Common fixes**:
+
+- Too aggressive: raise `overhead` or tighten `maxAllowed`
+- Too conservative / sparse data: wait for more data points or lower `minimumDataPoints` only for evaluation
+- Never resizes with tiny delta: change filter; expected when already near target
+- Stuck on node capacity: Infeasible section below
+
 ### Infeasible resize
 
 **Symptom**: Resize history shows `result: Failed` and operator logs contain

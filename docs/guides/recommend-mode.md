@@ -44,6 +44,8 @@ spec:
 
 ```bash
 kubectl get attunepolicy api-services -o jsonpath='{.status.recommendations[*]}' | jq .
+kubectl attune recommendations -n production
+kubectl attune explain -n production api-services
 ```
 
 Each entry in the array contains:
@@ -54,8 +56,41 @@ Each entry in the array contains:
 | `containers[].name` | Container name |
 | `containers[].current` | Current CPU/memory requests and limits |
 | `containers[].recommended` | Proposed CPU/memory requests and limits |
+| `containers[].explanation` | Estimator chain (percentile → margin → burst → confidence → bounds → change filter) |
 | `containers[].confidence` | Score between 0 and 1 |
 | `containers[].dataPoints` | Number of Prometheus samples used |
+| `stale` | When true, Prometheus returned no fresh data; resizes are blocked |
+
+### Why is CPU recommended at Xm?
+
+`kubectl attune explain` (and `status.recommendations[].containers[].explanation`) walks the same chain the controller used:
+
+| Stage | Field | What it means |
+|-------|--------|---------------|
+| Raw percentile | `rawPercentile` | Selected percentile across hourly buckets (max hour) |
+| Overhead | `afterOverhead` | Safety margin applied to the percentile |
+| Burst | `burstFactor` / `afterBurst` | Extra headroom when peak >> percentile |
+| Confidence | `confidenceFactor` / `afterConfidence` | Widens when data is sparse |
+| Bounds | `afterBounds` / `boundsApplied` | Clamped to `minAllowed` / `maxAllowed` |
+| Change filter | `afterChangeFilter` / `changeFilterApplied` | Min % change and max step caps |
+| Final | `final` / `finalAdjustment` | Value written to recommended (plus any controller post-steps) |
+
+Field names match status JSON so automation can parse without scraping prose.
+
+### Why no resize happened?
+
+Recommendations can look "ready" while pods stay unchanged. Common reasons:
+
+| Reason | Where to look | What to do |
+|--------|----------------|------------|
+| Change filter / min change | `explanation.*.changeFilterApplied` | Expected for tiny deltas; lower min change or wait for drift |
+| Cooldown | condition `Resizing=False` reason `CooldownActive` | Wait for cooldown / backoff |
+| Budget cap | events `BudgetExhausted`, metric `attune_budget_exhausted_total` | Raise per-cycle caps or reduce targets |
+| Canary not promoted | `status.canary.phase` | Wait for observation or set `autoPromote` |
+| Deferred / Infeasible | condition `ResizeBlocked`, `workloads.deferred` / `infeasible` | See [troubleshooting](troubleshooting.md#deferred-or-infeasible-resize-stuck-pods) |
+| Stale data | `recommendations[].stale` | Fix Prometheus reachability |
+| Schedule window | condition `ScheduleBlocked` | Wait for window or adjust schedule |
+| At target after clamp | events / logs for filtering or memory clamp | Expected when already near recommendation |
 
 ## Interpreting confidence scores
 
@@ -72,6 +107,17 @@ The confidence score reflects how much data backs the recommendation:
     Increase `historyWindow` and `minimumDataPoints` for workloads with
     weekly traffic patterns so the estimator captures weekday/weekend
     variation.
+
+## Automation / JSON
+
+For scripts, prefer status JSON over parsing `explain` prose:
+
+```bash
+kubectl get attunepolicy api-services -n production -o json | \
+  jq '.status.recommendations[] | {workload, containers: [.containers[] | {name, recommended, explanation}]}'
+```
+
+Schema fields under `explanation` are versioned with the CRD; breaking renames require a CRD/API bump and docs update.
 
 ## Estimating savings
 
