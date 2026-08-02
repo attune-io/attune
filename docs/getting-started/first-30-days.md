@@ -114,14 +114,19 @@ If recommendations look unreasonable, adjust the policy:
 ## Week 2: Promote to Canary mode
 
 Once you trust the recommendations, switch to Canary mode to test on a
-small subset of pods:
+small subset of pods. This is the blast-radius control step before Auto:
 
 ```bash
 kubectl patch ap my-first-policy -n my-app --type=merge \
-  -p '{"spec":{"updateStrategy":{"type":"Canary","canary":{"percentage":10}}}}'
+  -p '{"spec":{"updateStrategy":{"type":"Canary","canary":{"percentage":10,"observationPeriod":"30m"}}}}'
 ```
 
-This resizes only 10% of matching pods. Monitor:
+This resizes only 10% of matching pods, then observes them for 30 minutes.
+With `autoPromote: true` on the canary config, the operator promotes the
+rest after a clean observation window; otherwise promote to Auto yourself.
+See the [canary rollout guide](../guides/canary-rollout.md).
+
+Monitor:
 
 ```bash
 kubectl attune status -w -n my-app
@@ -131,6 +136,15 @@ kubectl attune history -n my-app
 The history command shows each resize with its result and reason. If a
 resize is reverted, the **REASON** column tells you why (oomkill, restart,
 notready, throttle, or slo:&lt;name&gt; for SLO guardrail breaches).
+
+### Optional production hardening before Auto
+
+- **SLO guardrails**: add PromQL checks so a bad resize reverts on latency or
+  error-rate breach, not only infra signals. Documented under
+  `updateStrategy.sloGuardrails` in the [API reference](../reference/api.md).
+- **Startup boost**: for JVM or other cold-start heavy apps, enable
+  `cpu.startupBoost` so pods get temporary CPU headroom at start, then
+  scale back. See the [startup boost guide](../guides/startup-boost.md).
 
 !!! warning
     If you see repeated reverts, increase the overhead or adjust
@@ -152,6 +166,10 @@ kubectl attune savings -A
 ```
 
 The TOTAL row at the bottom shows aggregate cluster-wide savings.
+
+The production loop is: **measure → recommend → canary apply → verify
+(safety + optional SLO) → revert if needed → continuous Auto**. That is
+what distinguishes Attune from "apply via `/resize` only."
 
 ## Expanding to more workloads
 

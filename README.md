@@ -23,7 +23,7 @@
 
 Attune is a Kubernetes operator that automatically right-sizes pod
 resource requests and limits using [In-Place Pod Resize](https://kubernetes.io/blog/2025/12/19/kubernetes-v1-35-in-place-pod-resize-ga/)
-(beta in Kubernetes 1.33+, alpha with feature gate in 1.32). In-place by default, optional eviction fallback for infeasible resizes, and no HPA conflicts.
+(**GA** in Kubernetes 1.35, beta and enabled by default in 1.33–1.34, alpha with feature gate in 1.32). In-place by default, optional eviction fallback for infeasible resizes, and no HPA conflicts.
 
 ---
 
@@ -33,26 +33,31 @@ resource requests and limits using [In-Place Pod Resize](https://kubernetes.io/b
 |---------|--------|
 | Average CPU utilization is **8%** | Billions wasted industry-wide ([CAST AI 2026](https://cast.ai/reports/state-of-kubernetes-optimization/)) |
 | **70%** cite overprovisioning as #1 cost driver | Resources allocated "just in case" never reclaimed ([CNCF 2023](https://www.cncf.io/blog/2023/12/20/cncf-cloud-native-finops-cloud-financial-management-microsurvey/)) |
-| **<1%** run VPA fully automated | VPA evicts pods, conflicts with HPA, causes outages ([ScaleOps 2026](https://scaleops.com/blog/why-pod-rightsizing-fails-in-production-a-deep-dive-into-vpa-and-what-actually-works/)) |
-| In-Place Pod Resize is **beta** (K8s 1.33+, alpha in 1.32) | The foundation for non-disruptive right-sizing now exists |
+| **<1%** run VPA fully automated | VPA often evicts pods, conflicts with HPA, and is hard to run unattended ([ScaleOps 2026](https://scaleops.com/blog/why-pod-rightsizing-fails-in-production-a-deep-dive-into-vpa-and-what-actually-works/)) |
+| In-Place Pod Resize is **GA** (K8s 1.35; beta 1.33–1.34; alpha 1.32) | Non-disruptive right-sizing is a stable Kubernetes primitive |
 
 ## How It's Different
 
+In-place apply is the shared primitive (Kubernetes `/resize`). Attune is the
+**safe unattended loop** on top: measure, decide, canary, verify, and revert.
+
 | | VPA | Goldilocks | Attune |
 |---|---|---|---|
-| Resize method | Evicts pods | No resize (recommend only) | **In-place** (no restarts) |
-| HPA compatible | No (death spirals) | N/A | **Yes** (adjusts base, not %) |
-| Safety | Minimal guardrails | N/A | **Graduated rollout + auto-revert** |
-| Algorithm | Backward-looking histograms | VPA recommender | **Time-of-day-aware + burst detection** |
-| Production confidence | <1% use automated | N/A | **Observe -> Recommend -> Canary (auto-promote) -> Auto** |
+| Resize method | Eviction-based Auto historically; newer modes can use in-place where supported | No resize (recommend only) | **In-place by default** (optional eviction fallback) |
+| HPA compatible | Risky on the same metric (death spirals) | N/A | **Yes** (adjusts base requests, not HPA %) |
+| Safety | Minimal guardrails | N/A | **Auto-revert** (OOM, throttle, restarts, NotReady) + **SLO PromQL guardrails** |
+| Blast radius | All targeted pods | N/A | **Canary** fraction with observation and optional auto-promote |
+| Cold start | None | N/A | **Startup boost** (temporary CPU headroom, then scale back) |
+| Algorithm | Backward-looking histograms | VPA recommender | **Time-of-day-aware + burst detection + confidence scaling** |
+| Production path | <1% run fully automated | Manual apply | **Observe → Recommend → Canary → Auto** |
 
-> **Migrating from VPA?** See the step-by-step [migration guide](docs/guides/migrating-from-vpa.md) for field-by-field mapping, side-by-side YAML, and zero-downtime cutover.
+> **Migrating from VPA?** See the step-by-step [migration guide](docs/guides/migrating-from-vpa.md) for field-by-field mapping, mode matrix, side-by-side YAML, and zero-downtime cutover.
 
 ## Quick Start
 
 ### Prerequisites
 
-- Kubernetes 1.32+ (1.32 requires enabling the `InPlacePodVerticalScaling` feature gate; 1.33+ has it enabled by default)
+- Kubernetes 1.32+ (1.32 requires enabling the `InPlacePodVerticalScaling` feature gate; 1.33–1.34 beta enabled by default; **1.35+ GA**)
 - Prometheus (for usage metrics)
 - Helm 3.16+ or 4.x
 - [cert-manager](https://cert-manager.io/docs/installation/) (for admission webhook TLS; to skip, install with `--set webhooks.enabled=false`)
@@ -262,8 +267,14 @@ The dashboard includes:
 
 - Auto-revert: automatically restores original resources on OOMKill,
   CPU throttle, restart spikes, or pod NotReady.
+- SLO guardrails: PromQL application-health checks (latency, error rate)
+  that trigger revert on threshold breach after a resize.
 - Graduated rollout: five modes from zero-risk to full automation --
-  Observe, Recommend, OneShot, Canary, Auto.
+  Observe, Recommend, OneShot, Canary (optional auto-promote), Auto.
+- Canary rollout: resize a percentage of pods first, observe, then promote
+  so blast radius stays controlled before full Auto.
+- Startup boost: temporary CPU headroom at container start (JIT / cold
+  path), then scale back to the steady-state recommendation.
 - Node capacity guard: validates post-resize requests fit within node
   allocatable before applying changes.
 - LimitRange/ResourceQuota guard: skips resizes that would violate
@@ -285,8 +296,8 @@ The dashboard includes:
 ### Operations
 
 - In-place resize: adjusts CPU and memory on running pods via the
-  K8s 1.32+ `/resize` subresource. The default path is in-place with no
-  restarts. `InPlaceOrRecreate` can optionally fall back to eviction when
+  K8s `/resize` subresource (GA in 1.35). The default path is in-place with
+  no restarts. `InPlaceOrRecreate` can optionally fall back to eviction when
   kubelet rejects an in-place resize.
 - Cost savings estimation: per-workload `EstimatedMonthlySavings` in
   status, CLI (`kubectl attune savings`), and Grafana dashboard.
@@ -310,8 +321,6 @@ The dashboard includes:
   rollouts targeting the same workload.
 - VPA recommendation consumption: use existing VerticalPodAutoscaler
   recommendations as an alternative to Prometheus queries via `metricsSource.vpa`.
-- SLO-based guardrails: PromQL-based application health checks
-  (latency, error rate) that auto-revert resizes on threshold breach.
 - GitOps diff command: `kubectl attune diff` outputs recommendations
   in diff format for ArgoCD/Flux review workflows.
 - Initial sizing webhook: set pod resources at creation time based on
@@ -338,6 +347,7 @@ The dashboard includes:
 | [Multi-Cluster](docs/guides/multi-cluster.md) | Deployment patterns, cross-cluster operations, and graduated rollouts |
 | [Scaling Guide](docs/guides/scaling.md) | Cluster size presets, tuning, and HA deployment |
 | [Canary Rollout](docs/guides/canary-rollout.md) | Graduated rollout strategy |
+| [Startup Boost](docs/guides/startup-boost.md) | Temporary CPU headroom for cold starts |
 | [CLI Reference](docs/reference/cli.md) | kubectl plugin commands |
 | [API Reference](docs/reference/api.md) | CRD specification |
 | [Troubleshooting](docs/guides/troubleshooting.md) | Common issues and solutions |

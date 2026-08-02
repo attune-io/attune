@@ -6,8 +6,9 @@ resize API works and how the operator uses it.
 
 Kubernetes 1.32 added the `/resize` subresource on pods as part of the
 `InPlacePodVerticalScaling` alpha feature gate. Kubernetes 1.33 graduated
-the feature to beta (enabled by default). The subresource accepts a
-modified `PodSpec` with new container resource requests/limits.
+the feature to beta (enabled by default). Kubernetes 1.35 graduated it to
+**GA**. The subresource accepts a modified `PodSpec` with new container
+resource requests/limits.
 
 ```
 PATCH /api/v1/namespaces/{ns}/pods/{name}/resize

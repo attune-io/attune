@@ -5,8 +5,9 @@
 Attune is a Kubernetes operator that automatically right-sizes pod
 resource requests and limits using
 [In-Place Pod Resize](https://kubernetes.io/blog/2025/12/19/kubernetes-v1-35-in-place-pod-resize-ga/)
-(beta in Kubernetes 1.33+, alpha with feature gate in 1.32). In-place by default,
-optional eviction fallback for infeasible resizes, and no HPA conflicts.
+(**GA** in Kubernetes 1.35, beta and enabled by default in 1.33–1.34, alpha with
+feature gate in 1.32). In-place by default, optional eviction fallback for
+infeasible resizes, and no HPA conflicts.
 
 ## The Problem
 
@@ -21,20 +22,26 @@ it fully automated ([ScaleOps 2026](https://scaleops.com/blog/why-pod-rightsizin
 Goldilocks show you the numbers but leave you with hundreds of YAML edits
 that sit in the backlog for months.
 
-Kubernetes 1.33 changed this by graduating In-Place Pod Resize to beta
-(enabled by default). The foundation for non-disruptive right-sizing now
-exists. Attune is
-the operator built to use it.
+Kubernetes 1.35 graduated In-Place Pod Resize to **GA** (stable). The feature
+was beta and enabled by default from 1.33, and available as alpha with a
+feature gate on 1.32. The foundation for non-disruptive right-sizing is stable.
+Attune is the operator built for the safe unattended loop on top of that
+primitive.
 
 ## How It's Different
 
+In-place apply is the shared Kubernetes primitive. Attune adds the production
+path: canary blast-radius control, startup boost, and SLO-backed auto-revert.
+
 | | VPA | Goldilocks | Attune |
 |---|---|---|---|
-| Resize method | Evicts pods | No resize (recommend only) | **In-place** (no restarts) |
-| HPA compatible | No (death spirals) | N/A | **Yes** (adjusts base, not %) |
-| Safety | Minimal guardrails | N/A | **Graduated rollout + auto-revert** |
-| Algorithm | Backward-looking histograms | VPA recommender | **Time-of-day-aware + burst detection** |
-| Production path | <1% use automated | N/A | **Observe, Recommend, Canary, Auto** |
+| Resize method | Eviction-based Auto historically; newer modes can use in-place where supported | No resize (recommend only) | **In-place by default** (optional eviction fallback) |
+| HPA compatible | Risky on the same metric (death spirals) | N/A | **Yes** (adjusts base requests, not HPA %) |
+| Safety | Minimal guardrails | N/A | **Auto-revert** + **SLO PromQL guardrails** |
+| Blast radius | All targeted pods | N/A | **Canary** with observation and optional auto-promote |
+| Cold start | None | N/A | **Startup boost**, then scale back |
+| Algorithm | Backward-looking histograms | VPA recommender | **Time-of-day-aware + burst detection + confidence** |
+| Production path | <1% use automated | Manual apply | **Observe → Recommend → Canary → Auto** |
 
 ## Who Is This For?
 
@@ -48,8 +55,10 @@ the operator built to use it.
 
 ## Key Features
 
-- **In-place resize** via the Kubernetes 1.32+ `/resize` subresource
+- **In-place resize** via the Kubernetes `/resize` subresource (GA in 1.35)
 - **Graduated rollout**: Observe, Recommend, OneShot, Canary, Auto
+- **Canary rollout** with observation period and optional auto-promote
+- **Startup boost** for cold-start / JIT CPU headroom
 - **Auto-revert** on OOMKill, CPU throttle, restart spikes, pod NotReady, or SLO guardrail breach
 - **HPA coexistence** without death spirals
 - **Confidence scaling** for sparse data

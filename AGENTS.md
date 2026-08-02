@@ -3,7 +3,7 @@
 ## Project
 
 Attune: Kubernetes operator for in-place pod resource right-sizing (VPA replacement).
-Requires Kubernetes 1.32+ (In-Place Pod Resize; 1.32 alpha with feature gate, 1.33+ beta enabled by default). Built with Go 1.26,
+Requires Kubernetes 1.32+ (In-Place Pod Resize; 1.32 alpha with feature gate, 1.33–1.34 beta enabled by default, 1.35+ GA). Built with Go 1.26,
 controller-runtime v0.24.1, Kubebuilder v4, K8s API v0.36.1.
 
 **Naming convention:** "Attune" (capitalized) in prose and documentation.

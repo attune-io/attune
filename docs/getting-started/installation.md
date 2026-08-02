@@ -11,11 +11,12 @@
 
 !!! note "In-Place Pod Resize"
     Kubernetes 1.32+ is required because Attune uses the
-    [In-Place Pod Resize](https://kubernetes.io/blog/2025/05/16/kubernetes-v1-33-in-place-pod-resize-beta/)
-    `/resize` subresource, which was added in 1.32.
+    [In-Place Pod Resize](https://kubernetes.io/blog/2025/12/19/kubernetes-v1-35-in-place-pod-resize-ga/)
+    `/resize` subresource (added in 1.32 alpha).
     On **1.32**, you must enable the `InPlacePodVerticalScaling` feature gate
     on the apiserver, controller-manager, scheduler, and all kubelets.
-    On **1.33+**, the feature is enabled by default (beta).
+    On **1.33–1.34**, the feature is enabled by default (beta).
+    On **1.35+**, the feature is **GA** (stable).
 
 ## Install with Helm (recommended)
 

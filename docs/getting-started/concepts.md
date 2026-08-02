@@ -76,8 +76,9 @@ See [Algorithm](../architecture/algorithm.md) for formulas and details.
 ## In-Place Pod Resize
 
 Kubernetes 1.32 added the `/resize` subresource for in-place pod resize
-(alpha, requires feature gate). Kubernetes 1.33 graduated the feature to
-beta (enabled by default). The kubelet adjusts cgroup limits without
+(alpha, requires the `InPlacePodVerticalScaling` feature gate). Kubernetes
+1.33 graduated the feature to beta (enabled by default). Kubernetes 1.35
+graduated it to **GA** (stable). The kubelet adjusts cgroup limits without
 restarting the container. Attune calls `UpdateResize` on each pod,
 then polls the container status until the new resources are reported or an
 `Infeasible` condition appears.

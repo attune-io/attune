@@ -4,7 +4,7 @@ Safe, in-place Kubernetes pod resource right-sizing operator
 
 ## Prerequisites
 
-- Kubernetes 1.32+ (1.32 requires the `InPlacePodVerticalScaling` feature gate; 1.33+ has it enabled by default)
+- Kubernetes 1.32+ (1.32 requires the `InPlacePodVerticalScaling` feature gate; 1.33–1.34 beta enabled by default; 1.35+ GA)
 - Prometheus (for usage metrics)
 - Helm 3.16+ or 4.x
 - [cert-manager](https://cert-manager.io/docs/installation/) (for webhook TLS; to skip, use `--set webhooks.enabled=false`)

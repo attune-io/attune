@@ -4,6 +4,12 @@ This guide walks you through replacing the Kubernetes Vertical Pod Autoscaler
 (VPA) with attune. The migration can be done workload-by-workload
 with no downtime.
 
+VPA is gaining in-place-capable update modes in the ecosystem. That narrows the
+gap on **apply**, but does not replace a production unattended loop. Attune still
+adds startup boost, canary fraction control, SLO PromQL revert, HPA-aware
+coexistence, and a graduated Observe → Recommend → Canary → Auto path. See
+[Why Attune](../why-attune.md) for the full product narrative.
+
 ## VPA vs Attune modes
 
 | VPA Mode | Attune Equivalent | Notes |
@@ -12,6 +18,19 @@ with no downtime.
 | `Initial` | **OneShot** | Set resources once; Attune uses in-place resize instead of restart |
 | `Auto` (with eviction) | **Canary** or **Auto** | In-place first; add `resizeMethod: InPlaceOrRecreate` if you want eviction fallback instead of skipping infeasible pods |
 | `Recommend` (UpdateMode=Off) | **Recommend** | Write recommendations to status without acting |
+| In-place-capable VPA modes (where available) | **Canary** then **Auto** | Shared `/resize` primitive; Attune still owns canary, SLO revert, and startup boost |
+
+## Feature matrix (beyond apply)
+
+| Capability | Typical VPA | Attune |
+|------------|-------------|--------|
+| In-place resize via `/resize` | Where supported by VPA update mode and cluster version | Default path (`InPlaceOnly`) |
+| Eviction / recreate fallback | Classic Auto path | Optional `InPlaceOrRecreate` |
+| Canary fraction + observation | No first-class canary % | **Canary** mode with optional auto-promote |
+| Application SLO revert | Infra signals mainly | **SLO guardrails** (PromQL thresholds) + OOM/throttle/restart/NotReady |
+| Startup / cold-start headroom | No | **Startup boost** then scale-back |
+| HPA on the same metric | Documented conflict risk | Coexistence design (base requests, not HPA %) |
+| Graduated rollout | Off / Initial / Auto | Observe, Recommend, OneShot, Canary, Auto |
 
 ## Step-by-step migration
 
