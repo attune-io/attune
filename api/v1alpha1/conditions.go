@@ -44,9 +44,9 @@ const (
 	ReasonInsideWindow            = "InsideWindow"
 	ReasonPaused                  = "Paused"
 	// ResizeBlocked condition reasons.
-	ReasonPodsDeferred               = "PodsDeferred"
-	ReasonPodsInfeasible             = "PodsInfeasible"
-	ReasonPodsDeferredAndInfeasible  = "PodsDeferredAndInfeasible"
+	ReasonPodsDeferred              = "PodsDeferred"
+	ReasonPodsInfeasible            = "PodsInfeasible"
+	ReasonPodsDeferredAndInfeasible = "PodsDeferredAndInfeasible"
 )
 
 // CanaryPhaseInProgress and CanaryPhaseFullRollout are now typed constants
