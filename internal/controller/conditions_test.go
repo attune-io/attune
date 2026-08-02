@@ -184,6 +184,96 @@ func TestSetDegradedCondition_EmptyHistory(t *testing.T) {
 	assert.Nil(t, cond)
 }
 
+// ---------- ResizeBlocked condition ----------
+
+func TestSummarizeResizeBlockers(t *testing.T) {
+	now := time.Unix(1_700_000_100, 0).UTC()
+	deferredAt := metav1.NewTime(time.Unix(1_700_000_000, 0).UTC())
+	pods := map[string][]corev1.Pod{
+		"app": {
+			{
+				ObjectMeta: metav1.ObjectMeta{Name: "app-1", Namespace: "ns"},
+				Status: corev1.PodStatus{
+					Conditions: []corev1.PodCondition{{
+						Type: "PodResizePending", Status: corev1.ConditionTrue, Reason: "Deferred",
+						LastTransitionTime: deferredAt,
+					}},
+				},
+			},
+			{
+				ObjectMeta: metav1.ObjectMeta{Name: "app-2", Namespace: "ns"},
+				Status: corev1.PodStatus{
+					Conditions: []corev1.PodCondition{{
+						Type: "PodResizePending", Status: corev1.ConditionTrue, Reason: "Infeasible",
+					}},
+				},
+			},
+			{
+				ObjectMeta: metav1.ObjectMeta{Name: "app-3", Namespace: "ns"},
+				Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+			},
+		},
+	}
+	s := summarizeResizeBlockers(pods, now)
+	assert.Equal(t, 1, s.DeferredCount)
+	assert.Equal(t, 1, s.InfeasibleCount)
+	assert.Equal(t, []string{"app-1"}, s.DeferredNames)
+	assert.Equal(t, []string{"app-2"}, s.InfeasibleNames)
+	require.Len(t, s.DeferredAges, 1)
+	assert.InDelta(t, 100.0, s.DeferredAges[0].Seconds(), 0.001)
+}
+
+func TestSetResizeBlockedCondition(t *testing.T) {
+	r := NewAttunePolicyReconciler()
+
+	t.Run("clears when empty", func(t *testing.T) {
+		policy := &attunev1alpha1.AttunePolicy{
+			ObjectMeta: metav1.ObjectMeta{Generation: 1},
+			Status: attunev1alpha1.AttunePolicyStatus{
+				Conditions: []metav1.Condition{{
+					Type: attunev1alpha1.ConditionResizeBlocked, Status: metav1.ConditionTrue,
+				}},
+			},
+		}
+		r.setResizeBlockedCondition(policy, resizeBlockerSummary{})
+		assert.Nil(t, meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionResizeBlocked))
+	})
+
+	t.Run("deferred only", func(t *testing.T) {
+		policy := &attunev1alpha1.AttunePolicy{ObjectMeta: metav1.ObjectMeta{Generation: 2}}
+		r.setResizeBlockedCondition(policy, resizeBlockerSummary{
+			DeferredCount: 2, DeferredNames: []string{"p1", "p2"},
+		})
+		cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionResizeBlocked)
+		require.NotNil(t, cond)
+		assert.Equal(t, metav1.ConditionTrue, cond.Status)
+		assert.Equal(t, attunev1alpha1.ReasonPodsDeferred, cond.Reason)
+		assert.Contains(t, cond.Message, "p1")
+	})
+
+	t.Run("infeasible only", func(t *testing.T) {
+		policy := &attunev1alpha1.AttunePolicy{ObjectMeta: metav1.ObjectMeta{Generation: 3}}
+		r.setResizeBlockedCondition(policy, resizeBlockerSummary{
+			InfeasibleCount: 1, InfeasibleNames: []string{"bad-pod"},
+		})
+		cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionResizeBlocked)
+		require.NotNil(t, cond)
+		assert.Equal(t, attunev1alpha1.ReasonPodsInfeasible, cond.Reason)
+		assert.Contains(t, cond.Message, "InPlaceOrRecreate")
+	})
+
+	t.Run("both", func(t *testing.T) {
+		policy := &attunev1alpha1.AttunePolicy{ObjectMeta: metav1.ObjectMeta{Generation: 4}}
+		r.setResizeBlockedCondition(policy, resizeBlockerSummary{
+			DeferredCount: 1, DeferredNames: []string{"d1"},
+			InfeasibleCount: 1, InfeasibleNames: []string{"i1"},
+		})
+		cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionResizeBlocked)
+		require.NotNil(t, cond)
+		assert.Equal(t, attunev1alpha1.ReasonPodsDeferredAndInfeasible, cond.Reason)
+	})
+}
+
 // ---------- Consecutive reverts ----------
 
 func TestConsecutiveReverts(t *testing.T) {

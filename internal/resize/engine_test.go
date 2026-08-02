@@ -778,6 +778,74 @@ func TestIsResizeInfeasible(t *testing.T) {
 	}
 }
 
+func TestIsResizeDeferred(t *testing.T) {
+	tests := []struct {
+		name string
+		pod  *corev1.Pod
+		want bool
+	}{
+		{
+			name: "no conditions",
+			pod:  &corev1.Pod{},
+			want: false,
+		},
+		{
+			name: "deferred condition present",
+			pod: &corev1.Pod{
+				Status: corev1.PodStatus{
+					Conditions: []corev1.PodCondition{
+						{Type: "PodResizePending", Status: corev1.ConditionTrue, Reason: "Deferred"},
+					},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "infeasible is not deferred",
+			pod: &corev1.Pod{
+				Status: corev1.PodStatus{
+					Conditions: []corev1.PodCondition{
+						{Type: "PodResizePending", Status: corev1.ConditionTrue, Reason: "Infeasible"},
+					},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "K8s 1.32 deprecated Status.Resize Deferred",
+			pod: &corev1.Pod{
+				Status: corev1.PodStatus{
+					Resize: corev1.PodResizeStatusDeferred,
+				},
+			},
+			want: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, IsResizeDeferred(tt.pod))
+		})
+	}
+}
+
+func TestResizeDeferredSince(t *testing.T) {
+	ts := metav1.NewTime(time.Unix(1_700_000_000, 0).UTC())
+	pod := &corev1.Pod{
+		Status: corev1.PodStatus{
+			Conditions: []corev1.PodCondition{
+				{
+					Type:               "PodResizePending",
+					Status:             corev1.ConditionTrue,
+					Reason:             "Deferred",
+					LastTransitionTime: ts,
+				},
+			},
+		},
+	}
+	assert.True(t, ts.Time.Equal(ResizeDeferredSince(pod)))
+	assert.True(t, ResizeDeferredSince(&corev1.Pod{}).IsZero())
+}
+
 func TestEvictPod_CallsEvictionAPI(t *testing.T) {
 	pod := newTestPod("worker-0", "default", "app", "100m", "128Mi", "200m", "256Mi")
 	fakeClient := fake.NewSimpleClientset(pod)

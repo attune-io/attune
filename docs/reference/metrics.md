@@ -146,6 +146,47 @@ Infeasible and `resizeMethod` is `InPlaceOnly` (no eviction fallback).
 | `namespace` | Workload namespace |
 | `workload` | Workload name |
 
+### attune_pods_deferred
+
+Gauge: pods currently Deferred by the kubelet for in-place resize
+(`PodResizePending` reason `Deferred`). Updated each reconcile from
+policy status `workloads.deferred`.
+
+| Label | Description |
+|-------|-------------|
+| `namespace` | Policy namespace |
+| `policy` | Policy name |
+
+Example alert when deferred pods linger:
+
+```promql
+attune_pods_deferred > 0
+```
+
+### attune_pods_infeasible
+
+Gauge: pods currently marked Infeasible for in-place resize on their node.
+Updated each reconcile from policy status `workloads.infeasible`.
+
+| Label | Description |
+|-------|-------------|
+| `namespace` | Policy namespace |
+| `policy` | Policy name |
+
+### attune_deferred_age_seconds
+
+Histogram of Deferred condition age (seconds) when a deferred pod is
+observed during reconcile and `LastTransitionTime` is set.
+
+| Label | Description |
+|-------|-------------|
+| `namespace` | Policy namespace |
+| `policy` | Policy name |
+
+```promql
+histogram_quantile(0.95, sum by (le, namespace, policy) (rate(attune_deferred_age_seconds_bucket[15m])))
+```
+
 ### attune_stale_recommendations_total
 
 Total times recommendations were marked stale due to Prometheus data gaps.

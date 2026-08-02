@@ -545,6 +545,17 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 	policy.Status.Workloads.Pending = pending
 
+	// Deferred / Infeasible operator UX: counts, condition, metrics.
+	blockers := summarizeResizeBlockers(podsByWorkload, r.now())
+	policy.Status.Workloads.Deferred = safeInt32(blockers.DeferredCount)
+	policy.Status.Workloads.Infeasible = safeInt32(blockers.InfeasibleCount)
+	operatormetrics.PodsDeferred.WithLabelValues(policy.Namespace, policy.Name).Set(float64(blockers.DeferredCount))
+	operatormetrics.PodsInfeasible.WithLabelValues(policy.Namespace, policy.Name).Set(float64(blockers.InfeasibleCount))
+	for _, age := range blockers.DeferredAges {
+		operatormetrics.DeferredAgeSeconds.WithLabelValues(policy.Namespace, policy.Name).Observe(age.Seconds())
+	}
+	r.setResizeBlockedCondition(&policy, blockers)
+
 	// Set Ready condition.
 	r.setReadyCondition(&policy, len(workloads), workloadsWithRecs, totalQueryErrors, queryErrorTypes, globalMaxDataPoints, promTimedOut, promTimeout)
 

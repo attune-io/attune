@@ -525,6 +525,100 @@ func (r *AttunePolicyReconciler) setScheduleBlockedCondition(policy *attunev1alp
 	}
 }
 
+// maxBlockedPodNames is the max pod names listed in ResizeBlocked messages.
+const maxBlockedPodNames = 5
+
+// resizeBlockerSummary aggregates Deferred/Infeasible pods for status and metrics.
+type resizeBlockerSummary struct {
+	DeferredCount   int
+	InfeasibleCount int
+	DeferredNames   []string
+	InfeasibleNames []string
+	DeferredAges    []time.Duration
+}
+
+// summarizeResizeBlockers scans discovered pods for kubelet Deferred/Infeasible
+// resize conditions. Sample names are capped for status message size.
+func summarizeResizeBlockers(podsByWorkload map[string][]corev1.Pod, now time.Time) resizeBlockerSummary {
+	var s resizeBlockerSummary
+	seenDeferred := make(map[string]struct{})
+	seenInfeasible := make(map[string]struct{})
+	for _, pods := range podsByWorkload {
+		for i := range pods {
+			pod := &pods[i]
+			key := pod.Namespace + "/" + pod.Name
+			if resize.IsResizeDeferred(pod) {
+				if _, ok := seenDeferred[key]; !ok {
+					seenDeferred[key] = struct{}{}
+					s.DeferredCount++
+					if len(s.DeferredNames) < maxBlockedPodNames {
+						s.DeferredNames = append(s.DeferredNames, pod.Name)
+					}
+					if since := resize.ResizeDeferredSince(pod); !since.IsZero() && now.After(since) {
+						s.DeferredAges = append(s.DeferredAges, now.Sub(since))
+					}
+				}
+			}
+			if resize.IsResizeInfeasible(pod) {
+				if _, ok := seenInfeasible[key]; !ok {
+					seenInfeasible[key] = struct{}{}
+					s.InfeasibleCount++
+					if len(s.InfeasibleNames) < maxBlockedPodNames {
+						s.InfeasibleNames = append(s.InfeasibleNames, pod.Name)
+					}
+				}
+			}
+		}
+	}
+	return s
+}
+
+// setResizeBlockedCondition sets ResizeBlocked when pods are Deferred or Infeasible.
+func (r *AttunePolicyReconciler) setResizeBlockedCondition(policy *attunev1alpha1.AttunePolicy, summary resizeBlockerSummary) {
+	if summary.DeferredCount == 0 && summary.InfeasibleCount == 0 {
+		meta.RemoveStatusCondition(&policy.Status.Conditions, attunev1alpha1.ConditionResizeBlocked)
+		return
+	}
+
+	var reason, message string
+	switch {
+	case summary.DeferredCount > 0 && summary.InfeasibleCount > 0:
+		reason = attunev1alpha1.ReasonPodsDeferredAndInfeasible
+		message = fmt.Sprintf(
+			"%d deferred pod(s) (retry when kubelet clears Pending; e.g. %s); %d infeasible pod(s) (use InPlaceOrRecreate to evict, or free node capacity; e.g. %s)",
+			summary.DeferredCount, joinSampleNames(summary.DeferredNames),
+			summary.InfeasibleCount, joinSampleNames(summary.InfeasibleNames),
+		)
+	case summary.DeferredCount > 0:
+		reason = attunev1alpha1.ReasonPodsDeferred
+		message = fmt.Sprintf(
+			"%d pod(s) have Deferred in-place resize; operator retries each reconcile once the condition clears (e.g. %s)",
+			summary.DeferredCount, joinSampleNames(summary.DeferredNames),
+		)
+	default:
+		reason = attunev1alpha1.ReasonPodsInfeasible
+		message = fmt.Sprintf(
+			"%d pod(s) have Infeasible in-place resize on their node; set resizeMethod: InPlaceOrRecreate for eviction fallback or free capacity (e.g. %s)",
+			summary.InfeasibleCount, joinSampleNames(summary.InfeasibleNames),
+		)
+	}
+
+	meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
+		Type:               attunev1alpha1.ConditionResizeBlocked,
+		Status:             metav1.ConditionTrue,
+		Reason:             reason,
+		Message:            message,
+		ObservedGeneration: policy.Generation,
+	})
+}
+
+func joinSampleNames(names []string) string {
+	if len(names) == 0 {
+		return "none"
+	}
+	return strings.Join(names, ", ")
+}
+
 // setDegradedCondition checks recent resize history for high revert rates.
 // If 3+ of the last 5 history entries are reverted, the condition is set.
 func (r *AttunePolicyReconciler) setDegradedCondition(policy *attunev1alpha1.AttunePolicy) {

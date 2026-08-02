@@ -271,6 +271,24 @@
                     "for": { "type": "string", "default": "5m" },
                     "severity": { "type": "string", "default": "critical", "enum": ["critical", "warning", "info"] }
                   }
+                },
+                "podsInfeasible": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": { "type": "boolean", "default": true },
+                    "for": { "type": "string", "default": "30m" },
+                    "severity": { "type": "string", "default": "warning", "enum": ["critical", "warning", "info"] }
+                  }
+                },
+                "podsDeferred": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": { "type": "boolean", "default": true },
+                    "for": { "type": "string", "default": "1h" },
+                    "severity": { "type": "string", "default": "warning", "enum": ["critical", "warning", "info"] }
+                  }
                 }
               }
             }
