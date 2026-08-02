@@ -35,9 +35,10 @@
 organizations run it fully automated ([ScaleOps 2026](https://scaleops.com/blog/why-pod-rightsizing-fails-in-production-a-deep-dive-into-vpa-and-what-actually-works/)). VPA evicts pods, conflicts with HPA, and
 has caused cluster-wide outages.
 
-In 2025, In-Place Pod Resize graduated to beta in Kubernetes 1.33 (KEP-1287,
-with the `/resize` subresource available since 1.32 alpha). For the
-first time, CPU and memory can be changed on running pods without restarts. This unlocks a
+In December 2025, In-Place Pod Resize graduated to **GA** in Kubernetes 1.35
+([KEP-1287](https://github.com/kubernetes/enhancements/tree/master/keps/sig-node/1287-in-place-update-pod-resources);
+beta and enabled by default in 1.33–1.34; alpha with feature gate in 1.32).
+CPU and memory can be changed on running pods without restarts. That unlocks a
 ground-up redesign of resource right-sizing.
 
 ### Mission

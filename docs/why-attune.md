@@ -172,6 +172,25 @@ not retrofitted onto a VPA architecture that was never meant for it.
  └──────────────────────┘
 ```
 
+### In-place apply is not enough
+
+Kubernetes In-Place Pod Resize (GA in 1.35) is the **shared primitive**: change
+cgroup limits without recreating the pod. VPA and other tools can use that
+primitive too. The harder problem is running **unattended** in production:
+
+1. **Startup boost** — temporary CPU headroom for cold starts and JIT, then
+   scale back to the steady-state recommendation
+   ([startup boost guide](guides/startup-boost.md)).
+2. **Canary** — resize a percentage of pods first, observe, then promote
+   ([canary rollout guide](guides/canary-rollout.md)).
+3. **SLO + safety revert** — infrastructure signals (OOM, throttle, restarts,
+   NotReady) plus application PromQL guardrails that auto-revert on breach
+   ([safety architecture](architecture/safety.md)).
+
+Those three pillars are the production path. The rest of this page explains
+the graduated modes, recommender, and HPA coexistence that make the loop
+operable day to day.
+
 ### Five modes for every comfort level
 
 You don't have to go from zero to fully-automated overnight. Attune
@@ -193,6 +212,8 @@ Week 3:    Canary mode     →  Resize 10% of pods, watch for issues
 Week 4+:   Auto mode       →  Let the operator handle it continuously
 ```
 
+See also the day-by-day [First 30 Days](getting-started/first-30-days.md) guide.
+
 ### Safety is not an afterthought
 
 Every resize is guarded by a multi-layer safety system:
@@ -204,6 +225,8 @@ Every resize is guarded by a multi-layer safety system:
 - **Restart spike detection**: 2+ restarts after a resize triggers a revert.
 - **Pod health checks**: If the pod loses its `Ready` condition, the operator
   reverts.
+- **SLO guardrails**: Optional PromQL checks (latency, error rate) that
+  revert when application health breaches a threshold after resize.
 - **Exponential backoff**: Each consecutive revert doubles the cooldown period
   (capped at 16x), so the operator doesn't keep hammering a problematic workload.
 - **Degraded condition**: When 3+ of the last 5 resizes are reverted, the

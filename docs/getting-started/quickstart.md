@@ -16,7 +16,7 @@ recommendations, and promoting to Canary mode, all in about five minutes.
     the cluster for exploration.
 
 !!! info "Prerequisites"
-    - **Kubernetes 1.32+** — 1.32 requires the `InPlacePodVerticalScaling` feature gate; 1.33+ has it enabled by default.
+    - **Kubernetes 1.32+** — 1.32 requires the `InPlacePodVerticalScaling` feature gate; 1.33–1.34 beta enabled by default; **1.35+ GA**.
     - **A metrics source** — Prometheus (default), Datadog, or CloudWatch Container Insights. This guide uses Prometheus; see [Datadog Setup](../guides/datadog-setup.md) or [CloudWatch Setup](../guides/cloudwatch-setup.md) for alternatives.
     - **Attune installed** — see [Installation](installation.md) for Helm and raw manifest options.
 
