@@ -86,6 +86,34 @@ func ApplyBuiltInDefaults(policy *attunev1alpha1.AttunePolicy) {
 		v := attunev1alpha1.DefaultExcludeKnownSidecars
 		policy.Spec.ExcludeKnownSidecars = &v
 	}
+	applyRuntimeProfileDefaults(policy)
+}
+
+// applyRuntimeProfileDefaults fills unset resource fields from the optional
+// runtimeProfile. Explicit policy fields always win.
+func applyRuntimeProfileDefaults(policy *attunev1alpha1.AttunePolicy) {
+	switch policy.Spec.RuntimeProfile {
+	case "", "generic":
+		return
+	case "java":
+		// JVM heaps often ignore live cgroup memory decreases; prefer no
+		// memory decrease and slightly higher memory overhead when unset.
+		if policy.Spec.Memory.AllowDecrease == nil {
+			v := false
+			policy.Spec.Memory.AllowDecrease = &v
+		}
+		if policy.Spec.Memory.Overhead == "" {
+			policy.Spec.Memory.Overhead = "40"
+		}
+	case "python", "nodejs":
+		if policy.Spec.Memory.AllowDecrease == nil {
+			v := false
+			policy.Spec.Memory.AllowDecrease = &v
+		}
+	case "golang":
+		// Go runtimes generally adapt; leave allowDecrease unset (platform default).
+		return
+	}
 }
 
 // mustParseBuiltInDuration parses a package-level default duration constant.

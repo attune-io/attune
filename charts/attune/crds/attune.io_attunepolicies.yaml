@@ -508,6 +508,20 @@ spec:
                   when debugging unexpected behavior. The operator sets Ready=False
                   with reason=Paused while this field is true.
                 type: boolean
+              runtimeProfile:
+                description: |-
+                  RuntimeProfile applies language/runtime-oriented defaults for memory
+                  resize safety. Unset or "generic" leaves policy fields unchanged.
+                  Profiles document recommended resizePolicy and decrease settings;
+                  they do not auto-patch pod specs. Supported values: generic, java,
+                  python, golang, nodejs.
+                enum:
+                - generic
+                - java
+                - python
+                - golang
+                - nodejs
+                type: string
               targetRef:
                 description: TargetRef identifies the workload(s) to be attuned.
                 properties:
