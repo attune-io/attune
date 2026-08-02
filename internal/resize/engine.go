@@ -21,6 +21,8 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -58,6 +60,9 @@ type ResizeResult struct {
 type PodResizer struct {
 	client kubernetes.Interface
 	logger logr.Logger
+	// AllowInPlaceMemoryLimitDecrease skips clamping memory limit decreases
+	// when the cluster permits live decreases (Kubernetes 1.35+).
+	AllowInPlaceMemoryLimitDecrease bool
 }
 
 // NewPodResizer creates a new PodResizer backed by the given Kubernetes client.
@@ -99,8 +104,9 @@ func (r *PodResizer) ResizePod(ctx context.Context, pod *corev1.Pod, container s
 		updated := fresh.DeepCopy()
 		// Clamp the target memory limit when the container's resize policy
 		// for memory is NotRequired (or absent, which defaults to NotRequired).
-		// K8s v1.33 forbids in-place memory limit decreases with NotRequired.
-		adjustedTarget := ClampMemoryLimitForPolicy(fresh, container, target)
+		// K8s v1.33 forbids in-place memory limit decreases with NotRequired;
+		// v1.35+ allows them (best-effort kubelet check).
+		adjustedTarget := ClampMemoryLimitForPolicy(fresh, container, target, r.AllowInPlaceMemoryLimitDecrease)
 		if isInit {
 			current = fresh.Spec.InitContainers[idx].Resources
 			updated.Spec.InitContainers[idx].Resources = mergeResources(current, adjustedTarget)
@@ -310,9 +316,16 @@ func (r *PodResizer) EvictPod(ctx context.Context, pod *corev1.Pod) error {
 
 // ClampMemoryLimitForPolicy prevents memory limit decreases when the
 // container's resize policy for memory is NotRequired (or absent, which
-// defaults to NotRequired). Kubernetes v1.33 rejects in-place memory limit
-// decreases unless the resize policy is RestartContainer.
-func ClampMemoryLimitForPolicy(pod *corev1.Pod, container string, target corev1.ResourceRequirements) corev1.ResourceRequirements {
+// defaults to NotRequired) and the cluster still rejects those decreases.
+//
+// Kubernetes v1.33 rejects in-place memory limit decreases unless the resize
+// policy is RestartContainer. Kubernetes v1.35+ allows live decreases with a
+// best-effort usage check. Pass allowInPlaceMemoryLimitDecrease=true on 1.35+
+// clusters so Attune does not over-clamp.
+func ClampMemoryLimitForPolicy(pod *corev1.Pod, container string, target corev1.ResourceRequirements, allowInPlaceMemoryLimitDecrease bool) corev1.ResourceRequirements {
+	if allowInPlaceMemoryLimitDecrease {
+		return target
+	}
 	if len(target.Limits) == 0 {
 		return target
 	}
@@ -349,6 +362,39 @@ func ClampMemoryLimitForPolicy(pod *corev1.Pod, container string, target corev1.
 		return target
 	}
 	return target
+}
+
+// AllowsInPlaceMemoryLimitDecrease reports whether GitVersion (e.g. "v1.35.0")
+// is at least Kubernetes 1.35, where live memory limit decreases are allowed.
+func AllowsInPlaceMemoryLimitDecrease(gitVersion string) bool {
+	major, minor, ok := parseK8sMajorMinor(gitVersion)
+	if !ok {
+		return false
+	}
+	return major > 1 || (major == 1 && minor >= 35)
+}
+
+// parseK8sMajorMinor extracts major and minor from a GitVersion string.
+func parseK8sMajorMinor(gitVersion string) (major, minor uint, ok bool) {
+	v := strings.TrimSpace(gitVersion)
+	v = strings.TrimPrefix(v, "v")
+	if v == "" {
+		return 0, 0, false
+	}
+	// Drop build metadata / pre-release after + or -
+	if i := strings.IndexAny(v, "+-"); i >= 0 {
+		v = v[:i]
+	}
+	parts := strings.Split(v, ".")
+	if len(parts) < 2 {
+		return 0, 0, false
+	}
+	maj64, err1 := strconv.ParseUint(parts[0], 10, 32)
+	min64, err2 := strconv.ParseUint(parts[1], 10, 32)
+	if err1 != nil || err2 != nil {
+		return 0, 0, false
+	}
+	return uint(maj64), uint(min64), true
 }
 
 // WouldRestartContainer returns true if resizing the named container would

@@ -140,8 +140,11 @@ type AttunePolicyReconciler struct {
 	CollectorTTL            time.Duration // how long unused collectors stay cached (default: 10m)
 	MaxConcurrentReconciles int           // max parallel reconcile goroutines (default: 1)
 	PrometheusTimeout       time.Duration // max time for Prometheus queries per reconcile (default: 5m)
-	nowFunc                 atomic.Pointer[func() time.Time]
-	collectors              sync.Map // map[string]*collectorEntry cache
+	// AllowInPlaceMemoryLimitDecrease is true when the cluster is Kubernetes
+	// 1.35+ (live memory limit decreases permitted). Wired at manager startup.
+	AllowInPlaceMemoryLimitDecrease bool
+	nowFunc                         atomic.Pointer[func() time.Time]
+	collectors                      sync.Map // map[string]*collectorEntry cache
 	// gaugeKeys tracks which Prometheus gauge label combinations each policy
 	// set on its last reconcile. On the next reconcile, only these specific
 	// keys are deleted (not the entire namespace), preventing cross-policy
@@ -493,6 +496,7 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// modes must not modify pod resources.
 	if isResizeMode(mode) && policy.Spec.CPU.StartupBoost != nil && r.Clientset != nil && len(recommendations) > 0 {
 		resizer := resize.NewPodResizer(r.Clientset, logger)
+		resizer.AllowInPlaceMemoryLimitDecrease = r.AllowInPlaceMemoryLimitDecrease
 		r.applyStartupBoosts(ctx, &policy, podsByWorkload, recommendations, resizer, preChecks)
 	}
 
