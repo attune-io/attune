@@ -841,7 +841,7 @@ func (r *AttunePolicyReconciler) shouldSkipResize(
 		}
 	}
 
-	// Node allocatable exceeded (use cached node data when available).
+	// Node allocatable / pressure (use cached node data when available).
 	if pod.Spec.NodeName != "" {
 		var node *corev1.Node
 		if checks != nil {
@@ -860,25 +860,32 @@ func (r *AttunePolicyReconciler) shouldSkipResize(
 				node = &n
 			}
 		}
-		if node != nil && len(node.Status.Allocatable) > 0 {
-			totalCPU := int64(0)
-			totalMem := int64(0)
-			// Only count containers that consume resources at runtime:
-			// native sidecars (restartPolicy=Always) + regular containers.
-			// Completed traditional init containers are not running.
-			running := append(nativeSidecars(pod.Spec.InitContainers), pod.Spec.Containers...)
-			for _, c := range running {
-				if c.Name == containerRec.Name {
-					totalCPU += target.Requests.Cpu().MilliValue()
-					totalMem += target.Requests.Memory().Value()
-				} else {
-					totalCPU += c.Resources.Requests.Cpu().MilliValue()
-					totalMem += c.Resources.Requests.Memory().Value()
-				}
+		if node != nil {
+			// Skip request *increases* when the node is under pressure so we
+			// do not worsen packing on a stressed node (#372).
+			if reason := nodePressureBlocksIncrease(node, pod, containerRec.Name, target); reason != "" {
+				return true, reason
 			}
-			if totalCPU > node.Status.Allocatable.Cpu().MilliValue() ||
-				totalMem > node.Status.Allocatable.Memory().Value() {
-				return true, "total pod requests would exceed node allocatable"
+			if len(node.Status.Allocatable) > 0 {
+				totalCPU := int64(0)
+				totalMem := int64(0)
+				// Only count containers that consume resources at runtime:
+				// native sidecars (restartPolicy=Always) + regular containers.
+				// Completed traditional init containers are not running.
+				running := append(nativeSidecars(pod.Spec.InitContainers), pod.Spec.Containers...)
+				for _, c := range running {
+					if c.Name == containerRec.Name {
+						totalCPU += target.Requests.Cpu().MilliValue()
+						totalMem += target.Requests.Memory().Value()
+					} else {
+						totalCPU += c.Resources.Requests.Cpu().MilliValue()
+						totalMem += c.Resources.Requests.Memory().Value()
+					}
+				}
+				if totalCPU > node.Status.Allocatable.Cpu().MilliValue() ||
+					totalMem > node.Status.Allocatable.Memory().Value() {
+					return true, "total pod requests would exceed node allocatable"
+				}
 			}
 		}
 	}
@@ -912,4 +919,38 @@ func (r *AttunePolicyReconciler) shouldSkipResize(
 	}
 
 	return false, ""
+}
+
+// nodePressureBlocksIncrease returns a skip reason when the node is under
+// MemoryPressure, DiskPressure, or PIDPressure and the target would increase
+// requests for the named container. Decreases remain allowed.
+func nodePressureBlocksIncrease(node *corev1.Node, pod *corev1.Pod, containerName string, target corev1.ResourceRequirements) string {
+	if node == nil {
+		return ""
+	}
+	c := findContainerByName(pod, containerName)
+	if c == nil {
+		return ""
+	}
+	cpuInc := target.Requests.Cpu().MilliValue() > c.Resources.Requests.Cpu().MilliValue()
+	memInc := target.Requests.Memory().Value() > c.Resources.Requests.Memory().Value()
+	if !cpuInc && !memInc {
+		return ""
+	}
+	for _, cond := range node.Status.Conditions {
+		if cond.Status != corev1.ConditionTrue {
+			continue
+		}
+		switch cond.Type {
+		case corev1.NodeMemoryPressure:
+			if memInc {
+				return "node has MemoryPressure; skipping memory request increase"
+			}
+		case corev1.NodeDiskPressure:
+			return "node has DiskPressure; skipping resource request increase"
+		case corev1.NodePIDPressure:
+			return "node has PIDPressure; skipping resource request increase"
+		}
+	}
+	return ""
 }

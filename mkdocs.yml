@@ -64,6 +64,7 @@ nav:
       - FIPS 140-3 Compliance: guides/fips-compliance.md
       - Multi-Cluster: guides/multi-cluster.md
       - Scaling: guides/scaling.md
+      - Bin Packing: guides/bin-packing.md
       - Troubleshooting: guides/troubleshooting.md
       - Upgrading: guides/upgrading.md
   - Reference:

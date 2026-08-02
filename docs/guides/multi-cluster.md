@@ -287,3 +287,22 @@ prod      default     my-app   Auto   3           3      3         True    30d
 The plugin reads the `AttunePolicy` status fields, which are backward
 compatible across minor versions. You can safely query clusters running
 different Attune versions from the same plugin binary.
+
+
+## Fleet observability (metrics federation)
+
+Attune installs one operator per cluster. For org-wide visibility without a
+multi-cluster control plane:
+
+1. Scrape each cluster's `attune_*` metrics into a central Prometheus, Thanos,
+   Mimir, or AMP with a consistent `cluster` (or `cluster_id`) external label.
+2. Import the Helm Grafana dashboard and add a `cluster` template variable
+   filtering on that label.
+3. Useful org-wide panels:
+   - `sum by (cluster) (increase(attune_resize_total[24h]))`
+   - `sum by (cluster) (attune_savings_estimated_monthly)`
+   - `sum by (cluster) (attune_pods_infeasible)` / `attune_pods_deferred` when available
+4. Keep Auto mode local to each cluster; aggregate **read-only** reporting only
+   in the first phase.
+
+See the [metrics reference](../reference/metrics.md) for metric names and labels.
