@@ -364,7 +364,12 @@ func (m *Monitor) RevertPod(ctx context.Context, record ResizeRecord) error {
 		// decreased in-place when the resize policy is NotRequired. Without
 		// this, reverts that lower the memory limit are rejected by the API
 		// server on v1.33 clusters.
-		revertTarget := resize.ClampMemoryLimitForPolicy(pod, record.Container, record.OriginalResources)
+		// Reverts restore previous (often lower) memory limits. On clusters
+		// that still reject live decreases, clamp so the revert can succeed.
+		// Monitor does not know cluster version; pass false to keep the
+		// safer clamp path (same as pre-1.35). Controllers on 1.35+ that
+		// unclamp apply may still need clamp on revert if original is lower.
+		revertTarget := resize.ClampMemoryLimitForPolicy(pod, record.Container, record.OriginalResources, false)
 		// For Guaranteed QoS pods, the memory limit clamp may cause
 		// requests != limits, which K8s rejects ("Pod QOS Class may not
 		// change as a result of resizing"). Raise the memory request to

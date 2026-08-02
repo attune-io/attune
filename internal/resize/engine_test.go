@@ -889,8 +889,7 @@ func TestClampMemoryLimitForPolicy(t *testing.T) {
 		expectedMemLim string
 	}{
 		{
-			name: "NotRequired prevents memory limit decrease",
-			resizePolicy: []corev1.ContainerResizePolicy{
+			name: "NotRequired prevents memory limit decrease", resizePolicy: []corev1.ContainerResizePolicy{
 				{ResourceName: corev1.ResourceMemory, RestartPolicy: corev1.NotRequired},
 			},
 			currentMemLim:  "1Gi",
@@ -978,7 +977,7 @@ func TestClampMemoryLimitForPolicy(t *testing.T) {
 				}
 			}
 
-			result := ClampMemoryLimitForPolicy(pod, "app", target)
+			result := ClampMemoryLimitForPolicy(pod, "app", target, false)
 
 			if tt.expectedMemLim == "" {
 				assert.Empty(t, result.Limits)
@@ -990,6 +989,41 @@ func TestClampMemoryLimitForPolicy(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestClampMemoryLimitForPolicy_AllowInPlaceDecrease(t *testing.T) {
+	pod := &corev1.Pod{
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "app",
+				Resources: corev1.ResourceRequirements{
+					Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("1Gi")},
+				},
+				ResizePolicy: []corev1.ContainerResizePolicy{
+					{ResourceName: corev1.ResourceMemory, RestartPolicy: corev1.NotRequired},
+				},
+			}},
+		},
+	}
+	target := corev1.ResourceRequirements{
+		Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("512Mi")},
+	}
+	// Pre-1.35: clamp preserves current limit.
+	clamped := ClampMemoryLimitForPolicy(pod, "app", target, false)
+	assert.True(t, resource.MustParse("1Gi").Equal(clamped.Limits[corev1.ResourceMemory]))
+	// 1.35+: allow live decrease.
+	unclamped := ClampMemoryLimitForPolicy(pod, "app", target, true)
+	assert.True(t, resource.MustParse("512Mi").Equal(unclamped.Limits[corev1.ResourceMemory]))
+}
+
+func TestAllowsInPlaceMemoryLimitDecrease(t *testing.T) {
+	assert.False(t, AllowsInPlaceMemoryLimitDecrease("v1.33.0"))
+	assert.False(t, AllowsInPlaceMemoryLimitDecrease("v1.34.7"))
+	assert.True(t, AllowsInPlaceMemoryLimitDecrease("v1.35.0"))
+	assert.True(t, AllowsInPlaceMemoryLimitDecrease("v1.35.4-k3s1"))
+	assert.True(t, AllowsInPlaceMemoryLimitDecrease("v1.36.0+abc"))
+	assert.False(t, AllowsInPlaceMemoryLimitDecrease(""))
+	assert.False(t, AllowsInPlaceMemoryLimitDecrease("bogus"))
 }
 
 func TestClampMemoryLimitForPolicy_InitContainer(t *testing.T) {
@@ -1026,7 +1060,7 @@ func TestClampMemoryLimitForPolicy_InitContainer(t *testing.T) {
 		Limits:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("256Mi")},
 	}
 
-	result := ClampMemoryLimitForPolicy(pod, "sidecar", target)
+	result := ClampMemoryLimitForPolicy(pod, "sidecar", target, false)
 
 	// NotRequired policy on init container: memory limit decrease from 512Mi
 	// to 256Mi should be clamped back to 512Mi.
@@ -1068,7 +1102,7 @@ func TestClampMemoryLimitForPolicy_ContainerNotFound(t *testing.T) {
 		},
 	}
 
-	result := ClampMemoryLimitForPolicy(pod, "nonexistent", target)
+	result := ClampMemoryLimitForPolicy(pod, "nonexistent", target, false)
 
 	// Target should be returned unmodified when the container is not found.
 	expectedMem := resource.MustParse("128Mi")

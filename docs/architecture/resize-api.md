@@ -16,8 +16,14 @@ PATCH /api/v1/namespaces/{ns}/pods/{name}/resize
 
 The kubelet applies the new resources to the running container's cgroup
 limits without restarting it. CPU changes take effect immediately; memory
-limit increases take effect immediately but decreases only apply when the
-container's working set drops below the new limit.
+limit increases take effect immediately.
+
+**Memory limit decreases:**
+
+| Cluster | Behavior |
+|---------|----------|
+| Kubernetes **1.33–1.34** | API rejects in-place memory limit decreases when `resizePolicy` for memory is `NotRequired` (default). Attune **clamps** the limit (keeps the higher current value) unless policy is `RestartContainer`. |
+| Kubernetes **1.35+** (GA) | Live memory limit decreases are allowed. The kubelet does a best-effort check against current usage; a race can still OOM if usage spikes after the check. Attune detects the version at startup and **skips the clamp** so decreases can apply when `allowDecrease` permits. Directional `maxDecreasePercent` still steps large shrinks over multiple cycles. |
 
 ## How Attune uses it
 
