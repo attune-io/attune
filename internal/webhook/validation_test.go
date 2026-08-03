@@ -226,6 +226,47 @@ func TestValidate_CanaryModeWithoutConfig(t *testing.T) {
 	assert.Empty(t, warnings)
 }
 
+func TestValidate_GitOpsPullRequestAPIURL_SSRF(t *testing.T) {
+	validator := &AttunePolicyValidator{}
+	en := true
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.Export = &attunev1alpha1.ExportConfig{
+		PullRequest: &attunev1alpha1.GitOpsPullRequestConfig{
+			Enabled:    &en,
+			Repository: "org/repo",
+			TokenSecretRef: &attunev1alpha1.SecretKeyRef{
+				Name: "tok", Key: "token",
+			},
+			APIURL: "http://169.254.169.254/",
+		},
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "apiUrl")
+	assert.Contains(t, err.Error(), "metadata")
+}
+
+func TestValidate_GitOpsPullRequestAPIURL_EnterpriseOK(t *testing.T) {
+	validator := &AttunePolicyValidator{}
+	en := true
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.Export = &attunev1alpha1.ExportConfig{
+		PullRequest: &attunev1alpha1.GitOpsPullRequestConfig{
+			Enabled:    &en,
+			Repository: "org/repo",
+			Provider:   "github",
+			TokenSecretRef: &attunev1alpha1.SecretKeyRef{
+				Name: "tok", Key: "token",
+			},
+			APIURL: "https://ghe.example.com/api/v3",
+		},
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	assert.NoError(t, err)
+}
+
 func TestValidate_CanaryObservationPeriodNegative(t *testing.T) {
 	validator := &AttunePolicyValidator{}
 	policy := validPolicy()

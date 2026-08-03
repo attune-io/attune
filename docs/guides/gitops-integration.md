@@ -137,6 +137,11 @@ default 24h).
 - Tokens are **never** written to logs, events, or status.
 - Use a fine-scoped PAT (GitHub: contents + pull requests on one repo;
   GitLab: `api` on one project). Prefer short-lived or fine-grained tokens.
+- Optional `apiUrl` (Enterprise GitHub / self-hosted GitLab) is validated
+  like Prometheus addresses: `http`/`https` only, and cloud metadata plus
+  loopback hosts are rejected so a policy cannot aim the operator token at
+  `169.254.169.254` or similar. Private ClusterIP-style hosts remain allowed
+  for on-prem Git forges.
 
 ### Example
 
