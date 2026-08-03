@@ -112,37 +112,36 @@ func (r *AttunePolicyReconciler) reconcileGitOpsPullRequest(
 		return
 	}
 
-	token, err := r.readSecretKey(ctx, policy.Namespace, cfg.TokenSecretRef.Name, cfg.TokenSecretRef.Key)
-	if err != nil {
-		// Do not include secret name details that might confuse with token material.
-		logger.Error(err, "GitOps PR: failed to read token secret")
-		setGitOpsPRCondition(policy, metav1.ConditionFalse, attunev1alpha1.ReasonGitOpsPRFailed,
-			"Failed to read token secret (check name/key and RBAC)")
-		operatormetrics.GitOpsPRTotal.WithLabelValues(policy.Namespace, policy.Name, "failed").Inc()
-		return
-	}
-
 	var prClient gitops.PullRequestClient
-	switch provider {
-	case "gitlab":
-		prClient = &gitops.GitLabClient{
-			BaseURL: cfg.APIURL,
-			Token:   token,
-			Project: cfg.Repository,
+	{
+		token, err := r.readSecretKey(ctx, policy.Namespace, cfg.TokenSecretRef.Name, cfg.TokenSecretRef.Key)
+		if err != nil {
+			// Do not include secret name details that might confuse with token material.
+			logger.Error(err, "GitOps PR: failed to read token secret")
+			setGitOpsPRCondition(policy, metav1.ConditionFalse, attunev1alpha1.ReasonGitOpsPRFailed,
+				"Failed to read token secret (check name/key and RBAC)")
+			operatormetrics.GitOpsPRTotal.WithLabelValues(policy.Namespace, policy.Name, "failed").Inc()
+			return
 		}
-	default:
-		prClient = &gitops.GitHubClient{
-			BaseURL:    cfg.APIURL,
-			Token:      token,
-			Repository: cfg.Repository,
+		switch provider {
+		case "gitlab":
+			prClient = &gitops.GitLabClient{
+				BaseURL: cfg.APIURL,
+				Token:   token,
+				Project: cfg.Repository,
+			}
+		default:
+			prClient = &gitops.GitHubClient{
+				BaseURL:    cfg.APIURL,
+				Token:      token,
+				Repository: cfg.Repository,
+			}
 		}
 	}
 
 	res, err := prClient.CreateOrUpdate(ctx, gitops.PRRequest{
 		Title: title, Body: body, Head: head, Base: base, Labels: cfg.Labels,
 	})
-	// Drop token from scope promptly.
-	token = ""
 	if err != nil {
 		// Never include raw API bodies that might echo credentials.
 		logger.Error(err, "GitOps PR create/update failed", "provider", provider, "repository", cfg.Repository)
