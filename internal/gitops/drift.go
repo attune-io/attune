@@ -19,8 +19,8 @@ limitations under the License.
 package gitops
 
 import (
-	"fmt"
 	"math"
+	"strconv"
 	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -33,12 +33,12 @@ import (
 
 // ContainerDrift describes one container resource that differs from the template.
 type ContainerDrift struct {
-	Workload  string
-	Kind      string
-	Container string
-	Resource  string // cpu or memory
-	Template  string
-	Recommended string
+	Workload      string
+	Kind          string
+	Container     string
+	Resource      string // cpu or memory
+	Template      string
+	Recommended   string
 	ChangePercent float64
 }
 
@@ -137,16 +137,34 @@ func driftOne(workload, kind, container, resName string, template, recommended *
 }
 
 // FormatPRBody builds a markdown PR description (no secrets).
+// Uses strconv/strings only (fmt.Fprint is forbidden by project lint).
 func FormatPRBody(policyNS, policyName string, drifts []ContainerDrift) string {
 	var b strings.Builder
 	b.WriteString("## Attune recommendation drift\n\n")
-	fmt.Fprintf(&b, "Policy: `%s/%s`\n\n", policyNS, policyName)
+	b.WriteString("Policy: `")
+	b.WriteString(policyNS)
+	b.WriteString("/")
+	b.WriteString(policyName)
+	b.WriteString("`\n\n")
 	b.WriteString("Recommendations differ from workload **pod templates** beyond the configured threshold.\n\n")
 	b.WriteString("| Workload | Kind | Container | Resource | Template | Recommended | Change |\n")
 	b.WriteString("|----------|------|-----------|----------|----------|-------------|--------|\n")
 	for _, d := range drifts {
-		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %.1f%% |\n",
-			d.Workload, d.Kind, d.Container, d.Resource, d.Template, d.Recommended, d.ChangePercent)
+		b.WriteString("| ")
+		b.WriteString(d.Workload)
+		b.WriteString(" | ")
+		b.WriteString(d.Kind)
+		b.WriteString(" | ")
+		b.WriteString(d.Container)
+		b.WriteString(" | ")
+		b.WriteString(d.Resource)
+		b.WriteString(" | ")
+		b.WriteString(d.Template)
+		b.WriteString(" | ")
+		b.WriteString(d.Recommended)
+		b.WriteString(" | ")
+		b.WriteString(strconv.FormatFloat(d.ChangePercent, 'f', 1, 64))
+		b.WriteString("% |\n")
 	}
 	b.WriteString("\n### Next steps\n\n")
 	b.WriteString("1. Review recommended requests against production risk.\n")

@@ -30,17 +30,17 @@ import (
 
 // PRRequest is the input for create-or-update PR.
 type PRRequest struct {
-	Title string
-	Body  string
-	Head  string // branch name
-	Base  string
+	Title  string
+	Body   string
+	Head   string // branch name
+	Base   string
 	Labels []string
 }
 
 // PRResult is a successful PR reference.
 type PRResult struct {
-	URL    string
-	Number int
+	URL     string
+	Number  int
 	Updated bool
 }
 
@@ -65,10 +65,10 @@ type GitHubClient struct {
 
 // GitLabClient implements PullRequestClient for GitLab REST API.
 type GitLabClient struct {
-	BaseURL    string // default https://gitlab.com/api/v4
-	Token      string
-	Project    string // URL-encoded path or numeric id path "group/project"
-	HTTP       HTTPDoer
+	BaseURL string // default https://gitlab.com/api/v4
+	Token   string
+	Project string // URL-encoded path or numeric id path "group/project"
+	HTTP    HTTPDoer
 }
 
 func (c *GitHubClient) CreateOrUpdate(ctx context.Context, req PRRequest) (PRResult, error) {
@@ -94,9 +94,9 @@ func (c *GitHubClient) CreateOrUpdate(ctx context.Context, req PRRequest) (PRRes
 		return PRResult{}, fmt.Errorf("github list PRs: status %d", code)
 	}
 	var existing []struct {
-		Number int    `json:"number"`
+		Number  int    `json:"number"`
 		HTMLURL string `json:"html_url"`
-		Head   struct {
+		Head    struct {
 			Ref string `json:"ref"`
 		} `json:"head"`
 	}

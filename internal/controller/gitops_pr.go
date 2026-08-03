@@ -33,7 +33,7 @@ import (
 const (
 	annotationGitOpsPRLastAttempt = "attune.io/gitops-pr-last-attempt"
 	annotationGitOpsPRURL         = "attune.io/gitops-pr-url"
-	defaultGitOpsPRCooldown        = 24 * time.Hour
+	defaultGitOpsPRCooldown       = 24 * time.Hour
 	defaultGitOpsMinChangePct     = int32(10)
 )
 

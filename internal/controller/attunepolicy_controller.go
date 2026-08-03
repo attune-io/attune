@@ -383,9 +383,10 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		r.exportRecommendationConfigMaps(ctx, &policy, recommendations)
 	}
 
-	// Opt-in GitOps PR automation (Phase B). Uses template drift vs recommendations.
-	// Safe to call with empty recs (sets NoDrift / Disabled). Skip Observe-only silence.
-	if policy.Spec.UpdateStrategy.Type != attunev1alpha1.UpdateTypeObserve {
+	// Opt-in GitOps PR automation (Phase B). Only when pullRequest is configured.
+	if policy.Spec.UpdateStrategy.Type != attunev1alpha1.UpdateTypeObserve &&
+		policy.Spec.UpdateStrategy.Export != nil &&
+		policy.Spec.UpdateStrategy.Export.PullRequest != nil {
 		r.reconcileGitOpsPullRequest(ctx, &policy, workloads, recommendations)
 	}
 
