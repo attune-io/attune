@@ -1077,11 +1077,7 @@
           "legendFormat": "{{reason}}",
           "refId": "A"
         }
-      ],
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      }
+      ]
     },
     {
       "id": 123,
@@ -1099,11 +1095,7 @@
           "legendFormat": "cpu",
           "refId": "A"
         }
-      ],
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      }
+      ]
     },
     {
       "id": 124,
@@ -1121,11 +1113,7 @@
           "legendFormat": "memory",
           "refId": "A"
         }
-      ],
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      }
+      ]
     }
   ],
   "schemaVersion": 39,
