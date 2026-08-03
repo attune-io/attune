@@ -39,6 +39,11 @@ make build-plugin
 
 # Run all CI checks locally (lint, test, helm-docs, CRD freshness)
 make verify
+
+# After CRD/API or RBAC changes, refresh release manifests if local
+# verify-release-artifacts fails (tracked under dist/):
+make build-installer IMG=ghcr.io/attune-io/attune:latest
+make build-crds
 ```
 
 ### Running Tests

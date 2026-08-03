@@ -100,6 +100,17 @@ spec:
                     - RequestsOnly
                     - RequestsAndLimits
                     type: string
+                  decreaseUsageMarginPercent:
+                    description: |-
+                      DecreaseUsageMarginPercent is the minimum headroom above recent memory
+                      usage required when decreasing memory limits (client-side pre-check).
+                      The target limit must be at least usage * (1 + margin/100). Defaults to
+                      10. Only applied on the memory ResourceConfig when a limit decrease is
+                      attempted; ignored for CPU. Set 0 to require limit strictly above usage.
+                    format: int32
+                    maximum: 100
+                    minimum: 0
+                    type: integer
                   maxAllowed:
                     anyOf:
                     - type: integer
@@ -241,6 +252,17 @@ spec:
                     - RequestsOnly
                     - RequestsAndLimits
                     type: string
+                  decreaseUsageMarginPercent:
+                    description: |-
+                      DecreaseUsageMarginPercent is the minimum headroom above recent memory
+                      usage required when decreasing memory limits (client-side pre-check).
+                      The target limit must be at least usage * (1 + margin/100). Defaults to
+                      10. Only applied on the memory ResourceConfig when a limit decrease is
+                      attempted; ignored for CPU. Set 0 to require limit strictly above usage.
+                    format: int32
+                    maximum: 100
+                    minimum: 0
+                    type: integer
                   maxAllowed:
                     anyOf:
                     - type: integer
@@ -543,6 +565,77 @@ spec:
                         description: ConfigMap enables exporting recommendations to
                           ConfigMaps.
                         type: boolean
+                      pullRequest:
+                        description: |-
+                          PullRequest enables opt-in GitOps PR automation (default off).
+                          Requires a token Secret and repository identity. Never logs the token.
+                        properties:
+                          apiUrl:
+                            description: |-
+                              APIURL overrides the API base URL (Enterprise GitHub or self-hosted GitLab).
+                              Defaults: https://api.github.com or https://gitlab.com/api/v4.
+                            type: string
+                          baseBranch:
+                            description: BaseBranch is the PR target branch. Defaults
+                              to "main".
+                            type: string
+                          cooldown:
+                            description: |-
+                              Cooldown is the minimum time between PR create/update attempts for this
+                              policy. Defaults to 24h.
+                            type: string
+                          dryRun:
+                            description: |-
+                              DryRun logs the intended PR and updates status without calling the
+                              remote API. Useful for CI and first enablement.
+                            type: boolean
+                          enabled:
+                            description: Enabled turns on PR automation. Default false.
+                            type: boolean
+                          labels:
+                            description: Labels are applied to the pull request when
+                              supported by the provider.
+                            items:
+                              type: string
+                            maxItems: 20
+                            type: array
+                          minChangePercent:
+                            description: |-
+                              MinChangePercent is the minimum absolute percent change (per container
+                              resource vs template) required to open or update a PR. Defaults to 10.
+                            format: int32
+                            maximum: 100
+                            minimum: 1
+                            type: integer
+                          provider:
+                            description: Provider is "github" or "gitlab". Default
+                              "github".
+                            enum:
+                            - github
+                            - gitlab
+                            type: string
+                          repository:
+                            description: |-
+                              Repository is "owner/name" (GitHub) or "group/project" (GitLab path).
+                              Required when Enabled is true.
+                            type: string
+                          tokenSecretRef:
+                            description: |-
+                              TokenSecretRef references a Secret key holding a PAT / project token.
+                              GitHub: repo contents + pull requests. GitLab: api scope on the project.
+                              Required when Enabled is true.
+                            properties:
+                              key:
+                                description: Key within the Secret.
+                                type: string
+                              name:
+                                description: Name of the Secret.
+                                type: string
+                            required:
+                            - key
+                            - name
+                            type: object
+                        type: object
                     type: object
                   initialSizing:
                     description: |-
@@ -847,6 +940,17 @@ spec:
                     - RequestsOnly
                     - RequestsAndLimits
                     type: string
+                  decreaseUsageMarginPercent:
+                    description: |-
+                      DecreaseUsageMarginPercent is the minimum headroom above recent memory
+                      usage required when decreasing memory limits (client-side pre-check).
+                      The target limit must be at least usage * (1 + margin/100). Defaults to
+                      10. Only applied on the memory ResourceConfig when a limit decrease is
+                      attempted; ignored for CPU. Set 0 to require limit strictly above usage.
+                    format: int32
+                    maximum: 100
+                    minimum: 0
+                    type: integer
                   maxAllowed:
                     anyOf:
                     - type: integer
@@ -988,6 +1092,17 @@ spec:
                     - RequestsOnly
                     - RequestsAndLimits
                     type: string
+                  decreaseUsageMarginPercent:
+                    description: |-
+                      DecreaseUsageMarginPercent is the minimum headroom above recent memory
+                      usage required when decreasing memory limits (client-side pre-check).
+                      The target limit must be at least usage * (1 + margin/100). Defaults to
+                      10. Only applied on the memory ResourceConfig when a limit decrease is
+                      attempted; ignored for CPU. Set 0 to require limit strictly above usage.
+                    format: int32
+                    maximum: 100
+                    minimum: 0
+                    type: integer
                   maxAllowed:
                     anyOf:
                     - type: integer
@@ -1290,6 +1405,77 @@ spec:
                         description: ConfigMap enables exporting recommendations to
                           ConfigMaps.
                         type: boolean
+                      pullRequest:
+                        description: |-
+                          PullRequest enables opt-in GitOps PR automation (default off).
+                          Requires a token Secret and repository identity. Never logs the token.
+                        properties:
+                          apiUrl:
+                            description: |-
+                              APIURL overrides the API base URL (Enterprise GitHub or self-hosted GitLab).
+                              Defaults: https://api.github.com or https://gitlab.com/api/v4.
+                            type: string
+                          baseBranch:
+                            description: BaseBranch is the PR target branch. Defaults
+                              to "main".
+                            type: string
+                          cooldown:
+                            description: |-
+                              Cooldown is the minimum time between PR create/update attempts for this
+                              policy. Defaults to 24h.
+                            type: string
+                          dryRun:
+                            description: |-
+                              DryRun logs the intended PR and updates status without calling the
+                              remote API. Useful for CI and first enablement.
+                            type: boolean
+                          enabled:
+                            description: Enabled turns on PR automation. Default false.
+                            type: boolean
+                          labels:
+                            description: Labels are applied to the pull request when
+                              supported by the provider.
+                            items:
+                              type: string
+                            maxItems: 20
+                            type: array
+                          minChangePercent:
+                            description: |-
+                              MinChangePercent is the minimum absolute percent change (per container
+                              resource vs template) required to open or update a PR. Defaults to 10.
+                            format: int32
+                            maximum: 100
+                            minimum: 1
+                            type: integer
+                          provider:
+                            description: Provider is "github" or "gitlab". Default
+                              "github".
+                            enum:
+                            - github
+                            - gitlab
+                            type: string
+                          repository:
+                            description: |-
+                              Repository is "owner/name" (GitHub) or "group/project" (GitLab path).
+                              Required when Enabled is true.
+                            type: string
+                          tokenSecretRef:
+                            description: |-
+                              TokenSecretRef references a Secret key holding a PAT / project token.
+                              GitHub: repo contents + pull requests. GitLab: api scope on the project.
+                              Required when Enabled is true.
+                            properties:
+                              key:
+                                description: Key within the Secret.
+                                type: string
+                              name:
+                                description: Name of the Secret.
+                                type: string
+                            required:
+                            - key
+                            - name
+                            type: object
+                        type: object
                     type: object
                   initialSizing:
                     description: |-
@@ -1590,6 +1776,17 @@ spec:
                     - RequestsOnly
                     - RequestsAndLimits
                     type: string
+                  decreaseUsageMarginPercent:
+                    description: |-
+                      DecreaseUsageMarginPercent is the minimum headroom above recent memory
+                      usage required when decreasing memory limits (client-side pre-check).
+                      The target limit must be at least usage * (1 + margin/100). Defaults to
+                      10. Only applied on the memory ResourceConfig when a limit decrease is
+                      attempted; ignored for CPU. Set 0 to require limit strictly above usage.
+                    format: int32
+                    maximum: 100
+                    minimum: 0
+                    type: integer
                   maxAllowed:
                     anyOf:
                     - type: integer
@@ -1739,6 +1936,17 @@ spec:
                     - RequestsOnly
                     - RequestsAndLimits
                     type: string
+                  decreaseUsageMarginPercent:
+                    description: |-
+                      DecreaseUsageMarginPercent is the minimum headroom above recent memory
+                      usage required when decreasing memory limits (client-side pre-check).
+                      The target limit must be at least usage * (1 + margin/100). Defaults to
+                      10. Only applied on the memory ResourceConfig when a limit decrease is
+                      attempted; ignored for CPU. Set 0 to require limit strictly above usage.
+                    format: int32
+                    maximum: 100
+                    minimum: 0
+                    type: integer
                   maxAllowed:
                     anyOf:
                     - type: integer
@@ -2000,6 +2208,20 @@ spec:
                   when debugging unexpected behavior. The operator sets Ready=False
                   with reason=Paused while this field is true.
                 type: boolean
+              runtimeProfile:
+                description: |-
+                  RuntimeProfile applies language/runtime-oriented defaults for memory
+                  resize safety. Unset or "generic" leaves policy fields unchanged.
+                  Profiles document recommended resizePolicy and decrease settings;
+                  they do not auto-patch pod specs. Supported values: generic, java,
+                  python, golang, nodejs.
+                enum:
+                - generic
+                - java
+                - python
+                - golang
+                - nodejs
+                type: string
               targetRef:
                 description: TargetRef identifies the workload(s) to be attuned.
                 properties:
@@ -2115,6 +2337,77 @@ spec:
                         description: ConfigMap enables exporting recommendations to
                           ConfigMaps.
                         type: boolean
+                      pullRequest:
+                        description: |-
+                          PullRequest enables opt-in GitOps PR automation (default off).
+                          Requires a token Secret and repository identity. Never logs the token.
+                        properties:
+                          apiUrl:
+                            description: |-
+                              APIURL overrides the API base URL (Enterprise GitHub or self-hosted GitLab).
+                              Defaults: https://api.github.com or https://gitlab.com/api/v4.
+                            type: string
+                          baseBranch:
+                            description: BaseBranch is the PR target branch. Defaults
+                              to "main".
+                            type: string
+                          cooldown:
+                            description: |-
+                              Cooldown is the minimum time between PR create/update attempts for this
+                              policy. Defaults to 24h.
+                            type: string
+                          dryRun:
+                            description: |-
+                              DryRun logs the intended PR and updates status without calling the
+                              remote API. Useful for CI and first enablement.
+                            type: boolean
+                          enabled:
+                            description: Enabled turns on PR automation. Default false.
+                            type: boolean
+                          labels:
+                            description: Labels are applied to the pull request when
+                              supported by the provider.
+                            items:
+                              type: string
+                            maxItems: 20
+                            type: array
+                          minChangePercent:
+                            description: |-
+                              MinChangePercent is the minimum absolute percent change (per container
+                              resource vs template) required to open or update a PR. Defaults to 10.
+                            format: int32
+                            maximum: 100
+                            minimum: 1
+                            type: integer
+                          provider:
+                            description: Provider is "github" or "gitlab". Default
+                              "github".
+                            enum:
+                            - github
+                            - gitlab
+                            type: string
+                          repository:
+                            description: |-
+                              Repository is "owner/name" (GitHub) or "group/project" (GitLab path).
+                              Required when Enabled is true.
+                            type: string
+                          tokenSecretRef:
+                            description: |-
+                              TokenSecretRef references a Secret key holding a PAT / project token.
+                              GitHub: repo contents + pull requests. GitLab: api scope on the project.
+                              Required when Enabled is true.
+                            properties:
+                              key:
+                                description: Key within the Secret.
+                                type: string
+                              name:
+                                description: Name of the Secret.
+                                type: string
+                            required:
+                            - key
+                            - name
+                            type: object
+                        type: object
                     type: object
                   initialSizing:
                     description: |-
@@ -2881,7 +3174,8 @@ spec:
                         Reason explains why the resize was reverted or failed.
                         Only populated when Result is Reverted or Failed.
                         Values include: oomkill, restart, notready, throttle,
-                        annotation-conflict, immediate-safety-check, slo:<name>.
+                        annotation-conflict, immediate-safety-check, slo:<name>,
+                        infeasible (kubelet Infeasible / InPlaceOnly skip).
                       type: string
                     resource:
                       description: |-
@@ -2963,6 +3257,17 @@ spec:
                     description: MemoryRequestTotal is the total current memory requests
                       across all workloads (e.g. "2Gi").
                     type: string
+                  reclaimedCpuRequest:
+                    description: |-
+                      ReclaimedCPURequest is estimated freeable CPU request capacity if recommended
+                      decreases were applied (same quantity as cpuRequestReduction). Preferred field
+                      name for bin-packing and cluster-autoscaler capacity planning.
+                    type: string
+                  reclaimedMemoryRequest:
+                    description: |-
+                      ReclaimedMemoryRequest is estimated freeable memory request capacity if
+                      recommended decreases were applied (same quantity as memoryRequestReduction).
+                    type: string
                 type: object
               workloadErrors:
                 description: |-
@@ -2999,9 +3304,23 @@ spec:
                       generating recommendations (from metricsSource.minimumDataPoints).
                     format: int32
                     type: integer
+                  deferred:
+                    description: |-
+                      Deferred is the number of pods whose in-place resize is Deferred by the
+                      kubelet (node cannot accept the change yet). Retried automatically when
+                      the condition clears on a later reconcile.
+                    format: int32
+                    type: integer
                   discovered:
                     description: Discovered is the number of workloads matching the
                       target selector.
+                    format: int32
+                    type: integer
+                  infeasible:
+                    description: |-
+                      Infeasible is the number of pods whose in-place resize is Infeasible on
+                      the current node. With resizeMethod InPlaceOnly these pods are skipped;
+                      with InPlaceOrRecreate the operator may fall back to eviction.
                     format: int32
                     type: integer
                   pending:

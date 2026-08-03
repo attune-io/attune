@@ -6,6 +6,7 @@ package controller
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -93,4 +94,156 @@ func TestReconcileGitOpsPullRequest_DryRun(t *testing.T) {
 		}
 	}
 	assert.True(t, found)
+}
+
+func TestReconcileGitOpsPullRequest_NilUpdateStrategy(t *testing.T) {
+	t.Parallel()
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "p", Namespace: "default"},
+	}
+	r := NewAttunePolicyReconciler()
+	// Must not panic when UpdateStrategy is nil (defensive for tests/callers).
+	r.reconcileGitOpsPullRequest(context.Background(), policy, nil, nil)
+	var found bool
+	for _, cond := range policy.Status.Conditions {
+		if cond.Type == attunev1alpha1.ConditionGitOpsPullRequest {
+			found = true
+			assert.Equal(t, attunev1alpha1.ReasonGitOpsPRDisabled, cond.Reason)
+		}
+	}
+	assert.True(t, found)
+}
+
+func TestReconcileGitOpsPullRequest_NoDrift(t *testing.T) {
+	t.Parallel()
+	en := true
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "p", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Export: &attunev1alpha1.ExportConfig{
+					PullRequest: &attunev1alpha1.GitOpsPullRequestConfig{
+						Enabled:    &en,
+						Repository: "org/repo",
+						TokenSecretRef: &attunev1alpha1.SecretKeyRef{
+							Name: "tok", Key: "token",
+						},
+					},
+				},
+			},
+		},
+	}
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "default"},
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name: "app",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("500m"),
+							},
+						},
+					}},
+				},
+			},
+		},
+	}
+	recs := []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "api", Kind: "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "app",
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest: resource.MustParse("480m"), // 4% < default 10%
+			},
+		}},
+	}}
+	r := NewAttunePolicyReconciler()
+	r.reconcileGitOpsPullRequest(context.Background(), policy, []client.Object{dep}, recs)
+	var reason string
+	for _, cond := range policy.Status.Conditions {
+		if cond.Type == attunev1alpha1.ConditionGitOpsPullRequest {
+			reason = cond.Reason
+		}
+	}
+	assert.Equal(t, attunev1alpha1.ReasonGitOpsPRNoDrift, reason)
+}
+
+func TestReconcileGitOpsPullRequest_Cooldown(t *testing.T) {
+	t.Parallel()
+	en := true
+	dry := true
+	fixed := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "p",
+			Namespace: "default",
+			Annotations: map[string]string{
+				// 1h before fixed clock; default cooldown 24h → blocked
+				annotationGitOpsPRLastAttempt: fixed.Add(-1 * time.Hour).Format(time.RFC3339),
+			},
+		},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Export: &attunev1alpha1.ExportConfig{
+					PullRequest: &attunev1alpha1.GitOpsPullRequestConfig{
+						Enabled:    &en,
+						DryRun:     &dry,
+						Repository: "org/repo",
+						TokenSecretRef: &attunev1alpha1.SecretKeyRef{
+							Name: "tok", Key: "token",
+						},
+					},
+				},
+			},
+		},
+	}
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "default"},
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name: "app",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("1"),
+							},
+						},
+					}},
+				},
+			},
+		},
+	}
+	recs := []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "api", Kind: "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "app",
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest: resource.MustParse("100m"),
+			},
+		}},
+	}}
+	r := NewAttunePolicyReconciler()
+	r.SetNowFunc(func() time.Time { return fixed })
+	r.reconcileGitOpsPullRequest(context.Background(), policy, []client.Object{dep}, recs)
+	var reason string
+	for _, cond := range policy.Status.Conditions {
+		if cond.Type == attunev1alpha1.ConditionGitOpsPullRequest {
+			reason = cond.Reason
+		}
+	}
+	assert.Equal(t, attunev1alpha1.ReasonGitOpsPRCooldown, reason)
+}
+
+func TestTouchGitOpsPRAnnotation_UsesReconcilerClock(t *testing.T) {
+	t.Parallel()
+	fixed := time.Date(2026, 1, 15, 10, 30, 0, 0, time.UTC)
+	r := NewAttunePolicyReconciler()
+	r.SetNowFunc(func() time.Time { return fixed })
+	policy := &attunev1alpha1.AttunePolicy{ObjectMeta: metav1.ObjectMeta{Name: "p", Namespace: "ns"}}
+	r.touchGitOpsPRAnnotation(policy, "https://example.com/pr/1")
+	assert.Equal(t, fixed.Format(time.RFC3339), policy.Annotations[annotationGitOpsPRLastAttempt])
+	assert.Equal(t, "https://example.com/pr/1", policy.Annotations[annotationGitOpsPRURL])
 }

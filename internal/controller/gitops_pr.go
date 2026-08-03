@@ -54,7 +54,9 @@ func (r *AttunePolicyReconciler) reconcileGitOpsPullRequest(
 	recs []attunev1alpha1.WorkloadRecommendation,
 ) {
 	logger := log.FromContext(ctx)
-	if !gitopsPREnabled(policy.Spec.UpdateStrategy.Export) {
+	// Defensive: defaults normally set UpdateStrategy, but unit tests and
+	// future callers may invoke this without applying defaults first.
+	if policy.Spec.UpdateStrategy == nil || !gitopsPREnabled(policy.Spec.UpdateStrategy.Export) {
 		setGitOpsPRCondition(policy, metav1.ConditionFalse, attunev1alpha1.ReasonGitOpsPRDisabled, "GitOps pull request automation is disabled")
 		return
 	}
@@ -71,6 +73,8 @@ func (r *AttunePolicyReconciler) reconcileGitOpsPullRequest(
 	}
 	drifts := gitops.ComputeDrift(workloads, recs, minPct)
 	if len(drifts) == 0 {
+		logger.V(1).Info("GitOps PR skipped: no drift above threshold",
+			"minChangePercent", minPct, "workloads", len(workloads), "recommendations", len(recs))
 		setGitOpsPRCondition(policy, metav1.ConditionFalse, attunev1alpha1.ReasonGitOpsPRNoDrift,
 			"No recommendation drift above minChangePercent vs templates")
 		return
@@ -82,8 +86,11 @@ func (r *AttunePolicyReconciler) reconcileGitOpsPullRequest(
 	}
 	if last, ok := policy.Annotations[annotationGitOpsPRLastAttempt]; ok {
 		if t, err := time.Parse(time.RFC3339, last); err == nil && r.now().Sub(t) < cooldown {
+			until := t.Add(cooldown).UTC()
+			logger.V(1).Info("GitOps PR skipped: cooldown active",
+				"until", until.Format(time.RFC3339), "lastAttempt", last)
 			setGitOpsPRCondition(policy, metav1.ConditionFalse, attunev1alpha1.ReasonGitOpsPRCooldown,
-				fmt.Sprintf("Cooldown active until %s", t.Add(cooldown).UTC().Format(time.RFC3339)))
+				fmt.Sprintf("Cooldown active until %s", until.Format(time.RFC3339)))
 			return
 		}
 	}
@@ -106,7 +113,7 @@ func (r *AttunePolicyReconciler) reconcileGitOpsPullRequest(
 			"head", head, "base", base, "driftCount", len(drifts))
 		setGitOpsPRCondition(policy, metav1.ConditionTrue, attunev1alpha1.ReasonGitOpsPRDryRun,
 			fmt.Sprintf("Dry-run: would open/update PR on %s (%d drifted resources)", cfg.Repository, len(drifts)))
-		touchGitOpsPRAnnotation(policy, "")
+		r.touchGitOpsPRAnnotation(policy, "")
 		r.persistGitOpsPRAnnotations(ctx, policy)
 		operatormetrics.GitOpsPRTotal.WithLabelValues(policy.Namespace, policy.Name, "dry_run").Inc()
 		return
@@ -148,7 +155,7 @@ func (r *AttunePolicyReconciler) reconcileGitOpsPullRequest(
 		setGitOpsPRCondition(policy, metav1.ConditionFalse, attunev1alpha1.ReasonGitOpsPRFailed,
 			fmt.Sprintf("PR API error: %v", err))
 		operatormetrics.GitOpsPRTotal.WithLabelValues(policy.Namespace, policy.Name, "failed").Inc()
-		touchGitOpsPRAnnotation(policy, "")
+		r.touchGitOpsPRAnnotation(policy, "")
 		r.persistGitOpsPRAnnotations(ctx, policy)
 		return
 	}
@@ -161,7 +168,7 @@ func (r *AttunePolicyReconciler) reconcileGitOpsPullRequest(
 		operatormetrics.GitOpsPRTotal.WithLabelValues(policy.Namespace, policy.Name, "created").Inc()
 	}
 	setGitOpsPRCondition(policy, metav1.ConditionTrue, attunev1alpha1.ReasonGitOpsPROpen, msg)
-	touchGitOpsPRAnnotation(policy, res.URL)
+	r.touchGitOpsPRAnnotation(policy, res.URL)
 	r.persistGitOpsPRAnnotations(ctx, policy)
 }
 
@@ -192,11 +199,13 @@ func setGitOpsPRCondition(policy *attunev1alpha1.AttunePolicy, status metav1.Con
 	}
 }
 
-func touchGitOpsPRAnnotation(policy *attunev1alpha1.AttunePolicy, url string) {
+// touchGitOpsPRAnnotation records last attempt using the reconciler clock so
+// cooldown checks (r.now()) stay consistent under tests with a fake clock.
+func (r *AttunePolicyReconciler) touchGitOpsPRAnnotation(policy *attunev1alpha1.AttunePolicy, url string) {
 	if policy.Annotations == nil {
 		policy.Annotations = map[string]string{}
 	}
-	policy.Annotations[annotationGitOpsPRLastAttempt] = time.Now().UTC().Format(time.RFC3339)
+	policy.Annotations[annotationGitOpsPRLastAttempt] = r.now().UTC().Format(time.RFC3339)
 	if url != "" {
 		policy.Annotations[annotationGitOpsPRURL] = url
 	}

@@ -117,6 +117,15 @@ func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (a
 		if pr.Provider != "" && pr.Provider != "github" && pr.Provider != "gitlab" {
 			return warnings, fmt.Errorf("updateStrategy.export.pullRequest.provider must be github or gitlab")
 		}
+		// apiUrl is optional (defaults to github.com / gitlab.com). When set,
+		// apply the same SSRF host checks as Prometheus addresses so a
+		// malicious policy cannot aim the operator's bearer token at cloud
+		// metadata or loopback endpoints.
+		if pr.APIURL != "" {
+			if err := validation.PrometheusAddress(pr.APIURL); err != nil {
+				return warnings, fmt.Errorf("updateStrategy.export.pullRequest.apiUrl: %w", err)
+			}
+		}
 	}
 
 	// Validate canary observation period has a minimum floor.

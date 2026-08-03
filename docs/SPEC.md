@@ -1494,7 +1494,7 @@ attune/
 - [x] kubectl plugin (via krew)
 - [x] Datadog/CloudWatch metrics support
 - [x] Memory decrease support (with gradual decrease)
-- [ ] Multi-cluster aggregated reporting
+- [x] Multi-cluster aggregated reporting (Phase A/B: federation docs, fleet Grafana dashboard, recording rules, fleet report ConfigMap + collect script; hub control plane deferred)
 - [ ] CNCF Sandbox application
 - [ ] KubeCon talk proposal
 - [ ] ADOPTERS.md with real organizations
