@@ -52,8 +52,12 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 
+# Bash 3.2-compatible (macOS /bin/bash): avoid mapfile.
+CTX_LIST=()
 if [[ "$ALL_CONTEXTS" -eq 1 ]]; then
-  mapfile -t CTX_LIST < <(kubectl config get-contexts -o name)
+  while IFS= read -r line; do
+    [[ -n "$line" ]] && CTX_LIST+=("$line")
+  done < <(kubectl config get-contexts -o name)
 elif [[ -n "$CONTEXTS" ]]; then
   IFS=',' read -r -a CTX_LIST <<< "$CONTEXTS"
 else

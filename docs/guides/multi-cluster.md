@@ -308,7 +308,7 @@ Example org PromQL:
 
 ```promql
 # Resizes succeeded across the fleet (last hour)
-sum(increase(attune:resize:rate5m{result="success"}[1h]))
+sum(increase(attune_resize_total{result="success"}[1h]))
 
 # Estimated monthly savings by cluster (approximate)
 sum by (cluster) (attune:savings:estimated_monthly_dollars)
@@ -347,7 +347,7 @@ The leader writes a ConfigMap labeled `attune.io/fleet-report=true` with:
 | `clusterId` | string | Optional stable id |
 | `generatedAt` | timestamp | When the report was built |
 | `policyCount` | int | Number of AttunePolicy objects |
-| `policiesByMode` | map | Counts by update strategy type |
+| `policiesByMode` | map | Counts by stored `updateStrategy.type` (empty type counted as `Recommend`) |
 | `readyTrue` / `readyFalse` | int | Ready condition counts |
 | `insufficientData` | int | Policies blocked on data |
 | `workloadsDiscovered` | int | Sum of discovered workloads |
@@ -359,6 +359,13 @@ The leader writes a ConfigMap labeled `attune.io/fleet-report=true` with:
 
 Collectors must ignore unknown fields. Metric:
 `attune_fleet_report_export_total{result="success|failed"}`.
+
+If the operator is scoped with `--watch-namespaces` / `watchNamespaces`, the
+report only includes policies in watched namespaces (partial cluster view).
+For a full-cluster report, leave watchNamespaces empty.
+
+With HA (`replicaCount` > 1), enable leader election so only one pod writes
+the ConfigMap.
 
 ### Collect reports from N clusters
 

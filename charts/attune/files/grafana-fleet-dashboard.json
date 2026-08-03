@@ -29,7 +29,8 @@
         "current": {
           "text": "All",
           "value": "$__all"
-        }
+        },
+        "description": "Requires Prometheus external_labels.cluster. Use All when unset."
       }
     ]
   },
@@ -50,7 +51,8 @@
           "legendFormat": "{{cluster}}",
           "refId": "A"
         }
-      ]
+      ],
+      "description": "Requires Prometheus external_labels.cluster on each cluster scrape. Without that label, panels may be empty; set cluster identity or use per-cluster dashboard."
     },
     {
       "id": 2,
@@ -155,7 +157,7 @@
       "targets": [
         {
           "expr": "sum(rate(attune_fleet_report_export_total{result=\"failed\"}[5m]))",
-          "legendFormat": "{{cluster}}",
+          "legendFormat": "failures",
           "refId": "A"
         }
       ]
@@ -173,7 +175,7 @@
       "targets": [
         {
           "expr": "sum by (result) (rate(attune_resize_total{cluster=~\"$cluster\"}[5m]))",
-          "legendFormat": "{{cluster}}",
+          "legendFormat": "{{result}}",
           "refId": "A"
         }
       ]

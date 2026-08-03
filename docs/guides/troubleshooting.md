@@ -460,6 +460,31 @@ Common causes:
 - **notready**: readiness probe fails post-resize. Verify probe configuration.
 - **slo:&lt;name&gt;**: an SLO guardrail query breached its threshold after resize. Review the guardrail's PromQL query and threshold in `updateStrategy.sloGuardrails`.
 
+### Fleet report export failures or empty fleet dashboard
+
+**Symptom**: `attune_fleet_report_export_total{result="failed"}` increases, or
+the fleet Grafana dashboard shows no series when filtering by cluster.
+
+**Cause**:
+
+1. Fleet report is disabled (default) or the ConfigMap write failed (RBAC /
+   wrong namespace).
+2. Federated dashboards require Prometheus `external_labels.cluster` on each
+   cluster scrape. Without that label, `cluster=~"$cluster"` panels stay empty.
+3. Operator `watchNamespaces` is set, so the report only includes a subset of
+   policies.
+
+**Fix**:
+
+1. Enable export: Helm `fleetReport.enabled=true` (or `--fleet-report-enabled`).
+2. Check the ConfigMap: `kubectl -n <release-ns> get cm attune-fleet-report -o yaml`
+3. Set `global.external_labels.cluster` on each Prometheus; reload federation.
+4. Use leader election with HA when fleet report is enabled.
+
+```promql
+sum(rate(attune_fleet_report_export_total{result="failed"}[5m]))
+```
+
 ### Resize skipped for node capacity or pressure
 
 **Symptom**: Events show `ResizeSkipped` with "exceed node allocatable" or

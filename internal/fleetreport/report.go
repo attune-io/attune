@@ -26,6 +26,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
@@ -51,7 +52,9 @@ type Report struct {
 	GeneratedAt time.Time `json:"generatedAt"`
 	// PolicyCount is the number of AttunePolicy objects in the cluster.
 	PolicyCount int `json:"policyCount"`
-	// PoliciesByMode counts policies by updateStrategy.type (effective or set).
+	// PoliciesByMode counts policies by updateStrategy.type from stored Spec
+	// (not AttuneDefaults merge). Empty type is counted as "Recommend" to match
+	// the built-in default when unset.
 	PoliciesByMode map[string]int `json:"policiesByMode"`
 	// ReadyTrue / ReadyFalse count policies by Ready condition status.
 	ReadyTrue  int `json:"readyTrue"`
@@ -84,7 +87,7 @@ func Build(policies []attunev1alpha1.AttunePolicy, clusterID string, now time.Ti
 	}
 	for i := range policies {
 		p := &policies[i]
-		mode := "unset"
+		mode := string(attunev1alpha1.DefaultUpdateType) // Recommend when unset on Spec
 		if p.Spec.UpdateStrategy != nil && p.Spec.UpdateStrategy.Type != "" {
 			mode = string(p.Spec.UpdateStrategy.Type)
 		}
@@ -185,20 +188,11 @@ func parseCPUMilli(s string) (int64, bool) {
 	if s == "" {
 		return 0, false
 	}
-	// resource.ParseQuantity is ideal but keep dependency light via simple paths.
-	if strings.HasSuffix(s, "m") {
-		v, err := strconv.ParseInt(strings.TrimSuffix(s, "m"), 10, 64)
-		if err != nil {
-			return 0, false
-		}
-		return v, true
-	}
-	// cores as float or int
-	f, err := strconv.ParseFloat(s, 64)
+	q, err := resource.ParseQuantity(s)
 	if err != nil {
 		return 0, false
 	}
-	return int64(f * 1000), true
+	return q.MilliValue(), true
 }
 
 func parseMemoryBytes(s string) (int64, bool) {
@@ -206,30 +200,9 @@ func parseMemoryBytes(s string) (int64, bool) {
 	if s == "" {
 		return 0, false
 	}
-	// Prefer k8s quantity parsing via a tiny local approach:
-	// support Mi, Gi, Ki, M, G, plain bytes.
-	mult := int64(1)
-	num := s
-	switch {
-	case strings.HasSuffix(s, "Gi"):
-		mult = 1024 * 1024 * 1024
-		num = strings.TrimSuffix(s, "Gi")
-	case strings.HasSuffix(s, "Mi"):
-		mult = 1024 * 1024
-		num = strings.TrimSuffix(s, "Mi")
-	case strings.HasSuffix(s, "Ki"):
-		mult = 1024
-		num = strings.TrimSuffix(s, "Ki")
-	case strings.HasSuffix(s, "G"):
-		mult = 1000 * 1000 * 1000
-		num = strings.TrimSuffix(s, "G")
-	case strings.HasSuffix(s, "M"):
-		mult = 1000 * 1000
-		num = strings.TrimSuffix(s, "M")
-	}
-	f, err := strconv.ParseFloat(num, 64)
+	q, err := resource.ParseQuantity(s)
 	if err != nil {
 		return 0, false
 	}
-	return int64(f * float64(mult)), true
+	return q.Value(), true
 }

@@ -129,6 +129,14 @@ For detailed PromQL expressions and alert tuning, see the
 |-----|------|---------|-------------|
 | `grafanaDashboard.enabled` | bool | `false` | Create a ConfigMap with the Grafana dashboard. Auto-discovered by the Grafana sidecar via the `grafana_dashboard: "1"` label. |
 | `grafanaDashboard.additionalLabels` | object | `{}` | Extra labels for the dashboard ConfigMap (e.g., folder selection). |
+| `grafanaFleetDashboard.enabled` | bool | `false` | Create a multi-cluster fleet Grafana dashboard ConfigMap (`cluster` variable). Requires Prometheus `external_labels.cluster`. See [Fleet observability](../guides/multi-cluster.md#fleet-observability-with-federated-prometheus). |
+| `grafanaFleetDashboard.additionalLabels` | object | `{}` | Extra labels for the fleet dashboard ConfigMap. |
+| `metrics.prometheusRule.fleetRecordingRules.enabled` | bool | `false` | Emit `attune:*` recording rules for org-wide PromQL rollups (safe when `cluster` label is empty). |
+| `fleetReport.enabled` | bool | `false` | Periodically write a versioned fleet summary ConfigMap for multi-cluster collectors. |
+| `fleetReport.configMapName` | string | `attune-fleet-report` | Fleet report ConfigMap name. |
+| `fleetReport.namespace` | string | `""` | ConfigMap namespace (empty = release namespace). |
+| `fleetReport.clusterId` | string | `""` | Optional stable cluster id written into the report. |
+| `fleetReport.interval` | string | `5m` | Refresh interval for the fleet report. |
 
 ## Network Policy
 
