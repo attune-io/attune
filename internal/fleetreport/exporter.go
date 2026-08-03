@@ -113,6 +113,9 @@ func (e *Exporter) applyConfigMap(ctx context.Context, desired *corev1.ConfigMap
 	if err != nil {
 		return fmt.Errorf("get: %w", err)
 	}
+	// Merge patch avoids 409 when concurrent writers touch labels/annotations
+	// (same pattern as recommendation ConfigMap export).
+	base := existing.DeepCopy()
 	existing.Data = desired.Data
 	if existing.Labels == nil {
 		existing.Labels = map[string]string{}
@@ -120,8 +123,8 @@ func (e *Exporter) applyConfigMap(ctx context.Context, desired *corev1.ConfigMap
 	for k, v := range desired.Labels {
 		existing.Labels[k] = v
 	}
-	if err := e.Client.Update(ctx, &existing); err != nil {
-		return fmt.Errorf("update: %w", err)
+	if err := e.Client.Patch(ctx, &existing, client.MergeFrom(base)); err != nil {
+		return fmt.Errorf("patch: %w", err)
 	}
 	return nil
 }

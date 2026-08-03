@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -160,6 +161,103 @@ func TestComputeDrift_StatefulSetAndDaemonSet(t *testing.T) {
 	}
 	assert.True(t, kinds["StatefulSet"], "expected StatefulSet drift")
 	assert.True(t, kinds["DaemonSet"], "expected DaemonSet drift")
+}
+
+func TestComputeDrift_CronJobJobReplicaSet(t *testing.T) {
+	t.Parallel()
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{Name: "batch"},
+		Spec: batchv1.JobSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name: "worker",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("1"),
+							},
+						},
+					}},
+				},
+			},
+		},
+	}
+	cj := &batchv1.CronJob{
+		ObjectMeta: metav1.ObjectMeta{Name: "nightly"},
+		Spec: batchv1.CronJobSpec{
+			JobTemplate: batchv1.JobTemplateSpec{
+				Spec: batchv1.JobSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{
+								Name: "job",
+								Resources: corev1.ResourceRequirements{
+									Requests: corev1.ResourceList{
+										corev1.ResourceMemory: resource.MustParse("512Mi"),
+									},
+								},
+							}},
+						},
+					},
+				},
+			},
+		},
+	}
+	rs := &appsv1.ReplicaSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "rs"},
+		Spec: appsv1.ReplicaSetSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name: "app",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("500m"),
+							},
+						},
+					}},
+				},
+			},
+		},
+	}
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "batch", Kind: "Job",
+			Containers: []attunev1alpha1.ContainerRecommendation{{
+				Name: "worker",
+				Recommended: attunev1alpha1.ResourceValues{
+					CPURequest: resource.MustParse("250m"),
+				},
+			}},
+		},
+		{
+			Workload: "nightly", Kind: "CronJob",
+			Containers: []attunev1alpha1.ContainerRecommendation{{
+				Name: "job",
+				Recommended: attunev1alpha1.ResourceValues{
+					MemoryRequest: resource.MustParse("128Mi"),
+				},
+			}},
+		},
+		{
+			Workload: "rs", Kind: "ReplicaSet",
+			Containers: []attunev1alpha1.ContainerRecommendation{{
+				Name: "app",
+				Recommended: attunev1alpha1.ResourceValues{
+					CPURequest: resource.MustParse("100m"),
+				},
+			}},
+		},
+	}
+	d := ComputeDrift([]client.Object{job, cj, rs}, recs, 10)
+	require.Len(t, d, 3)
+	kinds := map[string]bool{}
+	for _, x := range d {
+		kinds[x.Kind] = true
+	}
+	assert.True(t, kinds["Job"], "expected Job drift")
+	assert.True(t, kinds["CronJob"], "expected CronJob drift")
+	assert.True(t, kinds["ReplicaSet"], "expected ReplicaSet drift")
 }
 
 func TestComputeDrift_ZeroTemplateRequestIsFullDrift(t *testing.T) {

@@ -77,6 +77,12 @@ tests:
       - equal:
           path: spec.groups[0].rules[13].labels.severity
           value: info
+      - matchRegex:
+          path: spec.groups[0].rules[13].expr
+          pattern: "attune_memory_limit_decrease_total"
+      - matchRegex:
+          path: spec.groups[0].rules[13].expr
+          pattern: "clamped_usage\\|skipped_unsafe"
 
   - it: should omit gitops PR alert when disabled
     set:

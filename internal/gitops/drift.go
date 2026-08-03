@@ -24,6 +24,7 @@ import (
 	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -193,6 +194,12 @@ func podTemplateSpec(w client.Object) *corev1.PodTemplateSpec {
 		return &o.Spec.Template
 	case *appsv1.DaemonSet:
 		return &o.Spec.Template
+	case *appsv1.ReplicaSet:
+		return &o.Spec.Template
+	case *batchv1.Job:
+		return &o.Spec.Template
+	case *batchv1.CronJob:
+		return &o.Spec.JobTemplate.Spec.Template
 	default:
 		return nil
 	}
@@ -210,6 +217,12 @@ func workloadKind(w client.Object) string {
 		return "StatefulSet"
 	case *appsv1.DaemonSet:
 		return "DaemonSet"
+	case *appsv1.ReplicaSet:
+		return "ReplicaSet"
+	case *batchv1.Job:
+		return "Job"
+	case *batchv1.CronJob:
+		return "CronJob"
 	default:
 		return "Workload"
 	}
