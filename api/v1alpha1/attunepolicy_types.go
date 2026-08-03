@@ -991,6 +991,17 @@ type SavingsStatus struct {
 	// under-provisioned workloads based on configured or default pricing (e.g. "$5.00").
 	// +optional
 	EstimatedMonthlyCostIncrease string `json:"estimatedMonthlyCostIncrease,omitempty"`
+
+	// ReclaimedCPURequest is estimated freeable CPU request capacity if recommended
+	// decreases were applied (same quantity as cpuRequestReduction). Preferred field
+	// name for bin-packing and cluster-autoscaler capacity planning.
+	// +optional
+	ReclaimedCPURequest string `json:"reclaimedCpuRequest,omitempty"`
+
+	// ReclaimedMemoryRequest is estimated freeable memory request capacity if
+	// recommended decreases were applied (same quantity as memoryRequestReduction).
+	// +optional
+	ReclaimedMemoryRequest string `json:"reclaimedMemoryRequest,omitempty"`
 }
 
 // +kubebuilder:object:root=true

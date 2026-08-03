@@ -43,3 +43,38 @@ node shapes for the pool.
 - [Multi-cluster](multi-cluster.md) for fleet dashboards
 - [Scaling guide](scaling.md) for operator sizing
 - [HPA coexistence](hpa-coexistence.md)
+
+## Reclaimed capacity signals
+
+After each reconcile (non-Observe modes), Attune estimates freeable **request**
+capacity if recommended decreases were applied:
+
+| Surface | Field / metric |
+|---------|----------------|
+| Status | `status.savings.reclaimedCpuRequest`, `reclaimedMemoryRequest` |
+| Status (legacy names) | `cpuRequestReduction`, `memoryRequestReduction` |
+| Prometheus | `attune_reclaimed_request_cpu_cores{namespace,policy}` |
+| Prometheus | `attune_reclaimed_request_memory_bytes{namespace,policy}` |
+| Prometheus (namespace totals) | `attune_savings_cpu_cores_total`, `attune_savings_memory_bytes_total` |
+
+### Using with cluster autoscalers
+
+1. Prefer Attune in Recommend or Canary until reclaimed capacity is stable.
+2. Feed reclaimed metrics into capacity dashboards (Grafana panel
+   "Reclaimed request capacity").
+3. Let Cluster Autoscaler / Karpenter consolidate on **their** disruption
+   budgets; do not trigger node delete from Attune.
+4. Cross-check node pressure skips (`attune_capacity_skip_total`) so you do
+   not interpret "no resize" as "no savings opportunity."
+
+### Phase B design (optional export for consolidation controllers)
+
+Future opt-in work (not required for Phase A):
+
+- Annotate or export a small ConfigMap per namespace with aggregate
+  `reclaimedCpu` / `reclaimedMemory` and policy generation for external
+  consolidation controllers to scrape without Prometheus.
+- No hard dependency on a vendor autoscaler API in Attune core.
+
+See also [node capacity formulas](../architecture/node-capacity.md).
+

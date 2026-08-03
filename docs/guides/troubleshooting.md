@@ -460,6 +460,27 @@ Common causes:
 - **notready**: readiness probe fails post-resize. Verify probe configuration.
 - **slo:&lt;name&gt;**: an SLO guardrail query breached its threshold after resize. Review the guardrail's PromQL query and threshold in `updateStrategy.sloGuardrails`.
 
+### Resize skipped for node capacity or pressure
+
+**Symptom**: Events show `ResizeSkipped` with "exceed node allocatable" or
+"node has MemoryPressure/DiskPressure/PIDPressure", and
+`attune_capacity_skip_total` increments.
+
+**Cause**: Always-on safety gates refuse request **increases** that would
+make this pod's total requests exceed the node's allocatable, or that would
+raise requests while the node is under pressure. Decreases still proceed.
+
+**Fix**:
+
+1. Free capacity on the node (evict low-priority pods) or move the workload.
+2. Lower `maxAllowed` / change caps so recommendations fit typical node shapes.
+3. For DaemonSets, size against the **smallest** node pool that runs them.
+4. Inspect formulas in [Node capacity](../architecture/node-capacity.md).
+
+```promql
+sum by (namespace, policy, reason) (rate(attune_capacity_skip_total[1h]))
+```
+
 ### OOM after memory limit decrease
 
 **Symptom**: After enabling memory decreases (`memory.allowDecrease: true`

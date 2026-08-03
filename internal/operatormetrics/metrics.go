@@ -288,6 +288,36 @@ var (
 		},
 		[]string{"namespace", "policy", "result"},
 	)
+
+	// CapacitySkipTotal counts resize skips due to node capacity or pressure.
+	// reason: allocatable (pod requests would exceed node allocatable),
+	// pressure (MemoryPressure/DiskPressure/PIDPressure blocks increases).
+	CapacitySkipTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "attune_capacity_skip_total",
+			Help: "Resize skips due to node allocatable headroom or pressure conditions",
+		},
+		[]string{"namespace", "policy", "reason"},
+	)
+
+	// ReclaimedRequestCPU is freeable CPU request cores if recommended decreases apply.
+	// Same quantity as savings CPU reduction; named for bin-packing / CA capacity planning.
+	ReclaimedRequestCPU = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "attune_reclaimed_request_cpu_cores",
+			Help: "Estimated freeable CPU request cores from recommended decreases (bin-packing signal)",
+		},
+		[]string{"namespace", "policy"},
+	)
+
+	// ReclaimedRequestMemory is freeable memory request bytes if recommended decreases apply.
+	ReclaimedRequestMemory = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "attune_reclaimed_request_memory_bytes",
+			Help: "Estimated freeable memory request bytes from recommended decreases (bin-packing signal)",
+		},
+		[]string{"namespace", "policy"},
+	)
 )
 
 // WebhookTimer tracks webhook operation duration and result.
@@ -348,5 +378,8 @@ func init() {
 		RevertFailuresTotal,
 		TemplatePatchTotal,
 		MemoryLimitDecreaseTotal,
+		CapacitySkipTotal,
+		ReclaimedRequestCPU,
+		ReclaimedRequestMemory,
 	)
 }

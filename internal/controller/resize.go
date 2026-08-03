@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -420,6 +421,7 @@ func (r *AttunePolicyReconciler) resizeContainer(
 				"pod", pod.Name, "container", containerRec.Name)
 			r.emitEventOnce(policy, corev1.EventTypeWarning, "ResizeSkipped", "resize",
 				"Resize blocked for pod %s container %s: %s", pod.Name, containerRec.Name, reason)
+			recordCapacitySkip(policy, reason)
 		} else {
 			// Determine whether the "already at target" came from a change
 			// filter suppression (the raw recommendation differed but the
@@ -958,6 +960,23 @@ func (r *AttunePolicyReconciler) shouldSkipResize(
 	}
 
 	return false, ""
+}
+
+// recordCapacitySkip increments capacity/pressure skip metrics when the skip
+// reason matches node headroom or pressure gates (#445).
+func recordCapacitySkip(policy *attunev1alpha1.AttunePolicy, reason string) {
+	if policy == nil || reason == "" {
+		return
+	}
+	switch {
+	case strings.Contains(reason, "exceed node allocatable"):
+		operatormetrics.CapacitySkipTotal.WithLabelValues(policy.Namespace, policy.Name, "allocatable").Inc()
+	case strings.Contains(reason, "MemoryPressure"),
+		strings.Contains(reason, "DiskPressure"),
+		strings.Contains(reason, "PIDPressure"),
+		strings.Contains(reason, "node pressure"):
+		operatormetrics.CapacitySkipTotal.WithLabelValues(policy.Namespace, policy.Name, "pressure").Inc()
+	}
 }
 
 // applyMemoryUsageFloor raises a decreasing memory limit so it stays above

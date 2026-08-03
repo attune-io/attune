@@ -85,9 +85,12 @@ func (r *AttunePolicyReconciler) computeSavings(recommendations []attunev1alpha1
 	}
 	if acc.totalCPUSaved > 0 {
 		savings.CPURequestReduction = resource.NewMilliQuantity(acc.totalCPUSaved, resource.DecimalSI).String()
+		// Alias for bin-packing / cluster-autoscaler capacity planning (#446).
+		savings.ReclaimedCPURequest = savings.CPURequestReduction
 	}
 	if acc.totalMemSaved > 0 {
 		savings.MemoryRequestReduction = resource.NewQuantity(acc.totalMemSaved, resource.BinarySI).String()
+		savings.ReclaimedMemoryRequest = savings.MemoryRequestReduction
 	}
 	if acc.totalCPUIncrease > 0 {
 		savings.CPURequestIncrease = resource.NewMilliQuantity(acc.totalCPUIncrease, resource.DecimalSI).String()
@@ -128,6 +131,14 @@ func updateSavingsGauges(namespace string, acc savingsAccumulator, defaults *att
 	cpuPrice, memPrice := getCostPricing(defaults)
 	monthlySavings := (cpuCoresSaved*cpuPrice + memGiBSaved*memPrice) * hoursPerMonth
 	operatormetrics.SavingsEstimatedMonthly.WithLabelValues(namespace).Set(monthlySavings)
+}
+
+// updateReclaimedCapacityGauges publishes freeable request capacity for
+// bin-packing / cluster-autoscaler feedback (#446). Labels include policy.
+func updateReclaimedCapacityGauges(namespace, policy string, acc savingsAccumulator) {
+	cpuCoresSaved := float64(acc.totalCPUSaved) / 1000.0
+	operatormetrics.ReclaimedRequestCPU.WithLabelValues(namespace, policy).Set(cpuCoresSaved)
+	operatormetrics.ReclaimedRequestMemory.WithLabelValues(namespace, policy).Set(float64(acc.totalMemSaved))
 }
 
 // getCostPricing reads pricing from AttuneDefaults, falling back to defaults.

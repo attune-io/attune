@@ -1174,6 +1174,72 @@
           "legendFormat": "patches"
         }
       ]
+    },
+    {
+      "id": 122,
+      "type": "timeseries",
+      "title": "Capacity / pressure resize skips",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 104
+      },
+      "targets": [
+        {
+          "expr": "sum by (reason) (rate(attune_capacity_skip_total[5m]))",
+          "legendFormat": "{{reason}}",
+          "refId": "A"
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      }
+    },
+    {
+      "id": 123,
+      "type": "stat",
+      "title": "Reclaimed request CPU (cores)",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 104
+      },
+      "targets": [
+        {
+          "expr": "sum(attune_reclaimed_request_cpu_cores)",
+          "legendFormat": "cpu",
+          "refId": "A"
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      }
+    },
+    {
+      "id": 124,
+      "type": "stat",
+      "title": "Reclaimed request memory (bytes)",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 104
+      },
+      "targets": [
+        {
+          "expr": "sum(attune_reclaimed_request_memory_bytes)",
+          "legendFormat": "memory",
+          "refId": "A"
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      }
     }
   ],
   "schemaVersion": 39,
