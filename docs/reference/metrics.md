@@ -240,7 +240,15 @@ under `updateStrategy.export.pullRequest`.
 sum by (namespace, policy, result) (rate(attune_gitops_pr_total[1h]))
 ```
 
-See [GitOps integration: pull request automation](../guides/gitops-integration.md#pull-request-automation-opt-in-phase-b).
+Failures (also used by the opt-in `AttuneGitOpsPRFailures` PrometheusRule when
+`metrics.prometheusRule` is enabled):
+
+```promql
+sum by (namespace, policy) (increase(attune_gitops_pr_total{result="failed"}[15m])) > 0
+```
+
+See [GitOps integration: pull request automation](../guides/gitops-integration.md#pull-request-automation-opt-in-phase-b)
+and [Troubleshooting: GitOps PR failing](../guides/troubleshooting.md#gitops-pr-failing).
 
 ### attune_memory_limit_decrease_total
 
@@ -265,6 +273,15 @@ decrease path and platform clamps on older clusters).
 sum by (namespace, policy, result) (
   rate(attune_memory_limit_decrease_total{result=~"clamped_usage|skipped_unsafe"}[1h])
 )
+```
+
+Alert sketch (opt-in `AttuneMemoryLimitUnsafe` when `metrics.prometheusRule` is
+enabled):
+
+```promql
+sum by (namespace, policy) (
+  rate(attune_memory_limit_decrease_total{result=~"clamped_usage|skipped_unsafe"}[1h])
+) > 0
 ```
 
 See [Troubleshooting: OOM after memory limit decrease](../guides/troubleshooting.md#oom-after-memory-limit-decrease).

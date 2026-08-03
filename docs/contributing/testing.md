@@ -142,6 +142,8 @@ make test-e2e-smoke
 | `test/e2e/startup-boost/` | (cross-cutting) | CPU startup boost is applied to new pods |
 | `test/e2e/configmap-export/` | (cross-cutting) | Recommendations are exported to a ConfigMap (`schema-version` + export-schema label) |
 | `test/e2e/fleet-report/` | (infra) | Fleet report ConfigMap is written when `fleetReport` is enabled in E2E Helm |
+| `test/e2e/gitops-pr-dry-run/` | (cross-cutting) | GitOps PR dry-run sets `PullRequestDryRun`/`PullRequestCooldown` without forge credentials |
+| `test/e2e/runtime-profile-defaults/` | (webhook + API) | `runtimeProfile: java` stored and accepted; java+allowDecrease warns at admission |
 | `test/e2e/prometheus-unreachable/` | (cross-cutting) | Handles unreachable Prometheus gracefully without crashing |
 | `test/e2e/grafana-dashboard/` | (helm) | Dashboard ConfigMap renders with `grafanaDashboard.enabled` |
 | `test/e2e/health-probes/` | (infra) | Liveness and readiness probes pass |
@@ -161,7 +163,8 @@ flake-prone or environment-specific:
 |------|-------------------------------------|------------------|
 | **Memory limit usage floor** | Needs controllable “recent usage” (recommendation raw percentile) while decreasing limits; real cgroup usage on pause pods is near zero and does not exercise the floor. Kubernetes 1.35+ limit-decrease behavior also varies by version. | `internal/resize/usage_floor_test.go`, `internal/controller/memory_usage_floor_test.go` |
 | **Node pressure / capacity skip** | Needs `MemoryPressure`/`DiskPressure` or allocatable exhaustion. Injecting real pressure on shared CI k3d nodes is flaky and slow. | `internal/controller/resize_pressure_test.go`, `internal/controller/capacity_skip_test.go` |
-| **GitOps PR live HTTP** | Must not call GitHub/GitLab from CI. Client and reconcile paths use fake HTTP / fake clients. | `internal/gitops/*_test.go`, `internal/controller/gitops_pr_test.go` |
+| **GitOps PR live HTTP** | Must not call GitHub/GitLab from CI. Client create/update paths use fake HTTP. Cluster e2e covers **dry-run** and missing-secret only (`test/e2e/gitops-pr-dry-run/`). | `internal/gitops/*_test.go`, `internal/controller/gitops_pr_test.go` |
+| **Runtime profile in-memory defaults** | Controller applies java overhead/allowDecrease only in-memory (not written back to the CR). Unit tests assert `ApplyRuntimeProfileDefaults`; Chainsaw asserts admission warnings + stored profile field. | `pkg/defaults/defaults_test.go`, `test/e2e/runtime-profile-defaults/` |
 
 When adding behavior in these areas, extend the unit tables first. Only
 add cluster e2e if you can inject the condition deterministically (for
