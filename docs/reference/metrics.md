@@ -210,6 +210,33 @@ to limits](../guides/troubleshooting.md#requests-clamped-to-limits).
 | `container` | Container name |
 | `resource` | `cpu` or `memory` |
 
+### attune_memory_limit_decrease_total
+
+Outcomes of memory **limit** decrease attempts (Kubernetes 1.35+ live
+decrease path and platform clamps on older clusters).
+
+| Label | Description |
+|-------|-------------|
+| `namespace` | Policy namespace |
+| `policy` | Policy name |
+| `result` | `applied`, `clamped_platform`, `clamped_usage`, or `skipped_unsafe` |
+
+| `result` | Meaning |
+|----------|---------|
+| `applied` | In-place resize applied a lower memory limit |
+| `clamped_platform` | Limit decrease blocked because cluster rejects NotRequired decreases (typically 1.33–1.34) |
+| `clamped_usage` | Target limit raised above recent usage + `decreaseUsageMarginPercent` |
+| `skipped_unsafe` | Usage floor equaled the current limit (no safe decrease) |
+
+```promql
+# Unsafe or floored memory limit decreases
+sum by (namespace, policy, result) (
+  rate(attune_memory_limit_decrease_total{result=~"clamped_usage|skipped_unsafe"}[1h])
+)
+```
+
+See [Troubleshooting: OOM after memory limit decrease](../guides/troubleshooting.md#oom-after-memory-limit-decrease).
+
 ### attune_nan_inf_samples_total
 
 Total times all Prometheus samples for a container metric were non-finite

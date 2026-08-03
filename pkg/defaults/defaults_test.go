@@ -46,6 +46,8 @@ func TestApplyBuiltInDefaults_FillsAllFields(t *testing.T) {
 	assert.Equal(t, attunev1alpha1.DefaultCPUMaxChangePercent, *policy.Spec.CPU.MaxChangePercent)
 	assert.NotNil(t, policy.Spec.Memory.MaxChangePercent)
 	assert.Equal(t, attunev1alpha1.DefaultMemoryMaxChangePercent, *policy.Spec.Memory.MaxChangePercent)
+	assert.NotNil(t, policy.Spec.Memory.DecreaseUsageMarginPercent)
+	assert.Equal(t, attunev1alpha1.DefaultDecreaseUsageMarginPercent, *policy.Spec.Memory.DecreaseUsageMarginPercent)
 	assert.NotNil(t, policy.Spec.UpdateStrategy.Cooldown)
 	assert.NotNil(t, policy.Spec.UpdateStrategy.AutoRevert)
 	assert.True(t, *policy.Spec.UpdateStrategy.AutoRevert)

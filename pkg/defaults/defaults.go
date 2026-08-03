@@ -50,6 +50,10 @@ func ApplyBuiltInDefaults(policy *attunev1alpha1.AttunePolicy) {
 		v := attunev1alpha1.DefaultMemoryMaxChangePercent
 		policy.Spec.Memory.MaxChangePercent = &v
 	}
+	if policy.Spec.Memory.DecreaseUsageMarginPercent == nil {
+		v := attunev1alpha1.DefaultDecreaseUsageMarginPercent
+		policy.Spec.Memory.DecreaseUsageMarginPercent = &v
+	}
 	if policy.Spec.UpdateStrategy.Cooldown == nil {
 		policy.Spec.UpdateStrategy.Cooldown = &metav1.Duration{
 			Duration: mustParseBuiltInDuration(attunev1alpha1.DefaultCooldown),
@@ -332,6 +336,10 @@ func MergeResourceConfig(policy *attunev1alpha1.ResourceConfig, defaults *attune
 	if policy.MaxDecreasePercent == nil && defaults.MaxDecreasePercent != nil {
 		policy.MaxDecreasePercent = defaults.MaxDecreasePercent
 		inherited = append(inherited, prefix+".maxDecreasePercent")
+	}
+	if policy.DecreaseUsageMarginPercent == nil && defaults.DecreaseUsageMarginPercent != nil {
+		policy.DecreaseUsageMarginPercent = defaults.DecreaseUsageMarginPercent
+		inherited = append(inherited, prefix+".decreaseUsageMarginPercent")
 	}
 	return inherited
 }

@@ -460,6 +460,35 @@ Common causes:
 - **notready**: readiness probe fails post-resize. Verify probe configuration.
 - **slo:&lt;name&gt;**: an SLO guardrail query breached its threshold after resize. Review the guardrail's PromQL query and threshold in `updateStrategy.sloGuardrails`.
 
+### OOM after memory limit decrease
+
+**Symptom**: After enabling memory decreases (`memory.allowDecrease: true`
+and `controlledValues: RequestsAndLimits`) on Kubernetes 1.35+, pods OOMKill
+when limits shrink, or Events show `MemoryLimitUsageFloor` / metrics show
+`attune_memory_limit_decrease_total{result="clamped_usage"}`.
+
+**Cause**: Live memory limit decreases race with usage spikes. Attune floors
+the target limit above recent usage (recommendation raw percentile) plus
+`memory.decreaseUsageMarginPercent` (default 10%). If OOM still occurs, the
+margin or overhead is too low, or usage is spikier than the percentile window.
+
+**Fix**:
+
+1. Raise margin: `memory.decreaseUsageMarginPercent: 20` (or higher).
+2. Raise `memory.overhead` so recommendations (and limits) stay further above
+   steady usage.
+3. Keep `memory.maxDecreasePercent` modest so large drops step down over
+   multiple cycles.
+4. Confirm cluster version is 1.35+; on 1.33–1.34, limit decreases are
+   platform-clamped (`result="clamped_platform"`).
+
+```promql
+# Floored or blocked memory limit decreases
+sum by (namespace, policy, result) (
+  rate(attune_memory_limit_decrease_total[1h])
+)
+```
+
 ### Revert failures
 
 **Symptom**: Entries in `.status.resizeHistory` show `result: Failed`, or

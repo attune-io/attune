@@ -390,6 +390,16 @@ type ResourceConfig struct {
 	// +kubebuilder:validation:Maximum=100
 	// +optional
 	MaxDecreasePercent *int32 `json:"maxDecreasePercent,omitempty"`
+
+	// DecreaseUsageMarginPercent is the minimum headroom above recent memory
+	// usage required when decreasing memory limits (client-side pre-check).
+	// The target limit must be at least usage * (1 + margin/100). Defaults to
+	// 10. Only applied on the memory ResourceConfig when a limit decrease is
+	// attempted; ignored for CPU. Set 0 to require limit strictly above usage.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=100
+	// +optional
+	DecreaseUsageMarginPercent *int32 `json:"decreaseUsageMarginPercent,omitempty"`
 }
 
 // StartupBoost configures temporary CPU inflation for cold-start optimization.

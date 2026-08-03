@@ -102,6 +102,17 @@ spec:
                     - RequestsOnly
                     - RequestsAndLimits
                     type: string
+                  decreaseUsageMarginPercent:
+                    description: |-
+                      DecreaseUsageMarginPercent is the minimum headroom above recent memory
+                      usage required when decreasing memory limits (client-side pre-check).
+                      The target limit must be at least usage * (1 + margin/100). Defaults to
+                      10. Only applied on the memory ResourceConfig when a limit decrease is
+                      attempted; ignored for CPU. Set 0 to require limit strictly above usage.
+                    format: int32
+                    maximum: 100
+                    minimum: 0
+                    type: integer
                   maxAllowed:
                     anyOf:
                     - type: integer
@@ -243,6 +254,17 @@ spec:
                     - RequestsOnly
                     - RequestsAndLimits
                     type: string
+                  decreaseUsageMarginPercent:
+                    description: |-
+                      DecreaseUsageMarginPercent is the minimum headroom above recent memory
+                      usage required when decreasing memory limits (client-side pre-check).
+                      The target limit must be at least usage * (1 + margin/100). Defaults to
+                      10. Only applied on the memory ResourceConfig when a limit decrease is
+                      attempted; ignored for CPU. Set 0 to require limit strictly above usage.
+                    format: int32
+                    maximum: 100
+                    minimum: 0
+                    type: integer
                   maxAllowed:
                     anyOf:
                     - type: integer

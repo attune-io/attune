@@ -1180,6 +1180,7 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *attu
 	printEffectiveField("  Max change", formatPercentInt64Ptr(rawInt64Field(item, "spec", "memory", "maxChangePercent")), formatPercentPtr(effective.Spec.Memory.MaxChangePercent), selected, memDefaults != nil && memDefaults.MaxChangePercent != nil)
 	printEffectiveField("  Max increase", formatPercentInt64Ptr(rawInt64Field(item, "spec", "memory", "maxIncreasePercent")), formatPercentPtr(effective.Spec.Memory.MaxIncreasePercent), selected, memDefaults != nil && memDefaults.MaxIncreasePercent != nil)
 	printEffectiveField("  Max decrease", formatPercentInt64Ptr(rawInt64Field(item, "spec", "memory", "maxDecreasePercent")), formatPercentPtr(effective.Spec.Memory.MaxDecreasePercent), selected, memDefaults != nil && memDefaults.MaxDecreasePercent != nil)
+	printEffectiveField("  Decrease usage margin", formatPercentInt64Ptr(rawInt64Field(item, "spec", "memory", "decreaseUsageMarginPercent")), formatPercentPtr(effective.Spec.Memory.DecreaseUsageMarginPercent), selected, memDefaults != nil && memDefaults.DecreaseUsageMarginPercent != nil)
 	printEffectiveField("  Memory from CPU ratio", getNestedString(item, "spec", "memory", "memoryFromCpuRatio"), formatStringPtr(effective.Spec.Memory.MemoryFromCPURatio), selected, memDefaults != nil && memDefaults.MemoryFromCPURatio != nil)
 
 	// Pure export / GitOps mode note (makes the recommended workflow first-class in CLI)

@@ -351,7 +351,7 @@ All fields from `AttuneDefaults` are available in
 |---------|--------|
 | `metricsSource` | `prometheus.address`, `prometheus.headers`, `prometheus.queryParameters`, `prometheus.bearerTokenSecret`, `prometheus.tls`, `datadog.site`, `datadog.apiKeySecretRef`, `cloudwatch.region`, `cloudwatch.clusterName`, `cloudwatch.roleArn`, `historyWindow`, `minimumDataPoints`, `queryStep`, `rateWindow` |
 | `cpu` | `percentile`, `overhead`, `minAllowed`, `maxAllowed`, `controlledValues`, `burstSensitivity`, `allowDecrease`, `startupBoost`, `maxChangePercent`, `maxIncreasePercent`, `maxDecreasePercent`, `memoryFromCpuRatio` |
-| `memory` | Same as `cpu` |
+| `memory` | Same as `cpu` (no `startupBoost`), plus `decreaseUsageMarginPercent` and `memoryFromCpuRatio` |
 | `updateStrategy` | `type`, `cooldown`, `autoRevert`, `resizeMethod`, `initialSizing`, `maxConcurrentResizes`, `maxTotalCpuIncrease`, `maxTotalMemoryIncrease`, `schedule`, `export`, `canary`, `safetyObservationPeriod`, `sloGuardrails`, `templatePersistence` |
 | `costPricing` | `cpuPerCoreHour`, `memoryPerGiBHour` |
 
@@ -420,6 +420,7 @@ Per-resource fields in `cpu` and `memory` that limit how much a recommendation c
 | `maxIncreasePercent` | int32 | inherits `maxChangePercent` | Maximum percentage increase allowed per resize cycle. If unset, falls back to `maxChangePercent` (CPU: 50, memory: 30). |
 | `maxDecreasePercent` | int32 | inherits `maxChangePercent` | Maximum percentage decrease allowed per resize cycle. If unset, falls back to `maxChangePercent` (CPU: 50, memory: 30). |
 | `maxChangePercent` | int32 | CPU: `50`, memory: `30` | Symmetric change cap. Used as fallback for `maxIncreasePercent` and `maxDecreasePercent` when they are unset. |
+| `decreaseUsageMarginPercent` | int32 | memory: `10` (CPU: ignored) | Minimum headroom above recent memory usage when decreasing memory **limits**. Target limit must be at least `usage * (1 + margin/100)`, where usage is the recommendation raw percentile. Prevents client-side OOM races on Kubernetes 1.35+. Set `0` to require limit strictly above usage. |
 
 ### Controlled Values
 
@@ -433,6 +434,7 @@ Per-resource fields in `cpu` and `memory` that limit how much a recommendation c
 |-------|------|---------|-------------|
 | `cpu.allowDecrease` | bool | `true` | Whether CPU requests can be decreased. When `true`, the safety monitor checks for throttling after each decrease. |
 | `memory.allowDecrease` | bool | `false` | Whether memory requests can be decreased. Defaults to `false` to prevent OOMKill from sudden memory reductions. |
+| `memory.decreaseUsageMarginPercent` | int32 | `10` | See `decreaseUsageMarginPercent` above. Only meaningful when memory limit decreases are allowed (Kubernetes 1.35+ and `controlledValues: RequestsAndLimits`). |
 
 ### Startup Boost
 
