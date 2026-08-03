@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -336,4 +337,14 @@ func TestGitLabClient_EnsureHead_FileExistsOnBase_UsesUpdate(t *testing.T) {
 	require.Len(t, commitBodies, 2)
 	assert.Contains(t, commitBodies[0], `"create"`)
 	assert.Contains(t, commitBodies[1], `"update"`)
+}
+
+func TestRedactToken_Encodings(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, "[redacted]", redactToken("secret-token-xyz", "secret-token-xyz"))
+	assert.Equal(t, "plain", redactToken("plain", ""))
+	tok := "ghp_a+b/c=d"
+	assert.Equal(t, "err [redacted] end", redactToken("err "+tok+" end", tok))
+	assert.Equal(t, "q=[redacted]", redactToken("q="+url.QueryEscape(tok), tok))
+	assert.Equal(t, "p=[redacted]", redactToken("p="+url.PathEscape(tok), tok))
 }

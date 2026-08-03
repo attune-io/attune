@@ -391,3 +391,90 @@ func TestReconcileGitOpsPullRequest_DryRunIncrementsMetric(t *testing.T) {
 	}
 	assert.Equal(t, attunev1alpha1.ReasonGitOpsPRDryRun, reason)
 }
+
+func TestReconcileGitOpsPullRequest_IncompleteConfig(t *testing.T) {
+	t.Parallel()
+	scheme := runtime.NewScheme()
+	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+
+	en := true
+	cases := []struct {
+		name string
+		pr   *attunev1alpha1.GitOpsPullRequestConfig
+	}{
+		{
+			name: "empty repository",
+			pr: &attunev1alpha1.GitOpsPullRequestConfig{
+				Enabled: &en, Repository: "",
+				TokenSecretRef: &attunev1alpha1.SecretKeyRef{Name: "tok", Key: "token"},
+			},
+		},
+		{
+			name: "nil tokenSecretRef",
+			pr: &attunev1alpha1.GitOpsPullRequestConfig{
+				Enabled: &en, Repository: "org/repo",
+			},
+		},
+		{
+			name: "empty secret key",
+			pr: &attunev1alpha1.GitOpsPullRequestConfig{
+				Enabled: &en, Repository: "org/repo",
+				TokenSecretRef: &attunev1alpha1.SecretKeyRef{Name: "tok", Key: ""},
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			policy := &attunev1alpha1.AttunePolicy{
+				ObjectMeta: metav1.ObjectMeta{Name: "p", Namespace: "default"},
+				Spec: attunev1alpha1.AttunePolicySpec{
+					UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+						Export: &attunev1alpha1.ExportConfig{PullRequest: tc.pr},
+					},
+				},
+			}
+			c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(policy).Build()
+			r := NewAttunePolicyReconciler()
+			r.Client = c
+			r.reconcileGitOpsPullRequest(context.Background(), policy, nil, nil)
+			var reason, message string
+			for _, cond := range policy.Status.Conditions {
+				if cond.Type == attunev1alpha1.ConditionGitOpsPullRequest {
+					reason = cond.Reason
+					message = cond.Message
+				}
+			}
+			assert.Equal(t, attunev1alpha1.ReasonGitOpsPRFailed, reason)
+			assert.Contains(t, message, "repository")
+			assert.Contains(t, message, "tokenSecretRef")
+		})
+	}
+}
+
+func TestSetGitOpsPRCondition_ReplaceAndPreserveTransition(t *testing.T) {
+	t.Parallel()
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "p", Namespace: "ns", Generation: 3},
+	}
+	// First set
+	setGitOpsPRCondition(policy, metav1.ConditionFalse, attunev1alpha1.ReasonGitOpsPRNoDrift, "none")
+	require.Len(t, policy.Status.Conditions, 1)
+	first := policy.Status.Conditions[0].LastTransitionTime
+
+	// Same status+reason: preserve LastTransitionTime, update message/generation
+	setGitOpsPRCondition(policy, metav1.ConditionFalse, attunev1alpha1.ReasonGitOpsPRNoDrift, "still none")
+	require.Len(t, policy.Status.Conditions, 1)
+	assert.Equal(t, first, policy.Status.Conditions[0].LastTransitionTime)
+	assert.Equal(t, "still none", policy.Status.Conditions[0].Message)
+	assert.Equal(t, int64(3), policy.Status.Conditions[0].ObservedGeneration)
+
+	// Different reason: replace condition (new transition time allowed)
+	setGitOpsPRCondition(policy, metav1.ConditionTrue, attunev1alpha1.ReasonGitOpsPRDryRun, "dry")
+	require.Len(t, policy.Status.Conditions, 1)
+	assert.Equal(t, attunev1alpha1.ReasonGitOpsPRDryRun, policy.Status.Conditions[0].Reason)
+	assert.Equal(t, metav1.ConditionTrue, policy.Status.Conditions[0].Status)
+	assert.Equal(t, "dry", policy.Status.Conditions[0].Message)
+}

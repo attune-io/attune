@@ -1108,6 +1108,33 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *attu
 	}
 	printEffectiveField("Export", exportConfigured, exportEffective, selected, updateDefaults != nil && updateDefaults.Export != nil && updateDefaults.Export.ConfigMap)
 
+	// GitOps pull request automation (opt-in Phase B)
+	prConfigured := ""
+	if getNestedBool(item, "spec", "updateStrategy", "export", "pullRequest", "enabled") {
+		prConfigured = "true"
+	}
+	prEffective := ""
+	if effective.Spec.UpdateStrategy.Export != nil &&
+		effective.Spec.UpdateStrategy.Export.PullRequest != nil &&
+		effective.Spec.UpdateStrategy.Export.PullRequest.Enabled != nil &&
+		*effective.Spec.UpdateStrategy.Export.PullRequest.Enabled {
+		pr := effective.Spec.UpdateStrategy.Export.PullRequest
+		provider := pr.Provider
+		if provider == "" {
+			provider = "github"
+		}
+		repo := pr.Repository
+		if repo == "" {
+			repo = "(repository required)"
+		}
+		mode := "live"
+		if pr.DryRun != nil && *pr.DryRun {
+			mode = "dry-run"
+		}
+		prEffective = fmt.Sprintf("%s %s (%s)", provider, repo, mode)
+	}
+	printEffectiveField("GitOps PR", prConfigured, prEffective, selected, false)
+
 	// Schedule window display
 	if sched := effective.Spec.UpdateStrategy.Schedule; sched != nil {
 		tz := sched.Timezone

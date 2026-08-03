@@ -215,3 +215,67 @@ func TestComputeDrift_UnknownContainerSkipped(t *testing.T) {
 	}}
 	assert.Empty(t, ComputeDrift([]client.Object{dep}, recs, 10))
 }
+
+func TestComputeDrift_NameOnlyMatchWhenKindDiffers(t *testing.T) {
+	// Recommendations sometimes omit or mismatch Kind; ComputeDrift falls back
+	// to matching on workload name alone.
+	t.Parallel()
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "api"},
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name: "app",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("1"),
+							},
+						},
+					}},
+				},
+			},
+		},
+	}
+	recs := []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "api", Kind: "ReplicaSet", // wrong kind; name still matches
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "app",
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest: resource.MustParse("100m"),
+			},
+		}},
+	}}
+	d := ComputeDrift([]client.Object{dep}, recs, 10)
+	require.Len(t, d, 1)
+	assert.Equal(t, "cpu", d[0].Resource)
+	assert.Equal(t, "api", d[0].Workload)
+}
+
+func TestComputeDrift_SkipsWorkloadWithoutRecommendation(t *testing.T) {
+	t.Parallel()
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "api"},
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name: "app",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+						},
+					}},
+				},
+			},
+		},
+	}
+	// Recommendation for a different workload only.
+	recs := []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "other", Kind: "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name:        "app",
+			Recommended: attunev1alpha1.ResourceValues{CPURequest: resource.MustParse("100m")},
+		}},
+	}}
+	assert.Empty(t, ComputeDrift([]client.Object{dep}, recs, 10))
+}

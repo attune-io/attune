@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"testing"
@@ -2269,6 +2270,51 @@ func TestPrintEffectivePolicySummary_DoesNotPanic(t *testing.T) {
 		},
 	}
 	printEffectivePolicySummary(item, policy, selectedDefaults{defaults: defaults, source: "cluster"})
+}
+
+func TestPrintEffectivePolicySummary_GitOpsPR(t *testing.T) {
+	en := true
+	dry := true
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Type: attunev1alpha1.UpdateTypeRecommend,
+				Export: &attunev1alpha1.ExportConfig{
+					ConfigMap: true,
+					PullRequest: &attunev1alpha1.GitOpsPullRequestConfig{
+						Enabled:    &en,
+						DryRun:     &dry,
+						Provider:   "github",
+						Repository: "org/app",
+					},
+				},
+			},
+		},
+	}
+	item := unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{
+			"updateStrategy": map[string]interface{}{
+				"export": map[string]interface{}{
+					"configMap": true,
+					"pullRequest": map[string]interface{}{
+						"enabled": true,
+					},
+				},
+			},
+		},
+	}}
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	old := os.Stdout
+	os.Stdout = w
+	printEffectivePolicySummary(item, policy, selectedDefaults{})
+	_ = w.Close()
+	os.Stdout = old
+	out, err := io.ReadAll(r)
+	require.NoError(t, err)
+	s := string(out)
+	assert.Contains(t, s, "GitOps PR")
+	assert.Contains(t, s, "github org/app (dry-run)")
 }
 
 // ---------- mergeDefaultsIntoPolicy parity with controller ----------
