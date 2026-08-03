@@ -71,6 +71,8 @@ type GitLabClient struct {
 	HTTP    HTTPDoer
 }
 
+const bootstrapCommitMessage = "chore(attune): bootstrap recommendation branch"
+
 func (c *GitHubClient) CreateOrUpdate(ctx context.Context, req PRRequest) (PRResult, error) {
 	if c.Token == "" || c.Repository == "" {
 		return PRResult{}, fmt.Errorf("github: token and repository required")
@@ -119,9 +121,13 @@ func (c *GitHubClient) CreateOrUpdate(ctx context.Context, req PRRequest) (PRRes
 		}
 	}
 
-	// Create: GitHub requires the head branch to exist. We create a PR that
-	// documents drift only; teams apply patches in CI. If the branch is
-	// missing, return a clear error so status shows Failed with message.
+	// Ensure head branch exists (create from base with a bootstrap commit if needed).
+	// GitHub rejects PRs when head and base point at the same commit, so we always
+	// create an empty commit on a new branch rather than a pure ref to base.
+	if err := c.ensureHeadBranch(ctx, httpClient, base, req.Head, req.Base); err != nil {
+		return PRResult{}, err
+	}
+
 	createURL := fmt.Sprintf("%s/repos/%s/pulls", base, c.Repository)
 	payload := map[string]interface{}{
 		"title": req.Title,
@@ -149,6 +155,101 @@ func (c *GitHubClient) CreateOrUpdate(ctx context.Context, req PRRequest) (PRRes
 		_, _, _ = c.doJSON(ctx, httpClient, http.MethodPost, labURL, map[string]interface{}{"labels": req.Labels})
 	}
 	return PRResult{URL: created.HTMLURL, Number: created.Number, Updated: false}, nil
+}
+
+// ensureHeadBranch creates req head from base with an empty bootstrap commit when
+// the head ref is missing. If the head already exists, this is a no-op.
+func (c *GitHubClient) ensureHeadBranch(ctx context.Context, httpClient HTTPDoer, apiBase, head, baseBranch string) error {
+	headRefURL := fmt.Sprintf("%s/repos/%s/git/ref/%s", apiBase, c.Repository, pathEscapeRef("heads/"+head))
+	_, code, err := c.doJSON(ctx, httpClient, http.MethodGet, headRefURL, nil)
+	if err != nil {
+		return fmt.Errorf("github check head branch: %w", err)
+	}
+	if code >= 200 && code < 300 {
+		return nil
+	}
+	if code != http.StatusNotFound {
+		return fmt.Errorf("github check head branch: status %d", code)
+	}
+
+	// Resolve base SHA.
+	baseRefURL := fmt.Sprintf("%s/repos/%s/git/ref/%s", apiBase, c.Repository, pathEscapeRef("heads/"+baseBranch))
+	baseBody, code, err := c.doJSON(ctx, httpClient, http.MethodGet, baseRefURL, nil)
+	if err != nil {
+		return fmt.Errorf("github get base branch: %w", err)
+	}
+	if code < 200 || code >= 300 {
+		return fmt.Errorf("github get base branch %q: status %d", baseBranch, code)
+	}
+	var baseRef struct {
+		Object struct {
+			SHA string `json:"sha"`
+		} `json:"object"`
+	}
+	if err := json.Unmarshal(baseBody, &baseRef); err != nil || baseRef.Object.SHA == "" {
+		return fmt.Errorf("github get base branch decode: %w", err)
+	}
+
+	// Load commit to get tree SHA for empty commit.
+	commitURL := fmt.Sprintf("%s/repos/%s/git/commits/%s", apiBase, c.Repository, baseRef.Object.SHA)
+	commitBody, code, err := c.doJSON(ctx, httpClient, http.MethodGet, commitURL, nil)
+	if err != nil {
+		return fmt.Errorf("github get base commit: %w", err)
+	}
+	if code < 200 || code >= 300 {
+		return fmt.Errorf("github get base commit: status %d", code)
+	}
+	var baseCommit struct {
+		Tree struct {
+			SHA string `json:"sha"`
+		} `json:"tree"`
+	}
+	if err := json.Unmarshal(commitBody, &baseCommit); err != nil || baseCommit.Tree.SHA == "" {
+		return fmt.Errorf("github get base commit decode: %w", err)
+	}
+
+	// Empty commit (same tree, parent = base) so head != base for PR creation.
+	newCommitURL := fmt.Sprintf("%s/repos/%s/git/commits", apiBase, c.Repository)
+	newCommitPayload := map[string]interface{}{
+		"message": bootstrapCommitMessage,
+		"tree":    baseCommit.Tree.SHA,
+		"parents": []string{baseRef.Object.SHA},
+	}
+	newCommitBody, code, err := c.doJSON(ctx, httpClient, http.MethodPost, newCommitURL, newCommitPayload)
+	if err != nil {
+		return fmt.Errorf("github create bootstrap commit: %w", err)
+	}
+	if code < 200 || code >= 300 {
+		return fmt.Errorf("github create bootstrap commit: status %d: %s", code, redactToken(string(newCommitBody), c.Token))
+	}
+	var newCommit struct {
+		SHA string `json:"sha"`
+	}
+	if err := json.Unmarshal(newCommitBody, &newCommit); err != nil || newCommit.SHA == "" {
+		return fmt.Errorf("github create bootstrap commit decode: %w", err)
+	}
+
+	// Create head ref.
+	createRefURL := fmt.Sprintf("%s/repos/%s/git/refs", apiBase, c.Repository)
+	createRefPayload := map[string]string{
+		"ref": "refs/heads/" + head,
+		"sha": newCommit.SHA,
+	}
+	refBody, code, err := c.doJSON(ctx, httpClient, http.MethodPost, createRefURL, createRefPayload)
+	if err != nil {
+		return fmt.Errorf("github create head branch: %w", err)
+	}
+	// 422 if another reconciler raced and created the ref; treat as success.
+	if code == http.StatusUnprocessableEntity {
+		_, checkCode, checkErr := c.doJSON(ctx, httpClient, http.MethodGet, headRefURL, nil)
+		if checkErr == nil && checkCode >= 200 && checkCode < 300 {
+			return nil
+		}
+	}
+	if code < 200 || code >= 300 {
+		return fmt.Errorf("github create head branch: status %d: %s", code, redactToken(string(refBody), c.Token))
+	}
+	return nil
 }
 
 func (c *GitHubClient) doJSON(ctx context.Context, httpClient HTTPDoer, method, rawURL string, payload interface{}) ([]byte, int, error) {
@@ -224,6 +325,10 @@ func (c *GitLabClient) CreateOrUpdate(ctx context.Context, req PRRequest) (PRRes
 		return PRResult{URL: existing[0].WebURL, Number: existing[0].IID, Updated: true}, nil
 	}
 
+	if err := c.ensureHeadBranch(ctx, httpClient, base, project, req.Head, req.Base); err != nil {
+		return PRResult{}, err
+	}
+
 	createURL := fmt.Sprintf("%s/projects/%s/merge_requests", base, project)
 	payload := map[string]interface{}{
 		"title":         req.Title,
@@ -247,6 +352,53 @@ func (c *GitLabClient) CreateOrUpdate(ctx context.Context, req PRRequest) (PRRes
 		return PRResult{}, fmt.Errorf("gitlab create MR decode: %w", err)
 	}
 	return PRResult{URL: created.WebURL, Number: created.IID, Updated: false}, nil
+}
+
+// ensureHeadBranch creates the source branch from base with a bootstrap commit
+// when missing. GitLab rejects MRs with no commit delta, so we add a small
+// marker file under .attune/ rather than an empty commit.
+func (c *GitLabClient) ensureHeadBranch(ctx context.Context, httpClient HTTPDoer, apiBase, projectEscaped, head, baseBranch string) error {
+	branchURL := fmt.Sprintf("%s/projects/%s/repository/branches/%s", apiBase, projectEscaped, url.PathEscape(head))
+	_, code, err := c.doJSON(ctx, httpClient, http.MethodGet, branchURL, nil)
+	if err != nil {
+		return fmt.Errorf("gitlab check head branch: %w", err)
+	}
+	if code >= 200 && code < 300 {
+		return nil
+	}
+	if code != http.StatusNotFound {
+		return fmt.Errorf("gitlab check head branch: status %d", code)
+	}
+
+	// Create branch + bootstrap file commit in one request (start_branch).
+	commitURL := fmt.Sprintf("%s/projects/%s/repository/commits", apiBase, projectEscaped)
+	payload := map[string]interface{}{
+		"branch":         head,
+		"start_branch":   baseBranch,
+		"commit_message": bootstrapCommitMessage,
+		"actions": []map[string]string{
+			{
+				"action":    "create",
+				"file_path": ".attune/RECOMMENDATION_DRIFT.md",
+				"content":   "Attune recommendation drift branch.\n\nSee the merge request description for the drift table. Apply template patches via `kubectl attune diff` or your GitOps pipeline.\n",
+			},
+		},
+	}
+	respBody, code, err := c.doJSON(ctx, httpClient, http.MethodPost, commitURL, payload)
+	if err != nil {
+		return fmt.Errorf("gitlab create head branch: %w", err)
+	}
+	// Race: branch appeared; treat as success if GET now succeeds.
+	if code == http.StatusBadRequest || code == http.StatusConflict {
+		_, checkCode, checkErr := c.doJSON(ctx, httpClient, http.MethodGet, branchURL, nil)
+		if checkErr == nil && checkCode >= 200 && checkCode < 300 {
+			return nil
+		}
+	}
+	if code < 200 || code >= 300 {
+		return fmt.Errorf("gitlab create head branch: status %d: %s", code, redactToken(string(respBody), c.Token))
+	}
+	return nil
 }
 
 func (c *GitLabClient) doJSON(ctx context.Context, httpClient HTTPDoer, method, rawURL string, payload interface{}) ([]byte, int, error) {
@@ -283,4 +435,14 @@ func redactToken(s, token string) string {
 		return s
 	}
 	return strings.ReplaceAll(s, token, "[redacted]")
+}
+
+// pathEscapeRef escapes each path segment of a git ref (e.g. heads/attune/foo)
+// so slashes remain path separators for the GitHub git/ref API.
+func pathEscapeRef(ref string) string {
+	parts := strings.Split(ref, "/")
+	for i, p := range parts {
+		parts[i] = url.PathEscape(p)
+	}
+	return strings.Join(parts, "/")
 }
