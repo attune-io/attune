@@ -40,10 +40,13 @@ make build-plugin
 # Run all CI checks locally (lint, test, helm-docs, CRD freshness)
 make verify
 
-# After CRD/API or RBAC changes, refresh release manifests if local
-# verify-release-artifacts fails (tracked under dist/):
+# After CRD/API or RBAC changes, refresh release manifests (dist/install.yaml
+# and dist/crds.yaml). PR CI's "CRD Freshness Check" job runs
+# `make verify-release-artifacts` and fails if these lag:
 make build-installer IMG=ghcr.io/attune-io/attune:latest
 make build-crds
+# dist/ is gitignored for local noise; force-add when committing:
+#   git add -f dist/install.yaml dist/crds.yaml
 ```
 
 ### Running Tests

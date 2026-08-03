@@ -45,6 +45,7 @@ jobs:
       yaml: ${{ steps.filter.outputs.yaml }}
       docs: ${{ steps.filter.outputs.docs }}
       e2e: ${{ steps.filter.outputs.e2e }}
+      manifests: ${{ steps.filter.outputs.manifests }}
     steps:
       - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
         with:
@@ -87,6 +88,14 @@ jobs:
               - 'charts/attune/README.md.gotmpl'
             e2e:
               - 'test/e2e/**'
+            # CRDs, kustomize, and tracked release manifests (dist/).
+            # Used by crd-freshness so dist/ cannot lag without a CI failure.
+            manifests:
+              - 'api/**'
+              - 'config/**'
+              - 'charts/attune/crds/**'
+              - 'dist/**'
+              - 'Makefile'
 
   lint:
     name: Lint
@@ -642,7 +651,8 @@ jobs:
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
     needs: changes
-    if: needs.changes.outputs.go == 'true'
+    # go: API types / controller-gen; manifests: config, chart CRDs, dist/
+    if: needs.changes.outputs.go == 'true' || needs.changes.outputs.manifests == 'true'
     steps:
       - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
         with:
@@ -665,6 +675,12 @@ jobs:
             echo "::error::Generated files are stale. Run 'make manifests generate' and commit."
             exit 1
           fi
+
+      # Enforce tracked dist/install.yaml and dist/crds.yaml match current sources
+      # (same check as make verify-quick). Release workflow also regenerates them.
+      - name: Verify release artifacts (dist/)
+        shell: bash -Eeuo pipefail -x {0}
+        run: make verify-release-artifacts IMG=ghcr.io/attune-io/attune:latest
 
   helm-lint:
     name: Helm Lint
