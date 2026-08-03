@@ -93,4 +93,125 @@ func TestComputeDrift_BelowThreshold(t *testing.T) {
 func TestBranchName(t *testing.T) {
 	t.Parallel()
 	assert.Equal(t, "attune/recommendations-default-my-policy", BranchName("default", "my-policy"))
+	assert.Equal(t, "attune/recommendations-ns-with-dots-pol", BranchName("ns.with.dots", "pol"))
+}
+
+func TestComputeDrift_StatefulSetAndDaemonSet(t *testing.T) {
+	t.Parallel()
+	sts := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "db"},
+		Spec: appsv1.StatefulSetSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name: "pg",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("1"),
+							},
+						},
+					}},
+				},
+			},
+		},
+	}
+	ds := &appsv1.DaemonSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "agent"},
+		Spec: appsv1.DaemonSetSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name: "agent",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceMemory: resource.MustParse("512Mi"),
+							},
+						},
+					}},
+				},
+			},
+		},
+	}
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "db", Kind: "StatefulSet",
+			Containers: []attunev1alpha1.ContainerRecommendation{{
+				Name: "pg",
+				Recommended: attunev1alpha1.ResourceValues{
+					CPURequest: resource.MustParse("500m"),
+				},
+			}},
+		},
+		{
+			Workload: "agent", Kind: "DaemonSet",
+			Containers: []attunev1alpha1.ContainerRecommendation{{
+				Name: "agent",
+				Recommended: attunev1alpha1.ResourceValues{
+					MemoryRequest: resource.MustParse("256Mi"),
+				},
+			}},
+		},
+	}
+	d := ComputeDrift([]client.Object{sts, ds}, recs, 10)
+	require.Len(t, d, 2)
+	kinds := map[string]bool{}
+	for _, x := range d {
+		kinds[x.Kind] = true
+	}
+	assert.True(t, kinds["StatefulSet"], "expected StatefulSet drift")
+	assert.True(t, kinds["DaemonSet"], "expected DaemonSet drift")
+}
+
+func TestComputeDrift_ZeroTemplateRequestIsFullDrift(t *testing.T) {
+	t.Parallel()
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "api"},
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name: "app",
+						// No requests on template.
+					}},
+				},
+			},
+		},
+	}
+	recs := []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "api", Kind: "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "app",
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest: resource.MustParse("100m"),
+			},
+		}},
+	}}
+	d := ComputeDrift([]client.Object{dep}, recs, 10)
+	require.Len(t, d, 1)
+	assert.Equal(t, float64(100), d[0].ChangePercent)
+	assert.Equal(t, "0", d[0].Template)
+}
+
+func TestComputeDrift_UnknownContainerSkipped(t *testing.T) {
+	t.Parallel()
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "api"},
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{Name: "app"}},
+				},
+			},
+		},
+	}
+	recs := []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "api", Kind: "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "sidecar-missing",
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest: resource.MustParse("100m"),
+			},
+		}},
+	}}
+	assert.Empty(t, ComputeDrift([]client.Object{dep}, recs, 10))
 }

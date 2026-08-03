@@ -54,7 +54,9 @@ func (r *AttunePolicyReconciler) reconcileGitOpsPullRequest(
 	recs []attunev1alpha1.WorkloadRecommendation,
 ) {
 	logger := log.FromContext(ctx)
-	if !gitopsPREnabled(policy.Spec.UpdateStrategy.Export) {
+	// Defensive: defaults normally set UpdateStrategy, but unit tests and
+	// future callers may invoke this without applying defaults first.
+	if policy.Spec.UpdateStrategy == nil || !gitopsPREnabled(policy.Spec.UpdateStrategy.Export) {
 		setGitOpsPRCondition(policy, metav1.ConditionFalse, attunev1alpha1.ReasonGitOpsPRDisabled, "GitOps pull request automation is disabled")
 		return
 	}
