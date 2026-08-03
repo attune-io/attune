@@ -341,24 +341,61 @@ Use the explanation chain (percentile → overhead → confidence → bounds →
 - Too aggressive: raise `overhead` or tighten `maxAllowed`
 - Too conservative / sparse data: wait for more data points or lower `minimumDataPoints` only for evaluation
 - Never resizes with tiny delta: change filter; expected when already near target
-- Stuck on node capacity: Infeasible section below
+- Stuck on node capacity: Deferred/Infeasible section below
 
-### Infeasible resize
+### Deferred or Infeasible resize (stuck pods)
 
-**Symptom**: Resize history shows `result: Failed` and operator logs contain
-`resize infeasible`.
+**Symptom**: Policy status shows `ResizeBlocked=True`, or:
 
-**Cause**: The node cannot accommodate the new resource values. Common when
-increasing resources on a node that is already at capacity.
+```bash
+kubectl get attunepolicy <name> -o jsonpath='{.status.workloads}' | jq .
+# deferred > 0 and/or infeasible > 0
 
-**Fix**: Ensure the cluster has sufficient allocatable resources, or tighten
-bounds to stay within node capacity:
+kubectl get attunepolicy <name> -o jsonpath='{range .status.conditions[?(@.type=="ResizeBlocked")]}{.reason} {.message}{"\n"}{end}'
+
+kubectl attune history -n <ns>
+# Failed rows with reason "infeasible"
+```
+
+| Signal | Meaning | Operator behavior |
+|--------|---------|-------------------|
+| **Deferred** | Kubelet accepted the request but cannot apply it yet (often free request capacity on the node). Pod condition `PodResizePending` reason `Deferred`. | Pod is **not eligible** for a new resize until the condition clears. **Retry**: every reconcile after eligibility returns (no extra config). |
+| **Infeasible** | Kubelet cannot complete the resize in-place on this node. | With default `resizeMethod: InPlaceOnly`, skip + history `Failed`/`infeasible` + event `InfeasibleBlocked`. With `InPlaceOrRecreate`, attempt eviction fallback (subject to PDB / last-replica guards). |
+
+**Metrics** (see [metrics reference](../reference/metrics.md)):
+
+```promql
+attune_pods_deferred{namespace="...", policy="..."}
+attune_pods_infeasible{namespace="...", policy="..."}
+histogram_quantile(0.95, sum by (le) (rate(attune_deferred_age_seconds_bucket[15m])))
+rate(attune_infeasible_skipped_total[15m])
+rate(attune_eviction_total[15m])
+```
+
+**Fix**:
+
+1. **Deferred**: free capacity on the node, wait for other pods to scale down, or reduce the recommended increase (`maxAllowed` / change caps). No restart is required for Attune; it retries automatically when the condition clears.
+2. **Infeasible**: free node capacity, lower bounds, or enable eviction fallback:
 
 ```yaml
 spec:
+  updateStrategy:
+    resizeMethod: InPlaceOrRecreate  # opt-in eviction when in-place is impossible
   cpu:
-    maxAllowed: "2000m"  # reduce max to fit on nodes
+    maxAllowed: "2000m"  # keep increases within typical node headroom
 ```
+
+3. Confirm the live pod condition:
+
+```bash
+kubectl get pod <pod> -o jsonpath='{range .status.conditions[?(@.type=="PodResizePending")]}{.reason} {.message}{"\n"}{end}'
+```
+
+**Retry policy (current defaults)**:
+
+- **Deferred**: skip until kubelet clears `PodResizePending`; next reconcile retries. No max deferred age cut-off (watch `attune_deferred_age_seconds` and `ResizeBlocked` message for escalation).
+- **Infeasible + InPlaceOnly**: skip every cycle until the condition clears or you change `resizeMethod` / capacity.
+- **Infeasible + InPlaceOrRecreate**: one eviction attempt per container resize path; if eviction is denied (PDB, last replica), history records `Failed`/`infeasible` and the next cycle may try again.
 
 ### QoS class change blocked
 

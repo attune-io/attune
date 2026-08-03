@@ -23,6 +23,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -266,6 +267,38 @@ func IsResizeInfeasible(pod *corev1.Pod) bool {
 	}
 	// Fallback: check deprecated Status.Resize field (K8s 1.32 alpha).
 	return pod.Status.Resize == corev1.PodResizeStatusInfeasible
+}
+
+// reasonDeferred is the PodResizePending reason when the kubelet has deferred
+// the resize (node cannot accept it yet; retry when capacity frees up).
+const reasonDeferred = "Deferred"
+
+// IsResizeDeferred returns true if the kubelet has deferred an in-place resize
+// (PodResizePending with reason Deferred, or legacy Status.Resize=Deferred).
+// Deferred pods are not eligible for a new resize until the condition clears.
+func IsResizeDeferred(pod *corev1.Pod) bool {
+	for _, cond := range pod.Status.Conditions {
+		if string(cond.Type) == condPodResizePending &&
+			cond.Status == corev1.ConditionTrue &&
+			cond.Reason == reasonDeferred {
+			return true
+		}
+	}
+	return pod.Status.Resize == corev1.PodResizeStatusDeferred
+}
+
+// ResizeDeferredSince returns when the deferred condition was last transitioned,
+// if known. Zero time means unknown (legacy Status.Resize path).
+func ResizeDeferredSince(pod *corev1.Pod) time.Time {
+	for _, cond := range pod.Status.Conditions {
+		if string(cond.Type) == condPodResizePending &&
+			cond.Status == corev1.ConditionTrue &&
+			cond.Reason == reasonDeferred &&
+			!cond.LastTransitionTime.IsZero() {
+			return cond.LastTransitionTime.Time
+		}
+	}
+	return time.Time{}
 }
 
 // EvictPod evicts a pod using the Eviction API, which respects

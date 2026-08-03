@@ -22,6 +22,10 @@ const (
 	ConditionResizing        = "Resizing"
 	ConditionDegraded        = "Degraded"
 	ConditionScheduleBlocked = "ScheduleBlocked"
+	// ConditionResizeBlocked is True when one or more target pods are stuck
+	// Deferred (kubelet cannot accept yet) or Infeasible (cannot complete
+	// in-place on the current node).
+	ConditionResizeBlocked = "ResizeBlocked"
 )
 
 // Condition reason constants for AttunePolicy.
@@ -39,6 +43,10 @@ const (
 	ReasonOutsideWindow           = "OutsideWindow"
 	ReasonInsideWindow            = "InsideWindow"
 	ReasonPaused                  = "Paused"
+	// ResizeBlocked condition reasons.
+	ReasonPodsDeferred              = "PodsDeferred"
+	ReasonPodsInfeasible            = "PodsInfeasible"
+	ReasonPodsDeferredAndInfeasible = "PodsDeferredAndInfeasible"
 )
 
 // CanaryPhaseInProgress and CanaryPhaseFullRollout are now typed constants

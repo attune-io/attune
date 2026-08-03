@@ -1389,7 +1389,8 @@ spec:
                         Reason explains why the resize was reverted or failed.
                         Only populated when Result is Reverted or Failed.
                         Values include: oomkill, restart, notready, throttle,
-                        annotation-conflict, immediate-safety-check, slo:<name>.
+                        annotation-conflict, immediate-safety-check, slo:<name>,
+                        infeasible (kubelet Infeasible / InPlaceOnly skip).
                       type: string
                     resource:
                       description: |-
@@ -1507,9 +1508,23 @@ spec:
                       generating recommendations (from metricsSource.minimumDataPoints).
                     format: int32
                     type: integer
+                  deferred:
+                    description: |-
+                      Deferred is the number of pods whose in-place resize is Deferred by the
+                      kubelet (node cannot accept the change yet). Retried automatically when
+                      the condition clears on a later reconcile.
+                    format: int32
+                    type: integer
                   discovered:
                     description: Discovered is the number of workloads matching the
                       target selector.
+                    format: int32
+                    type: integer
+                  infeasible:
+                    description: |-
+                      Infeasible is the number of pods whose in-place resize is Infeasible on
+                      the current node. With resizeMethod InPlaceOnly these pods are skipped;
+                      with InPlaceOrRecreate the operator may fall back to eviction.
                     format: int32
                     type: integer
                   pending:

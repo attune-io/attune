@@ -144,7 +144,7 @@ spec:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `conditions` | `[]Condition` | Standard Kubernetes conditions (Ready, Resizing, Degraded, ScheduleBlocked) |
+| `conditions` | `[]Condition` | Standard Kubernetes conditions (Ready, Resizing, Degraded, ScheduleBlocked, ResizeBlocked) |
 | `cooldown.effectiveCooldown` | `Duration` | Current cooldown including exponential backoff |
 | `cooldown.backoffMultiplier` | `int32` | Current backoff multiplier (1, 2, 4, 8, or 16) |
 | `cooldown.consecutiveReverts` | `int32` | Number of consecutive reverts driving the backoff |
@@ -152,6 +152,8 @@ spec:
 | `workloads.withRecommendations` | `int32` | Workloads with active recommendations |
 | `workloads.resized` | `int32` | Workloads that have been resized |
 | `workloads.pending` | `int32` | Workloads awaiting resize |
+| `workloads.deferred` | `int32` | Pods with kubelet Deferred in-place resize (retry when cleared) |
+| `workloads.infeasible` | `int32` | Pods with Infeasible in-place resize on their node |
 | `workloads.dataPointsCollected` | `int32` | Max data points collected across all containers |
 | `workloads.dataPointsRequired` | `int32` | Minimum data points needed before recommendations |
 | `recommendations[].workload` | `string` | Workload name |
@@ -184,7 +186,7 @@ spec:
 | `resizeHistory[].to` | `string` | New value |
 | `resizeHistory[].method` | `string` | `InPlace`, `Eviction`, or `TemplatePersistence` |
 | `resizeHistory[].result` | `string` | `Success`, `Failed`, `Reverted`, `Evicted`, or `TemplatePatched` |
-| `resizeHistory[].reason` | `string` | Why a resize was reverted or failed (e.g. `oomkill`, `restart`, `notready`, `slo:<name>`). Empty for successful resizes. |
+| `resizeHistory[].reason` | `string` | Why a resize was reverted or failed (e.g. `oomkill`, `restart`, `notready`, `slo:<name>`, `infeasible`). Empty for successful resizes. |
 | `workloadErrors[].workload` | `string` | Workload name that encountered an error during reconciliation |
 | `workloadErrors[].error` | `string` | Human-readable error description |
 | `canary.phase` | `string` | `CanaryInProgress` or `FullRollout` |
@@ -207,6 +209,7 @@ the estimator chain: `rawPercentile`, `overhead`, `afterOverhead`,
 | `Resizing` | `InProgress`, `Idle`, `CooldownActive` | Active resize operation state |
 | `Degraded` | `HighRevertRate` | High revert rate detected (3+ of last 5 reverted) |
 | `ScheduleBlocked` | `OutsideWindow`, `InsideWindow` | Whether the current time is within the configured resize schedule window |
+| `ResizeBlocked` | `PodsDeferred`, `PodsInfeasible`, `PodsDeferredAndInfeasible` | One or more target pods stuck Deferred (kubelet pending) or Infeasible; message includes sample pod names and next actions |
 
 ### Print columns
 

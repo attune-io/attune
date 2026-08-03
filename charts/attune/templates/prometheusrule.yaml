@@ -99,6 +99,33 @@ spec:
               maxTotalCPUIncrease/maxTotalMemoryIncrease or reducing the
               number of targeted workloads.
         {{- end }}
+        {{- if .Values.metrics.prometheusRule.rules.podsInfeasible.enabled }}
+        - alert: AttunePodsInfeasible
+          expr: sum by (namespace, policy) (attune_pods_infeasible) > 0
+          for: {{ .Values.metrics.prometheusRule.rules.podsInfeasible.for }}
+          labels:
+            severity: {{ .Values.metrics.prometheusRule.rules.podsInfeasible.severity }}
+          annotations:
+            summary: attune pods stuck Infeasible for in-place resize
+            description: >-
+              Policy {{ "{{ $labels.namespace }}" }}/{{ "{{ $labels.policy }}" }} has
+              pods marked Infeasible on their node. Set resizeMethod: InPlaceOrRecreate
+              for eviction fallback, free node capacity, or lower maxAllowed.
+        {{- end }}
+        {{- if .Values.metrics.prometheusRule.rules.podsDeferred.enabled }}
+        - alert: AttunePodsDeferred
+          expr: sum by (namespace, policy) (attune_pods_deferred) > 0
+          for: {{ .Values.metrics.prometheusRule.rules.podsDeferred.for }}
+          labels:
+            severity: {{ .Values.metrics.prometheusRule.rules.podsDeferred.severity }}
+          annotations:
+            summary: attune pods stuck Deferred for in-place resize
+            description: >-
+              Policy {{ "{{ $labels.namespace }}" }}/{{ "{{ $labels.policy }}" }} has
+              pods Deferred by the kubelet (node cannot accept the resize yet).
+              Free capacity or reduce recommended increases; Attune retries when
+              the condition clears.
+        {{- end }}
         {{- if .Values.metrics.prometheusRule.rules.dataQuality.enabled }}
         - alert: AttuneDataQuality
           expr: sum by (namespace, policy, container) (rate(attune_nan_inf_samples_total[1h])) > 0

@@ -146,6 +146,16 @@ metrics:
         # -- How long the condition must persist before firing
         for: 5m
         severity: critical
+      podsInfeasible:
+        # -- Fire when pods remain Infeasible for in-place resize
+        enabled: true
+        for: 30m
+        severity: warning
+      podsDeferred:
+        # -- Fire when pods remain Deferred (node capacity) for in-place resize
+        enabled: true
+        for: 1h
+        severity: warning
 
 grafanaDashboard:
   # -- Create a ConfigMap with the Grafana dashboard (auto-discovered by Grafana sidecar)

@@ -7694,7 +7694,10 @@ func TestResizeContainer_InfeasiblePodSkippedWithInPlaceOnly(t *testing.T) {
 		Now:          metav1.Now(),
 	})
 	assert.Equal(t, resizeOutcomeNone, outcome, "infeasible pod with InPlaceOnly should not be resized")
-	assert.Empty(t, entries, "should produce no history entries")
+	require.Len(t, entries, 1, "should record a Failed history entry with reason infeasible")
+	assert.Equal(t, attunev1alpha1.ResizeResultFailed, entries[0].Result)
+	assert.Equal(t, "infeasible", entries[0].Reason)
+	assert.Equal(t, "api-server", entries[0].Workload)
 
 	// Verify InfeasibleBlocked event was emitted.
 	select {

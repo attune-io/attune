@@ -190,6 +190,36 @@ var (
 		[]string{"namespace", "workload"},
 	)
 
+	// PodsDeferred is the current count of pods with kubelet Deferred resize
+	// (PodResizePending reason Deferred) for a policy.
+	PodsDeferred = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "attune_pods_deferred",
+			Help: "Pods currently Deferred by kubelet for in-place resize (awaiting node capacity)",
+		},
+		[]string{"namespace", "policy"},
+	)
+
+	// PodsInfeasible is the current count of pods with Infeasible in-place resize.
+	PodsInfeasible = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "attune_pods_infeasible",
+			Help: "Pods currently marked Infeasible for in-place resize on their node",
+		},
+		[]string{"namespace", "policy"},
+	)
+
+	// DeferredAgeSeconds observes how long pods have been Deferred (when
+	// LastTransitionTime is available on the condition).
+	DeferredAgeSeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "attune_deferred_age_seconds",
+			Help:    "Age of Deferred resize conditions when observed during reconcile",
+			Buckets: []float64{30, 60, 120, 300, 600, 1800, 3600, 7200},
+		},
+		[]string{"namespace", "policy"},
+	)
+
 	BurstFactor = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "attune_burst_factor",
@@ -294,6 +324,9 @@ func init() {
 		BudgetExhaustedTotal,
 		EvictionTotal,
 		InfeasibleSkippedTotal,
+		PodsDeferred,
+		PodsInfeasible,
+		DeferredAgeSeconds,
 		BurstFactor,
 		StartupBoostTotal,
 		StaleRecommendationsTotal,

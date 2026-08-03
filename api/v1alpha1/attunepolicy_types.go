@@ -742,6 +742,18 @@ type WorkloadStatus struct {
 	// Pending is the number of workloads awaiting resize.
 	Pending int32 `json:"pending"`
 
+	// Deferred is the number of pods whose in-place resize is Deferred by the
+	// kubelet (node cannot accept the change yet). Retried automatically when
+	// the condition clears on a later reconcile.
+	// +optional
+	Deferred int32 `json:"deferred,omitempty"`
+
+	// Infeasible is the number of pods whose in-place resize is Infeasible on
+	// the current node. With resizeMethod InPlaceOnly these pods are skipped;
+	// with InPlaceOrRecreate the operator may fall back to eviction.
+	// +optional
+	Infeasible int32 `json:"infeasible,omitempty"`
+
 	// DataPointsCollected is the maximum number of data points collected across
 	// all containers in the discovered workloads.
 	// +optional
@@ -920,7 +932,8 @@ type ResizeHistoryEntry struct {
 	// Reason explains why the resize was reverted or failed.
 	// Only populated when Result is Reverted or Failed.
 	// Values include: oomkill, restart, notready, throttle,
-	// annotation-conflict, immediate-safety-check, slo:<name>.
+	// annotation-conflict, immediate-safety-check, slo:<name>,
+	// infeasible (kubelet Infeasible / InPlaceOnly skip).
 	// +optional
 	Reason string `json:"reason,omitempty"`
 }

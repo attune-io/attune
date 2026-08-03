@@ -498,7 +498,7 @@
           "mode": "multi"
         }
       },
-      "title": "Evictions & Infeasible Skips",
+      "title": "Evictions, Infeasible & Deferred",
       "type": "timeseries",
       "targets": [
         {
@@ -508,6 +508,14 @@
         {
           "expr": "sum by (workload) (rate(attune_infeasible_skipped_total[$__rate_interval]))",
           "legendFormat": "infeasible {{ workload }}"
+        },
+        {
+          "expr": "sum by (namespace, policy) (attune_pods_deferred)",
+          "legendFormat": "deferred pods {{ namespace }}/{{ policy }}"
+        },
+        {
+          "expr": "sum by (namespace, policy) (attune_pods_infeasible)",
+          "legendFormat": "infeasible pods {{ namespace }}/{{ policy }}"
         }
       ]
     },

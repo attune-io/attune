@@ -456,15 +456,25 @@ func (r *AttunePolicyReconciler) resizeContainer(
 			if evicted := r.tryEvictionFallback(ctx, policy, pod, workload, workloadName, containerRec.Name, resizer); evicted {
 				return evictionHistory(), resizeOutcomeEvicted
 			}
-		} else {
-			logger.Info("Pod resize is Infeasible and resizeMethod is InPlaceOnly, skipping",
-				"pod", pod.Name, "container", containerRec.Name)
-			operatormetrics.InfeasibleSkippedTotal.WithLabelValues(pod.Namespace, workloadName).Inc()
-			r.emitEventOnce(policy, corev1.EventTypeWarning, "InfeasibleBlocked", "resize",
-				"Pod %s cannot be resized in-place (Infeasible) and resizeMethod is InPlaceOnly; consider InPlaceOrRecreate",
-				pod.Name)
+			// Eviction denied or blocked: record failure with actionable reason.
+			return []attunev1alpha1.ResizeHistoryEntry{{
+				Timestamp: now, Workload: workloadName, Container: containerRec.Name,
+				Resource: "cpu+memory", Method: resize.MethodInPlace,
+				Result: attunev1alpha1.ResizeResultFailed, Reason: "infeasible",
+			}}, resizeOutcomeNone
 		}
-		return nil, resizeOutcomeNone
+		logger.Info("Pod resize is Infeasible and resizeMethod is InPlaceOnly, skipping",
+			"pod", pod.Name, "container", containerRec.Name)
+		operatormetrics.InfeasibleSkippedTotal.WithLabelValues(pod.Namespace, workloadName).Inc()
+		r.emitEventOnce(policy, corev1.EventTypeWarning, "InfeasibleBlocked", "resize",
+			"Pod %s cannot be resized in-place (Infeasible) and resizeMethod is InPlaceOnly; consider InPlaceOrRecreate or free node capacity",
+			pod.Name)
+		return []attunev1alpha1.ResizeHistoryEntry{{
+			Timestamp: now, Workload: workloadName, Container: containerRec.Name,
+			Resource: "cpu+memory", Method: resize.MethodInPlace,
+			From: "", To: "",
+			Result: attunev1alpha1.ResizeResultFailed, Reason: "infeasible",
+		}}, resizeOutcomeNone
 	}
 
 	if restartResources := resize.RestartContainerResources(pod, containerRec.Name); len(restartResources) > 0 {
