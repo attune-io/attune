@@ -86,8 +86,16 @@ func (c *GitHubClient) CreateOrUpdate(ctx context.Context, req PRRequest) (PRRes
 		httpClient = &http.Client{Timeout: 30 * time.Second}
 	}
 
-	// Find existing open PR with same head branch (filter client-side).
-	listURL := fmt.Sprintf("%s/repos/%s/pulls?state=open&base=%s", base, c.Repository, url.QueryEscape(req.Base))
+	// Find existing open PR for this head branch. GitHub supports head=owner:ref
+	// server-side filtering so we do not miss the PR when base has many open PRs
+	// (default list page size is 30).
+	owner := c.Repository
+	if i := strings.IndexByte(c.Repository, '/'); i > 0 {
+		owner = c.Repository[:i]
+	}
+	listURL := fmt.Sprintf("%s/repos/%s/pulls?state=open&base=%s&head=%s&per_page=100",
+		base, c.Repository, url.QueryEscape(req.Base),
+		url.QueryEscape(owner+":"+req.Head))
 	body, code, err := c.doJSON(ctx, httpClient, http.MethodGet, listURL, nil)
 	if err != nil {
 		return PRResult{}, err
@@ -105,20 +113,26 @@ func (c *GitHubClient) CreateOrUpdate(ctx context.Context, req PRRequest) (PRRes
 	if err := json.Unmarshal(body, &existing); err != nil {
 		return PRResult{}, fmt.Errorf("github list PRs decode: %w", err)
 	}
-	for _, pr := range existing {
-		if pr.Head.Ref == req.Head {
-			// Update body/title
-			patchURL := fmt.Sprintf("%s/repos/%s/pulls/%d", base, c.Repository, pr.Number)
-			payload := map[string]string{"title": req.Title, "body": req.Body}
-			_, code, err := c.doJSON(ctx, httpClient, http.MethodPatch, patchURL, payload)
-			if err != nil {
-				return PRResult{}, err
+	if len(existing) > 0 {
+		pr := existing[0]
+		// Prefer an entry whose head ref matches when the response still includes
+		// unrelated PRs (older GitHub or ignored head filter).
+		for i := range existing {
+			if existing[i].Head.Ref == req.Head {
+				pr = existing[i]
+				break
 			}
-			if code < 200 || code >= 300 {
-				return PRResult{}, fmt.Errorf("github update PR: status %d", code)
-			}
-			return PRResult{URL: pr.HTMLURL, Number: pr.Number, Updated: true}, nil
 		}
+		patchURL := fmt.Sprintf("%s/repos/%s/pulls/%d", base, c.Repository, pr.Number)
+		payload := map[string]string{"title": req.Title, "body": req.Body}
+		_, code, err := c.doJSON(ctx, httpClient, http.MethodPatch, patchURL, payload)
+		if err != nil {
+			return PRResult{}, err
+		}
+		if code < 200 || code >= 300 {
+			return PRResult{}, fmt.Errorf("github update PR: status %d", code)
+		}
+		return PRResult{URL: pr.HTMLURL, Number: pr.Number, Updated: true}, nil
 	}
 
 	// Ensure head branch exists (create from base with a bootstrap commit if needed).

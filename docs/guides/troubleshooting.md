@@ -510,8 +510,9 @@ sum by (namespace, policy, reason) (rate(attune_capacity_skip_total[1h]))
 
 **Symptom**: After enabling memory decreases (`memory.allowDecrease: true`
 and `controlledValues: RequestsAndLimits`) on Kubernetes 1.35+, pods OOMKill
-when limits shrink, or Events show `MemoryLimitUsageFloor` / metrics show
-`attune_memory_limit_decrease_total{result="clamped_usage"}`.
+when limits shrink, Events show `MemoryLimitUsageFloor`, metrics show
+`attune_memory_limit_decrease_total{result="clamped_usage"}` or
+`skipped_unsafe`, or the opt-in `AttuneMemoryLimitUnsafe` alert fires.
 
 **Cause**: Live memory limit decreases race with usage spikes. Attune floors
 the target limit above recent usage (recommendation raw percentile) plus

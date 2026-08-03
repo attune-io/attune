@@ -37,10 +37,13 @@ func TestRecordCapacitySkip(t *testing.T) {
 
 	recordCapacitySkip(policy, "total pod requests would exceed node allocatable")
 	recordCapacitySkip(policy, "node has MemoryPressure; skipping memory request increase")
+	// Producer strings from nodePressureBlocksIncrease must map to the same pressure label.
+	recordCapacitySkip(policy, "node has DiskPressure; skipping memory request increase")
+	recordCapacitySkip(policy, "node has PIDPressure; skipping CPU request increase")
 	recordCapacitySkip(policy, "quota/limitrange violation: too large") // no metric
 
 	assert.Equal(t, beforeAlloc+1, testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("ns-cap", "cap-test", "allocatable")))
-	assert.Equal(t, beforePress+1, testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("ns-cap", "cap-test", "pressure")))
+	assert.Equal(t, beforePress+3, testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("ns-cap", "cap-test", "pressure")))
 }
 
 func TestComputeSavings_ReclaimedAliases(t *testing.T) {

@@ -251,6 +251,40 @@ func TestPathEscapeRef(t *testing.T) {
 	assert.Equal(t, "heads/foo%20bar", pathEscapeRef("heads/foo bar"))
 }
 
+func TestGitHubClient_ListOpenPRsUsesHeadFilter(t *testing.T) {
+	t.Parallel()
+	var listQuery string
+	client := &GitHubClient{
+		Token:      "tok",
+		Repository: "org/repo",
+		HTTP: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/pulls") {
+				listQuery = r.URL.RawQuery
+				return jsonResp(200, []map[string]interface{}{
+					{
+						"number": 42, "html_url": "https://github.com/org/repo/pull/42",
+						"head": map[string]string{"ref": "attune/x"},
+					},
+				}), nil
+			}
+			if r.Method == http.MethodPatch && strings.Contains(r.URL.Path, "/pulls/42") {
+				return jsonResp(200, map[string]interface{}{}), nil
+			}
+			return jsonResp(500, `{"message":"unexpected"}`), nil
+		}),
+	}
+	res, err := client.CreateOrUpdate(context.Background(), PRRequest{
+		Title: "t", Body: "b", Head: "attune/x", Base: "main",
+	})
+	require.NoError(t, err)
+	assert.True(t, res.Updated)
+	assert.Equal(t, 42, res.Number)
+	assert.Contains(t, listQuery, "head=")
+	assert.Contains(t, listQuery, "org%3Aattune%2Fx") // owner:branch QueryEscape
+	assert.Contains(t, listQuery, "per_page=100")
+	assert.Contains(t, listQuery, "base=main")
+}
+
 func TestGitHubClient_EnsureHead_RaceRefExists(t *testing.T) {
 	t.Parallel()
 	var headGets int
