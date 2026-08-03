@@ -419,6 +419,31 @@ Built-in known names include `istio-proxy`, `linkerd-proxy`, `consul-dataplane`,
 
 Template changes trigger a rolling update. The operator no-ops when the template already matches and skips patches mid-rollout. **Observe mode never patches.** **Canary** defers template writes until `FullRollout` so a partial canary resize does not roll the whole fleet via the template. Requests are clamped to limits the same way as live resize.
 
+### Export and GitOps pull requests
+
+Write recommendations to ConfigMaps for Argo CD / Flux, and optionally open
+provider PRs when templates drift. Full cookbook:
+[GitOps integration](../guides/gitops-integration.md).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `updateStrategy.export.configMap` | bool | `false` | When true, write versioned recommendation ConfigMaps named `<policy>-<workload>-recommendations` (schema key `schema-version: v1`). |
+| `updateStrategy.export.pullRequest.enabled` | bool | `false` | Opt-in PR automation (GitHub or GitLab). Requires `repository` and `tokenSecretRef` when enabled. |
+| `updateStrategy.export.pullRequest.provider` | string | `github` | `github` or `gitlab`. |
+| `updateStrategy.export.pullRequest.repository` | string | (required when enabled) | `owner/repo` (GitHub) or project path/id (GitLab). |
+| `updateStrategy.export.pullRequest.tokenSecretRef` | object | (required when enabled) | Secret `name` + `key` for a fine-scoped API token. Never log the token. |
+| `updateStrategy.export.pullRequest.apiUrl` | string | provider default | Enterprise GitHub or self-hosted GitLab API base (SSRF-validated). |
+| `updateStrategy.export.pullRequest.baseBranch` | string | `main` | Target branch for the PR. |
+| `updateStrategy.export.pullRequest.cooldown` | duration | `24h` | Minimum time between PR create/update attempts for this policy. |
+| `updateStrategy.export.pullRequest.minChangePercent` | int32 | `10` | Minimum absolute percent change (per container resource vs template) to open or update a PR (1-100). |
+| `updateStrategy.export.pullRequest.dryRun` | bool | `false` | When true, set status only (`PullRequestDryRun`); no remote API call. |
+| `updateStrategy.export.pullRequest.labels` | []string | `[]` | Labels applied to the PR when the provider supports them (max 20). |
+
+Status condition `GitOpsPullRequest` reports dry-run, open, no-drift, cooldown,
+failed, or disabled. Metric: `attune_gitops_pr_total`. Inspect export ConfigMaps
+with `kubectl attune export list` and effective PR settings with
+`kubectl attune explain <policy>`.
+
 ### Directional Change Caps
 
 Per-resource fields in `cpu` and `memory` that limit how much a recommendation can change per cycle:
@@ -529,6 +554,7 @@ The controller sets these conditions on each `AttunePolicy`:
 | `Degraded` | `HighRevertRate` | Set when 3+ of the last 5 resizes were reverted |
 | `ScheduleBlocked` | `OutsideWindow`, `InsideWindow` | Set when `updateStrategy.schedule` is configured; indicates whether the current time is within an allowed resize window |
 | `ResizeBlocked` | `PodsDeferred`, `PodsInfeasible`, `PodsDeferredAndInfeasible` | Pods stuck Deferred or Infeasible; see troubleshooting "Deferred or Infeasible resize" |
+| `GitOpsPullRequest` | `PullRequestOpen`, `PullRequestFailed`, `NoDrift`, `PullRequestCooldown`, `PullRequestDryRun`, `PullRequestDisabled` | Opt-in `export.pullRequest` automation status (see [GitOps integration](../guides/gitops-integration.md)) |
 
 ## Exponential Backoff
 
