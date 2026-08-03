@@ -510,6 +510,10 @@ directory. When referencing files elsewhere in the repo (e.g., `charts/`,
 
 - Never commit secrets, API keys, or `.env` files (gitleaks runs in CI)
 - Run `make manifests && make generate` before committing CRD/API changes
+- After CRD/API/RBAC changes, refresh tracked release manifests when
+  `make verify-release-artifacts` fails: `make build-installer` and
+  `make build-crds`, then `git add -f dist/install.yaml dist/crds.yaml`.
+  PR CI's "CRD Freshness Check" enforces this (see #454).
 - Run `make verify` before committing (covers lint, test, helm-docs, CRD freshness)
 - After running `make deploy`, `make k3d-deploy`, or `make kind-deploy`, restore
   `git checkout config/manager/kustomization.yaml` before committing

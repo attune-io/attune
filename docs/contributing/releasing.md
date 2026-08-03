@@ -87,10 +87,16 @@ cosign sign --yes docker.io/attuneio/attune-chart:0.2.0
 Generate the combined install manifest for users who do not use Helm:
 
 ```bash
-make build-installer
+make build-installer IMG=ghcr.io/attune-io/attune:latest
+make build-crds
 ```
 
-This writes `dist/install.yaml`, which is uploaded as a release artifact.
+This writes `dist/install.yaml` and `dist/crds.yaml`, uploaded as release
+artifacts. Keep them committed when they change: PR CI runs
+`make verify-release-artifacts` inside the CRD Freshness Check job and fails
+if `dist/` lags CRDs or kustomize config. Force-add if needed
+(`git add -f dist/install.yaml dist/crds.yaml`; `dist/` is gitignored for
+local noise).
 
 ## Pre-release checklist
 
