@@ -26,6 +26,8 @@ const (
 	// Deferred (kubelet cannot accept yet) or Infeasible (cannot complete
 	// in-place on the current node).
 	ConditionResizeBlocked = "ResizeBlocked"
+	// ConditionGitOpsPullRequest reports opt-in PR automation status.
+	ConditionGitOpsPullRequest = "GitOpsPullRequest"
 )
 
 // Condition reason constants for AttunePolicy.
@@ -47,6 +49,13 @@ const (
 	ReasonPodsDeferred              = "PodsDeferred"
 	ReasonPodsInfeasible            = "PodsInfeasible"
 	ReasonPodsDeferredAndInfeasible = "PodsDeferredAndInfeasible"
+	// GitOps PR automation reasons.
+	ReasonGitOpsPROpen     = "PullRequestOpen"
+	ReasonGitOpsPRFailed   = "PullRequestFailed"
+	ReasonGitOpsPRNoDrift  = "NoDrift"
+	ReasonGitOpsPRCooldown = "PullRequestCooldown"
+	ReasonGitOpsPRDryRun   = "PullRequestDryRun"
+	ReasonGitOpsPRDisabled = "PullRequestDisabled"
 )
 
 // CanaryPhaseInProgress and CanaryPhaseFullRollout are now typed constants

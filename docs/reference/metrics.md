@@ -210,6 +210,23 @@ to limits](../guides/troubleshooting.md#requests-clamped-to-limits).
 | `container` | Container name |
 | `resource` | `cpu` or `memory` |
 
+### attune_gitops_pr_total
+
+Opt-in GitOps pull request automation outcomes (Phase B). Default-off feature
+under `updateStrategy.export.pullRequest`.
+
+| Label | Description |
+|-------|-------------|
+| `namespace` | Policy namespace |
+| `policy` | Policy name |
+| `result` | `created`, `updated`, `dry_run`, or `failed` |
+
+```promql
+sum by (namespace, policy, result) (rate(attune_gitops_pr_total[1h]))
+```
+
+See [GitOps integration: pull request automation](../guides/gitops-integration.md#pull-request-automation-opt-in-phase-b).
+
 ### attune_memory_limit_decrease_total
 
 Outcomes of memory **limit** decrease attempts (Kubernetes 1.35+ live

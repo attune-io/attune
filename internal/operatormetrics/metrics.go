@@ -276,6 +276,16 @@ var (
 		[]string{"namespace", "workload", "result"},
 	)
 
+	// GitOpsPRTotal counts GitOps pull request automation outcomes.
+	// result: created, updated, dry_run, failed
+	GitOpsPRTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "attune_gitops_pr_total",
+			Help: "GitOps pull request automation outcomes (created, updated, dry_run, failed)",
+		},
+		[]string{"namespace", "policy", "result"},
+	)
+
 	// MemoryLimitDecreaseTotal counts memory limit decrease outcomes.
 	// result: applied (limit decreased on successful resize),
 	// clamped_platform (kept higher limit for K8s NotRequired policy),
@@ -348,5 +358,6 @@ func init() {
 		RevertFailuresTotal,
 		TemplatePatchTotal,
 		MemoryLimitDecreaseTotal,
+		GitOpsPRTotal,
 	)
 }
