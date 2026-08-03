@@ -221,6 +221,13 @@ func TestSummarizeResizeBlockers(t *testing.T) {
 	assert.Equal(t, []string{"app-2"}, s.InfeasibleNames)
 	require.Len(t, s.DeferredAges, 1)
 	assert.InDelta(t, 100.0, s.DeferredAges[0].Seconds(), 0.001)
+
+	// Status contract: controller copies counts onto Workloads (deferred/infeasible UX).
+	policy := &attunev1alpha1.AttunePolicy{}
+	policy.Status.Workloads.Deferred = safeInt32(s.DeferredCount)
+	policy.Status.Workloads.Infeasible = safeInt32(s.InfeasibleCount)
+	assert.Equal(t, int32(1), policy.Status.Workloads.Deferred)
+	assert.Equal(t, int32(1), policy.Status.Workloads.Infeasible)
 }
 
 func TestSetResizeBlockedCondition(t *testing.T) {

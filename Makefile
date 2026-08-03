@@ -372,6 +372,9 @@ _deploy-stack:
 		--set metrics.enabled=true \
 		--set leaderElection.enabled=false \
 		--set maxConcurrentReconciles=4 \
+		--set fleetReport.enabled=true \
+		--set fleetReport.interval=30s \
+		--set fleetReport.clusterId=e2e \
 		--wait --timeout 3m
 
 .PHONY: k3d-deploy

@@ -1,0 +1,66 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: fleet-report
+spec:
+  description: >
+    Verify the operator writes the fleet report ConfigMap (schema-version +
+    report.json) when fleetReport is enabled in the E2E Helm install.
+  timeouts:
+    apply: 30s
+    assert: 3m
+    delete: 30s
+  steps:
+    - name: wait-fleet-report-configmap
+      try:
+        - script:
+            timeout: 3m
+            content: |
+              set -euo pipefail
+              NS=attune-system
+              CM=attune-fleet-report
+              for i in $(seq 1 36); do
+                if kubectl -n "$NS" get configmap "$CM" >/dev/null 2>&1; then
+                  DATA=$(kubectl -n "$NS" get configmap "$CM" -o json)
+                  SCHEMA=$(echo "$DATA" | jq -r '.data["schema-version"] // empty')
+                  REPORT=$(echo "$DATA" | jq -r '.data["report.json"] // empty')
+                  if [ "$SCHEMA" != "v1" ]; then
+                    echo "FAIL: schema-version want v1 got '$SCHEMA'"
+                    echo "$DATA" | jq .
+                    exit 1
+                  fi
+                  if [ -z "$REPORT" ]; then
+                    echo "FAIL: report.json empty"
+                    exit 1
+                  fi
+                  SV=$(echo "$REPORT" | jq -r '.schemaVersion // empty')
+                  if [ "$SV" != "v1" ]; then
+                    echo "FAIL: report.json schemaVersion want v1 got '$SV'"
+                    echo "$REPORT" | jq . || echo "$REPORT"
+                    exit 1
+                  fi
+                  # policyCount is always present (0+ when no policies yet)
+                  PC=$(echo "$REPORT" | jq -r '.policyCount // empty')
+                  if [ -z "$PC" ]; then
+                    echo "FAIL: report.json missing policyCount"
+                    exit 1
+                  fi
+                  LABEL=$(echo "$DATA" | jq -r '.metadata.labels["attune.io/fleet-report"] // empty')
+                  if [ "$LABEL" != "true" ]; then
+                    echo "FAIL: missing label attune.io/fleet-report=true (got '$LABEL')"
+                    exit 1
+                  fi
+                  echo "OK: fleet report ConfigMap schema-version=v1 policyCount=$PC"
+                  exit 0
+                fi
+                sleep 5
+              done
+              echo "FAIL: ConfigMap $NS/$CM not found"
+              kubectl -n "$NS" get configmap -o name || true
+              kubectl -n "$NS" get deploy,pods -o wide || true
+              kubectl -n "$NS" logs -l app.kubernetes.io/name=attune --tail=80 || true
+              exit 1
+  catch:
+    - podLogs:
+        namespace: attune-system
+        selector: app.kubernetes.io/name=attune
