@@ -16,35 +16,32 @@ spec:
         - script:
             timeout: 3m
             content: |
-              # Chainsaw scripts run under /bin/sh (not bash); avoid bash-only flags.
+              # Chainsaw scripts run under /bin/sh (not bash). Prefer jsonpath
+              # over piping full ConfigMap JSON through jq (large report bodies).
               NS=attune-system
               CM=attune-fleet-report
               for i in $(seq 1 36); do
-                if kubectl -n "$NS" get configmap "$CM" >/dev/null 2>&1; then
-                  DATA=$(kubectl -n "$NS" get configmap "$CM" -o json)
-                  SCHEMA=$(echo "$DATA" | jq -r '.data["schema-version"] // empty')
-                  REPORT=$(echo "$DATA" | jq -r '.data["report.json"] // empty')
-                  if [ "$SCHEMA" != "v1" ]; then
-                    echo "FAIL: schema-version want v1 got '$SCHEMA'"
-                    echo "$DATA" | jq .
-                    exit 1
-                  fi
+                SCHEMA=$(kubectl -n "$NS" get configmap "$CM" -o jsonpath='{.data.schema-version}' 2>/dev/null || true)
+                if [ "$SCHEMA" = "v1" ]; then
+                  REPORT=$(kubectl -n "$NS" get configmap "$CM" -o jsonpath='{.data.report\.json}' 2>/dev/null || true)
                   if [ -z "$REPORT" ]; then
                     echo "FAIL: report.json empty"
                     exit 1
                   fi
-                  SV=$(echo "$REPORT" | jq -r '.schemaVersion // empty')
+                  # Write report to a file so jq does not see shell/control issues.
+                  printf '%s' "$REPORT" > /tmp/fleet-report.json
+                  SV=$(jq -r '.schemaVersion // empty' /tmp/fleet-report.json)
                   if [ "$SV" != "v1" ]; then
                     echo "FAIL: report.json schemaVersion want v1 got '$SV'"
-                    echo "$REPORT" | jq . || echo "$REPORT"
+                    head -c 500 /tmp/fleet-report.json; echo
                     exit 1
                   fi
-                  PC=$(echo "$REPORT" | jq -r '.policyCount // empty')
+                  PC=$(jq -r '.policyCount // empty' /tmp/fleet-report.json)
                   if [ -z "$PC" ]; then
                     echo "FAIL: report.json missing policyCount"
                     exit 1
                   fi
-                  LABEL=$(echo "$DATA" | jq -r '.metadata.labels["attune.io/fleet-report"] // empty')
+                  LABEL=$(kubectl -n "$NS" get configmap "$CM" -o jsonpath='{.metadata.labels.attune\.io/fleet-report}' 2>/dev/null || true)
                   if [ "$LABEL" != "true" ]; then
                     echo "FAIL: missing label attune.io/fleet-report=true (got '$LABEL')"
                     exit 1
@@ -54,9 +51,10 @@ spec:
                 fi
                 sleep 5
               done
-              echo "FAIL: ConfigMap $NS/$CM not found"
+              echo "FAIL: ConfigMap $NS/$CM with schema-version=v1 not found"
+              kubectl -n "$NS" get configmap "$CM" -o yaml 2>/dev/null || true
               kubectl -n "$NS" get configmap -o name || true
-              kubectl -n "$NS" get deploy,pods -o wide || true
+              kubectl -n "$NS" get deploy -o yaml | head -80 || true
               kubectl -n "$NS" logs -l app.kubernetes.io/name=attune --tail=80 || true
               exit 1
   catch:
