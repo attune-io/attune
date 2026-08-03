@@ -267,6 +267,25 @@ Total times all Prometheus samples for a container metric were non-finite
 | `container` | Container name |
 | `metric_type` | `cpu` or `memory` |
 
+### attune_capacity_skip_total
+
+Resize attempts skipped because of node **allocatable** headroom or node
+**pressure** conditions (always-on safety gates). See
+[Node capacity formulas](../architecture/node-capacity.md) and
+[Troubleshooting: Resize skipped for capacity](../guides/troubleshooting.md#resize-skipped-for-node-capacity-or-pressure).
+
+| Label | Description |
+|-------|-------------|
+| `namespace` | Policy namespace |
+| `policy` | Policy name |
+| `reason` | `allocatable` or `pressure` |
+
+```promql
+sum by (namespace, policy, reason) (
+  rate(attune_capacity_skip_total[1h])
+)
+```
+
 ## Gauges
 
 ### attune_recommendation_cpu_cores
@@ -288,6 +307,34 @@ Recommended memory (bytes) for each workload container.
 | `namespace` | Workload namespace |
 | `workload` | Workload name |
 | `container` | Container name |
+
+### attune_reclaimed_request_cpu_cores
+
+Estimated freeable CPU request cores for a policy if recommended decreases
+were applied. Bin-packing / cluster-autoscaler capacity planning signal.
+Same quantity as savings CPU reduction, labeled by policy.
+
+| Label | Description |
+|-------|-------------|
+| `namespace` | Policy namespace |
+| `policy` | Policy name |
+
+### attune_reclaimed_request_memory_bytes
+
+Estimated freeable memory request bytes for a policy if recommended decreases
+were applied.
+
+| Label | Description |
+|-------|-------------|
+| `namespace` | Policy namespace |
+| `policy` | Policy name |
+
+```promql
+sum by (namespace, policy) (attune_reclaimed_request_cpu_cores)
+sum by (namespace, policy) (attune_reclaimed_request_memory_bytes)
+```
+
+See [Bin packing](../guides/bin-packing.md#reclaimed-capacity-signals).
 
 ### attune_savings_cpu_cores_total
 

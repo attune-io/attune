@@ -1579,6 +1579,17 @@ spec:
                     description: MemoryRequestTotal is the total current memory requests
                       across all workloads (e.g. "2Gi").
                     type: string
+                  reclaimedCpuRequest:
+                    description: |-
+                      ReclaimedCPURequest is estimated freeable CPU request capacity if recommended
+                      decreases were applied (same quantity as cpuRequestReduction). Preferred field
+                      name for bin-packing and cluster-autoscaler capacity planning.
+                    type: string
+                  reclaimedMemoryRequest:
+                    description: |-
+                      ReclaimedMemoryRequest is estimated freeable memory request capacity if
+                      recommended decreases were applied (same quantity as memoryRequestReduction).
+                    type: string
                 type: object
               workloadErrors:
                 description: |-
