@@ -212,13 +212,16 @@ func (r *AttunePolicyReconciler) touchGitOpsPRAnnotation(policy *attunev1alpha1.
 }
 
 // persistGitOpsPRAnnotations patches policy annotations so cooldown survives restarts.
-// Best-effort; failures do not fail reconcile.
+// Best-effort; failures do not fail reconcile but are logged at V(1).
 func (r *AttunePolicyReconciler) persistGitOpsPRAnnotations(ctx context.Context, policy *attunev1alpha1.AttunePolicy) {
 	if policy.Annotations == nil {
 		return
 	}
+	logger := log.FromContext(ctx)
 	latest := &attunev1alpha1.AttunePolicy{}
 	if err := r.Get(ctx, client.ObjectKeyFromObject(policy), latest); err != nil {
+		logger.V(1).Info("GitOps PR: failed to re-get policy for annotation persist",
+			"error", err.Error(), "policy", policy.Name, "namespace", policy.Namespace)
 		return
 	}
 	base := latest.DeepCopy()
@@ -231,5 +234,8 @@ func (r *AttunePolicyReconciler) persistGitOpsPRAnnotations(ctx context.Context,
 	if v, ok := policy.Annotations[annotationGitOpsPRURL]; ok {
 		latest.Annotations[annotationGitOpsPRURL] = v
 	}
-	_ = r.Patch(ctx, latest, client.MergeFrom(base))
+	if err := r.Patch(ctx, latest, client.MergeFrom(base)); err != nil {
+		logger.V(1).Info("GitOps PR: failed to patch cooldown annotations",
+			"error", err.Error(), "policy", policy.Name, "namespace", policy.Namespace)
+	}
 }
