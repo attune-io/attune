@@ -135,6 +135,15 @@ type AttunePolicySpec struct {
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=1000
 	Weight int32 `json:"weight,omitempty"`
+
+	// RuntimeProfile applies language/runtime-oriented defaults for memory
+	// resize safety. Unset or "generic" leaves policy fields unchanged.
+	// Profiles document recommended resizePolicy and decrease settings;
+	// they do not auto-patch pod specs. Supported values: generic, java,
+	// python, golang, nodejs.
+	// +optional
+	// +kubebuilder:validation:Enum=generic;java;python;golang;nodejs
+	RuntimeProfile string `json:"runtimeProfile,omitempty"`
 }
 
 // TargetRef identifies the target workload(s).

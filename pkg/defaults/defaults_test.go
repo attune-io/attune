@@ -709,3 +709,31 @@ func TestCombineDefaultsLayers_NamespaceSetsAllSectionsOverCluster(t *testing.T)
 	assert.True(t, *got.Spec.ExcludeKnownSidecars)
 	assert.Equal(t, "0.009", got.Spec.CostPricing.MemoryPerGiBHour)
 }
+
+func TestApplyRuntimeProfileDefaults_Java(t *testing.T) {
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			RuntimeProfile: "java",
+		},
+	}
+	ApplyBuiltInDefaults(policy)
+	require.NotNil(t, policy.Spec.Memory.AllowDecrease)
+	assert.False(t, *policy.Spec.Memory.AllowDecrease)
+	assert.Equal(t, "40", policy.Spec.Memory.Overhead)
+}
+
+func TestApplyRuntimeProfileDefaults_ExplicitWins(t *testing.T) {
+	allow := true
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			RuntimeProfile: "java",
+			Memory: attunev1alpha1.ResourceConfig{
+				AllowDecrease: &allow,
+				Overhead:      "15",
+			},
+		},
+	}
+	ApplyBuiltInDefaults(policy)
+	assert.True(t, *policy.Spec.Memory.AllowDecrease)
+	assert.Equal(t, "15", policy.Spec.Memory.Overhead)
+}
