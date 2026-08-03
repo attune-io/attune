@@ -273,7 +273,7 @@ func TestComputeDrift_SkipsWorkloadWithoutRecommendation(t *testing.T) {
 	recs := []attunev1alpha1.WorkloadRecommendation{{
 		Workload: "other", Kind: "Deployment",
 		Containers: []attunev1alpha1.ContainerRecommendation{{
-			Name: "app",
+			Name:        "app",
 			Recommended: attunev1alpha1.ResourceValues{CPURequest: resource.MustParse("100m")},
 		}},
 	}}
