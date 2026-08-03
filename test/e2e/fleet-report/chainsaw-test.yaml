@@ -16,7 +16,7 @@ spec:
         - script:
             timeout: 3m
             content: |
-              set -euo pipefail
+              # Chainsaw scripts run under /bin/sh (not bash); avoid bash-only flags.
               NS=attune-system
               CM=attune-fleet-report
               for i in $(seq 1 36); do
@@ -39,7 +39,6 @@ spec:
                     echo "$REPORT" | jq . || echo "$REPORT"
                     exit 1
                   fi
-                  # policyCount is always present (0+ when no policies yet)
                   PC=$(echo "$REPORT" | jq -r '.policyCount // empty')
                   if [ -z "$PC" ]; then
                     echo "FAIL: report.json missing policyCount"
