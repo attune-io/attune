@@ -23,7 +23,7 @@ limit increases take effect immediately.
 | Cluster | Behavior |
 |---------|----------|
 | Kubernetes **1.33–1.34** | API rejects in-place memory limit decreases when `resizePolicy` for memory is `NotRequired` (default). Attune **clamps** the limit (keeps the higher current value) unless policy is `RestartContainer`. |
-| Kubernetes **1.35+** (GA) | Live memory limit decreases are allowed. The kubelet does a best-effort check against current usage; a race can still OOM if usage spikes after the check. Attune detects the version at startup and **skips the clamp** so decreases can apply when `allowDecrease` permits. Directional `maxDecreasePercent` still steps large shrinks over multiple cycles. |
+| Kubernetes **1.35+** (GA) | Live memory limit decreases are allowed. The kubelet does a best-effort check against current usage; a race can still OOM if usage spikes after the check. Attune detects the version at startup and **skips the platform clamp** so decreases can apply when `allowDecrease` permits. Attune also applies a **client-side usage floor**: target limit must stay above recent usage (recommendation raw percentile) times `(1 + decreaseUsageMarginPercent/100)` (default 10%). Directional `maxDecreasePercent` still steps large shrinks over multiple cycles. |
 
 ## How Attune uses it
 
@@ -41,13 +41,20 @@ Before calling `UpdateResize`, the controller runs several safety checks:
 1. **Pod already at target**: Skips if the running pod's actual resources
    match the recommendation (compares against the live pod, not the
    Deployment template).
-2. **Node capacity**: Verifies that total pod requests after resize don't
-   exceed the node's allocatable resources.
-3. **LimitRange/ResourceQuota**: Checks that the target doesn't violate
+2. **Memory limit platform clamp**: On clusters that reject live memory
+   limit decreases (`NotRequired` policy, typically 1.33–1.34), preserves
+   the higher current limit.
+3. **Memory limit usage floor**: When decreasing a memory limit, raises
+   the target if it would fall at or below recent usage plus
+   `memory.decreaseUsageMarginPercent` headroom.
+4. **Node capacity / pressure**: Verifies that total pod requests after
+   resize don't exceed the node's allocatable resources; skips request
+   increases under MemoryPressure / DiskPressure / PIDPressure.
+5. **LimitRange/ResourceQuota**: Checks that the target doesn't violate
    namespace constraints.
-4. **QoS preservation**: Ensures the resize won't change the pod's QoS
+6. **QoS preservation**: Ensures the resize won't change the pod's QoS
    class (e.g., from Guaranteed to Burstable).
-5. **Resize policy warning**: If the container has `resizePolicy` set to
+7. **Resize policy warning**: If the container has `resizePolicy` set to
    `RestartContainer`, the operator logs a warning but proceeds with the
    resize (the kubelet will restart the container).
 

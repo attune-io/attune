@@ -275,6 +275,19 @@ var (
 		},
 		[]string{"namespace", "workload", "result"},
 	)
+
+	// MemoryLimitDecreaseTotal counts memory limit decrease outcomes.
+	// result: applied (limit decreased on successful resize),
+	// clamped_platform (kept higher limit for K8s NotRequired policy),
+	// clamped_usage (raised target to stay above recent usage + margin),
+	// skipped_unsafe (limit decrease abandoned after usage floor equals current).
+	MemoryLimitDecreaseTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "attune_memory_limit_decrease_total",
+			Help: "Memory limit decrease outcomes (applied, clamped_platform, clamped_usage, skipped_unsafe)",
+		},
+		[]string{"namespace", "policy", "result"},
+	)
 )
 
 // WebhookTimer tracks webhook operation duration and result.
@@ -334,5 +347,6 @@ func init() {
 		NanInfSamplesTotal,
 		RevertFailuresTotal,
 		TemplatePatchTotal,
+		MemoryLimitDecreaseTotal,
 	)
 }

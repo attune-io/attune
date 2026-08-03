@@ -56,14 +56,17 @@ const (
 	DefaultUpdateType                   = UpdateTypeRecommend
 	DefaultCPUMaxChangePercent    int32 = 50
 	DefaultMemoryMaxChangePercent int32 = 30
-	DefaultWeight                 int32 = 100
-	DefaultControlledValues             = ControlledRequestsOnly
-	DefaultHistoryWindow                = "168h"
-	DefaultCooldown                     = "1h"
-	DefaultResizeMethod                 = ResizeMethodInPlaceOnly
-	DefaultMinimumDataPoints      int32 = 48
-	DefaultAutoRevert                   = true
-	DefaultQueryStep                    = 5 * time.Minute
+	// DefaultDecreaseUsageMarginPercent is the default headroom above recent
+	// memory usage when decreasing memory limits (see DecreaseUsageMarginPercent).
+	DefaultDecreaseUsageMarginPercent int32 = 10
+	DefaultWeight                     int32 = 100
+	DefaultControlledValues                 = ControlledRequestsOnly
+	DefaultHistoryWindow                    = "168h"
+	DefaultCooldown                         = "1h"
+	DefaultResizeMethod                     = ResizeMethodInPlaceOnly
+	DefaultMinimumDataPoints          int32 = 48
+	DefaultAutoRevert                       = true
+	DefaultQueryStep                        = 5 * time.Minute
 	// DefaultExcludeKnownSidecars skips well-known mesh/sidecar container
 	// names unless the policy or AttuneDefaults sets excludeKnownSidecars
 	// to false.

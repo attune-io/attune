@@ -26,6 +26,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -378,14 +379,18 @@ func (r *AttunePolicyReconciler) resizeContainer(
 	// limit preserved by the resize engine, breaking requests == limits.
 	preClamped := target.DeepCopy()
 	target = resize.ClampMemoryLimitForPolicy(pod, containerRec.Name, target, r.AllowInPlaceMemoryLimitDecrease)
+	platformClamped := false
 	if memLim, ok := preClamped.Limits[corev1.ResourceMemory]; ok {
 		if clampedLim, cok := target.Limits[corev1.ResourceMemory]; cok && !memLim.Equal(clampedLim) {
+			platformClamped = true
 			logger.Info("Memory limit decrease clamped by resize policy",
 				"pod", pod.Name, "container", containerRec.Name,
 				"requestedLimit", memLim.String(), "clampedLimit", clampedLim.String())
 			r.emitEventOnce(policy, corev1.EventTypeWarning, "MemoryLimitClamped", "resize",
 				"Container %s in pod %s: memory limit decrease blocked (NotRequired resize policy); limit preserved at %s",
 				containerRec.Name, pod.Name, clampedLim.String())
+			operatormetrics.MemoryLimitDecreaseTotal.WithLabelValues(
+				policy.Namespace, policy.Name, "clamped_platform").Inc()
 			// For Guaranteed QoS pods, the memory request must also be raised
 			// to match the clamped limit. Otherwise requests != limits and
 			// PreservesQoS blocks the resize entirely, preventing CPU changes
@@ -399,6 +404,13 @@ func (r *AttunePolicyReconciler) resizeContainer(
 				}
 			}
 		}
+	}
+
+	// Client-side pre-check: do not apply a memory limit at or below recent
+	// usage (plus configurable margin). Uses recommendation RawPercentile as
+	// recent usage from the metrics window (#444 / #428).
+	if !platformClamped {
+		target = r.applyMemoryUsageFloor(ctx, policy, pod, containerRec, target)
 	}
 
 	skip, reason := r.shouldSkipResize(ctx, policy, pod, containerRec, target, p.Checks)
@@ -524,6 +536,22 @@ func (r *AttunePolicyReconciler) resizeContainer(
 				r.Recorder.Eventf(policy, nil, corev1.EventTypeNormal, "Resized", "resize",
 					"Resized %s %s/%s: %s %s -> %s",
 					res.Resource, workloadName, containerRec.Name, res.Resource, res.From.String(), res.To.String())
+			}
+		}
+	}
+	// Observability: successful in-place apply of a lower memory limit.
+	anySuccess := false
+	for _, res := range results {
+		if res.Success {
+			anySuccess = true
+			break
+		}
+	}
+	if anySuccess {
+		if curLim := containerRec.Current.MemoryLimit; !curLim.IsZero() {
+			if newLim, ok := target.Limits[corev1.ResourceMemory]; ok && newLim.Cmp(curLim) < 0 {
+				operatormetrics.MemoryLimitDecreaseTotal.WithLabelValues(
+					policy.Namespace, policy.Name, "applied").Inc()
 			}
 		}
 	}
@@ -930,6 +958,82 @@ func (r *AttunePolicyReconciler) shouldSkipResize(
 	}
 
 	return false, ""
+}
+
+// applyMemoryUsageFloor raises a decreasing memory limit so it stays above
+// recent usage * (1 + margin/100). Recent usage is the memory recommendation
+// RawPercentile (historical usage percentile before overhead).
+func (r *AttunePolicyReconciler) applyMemoryUsageFloor(
+	ctx context.Context,
+	policy *attunev1alpha1.AttunePolicy,
+	pod *corev1.Pod,
+	containerRec attunev1alpha1.ContainerRecommendation,
+	target corev1.ResourceRequirements,
+) corev1.ResourceRequirements {
+	logger := log.FromContext(ctx)
+	targetLim, ok := target.Limits[corev1.ResourceMemory]
+	if !ok {
+		return target
+	}
+	currentLim := containerRec.Current.MemoryLimit
+	if currentLim.IsZero() {
+		if c := findContainerByName(pod, containerRec.Name); c != nil {
+			if lim, lok := c.Resources.Limits[corev1.ResourceMemory]; lok {
+				currentLim = lim
+			}
+		}
+	}
+	if currentLim.IsZero() || targetLim.Cmp(currentLim) >= 0 {
+		return target
+	}
+
+	usage, hasUsage := recentMemoryUsage(containerRec)
+	if !hasUsage {
+		return target
+	}
+
+	margin := float64(attunev1alpha1.DefaultDecreaseUsageMarginPercent)
+	if policy.Spec.Memory.DecreaseUsageMarginPercent != nil {
+		margin = float64(*policy.Spec.Memory.DecreaseUsageMarginPercent)
+	}
+
+	floored, applied := resize.FloorMemoryLimitForUsage(target, currentLim, usage, margin)
+	if !applied {
+		return target
+	}
+
+	newLim := floored.Limits[corev1.ResourceMemory]
+	logger.Info("Memory limit decrease floored above recent usage",
+		"pod", pod.Name, "container", containerRec.Name,
+		"requestedLimit", targetLim.String(),
+		"usage", usage.String(),
+		"marginPercent", margin,
+		"flooredLimit", newLim.String())
+	r.emitEventOnce(policy, corev1.EventTypeWarning, "MemoryLimitUsageFloor", "resize",
+		"Container %s in pod %s: memory limit decrease raised from %s to %s (usage %s + %.0f%% margin)",
+		containerRec.Name, pod.Name, targetLim.String(), newLim.String(), usage.String(), margin)
+
+	if newLim.Equal(currentLim) {
+		operatormetrics.MemoryLimitDecreaseTotal.WithLabelValues(
+			policy.Namespace, policy.Name, "skipped_unsafe").Inc()
+	} else {
+		operatormetrics.MemoryLimitDecreaseTotal.WithLabelValues(
+			policy.Namespace, policy.Name, "clamped_usage").Inc()
+	}
+	return floored
+}
+
+// recentMemoryUsage returns the raw usage percentile from the recommendation
+// explanation when available.
+func recentMemoryUsage(containerRec attunev1alpha1.ContainerRecommendation) (resource.Quantity, bool) {
+	if containerRec.Explanation == nil || containerRec.Explanation.Memory == nil {
+		return resource.Quantity{}, false
+	}
+	u := containerRec.Explanation.Memory.RawPercentile
+	if u.IsZero() || u.Sign() <= 0 {
+		return resource.Quantity{}, false
+	}
+	return u, true
 }
 
 // nodePressureBlocksIncrease returns a skip reason when the node is under
