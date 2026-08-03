@@ -8746,12 +8746,18 @@ func TestExportRecommendationConfigMaps_CreatesConfigMap(t *testing.T) {
 		Name:      "test-policy-my-app-recommendations",
 	}, &cm)
 	require.NoError(t, err)
+	assert.Equal(t, RecommendationExportSchemaVersion, cm.Data["schema-version"])
+	assert.Equal(t, "test-policy", cm.Data["policy"])
+	assert.Equal(t, "default", cm.Data["namespace"])
 	assert.Equal(t, "my-app", cm.Data["workload"])
 	assert.Equal(t, "Deployment", cm.Data["kind"])
 	assert.Equal(t, "250m", cm.Data["main.cpu-request"])
 	assert.Equal(t, "256Mi", cm.Data["main.memory-request"])
 	assert.Equal(t, "0.95", cm.Data["main.confidence"])
+	assert.NotEmpty(t, cm.Data["last-updated"])
+	assert.Equal(t, cm.Data["last-updated"], cm.Data["generated-at"])
 	assert.Equal(t, "test-policy", cm.Labels["attune.io/policy"])
+	assert.Equal(t, RecommendationExportSchemaVersion, cm.Labels["attune.io/export-schema"])
 }
 
 func TestExportRecommendationConfigMaps_UpdatesExisting(t *testing.T) {
