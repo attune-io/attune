@@ -249,3 +249,91 @@ func TestPathEscapeRef(t *testing.T) {
 	// Spaces must be escaped; slashes preserved as separators.
 	assert.Equal(t, "heads/foo%20bar", pathEscapeRef("heads/foo bar"))
 }
+
+func TestGitHubClient_EnsureHead_RaceRefExists(t *testing.T) {
+	t.Parallel()
+	var headGets int
+	client := &GitHubClient{
+		Token:      "tok",
+		Repository: "org/repo",
+		HTTP: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			path := r.URL.Path
+			switch {
+			case r.Method == http.MethodGet && strings.Contains(path, "/pulls"):
+				return jsonResp(200, "[]"), nil
+			case r.Method == http.MethodGet && strings.Contains(path, "/git/ref/heads/attune/x"):
+				headGets++
+				if headGets == 1 {
+					return jsonResp(404, `{"message":"Not Found"}`), nil
+				}
+				// After concurrent create race: ref exists.
+				return jsonResp(200, map[string]interface{}{
+					"object": map[string]string{"sha": "other"},
+				}), nil
+			case r.Method == http.MethodGet && strings.Contains(path, "/git/ref/heads/main"):
+				return jsonResp(200, map[string]interface{}{
+					"object": map[string]string{"sha": "base-sha"},
+				}), nil
+			case r.Method == http.MethodGet && strings.Contains(path, "/git/commits/base-sha"):
+				return jsonResp(200, map[string]interface{}{
+					"tree": map[string]string{"sha": "tree-sha"},
+				}), nil
+			case r.Method == http.MethodPost && strings.HasSuffix(path, "/git/commits"):
+				return jsonResp(201, map[string]string{"sha": "new-commit-sha"}), nil
+			case r.Method == http.MethodPost && strings.HasSuffix(path, "/git/refs"):
+				return jsonResp(422, `{"message":"Reference already exists"}`), nil
+			case r.Method == http.MethodPost && strings.HasSuffix(path, "/pulls"):
+				return jsonResp(201, map[string]interface{}{
+					"number": 5, "html_url": "https://github.com/org/repo/pull/5",
+				}), nil
+			default:
+				return jsonResp(500, `{"message":"unexpected `+r.Method+` `+path+`"}`), nil
+			}
+		}),
+	}
+	res, err := client.CreateOrUpdate(context.Background(), PRRequest{
+		Title: "t", Body: "b", Head: "attune/x", Base: "main",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 5, res.Number)
+	assert.GreaterOrEqual(t, headGets, 2)
+}
+
+func TestGitLabClient_EnsureHead_FileExistsOnBase_UsesUpdate(t *testing.T) {
+	t.Parallel()
+	var commitBodies []string
+	client := &GitLabClient{
+		Token:   "gl-token",
+		Project: "g/p",
+		HTTP: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			path := r.URL.Path
+			switch {
+			case r.Method == http.MethodGet && strings.Contains(path, "/merge_requests"):
+				return jsonResp(200, "[]"), nil
+			case r.Method == http.MethodGet && strings.Contains(path, "/repository/branches/"):
+				return jsonResp(404, `{"message":"404 Branch Not Found"}`), nil
+			case r.Method == http.MethodPost && strings.Contains(path, "/repository/commits"):
+				b, _ := io.ReadAll(r.Body)
+				commitBodies = append(commitBodies, string(b))
+				if strings.Contains(string(b), `"action":"create"`) {
+					return jsonResp(400, `{"message":"A file with this name already exists"}`), nil
+				}
+				return jsonResp(201, map[string]string{"id": "c2"}), nil
+			case r.Method == http.MethodPost && strings.HasSuffix(path, "/merge_requests"):
+				return jsonResp(201, map[string]interface{}{
+					"iid": 12, "web_url": "https://gitlab.com/g/p/-/merge_requests/12",
+				}), nil
+			default:
+				return jsonResp(500, `{"message":"unexpected `+r.Method+` `+path+`"}`), nil
+			}
+		}),
+	}
+	res, err := client.CreateOrUpdate(context.Background(), PRRequest{
+		Title: "t", Body: "b", Head: "attune/x", Base: "main",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 12, res.Number)
+	require.Len(t, commitBodies, 2)
+	assert.Contains(t, commitBodies[0], `"create"`)
+	assert.Contains(t, commitBodies[1], `"update"`)
+}

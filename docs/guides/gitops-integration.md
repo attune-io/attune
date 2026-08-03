@@ -207,6 +207,11 @@ The PR/MR description still carries the full drift table. Template patches
 remain a review step (`kubectl attune diff` or your pipeline). Dry-run never
 creates branches or PRs.
 
+Re-bootstrap after a merge is expected when the head branch was deleted.
+On GitLab, if `.attune/RECOMMENDATION_DRIFT.md` already exists on
+`baseBranch`, Attune retries with an update action so the delta stays
+non-empty.
+
 If bootstrap fails (token scopes, missing `baseBranch`, network), status shows
 `PullRequestFailed` with a redacted API error.
 

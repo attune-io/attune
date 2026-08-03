@@ -186,8 +186,11 @@ func (c *GitHubClient) ensureHeadBranch(ctx context.Context, httpClient HTTPDoer
 			SHA string `json:"sha"`
 		} `json:"object"`
 	}
-	if err := json.Unmarshal(baseBody, &baseRef); err != nil || baseRef.Object.SHA == "" {
+	if err := json.Unmarshal(baseBody, &baseRef); err != nil {
 		return fmt.Errorf("github get base branch decode: %w", err)
+	}
+	if baseRef.Object.SHA == "" {
+		return fmt.Errorf("github get base branch: empty sha")
 	}
 
 	// Load commit to get tree SHA for empty commit.
@@ -204,8 +207,11 @@ func (c *GitHubClient) ensureHeadBranch(ctx context.Context, httpClient HTTPDoer
 			SHA string `json:"sha"`
 		} `json:"tree"`
 	}
-	if err := json.Unmarshal(commitBody, &baseCommit); err != nil || baseCommit.Tree.SHA == "" {
+	if err := json.Unmarshal(commitBody, &baseCommit); err != nil {
 		return fmt.Errorf("github get base commit decode: %w", err)
+	}
+	if baseCommit.Tree.SHA == "" {
+		return fmt.Errorf("github get base commit: empty tree sha")
 	}
 
 	// Empty commit (same tree, parent = base) so head != base for PR creation.
@@ -225,8 +231,11 @@ func (c *GitHubClient) ensureHeadBranch(ctx context.Context, httpClient HTTPDoer
 	var newCommit struct {
 		SHA string `json:"sha"`
 	}
-	if err := json.Unmarshal(newCommitBody, &newCommit); err != nil || newCommit.SHA == "" {
+	if err := json.Unmarshal(newCommitBody, &newCommit); err != nil {
 		return fmt.Errorf("github create bootstrap commit decode: %w", err)
+	}
+	if newCommit.SHA == "" {
+		return fmt.Errorf("github create bootstrap commit: empty sha")
 	}
 
 	// Create head ref.
@@ -371,34 +380,47 @@ func (c *GitLabClient) ensureHeadBranch(ctx context.Context, httpClient HTTPDoer
 	}
 
 	// Create branch + bootstrap file commit in one request (start_branch).
+	// Prefer "create"; if the marker already exists on base (prior merge),
+	// retry with "update" so re-bootstrap still produces a non-empty delta.
 	commitURL := fmt.Sprintf("%s/projects/%s/repository/commits", apiBase, projectEscaped)
-	payload := map[string]interface{}{
-		"branch":         head,
-		"start_branch":   baseBranch,
-		"commit_message": bootstrapCommitMessage,
-		"actions": []map[string]string{
-			{
-				"action":    "create",
-				"file_path": ".attune/RECOMMENDATION_DRIFT.md",
-				"content":   "Attune recommendation drift branch.\n\nSee the merge request description for the drift table. Apply template patches via `kubectl attune diff` or your GitOps pipeline.\n",
+	markerContent := "Attune recommendation drift branch.\n\nSee the merge request description for the drift table. Apply template patches via `kubectl attune diff` or your GitOps pipeline.\n"
+	for _, action := range []string{"create", "update"} {
+		payload := map[string]interface{}{
+			"branch":         head,
+			"start_branch":   baseBranch,
+			"commit_message": bootstrapCommitMessage,
+			"actions": []map[string]string{
+				{
+					"action":    action,
+					"file_path": ".attune/RECOMMENDATION_DRIFT.md",
+					"content":   markerContent,
+				},
 			},
-		},
-	}
-	respBody, code, err := c.doJSON(ctx, httpClient, http.MethodPost, commitURL, payload)
-	if err != nil {
-		return fmt.Errorf("gitlab create head branch: %w", err)
-	}
-	// Race: branch appeared; treat as success if GET now succeeds.
-	if code == http.StatusBadRequest || code == http.StatusConflict {
-		_, checkCode, checkErr := c.doJSON(ctx, httpClient, http.MethodGet, branchURL, nil)
-		if checkErr == nil && checkCode >= 200 && checkCode < 300 {
+		}
+		respBody, code, err := c.doJSON(ctx, httpClient, http.MethodPost, commitURL, payload)
+		if err != nil {
+			return fmt.Errorf("gitlab create head branch: %w", err)
+		}
+		if code >= 200 && code < 300 {
 			return nil
 		}
-	}
-	if code < 200 || code >= 300 {
+		// Race: branch appeared; treat as success if GET now succeeds.
+		if code == http.StatusBadRequest || code == http.StatusConflict {
+			_, checkCode, checkErr := c.doJSON(ctx, httpClient, http.MethodGet, branchURL, nil)
+			if checkErr == nil && checkCode >= 200 && checkCode < 300 {
+				return nil
+			}
+		}
+		// File already on base: try update action once.
+		if action == "create" && (code == http.StatusBadRequest || code == http.StatusUnprocessableEntity) {
+			lower := strings.ToLower(string(respBody))
+			if strings.Contains(lower, "already exists") || strings.Contains(lower, "a file with this name already exists") {
+				continue
+			}
+		}
 		return fmt.Errorf("gitlab create head branch: status %d: %s", code, redactToken(string(respBody), c.Token))
 	}
-	return nil
+	return fmt.Errorf("gitlab create head branch: exhausted create/update attempts")
 }
 
 func (c *GitLabClient) doJSON(ctx context.Context, httpClient HTTPDoer, method, rawURL string, payload interface{}) ([]byte, int, error) {
