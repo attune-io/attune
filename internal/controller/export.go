@@ -32,6 +32,10 @@ import (
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 )
 
+// RecommendationExportSchemaVersion is the stable version of the ConfigMap
+// export data schema. Bump when keys or semantics change in a breaking way.
+const RecommendationExportSchemaVersion = "v1"
+
 // exportRecommendationConfigMaps creates or updates ConfigMaps with
 // recommendation data for GitOps workflows.
 func (r *AttunePolicyReconciler) exportRecommendationConfigMaps(
@@ -54,8 +58,11 @@ func (r *AttunePolicyReconciler) exportRecommendationConfigMaps(
 			continue
 		}
 		data := map[string]string{
-			"workload": rec.Workload,
-			"kind":     rec.Kind,
+			"schema-version": RecommendationExportSchemaVersion,
+			"policy":         policy.Name,
+			"namespace":      policy.Namespace,
+			"workload":       rec.Workload,
+			"kind":           rec.Kind,
 		}
 		for _, c := range rec.Containers {
 			prefix := c.Name + "."
@@ -74,14 +81,16 @@ func (r *AttunePolicyReconciler) exportRecommendationConfigMaps(
 			data[prefix+"confidence"] = fmt.Sprintf("%.2f", conf)
 		}
 		data["last-updated"] = r.now().UTC().Format(time.RFC3339)
+		data["generated-at"] = data["last-updated"]
 
 		cm := &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      cmName,
 				Namespace: policy.Namespace,
 				Labels: map[string]string{
-					"attune.io/policy":   policy.Name,
-					"attune.io/workload": rec.Workload,
+					"attune.io/policy":        policy.Name,
+					"attune.io/workload":      rec.Workload,
+					"attune.io/export-schema": RecommendationExportSchemaVersion,
 				},
 			},
 			Data: data,
