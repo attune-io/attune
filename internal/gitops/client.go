@@ -456,7 +456,15 @@ func redactToken(s, token string) string {
 	if token == "" {
 		return s
 	}
-	return strings.ReplaceAll(s, token, "[redacted]")
+	// Exact match first, then common encodings that APIs may echo in error bodies.
+	s = strings.ReplaceAll(s, token, "[redacted]")
+	if enc := url.QueryEscape(token); enc != token {
+		s = strings.ReplaceAll(s, enc, "[redacted]")
+	}
+	if enc := url.PathEscape(token); enc != token {
+		s = strings.ReplaceAll(s, enc, "[redacted]")
+	}
+	return s
 }
 
 // pathEscapeRef escapes each path segment of a git ref (e.g. heads/attune/foo)
