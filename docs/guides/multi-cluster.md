@@ -238,6 +238,157 @@ For centralized alerting with Alertmanager federation, no Attune-specific
 configuration is needed. The standard Alertmanager routing and
 inhibition rules apply.
 
+## Fleet observability with federated Prometheus
+
+Platform teams often need **org-wide** answers (savings this month, stuck
+policies, resize health) without logging into every cluster. Attune stays
+**per-cluster for control**, and uses **metrics federation + optional fleet
+reports** for read-only rollups (#369).
+
+### Label convention
+
+Each cluster Prometheus must set a stable cluster identity:
+
+```yaml
+global:
+  external_labels:
+    cluster: prod-us-east-1   # required for fleet faceting
+```
+
+Do **not** add high-cardinality labels. `cluster` is the only fleet facet
+Attune documents for first-party dashboards and recording rules.
+
+### Fleet Grafana dashboard
+
+Ship and enable the fleet dashboard (cluster variable, resize/revert/savings
+panels):
+
+```bash
+helm upgrade attune oci://ghcr.io/attune-io/charts/attune \
+  --set grafanaFleetDashboard.enabled=true
+```
+
+Source of truth: `deploy/grafana/fleet-dashboard.json` (also packaged as
+`charts/attune/files/grafana-fleet-dashboard.json`).
+
+Panels include:
+
+| Panel | Signal |
+|-------|--------|
+| Resize success / fail by cluster | `attune_resize_total` |
+| Reverts by cluster | `attune_reverts_total` |
+| Estimated monthly savings by cluster | `attune_savings_estimated_monthly_dollars` |
+| CPU / memory savings by cluster | savings gauges |
+| Fleet report export failures | `attune_fleet_report_export_total` |
+
+Point the dashboard datasource at the **global** Thanos/Mimir/AMP query
+frontend (not the per-cluster operator scrape target).
+
+### Recording rules (org rollups)
+
+Enable first-party recording rules on each cluster (or only on the global
+ruler, if you prefer a single place):
+
+```bash
+helm upgrade attune oci://ghcr.io/attune-io/charts/attune \
+  --set metrics.prometheusRule.enabled=true \
+  --set metrics.prometheusRule.fleetRecordingRules.enabled=true
+```
+
+| Recording rule | Purpose |
+|----------------|---------|
+| `attune:resize:rate5m` | Resize rate by cluster, namespace, result |
+| `attune:reverts:rate5m` | Revert rate by cluster, namespace, reason |
+| `attune:savings:cpu_cores` | Freeable CPU cores by cluster/namespace |
+| `attune:savings:memory_bytes` | Freeable memory by cluster/namespace |
+| `attune:savings:estimated_monthly_dollars` | Approximate monthly USD by cluster/namespace |
+| `attune:fleet_report:export_failures_rate5m` | Fleet ConfigMap export failure rate |
+
+Example org PromQL:
+
+```promql
+# Resizes succeeded across the fleet (last hour)
+sum(increase(attune_resize_total{result="success"}[1h]))
+
+# Estimated monthly savings by cluster (approximate)
+sum by (cluster) (attune:savings:estimated_monthly_dollars)
+```
+
+Savings figures are already approximate per cluster. Org rollups must not
+claim higher precision than the sum of per-cluster estimates.
+
+### Fleet status export (optional, Phase B)
+
+When you need structured summaries for tools that are not Prometheus-centric,
+enable the operator-side fleet report (default **off**):
+
+```yaml
+fleetReport:
+  enabled: true
+  configMapName: attune-fleet-report
+  clusterId: prod-us-east-1
+  interval: 5m
+```
+
+The leader writes a ConfigMap labeled `attune.io/fleet-report=true` with:
+
+| Key | Content |
+|-----|---------|
+| `schema-version` | `v1` (breaking changes require a version bump) |
+| `cluster-id` | From `fleetReport.clusterId` |
+| `generated-at` | RFC3339 UTC |
+| `report.json` | Full JSON document (see schema below) |
+
+**`report.json` schema (v1):**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `schemaVersion` | string | Always `v1` for this shape |
+| `clusterId` | string | Optional stable id |
+| `generatedAt` | timestamp | When the report was built |
+| `policyCount` | int | Number of AttunePolicy objects |
+| `policiesByMode` | map | Counts by stored `updateStrategy.type` (empty type counted as `Recommend`) |
+| `readyTrue` / `readyFalse` | int | Ready condition counts |
+| `insufficientData` | int | Policies blocked on data |
+| `workloadsDiscovered` | int | Sum of discovered workloads |
+| `workloadsWithRecommendations` | int | Sum with recommendations |
+| `workloadsResized` | int | Sum resized |
+| `estimatedMonthlySavingsUSD` | float | Sum of parseable policy savings |
+| `reclaimedCpuRequestMilli` | int | Freeable CPU millicores (when present) |
+| `reclaimedMemoryRequestBytes` | int | Freeable memory bytes (when present) |
+
+Collectors must ignore unknown fields. Metric:
+`attune_fleet_report_export_total{result="success|failed"}`.
+
+If the operator is scoped with `--watch-namespaces` / `watchNamespaces`, the
+report only includes policies in watched namespaces (partial cluster view).
+For a full-cluster report, leave watchNamespaces empty.
+
+With HA (`replicaCount` > 1), enable leader election so only one pod writes
+the ConfigMap.
+
+### Collect reports from N clusters
+
+```bash
+# Current context only
+scripts/collect-fleet-reports.sh
+
+# Explicit contexts
+scripts/collect-fleet-reports.sh --contexts dev,staging,prod
+
+# All kubeconfig contexts
+scripts/collect-fleet-reports.sh --all-contexts -n attune-system
+```
+
+Output is a JSON array of reports (or error objects per context) suitable for
+CI tables or FinOps pipelines. Requires `kubectl` and `jq`.
+
+### What this is not
+
+- No multi-cluster **resize control** from a hub (still dangerous for v1).
+- No replacement for per-cluster Attune installs.
+- Fleet reports and federated metrics are **read-only** aggregation paths.
+
 ## Example: graduated rollout across environments
 
 A common pattern is to validate recommendations in lower environments

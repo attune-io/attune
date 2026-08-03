@@ -181,4 +181,23 @@ spec:
               problematic resources. Check operator logs for the revert error
               and verify RBAC for the pods/resize subresource.
         {{- end }}
+    {{- if .Values.metrics.prometheusRule.fleetRecordingRules.enabled }}
+    - name: attune-fleet.rules
+      interval: 30s
+      rules:
+        # Org / multi-cluster rollups. Prefer external_labels.cluster on each
+        # Prometheus so series are facetable. Rules remain useful with empty cluster.
+        - record: attune:resize:rate5m
+          expr: sum by (cluster, namespace, result) (rate(attune_resize_total[5m]))
+        - record: attune:reverts:rate5m
+          expr: sum by (cluster, namespace, reason) (rate(attune_reverts_total[5m]))
+        - record: attune:savings:cpu_cores
+          expr: sum by (cluster, namespace) (attune_savings_cpu_cores_total)
+        - record: attune:savings:memory_bytes
+          expr: sum by (cluster, namespace) (attune_savings_memory_bytes_total)
+        - record: attune:savings:estimated_monthly_dollars
+          expr: sum by (cluster, namespace) (attune_savings_estimated_monthly_dollars)
+        - record: attune:fleet_report:export_failures_rate5m
+          expr: sum(rate(attune_fleet_report_export_total{result="failed"}[5m]))
+    {{- end }}
 {{- end }}

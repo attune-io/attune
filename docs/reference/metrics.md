@@ -210,6 +210,21 @@ to limits](../guides/troubleshooting.md#requests-clamped-to-limits).
 | `container` | Container name |
 | `resource` | `cpu` or `memory` |
 
+### attune_fleet_report_export_total
+
+Outcomes of optional per-cluster **fleet summary** ConfigMap export
+(`--fleet-report-enabled`). Used by multi-cluster collectors (#369).
+
+| Label | Description |
+|-------|-------------|
+| `result` | `success` or `failed` |
+
+```promql
+sum(rate(attune_fleet_report_export_total{result="failed"}[5m]))
+```
+
+See [Fleet observability](../guides/multi-cluster.md#fleet-observability-with-federated-prometheus).
+
 ### attune_gitops_pr_total
 
 Opt-in GitOps pull request automation outcomes (Phase B). Default-off feature

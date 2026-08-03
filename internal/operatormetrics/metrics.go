@@ -286,6 +286,16 @@ var (
 		[]string{"namespace", "policy", "result"},
 	)
 
+	// FleetReportExportTotal counts fleet summary ConfigMap export attempts.
+	// result: success or failed.
+	FleetReportExportTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "attune_fleet_report_export_total",
+			Help: "Fleet cluster report ConfigMap export outcomes (success, failed)",
+		},
+		[]string{"result"},
+	)
+
 	// MemoryLimitDecreaseTotal counts memory limit decrease outcomes.
 	// result: applied (limit decreased on successful resize),
 	// clamped_platform (kept higher limit for K8s NotRequired policy),
@@ -389,6 +399,7 @@ func init() {
 		TemplatePatchTotal,
 		MemoryLimitDecreaseTotal,
 		GitOpsPRTotal,
+		FleetReportExportTotal,
 		CapacitySkipTotal,
 		ReclaimedRequestCPU,
 		ReclaimedRequestMemory,

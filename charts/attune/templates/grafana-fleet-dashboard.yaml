@@ -1,0 +1,16 @@
+{{- /* Fleet multi-cluster dashboard. Source: deploy/grafana/fleet-dashboard.json */ -}}
+{{- if .Values.grafanaFleetDashboard.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "attune.fullname" . }}-fleet-dashboard
+  labels:
+    {{- include "attune.labels" . | nindent 4 }}
+    grafana_dashboard: "1"
+    {{- with .Values.grafanaFleetDashboard.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+data:
+  attune-fleet.json: |-
+{{ .Files.Get "files/grafana-fleet-dashboard.json" | indent 4 }}
+{{- end }}
