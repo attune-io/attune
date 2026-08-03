@@ -20,6 +20,18 @@ recommendations, and promoting to Canary mode, all in about five minutes.
     - **A metrics source** — Prometheus (default), Datadog, or CloudWatch Container Insights. This guide uses Prometheus; see [Datadog Setup](../guides/datadog-setup.md) or [CloudWatch Setup](../guides/cloudwatch-setup.md) for alternatives.
     - **Attune installed** — see [Installation](installation.md) for Helm and raw manifest options.
 
+## What else can Attune do?
+
+This quick start gets you to recommendations. When you are ready to go further:
+
+| Area | Start here |
+|------|------------|
+| Multi-cluster fleet reports and dashboards | [Multi-cluster](../guides/multi-cluster.md#fleet-observability-with-federated-prometheus) |
+| GitOps ConfigMap export and optional PR automation | [GitOps integration](../guides/gitops-integration.md) |
+| Memory limit decrease safety (usage floor on 1.35+) | [Resize API](../architecture/resize-api.md) and [troubleshooting OOM](../guides/troubleshooting.md#oom-after-memory-limit-decrease) |
+| Language runtime defaults (Java, Python, Go, Node) | [Runtime profiles](../guides/runtime-profiles.md) |
+| Node pressure skips and reclaimed capacity | [Bin packing](../guides/bin-packing.md) and [node capacity](../architecture/node-capacity.md) |
+
 ## 1. Create an AttunePolicy in Recommend mode
 
 Start in **Recommend** mode so that no pods are modified. The operator will

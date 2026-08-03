@@ -101,6 +101,18 @@ spec:
                       exit 1
                     fi
                     echo "OwnerReference set correctly"
+                    # Export schema contract (GitOps durability)
+                    SCHEMA=$(echo "$DATA" | jq -r '.data["schema-version"] // empty')
+                    if [ "$SCHEMA" != "v1" ]; then
+                      echo "FAIL: data.schema-version want v1 got '$SCHEMA'"
+                      exit 1
+                    fi
+                    LABEL=$(echo "$DATA" | jq -r '.metadata.labels["attune.io/export-schema"] // empty')
+                    if [ "$LABEL" != "v1" ]; then
+                      echo "FAIL: label attune.io/export-schema want v1 got '$LABEL'"
+                      exit 1
+                    fi
+                    echo "Export schema-version=v1 OK"
                     exit 0
                   fi
                 fi

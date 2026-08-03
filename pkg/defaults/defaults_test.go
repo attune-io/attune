@@ -739,3 +739,42 @@ func TestApplyRuntimeProfileDefaults_ExplicitWins(t *testing.T) {
 	assert.True(t, *policy.Spec.Memory.AllowDecrease)
 	assert.Equal(t, "15", policy.Spec.Memory.Overhead)
 }
+
+func TestApplyRuntimeProfileDefaults_AllProfiles(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name           string
+		profile        string
+		wantAllowFalse bool
+		wantOverhead   string // empty = leave built-in default path alone for overhead
+	}{
+		{name: "empty", profile: "", wantAllowFalse: false},
+		{name: "generic", profile: "generic", wantAllowFalse: false},
+		{name: "java", profile: "java", wantAllowFalse: true, wantOverhead: "40"},
+		{name: "python", profile: "python", wantAllowFalse: true},
+		{name: "nodejs", profile: "nodejs", wantAllowFalse: true},
+		{name: "golang", profile: "golang", wantAllowFalse: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			policy := &attunev1alpha1.AttunePolicy{
+				Spec: attunev1alpha1.AttunePolicySpec{
+					RuntimeProfile: tt.profile,
+				},
+			}
+			ApplyBuiltInDefaults(policy)
+			if tt.wantAllowFalse {
+				require.NotNil(t, policy.Spec.Memory.AllowDecrease)
+				assert.False(t, *policy.Spec.Memory.AllowDecrease)
+			} else {
+				// Profiles that do not force allowDecrease leave it nil (or
+				// unset by ApplyBuiltInDefaults for memory decrease).
+				assert.Nil(t, policy.Spec.Memory.AllowDecrease)
+			}
+			if tt.wantOverhead != "" {
+				assert.Equal(t, tt.wantOverhead, policy.Spec.Memory.Overhead)
+			}
+		})
+	}
+}

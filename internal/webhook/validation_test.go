@@ -18,6 +18,7 @@ package webhook
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -265,6 +266,50 @@ func TestValidate_GitOpsPullRequestAPIURL_EnterpriseOK(t *testing.T) {
 
 	_, err := validator.ValidateCreate(context.Background(), policy)
 	assert.NoError(t, err)
+}
+
+func TestValidate_RuntimeProfile_AllowDecreaseWarns(t *testing.T) {
+	validator := &AttunePolicyValidator{}
+	for _, profile := range []string{"java", "python", "nodejs"} {
+		t.Run(profile, func(t *testing.T) {
+			policy := validPolicy()
+			policy.Spec.RuntimeProfile = profile
+			allow := true
+			policy.Spec.Memory.AllowDecrease = &allow
+			warnings, err := validator.ValidateCreate(context.Background(), policy)
+			assert.NoError(t, err)
+			require.NotEmpty(t, warnings)
+			joined := strings.Join(warnings, " ")
+			assert.Contains(t, joined, "runtimeProfile="+profile)
+			assert.Contains(t, joined, "allowDecrease")
+		})
+	}
+}
+
+func TestValidate_RuntimeProfile_GolangNoWarnOnAllowDecrease(t *testing.T) {
+	validator := &AttunePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.RuntimeProfile = "golang"
+	allow := true
+	policy.Spec.Memory.AllowDecrease = &allow
+	warnings, err := validator.ValidateCreate(context.Background(), policy)
+	assert.NoError(t, err)
+	for _, w := range warnings {
+		assert.NotContains(t, w, "runtimeProfile=golang")
+	}
+}
+
+func TestValidate_RuntimeProfile_JavaNoWarnWhenAllowDecreaseFalse(t *testing.T) {
+	validator := &AttunePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.RuntimeProfile = "java"
+	allow := false
+	policy.Spec.Memory.AllowDecrease = &allow
+	warnings, err := validator.ValidateCreate(context.Background(), policy)
+	assert.NoError(t, err)
+	for _, w := range warnings {
+		assert.NotContains(t, w, "runtimeProfile=java")
+	}
 }
 
 func TestValidate_CanaryObservationPeriodNegative(t *testing.T) {
