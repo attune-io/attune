@@ -371,11 +371,13 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			"workloadsWithRecs", len(recommendations))
 		// Reset savings gauges in Observe mode so they don't show stale values.
 		updateSavingsGauges(policy.Namespace, savingsAccumulator{}, nil)
+		updateReclaimedCapacityGauges(policy.Namespace, policy.Name, savingsAccumulator{})
 	} else {
 		policy.Status.Recommendations = recommendations
 		var acc savingsAccumulator
 		policy.Status.Savings, acc = r.computeSavings(recommendations, defaults)
 		updateSavingsGauges(policy.Namespace, acc, defaults)
+		updateReclaimedCapacityGauges(policy.Namespace, policy.Name, acc)
 	}
 
 	// Export recommendations to ConfigMaps for GitOps workflows if configured.
@@ -923,6 +925,8 @@ func (r *AttunePolicyReconciler) handleDeletion(ctx context.Context, policy *att
 			operatormetrics.SavingsEstimatedMonthly.DeleteLabelValues(policy.Namespace)
 		}
 	}
+	operatormetrics.ReclaimedRequestCPU.DeleteLabelValues(policy.Namespace, policy.Name)
+	operatormetrics.ReclaimedRequestMemory.DeleteLabelValues(policy.Namespace, policy.Name)
 
 	// Remove the finalizer to allow garbage collection.
 	patch := client.MergeFrom(policy.DeepCopy())

@@ -178,6 +178,8 @@ spec:
 | `savings.cpuRequestIncrease` | `string` | Total CPU increase for under-provisioned workloads (e.g. "500m") |
 | `savings.memoryRequestIncrease` | `string` | Total memory increase for under-provisioned workloads (e.g. "512Mi") |
 | `savings.estimatedMonthlyCostIncrease` | `string` | Estimated monthly cost increase for under-provisioned workloads |
+| `savings.reclaimedCpuRequest` | `string` | Freeable CPU request if recommended decreases apply (alias of cpuRequestReduction) |
+| `savings.reclaimedMemoryRequest` | `string` | Freeable memory request if recommended decreases apply (alias of memoryRequestReduction) |
 | `resizeHistory[].timestamp` | `Time` | When the resize occurred |
 | `resizeHistory[].workload` | `string` | Resized workload name |
 | `resizeHistory[].container` | `string` | Resized container name |
