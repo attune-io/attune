@@ -122,3 +122,72 @@ CPU_REQ=$(kubectl get cm my-app-my-deployment-recommendations -n prod \
 See the full schema and more examples in the [Auto mode guide](auto-mode.md#exporting-recommendations-to-configmaps).
 
 This is the primary integration pattern for strict GitOps shops: the operator provides the intelligence (usage-based recommendations), Git remains the source of truth, and the export + orphan cleanup mechanism keeps the hand-off clean and auditable.
+
+## Pull request automation (opt-in Phase B)
+
+Default **off**. When enabled, Attune compares recommendations to **workload
+pod templates** (Deployment / StatefulSet / DaemonSet). If any container
+request drifts by at least `minChangePercent` (default 10), the operator
+opens or updates a GitHub or GitLab pull request (subject to `cooldown`,
+default 24h).
+
+### Security
+
+- Token is read from a Kubernetes Secret via `tokenSecretRef`.
+- Tokens are **never** written to logs, events, or status.
+- Use a fine-scoped PAT (GitHub: contents + pull requests on one repo;
+  GitLab: `api` on one project). Prefer short-lived or fine-grained tokens.
+
+### Example
+
+```yaml
+spec:
+  updateStrategy:
+    type: Recommend
+    export:
+      configMap: true
+      pullRequest:
+        enabled: true
+        provider: github          # or gitlab
+        repository: org/app-manifests
+        baseBranch: main
+        tokenSecretRef:
+          name: attune-gitops
+          key: token
+        minChangePercent: 10
+        cooldown: 24h
+        dryRun: true              # log + status only; no API call
+        labels:
+          - attune
+          - rightsizing
+```
+
+### Status
+
+Condition type `GitOpsPullRequest`:
+
+| Reason | Meaning |
+|--------|---------|
+| `PullRequestDisabled` | Feature off |
+| `NoDrift` | Templates already near recommendations |
+| `PullRequestCooldown` | Waiting for cooldown |
+| `PullRequestDryRun` | Would open/update PR |
+| `PullRequestOpen` | PR URL in message |
+| `PullRequestFailed` | API or config error (message is safe) |
+
+Metric: `attune_gitops_pr_total{result=created|updated|dry_run|failed}`.
+
+### Dry-run path
+
+Set `dryRun: true` for first enablement or CI. The operator records
+`PullRequestDryRun` and increments `dry_run` without calling GitHub/GitLab.
+
+### Branch note
+
+The operator updates an existing open PR whose head branch is
+`attune/recommendations-<ns>-<policy>`. Creating a brand-new PR requires that
+branch to exist on the remote (your pipeline can create it from the PR body
+diff, or use ConfigMap export + `kubectl attune diff` without live PR create).
+When create fails because the branch is missing, status shows
+`PullRequestFailed` with a redacted API error.
+

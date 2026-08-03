@@ -566,6 +566,77 @@ spec:
                         description: ConfigMap enables exporting recommendations to
                           ConfigMaps.
                         type: boolean
+                      pullRequest:
+                        description: |-
+                          PullRequest enables opt-in GitOps PR automation (default off).
+                          Requires a token Secret and repository identity. Never logs the token.
+                        properties:
+                          apiUrl:
+                            description: |-
+                              APIURL overrides the API base URL (Enterprise GitHub or self-hosted GitLab).
+                              Defaults: https://api.github.com or https://gitlab.com/api/v4.
+                            type: string
+                          baseBranch:
+                            description: BaseBranch is the PR target branch. Defaults
+                              to "main".
+                            type: string
+                          cooldown:
+                            description: |-
+                              Cooldown is the minimum time between PR create/update attempts for this
+                              policy. Defaults to 24h.
+                            type: string
+                          dryRun:
+                            description: |-
+                              DryRun logs the intended PR and updates status without calling the
+                              remote API. Useful for CI and first enablement.
+                            type: boolean
+                          enabled:
+                            description: Enabled turns on PR automation. Default false.
+                            type: boolean
+                          labels:
+                            description: Labels are applied to the pull request when
+                              supported by the provider.
+                            items:
+                              type: string
+                            maxItems: 20
+                            type: array
+                          minChangePercent:
+                            description: |-
+                              MinChangePercent is the minimum absolute percent change (per container
+                              resource vs template) required to open or update a PR. Defaults to 10.
+                            format: int32
+                            maximum: 100
+                            minimum: 1
+                            type: integer
+                          provider:
+                            description: Provider is "github" or "gitlab". Default
+                              "github".
+                            enum:
+                            - github
+                            - gitlab
+                            type: string
+                          repository:
+                            description: |-
+                              Repository is "owner/name" (GitHub) or "group/project" (GitLab path).
+                              Required when Enabled is true.
+                            type: string
+                          tokenSecretRef:
+                            description: |-
+                              TokenSecretRef references a Secret key holding a PAT / project token.
+                              GitHub: repo contents + pull requests. GitLab: api scope on the project.
+                              Required when Enabled is true.
+                            properties:
+                              key:
+                                description: Key within the Secret.
+                                type: string
+                              name:
+                                description: Name of the Secret.
+                                type: string
+                            required:
+                            - key
+                            - name
+                            type: object
+                        type: object
                     type: object
                   initialSizing:
                     description: |-

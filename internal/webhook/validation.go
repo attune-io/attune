@@ -104,6 +104,21 @@ func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (a
 		return warnings, fmt.Errorf("updateStrategy.canary is required when updateStrategy.type is Canary")
 	}
 
+	// GitOps PR automation: when enabled, require repository + token secret.
+	if us.Export != nil && us.Export.PullRequest != nil &&
+		us.Export.PullRequest.Enabled != nil && *us.Export.PullRequest.Enabled {
+		pr := us.Export.PullRequest
+		if pr.Repository == "" {
+			return warnings, fmt.Errorf("updateStrategy.export.pullRequest.repository is required when pullRequest.enabled is true")
+		}
+		if pr.TokenSecretRef == nil || pr.TokenSecretRef.Name == "" || pr.TokenSecretRef.Key == "" {
+			return warnings, fmt.Errorf("updateStrategy.export.pullRequest.tokenSecretRef.name and key are required when pullRequest.enabled is true")
+		}
+		if pr.Provider != "" && pr.Provider != "github" && pr.Provider != "gitlab" {
+			return warnings, fmt.Errorf("updateStrategy.export.pullRequest.provider must be github or gitlab")
+		}
+	}
+
 	// Validate canary observation period has a minimum floor.
 	if us.Canary != nil {
 		if err := validateDurationFloor("updateStrategy.canary.observationPeriod",
@@ -350,6 +365,11 @@ func warnIneffectiveSettings(policy *attunev1alpha1.AttunePolicy) admission.Warn
 	if mode == attunev1alpha1.UpdateTypeObserve {
 		if policy.Spec.UpdateStrategy.Export != nil && policy.Spec.UpdateStrategy.Export.ConfigMap {
 			w = append(w, "export.configMap has no effect in Observe mode; recommendations are not surfaced")
+		}
+		if policy.Spec.UpdateStrategy.Export != nil && policy.Spec.UpdateStrategy.Export.PullRequest != nil &&
+			policy.Spec.UpdateStrategy.Export.PullRequest.Enabled != nil &&
+			*policy.Spec.UpdateStrategy.Export.PullRequest.Enabled {
+			w = append(w, "export.pullRequest has no effect in Observe mode; recommendations are not surfaced")
 		}
 	}
 

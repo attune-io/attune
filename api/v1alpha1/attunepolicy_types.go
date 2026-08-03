@@ -593,10 +593,73 @@ type SLOGuardrail struct {
 //   - Owner reference: ConfigMaps are garbage-collected when the AttunePolicy is deleted.
 //   - Orphan cleanup: when a workload leaves the policy's selector scope, the operator
 //     deletes its recommendation ConfigMap on the next reconcile.
+//
+// PullRequest is optional Phase B automation that opens/updates a GitHub or
+// GitLab PR when recommendations drift from workload templates.
 type ExportConfig struct {
 	// ConfigMap enables exporting recommendations to ConfigMaps.
 	// +optional
 	ConfigMap bool `json:"configMap,omitempty"`
+
+	// PullRequest enables opt-in GitOps PR automation (default off).
+	// Requires a token Secret and repository identity. Never logs the token.
+	// +optional
+	PullRequest *GitOpsPullRequestConfig `json:"pullRequest,omitempty"`
+}
+
+// GitOpsPullRequestConfig configures opt-in PR creation for recommendation drift.
+// Feature is off unless Enabled is true.
+type GitOpsPullRequestConfig struct {
+	// Enabled turns on PR automation. Default false.
+	// +optional
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// Provider is "github" or "gitlab". Default "github".
+	// +kubebuilder:validation:Enum=github;gitlab
+	// +optional
+	Provider string `json:"provider,omitempty"`
+
+	// TokenSecretRef references a Secret key holding a PAT / project token.
+	// GitHub: repo contents + pull requests. GitLab: api scope on the project.
+	// Required when Enabled is true.
+	// +optional
+	TokenSecretRef *SecretKeyRef `json:"tokenSecretRef,omitempty"`
+
+	// Repository is "owner/name" (GitHub) or "group/project" (GitLab path).
+	// Required when Enabled is true.
+	// +optional
+	Repository string `json:"repository,omitempty"`
+
+	// BaseBranch is the PR target branch. Defaults to "main".
+	// +optional
+	BaseBranch string `json:"baseBranch,omitempty"`
+
+	// APIURL overrides the API base URL (Enterprise GitHub or self-hosted GitLab).
+	// Defaults: https://api.github.com or https://gitlab.com/api/v4.
+	// +optional
+	APIURL string `json:"apiUrl,omitempty"`
+
+	// Cooldown is the minimum time between PR create/update attempts for this
+	// policy. Defaults to 24h.
+	// +optional
+	Cooldown *metav1.Duration `json:"cooldown,omitempty"`
+
+	// MinChangePercent is the minimum absolute percent change (per container
+	// resource vs template) required to open or update a PR. Defaults to 10.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=100
+	// +optional
+	MinChangePercent *int32 `json:"minChangePercent,omitempty"`
+
+	// Labels are applied to the pull request when supported by the provider.
+	// +optional
+	// +kubebuilder:validation:MaxItems=20
+	Labels []string `json:"labels,omitempty"`
+
+	// DryRun logs the intended PR and updates status without calling the
+	// remote API. Useful for CI and first enablement.
+	// +optional
+	DryRun *bool `json:"dryRun,omitempty"`
 }
 
 // CanaryConfig defines canary rollout parameters.
