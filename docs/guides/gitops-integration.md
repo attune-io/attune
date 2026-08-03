@@ -135,8 +135,13 @@ default 24h).
 
 - Token is read from a Kubernetes Secret via `tokenSecretRef`.
 - Tokens are **never** written to logs, events, or status.
-- Use a fine-scoped PAT (GitHub: contents + pull requests on one repo;
-  GitLab: `api` on one project). Prefer short-lived or fine-grained tokens.
+- Use a fine-scoped PAT with write access to create branches and PRs:
+  - **GitHub** (fine-grained): repository **Contents: Read and write** and
+    **Pull requests: Read and write** on the target repo (classic: `repo` on
+    private repos, or `public_repo` for public-only).
+  - **GitLab**: `api` (or project-scoped token with write_repository +
+    write to merge requests) on one project.
+  Prefer short-lived or fine-grained tokens.
 - Optional `apiUrl` (Enterprise GitHub / self-hosted GitLab) is validated
   like Prometheus addresses: `http`/`https` only, and cloud metadata plus
   loopback hosts are rejected so a policy cannot aim the operator token at
@@ -187,12 +192,26 @@ Metric: `attune_gitops_pr_total{result=created|updated|dry_run|failed}`.
 Set `dryRun: true` for first enablement or CI. The operator records
 `PullRequestDryRun` and increments `dry_run` without calling GitHub/GitLab.
 
-### Branch note
+### Branch bootstrap
 
 The operator updates an existing open PR whose head branch is
-`attune/recommendations-<ns>-<policy>`. Creating a brand-new PR requires that
-branch to exist on the remote (your pipeline can create it from the PR body
-diff, or use ConfigMap export + `kubectl attune diff` without live PR create).
-When create fails because the branch is missing, status shows
+`attune/recommendations-<ns>-<policy>`. When no open PR exists and that head
+branch is **missing** on the remote, Attune creates it automatically:
+
+- **GitHub:** empty bootstrap commit on the new branch (same tree as
+  `baseBranch`, so the PR has a single commit delta).
+- **GitLab:** branch created from `baseBranch` with a small marker file at
+  `.attune/RECOMMENDATION_DRIFT.md` (GitLab rejects MRs with no file delta).
+
+The PR/MR description still carries the full drift table. Template patches
+remain a review step (`kubectl attune diff` or your pipeline). Dry-run never
+creates branches or PRs.
+
+Re-bootstrap after a merge is expected when the head branch was deleted.
+On GitLab, if `.attune/RECOMMENDATION_DRIFT.md` already exists on
+`baseBranch`, Attune retries with an update action so the delta stays
+non-empty.
+
+If bootstrap fails (token scopes, missing `baseBranch`, network), status shows
 `PullRequestFailed` with a redacted API error.
 
