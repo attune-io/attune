@@ -767,8 +767,10 @@ func TestApplyRuntimeProfileDefaults_AllProfiles(t *testing.T) {
 			if tt.wantAllowFalse {
 				require.NotNil(t, policy.Spec.Memory.AllowDecrease)
 				assert.False(t, *policy.Spec.Memory.AllowDecrease)
-			} else if policy.Spec.Memory.AllowDecrease != nil {
-				// Built-in defaults may leave nil; if set, not forced false by profile.
+			} else {
+				// Profiles that do not force allowDecrease leave it nil (or
+				// unset by ApplyBuiltInDefaults for memory decrease).
+				assert.Nil(t, policy.Spec.Memory.AllowDecrease)
 			}
 			if tt.wantOverhead != "" {
 				assert.Equal(t, tt.wantOverhead, policy.Spec.Memory.Overhead)
