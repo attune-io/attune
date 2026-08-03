@@ -192,6 +192,53 @@ Metric: `attune_gitops_pr_total{result=created|updated|dry_run|failed}`.
 Set `dryRun: true` for first enablement or CI. The operator records
 `PullRequestDryRun` and increments `dry_run` without calling GitHub/GitLab.
 
+### First enablement
+
+Use this ordered path when turning on PR automation for the first time.
+
+1. **Export recommendations first** (optional but recommended): set
+   `export.configMap: true` and confirm
+   `kubectl attune export list` shows ConfigMaps. See
+   [Export mode](#export-mode-for-gitops-pipelines) above.
+2. **Create a fine-grained token** with the scopes in
+   [Security](#security) (GitHub: Contents + Pull requests write on one
+   repo; GitLab: project write for repository and merge requests).
+3. **Store the token** in the policy namespace (never in the CR):
+   ```bash
+   kubectl -n production create secret generic attune-gitops \
+     --from-literal=token="ghp_..."
+   ```
+4. **Enable dry-run** on the policy (`pullRequest.enabled: true`,
+   `dryRun: true`, `repository`, `tokenSecretRef`). Wait for condition
+   `GitOpsPullRequest` with reason `PullRequestDryRun` (or `NoDrift` if
+   templates already match). Metric
+   `attune_gitops_pr_total{result="dry_run"}` should increase when
+   drift is present.
+5. **Inspect what a real PR would say**: the condition message includes
+   the repository and drift count; the body template is the same as
+   live PRs (see [Status](#status)).
+6. **Turn off dry-run** (`dryRun: false` or omit). On the first live run
+   with drift, Attune **bootstraps the head branch** if missing, then
+   opens the PR:
+   - **GitHub:** empty bootstrap commit on
+     `attune/recommendations-<ns>-<policy>` (same tree as `baseBranch`).
+   - **GitLab:** branch from `baseBranch` plus
+     `.attune/RECOMMENDATION_DRIFT.md` (create, or update if that file
+     already exists on base after a prior merge).
+7. **Apply template patches via Git**, not by hoping the empty/bootstrap
+   commit is enough:
+   ```bash
+   kubectl attune diff -n production -o yaml > /tmp/attune-patches.yaml
+   # Review, commit to the PR branch (or a new branch), merge via normal GitOps.
+   ```
+8. **Verify**: condition reason `PullRequestOpen` and message containing
+   the PR URL; annotation `attune.io/gitops-pr-url`; metric
+   `result="created"` or `updated`. Failures set `PullRequestFailed`
+   without logging the token.
+
+Cooldown (default 24h) prevents PR thrash. After a merge, if the head branch
+is deleted, the next cycle may bootstrap again when drift returns.
+
 ### Branch bootstrap
 
 The operator updates an existing open PR whose head branch is

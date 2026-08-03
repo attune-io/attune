@@ -378,6 +378,11 @@ across the capabilities that matter most.
 | No SaaS dependency | Yes | 7/16 (all OSS + ScaleOps) |
 | kubectl plugin with savings estimates | Yes | 0/16 |
 | Canary rollout for resizes | Yes | 0/16 |
+| GitOps export + optional PR automation | Yes | Rare as open source (most SaaS use proprietary sync) |
+| Multi-cluster fleet report / federation-friendly dashboards | Yes | Common on commercial platforms; rare in OSS |
+| Memory limit usage floor (client-side OOM race guard) | Yes | Varies; often platform-specific |
+| Language runtime profiles for memory defaults | Yes | Rare as first-class CRD field |
+| Reclaimed capacity + node pressure skip metrics | Yes | Often bundled into commercial “bin pack” products |
 
 ### Where commercial tools win
 
@@ -400,10 +405,22 @@ capabilities that Attune intentionally does not cover:
 - **No SaaS dependency**: Your metrics stay in your Prometheus. No data
   leaves the cluster.
 - **Kubernetes-native**: Standard CRDs, conditions, events, and kubectl
-  plugin. Works with existing GitOps workflows.
-- **Safety-first**: The only open-source tool with OOMKill detection,
-  CPU throttle monitoring, restart spike detection, and automatic revert
-  with exponential backoff.
+  plugin. Works with existing GitOps workflows (versioned recommendation
+  ConfigMaps and optional pull request automation; see
+  [GitOps integration](guides/gitops-integration.md)).
+- **Safety-first**: OOMKill detection, CPU throttle monitoring, restart
+  spike detection, automatic revert with exponential backoff, and a
+  **memory usage floor** when decreasing limits on Kubernetes 1.35+
+  ([resize API](architecture/resize-api.md)).
+- **Fleet and multi-cluster**: Federated Prometheus dashboards and an
+  optional per-cluster fleet report ConfigMap for rollups
+  ([multi-cluster](guides/multi-cluster.md#fleet-observability-with-federated-prometheus)).
+- **Runtime profiles**: Language-oriented memory defaults (Java, Python,
+  Node.js, Go) so right-sizing matches runtime behavior
+  ([runtime profiles](guides/runtime-profiles.md)).
+- **Capacity awareness**: Skip increases under node pressure and surface
+  reclaimed request capacity for bin packing
+  ([bin packing](guides/bin-packing.md)).
 - **Cost**: Free forever (Apache 2.0). Commercial tools charge $10,000-50,000+/year
   for large clusters.
 
