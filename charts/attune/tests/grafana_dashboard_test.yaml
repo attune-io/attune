@@ -33,3 +33,20 @@ tests:
     asserts:
       - isNotEmpty:
           path: data["attune.json"]
+
+  - it: should include gitops_pr and memory_limit_decrease panels
+    set:
+      grafanaDashboard.enabled: true
+    asserts:
+      - matchRegex:
+          path: data["attune.json"]
+          pattern: "attune_gitops_pr_total"
+      - matchRegex:
+          path: data["attune.json"]
+          pattern: "attune_memory_limit_decrease_total"
+      - matchRegex:
+          path: data["attune.json"]
+          pattern: "GitOps PR outcomes"
+      - matchRegex:
+          path: data["attune.json"]
+          pattern: "Memory limit decrease outcomes"

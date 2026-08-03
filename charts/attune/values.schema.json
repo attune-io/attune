@@ -492,6 +492,52 @@
                       ]
                     }
                   }
+                },
+                "gitopsPRFailures": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "for": {
+                      "type": "string",
+                      "default": "15m"
+                    },
+                    "severity": {
+                      "type": "string",
+                      "default": "warning",
+                      "enum": [
+                        "critical",
+                        "warning",
+                        "info"
+                      ]
+                    }
+                  }
+                },
+                "memoryLimitUnsafe": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "for": {
+                      "type": "string",
+                      "default": "1h"
+                    },
+                    "severity": {
+                      "type": "string",
+                      "default": "info",
+                      "enum": [
+                        "critical",
+                        "warning",
+                        "info"
+                      ]
+                    }
+                  }
                 }
               }
             },

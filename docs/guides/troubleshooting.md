@@ -923,6 +923,42 @@ If Argo CD / Flux reverts the template every sync, do **not** enable
 template persistence under unmanaged sync. Prefer `export.configMap` or
 `initialSizing` (see [GitOps integration](gitops-integration.md)).
 
+### GitOps PR failing
+
+**Symptom**: Status condition `GitOpsPullRequest` is `False` with reason
+`PullRequestFailed`, Events or metrics show
+`attune_gitops_pr_total{result="failed"}`, or the `AttuneGitOpsPRFailures`
+alert fires.
+
+**Cause**: Opt-in `updateStrategy.export.pullRequest` could not create or
+update a PR. Common cases:
+
+1. Token Secret missing, wrong key, or RBAC cannot read Secrets.
+2. Invalid `provider` / `repository` / optional `apiUrl` (including SSRF
+   rejection of private targets).
+3. Forge API error (auth, branch protection, missing head branch before
+   bootstrap, rate limits).
+
+**Fix**:
+
+1. Inspect the condition message (never paste tokens into tickets):
+
+   ```bash
+   kubectl get attunepolicy <name> -n <ns> \
+     -o jsonpath='{range .status.conditions[?(@.type=="GitOpsPullRequest")]}{.reason}{" "}{.message}{"\n"}{end}'
+   ```
+
+2. Confirm Secret name/key and that the operator ServiceAccount can `get`
+   that Secret.
+3. Use `dryRun: true` first to validate drift detection without forge calls.
+4. Check PromQL:
+
+   ```promql
+   sum by (namespace, policy, result) (rate(attune_gitops_pr_total[1h]))
+   ```
+
+See [GitOps integration: pull request automation](gitops-integration.md#pull-request-automation-opt-in-phase-b).
+
 ## Debug commands
 
 Operator logs:

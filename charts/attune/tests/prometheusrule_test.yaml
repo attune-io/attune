@@ -20,7 +20,7 @@ tests:
           path: spec.groups[0].name
           value: attune
 
-  - it: should include all twelve default alerts
+  - it: should include all fourteen default alerts
     set:
       metrics:
         enabled: true
@@ -29,7 +29,7 @@ tests:
     asserts:
       - lengthEqual:
           path: spec.groups[0].rules
-          count: 12
+          count: 14
 
   - it: should disable individual rules
     set:
@@ -45,7 +45,69 @@ tests:
     asserts:
       - lengthEqual:
           path: spec.groups[0].rules
-          count: 10
+          count: 12
+
+  - it: should include AttuneGitOpsPRFailures by default
+    set:
+      metrics:
+        enabled: true
+        prometheusRule:
+          enabled: true
+    asserts:
+      - equal:
+          path: spec.groups[0].rules[12].alert
+          value: AttuneGitOpsPRFailures
+      - equal:
+          path: spec.groups[0].rules[12].for
+          value: 15m
+
+  - it: should include AttuneMemoryLimitUnsafe by default
+    set:
+      metrics:
+        enabled: true
+        prometheusRule:
+          enabled: true
+    asserts:
+      - equal:
+          path: spec.groups[0].rules[13].alert
+          value: AttuneMemoryLimitUnsafe
+      - equal:
+          path: spec.groups[0].rules[13].labels.severity
+          value: info
+
+  - it: should omit gitops PR alert when disabled
+    set:
+      metrics:
+        enabled: true
+        prometheusRule:
+          enabled: true
+          rules:
+            gitopsPRFailures:
+              enabled: false
+    asserts:
+      - lengthEqual:
+          path: spec.groups[0].rules
+          count: 13
+      - equal:
+          path: spec.groups[0].rules[12].alert
+          value: AttuneMemoryLimitUnsafe
+
+  - it: should omit memory limit unsafe alert when disabled
+    set:
+      metrics:
+        enabled: true
+        prometheusRule:
+          enabled: true
+          rules:
+            memoryLimitUnsafe:
+              enabled: false
+    asserts:
+      - lengthEqual:
+          path: spec.groups[0].rules
+          count: 13
+      - equal:
+          path: spec.groups[0].rules[12].alert
+          value: AttuneGitOpsPRFailures
 
   - it: should apply additional labels
     set:

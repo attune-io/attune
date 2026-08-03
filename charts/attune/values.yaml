@@ -156,6 +156,16 @@ metrics:
         enabled: true
         for: 1h
         severity: warning
+      gitopsPRFailures:
+        # -- Fire when opt-in GitOps PR automation reports result=failed
+        enabled: true
+        for: 15m
+        severity: warning
+      memoryLimitUnsafe:
+        # -- Fire when memory limit decreases are floored or skipped as unsafe
+        enabled: true
+        for: 1h
+        severity: info
     # -- Recording rules for multi-cluster / federated Prometheus rollups (#369).
     # Safe to enable on single-cluster installs (cluster label may be empty).
     fleetRecordingRules:

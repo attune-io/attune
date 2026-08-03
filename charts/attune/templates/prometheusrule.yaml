@@ -181,7 +181,37 @@ spec:
               problematic resources. Check operator logs for the revert error
               and verify RBAC for the pods/resize subresource.
         {{- end }}
+        {{- if .Values.metrics.prometheusRule.rules.gitopsPRFailures.enabled }}
+        - alert: AttuneGitOpsPRFailures
+          expr: sum by (namespace, policy) (rate(attune_gitops_pr_total{result="failed"}[15m])) > 0
+          for: {{ .Values.metrics.prometheusRule.rules.gitopsPRFailures.for }}
+          labels:
+            severity: {{ .Values.metrics.prometheusRule.rules.gitopsPRFailures.severity }}
+          annotations:
+            summary: attune GitOps pull request automation is failing
+            description: >-
+              Policy {{ "{{ $labels.namespace }}" }}/{{ "{{ $labels.policy }}" }} has
+              GitOps PR automation failures (result=failed). Check the policy status
+              condition GitOpsPullRequest, the token Secret name/key and RBAC, provider
+              and repository, and optional apiUrl. Never log or paste the token value.
+        {{- end }}
+        {{- if .Values.metrics.prometheusRule.rules.memoryLimitUnsafe.enabled }}
+        - alert: AttuneMemoryLimitUnsafe
+          expr: sum by (namespace, policy) (rate(attune_memory_limit_decrease_total{result=~"clamped_usage|skipped_unsafe"}[1h])) > 0
+          for: {{ .Values.metrics.prometheusRule.rules.memoryLimitUnsafe.for }}
+          labels:
+            severity: {{ .Values.metrics.prometheusRule.rules.memoryLimitUnsafe.severity }}
+          annotations:
+            summary: attune memory limit decrease floored or skipped as unsafe
+            description: >-
+              Policy {{ "{{ $labels.namespace }}" }}/{{ "{{ $labels.policy }}" }} has
+              memory limit decreases floored by usage (clamped_usage) or skipped as
+              unsafe (skipped_unsafe). Raise decreaseUsageMarginPercent or overhead,
+              or review allowDecrease on 1.35+. See troubleshooting "OOM after memory
+              limit decrease".
+        {{- end }}
     {{- if .Values.metrics.prometheusRule.fleetRecordingRules.enabled }}
+
     - name: attune-fleet.rules
       interval: 30s
       rules:
