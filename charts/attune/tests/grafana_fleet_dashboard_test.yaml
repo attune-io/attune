@@ -1,0 +1,20 @@
+suite: grafana fleet dashboard tests
+templates:
+  - templates/grafana-fleet-dashboard.yaml
+tests:
+  - it: should not render by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render when enabled
+    set:
+      grafanaFleetDashboard.enabled: true
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - equal:
+          path: metadata.labels["grafana_dashboard"]
+          value: "1"
+      - isNotEmpty:
+          path: data["attune-fleet.json"]

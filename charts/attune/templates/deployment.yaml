@@ -65,6 +65,17 @@ spec:
             {{- if .Values.watchNamespaces }}
             - --watch-namespaces={{ join "," .Values.watchNamespaces }}
             {{- end }}
+            {{- if .Values.fleetReport.enabled }}
+            - --fleet-report-enabled=true
+            - --fleet-report-configmap={{ .Values.fleetReport.configMapName }}
+            - --fleet-report-interval={{ .Values.fleetReport.interval }}
+            {{- if .Values.fleetReport.namespace }}
+            - --fleet-report-namespace={{ .Values.fleetReport.namespace }}
+            {{- end }}
+            {{- if .Values.fleetReport.clusterId }}
+            - --fleet-report-cluster-id={{ .Values.fleetReport.clusterId }}
+            {{- end }}
+            {{- end }}
             {{- with .Values.logging }}
             {{- if .level }}
             - --zap-log-level={{ .level }}
@@ -73,8 +84,12 @@ spec:
             - --zap-encoder=console
             {{- end }}
             {{- end }}
-          {{- if .Values.fips.enabled }}
           env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          {{- if .Values.fips.enabled }}
             - name: GODEBUG
               value: "fips140={{ .Values.fips.mode }}"
           {{- end }}

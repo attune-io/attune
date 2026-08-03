@@ -39,6 +39,7 @@ import (
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 	"github.com/attune-io/attune/internal/controller"
+	"github.com/attune-io/attune/internal/fleetreport"
 	"github.com/attune-io/attune/internal/metrics"
 	_ "github.com/attune-io/attune/internal/operatormetrics"
 	"github.com/attune-io/attune/internal/resize"
@@ -71,6 +72,11 @@ func main() {
 	var maxConcurrentReconciles int
 	var watchNamespaces string
 	var prometheusTimeout time.Duration
+	var fleetReportEnabled bool
+	var fleetReportNamespace string
+	var fleetReportName string
+	var fleetReportClusterID string
+	var fleetReportInterval time.Duration
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metrics endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the health probe endpoint binds to.")
@@ -93,6 +99,16 @@ func main() {
 	flag.DurationVar(&prometheusTimeout, "prometheus-timeout", 5*time.Minute,
 		"Maximum time allowed for workload processing (including Prometheus queries) during a single reconciliation cycle. "+
 			"If exceeded, partial results are used and the status condition indicates the timeout.")
+	flag.BoolVar(&fleetReportEnabled, "fleet-report-enabled", false,
+		"When true, periodically write a versioned fleet summary ConfigMap for multi-cluster collectors (#369).")
+	flag.StringVar(&fleetReportNamespace, "fleet-report-namespace", "",
+		"Namespace for the fleet report ConfigMap. Defaults to the pod namespace (POD_NAMESPACE) or attune-system.")
+	flag.StringVar(&fleetReportName, "fleet-report-configmap", "attune-fleet-report",
+		"Name of the fleet report ConfigMap.")
+	flag.StringVar(&fleetReportClusterID, "fleet-report-cluster-id", "",
+		"Optional cluster identifier written into the fleet report (e.g. prod-us-east-1).")
+	flag.DurationVar(&fleetReportInterval, "fleet-report-interval", 5*time.Minute,
+		"How often to refresh the fleet report ConfigMap when enabled.")
 
 	opts := zap.Options{
 		Development: false,
@@ -223,6 +239,30 @@ func main() {
 	if err = reconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "AttunePolicy")
 		os.Exit(1)
+	}
+
+	if fleetReportEnabled {
+		ns := fleetReportNamespace
+		if ns == "" {
+			ns = os.Getenv("POD_NAMESPACE")
+		}
+		if ns == "" {
+			ns = "attune-system"
+		}
+		exporter := &fleetreport.Exporter{
+			Client:    mgr.GetClient(),
+			Log:       setupLog.WithName("fleet-report"),
+			Namespace: ns,
+			Name:      fleetReportName,
+			ClusterID: fleetReportClusterID,
+			Interval:  fleetReportInterval,
+		}
+		if err := mgr.Add(exporter); err != nil {
+			setupLog.Error(err, "unable to add fleet report exporter")
+			os.Exit(1)
+		}
+		setupLog.Info("fleet report exporter enabled",
+			"namespace", ns, "configMap", fleetReportName, "interval", fleetReportInterval.String())
 	}
 
 	// Register webhooks (requires cert-manager or manual TLS cert provisioning).

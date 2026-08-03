@@ -289,8 +289,10 @@ tests:
 
   - it: should not set GODEBUG env when fips disabled (default)
     asserts:
-      - notExists:
+      - notContains:
           path: spec.template.spec.containers[0].env
+          content:
+            name: GODEBUG
 
   - it: should set GODEBUG fips140=on when fips enabled
     set:
@@ -347,3 +349,35 @@ tests:
             requests:
               cpu: 999m
               memory: 999Mi
+
+  - it: should pass fleet-report flags when enabled
+    set:
+      fleetReport:
+        enabled: true
+        configMapName: attune-fleet-report
+        clusterId: prod-us
+        interval: 10m
+        namespace: attune-system
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --fleet-report-enabled=true
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --fleet-report-configmap=attune-fleet-report
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --fleet-report-cluster-id=prod-us
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --fleet-report-interval=10m
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --fleet-report-namespace=attune-system
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace

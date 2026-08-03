@@ -84,3 +84,19 @@ tests:
       - equal:
           path: spec.groups[0].rules[0].labels.severity
           value: critical
+
+  - it: should include fleet recording rules when enabled
+    set:
+      metrics:
+        enabled: true
+        prometheusRule:
+          enabled: true
+          fleetRecordingRules:
+            enabled: true
+    asserts:
+      - equal:
+          path: spec.groups[1].name
+          value: attune-fleet.rules
+      - lengthEqual:
+          path: spec.groups[1].rules
+          count: 6
