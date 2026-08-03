@@ -159,7 +159,7 @@ metrics:
       gitopsPRFailures:
         # -- Fire when opt-in GitOps PR automation reports result=failed
         enabled: true
-        for: 15m
+        for: 5m
         severity: warning
       memoryLimitUnsafe:
         # -- Fire when memory limit decreases are floored or skipped as unsafe

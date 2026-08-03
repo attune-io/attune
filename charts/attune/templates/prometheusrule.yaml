@@ -183,7 +183,7 @@ spec:
         {{- end }}
         {{- if .Values.metrics.prometheusRule.rules.gitopsPRFailures.enabled }}
         - alert: AttuneGitOpsPRFailures
-          expr: sum by (namespace, policy) (rate(attune_gitops_pr_total{result="failed"}[15m])) > 0
+          expr: sum by (namespace, policy) (increase(attune_gitops_pr_total{result="failed"}[15m])) > 0
           for: {{ .Values.metrics.prometheusRule.rules.gitopsPRFailures.for }}
           labels:
             severity: {{ .Values.metrics.prometheusRule.rules.gitopsPRFailures.severity }}

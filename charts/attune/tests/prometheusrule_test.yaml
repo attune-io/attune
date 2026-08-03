@@ -59,7 +59,10 @@ tests:
           value: AttuneGitOpsPRFailures
       - equal:
           path: spec.groups[0].rules[12].for
-          value: 15m
+          value: 5m
+      - matchRegex:
+          path: spec.groups[0].rules[12].expr
+          pattern: "increase\\(attune_gitops_pr_total"
 
   - it: should include AttuneMemoryLimitUnsafe by default
     set:

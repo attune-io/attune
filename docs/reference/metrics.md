@@ -244,7 +244,7 @@ Failures (also used by the opt-in `AttuneGitOpsPRFailures` PrometheusRule when
 `metrics.prometheusRule` is enabled):
 
 ```promql
-sum by (namespace, policy) (rate(attune_gitops_pr_total{result="failed"}[15m])) > 0
+sum by (namespace, policy) (increase(attune_gitops_pr_total{result="failed"}[15m])) > 0
 ```
 
 See [GitOps integration: pull request automation](../guides/gitops-integration.md#pull-request-automation-opt-in-phase-b)

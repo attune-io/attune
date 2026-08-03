@@ -503,7 +503,7 @@
                     },
                     "for": {
                       "type": "string",
-                      "default": "15m"
+                      "default": "5m"
                     },
                     "severity": {
                       "type": "string",
