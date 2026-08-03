@@ -73,6 +73,8 @@ func (r *AttunePolicyReconciler) reconcileGitOpsPullRequest(
 	}
 	drifts := gitops.ComputeDrift(workloads, recs, minPct)
 	if len(drifts) == 0 {
+		logger.V(1).Info("GitOps PR skipped: no drift above threshold",
+			"minChangePercent", minPct, "workloads", len(workloads), "recommendations", len(recs))
 		setGitOpsPRCondition(policy, metav1.ConditionFalse, attunev1alpha1.ReasonGitOpsPRNoDrift,
 			"No recommendation drift above minChangePercent vs templates")
 		return
@@ -84,8 +86,11 @@ func (r *AttunePolicyReconciler) reconcileGitOpsPullRequest(
 	}
 	if last, ok := policy.Annotations[annotationGitOpsPRLastAttempt]; ok {
 		if t, err := time.Parse(time.RFC3339, last); err == nil && r.now().Sub(t) < cooldown {
+			until := t.Add(cooldown).UTC()
+			logger.V(1).Info("GitOps PR skipped: cooldown active",
+				"until", until.Format(time.RFC3339), "lastAttempt", last)
 			setGitOpsPRCondition(policy, metav1.ConditionFalse, attunev1alpha1.ReasonGitOpsPRCooldown,
-				fmt.Sprintf("Cooldown active until %s", t.Add(cooldown).UTC().Format(time.RFC3339)))
+				fmt.Sprintf("Cooldown active until %s", until.Format(time.RFC3339)))
 			return
 		}
 	}
