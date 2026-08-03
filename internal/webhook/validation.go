@@ -386,6 +386,17 @@ func warnIneffectiveSettings(policy *attunev1alpha1.AttunePolicy) admission.Warn
 		w = append(w, "sloGuardrails require a Prometheus-compatible metrics source; VPA source does not support PromQL queries")
 	}
 
+	// Runtime profile guidance vs live memory decrease.
+	switch policy.Spec.RuntimeProfile {
+	case "java", "python", "nodejs":
+		if policy.Spec.Memory.AllowDecrease != nil && *policy.Spec.Memory.AllowDecrease {
+			w = append(w, fmt.Sprintf(
+				"runtimeProfile=%s recommends against live memory decreases (many runtimes do not shrink heaps on cgroup limit change); prefer allowDecrease=false and/or memory resizePolicy RestartContainer",
+				policy.Spec.RuntimeProfile,
+			))
+		}
+	}
+
 	// maxConcurrentResizes > 1 in OneShot mode.
 	if mode == attunev1alpha1.UpdateTypeOneShot && policy.Spec.UpdateStrategy.MaxConcurrentResizes > 1 {
 		w = append(w, "maxConcurrentResizes > 1 has no effect in OneShot mode; only one pod is resized per cycle")

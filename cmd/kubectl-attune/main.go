@@ -1053,6 +1053,12 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *attu
 	printEffectiveField("Minimum data points", formatInt64Ptr(rawInt64Field(item, "spec", "metricsSource", "minimumDataPoints")), formatInt32Ptr(effective.Spec.MetricsSource.MinimumDataPoints), selected, metricsDefaults != nil && metricsDefaults.MinimumDataPoints != nil)
 	printEffectiveField("Paused", formatBoolField(item, "spec", "paused"), formatBoolPtr(effective.Spec.Paused), selected, false)
 	printEffectiveField("Weight", formatInt64Field(item, "spec", "weight"), formatInt32Val(effective.Spec.Weight), selected, false)
+	rpConfigured := getNestedString(item, "spec", "runtimeProfile")
+	rpEffective := effective.Spec.RuntimeProfile
+	if rpEffective == "" {
+		rpEffective = "generic"
+	}
+	printEffectiveField("Runtime profile", rpConfigured, rpEffective, selected, false)
 	knownInherited := selected.defaults != nil && selected.defaults.Spec.ExcludeKnownSidecars != nil
 	printEffectiveField("Exclude known sidecars", formatBoolField(item, "spec", "excludeKnownSidecars"), formatBoolPtr(effective.Spec.ExcludeKnownSidecars), selected, knownInherited)
 	effectiveExclude := pkgdefaults.EffectiveExcludedContainers(effective)

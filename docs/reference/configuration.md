@@ -389,6 +389,7 @@ alternative metrics sources. **At most one** of `prometheus`, `datadog`, or
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
+| `runtimeProfile` | string | (none) | Optional language/runtime profile (`generic`, `java`, `python`, `golang`, `nodejs`). Applies safe memory defaults and admission warnings. See [runtime profiles](../guides/runtime-profiles.md). |
 | `paused` | bool | `false` | Halts all reconciliation for this policy: no metrics collection, no recommendations, no resizes. Existing resizes are not reverted. The operator sets `Ready=False` with `reason=Paused`. |
 
 ### Container exclusion
