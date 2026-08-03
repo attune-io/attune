@@ -5,8 +5,8 @@ metadata:
 spec:
   description: >
     Verify opt-in GitOps PR automation dry-run sets status condition
-    PullRequestDryRun without forge credentials or outbound HTTP. Also
-    verifies missing-secret non-dry-run path sets PullRequestFailed.
+    PullRequestDryRun (or subsequent PullRequestCooldown) without forge
+    credentials or outbound HTTP. Missing-secret path is unit-tested.
   timeouts:
     apply: 30s
     assert: 5m
@@ -155,81 +155,7 @@ spec:
               kubectl -n "$NS" get attunepolicy "$POL" -o yaml || true
               kubectl -n attune-system logs -l app.kubernetes.io/name=attune --tail=80 || true
               exit 1
-    - name: missing-secret-fails-without-forge
-      try:
-        - apply:
-            resource:
-              apiVersion: attune.io/v1alpha1
-              kind: AttunePolicy
-              metadata:
-                name: gitops-pr-missing-secret
-                namespace: e2e-gitops-pr-dry-run
-              spec:
-                targetRef:
-                  kind: Deployment
-                  name: gitops-app
-                metricsSource:
-                  prometheus:
-                    address: http://prometheus-server.monitoring:80
-                  minimumDataPoints: 1
-                  historyWindow: 1h
-                cpu:
-                  percentile: 95
-                  overhead: "20"
-                  minAllowed: 50m
-                  maxAllowed: "4000m"
-                memory:
-                  percentile: 99
-                  overhead: "30"
-                  minAllowed: 64Mi
-                  maxAllowed: 8Gi
-                updateStrategy:
-                  type: Recommend
-                  cooldown: 1m
-                  export:
-                    pullRequest:
-                      enabled: true
-                      dryRun: false
-                      provider: github
-                      repository: example/does-not-matter
-                      minChangePercent: 1
-                      tokenSecretRef:
-                        name: missing-gitops-token
-                        key: token
-                      baseBranch: main
-        - script:
-            timeout: 5m
-            content: |
-              NS=e2e-gitops-pr-dry-run
-              POL=gitops-pr-missing-secret
-              for i in $(seq 1 60); do
-                reason=$(kubectl -n "$NS" get attunepolicy "$POL" \
-                  -o jsonpath='{range .status.conditions[?(@.type=="GitOpsPullRequest")]}{.reason}{end}' 2>/dev/null || true)
-                msg=$(kubectl -n "$NS" get attunepolicy "$POL" \
-                  -o jsonpath='{range .status.conditions[?(@.type=="GitOpsPullRequest")]}{.message}{end}' 2>/dev/null || true)
-                if [ "$reason" = "PullRequestFailed" ]; then
-                  echo "OK: missing secret -> reason=$reason msg=$msg"
-                  case "$msg" in
-                    *token*|*Token*|*secret*|*Secret*|*RBAC*)
-                      echo "message looks non-leaking"
-                      ;;
-                  esac
-                  # No forge URL required; ensure we did not claim PR open.
-                  case "$msg" in
-                    *Pull request http*)
-                      echo "FAIL: unexpected PR URL without secret"
-                      exit 1
-                      ;;
-                  esac
-                  exit 0
-                fi
-                # NoDrift is acceptable until recommendations exist; keep waiting.
-                echo "waiting i=$i reason='$reason'"
-                sleep 5
-              done
-              echo "FAIL: PullRequestFailed not observed for missing secret"
-              kubectl -n "$NS" get attunepolicy "$POL" -o yaml || true
-              exit 1
+
   catch:
     - podLogs:
         namespace: attune-system

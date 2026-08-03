@@ -55,7 +55,32 @@ spec:
             content: |
               # Server-side dry-run surfaces validating webhook warnings on stderr.
               # Write policy JSON without nested YAML heredocs (breaks outer Chainsaw YAML).
-              printf '%s\n' '{"apiVersion":"attune.io/v1alpha1","kind":"AttunePolicy","metadata":{"name":"java-warn","namespace":"e2e-runtime-profile"},"spec":{"runtimeProfile":"java","targetRef":{"kind":"Deployment","name":"java-app"},"metricsSource":{"prometheus":{"address":"http://prometheus-server.monitoring:80"},"minimumDataPoints":1},"cpu":{"percentile":95},"memory":{"percentile":99,"allowDecrease":true},"updateStrategy":{"type":"Recommend","cooldown":"1m"}}}' > /tmp/attune-java-warn.json
+              python3 <<'PY'
+              import json
+              spec = {
+                "apiVersion": "attune.io/v1alpha1",
+                "kind": "AttunePolicy",
+                "metadata": {
+                  "name": "java-warn",
+                  "namespace": "e2e-runtime-profile",
+                },
+                "spec": {
+                  "runtimeProfile": "java",
+                  "targetRef": {"kind": "Deployment", "name": "java-app"},
+                  "metricsSource": {
+                    "prometheus": {
+                      "address": "http://prometheus-server.monitoring:80",
+                    },
+                    "minimumDataPoints": 1,
+                  },
+                  "cpu": {"percentile": 95},
+                  "memory": {"percentile": 99, "allowDecrease": True},
+                  "updateStrategy": {"type": "Recommend", "cooldown": "1m"},
+                },
+              }
+              with open("/tmp/attune-java-warn.json", "w") as f:
+                json.dump(spec, f)
+              PY
               set +e
               OUT=$(kubectl apply --dry-run=server -o name -f /tmp/attune-java-warn.json 2>&1)
               RC=$?
@@ -136,7 +161,32 @@ spec:
         - script:
             timeout: 30s
             content: |
-              printf '%s\n' '{"apiVersion":"attune.io/v1alpha1","kind":"AttunePolicy","metadata":{"name":"golang-ok","namespace":"e2e-runtime-profile"},"spec":{"runtimeProfile":"golang","targetRef":{"kind":"Deployment","name":"java-app"},"metricsSource":{"prometheus":{"address":"http://prometheus-server.monitoring:80"},"minimumDataPoints":1},"cpu":{"percentile":95},"memory":{"percentile":99,"allowDecrease":true},"updateStrategy":{"type":"Recommend","cooldown":"1m"}}}' > /tmp/attune-golang-ok.json
+              python3 <<'PY'
+              import json
+              spec = {
+                "apiVersion": "attune.io/v1alpha1",
+                "kind": "AttunePolicy",
+                "metadata": {
+                  "name": "golang-ok",
+                  "namespace": "e2e-runtime-profile",
+                },
+                "spec": {
+                  "runtimeProfile": "golang",
+                  "targetRef": {"kind": "Deployment", "name": "java-app"},
+                  "metricsSource": {
+                    "prometheus": {
+                      "address": "http://prometheus-server.monitoring:80",
+                    },
+                    "minimumDataPoints": 1,
+                  },
+                  "cpu": {"percentile": 95},
+                  "memory": {"percentile": 99, "allowDecrease": True},
+                  "updateStrategy": {"type": "Recommend", "cooldown": "1m"},
+                },
+              }
+              with open("/tmp/attune-golang-ok.json", "w") as f:
+                json.dump(spec, f)
+              PY
               set +e
               OUT=$(kubectl apply --dry-run=server -o name -f /tmp/attune-golang-ok.json 2>&1)
               RC=$?

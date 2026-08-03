@@ -142,7 +142,7 @@ make test-e2e-smoke
 | `test/e2e/startup-boost/` | (cross-cutting) | CPU startup boost is applied to new pods |
 | `test/e2e/configmap-export/` | (cross-cutting) | Recommendations are exported to a ConfigMap (`schema-version` + export-schema label) |
 | `test/e2e/fleet-report/` | (infra) | Fleet report ConfigMap is written when `fleetReport` is enabled in E2E Helm |
-| `test/e2e/gitops-pr-dry-run/` | (cross-cutting) | GitOps PR dry-run sets `PullRequestDryRun` without forge credentials; missing secret fails closed |
+| `test/e2e/gitops-pr-dry-run/` | (cross-cutting) | GitOps PR dry-run sets `PullRequestDryRun`/`PullRequestCooldown` without forge credentials |
 | `test/e2e/runtime-profile-defaults/` | (webhook + API) | `runtimeProfile: java` stored and accepted; java+allowDecrease warns at admission |
 | `test/e2e/prometheus-unreachable/` | (cross-cutting) | Handles unreachable Prometheus gracefully without crashing |
 | `test/e2e/grafana-dashboard/` | (helm) | Dashboard ConfigMap renders with `grafanaDashboard.enabled` |
