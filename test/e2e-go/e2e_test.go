@@ -2239,11 +2239,30 @@ func setNodeMemoryPressure(t *testing.T, nodeName string, pressure bool) {
 	require.NoError(t, applyNodeMemoryPressure(nodeName, pressure))
 }
 
+// applyNodeMemoryPressure patches only the MemoryPressure condition via
+// strategic merge so concurrent kubelet status writes are less likely to
+// wipe the injection entirely. k3s/kubelet still rewrites conditions on
+// its own schedule; callers must re-apply frequently while the test needs
+// pressure held.
 func applyNodeMemoryPressure(nodeName string, pressure bool) error {
+	status := string(corev1.ConditionFalse)
+	if pressure {
+		status = string(corev1.ConditionTrue)
+	}
+	now := metav1.Now().UTC().Format(time.RFC3339)
+	// Strategic merge merges Node conditions by type=type.
+	patch := fmt.Sprintf(`{"status":{"conditions":[{"type":"MemoryPressure","status":%q,"reason":"E2ETest","message":"e2e MemoryPressure injection","lastHeartbeatTime":%q,"lastTransitionTime":%q}]}}`,
+		status, now, now)
+	_, err := clientset.CoreV1().Nodes().Patch(
+		ctx, nodeName, types.StrategicMergePatchType, []byte(patch), metav1.PatchOptions{}, "status")
+	if err == nil {
+		return nil
+	}
+	// Fallback: full status update (older servers / patch edge cases).
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		node, err := clientset.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
-		if err != nil {
-			return err
+		node, getErr := clientset.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
+		if getErr != nil {
+			return getErr
 		}
 		want := corev1.ConditionFalse
 		if pressure {
@@ -2253,6 +2272,7 @@ func applyNodeMemoryPressure(nodeName string, pressure bool) error {
 		for i := range node.Status.Conditions {
 			if node.Status.Conditions[i].Type == corev1.NodeMemoryPressure {
 				node.Status.Conditions[i].Status = want
+				node.Status.Conditions[i].LastHeartbeatTime = metav1.Now()
 				node.Status.Conditions[i].LastTransitionTime = metav1.Now()
 				node.Status.Conditions[i].Reason = "E2ETest"
 				node.Status.Conditions[i].Message = "e2e MemoryPressure injection"
@@ -2270,9 +2290,23 @@ func applyNodeMemoryPressure(nodeName string, pressure bool) error {
 				Message:            "e2e MemoryPressure injection",
 			})
 		}
-		_, err = clientset.CoreV1().Nodes().UpdateStatus(ctx, node, metav1.UpdateOptions{})
-		return err
+		_, updateErr := clientset.CoreV1().Nodes().UpdateStatus(ctx, node, metav1.UpdateOptions{})
+		return updateErr
 	})
+}
+
+// nodeHasMemoryPressure reports whether the live API shows MemoryPressure=True.
+func nodeHasMemoryPressure(nodeName string) bool {
+	node, err := clientset.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
+	if err != nil {
+		return false
+	}
+	for _, c := range node.Status.Conditions {
+		if c.Type == corev1.NodeMemoryPressure && c.Status == corev1.ConditionTrue {
+			return true
+		}
+	}
+	return false
 }
 
 // TestE2E_NodeMemoryPressure_SkipsMemoryIncrease patches MemoryPressure on the
@@ -2326,7 +2360,9 @@ func TestE2E_NodeMemoryPressure_SkipsMemoryIncrease(t *testing.T) {
 	t.Logf("injecting MemoryPressure on node %s", nodeName)
 
 	// Hold MemoryPressure for the entire test: k3s/kubelet rewrites node
-	// status and will clear injected conditions within seconds.
+	// status and can clear injected conditions within a second. Re-apply
+	// faster than the kubelet node-status period and re-inject before every
+	// assertion so the operator's live Clientset Get sees pressure=True.
 	setNodeMemoryPressure(t, nodeName, true)
 	t.Cleanup(func() {
 		setNodeMemoryPressure(t, nodeName, false)
@@ -2335,7 +2371,9 @@ func TestE2E_NodeMemoryPressure_SkipsMemoryIncrease(t *testing.T) {
 	donePressure := make(chan struct{})
 	go func() {
 		defer close(donePressure)
-		tck := time.NewTicker(1 * time.Second)
+		// Immediate second inject, then high-frequency hold.
+		_ = applyNodeMemoryPressure(nodeName, true)
+		tck := time.NewTicker(200 * time.Millisecond)
 		defer tck.Stop()
 		for {
 			select {
@@ -2350,6 +2388,13 @@ func TestE2E_NodeMemoryPressure_SkipsMemoryIncrease(t *testing.T) {
 		close(stopPressure)
 		<-donePressure
 	})
+
+	// Do not create the policy until the live API shows pressure. Otherwise
+	// the first reconcile can race a cleared condition and raise memory.
+	require.Eventually(t, func() bool {
+		_ = applyNodeMemoryPressure(nodeName, true)
+		return nodeHasMemoryPressure(nodeName)
+	}, 10*time.Second, 100*time.Millisecond, "MemoryPressure never stuck on node %s", nodeName)
 
 	// minAllowed 256Mi >> 32Mi forces a memory *increase*. CPU starts high so
 	// under pressure the whole container resize is skipped (mem increase gate).
@@ -2389,10 +2434,14 @@ func TestE2E_NodeMemoryPressure_SkipsMemoryIncrease(t *testing.T) {
 	}
 	require.NoError(t, k8sClient.Create(ctx, policy))
 	waitForPolicyDiscovered(t, policyName, ns, 90*time.Second)
+	_ = applyNodeMemoryPressure(nodeName, true)
 
 	initQ := resource.MustParse(initMem)
-	// Single poll: keep pressure (background), wait for rec increase + skip event.
-	require.NoError(t, wait.PollUntilContextTimeout(ctx, 2*time.Second, 4*time.Minute, true, func(ctx context.Context) (bool, error) {
+	// Single poll: keep pressure (background + per-iteration), wait for rec
+	// increase + skip event.
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 1*time.Second, 4*time.Minute, true, func(ctx context.Context) (bool, error) {
+		_ = applyNodeMemoryPressure(nodeName, true)
+
 		var live corev1.PodList
 		if err := k8sClient.List(ctx, &live, client.InNamespace(ns), client.MatchingLabels{"app": appName}); err != nil {
 			return false, nil
@@ -2407,7 +2456,8 @@ func TestE2E_NodeMemoryPressure_SkipsMemoryIncrease(t *testing.T) {
 				}
 				mem := c.Resources.Requests.Memory()
 				if mem != nil && mem.Cmp(initQ) > 0 {
-					return false, fmt.Errorf("memory increased to %s under MemoryPressure (want stay at %s)", mem.String(), initMem)
+					return false, fmt.Errorf("memory increased to %s under MemoryPressure (want stay at %s; livePressure=%v)",
+						mem.String(), initMem, nodeHasMemoryPressure(nodeName))
 				}
 			}
 		}
