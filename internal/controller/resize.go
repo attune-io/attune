@@ -882,24 +882,24 @@ func (r *AttunePolicyReconciler) shouldSkipResize(
 		}
 	}
 
-	// Node allocatable / pressure (use cached node data when available).
+	// Node allocatable / pressure (use per-cycle cached node data when available).
+	// Prefer the typed Clientset so we read live API status rather than a
+	// potentially stale informer snapshot. Node conditions (MemoryPressure)
+	// and allocatable can change between reconciles; acting on stale False
+	// allows request increases under real pressure.
 	if pod.Spec.NodeName != "" {
 		var node *corev1.Node
 		if checks != nil {
 			if cached, ok := checks.nodeCache.Load(pod.Spec.NodeName); ok {
 				node, _ = cached.(*corev1.Node)
 			} else {
-				var n corev1.Node
-				if err := r.Get(ctx, types.NamespacedName{Name: pod.Spec.NodeName}, &n); err == nil {
-					node = &n
+				node = r.getNodeForResize(ctx, pod.Spec.NodeName)
+				if node != nil {
+					checks.nodeCache.Store(pod.Spec.NodeName, node)
 				}
-				checks.nodeCache.Store(pod.Spec.NodeName, node)
 			}
 		} else {
-			var n corev1.Node
-			if err := r.Get(ctx, types.NamespacedName{Name: pod.Spec.NodeName}, &n); err == nil {
-				node = &n
-			}
+			node = r.getNodeForResize(ctx, pod.Spec.NodeName)
 		}
 		if node != nil {
 			// Skip request *increases* when the node is under pressure so we
@@ -1053,6 +1053,25 @@ func recentMemoryUsage(containerRec attunev1alpha1.ContainerRecommendation) (res
 		return resource.Quantity{}, false
 	}
 	return u, true
+}
+
+// getNodeForResize returns the named node for capacity/pressure checks.
+// Prefer Clientset (live apiserver) when configured; fall back to the
+// controller-runtime client (informer cache). Returns nil on error.
+func (r *AttunePolicyReconciler) getNodeForResize(ctx context.Context, nodeName string) *corev1.Node {
+	if r.Clientset != nil {
+		n, err := r.Clientset.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
+		if err == nil {
+			return n
+		}
+	}
+	if r.Client != nil {
+		var n corev1.Node
+		if err := r.Get(ctx, types.NamespacedName{Name: nodeName}, &n); err == nil {
+			return &n
+		}
+	}
+	return nil
 }
 
 // nodePressureBlocksIncrease returns a skip reason when the node is under

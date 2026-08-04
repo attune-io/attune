@@ -10845,6 +10845,72 @@ func TestShouldSkipResize_NodeCacheMiss(t *testing.T) {
 	assert.NotNil(t, cached, "cached node should not be nil")
 }
 
+// TestShouldSkipResize_ClientsetPrefersLivePressure ensures MemoryPressure is
+// read from the typed Clientset (live API) even when the controller-runtime
+// client still holds a stale node without pressure. Stale informer data must
+// not allow memory request increases under real pressure.
+func TestShouldSkipResize_ClientsetPrefersLivePressure(t *testing.T) {
+	scheme := testScheme()
+	staleNode := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-node"},
+		Status: corev1.NodeStatus{
+			Allocatable: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("4"),
+				corev1.ResourceMemory: resource.MustParse("8Gi"),
+			},
+			Conditions: []corev1.NodeCondition{{
+				Type:   corev1.NodeMemoryPressure,
+				Status: corev1.ConditionFalse,
+			}},
+		},
+	}
+	liveNode := staleNode.DeepCopy()
+	liveNode.Status.Conditions = []corev1.NodeCondition{{
+		Type:   corev1.NodeMemoryPressure,
+		Status: corev1.ConditionTrue,
+	}}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(staleNode).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = kubefake.NewSimpleClientset(liveNode)
+
+	policy := &attunev1alpha1.AttunePolicy{}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pod", Namespace: "default"},
+		Spec: corev1.PodSpec{
+			NodeName: "test-node",
+			Containers: []corev1.Container{{
+				Name: "app",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("100m"),
+						corev1.ResourceMemory: resource.MustParse("32Mi"),
+					},
+				},
+			}},
+		},
+	}
+	containerRec := attunev1alpha1.ContainerRecommendation{
+		Name: "app",
+		Current: attunev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("100m"),
+			MemoryRequest: resource.MustParse("32Mi"),
+		},
+	}
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("100m"),
+			corev1.ResourceMemory: resource.MustParse("64Mi"),
+		},
+	}
+
+	skip, reason := r.shouldSkipResize(context.Background(), policy, pod, containerRec, target, nil)
+	assert.True(t, skip, "live Clientset MemoryPressure must block memory increase")
+	assert.Contains(t, reason, "MemoryPressure")
+}
+
 func TestShouldSkipResize_QoSClassChange(t *testing.T) {
 	scheme := testScheme()
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
