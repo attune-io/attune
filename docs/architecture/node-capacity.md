@@ -62,6 +62,10 @@ When the node has any of these conditions `True`:
 
 Metric: `attune_capacity_skip_total{reason="pressure"}`.
 
+Pressure is read via the typed Kubernetes clientset (live API), not only
+the informer cache, and is re-checked immediately before `UpdateResize`
+so a mid-reconcile condition flip cannot authorize an increase.
+
 ## Always-on default
 
 These gates run for every resize attempt. There is no `capacityAware: false`
