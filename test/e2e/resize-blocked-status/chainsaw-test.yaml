@@ -1,0 +1,177 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: resize-blocked-status
+spec:
+  description: >
+    Inject PodResizePending Deferred/Infeasible on two pods and assert
+    Attune surfaces workloads.deferred/infeasible and ResizeBlocked.
+    Real kubelet Deferred needs node capacity races; status injection
+    validates operator UX (#436). Go E2E covers the same path with retries.
+  timeouts:
+    apply: 30s
+    assert: 5m
+    delete: 30s
+  steps:
+    - name: create-resources
+      try:
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: e2e-resize-blocked
+        - apply:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: blocked-app
+                namespace: e2e-resize-blocked
+              spec:
+                replicas: 2
+                selector:
+                  matchLabels:
+                    app: blocked-app
+                template:
+                  metadata:
+                    labels:
+                      app: blocked-app
+                  spec:
+                    containers:
+                      - name: app
+                        image: registry.k8s.io/pause:3.9
+                        resources:
+                          requests:
+                            cpu: 250m
+                            memory: 256Mi
+        - apply:
+            resource:
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
+              metadata:
+                name: blocked-policy
+                namespace: e2e-resize-blocked
+              spec:
+                targetRef:
+                  kind: Deployment
+                  name: blocked-app
+                metricsSource:
+                  prometheus:
+                    address: http://prometheus-server.monitoring:80
+                  minimumDataPoints: 1
+                  historyWindow: 1h
+                cpu:
+                  percentile: 95
+                  overhead: "20"
+                  minAllowed: 50m
+                  maxAllowed: "4000m"
+                memory:
+                  percentile: 99
+                  overhead: "30"
+                  minAllowed: 64Mi
+                  maxAllowed: 8Gi
+                updateStrategy:
+                  type: Recommend
+                  cooldown: 1m
+    - name: inject-and-assert-resize-blocked
+      try:
+        - script:
+            timeout: 5m
+            content: |
+              NS=e2e-resize-blocked
+              POL=blocked-policy
+              for i in $(seq 1 36); do
+                N=$(kubectl -n "$NS" get pods -l app=blocked-app \
+                  --field-selector=status.phase=Running -o name 2>/dev/null | wc -l | tr -d ' ')
+                D=$(kubectl -n "$NS" get attunepolicy "$POL" \
+                  -o jsonpath='{.status.workloads.discovered}' 2>/dev/null || true)
+                if [ "$N" -ge 2 ] && [ "$D" = "1" ]; then
+                  break
+                fi
+                sleep 5
+              done
+              PODS=$(kubectl -n "$NS" get pods -l app=blocked-app \
+                --field-selector=status.phase=Running -o jsonpath='{.items[*].metadata.name}')
+              set -- $PODS
+              P1=$1
+              P2=$2
+              if [ -z "$P1" ] || [ -z "$P2" ]; then
+                echo "FAIL: need two Running pods, got: $PODS"
+                exit 1
+              fi
+              echo "pods: deferred=$P1 infeasible=$P2"
+              cat > /tmp/inject-pending.py <<'PY'
+              import datetime, json, sys
+              pod = json.load(sys.stdin)
+              reason = sys.argv[1]
+              now = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+              cond = {
+                  "type": "PodResizePending",
+                  "status": "True",
+                  "reason": reason,
+                  "message": "chainsaw e2e inject",
+                  "lastTransitionTime": now,
+              }
+              conds = pod.setdefault("status", {}).setdefault("conditions", [])
+              out, found = [], False
+              for c in conds:
+                  if c.get("type") == "PodResizePending":
+                      out.append(cond)
+                      found = True
+                  else:
+                      out.append(c)
+              if not found:
+                  out.append(cond)
+              pod["status"]["conditions"] = out
+              json.dump(pod, sys.stdout)
+              PY
+              cat > /tmp/reason-blocked.py <<'PY'
+              import json, sys
+              p = json.load(sys.stdin)
+              for c in p.get("status", {}).get("conditions") or []:
+                  if c.get("type") == "ResizeBlocked":
+                      print(c.get("reason", ""))
+                      break
+              PY
+              inject() {
+                pod=$1
+                reason=$2
+                kubectl -n "$NS" get pod "$pod" -o json \
+                  | python3 /tmp/inject-pending.py "$reason" \
+                  | kubectl -n "$NS" replace --subresource=status -f - >/dev/null
+              }
+              for i in $(seq 1 40); do
+                inject "$P1" Deferred
+                inject "$P2" Infeasible
+                CD=$(kubectl -n "$NS" get attunepolicy "$POL" \
+                  -o jsonpath='{.spec.updateStrategy.cooldown}' 2>/dev/null || echo 1m)
+                if [ "$CD" = "1m" ]; then NEW=61s; else NEW=1m; fi
+                kubectl -n "$NS" patch attunepolicy "$POL" --type=merge \
+                  -p "{\"spec\":{\"updateStrategy\":{\"cooldown\":\"$NEW\"}}}" >/dev/null 2>&1 || true
+                DEF=$(kubectl -n "$NS" get attunepolicy "$POL" \
+                  -o jsonpath='{.status.workloads.deferred}' 2>/dev/null || echo 0)
+                INF=$(kubectl -n "$NS" get attunepolicy "$POL" \
+                  -o jsonpath='{.status.workloads.infeasible}' 2>/dev/null || echo 0)
+                REASON=$(kubectl -n "$NS" get attunepolicy "$POL" -o json \
+                  | python3 /tmp/reason-blocked.py 2>/dev/null || true)
+                echo "try $i deferred=$DEF infeasible=$INF ResizeBlocked=$REASON"
+                if [ "${DEF:-0}" -ge 1 ] 2>/dev/null && [ "${INF:-0}" -ge 1 ] 2>/dev/null \
+                  && [ -n "$REASON" ]; then
+                  echo "OK: ResizeBlocked reason=$REASON deferred=$DEF infeasible=$INF"
+                  exit 0
+                fi
+                sleep 5
+              done
+              echo "FAIL: ResizeBlocked UX not observed"
+              kubectl -n "$NS" get attunepolicy "$POL" -o yaml || true
+              kubectl -n "$NS" get pods -o wide || true
+              exit 1
+  catch:
+    - describe:
+        apiVersion: attune.io/v1alpha1
+        kind: AttunePolicy
+        namespace: e2e-resize-blocked
+    - podLogs:
+        namespace: attune-system
+        selector: app.kubernetes.io/name=attune

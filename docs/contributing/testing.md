@@ -144,6 +144,8 @@ make test-e2e-smoke
 | `test/e2e/fleet-report/` | (infra) | Fleet report ConfigMap is written when `fleetReport` is enabled in E2E Helm |
 | `test/e2e/gitops-pr-dry-run/` | (cross-cutting) | GitOps PR dry-run sets `PullRequestDryRun`/`PullRequestCooldown` without forge credentials |
 | `test/e2e/runtime-profile-defaults/` | (webhook + API) | `runtimeProfile: java` stored and accepted; java+allowDecrease warns at admission |
+| `test/e2e/runtime-profile-java-no-mem-decrease/` | Auto | java profile keeps oversized memory (in-memory `allowDecrease=false`); CR fields stay unset |
+| `test/e2e/resize-blocked-status/` | Recommend | Injected Deferred+Infeasible pod conditions surface `workloads.deferred`/`infeasible` and `ResizeBlocked` |
 | `test/e2e/prometheus-unreachable/` | (cross-cutting) | Handles unreachable Prometheus gracefully without crashing |
 | `test/e2e/grafana-dashboard/` | (helm) | Dashboard ConfigMap renders with `grafanaDashboard.enabled` |
 | `test/e2e/health-probes/` | (infra) | Liveness and readiness probes pass |
@@ -163,14 +165,25 @@ flake-prone or environment-specific:
 |------|-------------------------------------|------------------|
 | **Memory limit usage floor** | Needs controllable “recent usage” (recommendation raw percentile) while decreasing limits; real cgroup usage on pause pods is near zero and does not exercise the floor. | `internal/resize/usage_floor_test.go`, `internal/controller/memory_usage_floor_test.go` |
 | **Version-aware memory limit decrease (clamp vs apply)** | Covered in **Go E2E** `TestE2E_MemoryLimitDecrease_VersionAware` (nightly 1.32–1.35 matrix): Guaranteed pod with oversized limit, `RequestsAndLimits` + `allowDecrease`; asserts limit drops on 1.35+ and stays clamped on 1.33–1.34. Unit tests still own clamp math and version parsing. | `test/e2e-go/e2e_test.go`, `internal/resize/engine_test.go` |
-| **Node pressure / capacity skip** | Needs `MemoryPressure`/`DiskPressure` or allocatable exhaustion. Injecting real pressure on shared CI k3d nodes is flaky and slow. | `internal/controller/resize_pressure_test.go`, `internal/controller/capacity_skip_test.go` |
+| **Node pressure / capacity skip** | Unit tests own reason strings and metric labels. **Go E2E** `TestE2E_NodeMemoryPressure_SkipsMemoryIncrease` patches `MemoryPressure` on the pod’s node (not `t.Parallel`; restores on cleanup). Real allocatable exhaustion remains unit/integration only. | `internal/controller/resize_pressure_test.go`, `capacity_skip_test.go`, `test/e2e-go/` |
+| **Deferred / Infeasible UX** | Real kubelet Deferred/Infeasible needs capacity races (flake-prone). Cluster tests **inject** `PodResizePending` status (Chainsaw + Go E2E) and assert `workloads.deferred`/`infeasible` + `ResizeBlocked`. Helpers stay unit-tested. | `test/e2e/resize-blocked-status/`, `TestE2E_ResizeBlocked_*`, `internal/resize/engine_test.go`, `conditions_test.go` |
 | **GitOps PR live HTTP** | Must not call GitHub/GitLab from CI. Client create/update paths use fake HTTP. Cluster e2e covers **dry-run** and missing-secret only (`test/e2e/gitops-pr-dry-run/`). | `internal/gitops/*_test.go`, `internal/controller/gitops_pr_test.go` |
-| **Runtime profile in-memory defaults** | Controller applies java overhead/allowDecrease only in-memory (not written back to the CR). Unit tests assert `ApplyRuntimeProfileDefaults`; Chainsaw asserts admission warnings + stored profile field. | `pkg/defaults/defaults_test.go`, `test/e2e/runtime-profile-defaults/` |
+| **Runtime profile in-memory defaults** | Unit: `ApplyRuntimeProfileDefaults`. Chainsaw admission + stored field: `runtime-profile-defaults`. Live no memory decrease: `runtime-profile-java-no-mem-decrease` + Go `TestE2E_RuntimeProfileJava_BlocksMemoryDecrease`. | `pkg/defaults/defaults_test.go`, `test/e2e/runtime-profile-*`, `test/e2e-go/` |
 
-When adding behavior in these areas, extend the unit tables first. Only
-add cluster e2e if you can inject the condition deterministically (for
-example fake node conditions via the API) without depending on real
+When adding behavior in these areas, extend the unit tables first. Prefer
+deterministic injection (pod/node status patches) over waiting for real
 resource pressure or external SaaS tokens.
+
+### Chainsaw vs Go E2E (when to use which)
+
+Both run against a real cluster in CI/nightly. Prefer:
+
+| Prefer | Strengths | Weak spots |
+|--------|-----------|------------|
+| **Chainsaw** (`test/e2e/`) | Declarative multi-resource apply, webhook dry-run, pure kubectl/script flows, easy to read in PRs, no compile step | `/bin/sh` (dash) only; weak typed waits; yamllint max 200 cols; awkward for concurrent client-go loops |
+| **Go E2E** (`test/e2e-go/`) | Typed clients, `retry.RetryOnConflict`, status subresource loops, `t.Parallel`, shared helpers, version gates | Heavier to write; must use `t.Parallel()` only when tests do not mutate cluster-scoped state (nodes) |
+
+**Neither** can make the real kubelet emit Deferred/Infeasible without capacity races; inject status and assert operator UX instead. **Node** conditions (MemoryPressure) are injectable but **cluster-scoped**: keep those Go tests non-parallel and always restore.
 
 ### Writing new E2E tests
 
