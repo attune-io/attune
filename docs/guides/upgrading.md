@@ -4,6 +4,10 @@ This page covers breaking changes and notable behavior shifts between versions.
 If you are upgrading from an earlier pre-release, apply every section below your
 current version (newest sections first).
 
+Maintainers: before publishing a release after multi-version product changes,
+run the full E2E Nightly matrix on tip of `main` (see
+[Releasing: full E2E matrix](../contributing/releasing.md#1b-full-e2e-matrix-required-before-tagging-a-product-release)).
+
 ## v0.1.20 to v0.1.21
 
 v0.1.21 is a feature release. Existing policies keep working without YAML
