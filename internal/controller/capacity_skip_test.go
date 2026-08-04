@@ -91,6 +91,88 @@ func TestGetNodeForResize_PrefersClientsetThenFallsBack(t *testing.T) {
 	assert.Nil(t, r3.getNodeForResize(context.Background(), "missing"))
 }
 
+// TestExecuteResizes_MemoryPressure_LiveRecheckAfterStaleCache ensures a
+// per-cycle nodeCache without pressure cannot authorize a memory increase
+// when the live Clientset reports MemoryPressure=True at apply time.
+func TestExecuteResizes_MemoryPressure_LiveRecheckAfterStaleCache(t *testing.T) {
+	const (
+		policyNS   = "default"
+		policyName = "pressure-recheck-policy"
+		nodeName   = "stale-cache-node"
+		appName    = "recheck-app"
+	)
+
+	pod := newResizePod(appName, "500m", "512Mi", "1000m", "1Gi")
+	pod.Spec.NodeName = nodeName
+	deploy := newTestDeployment(appName, policyNS, map[string]string{"app": appName})
+
+	staleNode := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: nodeName},
+		Status: corev1.NodeStatus{
+			Allocatable: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("4"),
+				corev1.ResourceMemory: resource.MustParse("8Gi"),
+			},
+			Conditions: []corev1.NodeCondition{{
+				Type:   corev1.NodeMemoryPressure,
+				Status: corev1.ConditionFalse,
+			}},
+		},
+	}
+	liveNode := staleNode.DeepCopy()
+	liveNode.Status.Conditions = []corev1.NodeCondition{{
+		Type:   corev1.NodeMemoryPressure,
+		Status: corev1.ConditionTrue,
+	}}
+
+	// Client holds stale (no pressure); Clientset holds live (pressure).
+	// shouldSkipResize may use checks.nodeCache seeded from the first Get;
+	// the last-moment re-check must still see Clientset pressure.
+	reconciler, _ := newResizeReconciler(pod, deploy, staleNode)
+	reconciler.Clientset = kubefake.NewSimpleClientset(pod.DeepCopy(), liveNode)
+	recorder := events.NewFakeRecorder(10)
+	reconciler.Recorder = recorder
+
+	policy := newTestPolicy(policyName, policyNS)
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	recommendations := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation(appName,
+			"500m", "512Mi", "1000m", "1Gi",
+			"500m", "1Gi", "1000m", "2Gi"),
+	}
+
+	// Seed stale cache as a real reconcile cycle would after a False read.
+	checks := &resizePreChecks{}
+	checks.nodeCache.Store(nodeName, staleNode)
+
+	beforePress := testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues(policyNS, policyName, "pressure"))
+	count, _ := reconciler.executeResizes(
+		context.Background(),
+		policy,
+		[]client.Object{deploy},
+		recommendations,
+		podMap(appName, pod),
+		nil,
+		checks,
+	)
+	assert.Equal(t, 0, count, "live re-check must block despite stale nodeCache")
+	assert.Equal(t, beforePress+1,
+		testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues(policyNS, policyName, "pressure")))
+
+	found := false
+	for {
+		select {
+		case event := <-recorder.Events:
+			if strings.Contains(event, "ResizeSkipped") && strings.Contains(event, "MemoryPressure") {
+				found = true
+			}
+		default:
+			require.True(t, found, "expected ResizeSkipped from live pressure re-check")
+			return
+		}
+	}
+}
+
 // TestExecuteResizes_NodeAllocatable_EmitsResizeSkippedAndCapacitySkipMetric
 // pins the allocatable skip path (sibling of the pressure path test).
 func TestExecuteResizes_NodeAllocatable_EmitsResizeSkippedAndCapacitySkipMetric(t *testing.T) {

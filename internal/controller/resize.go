@@ -453,6 +453,23 @@ func (r *AttunePolicyReconciler) resizeContainer(
 		return nil, resizeOutcomeNone
 	}
 
+	// Last-moment live pressure re-check. Per-cycle nodeCache can hold a
+	// pre-flip snapshot, and k3s/kubelet can clear or set conditions between
+	// shouldSkipResize and UpdateResize. Always re-Get for pressure so we do
+	// not apply a memory (or disk/PID) increase under active pressure.
+	if pod.Spec.NodeName != "" {
+		if live := r.getNodeForResize(ctx, pod.Spec.NodeName); live != nil {
+			if reason := nodePressureBlocksIncrease(live, pod, containerRec.Name, target); reason != "" {
+				logger.Info("Skipping resize (live re-check): "+reason,
+					"pod", pod.Name, "container", containerRec.Name)
+				r.emitEventOnce(policy, corev1.EventTypeWarning, "ResizeSkipped", "resize",
+					"Resize blocked for pod %s container %s: %s", pod.Name, containerRec.Name, reason)
+				recordCapacitySkip(policy, reason)
+				return nil, resizeOutcomeNone
+			}
+		}
+	}
+
 	evictionHistory := func() []attunev1alpha1.ResizeHistoryEntry {
 		return []attunev1alpha1.ResizeHistoryEntry{
 			{
