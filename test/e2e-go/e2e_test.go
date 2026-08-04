@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -48,6 +49,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/resize"
 )
 
 const (
@@ -1896,4 +1898,670 @@ func TestE2E_MultiContainer_SequentialResize(t *testing.T) {
 	// Verify pod annotations indicate resize tracking.
 	assert.Contains(t, pod.Labels, "attune.io/tracked",
 		"resized pod should have tracking label")
+}
+
+// TestE2E_MemoryLimitDecrease_VersionAware proves version-aware memory limit
+// handling on a real API server:
+//
+//   - Policy: controlledValues=RequestsAndLimits, allowDecrease=true, oversized
+//     initial Guaranteed memory limit (512Mi) on a near-idle pause pod.
+//   - Kubernetes 1.35+: live memory limit decreases are allowed; Attune skips
+//     the platform clamp so the limit drops with the recommendation.
+//   - Kubernetes 1.33–1.34: API rejects in-place limit decreases for NotRequired;
+//     Attune clamps the limit, so the pod memory limit stays at the initial value.
+//
+// Usage-floor flooring (limit raised above recent usage) stays unit-tested:
+// pause pods report near-zero cgroup usage and cannot exercise that path.
+func TestE2E_MemoryLimitDecrease_VersionAware(t *testing.T) {
+	t.Parallel()
+	ns := uniqueNS("memlim")
+	createNamespace(t, ns)
+
+	sv, err := clientset.Discovery().ServerVersion()
+	require.NoError(t, err)
+	gitVersion := sv.GitVersion
+	allowDecrease := resize.AllowsInPlaceMemoryLimitDecrease(gitVersion)
+	t.Logf("cluster GitVersion=%s AllowsInPlaceMemoryLimitDecrease=%v", gitVersion, allowDecrease)
+
+	// Guaranteed QoS: requests == limits. Oversize memory so the recommendation
+	// (pause ≈ minAllowed 64Mi) is a clear decrease. CPU at 500m avoids the
+	// pause-container change-filter dead zone so a resize is recorded even when
+	// memory is platform-clamped on 1.33/1.34.
+	const (
+		appName    = "memlim-app"
+		policyName = "memlim-policy"
+		initCPU    = "500m"
+		initMem    = "512Mi"
+	)
+	initMemQ := resource.MustParse(initMem)
+
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      appName,
+			Namespace: ns,
+			Labels:    map[string]string{"app": appName},
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: int32Ptr(1),
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": appName}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": appName}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:  "app",
+						Image: "registry.k8s.io/pause:3.9",
+						ResizePolicy: []corev1.ContainerResizePolicy{
+							{ResourceName: corev1.ResourceCPU, RestartPolicy: corev1.NotRequired},
+							{ResourceName: corev1.ResourceMemory, RestartPolicy: corev1.NotRequired},
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse(initCPU),
+								corev1.ResourceMemory: initMemQ.DeepCopy(),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse(initCPU),
+								corev1.ResourceMemory: initMemQ.DeepCopy(),
+							},
+						},
+					}},
+				},
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, deploy))
+	waitForDeploymentReady(t, appName, ns, 90*time.Second)
+
+	controlled := attunev1alpha1.ControlledRequestsAndLimits
+	deployName := appName
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: policyName, Namespace: ns},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			TargetRef: attunev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Prometheus:        &attunev1alpha1.PrometheusConfig{Address: promAddr},
+				MinimumDataPoints: int32Ptr(1),
+				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
+			},
+			CPU: attunev1alpha1.ResourceConfig{
+				Percentile:       95,
+				Overhead:         "20",
+				AllowDecrease:    boolPtr(true),
+				ControlledValues: &controlled,
+				MinAllowed:       quantityPtr("50m"),
+				MaxAllowed:       quantityPtr("4000m"),
+				MaxChangePercent: int32Ptr(100),
+			},
+			Memory: attunev1alpha1.ResourceConfig{
+				Percentile:       99,
+				Overhead:         "30",
+				AllowDecrease:    boolPtr(true),
+				ControlledValues: &controlled,
+				MinAllowed:       quantityPtr("64Mi"),
+				MaxAllowed:       quantityPtr("8Gi"),
+				MaxChangePercent: int32Ptr(100),
+			},
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Type:       attunev1alpha1.UpdateTypeAuto,
+				Cooldown:   &metav1.Duration{Duration: time.Minute},
+				AutoRevert: boolPtr(true),
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, policy))
+
+	// Recommendation should target a lower memory limit than the oversized start.
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
+		var p attunev1alpha1.AttunePolicy
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: policyName, Namespace: ns}, &p); err != nil {
+			return false, nil
+		}
+		for _, rec := range p.Status.Recommendations {
+			for _, cr := range rec.Containers {
+				if cr.Name != "app" {
+					continue
+				}
+				recLim := cr.Recommended.MemoryLimit
+				if recLim.IsZero() {
+					// Some status paths only populate request; treat request as proxy.
+					recLim = cr.Recommended.MemoryRequest
+				}
+				if !recLim.IsZero() && recLim.Cmp(initMemQ) < 0 {
+					t.Logf("recommendation memory limit/request %s < initial %s", recLim.String(), initMem)
+					return true, nil
+				}
+			}
+		}
+		return false, nil
+	}), "expected a memory recommendation below %s", initMem)
+
+	waitForResize(t, policyName, ns, 4*time.Minute)
+
+	// Poll applied pod resources: CPU may move first; on 1.35 memory limit
+	// should drop; on 1.33–1.34 the platform clamp keeps the limit.
+	var finalMemLim resource.Quantity
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 3*time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
+		var pods corev1.PodList
+		if err := k8sClient.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{"app": appName}); err != nil {
+			return false, nil
+		}
+		if len(pods.Items) == 0 {
+			return false, nil
+		}
+		// Prefer a Running pod after any restart.
+		var c *corev1.Container
+		for i := range pods.Items {
+			if pods.Items[i].DeletionTimestamp != nil {
+				continue
+			}
+			for j := range pods.Items[i].Spec.Containers {
+				if pods.Items[i].Spec.Containers[j].Name == "app" {
+					c = &pods.Items[i].Spec.Containers[j]
+					break
+				}
+			}
+			if c != nil {
+				break
+			}
+		}
+		if c == nil {
+			return false, nil
+		}
+		lim := c.Resources.Limits.Memory()
+		if lim == nil || lim.IsZero() {
+			return false, nil
+		}
+		finalMemLim = *lim
+		cpuReq := c.Resources.Requests.Cpu()
+		cpuChanged := cpuReq != nil && cpuReq.Cmp(resource.MustParse(initCPU)) != 0
+		memDecreased := lim.Cmp(initMemQ) < 0
+		memUnchanged := lim.Cmp(initMemQ) == 0
+
+		if allowDecrease {
+			// 1.35+: need a real limit decrease.
+			if memDecreased {
+				return true, nil
+			}
+			// Keep waiting while resize is still converging.
+			return false, nil
+		}
+		// 1.33–1.34: clamp keeps limit; accept once a resize applied (CPU change
+		// or reconcile recorded) and limit is still at the initial value.
+		if memUnchanged && cpuChanged {
+			return true, nil
+		}
+		if memUnchanged {
+			// Resize may only have touched memory request/limit clamp with
+			// no CPU delta yet; check policy resized count.
+			var p attunev1alpha1.AttunePolicy
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: policyName, Namespace: ns}, &p); err == nil {
+				if p.Status.Workloads.Resized > 0 {
+					return true, nil
+				}
+			}
+		}
+		return false, nil
+	}), "timed out waiting for version-aware memory limit outcome (allowInPlace=%v, last limit=%s)",
+		allowDecrease, finalMemLim.String())
+
+	t.Logf("final memory limit=%s initial=%s allowInPlaceDecrease=%v", finalMemLim.String(), initMem, allowDecrease)
+
+	if allowDecrease {
+		assert.True(t, finalMemLim.Cmp(initMemQ) < 0,
+			"Kubernetes %s should allow in-place memory limit decrease: got limit %s, want < %s",
+			gitVersion, finalMemLim.String(), initMem)
+		// Still above policy minAllowed when the chain floors at 64Mi.
+		minAllowed := resource.MustParse("64Mi")
+		assert.GreaterOrEqual(t, finalMemLim.Value(), minAllowed.Value(),
+			"decreased limit %s should not go below minAllowed 64Mi", finalMemLim.String())
+	} else {
+		assert.Equal(t, initMemQ.Value(), finalMemLim.Value(),
+			"Kubernetes %s should clamp memory limit decreases: got limit %s, want still %s",
+			gitVersion, finalMemLim.String(), initMem)
+	}
+}
+
+// patchPodResizePending sets PodResizePending with the given reason (Deferred
+// or Infeasible). Kubelet may overwrite status; callers re-apply in a loop.
+func patchPodResizePending(t *testing.T, podName, namespace, reason string) {
+	t.Helper()
+	require.NoError(t, retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		pod, err := clientset.CoreV1().Pods(namespace).Get(ctx, podName, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		now := metav1.Now()
+		cond := corev1.PodCondition{
+			Type:               corev1.PodResizePending,
+			Status:             corev1.ConditionTrue,
+			Reason:             reason,
+			Message:            "e2e injected for ResizeBlocked UX",
+			LastTransitionTime: now,
+		}
+		found := false
+		for i := range pod.Status.Conditions {
+			if pod.Status.Conditions[i].Type == corev1.PodResizePending {
+				pod.Status.Conditions[i] = cond
+				found = true
+				break
+			}
+		}
+		if !found {
+			pod.Status.Conditions = append(pod.Status.Conditions, cond)
+		}
+		_, err = clientset.CoreV1().Pods(namespace).UpdateStatus(ctx, pod, metav1.UpdateOptions{})
+		return err
+	}))
+}
+
+// TestE2E_ResizeBlocked_DeferredAndInfeasibleStatus injects kubelet-style
+// PodResizePending conditions and asserts Attune surfaces
+// status.workloads.deferred/infeasible and ResizeBlocked.
+//
+// Real Deferred/Infeasible require node capacity races that are flake-prone on
+// shared k3d. Status injection validates the operator UX path (#436).
+func TestE2E_ResizeBlocked_DeferredAndInfeasibleStatus(t *testing.T) {
+	t.Parallel()
+	ns := uniqueNS("blocked")
+	createNamespace(t, ns)
+
+	const (
+		appName    = "blocked-app"
+		policyName = "blocked-policy"
+	)
+	// Two replicas: one Deferred, one Infeasible.
+	createDeployment(t, appName, ns, "250m", "256Mi", 2)
+	waitForDeploymentReady(t, appName, ns, 90*time.Second)
+
+	createPolicy(t, policyName, ns, appName, attunev1alpha1.UpdateTypeRecommend)
+	waitForPolicyDiscovered(t, policyName, ns, 90*time.Second)
+
+	var pods corev1.PodList
+	require.NoError(t, k8sClient.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{"app": appName}))
+	require.GreaterOrEqual(t, len(pods.Items), 2, "need two pods")
+	// Prefer Running pods.
+	var names []string
+	for i := range pods.Items {
+		if pods.Items[i].DeletionTimestamp != nil || pods.Items[i].Status.Phase != corev1.PodRunning {
+			continue
+		}
+		names = append(names, pods.Items[i].Name)
+		if len(names) == 2 {
+			break
+		}
+	}
+	require.Len(t, names, 2, "need two Running pods")
+	deferredPod, infeasiblePod := names[0], names[1]
+
+	// Re-inject conditions while waiting: kubelet may clear synthetic status.
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 3*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
+		patchPodResizePending(t, deferredPod, ns, "Deferred")
+		patchPodResizePending(t, infeasiblePod, ns, "Infeasible")
+		forcePolicyReconcile(t, policyName, ns, 45*time.Second)
+
+		var p attunev1alpha1.AttunePolicy
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: policyName, Namespace: ns}, &p); err != nil {
+			return false, nil
+		}
+		t.Logf("workloads deferred=%d infeasible=%d", p.Status.Workloads.Deferred, p.Status.Workloads.Infeasible)
+		if p.Status.Workloads.Deferred < 1 || p.Status.Workloads.Infeasible < 1 {
+			return false, nil
+		}
+		var blocked *metav1.Condition
+		for i := range p.Status.Conditions {
+			if p.Status.Conditions[i].Type == attunev1alpha1.ConditionResizeBlocked {
+				blocked = &p.Status.Conditions[i]
+				break
+			}
+		}
+		if blocked == nil || blocked.Status != metav1.ConditionTrue {
+			t.Logf("ResizeBlocked not True yet")
+			return false, nil
+		}
+		// Prefer both reasons when both counts are set.
+		// Both counts are set: controller must use the combined reason.
+		if blocked.Reason != attunev1alpha1.ReasonPodsDeferredAndInfeasible {
+			t.Logf("waiting for reason=%s (got %s)",
+				attunev1alpha1.ReasonPodsDeferredAndInfeasible, blocked.Reason)
+			return false, nil
+		}
+		t.Logf("OK: ResizeBlocked reason=%s message=%s", blocked.Reason, blocked.Message)
+		return true, nil
+	}), "expected Deferred+Infeasible counts and ResizeBlocked condition")
+}
+
+// setNodeMemoryPressure sets or clears NodeMemoryPressure on the named node.
+// Caller must restore in Cleanup. Not parallel-safe across tests that need
+// memory *increases* on the same node.
+func setNodeMemoryPressure(t *testing.T, nodeName string, pressure bool) {
+	t.Helper()
+	require.NoError(t, applyNodeMemoryPressure(nodeName, pressure))
+}
+
+func applyNodeMemoryPressure(nodeName string, pressure bool) error {
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		node, err := clientset.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		want := corev1.ConditionFalse
+		if pressure {
+			want = corev1.ConditionTrue
+		}
+		found := false
+		for i := range node.Status.Conditions {
+			if node.Status.Conditions[i].Type == corev1.NodeMemoryPressure {
+				node.Status.Conditions[i].Status = want
+				node.Status.Conditions[i].LastTransitionTime = metav1.Now()
+				node.Status.Conditions[i].Reason = "E2ETest"
+				node.Status.Conditions[i].Message = "e2e MemoryPressure injection"
+				found = true
+				break
+			}
+		}
+		if !found && pressure {
+			node.Status.Conditions = append(node.Status.Conditions, corev1.NodeCondition{
+				Type:               corev1.NodeMemoryPressure,
+				Status:             corev1.ConditionTrue,
+				LastHeartbeatTime:  metav1.Now(),
+				LastTransitionTime: metav1.Now(),
+				Reason:             "E2ETest",
+				Message:            "e2e MemoryPressure injection",
+			})
+		}
+		_, err = clientset.CoreV1().Nodes().UpdateStatus(ctx, node, metav1.UpdateOptions{})
+		return err
+	})
+}
+
+// TestE2E_NodeMemoryPressure_SkipsMemoryIncrease patches MemoryPressure on the
+// pod's node and asserts Attune does not raise an undersized memory request.
+//
+// Not t.Parallel: node status is cluster-scoped and would race other tests.
+func TestE2E_NodeMemoryPressure_SkipsMemoryIncrease(t *testing.T) {
+	ns := uniqueNS("pressure")
+	createNamespace(t, ns)
+
+	const (
+		appName    = "pressure-app"
+		policyName = "pressure-policy"
+		initMem    = "32Mi"
+		initCPU    = "500m"
+	)
+
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: appName, Namespace: ns,
+			Labels: map[string]string{"app": appName},
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: int32Ptr(1),
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": appName}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": appName}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:  "app",
+						Image: "registry.k8s.io/pause:3.9",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse(initCPU),
+								corev1.ResourceMemory: resource.MustParse(initMem),
+							},
+						},
+					}},
+				},
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, deploy))
+	waitForDeploymentReady(t, appName, ns, 90*time.Second)
+
+	var pods corev1.PodList
+	require.NoError(t, k8sClient.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{"app": appName}))
+	require.NotEmpty(t, pods.Items)
+	nodeName := pods.Items[0].Spec.NodeName
+	require.NotEmpty(t, nodeName, "pod must be scheduled")
+	t.Logf("injecting MemoryPressure on node %s", nodeName)
+
+	// Hold MemoryPressure for the entire test: k3s/kubelet rewrites node
+	// status and will clear injected conditions within seconds.
+	setNodeMemoryPressure(t, nodeName, true)
+	t.Cleanup(func() {
+		setNodeMemoryPressure(t, nodeName, false)
+	})
+	stopPressure := make(chan struct{})
+	donePressure := make(chan struct{})
+	go func() {
+		defer close(donePressure)
+		tck := time.NewTicker(1 * time.Second)
+		defer tck.Stop()
+		for {
+			select {
+			case <-stopPressure:
+				return
+			case <-tck.C:
+				_ = applyNodeMemoryPressure(nodeName, true)
+			}
+		}
+	}()
+	t.Cleanup(func() {
+		close(stopPressure)
+		<-donePressure
+	})
+
+	// minAllowed 256Mi >> 32Mi forces a memory *increase*. CPU starts high so
+	// under pressure the whole container resize is skipped (mem increase gate).
+	deployName := appName
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: policyName, Namespace: ns},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			TargetRef: attunev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Prometheus:        &attunev1alpha1.PrometheusConfig{Address: promAddr},
+				MinimumDataPoints: int32Ptr(1),
+				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
+			},
+			CPU: attunev1alpha1.ResourceConfig{
+				Percentile:       95,
+				Overhead:         "20",
+				AllowDecrease:    boolPtr(false),
+				MinAllowed:       quantityPtr("500m"),
+				MaxAllowed:       quantityPtr("4000m"),
+				MaxChangePercent: int32Ptr(100),
+			},
+			Memory: attunev1alpha1.ResourceConfig{
+				Percentile:       99,
+				Overhead:         "30",
+				AllowDecrease:    boolPtr(false),
+				MinAllowed:       quantityPtr("256Mi"),
+				MaxAllowed:       quantityPtr("8Gi"),
+				MaxChangePercent: int32Ptr(100),
+			},
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Type:       attunev1alpha1.UpdateTypeAuto,
+				Cooldown:   &metav1.Duration{Duration: time.Minute},
+				AutoRevert: boolPtr(true),
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, policy))
+	waitForPolicyDiscovered(t, policyName, ns, 90*time.Second)
+
+	initQ := resource.MustParse(initMem)
+	// Single poll: keep pressure (background), wait for rec increase + skip event.
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 2*time.Second, 4*time.Minute, true, func(ctx context.Context) (bool, error) {
+		var live corev1.PodList
+		if err := k8sClient.List(ctx, &live, client.InNamespace(ns), client.MatchingLabels{"app": appName}); err != nil {
+			return false, nil
+		}
+		for i := range live.Items {
+			if live.Items[i].DeletionTimestamp != nil {
+				continue
+			}
+			for _, c := range live.Items[i].Spec.Containers {
+				if c.Name != "app" {
+					continue
+				}
+				mem := c.Resources.Requests.Memory()
+				if mem != nil && mem.Cmp(initQ) > 0 {
+					return false, fmt.Errorf("memory increased to %s under MemoryPressure (want stay at %s)", mem.String(), initMem)
+				}
+			}
+		}
+
+		var p attunev1alpha1.AttunePolicy
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: policyName, Namespace: ns}, &p); err != nil {
+			return false, nil
+		}
+		recIncrease := false
+		for _, rec := range p.Status.Recommendations {
+			for _, cr := range rec.Containers {
+				if cr.Name == "app" && !cr.Recommended.MemoryRequest.IsZero() &&
+					cr.Recommended.MemoryRequest.Cmp(initQ) > 0 {
+					recIncrease = true
+				}
+			}
+		}
+		if !recIncrease {
+			return false, nil
+		}
+
+		evs, err := clientset.CoreV1().Events(ns).List(ctx, metav1.ListOptions{
+			FieldSelector: "involvedObject.kind=AttunePolicy,involvedObject.name=" + policyName,
+		})
+		if err != nil {
+			return false, nil
+		}
+		for _, ev := range evs.Items {
+			if ev.Reason == "ResizeSkipped" && strings.Contains(ev.Message, "MemoryPressure") {
+				t.Logf("OK: ResizeSkipped event: %s", ev.Message)
+				return true, nil
+			}
+		}
+		// Nudge reconcile without long nested waits.
+		forcePolicyReconcile(t, policyName, ns, 30*time.Second)
+		return false, nil
+	}), "expected memory rec increase + ResizeSkipped(MemoryPressure) with memory held at %s", initMem)
+
+	require.NoError(t, k8sClient.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{"app": appName}))
+	require.NotEmpty(t, pods.Items)
+	var c *corev1.Container
+	for i := range pods.Items {
+		if pods.Items[i].DeletionTimestamp != nil {
+			continue
+		}
+		for j := range pods.Items[i].Spec.Containers {
+			if pods.Items[i].Spec.Containers[j].Name == "app" {
+				c = &pods.Items[i].Spec.Containers[j]
+				break
+			}
+		}
+		if c != nil {
+			break
+		}
+	}
+	require.NotNil(t, c)
+	gotMem := c.Resources.Requests.Memory()
+	require.NotNil(t, gotMem)
+	assert.Equal(t, initQ.Value(), gotMem.Value(),
+		"MemoryPressure should block memory request increase: got %s want %s",
+		gotMem.String(), initMem)
+}
+
+// TestE2E_RuntimeProfileJava_BlocksMemoryDecrease verifies java runtimeProfile
+// applies in-memory defaults (allowDecrease=false) so oversized memory is not
+// decreased even when the field is unset on the CR.
+func TestE2E_RuntimeProfileJava_BlocksMemoryDecrease(t *testing.T) {
+	t.Parallel()
+	ns := uniqueNS("javamem")
+	createNamespace(t, ns)
+
+	const (
+		appName    = "java-app"
+		policyName = "java-policy"
+		initMem    = "512Mi"
+	)
+	createDeployment(t, appName, ns, "500m", initMem, 1)
+	waitForDeploymentReady(t, appName, ns, 90*time.Second)
+
+	deployName := appName
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: policyName, Namespace: ns},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			RuntimeProfile: "java",
+			TargetRef:      attunev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Prometheus:        &attunev1alpha1.PrometheusConfig{Address: promAddr},
+				MinimumDataPoints: int32Ptr(1),
+				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
+			},
+			CPU: attunev1alpha1.ResourceConfig{
+				Percentile:       95,
+				Overhead:         "20",
+				AllowDecrease:    boolPtr(true),
+				MinAllowed:       quantityPtr("50m"),
+				MaxAllowed:       quantityPtr("4000m"),
+				MaxChangePercent: int32Ptr(100),
+			},
+			Memory: attunev1alpha1.ResourceConfig{
+				// AllowDecrease and Overhead intentionally unset: java profile
+				// defaults allowDecrease=false and overhead=40 in-memory.
+				Percentile:       99,
+				MinAllowed:       quantityPtr("64Mi"),
+				MaxAllowed:       quantityPtr("8Gi"),
+				MaxChangePercent: int32Ptr(100),
+			},
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Type:       attunev1alpha1.UpdateTypeAuto,
+				Cooldown:   &metav1.Duration{Duration: time.Minute},
+				AutoRevert: boolPtr(true),
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, policy))
+	// java-unique default is overhead=40 (platform default memory overhead is 30).
+	// That is the live signal the profile applied, not mere allowDecrease=false
+	// (which is already the platform default when the field is nil).
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
+		var p attunev1alpha1.AttunePolicy
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: policyName, Namespace: ns}, &p); err != nil {
+			return false, nil
+		}
+		for _, rec := range p.Status.Recommendations {
+			for _, cr := range rec.Containers {
+				if cr.Name != "app" || cr.Explanation == nil || cr.Explanation.Memory == nil {
+					continue
+				}
+				if cr.Explanation.Memory.Overhead == 40 {
+					t.Logf("OK: java profile effective memory overhead=40 in explanation")
+					return true, nil
+				}
+				t.Logf("memory explanation overhead=%.0f (want 40)", cr.Explanation.Memory.Overhead)
+			}
+		}
+		return false, nil
+	}), "expected recommendation explanation memory overhead=40 from java runtimeProfile")
+
+	waitForResize(t, policyName, ns, 4*time.Minute)
+
+	// CR must still show unset allowDecrease/overhead (defaults are not written back).
+	var stored attunev1alpha1.AttunePolicy
+	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: policyName, Namespace: ns}, &stored))
+	assert.Nil(t, stored.Spec.Memory.AllowDecrease,
+		"java profile must not persist allowDecrease onto the CR")
+	assert.Equal(t, "", stored.Spec.Memory.Overhead,
+		"java profile must not persist overhead onto the CR")
+
+	var podList corev1.PodList
+	require.NoError(t, k8sClient.List(ctx, &podList, client.InNamespace(ns), client.MatchingLabels{"app": appName}))
+	require.NotEmpty(t, podList.Items)
+	c := podList.Items[0].Spec.Containers[0]
+	origMem := resource.MustParse(initMem)
+	assert.GreaterOrEqual(t, c.Resources.Requests.Memory().Value(), origMem.Value(),
+		"memory should not decrease under java defaults, got %s",
+		c.Resources.Requests.Memory().String())
 }

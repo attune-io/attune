@@ -51,7 +51,22 @@ func TestNodePressureBlocksIncrease(t *testing.T) {
 			corev1.ResourceMemory: resource.MustParse("64Mi"),
 		},
 	}
-	node := &corev1.Node{
+	// CPU-only increase (memory flat): MemoryPressure must not block.
+	higherCPU := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("200m"),
+			corev1.ResourceMemory: resource.MustParse("128Mi"),
+		},
+	}
+	// Both increase.
+	higherBoth := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("200m"),
+			corev1.ResourceMemory: resource.MustParse("256Mi"),
+		},
+	}
+
+	memPressure := &corev1.Node{
 		ObjectMeta: metav1.ObjectMeta{Name: "n1"},
 		Status: corev1.NodeStatus{
 			Conditions: []corev1.NodeCondition{{
@@ -59,7 +74,60 @@ func TestNodePressureBlocksIncrease(t *testing.T) {
 			}},
 		},
 	}
-	assert.Contains(t, nodePressureBlocksIncrease(node, pod, "app", higherMem), "MemoryPressure")
-	assert.Empty(t, nodePressureBlocksIncrease(node, pod, "app", lowerMem))
+	diskPressure := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "n2"},
+		Status: corev1.NodeStatus{
+			Conditions: []corev1.NodeCondition{{
+				Type: corev1.NodeDiskPressure, Status: corev1.ConditionTrue,
+			}},
+		},
+	}
+	pidPressure := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "n3"},
+		Status: corev1.NodeStatus{
+			Conditions: []corev1.NodeCondition{{
+				Type: corev1.NodePIDPressure, Status: corev1.ConditionTrue,
+			}},
+		},
+	}
+	// False conditions must not block.
+	pressureFalse := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "n4"},
+		Status: corev1.NodeStatus{
+			Conditions: []corev1.NodeCondition{{
+				Type: corev1.NodeMemoryPressure, Status: corev1.ConditionFalse,
+			}},
+		},
+	}
+
+	assert.Contains(t, nodePressureBlocksIncrease(memPressure, pod, "app", higherMem), "MemoryPressure")
+	assert.Empty(t, nodePressureBlocksIncrease(memPressure, pod, "app", lowerMem),
+		"memory decrease under MemoryPressure is allowed")
+	assert.Empty(t, nodePressureBlocksIncrease(memPressure, pod, "app", higherCPU),
+		"CPU-only increase under MemoryPressure is allowed")
+	assert.Contains(t, nodePressureBlocksIncrease(memPressure, pod, "app", higherBoth), "MemoryPressure",
+		"memory increase (with CPU) under MemoryPressure is blocked")
+
+	assert.Contains(t, nodePressureBlocksIncrease(diskPressure, pod, "app", higherMem), "DiskPressure")
+	assert.Contains(t, nodePressureBlocksIncrease(diskPressure, pod, "app", higherCPU), "DiskPressure")
+	assert.Empty(t, nodePressureBlocksIncrease(diskPressure, pod, "app", lowerMem),
+		"decrease under DiskPressure is allowed")
+
+	assert.Contains(t, nodePressureBlocksIncrease(pidPressure, pod, "app", higherCPU), "PIDPressure")
+	assert.Contains(t, nodePressureBlocksIncrease(pidPressure, pod, "app", higherMem), "PIDPressure")
+
+	assert.Empty(t, nodePressureBlocksIncrease(pressureFalse, pod, "app", higherMem))
+	pressureUnknown := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "n5"},
+		Status: corev1.NodeStatus{
+			Conditions: []corev1.NodeCondition{{
+				Type: corev1.NodeMemoryPressure, Status: corev1.ConditionUnknown,
+			}},
+		},
+	}
+	assert.Empty(t, nodePressureBlocksIncrease(pressureUnknown, pod, "app", higherMem),
+		"Unknown status must not block")
 	assert.Empty(t, nodePressureBlocksIncrease(nil, pod, "app", higherMem))
+	assert.Empty(t, nodePressureBlocksIncrease(memPressure, pod, "missing", higherMem),
+		"unknown container is a no-op")
 }
