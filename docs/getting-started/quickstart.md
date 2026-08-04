@@ -28,6 +28,7 @@ This quick start gets you to recommendations. When you are ready to go further:
 |------|------------|
 | Multi-cluster fleet reports and dashboards | [Multi-cluster](../guides/multi-cluster.md#fleet-observability-with-federated-prometheus) |
 | GitOps ConfigMap export and optional PR automation | [GitOps integration](../guides/gitops-integration.md) |
+| Application SLO checks after resize (latency, errors) | [SLO guardrails](../guides/slo-guardrails.md) |
 | Memory limit decrease safety (usage floor on 1.35+) | [Resize API](../architecture/resize-api.md) and [troubleshooting OOM](../guides/troubleshooting.md#oom-after-memory-limit-decrease) |
 | Language runtime defaults (Java, Python, Go, Node) | [Runtime profiles](../guides/runtime-profiles.md) |
 | Node pressure skips and reclaimed capacity | [Bin packing](../guides/bin-packing.md) and [node capacity](../architecture/node-capacity.md) |
