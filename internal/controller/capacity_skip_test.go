@@ -30,6 +30,7 @@ import (
 	kubefake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 	"github.com/attune-io/attune/internal/operatormetrics"
@@ -42,15 +43,124 @@ func TestRecordCapacitySkip(t *testing.T) {
 	beforeAlloc := testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("ns-cap", "cap-test", "allocatable"))
 	beforePress := testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("ns-cap", "cap-test", "pressure"))
 
+	// Exact producer strings from shouldSkipResize / nodePressureBlocksIncrease.
 	recordCapacitySkip(policy, "total pod requests would exceed node allocatable")
 	recordCapacitySkip(policy, "node has MemoryPressure; skipping memory request increase")
-	// Producer strings from nodePressureBlocksIncrease must map to the same pressure label.
-	recordCapacitySkip(policy, "node has DiskPressure; skipping memory request increase")
-	recordCapacitySkip(policy, "node has PIDPressure; skipping CPU request increase")
-	recordCapacitySkip(policy, "quota/limitrange violation: too large") // no metric
+	recordCapacitySkip(policy, "node has DiskPressure; skipping resource request increase")
+	recordCapacitySkip(policy, "node has PIDPressure; skipping resource request increase")
+	recordCapacitySkip(policy, "quota/limitrange violation: too large")                  // no metric
+	recordCapacitySkip(policy, "")                                                       // no metric
+	recordCapacitySkip(nil, "node has MemoryPressure; skipping memory request increase") // no metric
 
 	assert.Equal(t, beforeAlloc+1, testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("ns-cap", "cap-test", "allocatable")))
 	assert.Equal(t, beforePress+3, testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("ns-cap", "cap-test", "pressure")))
+}
+
+// TestGetNodeForResize_PrefersClientsetThenFallsBack covers live vs cache
+// fetch order when Clientset errors or is unset.
+func TestGetNodeForResize_PrefersClientsetThenFallsBack(t *testing.T) {
+	scheme := testScheme()
+	cachedOnly := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "n-fallback"},
+		Status: corev1.NodeStatus{
+			Conditions: []corev1.NodeCondition{{
+				Type: corev1.NodeMemoryPressure, Status: corev1.ConditionTrue,
+			}},
+		},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cachedOnly).Build()
+
+	// Clientset miss → fall back to controller-runtime client.
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Clientset = kubefake.NewSimpleClientset() // no node
+	got := r.getNodeForResize(context.Background(), "n-fallback")
+	require.NotNil(t, got)
+	assert.Equal(t, "n-fallback", got.Name)
+
+	// No Clientset, client hit.
+	r2 := NewAttunePolicyReconciler()
+	r2.Client = fakeClient
+	got2 := r2.getNodeForResize(context.Background(), "n-fallback")
+	require.NotNil(t, got2)
+
+	// Neither source has the node.
+	r3 := NewAttunePolicyReconciler()
+	r3.Client = fake.NewClientBuilder().WithScheme(scheme).Build()
+	r3.Clientset = kubefake.NewSimpleClientset()
+	assert.Nil(t, r3.getNodeForResize(context.Background(), "missing"))
+}
+
+// TestExecuteResizes_NodeAllocatable_EmitsResizeSkippedAndCapacitySkipMetric
+// pins the allocatable skip path (sibling of the pressure path test).
+func TestExecuteResizes_NodeAllocatable_EmitsResizeSkippedAndCapacitySkipMetric(t *testing.T) {
+	const (
+		policyNS   = "default"
+		policyName = "alloc-path-policy"
+		nodeName   = "tiny-node"
+		appName    = "alloc-app"
+	)
+
+	pod := newResizePod(appName, "500m", "512Mi", "1000m", "1Gi")
+	pod.Spec.NodeName = nodeName
+	deploy := newTestDeployment(appName, policyNS, map[string]string{"app": appName})
+	// Node too small for recommended CPU (would be 2 + sidecar-less 2).
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: nodeName},
+		Status: corev1.NodeStatus{
+			Allocatable: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("1000m"),
+				corev1.ResourceMemory: resource.MustParse("8Gi"),
+			},
+		},
+	}
+
+	reconciler, _ := newResizeReconciler(pod, deploy, node)
+	reconciler.Clientset = kubefake.NewSimpleClientset(pod.DeepCopy(), node.DeepCopy())
+	recorder := events.NewFakeRecorder(10)
+	reconciler.Recorder = recorder
+
+	policy := newTestPolicy(policyName, policyNS)
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+
+	// Target CPU 2000m alone exceeds node allocatable 1000m.
+	recommendations := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation(appName,
+			"500m", "512Mi", "1000m", "1Gi",
+			"2000m", "512Mi", "2000m", "1Gi"),
+	}
+
+	beforeAlloc := testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues(policyNS, policyName, "allocatable"))
+	beforePress := testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues(policyNS, policyName, "pressure"))
+
+	count, history := reconciler.executeResizes(
+		context.Background(),
+		policy,
+		[]client.Object{deploy},
+		recommendations,
+		podMap(appName, pod),
+		nil,
+		nil,
+	)
+	assert.Equal(t, 0, count)
+	assert.Empty(t, history)
+	assert.Equal(t, beforeAlloc+1,
+		testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues(policyNS, policyName, "allocatable")))
+	assert.Equal(t, beforePress,
+		testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues(policyNS, policyName, "pressure")))
+
+	found := false
+	for {
+		select {
+		case event := <-recorder.Events:
+			if strings.Contains(event, "ResizeSkipped") && strings.Contains(event, "allocatable") {
+				found = true
+			}
+		default:
+			require.True(t, found, "expected ResizeSkipped event mentioning allocatable")
+			return
+		}
+	}
 }
 
 // TestExecuteResizes_MemoryPressure_EmitsResizeSkippedAndCapacitySkipMetric
