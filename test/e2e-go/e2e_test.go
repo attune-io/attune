@@ -2236,7 +2236,11 @@ func TestE2E_ResizeBlocked_DeferredAndInfeasibleStatus(t *testing.T) {
 // memory *increases* on the same node.
 func setNodeMemoryPressure(t *testing.T, nodeName string, pressure bool) {
 	t.Helper()
-	require.NoError(t, retry.RetryOnConflict(retry.DefaultRetry, func() error {
+	require.NoError(t, applyNodeMemoryPressure(nodeName, pressure))
+}
+
+func applyNodeMemoryPressure(nodeName string, pressure bool) error {
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		node, err := clientset.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
 		if err != nil {
 			return err
@@ -2268,7 +2272,7 @@ func setNodeMemoryPressure(t *testing.T, nodeName string, pressure bool) {
 		}
 		_, err = clientset.CoreV1().Nodes().UpdateStatus(ctx, node, metav1.UpdateOptions{})
 		return err
-	}))
+	})
 }
 
 // TestE2E_NodeMemoryPressure_SkipsMemoryIncrease patches MemoryPressure on the
@@ -2321,13 +2325,34 @@ func TestE2E_NodeMemoryPressure_SkipsMemoryIncrease(t *testing.T) {
 	require.NotEmpty(t, nodeName, "pod must be scheduled")
 	t.Logf("injecting MemoryPressure on node %s", nodeName)
 
+	// Hold MemoryPressure for the entire test: k3s/kubelet rewrites node
+	// status and will clear injected conditions within seconds.
 	setNodeMemoryPressure(t, nodeName, true)
 	t.Cleanup(func() {
 		setNodeMemoryPressure(t, nodeName, false)
 	})
+	stopPressure := make(chan struct{})
+	donePressure := make(chan struct{})
+	go func() {
+		defer close(donePressure)
+		tck := time.NewTicker(1 * time.Second)
+		defer tck.Stop()
+		for {
+			select {
+			case <-stopPressure:
+				return
+			case <-tck.C:
+				_ = applyNodeMemoryPressure(nodeName, true)
+			}
+		}
+	}()
+	t.Cleanup(func() {
+		close(stopPressure)
+		<-donePressure
+	})
 
-	// minAllowed 128Mi >> 32Mi current forces a memory *increase* recommendation.
-	// Under MemoryPressure, shouldSkipResize blocks that increase.
+	// minAllowed 256Mi >> 32Mi forces a memory *increase*. CPU starts high so
+	// under pressure the whole container resize is skipped (mem increase gate).
 	deployName := appName
 	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: policyName, Namespace: ns},
@@ -2342,8 +2367,8 @@ func TestE2E_NodeMemoryPressure_SkipsMemoryIncrease(t *testing.T) {
 			CPU: attunev1alpha1.ResourceConfig{
 				Percentile:       95,
 				Overhead:         "20",
-				AllowDecrease:    boolPtr(true),
-				MinAllowed:       quantityPtr("50m"),
+				AllowDecrease:    boolPtr(false),
+				MinAllowed:       quantityPtr("500m"),
 				MaxAllowed:       quantityPtr("4000m"),
 				MaxChangePercent: int32Ptr(100),
 			},
@@ -2351,7 +2376,7 @@ func TestE2E_NodeMemoryPressure_SkipsMemoryIncrease(t *testing.T) {
 				Percentile:       99,
 				Overhead:         "30",
 				AllowDecrease:    boolPtr(false),
-				MinAllowed:       quantityPtr("128Mi"),
+				MinAllowed:       quantityPtr("256Mi"),
 				MaxAllowed:       quantityPtr("8Gi"),
 				MaxChangePercent: int32Ptr(100),
 			},
@@ -2365,35 +2390,9 @@ func TestE2E_NodeMemoryPressure_SkipsMemoryIncrease(t *testing.T) {
 	require.NoError(t, k8sClient.Create(ctx, policy))
 	waitForPolicyDiscovered(t, policyName, ns, 90*time.Second)
 
-	// Wait until recommendations show memory above current (increase intended).
-	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
-		var p attunev1alpha1.AttunePolicy
-		if err := k8sClient.Get(ctx, types.NamespacedName{Name: policyName, Namespace: ns}, &p); err != nil {
-			return false, nil
-		}
-		initQ := resource.MustParse(initMem)
-		for _, rec := range p.Status.Recommendations {
-			for _, cr := range rec.Containers {
-				if cr.Name != "app" {
-					continue
-				}
-				if !cr.Recommended.MemoryRequest.IsZero() && cr.Recommended.MemoryRequest.Cmp(initQ) > 0 {
-					t.Logf("recommendation memory %s > current %s (increase intended)",
-						cr.Recommended.MemoryRequest.String(), initMem)
-					return true, nil
-				}
-			}
-		}
-		return false, nil
-	}), "expected memory recommendation above %s", initMem)
-
-	// Hold MemoryPressure and require a positive skip signal (ResizeSkipped
-	// event mentioning MemoryPressure), not only "memory did not change".
 	initQ := resource.MustParse(initMem)
-	require.NoError(t, wait.PollUntilContextTimeout(ctx, 3*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
-		setNodeMemoryPressure(t, nodeName, true)
-		forcePolicyReconcile(t, policyName, ns, 45*time.Second)
-
+	// Single poll: keep pressure (background), wait for rec increase + skip event.
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 2*time.Second, 4*time.Minute, true, func(ctx context.Context) (bool, error) {
 		var live corev1.PodList
 		if err := k8sClient.List(ctx, &live, client.InNamespace(ns), client.MatchingLabels{"app": appName}); err != nil {
 			return false, nil
@@ -2413,6 +2412,23 @@ func TestE2E_NodeMemoryPressure_SkipsMemoryIncrease(t *testing.T) {
 			}
 		}
 
+		var p attunev1alpha1.AttunePolicy
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: policyName, Namespace: ns}, &p); err != nil {
+			return false, nil
+		}
+		recIncrease := false
+		for _, rec := range p.Status.Recommendations {
+			for _, cr := range rec.Containers {
+				if cr.Name == "app" && !cr.Recommended.MemoryRequest.IsZero() &&
+					cr.Recommended.MemoryRequest.Cmp(initQ) > 0 {
+					recIncrease = true
+				}
+			}
+		}
+		if !recIncrease {
+			return false, nil
+		}
+
 		evs, err := clientset.CoreV1().Events(ns).List(ctx, metav1.ListOptions{
 			FieldSelector: "involvedObject.kind=AttunePolicy,involvedObject.name=" + policyName,
 		})
@@ -2420,16 +2436,15 @@ func TestE2E_NodeMemoryPressure_SkipsMemoryIncrease(t *testing.T) {
 			return false, nil
 		}
 		for _, ev := range evs.Items {
-			if ev.Reason != "ResizeSkipped" {
-				continue
-			}
-			if strings.Contains(ev.Message, "MemoryPressure") {
+			if ev.Reason == "ResizeSkipped" && strings.Contains(ev.Message, "MemoryPressure") {
 				t.Logf("OK: ResizeSkipped event: %s", ev.Message)
 				return true, nil
 			}
 		}
+		// Nudge reconcile without long nested waits.
+		forcePolicyReconcile(t, policyName, ns, 30*time.Second)
 		return false, nil
-	}), "expected ResizeSkipped event mentioning MemoryPressure while memory stays at %s", initMem)
+	}), "expected memory rec increase + ResizeSkipped(MemoryPressure) with memory held at %s", initMem)
 
 	require.NoError(t, k8sClient.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{"app": appName}))
 	require.NotEmpty(t, pods.Items)
