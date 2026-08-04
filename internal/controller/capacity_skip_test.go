@@ -17,12 +17,19 @@ limitations under the License.
 package controller
 
 import (
+	"context"
+	"strings"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	kubefake "k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/tools/events"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 	"github.com/attune-io/attune/internal/operatormetrics"
@@ -44,6 +51,87 @@ func TestRecordCapacitySkip(t *testing.T) {
 
 	assert.Equal(t, beforeAlloc+1, testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("ns-cap", "cap-test", "allocatable")))
 	assert.Equal(t, beforePress+3, testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("ns-cap", "cap-test", "pressure")))
+}
+
+// TestExecuteResizes_MemoryPressure_EmitsResizeSkippedAndCapacitySkipMetric
+// pins the full resize path: shouldSkipResize (live node MemoryPressure) →
+// ResizeSkipped event + CapacitySkipTotal{reason=pressure}. The helper-only
+// TestRecordCapacitySkip does not cover this call site.
+func TestExecuteResizes_MemoryPressure_EmitsResizeSkippedAndCapacitySkipMetric(t *testing.T) {
+	const (
+		policyNS   = "default"
+		policyName = "pressure-path-policy"
+		nodeName   = "pressure-node"
+		appName    = "pressure-app"
+	)
+
+	pod := newResizePod(appName, "500m", "512Mi", "1000m", "1Gi")
+	pod.Spec.NodeName = nodeName
+	deploy := newTestDeployment(appName, policyNS, map[string]string{"app": appName})
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: nodeName},
+		Status: corev1.NodeStatus{
+			Allocatable: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("4"),
+				corev1.ResourceMemory: resource.MustParse("8Gi"),
+			},
+			Conditions: []corev1.NodeCondition{{
+				Type:   corev1.NodeMemoryPressure,
+				Status: corev1.ConditionTrue,
+			}},
+		},
+	}
+
+	reconciler, _ := newResizeReconciler(pod, deploy, node)
+	// Clientset is preferred for live node status; include the pressure node.
+	reconciler.Clientset = kubefake.NewSimpleClientset(pod.DeepCopy(), node.DeepCopy())
+	recorder := events.NewFakeRecorder(10)
+	reconciler.Recorder = recorder
+
+	policy := newTestPolicy(policyName, policyNS)
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+
+	// Memory request increase (CPU flat) under MemoryPressure must skip.
+	recommendations := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation(appName,
+			"500m", "512Mi", "1000m", "1Gi",
+			"500m", "1Gi", "1000m", "2Gi"),
+	}
+
+	beforePress := testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues(policyNS, policyName, "pressure"))
+	beforeAlloc := testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues(policyNS, policyName, "allocatable"))
+
+	count, history := reconciler.executeResizes(
+		context.Background(),
+		policy,
+		[]client.Object{deploy},
+		recommendations,
+		podMap(appName, pod),
+		nil,
+		nil,
+	)
+	assert.Equal(t, 0, count, "memory increase under MemoryPressure must not resize")
+	assert.Empty(t, history, "skipped resize produces no history entries")
+
+	assert.Equal(t, beforePress+1,
+		testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues(policyNS, policyName, "pressure")),
+		"resize path must increment CapacitySkipTotal reason=pressure")
+	assert.Equal(t, beforeAlloc,
+		testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues(policyNS, policyName, "allocatable")),
+		"pressure skip must not increment allocatable reason")
+
+	found := false
+	for {
+		select {
+		case event := <-recorder.Events:
+			if strings.Contains(event, "ResizeSkipped") && strings.Contains(event, "MemoryPressure") {
+				found = true
+			}
+		default:
+			require.True(t, found, "expected ResizeSkipped event mentioning MemoryPressure")
+			return
+		}
+	}
 }
 
 func TestComputeSavings_ReclaimedAliases(t *testing.T) {
