@@ -53,6 +53,7 @@ nav:
       - Canary Rollout: guides/canary-rollout.md
       - Auto Mode: guides/auto-mode.md
       - Startup Boost: guides/startup-boost.md
+      - SLO Guardrails: guides/slo-guardrails.md
       - Runtime Profiles: guides/runtime-profiles.md
       - HPA Coexistence: guides/hpa-coexistence.md
       - Prometheus Setup: guides/prometheus-setup.md

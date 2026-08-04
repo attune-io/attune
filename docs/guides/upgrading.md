@@ -1,7 +1,70 @@
 # Upgrading
 
-This page covers breaking changes between versions. If you are upgrading from an
-earlier pre-release, apply every section below your current version.
+This page covers breaking changes and notable behavior shifts between versions.
+If you are upgrading from an earlier pre-release, apply every section below your
+current version (newest sections first).
+
+## v0.1.20 to v0.1.21
+
+v0.1.21 is a feature release. Existing policies keep working without YAML
+edits. Most new capabilities are **opt-in**. Read this section if you run
+Kubernetes 1.35+, GitOps export, multi-cluster rollups, or memory limit
+control.
+
+### Safe by default (no action required)
+
+| Area | Behavior |
+|------|----------|
+| GitOps pull request automation | Off unless `export.pullRequest.enabled: true` |
+| Fleet report ConfigMap export | Off unless `fleetReport` (or Helm equivalent) is enabled |
+| Runtime profiles | Only apply when `runtimeProfile` is set |
+| Export schema versioning | Additive fields on recommendation ConfigMaps; consumers can ignore new keys |
+
+### Behavior that can change without new fields
+
+**Memory limit decreases on Kubernetes 1.35+.** On 1.35+, Attune no longer
+clamps memory limits the way it did on 1.33/1.34 when the platform allows
+live decreases and the policy uses `controlledValues: RequestsAndLimits` with
+decrease allowed. A **usage floor** still keeps the target limit above recent
+usage (default `memory.decreaseUsageMarginPercent: 10`). On 1.33–1.34, limit
+decreases remain clamped as before.
+
+If you rely on “limits never go down in place,” pin an older cluster version,
+set `memory.allowDecrease: false`, use a restrictive
+[runtime profile](runtime-profiles.md), or keep `controlledValues: RequestsOnly`
+(the default).
+
+**Capacity and node pressure.** Resizes may be skipped more often when nodes
+are under pressure; metrics and status explain the skip. This is protective,
+not a CRD break.
+
+### Opt-in features worth enabling deliberately
+
+| Feature | Where to start |
+|---------|----------------|
+| GitOps PR automation | [GitOps integration](gitops-integration.md#pull-request-automation-opt-in-phase-b) |
+| Multi-cluster fleet report | [Multi-cluster](multi-cluster.md) |
+| Language runtime profiles | [Runtime profiles](runtime-profiles.md) |
+| Deferred / Infeasible UX | Status conditions + [troubleshooting](troubleshooting.md#deferred-or-infeasible-resize-stuck-pods) |
+| SLO PromQL guardrails (unchanged API; guide improved) | [SLO guardrails](slo-guardrails.md) |
+
+### Operator / install notes
+
+- Refresh CRDs with the release install path (`helm upgrade` or
+  `dist/crds.yaml` / `dist/install.yaml` from the tag).
+- Grafana dashboard and PrometheusRule assets gain panels/alerts for GitOps
+  PR outcomes, memory limit decrease safety, capacity skips, and related
+  signals. Re-apply chart or dashboard ConfigMaps if you manage them out of
+  band.
+- `kubectl attune explain` surfaces GitOps PR and runtime profile effective
+  values; upgrade the plugin with the release for matching CLI help.
+
+After upgrade, confirm policies with:
+
+```bash
+kubectl attune status -A
+kubectl attune explain -n <namespace> <policy>
+```
 
 ## v1alpha1 Field Renames (v0.1.0)
 

@@ -110,6 +110,9 @@ message rather than triggering a false revert.
 `updateStrategy.sloGuardrails`. Adjust the threshold, widen the
 `evaluationWindow`, or remove the guardrail if the metric is unreliable.
 
+For configuration examples, template variables, and operational tips, see the
+[SLO guardrails guide](../guides/slo-guardrails.md).
+
 ## Observation period
 
 After a resize, the operator observes the pod for a configurable period

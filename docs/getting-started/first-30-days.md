@@ -140,8 +140,9 @@ notready, throttle, or slo:&lt;name&gt; for SLO guardrail breaches).
 ### Optional production hardening before Auto
 
 - **SLO guardrails**: add PromQL checks so a bad resize reverts on latency or
-  error-rate breach, not only infra signals. Documented under
-  `updateStrategy.sloGuardrails` in the [API reference](../reference/api.md).
+  error-rate breach, not only infra signals. See the
+  [SLO guardrails guide](../guides/slo-guardrails.md) and
+  `updateStrategy.sloGuardrails` in the [configuration reference](../reference/configuration.md#slo-guardrails).
 - **Startup boost**: for JVM or other cold-start heavy apps, enable
   `cpu.startupBoost` so pods get temporary CPU headroom at start, then
   scale back. See the [startup boost guide](../guides/startup-boost.md).
