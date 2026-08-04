@@ -48,6 +48,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/resize"
 )
 
 const (
@@ -1896,4 +1897,226 @@ func TestE2E_MultiContainer_SequentialResize(t *testing.T) {
 	// Verify pod annotations indicate resize tracking.
 	assert.Contains(t, pod.Labels, "attune.io/tracked",
 		"resized pod should have tracking label")
+}
+
+// TestE2E_MemoryLimitDecrease_VersionAware proves version-aware memory limit
+// handling on a real API server:
+//
+//   - Policy: controlledValues=RequestsAndLimits, allowDecrease=true, oversized
+//     initial Guaranteed memory limit (512Mi) on a near-idle pause pod.
+//   - Kubernetes 1.35+: live memory limit decreases are allowed; Attune skips
+//     the platform clamp so the limit drops with the recommendation.
+//   - Kubernetes 1.33–1.34: API rejects in-place limit decreases for NotRequired;
+//     Attune clamps the limit, so the pod memory limit stays at the initial value.
+//
+// Usage-floor flooring (limit raised above recent usage) stays unit-tested:
+// pause pods report near-zero cgroup usage and cannot exercise that path.
+func TestE2E_MemoryLimitDecrease_VersionAware(t *testing.T) {
+	t.Parallel()
+	ns := uniqueNS("memlim")
+	createNamespace(t, ns)
+
+	sv, err := clientset.Discovery().ServerVersion()
+	require.NoError(t, err)
+	gitVersion := sv.GitVersion
+	allowDecrease := resize.AllowsInPlaceMemoryLimitDecrease(gitVersion)
+	t.Logf("cluster GitVersion=%s AllowsInPlaceMemoryLimitDecrease=%v", gitVersion, allowDecrease)
+
+	// Guaranteed QoS: requests == limits. Oversize memory so the recommendation
+	// (pause ≈ minAllowed 64Mi) is a clear decrease. CPU at 500m avoids the
+	// pause-container change-filter dead zone so a resize is recorded even when
+	// memory is platform-clamped on 1.33/1.34.
+	const (
+		appName    = "memlim-app"
+		policyName = "memlim-policy"
+		initCPU    = "500m"
+		initMem    = "512Mi"
+	)
+	initMemQ := resource.MustParse(initMem)
+
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      appName,
+			Namespace: ns,
+			Labels:    map[string]string{"app": appName},
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: int32Ptr(1),
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": appName}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": appName}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:  "app",
+						Image: "registry.k8s.io/pause:3.9",
+						ResizePolicy: []corev1.ContainerResizePolicy{
+							{ResourceName: corev1.ResourceCPU, RestartPolicy: corev1.NotRequired},
+							{ResourceName: corev1.ResourceMemory, RestartPolicy: corev1.NotRequired},
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse(initCPU),
+								corev1.ResourceMemory: initMemQ.DeepCopy(),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse(initCPU),
+								corev1.ResourceMemory: initMemQ.DeepCopy(),
+							},
+						},
+					}},
+				},
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, deploy))
+	waitForDeploymentReady(t, appName, ns, 90*time.Second)
+
+	controlled := attunev1alpha1.ControlledRequestsAndLimits
+	deployName := appName
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: policyName, Namespace: ns},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			TargetRef: attunev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Prometheus:        &attunev1alpha1.PrometheusConfig{Address: promAddr},
+				MinimumDataPoints: int32Ptr(1),
+				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
+			},
+			CPU: attunev1alpha1.ResourceConfig{
+				Percentile:       95,
+				Overhead:         "20",
+				AllowDecrease:    boolPtr(true),
+				ControlledValues: &controlled,
+				MinAllowed:       quantityPtr("50m"),
+				MaxAllowed:       quantityPtr("4000m"),
+				MaxChangePercent: int32Ptr(100),
+			},
+			Memory: attunev1alpha1.ResourceConfig{
+				Percentile:       99,
+				Overhead:         "30",
+				AllowDecrease:    boolPtr(true),
+				ControlledValues: &controlled,
+				MinAllowed:       quantityPtr("64Mi"),
+				MaxAllowed:       quantityPtr("8Gi"),
+				MaxChangePercent: int32Ptr(100),
+			},
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Type:       attunev1alpha1.UpdateTypeAuto,
+				Cooldown:   &metav1.Duration{Duration: time.Minute},
+				AutoRevert: boolPtr(true),
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, policy))
+
+	// Recommendation should target a lower memory limit than the oversized start.
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
+		var p attunev1alpha1.AttunePolicy
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: policyName, Namespace: ns}, &p); err != nil {
+			return false, nil
+		}
+		for _, rec := range p.Status.Recommendations {
+			for _, cr := range rec.Containers {
+				if cr.Name != "app" {
+					continue
+				}
+				recLim := cr.Recommended.MemoryLimit
+				if recLim.IsZero() {
+					// Some status paths only populate request; treat request as proxy.
+					recLim = cr.Recommended.MemoryRequest
+				}
+				if !recLim.IsZero() && recLim.Cmp(initMemQ) < 0 {
+					t.Logf("recommendation memory limit/request %s < initial %s", recLim.String(), initMem)
+					return true, nil
+				}
+			}
+		}
+		return false, nil
+	}), "expected a memory recommendation below %s", initMem)
+
+	waitForResize(t, policyName, ns, 4*time.Minute)
+
+	// Poll applied pod resources: CPU may move first; on 1.35 memory limit
+	// should drop; on 1.33–1.34 the platform clamp keeps the limit.
+	var finalMemLim resource.Quantity
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 3*time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
+		var pods corev1.PodList
+		if err := k8sClient.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{"app": appName}); err != nil {
+			return false, nil
+		}
+		if len(pods.Items) == 0 {
+			return false, nil
+		}
+		// Prefer a Running pod after any restart.
+		var c *corev1.Container
+		for i := range pods.Items {
+			if pods.Items[i].DeletionTimestamp != nil {
+				continue
+			}
+			for j := range pods.Items[i].Spec.Containers {
+				if pods.Items[i].Spec.Containers[j].Name == "app" {
+					c = &pods.Items[i].Spec.Containers[j]
+					break
+				}
+			}
+			if c != nil {
+				break
+			}
+		}
+		if c == nil {
+			return false, nil
+		}
+		lim := c.Resources.Limits.Memory()
+		if lim == nil || lim.IsZero() {
+			return false, nil
+		}
+		finalMemLim = *lim
+		cpuReq := c.Resources.Requests.Cpu()
+		cpuChanged := cpuReq != nil && cpuReq.Cmp(resource.MustParse(initCPU)) != 0
+		memDecreased := lim.Cmp(initMemQ) < 0
+		memUnchanged := lim.Cmp(initMemQ) == 0
+
+		if allowDecrease {
+			// 1.35+: need a real limit decrease.
+			if memDecreased {
+				return true, nil
+			}
+			// Keep waiting while resize is still converging.
+			return false, nil
+		}
+		// 1.33–1.34: clamp keeps limit; accept once a resize applied (CPU change
+		// or reconcile recorded) and limit is still at the initial value.
+		if memUnchanged && cpuChanged {
+			return true, nil
+		}
+		if memUnchanged {
+			// Resize may only have touched memory request/limit clamp with
+			// no CPU delta yet; check policy resized count.
+			var p attunev1alpha1.AttunePolicy
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: policyName, Namespace: ns}, &p); err == nil {
+				if p.Status.Workloads.Resized > 0 {
+					return true, nil
+				}
+			}
+		}
+		return false, nil
+	}), "timed out waiting for version-aware memory limit outcome (allowInPlace=%v, last limit=%s)",
+		allowDecrease, finalMemLim.String())
+
+	t.Logf("final memory limit=%s initial=%s allowInPlaceDecrease=%v", finalMemLim.String(), initMem, allowDecrease)
+
+	if allowDecrease {
+		assert.True(t, finalMemLim.Cmp(initMemQ) < 0,
+			"Kubernetes %s should allow in-place memory limit decrease: got limit %s, want < %s",
+			gitVersion, finalMemLim.String(), initMem)
+		// Still above policy minAllowed when the chain floors at 64Mi.
+		minAllowed := resource.MustParse("64Mi")
+		assert.GreaterOrEqual(t, finalMemLim.Value(), minAllowed.Value(),
+			"decreased limit %s should not go below minAllowed 64Mi", finalMemLim.String())
+	} else {
+		assert.Equal(t, initMemQ.Value(), finalMemLim.Value(),
+			"Kubernetes %s should clamp memory limit decreases: got limit %s, want still %s",
+			gitVersion, finalMemLim.String(), initMem)
+	}
 }
