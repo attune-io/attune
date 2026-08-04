@@ -6,6 +6,27 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.21](https://github.com/attune-io/attune/compare/v0.1.20...v0.1.21) (2026-08-04)
+
+
+### Features
+
+* bootstrap missing GitOps PR head branch from base ([#456](https://github.com/attune-io/attune/issues/456)) ([60af763](https://github.com/attune-io/attune/commit/60af763671a13879d6c42976a8bcca1fa16c4682))
+* capacity skip metrics and reclaimed capacity signals ([#448](https://github.com/attune-io/attune/issues/448)) ([91126c2](https://github.com/attune-io/attune/commit/91126c20ada6fda4ebca39200f07d7ba0f9a4f7c))
+* deferred and infeasible resize operator UX ([#436](https://github.com/attune-io/attune/issues/436)) ([7133fed](https://github.com/attune-io/attune/commit/7133feda5b863c63ca683d274a7be25fe593764c))
+* language runtime profiles for memory resize safety ([#440](https://github.com/attune-io/attune/issues/440)) ([6cb0121](https://github.com/attune-io/attune/commit/6cb0121f3ecefb5b8653561fdc7ae25c6876ed80))
+* memory limit decrease usage floor, metrics, and docs ([#447](https://github.com/attune-io/attune/issues/447)) ([ca504ab](https://github.com/attune-io/attune/commit/ca504ab8c39a268fae30ff19f10cbb16a55d60fe)), closes [#444](https://github.com/attune-io/attune/issues/444) [#428](https://github.com/attune-io/attune/issues/428)
+* multi-cluster fleet observability and cluster report export ([#452](https://github.com/attune-io/attune/issues/452)) ([a84f2d8](https://github.com/attune-io/attune/commit/a84f2d867383da5224938b8f1c946180d8386112))
+* node pressure-aware resize skips and bin-packing docs ([#441](https://github.com/attune-io/attune/issues/441)) ([80e497e](https://github.com/attune-io/attune/commit/80e497ecbfcd3dde136f3ef78bd302b89942c9a6))
+* opt-in GitOps pull request automation ([#449](https://github.com/attune-io/attune/issues/449)) ([6868470](https://github.com/attune-io/attune/commit/6868470176ff1428d9afbccb255da9b87f774a49))
+* version-aware memory limit decrease for kubernetes 1.35+ ([#439](https://github.com/attune-io/attune/issues/439)) ([8200cc5](https://github.com/attune-io/attune/commit/8200cc58206627f0c32798c880c899441039d3b9))
+* versioned recommendation export schema for GitOps durability ([#438](https://github.com/attune-io/attune/issues/438)) ([a791c90](https://github.com/attune-io/attune/commit/a791c90869e9aec8c7ac55a60744e056080af84a))
+
+
+### Bug Fixes
+
+* harden GitOps paths, SSRF apiUrl, and refresh dist manifests ([#455](https://github.com/attune-io/attune/issues/455)) ([f4ec8dd](https://github.com/attune-io/attune/commit/f4ec8ddd188ec40eb0ff9d9c15224c4b56997b9c))
+
 ## [Unreleased]
 
 ## [0.1.20](https://github.com/attune-io/attune/compare/v0.1.19...v0.1.20) (2026-07-14)
