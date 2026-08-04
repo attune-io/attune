@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -2219,10 +2220,10 @@ func TestE2E_ResizeBlocked_DeferredAndInfeasibleStatus(t *testing.T) {
 			return false, nil
 		}
 		// Prefer both reasons when both counts are set.
-		if blocked.Reason != attunev1alpha1.ReasonPodsDeferredAndInfeasible &&
-			blocked.Reason != attunev1alpha1.ReasonPodsDeferred &&
-			blocked.Reason != attunev1alpha1.ReasonPodsInfeasible {
-			t.Logf("unexpected ResizeBlocked reason=%s", blocked.Reason)
+		// Both counts are set: controller must use the combined reason.
+		if blocked.Reason != attunev1alpha1.ReasonPodsDeferredAndInfeasible {
+			t.Logf("waiting for reason=%s (got %s)",
+				attunev1alpha1.ReasonPodsDeferredAndInfeasible, blocked.Reason)
 			return false, nil
 		}
 		t.Logf("OK: ResizeBlocked reason=%s message=%s", blocked.Reason, blocked.Message)
@@ -2386,12 +2387,13 @@ func TestE2E_NodeMemoryPressure_SkipsMemoryIncrease(t *testing.T) {
 		return false, nil
 	}), "expected memory recommendation above %s", initMem)
 
-	// Hold MemoryPressure long enough that a free resize would have applied
-	// without pressure, re-asserting the condition (node agents may clear it).
+	// Hold MemoryPressure and require a positive skip signal (ResizeSkipped
+	// event mentioning MemoryPressure), not only "memory did not change".
 	initQ := resource.MustParse(initMem)
-	holdUntil := time.Now().Add(90 * time.Second)
-	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 3*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
 		setNodeMemoryPressure(t, nodeName, true)
+		forcePolicyReconcile(t, policyName, ns, 45*time.Second)
+
 		var live corev1.PodList
 		if err := k8sClient.List(ctx, &live, client.InNamespace(ns), client.MatchingLabels{"app": appName}); err != nil {
 			return false, nil
@@ -2410,11 +2412,24 @@ func TestE2E_NodeMemoryPressure_SkipsMemoryIncrease(t *testing.T) {
 				}
 			}
 		}
-		if time.Now().Before(holdUntil) {
+
+		evs, err := clientset.CoreV1().Events(ns).List(ctx, metav1.ListOptions{
+			FieldSelector: "involvedObject.kind=AttunePolicy,involvedObject.name=" + policyName,
+		})
+		if err != nil {
 			return false, nil
 		}
-		return true, nil
-	}), "memory request changed under MemoryPressure or wait failed")
+		for _, ev := range evs.Items {
+			if ev.Reason != "ResizeSkipped" {
+				continue
+			}
+			if strings.Contains(ev.Message, "MemoryPressure") {
+				t.Logf("OK: ResizeSkipped event: %s", ev.Message)
+				return true, nil
+			}
+		}
+		return false, nil
+	}), "expected ResizeSkipped event mentioning MemoryPressure while memory stays at %s", initMem)
 
 	require.NoError(t, k8sClient.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{"app": appName}))
 	require.NotEmpty(t, pods.Items)
@@ -2493,9 +2508,32 @@ func TestE2E_RuntimeProfileJava_BlocksMemoryDecrease(t *testing.T) {
 		},
 	}
 	require.NoError(t, k8sClient.Create(ctx, policy))
+	// java-unique default is overhead=40 (platform default memory overhead is 30).
+	// That is the live signal the profile applied, not mere allowDecrease=false
+	// (which is already the platform default when the field is nil).
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
+		var p attunev1alpha1.AttunePolicy
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: policyName, Namespace: ns}, &p); err != nil {
+			return false, nil
+		}
+		for _, rec := range p.Status.Recommendations {
+			for _, cr := range rec.Containers {
+				if cr.Name != "app" || cr.Explanation == nil || cr.Explanation.Memory == nil {
+					continue
+				}
+				if cr.Explanation.Memory.Overhead == 40 {
+					t.Logf("OK: java profile effective memory overhead=40 in explanation")
+					return true, nil
+				}
+				t.Logf("memory explanation overhead=%.0f (want 40)", cr.Explanation.Memory.Overhead)
+			}
+		}
+		return false, nil
+	}), "expected recommendation explanation memory overhead=40 from java runtimeProfile")
+
 	waitForResize(t, policyName, ns, 4*time.Minute)
 
-	// CR must still show unset allowDecrease (defaults are not written back).
+	// CR must still show unset allowDecrease/overhead (defaults are not written back).
 	var stored attunev1alpha1.AttunePolicy
 	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: policyName, Namespace: ns}, &stored))
 	assert.Nil(t, stored.Spec.Memory.AllowDecrease,
@@ -2509,6 +2547,6 @@ func TestE2E_RuntimeProfileJava_BlocksMemoryDecrease(t *testing.T) {
 	c := podList.Items[0].Spec.Containers[0]
 	origMem := resource.MustParse(initMem)
 	assert.GreaterOrEqual(t, c.Resources.Requests.Memory().Value(), origMem.Value(),
-		"java runtimeProfile should block memory decrease (effective allowDecrease=false), got %s",
+		"memory should not decrease under java defaults, got %s",
 		c.Resources.Requests.Memory().String())
 }

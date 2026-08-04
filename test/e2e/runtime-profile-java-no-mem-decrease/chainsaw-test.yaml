@@ -4,8 +4,9 @@ metadata:
   name: runtime-profile-java-no-mem-decrease
 spec:
   description: >
-    runtimeProfile java applies allowDecrease=false in-memory (not on the CR).
-    Oversized memory must not decrease after Auto resize while CPU may change.
+    runtimeProfile java applies memory overhead=40 in-memory (not written to CR).
+    Asserts recommendation explanation.memory.overhead==40 (java-unique vs
+    platform default 30). allowDecrease/overhead stay unset on the stored CR.
   timeouts:
     apply: 30s
     assert: 5m
@@ -63,66 +64,54 @@ spec:
                 cpu:
                   percentile: 95
                   overhead: "20"
-                  allowDecrease: true
                   minAllowed: 50m
                   maxAllowed: "4000m"
-                  maxChangePercent: 100
                 memory:
                   percentile: 99
                   minAllowed: 64Mi
                   maxAllowed: 8Gi
-                  maxChangePercent: 100
                 updateStrategy:
-                  type: Auto
+                  type: Recommend
                   cooldown: 1m
-                  autoRevert: true
-    - name: wait-resize-memory-held
+    - name: assert-java-overhead-explanation
       try:
         - script:
             timeout: 5m
             content: |
               NS=e2e-java-mem
               POL=java-policy
-              cat > /tmp/check-mem.py <<'PY'
-              import sys
-              m = sys.argv[1].strip()
-              ok = m in ("512Mi", "536870912")
-              if m.endswith("Mi") and m[:-2].isdigit() and int(m[:-2]) >= 512:
-                  ok = True
-              if m.isdigit() and int(m) >= 512 * 1024 * 1024:
-                  ok = True
-              if not ok:
-                  print("FAIL: memory decreased to", m)
-                  sys.exit(1)
-              print("OK: memory held at", m)
+              cat > /tmp/check-java-overhead.py <<'PY'
+              import json, sys
+              p = json.load(sys.stdin)
+              for rec in p.get("status", {}).get("recommendations") or []:
+                  for c in rec.get("containers") or []:
+                      expl = (c.get("explanation") or {}).get("memory") or {}
+                      oh = expl.get("overhead")
+                      if oh is not None and float(oh) == 40.0:
+                          print("OK: explanation memory overhead=40")
+                          sys.exit(0)
+              print("FAIL: no explanation.memory.overhead==40")
+              sys.exit(1)
               PY
-              for i in $(seq 1 60); do
-                RESIZED=$(kubectl -n "$NS" get attunepolicy "$POL" \
-                  -o jsonpath='{.status.workloads.resized}' 2>/dev/null || echo 0)
-                if [ "${RESIZED:-0}" -ge 1 ] 2>/dev/null; then
+              # java-unique: effective memory overhead 40 (platform default is 30).
+              for i in $(seq 1 48); do
+                if kubectl -n "$NS" get attunepolicy "$POL" -o json \
+                  | python3 /tmp/check-java-overhead.py; then
                   AD=$(kubectl -n "$NS" get attunepolicy "$POL" \
                     -o jsonpath='{.spec.memory.allowDecrease}')
                   OH=$(kubectl -n "$NS" get attunepolicy "$POL" \
                     -o jsonpath='{.spec.memory.overhead}')
-                  if [ -n "$AD" ]; then
-                    echo "FAIL: allowDecrease should stay unset on CR, got $AD"
+                  if [ -n "$AD" ] || [ -n "$OH" ]; then
+                    echo "FAIL: CR should not persist allowDecrease/overhead (ad='$AD' oh='$OH')"
                     exit 1
                   fi
-                  if [ -n "$OH" ]; then
-                    echo "FAIL: overhead should stay unset on CR, got $OH"
-                    exit 1
-                  fi
-                  MEM=$(kubectl -n "$NS" get pods -l app=java-app \
-                    -o jsonpath='{.items[0].spec.containers[0].resources.requests.memory}')
-                  echo "resized=$RESIZED memory.request=$MEM"
-                  python3 /tmp/check-mem.py "$MEM"
-                  exit $?
+                  echo "OK: java profile applied overhead=40 in-memory; CR fields unset"
+                  exit 0
                 fi
                 sleep 5
               done
-              echo "FAIL: no resize recorded"
+              echo "FAIL: java overhead explanation not observed"
               kubectl -n "$NS" get attunepolicy "$POL" -o yaml || true
-              kubectl -n "$NS" get pods -o yaml || true
               exit 1
   catch:
     - describe:

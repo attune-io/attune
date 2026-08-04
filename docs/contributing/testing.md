@@ -144,7 +144,7 @@ make test-e2e-smoke
 | `test/e2e/fleet-report/` | (infra) | Fleet report ConfigMap is written when `fleetReport` is enabled in E2E Helm |
 | `test/e2e/gitops-pr-dry-run/` | (cross-cutting) | GitOps PR dry-run sets `PullRequestDryRun`/`PullRequestCooldown` without forge credentials |
 | `test/e2e/runtime-profile-defaults/` | (webhook + API) | `runtimeProfile: java` stored and accepted; java+allowDecrease warns at admission |
-| `test/e2e/runtime-profile-java-no-mem-decrease/` | Auto | java profile keeps oversized memory (in-memory `allowDecrease=false`); CR fields stay unset |
+| `test/e2e/runtime-profile-java-no-mem-decrease/` | Recommend | java profile applies memory overhead=40 in explanation; CR overhead/allowDecrease stay unset |
 | `test/e2e/resize-blocked-status/` | Recommend | Injected Deferred+Infeasible pod conditions surface `workloads.deferred`/`infeasible` and `ResizeBlocked` |
 | `test/e2e/prometheus-unreachable/` | (cross-cutting) | Handles unreachable Prometheus gracefully without crashing |
 | `test/e2e/grafana-dashboard/` | (helm) | Dashboard ConfigMap renders with `grafanaDashboard.enabled` |
@@ -168,7 +168,7 @@ flake-prone or environment-specific:
 | **Node pressure / capacity skip** | Unit tests own reason strings and metric labels. **Go E2E** `TestE2E_NodeMemoryPressure_SkipsMemoryIncrease` patches `MemoryPressure` on the pod’s node (not `t.Parallel`; restores on cleanup). Real allocatable exhaustion remains unit/integration only. | `internal/controller/resize_pressure_test.go`, `capacity_skip_test.go`, `test/e2e-go/` |
 | **Deferred / Infeasible UX** | Real kubelet Deferred/Infeasible needs capacity races (flake-prone). Cluster tests **inject** `PodResizePending` status (Chainsaw + Go E2E) and assert `workloads.deferred`/`infeasible` + `ResizeBlocked`. Helpers stay unit-tested. | `test/e2e/resize-blocked-status/`, `TestE2E_ResizeBlocked_*`, `internal/resize/engine_test.go`, `conditions_test.go` |
 | **GitOps PR live HTTP** | Must not call GitHub/GitLab from CI. Client create/update paths use fake HTTP. Cluster e2e covers **dry-run** and missing-secret only (`test/e2e/gitops-pr-dry-run/`). | `internal/gitops/*_test.go`, `internal/controller/gitops_pr_test.go` |
-| **Runtime profile in-memory defaults** | Unit: `ApplyRuntimeProfileDefaults`. Chainsaw admission + stored field: `runtime-profile-defaults`. Live no memory decrease: `runtime-profile-java-no-mem-decrease` + Go `TestE2E_RuntimeProfileJava_BlocksMemoryDecrease`. | `pkg/defaults/defaults_test.go`, `test/e2e/runtime-profile-*`, `test/e2e-go/` |
+| **Runtime profile in-memory defaults** | Unit: `ApplyRuntimeProfileDefaults`. Chainsaw admission + stored field: `runtime-profile-defaults`. Java-unique overhead=40 in explanation: Chainsaw + Go `TestE2E_RuntimeProfileJava_BlocksMemoryDecrease`. | `pkg/defaults/defaults_test.go`, `test/e2e/runtime-profile-*`, `test/e2e-go/` |
 
 When adding behavior in these areas, extend the unit tables first. Prefer
 deterministic injection (pod/node status patches) over waiting for real

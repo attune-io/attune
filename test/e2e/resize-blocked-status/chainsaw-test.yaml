@@ -137,13 +137,23 @@ spec:
               inject() {
                 pod=$1
                 reason=$2
-                kubectl -n "$NS" get pod "$pod" -o json \
-                  | python3 /tmp/inject-pending.py "$reason" \
-                  | kubectl -n "$NS" replace --subresource=status -f - >/dev/null
+                n=0
+                while [ "$n" -lt 5 ]; do
+                  n=$((n + 1))
+                  if kubectl -n "$NS" get pod "$pod" -o json \
+                    | python3 /tmp/inject-pending.py "$reason" \
+                    | kubectl -n "$NS" replace --subresource=status -f - >/tmp/inj.out 2>/tmp/inj.err; then
+                    return 0
+                  fi
+                  echo "inject retry $n for $pod: $(cat /tmp/inj.err 2>/dev/null)"
+                  sleep 1
+                done
+                echo "WARN: inject failed for $pod reason=$reason after retries"
+                return 1
               }
               for i in $(seq 1 40); do
-                inject "$P1" Deferred
-                inject "$P2" Infeasible
+                inject "$P1" Deferred || true
+                inject "$P2" Infeasible || true
                 CD=$(kubectl -n "$NS" get attunepolicy "$POL" \
                   -o jsonpath='{.spec.updateStrategy.cooldown}' 2>/dev/null || echo 1m)
                 if [ "$CD" = "1m" ]; then NEW=61s; else NEW=1m; fi
@@ -157,7 +167,7 @@ spec:
                   | python3 /tmp/reason-blocked.py 2>/dev/null || true)
                 echo "try $i deferred=$DEF infeasible=$INF ResizeBlocked=$REASON"
                 if [ "${DEF:-0}" -ge 1 ] 2>/dev/null && [ "${INF:-0}" -ge 1 ] 2>/dev/null \
-                  && [ -n "$REASON" ]; then
+                  && [ "$REASON" = "PodsDeferredAndInfeasible" ]; then
                   echo "OK: ResizeBlocked reason=$REASON deferred=$DEF infeasible=$INF"
                   exit 0
                 fi
