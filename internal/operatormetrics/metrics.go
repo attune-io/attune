@@ -309,13 +309,13 @@ var (
 		[]string{"namespace", "policy", "result"},
 	)
 
-	// CapacitySkipTotal counts resize skips due to node capacity or pressure.
-	// reason: allocatable (pod requests would exceed node allocatable),
-	// pressure (MemoryPressure/DiskPressure/PIDPressure blocks increases).
+	// CapacitySkipTotal counts resize skips due to node capacity, pressure,
+	// or unavailable node status (fail-closed increases).
+	// reason: allocatable, pressure, or unavailable.
 	CapacitySkipTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "attune_capacity_skip_total",
-			Help: "Resize skips due to node allocatable headroom or pressure conditions",
+			Help: "Resize skips due to node allocatable, pressure, or unavailable node status",
 		},
 		[]string{"namespace", "policy", "reason"},
 	)

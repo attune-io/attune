@@ -66,6 +66,20 @@ Pressure is read via the typed Kubernetes clientset (live API), not only
 the informer cache, and is re-checked immediately before `UpdateResize`
 so a mid-reconcile condition flip cannot authorize an increase.
 
+## Unavailable node status (fail-closed for increases)
+
+If the pod has a `nodeName` but Attune cannot load the Node object
+(Clientset and controller-runtime client both fail or are unset),
+**request increases are skipped**. Decreases still proceed (same idea as
+pressure: free capacity without needing a pressure read).
+
+Reason string: `node status unavailable; skipping request increase`.
+Metric: `attune_capacity_skip_total{reason="unavailable"}`.
+Event: `ResizeSkipped`.
+
+Empty `nodeName` (not scheduled yet) does not use this path; scheduling
+gates apply elsewhere.
+
 ## Always-on default
 
 These gates run for every resize attempt. There is no `capacityAware: false`

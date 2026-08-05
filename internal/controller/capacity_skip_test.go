@@ -42,18 +42,21 @@ func TestRecordCapacitySkip(t *testing.T) {
 	}
 	beforeAlloc := testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("ns-cap", "cap-test", "allocatable"))
 	beforePress := testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("ns-cap", "cap-test", "pressure"))
+	beforeUnavail := testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("ns-cap", "cap-test", "unavailable"))
 
 	// Exact producer strings from shouldSkipResize / nodePressureBlocksIncrease.
 	recordCapacitySkip(policy, "total pod requests would exceed node allocatable")
 	recordCapacitySkip(policy, "node has MemoryPressure; skipping memory request increase")
 	recordCapacitySkip(policy, "node has DiskPressure; skipping resource request increase")
 	recordCapacitySkip(policy, "node has PIDPressure; skipping resource request increase")
+	recordCapacitySkip(policy, "node status unavailable; skipping request increase")
 	recordCapacitySkip(policy, "quota/limitrange violation: too large")                  // no metric
 	recordCapacitySkip(policy, "")                                                       // no metric
 	recordCapacitySkip(nil, "node has MemoryPressure; skipping memory request increase") // no metric
 
 	assert.Equal(t, beforeAlloc+1, testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("ns-cap", "cap-test", "allocatable")))
 	assert.Equal(t, beforePress+3, testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("ns-cap", "cap-test", "pressure")))
+	assert.Equal(t, beforeUnavail+1, testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("ns-cap", "cap-test", "unavailable")))
 }
 
 // TestGetNodeForResize_PrefersClientsetThenFallsBack covers live vs cache
@@ -321,6 +324,192 @@ func TestExecuteResizes_MemoryPressure_EmitsResizeSkippedAndCapacitySkipMetric(t
 			}
 		default:
 			require.True(t, found, "expected ResizeSkipped event mentioning MemoryPressure")
+			return
+		}
+	}
+}
+
+// TestShouldSkipResize_NilNodeBlocksIncrease allows decreases when the node
+// cannot be loaded (#483 fail-closed for increases only).
+func TestShouldSkipResize_NilNodeBlocksIncrease(t *testing.T) {
+	scheme := testScheme()
+	r := NewAttunePolicyReconciler()
+	r.Client = fake.NewClientBuilder().WithScheme(scheme).Build()
+	r.Clientset = kubefake.NewSimpleClientset() // no nodes
+	r.Scheme = scheme
+
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "p", Namespace: "default"},
+		Spec: corev1.PodSpec{
+			NodeName: "missing-node",
+			Containers: []corev1.Container{{
+				Name: "app",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("100m"),
+						corev1.ResourceMemory: resource.MustParse("128Mi"),
+					},
+				},
+			}},
+		},
+	}
+	rec := attunev1alpha1.ContainerRecommendation{
+		Name: "app",
+		Current: attunev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("100m"),
+			MemoryRequest: resource.MustParse("128Mi"),
+		},
+	}
+	higherMem := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("100m"),
+			corev1.ResourceMemory: resource.MustParse("256Mi"),
+		},
+	}
+	lowerMem := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("100m"),
+			corev1.ResourceMemory: resource.MustParse("64Mi"),
+		},
+	}
+
+	skip, reason := r.shouldSkipResize(context.Background(), &attunev1alpha1.AttunePolicy{}, pod, rec, higherMem, nil)
+	assert.True(t, skip)
+	assert.Contains(t, reason, "node status unavailable")
+
+	skip, reason = r.shouldSkipResize(context.Background(), &attunev1alpha1.AttunePolicy{}, pod, rec, lowerMem, nil)
+	assert.False(t, skip, "decreases must not be blocked when node is unavailable: %s", reason)
+}
+
+// TestExecuteResizes_NilNode_BlocksIncreaseEmitsEventAndMetric covers the
+// full resize path when node Get fails and the target is a memory increase.
+func TestExecuteResizes_NilNode_BlocksIncreaseEmitsEventAndMetric(t *testing.T) {
+	const (
+		policyNS   = "default"
+		policyName = "nil-node-policy"
+		appName    = "nil-node-app"
+	)
+
+	pod := newResizePod(appName, "500m", "512Mi", "1000m", "1Gi")
+	pod.Spec.NodeName = "does-not-exist"
+	deploy := newTestDeployment(appName, policyNS, map[string]string{"app": appName})
+
+	reconciler, _ := newResizeReconciler(pod, deploy)
+	// Clientset has only the pod; no node object.
+	reconciler.Clientset = kubefake.NewSimpleClientset(pod.DeepCopy())
+	recorder := events.NewFakeRecorder(10)
+	reconciler.Recorder = recorder
+
+	policy := newTestPolicy(policyName, policyNS)
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	recommendations := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation(appName,
+			"500m", "512Mi", "1000m", "1Gi",
+			"500m", "1Gi", "1000m", "2Gi"),
+	}
+
+	beforeUnavail := testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues(policyNS, policyName, "unavailable"))
+	count, history := reconciler.executeResizes(
+		context.Background(),
+		policy,
+		[]client.Object{deploy},
+		recommendations,
+		podMap(appName, pod),
+		nil,
+		nil,
+	)
+	assert.Equal(t, 0, count)
+	assert.Empty(t, history)
+	assert.Equal(t, beforeUnavail+1,
+		testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues(policyNS, policyName, "unavailable")))
+
+	found := false
+	for {
+		select {
+		case event := <-recorder.Events:
+			if strings.Contains(event, "ResizeSkipped") && strings.Contains(event, "node status unavailable") {
+				found = true
+			}
+		default:
+			require.True(t, found, "expected ResizeSkipped for unavailable node")
+			return
+		}
+	}
+}
+
+// TestExecuteResizes_NilNode_LiveRecheckBlocksIncrease after shouldSkip
+// saw a cached node, live Get nil still fail-closes increases (#483).
+func TestExecuteResizes_NilNode_LiveRecheckBlocksIncrease(t *testing.T) {
+	const (
+		policyNS   = "default"
+		policyName = "nil-live-recheck-policy"
+		nodeName   = "cached-only-node"
+		appName    = "live-nil-app"
+	)
+
+	pod := newResizePod(appName, "500m", "512Mi", "1000m", "1Gi")
+	pod.Spec.NodeName = nodeName
+	deploy := newTestDeployment(appName, policyNS, map[string]string{"app": appName})
+	cachedNode := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: nodeName},
+		Status: corev1.NodeStatus{
+			Allocatable: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("4"),
+				corev1.ResourceMemory: resource.MustParse("8Gi"),
+			},
+			Conditions: []corev1.NodeCondition{{
+				Type: corev1.NodeMemoryPressure, Status: corev1.ConditionFalse,
+			}},
+		},
+	}
+
+	// Client has the node for shouldSkip; Clientset has only the pod so live
+	// re-check getNodeForResize fails after Clientset miss and client... wait,
+	// getNodeForResize tries Clientset first then Client. If Client has the
+	// node, live re-check succeeds. To force live nil we need Client without
+	// node OR Clientset empty and Client empty.
+	// Seed checks.nodeCache so shouldSkip does not call Get; live re-check
+	// always calls getNodeForResize which uses Clientset then Client.
+	// Empty Clientset + empty Client → nil live.
+	reconciler, _ := newResizeReconciler(pod, deploy)
+	reconciler.Client = fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(deploy, pod).Build()
+	reconciler.Clientset = kubefake.NewSimpleClientset(pod.DeepCopy())
+	recorder := events.NewFakeRecorder(10)
+	reconciler.Recorder = recorder
+
+	policy := newTestPolicy(policyName, policyNS)
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	recommendations := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation(appName,
+			"500m", "512Mi", "1000m", "1Gi",
+			"500m", "1Gi", "1000m", "2Gi"),
+	}
+	checks := &resizePreChecks{}
+	checks.nodeCache.Store(nodeName, cachedNode)
+
+	beforeUnavail := testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues(policyNS, policyName, "unavailable"))
+	count, _ := reconciler.executeResizes(
+		context.Background(),
+		policy,
+		[]client.Object{deploy},
+		recommendations,
+		podMap(appName, pod),
+		nil,
+		checks,
+	)
+	assert.Equal(t, 0, count, "live re-check with nil node must block increase")
+	assert.Equal(t, beforeUnavail+1,
+		testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues(policyNS, policyName, "unavailable")))
+
+	found := false
+	for {
+		select {
+		case event := <-recorder.Events:
+			if strings.Contains(event, "ResizeSkipped") && strings.Contains(event, "node status unavailable") {
+				found = true
+			}
+		default:
+			require.True(t, found)
 			return
 		}
 	}
