@@ -482,8 +482,17 @@ func (r *AttunePolicyReconciler) resizeContainer(
 				"pidPressure", nodeConditionStatus(live, corev1.NodePIDPressure),
 				"memTarget", target.Requests.Memory().String(),
 				"cpuTarget", target.Requests.Cpu().String())
+		} else if targetIncreasesRequests(pod, containerRec.Name, target) {
+			// Fail-closed: cannot verify pressure/allocatable (#483).
+			reason := "node status unavailable; skipping request increase"
+			logger.Info("Skipping resize (live re-check): "+reason,
+				"pod", pod.Name, "container", containerRec.Name, "node", pod.Spec.NodeName)
+			r.emitEventOnce(policy, corev1.EventTypeWarning, "ResizeSkipped", "resize",
+				"Resize blocked for pod %s container %s: %s", pod.Name, containerRec.Name, reason)
+			recordCapacitySkip(policy, reason)
+			return nil, resizeOutcomeNone
 		} else {
-			logger.Info("node unavailable for live pressure re-check; applying resize",
+			logger.V(1).Info("node unavailable for live re-check; allowing non-increase resize",
 				"pod", pod.Name, "container", containerRec.Name, "node", pod.Spec.NodeName)
 		}
 	}
@@ -963,6 +972,10 @@ func (r *AttunePolicyReconciler) shouldSkipResize(
 					return true, "total pod requests would exceed node allocatable"
 				}
 			}
+		} else if targetIncreasesRequests(pod, containerRec.Name, target) {
+			// Fail-closed for increases when node status is unavailable (#483).
+			// Decreases still proceed (same philosophy as pressure gates).
+			return true, "node status unavailable; skipping request increase"
 		}
 	}
 
@@ -1011,7 +1024,21 @@ func recordCapacitySkip(policy *attunev1alpha1.AttunePolicy, reason string) {
 		strings.Contains(reason, "PIDPressure"),
 		strings.Contains(reason, "node pressure"):
 		operatormetrics.CapacitySkipTotal.WithLabelValues(policy.Namespace, policy.Name, "pressure").Inc()
+	case strings.Contains(reason, "node status unavailable"):
+		operatormetrics.CapacitySkipTotal.WithLabelValues(policy.Namespace, policy.Name, "unavailable").Inc()
 	}
+}
+
+// targetIncreasesRequests reports whether target raises CPU and/or memory
+// requests for the named container relative to the live pod spec.
+func targetIncreasesRequests(pod *corev1.Pod, containerName string, target corev1.ResourceRequirements) bool {
+	c := findContainerByName(pod, containerName)
+	if c == nil {
+		return false
+	}
+	cpuInc := target.Requests.Cpu().MilliValue() > c.Resources.Requests.Cpu().MilliValue()
+	memInc := target.Requests.Memory().Value() > c.Resources.Requests.Memory().Value()
+	return cpuInc || memInc
 }
 
 // applyMemoryUsageFloor raises a decreasing memory limit so it stays above

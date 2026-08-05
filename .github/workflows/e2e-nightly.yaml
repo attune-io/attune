@@ -644,6 +644,8 @@ jobs:
           fi
           echo "All nightly tests passed (E2E: $e2e_result, Fuzz: $fuzz_result)"
 
+      # Enriched failure body: failed job names, steps, and first Go E2E FAIL
+      # lines when artifacts are available (#484). Falls back to a minimal body.
       - name: Create issue on failure
         if: failure() && github.event_name == 'schedule'
         env:
@@ -656,7 +658,31 @@ jobs:
             echo "Open nightly failure issue already exists, skipping creation"
             exit 0
           fi
-          body=$(cat <<EOF
+
+          art_dir=$(mktemp -d)
+          # Best-effort: download e2e debug artifacts for test name extraction.
+          # Do not fail the report job if download/parse fails.
+          set +e
+          gh run download "${{ github.run_id }}" \
+            --repo "${{ github.repository }}" \
+            --dir "$art_dir" \
+            --pattern 'e2e-nightly-*' 2>/dev/null \
+            || gh run download "${{ github.run_id }}" \
+              --repo "${{ github.repository }}" \
+              --dir "$art_dir" 2>/dev/null \
+            || true
+          set -e
+
+          body=$(bash scripts/nightly-failure-issue-body.sh \
+            --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --run-id "${{ github.run_id }}" \
+            --repo "${{ github.repository }}" \
+            --e2e-result "${{ needs.test-e2e.result }}" \
+            --fuzz-result "${{ needs.fuzz.result }}" \
+            --artifact-dir "$art_dir" \
+            || true)
+          if [[ -z "${body// }" ]]; then
+            body=$(cat <<EOF
           The [nightly run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) failed.
 
           - E2E result: \`${{ needs.test-e2e.result }}\`
@@ -665,6 +691,7 @@ jobs:
           Check the workflow run for details.
           EOF
           )
+          fi
           gh issue create \
             --title "Nightly failed on $(date -u +%Y-%m-%d)" \
             --label e2e-nightly-failure \
