@@ -131,3 +131,24 @@ func TestNodePressureBlocksIncrease(t *testing.T) {
 	assert.Empty(t, nodePressureBlocksIncrease(memPressure, pod, "missing", higherMem),
 		"unknown container is a no-op")
 }
+
+func TestNodeConditionStatus(t *testing.T) {
+	assert.Equal(t, "unknown", nodeConditionStatus(nil, corev1.NodeMemoryPressure))
+	assert.Equal(t, "absent", nodeConditionStatus(&corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "n"},
+	}, corev1.NodeMemoryPressure))
+	assert.Equal(t, "True", nodeConditionStatus(&corev1.Node{
+		Status: corev1.NodeStatus{
+			Conditions: []corev1.NodeCondition{{
+				Type: corev1.NodeMemoryPressure, Status: corev1.ConditionTrue,
+			}},
+		},
+	}, corev1.NodeMemoryPressure))
+	assert.Equal(t, "False", nodeConditionStatus(&corev1.Node{
+		Status: corev1.NodeStatus{
+			Conditions: []corev1.NodeCondition{{
+				Type: corev1.NodeDiskPressure, Status: corev1.ConditionFalse,
+			}},
+		},
+	}, corev1.NodeDiskPressure))
+}

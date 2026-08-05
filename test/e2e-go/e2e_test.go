@@ -27,6 +27,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -2309,10 +2310,100 @@ func nodeHasMemoryPressure(nodeName string) bool {
 	return false
 }
 
+// pressureSampleLog records live MemoryPressure observations while the E2E
+// hold loop runs. k3s/kubelet can clear synthetic conditions between injects;
+// a single "True now" sample after a resize is not proof the gate saw True.
+type pressureSampleLog struct {
+	mu      sync.Mutex
+	samples []pressureSample
+}
+
+type pressureSample struct {
+	at       time.Time
+	pressure bool
+}
+
+func (l *pressureSampleLog) record(pressure bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.samples = append(l.samples, pressureSample{at: time.Now(), pressure: pressure})
+	// Keep ~30s at 100ms inject (~300 samples) with headroom.
+	const maxSamples = 400
+	if len(l.samples) > maxSamples {
+		l.samples = l.samples[len(l.samples)-maxSamples:]
+	}
+}
+
+// solidlyTrue reports whether every sample in the last window was True and
+// there are enough samples to trust the window (not a single lucky Get).
+func (l *pressureSampleLog) solidlyTrue(window time.Duration, minSamples int) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if minSamples < 1 {
+		minSamples = 1
+	}
+	cutoff := time.Now().Add(-window)
+	n, anyFalse := 0, false
+	for i := len(l.samples) - 1; i >= 0; i-- {
+		s := l.samples[i]
+		if s.at.Before(cutoff) {
+			break
+		}
+		n++
+		if !s.pressure {
+			anyFalse = true
+		}
+	}
+	return n >= minSamples && !anyFalse
+}
+
+// recentHadFalse reports whether any sample in the window was False (inject
+// lost / kubelet cleared). Used to classify a memory increase as race vs bug.
+func (l *pressureSampleLog) recentHadFalse(window time.Duration) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	cutoff := time.Now().Add(-window)
+	for i := len(l.samples) - 1; i >= 0; i-- {
+		s := l.samples[i]
+		if s.at.Before(cutoff) {
+			break
+		}
+		if !s.pressure {
+			return true
+		}
+	}
+	return false
+}
+
+// resetPressureWorkloadPods deletes running pods so the Deployment recreates
+// them from the template (templatePersistence defaults off). Used after a
+// kubelet-clear race allowed one memory increase.
+func resetPressureWorkloadPods(t *testing.T, appName, ns string) {
+	t.Helper()
+	var pods corev1.PodList
+	require.NoError(t, k8sClient.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{"app": appName}))
+	for i := range pods.Items {
+		p := &pods.Items[i]
+		if p.DeletionTimestamp != nil {
+			continue
+		}
+		t.Logf("race recovery: deleting pod %s/%s (mem may have risen while kubelet cleared MemoryPressure)", p.Namespace, p.Name)
+		_ = k8sClient.Delete(ctx, p)
+	}
+	waitForDeploymentReady(t, appName, ns, 90*time.Second)
+}
+
 // TestE2E_NodeMemoryPressure_SkipsMemoryIncrease patches MemoryPressure on the
 // pod's node and asserts Attune does not raise an undersized memory request.
 //
 // Not t.Parallel: node status is cluster-scoped and would race other tests.
+//
+// Synthetic MemoryPressure is race-prone: kubelet rewrites node conditions from
+// real free memory and can clear True between inject ticks. A memory bump while
+// a later Get shows livePressure=true is not proof the operator applied under
+// pressure (issue #481 / prior #476). We only hard-fail when samples show
+// pressure was solidly True across a window around the increase; otherwise
+// reset the pod and continue until ResizeSkipped(MemoryPressure).
 func TestE2E_NodeMemoryPressure_SkipsMemoryIncrease(t *testing.T) {
 	ns := uniqueNS("pressure")
 	createNamespace(t, ns)
@@ -2361,19 +2452,21 @@ func TestE2E_NodeMemoryPressure_SkipsMemoryIncrease(t *testing.T) {
 
 	// Hold MemoryPressure for the entire test: k3s/kubelet rewrites node
 	// status and can clear injected conditions within a second. Re-apply
-	// faster than the kubelet node-status period and re-inject before every
-	// assertion so the operator's live Clientset Get sees pressure=True.
+	// faster than the kubelet node-status period; sample live pressure so we
+	// can distinguish injection races from real gate failures (#481).
 	setNodeMemoryPressure(t, nodeName, true)
 	t.Cleanup(func() {
 		setNodeMemoryPressure(t, nodeName, false)
 	})
+	var samples pressureSampleLog
 	stopPressure := make(chan struct{})
 	donePressure := make(chan struct{})
 	go func() {
 		defer close(donePressure)
-		// Immediate second inject, then high-frequency hold.
+		// Immediate second inject, then high-frequency hold + sample.
 		_ = applyNodeMemoryPressure(nodeName, true)
-		tck := time.NewTicker(200 * time.Millisecond)
+		samples.record(nodeHasMemoryPressure(nodeName))
+		tck := time.NewTicker(100 * time.Millisecond)
 		defer tck.Stop()
 		for {
 			select {
@@ -2381,6 +2474,7 @@ func TestE2E_NodeMemoryPressure_SkipsMemoryIncrease(t *testing.T) {
 				return
 			case <-tck.C:
 				_ = applyNodeMemoryPressure(nodeName, true)
+				samples.record(nodeHasMemoryPressure(nodeName))
 			}
 		}
 	}()
@@ -2393,8 +2487,10 @@ func TestE2E_NodeMemoryPressure_SkipsMemoryIncrease(t *testing.T) {
 	// the first reconcile can race a cleared condition and raise memory.
 	require.Eventually(t, func() bool {
 		_ = applyNodeMemoryPressure(nodeName, true)
-		return nodeHasMemoryPressure(nodeName)
-	}, 10*time.Second, 100*time.Millisecond, "MemoryPressure never stuck on node %s", nodeName)
+		ok := nodeHasMemoryPressure(nodeName)
+		samples.record(ok)
+		return ok
+	}, 10*time.Second, 50*time.Millisecond, "MemoryPressure never stuck on node %s", nodeName)
 
 	// minAllowed 256Mi >> 32Mi forces a memory *increase*. CPU starts high so
 	// under pressure the whole container resize is skipped (mem increase gate).
@@ -2435,12 +2531,14 @@ func TestE2E_NodeMemoryPressure_SkipsMemoryIncrease(t *testing.T) {
 	require.NoError(t, k8sClient.Create(ctx, policy))
 	waitForPolicyDiscovered(t, policyName, ns, 90*time.Second)
 	_ = applyNodeMemoryPressure(nodeName, true)
+	samples.record(nodeHasMemoryPressure(nodeName))
 
 	initQ := resource.MustParse(initMem)
-	// Single poll: keep pressure (background + per-iteration), wait for rec
-	// increase + skip event.
+	// Wait for rec increase + ResizeSkipped. Memory bumps during a False
+	// inject window are recovered by recreating pods from the template.
 	require.NoError(t, wait.PollUntilContextTimeout(ctx, 1*time.Second, 4*time.Minute, true, func(ctx context.Context) (bool, error) {
 		_ = applyNodeMemoryPressure(nodeName, true)
+		samples.record(nodeHasMemoryPressure(nodeName))
 
 		var live corev1.PodList
 		if err := k8sClient.List(ctx, &live, client.InNamespace(ns), client.MatchingLabels{"app": appName}); err != nil {
@@ -2455,10 +2553,26 @@ func TestE2E_NodeMemoryPressure_SkipsMemoryIncrease(t *testing.T) {
 					continue
 				}
 				mem := c.Resources.Requests.Memory()
-				if mem != nil && mem.Cmp(initQ) > 0 {
-					return false, fmt.Errorf("memory increased to %s under MemoryPressure (want stay at %s; livePressure=%v)",
+				if mem == nil || mem.Cmp(initQ) <= 0 {
+					continue
+				}
+				// Prove pressure was solidly held, not a single post-hoc True.
+				// 1s window @ 100ms inject ≈ 10 samples; require ≥5 True, no False.
+				if samples.solidlyTrue(1*time.Second, 5) {
+					return false, fmt.Errorf(
+						"memory increased to %s while MemoryPressure was solidly True for ≥1s (want stay at %s; livePressure=%v)",
 						mem.String(), initMem, nodeHasMemoryPressure(nodeName))
 				}
+				// Injection race (kubelet cleared between operator Get and our
+				// sample, or any False in the recent window): reset and continue.
+				t.Logf("injection race: memory rose to %s but pressure was not solidly True "+
+					"(recentHadFalse=%v livePressure=%v); recreating pods at %s",
+					mem.String(), samples.recentHadFalse(2*time.Second),
+					nodeHasMemoryPressure(nodeName), initMem)
+				resetPressureWorkloadPods(t, appName, ns)
+				_ = applyNodeMemoryPressure(nodeName, true)
+				samples.record(nodeHasMemoryPressure(nodeName))
+				return false, nil
 			}
 		}
 

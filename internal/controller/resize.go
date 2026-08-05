@@ -458,15 +458,33 @@ func (r *AttunePolicyReconciler) resizeContainer(
 	// shouldSkipResize and UpdateResize. Always re-Get for pressure so we do
 	// not apply a memory (or disk/PID) increase under active pressure.
 	if pod.Spec.NodeName != "" {
-		if live := r.getNodeForResize(ctx, pod.Spec.NodeName); live != nil {
+		live := r.getNodeForResize(ctx, pod.Spec.NodeName)
+		if live != nil {
 			if reason := nodePressureBlocksIncrease(live, pod, containerRec.Name, target); reason != "" {
 				logger.Info("Skipping resize (live re-check): "+reason,
-					"pod", pod.Name, "container", containerRec.Name)
+					"pod", pod.Name, "container", containerRec.Name,
+					"node", pod.Spec.NodeName,
+					"memoryPressure", nodeConditionStatus(live, corev1.NodeMemoryPressure),
+					"diskPressure", nodeConditionStatus(live, corev1.NodeDiskPressure),
+					"pidPressure", nodeConditionStatus(live, corev1.NodePIDPressure))
 				r.emitEventOnce(policy, corev1.EventTypeWarning, "ResizeSkipped", "resize",
 					"Resize blocked for pod %s container %s: %s", pod.Name, containerRec.Name, reason)
 				recordCapacitySkip(policy, reason)
 				return nil, resizeOutcomeNone
 			}
+			// Forensic: nightlies that race synthetic MemoryPressure need to
+			// see which condition status authorized the apply (#481).
+			logger.V(1).Info("live node pressure re-check clear; applying resize",
+				"pod", pod.Name, "container", containerRec.Name,
+				"node", pod.Spec.NodeName,
+				"memoryPressure", nodeConditionStatus(live, corev1.NodeMemoryPressure),
+				"diskPressure", nodeConditionStatus(live, corev1.NodeDiskPressure),
+				"pidPressure", nodeConditionStatus(live, corev1.NodePIDPressure),
+				"memTarget", target.Requests.Memory().String(),
+				"cpuTarget", target.Requests.Cpu().String())
+		} else {
+			logger.Info("node unavailable for live pressure re-check; applying resize",
+				"pod", pod.Name, "container", containerRec.Name, "node", pod.Spec.NodeName)
 		}
 	}
 
@@ -1123,4 +1141,21 @@ func nodePressureBlocksIncrease(node *corev1.Node, pod *corev1.Pod, containerNam
 		}
 	}
 	return ""
+}
+
+// nodeConditionStatus returns the Status string for condType on node, or
+// "absent" / "unknown" when the condition or node is missing.
+func nodeConditionStatus(node *corev1.Node, condType corev1.NodeConditionType) string {
+	if node == nil {
+		return "unknown"
+	}
+	for _, c := range node.Status.Conditions {
+		if c.Type == condType {
+			if c.Status == "" {
+				return "empty"
+			}
+			return string(c.Status)
+		}
+	}
+	return "absent"
 }
