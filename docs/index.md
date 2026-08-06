@@ -5,26 +5,34 @@
 Attune is a Kubernetes operator that automatically right-sizes pod
 resource requests and limits using
 [In-Place Pod Resize](https://kubernetes.io/blog/2025/12/19/kubernetes-v1-35-in-place-pod-resize-ga/)
-(**GA** in Kubernetes 1.35, beta and enabled by default in 1.33–1.34, alpha with
-feature gate in 1.32). In-place by default, optional eviction fallback for
-infeasible resizes, and no HPA conflicts.
+(**GA** in Kubernetes 1.35; beta and enabled by default in 1.33–1.34; alpha
+since 1.27, still feature-gated on 1.32). Attune requires **Kubernetes 1.32+**
+for the `/resize` subresource path. In-place by default, optional eviction
+fallback for infeasible resizes, and no HPA conflicts.
 
 ## The Problem
 
-Average Kubernetes CPU utilization is **8%**. That means 92% of the compute
-you're paying for is idle. Industry-wide, this adds up to
-**$44.5 billion** in projected cloud waste ([Harness 2025](https://www.harness.io/finops-in-focus)), and **70%** of
-organizations cite overprovisioning as their #1 cost driver ([CNCF 2023](https://www.cncf.io/blog/2023/12/20/cncf-cloud-native-finops-cloud-financial-management-microsurvey/)).
+Average Kubernetes CPU utilization is about **8%**
+([CAST AI 2026](https://cast.ai/reports/state-of-kubernetes-optimization/)):
+most of the compute you request sits idle. Separately, industry projections put
+**$44.5 billion** of enterprise cloud infrastructure waste in 2025
+([Harness 2025](https://www.harness.io/finops-in-focus)), and **70%** of
+organizations cite overprovisioning among top cost drivers
+([CNCF 2023](https://www.cncf.io/blog/2023/12/20/cncf-cloud-native-finops-cloud-financial-management-microsurvey/)).
 
-The existing tool for this, VPA, evicts pods to resize them. It conflicts
-with HPA, causes cascading failures, and fewer than **1%** of teams run
-it fully automated ([ScaleOps 2026](https://scaleops.com/blog/why-pod-rightsizing-fails-in-production-a-deep-dive-into-vpa-and-what-actually-works/)). Recommendation-only tools like
-Goldilocks show you the numbers but leave you with hundreds of YAML edits
-that sit in the backlog for months.
+The existing tool for this, VPA, historically resized by evicting pods. It
+conflicts with HPA on the same metrics, and fewer than **1%** of organizations
+run it in production
+([ScaleOps 2026](https://scaleops.com/blog/why-pod-rightsizing-fails-in-production-a-deep-dive-into-vpa-and-what-actually-works/),
+citing Datadog Container Report lineage). Newer VPA modes can attempt in-place
+resize where the cluster supports it; Attune is built around that path from
+the start, with canary, auto-revert, and SLO guardrails for unattended use.
+Recommendation-only tools like Goldilocks show you the numbers but leave you
+with hundreds of YAML edits that sit in the backlog for months.
 
 Kubernetes 1.35 graduated In-Place Pod Resize to **GA** (stable). The feature
-was beta and enabled by default from 1.33, and available as alpha with a
-feature gate on 1.32. The foundation for non-disruptive right-sizing is stable.
+was alpha from 1.27 (feature-gated through 1.32), then beta and enabled by
+default from 1.33. The foundation for non-disruptive right-sizing is stable.
 Attune is the operator built for the safe unattended loop on top of that
 primitive.
 
@@ -41,7 +49,7 @@ path: canary blast-radius control, startup boost, and SLO-backed auto-revert.
 | Blast radius | All targeted pods | N/A | **Canary** with observation and optional auto-promote |
 | Cold start | None | N/A | **Startup boost**, then scale back |
 | Algorithm | Backward-looking histograms | VPA recommender | **Time-of-day-aware + burst detection + confidence** |
-| Production path | <1% use automated | Manual apply | **Observe → Recommend → Canary → Auto** |
+| Production path | <1% use in production | Manual apply | **Observe → Recommend → Canary → Auto** |
 
 ## Who Is This For?
 

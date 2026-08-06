@@ -26,10 +26,12 @@ The Kubernetes ecosystem has had a tool for this since 2018: the **Vertical Pod
 Autoscaler (VPA)**. So why does less than 1% of the industry run it in
 production?
 
-### VPA evicts your pods
+### VPA historically evicts your pods
 
-VPA's "Auto" mode works by **evicting pods and recreating them** with new
-resource values. In theory, this sounds fine. In practice, it means:
+Classic VPA Auto mode works by **evicting pods and recreating them** with new
+resource values. Newer modes (for example `InPlaceOrRecreate`) can attempt
+in-place resize where the cluster supports it, but production adoption remains
+very low and eviction is still a common fallback. In practice, eviction means:
 
 - **Pod restarts during traffic spikes.** VPA sees high usage, recommends more
   resources, and evicts the pod to apply them. The pod restarts, loses its

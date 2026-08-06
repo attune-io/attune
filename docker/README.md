@@ -16,9 +16,10 @@ Safe, in-place Kubernetes pod resource right-sizing. VPA done right.
 ## What is Attune?
 
 Attune is a Kubernetes operator that automatically right-sizes pod resource
-requests and limits using In-Place Pod Resize (**GA** in Kubernetes 1.35, beta
-enabled by default in 1.33–1.34, alpha with feature gate in 1.32). No pod
-restarts by default, no HPA conflicts, graduated safety controls.
+requests and limits using In-Place Pod Resize (**GA** in Kubernetes 1.35; beta
+enabled by default in 1.33–1.34; alpha since 1.27, still feature-gated on 1.32;
+Attune requires 1.32+ for `/resize`). No pod restarts by default, no HPA
+conflicts, graduated safety controls.
 
 ## Supported tags
 

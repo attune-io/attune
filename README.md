@@ -23,7 +23,10 @@
 
 Attune is a Kubernetes operator that automatically right-sizes pod
 resource requests and limits using [In-Place Pod Resize](https://kubernetes.io/blog/2025/12/19/kubernetes-v1-35-in-place-pod-resize-ga/)
-(**GA** in Kubernetes 1.35, beta and enabled by default in 1.33–1.34, alpha with feature gate in 1.32). In-place by default, optional eviction fallback for infeasible resizes, and no HPA conflicts.
+(**GA** in Kubernetes 1.35; beta and enabled by default in 1.33–1.34; alpha
+since 1.27, still feature-gated on 1.32). Attune requires **Kubernetes 1.32+**
+for the `/resize` subresource path. In-place by default, optional eviction
+fallback for infeasible resizes, and no HPA conflicts.
 
 ---
 
@@ -31,10 +34,10 @@ resource requests and limits using [In-Place Pod Resize](https://kubernetes.io/b
 
 | Problem | Impact |
 |---------|--------|
-| Average CPU utilization is **8%** | Billions wasted industry-wide ([CAST AI 2026](https://cast.ai/reports/state-of-kubernetes-optimization/)) |
-| **70%** cite overprovisioning as #1 cost driver | Resources allocated "just in case" never reclaimed ([CNCF 2023](https://www.cncf.io/blog/2023/12/20/cncf-cloud-native-finops-cloud-financial-management-microsurvey/)) |
-| **<1%** run VPA fully automated | VPA often evicts pods, conflicts with HPA, and is hard to run unattended ([ScaleOps 2026](https://scaleops.com/blog/why-pod-rightsizing-fails-in-production-a-deep-dive-into-vpa-and-what-actually-works/)) |
-| In-Place Pod Resize is **GA** (K8s 1.35; beta 1.33–1.34; alpha 1.32) | Non-disruptive right-sizing is a stable Kubernetes primitive |
+| Average CPU utilization is **8%** | Most requested compute sits idle ([CAST AI 2026](https://cast.ai/reports/state-of-kubernetes-optimization/)) |
+| **70%** cite overprovisioning among top cost drivers | Resources allocated "just in case" never reclaimed ([CNCF 2023](https://www.cncf.io/blog/2023/12/20/cncf-cloud-native-finops-cloud-financial-management-microsurvey/)) |
+| **<1%** run VPA in production | VPA historically evicts pods, conflicts with HPA, and is hard to run unattended ([ScaleOps 2026](https://scaleops.com/blog/why-pod-rightsizing-fails-in-production-a-deep-dive-into-vpa-and-what-actually-works/)) |
+| In-Place Pod Resize is **GA** (K8s 1.35; beta 1.33–1.34; alpha since 1.27) | Non-disruptive right-sizing is a stable Kubernetes primitive |
 
 ## How It's Different
 
@@ -49,7 +52,7 @@ In-place apply is the shared primitive (Kubernetes `/resize`). Attune is the
 | Blast radius | All targeted pods | N/A | **Canary** fraction with observation and optional auto-promote |
 | Cold start | None | N/A | **Startup boost** (temporary CPU headroom, then scale back) |
 | Algorithm | Backward-looking histograms | VPA recommender | **Time-of-day-aware + burst detection + confidence scaling** |
-| Production path | <1% run fully automated | Manual apply | **Observe → Recommend → Canary → Auto** |
+| Production path | <1% run in production | Manual apply | **Observe → Recommend → Canary → Auto** |
 
 > **Migrating from VPA?** See the step-by-step [migration guide](docs/guides/migrating-from-vpa.md) for field-by-field mapping, mode matrix, side-by-side YAML, and zero-downtime cutover.
 
