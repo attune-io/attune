@@ -19,9 +19,18 @@ package metrics
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 )
+
+// recordingMetricNameRE matches Prometheus metric name grammar (no selectors).
+var recordingMetricNameRE = regexp.MustCompile(`^[a-zA-Z_:][a-zA-Z0-9_:]*$`)
+
+// ValidRecordingMetricName reports whether name is a safe PromQL metric identifier.
+func ValidRecordingMetricName(name string) bool {
+	return name != "" && recordingMetricNameRE.MatchString(name)
+}
 
 // QueryBuilder creates backend-specific query strings from metric parameters.
 // Each implementation produces queries understood by its matching collector:
@@ -72,6 +81,13 @@ func (b *PromQLQueryBuilder) BuildQuery(namespace, podRegex, container, metric s
 	}
 
 	rw := FormatPromDuration(rateWindow)
+
+	if b.CPUMetric != "" && !ValidRecordingMetricName(b.CPUMetric) {
+		return ""
+	}
+	if b.MemoryMetric != "" && !ValidRecordingMetricName(b.MemoryMetric) {
+		return ""
+	}
 
 	var inner string
 	switch metric {

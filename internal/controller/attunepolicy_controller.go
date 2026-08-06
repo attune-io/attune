@@ -705,18 +705,19 @@ func (r *AttunePolicyReconciler) applyStatusBudget(
 		}
 	}
 
-	// Shallow copy slice so we do not mutate the full set used for resizes.
-	out := make([]attunev1alpha1.WorkloadRecommendation, len(recs))
-	copy(out, recs)
-
-	if maxRecs > 0 && len(out) > maxRecs {
-		// Prefer largest absolute resource change (CPU m + memory bytes heuristic).
+	// Deep-copy selected recommendations so status and resize sets never share
+	// container/explanation backing arrays.
+	selectIdx := make([]int, len(recs))
+	for i := range recs {
+		selectIdx[i] = i
+	}
+	if maxRecs > 0 && len(recs) > maxRecs {
 		type scored struct {
 			idx   int
 			score int64
 		}
-		scores := make([]scored, len(out))
-		for i, rec := range out {
+		scores := make([]scored, len(recs))
+		for i, rec := range recs {
 			var s int64
 			for _, c := range rec.Containers {
 				s += absInt64(c.Recommended.CPURequest.MilliValue() - c.Current.CPURequest.MilliValue())
@@ -724,7 +725,6 @@ func (r *AttunePolicyReconciler) applyStatusBudget(
 			}
 			scores[i] = scored{idx: i, score: s}
 		}
-		// Partial selection sort of top maxRecs by score.
 		for i := 0; i < maxRecs; i++ {
 			best := i
 			for j := i + 1; j < len(scores); j++ {
@@ -734,22 +734,19 @@ func (r *AttunePolicyReconciler) applyStatusBudget(
 			}
 			scores[i], scores[best] = scores[best], scores[i]
 		}
-		trimmed := make([]attunev1alpha1.WorkloadRecommendation, maxRecs)
+		selectIdx = make([]int, maxRecs)
 		for i := 0; i < maxRecs; i++ {
-			trimmed[i] = out[scores[i].idx]
+			selectIdx[i] = scores[i].idx
 		}
-		out = trimmed
 	}
 
-	if !includeExpl {
-		for i := range out {
-			// Deep-copy containers slice before clearing explanations.
-			containers := make([]attunev1alpha1.ContainerRecommendation, len(out[i].Containers))
-			copy(containers, out[i].Containers)
-			for j := range containers {
-				containers[j].Explanation = nil
+	out := make([]attunev1alpha1.WorkloadRecommendation, len(selectIdx))
+	for i, idx := range selectIdx {
+		out[i] = *recs[idx].DeepCopy()
+		if !includeExpl {
+			for j := range out[i].Containers {
+				out[i].Containers[j].Explanation = nil
 			}
-			out[i].Containers = containers
 		}
 	}
 	return out

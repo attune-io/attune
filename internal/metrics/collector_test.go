@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -794,4 +795,38 @@ func TestSameOrigin_DifferentHost(t *testing.T) {
 	a, _ := url.Parse("http://a.example.com")
 	b, _ := url.Parse("http://b.example.com")
 	assert.False(t, sameOrigin(a, b))
+}
+
+func TestQueryRangeGrouped_SeriesCapByContainer(t *testing.T) {
+	// Build a fake matrix via a small custom collector is hard without API;
+	// unit-test capMatrixByContainer directly.
+	m1 := &model.SampleStream{Metric: model.Metric{"container": "a", "pod": "p1"}}
+	m2 := &model.SampleStream{Metric: model.Metric{"container": "a", "pod": "p2"}}
+	m3 := &model.SampleStream{Metric: model.Metric{"container": "b", "pod": "p1"}}
+	m4 := &model.SampleStream{Metric: model.Metric{"container": "c", "pod": "p1"}}
+	matrix := model.Matrix{m1, m2, m3, m4}
+
+	// Limit 2: should keep first series of a and first of b (pass1) then stop?
+	// Pass1: a, b then c would make 3 - with limit 2 we get a,b only.
+	out := capMatrixByContainer(matrix, 2)
+	require.Len(t, out, 2)
+	containers := []string{string(out[0].Metric["container"]), string(out[1].Metric["container"])}
+	assert.Equal(t, []string{"a", "b"}, containers)
+
+	// Limit 3: a, b, c from pass1 (one each); no room for second a.
+	out3 := capMatrixByContainer(matrix, 3)
+	require.Len(t, out3, 3)
+	got := map[string]bool{}
+	for _, s := range out3 {
+		got[string(s.Metric["container"])] = true
+	}
+	assert.True(t, got["a"] && got["b"] && got["c"])
+}
+
+func TestValidRecordingMetricName(t *testing.T) {
+	assert.True(t, ValidRecordingMetricName("attune:container_cpu:rate5m"))
+	assert.True(t, ValidRecordingMetricName("container_memory_working_set_bytes"))
+	assert.False(t, ValidRecordingMetricName(""))
+	assert.False(t, ValidRecordingMetricName("x} or on()"))
+	assert.False(t, ValidRecordingMetricName("has space"))
 }

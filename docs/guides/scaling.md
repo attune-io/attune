@@ -262,6 +262,13 @@ These figures estimate **query rate**, not response size. High-replica
 workloads can make each query much more expensive; see
 [Large Deployments](#large-deployments-high-replica-counts).
 
+## Ready reason: PrometheusSeriesCapped
+
+When a range query returns more series than `--max-prometheus-series`, Attune
+keeps a partial result (preferring at least one series per container) and may
+set Ready reason `PrometheusSeriesCapped`. Raise the cap, or keep the default
+`podAggregation: Max` so series counts stay small.
+
 ## Performance features (built-in)
 
 Attune includes several scale controls that reduce Prometheus payload and

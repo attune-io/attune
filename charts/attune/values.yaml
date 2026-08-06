@@ -301,7 +301,7 @@ maxConcurrentReconciles: ""
 maxWorkloadWorkers: 10
 
 # -- Maximum deterministic requeue jitter to spread policies that share a cooldown.
-# Set empty or "0s" to disable. Default 2m.
+# Set to "0s" to disable. Default 2m (empty omits the flag and keeps the binary default).
 requeueJitter: "2m"
 
 # -- Cap samples passed into recommendation BuildProfile after downsampling.

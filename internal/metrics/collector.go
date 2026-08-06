@@ -320,13 +320,14 @@ func (c *PrometheusCollector) QueryRangeGrouped(ctx context.Context, query strin
 		return nil, fmt.Errorf("unexpected result type %T, expected matrix", result)
 	}
 
-	capped := false
 	limit := c.effectiveMaxSeries()
-	if limit > 0 && len(matrix) > limit {
+	capped := limit > 0 && len(matrix) > limit
+	if capped {
 		c.logger.Info("Prometheus range query series capped",
 			"limit", limit, "got", len(matrix), "query", query)
-		matrix = matrix[:limit]
-		capped = true
+		// Prefer one series per container before filling remaining budget so
+		// high-cardinality pods do not starve entire containers under None aggregation.
+		matrix = capMatrixByContainer(matrix, limit)
 	}
 
 	grouped := make(map[string][]Sample, len(matrix))
@@ -348,6 +349,45 @@ func (c *PrometheusCollector) QueryRangeGrouped(ctx context.Context, query strin
 		return grouped, fmt.Errorf("%w: kept %d series", ErrSeriesCapped, limit)
 	}
 	return grouped, nil
+}
+
+// capMatrixByContainer keeps at most limit series, preferring first-seen series
+// per container label, then filling remaining slots in matrix order.
+func capMatrixByContainer(matrix model.Matrix, limit int) model.Matrix {
+	if limit <= 0 || len(matrix) <= limit {
+		return matrix
+	}
+	seenContainer := make(map[string]bool, limit)
+	out := make(model.Matrix, 0, limit)
+	// Pass 1: one series per distinct container.
+	for _, series := range matrix {
+		if len(out) >= limit {
+			break
+		}
+		c := string(series.Metric[model.LabelName("container")])
+		if seenContainer[c] {
+			continue
+		}
+		seenContainer[c] = true
+		out = append(out, series)
+	}
+	// Pass 2: fill remaining budget with additional series (other pods).
+	if len(out) < limit {
+		kept := make(map[*model.SampleStream]bool, len(out))
+		for _, s := range out {
+			kept[s] = true
+		}
+		for _, series := range matrix {
+			if len(out) >= limit {
+				break
+			}
+			if kept[series] {
+				continue
+			}
+			out = append(out, series)
+		}
+	}
+	return out
 }
 
 // Query executes a Prometheus instant query and returns a single float64 value.

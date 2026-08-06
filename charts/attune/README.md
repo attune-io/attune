@@ -97,7 +97,7 @@ helm install attune oci://ghcr.io/attune-io/charts/attune \
 | prometheusQPS | int | `10` | Prometheus query rate limit (queries per second). Higher values reduce reconcile latency but increase Prometheus load. |
 | prometheusTimeout | string | `"5m"` | Maximum time for workload processing (including Prometheus queries) per reconciliation cycle (Go duration). If exceeded, partial results are used and the status condition indicates the timeout. |
 | replicaCount | int | `1` | Number of operator replicas (use 2 for HA with leader election) |
-| requeueJitter | string | `"2m"` | Maximum deterministic requeue jitter to spread policies that share a cooldown. Set empty or "0s" to disable. Default 2m. |
+| requeueJitter | string | `"2m"` | Maximum deterministic requeue jitter to spread policies that share a cooldown. Set to "0s" to disable. Default 2m (empty omits the flag and keeps the binary default). |
 | resources | object | `{}` | Operator pod resources. When empty, defaults are derived from clusterSize (or "small" if clusterSize is also empty). Set explicit values for production. |
 | securityContext | object | `{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true,"runAsGroup":65532,"runAsNonRoot":true,"runAsUser":65532}` | Container security context |
 | serviceAccount.annotations | object | `{}` | Annotations to add to the ServiceAccount |

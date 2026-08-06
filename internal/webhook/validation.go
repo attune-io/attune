@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	rsmetrics "github.com/attune-io/attune/internal/metrics"
 	"github.com/attune-io/attune/internal/operatormetrics"
 	"github.com/attune-io/attune/internal/validation"
 )
@@ -267,6 +268,20 @@ func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (a
 				return warnings, fmt.Errorf("metricsSource.prometheus.bearerTokenSecret.name must not contain '/'; secrets are read from the policy's namespace")
 			}
 		}
+	}
+
+	// Recording-rule metric names must be PromQL identifiers (no selector injection).
+	if m := policy.Spec.MetricsSource.CPURecordingMetric; m != "" && !rsmetrics.ValidRecordingMetricName(m) {
+		return warnings, fmt.Errorf("metricsSource.cpuRecordingMetric: invalid metric name %q", m)
+	}
+	if m := policy.Spec.MetricsSource.MemoryRecordingMetric; m != "" && !rsmetrics.ValidRecordingMetricName(m) {
+		return warnings, fmt.Errorf("metricsSource.memoryRecordingMetric: invalid metric name %q", m)
+	}
+	switch policy.Spec.MetricsSource.PodAggregation {
+	case "", "Max", "Avg", "None":
+		// ok
+	default:
+		return warnings, fmt.Errorf("metricsSource.podAggregation: must be Max, Avg, or None, got %q", policy.Spec.MetricsSource.PodAggregation)
 	}
 
 	// Validate Datadog settings if specified.
