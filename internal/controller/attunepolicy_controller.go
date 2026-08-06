@@ -433,11 +433,11 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	withinWindow := isWithinResizeWindow(policy.Spec.UpdateStrategy.Schedule, r.now())
 	var newResizedCount int
 
-	// List pods only when needed for resize/boost or resize-mode blocker UX.
-	// Observe/Recommend skip full pod lists (major savings at high replica counts).
+	// List pods when needed for resize/boost, or for Deferred/Infeasible UX in
+	// Recommend and resize modes. Observe mode skips lists (no resize UX).
 	needPods := isResizeMode(mode) && ((!cooldownActive && withinWindow) ||
 		(policy.Spec.CPU.StartupBoost != nil && r.Clientset != nil && len(recommendations) > 0))
-	listPods := needPods || isResizeMode(mode)
+	listPods := needPods || isResizeMode(mode) || mode == attunev1alpha1.UpdateTypeRecommend
 	podsByWorkload := make(map[string][]corev1.Pod, len(workloads))
 	if listPods {
 		for _, w := range workloads {
@@ -648,7 +648,11 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			requeueAfter = dataInterval
 		}
 	}
-	requeueAfter = r.addRequeueJitter(requeueAfter, &policy)
+	// Only jitter full cooldown requeues so bootstrap / observation short
+	// intervals stay tight for data collection and e2e.
+	if requeueAfter == cooldown {
+		requeueAfter = r.addRequeueJitter(requeueAfter, &policy)
+	}
 	logger.Info("Reconciliation complete, requeueing", "requeueAfter", requeueAfter)
 	operatormetrics.ReconcileDuration.WithLabelValues("attunepolicy", policy.Namespace, policy.Name).Observe(time.Since(startTime).Seconds())
 	return ctrl.Result{RequeueAfter: requeueAfter}, nil
