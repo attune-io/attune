@@ -30,6 +30,12 @@ helm install attune \
   --namespace attune-system
 ```
 
+!!! tip "Large or multi-tenant clusters"
+    Size the operator with a Helm `clusterSize` preset and, when policies
+    live in only a few namespaces, set `watchNamespaces`. See the
+    [Scaling Guide](../guides/scaling.md) ops checklist before production
+    rollout.
+
 !!! tip "Prometheus address"
     The Prometheus address is configured per-policy in
     `AttunePolicy.spec.metricsSource.prometheus.address`, per namespace via
