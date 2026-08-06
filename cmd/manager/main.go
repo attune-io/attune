@@ -70,6 +70,12 @@ func main() {
 	var prometheusQPS float64
 	var prometheusBurst int
 	var maxConcurrentReconciles int
+	var maxWorkloadWorkers int
+	var requeueJitter time.Duration
+	var maxProfileSamples int
+	var maxPrometheusSeries int
+	var maxStatusRecommendations int
+	var statusIncludeExplanations bool
 	var watchNamespaces string
 	var prometheusTimeout time.Duration
 	var fleetReportEnabled bool
@@ -93,9 +99,22 @@ func main() {
 		"Maximum burst for Prometheus query throttle.")
 	flag.IntVar(&maxConcurrentReconciles, "max-concurrent-reconciles", 1,
 		"Maximum number of AttunePolicy reconciles running in parallel. Increase for large clusters with many policies.")
+	flag.IntVar(&maxWorkloadWorkers, "max-workload-workers", 10,
+		"Maximum parallel workers processing workloads within a single AttunePolicy reconcile.")
+	flag.DurationVar(&requeueJitter, "requeue-jitter", 2*time.Minute,
+		"Maximum deterministic jitter added to RequeueAfter to spread policies that share the same cooldown. Set to 0 to disable.")
+	flag.IntVar(&maxProfileSamples, "max-profile-samples", 10000,
+		"Maximum samples passed to recommendation BuildProfile after downsampling. Negative disables the cap.")
+	flag.IntVar(&maxPrometheusSeries, "max-prometheus-series", 5000,
+		"Maximum series kept from a Prometheus range query matrix. Zero uses the collector default; negative disables the cap.")
+	flag.IntVar(&maxStatusRecommendations, "max-status-recommendations", 100,
+		"Default cap for status.recommendations entries (full set still used for resizes). Overridable per policy.")
+	flag.BoolVar(&statusIncludeExplanations, "status-include-explanations", true,
+		"When true, write recommendation explanation chains to status. Overridable per policy.")
 	flag.StringVar(&watchNamespaces, "watch-namespaces", "",
 		"Comma-separated list of namespaces to watch. Empty means all namespaces (cluster-scoped). "+
-			"Reduces informer cache memory on large clusters where policies exist in a few namespaces.")
+			"Reduces informer cache memory on large clusters where policies exist in a few namespaces. "+
+			"Run multiple controller instances with disjoint lists to shard by namespace.")
 	flag.DurationVar(&prometheusTimeout, "prometheus-timeout", 5*time.Minute,
 		"Maximum time allowed for workload processing (including Prometheus queries) during a single reconciliation cycle. "+
 			"If exceeded, partial results are used and the status condition indicates the timeout.")
@@ -132,6 +151,14 @@ func main() {
 	}
 	if maxConcurrentReconciles <= 0 {
 		setupLog.Error(fmt.Errorf("got %d", maxConcurrentReconciles), "max-concurrent-reconciles must be positive")
+		os.Exit(1)
+	}
+	if maxWorkloadWorkers <= 0 {
+		setupLog.Error(fmt.Errorf("got %d", maxWorkloadWorkers), "max-workload-workers must be positive")
+		os.Exit(1)
+	}
+	if requeueJitter < 0 {
+		setupLog.Error(fmt.Errorf("got %s", requeueJitter), "requeue-jitter must be non-negative")
 		os.Exit(1)
 	}
 	if prometheusTimeout <= 0 {
@@ -222,6 +249,12 @@ func main() {
 	}
 	reconciler.CollectorTTL = collectorTTL
 	reconciler.MaxConcurrentReconciles = maxConcurrentReconciles
+	reconciler.MaxWorkloadWorkers = maxWorkloadWorkers
+	reconciler.RequeueJitter = requeueJitter
+	reconciler.MaxProfileSamples = maxProfileSamples
+	reconciler.MaxPrometheusSeries = maxPrometheusSeries
+	reconciler.MaxStatusRecommendations = maxStatusRecommendations
+	reconciler.IncludeExplanationsInStatus = &statusIncludeExplanations
 	reconciler.PrometheusTimeout = prometheusTimeout
 	reconciler.MetricsFactory = func(address string, opts *metrics.CollectorOptions) (metrics.MetricsCollector, error) {
 		if opts == nil {
@@ -229,6 +262,10 @@ func main() {
 		}
 		if opts.TLSMinVersion == 0 && clusterTLSMinVersion != 0 {
 			opts.TLSMinVersion = clusterTLSMinVersion
+		}
+		// Apply operator series cap when the caller did not set MaxSeries.
+		if opts.MaxSeries == 0 && maxPrometheusSeries != 0 {
+			opts.MaxSeries = maxPrometheusSeries
 		}
 		collector, err := metrics.NewPrometheusCollectorWithOptions(address, ctrl.Log.WithName("prometheus"), opts)
 		if err != nil {

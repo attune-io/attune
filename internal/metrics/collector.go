@@ -65,6 +65,9 @@ type PrometheusCollector struct {
 	api       promv1.API
 	logger    logr.Logger
 	transport *http.Transport
+	// maxSeries caps matrix series per range query. 0 = DefaultMaxPrometheusSeries;
+	// negative = unlimited.
+	maxSeries int
 }
 
 // Close releases resources held by the collector. It closes idle HTTP
@@ -122,6 +125,15 @@ func isBlockedIP(ip net.IP) bool {
 
 var errEmptyInstantQuery = errors.New("empty result from instant query")
 
+// ErrSeriesCapped is returned when a range query returned more series than
+// MaxSeries and the result was truncated. Callers may still use the partial
+// map and should surface a status condition.
+var ErrSeriesCapped = errors.New("prometheus series capped")
+
+// DefaultMaxPrometheusSeries is the default per-query series cap (0 = unlimited
+// when not configured on the collector).
+const DefaultMaxPrometheusSeries = 5000
+
 // CollectorOptions configures optional HTTP settings for Prometheus-compatible
 // backends (Thanos, VictoriaMetrics, Grafana Mimir, managed services).
 type CollectorOptions struct {
@@ -137,6 +149,9 @@ type CollectorOptions struct {
 	// TLSMinVersion is the minimum TLS version to accept (e.g. tls.VersionTLS12).
 	// Zero means use Go defaults (TLS 1.2).
 	TLSMinVersion uint16
+	// MaxSeries caps the number of series kept from a range query matrix.
+	// Zero means use DefaultMaxPrometheusSeries. Negative means unlimited.
+	MaxSeries int
 }
 
 // headerTransport wraps an http.RoundTripper and injects custom headers
@@ -247,30 +262,45 @@ func NewPrometheusCollectorWithOptions(address string, logger logr.Logger, opts 
 	if err != nil {
 		return nil, fmt.Errorf("creating prometheus client: %w", err)
 	}
+	maxSeries := 0
+	if opts != nil {
+		maxSeries = opts.MaxSeries
+	}
 	return &PrometheusCollector{
 		api:       promv1.NewAPI(client),
 		logger:    logger,
 		transport: httpTransport,
+		maxSeries: maxSeries,
 	}, nil
 }
 
 // QueryRange executes a Prometheus range query and returns the parsed samples.
 // It expects the result to be a matrix type containing at least one series.
+// ErrSeriesCapped may be returned with partial samples.
 func (c *PrometheusCollector) QueryRange(ctx context.Context, query string, start, end time.Time, step time.Duration) ([]Sample, error) {
 	grouped, err := c.QueryRangeGrouped(ctx, query, start, end, step)
-	if err != nil {
-		return nil, err
-	}
-
 	var samples []Sample
 	for _, groupedSamples := range grouped {
 		samples = append(samples, groupedSamples...)
 	}
-	return samples, nil
+	return samples, err
+}
+
+// effectiveMaxSeries returns the series cap for this collector.
+func (c *PrometheusCollector) effectiveMaxSeries() int {
+	if c.maxSeries < 0 {
+		return 0 // unlimited
+	}
+	if c.maxSeries == 0 {
+		return DefaultMaxPrometheusSeries
+	}
+	return c.maxSeries
 }
 
 // QueryRangeGrouped executes a Prometheus range query and preserves the
-// `container` label from each returned series.
+// `container` label from each returned series. When more series are returned
+// than MaxSeries allows, the map is truncated and ErrSeriesCapped is returned
+// (partial data is still usable).
 func (c *PrometheusCollector) QueryRangeGrouped(ctx context.Context, query string, start, end time.Time, step time.Duration) (map[string][]Sample, error) {
 	result, warnings, err := c.api.QueryRange(ctx, query, promv1.Range{
 		Start: start,
@@ -290,6 +320,15 @@ func (c *PrometheusCollector) QueryRangeGrouped(ctx context.Context, query strin
 		return nil, fmt.Errorf("unexpected result type %T, expected matrix", result)
 	}
 
+	capped := false
+	limit := c.effectiveMaxSeries()
+	if limit > 0 && len(matrix) > limit {
+		c.logger.Info("Prometheus range query series capped",
+			"limit", limit, "got", len(matrix), "query", query)
+		matrix = matrix[:limit]
+		capped = true
+	}
+
 	grouped := make(map[string][]Sample, len(matrix))
 	for _, series := range matrix {
 		container := string(series.Metric[model.LabelName("container")])
@@ -305,6 +344,9 @@ func (c *PrometheusCollector) QueryRangeGrouped(ctx context.Context, query strin
 		}
 	}
 
+	if capped {
+		return grouped, fmt.Errorf("%w: kept %d series", ErrSeriesCapped, limit)
+	}
 	return grouped, nil
 }
 

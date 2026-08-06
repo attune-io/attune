@@ -177,6 +177,12 @@ watchNamespaces:
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `maxConcurrentReconciles` | int/string | `""` (1) | Maximum number of AttunePolicy reconciles running in parallel. Maps to the `--max-concurrent-reconciles` manager flag. The default (1) processes policies sequentially. Increase for clusters with many policies to reduce reconcile queue latency. Auto-set by `clusterSize` preset (small=1, medium=2, large=4, xlarge=8). The Prometheus rate limiter (`prometheusQPS`) is shared across all goroutines, so concurrent reconciles won't overwhelm Prometheus. |
+| `maxWorkloadWorkers` | int | `10` | Parallel workers for workloads inside one policy reconcile (`--max-workload-workers`). |
+| `requeueJitter` | string | `"2m"` | Max deterministic requeue jitter (`--requeue-jitter`). Set `"0s"` to disable. |
+| `maxProfileSamples` | int | `10000` | Cap samples after downsampling before BuildProfile (`--max-profile-samples`). |
+| `maxPrometheusSeries` | int | `5000` | Cap series per Prometheus range query (`--max-prometheus-series`). |
+| `maxStatusRecommendations` | int | `100` | Default status.recommendations cap (`--max-status-recommendations`). |
+| `statusIncludeExplanations` | bool | `true` | Write explanation chains to status (`--status-include-explanations`). |
 
 ## OpenShift
 
@@ -254,6 +260,8 @@ that do not set them explicitly. Policy-level values always take precedence.
 | `autoRevert` | bool | `true` | Revert unsafe resizes automatically |
 | `resizeMethod` | string | `InPlaceOnly` | `InPlaceOnly` or `InPlaceOrRecreate` |
 | `maxConcurrentResizes` | int32 | `1` | Max pods to resize simultaneously |
+| `maxStatusRecommendations` | *int32 | `100` (operator default) | Cap for `status.recommendations` length; full set still drives resizes |
+| `includeExplanationsInStatus` | *bool | `true` | When false, strip recommendation explanation chains from status |
 | `maxTotalCpuIncrease` | quantity | (none) | Max aggregate CPU increase per cycle |
 | `maxTotalMemoryIncrease` | quantity | (none) | Max aggregate memory increase per cycle |
 | `schedule` | object | (none) | Time windows, days of week, timezone |
@@ -357,10 +365,10 @@ All fields from `AttuneDefaults` are available in
 
 | Section | Fields |
 |---------|--------|
-| `metricsSource` | `prometheus.address`, `prometheus.headers`, `prometheus.queryParameters`, `prometheus.bearerTokenSecret`, `prometheus.tls`, `datadog.site`, `datadog.apiKeySecretRef`, `cloudwatch.region`, `cloudwatch.clusterName`, `cloudwatch.roleArn`, `historyWindow`, `minimumDataPoints`, `queryStep`, `rateWindow` |
+| `metricsSource` | `prometheus.address`, `prometheus.headers`, `prometheus.queryParameters`, `prometheus.bearerTokenSecret`, `prometheus.tls`, `datadog.site`, `datadog.apiKeySecretRef`, `cloudwatch.region`, `cloudwatch.clusterName`, `cloudwatch.roleArn`, `historyWindow`, `minimumDataPoints`, `queryStep`, `rateWindow`, `podAggregation`, `cpuRecordingMetric`, `memoryRecordingMetric` |
 | `cpu` | `percentile`, `overhead`, `minAllowed`, `maxAllowed`, `controlledValues`, `burstSensitivity`, `allowDecrease`, `startupBoost`, `maxChangePercent`, `maxIncreasePercent`, `maxDecreasePercent`, `memoryFromCpuRatio` |
 | `memory` | Same as `cpu` (no `startupBoost`), plus `decreaseUsageMarginPercent` and `memoryFromCpuRatio` |
-| `updateStrategy` | `type`, `cooldown`, `autoRevert`, `resizeMethod`, `initialSizing`, `maxConcurrentResizes`, `maxTotalCpuIncrease`, `maxTotalMemoryIncrease`, `schedule`, `export`, `canary`, `safetyObservationPeriod`, `sloGuardrails`, `templatePersistence` |
+| `updateStrategy` | `type`, `cooldown`, `autoRevert`, `resizeMethod`, `initialSizing`, `maxConcurrentResizes`, `maxStatusRecommendations`, `includeExplanationsInStatus`, `maxTotalCpuIncrease`, `maxTotalMemoryIncrease`, `schedule`, `export`, `canary`, `safetyObservationPeriod`, `sloGuardrails`, `templatePersistence` |
 | `costPricing` | `cpuPerCoreHour`, `memoryPerGiBHour` |
 
 ## Alternative Metrics Sources

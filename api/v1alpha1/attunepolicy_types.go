@@ -215,6 +215,29 @@ type MetricsSource struct {
 	// (e.g. a short rateWindow for responsive tracking with a longer queryStep).
 	// +optional
 	RateWindow *metav1.Duration `json:"rateWindow,omitempty"`
+
+	// PodAggregation controls how multi-pod series are reduced in Prometheus
+	// range queries for this policy.
+	//   Max (default): max by (container) — size for the busiest pod; O(containers) series.
+	//   Avg: avg by (container) across pods.
+	//   None: no aggregation (one series per pod; expensive for high replica counts).
+	// Datadog and CloudWatch already group by container; this field applies to Prometheus.
+	// +kubebuilder:validation:Enum=Max;Avg;None
+	// +optional
+	PodAggregation string `json:"podAggregation,omitempty"`
+
+	// CPURecordingMetric is an optional pre-aggregated Prometheus metric name
+	// used instead of rate(container_cpu_usage_seconds_total). Labels must include
+	// namespace, pod, and container. When set, the operator does not wrap the
+	// metric in rate(). Pair with MemoryRecordingMetric for a recording-rules-only path.
+	// +optional
+	CPURecordingMetric string `json:"cpuRecordingMetric,omitempty"`
+
+	// MemoryRecordingMetric is an optional pre-aggregated Prometheus metric name
+	// used instead of container_memory_working_set_bytes. Same label requirements
+	// as CPURecordingMetric.
+	// +optional
+	MemoryRecordingMetric string `json:"memoryRecordingMetric,omitempty"`
 }
 
 // PrometheusConfig configures a Prometheus-compatible metrics source.
@@ -493,6 +516,21 @@ type UpdateStrategy struct {
 	// +kubebuilder:validation:Maximum=50
 	// +optional
 	MaxConcurrentResizes int32 `json:"maxConcurrentResizes,omitempty"`
+
+	// MaxStatusRecommendations caps how many workload recommendations are
+	// written to status.recommendations. Resizes still use the full in-memory
+	// set. When the cap is hit, entries with the largest absolute CPU+memory
+	// request change are kept. Default: 100 (operator may override via flag).
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=500
+	// +optional
+	MaxStatusRecommendations *int32 `json:"maxStatusRecommendations,omitempty"`
+
+	// IncludeExplanationsInStatus controls whether recommendation explanation
+	// chains are written to status. Set to false on large policies to shrink
+	// CR size. Default: true.
+	// +optional
+	IncludeExplanationsInStatus *bool `json:"includeExplanationsInStatus,omitempty"`
 
 	// MaxTotalCPUIncrease is the maximum aggregate CPU increase allowed
 	// across all pods in a single reconcile cycle (e.g. "2000m", "4").
