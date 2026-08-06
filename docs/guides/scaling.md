@@ -9,9 +9,34 @@ Attune runs as a single-leader Deployment. One replica performs all
 reconciliation work while the standby (in HA mode) waits to take over via
 leader election. The operator's main scaling dimensions are:
 
-1. **Prometheus query rate** - how fast it can fetch metrics for each policy
-2. **Memory** - proportional to the number of watched pods and their metric history
-3. **API server pressure** - listing pods, patching resize subresources, updating status
+1. **Prometheus query payload** - range queries return time series for matching
+   pods; cost grows with replica count, history window, and step size
+2. **Prometheus query rate** - how many queries the operator issues per second
+3. **Memory** - proportional to watched pods (informer cache) and in-memory
+   metric samples during recommendation
+4. **API server pressure** - listing pods, patching resize subresources, updating status
+
+## Ops checklist
+
+Do these first on any production or multi-tenant cluster. Details and tables
+follow below.
+
+1. **Pick a Helm size preset** that matches how many workloads you target:
+   `--set clusterSize=large` (or `xlarge`). See [Cluster Size Presets](#cluster-size-presets).
+2. **Scope the informer cache** with `watchNamespaces` to only namespaces that
+   have AttunePolicy resources. See [Namespace Scoping](#namespace-scoping).
+3. **Apply CRD defaults for scale** via `AttuneDefaults` (or each policy):
+   shorter `historyWindow`, larger `queryStep`, longer `cooldown` as in the
+   [Recommended CRD Settings](#recommended-crd-settings-by-cluster-size) table.
+4. **Treat high-replica Deployments as a first-class cost**: a few Deployments
+   with hundreds of pods can cost more in Prometheus traffic than hundreds of
+   single-replica apps. See [Large Deployments](#large-deployments-high-replica-counts).
+5. **Scope policies deliberately** (named target or tight selectors). Avoid one
+   policy matching thousands of Deployments unless you accept larger status and
+   longer reconciles. See [Policy design at scale](#policy-design-at-scale).
+6. **Watch operator metrics**: `workqueue_depth`,
+   `attune_reconcile_duration_seconds`, Prometheus query errors. See
+   [Diagnosing with metrics](#diagnosing-with-metrics).
 
 ## Quick Start
 
@@ -45,7 +70,9 @@ value always overrides the preset.
 | `replicaCount` | 1 | 1 | 2 | 2 |
 
 The "workloads" count means the number of Deployments, StatefulSets, and
-DaemonSets targeted by AttunePolicy resources, not total pods.
+DaemonSets targeted by AttunePolicy resources, **not** total pods. High
+replica counts inside a few workloads are a separate dimension (see
+[Large Deployments](#large-deployments-high-replica-counts)).
 
 ### Override Behavior
 
@@ -64,8 +91,9 @@ requests set.
 ### Recommended CRD Settings by Cluster Size
 
 These settings are configured on your `AttunePolicy` or
-`AttuneDefaults` CRDs, not in the Helm chart. They affect per-policy
-reconciliation behavior.
+`AttuneDefaults` CRDs, not in the Helm chart. Prefer **`AttuneDefaults`**
+(cluster-wide or namespace-scoped) so every policy inherits the same scale
+profile without editing each CR.
 
 | Setting | small | medium | large | xlarge |
 |---------|-------|--------|-------|--------|
@@ -74,52 +102,124 @@ reconciliation behavior.
 | `queryStep` | 5m | 5m | 15m | 30m |
 | `maxConcurrentResizes` | 1 | 3 | 10 | 20 |
 
-**Why reduce `historyWindow` at scale?** Each Prometheus query fetches data
-for the entire window. At 5,000+ workloads, a 7-day window produces very
-large responses. Reducing to 48-72h keeps query latency manageable while
-still capturing weekly patterns (the operator uses hourly P95 aggregation
-internally).
+**Why reduce `historyWindow` at scale?** Each Prometheus range query fetches
+data for the entire window at `queryStep` resolution. Cost grows with window
+size and with the number of time series returned (often one series per pod
+container under current query shape). Reducing to 48-72h keeps query latency
+and response size manageable while still supporting time-of-day patterns (the
+operator buckets samples by hour of day internally).
+
+## Large Deployments (high replica counts)
+
+Query **count** scales with workloads (roughly two range queries per workload
+per reconcile for CPU and memory). Query **payload size** scales with how many
+pods match the workload's pod name regex.
+
+Today, default PromQL range queries are **not aggregated by container in
+Prometheus**. The backend returns a matrix with series for matching pods; the
+operator groups samples by container label client-side. Defaults
+(`historyWindow: 168h`, `queryStep: 5m`) yield on the order of **~2,000 samples
+per series**. Rough order of magnitude for **one** workload, **two** containers,
+CPU only (memory is a second query of similar shape):
+
+| Ready pods | Approx. series | Approx. samples (CPU query) |
+|------------|----------------|-----------------------------|
+| 10 | ~20 | ~40k |
+| 100 | ~200 | ~400k |
+| 500 | ~1,000 | ~2M |
+
+So one Deployment with 500 pods can stress Prometheus and the operator more
+than 50 Deployments of 2 pods each, even though the workload count is 1.
+
+**Ops mitigations (no code change required):**
+
+1. On policies that target high-replica apps, use a shorter `historyWindow`
+   and larger `queryStep` than the cluster default (or use the large/xlarge
+   CRD table for everything).
+2. Prefer **named** `targetRef` for those Deployments rather than a broad
+   selector that also pulls in other large fleets on the same policy.
+3. Raise `prometheusTimeout` only if queries complete but exceed the default
+   5m budget; first reduce query cost (window/step).
+4. Add Prometheus recording rules or capacity on the metrics backend if many
+   high-replica workloads reconcile often (shorter cooldown, many policies).
+
+See also [Current limitations](#current-limitations-operator-behavior-today)
+for what product changes would reduce this further.
+
+## Policy design at scale
+
+- **Named targets** are cheapest to reason about: one policy, one workload,
+  predictable status size and reconcile time.
+- **Label selectors** are convenient for platform teams. Cost grows with how
+  many workloads match **and** how large those workloads are. A single policy
+  matching hundreds of Deployments means hundreds of Prometheus query pairs
+  per cycle (bounded by the 10 in-policy workers and shared Prom QPS) and a
+  large `status.recommendations` list.
+- There is no requirement for "one policy per namespace." Use whatever
+  grouping matches ownership, but avoid one mega-selector over the entire
+  cluster unless you have tuned window/step/cooldown and accept longer
+  reconciles.
+- **GitOps ConfigMap export** (`updateStrategy.export.configMap`) can hold
+  full recommendation detail for automation while you still watch status
+  summaries; use when status size or GitOps workflow is a concern.
+
+### Status size
+
+Each reconcile can write `status.recommendations` with per-container current
+and recommended resources plus optional explanation chains. Resize history is
+capped (50 entries); the recommendations list is not.
+
+If status updates fail with object-size or etcd limit errors, or status
+patches become slow under conflict retries:
+
+1. Split the policy so fewer workloads share one CR.
+2. Use tighter selectors or named targets.
+3. Prefer ConfigMap export for full recommendation payloads when you need
+   every field for automation.
 
 ## Bottleneck Guide
 
 ### What breaks first
 
-1. **Reconcile throughput** (most common at scale). By default the controller
-   processes one AttunePolicy at a time. With hundreds of policies, the
-   work queue grows and recommendations become stale. Symptom:
+1. **Prometheus payload and server load** (common with high-replica workloads).
+   Symptom: slow or timed-out range queries, high Prometheus memory/CPU,
+   `attune_reconcile_duration_seconds` P99 large,
+   `Prometheus query timeout exceeded` on Ready. Fix: reduce `historyWindow`,
+   increase `queryStep`, increase `prometheusTimeout` only after cutting cost,
+   add recording rules or Prometheus capacity. See
+   [Large Deployments](#large-deployments-high-replica-counts).
+
+2. **Reconcile throughput** (common with many policies). By default the
+   controller processes one AttunePolicy at a time. With hundreds of policies,
+   the work queue grows and recommendations become stale. Symptom:
    `workqueue_depth` is consistently > 0,
    `workqueue_longest_running_processor_seconds` climbs. Fix: increase
    `maxConcurrentReconciles` (or set a `clusterSize` preset). The Prometheus
    rate limiter is shared across all goroutines, so concurrent reconciles
-   won't overwhelm Prometheus.
+   will not overwhelm Prometheus beyond the configured QPS.
 
    Within each policy, workloads are processed in parallel (up to 10
-   concurrent workers). This means a single policy targeting 200 Deployments
-   via label selector issues Prometheus queries concurrently instead of
-   serially, reducing recommendation latency from minutes to seconds. The
+   concurrent workers). A single policy targeting 200 Deployments via label
+   selector issues Prometheus queries concurrently instead of serially. The
    worker count is fixed; actual throughput is bounded by the Prometheus
    QPS rate limiter, not goroutine count.
 
-2. **Prometheus query rate**. Symptom: reconcile queue grows,
-   `attune_reconcile_duration_seconds` P99 increases. Fix: increase
-   `prometheusQPS` and `prometheusBurst`. This works in tandem with
-   `maxConcurrentReconciles`: more goroutines can issue queries in parallel,
-   but they share the same QPS budget.
+3. **Prometheus query rate**. Symptom: reconcile queue grows,
+   `attune_reconcile_duration_seconds` P99 increases even when individual
+   queries are small. Fix: increase `prometheusQPS` and `prometheusBurst`.
+   This works in tandem with `maxConcurrentReconciles`: more goroutines can
+   issue queries in parallel, but they share the same QPS budget.
 
-3. **Operator memory**. Symptom: OOMKilled pods. Fix: increase
+4. **Operator memory**. Symptom: OOMKilled pods. Fix: increase
    `resources.limits.memory`. Memory usage is roughly proportional to the
-   total number of pods across all targeted workloads.
-
-4. **Prometheus server load**. Symptom: slow or timed-out Prometheus
-   queries, high memory on Prometheus itself. Fix: reduce `historyWindow`
-   and increase `queryStep` on the CRDs. Increase `prometheusTimeout`
-   (default 5m) if queries are slow but completing within the timeout.
-   Consider Prometheus recording rules or Thanos query federation.
+   total number of pods in **watched** namespaces (informer cache), plus
+   temporary sample buffers during recommendation. Pods in the cache are
+   field-stripped; full cluster watch still dominates multi-tenant estates.
 
 5. **API server pressure**. Symptom: throttled API requests, slow pod list
-   responses. Fix: this is rarely the bottleneck since the operator uses
-   informer caches. See [API Server Pressure](#api-server-pressure) below
-   for details.
+   responses. Fix: this is rarely the bottleneck for read-only Recommend
+   mode because most reads use the informer cache. Resize waves and status
+   updates still hit the API. See [API Server Pressure](#api-server-pressure).
 
 6. **Informer cache memory**. Symptom: operator memory grows linearly with
    cluster size even for namespaces without policies. Fix: use
@@ -133,9 +233,10 @@ The operator exposes metrics on the `/metrics` endpoint:
 
 | Metric | What it tells you |
 |--------|-------------------|
-| `attune_reconcile_duration_seconds` | How long each policy reconcile takes. P99 > 30s means queries are slow. |
+| `attune_reconcile_duration_seconds` | How long each policy reconcile takes. P99 > 30s means queries or workload volume are expensive. |
 | `attune_reconcile_duration_seconds_count` | Total reconciles. Compare with error count. |
 | `attune_reconcile_errors_total` | Errors per policy. Prometheus timeouts show here. |
+| `attune_prometheus_query_duration_seconds` | Per-query latency when exposed; pair with reconcile duration. |
 | `attune_resize_total` | Actual in-place resizes performed. |
 | `attune_eviction_total` | Eviction fallback attempts when in-place resize is not possible. |
 | `attune_reverts_total` | Reverted in-place resizes (safety mechanism). |
@@ -144,16 +245,39 @@ The operator exposes metrics on the `/metrics` endpoint:
 
 ### Prometheus sizing for Attune
 
-Each AttunePolicy generates 2-4 Prometheus queries per reconcile cycle
-(CPU usage, memory usage, OOM events, restart events). At steady state with
-a 1-hour cooldown:
+Each AttunePolicy generates on the order of **2 range queries per workload**
+per reconcile cycle for recommendations (CPU and memory), plus additional
+instant queries for safety (throttle, optional SLO) when resizes are
+in flight. At steady state with a 1-hour cooldown:
 
-| Workloads | Queries/hour | Prometheus impact |
-|-----------|-------------|-------------------|
-| 50 | ~200 | Negligible |
-| 500 | ~2,000 | Low (< 1% of a typical Prometheus) |
+| Workloads | Queries/hour (order of magnitude) | Prometheus impact |
+|-----------|-----------------------------------|-------------------|
+| 50 | ~200 | Negligible if pods per workload are modest |
+| 500 | ~2,000 | Low for query rate; watch payload if many high-replica apps |
 | 5,000 | ~20,000 | Moderate (ensure Prometheus has 4+ cores, 8Gi+ memory) |
 | 10,000+ | ~40,000+ | Significant (use recording rules or Thanos) |
+
+These figures estimate **query rate**, not response size. High-replica
+workloads can make each query much more expensive; see
+[Large Deployments](#large-deployments-high-replica-counts).
+
+## Current limitations (operator behavior today)
+
+Honest constraints of the current code path. Ops settings above still apply;
+these are the product gaps that would change the guide if fixed.
+
+| Limitation | Impact | Ops workaround today |
+|------------|--------|----------------------|
+| Prom range queries not aggregated server-side by container | Payload scales with pods × history | Shorter window, larger step, split policies |
+| Full pod list per workload every reconcile (including Recommend) | CPU/memory for large fleets even without resize | Fewer workloads per policy; longer cooldown |
+| Unbounded `status.recommendations` size | Large CR status when many workloads match | Split policies; ConfigMap export |
+| Fixed 10 workload workers per policy | Not Helm-tunable | Rely on `prometheusQPS` and `maxConcurrentReconciles` |
+| Many policies sharing the same cooldown can unlock together | Resize/API burst after long idle | Stagger cooldowns slightly per policy |
+
+When product changes land (for example server-side PromQL aggregation or
+status size caps), this section and the large-Deployment estimates will be
+updated. The ops checklist (presets, namespace scoping, cooldown, metrics)
+remains valid either way.
 
 ## API Server Pressure
 
@@ -183,7 +307,9 @@ only during resize phases:
 
 At steady state (Recommend mode, 1-hour cooldown), a cluster with 500
 policies generates roughly 500-1000 API writes per hour, which is
-negligible for any production API server.
+negligible for any production API server. Enabling Auto mode after a long
+Recommend period can produce a larger write wave; use
+`maxConcurrentResizes` and per-cycle budgets to cap that.
 
 ### Cloud provider APF limits
 

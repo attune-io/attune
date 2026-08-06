@@ -685,6 +685,10 @@ kubectl logs -n attune-system deploy/attune-controller-manager | grep "deletion 
 
 ## Large cluster performance
 
+Start with the [Scaling Guide](scaling.md) ops checklist (`clusterSize`,
+`watchNamespaces`, CRD window/step/cooldown). The notes below match common
+symptoms to those knobs.
+
 ### Stale recommendations (slow reconciliation)
 
 If `workqueue_depth` is consistently > 0 and
@@ -693,8 +697,11 @@ keep up with the reconcile queue. Solutions (in order of impact):
 
 1. **Increase `maxConcurrentReconciles`** (or use a `clusterSize` preset).
 2. **Scope with `--watch-namespaces`** to reduce informer cache size.
-3. Policies targeting many workloads via label selector now process up to
+3. Policies targeting many workloads via label selector process up to
    10 workloads in parallel per reconcile cycle.
+4. **High-replica Deployments**: reduce `historyWindow` and increase
+   `queryStep` (query payload scales with pods today). See
+   [Large Deployments](scaling.md#large-deployments-high-replica-counts).
 
 See the [Scaling Guide](scaling.md) for tuning details and preset values.
 
@@ -702,7 +709,9 @@ See the [Scaling Guide](scaling.md) for tuning details and preset values.
 
 If the operator pod is OOMKilled or uses unexpectedly high memory, the
 informer cache may be caching too many objects. Use `--watch-namespaces`
-to limit the cache to the namespaces where your policies exist.
+to limit the cache to the namespaces where your policies exist. Also raise
+operator memory via a `clusterSize` preset if you intentionally watch a
+large pod count.
 
 ## Resizes skipped due to stale recommendations
 
