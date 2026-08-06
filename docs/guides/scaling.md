@@ -284,7 +284,7 @@ legacy behavior or richer status.
 | Strip status explanations | Off (include) | `statusIncludeExplanations` | `updateStrategy.includeExplanationsInStatus` |
 | Workload workers per policy | 10 | `maxWorkloadWorkers` / `--max-workload-workers` | - |
 | Requeue jitter | 2m | `requeueJitter` / `--requeue-jitter` | - |
-| Lazy pod lists | Recommend/Observe skip full lists | - | - (automatic) |
+| Lazy pod lists | Observe skips full lists; Recommend still lists for Deferred/Infeasible UX | - | - |
 
 ### PromQL aggregation
 
