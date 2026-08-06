@@ -393,6 +393,13 @@ spec:
                     - clusterName
                     - region
                     type: object
+                  cpuRecordingMetric:
+                    description: |-
+                      CPURecordingMetric is an optional pre-aggregated Prometheus metric name
+                      used instead of rate(container_cpu_usage_seconds_total). Labels must include
+                      namespace, pod, and container. When set, the operator does not wrap the
+                      metric in rate(). Pair with MemoryRecordingMetric for a recording-rules-only path.
+                    type: string
                   datadog:
                     description: Datadog configures a Datadog metrics source.
                     properties:
@@ -425,6 +432,12 @@ spec:
                       HistoryWindow is the time window for historical metrics data.
                       Defaults to 7d (168h) if not specified.
                     type: string
+                  memoryRecordingMetric:
+                    description: |-
+                      MemoryRecordingMetric is an optional pre-aggregated Prometheus metric name
+                      used instead of container_memory_working_set_bytes. Same label requirements
+                      as CPURecordingMetric.
+                    type: string
                   minimumDataPoints:
                     description: |-
                       MinimumDataPoints is the minimum number of data points required
@@ -435,6 +448,19 @@ spec:
                     format: int32
                     minimum: 1
                     type: integer
+                  podAggregation:
+                    description: |-
+                      PodAggregation controls how multi-pod series are reduced in Prometheus
+                      range queries for this policy.
+                        Max (default): max by (container) — size for the busiest pod; O(containers) series.
+                        Avg: avg by (container) across pods.
+                        None: no aggregation (one series per pod; expensive for high replica counts).
+                      Datadog and CloudWatch already group by container; this field applies to Prometheus.
+                    enum:
+                    - Max
+                    - Avg
+                    - None
+                    type: string
                   prometheus:
                     description: Prometheus configures a Prometheus metrics source.
                     properties:
@@ -638,6 +664,12 @@ spec:
                             type: object
                         type: object
                     type: object
+                  includeExplanationsInStatus:
+                    description: |-
+                      IncludeExplanationsInStatus controls whether recommendation explanation
+                      chains are written to status. Set to false on large policies to shrink
+                      CR size. Default: true.
+                    type: boolean
                   initialSizing:
                     description: |-
                       InitialSizing enables a mutating admission webhook that sets resource
@@ -653,6 +685,16 @@ spec:
                       concurrently within a single reconcile cycle. Default: 1 (serial).
                     format: int32
                     maximum: 50
+                    minimum: 1
+                    type: integer
+                  maxStatusRecommendations:
+                    description: |-
+                      MaxStatusRecommendations caps how many workload recommendations are
+                      written to status.recommendations. Resizes still use the full in-memory
+                      set. When the cap is hit, entries with the largest absolute CPU+memory
+                      request change are kept. Default: 100 (operator may override via flag).
+                    format: int32
+                    maximum: 500
                     minimum: 1
                     type: integer
                   maxTotalCpuIncrease:
@@ -1233,6 +1275,13 @@ spec:
                     - clusterName
                     - region
                     type: object
+                  cpuRecordingMetric:
+                    description: |-
+                      CPURecordingMetric is an optional pre-aggregated Prometheus metric name
+                      used instead of rate(container_cpu_usage_seconds_total). Labels must include
+                      namespace, pod, and container. When set, the operator does not wrap the
+                      metric in rate(). Pair with MemoryRecordingMetric for a recording-rules-only path.
+                    type: string
                   datadog:
                     description: Datadog configures a Datadog metrics source.
                     properties:
@@ -1265,6 +1314,12 @@ spec:
                       HistoryWindow is the time window for historical metrics data.
                       Defaults to 7d (168h) if not specified.
                     type: string
+                  memoryRecordingMetric:
+                    description: |-
+                      MemoryRecordingMetric is an optional pre-aggregated Prometheus metric name
+                      used instead of container_memory_working_set_bytes. Same label requirements
+                      as CPURecordingMetric.
+                    type: string
                   minimumDataPoints:
                     description: |-
                       MinimumDataPoints is the minimum number of data points required
@@ -1275,6 +1330,19 @@ spec:
                     format: int32
                     minimum: 1
                     type: integer
+                  podAggregation:
+                    description: |-
+                      PodAggregation controls how multi-pod series are reduced in Prometheus
+                      range queries for this policy.
+                        Max (default): max by (container) — size for the busiest pod; O(containers) series.
+                        Avg: avg by (container) across pods.
+                        None: no aggregation (one series per pod; expensive for high replica counts).
+                      Datadog and CloudWatch already group by container; this field applies to Prometheus.
+                    enum:
+                    - Max
+                    - Avg
+                    - None
+                    type: string
                   prometheus:
                     description: Prometheus configures a Prometheus metrics source.
                     properties:
@@ -1478,6 +1546,12 @@ spec:
                             type: object
                         type: object
                     type: object
+                  includeExplanationsInStatus:
+                    description: |-
+                      IncludeExplanationsInStatus controls whether recommendation explanation
+                      chains are written to status. Set to false on large policies to shrink
+                      CR size. Default: true.
+                    type: boolean
                   initialSizing:
                     description: |-
                       InitialSizing enables a mutating admission webhook that sets resource
@@ -1493,6 +1567,16 @@ spec:
                       concurrently within a single reconcile cycle. Default: 1 (serial).
                     format: int32
                     maximum: 50
+                    minimum: 1
+                    type: integer
+                  maxStatusRecommendations:
+                    description: |-
+                      MaxStatusRecommendations caps how many workload recommendations are
+                      written to status.recommendations. Resizes still use the full in-memory
+                      set. When the cap is hit, entries with the largest absolute CPU+memory
+                      request change are kept. Default: 100 (operator may override via flag).
+                    format: int32
+                    maximum: 500
                     minimum: 1
                     type: integer
                   maxTotalCpuIncrease:
@@ -2077,6 +2161,13 @@ spec:
                     - clusterName
                     - region
                     type: object
+                  cpuRecordingMetric:
+                    description: |-
+                      CPURecordingMetric is an optional pre-aggregated Prometheus metric name
+                      used instead of rate(container_cpu_usage_seconds_total). Labels must include
+                      namespace, pod, and container. When set, the operator does not wrap the
+                      metric in rate(). Pair with MemoryRecordingMetric for a recording-rules-only path.
+                    type: string
                   datadog:
                     description: Datadog configures a Datadog metrics source.
                     properties:
@@ -2109,6 +2200,12 @@ spec:
                       HistoryWindow is the time window for historical metrics data.
                       Defaults to 7d (168h) if not specified.
                     type: string
+                  memoryRecordingMetric:
+                    description: |-
+                      MemoryRecordingMetric is an optional pre-aggregated Prometheus metric name
+                      used instead of container_memory_working_set_bytes. Same label requirements
+                      as CPURecordingMetric.
+                    type: string
                   minimumDataPoints:
                     description: |-
                       MinimumDataPoints is the minimum number of data points required
@@ -2119,6 +2216,19 @@ spec:
                     format: int32
                     minimum: 1
                     type: integer
+                  podAggregation:
+                    description: |-
+                      PodAggregation controls how multi-pod series are reduced in Prometheus
+                      range queries for this policy.
+                        Max (default): max by (container) — size for the busiest pod; O(containers) series.
+                        Avg: avg by (container) across pods.
+                        None: no aggregation (one series per pod; expensive for high replica counts).
+                      Datadog and CloudWatch already group by container; this field applies to Prometheus.
+                    enum:
+                    - Max
+                    - Avg
+                    - None
+                    type: string
                   prometheus:
                     description: Prometheus configures a Prometheus metrics source.
                     properties:
@@ -2410,6 +2520,12 @@ spec:
                             type: object
                         type: object
                     type: object
+                  includeExplanationsInStatus:
+                    description: |-
+                      IncludeExplanationsInStatus controls whether recommendation explanation
+                      chains are written to status. Set to false on large policies to shrink
+                      CR size. Default: true.
+                    type: boolean
                   initialSizing:
                     description: |-
                       InitialSizing enables a mutating admission webhook that sets resource
@@ -2425,6 +2541,16 @@ spec:
                       concurrently within a single reconcile cycle. Default: 1 (serial).
                     format: int32
                     maximum: 50
+                    minimum: 1
+                    type: integer
+                  maxStatusRecommendations:
+                    description: |-
+                      MaxStatusRecommendations caps how many workload recommendations are
+                      written to status.recommendations. Resizes still use the full in-memory
+                      set. When the cap is hit, entries with the largest absolute CPU+memory
+                      request change are kept. Default: 100 (operator may override via flag).
+                    format: int32
+                    maximum: 500
                     minimum: 1
                     type: integer
                   maxTotalCpuIncrease:

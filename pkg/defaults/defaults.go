@@ -366,6 +366,18 @@ func MergeMetricsSource(policy *attunev1alpha1.MetricsSource, defaults *attunev1
 		policy.RateWindow = defaults.RateWindow
 		inherited = append(inherited, "rateWindow")
 	}
+	if policy.PodAggregation == "" && defaults.PodAggregation != "" {
+		policy.PodAggregation = defaults.PodAggregation
+		inherited = append(inherited, "podAggregation")
+	}
+	if policy.CPURecordingMetric == "" && defaults.CPURecordingMetric != "" {
+		policy.CPURecordingMetric = defaults.CPURecordingMetric
+		inherited = append(inherited, "cpuRecordingMetric")
+	}
+	if policy.MemoryRecordingMetric == "" && defaults.MemoryRecordingMetric != "" {
+		policy.MemoryRecordingMetric = defaults.MemoryRecordingMetric
+		inherited = append(inherited, "memoryRecordingMetric")
+	}
 	return inherited
 }
 
@@ -398,6 +410,14 @@ func MergeUpdateStrategy(policy *attunev1alpha1.UpdateStrategy, defaults *attune
 	if policy.MaxConcurrentResizes == 0 && defaults.MaxConcurrentResizes != 0 {
 		policy.MaxConcurrentResizes = defaults.MaxConcurrentResizes
 		inherited = append(inherited, "maxConcurrentResizes")
+	}
+	if policy.MaxStatusRecommendations == nil && defaults.MaxStatusRecommendations != nil {
+		policy.MaxStatusRecommendations = defaults.MaxStatusRecommendations
+		inherited = append(inherited, "maxStatusRecommendations")
+	}
+	if policy.IncludeExplanationsInStatus == nil && defaults.IncludeExplanationsInStatus != nil {
+		policy.IncludeExplanationsInStatus = defaults.IncludeExplanationsInStatus
+		inherited = append(inherited, "includeExplanationsInStatus")
 	}
 	if policy.MaxTotalCPUIncrease == nil && defaults.MaxTotalCPUIncrease != nil {
 		policy.MaxTotalCPUIncrease = defaults.MaxTotalCPUIncrease

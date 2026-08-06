@@ -463,13 +463,13 @@ func TestGetPodsForWorkload_ReturnsMatchingPods(t *testing.T) {
 
 func TestBuildPrometheusQuery_CPU(t *testing.T) {
 	query := buildPrometheusQuery("production", "api-server-[a-z0-9]+-[a-z0-9]{5}", "main", "cpu", 5*time.Minute)
-	expected := `rate(container_cpu_usage_seconds_total{namespace="production",pod=~"api-server-[a-z0-9]+-[a-z0-9]{5}",container="main"}[5m])`
+	expected := `max by (container) (rate(container_cpu_usage_seconds_total{namespace="production",pod=~"api-server-[a-z0-9]+-[a-z0-9]{5}",container="main"}[5m]))`
 	assert.Equal(t, expected, query)
 }
 
 func TestBuildPrometheusQuery_Memory(t *testing.T) {
 	query := buildPrometheusQuery("production", "api-server-[a-z0-9]+-[a-z0-9]{5}", "main", "memory", 5*time.Minute)
-	expected := `container_memory_working_set_bytes{namespace="production",pod=~"api-server-[a-z0-9]+-[a-z0-9]{5}",container="main"}`
+	expected := `max by (container) (container_memory_working_set_bytes{namespace="production",pod=~"api-server-[a-z0-9]+-[a-z0-9]{5}",container="main"})`
 	assert.Equal(t, expected, query)
 }
 
@@ -1721,7 +1721,7 @@ func TestComputeRecommendations_HappyPath(t *testing.T) {
 		},
 	}
 
-	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
+	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
 	require.Len(t, rec.Containers, 1)
@@ -1741,7 +1741,7 @@ func TestComputeRecommendations_InsufficientDataPoints(t *testing.T) {
 		},
 	}
 
-	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
+	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
 	assert.NoError(t, err)
 	assert.Nil(t, rec) // No recommendation because data points are insufficient
 }
@@ -1769,7 +1769,7 @@ func TestComputeRecommendations_AllNaNInfSamplesLogsDataQuality(t *testing.T) {
 		},
 	}
 
-	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
+	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
 	assert.NoError(t, err)
 	assert.Nil(t, rec, "no recommendation when all samples are NaN")
 }
@@ -1808,7 +1808,7 @@ func TestComputeRecommendations_CPUAllNaNMemoryValid(t *testing.T) {
 		},
 	}
 
-	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
+	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, rec, "recommendation should be produced from memory data even when CPU is all NaN")
 	require.Len(t, rec.Containers, 1)
@@ -1831,7 +1831,7 @@ func TestComputeRecommendations_QueryError(t *testing.T) {
 		},
 	}
 
-	rec, qErrors, failedMetricTypes, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
+	rec, qErrors, failedMetricTypes, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
 	assert.NoError(t, err)
 	assert.Nil(t, rec)
 	assert.Greater(t, qErrors, 0, "query failures should be counted")
@@ -1852,7 +1852,7 @@ func TestComputeRecommendations_PartialQueryErrorTracksFailedMetricType(t *testi
 		},
 	}
 
-	rec, qErrors, failedMetricTypes, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
+	rec, qErrors, failedMetricTypes, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
 	assert.Equal(t, 1, qErrors)
@@ -1876,7 +1876,7 @@ func TestComputeRecommendations_ContextCancelledDuringParallelQueries(t *testing
 		},
 	}
 
-	rec, qErrors, _, _, err := reconciler.computeRecommendations(ctx, policy, deploy, mc, nil, nil, nil, nil)
+	rec, qErrors, _, _, _, err := reconciler.computeRecommendations(ctx, policy, deploy, mc, nil, nil, nil, nil)
 	assert.NoError(t, err)
 	assert.Nil(t, rec)
 	assert.Equal(t, 2, qErrors, "both queries should report failure when context is cancelled")
@@ -1896,7 +1896,7 @@ func TestComputeRecommendations_EmptyContainers(t *testing.T) {
 
 	mc := &mockCollector{}
 
-	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, emptyDeploy, mc, nil, nil, nil, nil)
+	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, emptyDeploy, mc, nil, nil, nil, nil)
 	assert.NoError(t, err)
 	assert.Nil(t, rec)
 }
@@ -1916,7 +1916,7 @@ func TestComputeRecommendations_AllowDecreaseBlocked(t *testing.T) {
 		},
 	}
 
-	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
+	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
 	require.Len(t, rec.Containers, 1)
@@ -1942,7 +1942,7 @@ func TestComputeRecommendations_CPUAllowDecreaseNilAllowsDecrease(t *testing.T) 
 		},
 	}
 
-	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
+	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
 	require.Len(t, rec.Containers, 1)
@@ -2108,7 +2108,7 @@ func TestComputeRecommendations_CPUAllowDecreaseBlocked(t *testing.T) {
 		},
 	}
 
-	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
+	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
 	require.Len(t, rec.Containers, 1)
@@ -2142,7 +2142,7 @@ func TestComputeRecommendations_RequestsOnly(t *testing.T) {
 				},
 			}
 
-			rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
+			rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
 			require.NoError(t, err)
 			require.NotNil(t, rec)
 			require.Len(t, rec.Containers, 1)
@@ -2182,7 +2182,7 @@ func TestComputeRecommendations_RequestsAndLimits(t *testing.T) {
 		},
 	}
 
-	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
+	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
 	require.Len(t, rec.Containers, 1)
@@ -2230,7 +2230,7 @@ func TestComputeRecommendations_BatchesQueriesPerWorkload(t *testing.T) {
 		},
 	}
 
-	rec, qErrors, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
+	rec, qErrors, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
 	assert.Zero(t, qErrors)
@@ -2258,7 +2258,7 @@ func TestComputeRecommendations_UsesPodLevelSeriesWithoutExtraQuery(t *testing.T
 		},
 	}
 
-	rec, qErrors, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
+	rec, qErrors, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
 	assert.Zero(t, qErrors)
@@ -2278,7 +2278,7 @@ func TestComputeRecommendations_PopulatesExplanation(t *testing.T) {
 		},
 	}
 
-	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
+	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
 	require.Len(t, rec.Containers, 1)
@@ -6428,7 +6428,7 @@ func TestComputeRecommendations_ExcludedContainers(t *testing.T) {
 		},
 	}
 
-	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
+	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
 
@@ -6450,7 +6450,7 @@ func TestComputeRecommendations_ExcludeAllContainers(t *testing.T) {
 		},
 	}
 
-	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
+	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
 	assert.NoError(t, err)
 	assert.Nil(t, rec, "all containers excluded, should return nil")
 }
@@ -6503,7 +6503,7 @@ func TestComputeRecommendations_KnownSidecarsExcludedByDefault(t *testing.T) {
 	}
 
 	// Pass nil excludeSet so computeRecommendations builds via EffectiveExcludedContainers.
-	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
+	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
 	assert.Len(t, rec.Containers, 1)
@@ -6557,7 +6557,7 @@ func TestComputeRecommendations_KnownSidecarsOptOut(t *testing.T) {
 		},
 	}
 
-	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
+	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
 	names := make([]string, 0, len(rec.Containers))
@@ -7457,7 +7457,7 @@ func TestComputeRecommendations_NanInfSamplesMetric(t *testing.T) {
 	}
 
 	before := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("default", "test-policy", "main", "cpu"))
-	rec, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
+	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil)
 	assert.NoError(t, err)
 	assert.Nil(t, rec, "should produce no recommendation when all data is NaN/Inf")
 	after := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("default", "test-policy", "main", "cpu"))

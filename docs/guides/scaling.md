@@ -115,21 +115,22 @@ Query **count** scales with workloads (roughly two range queries per workload
 per reconcile for CPU and memory). Query **payload size** scales with how many
 pods match the workload's pod name regex.
 
-Today, default PromQL range queries are **not aggregated by container in
-Prometheus**. The backend returns a matrix with series for matching pods; the
-operator groups samples by container label client-side. Defaults
+Default PromQL uses **`max by (container)`** so series count is about the
+number of containers, not pods. Set `metricsSource.podAggregation: None` to
+restore the legacy path (one series per pod). With legacy `None`, defaults
 (`historyWindow: 168h`, `queryStep: 5m`) yield on the order of **~2,000 samples
 per series**. Rough order of magnitude for **one** workload, **two** containers,
-CPU only (memory is a second query of similar shape):
+CPU only, **None** aggregation:
 
-| Ready pods | Approx. series | Approx. samples (CPU query) |
-|------------|----------------|-----------------------------|
-| 10 | ~20 | ~40k |
-| 100 | ~200 | ~400k |
-| 500 | ~1,000 | ~2M |
+| Ready pods | Approx. series (None) | Approx. series (Max, default) |
+|------------|----------------------|-------------------------------|
+| 10 | ~20 | ~2 |
+| 100 | ~200 | ~2 |
+| 500 | ~1,000 | ~2 |
 
-So one Deployment with 500 pods can stress Prometheus and the operator more
-than 50 Deployments of 2 pods each, even though the workload count is 1.
+With default Max aggregation, long windows still cost time-series length; use
+the CRD window/step table for Prometheus load. With None, one Deployment with
+500 pods can still stress Prometheus more than many single-replica apps.
 
 **Ops mitigations (no code change required):**
 
@@ -261,23 +262,78 @@ These figures estimate **query rate**, not response size. High-replica
 workloads can make each query much more expensive; see
 [Large Deployments](#large-deployments-high-replica-counts).
 
-## Current limitations (operator behavior today)
+## Ready reason: PrometheusSeriesCapped
 
-Honest constraints of the current code path. Ops settings above still apply;
-these are the product gaps that would change the guide if fixed.
+When a range query returns more series than `--max-prometheus-series`, Attune
+keeps a partial result (preferring at least one series per container) and may
+set Ready reason `PrometheusSeriesCapped`. Raise the cap, or keep the default
+`podAggregation: Max` so series counts stay small.
 
-| Limitation | Impact | Ops workaround today |
-|------------|--------|----------------------|
-| Prom range queries not aggregated server-side by container | Payload scales with pods × history | Shorter window, larger step, split policies |
-| Full pod list per workload every reconcile (including Recommend) | CPU/memory for large fleets even without resize | Fewer workloads per policy; longer cooldown |
-| Unbounded `status.recommendations` size | Large CR status when many workloads match | Split policies; ConfigMap export |
-| Fixed 10 workload workers per policy | Not Helm-tunable | Rely on `prometheusQPS` and `maxConcurrentReconciles` |
-| Many policies sharing the same cooldown can unlock together | Resize/API burst after long idle | Stagger cooldowns slightly per policy |
+## Performance features (built-in)
 
-When product changes land (for example server-side PromQL aggregation or
-status size caps), this section and the large-Deployment estimates will be
-updated. The ops checklist (presets, namespace scoping, cooldown, metrics)
-remains valid either way.
+Attune includes several scale controls that reduce Prometheus payload and
+operator work. Defaults favor high-replica fleets; override when you need
+legacy behavior or richer status.
+
+| Feature | Default | Helm / flag | Policy field |
+|---------|---------|-------------|--------------|
+| PromQL **max by (container)** aggregation | On (`Max`) | - | `metricsSource.podAggregation`: `Max` / `Avg` / `None` |
+| Sample downsampling before percentiles | 10000 samples | `maxProfileSamples` / `--max-profile-samples` | - |
+| Prometheus series cap per range query | 5000 | `maxPrometheusSeries` / `--max-prometheus-series` | - |
+| Status recommendation cap | 100 | `maxStatusRecommendations` | `updateStrategy.maxStatusRecommendations` |
+| Strip status explanations | Off (include) | `statusIncludeExplanations` | `updateStrategy.includeExplanationsInStatus` |
+| Workload workers per policy | 10 | `maxWorkloadWorkers` / `--max-workload-workers` | - |
+| Requeue jitter | 2m | `requeueJitter` / `--requeue-jitter` | - |
+| Lazy pod lists | Observe skips full lists; Recommend still lists for Deferred/Infeasible UX | - | - |
+
+### PromQL aggregation
+
+Default queries look like:
+
+```promql
+max by (container) (rate(container_cpu_usage_seconds_total{namespace="...",pod=~"..."}[5m]))
+```
+
+That keeps the matrix size near **O(containers)** instead of **O(pods)**. Use
+`podAggregation: None` only if you need the legacy multi-pod sample pool for
+experiments. Prefer **Max** for production rightsizing (size for the busiest pod).
+
+### Recording rules (optional metrics path)
+
+Set both recording metric names to query pre-aggregated rules instead of raw
+cadvisor series (no `rate()` wrapper on CPU when `cpuRecordingMetric` is set):
+
+```yaml
+spec:
+  metricsSource:
+    prometheus:
+      address: http://prometheus.monitoring.svc:9090
+    cpuRecordingMetric: attune:container_cpu:rate5m
+    memoryRecordingMetric: attune:container_memory:working_set
+    podAggregation: Max   # still applied around the recording metric
+```
+
+Recording rules must expose labels `namespace`, `pod`, and `container`.
+
+### Multi-instance namespace sharding
+
+`watchNamespaces` already limits each operator process to a namespace list.
+To shard a large cluster:
+
+1. Deploy two (or more) Attune releases with **disjoint** `watchNamespaces`.
+2. Give each its own Helm release name and leader-election ID (separate
+   installs) so leaders do not fight.
+3. Ensure every namespace that has AttunePolicy objects is covered by exactly
+   one instance.
+
+Do not point two instances at the same policy namespaces.
+
+### Large Deployments after aggregation
+
+With default `Max` aggregation, high replica counts no longer explode
+Prometheus series count for recommendations. Payload still grows with
+`historyWindow` and `queryStep` (time series length). Keep the CRD
+window/step table above for Prometheus CPU and operator sample caps.
 
 ## API Server Pressure
 

@@ -71,6 +71,12 @@ const (
 	// names unless the policy or AttuneDefaults sets excludeKnownSidecars
 	// to false.
 	DefaultExcludeKnownSidecars = true
+	// DefaultPodAggregation is Max: max by (container) for PromQL.
+	DefaultPodAggregation = "Max"
+	// DefaultMaxStatusRecommendations caps status.recommendations size.
+	DefaultMaxStatusRecommendations int32 = 100
+	// DefaultIncludeExplanationsInStatus keeps explanation chains in status.
+	DefaultIncludeExplanationsInStatus = true
 )
 
 // KnownSidecarContainers is the curated list of container names that are

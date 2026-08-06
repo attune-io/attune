@@ -62,6 +62,26 @@ spec:
             {{- if $mcr }}
             - --max-concurrent-reconciles={{ $mcr }}
             {{- end }}
+            {{- if .Values.maxWorkloadWorkers }}
+            - --max-workload-workers={{ .Values.maxWorkloadWorkers }}
+            {{- end }}
+            {{- if hasKey .Values "requeueJitter" }}
+            {{- if ne (.Values.requeueJitter | toString) "" }}
+            - --requeue-jitter={{ .Values.requeueJitter }}
+            {{- end }}
+            {{- end }}
+            {{- if hasKey .Values "maxProfileSamples" }}
+            - --max-profile-samples={{ .Values.maxProfileSamples }}
+            {{- end }}
+            {{- if hasKey .Values "maxPrometheusSeries" }}
+            - --max-prometheus-series={{ .Values.maxPrometheusSeries }}
+            {{- end }}
+            {{- if hasKey .Values "maxStatusRecommendations" }}
+            - --max-status-recommendations={{ .Values.maxStatusRecommendations }}
+            {{- end }}
+            {{- if hasKey .Values "statusIncludeExplanations" }}
+            - --status-include-explanations={{ .Values.statusIncludeExplanations }}
+            {{- end }}
             {{- if .Values.watchNamespaces }}
             - --watch-namespaces={{ join "," .Values.watchNamespaces }}
             {{- end }}

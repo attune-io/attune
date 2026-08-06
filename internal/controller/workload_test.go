@@ -513,7 +513,7 @@ func TestWorkload_BuildPrometheusQuery(t *testing.T) {
 			podRegex:   "my-app-[a-z0-9]+-[a-z0-9]{5}",
 			metric:     "cpu",
 			rateWindow: defaultWindow,
-			want:       `rate(container_cpu_usage_seconds_total{namespace="prod",pod=~"my-app-[a-z0-9]+-[a-z0-9]{5}"}[5m])`,
+			want:       `max by (container) (rate(container_cpu_usage_seconds_total{namespace="prod",pod=~"my-app-[a-z0-9]+-[a-z0-9]{5}"}[5m]))`,
 		},
 		{
 			name:       "cpu metric with container filter",
@@ -522,7 +522,7 @@ func TestWorkload_BuildPrometheusQuery(t *testing.T) {
 			container:  "web",
 			metric:     "cpu",
 			rateWindow: defaultWindow,
-			want:       `rate(container_cpu_usage_seconds_total{namespace="prod",pod=~"my-app-[a-z0-9]+-[a-z0-9]{5}",container="web"}[5m])`,
+			want:       `max by (container) (rate(container_cpu_usage_seconds_total{namespace="prod",pod=~"my-app-[a-z0-9]+-[a-z0-9]{5}",container="web"}[5m]))`,
 		},
 		{
 			name:       "cpu metric with 15m rate window",
@@ -530,7 +530,7 @@ func TestWorkload_BuildPrometheusQuery(t *testing.T) {
 			podRegex:   "my-app-.*",
 			metric:     "cpu",
 			rateWindow: 15 * time.Minute,
-			want:       `rate(container_cpu_usage_seconds_total{namespace="prod",pod=~"my-app-.*"}[15m])`,
+			want:       `max by (container) (rate(container_cpu_usage_seconds_total{namespace="prod",pod=~"my-app-.*"}[15m]))`,
 		},
 		{
 			name:       "cpu metric with 1h rate window",
@@ -538,7 +538,7 @@ func TestWorkload_BuildPrometheusQuery(t *testing.T) {
 			podRegex:   "app-.*",
 			metric:     "cpu",
 			rateWindow: time.Hour,
-			want:       `rate(container_cpu_usage_seconds_total{namespace="prod",pod=~"app-.*"}[1h])`,
+			want:       `max by (container) (rate(container_cpu_usage_seconds_total{namespace="prod",pod=~"app-.*"}[1h]))`,
 		},
 		{
 			name:       "memory metric with statefulset regex",
@@ -546,7 +546,7 @@ func TestWorkload_BuildPrometheusQuery(t *testing.T) {
 			podRegex:   "worker-[0-9]+",
 			metric:     "memory",
 			rateWindow: defaultWindow,
-			want:       `container_memory_working_set_bytes{namespace="staging",pod=~"worker-[0-9]+"}`,
+			want:       `max by (container) (container_memory_working_set_bytes{namespace="staging",pod=~"worker-[0-9]+"})`,
 		},
 		{
 			name:       "memory metric with container filter",
@@ -555,7 +555,7 @@ func TestWorkload_BuildPrometheusQuery(t *testing.T) {
 			container:  "main",
 			metric:     "memory",
 			rateWindow: defaultWindow,
-			want:       `container_memory_working_set_bytes{namespace="staging",pod=~"worker-[0-9]+",container="main"}`,
+			want:       `max by (container) (container_memory_working_set_bytes{namespace="staging",pod=~"worker-[0-9]+",container="main"})`,
 		},
 		{
 			name:       "unknown metric returns empty",

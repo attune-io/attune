@@ -1009,6 +1009,38 @@
       "default": "",
       "description": "Maximum number of AttunePolicy reconciles running in parallel. Auto-set by clusterSize preset if empty."
     },
+    "maxWorkloadWorkers": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 10,
+      "description": "Maximum parallel workers processing workloads within one AttunePolicy reconcile."
+    },
+    "requeueJitter": {
+      "type": "string",
+      "default": "2m",
+      "description": "Maximum deterministic requeue jitter (duration string). Empty or 0s disables."
+    },
+    "maxProfileSamples": {
+      "type": "integer",
+      "default": 10000,
+      "description": "Maximum samples passed to BuildProfile after downsampling. Negative disables."
+    },
+    "maxPrometheusSeries": {
+      "type": "integer",
+      "default": 5000,
+      "description": "Maximum series kept from each Prometheus range query. Negative disables."
+    },
+    "maxStatusRecommendations": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 100,
+      "description": "Default cap for status.recommendations entries."
+    },
+    "statusIncludeExplanations": {
+      "type": "boolean",
+      "default": true,
+      "description": "Write recommendation explanation chains into status."
+    },
     "watchNamespaces": {
       "type": "array",
       "items": {

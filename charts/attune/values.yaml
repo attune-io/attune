@@ -296,6 +296,28 @@ prometheusTimeout: "5m"
 # Increase for large clusters with many policies (e.g. 4 for 200+ policies).
 maxConcurrentReconciles: ""
 
+# -- Maximum parallel workers processing workloads within one AttunePolicy reconcile.
+# Default 10. Raise for policies targeting many Deployments when prometheusQPS allows.
+maxWorkloadWorkers: 10
+
+# -- Maximum deterministic requeue jitter to spread policies that share a cooldown.
+# Set to "0s" to disable. Default 2m (empty omits the flag and keeps the binary default).
+requeueJitter: "2m"
+
+# -- Cap samples passed into recommendation BuildProfile after downsampling.
+# Negative disables. Default 10000.
+maxProfileSamples: 10000
+
+# -- Cap series kept from each Prometheus range query matrix.
+# Zero uses the binary default (5000); negative disables. Default 5000.
+maxPrometheusSeries: 5000
+
+# -- Default cap for status.recommendations (full set still used for resizes).
+maxStatusRecommendations: 100
+
+# -- Write recommendation explanation chains into status (can bloat large policies).
+statusIncludeExplanations: true
+
 # -- Namespaces to watch for AttunePolicy resources. Empty means all namespaces (cluster-scoped).
 # Set this to reduce informer cache memory on large clusters where policies exist in only a few
 # namespaces. Cluster-scoped resources (Nodes, AttuneDefaults) are always watched regardless.

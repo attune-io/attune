@@ -56,6 +56,10 @@ helm install attune oci://ghcr.io/attune-io/charts/attune \
 | logging.format | string | `"json"` | Log format (json, text) |
 | logging.level | string | `"info"` | Log level (debug, info, warn, error) |
 | maxConcurrentReconciles | string | `""` | Maximum number of AttunePolicy reconciles running in parallel. Increase for large clusters with many policies (e.g. 4 for 200+ policies). |
+| maxProfileSamples | int | `10000` | Cap samples passed into recommendation BuildProfile after downsampling. Negative disables. Default 10000. |
+| maxPrometheusSeries | int | `5000` | Cap series kept from each Prometheus range query matrix. Zero uses the binary default (5000); negative disables. Default 5000. |
+| maxStatusRecommendations | int | `100` | Default cap for status.recommendations (full set still used for resizes). |
+| maxWorkloadWorkers | int | `10` | Maximum parallel workers processing workloads within one AttunePolicy reconcile. Default 10. Raise for policies targeting many Deployments when prometheusQPS allows. |
 | metrics | object | `{"enabled":true,"port":8080,"prometheusRule":{"additionalLabels":{},"enabled":false,"fleetRecordingRules":{"enabled":false},"rules":{"budgetExhausted":{"enabled":true,"for":"30m","severity":"warning"},"dataQuality":{"enabled":true,"for":"30m","severity":"warning"},"degraded":{"enabled":true,"for":"5m","severity":"critical"},"gitopsPRFailures":{"enabled":true,"for":"5m","severity":"warning"},"highRevertRate":{"enabled":true,"for":"15m","severity":"critical","threshold":"0.5"},"memoryLimitUnsafe":{"enabled":true,"for":"1h","severity":"info"},"podsDeferred":{"enabled":true,"for":"1h","severity":"warning"},"podsInfeasible":{"enabled":true,"for":"30m","severity":"warning"},"prometheusUnreachable":{"enabled":true,"for":"10m","severity":"warning"},"reconcileErrors":{"enabled":true,"for":"10m","severity":"warning","threshold":"0"},"reconcileStale":{"enabled":true,"for":"5m","severity":"warning","staleDuration":"30m"},"requestsClamped":{"enabled":true,"for":"1h","severity":"info"},"revertFailures":{"enabled":true,"for":"5m","severity":"critical"},"staleRecommendations":{"enabled":true,"for":"1h","severity":"warning"}}},"serviceMonitor":{"additionalLabels":{},"enabled":false,"interval":"30s"}}` | Metrics endpoint |
 | metrics.prometheusRule.additionalLabels | object | `{}` | Additional labels for the PrometheusRule |
 | metrics.prometheusRule.enabled | bool | `false` | Create a PrometheusRule for out-of-the-box alerting. Requires the Prometheus Operator CRDs (monitoring.coreos.com/v1). |
@@ -93,11 +97,13 @@ helm install attune oci://ghcr.io/attune-io/charts/attune \
 | prometheusQPS | int | `10` | Prometheus query rate limit (queries per second). Higher values reduce reconcile latency but increase Prometheus load. |
 | prometheusTimeout | string | `"5m"` | Maximum time for workload processing (including Prometheus queries) per reconciliation cycle (Go duration). If exceeded, partial results are used and the status condition indicates the timeout. |
 | replicaCount | int | `1` | Number of operator replicas (use 2 for HA with leader election) |
+| requeueJitter | string | `"2m"` | Maximum deterministic requeue jitter to spread policies that share a cooldown. Set to "0s" to disable. Default 2m (empty omits the flag and keeps the binary default). |
 | resources | object | `{}` | Operator pod resources. When empty, defaults are derived from clusterSize (or "small" if clusterSize is also empty). Set explicit values for production. |
 | securityContext | object | `{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true,"runAsGroup":65532,"runAsNonRoot":true,"runAsUser":65532}` | Container security context |
 | serviceAccount.annotations | object | `{}` | Annotations to add to the ServiceAccount |
 | serviceAccount.create | bool | `true` | Create a ServiceAccount |
 | serviceAccount.name | string | `""` | ServiceAccount name (generated if not set) |
+| statusIncludeExplanations | bool | `true` | Write recommendation explanation chains into status (can bloat large policies). |
 | tolerations | list | `[]` | Tolerations |
 | topologySpreadConstraints | list | `[]` | Topology spread constraints |
 | watchNamespaces | list | `[]` | Namespaces to watch for AttunePolicy resources. Empty means all namespaces (cluster-scoped). Set this to reduce informer cache memory on large clusters where policies exist in only a few namespaces. Cluster-scoped resources (Nodes, AttuneDefaults) are always watched regardless. |
