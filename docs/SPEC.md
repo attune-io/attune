@@ -32,14 +32,15 @@
 
 99.94% of Kubernetes clusters are over-provisioned. Average CPU utilization is 8%, memory 20%
 ([CAST AI 2026](https://cast.ai/reports/state-of-kubernetes-optimization/)). VPA, the tool designed to fix this, is universally feared: fewer than 1% of
-organizations run it fully automated ([ScaleOps 2026](https://scaleops.com/blog/why-pod-rightsizing-fails-in-production-a-deep-dive-into-vpa-and-what-actually-works/)). VPA evicts pods, conflicts with HPA, and
-has caused cluster-wide outages.
+organizations run it in production ([ScaleOps 2026](https://scaleops.com/blog/why-pod-rightsizing-fails-in-production-a-deep-dive-into-vpa-and-what-actually-works/)).
+VPA historically evicts pods (newer modes can attempt in-place where supported),
+conflicts with HPA on the same metrics, and has caused cluster-wide outages.
 
 In December 2025, In-Place Pod Resize graduated to **GA** in Kubernetes 1.35
 ([KEP-1287](https://github.com/kubernetes/enhancements/tree/master/keps/sig-node/1287-in-place-update-pod-resources);
-beta and enabled by default in 1.33–1.34; alpha with feature gate in 1.32).
-CPU and memory can be changed on running pods without restarts. That unlocks a
-ground-up redesign of resource right-sizing.
+alpha since 1.27, feature-gated through 1.32; beta and enabled by default in
+1.33–1.34). CPU and memory can be changed on running pods without restarts.
+That unlocks a ground-up redesign of resource right-sizing.
 
 ### Mission
 
