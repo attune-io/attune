@@ -132,7 +132,7 @@ func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (a
 	// Validate canary observation period has a minimum floor.
 	if us.Canary != nil {
 		if err := validateDurationFloor("updateStrategy.canary.observationPeriod",
-			us.Canary.ObservationPeriod.Duration, time.Minute); err != nil {
+			us.Canary.ObservationPeriod.Duration); err != nil {
 			return warnings, err
 		}
 		if us.Canary.ObservationPeriod.Duration == 0 {
@@ -143,7 +143,7 @@ func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (a
 	// Validate safetyObservationPeriod has a minimum floor.
 	if us.SafetyObservationPeriod != nil {
 		if err := validateDurationFloor("updateStrategy.safetyObservationPeriod",
-			us.SafetyObservationPeriod.Duration, time.Minute); err != nil {
+			us.SafetyObservationPeriod.Duration); err != nil {
 			return warnings, err
 		}
 	}
@@ -175,7 +175,7 @@ func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (a
 	// Validate cooldown has a minimum floor to prevent resource exhaustion via tight reconciliation loops.
 	if us.Cooldown != nil {
 		if err := validateDurationFloor("updateStrategy.cooldown",
-			us.Cooldown.Duration, time.Minute); err != nil {
+			us.Cooldown.Duration); err != nil {
 			return warnings, err
 		}
 	}
@@ -522,9 +522,9 @@ func validateBurstSensitivity(resource string, value *string) error {
 }
 
 // validateDurationFloor checks that a duration is non-negative and, if positive,
-// at least the specified minimum floor. This pattern is used for cooldown,
-// observation periods, and evaluation windows throughout validation.
-func validateDurationFloor(field string, d time.Duration, minFloor time.Duration) error { //nolint:unparam // minFloor kept as parameter for readability and future use
+// at least 1 minute. Used for cooldown, observation periods, and evaluation windows.
+func validateDurationFloor(field string, d time.Duration) error {
+	const minFloor = time.Minute
 	if d < 0 {
 		return fmt.Errorf("%s must be non-negative, got %s", field, d)
 	}
@@ -614,7 +614,7 @@ func validateSLOGuardrails(guardrails []attunev1alpha1.SLOGuardrail) error {
 		if g.EvaluationWindow != nil {
 			if err := validateDurationFloor(
 				fmt.Sprintf("updateStrategy.sloGuardrails[%d].evaluationWindow", i),
-				g.EvaluationWindow.Duration, time.Minute); err != nil {
+				g.EvaluationWindow.Duration); err != nil {
 				return err
 			}
 		}
