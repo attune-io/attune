@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -199,7 +200,8 @@ func (r *AttunePolicyReconciler) getPodRegex(workload client.Object) string {
 // split samples by container client-side. The QueryBuilder produces a
 // backend-specific query string (PromQL, Datadog query, or CloudWatch spec).
 // If qb is nil, it defaults to PromQL for backward compatibility.
-func queryMetricsGrouped(ctx context.Context, collector rsmetrics.MetricsCollector, qb rsmetrics.QueryBuilder, namespace, podRegex, metric string, start, end time.Time, step, rateWindow time.Duration) (map[string][]rsmetrics.Sample, bool) {
+// Returns (samples, hardError, seriesCapped).
+func queryMetricsGrouped(ctx context.Context, collector rsmetrics.MetricsCollector, qb rsmetrics.QueryBuilder, namespace, podRegex, metric string, start, end time.Time, step, rateWindow time.Duration) (map[string][]rsmetrics.Sample, bool, bool) {
 	logger := log.FromContext(ctx)
 	v1Logger := logger.V(1)
 	v2Logger := logger.V(2)
@@ -220,9 +222,15 @@ func queryMetricsGrouped(ctx context.Context, collector rsmetrics.MetricsCollect
 	grouped, err := collector.QueryRangeGrouped(ctx, query, start, end, step)
 	operatormetrics.PrometheusQueryDuration.WithLabelValues(queryType).Observe(time.Since(queryStart).Seconds())
 	if err != nil {
+		// Soft error: series cap still returns usable partial data.
+		if errors.Is(err, rsmetrics.ErrSeriesCapped) {
+			logger.Info("Prometheus series capped; using partial data",
+				"metric", metric, "query", query, "err", err)
+			return grouped, false, true
+		}
 		operatormetrics.PrometheusQueryErrors.WithLabelValues(namespace, queryType).Inc()
 		logger.Error(err, "Failed to query grouped metrics", "metric", metric, "query", query)
-		return map[string][]rsmetrics.Sample{}, true
+		return map[string][]rsmetrics.Sample{}, true, false
 	}
 
 	if v1Logger.Enabled() {
@@ -245,7 +253,7 @@ func queryMetricsGrouped(ctx context.Context, collector rsmetrics.MetricsCollect
 		}
 	}
 
-	return grouped, false
+	return grouped, false, false
 }
 
 // isDeploymentOwned returns true if the object has an ownerReference with

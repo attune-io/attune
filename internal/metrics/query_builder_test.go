@@ -179,14 +179,45 @@ var (
 )
 
 func TestPromQLQueryBuilder_BackwardCompatibility(t *testing.T) {
-	// Verify the new PromQLQueryBuilder produces identical output to the
-	// old buildPrometheusQuery function (now deleted from controller).
+	// Default aggregation wraps raw metrics with max by (container).
 	qb := &PromQLQueryBuilder{}
 
 	cpu := qb.BuildQuery("production", "api-server-[a-z0-9]+", "", "cpu", 5*time.Minute)
-	assert.True(t, strings.HasPrefix(cpu, "rate(container_cpu_usage_seconds_total{"))
+	assert.True(t, strings.HasPrefix(cpu, "max by (container) (rate(container_cpu_usage_seconds_total{"))
 	assert.Contains(t, cpu, `[5m]`)
 
 	mem := qb.BuildQuery("production", "api-server-[a-z0-9]+", "", "memory", 5*time.Minute)
-	assert.True(t, strings.HasPrefix(mem, "container_memory_working_set_bytes{"))
+	assert.True(t, strings.HasPrefix(mem, "max by (container) (container_memory_working_set_bytes{"))
+
+	// None restores the unaggregated shape used before scale work.
+	qbNone := &PromQLQueryBuilder{Aggregation: PodAggregationNone}
+	cpuNone := qbNone.BuildQuery("production", "api-server-[a-z0-9]+", "", "cpu", 5*time.Minute)
+	assert.True(t, strings.HasPrefix(cpuNone, "rate(container_cpu_usage_seconds_total{"))
+}
+
+func TestPromQLQueryBuilder_RecordingMetrics(t *testing.T) {
+	qb := &PromQLQueryBuilder{
+		Aggregation:  PodAggregationMax,
+		CPUMetric:    "attune:container_cpu:rate5m",
+		MemoryMetric: "attune:container_memory:working_set",
+	}
+	cpu := qb.BuildQuery("ns", "pod-.*", "", "cpu", 5*time.Minute)
+	assert.Contains(t, cpu, "attune:container_cpu:rate5m")
+	assert.NotContains(t, cpu, "rate(container_cpu")
+	mem := qb.BuildQuery("ns", "pod-.*", "", "memory", 5*time.Minute)
+	assert.Contains(t, mem, "attune:container_memory:working_set")
+}
+
+func TestDownsampleSamples(t *testing.T) {
+	samples := make([]Sample, 100)
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i := range samples {
+		samples[i] = Sample{Timestamp: base.Add(time.Duration(i) * time.Minute), Value: float64(i)}
+	}
+	out := DownsampleSamples(samples, 10)
+	assert.Len(t, out, 10)
+	assert.Equal(t, samples[0].Value, out[0].Value)
+	assert.Equal(t, samples[99].Value, out[9].Value)
+	// No-op when under cap
+	assert.Equal(t, samples, DownsampleSamples(samples, 200))
 }

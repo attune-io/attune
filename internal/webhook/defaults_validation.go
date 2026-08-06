@@ -148,7 +148,7 @@ func validateDefaultsSpec(spec attunev1alpha1.AttuneDefaultsSpec) (admission.War
 	// Validate cooldown minimum floor.
 	if spec.UpdateStrategy != nil && spec.UpdateStrategy.Cooldown != nil {
 		if err := validateDurationFloor("updateStrategy.cooldown",
-			spec.UpdateStrategy.Cooldown.Duration, time.Minute); err != nil {
+			spec.UpdateStrategy.Cooldown.Duration); err != nil {
 			return warnings, err
 		}
 	}
@@ -166,7 +166,7 @@ func validateDefaultsSpec(spec attunev1alpha1.AttuneDefaultsSpec) (admission.War
 	// Validate safetyObservationPeriod has a minimum floor.
 	if spec.UpdateStrategy != nil && spec.UpdateStrategy.SafetyObservationPeriod != nil {
 		if err := validateDurationFloor("updateStrategy.safetyObservationPeriod",
-			spec.UpdateStrategy.SafetyObservationPeriod.Duration, time.Minute); err != nil {
+			spec.UpdateStrategy.SafetyObservationPeriod.Duration); err != nil {
 			return warnings, err
 		}
 	}
@@ -174,7 +174,7 @@ func validateDefaultsSpec(spec attunev1alpha1.AttuneDefaultsSpec) (admission.War
 	// Validate canary observation period has a minimum floor.
 	if spec.UpdateStrategy != nil && spec.UpdateStrategy.Canary != nil {
 		if err := validateDurationFloor("updateStrategy.canary.observationPeriod",
-			spec.UpdateStrategy.Canary.ObservationPeriod.Duration, time.Minute); err != nil {
+			spec.UpdateStrategy.Canary.ObservationPeriod.Duration); err != nil {
 			return warnings, err
 		}
 	}

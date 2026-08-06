@@ -223,11 +223,11 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 	qb rsmetrics.QueryBuilder,
 	cpuEngine, memEngine *recommendation.RecommendationEngine,
 	excludeSet map[string]bool,
-) (rec *attunev1alpha1.WorkloadRecommendation, queryErrors int, failedMetricTypes []string, maxDataPoints int, err error) { //nolint:unparam // error return kept for interface contract
+) (rec *attunev1alpha1.WorkloadRecommendation, queryErrors int, failedMetricTypes []string, maxDataPoints int, seriesCapped bool, err error) { //nolint:unparam // error return kept for interface contract
 	logger := log.FromContext(ctx)
 	containers := r.getContainers(workload)
 	if len(containers) == 0 {
-		return nil, 0, nil, 0, nil
+		return nil, 0, nil, 0, false, nil
 	}
 
 	// Fallback: build engines if not pre-built (used in tests).
@@ -254,14 +254,14 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 	// so concurrent queries are safe.
 	rateWindow := r.getRateWindow(policy)
 	var cpuSamplesByContainer, memSamplesByContainer map[string][]rsmetrics.Sample
-	var cpuErr, memErr bool
+	var cpuErr, memErr, cpuCapped, memCapped bool
 	var qg errgroup.Group
 	qg.Go(func() error {
-		cpuSamplesByContainer, cpuErr = queryMetricsGrouped(ctx, collector, qb, policy.Namespace, podRegex, "cpu", start, now, queryStep, rateWindow)
+		cpuSamplesByContainer, cpuErr, cpuCapped = queryMetricsGrouped(ctx, collector, qb, policy.Namespace, podRegex, "cpu", start, now, queryStep, rateWindow)
 		return nil
 	})
 	qg.Go(func() error {
-		memSamplesByContainer, memErr = queryMetricsGrouped(ctx, collector, qb, policy.Namespace, podRegex, "memory", start, now, queryStep, rateWindow)
+		memSamplesByContainer, memErr, memCapped = queryMetricsGrouped(ctx, collector, qb, policy.Namespace, podRegex, "memory", start, now, queryStep, rateWindow)
 		return nil
 	})
 	_ = qg.Wait()
@@ -273,6 +273,7 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 		queryErrors++
 		failedMetricTypes = append(failedMetricTypes, "memory")
 	}
+	seriesCapped = cpuCapped || memCapped
 
 	var containerRecs []attunev1alpha1.ContainerRecommendation
 
@@ -288,6 +289,11 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 
 		cpuSamples := samplesForContainer(cpuSamplesByContainer, containerName)
 		memSamples := samplesForContainer(memSamplesByContainer, containerName)
+
+		// Bound sample volume before percentile work (high-replica / long windows).
+		maxSamples := r.maxProfileSamples()
+		cpuSamples = rsmetrics.DownsampleSamples(cpuSamples, maxSamples)
+		memSamples = rsmetrics.DownsampleSamples(memSamples, maxSamples)
 
 		// Build UsageProfile from samples.
 		cpuProfile := rsmetrics.BuildProfile(cpuSamples)
@@ -449,14 +455,25 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 	}
 
 	if len(containerRecs) == 0 {
-		return nil, queryErrors, failedMetricTypes, maxDataPoints, nil
+		return nil, queryErrors, failedMetricTypes, maxDataPoints, seriesCapped, nil
 	}
 
 	lastDataTime := metav1.NewTime(now)
 	return &attunev1alpha1.WorkloadRecommendation{
 		Containers:   containerRecs,
 		LastDataTime: &lastDataTime,
-	}, queryErrors, failedMetricTypes, maxDataPoints, nil
+	}, queryErrors, failedMetricTypes, maxDataPoints, seriesCapped, nil
+}
+
+// maxProfileSamples returns the sample cap for BuildProfile input.
+func (r *AttunePolicyReconciler) maxProfileSamples() int {
+	if r.MaxProfileSamples < 0 {
+		return 0 // unlimited
+	}
+	if r.MaxProfileSamples > 0 {
+		return r.MaxProfileSamples
+	}
+	return rsmetrics.DefaultMaxProfileSamples
 }
 
 // buildCollectorOptions constructs CollectorOptions from the given PrometheusConfig,
@@ -465,14 +482,17 @@ func (r *AttunePolicyReconciler) buildCollectorOptions(ctx context.Context, name
 	if err := validation.PrometheusQueryParameters(config.QueryParameters); err != nil {
 		return nil, err
 	}
-	if config.Headers == nil && config.QueryParameters == nil && config.BearerTokenSecret == nil &&
-		(config.TLS == nil || !config.TLS.InsecureSkipVerify) {
+	// MaxSeries: 0 on flag = collector default; negative = unlimited.
+	needOpts := config.Headers != nil || config.QueryParameters != nil || config.BearerTokenSecret != nil ||
+		(config.TLS != nil && config.TLS.InsecureSkipVerify) || r.MaxPrometheusSeries != 0
+	if !needOpts {
 		return nil, nil
 	}
 
 	opts := &rsmetrics.CollectorOptions{
 		Headers:         config.Headers,
 		QueryParameters: config.QueryParameters,
+		MaxSeries:       r.MaxPrometheusSeries,
 	}
 	if config.TLS != nil {
 		opts.InsecureSkipVerify = config.TLS.InsecureSkipVerify
@@ -520,7 +540,23 @@ func (r *AttunePolicyReconciler) resolveMetricsCollector(ctx context.Context, po
 		if err != nil {
 			return nil, nil, err
 		}
-		return collector, &rsmetrics.PromQLQueryBuilder{}, nil
+		return collector, r.promQLBuilder(policy), nil
+	}
+}
+
+// promQLBuilder constructs a PromQLQueryBuilder from policy metricsSource settings.
+func (r *AttunePolicyReconciler) promQLBuilder(policy *attunev1alpha1.AttunePolicy) *rsmetrics.PromQLQueryBuilder {
+	agg := rsmetrics.PodAggregationMax
+	switch policy.Spec.MetricsSource.PodAggregation {
+	case "Avg":
+		agg = rsmetrics.PodAggregationAvg
+	case "None":
+		agg = rsmetrics.PodAggregationNone
+	}
+	return &rsmetrics.PromQLQueryBuilder{
+		Aggregation:  agg,
+		CPUMetric:    policy.Spec.MetricsSource.CPURecordingMetric,
+		MemoryMetric: policy.Spec.MetricsSource.MemoryRecordingMetric,
 	}
 }
 

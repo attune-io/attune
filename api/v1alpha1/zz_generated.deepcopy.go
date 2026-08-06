@@ -993,6 +993,16 @@ func (in *UpdateStrategy) DeepCopyInto(out *UpdateStrategy) {
 		*out = new(ResizeSchedule)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.MaxStatusRecommendations != nil {
+		in, out := &in.MaxStatusRecommendations, &out.MaxStatusRecommendations
+		*out = new(int32)
+		**out = **in
+	}
+	if in.IncludeExplanationsInStatus != nil {
+		in, out := &in.IncludeExplanationsInStatus, &out.IncludeExplanationsInStatus
+		*out = new(bool)
+		**out = **in
+	}
 	if in.MaxTotalCPUIncrease != nil {
 		in, out := &in.MaxTotalCPUIncrease, &out.MaxTotalCPUIncrease
 		x := (*in).DeepCopy()

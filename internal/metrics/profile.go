@@ -21,6 +21,10 @@ import (
 	"sort"
 )
 
+// DefaultMaxProfileSamples is the default cap on samples passed to BuildProfile.
+// Beyond this, DownsampleSamples keeps temporal coverage while bounding CPU.
+const DefaultMaxProfileSamples = 10000
+
 // PercentileSet holds a standard set of percentile values computed from
 // a collection of samples.
 type PercentileSet struct {
@@ -44,10 +48,39 @@ type UsageProfile struct {
 	Confidence         float64
 }
 
+// DownsampleSamples returns at most maxN samples evenly spaced from the input
+// (by index after sorting by timestamp). When maxN <= 0 or len(samples) <= maxN,
+// the original slice is returned unchanged (same backing array may be sorted).
+// Used before BuildProfile so high-replica / long-window queries do not spend
+// O(N log N) on multi-million sample sorts.
+func DownsampleSamples(samples []Sample, maxN int) []Sample {
+	if maxN <= 0 || len(samples) <= maxN {
+		return samples
+	}
+	// Sort by time so even strides preserve the full span for confidence/time-of-day.
+	sorted := make([]Sample, len(samples))
+	copy(sorted, samples)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].Timestamp.Before(sorted[j].Timestamp)
+	})
+	out := make([]Sample, maxN)
+	// Inclusive stride so first and last samples are kept when possible.
+	if maxN == 1 {
+		out[0] = sorted[len(sorted)/2]
+		return out
+	}
+	for i := 0; i < maxN; i++ {
+		idx := i * (len(sorted) - 1) / (maxN - 1)
+		out[i] = sorted[idx]
+	}
+	return out
+}
+
 // BuildProfile constructs a UsageProfile from the provided samples.
 // Samples are bucketed by hour of day (0-23) for hourly percentiles,
 // and also aggregated for overall percentiles. Burst detection flags
 // cases where the max value exceeds 3x the p95.
+// Callers with large N should DownsampleSamples first.
 func BuildProfile(samples []Sample) UsageProfile {
 	if len(samples) == 0 {
 		return UsageProfile{}

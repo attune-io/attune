@@ -19,9 +19,18 @@ package metrics
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 )
+
+// recordingMetricNameRE matches Prometheus metric name grammar (no selectors).
+var recordingMetricNameRE = regexp.MustCompile(`^[a-zA-Z_:][a-zA-Z0-9_:]*$`)
+
+// ValidRecordingMetricName reports whether name is a safe PromQL metric identifier.
+func ValidRecordingMetricName(name string) bool {
+	return name != "" && recordingMetricNameRE.MatchString(name)
+}
 
 // QueryBuilder creates backend-specific query strings from metric parameters.
 // Each implementation produces queries understood by its matching collector:
@@ -35,12 +44,36 @@ type QueryBuilder interface {
 	BuildQuery(namespace, podRegex, container, metric string, rateWindow time.Duration) string
 }
 
+// PodAggregationMode controls how multi-pod series are reduced in PromQL.
+// Empty defaults to Max (size for the busiest pod; cheapest for high replica counts).
+type PodAggregationMode string
+
+const (
+	// PodAggregationMax takes max by (container) across pods (default).
+	PodAggregationMax PodAggregationMode = "Max"
+	// PodAggregationAvg takes avg by (container) across pods.
+	PodAggregationAvg PodAggregationMode = "Avg"
+	// PodAggregationNone leaves one series per pod (legacy; expensive at scale).
+	PodAggregationNone PodAggregationMode = "None"
+)
+
 // PromQLQueryBuilder builds Prometheus PromQL queries.
-type PromQLQueryBuilder struct{}
+type PromQLQueryBuilder struct {
+	// Aggregation reduces multi-pod series server-side. Empty means Max.
+	Aggregation PodAggregationMode
+	// CPUMetric overrides the default rate(container_cpu_usage_seconds_total)
+	// expression. Use a pre-aggregated recording rule metric name (labels:
+	// namespace, pod, container). When set, rate() is not applied.
+	CPUMetric string
+	// MemoryMetric overrides container_memory_working_set_bytes. Use a
+	// recording rule with the same label set as cadvisor memory metrics.
+	MemoryMetric string
+}
 
 // BuildQuery produces a PromQL query for the given metric type.
 func (b *PromQLQueryBuilder) BuildQuery(namespace, podRegex, container, metric string, rateWindow time.Duration) string {
 	ns := EscapePromQL(namespace)
+	podRE := podRegex
 
 	containerFilter := ""
 	if container != "" {
@@ -49,19 +82,55 @@ func (b *PromQLQueryBuilder) BuildQuery(namespace, podRegex, container, metric s
 
 	rw := FormatPromDuration(rateWindow)
 
+	if b.CPUMetric != "" && !ValidRecordingMetricName(b.CPUMetric) {
+		return ""
+	}
+	if b.MemoryMetric != "" && !ValidRecordingMetricName(b.MemoryMetric) {
+		return ""
+	}
+
+	var inner string
 	switch metric {
 	case "cpu":
-		return fmt.Sprintf(
-			`rate(container_cpu_usage_seconds_total{namespace="%s",pod=~"%s"%s}[%s])`,
-			ns, podRegex, containerFilter, rw,
-		)
+		if b.CPUMetric != "" {
+			inner = fmt.Sprintf(
+				`%s{namespace="%s",pod=~"%s"%s}`,
+				b.CPUMetric, ns, podRE, containerFilter,
+			)
+		} else {
+			inner = fmt.Sprintf(
+				`rate(container_cpu_usage_seconds_total{namespace="%s",pod=~"%s"%s}[%s])`,
+				ns, podRE, containerFilter, rw,
+			)
+		}
 	case "memory":
-		return fmt.Sprintf(
-			`container_memory_working_set_bytes{namespace="%s",pod=~"%s"%s}`,
-			ns, podRegex, containerFilter,
+		memMetric := "container_memory_working_set_bytes"
+		if b.MemoryMetric != "" {
+			memMetric = b.MemoryMetric
+		}
+		inner = fmt.Sprintf(
+			`%s{namespace="%s",pod=~"%s"%s}`,
+			memMetric, ns, podRE, containerFilter,
 		)
 	default:
 		return ""
+	}
+
+	return applyPodAggregation(inner, b.Aggregation)
+}
+
+// applyPodAggregation wraps a vector/matrix selector with max/avg by (container).
+func applyPodAggregation(inner string, mode PodAggregationMode) string {
+	switch mode {
+	case PodAggregationNone:
+		return inner
+	case PodAggregationAvg:
+		return fmt.Sprintf(`avg by (container) (%s)`, inner)
+	case PodAggregationMax, "":
+		// Default: Max. Rightsizing for the busiest pod; O(containers) series.
+		return fmt.Sprintf(`max by (container) (%s)`, inner)
+	default:
+		return fmt.Sprintf(`max by (container) (%s)`, inner)
 	}
 }
 

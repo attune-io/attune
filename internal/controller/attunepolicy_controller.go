@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -100,11 +101,12 @@ const (
 	// defaultObservationPeriod is the default safety observation window after resize.
 	defaultObservationPeriod = 5 * time.Minute
 
-	// maxWorkloadWorkers is the maximum number of goroutines used to process
-	// workloads in parallel within a single reconcile cycle. The Prometheus
-	// rate limiter provides the real backpressure; this just caps goroutine
-	// count to avoid excessive memory from blocked goroutines.
-	maxWorkloadWorkers = 10
+	// defaultMaxWorkloadWorkers is the default parallel workload worker count.
+	// Override with MaxWorkloadWorkers on the reconciler / --max-workload-workers.
+	defaultMaxWorkloadWorkers = 10
+
+	// defaultMaxStatusRecommendations is used when neither CR nor flag sets a cap.
+	defaultMaxStatusRecommendations = attunev1alpha1.DefaultMaxStatusRecommendations
 )
 
 //+kubebuilder:rbac:groups=attune.io,resources=attunepolicies,verbs=get;list;watch;patch
@@ -140,6 +142,24 @@ type AttunePolicyReconciler struct {
 	CollectorTTL            time.Duration // how long unused collectors stay cached (default: 10m)
 	MaxConcurrentReconciles int           // max parallel reconcile goroutines (default: 1)
 	PrometheusTimeout       time.Duration // max time for Prometheus queries per reconcile (default: 5m)
+	// MaxWorkloadWorkers caps parallel workload processing within one reconcile
+	// (default: 10). Bounded further by the Prometheus rate limiter.
+	MaxWorkloadWorkers int
+	// RequeueJitter is the maximum extra delay added to RequeueAfter to spread
+	// policies that share the same cooldown (default: 0 = no jitter).
+	// Deterministic per policy UID so tests stay stable when set to 0.
+	RequeueJitter time.Duration
+	// MaxProfileSamples caps samples before BuildProfile (default: 10000).
+	// Zero uses metrics.DefaultMaxProfileSamples; negative disables.
+	MaxProfileSamples int
+	// MaxPrometheusSeries caps series per range query (0 = collector default).
+	MaxPrometheusSeries int
+	// MaxStatusRecommendations operator-level default for status cap (0 = use
+	// CRD/built-in default of 100).
+	MaxStatusRecommendations int
+	// IncludeExplanationsInStatus operator-level default when CR field is nil.
+	// When both nil, defaults to true.
+	IncludeExplanationsInStatus *bool
 	// AllowInPlaceMemoryLimitDecrease is true when the cluster is Kubernetes
 	// 1.35+ (live memory limit decreases permitted). Wired at manager startup.
 	AllowInPlaceMemoryLimitDecrease bool
@@ -192,6 +212,7 @@ type workloadProcessingResult struct {
 	workloadErrors    []attunev1alpha1.WorkloadError
 	gaugeKeys         []gaugeKey
 	hpaList           autoscalingv2.HorizontalPodAutoscalerList
+	seriesCapped      bool
 }
 
 // deleteGaugeKeys removes recommendation gauge values for the given keys.
@@ -373,8 +394,9 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		updateSavingsGauges(policy.Namespace, savingsAccumulator{}, nil)
 		updateReclaimedCapacityGauges(policy.Namespace, policy.Name, savingsAccumulator{})
 	} else {
-		policy.Status.Recommendations = recommendations
+		policy.Status.Recommendations = r.applyStatusBudget(recommendations, &policy)
 		var acc savingsAccumulator
+		// Savings use the full recommendation set, not the status-truncated copy.
 		policy.Status.Savings, acc = r.computeSavings(recommendations, defaults)
 		updateSavingsGauges(policy.Namespace, acc, defaults)
 		updateReclaimedCapacityGauges(policy.Namespace, policy.Name, acc)
@@ -411,21 +433,22 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	withinWindow := isWithinResizeWindow(policy.Spec.UpdateStrategy.Schedule, r.now())
 	var newResizedCount int
 
-	// Always list pods for discovered workloads so Deferred/Infeasible
-	// status UX (counts, ResizeBlocked condition, metrics) stays accurate
-	// even when this cycle does not resize (Recommend mode, cooldown, or
-	// outside schedule). executeResizes / startup boost reuse the same map.
-	podsByWorkload := make(map[string][]corev1.Pod, len(workloads))
-	for _, w := range workloads {
-		pods, err := r.getPodsForWorkload(ctx, w)
-		if err != nil {
-			logger.Error(err, "Failed to get pods for workload", "workload", w.GetName())
-			continue
-		}
-		podsByWorkload[w.GetName()] = pods
-	}
+	// List pods when needed for resize/boost, or for Deferred/Infeasible UX in
+	// Recommend and resize modes. Observe mode skips lists (no resize UX).
 	needPods := isResizeMode(mode) && ((!cooldownActive && withinWindow) ||
 		(policy.Spec.CPU.StartupBoost != nil && r.Clientset != nil && len(recommendations) > 0))
+	listPods := needPods || isResizeMode(mode) || mode == attunev1alpha1.UpdateTypeRecommend
+	podsByWorkload := make(map[string][]corev1.Pod, len(workloads))
+	if listPods {
+		for _, w := range workloads {
+			pods, err := r.getPodsForWorkload(ctx, w)
+			if err != nil {
+				logger.Error(err, "Failed to get pods for workload", "workload", w.GetName())
+				continue
+			}
+			podsByWorkload[w.GetName()] = pods
+		}
+	}
 
 	// Pre-fetch namespace-scoped LimitRanges and ResourceQuotas once so both
 	// executeResizes and applyStartupBoosts can reuse them without duplicate
@@ -548,19 +571,41 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 	policy.Status.Workloads.Pending = pending
 
-	// Deferred / Infeasible operator UX: counts, condition, metrics.
-	blockers := summarizeResizeBlockers(podsByWorkload, r.now())
-	policy.Status.Workloads.Deferred = safeInt32(blockers.DeferredCount)
-	policy.Status.Workloads.Infeasible = safeInt32(blockers.InfeasibleCount)
-	operatormetrics.PodsDeferred.WithLabelValues(policy.Namespace, policy.Name).Set(float64(blockers.DeferredCount))
-	operatormetrics.PodsInfeasible.WithLabelValues(policy.Namespace, policy.Name).Set(float64(blockers.InfeasibleCount))
-	for _, age := range blockers.DeferredAges {
-		operatormetrics.DeferredAgeSeconds.WithLabelValues(policy.Namespace, policy.Name).Observe(age.Seconds())
+	// Deferred / Infeasible operator UX: only when we listed pods (resize modes).
+	if listPods {
+		blockers := summarizeResizeBlockers(podsByWorkload, r.now())
+		policy.Status.Workloads.Deferred = safeInt32(blockers.DeferredCount)
+		policy.Status.Workloads.Infeasible = safeInt32(blockers.InfeasibleCount)
+		operatormetrics.PodsDeferred.WithLabelValues(policy.Namespace, policy.Name).Set(float64(blockers.DeferredCount))
+		operatormetrics.PodsInfeasible.WithLabelValues(policy.Namespace, policy.Name).Set(float64(blockers.InfeasibleCount))
+		for _, age := range blockers.DeferredAges {
+			operatormetrics.DeferredAgeSeconds.WithLabelValues(policy.Namespace, policy.Name).Observe(age.Seconds())
+		}
+		r.setResizeBlockedCondition(&policy, blockers)
+	} else {
+		policy.Status.Workloads.Deferred = 0
+		policy.Status.Workloads.Infeasible = 0
+		operatormetrics.PodsDeferred.WithLabelValues(policy.Namespace, policy.Name).Set(0)
+		operatormetrics.PodsInfeasible.WithLabelValues(policy.Namespace, policy.Name).Set(0)
+		// Clear ResizeBlocked in non-resize modes (not applicable).
+		meta.RemoveStatusCondition(&policy.Status.Conditions, attunev1alpha1.ConditionResizeBlocked)
 	}
-	r.setResizeBlockedCondition(&policy, blockers)
 
-	// Set Ready condition.
+	// Set Ready condition (surface series cap as degraded data quality note).
 	r.setReadyCondition(&policy, len(workloads), workloadsWithRecs, totalQueryErrors, queryErrorTypes, globalMaxDataPoints, promTimedOut, promTimeout)
+	if wpResult.seriesCapped {
+		// Prefer not to clobber a Failed Ready; only annotate when Ready is true.
+		if cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionReady); cond != nil && cond.Status == metav1.ConditionTrue {
+			meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
+				Type:               attunev1alpha1.ConditionReady,
+				Status:             metav1.ConditionTrue,
+				Reason:             attunev1alpha1.ReasonSeriesCapped,
+				Message:            "Prometheus range query hit series cap; recommendations used partial series (raise --max-prometheus-series or enable PodAggregation Max)",
+				ObservedGeneration: policy.Generation,
+				LastTransitionTime: metav1.NewTime(r.now()),
+			})
+		}
+	}
 
 	// Set Resizing condition.
 	r.setResizingCondition(&policy, cooldownActive)
@@ -603,9 +648,119 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			requeueAfter = dataInterval
 		}
 	}
+	// Only jitter full cooldown requeues so bootstrap / observation short
+	// intervals stay tight for data collection and e2e.
+	if requeueAfter == cooldown {
+		requeueAfter = r.addRequeueJitter(requeueAfter, &policy)
+	}
 	logger.Info("Reconciliation complete, requeueing", "requeueAfter", requeueAfter)
 	operatormetrics.ReconcileDuration.WithLabelValues("attunepolicy", policy.Namespace, policy.Name).Observe(time.Since(startTime).Seconds())
 	return ctrl.Result{RequeueAfter: requeueAfter}, nil
+}
+
+// addRequeueJitter spreads RequeueAfter across policies that share a cooldown
+// so many AttunePolicies do not unlock on the same second.
+func (r *AttunePolicyReconciler) addRequeueJitter(base time.Duration, policy *attunev1alpha1.AttunePolicy) time.Duration {
+	if r.RequeueJitter <= 0 || base <= 0 {
+		return base
+	}
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(policy.UID))
+	// Map hash into [0, RequeueJitter). Use int64 modulus via nanoseconds to avoid
+	// gosec G115 (uint64 -> Duration) and stay within RequeueJitter.
+	mod := r.RequeueJitter.Nanoseconds()
+	if mod <= 0 {
+		return base
+	}
+	jNs := int64(h.Sum64() % uint64(mod)) //nolint:gosec // mod is positive RequeueJitter nanoseconds
+	return base + time.Duration(jNs)
+}
+
+// maxWorkloadWorkers returns the configured worker limit.
+func (r *AttunePolicyReconciler) maxWorkloadWorkers() int {
+	if r.MaxWorkloadWorkers > 0 {
+		return r.MaxWorkloadWorkers
+	}
+	return defaultMaxWorkloadWorkers
+}
+
+// applyStatusBudget truncates and optionally strips explanations for status.
+func (r *AttunePolicyReconciler) applyStatusBudget(
+	recs []attunev1alpha1.WorkloadRecommendation,
+	policy *attunev1alpha1.AttunePolicy,
+) []attunev1alpha1.WorkloadRecommendation {
+	if len(recs) == 0 {
+		return recs
+	}
+	maxRecs := int(defaultMaxStatusRecommendations)
+	if r.MaxStatusRecommendations > 0 {
+		maxRecs = r.MaxStatusRecommendations
+	}
+	includeExpl := attunev1alpha1.DefaultIncludeExplanationsInStatus
+	if r.IncludeExplanationsInStatus != nil {
+		includeExpl = *r.IncludeExplanationsInStatus
+	}
+	if policy.Spec.UpdateStrategy != nil {
+		if policy.Spec.UpdateStrategy.MaxStatusRecommendations != nil {
+			maxRecs = int(*policy.Spec.UpdateStrategy.MaxStatusRecommendations)
+		}
+		if policy.Spec.UpdateStrategy.IncludeExplanationsInStatus != nil {
+			includeExpl = *policy.Spec.UpdateStrategy.IncludeExplanationsInStatus
+		}
+	}
+
+	// Deep-copy selected recommendations so status and resize sets never share
+	// container/explanation backing arrays.
+	selectIdx := make([]int, len(recs))
+	for i := range recs {
+		selectIdx[i] = i
+	}
+	if maxRecs > 0 && len(recs) > maxRecs {
+		type scored struct {
+			idx   int
+			score int64
+		}
+		scores := make([]scored, len(recs))
+		for i, rec := range recs {
+			var s int64
+			for _, c := range rec.Containers {
+				s += absInt64(c.Recommended.CPURequest.MilliValue() - c.Current.CPURequest.MilliValue())
+				s += absInt64(c.Recommended.MemoryRequest.Value()-c.Current.MemoryRequest.Value()) / (1024 * 1024) // Mi units
+			}
+			scores[i] = scored{idx: i, score: s}
+		}
+		for i := 0; i < maxRecs; i++ {
+			best := i
+			for j := i + 1; j < len(scores); j++ {
+				if scores[j].score > scores[best].score {
+					best = j
+				}
+			}
+			scores[i], scores[best] = scores[best], scores[i]
+		}
+		selectIdx = make([]int, maxRecs)
+		for i := 0; i < maxRecs; i++ {
+			selectIdx[i] = scores[i].idx
+		}
+	}
+
+	out := make([]attunev1alpha1.WorkloadRecommendation, len(selectIdx))
+	for i, idx := range selectIdx {
+		out[i] = *recs[idx].DeepCopy()
+		if !includeExpl {
+			for j := range out[i].Containers {
+				out[i].Containers[j].Explanation = nil
+			}
+		}
+	}
+	return out
+}
+
+func absInt64(v int64) int64 {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 // processWorkloads processes discovered workloads in parallel, checking for
@@ -681,7 +836,7 @@ func (r *AttunePolicyReconciler) processWorkloads(
 	// cancellation to all workers if the parent context is cancelled.
 	var mu sync.Mutex
 	g, gCtx := errgroup.WithContext(ctx)
-	g.SetLimit(maxWorkloadWorkers)
+	g.SetLimit(r.maxWorkloadWorkers())
 
 	for _, workload := range workloads {
 		g.Go(func() error {
@@ -728,10 +883,11 @@ func (r *AttunePolicyReconciler) processWorkloads(
 			var dataPoints int
 			var err error
 
+			var seriesCapped bool
 			if isVPASource {
 				rec, dataPoints, err = r.computeVPARecommendationsForWorkload(gCtx, policy, workload, vpaRecs, cpuEngine, memEngine, excludeSet)
 			} else {
-				rec, qErrors, failedMetricTypes, dataPoints, err = r.computeRecommendations(gCtx, policy, workload, collector, qb, cpuEngine, memEngine, excludeSet)
+				rec, qErrors, failedMetricTypes, dataPoints, seriesCapped, err = r.computeRecommendations(gCtx, policy, workload, collector, qb, cpuEngine, memEngine, excludeSet)
 			}
 			// Log and record metrics outside the lock (both are goroutine-safe).
 			if err != nil {
@@ -759,6 +915,9 @@ func (r *AttunePolicyReconciler) processWorkloads(
 				rec.Kind = workloadKind
 				result.recommendations = append(result.recommendations, *rec)
 				result.workloadsWithRecs++
+			}
+			if seriesCapped {
+				result.seriesCapped = true
 			}
 			mu.Unlock()
 

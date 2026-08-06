@@ -778,3 +778,35 @@ func TestApplyRuntimeProfileDefaults_AllProfiles(t *testing.T) {
 		})
 	}
 }
+
+func TestMergeMetricsSource_PodAggregationAndRecording(t *testing.T) {
+	policy := &attunev1alpha1.MetricsSource{}
+	defaults := &attunev1alpha1.MetricsSource{
+		PodAggregation:        "Avg",
+		CPURecordingMetric:    "attune:cpu",
+		MemoryRecordingMetric: "attune:mem",
+	}
+	inherited := MergeMetricsSource(policy, defaults)
+	assert.Contains(t, inherited, "podAggregation")
+	assert.Equal(t, "Avg", policy.PodAggregation)
+	assert.Equal(t, "attune:cpu", policy.CPURecordingMetric)
+	assert.Equal(t, "attune:mem", policy.MemoryRecordingMetric)
+	// Policy wins when set.
+	policy2 := &attunev1alpha1.MetricsSource{PodAggregation: "None"}
+	_ = MergeMetricsSource(policy2, defaults)
+	assert.Equal(t, "None", policy2.PodAggregation)
+}
+
+func TestMergeUpdateStrategy_StatusBudget(t *testing.T) {
+	max := int32(50)
+	inc := false
+	policy := &attunev1alpha1.UpdateStrategy{}
+	defaults := &attunev1alpha1.UpdateStrategy{
+		MaxStatusRecommendations:    &max,
+		IncludeExplanationsInStatus: &inc,
+	}
+	inherited := MergeUpdateStrategy(policy, defaults)
+	assert.Contains(t, inherited, "maxStatusRecommendations")
+	assert.Equal(t, int32(50), *policy.MaxStatusRecommendations)
+	assert.False(t, *policy.IncludeExplanationsInStatus)
+}

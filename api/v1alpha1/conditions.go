@@ -32,9 +32,12 @@ const (
 
 // Condition reason constants for AttunePolicy.
 const (
-	ReasonMonitoring              = "Monitoring"
-	ReasonInsufficientData        = "InsufficientData"
-	ReasonPrometheusUnavailable   = "PrometheusUnavailable"
+	ReasonMonitoring            = "Monitoring"
+	ReasonInsufficientData      = "InsufficientData"
+	ReasonPrometheusUnavailable = "PrometheusUnavailable"
+	// ReasonSeriesCapped means a Prometheus range query returned more series
+	// than the configured cap; partial data was used for recommendations.
+	ReasonSeriesCapped            = "PrometheusSeriesCapped"
 	ReasonInvalidConfig           = "InvalidConfig"
 	ReasonInProgress              = "InProgress"
 	ReasonIdle                    = "Idle"
