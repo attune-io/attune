@@ -24,7 +24,11 @@ import (
 	"time"
 	_ "time/tzdata" // Embed IANA timezone database for distroless containers.
 
+	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
@@ -123,6 +127,11 @@ func main() {
 		"Optional operator-level floor for metrics queryStep (e.g. 10m for large fleets). Zero disables extra clamp.")
 	flag.DurationVar(&blockerRefreshInterval, "blocker-refresh-interval", 0,
 		"Minimum interval between Deferred/Infeasible blocker recomputes when not resizing. Zero (default) recomputes every reconcile; set e.g. 5m for large Recommend fleets.")
+	var podLabelSelector string
+	flag.StringVar(&podLabelSelector, "pod-label-selector", "",
+		"Optional Kubernetes label selector for operator pod keep diagnostics and future ListWatch filtering "+
+			"(e.g. 'attune.io/managed=true'). Combined with dynamic selectors from active policies. "+
+			"All watched pods are field-stripped; empty Spec stubs are not used.")
 	flag.StringVar(&watchNamespaces, "watch-namespaces", "",
 		"Comma-separated list of namespaces to watch. Empty means all namespaces (cluster-scoped). "+
 			"Reduces informer cache memory on large clusters where policies exist in a few namespaces. "+
@@ -214,18 +223,40 @@ func main() {
 	}
 
 	// Strip unused fields from cached objects to reduce informer memory at scale.
-	// See internal/transform/ for preserved vs stripped fields.
+	// Workload/HPA write paths use APIReader (live Get) before MergeFrom/Update
+	// so strip-transformed cache entries cannot wipe template image/command.
 	if mgrOpts.Cache.ByObject == nil {
 		mgrOpts.Cache.ByObject = make(map[client.Object]cache.ByObject)
 	}
-	// Only strip Pods in the informer cache. Workloads (Deployments, STS, …)
-	// and HPAs are patched via MergeFrom of the cached object; JSON merge
-	// replaces container/metric arrays, so stripping fields would wipe live
-	// template image/command (or HPA metrics) on write. Unit tests still cover
-	// transform helpers for optional future use with direct-API re-fetch.
-	mgrOpts.Cache.ByObject[&corev1.Pod{}] = cache.ByObject{
-		Transform: transform.StripPodFields,
+	var staticPodSel labels.Selector
+	if podLabelSelector != "" {
+		var err error
+		staticPodSel, err = labels.Parse(podLabelSelector)
+		if err != nil {
+			setupLog.Error(err, "invalid --pod-label-selector")
+			os.Exit(1)
+		}
+		setupLog.Info("Pod label selector configured", "selector", podLabelSelector)
 	}
+	podFilter := transform.NewPodCacheFilter(staticPodSel)
+	if staticPodSel != nil {
+		// Static-only filtering is active immediately (dynamic selectors refresh later).
+		podFilter.UpdateDynamic(nil)
+		podFilter.SetEnabled(true)
+	}
+	mgrOpts.Cache.ByObject[&corev1.Pod{}] = cache.ByObject{
+		// Transform applies static --pod-label-selector OR dynamic policy
+		// selectors (OR semantics). ListWatch-level Label is not set here
+		// because a single Label cannot express the union of policy selectors.
+		Transform: podFilter.Transform,
+	}
+	mgrOpts.Cache.ByObject[&appsv1.Deployment{}] = cache.ByObject{Transform: transform.StripDeploymentFields}
+	mgrOpts.Cache.ByObject[&appsv1.StatefulSet{}] = cache.ByObject{Transform: transform.StripStatefulSetFields}
+	mgrOpts.Cache.ByObject[&appsv1.DaemonSet{}] = cache.ByObject{Transform: transform.StripDaemonSetFields}
+	mgrOpts.Cache.ByObject[&appsv1.ReplicaSet{}] = cache.ByObject{Transform: transform.StripReplicaSetFields}
+	mgrOpts.Cache.ByObject[&autoscalingv2.HorizontalPodAutoscaler{}] = cache.ByObject{Transform: transform.StripHPAFields}
+	mgrOpts.Cache.ByObject[&batchv1.Job{}] = cache.ByObject{Transform: transform.StripJobFields}
+	mgrOpts.Cache.ByObject[&batchv1.CronJob{}] = cache.ByObject{Transform: transform.StripCronJobFields}
 
 	// When webhooks are disabled, point the webhook server at a non-existent port
 	// to prevent it from listening. The webhook handler is simply never registered.
@@ -253,6 +284,8 @@ func main() {
 	// Setup the AttunePolicyReconciler with a real Prometheus metrics factory and clientset.
 	reconciler := controller.NewAttunePolicyReconciler()
 	reconciler.Client = mgr.GetClient()
+	reconciler.APIReader = mgr.GetAPIReader()
+	reconciler.PodCacheFilter = podFilter
 	reconciler.Scheme = mgr.GetScheme()
 	reconciler.Clientset = clientset
 	reconciler.Recorder = mgr.GetEventRecorder("attune")

@@ -49,6 +49,7 @@ import (
 	rsmetrics "github.com/attune-io/attune/internal/metrics"
 	"github.com/attune-io/attune/internal/operatormetrics"
 	"github.com/attune-io/attune/internal/resize"
+	"github.com/attune-io/attune/internal/transform"
 	pkgdefaults "github.com/attune-io/attune/pkg/defaults"
 )
 
@@ -134,7 +135,12 @@ const (
 // AttunePolicyReconciler reconciles an AttunePolicy object.
 type AttunePolicyReconciler struct {
 	client.Client
-	Scheme                  *runtime.Scheme
+	// APIReader bypasses the informer cache (direct API server reads). Use for
+	// Gets that feed MergeFrom/Update of stripped workload/HPA objects.
+	APIReader client.Reader
+	Scheme    *runtime.Scheme
+	// PodCacheFilter is the shared informer transform filter (may be nil).
+	PodCacheFilter          *transform.PodCacheFilter
 	MetricsFactory          MetricsCollectorFactory
 	Clientset               kubernetes.Interface // for resize subresource calls
 	Recorder                events.EventRecorder
@@ -364,7 +370,15 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 	workloadCtx, workloadCancel := context.WithTimeout(ctx, promTimeout)
 	defer workloadCancel()
-	wpResult := r.processWorkloads(workloadCtx, &policy, workloads, collector, queryBuilder)
+	// One NS-wide pod list shared by metrics sampling and later resize/status
+	// paths (avoids per-workload List during sampling then a second full List).
+	var podsByWorkload map[string][]corev1.Pod
+	if r.maxPodsInMetricsQuery() > 0 {
+		podsByWorkload = r.listPodsForWorkloads(ctx, workloads)
+	}
+	// Best-effort refresh of dynamic pod cache filter from active policies.
+	r.refreshPodCacheFilter(ctx)
+	wpResult := r.processWorkloads(workloadCtx, &policy, workloads, collector, queryBuilder, podsByWorkload)
 	promTimedOut := workloadCtx.Err() == context.DeadlineExceeded
 	if promTimedOut {
 		logger.Info("Prometheus query timeout exceeded, using partial results",
@@ -456,10 +470,12 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	refreshBlockers := r.shouldRefreshBlockers(&policy, needPods)
 	// Always list when resizing; for status-only paths, skip List while throttle holds.
 	listPods := needPods || (refreshBlockers && (isResizeMode(mode) || mode == attunev1alpha1.UpdateTypeRecommend))
-	podsByWorkload := make(map[string][]corev1.Pod, len(workloads))
-	if listPods {
-		// One List per namespace + in-memory selector match (not N List calls).
+	if listPods && podsByWorkload == nil {
+		// Reuse early list from metrics sampling when present.
 		podsByWorkload = r.listPodsForWorkloads(ctx, workloads)
+	}
+	if podsByWorkload == nil {
+		podsByWorkload = map[string][]corev1.Pod{}
 	}
 
 	// Pre-fetch namespace-scoped LimitRanges and ResourceQuotas once so both
@@ -790,6 +806,7 @@ func (r *AttunePolicyReconciler) processWorkloads(
 	workloads []client.Object,
 	collector rsmetrics.MetricsCollector,
 	qb rsmetrics.QueryBuilder,
+	podsByWorkload map[string][]corev1.Pod,
 ) workloadProcessingResult {
 	logger := log.FromContext(ctx)
 	result := workloadProcessingResult{
@@ -903,7 +920,11 @@ func (r *AttunePolicyReconciler) processWorkloads(
 			if isVPASource {
 				rec, dataPoints, err = r.computeVPARecommendationsForWorkload(gCtx, policy, workload, vpaRecs, cpuEngine, memEngine, excludeSet)
 			} else {
-				rec, qErrors, failedMetricTypes, dataPoints, seriesCapped, err = r.computeRecommendations(gCtx, policy, workload, collector, qb, cpuEngine, memEngine, excludeSet)
+				var pods []corev1.Pod
+				if podsByWorkload != nil {
+					pods = podsByWorkload[workloadName]
+				}
+				rec, qErrors, failedMetricTypes, dataPoints, seriesCapped, err = r.computeRecommendations(gCtx, policy, workload, collector, qb, cpuEngine, memEngine, excludeSet, pods)
 			}
 			// Log and record metrics outside the lock (both are goroutine-safe).
 			if err != nil {

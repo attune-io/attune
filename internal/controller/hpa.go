@@ -102,7 +102,8 @@ func (r *AttunePolicyReconciler) adjustHPATargets(
 			// was fetched at the start of Reconcile and the HPA controller
 			// may have updated it since then (e.g., during concurrent resizes).
 			var fresh autoscalingv2.HorizontalPodAutoscaler
-			if getErr := r.Get(ctx, types.NamespacedName{Name: hpa.Name, Namespace: hpa.Namespace}, &fresh); getErr != nil {
+			// Live API read so strip-transformed cache entries cannot wipe metrics.
+			if getErr := r.liveReader().Get(ctx, types.NamespacedName{Name: hpa.Name, Namespace: hpa.Namespace}, &fresh); getErr != nil {
 				logger.Error(getErr, "Failed to re-fetch HPA for target update", "hpa", hpa.Name)
 				break
 			}

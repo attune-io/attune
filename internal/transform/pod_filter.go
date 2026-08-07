@@ -1,0 +1,144 @@
+/*
+Copyright 2026.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package transform
+
+import (
+	"sync"
+
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
+)
+
+// LabelTracked is the pod label Attune sets on resized pods for safety
+// observation. Always retained fully in the informer cache.
+const LabelTracked = "attune.io/tracked"
+
+// PodCacheFilter is a Transform for Pods that always StripPodFields and
+// tracks optional static/dynamic keep selectors for diagnostics (and
+// future ListWatch filtering). Empty Spec stubs are not used because
+// Transform only runs on add/update; a premature stub would block resizes.
+//
+// Note: Kubernetes watch still delivers all pod events in the watched
+// namespaces; strip only shrinks what is retained in the cache.
+type PodCacheFilter struct {
+	mu sync.RWMutex
+	// static is optional operator-wide label selector (--pod-label-selector).
+	static labels.Selector
+	// dynamic is the union of MatchLabels selectors from active policies'
+	// target workloads (refreshed by the controller).
+	dynamic []labels.Selector
+	// enabled when true applies filtering; when false, only StripPodFields.
+	enabled bool
+}
+
+// NewPodCacheFilter builds a filter. static may be nil. enabled starts false
+// until the first successful selector refresh (keeps all pods until then).
+func NewPodCacheFilter(static labels.Selector) *PodCacheFilter {
+	return &PodCacheFilter{static: static}
+}
+
+// SetEnabled turns dynamic filtering on or off.
+func (f *PodCacheFilter) SetEnabled(on bool) {
+	if f == nil {
+		return
+	}
+	f.mu.Lock()
+	f.enabled = on
+	f.mu.Unlock()
+}
+
+// UpdateDynamic replaces the policy-derived selectors (call after listing
+// policies and resolving workload pod selectors).
+func (f *PodCacheFilter) UpdateDynamic(sels []labels.Selector) {
+	if f == nil {
+		return
+	}
+	f.mu.Lock()
+	f.dynamic = sels
+	if len(sels) > 0 || f.static != nil {
+		f.enabled = true
+	}
+	// Keep enabled if already on with static selector even when dynamic is empty.
+	if f.static != nil {
+		f.enabled = true
+	}
+	f.mu.Unlock()
+}
+
+// Transform implements cache.TransformFunc for Pods.
+//
+// Always StripPodFields (keeps Spec resources / resizePolicy / status QOS).
+// Empty Spec stubs are intentionally NOT used: Transform only runs on
+// add/update, so a pod stubbed before its policy selector was registered
+// would stay broken until an unrelated update, blocking resizes. Dynamic
+// selectors are retained for operator-level ListWatch filtering later and
+// for Keep() diagnostics; memory savings come from strip + optional static
+// --pod-label-selector ListWatch Label in main.
+func (f *PodCacheFilter) Transform(obj any) (any, error) {
+	pod, ok := obj.(*corev1.Pod)
+	if !ok {
+		return obj, nil
+	}
+	return StripPodFields(pod)
+}
+
+// Keep reports whether the pod matches static/dynamic keep rules (for tests
+// and diagnostics). Does not affect Transform (always strips, never stubs).
+func (f *PodCacheFilter) Keep(pod *corev1.Pod) bool {
+	if f == nil || pod == nil {
+		return true
+	}
+	return f.shouldKeep(pod)
+}
+
+func (f *PodCacheFilter) shouldKeep(pod *corev1.Pod) bool {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	if !f.enabled {
+		return true
+	}
+	// Always keep safety-tracked pods.
+	if pod.Labels != nil && pod.Labels[LabelTracked] == "true" {
+		return true
+	}
+	ls := labels.Set(pod.Labels)
+	if f.static != nil && f.static.Matches(ls) {
+		return true
+	}
+	for _, sel := range f.dynamic {
+		if sel != nil && sel.Matches(ls) {
+			return true
+		}
+	}
+	// Static-only mode: if static is set and no dynamic yet, non-matches drop
+	// from keep diagnostics (Transform still strips only).
+	if f.static != nil && len(f.dynamic) == 0 {
+		return false
+	}
+	if len(f.dynamic) == 0 {
+		return true
+	}
+	return false
+}
+
+// SelectorFromMap builds an equality-based labels.Selector from match labels.
+func SelectorFromMap(m map[string]string) labels.Selector {
+	if len(m) == 0 {
+		return nil
+	}
+	return labels.SelectorFromSet(labels.Set(m))
+}

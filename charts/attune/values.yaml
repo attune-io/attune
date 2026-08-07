@@ -316,6 +316,11 @@ minQueryStep: ""
 # Zero (default) recomputes every cycle. Set "5m" on large Recommend fleets to cut List work.
 blockerRefreshInterval: "0s"
 
+# -- Optional static pod label selector kept fully in the informer cache
+# (OR'd with dynamic selectors from active AttunePolicy targets).
+# Example: "attune.io/managed=true". Empty relies on dynamic policy selectors only.
+podLabelSelector: ""
+
 # -- Maximum deterministic requeue jitter to spread policies that share a cooldown.
 # Set to "0s" to disable. Default 2m (empty omits the flag and keeps the binary default).
 requeueJitter: "2m"

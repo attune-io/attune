@@ -291,8 +291,10 @@ legacy behavior or richer status.
 | Query step operator floor | Off (CRD min 10s) | `minQueryStep` / `--min-query-step`; large=`10m`, xlarge=`15m` | - |
 | Blocker recompute throttle | Off (`0s`; set `5m` for large Recommend fleets) | `blockerRefreshInterval` / `--blocker-refresh-interval` | - |
 | Parallel policy reconciles | 2 | `maxConcurrentReconciles` / `--max-concurrent-reconciles`; clusterSize presets 1/2/4/8 | - |
-| Informer field strip (Pods only) | On | - | Workload/HPA strip is unit-tested but not enabled: MergeFrom patches would wipe template fields |
+| Informer field strip (Pods + workloads + HPA) | On | - | Write paths use APIReader (live Get) before MergeFrom |
+| Pod field strip + optional static selector | Strip always; optional static | `podLabelSelector` / `--pod-label-selector` | Dynamic selectors refreshed for keep diagnostics; no empty Spec stubs |
 | Batch safety throttle PromQL | On (when Prometheus collector) | - | - |
+| Shared pod List for metrics sample + resize | On when sampling enabled | - | One NS-wide List reused |
 
 ### PromQL aggregation
 
@@ -369,11 +371,25 @@ step at reconcile time. Example: large sets a 72h history ceiling and
 
 ### Informer memory
 
-`StripPodFields` still reduces pod cache size. Workload and HPA objects
-are not stripped in the live cache because template/HPA updates use
-MergeFrom on the cached object, and JSON merge replaces container arrays.
-Prefer `watchNamespaces` for multi-tenant mega-clusters; label-based cache
-filters are not supported (policies can use any selector).
+- **Strip transforms** reduce stored fields for Pods, Deployments, StatefulSets,
+  DaemonSets, ReplicaSets, Jobs, CronJobs, and HPAs.
+- **Write safety:** template persistence and HPA auto-tune re-Get via
+  `APIReader` (direct API) before MergeFrom/Update so stripped cache objects
+  cannot wipe container images or HPA metrics.
+- **Pod field strip:** all pods are stored with unused fields stripped
+  (env, volumes, images). Dynamic policy selectors are refreshed about every
+  30s for operator diagnostics and optional static `--pod-label-selector` /
+  Helm `podLabelSelector`. Empty Spec stubs are not used: a stub would stick
+  until the next watch event after selectors catch up and would break resizes.
+  The watch still receives events for all pods in watched namespaces
+  (Kubernetes cannot OR arbitrary label selectors in one ListWatch).
+- Prefer `watchNamespaces` for multi-tenant mega-clusters to cut API scope.
+
+### Default PromQL Max aggregation (behavioral note)
+
+New installs and upgrades default to `podAggregation: Max`. That is a
+deliberate semantic change from pre-#488 unaggregated series. Set
+`podAggregation: None` only if you need the legacy multi-pod sample pool.
 
 ### Safety throttle batching
 
