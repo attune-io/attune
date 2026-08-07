@@ -327,6 +327,44 @@ func waitForResize(t *testing.T, policyName, namespace string, timeout time.Dura
 	}), "policy %s/%s workloads.resized still 0 after %s", namespace, policyName, timeout)
 }
 
+// countPodsWithCPURequest counts pods matching app whose container "app"
+// still has the given CPU request (exact Quantity compare).
+func countPodsWithCPURequest(t *testing.T, namespace, app string, wantCPU resource.Quantity) int {
+	t.Helper()
+	var pods corev1.PodList
+	require.NoError(t, k8sClient.List(ctx, &pods, client.InNamespace(namespace), client.MatchingLabels{"app": app}))
+	n := 0
+	for i := range pods.Items {
+		p := &pods.Items[i]
+		if p.DeletionTimestamp != nil {
+			continue
+		}
+		for _, c := range p.Spec.Containers {
+			if c.Name != "app" {
+				continue
+			}
+			if cpu, ok := c.Resources.Requests[corev1.ResourceCPU]; ok && cpu.Equal(wantCPU) {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+// policyHasEvent reports whether a Normal/Warning event with the given reason
+// exists for the named AttunePolicy in the namespace.
+func policyHasEvent(t *testing.T, namespace, policyName, reason string) bool {
+	t.Helper()
+	evs, err := clientset.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{
+		FieldSelector: fmt.Sprintf("involvedObject.name=%s,involvedObject.kind=AttunePolicy,reason=%s", policyName, reason),
+	})
+	if err != nil {
+		t.Logf("list events: %v", err)
+		return false
+	}
+	return len(evs.Items) > 0
+}
+
 func forcePolicyReconcile(t *testing.T, name, namespace string, timeout time.Duration) {
 	t.Helper()
 
@@ -746,10 +784,9 @@ func TestE2E_BudgetCaps_DefersResize(t *testing.T) {
 	t.Parallel()
 	ns := uniqueNS("budget")
 	createNamespace(t, ns)
-	// Overprovisioned pause pods: rec decreases (Max aggregation + near-zero
-	// usage). maxTotalCpuIncrease only caps *increases*; unit tests cover
-	// multi-pod increase deferral. This E2E proves a policy with a budget
-	// field still discovers and resizes down (issue #492).
+	// Smoke: overprovisioned pause, rec decreases. Budget field is present
+	// but only gates increases. Multi-pod increase gating is covered by
+	// TestE2E_BudgetCaps_LimitsPerCycleIncrease and controller unit tests.
 	createDeployment(t, "budget-app", ns, "500m", "256Mi", 1)
 	waitForDeploymentReady(t, "budget-app", ns, 60*time.Second)
 
@@ -764,9 +801,7 @@ func TestE2E_BudgetCaps_DefersResize(t *testing.T) {
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
-				// Explicit rate window: queryStep alone would use rate(...[30s]),
-				// which often returns empty early and leaves rec==current.
-				RateWindow: &metav1.Duration{Duration: 5 * time.Minute},
+				RateWindow:        &metav1.Duration{Duration: 5 * time.Minute},
 			},
 			CPU: attunev1alpha1.ResourceConfig{
 				Percentile:       95,
@@ -804,6 +839,254 @@ func TestE2E_BudgetCaps_DefersResize(t *testing.T) {
 	require.NotNil(t, p.Spec.UpdateStrategy)
 	require.NotNil(t, p.Spec.UpdateStrategy.MaxTotalCPUIncrease)
 	assert.True(t, p.Spec.UpdateStrategy.MaxTotalCPUIncrease.Equal(tightBudget))
+}
+
+// TestE2E_BudgetCaps_LimitsPerCycleIncrease proves maxTotalCpuIncrease gates
+// multi-pod *increases* against live Prometheus + /resize (not unit fakes).
+//
+// Setup forces a ~50m per-pod increase (50m → maxAllowed 100m) with a 70m
+// cycle budget and maxConcurrentResizes=2. One pod can resize; the second
+// is deferred. Long cooldown freezes further cycles so we can observe
+// at least one pod still at the original request.
+func TestE2E_BudgetCaps_LimitsPerCycleIncrease(t *testing.T) {
+	t.Parallel()
+	ns := uniqueNS("budinc")
+	createNamespace(t, ns)
+
+	const app = "budinc-app"
+	origCPU := resource.MustParse("50m")
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: app, Namespace: ns,
+			Labels: map[string]string{"app": app},
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: int32Ptr(2),
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": app}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": app}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:    "app",
+						Image:   cpuBurnImage,
+						Command: []string{"sh", "-c", "while true; do :; done"},
+						ResizePolicy: []corev1.ContainerResizePolicy{
+							{ResourceName: corev1.ResourceCPU, RestartPolicy: corev1.NotRequired},
+							{ResourceName: corev1.ResourceMemory, RestartPolicy: corev1.NotRequired},
+						},
+						Resources: corev1.ResourceRequirements{
+							// Burstable: low request, no limits; burn drives rec up to maxAllowed.
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    origCPU,
+								corev1.ResourceMemory: resource.MustParse("32Mi"),
+							},
+						},
+					}},
+				},
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, deploy))
+	waitForDeploymentReady(t, app, ns, 180*time.Second)
+
+	// maxAllowed - start ≈ 50m per pod; budget 70m allows one pod, not two.
+	cpuBudget := resource.MustParse("70m")
+	maxCPU := resource.MustParse("100m")
+	deployName := app
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "budinc-policy", Namespace: ns},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			TargetRef: attunev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Prometheus:        &attunev1alpha1.PrometheusConfig{Address: promAddr},
+				MinimumDataPoints: int32Ptr(1),
+				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
+				RateWindow:        &metav1.Duration{Duration: 5 * time.Minute},
+			},
+			CPU: attunev1alpha1.ResourceConfig{
+				Percentile:       95,
+				Overhead:         "20",
+				MinAllowed:       quantityPtr("50m"),
+				MaxAllowed:       &maxCPU,
+				MaxChangePercent: int32Ptr(100),
+			},
+			Memory: attunev1alpha1.ResourceConfig{
+				Percentile:       99,
+				Overhead:         "30",
+				AllowDecrease:    boolPtr(true),
+				MinAllowed:       quantityPtr("32Mi"),
+				MaxAllowed:       quantityPtr("256Mi"),
+				MaxChangePercent: int32Ptr(100),
+			},
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Type:                  attunev1alpha1.UpdateTypeAuto,
+				Cooldown:              &metav1.Duration{Duration: 2 * time.Hour},
+				AutoRevert:            boolPtr(false),
+				MaxConcurrentResizes: 2,
+				MaxTotalCPUIncrease:  &cpuBudget,
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, policy))
+
+	waitForPolicyDiscovered(t, "budinc-policy", ns, 2*time.Minute)
+	// Wait until status shows an increase rec (burn + maxAllowed), then a resize.
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 5*time.Minute, true, func(ctx context.Context) (bool, error) {
+		var p attunev1alpha1.AttunePolicy
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "budinc-policy", Namespace: ns}, &p); err != nil {
+			return false, nil
+		}
+		if p.Status.Workloads.Resized > 0 {
+			return true, nil
+		}
+		for _, rec := range p.Status.Recommendations {
+			for _, c := range rec.Containers {
+				if c.Name == "app" && c.Recommended.CPURequest.Cmp(origCPU) > 0 {
+					t.Logf("increase rec ready: current=%s rec=%s resized=%d",
+						c.Current.CPURequest.String(), c.Recommended.CPURequest.String(), p.Status.Workloads.Resized)
+					// Keep waiting until a resize lands or budget exhausts both.
+					return false, nil
+				}
+			}
+		}
+		return false, nil
+	}), "timed out waiting for CPU increase resize under budget")
+
+	// status.workloads.resized is a *workload* count (1 if any pod resized),
+	// not a pod count. Assert the gate at the pod level: at least one pod
+	// still at the original request (or BudgetExhausted was emitted).
+	stillAtOrig := countPodsWithCPURequest(t, ns, app, origCPU)
+	exhausted := policyHasEvent(t, ns, "budinc-policy", "BudgetExhausted")
+	t.Logf("pods still at %s: %d; BudgetExhausted event: %v", origCPU.String(), stillAtOrig, exhausted)
+
+	var p attunev1alpha1.AttunePolicy
+	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "budinc-policy", Namespace: ns}, &p))
+	require.GreaterOrEqual(t, p.Status.Workloads.Resized, int32(1),
+		"at least one workload should record a resize within the 70m CPU increase budget")
+	assert.True(t, stillAtOrig >= 1 || exhausted,
+		"expected at least one pod still at original CPU (budget deferred peer) or BudgetExhausted event; stillAtOrig=%d exhausted=%v",
+		stillAtOrig, exhausted)
+	// Both pods must not have left the original request if the budget held.
+	resizedPods := 2 - stillAtOrig
+	assert.LessOrEqual(t, resizedPods, 1,
+		"budget should allow at most one ~50m increase; pods moved off %s: %d", origCPU.String(), resizedPods)
+}
+
+// TestE2E_GuaranteedQoS_CPUResizeWithMemoryHeld verifies that when memory
+// cannot decrease (Guaranteed + allowDecrease=false / minAllowed=current),
+// an overprovisioned CPU request still resizes live via /resize. This is
+// the product path that nightly #492 hit when CPU PromQL was empty and only
+// the memory path ran (then got clamped).
+func TestE2E_GuaranteedQoS_CPUResizeWithMemoryHeld(t *testing.T) {
+	t.Parallel()
+	ns := uniqueNS("gqcpu")
+	createNamespace(t, ns)
+
+	const app = "gqcpu-app"
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: app, Namespace: ns,
+			Labels: map[string]string{"app": app},
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: int32Ptr(1),
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": app}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": app}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:  "app",
+						Image: "registry.k8s.io/pause:3.9",
+						ResizePolicy: []corev1.ContainerResizePolicy{
+							{ResourceName: corev1.ResourceCPU, RestartPolicy: corev1.NotRequired},
+							{ResourceName: corev1.ResourceMemory, RestartPolicy: corev1.NotRequired},
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("256Mi"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("256Mi"),
+							},
+						},
+					}},
+				},
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, deploy))
+	waitForDeploymentReady(t, app, ns, 60*time.Second)
+
+	controlled := attunev1alpha1.ControlledRequestsAndLimits
+	deployName := app
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "gqcpu-policy", Namespace: ns},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			TargetRef: attunev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Prometheus:        &attunev1alpha1.PrometheusConfig{Address: promAddr},
+				MinimumDataPoints: int32Ptr(1),
+				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
+				RateWindow:        &metav1.Duration{Duration: 5 * time.Minute},
+			},
+			CPU: attunev1alpha1.ResourceConfig{
+				Percentile:       95,
+				Overhead:         "20",
+				ControlledValues: &controlled,
+				MinAllowed:       quantityPtr("50m"),
+				MaxAllowed:       quantityPtr("4000m"),
+				MaxChangePercent: int32Ptr(100),
+			},
+			Memory: attunev1alpha1.ResourceConfig{
+				Percentile:       99,
+				Overhead:         "30",
+				AllowDecrease:    boolPtr(false),
+				ControlledValues: &controlled,
+				MinAllowed:       quantityPtr("256Mi"),
+				MaxAllowed:       quantityPtr("8Gi"),
+				MaxChangePercent: int32Ptr(100),
+			},
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Type:       attunev1alpha1.UpdateTypeAuto,
+				Cooldown:   &metav1.Duration{Duration: time.Minute},
+				AutoRevert: boolPtr(true),
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, policy))
+
+	origCPU := resource.MustParse("500m")
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 4*time.Minute, true, func(ctx context.Context) (bool, error) {
+		var pods corev1.PodList
+		if err := k8sClient.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{"app": app}); err != nil {
+			return false, nil
+		}
+		for _, pod := range pods.Items {
+			for _, c := range pod.Spec.Containers {
+				if c.Name == "app" {
+					cpu := c.Resources.Requests.Cpu()
+					if cpu != nil && cpu.Cmp(origCPU) < 0 {
+						t.Logf("Guaranteed pod CPU resized: cpu=%s mem=%s",
+							cpu.String(), c.Resources.Requests.Memory().String())
+						return true, nil
+					}
+				}
+			}
+		}
+		return false, nil
+	}), "timed out waiting for Guaranteed pod CPU decrease with memory held")
+
+	var pods corev1.PodList
+	require.NoError(t, k8sClient.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{"app": app}))
+	require.NotEmpty(t, pods.Items)
+	c := pods.Items[0].Spec.Containers[0]
+	assert.True(t, c.Resources.Requests.Cpu().Cmp(origCPU) < 0)
+	assert.True(t, c.Resources.Requests.Memory().Equal(resource.MustParse("256Mi")),
+		"memory must stay at Guaranteed 256Mi, got %s", c.Resources.Requests.Memory().String())
 }
 
 func TestE2E_ScheduleWindow_SkipsOutsideWindow(t *testing.T) {
