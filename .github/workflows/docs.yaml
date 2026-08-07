@@ -13,9 +13,11 @@ on:
 permissions:
   contents: read
 
+# Do not cancel in-progress deploys on main: cancel-in-progress:true caused
+# Deploy to be cancelled for consecutive docs merges (see 5e92edb, f032245).
 concurrency:
   group: docs
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
