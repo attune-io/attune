@@ -317,7 +317,9 @@ func (r *AttunePolicyReconciler) patchWorkloadTemplateResources(
 		switch workload.(type) {
 		case *appsv1.Deployment:
 			var deploy appsv1.Deployment
-			if err := r.Get(ctx, key, &deploy); err != nil {
+			// Live API read: cache may hold strip-transformed objects; MergeFrom
+			// on a stripped template would wipe container image/command.
+			if err := r.liveReader().Get(ctx, key, &deploy); err != nil {
 				return err
 			}
 			original := deploy.DeepCopy()
@@ -328,7 +330,7 @@ func (r *AttunePolicyReconciler) patchWorkloadTemplateResources(
 			return r.Patch(ctx, &deploy, client.MergeFrom(original))
 		case *appsv1.StatefulSet:
 			var sts appsv1.StatefulSet
-			if err := r.Get(ctx, key, &sts); err != nil {
+			if err := r.liveReader().Get(ctx, key, &sts); err != nil {
 				return err
 			}
 			original := sts.DeepCopy()

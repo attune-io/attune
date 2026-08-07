@@ -223,6 +223,7 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 	qb rsmetrics.QueryBuilder,
 	cpuEngine, memEngine *recommendation.RecommendationEngine,
 	excludeSet map[string]bool,
+	pods []corev1.Pod,
 ) (rec *attunev1alpha1.WorkloadRecommendation, queryErrors int, failedMetricTypes []string, maxDataPoints int, seriesCapped bool, err error) { //nolint:unparam // error return kept for interface contract
 	logger := log.FromContext(ctx)
 	containers := r.getContainers(workload)
@@ -243,17 +244,15 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 
 	now := r.now()
 	start := now.Add(-historyWindow)
-	// Representative pod sampling for metrics when replica count is huge.
-	// Resize still uses full podsByWorkload; this only narrows the PromQL regex.
+	// Representative pod sampling uses the shared pods list from Reconcile
+	// (one NS-wide List), not a per-workload List here.
 	podRegex := r.getPodRegex(workload)
-	if r.maxPodsInMetricsQuery() > 0 {
-		if pods, err := r.getPodsForWorkload(ctx, workload); err == nil && len(pods) > r.maxPodsInMetricsQuery() {
-			podRegex = r.metricsPodRegex(workload, pods)
-			logger.V(1).Info("Sampled pods for metrics query",
-				"workload", workload.GetName(),
-				"totalPods", len(pods),
-				"sampled", r.maxPodsInMetricsQuery())
-		}
+	if r.maxPodsInMetricsQuery() > 0 && len(pods) > r.maxPodsInMetricsQuery() {
+		podRegex = r.metricsPodRegex(workload, pods)
+		logger.V(1).Info("Sampled pods for metrics query",
+			"workload", workload.GetName(),
+			"totalPods", len(pods),
+			"sampled", r.maxPodsInMetricsQuery())
 	}
 
 	queryStep := r.getQueryStep(policy)

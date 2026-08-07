@@ -95,6 +95,7 @@ helm install attune oci://ghcr.io/attune-io/charts/attune \
 | openshift | object | `{"enabled":false}` | OpenShift integration |
 | openshift.enabled | bool | `false` | Enable OpenShift-specific features (TLS profile auto-detection). When enabled, the ClusterRole includes read access to config.openshift.io/apiservers for TLS security profile detection. |
 | podAnnotations | object | `{}` | Pod annotations |
+| podLabelSelector | string | `""` | Optional static pod label selector kept fully in the informer cache (OR'd with dynamic selectors from active AttunePolicy targets). Example: "attune.io/managed=true". Empty relies on dynamic policy selectors only. |
 | podSecurityContext | object | `{"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}}` | Pod security context |
 | priorityClassName | string | `""` | Priority class name for the operator pod (recommended: system-cluster-critical for production) |
 | prometheusBurst | int | `20` | Prometheus query burst allowance. |

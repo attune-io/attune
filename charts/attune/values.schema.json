@@ -1061,6 +1061,11 @@
       "default": "0s",
       "description": "Minimum interval between Deferred/Infeasible blocker recomputes when not resizing. Zero recomputes every cycle."
     },
+    "podLabelSelector": {
+      "type": "string",
+      "default": "",
+      "description": "Optional static pod label selector for informer cache keep rules (OR with policy-derived selectors)."
+    },
     "watchNamespaces": {
       "type": "array",
       "items": {

@@ -98,6 +98,9 @@ spec:
             - --blocker-refresh-interval={{ .Values.blockerRefreshInterval }}
             {{- end }}
             {{- end }}
+            {{- if .Values.podLabelSelector }}
+            - --pod-label-selector={{ .Values.podLabelSelector }}
+            {{- end }}
             {{- if .Values.watchNamespaces }}
             - --watch-namespaces={{ join "," .Values.watchNamespaces }}
             {{- end }}
