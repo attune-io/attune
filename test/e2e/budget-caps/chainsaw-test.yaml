@@ -3,7 +3,10 @@ kind: Test
 metadata:
   name: budget-caps
 spec:
-  description: Verify that an AttunePolicy with per-cycle budget caps is accepted and discovers workloads
+  description: >
+    Smoke that an AttunePolicy with maxTotalCpuIncrease is accepted, discovers
+    workloads, and can resize. Multi-pod increase gating is covered by Go E2E
+    TestE2E_BudgetCaps_LimitsPerCycleIncrease (CPU-burn + tight budget).
   timeouts:
     apply: 30s
     assert: 2m
@@ -25,7 +28,7 @@ spec:
                 name: budget-app
                 namespace: e2e-budget-caps
               spec:
-                replicas: 3
+                replicas: 1
                 selector:
                   matchLabels:
                     app: budget-app
@@ -44,10 +47,7 @@ spec:
                             restartPolicy: NotRequired
                         resources:
                           requests:
-                            cpu: 100m
-                            memory: 128Mi
-                          limits:
-                            cpu: 200m
+                            cpu: 500m
                             memory: 256Mi
         - assert:
             resource:
@@ -57,7 +57,7 @@ spec:
                 name: budget-app
                 namespace: e2e-budget-caps
               status:
-                readyReplicas: 3
+                readyReplicas: 1
     - name: wait-for-metrics
       try:
         - script:
@@ -94,16 +94,20 @@ spec:
                     address: http://prometheus-server.monitoring:80
                   minimumDataPoints: 1
                   historyWindow: 1h
-                  queryStep: 1m
+                  queryStep: 30s
                   rateWindow: 5m
                 cpu:
                   percentile: 95
                   overhead: "20"
+                  minAllowed: 50m
+                  maxAllowed: 4000m
                   maxChangePercent: 100
                 memory:
                   percentile: 99
                   overhead: "30"
                   allowDecrease: true
+                  minAllowed: 64Mi
+                  maxAllowed: 8Gi
                   maxChangePercent: 100
                 updateStrategy:
                   type: Auto
@@ -131,7 +135,7 @@ spec:
                 RESIZED=$(kubectl get attunepolicy budget-test -n e2e-budget-caps \
                   -o jsonpath='{.status.workloads.resized}' 2>/dev/null)
                 if [ "$RESIZED" -ge 1 ] 2>/dev/null; then
-                  echo "Budget-capped resize confirmed: $RESIZED workload(s) resized"
+                  echo "Budget policy resized: $RESIZED (field maxTotalCpuIncrease still present)"
                   exit 0
                 fi
                 sleep 5
