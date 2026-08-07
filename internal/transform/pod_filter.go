@@ -20,7 +20,6 @@ import (
 	"sync"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 )
 
@@ -28,13 +27,13 @@ import (
 // observation. Always retained fully in the informer cache.
 const LabelTracked = "attune.io/tracked"
 
-// PodCacheFilter is a Transform for Pods that keeps full (stripped) objects
-// only when they match active policy selectors or a static selector, and
-// otherwise stores a minimal stub. This reduces informer memory without
-// requiring a single static label selector that covers every policy.
+// PodCacheFilter is a Transform for Pods that always StripPodFields and
+// tracks optional static/dynamic keep selectors for diagnostics (and
+// future ListWatch filtering). Empty Spec stubs are not used because
+// Transform only runs on add/update; a premature stub would block resizes.
 //
 // Note: Kubernetes watch still delivers all pod events in the watched
-// namespaces; this filter only shrinks what is retained in the cache.
+// namespaces; strip only shrinks what is retained in the cache.
 type PodCacheFilter struct {
 	mu sync.RWMutex
 	// static is optional operator-wide label selector (--pod-label-selector).
@@ -81,18 +80,29 @@ func (f *PodCacheFilter) UpdateDynamic(sels []labels.Selector) {
 }
 
 // Transform implements cache.TransformFunc for Pods.
+//
+// Always StripPodFields (keeps Spec resources / resizePolicy / status QOS).
+// Empty Spec stubs are intentionally NOT used: Transform only runs on
+// add/update, so a pod stubbed before its policy selector was registered
+// would stay broken until an unrelated update, blocking resizes. Dynamic
+// selectors are retained for operator-level ListWatch filtering later and
+// for Keep() diagnostics; memory savings come from strip + optional static
+// --pod-label-selector ListWatch Label in main.
 func (f *PodCacheFilter) Transform(obj any) (any, error) {
 	pod, ok := obj.(*corev1.Pod)
 	if !ok {
 		return obj, nil
 	}
-	if f == nil {
-		return StripPodFields(pod)
+	return StripPodFields(pod)
+}
+
+// Keep reports whether the pod matches static/dynamic keep rules (for tests
+// and diagnostics). Does not affect Transform (always strips, never stubs).
+func (f *PodCacheFilter) Keep(pod *corev1.Pod) bool {
+	if f == nil || pod == nil {
+		return true
 	}
-	if f.shouldKeep(pod) {
-		return StripPodFields(pod)
-	}
-	return minimalPodStub(pod), nil
+	return f.shouldKeep(pod)
 }
 
 func (f *PodCacheFilter) shouldKeep(pod *corev1.Pod) bool {
@@ -101,7 +111,7 @@ func (f *PodCacheFilter) shouldKeep(pod *corev1.Pod) bool {
 	if !f.enabled {
 		return true
 	}
-	// Always keep safety-tracked pods (full fields needed for observation).
+	// Always keep safety-tracked pods.
 	if pod.Labels != nil && pod.Labels[LabelTracked] == "true" {
 		return true
 	}
@@ -114,8 +124,8 @@ func (f *PodCacheFilter) shouldKeep(pod *corev1.Pod) bool {
 			return true
 		}
 	}
-	// Static-only mode: if static is set and no dynamic yet, drop non-matches.
-	// Dynamic empty with static nil and enabled: keep all (safety).
+	// Static-only mode: if static is set and no dynamic yet, non-matches drop
+	// from keep diagnostics (Transform still strips only).
 	if f.static != nil && len(f.dynamic) == 0 {
 		return false
 	}
@@ -123,24 +133,6 @@ func (f *PodCacheFilter) shouldKeep(pod *corev1.Pod) bool {
 		return true
 	}
 	return false
-}
-
-// minimalPodStub keeps identity and labels so MatchingLabels Lists can still
-// find the object, but drops heavy Spec/Status. Callers that need resources
-// must only match kept pods (active policy selectors).
-func minimalPodStub(pod *corev1.Pod) *corev1.Pod {
-	return &corev1.Pod{
-		TypeMeta: pod.TypeMeta,
-		ObjectMeta: metav1.ObjectMeta{
-			Name:            pod.Name,
-			Namespace:       pod.Namespace,
-			UID:             pod.UID,
-			ResourceVersion: pod.ResourceVersion,
-			Labels:          pod.Labels,
-			Annotations:     nil,
-			OwnerReferences: pod.OwnerReferences,
-		},
-	}
 }
 
 // SelectorFromMap builds an equality-based labels.Selector from match labels.

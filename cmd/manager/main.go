@@ -129,9 +129,9 @@ func main() {
 		"Minimum interval between Deferred/Infeasible blocker recomputes when not resizing. Zero (default) recomputes every reconcile; set e.g. 5m for large Recommend fleets.")
 	var podLabelSelector string
 	flag.StringVar(&podLabelSelector, "pod-label-selector", "",
-		"Optional Kubernetes label selector for pods retained fully in the informer cache "+
+		"Optional Kubernetes label selector for operator pod keep diagnostics and future ListWatch filtering "+
 			"(e.g. 'attune.io/managed=true'). Combined with dynamic selectors from active policies. "+
-			"Empty keeps all pods until the first policy-selector refresh (then non-matching pods are stubbed).")
+			"All watched pods are field-stripped; empty Spec stubs are not used.")
 	flag.StringVar(&watchNamespaces, "watch-namespaces", "",
 		"Comma-separated list of namespaces to watch. Empty means all namespaces (cluster-scoped). "+
 			"Reduces informer cache memory on large clusters where policies exist in a few namespaces. "+

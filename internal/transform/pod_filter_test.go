@@ -24,13 +24,17 @@ func TestPodCacheFilter_KeepsMatchingAndTracked(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "p1", Labels: map[string]string{"app": "api"},
 		},
-		Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "c", Image: "x"}}},
+		Spec: corev1.PodSpec{Containers: []corev1.Container{{
+			Name: "c", Image: "x",
+			Resources: corev1.ResourceRequirements{},
+		}}},
 	}
+	assert.True(t, f.Keep(keepAPI))
 	out, err := f.Transform(keepAPI)
 	require.NoError(t, err)
 	got := out.(*corev1.Pod)
 	require.Len(t, got.Spec.Containers, 1)
-	assert.Empty(t, got.Spec.Containers[0].Image) // stripped
+	assert.Empty(t, got.Spec.Containers[0].Image) // stripped, Spec retained
 
 	keepStatic := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -38,9 +42,10 @@ func TestPodCacheFilter_KeepsMatchingAndTracked(t *testing.T) {
 		},
 		Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "c", Image: "y"}}},
 	}
+	assert.True(t, f.Keep(keepStatic))
 	out, err = f.Transform(keepStatic)
 	require.NoError(t, err)
-	assert.NotEmpty(t, out.(*corev1.Pod).Spec.Containers)
+	assert.Len(t, out.(*corev1.Pod).Spec.Containers, 1)
 
 	tracked := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -48,22 +53,22 @@ func TestPodCacheFilter_KeepsMatchingAndTracked(t *testing.T) {
 		},
 		Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "c", Image: "z"}}},
 	}
-	out, err = f.Transform(tracked)
-	require.NoError(t, err)
-	assert.NotEmpty(t, out.(*corev1.Pod).Spec.Containers)
+	assert.True(t, f.Keep(tracked))
 
-	drop := &corev1.Pod{
+	other := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "p4", Labels: map[string]string{"app": "other"},
 		},
 		Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "c", Image: "z", Env: []corev1.EnvVar{{Name: "A"}}}}},
 	}
-	out, err = f.Transform(drop)
+	assert.False(t, f.Keep(other))
+	// Transform never stubs: Spec containers remain (env stripped).
+	out, err = f.Transform(other)
 	require.NoError(t, err)
-	stub := out.(*corev1.Pod)
-	assert.Empty(t, stub.Spec.Containers)
-	assert.Equal(t, "p4", stub.Name)
-	assert.Equal(t, "other", stub.Labels["app"])
+	stripped := out.(*corev1.Pod)
+	require.Len(t, stripped.Spec.Containers, 1)
+	assert.Empty(t, stripped.Spec.Containers[0].Env)
+	assert.Empty(t, stripped.Spec.Containers[0].Image)
 }
 
 func TestPodCacheFilter_DisabledKeepsAll(t *testing.T) {
@@ -73,7 +78,9 @@ func TestPodCacheFilter_DisabledKeepsAll(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "p", Labels: map[string]string{"app": "x"}},
 		Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "c", Image: "img"}}},
 	}
+	assert.True(t, f.Keep(pod))
 	out, err := f.Transform(pod)
 	require.NoError(t, err)
 	assert.Empty(t, out.(*corev1.Pod).Spec.Containers[0].Image)
+	assert.Len(t, out.(*corev1.Pod).Spec.Containers, 1)
 }
