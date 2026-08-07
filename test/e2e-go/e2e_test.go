@@ -1759,49 +1759,39 @@ func TestE2E_MemoryAllowDecreaseFalse(t *testing.T) {
 	}
 	require.NoError(t, k8sClient.Create(ctx, policy))
 
-	// Wait until CPU recommendation drops below current (or a resize lands).
-	// Relying only on Resized fails when CPU series are empty and memory is
-	// frozen by allowDecrease=false.
+	// Wait for a live CPU decrease. Status Resized alone is not enough: a
+	// memory-only no-op path can race, and rec-only readiness does not mean
+	// UpdateResize applied yet (#492).
 	origCPU := resource.MustParse("500m")
-	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
-		var p attunev1alpha1.AttunePolicy
-		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "nodecrease-policy", Namespace: ns}, &p); err != nil {
+	origMem := resource.MustParse("256Mi")
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 4*time.Minute, true, func(ctx context.Context) (bool, error) {
+		var pods corev1.PodList
+		if err := k8sClient.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{"app": "nodecrease-app"}); err != nil {
 			return false, nil
 		}
-		if p.Status.Workloads.Resized > 0 {
-			return true, nil
-		}
-		for _, rec := range p.Status.Recommendations {
-			for _, c := range rec.Containers {
+		for _, pod := range pods.Items {
+			for _, c := range pod.Spec.Containers {
 				if c.Name != "app" {
 					continue
 				}
-				if c.Recommended.CPURequest.Cmp(origCPU) < 0 {
-					t.Logf("CPU rec below current: current=%s rec=%s",
-						c.Current.CPURequest.String(), c.Recommended.CPURequest.String())
+				cpu := c.Resources.Requests.Cpu()
+				if cpu != nil && cpu.Cmp(origCPU) < 0 {
+					t.Logf("Pod %s CPU decreased: cpu=%s mem=%s",
+						pod.Name, cpu.String(), c.Resources.Requests.Memory().String())
 					return true, nil
 				}
 			}
 		}
 		return false, nil
-	}), "timed out waiting for CPU recommendation decrease or resize")
-
-	// If a rec is ready but not yet applied, wait for the resize.
-	var p attunev1alpha1.AttunePolicy
-	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "nodecrease-policy", Namespace: ns}, &p))
-	if p.Status.Workloads.Resized == 0 {
-		waitForResize(t, "nodecrease-policy", ns, 3*time.Minute)
-	}
+	}), "timed out waiting for live CPU decrease with memory allowDecrease default false")
 
 	var podList corev1.PodList
 	require.NoError(t, k8sClient.List(ctx, &podList, client.InNamespace(ns), client.MatchingLabels{"app": "nodecrease-app"}))
 	require.NotEmpty(t, podList.Items)
 	c := podList.Items[0].Spec.Containers[0]
 
-	origMem := resource.MustParse("256Mi")
 	assert.GreaterOrEqual(t, c.Resources.Requests.Memory().Value(), origMem.Value(),
 		"memory should not decrease when allowDecrease is nil (default false), got %s", c.Resources.Requests.Memory().String())
-	// CPU should have moved down from the overprovisioned start.
 	assert.True(t, c.Resources.Requests.Cpu().Cmp(origCPU) < 0,
 		"CPU should decrease while memory is held, got cpu=%s", c.Resources.Requests.Cpu().String())
 }
