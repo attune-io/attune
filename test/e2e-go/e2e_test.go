@@ -1679,13 +1679,12 @@ func TestE2E_MemoryAllowDecreaseFalse(t *testing.T) {
 	ns := uniqueNS("nodecrease")
 	createNamespace(t, ns)
 
-	// Same request shape as AutoMode (proven to resize). Memory starts equal
-	// to createPolicy defaults; AllowDecrease left nil (default false).
+	// Same request shape as AutoMode (proven to resize). AllowDecrease left
+	// nil on memory so the default false applies (CPU still decreases).
 	createDeployment(t, "nodecrease-app", ns, "250m", "256Mi", 1)
 	waitForDeploymentReady(t, "nodecrease-app", ns, 60*time.Second)
 
 	deployName := "nodecrease-app"
-	minChange := int32(1) // force apply when engine wants any non-trivial move
 	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "nodecrease-policy", Namespace: ns},
 		Spec: attunev1alpha1.AttunePolicySpec{
@@ -1701,7 +1700,6 @@ func TestE2E_MemoryAllowDecreaseFalse(t *testing.T) {
 				Overhead:         "20",
 				MinAllowed:       quantityPtr("50m"),
 				MaxAllowed:       quantityPtr("4000m"),
-				MinChangePercent: &minChange,
 				MaxChangePercent: int32Ptr(100),
 			},
 			Memory: attunev1alpha1.ResourceConfig{
@@ -1710,7 +1708,6 @@ func TestE2E_MemoryAllowDecreaseFalse(t *testing.T) {
 				// AllowDecrease intentionally NOT set (nil), so the default false applies.
 				MinAllowed:       quantityPtr("64Mi"),
 				MaxAllowed:       quantityPtr("8Gi"),
-				MinChangePercent: &minChange,
 				MaxChangePercent: int32Ptr(100),
 			},
 			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
