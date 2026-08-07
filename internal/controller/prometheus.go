@@ -243,7 +243,18 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 
 	now := r.now()
 	start := now.Add(-historyWindow)
+	// Representative pod sampling for metrics when replica count is huge.
+	// Resize still uses full podsByWorkload; this only narrows the PromQL regex.
 	podRegex := r.getPodRegex(workload)
+	if r.maxPodsInMetricsQuery() > 0 {
+		if pods, err := r.getPodsForWorkload(ctx, workload); err == nil && len(pods) > r.maxPodsInMetricsQuery() {
+			podRegex = r.metricsPodRegex(workload, pods)
+			logger.V(1).Info("Sampled pods for metrics query",
+				"workload", workload.GetName(),
+				"totalPods", len(pods),
+				"sampled", r.maxPodsInMetricsQuery())
+		}
+	}
 
 	queryStep := r.getQueryStep(policy)
 	if queryStep != attunev1alpha1.DefaultQueryStep {

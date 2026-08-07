@@ -24,6 +24,9 @@ import (
 	"time"
 	_ "time/tzdata" // Embed IANA timezone database for distroless containers.
 
+	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -97,8 +100,8 @@ func main() {
 		"Maximum Prometheus queries per second. Increase for large clusters with many policies.")
 	flag.IntVar(&prometheusBurst, "prometheus-burst", 20,
 		"Maximum burst for Prometheus query throttle.")
-	flag.IntVar(&maxConcurrentReconciles, "max-concurrent-reconciles", 1,
-		"Maximum number of AttunePolicy reconciles running in parallel. Increase for large clusters with many policies.")
+	flag.IntVar(&maxConcurrentReconciles, "max-concurrent-reconciles", 2,
+		"Maximum number of AttunePolicy reconciles running in parallel. Increase for large clusters with many policies. Helm clusterSize presets raise this further.")
 	flag.IntVar(&maxWorkloadWorkers, "max-workload-workers", 10,
 		"Maximum parallel workers processing workloads within a single AttunePolicy reconcile.")
 	flag.DurationVar(&requeueJitter, "requeue-jitter", 2*time.Minute,
@@ -111,6 +114,18 @@ func main() {
 		"Default cap for status.recommendations entries (full set still used for resizes). Overridable per policy.")
 	flag.BoolVar(&statusIncludeExplanations, "status-include-explanations", true,
 		"When true, write recommendation explanation chains to status. Overridable per policy.")
+	var maxPodsInMetricsQuery int
+	var maxHistoryWindow time.Duration
+	var minQueryStep time.Duration
+	var blockerRefreshInterval time.Duration
+	flag.IntVar(&maxPodsInMetricsQuery, "max-pods-in-metrics-query", 100,
+		"When a workload has more pods than this, sample this many for metrics pod=~ regexes. Negative disables sampling.")
+	flag.DurationVar(&maxHistoryWindow, "max-history-window", 0,
+		"Optional operator-level ceiling for metrics historyWindow (e.g. 72h for large fleets). Zero disables extra clamp.")
+	flag.DurationVar(&minQueryStep, "min-query-step", 0,
+		"Optional operator-level floor for metrics queryStep (e.g. 10m for large fleets). Zero disables extra clamp.")
+	flag.DurationVar(&blockerRefreshInterval, "blocker-refresh-interval", 5*time.Minute,
+		"Minimum interval between Deferred/Infeasible blocker recomputes when not resizing. Zero recomputes every reconcile.")
 	flag.StringVar(&watchNamespaces, "watch-namespaces", "",
 		"Comma-separated list of namespaces to watch. Empty means all namespaces (cluster-scoped). "+
 			"Reduces informer cache memory on large clusters where policies exist in a few namespaces. "+
@@ -201,13 +216,34 @@ func main() {
 		}
 	}
 
-	// Strip unused fields from cached Pods to reduce informer memory at scale.
-	// See internal/transform/pod.go for the list of preserved vs stripped fields.
+	// Strip unused fields from cached objects to reduce informer memory at scale.
+	// See internal/transform/ for preserved vs stripped fields.
 	if mgrOpts.Cache.ByObject == nil {
 		mgrOpts.Cache.ByObject = make(map[client.Object]cache.ByObject)
 	}
 	mgrOpts.Cache.ByObject[&corev1.Pod{}] = cache.ByObject{
 		Transform: transform.StripPodFields,
+	}
+	mgrOpts.Cache.ByObject[&appsv1.Deployment{}] = cache.ByObject{
+		Transform: transform.StripDeploymentFields,
+	}
+	mgrOpts.Cache.ByObject[&appsv1.StatefulSet{}] = cache.ByObject{
+		Transform: transform.StripStatefulSetFields,
+	}
+	mgrOpts.Cache.ByObject[&appsv1.DaemonSet{}] = cache.ByObject{
+		Transform: transform.StripDaemonSetFields,
+	}
+	mgrOpts.Cache.ByObject[&appsv1.ReplicaSet{}] = cache.ByObject{
+		Transform: transform.StripReplicaSetFields,
+	}
+	mgrOpts.Cache.ByObject[&autoscalingv2.HorizontalPodAutoscaler{}] = cache.ByObject{
+		Transform: transform.StripHPAFields,
+	}
+	mgrOpts.Cache.ByObject[&batchv1.Job{}] = cache.ByObject{
+		Transform: transform.StripJobFields,
+	}
+	mgrOpts.Cache.ByObject[&batchv1.CronJob{}] = cache.ByObject{
+		Transform: transform.StripCronJobFields,
 	}
 
 	// When webhooks are disabled, point the webhook server at a non-existent port
@@ -255,6 +291,10 @@ func main() {
 	reconciler.MaxPrometheusSeries = maxPrometheusSeries
 	reconciler.MaxStatusRecommendations = maxStatusRecommendations
 	reconciler.IncludeExplanationsInStatus = &statusIncludeExplanations
+	reconciler.MaxPodsInMetricsQuery = maxPodsInMetricsQuery
+	reconciler.MaxHistoryWindow = maxHistoryWindow
+	reconciler.MinQueryStep = minQueryStep
+	reconciler.BlockerRefreshInterval = blockerRefreshInterval
 	reconciler.PrometheusTimeout = prometheusTimeout
 	reconciler.MetricsFactory = func(address string, opts *metrics.CollectorOptions) (metrics.MetricsCollector, error) {
 		if opts == nil {

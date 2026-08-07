@@ -23,9 +23,24 @@ import (
 	"time"
 )
 
+// Key identifies a pod+container pair for batch throttle queries.
+type Key struct {
+	Pod       string
+	Container string
+}
+
 // Checker queries Prometheus for CPU throttle ratio.
 type Checker interface {
 	// GetThrottleRatio returns the CPU throttle ratio (0.0-1.0) for a container
 	// at the given timestamp. Returns 0.0 if data is unavailable.
 	GetThrottleRatio(ctx context.Context, namespace, pod, container string, ts time.Time) (float64, error)
+}
+
+// BatchChecker optionally queries many pod/container throttle ratios in one
+// PromQL vector. Implementations may fall back to per-key queries.
+type BatchChecker interface {
+	Checker
+	// GetThrottleRatios returns ratios keyed by Key for the given namespace.
+	// Missing keys imply no data (ratio 0).
+	GetThrottleRatios(ctx context.Context, namespace string, keys []Key, ts time.Time) (map[Key]float64, error)
 }

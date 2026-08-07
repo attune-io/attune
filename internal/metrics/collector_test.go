@@ -830,3 +830,10 @@ func TestValidRecordingMetricName(t *testing.T) {
 	assert.False(t, ValidRecordingMetricName("x} or on()"))
 	assert.False(t, ValidRecordingMetricName("has space"))
 }
+
+func TestGetThrottleRatios_EmptyKeys(t *testing.T) {
+	c := &PrometheusCollector{logger: logr.Discard()}
+	out, err := c.GetThrottleRatios(context.Background(), "ns", nil, time.Now())
+	require.NoError(t, err)
+	assert.Empty(t, out)
+}

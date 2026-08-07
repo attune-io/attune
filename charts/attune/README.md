@@ -21,6 +21,7 @@ helm install attune oci://ghcr.io/attune-io/charts/attune \
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | affinity | object | `{}` | Affinity rules |
+| blockerRefreshInterval | string | `"5m"` | Minimum interval between Deferred/Infeasible blocker recomputes when not resizing. Zero recomputes every cycle. Default 5m. |
 | clusterSize | string | `""` | Cluster size preset: sets resources, rate limits, and replica count. Valid values: small, medium, large, xlarge, or "" (no preset). Any explicitly set value overrides the preset. See docs/guides/scaling.md for details. |
 | collectorTTL | string | `"10m"` | Collector cache TTL for unused Prometheus connections (Go duration, e.g. "10m", "1h") |
 | defaults | object | `{"enabled":false,"updateStrategy":{"autoRevert":true,"cooldown":"1h","maxConcurrentResizes":1,"resizeMethod":"InPlaceOnly","type":"Recommend"}}` | Cluster-wide defaults (creates an AttuneDefaults CR) |
@@ -55,7 +56,9 @@ helm install attune oci://ghcr.io/attune-io/charts/attune \
 | logging | object | `{"format":"json","level":"info"}` | Logging configuration |
 | logging.format | string | `"json"` | Log format (json, text) |
 | logging.level | string | `"info"` | Log level (debug, info, warn, error) |
-| maxConcurrentReconciles | string | `""` | Maximum number of AttunePolicy reconciles running in parallel. Increase for large clusters with many policies (e.g. 4 for 200+ policies). |
+| maxConcurrentReconciles | string | `""` | Maximum number of AttunePolicy reconciles running in parallel. Empty uses binary default (2) or clusterSize presets (small=1, medium=2, large=4, xlarge=8). |
+| maxHistoryWindow | string | `""` | Operator ceiling for metrics historyWindow (Go duration). Empty = no extra clamp. clusterSize large/xlarge auto-set 72h/48h when this is empty. |
+| maxPodsInMetricsQuery | int | `100` | Cap pods named in metrics pod=~ regexes for huge Deployments (representative sample). Negative disables sampling. Default 100. |
 | maxProfileSamples | int | `10000` | Cap samples passed into recommendation BuildProfile after downsampling. Negative disables. Default 10000. |
 | maxPrometheusSeries | int | `5000` | Cap series kept from each Prometheus range query matrix. Zero uses the binary default (5000); negative disables. Default 5000. |
 | maxStatusRecommendations | int | `100` | Default cap for status.recommendations (full set still used for resizes). |
@@ -83,6 +86,7 @@ helm install attune oci://ghcr.io/attune-io/charts/attune \
 | metrics.serviceMonitor.additionalLabels | object | `{}` | Additional labels for the ServiceMonitor |
 | metrics.serviceMonitor.enabled | bool | `false` | Create a ServiceMonitor for Prometheus Operator |
 | metrics.serviceMonitor.interval | string | `"30s"` | Scrape interval |
+| minQueryStep | string | `""` | Operator floor for metrics queryStep (Go duration). Empty = no extra clamp. clusterSize large/xlarge auto-set 10m/15m when this is empty. |
 | nameOverride | string | `""` | Override the chart name |
 | networkPolicy | object | `{"enabled":true,"prometheusPort":9090}` | NetworkPolicy configuration for operator ingress and egress ports |
 | networkPolicy.enabled | bool | `true` | Enable NetworkPolicy for the operator pod |

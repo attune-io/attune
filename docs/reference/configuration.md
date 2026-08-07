@@ -176,13 +176,17 @@ watchNamespaces:
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `maxConcurrentReconciles` | int/string | `""` (1) | Maximum number of AttunePolicy reconciles running in parallel. Maps to the `--max-concurrent-reconciles` manager flag. The default (1) processes policies sequentially. Increase for clusters with many policies to reduce reconcile queue latency. Auto-set by `clusterSize` preset (small=1, medium=2, large=4, xlarge=8). The Prometheus rate limiter (`prometheusQPS`) is shared across all goroutines, so concurrent reconciles won't overwhelm Prometheus. |
+| `maxConcurrentReconciles` | int/string | `""` (2) | Maximum number of AttunePolicy reconciles running in parallel. Maps to the `--max-concurrent-reconciles` manager flag (binary default 2). Empty Helm value uses 2, or clusterSize presets (small=1, medium=2, large=4, xlarge=8). The Prometheus rate limiter (`prometheusQPS`) is shared across all goroutines. |
 | `maxWorkloadWorkers` | int | `10` | Parallel workers for workloads inside one policy reconcile (`--max-workload-workers`). |
 | `requeueJitter` | string | `"2m"` | Max deterministic requeue jitter (`--requeue-jitter`). Set `"0s"` to disable. |
 | `maxProfileSamples` | int | `10000` | Cap samples after downsampling before BuildProfile (`--max-profile-samples`). |
 | `maxPrometheusSeries` | int | `5000` | Cap series per Prometheus range query (`--max-prometheus-series`). |
 | `maxStatusRecommendations` | int | `100` | Default status.recommendations cap (`--max-status-recommendations`). |
 | `statusIncludeExplanations` | bool | `true` | Write explanation chains to status (`--status-include-explanations`). |
+| `maxPodsInMetricsQuery` | int | `100` | Cap pods named in metrics `pod=~` regexes for huge workloads (`--max-pods-in-metrics-query`). Negative disables sampling. |
+| `maxHistoryWindow` | string | `""` | Operator ceiling for metrics historyWindow (`--max-history-window`). large/xlarge auto 72h/48h. |
+| `minQueryStep` | string | `""` | Operator floor for metrics queryStep (`--min-query-step`). large/xlarge auto 10m/15m. |
+| `blockerRefreshInterval` | string | `"5m"` | Min interval between Deferred/Infeasible blocker recomputes when not resizing (`--blocker-refresh-interval`). |
 
 ## OpenShift
 

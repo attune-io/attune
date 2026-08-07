@@ -36,6 +36,7 @@ import (
 	"github.com/attune-io/attune/internal/operatormetrics"
 	"github.com/attune-io/attune/internal/resize"
 	"github.com/attune-io/attune/internal/safety"
+	"github.com/attune-io/attune/internal/throttle"
 )
 
 // runImmediateSafetyCheck performs an immediate safety check on a freshly
@@ -167,6 +168,41 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 	workloadNames := make(map[string]bool, len(workloads))
 	for _, w := range workloads {
 		workloadNames[w.GetName()] = true
+	}
+
+	// Prefetch throttle ratios in one PromQL vector when the collector supports
+	// batch queries (reduces QPS during multi-pod safety observation).
+	if bc, ok := collector.(throttle.BatchChecker); ok {
+		now := r.now()
+		var keys []throttle.Key
+		seen := map[throttle.Key]bool{}
+		for i := range podList.Items {
+			pod := &podList.Items[i]
+			if _, ok := trackedWorkloadForPolicy(pod, policy.Name, workloadNames); !ok {
+				continue
+			}
+			records, err := parseResizeRecords(pod, observationPeriod, now)
+			if err != nil {
+				continue
+			}
+			for _, rec := range records {
+				if now.Sub(rec.ResizedAt) < 5*time.Minute {
+					continue // still in throttle grace
+				}
+				k := throttle.Key{Pod: rec.PodName, Container: rec.Container}
+				if !seen[k] {
+					seen[k] = true
+					keys = append(keys, k)
+				}
+			}
+		}
+		if len(keys) > 0 {
+			if ratios, err := bc.GetThrottleRatios(ctx, policy.Namespace, keys, now); err != nil {
+				logger.V(1).Info("Batch throttle prefetch failed; falling back to per-pod checks", "err", err)
+			} else {
+				monitor = monitor.WithThrottleRatioCache(ratios)
+			}
+		}
 	}
 
 	for i := range podList.Items {

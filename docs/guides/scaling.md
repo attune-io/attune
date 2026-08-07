@@ -285,6 +285,14 @@ legacy behavior or richer status.
 | Workload workers per policy | 10 | `maxWorkloadWorkers` / `--max-workload-workers` | - |
 | Requeue jitter | 2m | `requeueJitter` / `--requeue-jitter` | - |
 | Lazy pod lists | Observe skips full lists; Recommend still lists for Deferred/Infeasible UX | - | - |
+| Namespace-wide pod list + in-memory match | On | - | - |
+| Representative pod sample for metrics | 100 pods | `maxPodsInMetricsQuery` / `--max-pods-in-metrics-query` | - |
+| History window operator ceiling | Off (CRD max 720h) | `maxHistoryWindow` / `--max-history-window`; large=`72h`, xlarge=`48h` | - |
+| Query step operator floor | Off (CRD min 10s) | `minQueryStep` / `--min-query-step`; large=`10m`, xlarge=`15m` | - |
+| Blocker recompute throttle | 5m when not resizing | `blockerRefreshInterval` / `--blocker-refresh-interval` | - |
+| Parallel policy reconciles | 2 | `maxConcurrentReconciles` / `--max-concurrent-reconciles`; clusterSize presets 1/2/4/8 | - |
+| Informer field strip (Pods + workloads + HPA) | On | - | - |
+| Batch safety throttle PromQL | On (when Prometheus collector) | - | - |
 
 ### PromQL aggregation
 
@@ -334,6 +342,44 @@ With default `Max` aggregation, high replica counts no longer explode
 Prometheus series count for recommendations. Payload still grows with
 `historyWindow` and `queryStep` (time series length). Keep the CRD
 window/step table above for Prometheus CPU and operator sample caps.
+
+When a workload still has more pods than `maxPodsInMetricsQuery` (default
+100), Attune **samples** that many pod names into the metrics `pod=~`
+regex (even spacing by name). Resize and safety still see all pods;
+sampling only narrows the recommendation query surface for huge fleets
+or `podAggregation: None`.
+
+### Tier-aware history and step clamps
+
+Set `clusterSize: large` or `xlarge` (or explicit `maxHistoryWindow` /
+`minQueryStep`) so the operator clamps every policy's metrics window and
+step at reconcile time. Example: large sets a 72h history ceiling and
+10m step floor even if a policy still requests `168h` / `5m`. CRD bounds
+(`1h`–`720h`, `10s`–`1h`) still apply first.
+
+### Pod listing and blocker UX
+
+- **Observe** mode skips pod lists entirely.
+- **Recommend** and resize modes list pods once **per namespace** and match
+  workload selectors in memory (not one List per Deployment).
+- Deferred/Infeasible blocker counts refresh at least every
+  `blockerRefreshInterval` (default 5m) when not resizing. While the
+  throttle holds, Attune skips both the namespace pod List and the
+  summarize step, and **keeps the last blocker status values**.
+
+### Informer memory (workloads + HPAs)
+
+In addition to `StripPodFields`, the manager strips unused fields from
+Deployments, StatefulSets, DaemonSets, ReplicaSets, Jobs, CronJobs, and
+HPAs in the informer cache. Prefer `watchNamespaces` for multi-tenant
+mega-clusters; label-based cache filters are not supported (policies can
+use any selector).
+
+### Safety throttle batching
+
+When many pods are under deferred safety observation, Attune issues one
+batch throttle PromQL vector (`pod=~` / `container=~`) instead of one
+instant query per pod/container when the Prometheus collector is in use.
 
 ## API Server Pressure
 
