@@ -744,11 +744,11 @@ func TestE2E_BudgetCaps_DefersResize(t *testing.T) {
 	t.Parallel()
 	ns := uniqueNS("budget")
 	createNamespace(t, ns)
-	// Start very overprovisioned so pause metrics produce rec << current
-	// (500m start can settle at rec==current and never resize). Budget only
-	// caps increases; unit tests cover multi-pod increase deferral. This E2E
-	// proves a policy with a budget field still discovers and resizes down.
-	createDeployment(t, "budget-app", ns, "2000m", "1Gi", 3)
+	// Match createPolicy resource knobs (min/maxAllowed, allowDecrease) so
+	// pause metrics produce rec below current. Keep requests modest (500m x3)
+	// so pods schedule on the shared CI k3d node. Budget only caps increases;
+	// unit tests cover multi-pod increase deferral.
+	createDeployment(t, "budget-app", ns, "500m", "256Mi", 3)
 	waitForDeploymentReady(t, "budget-app", ns, 60*time.Second)
 
 	tightBudget := resource.MustParse("150m")
@@ -767,13 +767,15 @@ func TestE2E_BudgetCaps_DefersResize(t *testing.T) {
 				Percentile:       95,
 				Overhead:         "20",
 				MinAllowed:       quantityPtr("50m"),
+				MaxAllowed:       quantityPtr("4000m"),
 				MaxChangePercent: int32Ptr(100),
 			},
 			Memory: attunev1alpha1.ResourceConfig{
 				Percentile:       99,
 				Overhead:         "30",
-				MinAllowed:       quantityPtr("64Mi"),
 				AllowDecrease:    boolPtr(true),
+				MinAllowed:       quantityPtr("64Mi"),
+				MaxAllowed:       quantityPtr("8Gi"),
 				MaxChangePercent: int32Ptr(100),
 			},
 			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
@@ -1707,8 +1709,10 @@ func TestE2E_MemoryAllowDecreaseFalse(t *testing.T) {
 	ns := uniqueNS("nodecrease")
 	createNamespace(t, ns)
 
-	// High memory request (512Mi) but pause container uses ~0 memory.
-	createDeployment(t, "nodecrease-app", ns, "250m", "256Mi", 1)
+	// Overprovisioned requests so pause metrics reliably produce a decrease
+	// (250m can settle at rec==current under low confidence). Memory starts
+	// high; AllowDecrease defaults false so memory should not shrink.
+	createDeployment(t, "nodecrease-app", ns, "500m", "512Mi", 1)
 	waitForDeploymentReady(t, "nodecrease-app", ns, 60*time.Second)
 
 	deployName := "nodecrease-app"
@@ -1753,7 +1757,7 @@ func TestE2E_MemoryAllowDecreaseFalse(t *testing.T) {
 	require.NotEmpty(t, podList.Items)
 	c := podList.Items[0].Spec.Containers[0]
 
-	origMem := resource.MustParse("256Mi")
+	origMem := resource.MustParse("512Mi")
 	assert.GreaterOrEqual(t, c.Resources.Requests.Memory().Value(), origMem.Value(),
 		"memory should not decrease when allowDecrease is nil (default false), got %s", c.Resources.Requests.Memory().String())
 }
