@@ -189,6 +189,7 @@ func createPolicy(t *testing.T, name, namespace, deployName string, mode attunev
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
+				RateWindow:        &metav1.Duration{Duration: 5 * time.Minute},
 			},
 			CPU: attunev1alpha1.ResourceConfig{
 				Percentile:       95,
@@ -571,6 +572,7 @@ func TestE2E_MultiContainer_ExcludesSidecar(t *testing.T) {
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
+				RateWindow:        &metav1.Duration{Duration: 5 * time.Minute},
 			},
 			CPU: attunev1alpha1.ResourceConfig{
 				Percentile:       95,
@@ -744,16 +746,15 @@ func TestE2E_BudgetCaps_DefersResize(t *testing.T) {
 	t.Parallel()
 	ns := uniqueNS("budget")
 	createNamespace(t, ns)
-	// Same request shape as AutoMode_ResizesRunningPod (1x 250m), which
-	// reliably resizes on CI. Budget only caps increases; unit tests cover
-	// multi-pod increase deferral under tight MaxTotalCPUIncrease.
-	createDeployment(t, "budget-app", ns, "250m", "256Mi", 1)
+	// Overprovisioned pause pods: rec decreases (Max aggregation + near-zero
+	// usage). maxTotalCpuIncrease only caps *increases*; unit tests cover
+	// multi-pod increase deferral. This E2E proves a policy with a budget
+	// field still discovers and resizes down (issue #492).
+	createDeployment(t, "budget-app", ns, "500m", "256Mi", 1)
 	waitForDeploymentReady(t, "budget-app", ns, 60*time.Second)
 
 	tightBudget := resource.MustParse("150m")
 	deployName := "budget-app"
-	// Create with budget in one shot (no post-create Update race with the
-	// operator status writer).
 	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "budget-policy", Namespace: ns},
 		Spec: attunev1alpha1.AttunePolicySpec{
@@ -763,6 +764,9 @@ func TestE2E_BudgetCaps_DefersResize(t *testing.T) {
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
+				// Explicit rate window: queryStep alone would use rate(...[30s]),
+				// which often returns empty early and leaves rec==current.
+				RateWindow: &metav1.Duration{Duration: 5 * time.Minute},
 			},
 			CPU: attunev1alpha1.ResourceConfig{
 				Percentile:       95,
@@ -829,6 +833,7 @@ func TestE2E_ScheduleWindow_SkipsOutsideWindow(t *testing.T) {
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
+				RateWindow:        &metav1.Duration{Duration: 5 * time.Minute},
 			},
 			CPU: attunev1alpha1.ResourceConfig{
 				Percentile:       95,
@@ -905,6 +910,7 @@ func TestE2E_BearerToken_Authenticates(t *testing.T) {
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
+				RateWindow:        &metav1.Duration{Duration: 5 * time.Minute},
 			},
 			CPU:    attunev1alpha1.ResourceConfig{Percentile: 95, Overhead: "20"},
 			Memory: attunev1alpha1.ResourceConfig{Percentile: 99, Overhead: "30"},
@@ -943,6 +949,7 @@ func TestE2E_EvictionFallback_ResizesWithInPlaceOrRecreate(t *testing.T) {
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
+				RateWindow:        &metav1.Duration{Duration: 5 * time.Minute},
 			},
 			CPU: attunev1alpha1.ResourceConfig{
 				Percentile:       95,
@@ -1105,6 +1112,7 @@ func TestE2E_BearerToken_SecretRotation(t *testing.T) {
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
+				RateWindow:        &metav1.Duration{Duration: 5 * time.Minute},
 			},
 			CPU:    attunev1alpha1.ResourceConfig{Percentile: 95, Overhead: "20"},
 			Memory: attunev1alpha1.ResourceConfig{Percentile: 99, Overhead: "30"},
@@ -1159,13 +1167,12 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 	createNamespace(t, ns)
 
 	// Phase 1: Deploy with sleep so the operator can resize first.
-	// Use 500m CPU / 64Mi memory. On K8s v1.33 the memory limit cannot
-	// decrease in-place (NotRequired resize policy), so the operator
-	// clamps memory to its current value and adjusts only CPU. A 500m
-	// initial ensures a visible delta from the recommendation (~50-100m
-	// for a sleep workload). Prior 100m initial failed on v1.33 because
-	// the recommendation landed too close to 100m after confidence
-	// inflation, triggering the "already at target" skip.
+	// Guaranteed QoS + NotRequired memory: an in-place memory limit decrease
+	// is clamped (v1.33), then request is raised back for Guaranteed, so a
+	// memory-only resize is a no-op. Nightly #492 failed when CPU PromQL was
+	// empty (rate[30s]) so only the memory path ran. Fix: rateWindow 5m +
+	// hold memory at 64Mi (allowDecrease=false, minAllowed=64Mi) so the first
+	// resize is a CPU change.
 	deploy := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "oom-app",
@@ -1220,21 +1227,24 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
+				RateWindow:        &metav1.Duration{Duration: 5 * time.Minute},
 			},
 			CPU: attunev1alpha1.ResourceConfig{
 				Percentile:       95,
 				Overhead:         "20",
 				ControlledValues: &controlledValues,
-				MinAllowed:       quantityPtr("10m"),
+				MinAllowed:       quantityPtr("50m"),
 				MaxAllowed:       quantityPtr("1000m"),
 				MaxChangePercent: int32Ptr(100),
 			},
 			Memory: attunev1alpha1.ResourceConfig{
-				Percentile:       99,
-				Overhead:         "0",
-				AllowDecrease:    boolPtr(true),
+				Percentile: 99,
+				Overhead:   "0",
+				// Hold memory at 64Mi for the OOM phase; a recommended decrease
+				// would be canceled by ClampMemoryLimitForPolicy + Guaranteed QoS.
+				AllowDecrease:    boolPtr(false),
 				ControlledValues: &controlledValues,
-				MinAllowed:       quantityPtr("8Mi"),
+				MinAllowed:       quantityPtr("64Mi"),
 				MaxAllowed:       quantityPtr("512Mi"),
 				MaxChangePercent: int32Ptr(100),
 			},
@@ -1253,14 +1263,10 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 	}
 	require.NoError(t, k8sClient.Create(ctx, policy))
 
-	// Wait for the operator to resize the pod at least once.
+	// First resize must be a CPU decrease (memory held at 64Mi).
 	waitForResize(t, "oom-policy", ns, 3*time.Minute)
 
-	// Wait for the resize to be applied in the actual pod (not just recorded
-	// in policy status). Check for any resource change (CPU or memory), not
-	// just memory: on K8s v1.33, ClampMemoryLimitForPolicy prevents memory
-	// limit decreases for NotRequired containers, and QoS preservation then
-	// keeps the memory request at 64Mi too. CPU still changes normally.
+	// Require a CPU change in the live pod (not a clamped memory no-op).
 	require.NoError(t, wait.PollUntilContextTimeout(ctx, 2*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
 		var pods corev1.PodList
 		if err := k8sClient.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{"app": "oom-app"}); err != nil {
@@ -1270,18 +1276,16 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 			for _, cs := range pod.Spec.Containers {
 				if cs.Name == "app" {
 					cpuReq := cs.Resources.Requests.Cpu()
-					memReq := cs.Resources.Requests.Memory()
-					cpuChanged := cpuReq != nil && cpuReq.Cmp(resource.MustParse("500m")) != 0
-					memChanged := memReq != nil && memReq.Cmp(resource.MustParse("64Mi")) != 0
-					if cpuChanged || memChanged {
-						t.Logf("Pod %s resources changed: cpu=%s mem=%s", pod.Name, cpuReq.String(), memReq.String())
+					if cpuReq != nil && cpuReq.Cmp(resource.MustParse("500m")) != 0 {
+						t.Logf("Pod %s CPU resized: cpu=%s mem=%s",
+							pod.Name, cpuReq.String(), cs.Resources.Requests.Memory().String())
 						return true, nil
 					}
 				}
 			}
 		}
 		return false, nil
-	}), "timed out waiting for resize to be applied in pod spec")
+	}), "timed out waiting for CPU resize to be applied in pod spec")
 
 	waitForDeploymentReady(t, "oom-app", ns, 120*time.Second)
 
@@ -1384,6 +1388,7 @@ func TestE2E_MultiReplica_ProgressiveResize(t *testing.T) {
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
+				RateWindow:        &metav1.Duration{Duration: 5 * time.Minute},
 			},
 			CPU: attunev1alpha1.ResourceConfig{
 				Percentile:       95,
@@ -1466,6 +1471,7 @@ func TestE2E_GuaranteedQoS_RequestsAndLimits(t *testing.T) {
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
+				RateWindow:        &metav1.Duration{Duration: 5 * time.Minute},
 			},
 			CPU: attunev1alpha1.ResourceConfig{
 				Percentile:       95,
@@ -1561,6 +1567,7 @@ func TestE2E_LabelSelector_MultipleWorkloads(t *testing.T) {
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
+				RateWindow:        &metav1.Duration{Duration: 5 * time.Minute},
 			},
 			CPU:    attunev1alpha1.ResourceConfig{Percentile: 95, Overhead: "20"},
 			Memory: attunev1alpha1.ResourceConfig{Percentile: 99, Overhead: "30"},
@@ -1710,9 +1717,10 @@ func TestE2E_MemoryAllowDecreaseFalse(t *testing.T) {
 	ns := uniqueNS("nodecrease")
 	createNamespace(t, ns)
 
-	// Same request shape as AutoMode (proven to resize). AllowDecrease left
-	// nil on memory so the default false applies (CPU still decreases).
-	createDeployment(t, "nodecrease-app", ns, "250m", "256Mi", 1)
+	// Overprovisioned so pause metrics produce a CPU decrease once rate() has
+	// data (rateWindow 5m). Memory allowDecrease defaults false: when CPU
+	// PromQL is empty, both resources stay put and waitForResize hangs (#492).
+	createDeployment(t, "nodecrease-app", ns, "500m", "256Mi", 1)
 	waitForDeploymentReady(t, "nodecrease-app", ns, 60*time.Second)
 
 	deployName := "nodecrease-app"
@@ -1725,6 +1733,7 @@ func TestE2E_MemoryAllowDecreaseFalse(t *testing.T) {
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
+				RateWindow:        &metav1.Duration{Duration: 5 * time.Minute},
 			},
 			CPU: attunev1alpha1.ResourceConfig{
 				Percentile:       95,
@@ -1750,16 +1759,41 @@ func TestE2E_MemoryAllowDecreaseFalse(t *testing.T) {
 	}
 	require.NoError(t, k8sClient.Create(ctx, policy))
 
-	waitForResize(t, "nodecrease-policy", ns, 3*time.Minute)
+	// Wait for a live CPU decrease. Status Resized alone is not enough: a
+	// memory-only no-op path can race, and rec-only readiness does not mean
+	// UpdateResize applied yet (#492).
+	origCPU := resource.MustParse("500m")
+	origMem := resource.MustParse("256Mi")
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 4*time.Minute, true, func(ctx context.Context) (bool, error) {
+		var pods corev1.PodList
+		if err := k8sClient.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{"app": "nodecrease-app"}); err != nil {
+			return false, nil
+		}
+		for _, pod := range pods.Items {
+			for _, c := range pod.Spec.Containers {
+				if c.Name != "app" {
+					continue
+				}
+				cpu := c.Resources.Requests.Cpu()
+				if cpu != nil && cpu.Cmp(origCPU) < 0 {
+					t.Logf("Pod %s CPU decreased: cpu=%s mem=%s",
+						pod.Name, cpu.String(), c.Resources.Requests.Memory().String())
+					return true, nil
+				}
+			}
+		}
+		return false, nil
+	}), "timed out waiting for live CPU decrease with memory allowDecrease default false")
 
 	var podList corev1.PodList
 	require.NoError(t, k8sClient.List(ctx, &podList, client.InNamespace(ns), client.MatchingLabels{"app": "nodecrease-app"}))
 	require.NotEmpty(t, podList.Items)
 	c := podList.Items[0].Spec.Containers[0]
 
-	origMem := resource.MustParse("256Mi")
 	assert.GreaterOrEqual(t, c.Resources.Requests.Memory().Value(), origMem.Value(),
 		"memory should not decrease when allowDecrease is nil (default false), got %s", c.Resources.Requests.Memory().String())
+	assert.True(t, c.Resources.Requests.Cpu().Cmp(origCPU) < 0,
+		"CPU should decrease while memory is held, got cpu=%s", c.Resources.Requests.Cpu().String())
 }
 
 func TestE2E_MultiContainer_SequentialResize(t *testing.T) {
@@ -1825,6 +1859,7 @@ func TestE2E_MultiContainer_SequentialResize(t *testing.T) {
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
+				RateWindow:        &metav1.Duration{Duration: 5 * time.Minute},
 			},
 			CPU: attunev1alpha1.ResourceConfig{
 				Percentile:       95,
@@ -1978,6 +2013,7 @@ func TestE2E_MemoryLimitDecrease_VersionAware(t *testing.T) {
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
+				RateWindow:        &metav1.Duration{Duration: 5 * time.Minute},
 			},
 			CPU: attunev1alpha1.ResourceConfig{
 				Percentile:       95,
@@ -2498,6 +2534,7 @@ func TestE2E_NodeMemoryPressure_SkipsMemoryIncrease(t *testing.T) {
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
+				RateWindow:        &metav1.Duration{Duration: 5 * time.Minute},
 			},
 			CPU: attunev1alpha1.ResourceConfig{
 				Percentile:       95,
@@ -2656,6 +2693,7 @@ func TestE2E_RuntimeProfileJava_BlocksMemoryDecrease(t *testing.T) {
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
 				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
+				RateWindow:        &metav1.Duration{Duration: 5 * time.Minute},
 			},
 			CPU: attunev1alpha1.ResourceConfig{
 				Percentile:       95,
