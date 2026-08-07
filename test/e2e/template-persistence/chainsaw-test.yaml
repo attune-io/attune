@@ -57,22 +57,52 @@ spec:
                     address: http://prometheus-server.monitoring:80
                   minimumDataPoints: 1
                   historyWindow: 1h
+                  # Without rateWindow, queryStep defaults rate() to 30s and
+                  # early PromQL is often empty → rec stays at current and
+                  # OnRecommendation never patches (nightly v1.33 flake).
+                  queryStep: 30s
+                  rateWindow: 5m
                 cpu:
                   percentile: 95
                   overhead: "20"
                   minAllowed: 50m
                   maxAllowed: "2"
+                  maxChangePercent: 100
+                  allowDecrease: true
                 memory:
                   percentile: 99
                   overhead: "30"
                   minAllowed: 64Mi
                   maxAllowed: 2Gi
+                  maxChangePercent: 100
+                  # Default allowDecrease for memory is false; without this
+                  # only CPU can shrink, and empty CPU series leave both at
+                  # current so the template never patches.
+                  allowDecrease: true
                 updateStrategy:
                   type: Recommend
                   cooldown: 1m
                   templatePersistence:
                     enabled: true
                     when: OnRecommendation
+    - name: wait-for-metrics
+      try:
+        - script:
+            timeout: 2m
+            content: |
+              PROM_POD=$(kubectl get pods -n monitoring -l app.kubernetes.io/name=prometheus,app.kubernetes.io/component=server -o name | head -1)
+              NS="e2e-template-persistence"
+              ENCODED_QUERY="container_cpu_usage_seconds_total%7Bnamespace%3D%22${NS}%22%2Ccontainer%21%3D%22%22%7D"
+              for i in $(seq 1 24); do
+                result=$(kubectl exec -n monitoring "$PROM_POD" -- \
+                  wget -qO- "http://localhost:9090/api/v1/query?query=${ENCODED_QUERY}" 2>/dev/null || true)
+                if echo "$result" | grep -q '"result":\[{'; then
+                  echo "cAdvisor metrics available for namespace $NS after ${i}x5s"
+                  exit 0
+                fi
+                sleep 5
+              done
+              echo "WARNING: No cAdvisor metrics for $NS after 120s, proceeding"
     - name: verify-deployment-ready
       try:
         - assert:
@@ -87,34 +117,33 @@ spec:
     - name: verify-template-patched
       try:
         - script:
-            timeout: 3m
+            timeout: 5m
             content: |
               set -e
               # Wait until operator has recommendations and patches the template.
               # pause:3.9 uses nearly no CPU/memory, so recommendations shrink
-              # requests below the initial 500m/512Mi.
-              for i in $(seq 1 36); do
+              # requests below the initial 500m/512Mi (CPU and/or memory).
+              for i in $(seq 1 60); do
                 CPU=$(kubectl get deploy tpl-app -n e2e-template-persistence \
                   -o jsonpath='{.spec.template.spec.containers[0].resources.requests.cpu}' 2>/dev/null || true)
                 MEM=$(kubectl get deploy tpl-app -n e2e-template-persistence \
                   -o jsonpath='{.spec.template.spec.containers[0].resources.requests.memory}' 2>/dev/null || true)
                 # Accept any value other than the original oversized template.
-                if [ -n "$CPU" ] && [ "$CPU" != "500m" ]; then
-                  echo "Template CPU updated from 500m to $CPU (memory=$MEM)"
-                  # History should record TemplatePatched when enabled.
+                if { [ -n "$CPU" ] && [ "$CPU" != "500m" ]; } || \
+                   { [ -n "$MEM" ] && [ "$MEM" != "512Mi" ]; }; then
+                  echo "Template updated: cpu=$CPU memory=$MEM"
                   HIST=$(kubectl get attunepolicy tpl-test -n e2e-template-persistence \
                     -o jsonpath='{.status.resizeHistory[*].result}' 2>/dev/null || true)
                   if echo "$HIST" | grep -q TemplatePatched; then
                     echo "Resize history contains TemplatePatched"
                     exit 0
                   fi
-                  # Template change alone is success if history lag is racey.
                   echo "WARN: history not yet showing TemplatePatched: $HIST"
                   exit 0
                 fi
                 sleep 5
               done
-              echo "FAIL: template still at original sizes after 3m"
+              echo "FAIL: template still at original sizes after 5m"
               kubectl get deploy tpl-app -n e2e-template-persistence -o yaml
               kubectl get attunepolicy tpl-test -n e2e-template-persistence -o yaml
               exit 1
