@@ -111,14 +111,36 @@ Resolve maxConcurrentReconciles: if clusterSize is set and
 maxConcurrentReconciles is empty (default), use the preset value.
 */}}
 {{- define "attune.maxConcurrentReconciles" -}}
-{{- if and .Values.clusterSize (not .Values.maxConcurrentReconciles) }}
+{{- if .Values.maxConcurrentReconciles }}
+{{- .Values.maxConcurrentReconciles }}
+{{- else if .Values.clusterSize }}
   {{- if eq .Values.clusterSize "small" }}1
   {{- else if eq .Values.clusterSize "medium" }}2
   {{- else if eq .Values.clusterSize "large" }}4
   {{- else if eq .Values.clusterSize "xlarge" }}8
-  {{- else }}{{ .Values.maxConcurrentReconciles }}
+  {{- else }}2
   {{- end }}
-{{- else }}{{ .Values.maxConcurrentReconciles }}
+{{- else }}2
+{{- end }}
+{{- end }}
+
+{{/*
+Optional max history window / min query step for large fleet tiers.
+Empty means omit the flag (binary uses no extra clamp).
+*/}}
+{{- define "attune.maxHistoryWindow" -}}
+{{- if .Values.maxHistoryWindow }}
+{{- .Values.maxHistoryWindow }}
+{{- else if and .Values.clusterSize (eq .Values.clusterSize "large") }}72h
+{{- else if and .Values.clusterSize (eq .Values.clusterSize "xlarge") }}48h
+{{- end }}
+{{- end }}
+
+{{- define "attune.minQueryStep" -}}
+{{- if .Values.minQueryStep }}
+{{- .Values.minQueryStep }}
+{{- else if and .Values.clusterSize (eq .Values.clusterSize "large") }}10m
+{{- else if and .Values.clusterSize (eq .Values.clusterSize "xlarge") }}15m
 {{- end }}
 {{- end }}
 

@@ -278,18 +278,25 @@ func (r *AttunePolicyReconciler) warnConfigClamping(policy *attunev1alpha1.Attun
 
 // parseHistoryWindow parses the history window duration from the policy.
 // Defense-in-depth: clamps to [1h, 720h] even if webhook validation is bypassed.
+// When MaxHistoryWindow is set on the reconciler, also clamps to that ceiling
+// (tier-aware operator defaults for large fleets).
 func (r *AttunePolicyReconciler) parseHistoryWindow(policy *attunev1alpha1.AttunePolicy) time.Duration {
+	var hw time.Duration
 	if policy.Spec.MetricsSource.HistoryWindow != nil {
-		hw := policy.Spec.MetricsSource.HistoryWindow.Duration
-		if hw < time.Hour {
-			hw = time.Hour
-		}
-		if hw > 720*time.Hour {
-			hw = 720 * time.Hour
-		}
-		return hw
+		hw = policy.Spec.MetricsSource.HistoryWindow.Duration
+	} else {
+		hw = defaultHistoryWindow
 	}
-	return defaultHistoryWindow
+	if hw < time.Hour {
+		hw = time.Hour
+	}
+	if hw > 720*time.Hour {
+		hw = 720 * time.Hour
+	}
+	if r != nil && r.MaxHistoryWindow > 0 && hw > r.MaxHistoryWindow {
+		hw = r.MaxHistoryWindow
+	}
+	return hw
 }
 
 // getMinimumDataPoints returns the minimum data points threshold from the policy.
@@ -301,18 +308,24 @@ func (r *AttunePolicyReconciler) getMinimumDataPoints(policy *attunev1alpha1.Att
 }
 
 // getQueryStep returns the query step interval from the policy or the default (5m).
+// When MinQueryStep is set on the reconciler, enforces that floor (tier-aware).
 func (r *AttunePolicyReconciler) getQueryStep(policy *attunev1alpha1.AttunePolicy) time.Duration {
+	var qs time.Duration
 	if policy.Spec.MetricsSource.QueryStep != nil {
-		qs := policy.Spec.MetricsSource.QueryStep.Duration
-		if qs < 10*time.Second {
-			qs = 10 * time.Second
-		}
-		if qs > time.Hour {
-			qs = time.Hour
-		}
-		return qs
+		qs = policy.Spec.MetricsSource.QueryStep.Duration
+	} else {
+		qs = attunev1alpha1.DefaultQueryStep
 	}
-	return attunev1alpha1.DefaultQueryStep
+	if qs < 10*time.Second {
+		qs = 10 * time.Second
+	}
+	if qs > time.Hour {
+		qs = time.Hour
+	}
+	if r != nil && r.MinQueryStep > 0 && qs < r.MinQueryStep {
+		qs = r.MinQueryStep
+	}
+	return qs
 }
 
 // getRateWindow returns the rate window from the policy or falls back to queryStep.

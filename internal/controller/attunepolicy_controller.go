@@ -160,6 +160,18 @@ type AttunePolicyReconciler struct {
 	// IncludeExplanationsInStatus operator-level default when CR field is nil.
 	// When both nil, defaults to true.
 	IncludeExplanationsInStatus *bool
+	// MaxPodsInMetricsQuery caps pods named in metrics pod=~ regexes when the
+	// workload has more pods (representative sample). Zero uses default 100;
+	// negative disables sampling (always use workload name regex).
+	MaxPodsInMetricsQuery int
+	// MaxHistoryWindow clamps policy historyWindow at reconcile (0 = no extra
+	// clamp beyond CRD [1h, 720h]). Used for tier-aware operator defaults.
+	MaxHistoryWindow time.Duration
+	// MinQueryStep clamps policy queryStep upward (0 = no extra clamp).
+	MinQueryStep time.Duration
+	// BlockerRefreshInterval is the minimum time between Deferred/Infeasible
+	// blocker recomputes when not resizing (0 = recompute every reconcile).
+	BlockerRefreshInterval time.Duration
 	// AllowInPlaceMemoryLimitDecrease is true when the cluster is Kubernetes
 	// 1.35+ (live memory limit decreases permitted). Wired at manager startup.
 	AllowInPlaceMemoryLimitDecrease bool
@@ -172,6 +184,9 @@ type AttunePolicyReconciler struct {
 	// it starts empty, so gauges from workloads that disappeared during the
 	// restart persist until the owning policy's next reconcile refreshes them.
 	gaugeKeys sync.Map // map[string][]gaugeKey
+	// lastBlockerRefresh tracks last blocker recompute per policy for refresh
+	// throttling (in-memory; resets on restart).
+	lastBlockerRefresh sync.Map // map[types.NamespacedName]time.Time
 
 	// eventDedup suppresses repeated K8s events for the same condition.
 	// Events with the same key are suppressed for 1 hour, then re-emitted
@@ -434,20 +449,17 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	var newResizedCount int
 
 	// List pods when needed for resize/boost, or for Deferred/Infeasible UX in
-	// Recommend and resize modes. Observe mode skips lists (no resize UX).
+	// Recommend and resize modes (subject to blocker refresh throttle).
+	// Observe mode skips lists (no resize UX).
 	needPods := isResizeMode(mode) && ((!cooldownActive && withinWindow) ||
 		(policy.Spec.CPU.StartupBoost != nil && r.Clientset != nil && len(recommendations) > 0))
-	listPods := needPods || isResizeMode(mode) || mode == attunev1alpha1.UpdateTypeRecommend
+	refreshBlockers := r.shouldRefreshBlockers(&policy, needPods)
+	// Always list when resizing; for status-only paths, skip List while throttle holds.
+	listPods := needPods || (refreshBlockers && (isResizeMode(mode) || mode == attunev1alpha1.UpdateTypeRecommend))
 	podsByWorkload := make(map[string][]corev1.Pod, len(workloads))
 	if listPods {
-		for _, w := range workloads {
-			pods, err := r.getPodsForWorkload(ctx, w)
-			if err != nil {
-				logger.Error(err, "Failed to get pods for workload", "workload", w.GetName())
-				continue
-			}
-			podsByWorkload[w.GetName()] = pods
-		}
+		// One List per namespace + in-memory selector match (not N List calls).
+		podsByWorkload = r.listPodsForWorkloads(ctx, workloads)
 	}
 
 	// Pre-fetch namespace-scoped LimitRanges and ResourceQuotas once so both
@@ -571,23 +583,27 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 	policy.Status.Workloads.Pending = pending
 
-	// Deferred / Infeasible operator UX: only when we listed pods (resize modes).
-	if listPods {
+	// Deferred / Infeasible operator UX.
+	// - Observe (no list): clear blocker fields.
+	// - listPods+refresh: recompute from current pods.
+	// - throttle hold (Recommend/resize without refresh): leave status as-is.
+	if listPods && refreshBlockers {
 		blockers := summarizeResizeBlockers(podsByWorkload, r.now())
 		policy.Status.Workloads.Deferred = safeInt32(blockers.DeferredCount)
 		policy.Status.Workloads.Infeasible = safeInt32(blockers.InfeasibleCount)
 		operatormetrics.PodsDeferred.WithLabelValues(policy.Namespace, policy.Name).Set(float64(blockers.DeferredCount))
 		operatormetrics.PodsInfeasible.WithLabelValues(policy.Namespace, policy.Name).Set(float64(blockers.InfeasibleCount))
+		r.markBlockersRefreshed(&policy)
 		for _, age := range blockers.DeferredAges {
 			operatormetrics.DeferredAgeSeconds.WithLabelValues(policy.Namespace, policy.Name).Observe(age.Seconds())
 		}
 		r.setResizeBlockedCondition(&policy, blockers)
-	} else {
+	} else if !listPods && !isResizeMode(mode) && mode != attunev1alpha1.UpdateTypeRecommend {
+		// Observe / OneShot-observe-like: blockers not applicable.
 		policy.Status.Workloads.Deferred = 0
 		policy.Status.Workloads.Infeasible = 0
 		operatormetrics.PodsDeferred.WithLabelValues(policy.Namespace, policy.Name).Set(0)
 		operatormetrics.PodsInfeasible.WithLabelValues(policy.Namespace, policy.Name).Set(0)
-		// Clear ResizeBlocked in non-resize modes (not applicable).
 		meta.RemoveStatusCondition(&policy.Status.Conditions, attunev1alpha1.ConditionResizeBlocked)
 	}
 

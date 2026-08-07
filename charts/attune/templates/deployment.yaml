@@ -82,6 +82,22 @@ spec:
             {{- if hasKey .Values "statusIncludeExplanations" }}
             - --status-include-explanations={{ .Values.statusIncludeExplanations }}
             {{- end }}
+            {{- if hasKey .Values "maxPodsInMetricsQuery" }}
+            - --max-pods-in-metrics-query={{ .Values.maxPodsInMetricsQuery }}
+            {{- end }}
+            {{- $mhw := include "attune.maxHistoryWindow" . | trim }}
+            {{- if $mhw }}
+            - --max-history-window={{ $mhw }}
+            {{- end }}
+            {{- $mqs := include "attune.minQueryStep" . | trim }}
+            {{- if $mqs }}
+            - --min-query-step={{ $mqs }}
+            {{- end }}
+            {{- if hasKey .Values "blockerRefreshInterval" }}
+            {{- if ne (.Values.blockerRefreshInterval | toString) "" }}
+            - --blocker-refresh-interval={{ .Values.blockerRefreshInterval }}
+            {{- end }}
+            {{- end }}
             {{- if .Values.watchNamespaces }}
             - --watch-namespaces={{ join "," .Values.watchNamespaces }}
             {{- end }}

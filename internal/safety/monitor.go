@@ -100,9 +100,13 @@ type Monitor struct {
 	logger            logr.Logger
 	throttleChecker   ThrottleChecker
 	throttleThreshold float64
-	sloQuerier        SLOQuerier
-	sloGuardrails     []attunev1alpha1.SLOGuardrail
-	sloTemplates      map[string]*template.Template // cached parsed templates keyed by query string
+	// throttleRatioCache optional prefetched ratios from a batch PromQL query.
+	// Keys are "pod/container". When set, CheckPod uses the cache instead of
+	// calling GetThrottleRatio for cache hits.
+	throttleRatioCache map[string]float64
+	sloQuerier         SLOQuerier
+	sloGuardrails      []attunev1alpha1.SLOGuardrail
+	sloTemplates       map[string]*template.Template // cached parsed templates keyed by query string
 }
 
 // NewMonitor creates a Monitor backed by the given Kubernetes client.
@@ -119,6 +123,19 @@ func (m *Monitor) WithThrottleChecker(checker ThrottleChecker, threshold float64
 	m.throttleChecker = checker
 	if threshold > 0 {
 		m.throttleThreshold = threshold
+	}
+	return m
+}
+
+// WithThrottleRatioCache installs prefetched throttle ratios (from a batch
+// PromQL query). CheckPod uses cache hits instead of per-pod queries.
+func (m *Monitor) WithThrottleRatioCache(ratios map[throttle.Key]float64) *Monitor {
+	if len(ratios) == 0 {
+		return m
+	}
+	m.throttleRatioCache = make(map[string]float64, len(ratios))
+	for k, v := range ratios {
+		m.throttleRatioCache[k.Pod+"/"+k.Container] = v
 	}
 	return m
 }
@@ -206,9 +223,20 @@ func (m *Monitor) CheckPod(ctx context.Context, record ResizeRecord, now time.Ti
 	// more CPU.
 	var throttleDeferred bool
 	throttleGrace := 5 * time.Minute
-	if m.throttleChecker != nil {
+	if m.throttleChecker != nil || len(m.throttleRatioCache) > 0 {
 		if now.Sub(record.ResizedAt) >= throttleGrace {
-			ratio, err := m.throttleChecker.GetThrottleRatio(ctx, record.Namespace, record.PodName, record.Container, now)
+			var ratio float64
+			var err error
+			cacheKey := record.PodName + "/" + record.Container
+			if m.throttleRatioCache != nil {
+				if v, ok := m.throttleRatioCache[cacheKey]; ok {
+					ratio = v
+				} else if m.throttleChecker != nil {
+					ratio, err = m.throttleChecker.GetThrottleRatio(ctx, record.Namespace, record.PodName, record.Container, now)
+				}
+			} else if m.throttleChecker != nil {
+				ratio, err = m.throttleChecker.GetThrottleRatio(ctx, record.Namespace, record.PodName, record.Container, now)
+			}
 			if err != nil {
 				m.logger.Error(err, "Safety throttle check failed, skipping throttle detection",
 					"pod", record.PodName, "namespace", record.Namespace, "container", record.Container)

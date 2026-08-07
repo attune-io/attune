@@ -1041,6 +1041,26 @@
       "default": true,
       "description": "Write recommendation explanation chains into status."
     },
+    "maxPodsInMetricsQuery": {
+      "type": "integer",
+      "default": 100,
+      "description": "Cap pods named in metrics pod=~ regexes. Negative disables sampling."
+    },
+    "maxHistoryWindow": {
+      "type": ["string", "null"],
+      "default": "",
+      "description": "Operator ceiling for metrics historyWindow (Go duration). Empty disables."
+    },
+    "minQueryStep": {
+      "type": ["string", "null"],
+      "default": "",
+      "description": "Operator floor for metrics queryStep (Go duration). Empty disables."
+    },
+    "blockerRefreshInterval": {
+      "type": "string",
+      "default": "0s",
+      "description": "Minimum interval between Deferred/Infeasible blocker recomputes when not resizing. Zero recomputes every cycle."
+    },
     "watchNamespaces": {
       "type": "array",
       "items": {

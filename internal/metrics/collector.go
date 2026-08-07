@@ -27,6 +27,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -34,6 +35,8 @@ import (
 	promapi "github.com/prometheus/client_golang/api"
 	promv1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	"github.com/prometheus/common/model"
+
+	"github.com/attune-io/attune/internal/throttle"
 )
 
 // Sample represents a single metric data point with a timestamp and value.
@@ -444,6 +447,78 @@ func (c *PrometheusCollector) GetThrottleRatio(ctx context.Context, namespace, p
 		return 0, nil
 	}
 	return val, nil
+}
+
+// GetThrottleRatios batch-queries throttle ratios for many pod/container pairs
+// in one PromQL vector (pod=~ and container=~). Implements throttle.BatchChecker.
+func (c *PrometheusCollector) GetThrottleRatios(ctx context.Context, namespace string, keys []throttle.Key, ts time.Time) (map[throttle.Key]float64, error) {
+	out := make(map[throttle.Key]float64, len(keys))
+	if len(keys) == 0 {
+		return out, nil
+	}
+	if len(keys) == 1 {
+		v, err := c.GetThrottleRatio(ctx, namespace, keys[0].Pod, keys[0].Container, ts)
+		if err != nil {
+			return nil, err
+		}
+		out[keys[0]] = v
+		return out, nil
+	}
+	pods := make([]string, 0, len(keys))
+	ctrs := make([]string, 0, len(keys))
+	seenP := map[string]bool{}
+	seenC := map[string]bool{}
+	for _, k := range keys {
+		if !seenP[k.Pod] {
+			seenP[k.Pod] = true
+			pods = append(pods, EscapePromQLRegex(k.Pod))
+		}
+		if !seenC[k.Container] {
+			seenC[k.Container] = true
+			ctrs = append(ctrs, EscapePromQLRegex(k.Container))
+		}
+	}
+	slices.Sort(pods)
+	slices.Sort(ctrs)
+	ns := EscapePromQL(namespace)
+	podRE := strings.Join(pods, "|")
+	ctrRE := strings.Join(ctrs, "|")
+	query := fmt.Sprintf(
+		`rate(container_cpu_cfs_throttled_periods_total{namespace="%s",pod=~"%s",container=~"%s"}[5m])`+
+			` / rate(container_cpu_cfs_periods_total{namespace="%s",pod=~"%s",container=~"%s"}[5m])`,
+		ns, podRE, ctrRE, ns, podRE, ctrRE,
+	)
+	result, warnings, err := c.api.Query(ctx, query, ts)
+	if err != nil {
+		return nil, fmt.Errorf("prometheus batch throttle query failed: %w", err)
+	}
+	if len(warnings) > 0 {
+		c.logger.Info("Prometheus batch throttle query returned warnings",
+			"warnings", strings.Join(warnings, "; "))
+	}
+	vec, ok := result.(model.Vector)
+	if !ok {
+		return out, nil
+	}
+	wanted := make(map[throttle.Key]bool, len(keys))
+	for _, k := range keys {
+		wanted[k] = true
+	}
+	for _, sample := range vec {
+		pod := string(sample.Metric[model.LabelName("pod")])
+		ctr := string(sample.Metric[model.LabelName("container")])
+		k := throttle.Key{Pod: pod, Container: ctr}
+		if !wanted[k] {
+			continue
+		}
+		v := float64(sample.Value)
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			out[k] = 0
+			continue
+		}
+		out[k] = v
+	}
+	return out, nil
 }
 
 // EscapePromQL escapes backslashes, quotes, and control characters for safe
