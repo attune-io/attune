@@ -744,11 +744,11 @@ func TestE2E_BudgetCaps_DefersResize(t *testing.T) {
 	t.Parallel()
 	ns := uniqueNS("budget")
 	createNamespace(t, ns)
-	// Start overprovisioned (500m). Pause containers use almost no CPU, so
-	// recommendations decrease. maxTotalCpuIncrease only caps *increases*, so
-	// this E2E smoke-checks that a policy with a budget field still discovers
-	// and resizes. Unit tests cover multi-pod budget deferral on increases.
-	createDeployment(t, "budget-app", ns, "500m", "512Mi", 3)
+	// Start very overprovisioned so pause metrics produce rec << current
+	// (500m start can settle at rec==current and never resize). Budget only
+	// caps increases; unit tests cover multi-pod increase deferral. This E2E
+	// proves a policy with a budget field still discovers and resizes down.
+	createDeployment(t, "budget-app", ns, "2000m", "1Gi", 3)
 	waitForDeploymentReady(t, "budget-app", ns, 60*time.Second)
 
 	tightBudget := resource.MustParse("150m")
@@ -766,11 +766,14 @@ func TestE2E_BudgetCaps_DefersResize(t *testing.T) {
 			CPU: attunev1alpha1.ResourceConfig{
 				Percentile:       95,
 				Overhead:         "20",
+				MinAllowed:       quantityPtr("50m"),
 				MaxChangePercent: int32Ptr(100),
 			},
 			Memory: attunev1alpha1.ResourceConfig{
 				Percentile:       99,
 				Overhead:         "30",
+				MinAllowed:       quantityPtr("64Mi"),
+				AllowDecrease:    boolPtr(true),
 				MaxChangePercent: int32Ptr(100),
 			},
 			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
