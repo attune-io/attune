@@ -751,12 +751,43 @@ func TestE2E_BudgetCaps_DefersResize(t *testing.T) {
 	waitForDeploymentReady(t, "budget-app", ns, 60*time.Second)
 
 	tightBudget := resource.MustParse("150m")
-	policy := createPolicy(t, "budget-policy", ns, "budget-app", attunev1alpha1.UpdateTypeAuto)
-	// Patch budget field onto the createPolicy defaults.
-	var live attunev1alpha1.AttunePolicy
-	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: policy.Name, Namespace: ns}, &live))
-	live.Spec.UpdateStrategy.MaxTotalCPUIncrease = &tightBudget
-	require.NoError(t, k8sClient.Update(ctx, &live))
+	deployName := "budget-app"
+	// Create with budget in one shot (no post-create Update race with the
+	// operator status writer).
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "budget-policy", Namespace: ns},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			TargetRef: attunev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Prometheus:        &attunev1alpha1.PrometheusConfig{Address: promAddr},
+				MinimumDataPoints: int32Ptr(1),
+				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
+			},
+			CPU: attunev1alpha1.ResourceConfig{
+				Percentile:       95,
+				Overhead:         "20",
+				MinAllowed:       quantityPtr("50m"),
+				MaxAllowed:       quantityPtr("4000m"),
+				MaxChangePercent: int32Ptr(100),
+			},
+			Memory: attunev1alpha1.ResourceConfig{
+				Percentile:       99,
+				Overhead:         "30",
+				AllowDecrease:    boolPtr(true),
+				MinAllowed:       quantityPtr("64Mi"),
+				MaxAllowed:       quantityPtr("8Gi"),
+				MaxChangePercent: int32Ptr(100),
+			},
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Type:                attunev1alpha1.UpdateTypeAuto,
+				Cooldown:            &metav1.Duration{Duration: time.Minute},
+				AutoRevert:          boolPtr(true),
+				MaxTotalCPUIncrease: &tightBudget,
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, policy))
 
 	waitForPolicyDiscovered(t, "budget-policy", ns, 2*time.Minute)
 	waitForResize(t, "budget-policy", ns, 3*time.Minute)
