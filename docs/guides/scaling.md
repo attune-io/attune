@@ -289,9 +289,9 @@ legacy behavior or richer status.
 | Representative pod sample for metrics | 100 pods | `maxPodsInMetricsQuery` / `--max-pods-in-metrics-query` | - |
 | History window operator ceiling | Off (CRD max 720h) | `maxHistoryWindow` / `--max-history-window`; large=`72h`, xlarge=`48h` | - |
 | Query step operator floor | Off (CRD min 10s) | `minQueryStep` / `--min-query-step`; large=`10m`, xlarge=`15m` | - |
-| Blocker recompute throttle | 5m when not resizing | `blockerRefreshInterval` / `--blocker-refresh-interval` | - |
+| Blocker recompute throttle | Off (`0s`; set `5m` for large Recommend fleets) | `blockerRefreshInterval` / `--blocker-refresh-interval` | - |
 | Parallel policy reconciles | 2 | `maxConcurrentReconciles` / `--max-concurrent-reconciles`; clusterSize presets 1/2/4/8 | - |
-| Informer field strip (Pods + workloads + HPA) | On | - | - |
+| Informer field strip (Pods only) | On | - | Workload/HPA strip is unit-tested but not enabled: MergeFrom patches would wipe template fields |
 | Batch safety throttle PromQL | On (when Prometheus collector) | - | - |
 
 ### PromQL aggregation
@@ -362,18 +362,18 @@ step at reconcile time. Example: large sets a 72h history ceiling and
 - **Observe** mode skips pod lists entirely.
 - **Recommend** and resize modes list pods once **per namespace** and match
   workload selectors in memory (not one List per Deployment).
-- Deferred/Infeasible blocker counts refresh at least every
-  `blockerRefreshInterval` (default 5m) when not resizing. While the
-  throttle holds, Attune skips both the namespace pod List and the
-  summarize step, and **keeps the last blocker status values**.
+- Deferred/Infeasible blocker counts recompute every reconcile by default.
+  Set `blockerRefreshInterval` (e.g. `5m`) on large Recommend fleets to
+  skip List+summarize while the throttle holds and **keep the last
+  blocker status values**.
 
-### Informer memory (workloads + HPAs)
+### Informer memory
 
-In addition to `StripPodFields`, the manager strips unused fields from
-Deployments, StatefulSets, DaemonSets, ReplicaSets, Jobs, CronJobs, and
-HPAs in the informer cache. Prefer `watchNamespaces` for multi-tenant
-mega-clusters; label-based cache filters are not supported (policies can
-use any selector).
+`StripPodFields` still reduces pod cache size. Workload and HPA objects
+are not stripped in the live cache because template/HPA updates use
+MergeFrom on the cached object, and JSON merge replaces container arrays.
+Prefer `watchNamespaces` for multi-tenant mega-clusters; label-based cache
+filters are not supported (policies can use any selector).
 
 ### Safety throttle batching
 

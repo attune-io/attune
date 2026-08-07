@@ -313,8 +313,8 @@ maxHistoryWindow: ""
 minQueryStep: ""
 
 # -- Minimum interval between Deferred/Infeasible blocker recomputes when not resizing.
-# Zero recomputes every cycle. Default 5m.
-blockerRefreshInterval: "5m"
+# Zero (default) recomputes every cycle. Set "5m" on large Recommend fleets to cut List work.
+blockerRefreshInterval: "0s"
 
 # -- Maximum deterministic requeue jitter to spread policies that share a cooldown.
 # Set to "0s" to disable. Default 2m (empty omits the flag and keeps the binary default).

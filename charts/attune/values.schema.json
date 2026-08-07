@@ -1058,8 +1058,8 @@
     },
     "blockerRefreshInterval": {
       "type": "string",
-      "default": "5m",
-      "description": "Minimum interval between Deferred/Infeasible blocker recomputes when not resizing."
+      "default": "0s",
+      "description": "Minimum interval between Deferred/Infeasible blocker recomputes when not resizing. Zero recomputes every cycle."
     },
     "watchNamespaces": {
       "type": "array",

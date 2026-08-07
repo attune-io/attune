@@ -21,7 +21,7 @@ helm install attune oci://ghcr.io/attune-io/charts/attune \
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | affinity | object | `{}` | Affinity rules |
-| blockerRefreshInterval | string | `"5m"` | Minimum interval between Deferred/Infeasible blocker recomputes when not resizing. Zero recomputes every cycle. Default 5m. |
+| blockerRefreshInterval | string | `"0s"` | Minimum interval between Deferred/Infeasible blocker recomputes when not resizing. Zero (default) recomputes every cycle. Set "5m" on large Recommend fleets to cut List work. |
 | clusterSize | string | `""` | Cluster size preset: sets resources, rate limits, and replica count. Valid values: small, medium, large, xlarge, or "" (no preset). Any explicitly set value overrides the preset. See docs/guides/scaling.md for details. |
 | collectorTTL | string | `"10m"` | Collector cache TTL for unused Prometheus connections (Go duration, e.g. "10m", "1h") |
 | defaults | object | `{"enabled":false,"updateStrategy":{"autoRevert":true,"cooldown":"1h","maxConcurrentResizes":1,"resizeMethod":"InPlaceOnly","type":"Recommend"}}` | Cluster-wide defaults (creates an AttuneDefaults CR) |

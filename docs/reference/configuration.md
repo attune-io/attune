@@ -186,7 +186,7 @@ watchNamespaces:
 | `maxPodsInMetricsQuery` | int | `100` | Cap pods named in metrics `pod=~` regexes for huge workloads (`--max-pods-in-metrics-query`). Negative disables sampling. |
 | `maxHistoryWindow` | string | `""` | Operator ceiling for metrics historyWindow (`--max-history-window`). large/xlarge auto 72h/48h. |
 | `minQueryStep` | string | `""` | Operator floor for metrics queryStep (`--min-query-step`). large/xlarge auto 10m/15m. |
-| `blockerRefreshInterval` | string | `"5m"` | Min interval between Deferred/Infeasible blocker recomputes when not resizing (`--blocker-refresh-interval`). |
+| `blockerRefreshInterval` | string | `"0s"` | Min interval between Deferred/Infeasible blocker recomputes when not resizing (`--blocker-refresh-interval`). Zero recomputes every cycle; use `5m` for large Recommend fleets. |
 
 ## OpenShift
 

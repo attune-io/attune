@@ -24,9 +24,6 @@ import (
 	"time"
 	_ "time/tzdata" // Embed IANA timezone database for distroless containers.
 
-	appsv1 "k8s.io/api/apps/v1"
-	autoscalingv2 "k8s.io/api/autoscaling/v2"
-	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -124,8 +121,8 @@ func main() {
 		"Optional operator-level ceiling for metrics historyWindow (e.g. 72h for large fleets). Zero disables extra clamp.")
 	flag.DurationVar(&minQueryStep, "min-query-step", 0,
 		"Optional operator-level floor for metrics queryStep (e.g. 10m for large fleets). Zero disables extra clamp.")
-	flag.DurationVar(&blockerRefreshInterval, "blocker-refresh-interval", 5*time.Minute,
-		"Minimum interval between Deferred/Infeasible blocker recomputes when not resizing. Zero recomputes every reconcile.")
+	flag.DurationVar(&blockerRefreshInterval, "blocker-refresh-interval", 0,
+		"Minimum interval between Deferred/Infeasible blocker recomputes when not resizing. Zero (default) recomputes every reconcile; set e.g. 5m for large Recommend fleets.")
 	flag.StringVar(&watchNamespaces, "watch-namespaces", "",
 		"Comma-separated list of namespaces to watch. Empty means all namespaces (cluster-scoped). "+
 			"Reduces informer cache memory on large clusters where policies exist in a few namespaces. "+
@@ -221,29 +218,13 @@ func main() {
 	if mgrOpts.Cache.ByObject == nil {
 		mgrOpts.Cache.ByObject = make(map[client.Object]cache.ByObject)
 	}
+	// Only strip Pods in the informer cache. Workloads (Deployments, STS, …)
+	// and HPAs are patched via MergeFrom of the cached object; JSON merge
+	// replaces container/metric arrays, so stripping fields would wipe live
+	// template image/command (or HPA metrics) on write. Unit tests still cover
+	// transform helpers for optional future use with direct-API re-fetch.
 	mgrOpts.Cache.ByObject[&corev1.Pod{}] = cache.ByObject{
 		Transform: transform.StripPodFields,
-	}
-	mgrOpts.Cache.ByObject[&appsv1.Deployment{}] = cache.ByObject{
-		Transform: transform.StripDeploymentFields,
-	}
-	mgrOpts.Cache.ByObject[&appsv1.StatefulSet{}] = cache.ByObject{
-		Transform: transform.StripStatefulSetFields,
-	}
-	mgrOpts.Cache.ByObject[&appsv1.DaemonSet{}] = cache.ByObject{
-		Transform: transform.StripDaemonSetFields,
-	}
-	mgrOpts.Cache.ByObject[&appsv1.ReplicaSet{}] = cache.ByObject{
-		Transform: transform.StripReplicaSetFields,
-	}
-	mgrOpts.Cache.ByObject[&autoscalingv2.HorizontalPodAutoscaler{}] = cache.ByObject{
-		Transform: transform.StripHPAFields,
-	}
-	mgrOpts.Cache.ByObject[&batchv1.Job{}] = cache.ByObject{
-		Transform: transform.StripJobFields,
-	}
-	mgrOpts.Cache.ByObject[&batchv1.CronJob{}] = cache.ByObject{
-		Transform: transform.StripCronJobFields,
 	}
 
 	// When webhooks are disabled, point the webhook server at a non-existent port
