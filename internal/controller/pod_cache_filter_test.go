@@ -163,7 +163,7 @@ func TestRefreshPodCacheFilter_ListPoliciesErrorLeavesFilter(t *testing.T) {
 	assert.False(t, r.PodCacheFilter.Keep(other))
 }
 
-func TestRefreshPodCacheFilter_DedupsSelectors(t *testing.T) {
+func TestRefreshPodCacheFilter_TwoPoliciesSameTarget(t *testing.T) {
 	scheme := testScheme()
 	name := "shared"
 	deploy := &appsv1.Deployment{
@@ -172,7 +172,8 @@ func TestRefreshPodCacheFilter_DedupsSelectors(t *testing.T) {
 			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "shared"}},
 		},
 	}
-	// Two policies targeting the same deployment should not break refresh.
+	// Two policies targeting the same deployment should not break refresh
+	// (selector map dedupes by sel.String(); Keep still matches once).
 	p1 := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "p1", Namespace: "ns"},
 		Spec: attunev1alpha1.AttunePolicySpec{
@@ -195,5 +196,8 @@ func TestRefreshPodCacheFilter_DedupsSelectors(t *testing.T) {
 	r.refreshPodCacheFilter(context.Background())
 	assert.True(t, r.PodCacheFilter.Keep(&corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "shared"}},
+	}))
+	assert.False(t, r.PodCacheFilter.Keep(&corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "other"}},
 	}))
 }
