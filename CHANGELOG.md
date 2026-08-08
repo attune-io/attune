@@ -27,25 +27,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 * harden GitOps paths, SSRF apiUrl, and refresh dist manifests ([#455](https://github.com/attune-io/attune/issues/455)) ([f4ec8dd](https://github.com/attune-io/attune/commit/f4ec8ddd188ec40eb0ff9d9c15224c4b56997b9c))
 
-## [Unreleased]
-
-### Features
-
-* **Scale:** default PromQL `podAggregation: Max` (`max by (container)`) so recommendation
-  range queries are O(containers), not O(pods). Override with `Avg` or `None` for the
-  legacy multi-pod sample pool. Status recommendation caps, sample downsampling, series
-  caps, requeue jitter, configurable workload workers, namespace-wide pod lists,
-  representative pod sampling for metrics, optional history/step clamps, batch safety
-  throttle queries, and informer field stripping for pods/workloads/HPAs. Optional
-  `--pod-label-selector` plus dynamic keep rules from active policy target selectors.
-  Default `--max-concurrent-reconciles` is now 2 (Helm `clusterSize` presets still apply).
-
-### Breaking / behavioral notes
-
-* **Default metrics aggregation is Max.** Operators who relied on unaggregated
-  per-pod series for percentile estimates should set
-  `spec.metricsSource.podAggregation: None` (or `Avg`) explicitly after upgrade.
-
 ## [0.1.20](https://github.com/attune-io/attune/compare/v0.1.19...v0.1.20) (2026-07-14)
 
 
