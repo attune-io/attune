@@ -41,6 +41,11 @@ func TestSamplePodsForMetrics_EvenSpacing(t *testing.T) {
 	// Under limit returns all
 	assert.Len(t, samplePodsForMetrics(pods[:3], 5), 3)
 	assert.Equal(t, pods, samplePodsForMetrics(pods, 0))
+	// Empty / nil input stays empty (no panic, no synthetic pods).
+	assert.Empty(t, samplePodsForMetrics(nil, 5))
+	assert.Empty(t, samplePodsForMetrics([]corev1.Pod{}, 5))
+	// Negative max is treated as unlimited (return input unchanged).
+	assert.Equal(t, pods[:2], samplePodsForMetrics(pods[:2], -1))
 }
 
 func TestPodRegexFromNames(t *testing.T) {
