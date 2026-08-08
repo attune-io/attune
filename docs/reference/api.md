@@ -62,6 +62,7 @@ spec:
     minimumDataPoints: 48                  # min samples before recommending (default: 48)
     queryStep: 5m                          # Prometheus range query step interval (default: 5m)
     rateWindow: 5m                         # PromQL rate() window for CPU queries (default: queryStep)
+    podAggregation: Max                    # Max (default) | Avg | None; max by (container) for scale
 
   # CPU recommendation parameters.
   cpu:

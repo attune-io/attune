@@ -943,3 +943,39 @@ func TestApplyTemplatePersistence_DisabledByDefault(t *testing.T) {
 		attunev1alpha1.TemplatePersistenceOnRecommendation, nil)
 	assert.Empty(t, history)
 }
+
+func TestMergeTemplateResources_NilRequestsAndLimits(t *testing.T) {
+	want := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("100m"),
+			corev1.ResourceMemory: resource.MustParse("128Mi"),
+		},
+	}
+	got := mergeTemplateResources(corev1.ResourceRequirements{}, want)
+	require.NotNil(t, got.Requests)
+	assert.Equal(t, "100m", got.Requests.Cpu().String())
+	assert.Equal(t, "128Mi", got.Requests.Memory().String())
+	assert.Nil(t, got.Limits)
+
+	// Limits filled only when want has limits; existing limits preserved for other keys.
+	current := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("50m")},
+		Limits:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("256Mi")},
+	}
+	want2 := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("200m")},
+		Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("400m")},
+	}
+	got2 := mergeTemplateResources(current, want2)
+	assert.Equal(t, "200m", got2.Requests.Cpu().String())
+	assert.Equal(t, "400m", got2.Limits.Cpu().String())
+	assert.Equal(t, "256Mi", got2.Limits.Memory().String(), "unrelated existing limit kept")
+}
+
+func TestWorkloadKindName(t *testing.T) {
+	assert.Equal(t, "Deployment", workloadKindName(&appsv1.Deployment{}))
+	assert.Equal(t, "StatefulSet", workloadKindName(&appsv1.StatefulSet{}))
+	assert.Equal(t, "DaemonSet", workloadKindName(&appsv1.DaemonSet{}))
+	// Unknown object falls back to GVK kind (empty when unset).
+	assert.Equal(t, "", workloadKindName(&corev1.Pod{}))
+}
