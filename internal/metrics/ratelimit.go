@@ -82,3 +82,27 @@ func (c *RateLimitedCollector) GetThrottleRatio(ctx context.Context, namespace, 
 	}
 	return 0, nil
 }
+
+// GetThrottleRatios delegates to the inner collector if it implements
+// throttle.BatchChecker. One rate-limit token covers the whole batch
+// query (not one token per key). Without this method, the production
+// RateLimitedCollector wrapper does not satisfy BatchChecker and the
+// safety path falls back to N per-pod GetThrottleRatio calls.
+func (c *RateLimitedCollector) GetThrottleRatios(ctx context.Context, namespace string, keys []throttle.Key, ts time.Time) (map[throttle.Key]float64, error) {
+	if bc, ok := c.inner.(throttle.BatchChecker); ok {
+		if err := c.limiter.Wait(ctx); err != nil {
+			return nil, err
+		}
+		return bc.GetThrottleRatios(ctx, namespace, keys, ts)
+	}
+	// Inner is Checker-only: fall back to per-key (still rate-limited).
+	out := make(map[throttle.Key]float64, len(keys))
+	for _, k := range keys {
+		v, err := c.GetThrottleRatio(ctx, namespace, k.Pod, k.Container, ts)
+		if err != nil {
+			return nil, err
+		}
+		out[k] = v
+	}
+	return out, nil
+}

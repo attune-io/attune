@@ -23,6 +23,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/attune-io/attune/internal/throttle"
 )
 
 // mockCollector implements MetricsCollector for testing.
@@ -126,11 +128,25 @@ type mockThrottleCollector struct {
 	mockCollector
 	throttleCalls int
 	throttleRatio float64
+	batchCalls    int
+	batchOut      map[throttle.Key]float64
 }
 
 func (m *mockThrottleCollector) GetThrottleRatio(_ context.Context, _, _, _ string, _ time.Time) (float64, error) {
 	m.throttleCalls++
 	return m.throttleRatio, nil
+}
+
+func (m *mockThrottleCollector) GetThrottleRatios(_ context.Context, _ string, keys []throttle.Key, _ time.Time) (map[throttle.Key]float64, error) {
+	m.batchCalls++
+	if m.batchOut != nil {
+		return m.batchOut, nil
+	}
+	out := make(map[throttle.Key]float64, len(keys))
+	for _, k := range keys {
+		out[k] = m.throttleRatio
+	}
+	return out, nil
 }
 
 func TestRateLimitedCollector_SupportsThrottle(t *testing.T) {
@@ -176,4 +192,55 @@ func TestRateLimitedCollector_GetThrottleRatio_CancelledContext(t *testing.T) {
 	_, err := rl.GetThrottleRatio(ctx, "ns", "pod", "container", time.Now())
 	assert.Error(t, err)
 	assert.Equal(t, 0, inner.throttleCalls)
+}
+
+func TestRateLimitedCollector_ImplementsBatchChecker(t *testing.T) {
+	// Production wraps Prometheus in RateLimitedCollector; safety casts to
+	// BatchChecker. Without GetThrottleRatios on the wrapper, batch is dead.
+	var _ throttle.BatchChecker = NewRateLimitedCollector(&mockThrottleCollector{}, 10, 20)
+}
+
+func TestRateLimitedCollector_GetThrottleRatios_Delegates(t *testing.T) {
+	k1 := throttle.Key{Pod: "p1", Container: "c"}
+	k2 := throttle.Key{Pod: "p2", Container: "c"}
+	inner := &mockThrottleCollector{
+		batchOut: map[throttle.Key]float64{k1: 0.2, k2: 0.4},
+	}
+	rl := NewRateLimitedCollector(inner, 10, 20)
+
+	out, err := rl.GetThrottleRatios(context.Background(), "ns", []throttle.Key{k1, k2}, time.Now())
+	require.NoError(t, err)
+	assert.Equal(t, 1, inner.batchCalls, "one batch call, not per-key")
+	assert.Equal(t, 0, inner.throttleCalls)
+	assert.InDelta(t, 0.2, out[k1], 1e-9)
+	assert.InDelta(t, 0.4, out[k2], 1e-9)
+}
+
+func TestRateLimitedCollector_GetThrottleRatios_FallbackPerKey(t *testing.T) {
+	// Checker only (no BatchChecker on inner): wrapper still implements
+	// BatchChecker by falling back to rate-limited GetThrottleRatio.
+	inner := &mockCheckerOnly{ratio: 0.3}
+	rl := NewRateLimitedCollector(inner, 10, 20)
+
+	keys := []throttle.Key{
+		{Pod: "a", Container: "c"},
+		{Pod: "b", Container: "c"},
+	}
+	out, err := rl.GetThrottleRatios(context.Background(), "ns", keys, time.Now())
+	require.NoError(t, err)
+	assert.Equal(t, 2, inner.calls)
+	assert.InDelta(t, 0.3, out[keys[0]], 1e-9)
+	assert.InDelta(t, 0.3, out[keys[1]], 1e-9)
+}
+
+// mockCheckerOnly implements MetricsCollector + throttle.Checker (not BatchChecker).
+type mockCheckerOnly struct {
+	mockCollector
+	calls int
+	ratio float64
+}
+
+func (m *mockCheckerOnly) GetThrottleRatio(_ context.Context, _, _, _ string, _ time.Time) (float64, error) {
+	m.calls++
+	return m.ratio, nil
 }
