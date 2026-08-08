@@ -221,3 +221,12 @@ func TestDownsampleSamples(t *testing.T) {
 	// No-op when under cap
 	assert.Equal(t, samples, DownsampleSamples(samples, 200))
 }
+
+func TestApplyPodAggregation(t *testing.T) {
+	inner := `rate(container_cpu_usage_seconds_total{namespace="ns"}[5m])`
+	assert.Equal(t, inner, applyPodAggregation(inner, PodAggregationNone))
+	assert.Equal(t, `avg by (container) (`+inner+`)`, applyPodAggregation(inner, PodAggregationAvg))
+	assert.Equal(t, `max by (container) (`+inner+`)`, applyPodAggregation(inner, PodAggregationMax))
+	assert.Equal(t, `max by (container) (`+inner+`)`, applyPodAggregation(inner, ""))
+	assert.Equal(t, `max by (container) (`+inner+`)`, applyPodAggregation(inner, PodAggregationMode("Weird")))
+}

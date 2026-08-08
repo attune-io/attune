@@ -837,3 +837,45 @@ func TestGetThrottleRatios_EmptyKeys(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, out)
 }
+
+func TestEffectiveMaxSeries(t *testing.T) {
+	c := &PrometheusCollector{}
+	assert.Equal(t, DefaultMaxPrometheusSeries, c.effectiveMaxSeries())
+	c.maxSeries = 42
+	assert.Equal(t, 42, c.effectiveMaxSeries())
+	c.maxSeries = -1
+	assert.Equal(t, 0, c.effectiveMaxSeries(), "negative is unlimited")
+	c.maxSeries = 0
+	assert.Equal(t, DefaultMaxPrometheusSeries, c.effectiveMaxSeries())
+}
+
+func TestCapMatrixByContainer_EdgeCases(t *testing.T) {
+	// limit <= 0 or under limit returns input unchanged.
+	s := &model.SampleStream{Metric: model.Metric{"container": "c"}}
+	m := model.Matrix{s}
+	assert.Same(t, m[0], capMatrixByContainer(m, 0)[0])
+	assert.Same(t, m[0], capMatrixByContainer(m, -1)[0])
+	assert.Len(t, capMatrixByContainer(m, 5), 1)
+
+	// Prefer one series per container then fill remaining.
+	matrix := model.Matrix{
+		{Metric: model.Metric{"container": "a", "pod": "p1"}},
+		{Metric: model.Metric{"container": "a", "pod": "p2"}},
+		{Metric: model.Metric{"container": "b", "pod": "p1"}},
+		{Metric: model.Metric{"container": "c", "pod": "p1"}},
+	}
+	out := capMatrixByContainer(matrix, 3)
+	require.Len(t, out, 3)
+	containers := map[string]int{}
+	for _, series := range out {
+		containers[string(series.Metric["container"])]++
+	}
+	// Pass 1 takes a, b, c (3 distinct) — no room for second "a".
+	assert.Equal(t, 1, containers["a"])
+	assert.Equal(t, 1, containers["b"])
+	assert.Equal(t, 1, containers["c"])
+
+	// limit 2: only first two distinct containers.
+	out2 := capMatrixByContainer(matrix, 2)
+	require.Len(t, out2, 2)
+}
