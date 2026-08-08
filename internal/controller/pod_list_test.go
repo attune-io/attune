@@ -17,6 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
 func TestLabelsMatch(t *testing.T) {
@@ -100,4 +101,90 @@ func TestMetricsPodRegex_SamplesWhenLarge(t *testing.T) {
 	// Unlimited path keeps workload regex.
 	r.MaxPodsInMetricsQuery = -1
 	assert.Equal(t, r.getPodRegex(d), r.metricsPodRegex(d, pods))
+}
+
+func TestListPodsForWorkloads_Empty(t *testing.T) {
+	r := NewAttunePolicyReconciler()
+	r.Client = fake.NewClientBuilder().WithScheme(testScheme()).Build()
+	out := r.listPodsForWorkloads(context.Background(), nil)
+	assert.Empty(t, out)
+	out = r.listPodsForWorkloads(context.Background(), []client.Object{})
+	assert.Empty(t, out)
+}
+
+func TestListPodsForWorkloads_SkipsEmptySelector(t *testing.T) {
+	scheme := testScheme()
+	// Deployment without MatchLabels has empty pod selector.
+	d := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "nosel", Namespace: "ns"},
+		Spec:       appsv1.DeploymentSpec{},
+	}
+	p := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "p", Namespace: "ns", Labels: map[string]string{"app": "x"}}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(d, p).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = c
+	out := r.listPodsForWorkloads(context.Background(), []client.Object{d})
+	_, ok := out["nosel"]
+	assert.False(t, ok, "workload without selector labels must be skipped")
+}
+
+func TestListPodsForWorkloads_NSListErrorFallsBackPerWorkload(t *testing.T) {
+	scheme := testScheme()
+	d := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "ns"},
+		Spec: appsv1.DeploymentSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "app"}},
+		},
+	}
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "p1", Namespace: "ns", Labels: map[string]string{"app": "app"}}}
+
+	// Base client has objects; interceptor fails only the namespace-wide Pod list
+	// (no MatchingLabels), then getPodsForWorkload succeeds with MatchingLabels.
+	base := fake.NewClientBuilder().WithScheme(scheme).WithObjects(d, pod).Build()
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(d, pod).
+		WithInterceptorFuncs(interceptor.Funcs{
+			List: func(ctx context.Context, cl client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+				if _, ok := list.(*corev1.PodList); ok {
+					// Fail only bare namespace lists (no MatchingLabels option).
+					// Heuristic: if MatchingLabels is absent from opts, fail.
+					hasMatch := false
+					for _, o := range opts {
+						if _, ok := o.(client.MatchingLabels); ok {
+							hasMatch = true
+							break
+						}
+						if _, ok := o.(client.MatchingLabelsSelector); ok {
+							hasMatch = true
+							break
+						}
+					}
+					if !hasMatch {
+						return fmt.Errorf("simulated ns list failure")
+					}
+				}
+				return base.List(ctx, list, opts...)
+			},
+		}).
+		Build()
+
+	r := NewAttunePolicyReconciler()
+	r.Client = c
+	out := r.listPodsForWorkloads(context.Background(), []client.Object{d})
+	require.Len(t, out["app"], 1)
+	assert.Equal(t, "p1", out["app"][0].Name)
+}
+
+func TestMaxWorkloadWorkers(t *testing.T) {
+	r := NewAttunePolicyReconciler()
+	assert.Equal(t, defaultMaxWorkloadWorkers, r.maxWorkloadWorkers())
+	r.MaxWorkloadWorkers = 8
+	assert.Equal(t, 8, r.maxWorkloadWorkers())
+	r.MaxWorkloadWorkers = 0
+	assert.Equal(t, defaultMaxWorkloadWorkers, r.maxWorkloadWorkers())
+}
+
+func TestAbsInt64(t *testing.T) {
+	assert.Equal(t, int64(0), absInt64(0))
+	assert.Equal(t, int64(5), absInt64(5))
+	assert.Equal(t, int64(5), absInt64(-5))
 }

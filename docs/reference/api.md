@@ -10,7 +10,7 @@
 Fields are defaulted in three layers. Only `weight` and `maxConcurrentResizes`
 appear in the stored spec when omitted by the user (they are CRD schema or
 webhook defaults). All other defaultable fields (`type`, `controlledValues`,
-`cooldown`, `historyWindow`, `minimumDataPoints`, `queryStep`, `rateWindow`, `autoRevert`,
+`cooldown`, `historyWindow`, `minimumDataPoints`, `queryStep`, `rateWindow`, `podAggregation`, `autoRevert`,
 `resizeMethod`, `cpu.maxChangePercent`, `memory.maxChangePercent`,
 `safetyObservationPeriod`, `excludeKnownSidecars`) are applied
 by the controller at reconcile time so that cluster-wide `AttuneDefaults`
@@ -62,6 +62,7 @@ spec:
     minimumDataPoints: 48                  # min samples before recommending (default: 48)
     queryStep: 5m                          # Prometheus range query step interval (default: 5m)
     rateWindow: 5m                         # PromQL rate() window for CPU queries (default: queryStep)
+    podAggregation: Max                    # Max (default) | Avg | None; max by (container) for scale
 
   # CPU recommendation parameters.
   cpu:
@@ -277,6 +278,7 @@ spec:
     minimumDataPoints: 48
     queryStep: 5m
     rateWindow: 5m
+    podAggregation: Max
   cpu:              # same structure as AttunePolicy.spec.cpu
     percentile: 95
     overhead: "20"

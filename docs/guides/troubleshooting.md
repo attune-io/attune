@@ -8,6 +8,26 @@ Check the policy's conditions for a quick diagnosis:
 kubectl get attunepolicy <name> -o jsonpath='{.status.conditions}' | jq .
 ```
 
+### PrometheusSeriesCapped
+
+**Symptom:** Ready is True with reason `PrometheusSeriesCapped`, or logs show
+"Prometheus range query series capped".
+
+**Cause:** A range query returned more series than `--max-prometheus-series`
+(default 5000). Attune keeps partial data (preferring at least one series per
+container) and continues.
+
+**Fix:**
+
+1. Keep the default `metricsSource.podAggregation: Max` (or set it explicitly)
+   so series count tracks containers, not pods.
+2. Raise `maxPrometheusSeries` / `--max-prometheus-series` if you need more
+   series under `None` or `Avg`.
+3. Use recording rules (`cpuRecordingMetric` / `memoryRecordingMetric`) for
+   pre-aggregated metrics.
+
+See [Scaling: PrometheusSeriesCapped](scaling.md#ready-reason-prometheusseriescapped).
+
 ### PrometheusUnavailable
 
 **Symptom**: Ready condition is `False` with reason `PrometheusUnavailable`.
