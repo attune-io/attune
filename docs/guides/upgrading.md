@@ -8,11 +8,10 @@ Maintainers: before publishing a release after multi-version product changes,
 run the full E2E Nightly matrix on tip of `main` (see
 [Releasing: full E2E matrix](../contributing/releasing.md#1b-full-e2e-matrix-required-before-tagging-a-product-release)).
 
-## Unreleased (scale defaults on main)
+## v0.1.21 to v0.1.22
 
-These changes are already on `main` and will ship in the next feature release
-after v0.1.21. Review before upgrading operators built from tip or from that
-tag.
+v0.1.22 ships scale defaults and capacity safety that were previously only on
+`main`. Review before upgrading from v0.1.21.
 
 ### Default PromQL pod aggregation is Max
 
