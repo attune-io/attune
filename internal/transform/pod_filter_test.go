@@ -84,3 +84,29 @@ func TestPodCacheFilter_DisabledKeepsAll(t *testing.T) {
 	assert.Empty(t, out.(*corev1.Pod).Spec.Containers[0].Image)
 	assert.Len(t, out.(*corev1.Pod).Spec.Containers, 1)
 }
+
+func TestPodCacheFilter_SetEnabled(t *testing.T) {
+	f := NewPodCacheFilter(nil)
+	f.UpdateDynamic([]labels.Selector{SelectorFromMap(map[string]string{"app": "api"})})
+	other := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "p", Labels: map[string]string{"app": "other"}},
+		Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "c"}}},
+	}
+	assert.False(t, f.Keep(other), "enabled after UpdateDynamic should drop non-matches")
+	f.SetEnabled(false)
+	assert.True(t, f.Keep(other), "SetEnabled(false) keeps all for diagnostics")
+	f.SetEnabled(true)
+	assert.False(t, f.Keep(other))
+	// nil receiver is a no-op (must not panic).
+	var nilF *PodCacheFilter
+	nilF.SetEnabled(true)
+	assert.True(t, nilF.Keep(other))
+}
+
+func TestSelectorFromMap_Empty(t *testing.T) {
+	assert.Nil(t, SelectorFromMap(nil))
+	assert.Nil(t, SelectorFromMap(map[string]string{}))
+	sel := SelectorFromMap(map[string]string{"app": "x"})
+	require.NotNil(t, sel)
+	assert.True(t, sel.Matches(labels.Set{"app": "x"}))
+}
