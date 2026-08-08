@@ -632,7 +632,7 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				Type:               attunev1alpha1.ConditionReady,
 				Status:             metav1.ConditionTrue,
 				Reason:             attunev1alpha1.ReasonSeriesCapped,
-				Message:            "Prometheus range query hit series cap; recommendations used partial series (raise --max-prometheus-series or enable PodAggregation Max)",
+				Message:            "Prometheus range query hit series cap; recommendations used partial series (raise --max-prometheus-series, keep podAggregation Max, or use recording rules)",
 				ObservedGeneration: policy.Generation,
 				LastTransitionTime: metav1.NewTime(r.now()),
 			})
