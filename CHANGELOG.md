@@ -6,6 +6,25 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.22](https://github.com/attune-io/attune/compare/v0.1.21...v0.1.22) (2026-08-08)
+
+
+### Bug Fixes
+
+* enable batch throttle through RateLimitedCollector ([#502](https://github.com/attune-io/attune/issues/502)) ([8fd93e9](https://github.com/attune-io/attune/commit/8fd93e94c8b5413f5bc367e17b83170d6cc21458))
+* fail-closed node increases and enrich nightly failure issues ([#485](https://github.com/attune-io/attune/issues/485)) ([94ae72f](https://github.com/attune-io/attune/commit/94ae72fa09b4358c9facfbd0ba18e25451999445))
+* harden MemoryPressure e2e against kubelet inject race ([#482](https://github.com/attune-io/attune/issues/482)) ([d402238](https://github.com/attune-io/attune/commit/d402238f948120d7682d2128de8bbac8b63cbfb5)), closes [#481](https://github.com/attune-io/attune/issues/481)
+* hold MemoryPressure gate against stale node cache ([#476](https://github.com/attune-io/attune/issues/476)) ([26be010](https://github.com/attune-io/attune/commit/26be010d2b5015a3416b6849b72cab7f9c6c118b))
+* live node pressure re-check and capacity skip path tests ([#479](https://github.com/attune-io/attune/issues/479)) ([3b7379c](https://github.com/attune-io/attune/commit/3b7379c3ec99bdb419353658114346270de78890))
+* mpi scale defaults coverage, explain, and docs ([#496](https://github.com/attune-io/attune/issues/496)) ([9d95268](https://github.com/attune-io/attune/commit/9d95268bc1b3f806088accf657f927f02636d8bd))
+
+
+### Performance Improvements
+
+* close remaining scale gaps for large fleets ([#490](https://github.com/attune-io/attune/issues/490)) ([1d0c3cb](https://github.com/attune-io/attune/commit/1d0c3cb80ae1064e45d98a52abf0c86bd2a34241))
+* close residual scale gaps and wire informer filters ([#491](https://github.com/attune-io/attune/issues/491)) ([d42b1a0](https://github.com/attune-io/attune/commit/d42b1a0eda5cb7b3a6a015adf47253e5c262f251))
+* scale hot paths for high pod and policy counts ([#488](https://github.com/attune-io/attune/issues/488)) ([6726fed](https://github.com/attune-io/attune/commit/6726fed44d3799920621e10be585b3b03144218e))
+
 ## [0.1.21](https://github.com/attune-io/attune/compare/v0.1.20...v0.1.21) (2026-08-04)
 
 
