@@ -30,6 +30,8 @@ import (
 	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/attune-io/attune/internal/throttle"
 )
 
 // cannedRangeResponse returns a valid Prometheus API range query response
@@ -836,6 +838,194 @@ func TestGetThrottleRatios_EmptyKeys(t *testing.T) {
 	out, err := c.GetThrottleRatios(context.Background(), "ns", nil, time.Now())
 	require.NoError(t, err)
 	assert.Empty(t, out)
+	out, err = c.GetThrottleRatios(context.Background(), "ns", []throttle.Key{}, time.Now())
+	require.NoError(t, err)
+	assert.Empty(t, out)
+}
+
+func TestGetThrottleRatios_SingleKeyDelegates(t *testing.T) {
+	var receivedQuery string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("parse form: %v", err)
+		}
+		receivedQuery = r.Form.Get("query")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		// Single-key path uses GetThrottleRatio / instant Query shape.
+		_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1700000000,"0.25"]}]}}`))
+	}))
+	defer server.Close()
+
+	collector, err := NewPrometheusCollector(server.URL, logr.Discard(), http.DefaultTransport)
+	require.NoError(t, err)
+
+	k := throttle.Key{Pod: "pod-a", Container: "app"}
+	out, err := collector.GetThrottleRatios(context.Background(), "default", []throttle.Key{k}, time.Now())
+	require.NoError(t, err)
+	require.Len(t, out, 1)
+	assert.InDelta(t, 0.25, out[k], 1e-9)
+	// Single-key path uses exact matchers, not regex batch.
+	assert.Contains(t, receivedQuery, `pod="pod-a"`)
+	assert.Contains(t, receivedQuery, `container="app"`)
+	assert.NotContains(t, receivedQuery, `pod=~`)
+}
+
+func TestGetThrottleRatios_MultiKeyBatch(t *testing.T) {
+	var receivedQuery string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("parse form: %v", err)
+		}
+		receivedQuery = r.Form.Get("query")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		// Two wanted series + one extra (should be ignored) + NaN for partial.
+		body := `{
+			"status":"success",
+			"data":{
+				"resultType":"vector",
+				"result":[
+					{"metric":{"pod":"pod-a","container":"app"},"value":[1700000000,"0.1"]},
+					{"metric":{"pod":"pod-b","container":"app"},"value":[1700000000,"0.5"]},
+					{"metric":{"pod":"pod-a","container":"sidecar"},"value":[1700000000,"NaN"]},
+					{"metric":{"pod":"other","container":"app"},"value":[1700000000,"0.9"]}
+				]
+			}
+		}`
+		_, _ = w.Write([]byte(body))
+	}))
+	defer server.Close()
+
+	collector, err := NewPrometheusCollector(server.URL, logr.Discard(), http.DefaultTransport)
+	require.NoError(t, err)
+
+	keys := []throttle.Key{
+		{Pod: "pod-a", Container: "app"},
+		{Pod: "pod-b", Container: "app"},
+		{Pod: "pod-a", Container: "sidecar"},
+		// Duplicate pod/container intentionally omitted from second series only once in regex.
+		{Pod: "pod-c", Container: "worker"}, // no series returned → absent from map
+	}
+	out, err := collector.GetThrottleRatios(context.Background(), "prod", keys, time.Now())
+	require.NoError(t, err)
+
+	assert.InDelta(t, 0.1, out[throttle.Key{Pod: "pod-a", Container: "app"}], 1e-9)
+	assert.InDelta(t, 0.5, out[throttle.Key{Pod: "pod-b", Container: "app"}], 1e-9)
+	assert.Zero(t, out[throttle.Key{Pod: "pod-a", Container: "sidecar"}], "NaN must map to 0")
+	_, hasC := out[throttle.Key{Pod: "pod-c", Container: "worker"}]
+	assert.False(t, hasC, "missing series stays absent (caller treats as 0)")
+	_, hasOther := out[throttle.Key{Pod: "other", Container: "app"}]
+	assert.False(t, hasOther, "unwanted series must be filtered")
+
+	// Batch path uses regex matchers with sorted unique pod/container sets.
+	assert.Contains(t, receivedQuery, `namespace="prod"`)
+	assert.Contains(t, receivedQuery, `pod=~"`)
+	assert.Contains(t, receivedQuery, `container=~"`)
+	assert.Contains(t, receivedQuery, "pod-a")
+	assert.Contains(t, receivedQuery, "pod-b")
+	assert.Contains(t, receivedQuery, "pod-c")
+	assert.Contains(t, receivedQuery, "app")
+	assert.Contains(t, receivedQuery, "sidecar")
+	assert.Contains(t, receivedQuery, "worker")
+}
+
+func TestGetThrottleRatios_EscapesRegexInput(t *testing.T) {
+	var receivedQuery string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("parse form: %v", err)
+		}
+		receivedQuery = r.Form.Get("query")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(cannedEmptyResponse()))
+	}))
+	defer server.Close()
+
+	collector, err := NewPrometheusCollector(server.URL, logr.Discard(), http.DefaultTransport)
+	require.NoError(t, err)
+
+	// Special characters must be escaped for =~ and for namespace exact match.
+	keys := []throttle.Key{
+		{Pod: `pod.with+meta`, Container: `app|x`},
+		{Pod: `pod"quote`, Container: `c`},
+	}
+	_, err = collector.GetThrottleRatios(context.Background(), `ns"x`, keys, time.Now())
+	require.NoError(t, err)
+
+	assert.Contains(t, receivedQuery, `namespace="ns\"x"`)
+	// Regex metacharacters go through EscapePromQLRegex (regex + PromQL double-escape).
+	assert.Contains(t, receivedQuery, EscapePromQLRegex(`pod.with+meta`))
+	assert.Contains(t, receivedQuery, EscapePromQLRegex(`app|x`))
+	assert.Contains(t, receivedQuery, EscapePromQLRegex(`pod"quote`))
+	// Batch uses =~ not exact pod=" for multi-key.
+	assert.Contains(t, receivedQuery, `pod=~"`)
+	assert.Contains(t, receivedQuery, `container=~"`)
+}
+
+func TestGetThrottleRatios_InfMapsToZero(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{
+			"status":"success",
+			"data":{"resultType":"vector","result":[
+				{"metric":{"pod":"p","container":"c"},"value":[1700000000,"+Inf"]}
+			]}
+		}`))
+	}))
+	defer server.Close()
+
+	collector, err := NewPrometheusCollector(server.URL, logr.Discard(), http.DefaultTransport)
+	require.NoError(t, err)
+
+	k := throttle.Key{Pod: "p", Container: "c"}
+	// Two keys force batch path (not single-key delegate).
+	out, err := collector.GetThrottleRatios(context.Background(), "ns", []throttle.Key{k, {Pod: "p2", Container: "c2"}}, time.Now())
+	require.NoError(t, err)
+	assert.Zero(t, out[k])
+}
+
+func TestGetThrottleRatios_QueryError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(cannedErrorResponse()))
+	}))
+	defer server.Close()
+
+	collector, err := NewPrometheusCollector(server.URL, logr.Discard(), http.DefaultTransport)
+	require.NoError(t, err)
+
+	keys := []throttle.Key{
+		{Pod: "a", Container: "c"},
+		{Pod: "b", Container: "c"},
+	}
+	_, err = collector.GetThrottleRatios(context.Background(), "ns", keys, time.Now())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "batch throttle query failed")
+}
+
+func TestGetThrottleRatios_NonVectorResult(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		// Scalar is accepted by the client library but not a vector.
+		_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"scalar","result":[1700000000,"1"]}}`))
+	}))
+	defer server.Close()
+
+	collector, err := NewPrometheusCollector(server.URL, logr.Discard(), http.DefaultTransport)
+	require.NoError(t, err)
+
+	keys := []throttle.Key{
+		{Pod: "a", Container: "c"},
+		{Pod: "b", Container: "c"},
+	}
+	out, err := collector.GetThrottleRatios(context.Background(), "ns", keys, time.Now())
+	require.NoError(t, err)
+	assert.Empty(t, out, "non-vector success returns empty map without error")
 }
 
 func TestEffectiveMaxSeries(t *testing.T) {
