@@ -418,6 +418,36 @@ func forcePolicyReconcile(t *testing.T, name, namespace string, timeout time.Dur
 	}))
 }
 
+// touchPolicySpec bumps a watched spec field so the operator requeues, without
+// waiting for LastReconcileTime. Safe to call from poll loops.
+func touchPolicySpec(t *testing.T, name, namespace string) {
+	t.Helper()
+	key := types.NamespacedName{Name: name, Namespace: namespace}
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		var policy attunev1alpha1.AttunePolicy
+		if err := k8sClient.Get(ctx, key, &policy); err != nil {
+			return err
+		}
+		if policy.Spec.UpdateStrategy == nil {
+			policy.Spec.UpdateStrategy = &attunev1alpha1.UpdateStrategy{}
+		}
+		cd := time.Minute
+		if policy.Spec.UpdateStrategy.Cooldown != nil {
+			cd = policy.Spec.UpdateStrategy.Cooldown.Duration
+		}
+		if cd.Truncate(time.Second)%2 == 0 {
+			cd += time.Second
+		} else {
+			cd -= time.Second
+		}
+		policy.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: cd}
+		return k8sClient.Update(ctx, &policy)
+	})
+	if err != nil {
+		t.Logf("touchPolicySpec(%s/%s): %v", namespace, name, err)
+	}
+}
+
 // ---------- Tests ----------
 
 func TestE2E_PolicyDiscovery(t *testing.T) {
@@ -753,8 +783,13 @@ func TestE2E_RealisticLoad_Overprovisioned(t *testing.T) {
 			return false, nil
 		}
 		recCPU := container.Recommended.CPURequest.MilliValue()
-		t.Logf("Current CPU recommendation: %dm (waiting for <= 80m)", recCPU)
-		return recCPU <= 80, nil
+		bound := container.Explanation.CPU.BoundsApplied
+		// Busybox burn eventually drives the estimate above MaxAllowed (80m),
+		// so BoundsApplied becomes "max". Accepting any recCPU <= 80 is wrong:
+		// early low samples clamp to MinAllowed (50m, BoundsApplied "min") and
+		// race under parallel E2E load (nightly v1.34 flake).
+		t.Logf("Current CPU recommendation: %dm bounds=%q (waiting for max bound)", recCPU, bound)
+		return bound == "max" && recCPU <= 80, nil
 	}))
 
 	var latestPolicy attunev1alpha1.AttunePolicy
@@ -1963,25 +1998,46 @@ func TestE2E_ScaleUp_NewReplicasGetResized(t *testing.T) {
 	// Force a reconcile so the operator sees the new pod.
 	forcePolicyReconcile(t, "scaleup-policy", ns, 2*time.Minute)
 
-	// Wait for the second pod to be resized (give it a couple of cycles).
-	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
+	// Wait for the second pod to be resized. Re-bump the policy periodically:
+	// under parallel E2E load the new replica can miss a single reconcile
+	// window (cooldown / InsufficientData), which flaked nightly on v1.33.
+	lastForce := time.Now()
+	lastDiag := time.Time{}
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 4*time.Minute, true, func(ctx context.Context) (bool, error) {
+		if time.Since(lastForce) > 45*time.Second {
+			touchPolicySpec(t, "scaleup-policy", ns)
+			lastForce = time.Now()
+		}
 		var podList corev1.PodList
 		if err := k8sClient.List(ctx, &podList, client.InNamespace(ns), client.MatchingLabels{"app": "scaleup-app"}); err != nil {
 			return false, nil
 		}
 		resizedCount := 0
+		running := 0
 		origCPU := resource.MustParse("250m")
 		for _, pod := range podList.Items {
 			if pod.Status.Phase != corev1.PodRunning {
 				continue
 			}
+			running++
 			for _, c := range pod.Spec.Containers {
 				if c.Name == "app" && c.Resources.Requests.Cpu().Cmp(origCPU) != 0 {
 					resizedCount++
 				}
 			}
 		}
-		return resizedCount >= 2, nil
+		if time.Since(lastDiag) > 30*time.Second {
+			lastDiag = time.Now()
+			for _, pod := range podList.Items {
+				for _, c := range pod.Spec.Containers {
+					if c.Name == "app" {
+						t.Logf("scaleup pod %s phase=%s cpu=%s", pod.Name, pod.Status.Phase, c.Resources.Requests.Cpu().String())
+					}
+				}
+			}
+			t.Logf("scaleup progress: running=%d resized=%d", running, resizedCount)
+		}
+		return running >= 2 && resizedCount >= 2, nil
 	}), "both replicas should eventually be resized")
 }
 
