@@ -57,6 +57,7 @@ func TestApplyBuiltInDefaults_FillsAllFields(t *testing.T) {
 	assert.NotNil(t, policy.Spec.MetricsSource.HistoryWindow)
 	assert.NotNil(t, policy.Spec.MetricsSource.QueryStep)
 	assert.Equal(t, attunev1alpha1.DefaultQueryStep, policy.Spec.MetricsSource.QueryStep.Duration)
+	assert.Equal(t, attunev1alpha1.DefaultPodAggregation, policy.Spec.MetricsSource.PodAggregation)
 	assert.NotNil(t, policy.Spec.CPU.ControlledValues)
 	assert.Equal(t, attunev1alpha1.DefaultControlledValues, *policy.Spec.CPU.ControlledValues)
 	assert.NotNil(t, policy.Spec.Memory.ControlledValues)
@@ -78,6 +79,9 @@ func TestApplyBuiltInDefaults_DoesNotOverrideExistingValues(t *testing.T) {
 			CPU: attunev1alpha1.ResourceConfig{
 				MaxChangePercent: &maxCPU,
 			},
+			MetricsSource: attunev1alpha1.MetricsSource{
+				PodAggregation: "None",
+			},
 			ExcludeKnownSidecars: &falseVal,
 		},
 	}
@@ -85,6 +89,7 @@ func TestApplyBuiltInDefaults_DoesNotOverrideExistingValues(t *testing.T) {
 
 	assert.Equal(t, mode, policy.Spec.UpdateStrategy.Type)
 	assert.Equal(t, int32(25), *policy.Spec.CPU.MaxChangePercent)
+	assert.Equal(t, "None", policy.Spec.MetricsSource.PodAggregation)
 	require.NotNil(t, policy.Spec.ExcludeKnownSidecars)
 	assert.False(t, *policy.Spec.ExcludeKnownSidecars)
 }

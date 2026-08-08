@@ -1094,6 +1094,11 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *attu
 	printEffectiveField("Max concurrent resizes", formatInt64Field(item, "spec", "updateStrategy", "maxConcurrentResizes"), formatInt32Val(effective.Spec.UpdateStrategy.MaxConcurrentResizes), selected, updateDefaults != nil && updateDefaults.MaxConcurrentResizes != 0)
 	printEffectiveField("History window", getNestedString(item, "spec", "metricsSource", "historyWindow"), formatDurationPtr(effective.Spec.MetricsSource.HistoryWindow), selected, metricsDefaults != nil && metricsDefaults.HistoryWindow != nil)
 	printEffectiveField("Rate window", getNestedString(item, "spec", "metricsSource", "rateWindow"), formatDurationPtr(effective.Spec.MetricsSource.RateWindow), selected, metricsDefaults != nil && metricsDefaults.RateWindow != nil)
+	podAggEffective := effective.Spec.MetricsSource.PodAggregation
+	if podAggEffective == "" {
+		podAggEffective = attunev1alpha1.DefaultPodAggregation
+	}
+	printEffectiveField("Pod aggregation", getNestedString(item, "spec", "metricsSource", "podAggregation"), podAggEffective, selected, metricsDefaults != nil && metricsDefaults.PodAggregation != "")
 	printEffectiveField("Max total CPU increase", getNestedString(item, "spec", "updateStrategy", "maxTotalCPUIncrease"), formatQuantityPtr(effective.Spec.UpdateStrategy.MaxTotalCPUIncrease), selected, updateDefaults != nil && updateDefaults.MaxTotalCPUIncrease != nil)
 	printEffectiveField("Max total memory increase", getNestedString(item, "spec", "updateStrategy", "maxTotalMemoryIncrease"), formatQuantityPtr(effective.Spec.UpdateStrategy.MaxTotalMemoryIncrease), selected, updateDefaults != nil && updateDefaults.MaxTotalMemoryIncrease != nil)
 

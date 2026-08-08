@@ -78,6 +78,9 @@ func ApplyBuiltInDefaults(policy *attunev1alpha1.AttunePolicy) {
 	if policy.Spec.MetricsSource.QueryStep == nil {
 		policy.Spec.MetricsSource.QueryStep = &metav1.Duration{Duration: attunev1alpha1.DefaultQueryStep}
 	}
+	if policy.Spec.MetricsSource.PodAggregation == "" {
+		policy.Spec.MetricsSource.PodAggregation = attunev1alpha1.DefaultPodAggregation
+	}
 	if policy.Spec.CPU.ControlledValues == nil {
 		cv := attunev1alpha1.DefaultControlledValues
 		policy.Spec.CPU.ControlledValues = &cv
