@@ -474,8 +474,8 @@ func waitForLiveCPUDecrease(t *testing.T, policyName, namespace, app string, ori
 				}
 				cpu := c.Resources.Requests.Cpu()
 				if cpu != nil && cpu.Cmp(origCPU) < 0 {
-					t.Logf("Pod %s CPU decreased: cpu=%s mem=%s",
-						pod.Name, cpu.String(), c.Resources.Requests.Memory().String())
+					t.Logf("Pod %s CPU decreased: cpu=%dm (from %dm) mem=%s",
+						pod.Name, cpu.MilliValue(), origCPU.MilliValue(), c.Resources.Requests.Memory().String())
 					return true, nil
 				}
 			}
@@ -494,7 +494,13 @@ func waitForLiveCPUDecrease(t *testing.T, policyName, namespace, app string, ori
 			for _, pod := range pods.Items {
 				for _, c := range pod.Spec.Containers {
 					if c.Name == "app" {
-						t.Logf("  pod %s phase=%s cpu=%s", pod.Name, pod.Status.Phase, c.Resources.Requests.Cpu().String())
+						cpu := c.Resources.Requests.Cpu()
+						milli := int64(-1)
+						if cpu != nil {
+							milli = cpu.MilliValue()
+						}
+						t.Logf("  pod %s phase=%s cpu=%s (%dm) cmpOrig=%d",
+							pod.Name, pod.Status.Phase, cpu.String(), milli, cpu.Cmp(origCPU))
 					}
 				}
 			}
@@ -1160,7 +1166,8 @@ func TestE2E_GuaranteedQoS_CPUResizeWithMemoryHeld(t *testing.T) {
 				Overhead:         "20",
 				ControlledValues: &controlled,
 				MinAllowed:       quantityPtr("50m"),
-				MaxAllowed:       quantityPtr("4000m"),
+				// Keep max below start so only decreases apply under load spikes.
+				MaxAllowed:       quantityPtr("250m"),
 				MaxChangePercent: int32Ptr(100),
 			},
 			Memory: attunev1alpha1.ResourceConfig{
@@ -2147,10 +2154,13 @@ func TestE2E_MemoryAllowDecreaseFalse(t *testing.T) {
 				RateWindow: &metav1.Duration{Duration: time.Minute},
 			},
 			CPU: attunev1alpha1.ResourceConfig{
-				Percentile:       95,
-				Overhead:         "20",
-				MinAllowed:       quantityPtr("50m"),
-				MaxAllowed:       quantityPtr("4000m"),
+				Percentile: 95,
+				Overhead:   "20",
+				MinAllowed: quantityPtr("50m"),
+				// Cap below the 500m start request so a concurrent-load metric
+				// spike cannot resize *up* to 1 CPU (1000m). CI saw resized=1
+				// with live cpu=1 while this wait still demanded a decrease.
+				MaxAllowed:       quantityPtr("250m"),
 				MaxChangePercent: int32Ptr(100),
 			},
 			Memory: attunev1alpha1.ResourceConfig{
