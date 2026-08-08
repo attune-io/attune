@@ -784,13 +784,17 @@ func TestE2E_BudgetCaps_DefersResize(t *testing.T) {
 	t.Parallel()
 	ns := uniqueNS("budget")
 	createNamespace(t, ns)
-	// Smoke: overprovisioned pause, rec decreases. Budget field is present
-	// but only gates increases. Multi-pod increase gating is covered by
-	// TestE2E_BudgetCaps_LimitsPerCycleIncrease and controller unit tests.
+	// Smoke: overprovisioned pause, memory rec decreases. Budget field is
+	// present but only gates increases. Pin CPU min=max so a spurious CPU
+	// increase rec (pause under concurrent load can spike to 1) cannot
+	// exhaust MaxTotalCPUIncrease and defer the whole container (budget
+	// is checked per container, not per resource). Multi-pod increase
+	// gating is covered by TestE2E_BudgetCaps_LimitsPerCycleIncrease.
 	createDeployment(t, "budget-app", ns, "500m", "256Mi", 1)
 	waitForDeploymentReady(t, "budget-app", ns, 60*time.Second)
 
 	tightBudget := resource.MustParse("150m")
+	cpuPin := resource.MustParse("500m")
 	deployName := "budget-app"
 	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "budget-policy", Namespace: ns},
@@ -806,8 +810,8 @@ func TestE2E_BudgetCaps_DefersResize(t *testing.T) {
 			CPU: attunev1alpha1.ResourceConfig{
 				Percentile:       95,
 				Overhead:         "20",
-				MinAllowed:       quantityPtr("50m"),
-				MaxAllowed:       quantityPtr("4000m"),
+				MinAllowed:       &cpuPin,
+				MaxAllowed:       &cpuPin,
 				MaxChangePercent: int32Ptr(100),
 			},
 			Memory: attunev1alpha1.ResourceConfig{
