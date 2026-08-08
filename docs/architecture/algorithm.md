@@ -16,6 +16,16 @@ flowchart LR
 The chain is constructed in `recommendation.NewEngine()` and invoked via
 `Recommend(profile, current)`.
 
+## Metrics input (before the chain)
+
+Prometheus queries feed the profile builder. By default,
+`metricsSource.podAggregation` is **Max** (`max by (container)`), so each
+container name contributes one series (the hottest pod) before percentiles
+run. Set `podAggregation: None` or `Avg` only when you need the legacy
+multi-pod sample pool. Caps such as `maxPodsInMetricsQuery` and
+`maxProfileSamples` further bound query and memory cost; see the
+[scaling guide](../guides/scaling.md).
+
 ## 1. Percentile Estimator
 
 Selects the configured percentile from the usage profile. Usage data is

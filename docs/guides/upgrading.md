@@ -8,6 +8,33 @@ Maintainers: before publishing a release after multi-version product changes,
 run the full E2E Nightly matrix on tip of `main` (see
 [Releasing: full E2E matrix](../contributing/releasing.md#1b-full-e2e-matrix-required-before-tagging-a-product-release)).
 
+## Unreleased (scale defaults on main)
+
+These changes are already on `main` and will ship in the next feature release
+after v0.1.21. Review before upgrading operators built from tip or from that
+tag.
+
+### Default PromQL pod aggregation is Max
+
+When `metricsSource.podAggregation` is unset, Attune now defaults to **Max**
+(`max by (container)` over the selected series) instead of leaving series
+unaggregated. Recommendations then follow the hottest pod for each container
+name, and Prometheus query cost stays proportional to containers rather than
+replicas.
+
+**If you relied on multi-pod sample pools (legacy unaggregated behavior),** set
+explicitly:
+
+```yaml
+spec:
+  metricsSource:
+    podAggregation: None   # or Avg
+```
+
+See [Scaling: PromQL aggregation](scaling.md#promql-aggregation) and the
+CHANGELOG behavioral notes for operator flags related to large fleets
+(`maxPodsInMetricsQuery`, `maxProfileSamples`, informer field strip).
+
 ## v0.1.20 to v0.1.21
 
 v0.1.21 is a feature release. Existing policies keep working without YAML
