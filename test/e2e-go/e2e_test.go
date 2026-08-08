@@ -1175,8 +1175,10 @@ func TestE2E_GuaranteedQoS_CPUResizeWithMemoryHeld(t *testing.T) {
 				Overhead:         "30",
 				AllowDecrease:    boolPtr(false),
 				ControlledValues: &controlled,
+				// Pin min=max so a memory *increase* cannot break Guaranteed
+				// 256Mi while we only assert CPU decrease (nightly saw 512Mi).
 				MinAllowed:       quantityPtr("256Mi"),
-				MaxAllowed:       quantityPtr("8Gi"),
+				MaxAllowed:       quantityPtr("256Mi"),
 				MaxChangePercent: int32Ptr(100),
 			},
 			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
