@@ -448,6 +448,67 @@ func touchPolicySpec(t *testing.T, name, namespace string) {
 	}
 }
 
+// waitForLiveCPUDecrease waits until a Running pod's app container CPU request
+// is strictly below origCPU. Re-touches the policy and logs status under
+// parallel Prometheus load (nightly MemoryAllowDecrease / GuaranteedQoS flakes).
+func waitForLiveCPUDecrease(t *testing.T, policyName, namespace, app string, origCPU resource.Quantity, timeout time.Duration, msg string) {
+	t.Helper()
+	lastTouch := time.Now()
+	lastDiag := time.Time{}
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, timeout, true, func(ctx context.Context) (bool, error) {
+		if time.Since(lastTouch) > 45*time.Second {
+			touchPolicySpec(t, policyName, namespace)
+			lastTouch = time.Now()
+		}
+		var pods corev1.PodList
+		if err := k8sClient.List(ctx, &pods, client.InNamespace(namespace), client.MatchingLabels{"app": app}); err != nil {
+			return false, nil
+		}
+		for _, pod := range pods.Items {
+			if pod.Status.Phase != corev1.PodRunning {
+				continue
+			}
+			for _, c := range pod.Spec.Containers {
+				if c.Name != "app" {
+					continue
+				}
+				cpu := c.Resources.Requests.Cpu()
+				if cpu != nil && cpu.Cmp(origCPU) < 0 {
+					t.Logf("Pod %s CPU decreased: cpu=%dm (from %dm) mem=%s",
+						pod.Name, cpu.MilliValue(), origCPU.MilliValue(), c.Resources.Requests.Memory().String())
+					return true, nil
+				}
+			}
+		}
+		if time.Since(lastDiag) > 30*time.Second {
+			lastDiag = time.Now()
+			var p attunev1alpha1.AttunePolicy
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: policyName, Namespace: namespace}, &p); err == nil {
+				t.Logf("%s: discovered=%d recs=%d resized=%d pending=%d",
+					policyName, p.Status.Workloads.Discovered, p.Status.Workloads.WithRecommendations,
+					p.Status.Workloads.Resized, p.Status.Workloads.Pending)
+				for _, c := range p.Status.Conditions {
+					t.Logf("  condition %s: status=%s reason=%s", c.Type, c.Status, c.Reason)
+				}
+			}
+			for _, pod := range pods.Items {
+				for _, c := range pod.Spec.Containers {
+					if c.Name == "app" {
+						cpu := c.Resources.Requests.Cpu()
+						milli := int64(-1)
+						if cpu != nil {
+							milli = cpu.MilliValue()
+						}
+						t.Logf("  pod %s phase=%s cpu=%s (%dm) cmpOrig=%d",
+							pod.Name, pod.Status.Phase, cpu.String(), milli, cpu.Cmp(origCPU))
+					}
+				}
+			}
+		}
+		return false, nil
+	}), msg)
+}
+
 // ---------- Tests ----------
 
 func TestE2E_PolicyDiscovery(t *testing.T) {
@@ -1095,15 +1156,18 @@ func TestE2E_GuaranteedQoS_CPUResizeWithMemoryHeld(t *testing.T) {
 				Prometheus:        &attunev1alpha1.PrometheusConfig{Address: promAddr},
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
-				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
-				RateWindow:        &metav1.Duration{Duration: 5 * time.Minute},
+				QueryStep:         &metav1.Duration{Duration: 15 * time.Second},
+				// 1m rate window fills faster under parallel E2E Prometheus load
+				// than 5m (nightly v1.32 GuaranteedQoS timeout).
+				RateWindow: &metav1.Duration{Duration: time.Minute},
 			},
 			CPU: attunev1alpha1.ResourceConfig{
 				Percentile:       95,
 				Overhead:         "20",
 				ControlledValues: &controlled,
 				MinAllowed:       quantityPtr("50m"),
-				MaxAllowed:       quantityPtr("4000m"),
+				// Keep max below start so only decreases apply under load spikes.
+				MaxAllowed:       quantityPtr("250m"),
 				MaxChangePercent: int32Ptr(100),
 			},
 			Memory: attunev1alpha1.ResourceConfig{
@@ -1125,25 +1189,8 @@ func TestE2E_GuaranteedQoS_CPUResizeWithMemoryHeld(t *testing.T) {
 	require.NoError(t, k8sClient.Create(ctx, policy))
 
 	origCPU := resource.MustParse("500m")
-	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 4*time.Minute, true, func(ctx context.Context) (bool, error) {
-		var pods corev1.PodList
-		if err := k8sClient.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{"app": app}); err != nil {
-			return false, nil
-		}
-		for _, pod := range pods.Items {
-			for _, c := range pod.Spec.Containers {
-				if c.Name == "app" {
-					cpu := c.Resources.Requests.Cpu()
-					if cpu != nil && cpu.Cmp(origCPU) < 0 {
-						t.Logf("Guaranteed pod CPU resized: cpu=%s mem=%s",
-							cpu.String(), c.Resources.Requests.Memory().String())
-						return true, nil
-					}
-				}
-			}
-		}
-		return false, nil
-	}), "timed out waiting for Guaranteed pod CPU decrease with memory held")
+	waitForLiveCPUDecrease(t, "gqcpu-policy", ns, app, origCPU, 6*time.Minute,
+		"timed out waiting for Guaranteed pod CPU decrease with memory held")
 
 	var pods corev1.PodList
 	require.NoError(t, k8sClient.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{"app": app}))
@@ -2101,14 +2148,19 @@ func TestE2E_MemoryAllowDecreaseFalse(t *testing.T) {
 				Prometheus:        &attunev1alpha1.PrometheusConfig{Address: promAddr},
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
-				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
-				RateWindow:        &metav1.Duration{Duration: 5 * time.Minute},
+				QueryStep:         &metav1.Duration{Duration: 15 * time.Second},
+				// Short rate window so rate() has samples sooner under parallel
+				// E2E load (nightly MemoryAllowDecrease 4m timeouts on 1.32/1.35).
+				RateWindow: &metav1.Duration{Duration: time.Minute},
 			},
 			CPU: attunev1alpha1.ResourceConfig{
-				Percentile:       95,
-				Overhead:         "20",
-				MinAllowed:       quantityPtr("50m"),
-				MaxAllowed:       quantityPtr("4000m"),
+				Percentile: 95,
+				Overhead:   "20",
+				MinAllowed: quantityPtr("50m"),
+				// Cap below the 500m start request so a concurrent-load metric
+				// spike cannot resize *up* to 1 CPU (1000m). CI saw resized=1
+				// with live cpu=1 while this wait still demanded a decrease.
+				MaxAllowed:       quantityPtr("250m"),
 				MaxChangePercent: int32Ptr(100),
 			},
 			Memory: attunev1alpha1.ResourceConfig{
@@ -2133,26 +2185,8 @@ func TestE2E_MemoryAllowDecreaseFalse(t *testing.T) {
 	// UpdateResize applied yet (#492).
 	origCPU := resource.MustParse("500m")
 	origMem := resource.MustParse("256Mi")
-	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 4*time.Minute, true, func(ctx context.Context) (bool, error) {
-		var pods corev1.PodList
-		if err := k8sClient.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{"app": "nodecrease-app"}); err != nil {
-			return false, nil
-		}
-		for _, pod := range pods.Items {
-			for _, c := range pod.Spec.Containers {
-				if c.Name != "app" {
-					continue
-				}
-				cpu := c.Resources.Requests.Cpu()
-				if cpu != nil && cpu.Cmp(origCPU) < 0 {
-					t.Logf("Pod %s CPU decreased: cpu=%s mem=%s",
-						pod.Name, cpu.String(), c.Resources.Requests.Memory().String())
-					return true, nil
-				}
-			}
-		}
-		return false, nil
-	}), "timed out waiting for live CPU decrease with memory allowDecrease default false")
+	waitForLiveCPUDecrease(t, "nodecrease-policy", ns, "nodecrease-app", origCPU, 6*time.Minute,
+		"timed out waiting for live CPU decrease with memory allowDecrease default false")
 
 	var podList corev1.PodList
 	require.NoError(t, k8sClient.List(ctx, &podList, client.InNamespace(ns), client.MatchingLabels{"app": "nodecrease-app"}))
