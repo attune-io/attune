@@ -1025,7 +1025,9 @@ func TestGetThrottleRatios_NonVectorResult(t *testing.T) {
 	}
 	out, err := collector.GetThrottleRatios(context.Background(), "ns", keys, time.Now())
 	require.NoError(t, err)
-	assert.Empty(t, out, "non-vector success returns empty map without error")
+	require.Len(t, out, 2, "non-vector success still zero-fills requested keys")
+	assert.Zero(t, out[throttle.Key{Pod: "a", Container: "c"}])
+	assert.Zero(t, out[throttle.Key{Pod: "b", Container: "c"}])
 }
 
 func TestEffectiveMaxSeries(t *testing.T) {
