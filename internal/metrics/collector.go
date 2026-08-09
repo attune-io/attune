@@ -449,9 +449,45 @@ func (c *PrometheusCollector) GetThrottleRatio(ctx context.Context, namespace, p
 	return val, nil
 }
 
+// maxThrottleBatchKeys limits pod/container pairs per PromQL batch so the
+// pod=~|...| regex stays bounded for large safety observation sets.
+const maxThrottleBatchKeys = 64
+
 // GetThrottleRatios batch-queries throttle ratios for many pod/container pairs
 // in one PromQL vector (pod=~ and container=~). Implements throttle.BatchChecker.
+// Large key sets are split into chunks of maxThrottleBatchKeys.
 func (c *PrometheusCollector) GetThrottleRatios(ctx context.Context, namespace string, keys []throttle.Key, ts time.Time) (map[throttle.Key]float64, error) {
+	out := make(map[throttle.Key]float64, len(keys))
+	if len(keys) == 0 {
+		return out, nil
+	}
+	if len(keys) == 1 {
+		v, err := c.GetThrottleRatio(ctx, namespace, keys[0].Pod, keys[0].Container, ts)
+		if err != nil {
+			return nil, err
+		}
+		out[keys[0]] = v
+		return out, nil
+	}
+	for i := 0; i < len(keys); i += maxThrottleBatchKeys {
+		end := i + maxThrottleBatchKeys
+		if end > len(keys) {
+			end = len(keys)
+		}
+		chunk := keys[i:end]
+		part, err := c.getThrottleRatiosChunk(ctx, namespace, chunk, ts)
+		if err != nil {
+			return nil, err
+		}
+		for k, v := range part {
+			out[k] = v
+		}
+	}
+	return out, nil
+}
+
+// getThrottleRatiosChunk runs one PromQL vector query for a bounded key set.
+func (c *PrometheusCollector) getThrottleRatiosChunk(ctx context.Context, namespace string, keys []throttle.Key, ts time.Time) (map[throttle.Key]float64, error) {
 	out := make(map[throttle.Key]float64, len(keys))
 	if len(keys) == 0 {
 		return out, nil

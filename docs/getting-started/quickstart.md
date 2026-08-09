@@ -206,3 +206,5 @@ auto-reverts the affected pods.
   ServiceMonitor, Grafana dashboard, and PrometheusRule alerts.
 - Explore the [Canary Rollout guide](../guides/canary-rollout.md) for
   production best practices.
+- For high-replica fleets, read [Scaling](../guides/scaling.md) (default
+  PromQL `podAggregation: Max` and large-fleet operator flags).

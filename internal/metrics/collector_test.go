@@ -19,6 +19,7 @@ package metrics
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -1005,6 +1006,35 @@ func TestGetThrottleRatios_QueryError(t *testing.T) {
 	_, err = collector.GetThrottleRatios(context.Background(), "ns", keys, time.Now())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "batch throttle query failed")
+}
+
+func TestGetThrottleRatios_ChunksLargeKeySets(t *testing.T) {
+	var queryCount int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		queryCount++
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		// Empty vector: all keys zero-filled.
+		_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
+	}))
+	defer server.Close()
+
+	collector, err := NewPrometheusCollector(server.URL, logr.Discard(), http.DefaultTransport)
+	require.NoError(t, err)
+
+	// Two full batches + remainder → three PromQL queries.
+	n := maxThrottleBatchKeys*2 + 3
+	keys := make([]throttle.Key, n)
+	for i := range keys {
+		keys[i] = throttle.Key{Pod: fmt.Sprintf("pod-%d", i), Container: "app"}
+	}
+	out, err := collector.GetThrottleRatios(context.Background(), "ns", keys, time.Now())
+	require.NoError(t, err)
+	require.Len(t, out, n)
+	assert.Equal(t, 3, queryCount, "large key sets must be chunked")
+	for _, k := range keys {
+		assert.Zero(t, out[k])
+	}
 }
 
 func TestGetThrottleRatios_NonVectorResult(t *testing.T) {

@@ -163,7 +163,21 @@ runs:
 
     - name: Wait for node Ready
       shell: bash -Eeuo pipefail -x {0}
-      run: kubectl wait --for=condition=Ready nodes --all --timeout=360s
+      run: |
+        # k3d --wait can return before the apiserver serves /readyz; PR CI
+        # has failed with ServiceUnavailable on the first kubectl wait.
+        for attempt in $(seq 1 60); do
+          if kubectl get --raw='/readyz' >/dev/null 2>&1; then
+            echo "API server ready after ${attempt} attempt(s)"
+            break
+          fi
+          if (( attempt == 60 )); then
+            echo "::error::API server never became ready (readyz)"
+            exit 1
+          fi
+          sleep 2
+        done
+        kubectl wait --for=condition=Ready nodes --all --timeout=360s
 
     - name: Load cert-manager images into cluster
       shell: bash -Eeuo pipefail -x {0}

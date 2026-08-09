@@ -84,16 +84,36 @@ func (c *RateLimitedCollector) GetThrottleRatio(ctx context.Context, namespace, 
 }
 
 // GetThrottleRatios delegates to the inner collector if it implements
-// throttle.BatchChecker. One rate-limit token covers the whole batch
-// query (not one token per key). Without this method, the production
-// RateLimitedCollector wrapper does not satisfy BatchChecker and the
-// safety path falls back to N per-pod GetThrottleRatio calls.
+// throttle.BatchChecker. One rate-limit token covers each PromQL chunk
+// (maxThrottleBatchKeys keys), not one token per key. Without this method,
+// the production RateLimitedCollector wrapper does not satisfy BatchChecker
+// and the safety path falls back to N per-pod GetThrottleRatio calls.
 func (c *RateLimitedCollector) GetThrottleRatios(ctx context.Context, namespace string, keys []throttle.Key, ts time.Time) (map[throttle.Key]float64, error) {
 	if bc, ok := c.inner.(throttle.BatchChecker); ok {
-		if err := c.limiter.Wait(ctx); err != nil {
-			return nil, err
+		if len(keys) <= maxThrottleBatchKeys {
+			if err := c.limiter.Wait(ctx); err != nil {
+				return nil, err
+			}
+			return bc.GetThrottleRatios(ctx, namespace, keys, ts)
 		}
-		return bc.GetThrottleRatios(ctx, namespace, keys, ts)
+		out := make(map[throttle.Key]float64, len(keys))
+		for i := 0; i < len(keys); i += maxThrottleBatchKeys {
+			end := i + maxThrottleBatchKeys
+			if end > len(keys) {
+				end = len(keys)
+			}
+			if err := c.limiter.Wait(ctx); err != nil {
+				return nil, err
+			}
+			part, err := bc.GetThrottleRatios(ctx, namespace, keys[i:end], ts)
+			if err != nil {
+				return nil, err
+			}
+			for k, v := range part {
+				out[k] = v
+			}
+		}
+		return out, nil
 	}
 	// Inner is Checker-only: fall back to per-key (still rate-limited).
 	out := make(map[throttle.Key]float64, len(keys))
