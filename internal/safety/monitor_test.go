@@ -35,6 +35,7 @@ import (
 	k8stesting "k8s.io/client-go/testing"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/throttle"
 )
 
 func TestCheckPod(t *testing.T) {
@@ -840,6 +841,78 @@ func (m *mockThrottleChecker) GetThrottleRatio(_ context.Context, ns, pod, ctr s
 	m.gotPod = pod
 	m.gotCtr = ctr
 	return m.ratio, m.err
+}
+
+func TestCheckPod_ThrottleRatioCacheHit(t *testing.T) {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "web-0", Namespace: "default"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "app", RestartCount: 0},
+			},
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+	clientset := fake.NewSimpleClientset(pod)
+	monitor := NewMonitor(clientset, testr.New(t))
+	// Checker would return low ratio; cache must win for the hit key.
+	checker := &mockThrottleChecker{ratio: 0.01}
+	monitor.WithThrottleChecker(checker, 0.5)
+	monitor.WithThrottleRatioCache(map[throttle.Key]float64{
+		{Pod: "web-0", Container: "app"}: 0.9,
+	})
+
+	record := ResizeRecord{
+		PodName:      "web-0",
+		Namespace:    "default",
+		Container:    "app",
+		ResizedAt:    time.Now().Add(-6 * time.Minute),
+		RestartCount: 0,
+	}
+	verdict, err := monitor.CheckPod(context.Background(), record, time.Now())
+	require.NoError(t, err)
+	assert.False(t, verdict.Safe)
+	assert.Equal(t, "throttle", verdict.Reason)
+	assert.Empty(t, checker.gotPod, "cache hit must not call GetThrottleRatio")
+}
+
+func TestCheckPod_ThrottleRatioCacheMissFallsBack(t *testing.T) {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "web-0", Namespace: "default"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "app", RestartCount: 0},
+			},
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+	clientset := fake.NewSimpleClientset(pod)
+	monitor := NewMonitor(clientset, testr.New(t))
+	checker := &mockThrottleChecker{ratio: 0.8}
+	monitor.WithThrottleChecker(checker, 0.5)
+	// Cache for a different pod only.
+	monitor.WithThrottleRatioCache(map[throttle.Key]float64{
+		{Pod: "other", Container: "app"}: 0.01,
+	})
+
+	record := ResizeRecord{
+		PodName:      "web-0",
+		Namespace:    "default",
+		Container:    "app",
+		ResizedAt:    time.Now().Add(-6 * time.Minute),
+		RestartCount: 0,
+	}
+	verdict, err := monitor.CheckPod(context.Background(), record, time.Now())
+	require.NoError(t, err)
+	assert.False(t, verdict.Safe)
+	assert.Equal(t, "throttle", verdict.Reason)
+	assert.Equal(t, "web-0", checker.gotPod, "cache miss must fall back to GetThrottleRatio")
 }
 
 func TestCheckPod_ThrottleDetected(t *testing.T) {

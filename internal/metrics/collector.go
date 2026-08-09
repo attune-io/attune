@@ -518,6 +518,14 @@ func (c *PrometheusCollector) GetThrottleRatios(ctx context.Context, namespace s
 		}
 		out[k] = v
 	}
+	// Match GetThrottleRatio empty/no-data semantics: every requested key is
+	// present so callers can install a complete throttleRatioCache without
+	// falling back to N per-pod queries for silent pods (no CFS series).
+	for _, k := range keys {
+		if _, ok := out[k]; !ok {
+			out[k] = 0
+		}
+	}
 	return out, nil
 }
 

@@ -495,12 +495,12 @@ func waitForLiveCPUDecrease(t *testing.T, policyName, namespace, app string, ori
 				for _, c := range pod.Spec.Containers {
 					if c.Name == "app" {
 						cpu := c.Resources.Requests.Cpu()
-						milli := int64(-1)
-						if cpu != nil {
-							milli = cpu.MilliValue()
+						if cpu == nil {
+							t.Logf("  pod %s phase=%s cpu=<nil>", pod.Name, pod.Status.Phase)
+							continue
 						}
 						t.Logf("  pod %s phase=%s cpu=%s (%dm) cmpOrig=%d",
-							pod.Name, pod.Status.Phase, cpu.String(), milli, cpu.Cmp(origCPU))
+							pod.Name, pod.Status.Phase, cpu.String(), cpu.MilliValue(), cpu.Cmp(origCPU))
 					}
 				}
 			}

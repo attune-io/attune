@@ -913,10 +913,10 @@ func TestGetThrottleRatios_MultiKeyBatch(t *testing.T) {
 	assert.InDelta(t, 0.1, out[throttle.Key{Pod: "pod-a", Container: "app"}], 1e-9)
 	assert.InDelta(t, 0.5, out[throttle.Key{Pod: "pod-b", Container: "app"}], 1e-9)
 	assert.Zero(t, out[throttle.Key{Pod: "pod-a", Container: "sidecar"}], "NaN must map to 0")
-	_, hasC := out[throttle.Key{Pod: "pod-c", Container: "worker"}]
-	assert.False(t, hasC, "missing series stays absent (caller treats as 0)")
+	assert.Zero(t, out[throttle.Key{Pod: "pod-c", Container: "worker"}], "missing series maps to 0 like GetThrottleRatio")
 	_, hasOther := out[throttle.Key{Pod: "other", Container: "app"}]
 	assert.False(t, hasOther, "unwanted series must be filtered")
+	assert.Len(t, out, 4, "every requested key is present")
 
 	// Batch path uses regex matchers with sorted unique pod/container sets.
 	assert.Contains(t, receivedQuery, `namespace="prod"`)
