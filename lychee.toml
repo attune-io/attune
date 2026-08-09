@@ -14,6 +14,8 @@ exclude = [
   "cast\\.ai",
   "helm\\.sh",
   "cert-manager\\.io",
+  # AWS docs often return 403 to CI/link checkers (bot/WAF).
+  "docs\\.aws\\.amazon\\.com",
 ]
 exclude_loopback = true
 max_concurrency = 8
