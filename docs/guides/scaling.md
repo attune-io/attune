@@ -393,9 +393,12 @@ deliberate semantic change from pre-#488 unaggregated series. Set
 
 ### Safety throttle batching
 
-When many pods are under deferred safety observation, Attune issues one
+When many pods are under deferred safety observation, Attune issues a
 batch throttle PromQL vector (`pod=~` / `container=~`) instead of one
 instant query per pod/container when the Prometheus collector is in use.
+Large observation sets are split into chunks of 64 pod/container pairs so
+the regex stays bounded; the Prometheus rate limiter spends one token per
+chunk.
 
 ## API Server Pressure
 

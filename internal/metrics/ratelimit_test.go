@@ -18,6 +18,7 @@ package metrics
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -214,6 +215,25 @@ func TestRateLimitedCollector_GetThrottleRatios_Delegates(t *testing.T) {
 	assert.Equal(t, 0, inner.throttleCalls)
 	assert.InDelta(t, 0.2, out[k1], 1e-9)
 	assert.InDelta(t, 0.4, out[k2], 1e-9)
+}
+
+func TestRateLimitedCollector_GetThrottleRatios_ChunksLargeSets(t *testing.T) {
+	// RateLimitedCollector must issue one Wait+batch call per chunk so
+	// large fleets do not bypass the limiter with a single token.
+	n := maxThrottleBatchKeys*2 + 5
+	keys := make([]throttle.Key, n)
+	batchOut := make(map[throttle.Key]float64, n)
+	for i := range keys {
+		keys[i] = throttle.Key{Pod: fmt.Sprintf("pod-%d", i), Container: "app"}
+		batchOut[keys[i]] = 0.1
+	}
+	inner := &mockThrottleCollector{batchOut: batchOut}
+	rl := NewRateLimitedCollector(inner, 1000, 1000) // high QPS so Wait never blocks
+
+	out, err := rl.GetThrottleRatios(context.Background(), "ns", keys, time.Now())
+	require.NoError(t, err)
+	require.Len(t, out, n)
+	assert.Equal(t, 3, inner.batchCalls, "expect one batch call per chunk")
 }
 
 func TestRateLimitedCollector_GetThrottleRatios_FallbackPerKey(t *testing.T) {

@@ -469,6 +469,10 @@ func (c *PrometheusCollector) GetThrottleRatios(ctx context.Context, namespace s
 		out[keys[0]] = v
 		return out, nil
 	}
+	if len(keys) > maxThrottleBatchKeys {
+		c.logger.V(1).Info("Chunking batch throttle query",
+			"keys", len(keys), "chunkSize", maxThrottleBatchKeys)
+	}
 	for i := 0; i < len(keys); i += maxThrottleBatchKeys {
 		end := i + maxThrottleBatchKeys
 		if end > len(keys) {
