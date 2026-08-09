@@ -497,26 +497,34 @@ func (c *PrometheusCollector) GetThrottleRatios(ctx context.Context, namespace s
 			"warnings", strings.Join(warnings, "; "))
 	}
 	vec, ok := result.(model.Vector)
-	if !ok {
-		return out, nil
+	if ok {
+		wanted := make(map[throttle.Key]bool, len(keys))
+		for _, k := range keys {
+			wanted[k] = true
+		}
+		for _, sample := range vec {
+			pod := string(sample.Metric[model.LabelName("pod")])
+			ctr := string(sample.Metric[model.LabelName("container")])
+			k := throttle.Key{Pod: pod, Container: ctr}
+			if !wanted[k] {
+				continue
+			}
+			v := float64(sample.Value)
+			if math.IsNaN(v) || math.IsInf(v, 0) {
+				out[k] = 0
+				continue
+			}
+			out[k] = v
+		}
 	}
-	wanted := make(map[throttle.Key]bool, len(keys))
+	// Match GetThrottleRatio empty/no-data semantics: every requested key is
+	// present so callers can install a complete throttleRatioCache without
+	// falling back to N per-pod queries for silent pods (no CFS series).
+	// Also applies when the result is not a vector (treat as no data).
 	for _, k := range keys {
-		wanted[k] = true
-	}
-	for _, sample := range vec {
-		pod := string(sample.Metric[model.LabelName("pod")])
-		ctr := string(sample.Metric[model.LabelName("container")])
-		k := throttle.Key{Pod: pod, Container: ctr}
-		if !wanted[k] {
-			continue
-		}
-		v := float64(sample.Value)
-		if math.IsNaN(v) || math.IsInf(v, 0) {
+		if _, ok := out[k]; !ok {
 			out[k] = 0
-			continue
 		}
-		out[k] = v
 	}
 	return out, nil
 }

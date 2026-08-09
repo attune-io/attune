@@ -30,8 +30,8 @@ spec:
     podAggregation: None   # or Avg
 ```
 
-See [Scaling: PromQL aggregation](scaling.md#promql-aggregation) and the
-CHANGELOG behavioral notes for operator flags related to large fleets
+See [Scaling: PromQL aggregation](scaling.md#promql-aggregation) and
+[Scaling: large fleets](scaling.md) for operator flags related to large fleets
 (`maxPodsInMetricsQuery`, `maxProfileSamples`, informer field strip).
 
 ## v0.1.20 to v0.1.21
