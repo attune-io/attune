@@ -16,6 +16,8 @@ exclude = [
   "cert-manager\\.io",
   # AWS docs often return 403 to CI/link checkers (bot/WAF).
   "docs\\.aws\\.amazon\\.com",
+  # kind docs intermittently reset connections from GHA runners.
+  "kind\\.sigs\\.k8s\\.io",
 ]
 exclude_loopback = true
 max_concurrency = 8

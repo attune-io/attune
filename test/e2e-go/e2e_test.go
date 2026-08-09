@@ -1623,15 +1623,19 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 				Prometheus:        &attunev1alpha1.PrometheusConfig{Address: promAddr},
 				MinimumDataPoints: int32Ptr(1),
 				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
-				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
-				RateWindow:        &metav1.Duration{Duration: 5 * time.Minute},
+				QueryStep:         &metav1.Duration{Duration: 15 * time.Second},
+				// Short window so sleep-only stress-ng yields a low CPU rec
+				// under parallel load (nightly #509: rec stayed 500m==current).
+				RateWindow: &metav1.Duration{Duration: time.Minute},
 			},
 			CPU: attunev1alpha1.ResourceConfig{
 				Percentile:       95,
 				Overhead:         "20",
 				ControlledValues: &controlledValues,
 				MinAllowed:       quantityPtr("50m"),
-				MaxAllowed:       quantityPtr("1000m"),
+				// Cap below the 500m Guaranteed start so the first resize is
+				// always a decrease even if metrics are noisy or equal-current.
+				MaxAllowed:       quantityPtr("250m"),
 				MaxChangePercent: int32Ptr(100),
 			},
 			Memory: attunev1alpha1.ResourceConfig{
@@ -1642,7 +1646,7 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 				AllowDecrease:    boolPtr(false),
 				ControlledValues: &controlledValues,
 				MinAllowed:       quantityPtr("64Mi"),
-				MaxAllowed:       quantityPtr("512Mi"),
+				MaxAllowed:       quantityPtr("64Mi"),
 				MaxChangePercent: int32Ptr(100),
 			},
 			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
@@ -1660,29 +1664,9 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 	}
 	require.NoError(t, k8sClient.Create(ctx, policy))
 
-	// First resize must be a CPU decrease (memory held at 64Mi).
-	waitForResize(t, "oom-policy", ns, 3*time.Minute)
-
-	// Require a CPU change in the live pod (not a clamped memory no-op).
-	require.NoError(t, wait.PollUntilContextTimeout(ctx, 2*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
-		var pods corev1.PodList
-		if err := k8sClient.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{"app": "oom-app"}); err != nil {
-			return false, nil
-		}
-		for _, pod := range pods.Items {
-			for _, cs := range pod.Spec.Containers {
-				if cs.Name == "app" {
-					cpuReq := cs.Resources.Requests.Cpu()
-					if cpuReq != nil && cpuReq.Cmp(resource.MustParse("500m")) != 0 {
-						t.Logf("Pod %s CPU resized: cpu=%s mem=%s",
-							pod.Name, cpuReq.String(), cs.Resources.Requests.Memory().String())
-						return true, nil
-					}
-				}
-			}
-		}
-		return false, nil
-	}), "timed out waiting for CPU resize to be applied in pod spec")
+	// First resize must be a CPU decrease (memory pinned at 64Mi).
+	waitForLiveCPUDecrease(t, "oom-policy", ns, "oom-app", resource.MustParse("500m"), 4*time.Minute,
+		"policy oom-policy: timed out waiting for CPU decrease before OOM phase")
 
 	waitForDeploymentReady(t, "oom-app", ns, 120*time.Second)
 
