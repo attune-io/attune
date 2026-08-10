@@ -143,7 +143,7 @@ helm install attune ./charts/attune \
   --wait --timeout 2m >/dev/null
 
 wait_for "operator ready" 60 \
-  "kubectl wait --for=condition=Available deployment/attune-controller-manager -n attune-system --timeout=5s"
+  "kubectl wait --for=condition=Available deployment/attune -n attune-system --timeout=5s"
 run kubectl get pods -n attune-system
 echo
 

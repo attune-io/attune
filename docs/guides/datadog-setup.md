@@ -115,7 +115,7 @@ If the condition message mentions a Datadog API error, check the
 operator logs:
 
 ```bash
-kubectl logs -n attune-system deployment/attune-controller-manager \
+kubectl logs -n attune-system deployment/attune \
   --tail=50 | grep -i datadog
 ```
 

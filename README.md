@@ -63,13 +63,18 @@ In-place apply is the shared primitive (Kubernetes `/resize`). Attune is the
 - Kubernetes 1.32+ (1.32 requires enabling the `InPlacePodVerticalScaling` feature gate; 1.33–1.34 beta enabled by default; **1.35+ GA**)
 - Prometheus (for usage metrics)
 - Helm 3.16+ or 4.x
-- [cert-manager](https://cert-manager.io/docs/installation/) (for admission webhook TLS; to skip, install with `--set webhooks.enabled=false`)
+- [cert-manager](https://cert-manager.io/docs/installation/) (required for admission webhook TLS by default; to skip, install with `--set webhooks.enabled=false`)
 
 **Optional GitOps export mode**: Recommendations can be written to ConfigMaps instead of (or in addition to) direct resizing. Ideal for ArgoCD/Flux workflows. See the [Auto mode guide](docs/guides/auto-mode.md#exporting-recommendations-to-configmaps).
 
 ### Install
 
 ```bash
+# Requires cert-manager when webhooks stay enabled (the default).
+# First-run footguns:
+#   --set webhooks.enabled=false          # skip cert-manager
+#   --set networkPolicy.prometheusPort=80 # if Prometheus Service is on :80
+#                                         # (chart default allows only :9090)
 helm install attune oci://ghcr.io/attune-io/charts/attune \
   --namespace attune-system --create-namespace
 ```
@@ -101,6 +106,8 @@ spec:
   metricsSource:
     prometheus:
       address: http://prometheus-server.monitoring:80
+    # Optional: faster first look (~1h instead of ~4h at default queryStep: 5m)
+    # minimumDataPoints: 12
   cpu:
     percentile: 95
     overhead: "20"
@@ -204,20 +211,27 @@ sudo cp bin/kubectl-attune /usr/local/bin/
 kubectl attune status -n production
 kubectl attune savings -n production
 kubectl attune recommendations -n production
-kubectl attune export -n production          # GitOps ConfigMap exports + last-updated
+kubectl attune preview -n production api-services   # current vs recommended before promote
+kubectl attune export -n production                 # GitOps ConfigMap exports + last-updated
 kubectl attune history -n production
 kubectl attune explain -n production api-services
+kubectl attune wizard                               # interactive policy scaffolding
+kubectl attune version
 
 # All namespaces
 kubectl attune status -A
 ```
 
-Example output:
+Example output (`kubectl attune status`):
 
 ```
-NAMESPACE   NAME          TYPE    WORKLOADS  RESIZED  READY       AGE
-production  api-services  Canary  3          1        Monitoring  2d
+NAMESPACE    NAME           TYPE    WORKLOADS  PENDING  RESIZED  READY        RESIZING  DEGRADED  SCHEDULE  CANARY  EXPORT  AGE
+production   api-services   Canary  3          0        1        Monitoring   Idle      -         -         -       -       2d
+```
 
+Example output (`kubectl attune recommendations`):
+
+```
 NAMESPACE   POLICY        WORKLOAD    CONTAINER  CPU REQ  CPU REC  MEM REQ  MEM REC  CONFIDENCE
 production  api-services  api-server  app        500m     320m     512Mi    384Mi    92.0%
 ```
@@ -339,18 +353,25 @@ The dashboard includes:
 
 ## Documentation
 
+Full docs site: [attune-io.github.io/attune](https://attune-io.github.io/attune/)
+
 | Guide | Description |
 |-------|-------------|
 | [Why Attune?](docs/why-attune.md) | The problem, why VPA fails, and how in-place resize changes everything |
 | [Savings Calculator](docs/savings-calculator.md) | Estimate your monthly savings with an interactive calculator |
+| [Installation](docs/getting-started/installation.md) | Helm, OLM, and raw manifests |
 | [Quickstart](docs/getting-started/quickstart.md) | Get running in 5 minutes |
 | [First 30 Days](docs/getting-started/first-30-days.md) | Day-by-day guide from install to production Auto mode |
+| [Prometheus Setup](docs/guides/prometheus-setup.md) | Metrics source, ServiceMonitor, dashboards, alerts |
 | [Migrating from VPA](docs/guides/migrating-from-vpa.md) | Step-by-step VPA replacement |
 | [HPA Coexistence](docs/guides/hpa-coexistence.md) | Running alongside HPA |
+| [SLO Guardrails](docs/guides/slo-guardrails.md) | PromQL app-health checks after resize |
+| [Runtime Profiles](docs/guides/runtime-profiles.md) | Language-aware memory defaults |
 | [Multi-Cluster](docs/guides/multi-cluster.md) | Deployment patterns, cross-cluster operations, and graduated rollouts |
 | [Scaling Guide](docs/guides/scaling.md) | Cluster size presets, tuning, and HA deployment |
 | [Canary Rollout](docs/guides/canary-rollout.md) | Graduated rollout strategy |
 | [Startup Boost](docs/guides/startup-boost.md) | Temporary CPU headroom for cold starts |
+| [Upgrading](docs/guides/upgrading.md) | Version upgrades and CRD refresh |
 | [CLI Reference](docs/reference/cli.md) | kubectl plugin commands |
 | [API Reference](docs/reference/api.md) | CRD specification |
 | [Troubleshooting](docs/guides/troubleshooting.md) | Common issues and solutions |
