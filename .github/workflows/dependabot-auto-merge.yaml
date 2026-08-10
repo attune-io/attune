@@ -35,12 +35,30 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           skip-commit-verification: true
 
-      - name: Approve and enable auto-merge
+      # Approve with GITHUB_TOKEN (satisfies required-review rulesets).
+      # Enable auto-merge with the release App token so the eventual squash
+      # merge to main is NOT attributed to GITHUB_TOKEN. Merges created with
+      # GITHUB_TOKEN do not re-trigger push workflows on main (GitHub
+      # infinite-loop prevention), which left go.mod and Actions bumps without
+      # CI/Security/Docs on the merge commit (observed after #515/#516).
+      # Same App-token pattern as auto-approve.yaml for non-Dependabot PRs.
+      - name: Approve PR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr review --approve "$PR_URL"
+
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app-token
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Enable auto-merge
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
         run: |
-          gh pr review --approve "$PR_URL"
           gh pr merge --auto --squash "$PR_URL"
           echo "Auto-merge enabled for ${{ steps.metadata.outputs.update-type }} update"
 
