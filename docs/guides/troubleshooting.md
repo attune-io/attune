@@ -700,7 +700,7 @@ If the policy appears stuck in `Terminating`, check the operator logs for
 pod update errors during cleanup:
 
 ```bash
-kubectl logs -n attune-system deploy/attune-controller-manager | grep "deletion cleanup"
+kubectl logs -n attune-system deploy/attune | grep "deletion cleanup"
 ```
 
 ## Large cluster performance
@@ -754,7 +754,7 @@ time this happens. Common causes:
 To diagnose, enable debug logging and check the Prometheus query results:
 
 ```bash
-kubectl logs -n attune-system deploy/attune-controller-manager \
+kubectl logs -n attune-system deploy/attune \
   | grep -E "stale|Prometheus query returned no data"
 ```
 

@@ -20,14 +20,24 @@
 
 ## Install with Helm (recommended)
 
-Create a namespace and install the chart from the OCI registry:
+Create a namespace and install the chart from the OCI registry.
+
+**cert-manager** is required by default (admission webhooks). Install it first,
+or disable webhooks for a quick local trial:
 
 ```bash
+# Option A: production path (webhooks on)
+# Install cert-manager if needed: https://cert-manager.io/docs/installation/
 kubectl create namespace attune-system
 
 helm install attune \
   oci://ghcr.io/attune-io/charts/attune \
   --namespace attune-system
+
+# Option B: skip webhooks (no cert-manager)
+# helm install attune oci://ghcr.io/attune-io/charts/attune \
+#   --namespace attune-system --create-namespace \
+#   --set webhooks.enabled=false
 ```
 
 !!! tip "Large or multi-tenant clusters"
@@ -35,6 +45,24 @@ helm install attune \
     live in only a few namespaces, set `watchNamespaces`. See the
     [Scaling Guide](../guides/scaling.md) ops checklist before production
     rollout.
+
+!!! warning "NetworkPolicy and Prometheus port"
+    The chart enables a NetworkPolicy by default. Egress to Prometheus is
+    allowed only on `networkPolicy.prometheusPort` (default **9090**).
+    Many examples use a Service URL on port **80**
+    (`http://prometheus-server.monitoring:80`). If the Service port is 80
+    (or anything other than 9090), set the chart value to match or you will
+    see `PrometheusUnavailable` / no data:
+
+    ```bash
+    helm upgrade attune oci://ghcr.io/attune-io/charts/attune \
+      --namespace attune-system \
+      --set networkPolicy.prometheusPort=80
+    ```
+
+    For a first install on a restrictive cluster, you can temporarily set
+    `--set networkPolicy.enabled=false` while you confirm connectivity.
+    See the [Helm chart NetworkPolicy notes](https://github.com/attune-io/attune/blob/main/charts/attune/README.md#networkpolicy).
 
 !!! tip "Prometheus address"
     The Prometheus address is configured per-policy in
@@ -76,7 +104,7 @@ installed, you can install Attune directly from
 
 **On OpenShift 4.19+**, the operator is in the built-in OperatorHub
 **Community** catalog under package name **`attune`** (display name
-**Attune**; CSV names look like `attune.v0.1.16`). Search for "Attune"
+**Attune**; CSV names look like `attune.vX.Y.Z`). Search for "Attune"
 in the web console under **Operators > OperatorHub**, or verify with:
 
 ```bash

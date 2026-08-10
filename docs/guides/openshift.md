@@ -17,7 +17,7 @@ all CRDs, RBAC, and the operator deployment.
 |---|---|
 | **Display name** | Attune |
 | **Package name** | `attune` |
-| **CSV name** | `attune.vX.Y.Z` (for example `attune.v0.1.16`) |
+| **CSV name** | `attune.vX.Y.Z` (matches the release version) |
 | **Channel** | `stable` |
 | **Catalog** | Community Operators (`community-operator-index`) |
 | **OpenShift versions** | **4.19+** (Attune requires Kubernetes 1.32+) |

@@ -6,8 +6,8 @@
 #
 # All fields except targetRef and metricsSource.prometheus.address are
 # optional. The operator applies sensible built-in defaults (P95 CPU,
-# P99 memory, 20% overhead, Recommend mode). Override only what
-# you need.
+# P99 memory, 20% CPU / 30% memory overhead, Recommend mode). Override
+# only what you need.
 #
 # Prerequisites:
 #   - Kubernetes 1.32+ with In-Place Pod Resize enabled (1.32 requires InPlacePodVerticalScaling feature gate)

@@ -71,7 +71,7 @@ not a FIPS-approved algorithm, so `fips140=only` refuses to use it, causing
 Check the operator logs after deployment:
 
 ```bash
-kubectl logs -n attune-system deploy/attune-controller-manager | head -20
+kubectl logs -n attune-system deploy/attune | head -20
 ```
 
 When FIPS mode is active, the Go runtime logs:

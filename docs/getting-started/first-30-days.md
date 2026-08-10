@@ -28,6 +28,8 @@ Verify the operator is running and picked up your policy:
 
 ```bash
 kubectl attune status -n my-app
+# Without the plugin:
+# kubectl get attunepolicy -n my-app
 ```
 
 You should see your policy with **Ready** showing `InsufficientData` or a
@@ -37,7 +39,9 @@ normal.
 !!! tip "Verify operator config"
     Check the operator logs to confirm it started with the right settings:
     ```bash
-    kubectl logs -n attune-system deploy/attune-controller-manager | head -5
+    # Helm release name "attune" → Deployment "attune".
+    # Raw manifests use "attune-controller-manager" instead.
+    kubectl logs -n attune-system deploy/attune | head -5
     ```
     The first line shows all configured parameters (Prometheus QPS,
     watch namespaces, webhooks, etc.).

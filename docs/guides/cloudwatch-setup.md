@@ -70,7 +70,7 @@ approaches:
     eksctl create iamserviceaccount \
       --cluster my-eks-cluster \
       --namespace attune-system \
-      --name attune-controller-manager \
+      --name attune \
       --attach-policy-arn arn:aws:iam::<ACCOUNT_ID>:policy/AttuneCWReadOnly \
       --approve
     ```
@@ -91,7 +91,7 @@ approaches:
     aws eks create-pod-identity-association \
       --cluster-name my-eks-cluster \
       --namespace attune-system \
-      --service-account attune-controller-manager \
+      --service-account attune \
       --role-arn arn:aws:iam::<ACCOUNT_ID>:role/AttuneCWRole
     ```
 
@@ -157,7 +157,7 @@ kubectl get attunepolicy my-app -n production -o wide
 Check the operator logs for CloudWatch-specific messages:
 
 ```bash
-kubectl logs -n attune-system deployment/attune-controller-manager \
+kubectl logs -n attune-system deployment/attune \
   --tail=50 | grep -i cloudwatch
 ```
 
