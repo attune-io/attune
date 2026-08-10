@@ -34,6 +34,26 @@ See [Scaling: PromQL aggregation](scaling.md#promql-aggregation) and
 [Scaling: large fleets](scaling.md) for operator flags related to large fleets
 (`maxPodsInMetricsQuery`, `maxProfileSamples`, informer field strip).
 
+### Default max concurrent reconciles is 2
+
+The operator default for `--max-concurrent-reconciles` is **2** (was higher in
+some earlier builds). Helm `clusterSize` presets still override this when set.
+Large clusters that previously relied on more concurrent reconcilers should set
+the flag or a preset explicitly.
+
+### Request increases fail closed when node status is unavailable
+
+If the operator cannot read node status for a pod, it **skips request
+increases** (decreases still allowed) and increments
+`attune_capacity_skip_total{reason="unavailable"}`. This is protective if node
+API access or informer lag fails.
+
+### Batch throttle chunking (no config change)
+
+Safety observation batches CPU throttle PromQL queries and splits large
+pod/container sets into chunks of 64. No CRD field changes; Prometheus load
+for high-replica policies should drop further under rate limiting.
+
 ## v0.1.20 to v0.1.21
 
 v0.1.21 is a feature release. Existing policies keep working without YAML

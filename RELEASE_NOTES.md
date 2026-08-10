@@ -27,6 +27,7 @@ See [Upgrading](https://attune-io.github.io/attune/guides/upgrading/) and [Scali
 - PromQL Max aggregation by default, with status and docs for series caps and recording rules ([#488](https://github.com/attune-io/attune/pull/488), [#496](https://github.com/attune-io/attune/pull/496), [#499](https://github.com/attune-io/attune/pull/499)).
 - Large-fleet gaps closed: NS-wide pod list, metrics pod sampling, history and step clamps, blocker throttle status preservation, workload and HPA informer strip, batch safety throttle, default `--max-concurrent-reconciles=2` ([#490](https://github.com/attune-io/attune/pull/490), [#491](https://github.com/attune-io/attune/pull/491)).
 - Production `RateLimitedCollector` implements batch throttle so multi-pod safety uses one PromQL query instead of N rate-limited singles ([#502](https://github.com/attune-io/attune/pull/502), [#501](https://github.com/attune-io/attune/pull/501)).
+- Large observation sets chunk batch throttle PromQL into groups of 64 pod/container pairs, with one rate-limit token per chunk (not one token for the whole set) ([#507](https://github.com/attune-io/attune/pull/507), [#508](https://github.com/attune-io/attune/pull/508), [#511](https://github.com/attune-io/attune/pull/511)).
 
 ### Capacity and MemoryPressure
 
@@ -39,6 +40,7 @@ See [Upgrading](https://attune-io.github.io/attune/guides/upgrading/) and [Scali
 - Scaling ops checklist and high-replica guidance ([#487](https://github.com/attune-io/attune/pull/487)).
 - Docs Deploy no longer cancels in-flight main runs ([#489](https://github.com/attune-io/attune/pull/489)).
 - Enriched nightly failure GitHub issues with failed jobs and first Go E2E FAIL lines ([#485](https://github.com/attune-io/attune/pull/485)).
+- New-user install docs: cert-manager and NetworkPolicy Prometheus port footguns, Helm Deployment name `attune`, plugin status columns ([#512](https://github.com/attune-io/attune/pull/512)).
 
 ### Upgrade notes
 

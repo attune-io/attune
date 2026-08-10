@@ -131,6 +131,9 @@ type mockThrottleCollector struct {
 	throttleRatio float64
 	batchCalls    int
 	batchOut      map[throttle.Key]float64
+	// batchFailOnCall, when >0, returns an error on that batchCalls count
+	// (1-based) so multi-chunk wrappers can prove they do not return partial maps.
+	batchFailOnCall int
 }
 
 func (m *mockThrottleCollector) GetThrottleRatio(_ context.Context, _, _, _ string, _ time.Time) (float64, error) {
@@ -140,8 +143,17 @@ func (m *mockThrottleCollector) GetThrottleRatio(_ context.Context, _, _, _ stri
 
 func (m *mockThrottleCollector) GetThrottleRatios(_ context.Context, _ string, keys []throttle.Key, _ time.Time) (map[throttle.Key]float64, error) {
 	m.batchCalls++
+	if m.batchFailOnCall > 0 && m.batchCalls == m.batchFailOnCall {
+		return nil, fmt.Errorf("simulated batch failure on call %d", m.batchCalls)
+	}
 	if m.batchOut != nil {
-		return m.batchOut, nil
+		part := make(map[throttle.Key]float64, len(keys))
+		for _, k := range keys {
+			if v, ok := m.batchOut[k]; ok {
+				part[k] = v
+			}
+		}
+		return part, nil
 	}
 	out := make(map[throttle.Key]float64, len(keys))
 	for _, k := range keys {
@@ -234,6 +246,24 @@ func TestRateLimitedCollector_GetThrottleRatios_ChunksLargeSets(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, out, n)
 	assert.Equal(t, 3, inner.batchCalls, "expect one batch call per chunk")
+}
+
+func TestRateLimitedCollector_GetThrottleRatios_SecondChunkError(t *testing.T) {
+	n := maxThrottleBatchKeys + 3
+	keys := make([]throttle.Key, n)
+	batchOut := make(map[throttle.Key]float64, n)
+	for i := range keys {
+		keys[i] = throttle.Key{Pod: fmt.Sprintf("pod-%d", i), Container: "app"}
+		batchOut[keys[i]] = 0.1
+	}
+	inner := &mockThrottleCollector{batchOut: batchOut, batchFailOnCall: 2}
+	rl := NewRateLimitedCollector(inner, 1000, 1000)
+
+	out, err := rl.GetThrottleRatios(context.Background(), "ns", keys, time.Now())
+	require.Error(t, err)
+	assert.Nil(t, out)
+	assert.Contains(t, err.Error(), "simulated batch failure")
+	assert.Equal(t, 2, inner.batchCalls)
 }
 
 func TestRateLimitedCollector_GetThrottleRatios_FallbackPerKey(t *testing.T) {
