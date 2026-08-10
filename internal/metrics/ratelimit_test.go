@@ -207,6 +207,23 @@ func TestRateLimitedCollector_GetThrottleRatio_CancelledContext(t *testing.T) {
 	assert.Equal(t, 0, inner.throttleCalls)
 }
 
+func TestRateLimitedCollector_GetThrottleRatios_CancelledContext(t *testing.T) {
+	inner := &mockThrottleCollector{throttleRatio: 0.5}
+	rl := NewRateLimitedCollector(inner, 10, 20)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	keys := []throttle.Key{
+		{Pod: "a", Container: "c"},
+		{Pod: "b", Container: "c"},
+	}
+	out, err := rl.GetThrottleRatios(ctx, "ns", keys, time.Now())
+	assert.Error(t, err)
+	assert.Nil(t, out)
+	assert.Equal(t, 0, inner.batchCalls)
+}
+
 func TestRateLimitedCollector_ImplementsBatchChecker(t *testing.T) {
 	// Production wraps Prometheus in RateLimitedCollector; safety casts to
 	// BatchChecker. Without GetThrottleRatios on the wrapper, batch is dead.

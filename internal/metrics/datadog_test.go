@@ -360,5 +360,22 @@ func TestLatestSampleValue(t *testing.T) {
 	}
 }
 
+func TestNewDatadogCollector_Defaults(t *testing.T) {
+	c := NewDatadogCollector("", "api", "app", logr.Discard())
+	require.NotNil(t, c)
+	assert.Equal(t, "https://api.datadoghq.com", c.baseURL)
+	assert.Equal(t, "api", c.apiKey)
+	assert.Equal(t, "app", c.appKey)
+	assert.Equal(t, "kubernetes.cpu.usage.total", c.cpuMetricName)
+	require.NotNil(t, c.httpClient)
+	assert.Equal(t, 30*time.Second, c.httpClient.Timeout)
+}
+
+func TestNewDatadogCollector_CustomSite(t *testing.T) {
+	c := NewDatadogCollector("datadoghq.eu", "k", "a", logr.Discard())
+	require.NotNil(t, c)
+	assert.Equal(t, "https://api.datadoghq.eu", c.baseURL)
+}
+
 // Verify DatadogCollector implements MetricsCollector.
 var _ MetricsCollector = &DatadogCollector{}
