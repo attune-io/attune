@@ -49,7 +49,7 @@ real-world deployments:
 
 All examples assume:
 
-- Kubernetes 1.32+ (1.32 requires the `InPlacePodVerticalScaling` feature gate; 1.33+ enabled by default)
+- Kubernetes 1.32+ (1.32 requires the `InPlacePodVerticalScaling` feature gate; 1.33–1.34 beta enabled by default; 1.35+ GA)
 - Prometheus reachable inside the cluster
 - Attune operator installed:
 

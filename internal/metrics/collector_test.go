@@ -1037,6 +1037,38 @@ func TestGetThrottleRatios_ChunksLargeKeySets(t *testing.T) {
 	}
 }
 
+// Second-chunk failure must not return a partial map (safety would treat
+// missing keys as "no throttle" if the caller installed a partial cache).
+func TestGetThrottleRatios_SecondChunkQueryError(t *testing.T) {
+	var queryCount int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		queryCount++
+		if queryCount == 1 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"status":"error","errorType":"server","error":"boom"}`))
+	}))
+	defer server.Close()
+
+	collector, err := NewPrometheusCollector(server.URL, logr.Discard(), http.DefaultTransport)
+	require.NoError(t, err)
+
+	n := maxThrottleBatchKeys + 2
+	keys := make([]throttle.Key, n)
+	for i := range keys {
+		keys[i] = throttle.Key{Pod: fmt.Sprintf("pod-%d", i), Container: "app"}
+	}
+	out, err := collector.GetThrottleRatios(context.Background(), "ns", keys, time.Now())
+	require.Error(t, err)
+	assert.Nil(t, out)
+	assert.Contains(t, err.Error(), "batch throttle query failed")
+	assert.Equal(t, 2, queryCount)
+}
+
 func TestGetThrottleRatios_NonVectorResult(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

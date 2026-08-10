@@ -155,14 +155,24 @@ Check that the operator pod is running:
 
 ```bash
 kubectl -n attune-system get pods
+kubectl -n attune-system get deploy
 ```
 
-Expected output:
+Expected output (Helm release name `attune`; Deployment name is **`attune`**):
 
 ```text
 NAME                              READY   STATUS    RESTARTS   AGE
 attune-6f8b4c7d9f-xk2pq  1/1     Running   0          30s
 ```
+
+!!! note "Deployment name by install path"
+    - **Helm** (recommended): Deployment and ServiceAccount are named after
+      the release (default `attune`). Logs:
+      `kubectl logs -n attune-system deploy/attune`
+    - **Raw manifests** (`install.yaml`): Deployment is
+      `attune-controller-manager`.
+    - **OLM / OperatorHub**: follows the CSV naming (often
+      `attune-controller-manager`).
 
 Verify that the three CRDs are registered:
 
