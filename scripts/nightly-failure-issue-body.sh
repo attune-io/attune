@@ -71,10 +71,24 @@ if [[ -n "$ARTIFACT_DIR" && -d "$ARTIFACT_DIR" ]]; then
   if ((${#fails[@]} > 0)); then
     fail_tests_md=$(printf -- '- `%s`\n' "${fails[@]}")
   fi
-  # Chainsaw summary if present
-  chainsaw_line=$(find "$ARTIFACT_DIR" -type f -name 'chainsaw*.log' 2>/dev/null | head -1 | while read -r f; do
-    grep -E 'Failed\s+tests|FAIL\s|Tests Summary' "$f" 2>/dev/null | tail -5
-  done || true)
+  # Chainsaw summary: prefer a log that actually failed tests. find | head -1
+  # is filesystem-order and can pick a passing matrix variant ("Failed tests 0")
+  # while another variant failed (nightly #520).
+  chainsaw_line=""
+  while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    snippet=$(grep -E 'Failed[[:space:]]+tests[[:space:]]+[1-9]|--- FAIL: chainsaw/' "$f" 2>/dev/null | tail -8 || true)
+    if [ -n "$snippet" ]; then
+      chainsaw_line="$snippet"
+      break
+    fi
+  done < <(find "$ARTIFACT_DIR" -type f -name 'chainsaw*.log' 2>/dev/null | sort)
+  if [ -z "$chainsaw_line" ]; then
+    first=$(find "$ARTIFACT_DIR" -type f -name 'chainsaw*.log' 2>/dev/null | sort | head -1)
+    if [ -n "$first" ]; then
+      chainsaw_line=$(grep -E 'Failed[[:space:]]+tests|Tests Summary|--- FAIL:' "$first" 2>/dev/null | tail -8 || true)
+    fi
+  fi
 fi
 
 {

@@ -8,7 +8,10 @@ trap 'rm -rf "$TMP"' EXIT
 
 mkdir -p "$TMP/art"
 printf '%s\n' '--- FAIL: TestE2E_NodeMemoryPressure_SkipsMemoryIncrease (1s)' >"$TMP/art/go-e2e.log"
-printf '%s\n' 'Tests Summary...' 'Failed  tests 1' >"$TMP/art/chainsaw.log"
+# Passing variant sorts first; the reporter must still surface the failing cell.
+printf '%s\n' 'Tests Summary...' '- Failed  tests 0' >"$TMP/art/chainsaw-v1.32.log"
+printf '%s\n' '--- FAIL: chainsaw/configmap-export (200.33s)' 'Tests Summary...' '- Failed  tests 1' \
+  >"$TMP/art/chainsaw-v1.34.log"
 
 body=$("$SCRIPT" \
   --run-url 'https://example.com/actions/runs/99' \
@@ -20,6 +23,8 @@ echo "$body" | grep -q 'E2E result: `failure`'
 echo "$body" | grep -q 'Fuzz result: `success`'
 echo "$body" | grep -q 'TestE2E_NodeMemoryPressure_SkipsMemoryIncrease'
 echo "$body" | grep -q 'https://example.com/actions/runs/99'
+echo "$body" | grep -q 'configmap-export'
+echo "$body" | grep -q 'Failed  tests 1'
 
 # Minimal path without artifacts still works
 body2=$("$SCRIPT" \
