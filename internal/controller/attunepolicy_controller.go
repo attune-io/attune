@@ -151,9 +151,10 @@ type AttunePolicyReconciler struct {
 	// MaxWorkloadWorkers caps parallel workload processing within one reconcile
 	// (default: 10). Bounded further by the Prometheus rate limiter.
 	MaxWorkloadWorkers int
-	// RequeueJitter is the maximum extra delay added to RequeueAfter to spread
-	// policies that share the same cooldown (default: 0 = no jitter).
-	// Deterministic per policy UID so tests stay stable when set to 0.
+	// RequeueJitter is the maximum extra delay added only to full cooldown
+	// RequeueAfter values (default: 0 = no jitter). Skipped while Ready is
+	// InsufficientData or PrometheusUnavailable. Deterministic per policy UID
+	// so tests stay stable when set to 0.
 	RequeueJitter time.Duration
 	// MaxProfileSamples caps samples before BuildProfile (default: 10000).
 	// Zero uses metrics.DefaultMaxProfileSamples; negative disables.
@@ -696,8 +697,9 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	return ctrl.Result{RequeueAfter: requeueAfter}, nil
 }
 
-// addRequeueJitter spreads RequeueAfter across policies that share a cooldown
-// so many AttunePolicies do not unlock on the same second.
+// addRequeueJitter spreads full cooldown RequeueAfter values so many
+// AttunePolicies do not unlock on the same second. Callers skip this during
+// InsufficientData / PrometheusUnavailable bootstrap.
 func (r *AttunePolicyReconciler) addRequeueJitter(base time.Duration, policy *attunev1alpha1.AttunePolicy) time.Duration {
 	if r.RequeueJitter <= 0 || base <= 0 {
 		return base
