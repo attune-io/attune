@@ -106,7 +106,7 @@ func main() {
 	flag.IntVar(&maxWorkloadWorkers, "max-workload-workers", 10,
 		"Maximum parallel workers processing workloads within a single AttunePolicy reconcile.")
 	flag.DurationVar(&requeueJitter, "requeue-jitter", 2*time.Minute,
-		"Maximum deterministic jitter added to RequeueAfter to spread policies that share the same cooldown. Set to 0 to disable.")
+		"Maximum extra delay added only to full cooldown RequeueAfter values. Skipped while Ready is InsufficientData or PrometheusUnavailable. Set to 0 to disable.")
 	flag.IntVar(&maxProfileSamples, "max-profile-samples", 10000,
 		"Maximum samples passed to recommendation BuildProfile after downsampling. Negative disables the cap.")
 	flag.IntVar(&maxPrometheusSeries, "max-prometheus-series", 5000,
