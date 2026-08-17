@@ -62,6 +62,46 @@ jobs:
           gh pr merge --auto --squash "$PR_URL"
           echo "Auto-merge enabled for ${{ steps.metadata.outputs.update-type }} update"
 
+      # Dependabot docker PRs bump Dockerfile golang:X.Y.Z but not go.mod.
+      # setup-go / govulncheck read go.mod, so a Dockerfile-only bump stays
+      # red on stdlib CVEs. Copy the image tag into go.mod with the App
+      # token so the extra commit retriggers CI (GITHUB_TOKEN would not).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.metadata.outputs.package-ecosystem == 'docker'
+        with:
+          persist-credentials: false
+
+      - name: Sync go.mod with Dockerfile golang tag
+        if: steps.metadata.outputs.package-ecosystem == 'docker'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+          REPO: ${{ github.repository }}
+        shell: bash -Eeuo pipefail {0}
+        run: |
+          # Copy the script from this trusted main checkout before switching
+          # to the Dependabot branch (do not execute PR-controlled files).
+          if [[ ! -f hack/verify-go-version-sync.sh ]]; then
+            echo "OK: sync script not on this main yet; skip"
+            exit 0
+          fi
+          cp hack/verify-go-version-sync.sh /tmp/verify-go-version-sync.sh
+          git fetch origin "$PR_BRANCH"
+          git checkout -B "sync-go-version" "origin/${PR_BRANCH}"
+          bash /tmp/verify-go-version-sync.sh --write
+          if git diff --quiet -- go.mod; then
+            echo "OK: go.mod already matches Dockerfile"
+            exit 0
+          fi
+          git config user.name "attune-release-bot[bot]"
+          git config user.email "3904235+attune-release-bot[bot]@users.noreply.github.com"
+          git add go.mod
+          git commit -s -m "chore(deps): sync go.mod with Dockerfile golang tag"
+          git push \
+            "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" \
+            "HEAD:refs/heads/${PR_BRANCH}"
+          echo "OK: pushed go.mod sync to ${PR_BRANCH}"
+
   # NOTE: A rebase-dependabot job was removed here. It updated open
   # Dependabot PR branches on every push to main, but caused more harm
   # than good: GITHUB_TOKEN pushes do not trigger other workflows (GitHub

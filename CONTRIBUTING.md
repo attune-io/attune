@@ -279,7 +279,7 @@ Dependabot is configured for four ecosystems:
 | `gomod` | `/` | weekly | K8s deps grouped separately |
 | `github-actions` | `/` | weekly | All actions grouped |
 | `pip` | `/docs` | monthly | MkDocs site dependencies |
-| `docker` | `/` | weekly | Base image updates |
+| `docker` | `/` | weekly | Base image updates (`golang:X.Y.Z` must match `go.mod`) |
 
 **If you add a new `go.mod`** (e.g., `tools/go.mod` for build tooling):
 
@@ -297,6 +297,12 @@ Dependabot is configured for four ecosystems:
 
 Currently there is no `go.work` file because the single-module layout does
 not require one.
+
+The Dockerfile `golang:X.Y.Z` tag and the `go.mod` `go X.Y.Z` directive
+must stay on the same patch. `make verify-go-version-sync` (and Lint CI)
+enforces this. Dependabot docker PRs only bump the image; the auto-merge
+workflow copies the new tag into `go.mod` so those PRs can pass
+govulncheck without a manual follow-up.
 
 ## Code of Conduct
 

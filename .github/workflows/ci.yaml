@@ -61,6 +61,7 @@ jobs:
               - 'go.sum'
               - 'Makefile'
               - 'Dockerfile'
+              - 'hack/verify-go-version-sync.sh'
               - '.github/workflows/ci.yaml'
             go-source:
               - '**/*.go'
@@ -133,6 +134,12 @@ jobs:
             git diff go.mod go.sum
             exit 1
           fi
+
+      - name: Verify go.mod matches Dockerfile golang tag
+        shell: bash -Eeuo pipefail {0}
+        run: |
+          bash scripts/test_verify_go_version_sync.sh
+          bash hack/verify-go-version-sync.sh
 
       - name: Check license boilerplate
         shell: bash -Eeuo pipefail {0}

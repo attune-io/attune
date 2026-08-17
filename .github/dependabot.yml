@@ -4,6 +4,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # Rebase when main moves so auto-merge is not stuck BEHIND.
+    rebase-strategy: auto
     labels:
       - dependencies
     open-pull-requests-limit: 5
@@ -14,18 +16,20 @@ updates:
         patterns:
           - "k8s.io/*"
           - "sigs.k8s.io/*"
+      # First-match group order: k8s stays exclusive; remaining minor/patch
+      # land in one PR instead of N lockfile PRs.
       go-minor:
+        patterns:
+          - "*"
         update-types:
           - "minor"
           - "patch"
-        exclude-patterns:
-          - "k8s.io/*"
-          - "sigs.k8s.io/*"
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    rebase-strategy: auto
     labels:
       - dependencies
     open-pull-requests-limit: 5
@@ -40,6 +44,7 @@ updates:
     directory: /docs
     schedule:
       interval: monthly
+    rebase-strategy: auto
     labels:
       - dependencies
     open-pull-requests-limit: 3
@@ -50,6 +55,7 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    rebase-strategy: auto
     labels:
       - dependencies
     open-pull-requests-limit: 3
