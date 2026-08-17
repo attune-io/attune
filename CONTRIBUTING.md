@@ -278,7 +278,7 @@ Dependabot is configured for four ecosystems:
 |-----------|-----------|----------|-------|
 | `gomod` | `/` | weekly | K8s deps grouped separately |
 | `github-actions` | `/` | weekly | All actions grouped |
-| `pip` | `/docs` | monthly | MkDocs site dependencies |
+| `pip` | `/docs` | monthly | One `docs-minor-patch` PR; majors stay solo |
 | `docker` | `/` | weekly | Base image updates (`golang:X.Y.Z` must match `go.mod`) |
 
 **If you add a new `go.mod`** (e.g., `tools/go.mod` for build tooling):
