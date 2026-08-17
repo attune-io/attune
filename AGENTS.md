@@ -389,6 +389,13 @@ See also:
 
 When in doubt, prefer letting Dependabot open a fresh PR on conflict rather than force-updating an old one.
 
+**Go patch releases:** `go.mod` (`go X.Y.Z`) and the Dockerfile
+(`golang:X.Y.Z@sha256:...`) must stay on the same patch. `setup-go` and
+govulncheck read `go.mod`; Dependabot docker PRs only bump the image.
+`hack/verify-go-version-sync.sh` enforces the match. The Dependabot
+auto-merge workflow copies the Dockerfile tag into `go.mod` on docker
+PRs so those updates can go green without a human follow-up.
+
 ### Issue closure in PR descriptions
 
 Before running `gh pr create`, check open issues and include `Closes #N`

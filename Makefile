@@ -76,6 +76,10 @@ verify-dashboard-metrics: ## Verify Helm dashboard stays synced with the standal
 verify-doc-tool-versions: ## Verify supported tool version references stay consistent in docs
 	@bash hack/verify-doc-tool-versions.sh
 
+.PHONY: verify-go-version-sync
+verify-go-version-sync: ## Verify go.mod go directive matches Dockerfile golang image tag
+	@bash hack/verify-go-version-sync.sh
+
 .PHONY: verify-prometheusrule-metrics
 verify-prometheusrule-metrics: ## Verify PrometheusRule alert expressions use real operator metrics
 	@bash hack/verify-prometheusrule-metrics.sh
@@ -122,7 +126,7 @@ ci-runner-status: ## Show queued/in-progress CI runs
 	fi
 
 .PHONY: verify-quick
-verify-quick: lint yaml-lint lint-chainsaw test python-test helm-lint helm-docs-check helm-unittest verify-boilerplate tidy-check verify-doc-defaults verify-helm-rbac verify-dashboard-metrics verify-doc-tool-versions verify-prometheusrule-metrics verify-helm-schema-fields verify-release-artifacts ## Fast pre-commit checks (no integration tests or govulncheck)
+verify-quick: lint yaml-lint lint-chainsaw test python-test helm-lint helm-docs-check helm-unittest verify-boilerplate tidy-check verify-doc-defaults verify-helm-rbac verify-dashboard-metrics verify-doc-tool-versions verify-go-version-sync verify-prometheusrule-metrics verify-helm-schema-fields verify-release-artifacts ## Fast pre-commit checks (no integration tests or govulncheck)
 
 .PHONY: verify
 verify: verify-quick test-integration govulncheck ## Run all CI checks locally (includes integration tests)
@@ -226,9 +230,10 @@ test-fuzz: ## Run fuzz tests (coverage-guided; FUZZTIME=30s default, deadline-fl
 	./scripts/run-fuzz.sh
 
 .PHONY: python-test
-python-test: ## Run helper script tests (fossa-filter, run-fuzz classifier)
+python-test: ## Run helper script tests (fossa-filter, run-fuzz classifier, go-version sync)
 	python3 scripts/test_fossa_filter.py -v
 	bash scripts/test_run_fuzz.sh
+	bash scripts/test_verify_go_version_sync.sh
 
 .PHONY: test-bench
 test-bench: ## Run benchmark tests
