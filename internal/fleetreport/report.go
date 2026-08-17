@@ -21,6 +21,7 @@ package fleetreport
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -177,7 +178,7 @@ func parseUSD(s string) float64 {
 		return 0
 	}
 	v, err := strconv.ParseFloat(s, 64)
-	if err != nil || v != v { // NaN check
+	if err != nil || math.IsNaN(v) || math.IsInf(v, 0) {
 		return 0
 	}
 	return v
