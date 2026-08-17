@@ -11403,6 +11403,33 @@ func TestReconcile_InsufficientDataRequeuesAtQueryStep(t *testing.T) {
 		"InsufficientData should requeue at queryStep interval, not cooldown")
 }
 
+// Nightly #520: cooldown 1m is shorter than default queryStep 5m, so the
+// InsufficientData shortcut leaves requeueAfter == cooldown. Jitter must
+// not apply or first recommendations wait up to cooldown+jitter (3m with
+// the default 2m jitter), which races the configmap-export 3m timeout.
+func TestReconcile_InsufficientDataShortCooldownDoesNotJitter(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	policy.UID = "e2e-configmap-export-uid"
+	policy.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: 1 * time.Minute}
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	pod := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
+
+	mc := &mockCollector{
+		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return generateSamples(20, 0.1), nil // below 48 threshold
+		},
+	}
+	reconciler, _ := newReconcilerForReconcile(mc, policy, deploy, pod)
+	reconciler.RequeueJitter = 2 * time.Minute
+
+	result, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, 1*time.Minute, result.RequeueAfter,
+		"InsufficientData must not add RequeueJitter when cooldown < queryStep")
+}
+
 func TestReconcile_SufficientDataRequeuesAtCooldown(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: 2 * time.Hour}

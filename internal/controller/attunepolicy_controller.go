@@ -674,15 +674,21 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 	// During data collection, use a shorter interval so new policies bootstrap
 	// faster. The cooldown is designed to space out resizes, not data collection.
-	if readyCond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionReady); readyCond != nil && readyCond.Reason == attunev1alpha1.ReasonInsufficientData {
+	readyCond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionReady)
+	if readyCond != nil && readyCond.Reason == attunev1alpha1.ReasonInsufficientData {
 		dataInterval := r.getQueryStep(&policy)
 		if dataInterval < requeueAfter {
 			requeueAfter = dataInterval
 		}
 	}
 	// Only jitter full cooldown requeues so bootstrap / observation short
-	// intervals stay tight for data collection and e2e.
-	if requeueAfter == cooldown {
+	// intervals stay tight for data collection and e2e. When cooldown is
+	// already shorter than queryStep (for example cooldown 1m vs 5m step),
+	// InsufficientData still uses cooldown. Jittering that wait delayed
+	// first recommendations by up to RequeueJitter (nightly #520).
+	bootstrap := readyCond != nil && (readyCond.Reason == attunev1alpha1.ReasonInsufficientData ||
+		readyCond.Reason == attunev1alpha1.ReasonPrometheusUnavailable)
+	if requeueAfter == cooldown && !bootstrap {
 		requeueAfter = r.addRequeueJitter(requeueAfter, &policy)
 	}
 	logger.Info("Reconciliation complete, requeueing", "requeueAfter", requeueAfter)
