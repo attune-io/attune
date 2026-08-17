@@ -52,7 +52,7 @@ make build-crds
 ### Running Tests
 
 ```bash
-# Unit tests (1100+ test functions, 80% coverage threshold enforced, currently ~92%)
+# Unit tests (1300+ test functions, 80% coverage threshold enforced, currently ~92%)
 make test
 
 # Integration tests (uses envtest, no cluster needed)
@@ -108,18 +108,24 @@ make docker-build IMG=attune:dev
 
 ### Pre-commit Checklist
 
-Run `make verify` before every commit. It covers:
-- golangci-lint (code quality + import alias enforcement)
-- Unit and integration tests with coverage threshold (80%)
-- Helm lint + template validation
-- Helm chart docs freshness and unit tests
-- CRD manifest freshness (`make manifests` output matches committed files)
-- Grafana dashboard sync (`deploy/grafana/dashboard.json` source and generated Helm dashboard stay aligned)
-- Documentation defaults consistency check
-- govulncheck for known vulnerabilities
+Run `make verify` before every commit. The Makefile `verify` and
+`verify-quick` targets are the source of truth (not this list). Today
+`make verify-quick` runs:
 
-For faster feedback on docs-only or YAML-only changes, use `make verify-quick`
-(skips integration tests and govulncheck).
+- golangci-lint, yaml-lint, Chainsaw lint, unit tests, Python tests
+- Helm lint, helm-docs freshness, Helm unit tests
+- boilerplate, `go mod tidy`, documentation defaults
+- Helm RBAC vs generated ClusterRole, Grafana dashboard sync
+- documentation tool versions, Go version sync (go.mod vs Dockerfile)
+- PrometheusRule metric names, Helm schema fields, release artifacts
+  (`dist/install.yaml` and `dist/crds.yaml`)
+
+`make verify` then adds integration tests, govulncheck, and a generated
+file freshness check (`make manifests generate` must not change CRDs,
+Helm CRDs, deepcopy, or RBAC).
+
+For faster feedback on docs-only or YAML-only changes, use
+`make verify-quick` (skips integration tests and govulncheck).
 
 If you changed CRD types (`api/v1alpha1/`), also run:
 ```bash

@@ -93,6 +93,10 @@ make kind-deploy IMG=attune:e2e
 make lint
 ```
 
+The full local gate is `make verify` (or `make verify-quick` without
+integration tests and govulncheck). Those Makefile targets are the
+source of truth for what CI runs. See CONTRIBUTING.md.
+
 Auto-fix lint issues:
 
 ```bash
