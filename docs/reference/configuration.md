@@ -178,7 +178,7 @@ watchNamespaces:
 |-----|------|---------|-------------|
 | `maxConcurrentReconciles` | int/string | `""` (2) | Maximum number of AttunePolicy reconciles running in parallel. Maps to the `--max-concurrent-reconciles` manager flag (binary default 2). Empty Helm value uses 2, or clusterSize presets (small=1, medium=2, large=4, xlarge=8). The Prometheus rate limiter (`prometheusQPS`) is shared across all goroutines. |
 | `maxWorkloadWorkers` | int | `10` | Parallel workers for workloads inside one policy reconcile (`--max-workload-workers`). |
-| `requeueJitter` | string | `"2m"` | Max deterministic requeue jitter (`--requeue-jitter`). Set `"0s"` to disable. |
+| `requeueJitter` | string | `"2m"` | Max extra delay added only to full cooldown requeues (`--requeue-jitter`). Skipped while Ready is `InsufficientData` or `PrometheusUnavailable` so bootstrap is not delayed by up to 2m. Set `"0s"` to disable. |
 | `maxProfileSamples` | int | `10000` | Cap samples after downsampling before BuildProfile (`--max-profile-samples`). |
 | `maxPrometheusSeries` | int | `5000` | Cap series per Prometheus range query (`--max-prometheus-series`). |
 | `maxStatusRecommendations` | int | `100` | Default status.recommendations cap (`--max-status-recommendations`). |

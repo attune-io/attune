@@ -180,6 +180,10 @@ namespace. This is usually a typo in the workload name or an incorrect
 The default minimum is 48 Prometheus range-query samples. With the default
 `queryStep: 5m`, that is about 4 hours of data.
 
+During this state the operator requeues at `min(cooldown, queryStep)` and
+does **not** add `requeueJitter`. A policy with `cooldown: 1m` and the
+default 5m step therefore retries every minute, not every 1–3 minutes.
+
 **Fix**: Wait for more data to accumulate, or adjust these settings:
 
 - **`minimumDataPoints`**: Lower for faster (but less confident) recommendations.
