@@ -8,6 +8,25 @@ Maintainers: before publishing a release after multi-version product changes,
 run the full E2E Nightly matrix on tip of `main` (see
 [Releasing: full E2E matrix](../contributing/releasing.md#1b-full-e2e-matrix-required-before-tagging-a-product-release)).
 
+## v0.1.22 to v0.1.23
+
+v0.1.23 is a reliability patch. Existing policies keep working without YAML
+edits.
+
+### Requeue jitter is skipped during data collection
+
+While Ready is `InsufficientData` or `PrometheusUnavailable`, the operator
+no longer adds `--requeue-jitter` (default 2m) on top of the cooldown.
+First recommendations and ConfigMap export can land sooner. Jitter still
+applies to steady-state cooldown requeues.
+
+### Fleet report savings stay finite
+
+`estimatedMonthlySavingsUSD` adds only finite numbers. Unparseable values
+(NaN, Inf, or garbage) increment `unparseableSavings` and count as 0 in
+the USD total. Consumers of `report.json` should treat that field as
+additive.
+
 ## v0.1.21 to v0.1.22
 
 v0.1.22 ships scale defaults and capacity safety that were previously only on
