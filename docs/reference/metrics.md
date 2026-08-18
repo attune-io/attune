@@ -213,7 +213,7 @@ to limits](../guides/troubleshooting.md#requests-clamped-to-limits).
 ### attune_fleet_report_export_total
 
 Outcomes of optional per-cluster **fleet summary** ConfigMap export
-(`--fleet-report-enabled`). Used by multi-cluster collectors (#369).
+(`--fleet-report-enabled`). Used by multi-cluster collectors.
 
 | Label | Description |
 |-------|-------------|

@@ -166,7 +166,7 @@ metrics:
         enabled: true
         for: 1h
         severity: info
-    # -- Recording rules for multi-cluster / federated Prometheus rollups (#369).
+    # -- Recording rules for multi-cluster / federated Prometheus rollups.
     # Safe to enable on single-cluster installs (cluster label may be empty).
     fleetRecordingRules:
       # -- Emit attune:* recording rules for org-wide Grafana and PromQL
@@ -185,7 +185,7 @@ grafanaFleetDashboard:
   # -- Additional labels for the fleet dashboard ConfigMap
   additionalLabels: {}
 
-# -- Optional per-cluster fleet summary ConfigMap for multi-cluster collectors (#369).
+# -- Optional per-cluster fleet summary ConfigMap for multi-cluster collectors.
 # Writes a versioned JSON report (schemaVersion v1) for scripts like
 # scripts/collect-fleet-reports.sh.
 fleetReport:

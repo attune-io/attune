@@ -140,7 +140,7 @@ func main() {
 		"Maximum time allowed for workload processing (including Prometheus queries) during a single reconciliation cycle. "+
 			"If exceeded, partial results are used and the status condition indicates the timeout.")
 	flag.BoolVar(&fleetReportEnabled, "fleet-report-enabled", false,
-		"When true, periodically write a versioned fleet summary ConfigMap for multi-cluster collectors (#369).")
+		"When true, periodically write a versioned fleet summary ConfigMap for multi-cluster collectors.")
 	flag.StringVar(&fleetReportNamespace, "fleet-report-namespace", "",
 		"Namespace for the fleet report ConfigMap. Defaults to the pod namespace (POD_NAMESPACE) or attune-system.")
 	flag.StringVar(&fleetReportName, "fleet-report-configmap", "attune-fleet-report",

@@ -497,6 +497,9 @@ the fleet Grafana dashboard shows no series when filtering by cluster.
    cluster scrape. Without that label, `cluster=~"$cluster"` panels stay empty.
 3. Operator `watchNamespaces` is set, so the report only includes a subset of
    policies.
+4. `estimatedMonthlySavingsUSD` is 0 even though some policies show a savings
+   string. The rollup only adds parseable dollar amounts. Empty, non-numeric,
+   `NaN`, and `Inf` values count as 0.
 
 **Fix**:
 
@@ -504,6 +507,9 @@ the fleet Grafana dashboard shows no series when filtering by cluster.
 2. Check the ConfigMap: `kubectl -n <release-ns> get cm attune-fleet-report -o yaml`
 3. Set `global.external_labels.cluster` on each Prometheus; reload federation.
 4. Use leader election with HA when fleet report is enabled.
+5. If the USD total is 0, inspect `status.savings.estimatedMonthlySavings` on
+   each policy. Fix `costPricing` so the string is a finite number such as
+   `$12.50`.
 
 ```promql
 sum(rate(attune_fleet_report_export_total{result="failed"}[5m]))
