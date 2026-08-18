@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/api/resource"
 
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 	"github.com/attune-io/attune/internal/recommendation"
 )
 
@@ -276,12 +277,17 @@ func Test_mustParseFloat_ValidInput(t *testing.T) {
 	assert.Equal(t, 1.5, mustParseFloat("1.5"))
 	assert.Equal(t, 0.0, mustParseFloat("0"))
 	assert.Equal(t, -3.14, mustParseFloat("-3.14"))
+	// Built-in overhead constants must stay finite (ParseFloat accepts Inf/NaN).
+	assert.Equal(t, 20.0, mustParseFloat(attunev1alpha1.DefaultCPUOverhead))
+	assert.Equal(t, 30.0, mustParseFloat(attunev1alpha1.DefaultMemoryOverhead))
 }
 
 func Test_mustParseFloat_InvalidInput_Panics(t *testing.T) {
-	assert.Panics(t, func() {
-		mustParseFloat("not-a-number")
-	}, "mustParseFloat should panic on invalid input")
+	for _, s := range []string{"not-a-number", "NaN", "Inf", "+Inf", "-Inf"} {
+		assert.Panicsf(t, func() {
+			mustParseFloat(s)
+		}, "mustParseFloat(%q) should panic", s)
+	}
 }
 
 func TestDeriveMemoryFromCPU_ExactMath(t *testing.T) {

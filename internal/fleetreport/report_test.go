@@ -5,6 +5,7 @@ package fleetreport
 
 import (
 	"encoding/json"
+	"math"
 	"testing"
 	"time"
 
@@ -62,6 +63,7 @@ func TestBuild_AggregatesPolicies(t *testing.T) {
 	assert.Equal(t, 2, r.WorkloadsWithRecommendations)
 	assert.Equal(t, 1, r.WorkloadsResized)
 	assert.InDelta(t, 10.50, r.EstimatedMonthlySavingsUSD, 0.001)
+	assert.Zero(t, r.UnparseableSavings)
 	assert.Equal(t, int64(500), r.ReclaimedCPURequestMilli)
 	assert.Equal(t, int64(256*1024*1024), r.ReclaimedMemoryRequestBytes)
 
@@ -77,19 +79,64 @@ func TestBuild_AggregatesPolicies(t *testing.T) {
 	assert.Contains(t, cm.Data["report.json"], `"schemaVersion": "v1"`)
 }
 
+func TestBuild_UnparseableSavingsCounted(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	policies := []attunev1alpha1.AttunePolicy{
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "good", Namespace: "ns"},
+			Status: attunev1alpha1.AttunePolicyStatus{
+				Savings: attunev1alpha1.SavingsStatus{EstimatedMonthlySavings: "$4.00"},
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "inf", Namespace: "ns"},
+			Status: attunev1alpha1.AttunePolicyStatus{
+				Savings: attunev1alpha1.SavingsStatus{EstimatedMonthlySavings: "Inf"},
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "empty", Namespace: "ns"},
+		},
+	}
+	r := Build(policies, "c", now)
+	assert.InDelta(t, 4.00, r.EstimatedMonthlySavingsUSD, 0.001)
+	assert.Equal(t, 1, r.UnparseableSavings, "Inf must increment unparseableSavings; empty must not")
+}
+
 func TestParseHelpers(t *testing.T) {
 	t.Parallel()
-	assert.Equal(t, 12.5, parseUSD("$12.50"))
-	assert.Equal(t, 0.0, parseUSD(""))
-	assert.Equal(t, 0.0, parseUSD("not-a-number"))
-	assert.Equal(t, 0.0, parseUSD("NaN"))
-	assert.Equal(t, 0.0, parseUSD("Inf"))
-	assert.Equal(t, 0.0, parseUSD("+Inf"))
-	assert.Equal(t, 0.0, parseUSD("-Inf"))
+	v, ok := parseUSD("$12.50")
+	assert.Equal(t, 12.5, v)
+	assert.True(t, ok)
+	v, ok = parseUSD("")
+	assert.Equal(t, 0.0, v)
+	assert.True(t, ok)
+	for _, s := range []string{"not-a-number", "NaN", "Inf", "+Inf", "-Inf"} {
+		v, ok = parseUSD(s)
+		assert.Equal(t, 0.0, v, s)
+		assert.False(t, ok, s)
+	}
 	m, ok := parseCPUMilli("250m")
 	assert.True(t, ok)
 	assert.Equal(t, int64(250), m)
 	b, ok := parseMemoryBytes("1Gi")
 	assert.True(t, ok)
 	assert.Equal(t, int64(1024*1024*1024), b)
+	_, ok = parseCPUMilli("-1")
+	assert.False(t, ok)
+	_, ok = parseMemoryBytes("-1")
+	assert.False(t, ok)
+	_, ok = parseCPUMilli("1000000000Ti")
+	assert.False(t, ok, "overflowed MilliValue must not be summed")
+	_, ok = parseMemoryBytes("-1000Ti")
+	assert.False(t, ok, "negative Ti must not wrap into a positive Value()")
+}
+
+func TestAddInt64Saturate(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, int64(5), addInt64Saturate(2, 3))
+	assert.Equal(t, int64(2), addInt64Saturate(2, 0))
+	assert.Equal(t, int64(2), addInt64Saturate(2, -1))
+	assert.Equal(t, int64(math.MaxInt64), addInt64Saturate(math.MaxInt64-1, 5))
 }

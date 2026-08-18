@@ -255,7 +255,7 @@ func TestSetResizeBlockedCondition(t *testing.T) {
 		require.NotNil(t, cond)
 		assert.Equal(t, metav1.ConditionTrue, cond.Status)
 		assert.Equal(t, attunev1alpha1.ReasonPodsDeferred, cond.Reason)
-		assert.Contains(t, cond.Message, "p1")
+		assert.Equal(t, "2 pod(s) have Deferred in-place resize; operator retries each reconcile once the condition clears (e.g. p1, p2)", cond.Message)
 	})
 
 	t.Run("infeasible only", func(t *testing.T) {
@@ -266,7 +266,7 @@ func TestSetResizeBlockedCondition(t *testing.T) {
 		cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionResizeBlocked)
 		require.NotNil(t, cond)
 		assert.Equal(t, attunev1alpha1.ReasonPodsInfeasible, cond.Reason)
-		assert.Contains(t, cond.Message, "InPlaceOrRecreate")
+		assert.Equal(t, "1 pod(s) have Infeasible in-place resize on their node; set resizeMethod: InPlaceOrRecreate for eviction fallback or free capacity (e.g. bad-pod)", cond.Message)
 	})
 
 	t.Run("both", func(t *testing.T) {
@@ -278,6 +278,7 @@ func TestSetResizeBlockedCondition(t *testing.T) {
 		cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionResizeBlocked)
 		require.NotNil(t, cond)
 		assert.Equal(t, attunev1alpha1.ReasonPodsDeferredAndInfeasible, cond.Reason)
+		assert.Equal(t, "1 deferred pod(s) (retry when kubelet clears Pending; e.g. d1); 1 infeasible pod(s) (use InPlaceOrRecreate to evict, or free node capacity; e.g. i1)", cond.Message)
 	})
 }
 
