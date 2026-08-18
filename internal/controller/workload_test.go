@@ -105,6 +105,7 @@ func TestWorkload_IsBatchWorkload(t *testing.T) {
 		{"Job", &batchv1.Job{}, true},
 		{"CronJob", &batchv1.CronJob{}, true},
 		{"ReplicaSet", &appsv1.ReplicaSet{}, false},
+		{"unknown kind", &corev1.ConfigMap{}, false},
 	}
 
 	for _, tt := range tests {
@@ -281,6 +282,27 @@ func TestWorkload_IsRollingOut(t *testing.T) {
 			workload: &batchv1.CronJob{},
 			want:     false,
 		},
+		{
+			name: "ReplicaSet mid-rollout ReadyReplicas < spec",
+			workload: &appsv1.ReplicaSet{
+				Spec:   appsv1.ReplicaSetSpec{Replicas: int32Ptr(3)},
+				Status: appsv1.ReplicaSetStatus{ReadyReplicas: 1},
+			},
+			want: true,
+		},
+		{
+			name: "ReplicaSet fully rolled out",
+			workload: &appsv1.ReplicaSet{
+				Spec:   appsv1.ReplicaSetSpec{Replicas: int32Ptr(3)},
+				Status: appsv1.ReplicaSetStatus{ReadyReplicas: 3},
+			},
+			want: false,
+		},
+		{
+			name:     "unknown kind is not a rollout",
+			workload: &corev1.ConfigMap{},
+			want:     false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -370,6 +392,11 @@ func TestWorkload_GetPodSelectorLabels(t *testing.T) {
 		{
 			name:     "Deployment without selector returns nil",
 			workload: &appsv1.Deployment{},
+			want:     nil,
+		},
+		{
+			name:     "unknown kind returns nil",
+			workload: &corev1.ConfigMap{},
 			want:     nil,
 		},
 	}

@@ -17,9 +17,11 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDefaultConstants(t *testing.T) {
@@ -42,5 +44,34 @@ func TestDefaultConstants(t *testing.T) {
 	}
 	for _, r := range reasons {
 		assert.NotEmpty(t, r, "reason constant should not be empty")
+	}
+}
+
+func TestIsSupportedTargetKind(t *testing.T) {
+	t.Parallel()
+
+	supported := strings.Split(SupportedTargetKindsCSV, ", ")
+	require.NotEmpty(t, supported)
+	for _, kind := range supported {
+		assert.True(t, IsSupportedTargetKind(kind), "CSV kind %q must be accepted", kind)
+	}
+
+	// Must stay aligned with the kubebuilder Enum on TargetRef.Kind.
+	assert.Equal(t, []string{
+		"Deployment", "StatefulSet", "DaemonSet", "CronJob", "Job", "ReplicaSet",
+	}, supported)
+
+	rejects := []string{
+		"",
+		"deployment",
+		"DEPLOYMENT",
+		" Deployment",
+		"Pod",
+		"HorizontalPodAutoscaler",
+		"Rollout",
+		"ReplicaSet ",
+	}
+	for _, kind := range rejects {
+		assert.False(t, IsSupportedTargetKind(kind), "kind %q must be rejected", kind)
 	}
 }

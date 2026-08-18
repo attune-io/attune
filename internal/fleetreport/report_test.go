@@ -80,6 +80,12 @@ func TestBuild_AggregatesPolicies(t *testing.T) {
 func TestParseHelpers(t *testing.T) {
 	t.Parallel()
 	assert.Equal(t, 12.5, parseUSD("$12.50"))
+	assert.Equal(t, 0.0, parseUSD(""))
+	assert.Equal(t, 0.0, parseUSD("not-a-number"))
+	assert.Equal(t, 0.0, parseUSD("NaN"))
+	assert.Equal(t, 0.0, parseUSD("Inf"))
+	assert.Equal(t, 0.0, parseUSD("+Inf"))
+	assert.Equal(t, 0.0, parseUSD("-Inf"))
 	m, ok := parseCPUMilli("250m")
 	assert.True(t, ok)
 	assert.Equal(t, int64(250), m)

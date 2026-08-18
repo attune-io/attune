@@ -353,7 +353,7 @@ The leader writes a ConfigMap labeled `attune.io/fleet-report=true` with:
 | `workloadsDiscovered` | int | Sum of discovered workloads |
 | `workloadsWithRecommendations` | int | Sum with recommendations |
 | `workloadsResized` | int | Sum resized |
-| `estimatedMonthlySavingsUSD` | float | Sum of parseable policy savings |
+| `estimatedMonthlySavingsUSD` | float | Sum of parseable policy savings (empty, non-numeric, NaN, and Inf values count as 0) |
 | `reclaimedCpuRequestMilli` | int | Freeable CPU millicores (when present) |
 | `reclaimedMemoryRequestBytes` | int | Freeable memory bytes (when present) |
 

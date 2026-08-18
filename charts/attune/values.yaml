@@ -321,8 +321,10 @@ blockerRefreshInterval: "0s"
 # Example: "attune.io/managed=true". Empty relies on dynamic policy selectors only.
 podLabelSelector: ""
 
-# -- Maximum deterministic requeue jitter to spread policies that share a cooldown.
-# Set to "0s" to disable. Default 2m (empty omits the flag and keeps the binary default).
+# -- Maximum extra delay added only to full cooldown requeues.
+# Skipped while Ready is InsufficientData or PrometheusUnavailable so
+# bootstrap is not delayed by jitter. Set to "0s" to disable. Default 2m
+# (empty omits the flag and keeps the binary default).
 requeueJitter: "2m"
 
 # -- Cap samples passed into recommendation BuildProfile after downsampling.
