@@ -71,6 +71,10 @@ type Report struct {
 	// EstimatedMonthlySavingsUSD is the sum of parseable estimatedMonthlySavings
 	// values (approximate; do not over-claim precision in rollups).
 	EstimatedMonthlySavingsUSD float64 `json:"estimatedMonthlySavingsUSD"`
+	// UnparseableSavings is the number of policies whose estimatedMonthlySavings
+	// was non-empty but not a finite number (NaN, Inf, or garbage). Those
+	// values are counted as 0 in EstimatedMonthlySavingsUSD.
+	UnparseableSavings int `json:"unparseableSavings,omitempty"`
 	// ReclaimedCPURequestMilli sums freeable CPU millicores when parseable from status.
 	ReclaimedCPURequestMilli int64 `json:"reclaimedCpuRequestMilli,omitempty"`
 	// ReclaimedMemoryRequestBytes sums freeable memory bytes when parseable.
@@ -117,7 +121,11 @@ func Build(policies []attunev1alpha1.AttunePolicy, clusterID string, now time.Ti
 		r.WorkloadsWithRecommendations += int(p.Status.Workloads.WithRecommendations)
 		r.WorkloadsResized += int(p.Status.Workloads.Resized)
 
-		r.EstimatedMonthlySavingsUSD += parseUSD(p.Status.Savings.EstimatedMonthlySavings)
+		usd, ok := parseUSD(p.Status.Savings.EstimatedMonthlySavings)
+		r.EstimatedMonthlySavingsUSD += usd
+		if !ok {
+			r.UnparseableSavings++
+		}
 		if milli, ok := parseCPUMilli(firstNonEmpty(p.Status.Savings.ReclaimedCPURequest, p.Status.Savings.CPURequestReduction)); ok {
 			r.ReclaimedCPURequestMilli += milli
 		}
@@ -171,17 +179,20 @@ func firstNonEmpty(vals ...string) string {
 	return ""
 }
 
-func parseUSD(s string) float64 {
+// parseUSD returns the dollar amount and whether the input was usable.
+// Empty strings are a valid zero (ok=true). Non-empty NaN, Inf, or
+// non-numeric values return (0, false) so callers can surface the skip.
+func parseUSD(s string) (float64, bool) {
 	s = strings.TrimSpace(s)
 	s = strings.TrimPrefix(s, "$")
 	if s == "" {
-		return 0
+		return 0, true
 	}
 	v, err := strconv.ParseFloat(s, 64)
 	if err != nil || math.IsNaN(v) || math.IsInf(v, 0) {
-		return 0
+		return 0, false
 	}
-	return v
+	return v, true
 }
 
 func parseCPUMilli(s string) (int64, bool) {

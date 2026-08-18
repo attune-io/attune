@@ -499,7 +499,8 @@ the fleet Grafana dashboard shows no series when filtering by cluster.
    policies.
 4. `estimatedMonthlySavingsUSD` is 0 even though some policies show a savings
    string. The rollup only adds parseable dollar amounts. Empty, non-numeric,
-   `NaN`, and `Inf` values count as 0.
+   `NaN`, and `Inf` values count as 0. Check `unparseableSavings` in
+   `report.json` (non-zero means values were dropped).
 
 **Fix**:
 
