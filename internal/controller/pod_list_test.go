@@ -95,8 +95,8 @@ func TestMetricsPodRegex_SamplesWhenLarge(t *testing.T) {
 		pods[i] = corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("myapp-xxx-%d", i)}}
 	}
 	re := r.metricsPodRegex(d, pods)
-	// Sampled regex uses exact names joined by |, not the full deployment pattern.
-	assert.Contains(t, re, "|")
+	// Evenly spaced sample of 3 from 10 sorted names: indices 0, 3, 6.
+	assert.Equal(t, "myapp-xxx-0|myapp-xxx-3|myapp-xxx-6", re)
 	assert.NotEqual(t, r.getPodRegex(d), re)
 	// Unlimited path keeps workload regex.
 	r.MaxPodsInMetricsQuery = -1

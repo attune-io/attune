@@ -2559,12 +2559,14 @@ func TestPrintExportList(t *testing.T) {
 				},
 			},
 			"data": map[string]interface{}{
-				"workload":            "my-deployment",
-				"kind":                "Deployment",
-				"main.cpu-request":    "250m",
-				"main.memory-request": "512Mi",
-				"main.confidence":     "0.92",
-				"last-updated":        "2026-05-30T12:00:00Z",
+				"workload":               "my-deployment",
+				"kind":                   "Deployment",
+				"main.cpu-request":       "250m",
+				"main.memory-request":    "512Mi",
+				"main.confidence":        "0.92",
+				"sidecar.cpu-request":    "50m",
+				"sidecar.memory-request": "64Mi",
+				"last-updated":           "2026-05-30T12:00:00Z",
 			},
 		},
 	}
@@ -2640,23 +2642,23 @@ func TestPrintExportList(t *testing.T) {
 	output := buf.String()
 
 	assert.Contains(t, output, "my-app")
-	assert.Contains(t, output, "my-deployment")
-	assert.Contains(t, output, "my-statefulset")
 	assert.Contains(t, output, "my-cool-app")
-	assert.Contains(t, output, "my-fancy-deployment")
-	assert.Contains(t, output, "2") // container count for first CM (only cpu-request key)
-	assert.Contains(t, output, "2026-05-30T12:00:00Z")
-	assert.Contains(t, output, "2026-05-30T12:05:00Z")
-	assert.Contains(t, output, "2026-05-30T12:10:00Z")
+	// CONTAINERS is a dedicated column. A bare Contains("2") matches the
+	// year in last-updated (2026) and would pass even if counts were wrong.
+	assert.Regexp(t, `my-deployment\s+Deployment\s+2\s+2026-05-30T12:00:00Z`, output)
+	assert.Regexp(t, `my-statefulset\s+StatefulSet\s+1\s+2026-05-30T12:05:00Z`, output)
+	assert.Regexp(t, `my-fancy-deployment\s+Deployment\s+1\s+2026-05-30T12:10:00Z`, output)
 
-	// Verify sorted order (namespace, then policy, then workload)
+	// Sorted: my-app/my-deployment, my-app/my-statefulset, then my-cool-app.
 	lines := strings.Split(strings.TrimSpace(output), "\n")
-	// Skip header
 	dataLines := lines[1:]
-	assert.GreaterOrEqual(t, len(dataLines), 3)
-	// Rough order check: my-app entries should come before any other, and within same ns/policy, workloads are sorted
-	assert.Contains(t, strings.Join(dataLines, "\n"), "my-deployment")
-	assert.Contains(t, strings.Join(dataLines, "\n"), "my-fancy-deployment")
+	require.GreaterOrEqual(t, len(dataLines), 3)
+	joined := strings.Join(dataLines, "\n")
+	depIdx := strings.Index(joined, "my-deployment")
+	stsIdx := strings.Index(joined, "my-statefulset")
+	fancyIdx := strings.Index(joined, "my-fancy-deployment")
+	assert.Greater(t, stsIdx, depIdx, "my-deployment should sort before my-statefulset")
+	assert.Greater(t, fancyIdx, stsIdx, "my-app rows should sort before my-cool-app")
 }
 
 func TestPrintExportList_AllNamespaces(t *testing.T) {
