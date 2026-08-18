@@ -6,6 +6,16 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.23](https://github.com/attune-io/attune/compare/v0.1.22...v0.1.23) (2026-08-18)
+
+
+### Bug Fixes
+
+* bump go to 1.26.6 and keep dockerfile in sync ([#524](https://github.com/attune-io/attune/issues/524)) ([c8385f0](https://github.com/attune-io/attune/commit/c8385f0710136917ebe76a472f81f65cdb1e3baa))
+* harden fleet savings rollup and test assertions ([#533](https://github.com/attune-io/attune/issues/533)) ([971b394](https://github.com/attune-io/attune/commit/971b394125e3a9bd197530c6757af02ecbc146fb))
+* reject Inf fleet savings and document jitter skip ([#532](https://github.com/attune-io/attune/issues/532)) ([8170bd7](https://github.com/attune-io/attune/commit/8170bd798643ef624d435989b1e46529ab3bd969))
+* skip requeue jitter during InsufficientData bootstrap ([#531](https://github.com/attune-io/attune/issues/531)) ([d73b731](https://github.com/attune-io/attune/commit/d73b731330e8392af082288761c29bfc75d49a4d)), closes [#520](https://github.com/attune-io/attune/issues/520)
+
 ## [0.1.22](https://github.com/attune-io/attune/compare/v0.1.21...v0.1.22) (2026-08-10)
 
 
