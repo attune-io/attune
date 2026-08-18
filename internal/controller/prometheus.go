@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
+	"math"
 	"slices"
 	"strconv"
 	"time"
@@ -73,7 +74,7 @@ var (
 
 func mustParseFloat(s string) float64 {
 	v, err := strconv.ParseFloat(s, 64)
-	if err != nil {
+	if err != nil || math.IsNaN(v) || math.IsInf(v, 0) {
 		panic("invalid default constant: " + s)
 	}
 	return v
