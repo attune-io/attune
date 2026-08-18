@@ -37,6 +37,7 @@ func TestExporter_exportOnce_WritesConfigMap(t *testing.T) {
 		},
 		Status: attunev1alpha1.AttunePolicyStatus{
 			Workloads: attunev1alpha1.WorkloadStatus{Discovered: 2},
+			Savings:   attunev1alpha1.SavingsStatus{EstimatedMonthlySavings: "Inf"},
 		},
 	}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns, policy).Build()
@@ -57,6 +58,7 @@ func TestExporter_exportOnce_WritesConfigMap(t *testing.T) {
 	assert.Equal(t, "v1", cm.Data["schema-version"])
 	assert.Equal(t, "test-cluster", cm.Data["cluster-id"])
 	assert.Contains(t, cm.Data["report.json"], `"policyCount": 1`)
+	assert.Contains(t, cm.Data["report.json"], `"unparseableSavings": 1`)
 
 	// Second export updates
 	e.ExportOnce(context.Background())

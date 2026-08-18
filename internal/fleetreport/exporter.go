@@ -95,9 +95,15 @@ func (e *Exporter) ExportOnce(ctx context.Context) {
 		return
 	}
 	operatormetrics.FleetReportExportTotal.WithLabelValues("success").Inc()
+	if report.UnparseableSavings > 0 {
+		log.Info("fleet report dropped unparseable savings strings",
+			"count", report.UnparseableSavings,
+			"estimatedMonthlySavingsUSD", report.EstimatedMonthlySavingsUSD)
+	}
 	log.V(1).Info("fleet report exported",
 		"policies", report.PolicyCount,
 		"workloads", report.WorkloadsDiscovered,
+		"unparseableSavings", report.UnparseableSavings,
 		"schema", report.SchemaVersion)
 }
 
