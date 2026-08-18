@@ -5,6 +5,7 @@ package fleetreport
 
 import (
 	"encoding/json"
+	"math"
 	"testing"
 	"time"
 
@@ -122,4 +123,20 @@ func TestParseHelpers(t *testing.T) {
 	b, ok := parseMemoryBytes("1Gi")
 	assert.True(t, ok)
 	assert.Equal(t, int64(1024*1024*1024), b)
+	_, ok = parseCPUMilli("-1")
+	assert.False(t, ok)
+	_, ok = parseMemoryBytes("-1")
+	assert.False(t, ok)
+	_, ok = parseCPUMilli("1000000000Ti")
+	assert.False(t, ok, "overflowed MilliValue must not be summed")
+	_, ok = parseMemoryBytes("-1000Ti")
+	assert.False(t, ok, "negative Ti must not wrap into a positive Value()")
+}
+
+func TestAddInt64Saturate(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, int64(5), addInt64Saturate(2, 3))
+	assert.Equal(t, int64(2), addInt64Saturate(2, 0))
+	assert.Equal(t, int64(2), addInt64Saturate(2, -1))
+	assert.Equal(t, int64(math.MaxInt64), addInt64Saturate(math.MaxInt64-1, 5))
 }

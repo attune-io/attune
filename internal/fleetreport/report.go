@@ -127,10 +127,10 @@ func Build(policies []attunev1alpha1.AttunePolicy, clusterID string, now time.Ti
 			r.UnparseableSavings++
 		}
 		if milli, ok := parseCPUMilli(firstNonEmpty(p.Status.Savings.ReclaimedCPURequest, p.Status.Savings.CPURequestReduction)); ok {
-			r.ReclaimedCPURequestMilli += milli
+			r.ReclaimedCPURequestMilli = addInt64Saturate(r.ReclaimedCPURequestMilli, milli)
 		}
 		if bytes, ok := parseMemoryBytes(firstNonEmpty(p.Status.Savings.ReclaimedMemoryRequest, p.Status.Savings.MemoryRequestReduction)); ok {
-			r.ReclaimedMemoryRequestBytes += bytes
+			r.ReclaimedMemoryRequestBytes = addInt64Saturate(r.ReclaimedMemoryRequestBytes, bytes)
 		}
 	}
 	return r
@@ -204,7 +204,13 @@ func parseCPUMilli(s string) (int64, bool) {
 	if err != nil {
 		return 0, false
 	}
-	return q.MilliValue(), true
+	// Overflowed quantities can wrap MilliValue to a negative (e.g. 1e9 Ti).
+	// Sign() still reports negative inputs even when Value() wraps.
+	m := q.MilliValue()
+	if q.Sign() < 0 || m < 0 {
+		return 0, false
+	}
+	return m, true
 }
 
 func parseMemoryBytes(s string) (int64, bool) {
@@ -216,5 +222,19 @@ func parseMemoryBytes(s string) (int64, bool) {
 	if err != nil {
 		return 0, false
 	}
-	return q.Value(), true
+	b := q.Value()
+	if q.Sign() < 0 || b < 0 {
+		return 0, false
+	}
+	return b, true
+}
+
+func addInt64Saturate(sum, delta int64) int64 {
+	if delta <= 0 {
+		return sum
+	}
+	if sum > math.MaxInt64-delta {
+		return math.MaxInt64
+	}
+	return sum + delta
 }
