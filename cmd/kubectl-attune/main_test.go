@@ -591,7 +591,7 @@ func TestPrintStatus(t *testing.T) {
 	assert.Contains(t, output, "PENDING")
 	assert.Contains(t, output, "CANARY")
 	assert.Contains(t, output, "EXPORT")
-	assert.Contains(t, output, "CM") // from the export.configMap we added to fixture
+	assert.Regexp(t, `(?m)production\s+web-app\s+.*\sCM\s`, output)
 	assert.Contains(t, output, "3           1         2")
 }
 

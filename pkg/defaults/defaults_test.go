@@ -815,3 +815,9 @@ func TestMergeUpdateStrategy_StatusBudget(t *testing.T) {
 	assert.Equal(t, int32(50), *policy.MaxStatusRecommendations)
 	assert.False(t, *policy.IncludeExplanationsInStatus)
 }
+
+func TestMustParseBuiltInDuration_Constants(t *testing.T) {
+	assert.Equal(t, time.Hour, mustParseBuiltInDuration(attunev1alpha1.DefaultCooldown))
+	assert.Equal(t, 168*time.Hour, mustParseBuiltInDuration(attunev1alpha1.DefaultHistoryWindow))
+	assert.Panics(t, func() { mustParseBuiltInDuration("not-a-duration") })
+}
