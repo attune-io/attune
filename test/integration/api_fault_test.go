@@ -504,9 +504,10 @@ func TestAPIFault_ManagerRestartMidReconcile(t *testing.T) {
 
 // TestAPIFault_TimeoutAfterCommittedAnnotationPersist lets the apiserver
 // commit a pod Update that writes resize-tracking annotations, then returns
-// a timeout to persistResizeAnnotations. A retry must not duplicate
-// resized-containers. This is persist only; envtest still has no kubelet
-// /resize.
+// a timeout to persistResizeAnnotations. Persist must treat the landed
+// write as success so resizeContainer does not revert. A second persist
+// must not duplicate resized-containers. This is persist only; envtest
+// still has no kubelet /resize.
 func TestAPIFault_TimeoutAfterCommittedAnnotationPersist(t *testing.T) {
 	cfg, plain := startIsolatedEnvtest(t)
 	pod := createPersistPod(t, plain, "fault-persist-timeout", "persist-app")
@@ -533,8 +534,8 @@ func TestAPIFault_TimeoutAfterCommittedAnnotationPersist(t *testing.T) {
 	working := pod.DeepCopy()
 	reason, firstErr := r.PersistResizeAnnotationsForTest(
 		context.Background(), working, rec, "policy-persist", "persist-app", now, 3)
-	require.Error(t, firstErr, "first persist must surface the injected timeout")
-	assert.Equal(t, "annotation-persist-failed", reason)
+	require.NoError(t, firstErr, "committed persist plus client timeout must succeed after confirm GET")
+	assert.Empty(t, reason)
 	assert.GreaterOrEqual(t, podUpdates.Load(), int32(1), "interceptor must commit then fail")
 
 	var afterTimeout corev1.Pod
@@ -547,7 +548,7 @@ func TestAPIFault_TimeoutAfterCommittedAnnotationPersist(t *testing.T) {
 	working = afterTimeout.DeepCopy()
 	reason, retryErr := r.PersistResizeAnnotationsForTest(
 		context.Background(), working, rec, "policy-persist", "persist-app", now, 3)
-	require.NoError(t, retryErr, "retry after persist timeout must succeed")
+	require.NoError(t, retryErr, "second persist must stay idempotent")
 	assert.Empty(t, reason)
 
 	var final corev1.Pod
