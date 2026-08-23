@@ -968,6 +968,26 @@ If Argo CD / Flux reverts the template every sync, do **not** enable
 template persistence under unmanaged sync. Prefer `export.configMap` or
 `initialSizing` (see [GitOps integration](gitops-integration.md)).
 
+### GitOps PR opens empty PRs every cooldown
+
+**Symptom**: A new GitHub PR appears on each `pullRequest.cooldown` (default
+24h) with only an empty bootstrap commit. The description table matches
+the previous PR.
+
+**Cause**: GitOps PR automation writes the drift table in the PR body. It
+does not patch Deployment YAML. Merging that PR (and deleting the head
+branch) leaves the live template unchanged, so drift stays true.
+
+**Fix**:
+
+1. Do not merge empty notification PRs as the apply step.
+2. Apply a real patch: `kubectl attune diff -n <ns> -o yaml`, commit it
+   to git, let Flux/Argo sync. Wait for reason `NoDrift`.
+3. To stop new PRs immediately, set `export.pullRequest.enabled: false`
+   or `dryRun: true`.
+4. On Attune versions that include the unchanged-drift skip, the
+   condition is `PullRequestUnchanged` instead of another empty PR.
+
 ### GitOps PR failing
 
 **Symptom**: Status condition `GitOpsPullRequest` is `False` with reason

@@ -33,6 +33,7 @@ import (
 const (
 	annotationGitOpsPRLastAttempt = "attune.io/gitops-pr-last-attempt"
 	annotationGitOpsPRURL         = "attune.io/gitops-pr-url"
+	annotationGitOpsPRDrift       = "attune.io/gitops-pr-drift"
 	defaultGitOpsPRCooldown       = 24 * time.Hour
 	defaultGitOpsMinChangePct     = int32(10)
 )
@@ -79,6 +80,13 @@ func (r *AttunePolicyReconciler) reconcileGitOpsPullRequest(
 			"No recommendation drift above minChangePercent vs templates")
 		return
 	}
+	fp := gitops.DriftFingerprint(drifts)
+	if fp != "" && policy.Annotations[annotationGitOpsPRDrift] == fp {
+		logger.V(1).Info("GitOps PR skipped: drift table unchanged since last PR")
+		setGitOpsPRCondition(policy, metav1.ConditionFalse, attunev1alpha1.ReasonGitOpsPRUnchanged,
+			"Drift table unchanged since last pull request; not opening a new empty PR")
+		return
+	}
 
 	cooldown := defaultGitOpsPRCooldown
 	if cfg.Cooldown != nil && cfg.Cooldown.Duration > 0 {
@@ -114,6 +122,7 @@ func (r *AttunePolicyReconciler) reconcileGitOpsPullRequest(
 		setGitOpsPRCondition(policy, metav1.ConditionTrue, attunev1alpha1.ReasonGitOpsPRDryRun,
 			fmt.Sprintf("Dry-run: would open/update PR on %s (%d drifted resources)", cfg.Repository, len(drifts)))
 		r.touchGitOpsPRAnnotation(policy, "")
+		setGitOpsPRDriftAnnotation(policy, fp)
 		r.persistGitOpsPRAnnotations(ctx, policy)
 		operatormetrics.GitOpsPRTotal.WithLabelValues(policy.Namespace, policy.Name, "dry_run").Inc()
 		return
@@ -169,6 +178,7 @@ func (r *AttunePolicyReconciler) reconcileGitOpsPullRequest(
 	}
 	setGitOpsPRCondition(policy, metav1.ConditionTrue, attunev1alpha1.ReasonGitOpsPROpen, msg)
 	r.touchGitOpsPRAnnotation(policy, res.URL)
+	setGitOpsPRDriftAnnotation(policy, fp)
 	r.persistGitOpsPRAnnotations(ctx, policy)
 }
 
@@ -211,6 +221,16 @@ func (r *AttunePolicyReconciler) touchGitOpsPRAnnotation(policy *attunev1alpha1.
 	}
 }
 
+func setGitOpsPRDriftAnnotation(policy *attunev1alpha1.AttunePolicy, fingerprint string) {
+	if fingerprint == "" {
+		return
+	}
+	if policy.Annotations == nil {
+		policy.Annotations = map[string]string{}
+	}
+	policy.Annotations[annotationGitOpsPRDrift] = fingerprint
+}
+
 // persistGitOpsPRAnnotations patches policy annotations so cooldown survives restarts.
 // Best-effort; failures do not fail reconcile but are logged at V(1).
 func (r *AttunePolicyReconciler) persistGitOpsPRAnnotations(ctx context.Context, policy *attunev1alpha1.AttunePolicy) {
@@ -233,6 +253,9 @@ func (r *AttunePolicyReconciler) persistGitOpsPRAnnotations(ctx context.Context,
 	}
 	if v, ok := policy.Annotations[annotationGitOpsPRURL]; ok {
 		latest.Annotations[annotationGitOpsPRURL] = v
+	}
+	if v, ok := policy.Annotations[annotationGitOpsPRDrift]; ok {
+		latest.Annotations[annotationGitOpsPRDrift] = v
 	}
 	if err := r.Patch(ctx, latest, client.MergeFrom(base)); err != nil {
 		logger.V(1).Info("GitOps PR: failed to patch cooldown annotations",

@@ -19,7 +19,10 @@ limitations under the License.
 package gitops
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -90,6 +93,24 @@ func ComputeDrift(
 		}
 	}
 	return out
+}
+
+// DriftFingerprint is a stable hash of the drift table. Same template vs
+// recommendation set yields the same value regardless of slice order.
+func DriftFingerprint(drifts []ContainerDrift) string {
+	if len(drifts) == 0 {
+		return ""
+	}
+	lines := make([]string, len(drifts))
+	for i, d := range drifts {
+		lines[i] = strings.Join([]string{
+			d.Kind, d.Workload, d.Container, d.Resource, d.Template, d.Recommended,
+			strconv.FormatFloat(d.ChangePercent, 'f', 3, 64),
+		}, "\x1f")
+	}
+	sort.Strings(lines)
+	sum := sha256.Sum256([]byte(strings.Join(lines, "\n")))
+	return hex.EncodeToString(sum[:])
 }
 
 func driftOne(workload, kind, container, resName string, template, recommended *resource.Quantity, minPct float64) (ContainerDrift, bool) {

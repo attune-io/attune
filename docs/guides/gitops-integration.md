@@ -180,6 +180,7 @@ Condition type `GitOpsPullRequest`:
 |--------|---------|
 | `PullRequestDisabled` | Feature off |
 | `NoDrift` | Templates already near recommendations |
+| `PullRequestUnchanged` | Drift table matches the last PR; no new empty PR |
 | `PullRequestCooldown` | Waiting for cooldown |
 | `PullRequestDryRun` | Would open/update PR |
 | `PullRequestOpen` | PR URL in message |
@@ -237,7 +238,11 @@ Use this ordered path when turning on PR automation for the first time.
    without logging the token.
 
 Cooldown (default 24h) prevents PR thrash. After a merge, if the head branch
-is deleted, the next cycle may bootstrap again when drift returns.
+is deleted, the next cycle may bootstrap again **only when the drift table
+changed**. If template vs recommendation is the same set as the last PR,
+the condition is `PullRequestUnchanged` and Attune does not open another
+empty PR. Apply real template patches (`kubectl attune diff`) so drift
+clears (`NoDrift`).
 
 ### Branch bootstrap
 

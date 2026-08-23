@@ -5,7 +5,7 @@ metadata:
 spec:
   description: >
     Verify opt-in GitOps PR automation dry-run sets status condition
-    PullRequestDryRun (or subsequent PullRequestCooldown) without forge
+    PullRequestDryRun (or subsequent PullRequestUnchanged/Cooldown) without forge
     credentials or outbound HTTP. Missing-secret path is unit-tested.
   timeouts:
     apply: 30s
@@ -131,11 +131,11 @@ spec:
                   -o jsonpath='{.metadata.annotations.attune\.io/gitops-pr-last-attempt}' 2>/dev/null || true)
                 recs=$(kubectl -n "$NS" get attunepolicy "$POL" \
                   -o jsonpath='{.status.recommendations[*].workload}' 2>/dev/null || true)
-                # Dry-run sets PullRequestDryRun + last-attempt annotation, then the
-                # next reconcile often switches to PullRequestCooldown (default 24h)
-                # with status False. Both prove the dry-run path ran without forge HTTP.
+                # Dry-run sets PullRequestDryRun + last-attempt annotation. The next
+                # reconcile is PullRequestUnchanged (same drift table) or
+                # PullRequestCooldown. All prove the path ran without forge HTTP.
                 if [ -n "$ann" ]; then
-                  if [ "$reason" = "PullRequestDryRun" ] || [ "$reason" = "PullRequestCooldown" ]; then
+                  if [ "$reason" = "PullRequestDryRun" ] || [ "$reason" = "PullRequestCooldown" ] || [ "$reason" = "PullRequestUnchanged" ]; then
                     echo "OK: GitOpsPullRequest reason=$reason status=$status (post dry-run)"
                     echo "message=$msg"
                     echo "annotation last-attempt=$ann"
