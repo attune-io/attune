@@ -46,6 +46,7 @@ import (
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 	"github.com/attune-io/attune/internal/conflict"
+	"github.com/attune-io/attune/internal/gitops"
 	rsmetrics "github.com/attune-io/attune/internal/metrics"
 	"github.com/attune-io/attune/internal/operatormetrics"
 	"github.com/attune-io/attune/internal/resize"
@@ -200,6 +201,10 @@ type AttunePolicyReconciler struct {
 	// so persistent conditions are periodically surfaced without flooding.
 	// Always initialized by NewAttunePolicyReconciler.
 	eventDedup *eventDedup
+
+	// gitopsPRClient, when set, is used instead of constructing a GitHub/GitLab
+	// client. Tests inject a fake to count CreateOrUpdate without forge HTTP.
+	gitopsPRClient gitops.PullRequestClient
 
 	// discoveredPromMu guards the cached Prometheus auto-discovery result.
 	discoveredPromMu   sync.Mutex
