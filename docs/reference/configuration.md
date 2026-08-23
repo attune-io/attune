@@ -452,8 +452,9 @@ provider PRs when templates drift. Full cookbook:
 | `updateStrategy.export.pullRequest.dryRun` | bool | `false` | When true, set status only (`PullRequestDryRun`); no remote API call. |
 | `updateStrategy.export.pullRequest.labels` | []string | `[]` | Labels applied to the PR when the provider supports them (max 20). |
 
-Status condition `GitOpsPullRequest` reports dry-run, open, no-drift, cooldown,
-failed, or disabled. Metric: `attune_gitops_pr_total`. Inspect export ConfigMaps
+Status condition `GitOpsPullRequest` reports dry-run, open, no-drift,
+unchanged, cooldown, failed, or disabled. Metric: `attune_gitops_pr_total`.
+Inspect export ConfigMaps
 with `kubectl attune export list` and effective PR settings with
 `kubectl attune explain <policy>`.
 
@@ -567,7 +568,7 @@ The controller sets these conditions on each `AttunePolicy`:
 | `Degraded` | `HighRevertRate` | Set when 3+ of the last 5 resizes were reverted |
 | `ScheduleBlocked` | `OutsideWindow`, `InsideWindow` | Set when `updateStrategy.schedule` is configured; indicates whether the current time is within an allowed resize window |
 | `ResizeBlocked` | `PodsDeferred`, `PodsInfeasible`, `PodsDeferredAndInfeasible` | Pods stuck Deferred or Infeasible; see troubleshooting "Deferred or Infeasible resize" |
-| `GitOpsPullRequest` | `PullRequestOpen`, `PullRequestFailed`, `NoDrift`, `PullRequestCooldown`, `PullRequestDryRun`, `PullRequestDisabled` | Opt-in `export.pullRequest` automation status (see [GitOps integration](../guides/gitops-integration.md)) |
+| `GitOpsPullRequest` | `PullRequestOpen`, `PullRequestFailed`, `NoDrift`, `PullRequestUnchanged`, `PullRequestCooldown`, `PullRequestDryRun`, `PullRequestDisabled` | Opt-in `export.pullRequest` automation status (see [GitOps integration](../guides/gitops-integration.md)) |
 
 ## Exponential Backoff
 

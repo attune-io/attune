@@ -97,6 +97,21 @@ func TestBranchName(t *testing.T) {
 	assert.Equal(t, "attune/recommendations-ns-with-dots-pol", BranchName("ns.with.dots", "pol"))
 }
 
+func TestDriftFingerprint_StableAndOrderIndependent(t *testing.T) {
+	t.Parallel()
+	a := []ContainerDrift{
+		{Workload: "api", Kind: "Deployment", Container: "app", Resource: "cpu", Template: "1", Recommended: "100m", ChangePercent: 90},
+		{Workload: "api", Kind: "Deployment", Container: "app", Resource: "memory", Template: "1Gi", Recommended: "512Mi", ChangePercent: 50},
+	}
+	b := []ContainerDrift{a[1], a[0]}
+	assert.Equal(t, DriftFingerprint(a), DriftFingerprint(b))
+	assert.NotEmpty(t, DriftFingerprint(a))
+	assert.Empty(t, DriftFingerprint(nil))
+	c := append([]ContainerDrift{}, a...)
+	c[0].Recommended = "200m"
+	assert.NotEqual(t, DriftFingerprint(a), DriftFingerprint(c))
+}
+
 func TestComputeDrift_StatefulSetAndDaemonSet(t *testing.T) {
 	t.Parallel()
 	sts := &appsv1.StatefulSet{

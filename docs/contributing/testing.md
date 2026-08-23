@@ -142,7 +142,7 @@ make test-e2e-smoke
 | `test/e2e/startup-boost/` | (cross-cutting) | CPU startup boost is applied to new pods |
 | `test/e2e/configmap-export/` | (cross-cutting) | Recommendations are exported to a ConfigMap (`schema-version` + export-schema label) |
 | `test/e2e/fleet-report/` | (infra) | Fleet report ConfigMap is written when `fleetReport` is enabled in E2E Helm |
-| `test/e2e/gitops-pr-dry-run/` | (cross-cutting) | GitOps PR dry-run sets `PullRequestDryRun`/`PullRequestCooldown` without forge credentials |
+| `test/e2e/gitops-pr-dry-run/` | (cross-cutting) | GitOps PR dry-run sets `PullRequestDryRun`/`PullRequestUnchanged`/`PullRequestCooldown` without forge credentials |
 | `test/e2e/runtime-profile-defaults/` | (webhook + API) | `runtimeProfile: java` stored and accepted; java+allowDecrease warns at admission |
 | `test/e2e/runtime-profile-java-no-mem-decrease/` | Recommend | java profile applies memory overhead=40 in explanation; CR overhead/allowDecrease stay unset |
 | `test/e2e/resize-blocked-status/` | Recommend | Injected Deferred+Infeasible pod conditions surface `workloads.deferred`/`infeasible` and `ResizeBlocked` |

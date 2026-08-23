@@ -392,6 +392,91 @@ func TestReconcileGitOpsPullRequest_DryRunIncrementsMetric(t *testing.T) {
 	assert.Equal(t, attunev1alpha1.ReasonGitOpsPRDryRun, reason)
 }
 
+func TestReconcileGitOpsPullRequest_UnchangedDriftSkipsAfterCooldown(t *testing.T) {
+	t.Parallel()
+	scheme := runtime.NewScheme()
+	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+
+	en := true
+	dry := true
+	start := time.Date(2026, 8, 20, 12, 0, 0, 0, time.UTC)
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "authentik", Namespace: "authentik"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Export: &attunev1alpha1.ExportConfig{
+					PullRequest: &attunev1alpha1.GitOpsPullRequestConfig{
+						Enabled:    &en,
+						DryRun:     &dry,
+						Repository: "org/repo",
+						TokenSecretRef: &attunev1alpha1.SecretKeyRef{
+							Name: "tok", Key: "token",
+						},
+					},
+				},
+			},
+		},
+	}
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "authentik"},
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name: "app",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("1"),
+							},
+						},
+					}},
+				},
+			},
+		},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(policy, dep).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = c
+	now := start
+	r.SetNowFunc(func() time.Time { return now })
+	recs := []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "api", Kind: "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "app",
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest: resource.MustParse("100m"),
+			},
+		}},
+	}}
+	r.reconcileGitOpsPullRequest(context.Background(), policy, []client.Object{dep}, recs)
+	require.Equal(t, attunev1alpha1.ReasonGitOpsPRDryRun, gitOpsPRReason(policy))
+	require.NotEmpty(t, policy.Annotations[annotationGitOpsPRDrift])
+	firstFP := policy.Annotations[annotationGitOpsPRDrift]
+
+	// Cooldown expired; same recommendation vs same template must not open again.
+	now = start.Add(25 * time.Hour)
+	r.reconcileGitOpsPullRequest(context.Background(), policy, []client.Object{dep}, recs)
+	assert.Equal(t, attunev1alpha1.ReasonGitOpsPRUnchanged, gitOpsPRReason(policy))
+	assert.Equal(t, firstFP, policy.Annotations[annotationGitOpsPRDrift])
+
+	// New recommendation is a different fingerprint: proceed after cooldown.
+	recs[0].Containers[0].Recommended.CPURequest = resource.MustParse("200m")
+	r.reconcileGitOpsPullRequest(context.Background(), policy, []client.Object{dep}, recs)
+	assert.Equal(t, attunev1alpha1.ReasonGitOpsPRDryRun, gitOpsPRReason(policy))
+	assert.NotEqual(t, firstFP, policy.Annotations[annotationGitOpsPRDrift])
+}
+
+func gitOpsPRReason(policy *attunev1alpha1.AttunePolicy) string {
+	for _, cond := range policy.Status.Conditions {
+		if cond.Type == attunev1alpha1.ConditionGitOpsPullRequest {
+			return cond.Reason
+		}
+	}
+	return ""
+}
+
 func TestReconcileGitOpsPullRequest_IncompleteConfig(t *testing.T) {
 	t.Parallel()
 	scheme := runtime.NewScheme()
