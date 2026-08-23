@@ -32,6 +32,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -59,8 +60,8 @@ import (
 //     exercised the way a live node does)
 //   - cAdvisor / Prometheus scrape
 // Those stay in test/e2e and test/e2e-go (MemoryPressure, OOMKill, scrape).
-// These tests intercept AttunePolicy status Patch/Update and check
-// persist/status idempotency only.
+// These tests intercept AttunePolicy status Patch/Update and Pod
+// annotation persist (r.Update). They do not call kubelet /resize.
 
 // faultMgrSeq keeps controller names unique across -count=N reruns in
 // the same process (controller-runtime names are process-global).
@@ -132,6 +133,81 @@ func isPolicyStatusUpdate(subResource string, obj client.Object) bool {
 	}
 	_, ok := obj.(*attunev1alpha1.AttunePolicy)
 	return ok
+}
+
+func isPodObject(obj client.Object) bool {
+	_, ok := obj.(*corev1.Pod)
+	return ok
+}
+
+func mustQuantity(t *testing.T, s string) resource.Quantity {
+	t.Helper()
+	q, err := resource.ParseQuantity(s)
+	require.NoError(t, err, "parse quantity %q", s)
+	return q
+}
+
+func persistContainerRec(t *testing.T) attunev1alpha1.ContainerRecommendation {
+	t.Helper()
+	return attunev1alpha1.ContainerRecommendation{
+		Name: "app",
+		Current: attunev1alpha1.ResourceValues{
+			CPURequest:    mustQuantity(t, "100m"),
+			CPULimit:      mustQuantity(t, "200m"),
+			MemoryRequest: mustQuantity(t, "128Mi"),
+			MemoryLimit:   mustQuantity(t, "256Mi"),
+		},
+	}
+}
+
+func createPersistPod(t *testing.T, cl client.Client, nsName, podName string) *corev1.Pod {
+	t.Helper()
+	ctx := context.Background()
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: nsName}}
+	require.NoError(t, cl.Create(ctx, ns), "create namespace")
+
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      podName,
+			Namespace: nsName,
+			Labels:    map[string]string{"app": podName},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name:  "app",
+				Image: "registry.k8s.io/pause:3.9",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    mustQuantity(t, "100m"),
+						corev1.ResourceMemory: mustQuantity(t, "128Mi"),
+					},
+					Limits: corev1.ResourceList{
+						corev1.ResourceCPU:    mustQuantity(t, "200m"),
+						corev1.ResourceMemory: mustQuantity(t, "256Mi"),
+					},
+				},
+			}},
+		},
+	}
+	require.NoError(t, cl.Create(ctx, pod), "create pod")
+	return pod
+}
+
+func assertTrackingAnnotationsOnce(t *testing.T, pod *corev1.Pod, policyName, workloadName string) {
+	t.Helper()
+	require.NotNil(t, pod.Annotations, "tracking annotations must be present")
+	assert.Equal(t, "app", pod.Annotations["attune.io/resized-containers"],
+		"resized-containers must list app once")
+	assert.Equal(t, workloadName, pod.Annotations["attune.io/resized-workload"])
+	assert.Equal(t, policyName, pod.Annotations["attune.io/policy"])
+	assert.Equal(t, "100m", pod.Annotations["attune.io/original-cpu-request.app"])
+	assert.Equal(t, "128Mi", pod.Annotations["attune.io/original-memory-request.app"])
+	assert.Equal(t, "200m", pod.Annotations["attune.io/original-cpu-limit.app"])
+	assert.Equal(t, "256Mi", pod.Annotations["attune.io/original-memory-limit.app"])
+	assert.Equal(t, "3", pod.Annotations["attune.io/original-restart-count.app"])
+	assert.NotEmpty(t, pod.Annotations["attune.io/resized-at"])
+	require.NotNil(t, pod.Labels)
+	assert.Equal(t, "true", pod.Labels["attune.io/tracked"])
 }
 
 func readyReason(policy *attunev1alpha1.AttunePolicy) string {
@@ -424,4 +500,107 @@ func TestAPIFault_ManagerRestartMidReconcile(t *testing.T) {
 		return apierrors.IsNotFound(plain.Get(context.Background(), key, &gone))
 	}, 30*time.Second, 200*time.Millisecond,
 		"cleanup finalizer must be removed so the policy does not stay Terminating")
+}
+
+// TestAPIFault_TimeoutAfterCommittedAnnotationPersist lets the apiserver
+// commit a pod Update that writes resize-tracking annotations, then returns
+// a timeout to persistResizeAnnotations. A retry must not duplicate
+// resized-containers. This is persist only; envtest still has no kubelet
+// /resize.
+func TestAPIFault_TimeoutAfterCommittedAnnotationPersist(t *testing.T) {
+	cfg, plain := startIsolatedEnvtest(t)
+	pod := createPersistPod(t, plain, "fault-persist-timeout", "persist-app")
+	rec := persistContainerRec(t)
+	now := metav1.NewTime(time.Date(2026, 2, 1, 15, 0, 0, 0, time.UTC))
+
+	var podUpdates atomic.Int32
+	intercepted := interceptor.NewClient(plain, interceptor.Funcs{
+		Update: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+			if !isPodObject(obj) {
+				return cl.Update(ctx, obj, opts...)
+			}
+			if err := cl.Update(ctx, obj, opts...); err != nil {
+				return err
+			}
+			if podUpdates.Add(1) == 1 {
+				return apierrors.NewTimeoutError("injected timeout after committed annotation persist", 0)
+			}
+			return nil
+		},
+	})
+
+	r := newFaultReconciler(t, intercepted, cfg)
+	working := pod.DeepCopy()
+	reason, firstErr := r.PersistResizeAnnotationsForTest(
+		context.Background(), working, rec, "policy-persist", "persist-app", now, 3)
+	require.Error(t, firstErr, "first persist must surface the injected timeout")
+	assert.Equal(t, "annotation-persist-failed", reason)
+	assert.GreaterOrEqual(t, podUpdates.Load(), int32(1), "interceptor must commit then fail")
+
+	var afterTimeout corev1.Pod
+	require.NoError(t, plain.Get(context.Background(), types.NamespacedName{
+		Name: pod.Name, Namespace: pod.Namespace,
+	}, &afterTimeout), "committed persist must be visible via a fresh GET")
+	assertTrackingAnnotationsOnce(t, &afterTimeout, "policy-persist", "persist-app")
+	assert.Equal(t, now.UTC().Format(time.RFC3339), afterTimeout.Annotations["attune.io/resized-at"])
+
+	working = afterTimeout.DeepCopy()
+	reason, retryErr := r.PersistResizeAnnotationsForTest(
+		context.Background(), working, rec, "policy-persist", "persist-app", now, 3)
+	require.NoError(t, retryErr, "retry after persist timeout must succeed")
+	assert.Empty(t, reason)
+
+	var final corev1.Pod
+	require.NoError(t, plain.Get(context.Background(), types.NamespacedName{
+		Name: pod.Name, Namespace: pod.Namespace,
+	}, &final))
+	assertTrackingAnnotationsOnce(t, &final, "policy-persist", "persist-app")
+	assert.Equal(t, now.UTC().Format(time.RFC3339), final.Annotations["attune.io/resized-at"],
+		"retry must keep the same resized-at when persist is called with the same now")
+}
+
+// TestAPIFault_AnnotationPersist409ThenSuccess returns Conflict on the first
+// two pod Updates, then passthrough. persistResizeAnnotations retries
+// conflicts and must leave tracking annotations once.
+func TestAPIFault_AnnotationPersist409ThenSuccess(t *testing.T) {
+	cfg, plain := startIsolatedEnvtest(t)
+	pod := createPersistPod(t, plain, "fault-persist-409", "conflict-persist")
+	rec := persistContainerRec(t)
+	now := metav1.NewTime(time.Date(2026, 2, 1, 16, 0, 0, 0, time.UTC))
+
+	var conflicts atomic.Int32
+	intercepted := interceptor.NewClient(plain, interceptor.Funcs{
+		Update: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+			if !isPodObject(obj) {
+				return cl.Update(ctx, obj, opts...)
+			}
+			if n := conflicts.Add(1); n <= 2 {
+				return apierrors.NewConflict(
+					schema.GroupResource{Group: "", Resource: "pods"},
+					obj.GetName(),
+					fmt.Errorf("injected pod persist conflict %d", n),
+				)
+			}
+			return cl.Update(ctx, obj, opts...)
+		},
+	})
+
+	r := newFaultReconciler(t, intercepted, cfg)
+	working := pod.DeepCopy()
+	var reason string
+	var err error
+	require.NotPanics(t, func() {
+		reason, err = r.PersistResizeAnnotationsForTest(
+			context.Background(), working, rec, "policy-persist-409", "conflict-persist", now, 3)
+	})
+	require.NoError(t, err, "two persist 409s then success must not fail persist")
+	assert.Empty(t, reason)
+	assert.GreaterOrEqual(t, conflicts.Load(), int32(3),
+		"interceptor must see two conflicts plus the successful write")
+
+	var final corev1.Pod
+	require.NoError(t, plain.Get(context.Background(), types.NamespacedName{
+		Name: pod.Name, Namespace: pod.Namespace,
+	}, &final))
+	assertTrackingAnnotationsOnce(t, &final, "policy-persist-409", "conflict-persist")
 }
