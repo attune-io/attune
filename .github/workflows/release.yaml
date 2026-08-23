@@ -309,8 +309,14 @@ jobs:
         shell: bash
         run: |
           TAG="${{ steps.tag.outputs.name }}"
+          BARE="${TAG#v}"
           NL=$'\n'
           TAGS="${REGISTRY}/${IMAGE_NAME}:${TAG}${NL}docker.io/attuneio/attune:${TAG}"
+          # Also publish the bare SemVer tag so older charts that used
+          # Chart.appVersion (no v prefix) as the image tag still pull.
+          if [ "${BARE}" != "${TAG}" ]; then
+            TAGS="${TAGS}${NL}${REGISTRY}/${IMAGE_NAME}:${BARE}${NL}docker.io/attuneio/attune:${BARE}"
+          fi
           # Skip :latest on re-releases to avoid overwriting a newer release
           if [ -z "${{ inputs.tag }}" ]; then
             TAGS="${TAGS}${NL}${REGISTRY}/${IMAGE_NAME}:latest${NL}docker.io/attuneio/attune:latest"
@@ -498,6 +504,9 @@ jobs:
           sed -i "s/^appVersion:.*/appVersion: ${VERSION}/" charts/attune/Chart.yaml
 
           helm package charts/attune
+          # Fail closed if the packaged chart would pull a tag that does
+          # not exist (bare appVersion vs v-prefixed image tags, #546).
+          bash hack/verify-helm-image-tag.sh
           helm push attune-${VERSION}.tgz oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts
 
       - uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2 (includes 1.3.2)

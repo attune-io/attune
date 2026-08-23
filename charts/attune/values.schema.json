@@ -29,7 +29,7 @@
         "tag": {
           "type": "string",
           "default": "",
-          "description": "Image tag (defaults to Chart appVersion)"
+          "description": "Image tag. Empty uses a v prefix plus Chart appVersion (published images are tagged vX.Y.Z)."
         }
       }
     },

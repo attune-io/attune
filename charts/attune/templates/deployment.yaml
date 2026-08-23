@@ -33,7 +33,7 @@ spec:
       {{- end }}
       containers:
         - name: manager
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: "{{ .Values.image.repository }}:{{ include "attune.imageTag" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args:
             - --health-probe-bind-address=:8081

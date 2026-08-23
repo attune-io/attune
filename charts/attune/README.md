@@ -48,7 +48,7 @@ helm install attune oci://ghcr.io/attune-io/charts/attune \
 | grafanaFleetDashboard.enabled | bool | `false` | Create a ConfigMap with the multi-cluster fleet Grafana dashboard (cluster variable). Use with federated Prometheus that has external_labels.cluster on each scrape. |
 | image.pullPolicy | string | `"IfNotPresent"` | Image pull policy |
 | image.repository | string | `"ghcr.io/attune-io/attune"` | Container image repository |
-| image.tag | string | `""` | Image tag (defaults to Chart appVersion) |
+| image.tag | string | `""` | Image tag. Empty uses a `v` prefix plus Chart appVersion (published images are tagged `vX.Y.Z`, not `X.Y.Z`). |
 | imagePullSecrets | list | `[]` | Image pull secrets |
 | initialSizing | object | `{"enabled":false}` | Initial sizing webhook configuration. When enabled, a mutating webhook sets pod resource requests at creation time based on existing AttunePolicy recommendations. Requires namespace label attune.io/initial-sizing=enabled and initialSizing: true on the policy. |
 | initialSizing.enabled | bool | `false` | Enable the pod initial sizing mutating webhook. |

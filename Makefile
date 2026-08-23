@@ -88,6 +88,10 @@ verify-prometheusrule-metrics: ## Verify PrometheusRule alert expressions use re
 verify-helm-schema-fields: ## Verify Helm values.schema.json field names match CRD field names
 	@bash hack/verify-helm-schema-fields.sh
 
+.PHONY: verify-helm-image-tag
+verify-helm-image-tag: ## Verify Helm default image tag is v + Chart.appVersion
+	@bash hack/verify-helm-image-tag.sh
+
 .PHONY: verify-release-artifacts
 verify-release-artifacts: kustomize ## Verify release artifacts generate cleanly and, if present, match current sources
 	@repo_root=$$(pwd); \
@@ -126,7 +130,7 @@ ci-runner-status: ## Show queued/in-progress CI runs
 	fi
 
 .PHONY: verify-quick
-verify-quick: lint yaml-lint lint-chainsaw test python-test helm-lint helm-docs-check helm-unittest verify-boilerplate tidy-check verify-doc-defaults verify-helm-rbac verify-dashboard-metrics verify-doc-tool-versions verify-go-version-sync verify-prometheusrule-metrics verify-helm-schema-fields verify-release-artifacts ## Fast pre-commit checks (no integration tests or govulncheck)
+verify-quick: lint yaml-lint lint-chainsaw test python-test helm-lint helm-docs-check helm-unittest verify-boilerplate tidy-check verify-doc-defaults verify-helm-rbac verify-dashboard-metrics verify-doc-tool-versions verify-go-version-sync verify-prometheusrule-metrics verify-helm-schema-fields verify-helm-image-tag verify-release-artifacts ## Fast pre-commit checks (no integration tests or govulncheck)
 
 .PHONY: verify
 verify: verify-quick test-integration govulncheck ## Run all CI checks locally (includes integration tests)
@@ -230,10 +234,11 @@ test-fuzz: ## Run fuzz tests (coverage-guided; FUZZTIME=30s default, deadline-fl
 	./scripts/run-fuzz.sh
 
 .PHONY: python-test
-python-test: ## Run helper script tests (fossa-filter, run-fuzz classifier, go-version sync)
+python-test: ## Run helper script tests (fossa-filter, run-fuzz classifier, go-version sync, helm image tag)
 	python3 scripts/test_fossa_filter.py -v
 	bash scripts/test_run_fuzz.sh
 	bash scripts/test_verify_go_version_sync.sh
+	bash scripts/test_verify_helm_image_tag.sh
 
 .PHONY: test-bench
 test-bench: ## Run benchmark tests

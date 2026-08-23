@@ -7,7 +7,7 @@ This page documents every value in the Helm chart's `values.yaml`.
 | `replicaCount` | int | `1` | Number of operator replicas. Set to `2` for HA with leader election. |
 | `image.repository` | string | `ghcr.io/attune-io/attune` | Container image repository |
 | `image.pullPolicy` | string | `IfNotPresent` | Image pull policy |
-| `image.tag` | string | `""` | Image tag. Defaults to the chart's `appVersion`. |
+| `image.tag` | string | `""` | Image tag. When empty, the chart uses `v` plus `appVersion` so the pull matches published tags such as `v0.1.23`. |
 | `imagePullSecrets` | list | `[]` | Image pull secrets for private registries |
 | `nameOverride` | string | `""` | Override the chart name |
 | `fullnameOverride` | string | `""` | Override the fully qualified app name |
