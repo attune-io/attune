@@ -70,6 +70,8 @@ jobs:
               - 'Makefile'
             helm:
               - 'charts/**'
+              - 'hack/verify-helm-image-tag.sh'
+              - 'scripts/test_verify_helm_image_tag.sh'
             yaml:
               - 'config/**'
               - '.github/workflows/**'
@@ -777,6 +779,12 @@ jobs:
       - name: Verify Helm RBAC matches kustomize
         shell: bash -Eeuo pipefail {0}
         run: bash hack/verify-helm-rbac.sh
+
+      - name: Verify default image tag is v + appVersion
+        shell: bash -Eeuo pipefail {0}
+        run: |
+          bash scripts/test_verify_helm_image_tag.sh
+          bash hack/verify-helm-image-tag.sh
 
   build:
     name: Build

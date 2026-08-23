@@ -1,7 +1,10 @@
 ## Version scheme
 
 Attune follows [Semantic Versioning](https://semver.org/). The Helm
-chart version and `appVersion` are kept in sync in `charts/attune/Chart.yaml`.
+chart version and `appVersion` are kept in sync in `charts/attune/Chart.yaml`
+as bare SemVer (`0.1.23`, no `v`). Git tags and container images use the
+`v` prefix (`v0.1.23`). The chart templates `v` plus `appVersion` when
+`image.tag` is empty so a default install pulls a published image.
 
 ## Release process
 

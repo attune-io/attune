@@ -1024,6 +1024,28 @@ update a PR. Common cases:
 
 See [GitOps integration: pull request automation](gitops-integration.md#pull-request-automation-opt-in-phase-b).
 
+## Helm install ImagePullBackOff
+
+**Symptom:** After `helm install` from `oci://ghcr.io/attune-io/charts/attune`,
+the operator pod stays `0/1` with `ErrImagePull` or `ImagePullBackOff` for
+`ghcr.io/attune-io/attune:0.1.x` (no `v` prefix).
+
+**Cause:** Chart `appVersion` is SemVer without `v`. Release images are
+tagged `vX.Y.Z`. Charts through 0.1.23 used bare `appVersion` as the
+image tag when `image.tag` was empty.
+
+**Fix:** Pin a published tag, then upgrade:
+
+```bash
+helm upgrade attune oci://ghcr.io/attune-io/charts/attune \
+  --namespace attune-system \
+  --reuse-values \
+  --set image.tag=v0.1.23
+```
+
+Newer charts default to `v` plus `appVersion`. You can still override
+`image.tag` for local or E2E images.
+
 ## Debug commands
 
 Operator logs:

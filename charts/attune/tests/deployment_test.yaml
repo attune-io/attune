@@ -9,12 +9,40 @@ tests:
       - equal:
           path: spec.replicas
           value: 1
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: ^ghcr\.io/attune-io/attune:v[0-9]+\.[0-9]+\.[0-9]+$
       - equal:
           path: spec.template.spec.containers[0].securityContext.runAsNonRoot
           value: true
       - equal:
           path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
           value: true
+
+  - it: should default image tag to v-prefixed appVersion not bare SemVer
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: :v[0-9]+\.[0-9]+\.[0-9]+$
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: :[0-9]+\.[0-9]+\.[0-9]+$
+
+  - it: should use explicit image.tag without adding a v prefix
+    set:
+      image.tag: e2e
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/attune-io/attune:e2e
+
+  - it: should keep an explicit v-prefixed image.tag unchanged
+    set:
+      image.tag: v0.1.23
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/attune-io/attune:v0.1.23
 
   - it: should set replicas from values
     set:

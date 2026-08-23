@@ -62,6 +62,18 @@ Create the name of the service account to use.
 {{- end }}
 
 {{/*
+Published images are vX.Y.Z; appVersion is SemVer without v.
+Prefix v when image.tag is empty. trimPrefix avoids vv.
+*/}}
+{{- define "attune.imageTag" -}}
+{{- if .Values.image.tag -}}
+{{- .Values.image.tag -}}
+{{- else -}}
+{{- printf "v%s" (.Chart.AppVersion | trimPrefix "v") -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 Cluster size preset defaults. Returns nothing if clusterSize is empty.
 Explicit values in values.yaml always override these presets.
 */}}

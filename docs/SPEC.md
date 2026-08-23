@@ -1219,7 +1219,7 @@ charts/attune/
 
 **Key values.yaml fields**:
 - `replicaCount` (default: 1, HA: 2 with leader election)
-- `image.repository`, `image.tag`
+- `image.repository`, `image.tag` (empty tag renders `v` plus `appVersion`)
 - `resources` (operator pod resources)
 - `metrics.enabled` (expose /metrics)
 - `securityContext` (non-root, read-only root filesystem, drop all capabilities)
