@@ -7124,6 +7124,165 @@ func (f *failOnPodUpdateClient) Update(ctx context.Context, obj client.Object, o
 	return f.Client.Update(ctx, obj, opts...)
 }
 
+// commitThenTimeoutPodClient commits the pod Update, mirrors it into the
+// Clientset (persist confirm Get is a Clientset read), then returns timeout
+// on the first N pod Updates.
+type commitThenTimeoutPodClient struct {
+	client.Client
+	cs           *kubefake.Clientset
+	timeoutsLeft int
+	timeoutsSeen int
+}
+
+func (c *commitThenTimeoutPodClient) Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
+	pod, ok := obj.(*corev1.Pod)
+	if !ok {
+		return c.Client.Update(ctx, obj, opts...)
+	}
+	if err := c.Client.Update(ctx, obj, opts...); err != nil {
+		return err
+	}
+	if _, err := c.cs.CoreV1().Pods(pod.Namespace).Update(ctx, pod.DeepCopy(), metav1.UpdateOptions{}); err != nil {
+		return err
+	}
+	if c.timeoutsLeft > 0 {
+		c.timeoutsLeft--
+		c.timeoutsSeen++
+		return apierrors.NewTimeoutError("injected timeout after committed annotation persist", 0)
+	}
+	return nil
+}
+
+func persistMainRec(t *testing.T) attunev1alpha1.ContainerRecommendation {
+	t.Helper()
+	parse := func(s string) resource.Quantity {
+		t.Helper()
+		q, err := resource.ParseQuantity(s)
+		require.NoError(t, err, "parse quantity %q", s)
+		return q
+	}
+	return attunev1alpha1.ContainerRecommendation{
+		Name: "main",
+		Current: attunev1alpha1.ResourceValues{
+			CPURequest:    parse("500m"),
+			CPULimit:      parse("1000m"),
+			MemoryRequest: parse("512Mi"),
+			MemoryLimit:   parse("1Gi"),
+		},
+	}
+}
+
+func TestPersistResizeAnnotations_TimeoutAfterCommitTreatsAsSuccess(t *testing.T) {
+	pod := newResizePodWithStatus("api-server", "500m", "512Mi", "1000m", "1Gi", 3)
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod.DeepCopy()).Build()
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+	wrapped := &commitThenTimeoutPodClient{Client: fakeClient, cs: clientset, timeoutsLeft: 1}
+
+	r := NewAttunePolicyReconciler()
+	r.Client = wrapped
+	r.Scheme = scheme
+	r.Clientset = clientset
+
+	now := metav1.NewTime(time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC))
+	working := pod.DeepCopy()
+	reason, err := r.persistResizeAnnotations(context.Background(), working, persistMainRec(t),
+		"test-policy", "api-server", now, 3)
+	require.NoError(t, err, "committed persist plus client timeout must be treated as success")
+	assert.Empty(t, reason)
+	assert.Equal(t, 1, wrapped.timeoutsSeen)
+
+	var stored corev1.Pod
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: pod.Name, Namespace: pod.Namespace,
+	}, &stored))
+	assert.Equal(t, "main", stored.Annotations[annotationResizedContainers])
+	assert.Equal(t, now.UTC().Format(time.RFC3339), stored.Annotations[annotationResizedAt])
+	assert.Equal(t, "test-policy", stored.Annotations[annotationPolicy])
+	assert.Equal(t, "true", stored.Labels[labelTracked])
+	assert.Equal(t, now.UTC().Format(time.RFC3339), working.Annotations[annotationResizedAt],
+		"in-memory pod must receive the confirmed annotations")
+}
+
+func TestExecuteResizes_TimeoutAfterCommitDoesNotRevert(t *testing.T) {
+	pod := newResizePodWithStatus("api-server", "500m", "512Mi", "1000m", "1Gi", 3)
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod.DeepCopy()).Build()
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+	wrapped := &commitThenTimeoutPodClient{Client: fakeClient, cs: clientset, timeoutsLeft: 1}
+
+	r := NewAttunePolicyReconciler()
+	r.Client = wrapped
+	r.Scheme = scheme
+	r.Clientset = clientset
+	r.Recorder = events.NewFakeRecorder(10)
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeOneShot
+	recommendations := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("api-server", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),
+	}
+
+	count, history := r.executeResizes(context.Background(), policy, []client.Object{deploy},
+		recommendations, podMap("api-server", pod), nil, nil)
+	require.Equal(t, 1, count, "resize must stick when persist committed before the timeout")
+	require.NotEmpty(t, history)
+	for _, h := range history {
+		assert.NotEqual(t, attunev1alpha1.ResizeResultReverted, h.Result,
+			"must not revert a resize whose tracking annotations already landed")
+	}
+
+	var resizeCalls int
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			resizeCalls++
+		}
+	}
+	assert.Equal(t, 1, resizeCalls, "only the original UpdateResize; no revert")
+	assert.Equal(t, 1, wrapped.timeoutsSeen)
+}
+
+func TestTrackingAnnotationsApplied(t *testing.T) {
+	intended := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels: map[string]string{labelTracked: "true"},
+			Annotations: map[string]string{
+				annotationResizedAt:                           "2026-03-01T12:00:00Z",
+				annotationResizedWorkload:                     "api-server",
+				annotationPolicy:                              "test-policy",
+				annotationResizedContainers:                   "main",
+				annotationOriginalCPUPrefix + "main":          "500m",
+				annotationOriginalMemoryPrefix + "main":       "512Mi",
+				annotationOriginalCPULimitPrefix + "main":     "1000m",
+				annotationOriginalMemoryLimitPrefix + "main":  "1Gi",
+				annotationOriginalRestartCountPrefix + "main": "3",
+			},
+		},
+	}
+	clone := func() *corev1.Pod { return intended.DeepCopy() }
+
+	t.Run("match", func(t *testing.T) {
+		assert.True(t, trackingAnnotationsApplied(clone(), intended, "main"))
+	})
+	t.Run("stale resized-at is not this persist", func(t *testing.T) {
+		got := clone()
+		got.Annotations[annotationResizedAt] = "2026-01-01T00:00:00Z"
+		assert.False(t, trackingAnnotationsApplied(got, intended, "main"))
+	})
+	t.Run("missing container", func(t *testing.T) {
+		got := clone()
+		got.Annotations[annotationResizedContainers] = "sidecar"
+		assert.False(t, trackingAnnotationsApplied(got, intended, "main"))
+	})
+	t.Run("container listed among others", func(t *testing.T) {
+		got := clone()
+		got.Annotations[annotationResizedContainers] = "sidecar,main"
+		assert.True(t, trackingAnnotationsApplied(got, intended, "main"))
+	})
+}
+
 type failOnNamedPodUpdateClient struct {
 	client.Client
 	failPodName string

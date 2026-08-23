@@ -698,6 +698,11 @@ func (r *AttunePolicyReconciler) resizeContainer(
 // pod status (conditions, containerStatuses) after a resize, bumping
 // resourceVersion. In multi-container pods the second container's annotation
 // persist races with the kubelet's status write from the first resize.
+//
+// A non-conflict write error (timeout after the apiserver committed) is not
+// treated as failure when a follow-up Get shows this persist's tracking
+// annotations already landed. Reverting in that case would roll the spec
+// back and leave stale tracking annotations.
 func (r *AttunePolicyReconciler) persistResizeAnnotations(
 	ctx context.Context,
 	pod *corev1.Pod,
@@ -746,14 +751,88 @@ func (r *AttunePolicyReconciler) persistResizeAnnotations(
 			*pod = *freshPod
 			return "", nil
 		}
-		if !apierrors.IsConflict(updateErr) {
-			logger.Error(updateErr, "Failed to persist resize tracking annotations, reverting resize", "pod", pod.Name)
+		if apierrors.IsConflict(updateErr) {
+			logger.Info("Annotation update conflict, retrying", "pod", pod.Name, "attempt", attempt+1, "maxRetries", maxRetries)
+			continue
+		}
+		// Timeout and other non-conflict errors can race a successful write.
+		// Confirm via Clientset Get (not the informer cache) before revert.
+		confirmed, confirmErr := r.confirmTrackingAnnotations(ctx, pod.Namespace, pod.Name, freshPod, containerRec.Name)
+		if confirmErr != nil {
+			logger.Error(confirmErr, "Failed to confirm annotation persist after write error",
+				"pod", pod.Name, "writeError", updateErr.Error())
 			return "annotation-persist-failed", updateErr
 		}
-		logger.Info("Annotation update conflict, retrying", "pod", pod.Name, "attempt", attempt+1, "maxRetries", maxRetries)
+		if confirmed != nil {
+			logger.Info("Annotation persist write error after committed tracking annotations; treating as success",
+				"pod", pod.Name, "writeError", updateErr.Error())
+			*pod = *confirmed
+			return "", nil
+		}
+		logger.Error(updateErr, "Failed to persist resize tracking annotations, reverting resize", "pod", pod.Name)
+		return "annotation-persist-failed", updateErr
 	}
 	logger.Error(nil, "Exhausted annotation persist retries, reverting resize", "pod", pod.Name, "maxRetries", maxRetries)
 	return "annotation-persist-conflict", fmt.Errorf("exhausted %d annotation persist retries", maxRetries)
+}
+
+// confirmTrackingAnnotations returns the live pod when a Clientset Get shows
+// that intended tracking annotations from this persist attempt already landed.
+// A nil pod and nil error means the write did not land.
+func (r *AttunePolicyReconciler) confirmTrackingAnnotations(
+	ctx context.Context, namespace, name string, intended *corev1.Pod, container string,
+) (*corev1.Pod, error) {
+	got, err := r.Clientset.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+	if trackingAnnotationsApplied(got, intended, container) {
+		return got, nil
+	}
+	return nil, nil
+}
+
+func trackingAnnotationsApplied(got, intended *corev1.Pod, container string) bool {
+	if got == nil || intended == nil || got.Annotations == nil || intended.Annotations == nil {
+		return false
+	}
+	keys := []string{
+		annotationResizedAt,
+		annotationResizedWorkload,
+		annotationPolicy,
+		annotationOriginalCPUPrefix + container,
+		annotationOriginalMemoryPrefix + container,
+		annotationOriginalRestartCountPrefix + container,
+	}
+	for _, k := range keys {
+		if intended.Annotations[k] == "" || got.Annotations[k] != intended.Annotations[k] {
+			return false
+		}
+	}
+	if lim := intended.Annotations[annotationOriginalCPULimitPrefix+container]; lim != "" &&
+		got.Annotations[annotationOriginalCPULimitPrefix+container] != lim {
+		return false
+	}
+	if lim := intended.Annotations[annotationOriginalMemoryLimitPrefix+container]; lim != "" &&
+		got.Annotations[annotationOriginalMemoryLimitPrefix+container] != lim {
+		return false
+	}
+	if !resizedContainersContains(got.Annotations[annotationResizedContainers], container) {
+		return false
+	}
+	if got.Labels[labelTracked] != "true" {
+		return false
+	}
+	return true
+}
+
+func resizedContainersContains(list, container string) bool {
+	for _, name := range strings.Split(list, ",") {
+		if strings.TrimSpace(name) == container {
+			return true
+		}
+	}
+	return false
 }
 
 // buildResizeTarget constructs the target ResourceRequirements from a container recommendation.

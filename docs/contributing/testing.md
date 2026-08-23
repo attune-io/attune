@@ -62,7 +62,10 @@ Envtest has no kubelet and no cAdvisor. It cannot exercise in-place
 `test/e2e` and `test/e2e-go`. The interceptor tests cover status
 writes and annotation persist retry only. The persist cases call
 `persistResizeAnnotations` through an integration-tag helper; they
-do not go through `UpdateResize`.
+do not go through `UpdateResize`. After a committed persist plus a
+client timeout, persist confirms the tracking annotations with a
+Clientset Get and treats the write as success so `resizeContainer`
+does not revert.
 
 ## E2E tests (Chainsaw)
 
