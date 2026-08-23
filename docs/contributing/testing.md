@@ -52,14 +52,17 @@ updated correctly.
 
 `test/integration/api_fault_test.go` adds scripted API faults via a
 controller-runtime client interceptor (timeout after a committed status
-write, two status 409s then success, and a manager restart mid-reconcile).
-Those cases use a dedicated envtest control plane so they do not race
-the shared TestMain manager.
+write, two status 409s then success, a manager restart mid-reconcile,
+timeout after a committed pod annotation persist, and two pod-Update
+409s then success). Those cases use a dedicated envtest control plane
+so they do not race the shared TestMain manager.
 
 Envtest has no kubelet and no cAdvisor. It cannot exercise in-place
 `pods/resize`, MemoryPressure, or Prometheus scrape. Those stay in
 `test/e2e` and `test/e2e-go`. The interceptor tests cover status
-persist and retry only.
+writes and annotation persist retry only. The persist cases call
+`persistResizeAnnotations` through an integration-tag helper; they
+do not go through `UpdateResize`.
 
 ## E2E tests (Chainsaw)
 
