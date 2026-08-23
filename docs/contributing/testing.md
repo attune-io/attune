@@ -50,6 +50,17 @@ Integration tests verify the full reconciliation loop: creating a
 AttunePolicy, injecting mock metrics, and asserting that status is
 updated correctly.
 
+`test/integration/api_fault_test.go` adds scripted API faults via a
+controller-runtime client interceptor (timeout after a committed status
+write, two status 409s then success, and a manager restart mid-reconcile).
+Those cases use a dedicated envtest control plane so they do not race
+the shared TestMain manager.
+
+Envtest has no kubelet and no cAdvisor. It cannot exercise in-place
+`pods/resize`, MemoryPressure, or Prometheus scrape. Those stay in
+`test/e2e` and `test/e2e-go`. The interceptor tests cover status
+persist and retry only.
+
 ## E2E tests (Chainsaw)
 
 End-to-end tests run against a real Kubernetes cluster using
