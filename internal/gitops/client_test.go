@@ -130,6 +130,52 @@ func TestGitHubClient_Create_BootstrapsMissingHead(t *testing.T) {
 	assert.Contains(t, joined, "POST /repos/org/repo/pulls")
 }
 
+func TestGitHubClient_Create_AgainAfterHeadDeleted(t *testing.T) {
+	t.Parallel()
+	var pullCreates int
+	client := &GitHubClient{
+		Token:      "tok",
+		Repository: "org/repo",
+		HTTP: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			path := r.URL.Path
+			switch {
+			case r.Method == http.MethodGet && strings.Contains(path, "/pulls"):
+				// Merged + branch deleted: no open PR.
+				return jsonResp(200, "[]"), nil
+			case r.Method == http.MethodGet && strings.Contains(path, "/git/ref/heads/attune/x"):
+				return jsonResp(404, `{"message":"Not Found"}`), nil
+			case r.Method == http.MethodGet && strings.Contains(path, "/git/ref/heads/main"):
+				return jsonResp(200, map[string]interface{}{
+					"object": map[string]string{"sha": "base-sha"},
+				}), nil
+			case r.Method == http.MethodGet && strings.Contains(path, "/git/commits/base-sha"):
+				return jsonResp(200, map[string]interface{}{
+					"tree": map[string]string{"sha": "tree-sha"},
+				}), nil
+			case r.Method == http.MethodPost && strings.HasSuffix(path, "/git/commits"):
+				return jsonResp(201, map[string]string{"sha": "new-commit-sha"}), nil
+			case r.Method == http.MethodPost && strings.HasSuffix(path, "/git/refs"):
+				return jsonResp(201, map[string]interface{}{
+					"ref": "refs/heads/attune/x",
+				}), nil
+			case r.Method == http.MethodPost && strings.HasSuffix(path, "/pulls"):
+				pullCreates++
+				return jsonResp(201, map[string]interface{}{
+					"number": pullCreates, "html_url": "https://github.com/org/repo/pull/1",
+				}), nil
+			default:
+				return jsonResp(500, `{"message":"unexpected `+r.Method+` `+path+`"}`), nil
+			}
+		}),
+	}
+	req := PRRequest{Title: "t", Body: "same table", Head: "attune/x", Base: "main"}
+	_, err := client.CreateOrUpdate(context.Background(), req)
+	require.NoError(t, err)
+	_, err = client.CreateOrUpdate(context.Background(), req)
+	require.NoError(t, err)
+	assert.Equal(t, 2, pullCreates, "client will open a second empty PR if asked after merge")
+}
+
 func TestGitLabClient_Create_BootstrapsMissingHead(t *testing.T) {
 	t.Parallel()
 	var methods []string

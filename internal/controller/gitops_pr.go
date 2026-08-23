@@ -129,7 +129,9 @@ func (r *AttunePolicyReconciler) reconcileGitOpsPullRequest(
 	}
 
 	var prClient gitops.PullRequestClient
-	{
+	if r.gitopsPRClient != nil {
+		prClient = r.gitopsPRClient
+	} else {
 		token, err := r.readSecretKey(ctx, policy.Namespace, cfg.TokenSecretRef.Name, cfg.TokenSecretRef.Key)
 		if err != nil {
 			// Do not include secret name details that might confuse with token material.

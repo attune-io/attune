@@ -5,6 +5,7 @@ package controller
 
 import (
 	"context"
+	"strconv"
 	"testing"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/gitops"
 	"github.com/attune-io/attune/internal/operatormetrics"
 )
 
@@ -392,6 +394,41 @@ func TestReconcileGitOpsPullRequest_DryRunIncrementsMetric(t *testing.T) {
 	assert.Equal(t, attunev1alpha1.ReasonGitOpsPRDryRun, reason)
 }
 
+// recordingPRClient is a fake forge. After SimulateMerge, the next
+// CreateOrUpdate would open a new PR (empty list + missing head), matching
+// GitHub after squash-merge deletes the recommendation branch.
+type recordingPRClient struct {
+	calls         []gitops.PRRequest
+	merged        bool
+	createsAfter  int // CreateOrUpdate calls after SimulateMerge
+	createsBefore int
+}
+
+func (c *recordingPRClient) CreateOrUpdate(_ context.Context, req gitops.PRRequest) (gitops.PRResult, error) {
+	c.calls = append(c.calls, req)
+	if c.merged {
+		c.createsAfter++
+		n := c.createsBefore + c.createsAfter
+		return gitops.PRResult{
+			URL: "https://github.com/org/repo/pull/" + itoaPR(n), Number: n, Updated: false,
+		}, nil
+	}
+	c.createsBefore++
+	return gitops.PRResult{
+		URL:    "https://github.com/org/repo/pull/" + itoaPR(c.createsBefore),
+		Number: c.createsBefore, Updated: c.createsBefore > 1,
+	}, nil
+}
+
+func (c *recordingPRClient) SimulateMerge() { c.merged = true }
+
+func itoaPR(n int) string {
+	if n < 0 {
+		n = 0
+	}
+	return strconv.Itoa(n)
+}
+
 func TestReconcileGitOpsPullRequest_UnchangedDriftSkipsAfterCooldown(t *testing.T) {
 	t.Parallel()
 	scheme := runtime.NewScheme()
@@ -475,6 +512,88 @@ func gitOpsPRReason(policy *attunev1alpha1.AttunePolicy) string {
 		}
 	}
 	return ""
+}
+
+func TestReconcileGitOpsPullRequest_LivePathDoesNotRecreateAfterMerge(t *testing.T) {
+	t.Parallel()
+	scheme := runtime.NewScheme()
+	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+
+	en := true
+	dry := false
+	start := time.Date(2026, 8, 20, 12, 0, 0, 0, time.UTC)
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "authentik", Namespace: "authentik"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Export: &attunev1alpha1.ExportConfig{
+					PullRequest: &attunev1alpha1.GitOpsPullRequestConfig{
+						Enabled:    &en,
+						DryRun:     &dry,
+						Repository: "org/repo",
+						TokenSecretRef: &attunev1alpha1.SecretKeyRef{
+							Name: "tok", Key: "token",
+						},
+					},
+				},
+			},
+		},
+	}
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "authentik"},
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name: "app",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("1"),
+							},
+						},
+					}},
+				},
+			},
+		},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(policy, dep).Build()
+	fakeForge := &recordingPRClient{}
+	r := NewAttunePolicyReconciler()
+	r.Client = c
+	r.gitopsPRClient = fakeForge
+	now := start
+	r.SetNowFunc(func() time.Time { return now })
+	recs := []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "api", Kind: "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "app",
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest: resource.MustParse("100m"),
+			},
+		}},
+	}}
+
+	r.reconcileGitOpsPullRequest(context.Background(), policy, []client.Object{dep}, recs)
+	require.Equal(t, attunev1alpha1.ReasonGitOpsPROpen, gitOpsPRReason(policy))
+	require.Equal(t, 1, fakeForge.createsBefore, "first cycle opens one PR")
+	require.Equal(t, 0, fakeForge.createsAfter)
+
+	// User merged the empty PR; GitHub deleted the head branch.
+	fakeForge.SimulateMerge()
+	now = start.Add(25 * time.Hour)
+	r.reconcileGitOpsPullRequest(context.Background(), policy, []client.Object{dep}, recs)
+	assert.Equal(t, attunev1alpha1.ReasonGitOpsPRUnchanged, gitOpsPRReason(policy))
+	assert.Equal(t, 0, fakeForge.createsAfter, "same drift after merge must not CreateOrUpdate")
+	assert.Equal(t, 1, len(fakeForge.calls))
+
+	// Real new drift still opens after cooldown.
+	recs[0].Containers[0].Recommended.CPURequest = resource.MustParse("200m")
+	r.reconcileGitOpsPullRequest(context.Background(), policy, []client.Object{dep}, recs)
+	assert.Equal(t, attunev1alpha1.ReasonGitOpsPROpen, gitOpsPRReason(policy))
+	assert.Equal(t, 1, fakeForge.createsAfter, "changed drift may open a new PR")
+	assert.Equal(t, 2, len(fakeForge.calls))
 }
 
 func TestReconcileGitOpsPullRequest_IncompleteConfig(t *testing.T) {
