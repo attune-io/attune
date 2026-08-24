@@ -56,8 +56,7 @@ kubectl create namespace attune-system
 helm install attune \
   oci://ghcr.io/attune-io/charts/attune \
   --namespace attune-system \
-  --set openshift.enabled=true \
-  --set image.tag=v0.1.23
+  --set openshift.enabled=true
 ```
 
 The `openshift.enabled=true` flag adds OpenShift-specific RBAC (read

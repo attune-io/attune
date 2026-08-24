@@ -253,9 +253,8 @@ Fuzz targets are defined in `internal/recommendation/fuzz_test.go`
 
 `make python-test` also runs the Helm default-image-tag classifier
 (`scripts/test_verify_helm_image_tag.sh`) and the release dual-tag
-classifier (`scripts/test_release_image_tags.sh`). Those catch a
-missing `v` prefix on the operator image and a dropped bare SemVer
-alias on the next release.
+classifier (`scripts/test_release_image_tags.sh`). Those catch a `v`-prefix regression on the default Helm image tag and a
+dropped bare SemVer alias on the next release.
 
 ## Running all tests
 

@@ -89,7 +89,7 @@ verify-helm-schema-fields: ## Verify Helm values.schema.json field names match C
 	@bash hack/verify-helm-schema-fields.sh
 
 .PHONY: verify-helm-image-tag
-verify-helm-image-tag: ## Verify Helm default image tag is v + Chart.appVersion
+verify-helm-image-tag: ## Verify Helm default image tag is Chart.appVersion (bare SemVer)
 	@bash hack/verify-helm-image-tag.sh
 
 .PHONY: verify-release-artifacts

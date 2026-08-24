@@ -62,15 +62,17 @@ Create the name of the service account to use.
 {{- end }}
 
 {{/*
-Published images are vX.Y.Z; appVersion is SemVer without v.
-Prefix v when image.tag is empty. trimPrefix avoids vv.
+Releases publish both vX.Y.Z and X.Y.Z. Chart.appVersion is SemVer
+without v. Empty image.tag uses that bare tag. trimPrefix avoids a
+leading v if appVersion is ever stored as vX.Y.Z. Explicit image.tag
+is used as-is (E2E, local, or a v-prefixed pin).
 */}}
 {{- define "attune.imageTag" -}}
 {{- $tag := .Values.image.tag | toString | trim -}}
 {{- if $tag -}}
 {{- $tag -}}
 {{- else -}}
-{{- printf "v%s" (.Chart.AppVersion | trimPrefix "v") -}}
+{{- .Chart.AppVersion | trimPrefix "v" -}}
 {{- end -}}
 {{- end }}
 

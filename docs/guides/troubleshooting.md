@@ -1030,9 +1030,9 @@ See [GitOps integration: pull request automation](gitops-integration.md#pull-req
 the operator pod stays `0/1` with `ErrImagePull` or `ImagePullBackOff` for
 `ghcr.io/attune-io/attune:0.1.x` (no `v` prefix).
 
-**Cause:** Chart `appVersion` is SemVer without `v`. Release images are
-tagged `vX.Y.Z`. Charts through 0.1.23 used bare `appVersion` as the
-image tag when `image.tag` was empty.
+**Cause:** Chart `appVersion` is SemVer without `v`. Releases through
+0.1.23 published only `vX.Y.Z`. Chart 0.1.23 used bare `appVersion` as
+the image tag when `image.tag` was empty.
 
 **Fix:** Pin a published tag, then upgrade:
 
@@ -1043,8 +1043,8 @@ helm upgrade attune oci://ghcr.io/attune-io/charts/attune \
   --set image.tag=v0.1.23
 ```
 
-Newer charts default to `v` plus `appVersion`. You can still override
-`image.tag` for local or E2E images.
+From 0.1.24, releases publish both `vX.Y.Z` and `X.Y.Z`. You can still
+override `image.tag` for local or E2E images.
 
 ## Debug commands
 

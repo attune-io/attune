@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Classifier for hack/verify-helm-image-tag.sh: the live chart must pass,
-# and a chart that falls back to bare appVersion (issue #546) must fail.
+# and a chart that still prefixes v onto appVersion must fail.
 
 set -euo pipefail
 
@@ -22,36 +22,41 @@ echo "OK: live chart passed"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "${TMP}"' EXIT
-echo "DO: copy chart to ${TMP} and restore the bare-appVersion default"
+echo "DO: copy chart to ${TMP} and restore the v-prefix helper"
 cp -R "${ROOT}/charts" "${TMP}/"
-# Recreate the #546 template: default image.tag to Chart.AppVersion with no v.
+# Recreate the post-#546 helper: prefix v onto Chart.AppVersion.
 sed -i.bak \
-  's#{{ include "attune.imageTag" . }}#{{ .Values.image.tag | default .Chart.AppVersion }}#' \
-  "${TMP}/charts/attune/templates/deployment.yaml"
-rm -f "${TMP}/charts/attune/templates/deployment.yaml.bak"
+  's#{{- .Chart.AppVersion | trimPrefix "v" -}}#{{- printf "v%s" (.Chart.AppVersion | trimPrefix "v") -}}#' \
+  "${TMP}/charts/attune/templates/_helpers.tpl"
+if ! grep -q 'printf "v%s"' "${TMP}/charts/attune/templates/_helpers.tpl"; then
+  echo "FAIL: could not inject v-prefix helper into copied chart"
+  echo "DONE: ok=false reason=fixture-not-mutated"
+  exit 1
+fi
+rm -f "${TMP}/charts/attune/templates/_helpers.tpl.bak"
 
-echo "DO: broken chart must fail"
+echo "DO: v-prefix chart must fail"
 if bash "${SCRIPT}" --root "${TMP}"; then
-  echo "FAIL: bare-appVersion chart passed; the script would not have caught #546"
+  echo "FAIL: v-prefix chart passed; the script would not catch a helper regression"
   echo "DONE: ok=false reason=false-negative"
   exit 1
 fi
-echo "OK: broken chart failed as expected"
+echo "OK: v-prefix chart failed as expected"
 
 # Chart.appVersion is normally bare SemVer. A future chart that already
-# stores vX.Y.Z must still render one v, not vv.
-echo "DO: chart with v-prefixed appVersion must still render a single v"
+# stores vX.Y.Z must still render the bare tag, not vX.Y.Z.
+echo "DO: chart with v-prefixed appVersion must still render bare SemVer"
 TMPV="$(mktemp -d)"
 trap 'rm -rf "${TMP}" "${TMPV}"' EXIT
 cp -R "${ROOT}/charts" "${TMPV}/"
 sed -i.bak 's/^appVersion: .*/appVersion: v0.1.23/' "${TMPV}/charts/attune/Chart.yaml"
 rm -f "${TMPV}/charts/attune/Chart.yaml.bak"
 if ! bash "${SCRIPT}" --root "${TMPV}"; then
-  echo "FAIL: v-prefixed appVersion must render v0.1.23, not vv0.1.23"
-  echo "DONE: ok=false reason=double-v-prefix"
+  echo "FAIL: v-prefixed appVersion must render 0.1.23, not v0.1.23"
+  echo "DONE: ok=false reason=v-prefix-not-stripped"
   exit 1
 fi
-echo "OK: v-prefixed appVersion rendered a single v"
+echo "OK: v-prefixed appVersion rendered bare SemVer"
 
 echo "DONE: ok=true"
 echo "NEXT: none"
