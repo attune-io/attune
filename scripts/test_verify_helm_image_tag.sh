@@ -38,6 +38,21 @@ if bash "${SCRIPT}" --root "${TMP}"; then
 fi
 echo "OK: broken chart failed as expected"
 
+# Chart.appVersion is normally bare SemVer. A future chart that already
+# stores vX.Y.Z must still render one v, not vv.
+echo "DO: chart with v-prefixed appVersion must still render a single v"
+TMPV="$(mktemp -d)"
+trap 'rm -rf "${TMP}" "${TMPV}"' EXIT
+cp -R "${ROOT}/charts" "${TMPV}/"
+sed -i.bak 's/^appVersion: .*/appVersion: v0.1.23/' "${TMPV}/charts/attune/Chart.yaml"
+rm -f "${TMPV}/charts/attune/Chart.yaml.bak"
+if ! bash "${SCRIPT}" --root "${TMPV}"; then
+  echo "FAIL: v-prefixed appVersion must render v0.1.23, not vv0.1.23"
+  echo "DONE: ok=false reason=double-v-prefix"
+  exit 1
+fi
+echo "OK: v-prefixed appVersion rendered a single v"
+
 echo "DONE: ok=true"
 echo "NEXT: none"
 exit 0
