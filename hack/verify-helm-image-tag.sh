@@ -2,13 +2,14 @@
 # Copyright 2026 attune Authors
 # SPDX-License-Identifier: Apache-2.0
 #
-# Verify the Helm chart default image tag matches published operator
-# tags (vX.Y.Z). Chart.appVersion is SemVer without v; the template
-# must prefix v when image.tag is empty.
+# Verify the Helm chart default image tag is Chart.appVersion (bare
+# SemVer). Releases publish both vX.Y.Z and X.Y.Z. Empty image.tag
+# must not add a v prefix.
 #
-# This is the gate that would have caught attune-io/attune#546:
-# helm lint and helm-unittest did not assert the default image, and
-# E2E always --set image.tag= from a locally built image.
+# This is the gate that would have caught attune-io/attune#546 (and
+# a later v-prefix regression): helm lint and helm-unittest did not
+# assert the default image, and E2E always --set image.tag= from a
+# locally built image.
 
 set -euo pipefail
 
@@ -18,7 +19,7 @@ usage() {
   cat <<'EOF'
 Usage: verify-helm-image-tag.sh [--root DIR]
 
-Fail if helm template default image is not v + Chart.appVersion.
+Fail if helm template default image is not Chart.appVersion (bare SemVer).
 --root   Repository root (default: parent of this script's directory).
 EOF
 }
@@ -46,7 +47,7 @@ if [[ -z "${ROOT}" ]]; then
   ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fi
 
-echo "PLAN: assert default Helm image tag is v + Chart.appVersion"
+echo "PLAN: assert default Helm image tag is Chart.appVersion (bare SemVer)"
 
 CHART="${ROOT}/charts/attune"
 CHART_YAML="${CHART}/Chart.yaml"
@@ -72,7 +73,7 @@ if [[ -z "${APP_VERSION}" ]]; then
 fi
 
 BARE="${APP_VERSION#v}"
-EXPECTED_TAG="v${BARE}"
+EXPECTED_TAG="${BARE}"
 echo "OK: appVersion=${APP_VERSION} expected_tag=${EXPECTED_TAG}"
 
 echo "DO: helm template default image"
@@ -89,7 +90,7 @@ DEFAULT_TAG="${DEFAULT_IMAGE##*:}"
 REPO="${DEFAULT_IMAGE%:*}"
 if [[ "${DEFAULT_TAG}" != "${EXPECTED_TAG}" ]]; then
   echo "FAIL: default image tag ${DEFAULT_TAG} != ${EXPECTED_TAG} (repo=${REPO})"
-  echo "HINT: attune.imageTag must prefix v onto Chart.appVersion when image.tag is empty."
+  echo "HINT: attune.imageTag must use Chart.appVersion (no v prefix) when image.tag is empty."
   echo "DONE: ok=false reason=wrong-default-tag got=${DEFAULT_TAG} want=${EXPECTED_TAG}"
   echo "NEXT: fix charts/attune/templates/_helpers.tpl attune.imageTag"
   exit 1

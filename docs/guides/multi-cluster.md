@@ -30,21 +30,18 @@ cluster-specific values:
 kubectl config use-context dev
 helm install attune oci://ghcr.io/attune-io/charts/attune \
   -n attune-system --create-namespace \
-  --set image.tag=v0.1.23 \
   -f values-dev.yaml
 
 # Staging cluster: Canary mode for validation
 kubectl config use-context staging
 helm install attune oci://ghcr.io/attune-io/charts/attune \
   -n attune-system --create-namespace \
-  --set image.tag=v0.1.23 \
   -f values-staging.yaml
 
 # Prod cluster: Auto mode with conservative settings
 kubectl config use-context prod
 helm install attune oci://ghcr.io/attune-io/charts/attune \
   -n attune-system --create-namespace \
-  --set image.tag=v0.1.23 \
   -f values-prod.yaml
 ```
 

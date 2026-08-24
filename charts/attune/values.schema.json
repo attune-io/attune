@@ -29,7 +29,7 @@
         "tag": {
           "type": "string",
           "default": "",
-          "description": "Image tag. Empty uses a v prefix plus Chart appVersion (published images are tagged vX.Y.Z)."
+          "description": "Image tag. Empty uses Chart appVersion (bare SemVer). Releases also publish the vX.Y.Z alias."
         }
       }
     },

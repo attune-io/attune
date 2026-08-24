@@ -12,10 +12,10 @@ Safe, in-place Kubernetes pod resource right-sizing operator
 ## Installation
 
 ```bash
-# Chart 0.1.23 pulls :0.1.23 (missing). Pin until 0.1.24+.
+# Chart 0.1.23 defaults to :0.1.23 (never published). Pin that
+# chart with --set image.tag=v0.1.23. 0.1.24+ can omit the pin.
 helm install attune oci://ghcr.io/attune-io/charts/attune \
-  --namespace attune-system --create-namespace \
-  --set image.tag=v0.1.23
+  --namespace attune-system --create-namespace
 ```
 
 ## Values
@@ -50,7 +50,7 @@ helm install attune oci://ghcr.io/attune-io/charts/attune \
 | grafanaFleetDashboard.enabled | bool | `false` | Create a ConfigMap with the multi-cluster fleet Grafana dashboard (cluster variable). Use with federated Prometheus that has external_labels.cluster on each scrape. |
 | image.pullPolicy | string | `"IfNotPresent"` | Image pull policy |
 | image.repository | string | `"ghcr.io/attune-io/attune"` | Container image repository |
-| image.tag | string | `""` | Image tag. Empty uses a `v` prefix plus Chart appVersion (published images are tagged `vX.Y.Z`, not `X.Y.Z`). |
+| image.tag | string | `""` | Image tag. Empty uses Chart appVersion (bare SemVer). Releases also publish the `vX.Y.Z` alias. Set this to pin `v0.1.24` or an E2E/local tag. |
 | imagePullSecrets | list | `[]` | Image pull secrets |
 | initialSizing | object | `{"enabled":false}` | Initial sizing webhook configuration. When enabled, a mutating webhook sets pod resource requests at creation time based on existing AttunePolicy recommendations. Requires namespace label attune.io/initial-sizing=enabled and initialSizing: true on the policy. |
 | initialSizing.enabled | bool | `false` | Enable the pod initial sizing mutating webhook. |

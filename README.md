@@ -75,10 +75,10 @@ In-place apply is the shared primitive (Kubernetes `/resize`). Attune is the
 #   --set webhooks.enabled=false          # skip cert-manager
 #   --set networkPolicy.prometheusPort=80 # if Prometheus Service is on :80
 #                                         # (chart default allows only :9090)
-# Chart 0.1.23 pulls :0.1.23 (missing). Pin until 0.1.24+.
+# Chart 0.1.23 defaults to :0.1.23 (never published). Pin that
+# chart with --set image.tag=v0.1.23. 0.1.24+ can omit the pin.
 helm install attune oci://ghcr.io/attune-io/charts/attune \
-  --namespace attune-system --create-namespace \
-  --set image.tag=v0.1.23
+  --namespace attune-system --create-namespace
 ```
 
 Also available via [OperatorHub.io](https://operatorhub.io/operator/attune)

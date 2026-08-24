@@ -434,8 +434,7 @@ It takes less than 5 minutes to start seeing recommendations.
 
 ```bash
 helm install attune oci://ghcr.io/attune-io/charts/attune \
-  --namespace attune-system --create-namespace \
-  --set image.tag=v0.1.23
+  --namespace attune-system --create-namespace
 ```
 
 ### 2. Create your first policy

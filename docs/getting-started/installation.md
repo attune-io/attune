@@ -32,20 +32,19 @@ kubectl create namespace attune-system
 
 helm install attune \
   oci://ghcr.io/attune-io/charts/attune \
-  --namespace attune-system \
-  --set image.tag=v0.1.23
+  --namespace attune-system
 
 # Option B: skip webhooks (no cert-manager)
 # helm install attune oci://ghcr.io/attune-io/charts/attune \
 #   --namespace attune-system --create-namespace \
-#   --set webhooks.enabled=false \
-#   --set image.tag=v0.1.23
+#   --set webhooks.enabled=false
 ```
 
 !!! warning "Chart 0.1.23 pulls a missing image tag"
     The published 0.1.23 chart defaults to `ghcr.io/attune-io/attune:0.1.23`,
-    which does not exist. Keep `--set image.tag=v0.1.23` until you install
-    chart 0.1.24 or newer. If the pod is already `ImagePullBackOff`, see
+    which does not exist. Keep `--set image.tag=v0.1.23` if you install
+    that chart. Chart 0.1.24 and newer can omit the pin. If the pod is
+    already `ImagePullBackOff`, see
     [Helm install ImagePullBackOff](../guides/troubleshooting.md#helm-install-imagepullbackoff).
 
 !!! tip "Large or multi-tenant clusters"
@@ -102,8 +101,7 @@ helm install attune \
 ```bash
 helm upgrade attune \
   oci://ghcr.io/attune-io/charts/attune \
-  --namespace attune-system \
-  --set image.tag=v0.1.23
+  --namespace attune-system
 ```
 
 ## Install with OLM (OperatorHub)

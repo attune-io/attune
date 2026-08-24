@@ -9,8 +9,9 @@ image:
   repository: ghcr.io/attune-io/attune
   # -- Image pull policy
   pullPolicy: IfNotPresent
-  # -- Image tag. Empty uses a `v` prefix plus Chart appVersion
-  # (published images are tagged `vX.Y.Z`, not `X.Y.Z`).
+  # -- Image tag. Empty uses Chart appVersion (bare SemVer). Releases
+  # also publish the `vX.Y.Z` alias. Set this to pin `v0.1.24` or an
+  # E2E/local tag.
   tag: ""
 
 # -- Image pull secrets
