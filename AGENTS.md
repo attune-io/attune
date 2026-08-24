@@ -366,11 +366,13 @@ Dependabot PRs (#348, #349 etc.) are important for **Dependency-Update-Tool (10)
    CI/Security/Docs on main). `auto-approve.yaml` (`pull_request`)
    excludes `dependabot[bot]` because secrets are unavailable in that context.
 6. After a merge to main, `dependabot-auto-merge.yaml` comments
-   `@dependabot rebase` on open Dependabot PRs that REST reports as
-   `behind` (App token, not a GITHUB_TOKEN git push). That is required
-   because the ruleset has `strict_required_status_checks_policy: true`.
-   Dependabot `rebase-strategy: auto` can lag for hours. To hurry one
-   PR, `gh pr comment N --body "@dependabot rebase"` or run
+   `@dependabot rebase` on open Dependabot PRs. It lists Dependabot PRs
+   then `GET /pulls/N` so GitHub computes `mergeable_state` (the list
+   endpoint often returns `unknown` and would skip everyone). App token,
+   not a GITHUB_TOKEN git push. Required because the ruleset has
+   `strict_required_status_checks_policy: true`. Dependabot
+   `rebase-strategy: auto` can lag for hours. To hurry one PR,
+   `gh pr comment N --body "@dependabot rebase"` or run
    `scripts/rebase-dependabot.sh N`.
 7. After a Dependabot merge, if main has no CI/Security runs for the merge
    SHA, dispatch them: `gh workflow run CI --ref main` (and Security/Docs).

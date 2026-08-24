@@ -135,22 +135,31 @@ jobs:
           REPO: ${{ github.repository }}
         shell: bash -Eeuo pipefail {0}
         run: |
-          # REST mergeable_state is the source of truth. GraphQL often
-          # stays UNKNOWN. Do not git-push with GITHUB_TOKEN (that
-          # invalidates checks without starting new runs).
+          # The list endpoint often returns mergeable_state=unknown.
+          # GET /pulls/N computes it. Observed on the first run after #561:
+          # list said unknown, so this job no-op'd while all four
+          # Dependabot PRs were behind. Do not git-push with GITHUB_TOKEN.
           mapfile -t nums < <(gh api "repos/${REPO}/pulls?state=open&per_page=100" \
-            --jq '.[] | select(.user.login=="dependabot[bot]" and .mergeable_state=="behind") | .number')
+            --jq '.[] | select(.user.login=="dependabot[bot]") | .number')
           if [[ ${#nums[@]} -eq 0 ]]; then
-            echo "OK: no behind Dependabot PRs"
+            echo "OK: no open Dependabot PRs"
             exit 0
           fi
+          asked=0
           for n in "${nums[@]}"; do
-            last="$(gh api "repos/${REPO}/issues/${n}/comments" \
-              --jq '.[-1].body // empty')"
-            if [[ "${last}" == *"@dependabot rebase"* ]]; then
-              echo "OK: #${n} already asked to rebase"
+            state="$(gh api "repos/${REPO}/pulls/${n}" --jq .mergeable_state)"
+            if [[ "${state}" == "unknown" ]]; then
+              sleep 2
+              state="$(gh api "repos/${REPO}/pulls/${n}" --jq .mergeable_state)"
+            fi
+            echo "OK: #${n} mergeable_state=${state}"
+            if [[ "${state}" != "behind" ]]; then
               continue
             fi
+            # Ask again even if we already commented. A prior rebase can
+            # land, then another merge to main makes the PR behind again.
             gh pr comment "${n}" --repo "${REPO}" --body "@dependabot rebase"
             echo "OK: asked Dependabot to rebase #${n}"
+            asked=$((asked + 1))
           done
+          echo "DONE: asked=${asked}"
