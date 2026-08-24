@@ -309,18 +309,12 @@ jobs:
         shell: bash
         run: |
           TAG="${{ steps.tag.outputs.name }}"
-          BARE="${TAG#v}"
-          NL=$'\n'
-          TAGS="${REGISTRY}/${IMAGE_NAME}:${TAG}${NL}docker.io/attuneio/attune:${TAG}"
-          # Also publish the bare SemVer tag so older charts that used
-          # Chart.appVersion (no v prefix) as the image tag still pull.
-          if [ "${BARE}" != "${TAG}" ]; then
-            TAGS="${TAGS}${NL}${REGISTRY}/${IMAGE_NAME}:${BARE}${NL}docker.io/attuneio/attune:${BARE}"
-          fi
-          # Skip :latest on re-releases to avoid overwriting a newer release
+          ARGS=(--tag "${TAG}" --registry "${REGISTRY}" --image "${IMAGE_NAME}")
+          # Skip :latest on re-releases to avoid overwriting a newer release.
           if [ -z "${{ inputs.tag }}" ]; then
-            TAGS="${TAGS}${NL}${REGISTRY}/${IMAGE_NAME}:latest${NL}docker.io/attuneio/attune:latest"
+            ARGS+=(--latest)
           fi
+          TAGS="$(bash hack/release-image-tags.sh "${ARGS[@]}")"
           {
             echo "tags<<EOF"
             echo "$TAGS"

@@ -371,7 +371,7 @@ func fetchPolicies(ctx context.Context, dynClient dynamic.Interface, namespace s
 		if apierrors.IsNotFound(err) || isNoResourceMatch(err) {
 			fmt.Fprintln(os.Stderr, "Error: Attune CRDs are not installed in this cluster.")
 			fmt.Fprintln(os.Stderr, "Install the operator first:")
-			fmt.Fprintln(os.Stderr, "  helm install attune oci://ghcr.io/attune-io/charts/attune")
+			fmt.Fprintln(os.Stderr, "  helm install attune oci://ghcr.io/attune-io/charts/attune --set image.tag=v0.1.23")
 			os.Exit(1)
 		}
 		fmt.Fprintf(os.Stderr, "Error listing policies: %v\n", err)
@@ -1050,6 +1050,12 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *attu
 	printEffectiveField("Type", getNestedString(item, "spec", "updateStrategy", "type"), string(effective.Spec.UpdateStrategy.Type), selected, updateDefaults != nil && updateDefaults.Type != "")
 	printEffectiveField("Cooldown", getNestedString(item, "spec", "updateStrategy", "cooldown"), formatDurationPtr(effective.Spec.UpdateStrategy.Cooldown), selected, updateDefaults != nil && updateDefaults.Cooldown != nil)
 	printEffectiveField("Query step", getNestedString(item, "spec", "metricsSource", "queryStep"), formatDurationPtr(effective.Spec.MetricsSource.QueryStep), selected, metricsDefaults != nil && metricsDefaults.QueryStep != nil)
+	providerConfigured := metricsProviderConfigured(item)
+	providerEffective := metricsProviderLabel(effective.Spec.MetricsSource)
+	providerInherited := metricsDefaults != nil && providerConfigured == unsetValue &&
+		(metricsDefaults.Prometheus != nil || metricsDefaults.Datadog != nil ||
+			metricsDefaults.CloudWatch != nil || metricsDefaults.VPA != nil)
+	printEffectiveField("Metrics source", providerConfigured, providerEffective, selected, providerInherited)
 	printEffectiveField("Minimum data points", formatInt64Ptr(rawInt64Field(item, "spec", "metricsSource", "minimumDataPoints")), formatInt32Ptr(effective.Spec.MetricsSource.MinimumDataPoints), selected, metricsDefaults != nil && metricsDefaults.MinimumDataPoints != nil)
 	printEffectiveField("Paused", formatBoolField(item, "spec", "paused"), formatBoolPtr(effective.Spec.Paused), selected, false)
 	printEffectiveField("Weight", formatInt64Field(item, "spec", "weight"), formatInt32Val(effective.Spec.Weight), selected, false)
@@ -1226,6 +1232,37 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *attu
 		} else {
 			fmt.Printf("Note: Export to ConfigMaps is enabled alongside %s mode (resizes will occur; ConfigMaps provide additional GitOps handoff).\n", mode)
 		}
+	}
+}
+
+func metricsProviderLabel(ms attunev1alpha1.MetricsSource) string {
+	switch {
+	case ms.Datadog != nil:
+		return "datadog"
+	case ms.CloudWatch != nil:
+		return "cloudwatch"
+	case ms.VPA != nil:
+		return "vpa"
+	case ms.Prometheus != nil:
+		return "prometheus"
+	default:
+		return "prometheus (auto-discover)"
+	}
+}
+
+func metricsProviderConfigured(item unstructured.Unstructured) string {
+	switch {
+	case getNestedString(item, "spec", "metricsSource", "datadog", "site") != "" ||
+		getNestedString(item, "spec", "metricsSource", "datadog", "apiKeySecretRef", "name") != "":
+		return "datadog"
+	case getNestedString(item, "spec", "metricsSource", "cloudwatch", "region") != "":
+		return "cloudwatch"
+	case getNestedString(item, "spec", "metricsSource", "vpa", "name") != "":
+		return "vpa"
+	case getNestedString(item, "spec", "metricsSource", "prometheus", "address") != "":
+		return "prometheus"
+	default:
+		return unsetValue
 	}
 }
 

@@ -1837,6 +1837,7 @@ func TestPrintExplain_NoRecommendations(t *testing.T) {
 	assert.Contains(t, output, "default/new-policy has no recommendations yet (Not enough data).")
 	assert.Contains(t, output, "Effective values:")
 	assert.Contains(t, output, "Type: Recommend (source: built-in default, configured: <unset>)")
+	assert.Contains(t, output, "Metrics source: prometheus (auto-discover)")
 }
 
 func TestPrintExplain_ShowsPolicyNamespaceAndBuiltInEffectiveValues(t *testing.T) {

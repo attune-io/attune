@@ -32,13 +32,21 @@ kubectl create namespace attune-system
 
 helm install attune \
   oci://ghcr.io/attune-io/charts/attune \
-  --namespace attune-system
+  --namespace attune-system \
+  --set image.tag=v0.1.23
 
 # Option B: skip webhooks (no cert-manager)
 # helm install attune oci://ghcr.io/attune-io/charts/attune \
 #   --namespace attune-system --create-namespace \
-#   --set webhooks.enabled=false
+#   --set webhooks.enabled=false \
+#   --set image.tag=v0.1.23
 ```
+
+!!! warning "Chart 0.1.23 pulls a missing image tag"
+    The published 0.1.23 chart defaults to `ghcr.io/attune-io/attune:0.1.23`,
+    which does not exist. Keep `--set image.tag=v0.1.23` until you install
+    chart 0.1.24 or newer. If the pod is already `ImagePullBackOff`, see
+    [Helm install ImagePullBackOff](../guides/troubleshooting.md#helm-install-imagepullbackoff).
 
 !!! tip "Large or multi-tenant clusters"
     Size the operator with a Helm `clusterSize` preset and, when policies
@@ -57,6 +65,7 @@ helm install attune \
     ```bash
     helm upgrade attune oci://ghcr.io/attune-io/charts/attune \
       --namespace attune-system \
+      --reuse-values \
       --set networkPolicy.prometheusPort=80
     ```
 
@@ -93,7 +102,8 @@ helm install attune \
 ```bash
 helm upgrade attune \
   oci://ghcr.io/attune-io/charts/attune \
-  --namespace attune-system
+  --namespace attune-system \
+  --set image.tag=v0.1.23
 ```
 
 ## Install with OLM (OperatorHub)

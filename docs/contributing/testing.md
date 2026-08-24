@@ -251,6 +251,12 @@ Fuzz targets are defined in `internal/recommendation/fuzz_test.go`
 (float-field parsing via `strconv.ParseFloat`). Classifier unit tests:
 `bash scripts/test_run_fuzz.sh` (also via `make python-test`).
 
+`make python-test` also runs the Helm default-image-tag classifier
+(`scripts/test_verify_helm_image_tag.sh`) and the release dual-tag
+classifier (`scripts/test_release_image_tags.sh`). Those catch a
+missing `v` prefix on the operator image and a dropped bare SemVer
+alias on the next release.
+
 ## Running all tests
 
 Run everything in one command:

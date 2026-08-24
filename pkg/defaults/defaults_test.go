@@ -802,6 +802,41 @@ func TestMergeMetricsSource_PodAggregationAndRecording(t *testing.T) {
 	assert.Equal(t, "None", policy2.PodAggregation)
 }
 
+func TestMergeMetricsSource_ProviderBlocks(t *testing.T) {
+	defaults := &attunev1alpha1.MetricsSource{
+		Datadog: &attunev1alpha1.DatadogConfig{Site: "datadoghq.eu"},
+	}
+	policy := &attunev1alpha1.MetricsSource{}
+	inherited := MergeMetricsSource(policy, defaults)
+	assert.Contains(t, inherited, "datadog")
+	require.NotNil(t, policy.Datadog)
+	assert.Equal(t, "datadoghq.eu", policy.Datadog.Site)
+
+	policyProm := &attunev1alpha1.MetricsSource{
+		Prometheus: &attunev1alpha1.PrometheusConfig{Address: "http://prom:9090"},
+	}
+	inherited = MergeMetricsSource(policyProm, defaults)
+	assert.NotContains(t, inherited, "datadog")
+	assert.Nil(t, policyProm.Datadog)
+	require.NotNil(t, policyProm.Prometheus)
+	assert.Equal(t, "http://prom:9090", policyProm.Prometheus.Address)
+
+	promDefaults := &attunev1alpha1.MetricsSource{
+		Prometheus: &attunev1alpha1.PrometheusConfig{Address: "http://defaults:9090"},
+		CloudWatch: &attunev1alpha1.CloudWatchConfig{Region: "us-east-1"},
+		VPA:        &attunev1alpha1.VPAConfig{},
+		Datadog:    &attunev1alpha1.DatadogConfig{Site: "datadoghq.com"},
+	}
+	empty := &attunev1alpha1.MetricsSource{}
+	inherited = MergeMetricsSource(empty, promDefaults)
+	assert.Contains(t, inherited, "prometheus")
+	assert.Contains(t, inherited, "datadog")
+	assert.Contains(t, inherited, "cloudwatch")
+	assert.Contains(t, inherited, "vpa")
+	require.NotNil(t, empty.Prometheus)
+	assert.Equal(t, "http://defaults:9090", empty.Prometheus.Address)
+}
+
 func TestMergeUpdateStrategy_StatusBudget(t *testing.T) {
 	max := int32(50)
 	inc := false

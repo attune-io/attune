@@ -239,6 +239,7 @@ python-test: ## Run helper script tests (fossa-filter, run-fuzz classifier, go-v
 	bash scripts/test_run_fuzz.sh
 	bash scripts/test_verify_go_version_sync.sh
 	bash scripts/test_verify_helm_image_tag.sh
+	bash scripts/test_release_image_tags.sh
 
 .PHONY: test-bench
 test-bench: ## Run benchmark tests

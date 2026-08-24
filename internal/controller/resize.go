@@ -776,18 +776,57 @@ func (r *AttunePolicyReconciler) persistResizeAnnotations(
 	return "annotation-persist-conflict", fmt.Errorf("exhausted %d annotation persist retries", maxRetries)
 }
 
+// Confirm uses a detached budget so a cancelled or timed-out persist ctx
+// cannot force a revert after the write may already have committed.
+const (
+	confirmTrackingAttempts = 3
+	confirmTrackingTimeout  = 5 * time.Second
+	confirmTrackingBackoff  = 50 * time.Millisecond
+)
+
 // confirmTrackingAnnotations returns the live pod when a Clientset Get shows
 // that intended tracking annotations from this persist attempt already landed.
-// A nil pod and nil error means the write did not land.
+// A nil pod and nil error means the write did not land after retries.
+// Get errors are retried; the parent ctx is not used so a dead deadline
+// cannot skip confirmation.
 func (r *AttunePolicyReconciler) confirmTrackingAnnotations(
 	ctx context.Context, namespace, name string, intended *corev1.Pod, container string,
 ) (*corev1.Pod, error) {
-	got, err := r.Clientset.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})
-	if err != nil {
-		return nil, err
+	logger := log.FromContext(ctx)
+	confirmCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), confirmTrackingTimeout)
+	defer cancel()
+
+	var lastErr error
+	for attempt := 0; attempt < confirmTrackingAttempts; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-confirmCtx.Done():
+				if lastErr != nil {
+					return nil, lastErr
+				}
+				return nil, confirmCtx.Err()
+			case <-time.After(confirmTrackingBackoff):
+			}
+		}
+		got, err := r.Clientset.CoreV1().Pods(namespace).Get(confirmCtx, name, metav1.GetOptions{})
+		if err != nil {
+			lastErr = err
+			logger.V(1).Info("Annotation persist confirm Get failed, retrying",
+				"pod", name, "attempt", attempt+1, "maxAttempts", confirmTrackingAttempts, "error", err.Error())
+			continue
+		}
+		if trackingAnnotationsApplied(got, intended, container) {
+			return got, nil
+		}
+		// Object is visible but this persist's keys are not. Retry in case
+		// the write is still in flight; lastErr stays nil so a clean miss
+		// after retries means revert, not a Get error.
+		lastErr = nil
+		logger.V(1).Info("Annotation persist confirm Get missed this persist, retrying",
+			"pod", name, "attempt", attempt+1, "maxAttempts", confirmTrackingAttempts)
 	}
-	if trackingAnnotationsApplied(got, intended, container) {
-		return got, nil
+	if lastErr != nil {
+		return nil, lastErr
 	}
 	return nil, nil
 }

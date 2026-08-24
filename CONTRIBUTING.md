@@ -117,8 +117,9 @@ Run `make verify` before every commit. The Makefile `verify` and
 - boilerplate, `go mod tidy`, documentation defaults
 - Helm RBAC vs generated ClusterRole, Grafana dashboard sync
 - documentation tool versions, Go version sync (go.mod vs Dockerfile)
-- PrometheusRule metric names, Helm schema fields, release artifacts
-  (`dist/install.yaml` and `dist/crds.yaml`)
+- PrometheusRule metric names, Helm schema fields, Helm default image
+  tag vs `appVersion`, release artifacts (`dist/install.yaml` and
+  `dist/crds.yaml`)
 
 `make verify` then adds integration tests, govulncheck, and a generated
 file freshness check (`make manifests generate` must not change CRDs,

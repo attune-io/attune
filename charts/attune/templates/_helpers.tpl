@@ -66,8 +66,9 @@ Published images are vX.Y.Z; appVersion is SemVer without v.
 Prefix v when image.tag is empty. trimPrefix avoids vv.
 */}}
 {{- define "attune.imageTag" -}}
-{{- if .Values.image.tag -}}
-{{- .Values.image.tag -}}
+{{- $tag := .Values.image.tag | toString | trim -}}
+{{- if $tag -}}
+{{- $tag -}}
 {{- else -}}
 {{- printf "v%s" (.Chart.AppVersion | trimPrefix "v") -}}
 {{- end -}}
