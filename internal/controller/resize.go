@@ -792,6 +792,7 @@ const (
 func (r *AttunePolicyReconciler) confirmTrackingAnnotations(
 	ctx context.Context, namespace, name string, intended *corev1.Pod, container string,
 ) (*corev1.Pod, error) {
+	logger := log.FromContext(ctx)
 	confirmCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), confirmTrackingTimeout)
 	defer cancel()
 
@@ -810,6 +811,8 @@ func (r *AttunePolicyReconciler) confirmTrackingAnnotations(
 		got, err := r.Clientset.CoreV1().Pods(namespace).Get(confirmCtx, name, metav1.GetOptions{})
 		if err != nil {
 			lastErr = err
+			logger.V(1).Info("Annotation persist confirm Get failed, retrying",
+				"pod", name, "attempt", attempt+1, "maxAttempts", confirmTrackingAttempts, "error", err.Error())
 			continue
 		}
 		if trackingAnnotationsApplied(got, intended, container) {
@@ -819,6 +822,8 @@ func (r *AttunePolicyReconciler) confirmTrackingAnnotations(
 		// the write is still in flight; lastErr stays nil so a clean miss
 		// after retries means revert, not a Get error.
 		lastErr = nil
+		logger.V(1).Info("Annotation persist confirm Get missed this persist, retrying",
+			"pod", name, "attempt", attempt+1, "maxAttempts", confirmTrackingAttempts)
 	}
 	if lastErr != nil {
 		return nil, lastErr
