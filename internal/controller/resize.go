@@ -317,6 +317,9 @@ func (r *AttunePolicyReconciler) executeResizes(
 				if len(podHistory) > 0 {
 					historyMu.Lock()
 					history = append(history, podHistory...)
+					if podResized {
+						r.startCanaryWatch(policy, pod.Name)
+					}
 					historyMu.Unlock()
 				}
 				if podResized {
@@ -924,6 +927,12 @@ func clampRequestsToLimits(target *corev1.ResourceRequirements) []string {
 // resolveCanaryPhase checks whether canary pods have passed the observation
 // period without reverts. If so, it promotes to FullRollout and returns
 // ModeAuto so selectPodsForResize resizes all pods.
+//
+// Observation starts after a successful in-place canary resize (see
+// startCanaryWatch), not on the first executeResizes attempt. A premature
+// StartTime from an earlier cycle is re-anchored to the first real success.
+// A revert clears the clock so the next in-place success starts a new watch
+// instead of freezing or promoting immediately.
 func (r *AttunePolicyReconciler) resolveCanaryPhase(ctx context.Context, policy *attunev1alpha1.AttunePolicy, currentMode attunev1alpha1.UpdateType) attunev1alpha1.UpdateType {
 	logger := log.FromContext(ctx)
 	observationPeriod := getObservationPeriod(policy)
@@ -946,54 +955,106 @@ func (r *AttunePolicyReconciler) resolveCanaryPhase(ctx context.Context, policy 
 		return attunev1alpha1.UpdateTypeAuto
 	}
 
-	// Phase: CanaryInProgress -- check if observation period has elapsed.
-	if cs != nil && cs.Phase == attunev1alpha1.CanaryPhaseInProgress && cs.StartTime != nil {
-		elapsed := r.now().Sub(cs.StartTime.Time)
-		if elapsed >= observationPeriod {
-			// Check for reverts during the observation window and require at least
-			// one successful in-place resize before promoting.
-			hasRevert := false
-			hasSuccessfulInPlaceResize := false
-			for _, h := range policy.Status.ResizeHistory {
-				if !h.Timestamp.After(cs.StartTime.Time) {
-					continue
-				}
-				if h.Result == attunev1alpha1.ResizeResultReverted {
-					hasRevert = true
-					break
-				}
-				if isSuccessfulInPlaceHistory(h) {
-					hasSuccessfulInPlaceResize = true
-				}
-			}
-			if hasRevert {
-				logger.Info("Canary observation found reverts, staying in canary mode",
-					"policy", policy.Name, "observationPeriod", observationPeriod)
-				return currentMode
-			}
-			if !hasSuccessfulInPlaceResize {
-				logger.Info("Canary observation has no successful in-place resize yet, staying in canary mode",
-					"policy", policy.Name, "observationPeriod", observationPeriod)
-				return currentMode
-			}
-			logger.Info("Canary observation passed, promoting to full rollout",
+	if cs == nil || cs.Phase != attunev1alpha1.CanaryPhaseInProgress {
+		return currentMode
+	}
+
+	lastRevert := latestMatchingHistoryTime(policy.Status.ResizeHistory, func(h attunev1alpha1.ResizeHistoryEntry) bool {
+		return h.Result == attunev1alpha1.ResizeResultReverted
+	})
+	firstSuccess := earliestSuccessfulInPlaceAfter(policy.Status.ResizeHistory, lastRevert)
+	if firstSuccess == nil {
+		// Production reverts flip the Success row in place and keep its
+		// original timestamp, which is often not after StartTime. Reset
+		// whenever there is no live in-place success after the last revert.
+		if cs.StartTime != nil || len(cs.Pods) > 0 {
+			logger.Info("Canary observation has no successful in-place resize yet, resetting watch",
 				"policy", policy.Name, "observationPeriod", observationPeriod)
-			policy.Status.Canary.Phase = attunev1alpha1.CanaryPhaseFullRollout
-			return attunev1alpha1.UpdateTypeAuto
+			cs.StartTime = nil
+			cs.Pods = nil
 		}
 		return currentMode
 	}
 
-	// Phase: not started yet. Initialize canary tracking on the next resize.
-	if cs == nil {
-		now := metav1.NewTime(r.now())
+	if cs.StartTime == nil || cs.StartTime.Time.Before(firstSuccess.Time) {
+		t := *firstSuccess
+		cs.StartTime = &t
+		logger.V(1).Info("Canary observation clock anchored to in-place resize",
+			"policy", policy.Name, "startTime", cs.StartTime.Time)
+	}
+
+	if r.now().Sub(cs.StartTime.Time) < observationPeriod {
+		return currentMode
+	}
+	logger.Info("Canary observation passed, promoting to full rollout",
+		"policy", policy.Name, "observationPeriod", observationPeriod)
+	cs.Phase = attunev1alpha1.CanaryPhaseFullRollout
+	return attunev1alpha1.UpdateTypeAuto
+}
+
+// startCanaryWatch records the first successful in-place canary resize as the
+// observation start. It is a no-op when autoPromote is off or the cycle is
+// already in FullRollout.
+func (r *AttunePolicyReconciler) startCanaryWatch(policy *attunev1alpha1.AttunePolicy, podName string) {
+	if policy.Spec.UpdateStrategy.Type != attunev1alpha1.UpdateTypeCanary {
+		return
+	}
+	if policy.Spec.UpdateStrategy.Canary == nil || !policy.Spec.UpdateStrategy.Canary.AutoPromote {
+		return
+	}
+	if policy.Status.Canary != nil && policy.Status.Canary.Phase == attunev1alpha1.CanaryPhaseFullRollout {
+		return
+	}
+	if policy.Status.Canary == nil {
 		policy.Status.Canary = &attunev1alpha1.CanaryStatus{
 			Phase:              attunev1alpha1.CanaryPhaseInProgress,
-			StartTime:          &now,
 			ObservedGeneration: policy.Generation,
 		}
 	}
-	return currentMode
+	if policy.Status.Canary.StartTime == nil {
+		now := metav1.NewTime(r.now())
+		policy.Status.Canary.StartTime = &now
+		policy.Status.Canary.ObservedGeneration = policy.Generation
+	}
+	if podName != "" {
+		policy.Status.Canary.Pods = appendUnique(policy.Status.Canary.Pods, podName)
+	}
+}
+
+func latestMatchingHistoryTime(
+	history []attunev1alpha1.ResizeHistoryEntry,
+	match func(attunev1alpha1.ResizeHistoryEntry) bool,
+) *metav1.Time {
+	var latest *metav1.Time
+	for i := range history {
+		h := history[i]
+		if !match(h) {
+			continue
+		}
+		if latest == nil || h.Timestamp.After(latest.Time) {
+			t := h.Timestamp
+			latest = &t
+		}
+	}
+	return latest
+}
+
+func earliestSuccessfulInPlaceAfter(history []attunev1alpha1.ResizeHistoryEntry, after *metav1.Time) *metav1.Time {
+	var earliest *metav1.Time
+	for i := range history {
+		h := history[i]
+		if !isSuccessfulInPlaceHistory(h) {
+			continue
+		}
+		if after != nil && !h.Timestamp.After(after.Time) {
+			continue
+		}
+		if earliest == nil || h.Timestamp.Before(earliest) {
+			t := h.Timestamp
+			earliest = &t
+		}
+	}
+	return earliest
 }
 
 // resizePreChecks holds per-cycle cached data for shouldSkipResize,

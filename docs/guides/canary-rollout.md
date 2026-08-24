@@ -44,10 +44,14 @@ spec:
 2. **Canary selection**: the operator picks `ceil(percentage * eligible / 100)`
    pods. Only running pods without an active resize or pending deletion qualify.
 3. **In-place resize**: the operator calls `UpdateResize` on each selected pod.
-4. **Observation**: during `observationPeriod`, the safety monitor checks for
-   OOMKill, restart spikes, pod NotReady, CPU throttle, and SLO guardrail breaches.
+4. **Observation**: `status.canary.startTime` is set only after a successful
+   in-place canary resize. During `observationPeriod` after that resize, the
+   safety monitor checks for OOMKill, restart spikes, pod NotReady, CPU
+   throttle, and SLO guardrail breaches. Skipped cycles (budget, node
+   pressure, already at target) do not start the clock.
 5. **Verdict**: if all canary pods remain healthy, the resize is considered
-   successful. If any violation is detected, the operator auto-reverts.
+   successful. If any violation is detected, the operator auto-reverts and
+   starts a new observation after the next successful in-place resize.
 6. **Cooldown**: the operator waits for the `cooldown` duration before the
    next reconciliation cycle.
 
@@ -96,11 +100,14 @@ kubectl get attunepolicy my-app -o jsonpath='{.status.resizeHistory}' | jq '.[] 
 
 When `autoPromote: true`, the operator handles promotion automatically:
 
-1. After the canary pods pass the observation period with zero reverts,
-   the operator sets `status.canary.phase: FullRollout`.
+1. After the canary pods pass the observation period measured from the
+   successful in-place resize, with zero reverts, the operator sets
+   `status.canary.phase: FullRollout`.
 2. On the next reconcile, all eligible pods are resized (same as Auto mode).
-3. If any revert occurs during observation, promotion is blocked and the
-   operator continues resizing only the canary subset.
+3. If any revert occurs during observation, promotion is blocked, the
+   observation clock is cleared, and a new watch starts after the next
+   successful in-place resize. The operator continues resizing only the
+   canary subset until that new watch passes.
 
 Check the canary phase:
 
