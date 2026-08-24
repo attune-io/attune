@@ -6,6 +6,19 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.24](https://github.com/attune-io/attune/compare/v0.1.23...v0.1.24) (2026-08-24)
+
+
+### Bug Fixes
+
+* apply policy metrics field rules to AttuneDefaults ([#551](https://github.com/attune-io/attune/issues/551)) ([a557f3d](https://github.com/attune-io/attune/commit/a557f3dff8fd76124b5379d645429b3d1beebdad))
+* do not revert resize when annotation persist already committed ([#545](https://github.com/attune-io/attune/issues/545)) ([2b34382](https://github.com/attune-io/attune/commit/2b3438244803d8fa8be918cb348c2d5d7c4255f0)), closes [#544](https://github.com/attune-io/attune/issues/544)
+* exclusive metrics provider inherit and fail-closed persist confirm test ([#549](https://github.com/attune-io/attune/issues/549)) ([73270e3](https://github.com/attune-io/attune/commit/73270e3ff4d98ab1d5e71b5c64d30a03172a8927))
+* harden helm tags, persist confirm, and defaults merge ([#548](https://github.com/attune-io/attune/issues/548)) ([2240f32](https://github.com/attune-io/attune/commit/2240f3234fc351565e772007a82b71601393e161))
+* prefix helm default image tag with v ([#547](https://github.com/attune-io/attune/issues/547)) ([c322956](https://github.com/attune-io/attune/commit/c32295635dbe85b6f29fcccc1cec09ae448ced6f))
+* reject multi-provider AttuneDefaults at admission ([#550](https://github.com/attune-io/attune/issues/550)) ([115232d](https://github.com/attune-io/attune/commit/115232d4d2049b74a45452df4a52b1e1eb1fde69))
+* skip gitops PR when drift table is unchanged ([#538](https://github.com/attune-io/attune/issues/538)) ([4337106](https://github.com/attune-io/attune/commit/43371060578973f1cf67d666150d771ec077e2ee)), closes [#537](https://github.com/attune-io/attune/issues/537)
+
 ## [0.1.23](https://github.com/attune-io/attune/compare/v0.1.22...v0.1.23) (2026-08-18)
 
 
