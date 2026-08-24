@@ -24,8 +24,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	kubefake "k8s.io/client-go/kubernetes/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
@@ -372,4 +375,174 @@ func TestExecuteResizes_CanaryDoesNotStartWatchWhenNoResize(t *testing.T) {
 	if policy.Status.Canary != nil {
 		assert.Nil(t, policy.Status.Canary.StartTime, "skipped resize must not start the observation clock")
 	}
+}
+
+func TestExecuteResizes_PromotedAppResizesAll_UnpromotedStaysCanary(t *testing.T) {
+	makePods := func(app string, n int) []*corev1.Pod {
+		out := make([]*corev1.Pod, n)
+		for i := range n {
+			p := newResizePod(app, "500m", "512Mi", "2000m", "2Gi")
+			p.Name = fmt.Sprintf("%s-%d", app, i)
+			out[i] = p
+		}
+		return out
+	}
+	aPods := makePods("app-a", 3)
+	bPods := makePods("app-b", 3)
+	deployA := newTestDeployment("app-a", "default", map[string]string{"app": "app-a"})
+	deployB := newTestDeployment("app-b", "default", map[string]string{"app": "app-b"})
+
+	extras := make([]client.Object, 0, 2+(len(aPods)-1)+len(bPods))
+	extras = append(extras, deployA, deployB)
+	csObjs := make([]runtime.Object, 0, 2+len(aPods)+len(bPods))
+	csObjs = append(csObjs, deployA.DeepCopy(), deployB.DeepCopy())
+	for _, p := range append(aPods, bPods...) {
+		csObjs = append(csObjs, p.DeepCopy())
+	}
+	for _, p := range append(aPods[1:], bPods...) {
+		extras = append(extras, p)
+	}
+	reconciler, _ := newResizeReconciler(aPods[0], extras...)
+	reconciler.Clientset = kubefake.NewSimpleClientset(csObjs...)
+
+	policy := canaryAutoPromotePolicy(10 * time.Minute)
+	policy.Spec.UpdateStrategy.Canary.Percentage = 10
+	policy.Status.Canary = &attunev1alpha1.CanaryStatus{
+		Phase: attunev1alpha1.CanaryPhaseInProgress,
+		Workloads: []attunev1alpha1.CanaryWorkloadStatus{
+			{Workload: "app-a", Phase: attunev1alpha1.CanaryPhaseFullRollout},
+			{Workload: "app-b", Phase: attunev1alpha1.CanaryPhaseInProgress, Pods: []string{"app-b-0"}},
+		},
+	}
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("app-a", "500m", "512Mi", "2000m", "2Gi", "750m", "512Mi", "2000m", "2Gi"),
+		newResizeRecommendation("app-b", "500m", "512Mi", "2000m", "2Gi", "750m", "512Mi", "2000m", "2Gi"),
+	}
+	podsBy := map[string][]corev1.Pod{
+		"app-a": derefPods(aPods),
+		"app-b": derefPods(bPods),
+	}
+
+	count, history := reconciler.executeResizes(context.Background(), policy,
+		[]client.Object{deployA, deployB}, recs, podsBy, nil, nil)
+	assert.Equal(t, 2, count, "both apps have at least one resize")
+
+	aOK, bOK := 0, 0
+	for _, h := range history {
+		if !isSuccessfulInPlaceHistory(h) {
+			continue
+		}
+		switch h.Workload {
+		case "app-a":
+			aOK++
+		case "app-b":
+			bOK++
+		}
+	}
+	// History writes one Success row per resource. 3 pods × cpu+memory = 6;
+	// canary 10% of 3 pods is 1 pod × cpu+memory = 2.
+	assert.Equal(t, 6, aOK, "promoted app must resize every eligible pod")
+	assert.Equal(t, 2, bOK, "unpromoted app must stay on the canary percentage (min 1)")
+}
+
+func TestExecuteResizes_CanarySeedSkipsBatchAndStale(t *testing.T) {
+	pod := newResizePod("api-server", "500m", "512Mi", "1000m", "1Gi")
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	cj := &batchv1.CronJob{ObjectMeta: metav1.ObjectMeta{Name: "nightly", Namespace: "default"}}
+	reconciler, _ := newResizeReconciler(pod, deploy, cj)
+
+	policy := canaryAutoPromotePolicy(10 * time.Minute)
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("api-server", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),
+		newResizeRecommendation("nightly", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),
+		func() attunev1alpha1.WorkloadRecommendation {
+			r := newResizeRecommendation("stale-app", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi")
+			r.Stale = true
+			return r
+		}(),
+	}
+
+	_, _ = reconciler.executeResizes(context.Background(), policy,
+		[]client.Object{deploy, cj}, recs, podMap("api-server", pod), nil, nil)
+	require.NotNil(t, policy.Status.Canary)
+	assert.NotNil(t, policy.Status.Canary.WorkloadStatus("api-server"))
+	assert.Nil(t, policy.Status.Canary.WorkloadStatus("nightly"), "batch workloads must not block FullRollout")
+	assert.Nil(t, policy.Status.Canary.WorkloadStatus("stale-app"), "stale recs must not block FullRollout")
+}
+
+func TestExecuteResizes_CanaryPrunesLeftoverBatchRow(t *testing.T) {
+	now := time.Date(2026, 8, 24, 16, 0, 0, 0, time.UTC)
+	start := metav1.NewTime(now.Add(-15 * time.Minute))
+	pod := newResizePod("api-server", "500m", "512Mi", "1000m", "1Gi")
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	cj := &batchv1.CronJob{ObjectMeta: metav1.ObjectMeta{Name: "nightly", Namespace: "default"}}
+	reconciler, _ := newResizeReconciler(pod, deploy, cj)
+	reconciler.SetNowFunc(func() time.Time { return now })
+
+	policy := canaryAutoPromotePolicy(10 * time.Minute)
+	policy.Status.Canary = &attunev1alpha1.CanaryStatus{
+		Phase:     attunev1alpha1.CanaryPhaseInProgress,
+		StartTime: &start,
+		Workloads: []attunev1alpha1.CanaryWorkloadStatus{
+			{Workload: "api-server", Phase: attunev1alpha1.CanaryPhaseInProgress, StartTime: &start, Pods: []string{pod.Name}},
+			{Workload: "nightly", Phase: attunev1alpha1.CanaryPhaseInProgress},
+			{Workload: "gone-app", Phase: attunev1alpha1.CanaryPhaseInProgress},
+		},
+	}
+	policy.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{
+		{Workload: "api-server", Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: start},
+	}
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("api-server", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),
+		newResizeRecommendation("nightly", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),
+	}
+
+	_, _ = reconciler.executeResizes(context.Background(), policy,
+		[]client.Object{deploy, cj}, recs, podMap("api-server", pod), nil, nil)
+	require.NotNil(t, policy.Status.Canary)
+	assert.Nil(t, policy.Status.Canary.WorkloadStatus("nightly"), "pre-fix Job/CronJob row must be dropped")
+	assert.Nil(t, policy.Status.Canary.WorkloadStatus("gone-app"), "unmatched leftover row must be dropped")
+	require.NotNil(t, policy.Status.Canary.WorkloadStatus("api-server"))
+	assert.Equal(t, attunev1alpha1.CanaryPhaseFullRollout, policy.Status.Canary.WorkloadStatus("api-server").Phase)
+	assert.Equal(t, attunev1alpha1.CanaryPhaseFullRollout, policy.Status.Canary.Phase,
+		"leftover batch row must not keep the policy in CanaryInProgress")
+}
+
+func TestExecuteResizes_CanaryPruneToEmptyDoesNotLegacyPromote(t *testing.T) {
+	now := time.Date(2026, 8, 24, 16, 0, 0, 0, time.UTC)
+	old := metav1.NewTime(now.Add(-2 * time.Hour))
+	cj := &batchv1.CronJob{ObjectMeta: metav1.ObjectMeta{Name: "nightly", Namespace: "default"}}
+	pod := newResizePod("api-server", "500m", "512Mi", "1000m", "1Gi")
+	reconciler, _ := newResizeReconciler(pod, cj)
+	reconciler.SetNowFunc(func() time.Time { return now })
+
+	policy := canaryAutoPromotePolicy(10 * time.Minute)
+	policy.Status.Canary = &attunev1alpha1.CanaryStatus{
+		Phase: attunev1alpha1.CanaryPhaseInProgress,
+		Workloads: []attunev1alpha1.CanaryWorkloadStatus{
+			{Workload: "nightly", Phase: attunev1alpha1.CanaryPhaseInProgress},
+		},
+	}
+	// Leftover Success from a Deployment that is no longer matched.
+	policy.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{
+		{Workload: "old-app", Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: old},
+	}
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("nightly", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),
+	}
+
+	_, _ = reconciler.executeResizes(context.Background(), policy,
+		[]client.Object{cj}, recs, map[string][]corev1.Pod{}, nil, nil)
+	require.NotNil(t, policy.Status.Canary)
+	assert.Empty(t, policy.Status.Canary.Workloads)
+	assert.Equal(t, attunev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.Phase,
+		"empty table after prune must not FullRollout from leftover Success")
+}
+
+func derefPods(pods []*corev1.Pod) []corev1.Pod {
+	out := make([]corev1.Pod, len(pods))
+	for i, p := range pods {
+		out[i] = *p
+	}
+	return out
 }

@@ -38,7 +38,7 @@ kubectl attune status --watch          # live-refresh every 10s
 | READY | Current `Ready` reason (`Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `PrometheusUnavailable`, `InvalidConfig`, `WorkloadDiscoveryFailed`, or `Paused`), or the current `Ready` condition message when `Ready=False` includes actionable details |
 | RESIZING | `InProgress`, `Idle`, `CooldownActive`, or `-` (non-resize modes) |
 | DEGRADED | `HighRevertRate` or `-` |
-| CANARY | Canary phase and pod count (e.g., `CanaryInProgress (2 pods)`) when mode is Canary, `-` otherwise |
+| CANARY | Canary phase. With per-app rows: `CanaryInProgress (1/2 apps)`. Legacy: `CanaryInProgress (2 pods)`. `-` when mode is not Canary |
 | EXPORT | `CM` when `export.configMap: true` (recommendations written to ConfigMaps for GitOps), `-` otherwise |
 
 When any policy has per-workload errors, they are printed below the table

@@ -693,9 +693,16 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	// Step 10: Requeue after cooldown, or sooner if safety observations are pending
-	// or data collection is still in progress.
+	// or data collection is still in progress. When every matched app is still
+	// cooling, wait only until the first per-app stamp expires. A mid-cooldown
+	// watch event must not restart a full cooldown from now.
 	cooldown := r.parseCooldown(&policy)
 	requeueAfter := cooldown
+	if allCooling {
+		if rem := r.minCooldownRemaining(&policy, recWorkloads); rem > 0 && rem < requeueAfter {
+			requeueAfter = rem
+		}
+	}
 	if autoRevertEnabled(policy.Spec.UpdateStrategy) && (policy.Status.Workloads.Resized > 0 || safetyObservationsPending) {
 		obs := getObservationPeriod(&policy)
 		if obs < requeueAfter {

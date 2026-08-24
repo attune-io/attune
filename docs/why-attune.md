@@ -235,8 +235,9 @@ Every resize is guarded by a multi-layer safety system:
   policy is flagged as `Degraded` so you know the parameters need tuning.
 - **LimitRange/ResourceQuota guard**: Resizes that would violate namespace
   constraints are skipped entirely.
-- **Node capacity guard**: The operator checks that total pod resource
-  requests after resize won't exceed node allocatable.
+- **Node capacity guard**: The operator checks that this pod's requests
+  after resize, plus other pods on the same node, will not exceed
+  allocatable.
 
 ### HPA coexistence, for real
 

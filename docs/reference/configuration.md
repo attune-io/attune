@@ -261,7 +261,7 @@ that do not set them explicitly. Policy-level values always take precedence.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `type` | string | `Recommend` | `Observe`, `Recommend`, `OneShot`, `Canary`, `Auto` |
-| `cooldown` | duration | `1h` | Minimum time between resizes of the same workload. Other apps on the same policy are not locked. Request increases also skip when this pod plus other pods on the node would exceed allocatable (always-on neighbor budget; see [Node capacity](../architecture/node-capacity.md)). |
+| `cooldown` | duration | `1h` | Minimum time between resizes of the same workload. Other apps on the same policy are not locked. When every matched app is still cooling, the next reconcile waits only until the soonest per-app window expires (a watch event does not restart a full cooldown). |
 | `autoRevert` | bool | `true` | Revert unsafe resizes automatically |
 | `resizeMethod` | string | `InPlaceOnly` | `InPlaceOnly` or `InPlaceOrRecreate` |
 | `maxConcurrentResizes` | int32 | `1` | Max pods to resize simultaneously |
@@ -275,6 +275,10 @@ that do not set them explicitly. Policy-level values always take precedence.
 | `sloGuardrails` | list | `[]` | Application-level SLO PromQL checks after resize |
 | `canary` | object | (none) | Canary rollout (percentage, observationPeriod). CREATE sizing, startup boost, and HPA stay off for an app until that app is promoted. |
 | `initialSizing` | bool | `false` | Enable mutating webhook for pod creation |
+
+Request increases also skip when this pod plus other pods on the same
+node would exceed allocatable. That gate is always on and is not a
+policy field. See [Node capacity](../architecture/node-capacity.md).
 
 Example: set a cluster-wide maintenance window and budget cap via
 `AttuneDefaults`, then individual policies inherit them unless overridden:

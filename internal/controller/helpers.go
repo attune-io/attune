@@ -441,6 +441,30 @@ func (r *AttunePolicyReconciler) allWorkloadsCooling(policy *attunev1alpha1.Attu
 	return true
 }
 
+// minCooldownRemaining is the soonest remaining cooldown among the named
+// workloads. Expired or never-resized apps are ignored. Zero means nobody
+// is still cooling (do not use that as RequeueAfter; it busy-loops).
+func (r *AttunePolicyReconciler) minCooldownRemaining(policy *attunev1alpha1.AttunePolicy, workloads []string) time.Duration {
+	var soonest time.Duration
+	found := false
+	now := r.now()
+	for _, w := range workloads {
+		last, ok := lastResizeTimeForWorkload(policy, w)
+		if !ok {
+			continue
+		}
+		rem := r.getEffectiveCooldown(policy, w) - now.Sub(last)
+		if rem <= 0 {
+			continue
+		}
+		if !found || rem < soonest {
+			soonest = rem
+			found = true
+		}
+	}
+	return soonest
+}
+
 // getEffectiveCooldown returns the cooldown with exponential backoff applied
 // based on consecutive reverts for the named workload (empty = whole history).
 func (r *AttunePolicyReconciler) getEffectiveCooldown(policy *attunev1alpha1.AttunePolicy, workload string) time.Duration {

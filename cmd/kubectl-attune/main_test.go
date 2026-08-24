@@ -892,6 +892,22 @@ func TestFormatCanaryStatus(t *testing.T) {
 			},
 			expected: "FullRollout",
 		},
+		{
+			name: "canary mixed per-app promote",
+			obj: map[string]interface{}{
+				"spec": map[string]interface{}{"updateStrategy": map[string]interface{}{"type": "Canary"}},
+				"status": map[string]interface{}{
+					"canary": map[string]interface{}{
+						"phase": "CanaryInProgress",
+						"workloads": []interface{}{
+							map[string]interface{}{"workload": "a", "phase": "FullRollout"},
+							map[string]interface{}{"workload": "b", "phase": "CanaryInProgress"},
+						},
+					},
+				},
+			},
+			expected: "CanaryInProgress (1/2 apps)",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -1683,6 +1683,20 @@ func formatCanaryStatus(item unstructured.Unstructured) string {
 	if phase == "" {
 		return "Pending"
 	}
+	workloads, found, _ := unstructured.NestedSlice(item.Object, "status", "canary", "workloads")
+	if found && len(workloads) > 0 {
+		promoted := 0
+		for _, raw := range workloads {
+			m, ok := raw.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if p, _ := m["phase"].(string); p == "FullRollout" {
+				promoted++
+			}
+		}
+		return fmt.Sprintf("%s (%d/%d apps)", phase, promoted, len(workloads))
+	}
 	pods, _, _ := unstructured.NestedStringSlice(item.Object, "status", "canary", "pods")
 	if len(pods) > 0 {
 		return fmt.Sprintf("%s (%d pods)", phase, len(pods))

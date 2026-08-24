@@ -113,6 +113,12 @@ func (r *AttunePolicyReconciler) executeResizes(
 		canaryAutoPromote = policy.Spec.UpdateStrategy.Canary.AutoPromote
 	}
 
+	// Pre-build name→Object map for O(1) workload lookups.
+	workloadMap := make(map[string]client.Object, len(workloads))
+	for _, w := range workloads {
+		workloadMap[w.GetName()] = w
+	}
+
 	// Canary auto-promotion: if all canary pods passed the observation
 	// period without reverts, promote to full rollout.
 	if mode == attunev1alpha1.UpdateTypeCanary && canaryAutoPromote {
@@ -123,9 +129,23 @@ func (r *AttunePolicyReconciler) executeResizes(
 			}
 		}
 		for _, rec := range recommendations {
+			if rec.Stale {
+				continue
+			}
+			w := workloadMap[rec.Workload]
+			if w == nil || isBatchWorkload(w) {
+				continue
+			}
 			policy.Status.Canary.UpsertWorkload(rec.Workload)
 		}
-		mode = r.resolveCanaryPhase(ctx, policy, mode)
+		// Drop leftover #571 rows (Job/CronJob, unmatched names) so they
+		// cannot keep RollupPhase in InProgress forever. If that empties
+		// the table, skip the legacy policy-wide clock: leftover Success
+		// history would FullRollout and instantly promote the next app.
+		emptied := pruneStaleCanaryWorkloads(policy.Status.Canary, workloadMap)
+		if !emptied {
+			mode = r.resolveCanaryPhase(ctx, policy, mode)
+		}
 	}
 
 	resizer := resize.NewPodResizer(r.Clientset, logger)
@@ -183,12 +203,6 @@ func (r *AttunePolicyReconciler) executeResizes(
 
 	var historyMu sync.Mutex
 	var wg sync.WaitGroup
-
-	// Pre-build name→Object map for O(1) workload lookups.
-	workloadMap := make(map[string]client.Object, len(workloads))
-	for _, w := range workloads {
-		workloadMap[w.GetName()] = w
-	}
 
 	for _, rec := range recommendations {
 		if ctx.Err() != nil {
@@ -1030,6 +1044,26 @@ func (r *AttunePolicyReconciler) resolveCanaryPhase(ctx context.Context, policy 
 		"policy", policy.Name, "observationPeriod", observationPeriod)
 	cs.Phase = attunev1alpha1.CanaryPhaseFullRollout
 	return attunev1alpha1.UpdateTypeAuto
+}
+
+// pruneStaleCanaryWorkloads removes per-app rows that can never promote:
+// batch (Job/CronJob) and names that are not in the current workload list.
+// Returns true when the table went from nonempty to empty.
+func pruneStaleCanaryWorkloads(cs *attunev1alpha1.CanaryStatus, workloadMap map[string]client.Object) bool {
+	if cs == nil || len(cs.Workloads) == 0 {
+		return false
+	}
+	before := len(cs.Workloads)
+	kept := make([]attunev1alpha1.CanaryWorkloadStatus, 0, len(cs.Workloads))
+	for _, row := range cs.Workloads {
+		obj := workloadMap[row.Workload]
+		if obj == nil || isBatchWorkload(obj) {
+			continue
+		}
+		kept = append(kept, row)
+	}
+	cs.Workloads = kept
+	return before > 0 && len(kept) == 0
 }
 
 func canaryWorkloadNames(policy *attunev1alpha1.AttunePolicy) []string {

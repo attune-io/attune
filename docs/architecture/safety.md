@@ -219,15 +219,16 @@ sequenceDiagram
 
 ## Cooldown enforcement
 
-After any resize operation (successful or reverted), the operator records the
-timestamp in the `attune.io/last-resize-time` annotation. On the next
-reconciliation, it checks:
+After any resize operation (successful or reverted), the operator records
+`attune.io/last-resize-time` (policy-wide) and
+`attune.io/last-resize-time.<workload>` (per app). A later resize of app A
+does not lock app B.
 
-```go
-if time.Since(lastResizeTime) < cooldown {
-    // skip resize, requeue after remaining cooldown
-}
-```
+On the next reconciliation, each workload is skipped while
+`now - lastResizeTime.<app> < effectiveCooldown` (base cooldown times
+`2^N` consecutive reverts for that app). When every matched app is still
+cooling, `RequeueAfter` is the soonest remaining window, not a fresh full
+cooldown. A watch event mid-window must not restart the timer.
 
 The default cooldown is 1 hour. This prevents rapid-fire resizes that could
 destabilize workloads.
@@ -245,9 +246,11 @@ if totalCPU > allocCPU || totalMem > allocMem {
 ```
 
 This prevents resizes that would exceed the node's capacity and cause eviction.
-The check is per-pod, not per-node, so it does not account for other pods on the
-same node. If the node lookup fails (e.g., node not found), the resize proceeds
-without the check.
+Request increases also subtract other pods' requests on the same node
+(neighbor free request budget). A failed neighbor list skips the increase.
+If the node lookup fails (for example node not found), request increases are
+skipped (fail-closed). Decreases still proceed. See
+[Node capacity](node-capacity.md).
 
 ## Container exclusion
 

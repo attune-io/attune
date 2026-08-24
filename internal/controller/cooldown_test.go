@@ -17,11 +17,15 @@ limitations under the License.
 package controller
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	kubefake "k8s.io/client-go/kubernetes/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 )
@@ -193,6 +197,51 @@ func TestIsWorkloadCooldownActive_MalformedPerWorkload(t *testing.T) {
 	assert.False(t, r.isWorkloadCooldownActive(policy, "app-a"))
 }
 
+func TestMinCooldownRemaining_UsesSoonestApp(t *testing.T) {
+	r := NewAttunePolicyReconciler()
+	now := time.Date(2026, 8, 24, 16, 0, 0, 0, time.UTC)
+	r.SetNowFunc(func() time.Time { return now })
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{
+				lastResizeAnnotationKey("app-a"): now.Add(-50 * time.Minute).Format(time.RFC3339),
+				lastResizeAnnotationKey("app-b"): now.Add(-5 * time.Minute).Format(time.RFC3339),
+			},
+		},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Cooldown: &metav1.Duration{Duration: 1 * time.Hour},
+			},
+		},
+	}
+	assert.Equal(t, 10*time.Minute, r.minCooldownRemaining(policy, []string{"app-a", "app-b"}),
+		"A expires first (10m left); do not wait B's 55m")
+	assert.Equal(t, 55*time.Minute, r.minCooldownRemaining(policy, []string{"app-b"}))
+}
+
+func TestMinCooldownRemaining_IgnoresExpiredAndUnstamped(t *testing.T) {
+	r := NewAttunePolicyReconciler()
+	now := time.Date(2026, 8, 24, 16, 0, 0, 0, time.UTC)
+	r.SetNowFunc(func() time.Time { return now })
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{
+				lastResizeAnnotationKey("app-a"): now.Add(-50 * time.Minute).Format(time.RFC3339),
+				lastResizeAnnotationKey("app-b"): now.Add(-2 * time.Hour).Format(time.RFC3339),
+			},
+		},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Cooldown: &metav1.Duration{Duration: 1 * time.Hour},
+			},
+		},
+	}
+	assert.Equal(t, 10*time.Minute, r.minCooldownRemaining(policy, []string{"app-a", "app-b", "app-c"}),
+		"expired B and unstamped C must not drive remaining to 0")
+	assert.Equal(t, time.Duration(0), r.minCooldownRemaining(policy, []string{"app-b", "app-c"}),
+		"nobody cooling → 0; callers must not RequeueAfter this")
+}
+
 func TestGetEffectiveCooldown_PerWorkloadBackoff(t *testing.T) {
 	r := NewAttunePolicyReconciler()
 	cooldown := 1 * time.Hour
@@ -213,4 +262,46 @@ func TestGetEffectiveCooldown_PerWorkloadBackoff(t *testing.T) {
 	}
 	assert.Equal(t, 4*cooldown, r.getEffectiveCooldown(policy, "app-a"), "two reverts on A → 4x")
 	assert.Equal(t, cooldown, r.getEffectiveCooldown(policy, "app-b"), "B has no revert streak")
+}
+
+func TestExecuteResizes_CooldownSkipsOnlyCoolingWorkload(t *testing.T) {
+	now := time.Date(2026, 8, 24, 16, 0, 0, 0, time.UTC)
+	podA := newResizePod("app-a", "500m", "512Mi", "2000m", "2Gi")
+	podB := newResizePod("app-b", "500m", "512Mi", "2000m", "2Gi")
+	deployA := newTestDeployment("app-a", "default", map[string]string{"app": "app-a"})
+	deployB := newTestDeployment("app-b", "default", map[string]string{"app": "app-b"})
+
+	reconciler, _ := newResizeReconciler(podA, deployA, deployB, podB)
+	reconciler.Clientset = kubefake.NewSimpleClientset(podA.DeepCopy(), podB.DeepCopy(), deployA.DeepCopy(), deployB.DeepCopy())
+	reconciler.SetNowFunc(func() time.Time { return now })
+
+	policy := newTestPolicy("multi", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	policy.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: 1 * time.Hour}
+	policy.Annotations = map[string]string{
+		lastResizeAnnotation:             now.Add(-5 * time.Minute).UTC().Format(time.RFC3339),
+		lastResizeAnnotationKey("app-a"): now.Add(-5 * time.Minute).UTC().Format(time.RFC3339),
+	}
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("app-a", "500m", "512Mi", "2000m", "2Gi", "750m", "512Mi", "2000m", "2Gi"),
+		newResizeRecommendation("app-b", "500m", "512Mi", "2000m", "2Gi", "750m", "512Mi", "2000m", "2Gi"),
+	}
+	count, history := reconciler.executeResizes(context.Background(), policy,
+		[]client.Object{deployA, deployB}, recs,
+		map[string][]corev1.Pod{"app-a": {*podA}, "app-b": {*podB}}, nil, nil)
+	assert.Equal(t, 1, count)
+	aOK, bOK := 0, 0
+	for _, h := range history {
+		if !isSuccessfulInPlaceHistory(h) {
+			continue
+		}
+		if h.Workload == "app-a" {
+			aOK++
+		}
+		if h.Workload == "app-b" {
+			bOK++
+		}
+	}
+	assert.Equal(t, 0, aOK, "app-a is cooling and must not resize")
+	assert.Greater(t, bOK, 0, "app-b has no per-app stamp and must still resize")
 }

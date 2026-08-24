@@ -192,10 +192,14 @@ spec:
 | `resizeHistory[].reason` | `string` | Why a resize was reverted or failed (e.g. `oomkill`, `restart`, `notready`, `slo:<name>`, `infeasible`). Empty for successful resizes. |
 | `workloadErrors[].workload` | `string` | Workload name that encountered an error during reconciliation |
 | `workloadErrors[].error` | `string` | Human-readable error description |
-| `canary.phase` | `string` | `CanaryInProgress` or `FullRollout` |
-| `canary.startTime` | `Time` | When the canary subset was first resized |
+| `canary.phase` | `string` | `CanaryInProgress` or `FullRollout`. FullRollout only when every listed app is promoted |
+| `canary.startTime` | `Time` | Earliest live per-app watch start (or first canary resize) |
 | `canary.observedGeneration` | `int64` | Policy generation when this canary cycle started |
-| `canary.pods` | `[]string` | Names of pods selected for the canary subset |
+| `canary.pods` | `[]string` | Union of per-app canary pod names |
+| `canary.workloads[].workload` | `string` | Deployment or StatefulSet name |
+| `canary.workloads[].phase` | `string` | `CanaryInProgress` or `FullRollout` for that app |
+| `canary.workloads[].startTime` | `Time` | When that app's canary subset was first resized |
+| `canary.workloads[].pods` | `[]string` | That app's canary pod names |
 
 `ResourceRecommendationExplanation` contains the intermediate fields emitted by
 the estimator chain: `rawPercentile`, `overhead`, `afterOverhead`,
@@ -209,7 +213,7 @@ the estimator chain: `rawPercentile`, `overhead`, `afterOverhead`,
 | Type | Reasons | Description |
 |------|---------|-------------|
 | `Ready` | `Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `PrometheusUnavailable`, `InvalidConfig`, `WorkloadDiscoveryFailed`, `Paused` | Overall health |
-| `Resizing` | `InProgress`, `Idle`, `CooldownActive` | Active resize operation state |
+| `Resizing` | `InProgress`, `Idle`, `CooldownActive` | Active resize operation state. `CooldownActive` only when every matched app is still cooling |
 | `Degraded` | `HighRevertRate` | High revert rate detected (3+ of last 5 reverted) |
 | `ScheduleBlocked` | `OutsideWindow`, `InsideWindow` | Whether the current time is within the configured resize schedule window |
 | `ResizeBlocked` | `PodsDeferred`, `PodsInfeasible`, `PodsDeferredAndInfeasible` | One or more target pods stuck Deferred (kubelet pending) or Infeasible; message includes sample pod names and next actions |

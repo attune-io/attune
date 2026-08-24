@@ -18,6 +18,8 @@ exclude = [
   "docs\\.aws\\.amazon\\.com",
   # kind docs intermittently reset connections from GHA runners.
   "kind\\.sigs\\.k8s\\.io",
+  # kubernetes.io blog intermittently fails connect from GHA (PR #572 Link Check).
+  "kubernetes\\.io/blog",
 ]
 exclude_loopback = true
 max_concurrency = 8
