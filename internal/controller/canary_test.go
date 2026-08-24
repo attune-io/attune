@@ -508,6 +508,37 @@ func TestExecuteResizes_CanaryPrunesLeftoverBatchRow(t *testing.T) {
 		"leftover batch row must not keep the policy in CanaryInProgress")
 }
 
+func TestExecuteResizes_CanaryPruneToEmptyDoesNotLegacyPromote(t *testing.T) {
+	now := time.Date(2026, 8, 24, 16, 0, 0, 0, time.UTC)
+	old := metav1.NewTime(now.Add(-2 * time.Hour))
+	cj := &batchv1.CronJob{ObjectMeta: metav1.ObjectMeta{Name: "nightly", Namespace: "default"}}
+	pod := newResizePod("api-server", "500m", "512Mi", "1000m", "1Gi")
+	reconciler, _ := newResizeReconciler(pod, cj)
+	reconciler.SetNowFunc(func() time.Time { return now })
+
+	policy := canaryAutoPromotePolicy(10 * time.Minute)
+	policy.Status.Canary = &attunev1alpha1.CanaryStatus{
+		Phase: attunev1alpha1.CanaryPhaseInProgress,
+		Workloads: []attunev1alpha1.CanaryWorkloadStatus{
+			{Workload: "nightly", Phase: attunev1alpha1.CanaryPhaseInProgress},
+		},
+	}
+	// Leftover Success from a Deployment that is no longer matched.
+	policy.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{
+		{Workload: "old-app", Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: old},
+	}
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("nightly", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),
+	}
+
+	_, _ = reconciler.executeResizes(context.Background(), policy,
+		[]client.Object{cj}, recs, map[string][]corev1.Pod{}, nil, nil)
+	require.NotNil(t, policy.Status.Canary)
+	assert.Empty(t, policy.Status.Canary.Workloads)
+	assert.Equal(t, attunev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.Phase,
+		"empty table after prune must not FullRollout from leftover Success")
+}
+
 func derefPods(pods []*corev1.Pod) []corev1.Pod {
 	out := make([]corev1.Pod, len(pods))
 	for i, p := range pods {
