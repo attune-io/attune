@@ -829,12 +829,12 @@ func TestMergeMetricsSource_ProviderBlocks(t *testing.T) {
 	}
 	empty := &attunev1alpha1.MetricsSource{}
 	inherited = MergeMetricsSource(empty, promDefaults)
-	assert.Contains(t, inherited, "prometheus")
-	assert.Contains(t, inherited, "datadog")
-	assert.Contains(t, inherited, "cloudwatch")
-	assert.Contains(t, inherited, "vpa")
+	assert.Equal(t, []string{"prometheus"}, inherited)
 	require.NotNil(t, empty.Prometheus)
 	assert.Equal(t, "http://defaults:9090", empty.Prometheus.Address)
+	assert.Nil(t, empty.Datadog)
+	assert.Nil(t, empty.CloudWatch)
+	assert.Nil(t, empty.VPA)
 }
 
 func TestMergeUpdateStrategy_StatusBudget(t *testing.T) {

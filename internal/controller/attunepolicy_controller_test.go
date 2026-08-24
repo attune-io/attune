@@ -43,8 +43,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	kubefake "k8s.io/client-go/kubernetes/fake"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -7153,6 +7155,41 @@ func (c *commitThenTimeoutPodClient) Update(ctx context.Context, obj client.Obje
 	return nil
 }
 
+// cancelAwareGetClientset fails Get when ctx is already cancelled, except
+// the first persist re-fetch (so confirm is what we are testing).
+type cancelAwareGetClientset struct {
+	kubernetes.Interface
+	gets atomic.Int32
+}
+
+func (c *cancelAwareGetClientset) CoreV1() corev1client.CoreV1Interface {
+	return &cancelAwareCoreV1{CoreV1Interface: c.Interface.CoreV1(), gets: &c.gets}
+}
+
+type cancelAwareCoreV1 struct {
+	corev1client.CoreV1Interface
+	gets *atomic.Int32
+}
+
+func (c *cancelAwareCoreV1) Pods(namespace string) corev1client.PodInterface {
+	return &cancelAwarePods{PodInterface: c.CoreV1Interface.Pods(namespace), gets: c.gets}
+}
+
+type cancelAwarePods struct {
+	corev1client.PodInterface
+	gets *atomic.Int32
+}
+
+func (p *cancelAwarePods) Get(ctx context.Context, name string, opts metav1.GetOptions) (*corev1.Pod, error) {
+	n := p.gets.Add(1)
+	if n > 1 {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+	}
+	return p.PodInterface.Get(ctx, name, opts)
+}
+
 func persistMainRec(t *testing.T) attunev1alpha1.ContainerRecommendation {
 	t.Helper()
 	parse := func(s string) resource.Quantity {
@@ -7280,8 +7317,9 @@ func TestPersistResizeAnnotations_ConfirmUsesDetachedContext(t *testing.T) {
 	pod := newResizePodWithStatus("api-server", "500m", "512Mi", "1000m", "1Gi", 3)
 	scheme := testScheme()
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod.DeepCopy()).Build()
-	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
-	wrapped := &commitThenTimeoutPodClient{Client: fakeClient, cs: clientset, timeoutsLeft: 1}
+	inner := kubefake.NewSimpleClientset(pod.DeepCopy())
+	clientset := &cancelAwareGetClientset{Interface: inner}
+	wrapped := &commitThenTimeoutPodClient{Client: fakeClient, cs: inner, timeoutsLeft: 1}
 
 	r := NewAttunePolicyReconciler()
 	r.Client = wrapped
@@ -7298,6 +7336,7 @@ func TestPersistResizeAnnotations_ConfirmUsesDetachedContext(t *testing.T) {
 	require.NoError(t, err, "cancelled parent ctx must not skip confirm after a committed write")
 	assert.Empty(t, reason)
 	assert.Equal(t, now.UTC().Format(time.RFC3339), working.Annotations[annotationResizedAt])
+	assert.GreaterOrEqual(t, clientset.gets.Load(), int32(2), "re-fetch plus at least one confirm Get")
 }
 
 func TestPersistResizeAnnotations_ConfirmGetAlwaysErrorsReverts(t *testing.T) {
@@ -7307,6 +7346,7 @@ func TestPersistResizeAnnotations_ConfirmGetAlwaysErrorsReverts(t *testing.T) {
 	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
 	wrapped := &commitThenTimeoutPodClient{Client: fakeClient, cs: clientset, timeoutsLeft: 1}
 
+	var confirmGets atomic.Int32
 	clientset.PrependReactor("get", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
 		ga, ok := action.(k8stesting.GetAction)
 		if !ok {
@@ -7322,6 +7362,7 @@ func TestPersistResizeAnnotations_ConfirmGetAlwaysErrorsReverts(t *testing.T) {
 			return false, nil, nil
 		}
 		if live.Annotations[annotationResizedAt] != "" {
+			confirmGets.Add(1)
 			return true, nil, apierrors.NewInternalError(fmt.Errorf("injected confirm Get 500"))
 		}
 		return false, nil, nil
@@ -7337,7 +7378,11 @@ func TestPersistResizeAnnotations_ConfirmGetAlwaysErrorsReverts(t *testing.T) {
 	reason, err := r.persistResizeAnnotations(context.Background(), working, persistMainRec(t),
 		"test-policy", "api-server", now, 3)
 	require.Error(t, err)
+	assert.Contains(t, err.Error(), "injected timeout after committed annotation persist",
+		"must return the write error, not the confirm Get error")
 	assert.Equal(t, "annotation-persist-failed", reason)
+	assert.Equal(t, int32(confirmTrackingAttempts), confirmGets.Load(),
+		"confirm must retry before reverting")
 }
 
 func TestTrackingAnnotationsApplied(t *testing.T) {
