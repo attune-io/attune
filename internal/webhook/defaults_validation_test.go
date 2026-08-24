@@ -887,16 +887,171 @@ func TestDefaultsValidate_HistoryWindowInvalid(t *testing.T) {
 
 func TestDefaultsValidator_RejectsMultipleMetricsProviders(t *testing.T) {
 	v := &AttuneDefaultsValidator{}
-	defaults := &attunev1alpha1.AttuneDefaults{
-		ObjectMeta: metav1.ObjectMeta{Name: "default"},
-		Spec: attunev1alpha1.AttuneDefaultsSpec{
-			MetricsSource: &attunev1alpha1.MetricsSource{
+	tests := []struct {
+		name string
+		ms   *attunev1alpha1.MetricsSource
+	}{
+		{
+			name: "prometheus and datadog",
+			ms: &attunev1alpha1.MetricsSource{
 				Prometheus: &attunev1alpha1.PrometheusConfig{Address: "http://prom:9090"},
 				Datadog:    &attunev1alpha1.DatadogConfig{Site: "datadoghq.com"},
 			},
 		},
+		{
+			name: "datadog and cloudwatch",
+			ms: &attunev1alpha1.MetricsSource{
+				Datadog:    &attunev1alpha1.DatadogConfig{Site: "datadoghq.com"},
+				CloudWatch: &attunev1alpha1.CloudWatchConfig{Region: "us-east-1", ClusterName: "prod"},
+			},
+		},
+		{
+			name: "cloudwatch and vpa",
+			ms: &attunev1alpha1.MetricsSource{
+				CloudWatch: &attunev1alpha1.CloudWatchConfig{Region: "us-east-1", ClusterName: "prod"},
+				VPA:        &attunev1alpha1.VPAConfig{Name: "workload-vpa"},
+			},
+		},
 	}
-	_, err := v.ValidateCreate(context.Background(), defaults)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "at most one of prometheus, datadog, cloudwatch, or vpa")
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			defaults := &attunev1alpha1.AttuneDefaults{
+				ObjectMeta: metav1.ObjectMeta{Name: "default"},
+				Spec:       attunev1alpha1.AttuneDefaultsSpec{MetricsSource: tc.ms},
+			}
+			_, err := v.ValidateCreate(context.Background(), defaults)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "at most one of prometheus, datadog, cloudwatch, or vpa")
+		})
+	}
+}
+
+func TestDefaultsValidator_ProviderFieldConstraints(t *testing.T) {
+	v := &AttuneDefaultsValidator{}
+	tests := []struct {
+		name    string
+		ms      *attunev1alpha1.MetricsSource
+		wantErr string
+	}{
+		{
+			name: "datadog missing api key name",
+			ms: &attunev1alpha1.MetricsSource{
+				Datadog: &attunev1alpha1.DatadogConfig{
+					Site:            "datadoghq.com",
+					APIKeySecretRef: attunev1alpha1.SecretKeyRef{Key: "api-key"},
+				},
+			},
+			wantErr: "metricsSource.datadog.apiKeySecretRef.name is required",
+		},
+		{
+			name: "datadog missing api key key",
+			ms: &attunev1alpha1.MetricsSource{
+				Datadog: &attunev1alpha1.DatadogConfig{
+					Site:            "datadoghq.com",
+					APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "dd-key"},
+				},
+			},
+			wantErr: "metricsSource.datadog.apiKeySecretRef.key is required",
+		},
+		{
+			name: "datadog unrecognized site",
+			ms: &attunev1alpha1.MetricsSource{
+				Datadog: &attunev1alpha1.DatadogConfig{
+					Site:            "not-a-datadog-site.example",
+					APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "dd-key", Key: "api-key"},
+				},
+			},
+			wantErr: "is not a recognized Datadog site",
+		},
+		{
+			name: "cloudwatch missing region",
+			ms: &attunev1alpha1.MetricsSource{
+				CloudWatch: &attunev1alpha1.CloudWatchConfig{ClusterName: "prod"},
+			},
+			wantErr: "metricsSource.cloudwatch.region is required",
+		},
+		{
+			name: "cloudwatch missing cluster name",
+			ms: &attunev1alpha1.MetricsSource{
+				CloudWatch: &attunev1alpha1.CloudWatchConfig{Region: "us-east-1"},
+			},
+			wantErr: "metricsSource.cloudwatch.clusterName is required",
+		},
+		{
+			name:    "vpa missing name",
+			ms:      &attunev1alpha1.MetricsSource{VPA: &attunev1alpha1.VPAConfig{}},
+			wantErr: "metricsSource.vpa.name is required",
+		},
+		{
+			name: "prometheus bearer token slash",
+			ms: &attunev1alpha1.MetricsSource{
+				Prometheus: &attunev1alpha1.PrometheusConfig{
+					Address:           "http://prom:9090",
+					BearerTokenSecret: &attunev1alpha1.SecretKeyRef{Name: "other-ns/token", Key: "token"},
+				},
+			},
+			wantErr: "bearerTokenSecret.name must not contain '/'",
+		},
+		{
+			name: "invalid cpu recording metric",
+			ms: &attunev1alpha1.MetricsSource{
+				CPURecordingMetric: "has space",
+			},
+			wantErr: "metricsSource.cpuRecordingMetric: invalid metric name",
+		},
+		{
+			name:    "invalid pod aggregation",
+			ms:      &attunev1alpha1.MetricsSource{PodAggregation: "Median"},
+			wantErr: "metricsSource.podAggregation: must be Max, Avg, or None",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			defaults := &attunev1alpha1.AttuneDefaults{
+				ObjectMeta: metav1.ObjectMeta{Name: "default"},
+				Spec:       attunev1alpha1.AttuneDefaultsSpec{MetricsSource: tc.ms},
+			}
+			_, err := v.ValidateCreate(context.Background(), defaults)
+			require.Error(t, err, "invalid provider fields on AttuneDefaults must be rejected")
+			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
+func TestDefaultsValidator_ValidSingleProviders(t *testing.T) {
+	v := &AttuneDefaultsValidator{}
+	tests := []struct {
+		name string
+		ms   *attunev1alpha1.MetricsSource
+	}{
+		{
+			name: "datadog",
+			ms: &attunev1alpha1.MetricsSource{
+				Datadog: &attunev1alpha1.DatadogConfig{
+					Site:            "datadoghq.eu",
+					APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "dd-key", Key: "api-key"},
+				},
+			},
+		},
+		{
+			name: "cloudwatch",
+			ms: &attunev1alpha1.MetricsSource{
+				CloudWatch: &attunev1alpha1.CloudWatchConfig{Region: "eu-west-1", ClusterName: "prod"},
+			},
+		},
+		{
+			name: "vpa",
+			ms:   &attunev1alpha1.MetricsSource{VPA: &attunev1alpha1.VPAConfig{Name: "workload-vpa"}},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			defaults := &attunev1alpha1.AttuneDefaults{
+				ObjectMeta: metav1.ObjectMeta{Name: "default"},
+				Spec:       attunev1alpha1.AttuneDefaultsSpec{MetricsSource: tc.ms},
+			}
+			_, err := v.ValidateCreate(context.Background(), defaults)
+			require.NoError(t, err)
+		})
+	}
 }

@@ -228,12 +228,8 @@ func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (a
 	if err := exclusiveMetricsProviderError(&policy.Spec.MetricsSource); err != nil {
 		return warnings, err
 	}
-
-	// Validate VPA settings if specified.
-	if vpa := policy.Spec.MetricsSource.VPA; vpa != nil {
-		if vpa.Name == "" {
-			return warnings, fmt.Errorf("metricsSource.vpa.name is required")
-		}
+	if err := validateMetricsSourceProviderFields(&policy.Spec.MetricsSource); err != nil {
+		return warnings, err
 	}
 
 	// Validate Prometheus settings if specified.
@@ -245,59 +241,6 @@ func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (a
 		}
 		if err := validation.PrometheusQueryParameters(prometheus.QueryParameters); err != nil {
 			return warnings, fmt.Errorf("metricsSource.prometheus.queryParameters: %w", err)
-		}
-		// Reject bearer token secret names containing "/" to prevent
-		// cross-namespace secret references. The secret is always read
-		// from the policy's own namespace.
-		if prometheus.BearerTokenSecret != nil {
-			if strings.Contains(prometheus.BearerTokenSecret.Name, "/") {
-				return warnings, fmt.Errorf("metricsSource.prometheus.bearerTokenSecret.name must not contain '/'; secrets are read from the policy's namespace")
-			}
-		}
-	}
-
-	// Recording-rule metric names must be PromQL identifiers (no selector injection).
-	if m := policy.Spec.MetricsSource.CPURecordingMetric; m != "" && !rsmetrics.ValidRecordingMetricName(m) {
-		return warnings, fmt.Errorf("metricsSource.cpuRecordingMetric: invalid metric name %q", m)
-	}
-	if m := policy.Spec.MetricsSource.MemoryRecordingMetric; m != "" && !rsmetrics.ValidRecordingMetricName(m) {
-		return warnings, fmt.Errorf("metricsSource.memoryRecordingMetric: invalid metric name %q", m)
-	}
-	switch policy.Spec.MetricsSource.PodAggregation {
-	case "", "Max", "Avg", "None":
-		// ok
-	default:
-		return warnings, fmt.Errorf("metricsSource.podAggregation: must be Max, Avg, or None, got %q", policy.Spec.MetricsSource.PodAggregation)
-	}
-
-	// Validate Datadog settings if specified.
-	if dd := policy.Spec.MetricsSource.Datadog; dd != nil {
-		validSites := map[string]bool{
-			"datadoghq.com": true, "datadoghq.eu": true,
-			"us3.datadoghq.com": true, "us5.datadoghq.com": true,
-			"ap1.datadoghq.com": true, "ddog-gov.com": true,
-		}
-		if dd.Site != "" && !validSites[dd.Site] {
-			return warnings, fmt.Errorf("metricsSource.datadog.site %q is not a recognized Datadog site", dd.Site)
-		}
-		if dd.APIKeySecretRef.Name == "" {
-			return warnings, fmt.Errorf("metricsSource.datadog.apiKeySecretRef.name is required")
-		}
-		if dd.APIKeySecretRef.Key == "" {
-			return warnings, fmt.Errorf("metricsSource.datadog.apiKeySecretRef.key is required")
-		}
-		if strings.Contains(dd.APIKeySecretRef.Name, "/") {
-			return warnings, fmt.Errorf("metricsSource.datadog.apiKeySecretRef.name must not contain '/'; secrets are read from the policy's namespace")
-		}
-	}
-
-	// Validate CloudWatch settings if specified.
-	if cw := policy.Spec.MetricsSource.CloudWatch; cw != nil {
-		if cw.Region == "" {
-			return warnings, fmt.Errorf("metricsSource.cloudwatch.region is required")
-		}
-		if cw.ClusterName == "" {
-			return warnings, fmt.Errorf("metricsSource.cloudwatch.clusterName is required")
 		}
 	}
 
@@ -627,6 +570,61 @@ func exclusiveMetricsProviderError(ms *attunev1alpha1.MetricsSource) error {
 	}
 	if n > 1 {
 		return fmt.Errorf("metricsSource: at most one of prometheus, datadog, cloudwatch, or vpa may be set")
+	}
+	return nil
+}
+
+func validateMetricsSourceProviderFields(ms *attunev1alpha1.MetricsSource) error {
+	if ms == nil {
+		return nil
+	}
+	if vpa := ms.VPA; vpa != nil {
+		if vpa.Name == "" {
+			return fmt.Errorf("metricsSource.vpa.name is required")
+		}
+	}
+	if prometheus := ms.Prometheus; prometheus != nil && prometheus.BearerTokenSecret != nil {
+		if strings.Contains(prometheus.BearerTokenSecret.Name, "/") {
+			return fmt.Errorf("metricsSource.prometheus.bearerTokenSecret.name must not contain '/'; secrets are read from the policy's namespace")
+		}
+	}
+	if dd := ms.Datadog; dd != nil {
+		validSites := map[string]bool{
+			"datadoghq.com": true, "datadoghq.eu": true,
+			"us3.datadoghq.com": true, "us5.datadoghq.com": true,
+			"ap1.datadoghq.com": true, "ddog-gov.com": true,
+		}
+		if dd.Site != "" && !validSites[dd.Site] {
+			return fmt.Errorf("metricsSource.datadog.site %q is not a recognized Datadog site", dd.Site)
+		}
+		if dd.APIKeySecretRef.Name == "" {
+			return fmt.Errorf("metricsSource.datadog.apiKeySecretRef.name is required")
+		}
+		if dd.APIKeySecretRef.Key == "" {
+			return fmt.Errorf("metricsSource.datadog.apiKeySecretRef.key is required")
+		}
+		if strings.Contains(dd.APIKeySecretRef.Name, "/") {
+			return fmt.Errorf("metricsSource.datadog.apiKeySecretRef.name must not contain '/'; secrets are read from the policy's namespace")
+		}
+	}
+	if cw := ms.CloudWatch; cw != nil {
+		if cw.Region == "" {
+			return fmt.Errorf("metricsSource.cloudwatch.region is required")
+		}
+		if cw.ClusterName == "" {
+			return fmt.Errorf("metricsSource.cloudwatch.clusterName is required")
+		}
+	}
+	if m := ms.CPURecordingMetric; m != "" && !rsmetrics.ValidRecordingMetricName(m) {
+		return fmt.Errorf("metricsSource.cpuRecordingMetric: invalid metric name %q", m)
+	}
+	if m := ms.MemoryRecordingMetric; m != "" && !rsmetrics.ValidRecordingMetricName(m) {
+		return fmt.Errorf("metricsSource.memoryRecordingMetric: invalid metric name %q", m)
+	}
+	switch ms.PodAggregation {
+	case "", "Max", "Avg", "None":
+	default:
+		return fmt.Errorf("metricsSource.podAggregation: must be Max, Avg, or None, got %q", ms.PodAggregation)
 	}
 	return nil
 }
