@@ -132,11 +132,15 @@ func (r *AttunePolicyReconciler) executeResizes(
 			if rec.Stale {
 				continue
 			}
-			if w := workloadMap[rec.Workload]; w != nil && isBatchWorkload(w) {
+			w := workloadMap[rec.Workload]
+			if w == nil || isBatchWorkload(w) {
 				continue
 			}
 			policy.Status.Canary.UpsertWorkload(rec.Workload)
 		}
+		// Drop leftover #571 rows (Job/CronJob, unmatched names) so they
+		// cannot keep RollupPhase in InProgress forever.
+		pruneStaleCanaryWorkloads(policy.Status.Canary, workloadMap)
 		mode = r.resolveCanaryPhase(ctx, policy, mode)
 	}
 
@@ -1036,6 +1040,23 @@ func (r *AttunePolicyReconciler) resolveCanaryPhase(ctx context.Context, policy 
 		"policy", policy.Name, "observationPeriod", observationPeriod)
 	cs.Phase = attunev1alpha1.CanaryPhaseFullRollout
 	return attunev1alpha1.UpdateTypeAuto
+}
+
+// pruneStaleCanaryWorkloads removes per-app rows that can never promote:
+// batch (Job/CronJob) and names that are not in the current workload list.
+func pruneStaleCanaryWorkloads(cs *attunev1alpha1.CanaryStatus, workloadMap map[string]client.Object) {
+	if cs == nil || len(cs.Workloads) == 0 {
+		return
+	}
+	kept := make([]attunev1alpha1.CanaryWorkloadStatus, 0, len(cs.Workloads))
+	for _, row := range cs.Workloads {
+		obj := workloadMap[row.Workload]
+		if obj == nil || isBatchWorkload(obj) {
+			continue
+		}
+		kept = append(kept, row)
+	}
+	cs.Workloads = kept
 }
 
 func canaryWorkloadNames(policy *attunev1alpha1.AttunePolicy) []string {
