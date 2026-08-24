@@ -26,6 +26,8 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	kubefake "k8s.io/client-go/kubernetes/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
@@ -372,4 +374,78 @@ func TestExecuteResizes_CanaryDoesNotStartWatchWhenNoResize(t *testing.T) {
 	if policy.Status.Canary != nil {
 		assert.Nil(t, policy.Status.Canary.StartTime, "skipped resize must not start the observation clock")
 	}
+}
+
+func TestExecuteResizes_PromotedAppResizesAll_UnpromotedStaysCanary(t *testing.T) {
+	makePods := func(app string, n int) []*corev1.Pod {
+		out := make([]*corev1.Pod, n)
+		for i := range n {
+			p := newResizePod(app, "500m", "512Mi", "2000m", "2Gi")
+			p.Name = fmt.Sprintf("%s-%d", app, i)
+			out[i] = p
+		}
+		return out
+	}
+	aPods := makePods("app-a", 3)
+	bPods := makePods("app-b", 3)
+	deployA := newTestDeployment("app-a", "default", map[string]string{"app": "app-a"})
+	deployB := newTestDeployment("app-b", "default", map[string]string{"app": "app-b"})
+
+	extras := []client.Object{deployA, deployB}
+	csObjs := []runtime.Object{deployA.DeepCopy(), deployB.DeepCopy()}
+	for _, p := range append(aPods, bPods...) {
+		csObjs = append(csObjs, p.DeepCopy())
+	}
+	for _, p := range append(aPods[1:], bPods...) {
+		extras = append(extras, p)
+	}
+	reconciler, _ := newResizeReconciler(aPods[0], extras...)
+	reconciler.Clientset = kubefake.NewSimpleClientset(csObjs...)
+
+	policy := canaryAutoPromotePolicy(10 * time.Minute)
+	policy.Spec.UpdateStrategy.Canary.Percentage = 10
+	policy.Status.Canary = &attunev1alpha1.CanaryStatus{
+		Phase: attunev1alpha1.CanaryPhaseInProgress,
+		Workloads: []attunev1alpha1.CanaryWorkloadStatus{
+			{Workload: "app-a", Phase: attunev1alpha1.CanaryPhaseFullRollout},
+			{Workload: "app-b", Phase: attunev1alpha1.CanaryPhaseInProgress, Pods: []string{"app-b-0"}},
+		},
+	}
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("app-a", "500m", "512Mi", "2000m", "2Gi", "750m", "512Mi", "2000m", "2Gi"),
+		newResizeRecommendation("app-b", "500m", "512Mi", "2000m", "2Gi", "750m", "512Mi", "2000m", "2Gi"),
+	}
+	podsBy := map[string][]corev1.Pod{
+		"app-a": derefPods(aPods),
+		"app-b": derefPods(bPods),
+	}
+
+	count, history := reconciler.executeResizes(context.Background(), policy,
+		[]client.Object{deployA, deployB}, recs, podsBy, nil, nil)
+	assert.Equal(t, 2, count, "both apps have at least one resize")
+
+	aOK, bOK := 0, 0
+	for _, h := range history {
+		if !isSuccessfulInPlaceHistory(h) {
+			continue
+		}
+		switch h.Workload {
+		case "app-a":
+			aOK++
+		case "app-b":
+			bOK++
+		}
+	}
+	// History writes one Success row per resource. 3 pods × cpu+memory = 6;
+	// canary 10% of 3 pods is 1 pod × cpu+memory = 2.
+	assert.Equal(t, 6, aOK, "promoted app must resize every eligible pod")
+	assert.Equal(t, 2, bOK, "unpromoted app must stay on the canary percentage (min 1)")
+}
+
+func derefPods(pods []*corev1.Pod) []corev1.Pod {
+	out := make([]corev1.Pod, len(pods))
+	for i, p := range pods {
+		out[i] = *p
+	}
+	return out
 }
