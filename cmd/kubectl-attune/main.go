@@ -371,7 +371,7 @@ func fetchPolicies(ctx context.Context, dynClient dynamic.Interface, namespace s
 		if apierrors.IsNotFound(err) || isNoResourceMatch(err) {
 			fmt.Fprintln(os.Stderr, "Error: Attune CRDs are not installed in this cluster.")
 			fmt.Fprintln(os.Stderr, "Install the operator first:")
-			fmt.Fprintln(os.Stderr, "  helm install attune oci://ghcr.io/attune-io/charts/attune")
+			fmt.Fprintln(os.Stderr, "  helm install attune oci://ghcr.io/attune-io/charts/attune --set image.tag=v0.1.23")
 			os.Exit(1)
 		}
 		fmt.Fprintf(os.Stderr, "Error listing policies: %v\n", err)

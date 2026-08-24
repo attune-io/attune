@@ -65,6 +65,7 @@ helm install attune \
     ```bash
     helm upgrade attune oci://ghcr.io/attune-io/charts/attune \
       --namespace attune-system \
+      --reuse-values \
       --set networkPolicy.prometheusPort=80
     ```
 

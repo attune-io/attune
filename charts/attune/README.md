@@ -12,8 +12,10 @@ Safe, in-place Kubernetes pod resource right-sizing operator
 ## Installation
 
 ```bash
+# Chart 0.1.23 pulls :0.1.23 (missing). Pin until 0.1.24+.
 helm install attune oci://ghcr.io/attune-io/charts/attune \
-  --namespace attune-system --create-namespace
+  --namespace attune-system --create-namespace \
+  --set image.tag=v0.1.23
 ```
 
 ## Values

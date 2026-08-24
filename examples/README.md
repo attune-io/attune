@@ -55,7 +55,8 @@ All examples assume:
 
 ```bash
 helm install attune oci://ghcr.io/attune-io/charts/attune \
-  --namespace attune-system --create-namespace
+  --namespace attune-system --create-namespace \
+  --set image.tag=v0.1.23
 ```
 
 ## kubectl plugin (optional)
