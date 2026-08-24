@@ -18,12 +18,21 @@ inputs:
 runs:
   using: composite
   steps:
+    # Include GOVERSION in the cache key. A binary built with Go 1.26
+    # cannot lint or scan a module that requires Go 1.27 (golangci-lint
+    # refuses to load the config). #556 hit a cache of v2.12.2 built on
+    # 1.26 after go.mod moved to 1.27.0.
+    - name: Record Go version for cache key
+      id: go-ver
+      shell: bash -Eeuo pipefail {0}
+      run: echo "version=$(go env GOVERSION)" >> "$GITHUB_OUTPUT"
+
     - name: Restore ${{ inputs.name }} from cache
       uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
       id: tool-cache
       with:
         path: ${{ runner.temp }}/go-tool-cache/${{ inputs.name }}
-        key: go-tool-${{ inputs.name }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.version }}
+        key: go-tool-${{ inputs.name }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.version }}-${{ steps.go-ver.outputs.version }}
 
     - name: Install ${{ inputs.name }}
       if: steps.tool-cache.outputs.cache-hit != 'true'

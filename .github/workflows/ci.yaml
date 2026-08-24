@@ -18,7 +18,7 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
-  GOLANGCI_LINT_VERSION: "v2.12.2"
+  GOLANGCI_LINT_VERSION: "v2.13.1"
   GOTESTSUM_VERSION: "v1.13.0"
   K3D_VERSION: "v5.8.3"
   K3S_IMAGE: "rancher/k3s:v1.35.4-k3s1"
@@ -650,7 +650,7 @@ jobs:
       - uses: ./.github/actions/install-go-tool
         with:
           name: govulncheck
-          version: v1.3.0
+          version: v1.7.0
           package: golang.org/x/vuln/cmd/govulncheck
 
       - name: Run govulncheck
