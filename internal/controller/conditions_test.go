@@ -284,6 +284,18 @@ func TestSetResizeBlockedCondition(t *testing.T) {
 
 // ---------- Consecutive reverts ----------
 
+func TestConsecutiveRevertsForWorkload_IgnoresOtherApps(t *testing.T) {
+	ts := time.Unix(1_700_000_000, 0)
+	history := []attunev1alpha1.ResizeHistoryEntry{
+		flippedSuccessRevert("app-a", "InPlace", ts, "oomkill"),
+		flippedSuccessRevert("app-a", "InPlace", ts.Add(time.Minute), "oomkill"),
+		{Workload: "app-b", Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: metav1.NewTime(ts)},
+	}
+	assert.Equal(t, 2, consecutiveRevertsForWorkload(history, "app-a"))
+	assert.Equal(t, 0, consecutiveRevertsForWorkload(history, "app-b"))
+	assert.Equal(t, 2, maxConsecutiveReverts(history))
+}
+
 func TestConsecutiveReverts(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -298,6 +310,9 @@ func TestConsecutiveReverts(t *testing.T) {
 		}, 3},
 		{"broken by success", []attunev1alpha1.ResizeHistoryEntry{
 			{Result: attunev1alpha1.ResizeResultReverted}, {Result: attunev1alpha1.ResizeResultSuccess}, {Result: attunev1alpha1.ResizeResultReverted},
+		}, 1},
+		{"flipped Success matches production", []attunev1alpha1.ResizeHistoryEntry{
+			flippedSuccessRevert("app", "InPlace", time.Unix(1_700_000_000, 0), "oomkill"),
 		}, 1},
 	}
 	for _, tt := range tests {
@@ -380,7 +395,7 @@ func TestGetEffectiveCooldown_NoReverts(t *testing.T) {
 			},
 		},
 	}
-	assert.Equal(t, cooldown, r.getEffectiveCooldown(policy))
+	assert.Equal(t, cooldown, r.getEffectiveCooldown(policy, ""))
 }
 
 func TestGetEffectiveCooldown_TwoReverts(t *testing.T) {
@@ -399,7 +414,7 @@ func TestGetEffectiveCooldown_TwoReverts(t *testing.T) {
 		},
 	}
 	// 2 reverts -> 2^2 = 4x base cooldown
-	assert.Equal(t, 4*cooldown, r.getEffectiveCooldown(policy))
+	assert.Equal(t, 4*cooldown, r.getEffectiveCooldown(policy, ""))
 }
 
 func TestGetEffectiveCooldown_CappedAt16x(t *testing.T) {
@@ -423,7 +438,7 @@ func TestGetEffectiveCooldown_CappedAt16x(t *testing.T) {
 		},
 	}
 	// 6 reverts but capped at 4 -> 2^4 = 16x
-	assert.Equal(t, 16*cooldown, r.getEffectiveCooldown(policy))
+	assert.Equal(t, 16*cooldown, r.getEffectiveCooldown(policy, ""))
 }
 
 // ---------- LimitRange compatibility ----------

@@ -652,6 +652,8 @@ To prevent conflicts:
 1. SELECT target pods based on update strategy mode:
    - OneShot: one eligible pod per cycle
    - Canary: canaryPercentage% of pods (round up to at least 1)
+     per app; CREATE sizing, startup boost, and HPA stay off until
+     that app's own watch promotes it (`status.canary.workloads`)
    - Auto: canary first, then remaining after observation period
      (observation `startTime` is the first successful in-place canary
      resize, not the first skipped attempt; a revert clears the clock)

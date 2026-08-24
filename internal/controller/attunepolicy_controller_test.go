@@ -4935,9 +4935,9 @@ func TestResolveCanaryPhase_BlocksOnRevert(t *testing.T) {
 		Phase:     attunev1alpha1.CanaryPhaseInProgress,
 		StartTime: &startTime,
 	}
-	// Revert happened during observation.
+	// Production flip-in-place (same timestamp as the original Success).
 	policy.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{
-		{Result: attunev1alpha1.ResizeResultReverted, Timestamp: metav1.NewTime(startTime.Add(2 * time.Minute))},
+		flippedSuccessRevert("api-server", "InPlace", startTime.Add(2*time.Minute), "oomkill"),
 	}
 
 	reconciler := NewAttunePolicyReconciler()
@@ -9557,6 +9557,69 @@ func TestApplyStartupBoosts_AppliesBoostToNewPod(t *testing.T) {
 		}
 	}
 	assert.True(t, foundResize, "expected a resize action for startup boost")
+}
+
+func TestApplyStartupBoosts_SkipsDuringCanaryInProgress(t *testing.T) {
+	scheme := testScheme()
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{Type: attunev1alpha1.UpdateTypeCanary},
+			CPU: attunev1alpha1.ResourceConfig{
+				StartupBoost: &attunev1alpha1.StartupBoost{
+					Multiplier: "3.0",
+					Duration:   metav1.Duration{Duration: 2 * time.Minute},
+				},
+			},
+		},
+		Status: attunev1alpha1.AttunePolicyStatus{
+			Canary: &attunev1alpha1.CanaryStatus{
+				Phase: attunev1alpha1.CanaryPhaseInProgress,
+				Workloads: []attunev1alpha1.CanaryWorkloadStatus{
+					{Workload: "my-app", Phase: attunev1alpha1.CanaryPhaseInProgress, Pods: []string{"canary-only"}},
+				},
+			},
+		},
+	}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "my-app-new",
+			Namespace:         "default",
+			CreationTimestamp: metav1.NewTime(now.Add(-30 * time.Second)),
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m")},
+					},
+				},
+			},
+		},
+	}
+	clientset := kubefake.NewSimpleClientset(pod)
+	r := NewAttunePolicyReconciler()
+	r.Client = fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod).Build()
+	r.Scheme = scheme
+	r.Clientset = clientset
+	r.SetNowFunc(func() time.Time { return now })
+
+	resizer := resize.NewPodResizer(clientset, logr.Discard())
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		{Workload: "my-app", Kind: "Deployment", Containers: []attunev1alpha1.ContainerRecommendation{
+			{Name: "main", Recommended: attunev1alpha1.ResourceValues{CPURequest: resource.MustParse("200m")}},
+		}},
+	}
+	r.applyStartupBoosts(context.Background(), policy, map[string][]corev1.Pod{"my-app": {*pod}}, recs, resizer, nil)
+
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			t.Fatal("startup boost must not resize a non-canary pod during CanaryInProgress")
+		}
+	}
 }
 
 func TestApplyStartupBoosts_NaNMultiplierSkipped(t *testing.T) {

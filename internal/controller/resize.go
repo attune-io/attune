@@ -196,6 +196,12 @@ func (r *AttunePolicyReconciler) executeResizes(
 			continue
 		}
 
+		if r.isWorkloadCooldownActive(policy, rec.Workload) {
+			logger.V(1).Info("Skipping resize, workload cooldown active",
+				"workload", rec.Workload)
+			continue
+		}
+
 		// Skip workloads with stale recommendations to avoid resizing
 		// based on outdated data.
 		if rec.Stale {
@@ -220,10 +226,18 @@ func (r *AttunePolicyReconciler) executeResizes(
 			logger.Info("No pods found for workload", "workload", rec.Workload)
 			continue
 		}
-		selectedPods := selectPodsForResize(pods, mode, canaryPct)
+		wlMode := mode
+		if policy.Spec.UpdateStrategy.Type == attunev1alpha1.UpdateTypeCanary {
+			if policy.Status.Canary.WorkloadPromoted(rec.Workload) {
+				wlMode = attunev1alpha1.UpdateTypeAuto
+			} else {
+				wlMode = attunev1alpha1.UpdateTypeCanary
+			}
+		}
+		selectedPods := selectPodsForResize(pods, wlMode, canaryPct)
 		logger.V(1).Info("Pod selection for resize",
 			"workload", rec.Workload, "total", len(pods),
-			"selected", len(selectedPods), "type", mode)
+			"selected", len(selectedPods), "type", wlMode)
 		if len(selectedPods) == 0 {
 			continue
 		}
@@ -318,7 +332,7 @@ func (r *AttunePolicyReconciler) executeResizes(
 					historyMu.Lock()
 					history = append(history, podHistory...)
 					if podResized {
-						r.startCanaryWatch(policy, pod.Name)
+						r.startCanaryWatch(policy, pod.Name, workloadName)
 					}
 					historyMu.Unlock()
 				}
@@ -951,7 +965,9 @@ func (r *AttunePolicyReconciler) resolveCanaryPhase(ctx context.Context, policy 
 	}
 
 	// Phase: FullRollout already active from a prior reconcile.
-	if cs != nil && cs.Phase == attunev1alpha1.CanaryPhaseFullRollout {
+	// If per-app rows exist, still resolve so a newly matched app can
+	// start its own watch instead of inheriting fleet promote.
+	if cs != nil && cs.Phase == attunev1alpha1.CanaryPhaseFullRollout && len(canaryWorkloadNames(policy)) == 0 {
 		return attunev1alpha1.UpdateTypeAuto
 	}
 
@@ -959,10 +975,25 @@ func (r *AttunePolicyReconciler) resolveCanaryPhase(ctx context.Context, policy 
 		return currentMode
 	}
 
+	named := canaryWorkloadNames(policy)
+	if len(named) > 0 {
+		for _, name := range named {
+			r.resolveOneCanaryWorkload(policy, cs, name, observationPeriod)
+		}
+		cs.SyncRollupClock()
+		cs.RollupPhase()
+		if cs.Phase == attunev1alpha1.CanaryPhaseFullRollout {
+			logger.Info("Canary observation passed for all apps, promoting to full rollout",
+				"policy", policy.Name, "observationPeriod", observationPeriod)
+			return attunev1alpha1.UpdateTypeAuto
+		}
+		return currentMode
+	}
+
 	lastRevert := latestMatchingHistoryTime(policy.Status.ResizeHistory, func(h attunev1alpha1.ResizeHistoryEntry) bool {
 		return h.Result == attunev1alpha1.ResizeResultReverted
 	})
-	firstSuccess := earliestSuccessfulInPlaceAfter(policy.Status.ResizeHistory, lastRevert)
+	firstSuccess := earliestSuccessfulInPlaceAfter(policy.Status.ResizeHistory, "", lastRevert)
 	if firstSuccess == nil {
 		// Production reverts flip the Success row in place and keep its
 		// original timestamp, which is often not after StartTime. Reset
@@ -992,17 +1023,77 @@ func (r *AttunePolicyReconciler) resolveCanaryPhase(ctx context.Context, policy 
 	return attunev1alpha1.UpdateTypeAuto
 }
 
+func canaryWorkloadNames(policy *attunev1alpha1.AttunePolicy) []string {
+	seen := map[string]struct{}{}
+	var names []string
+	add := func(name string) {
+		if name == "" {
+			return
+		}
+		if _, ok := seen[name]; ok {
+			return
+		}
+		seen[name] = struct{}{}
+		names = append(names, name)
+	}
+	if policy.Status.Canary != nil {
+		for _, w := range policy.Status.Canary.Workloads {
+			add(w.Workload)
+		}
+	}
+	for _, h := range policy.Status.ResizeHistory {
+		add(h.Workload)
+	}
+	return names
+}
+
+func (r *AttunePolicyReconciler) resolveOneCanaryWorkload(
+	policy *attunev1alpha1.AttunePolicy,
+	cs *attunev1alpha1.CanaryStatus,
+	workload string,
+	observationPeriod time.Duration,
+) {
+	logger := log.FromContext(context.Background())
+	ws := cs.UpsertWorkload(workload)
+	if ws.Phase == attunev1alpha1.CanaryPhaseFullRollout {
+		return
+	}
+	lastRevert := latestMatchingHistoryTime(policy.Status.ResizeHistory, func(h attunev1alpha1.ResizeHistoryEntry) bool {
+		return h.Result == attunev1alpha1.ResizeResultReverted && h.Workload == workload
+	})
+	firstSuccess := earliestSuccessfulInPlaceAfter(policy.Status.ResizeHistory, workload, lastRevert)
+	if firstSuccess == nil {
+		if ws.StartTime != nil || len(ws.Pods) > 0 {
+			logger.V(1).Info("Canary observation has no successful in-place resize yet, resetting watch",
+				"policy", policy.Name, "workload", workload)
+			ws.StartTime = nil
+			ws.Pods = nil
+		}
+		return
+	}
+	if ws.StartTime == nil || ws.StartTime.Time.Before(firstSuccess.Time) {
+		t := *firstSuccess
+		ws.StartTime = &t
+	}
+	if r.now().Sub(ws.StartTime.Time) < observationPeriod {
+		return
+	}
+	logger.Info("Canary observation passed for workload, promoting",
+		"policy", policy.Name, "workload", workload, "observationPeriod", observationPeriod)
+	ws.Phase = attunev1alpha1.CanaryPhaseFullRollout
+}
+
 // startCanaryWatch records the first successful in-place canary resize as the
 // observation start. It is a no-op when autoPromote is off or the cycle is
 // already in FullRollout.
-func (r *AttunePolicyReconciler) startCanaryWatch(policy *attunev1alpha1.AttunePolicy, podName string) {
+func (r *AttunePolicyReconciler) startCanaryWatch(policy *attunev1alpha1.AttunePolicy, podName, workload string) {
 	if policy.Spec.UpdateStrategy.Type != attunev1alpha1.UpdateTypeCanary {
 		return
 	}
 	if policy.Spec.UpdateStrategy.Canary == nil || !policy.Spec.UpdateStrategy.Canary.AutoPromote {
 		return
 	}
-	if policy.Status.Canary != nil && policy.Status.Canary.Phase == attunev1alpha1.CanaryPhaseFullRollout {
+	if policy.Status.Canary.WorkloadPromoted(workload) {
 		return
 	}
 	if policy.Status.Canary == nil {
@@ -1011,13 +1102,23 @@ func (r *AttunePolicyReconciler) startCanaryWatch(policy *attunev1alpha1.AttuneP
 			ObservedGeneration: policy.Generation,
 		}
 	}
+	now := metav1.NewTime(r.now())
 	if policy.Status.Canary.StartTime == nil {
-		now := metav1.NewTime(r.now())
 		policy.Status.Canary.StartTime = &now
 		policy.Status.Canary.ObservedGeneration = policy.Generation
 	}
 	if podName != "" {
 		policy.Status.Canary.Pods = appendUnique(policy.Status.Canary.Pods, podName)
+	}
+	if workload != "" {
+		ws := policy.Status.Canary.UpsertWorkload(workload)
+		if ws.StartTime == nil {
+			ws.StartTime = &now
+			ws.Phase = attunev1alpha1.CanaryPhaseInProgress
+		}
+		if podName != "" {
+			ws.Pods = appendUnique(ws.Pods, podName)
+		}
 	}
 }
 
@@ -1039,11 +1140,14 @@ func latestMatchingHistoryTime(
 	return latest
 }
 
-func earliestSuccessfulInPlaceAfter(history []attunev1alpha1.ResizeHistoryEntry, after *metav1.Time) *metav1.Time {
+func earliestSuccessfulInPlaceAfter(history []attunev1alpha1.ResizeHistoryEntry, workload string, after *metav1.Time) *metav1.Time {
 	var earliest *metav1.Time
 	for i := range history {
 		h := history[i]
 		if !isSuccessfulInPlaceHistory(h) {
+			continue
+		}
+		if workload != "" && h.Workload != workload {
 			continue
 		}
 		if after != nil && !h.Timestamp.After(after.Time) {
@@ -1062,6 +1166,7 @@ func earliestSuccessfulInPlaceAfter(history []attunev1alpha1.ResizeHistoryEntry,
 // nodeCache uses sync.Map for safe concurrent access when MaxConcurrentResizes > 1.
 type resizePreChecks struct {
 	nodeCache   sync.Map // string -> *corev1.Node
+	nodePods    sync.Map // string -> []corev1.Pod
 	limitRanges []corev1.LimitRange
 	quotas      []corev1.ResourceQuota
 }
@@ -1150,6 +1255,18 @@ func (r *AttunePolicyReconciler) shouldSkipResize(
 					totalMem > node.Status.Allocatable.Memory().Value() {
 					return true, "total pod requests would exceed node allocatable"
 				}
+				// Neighbor request budget: skip *increases* that would not
+				// fit after other pods already reserved allocatable.
+				// Decreases stay allowed. Missing nodeName or a failed
+				// neighbor list leaves only the this-pod check above.
+				if targetIncreasesRequests(pod, containerRec.Name, target) {
+					nCPU, nMem := r.neighborRequestTotals(ctx, pod, checks)
+					allocCPU := node.Status.Allocatable.Cpu().MilliValue()
+					allocMem := node.Status.Allocatable.Memory().Value()
+					if totalCPU+nCPU > allocCPU || totalMem+nMem > allocMem {
+						return true, "node free request budget exceeded by neighbors"
+					}
+				}
 			}
 		} else if targetIncreasesRequests(pod, containerRec.Name, target) {
 			// Fail-closed for increases when node status is unavailable (#483).
@@ -1198,6 +1315,8 @@ func recordCapacitySkip(policy *attunev1alpha1.AttunePolicy, reason string) {
 	switch {
 	case strings.Contains(reason, "exceed node allocatable"):
 		operatormetrics.CapacitySkipTotal.WithLabelValues(policy.Namespace, policy.Name, "allocatable").Inc()
+	case strings.Contains(reason, "neighbors"), strings.Contains(reason, "free request budget"):
+		operatormetrics.CapacitySkipTotal.WithLabelValues(policy.Namespace, policy.Name, "neighbors").Inc()
 	case strings.Contains(reason, "MemoryPressure"),
 		strings.Contains(reason, "DiskPressure"),
 		strings.Contains(reason, "PIDPressure"),
@@ -1206,6 +1325,68 @@ func recordCapacitySkip(policy *attunev1alpha1.AttunePolicy, reason string) {
 	case strings.Contains(reason, "node status unavailable"):
 		operatormetrics.CapacitySkipTotal.WithLabelValues(policy.Namespace, policy.Name, "unavailable").Inc()
 	}
+}
+
+// podsOnNode lists pods scheduled on nodeName (cached per cycle).
+// The result is filtered by spec.nodeName so fake clientsets that ignore
+// field selectors still behave.
+func (r *AttunePolicyReconciler) podsOnNode(ctx context.Context, nodeName string, checks *resizePreChecks) []corev1.Pod {
+	if nodeName == "" {
+		return nil
+	}
+	if checks != nil {
+		if v, ok := checks.nodePods.Load(nodeName); ok {
+			if pods, ok := v.([]corev1.Pod); ok {
+				return pods
+			}
+		}
+	}
+	if r.Clientset == nil {
+		return nil
+	}
+	list, err := r.Clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{
+		FieldSelector: "spec.nodeName=" + nodeName,
+	})
+	if err != nil {
+		return nil
+	}
+	filtered := make([]corev1.Pod, 0, len(list.Items))
+	for i := range list.Items {
+		if list.Items[i].Spec.NodeName == nodeName {
+			filtered = append(filtered, list.Items[i])
+		}
+	}
+	if checks != nil {
+		checks.nodePods.Store(nodeName, filtered)
+	}
+	return filtered
+}
+
+func samePod(a, b *corev1.Pod) bool {
+	if a.UID != "" && b.UID != "" {
+		return a.UID == b.UID
+	}
+	return a.Name == b.Name && a.Namespace == b.Namespace
+}
+
+// neighborRequestTotals sums running-container requests of other pods on
+// the same node. The target pod is excluded. Missing Clientset or empty
+// nodeName returns zeros (this-pod allocatable check still applies).
+func (r *AttunePolicyReconciler) neighborRequestTotals(ctx context.Context, pod *corev1.Pod, checks *resizePreChecks) (cpu, mem int64) {
+	if pod.Spec.NodeName == "" {
+		return 0, 0
+	}
+	for _, n := range r.podsOnNode(ctx, pod.Spec.NodeName, checks) {
+		if samePod(pod, &n) {
+			continue
+		}
+		running := append(nativeSidecars(n.Spec.InitContainers), n.Spec.Containers...)
+		for _, c := range running {
+			cpu += c.Resources.Requests.Cpu().MilliValue()
+			mem += c.Resources.Requests.Memory().Value()
+		}
+	}
+	return cpu, mem
 }
 
 // targetIncreasesRequests reports whether target raises CPU and/or memory

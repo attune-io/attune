@@ -55,8 +55,12 @@ import (
 )
 
 const (
-	// lastResizeAnnotation is the annotation key for tracking last resize time.
+	// lastResizeAnnotation is the policy-wide last-resize timestamp
+	// (upgrade fallback and "most recent any workload" display).
 	lastResizeAnnotation = "attune.io/last-resize-time"
+	// lastResizeAnnotationPrefix is the per-workload last-resize key:
+	// attune.io/last-resize-time.<workload>.
+	lastResizeAnnotationPrefix = lastResizeAnnotation + "."
 
 	// Annotation keys for tracking in-flight resizes on pods.
 	// Per-container keys use a ".containerName" suffix.
@@ -462,16 +466,21 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 	}
 
-	// Step 9: Execute resizes if mode allows.
+	// Step 9: Execute resizes if mode allows. Cooldown is per workload;
+	// a hot app must not lock the rest of the policy.
 	mode := policy.Spec.UpdateStrategy.Type
-	cooldownActive := r.isCooldownActive(&policy)
+	recWorkloads := make([]string, 0, len(recommendations))
+	for _, rec := range recommendations {
+		recWorkloads = append(recWorkloads, rec.Workload)
+	}
+	allCooling := r.allWorkloadsCooling(&policy, recWorkloads)
 	withinWindow := isWithinResizeWindow(policy.Spec.UpdateStrategy.Schedule, r.now())
 	var newResizedCount int
 
 	// List pods when needed for resize/boost, or for Deferred/Infeasible UX in
 	// Recommend and resize modes (subject to blocker refresh throttle).
 	// Observe mode skips lists (no resize UX).
-	needPods := isResizeMode(mode) && ((!cooldownActive && withinWindow) ||
+	needPods := isResizeMode(mode) && ((!allCooling && withinWindow) ||
 		(policy.Spec.CPU.StartupBoost != nil && r.Clientset != nil && len(recommendations) > 0))
 	refreshBlockers := r.shouldRefreshBlockers(&policy, needPods)
 	// Always list when resizing; for status-only paths, skip List while throttle holds.
@@ -493,7 +502,7 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	var cycleResizeHistory []attunev1alpha1.ResizeHistoryEntry
-	if isResizeMode(mode) && !cooldownActive && withinWindow {
+	if isResizeMode(mode) && !allCooling && withinWindow {
 		resizedCount, history := r.executeResizes(ctx, &policy, workloads, recommendations, podsByWorkload, collector, preChecks)
 		newResizedCount = resizedCount
 		cycleResizeHistory = history
@@ -515,6 +524,9 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			}
 			for _, rec := range recommendations {
 				if !resizedWorkloads[rec.Workload] {
+					continue
+				}
+				if mode == attunev1alpha1.UpdateTypeCanary && !policy.Status.Canary.AllowsHPARetune(rec.Workload) {
 					continue
 				}
 				var totalOldCPU, totalNewCPU, totalCPULimit int64
@@ -583,10 +595,10 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			policy.Status.Workloads.Resized = derived
 		}
 	}
-	if isResizeMode(mode) && cooldownActive {
-		logger.Info("Cooldown active, skipping resize")
+	if isResizeMode(mode) && allCooling && newResizedCount == 0 {
+		logger.Info("Cooldown active for all matched workloads, skipping resize")
 		r.emitEventOnce(&policy, corev1.EventTypeNormal, "CooldownActive", "resize",
-			"Resize deferred: cooldown period active")
+			"Resize deferred: cooldown period active on all matched workloads")
 	}
 
 	// Expose effective cooldown status with backoff details.
@@ -646,7 +658,7 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	// Set Resizing condition.
-	r.setResizingCondition(&policy, cooldownActive)
+	r.setResizingCondition(&policy, allCooling && newResizedCount == 0)
 
 	// Set Degraded condition based on recent revert rate.
 	r.setDegradedCondition(&policy)
@@ -663,7 +675,19 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// resize actually happened this cycle (not when Resized was derived from
 	// history), to avoid resetting the cooldown timer spuriously.
 	if newResizedCount > 0 {
-		if err := r.markResizeTime(ctx, &policy); err != nil {
+		resizedNames := make([]string, 0, len(cycleResizeHistory))
+		seenWL := map[string]struct{}{}
+		for _, h := range cycleResizeHistory {
+			if !isSuccessfulInPlaceHistory(h) || h.Workload == "" {
+				continue
+			}
+			if _, ok := seenWL[h.Workload]; ok {
+				continue
+			}
+			seenWL[h.Workload] = struct{}{}
+			resizedNames = append(resizedNames, h.Workload)
+		}
+		if err := r.markResizeTime(ctx, &policy, resizedNames...); err != nil {
 			return ctrl.Result{}, fmt.Errorf("marking resize time: %w", err)
 		}
 	}

@@ -91,7 +91,7 @@ func (h *PodMutatingHandler) Handle(ctx context.Context, req admission.Request) 
 	}
 
 	// Find a matching policy with initial sizing enabled.
-	policy, rec := h.findMatchingPolicy(policies.Items, ownerKind, ownerName)
+	policy, rec := h.findMatchingPolicy(policies.Items, ownerKind, ownerName, pod.Name)
 	if policy == nil || rec == nil {
 		return admission.Allowed("no matching policy with initial sizing")
 	}
@@ -134,7 +134,7 @@ func (h *PodMutatingHandler) Handle(ctx context.Context, req admission.Request) 
 // and has initial sizing enabled with valid recommendations.
 func (h *PodMutatingHandler) findMatchingPolicy(
 	policies []attunev1alpha1.AttunePolicy,
-	ownerKind, ownerName string,
+	ownerKind, ownerName, podName string,
 ) (*attunev1alpha1.AttunePolicy, *attunev1alpha1.WorkloadRecommendation) {
 	for i := range policies {
 		policy := &policies[i]
@@ -148,6 +148,13 @@ func (h *PodMutatingHandler) findMatchingPolicy(
 		if policy.Spec.UpdateStrategy.Type == attunev1alpha1.UpdateTypeObserve ||
 			policy.Spec.UpdateStrategy.Type == attunev1alpha1.UpdateTypeRecommend ||
 			policy.Spec.UpdateStrategy.Type == "" {
+			continue
+		}
+
+		// Canary: do not CREATE-size at the full recommendation unless
+		// this app has been promoted or the pod is already in the slice.
+		if policy.Spec.UpdateStrategy.Type == attunev1alpha1.UpdateTypeCanary &&
+			!policy.Status.Canary.AllowsCreateSizing(ownerName, podName) {
 			continue
 		}
 

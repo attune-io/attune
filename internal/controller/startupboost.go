@@ -76,6 +76,11 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 			if pod.Status.Phase != corev1.PodRunning {
 				continue
 			}
+			if policy.Spec.UpdateStrategy != nil &&
+				policy.Spec.UpdateStrategy.Type == attunev1alpha1.UpdateTypeCanary &&
+				!policy.Status.Canary.AllowsStartupBoost(rec.Workload, pod.Name) {
+				continue
+			}
 
 			boostAtStr := pod.Annotations[annotationStartupBoostAt]
 			podAge := now.Sub(pod.CreationTimestamp.Time)
