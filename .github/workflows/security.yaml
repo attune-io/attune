@@ -84,7 +84,7 @@ jobs:
       - uses: ./.github/actions/install-go-tool
         with:
           name: govulncheck
-          version: v1.3.0
+          version: v1.7.0
           package: golang.org/x/vuln/cmd/govulncheck
 
       - name: Run govulncheck
