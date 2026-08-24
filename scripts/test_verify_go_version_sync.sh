@@ -69,6 +69,20 @@ set -e
 assert_eq "1" "$rc" "missing Dockerfile exit 1"
 assert_contains "missing-dockerfile" "$out" "missing Dockerfile reason"
 
+# Script copied to /tmp (Dependabot auto-merge path): use cwd, not /tmp/...
+pair="${tmpdir}/copied"
+write_pair "$pair" "1.26.5" "1.26.6"
+copied="${tmpdir}/verify-go-version-sync.sh"
+cp "$SCRIPT" "$copied"
+(
+  cd "$pair"
+  "$copied" --write >/dev/null
+)
+got="$(grep -E '^go ' "${pair}/go.mod")"
+assert_eq "go 1.26.6" "$got" "copied script uses cwd when not next to go.mod"
+"$SCRIPT" --check --root "$pair" >/dev/null
+echo "ok: /tmp copy --write then check exits 0"
+
 # Unparseable Dockerfile.
 pair="${tmpdir}/badimage"
 mkdir -p "$pair"

@@ -1132,11 +1132,12 @@ Jobs:
 
 ```
 Jobs:
-  auto-merge:
-    - Triggers from successful `CI` workflow runs on Dependabot PRs
-    - Finds the PR by head SHA
-    - Approves and squash-merges all semver types (patch, minor, major)
-    - CI is the safety gate; no semver-type filter
+  auto-merge (pull_request_target, Dependabot only):
+    - Approves with GITHUB_TOKEN; enables squash auto-merge with the App token
+    - All semver types; CI is the safety gate
+    - Docker PRs: copy verify-go-version-sync.sh to /tmp, --write --root workspace
+  rebase-outdated (push to main):
+    - Comments @dependabot rebase on open Dependabot PRs with mergeable_state=behind
 ```
 
 ### 10.2 CI Configuration Files
