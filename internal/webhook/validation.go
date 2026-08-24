@@ -225,22 +225,8 @@ func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (a
 		}
 	}
 
-	// Validate at most one metrics source is configured.
-	sourceCount := 0
-	if policy.Spec.MetricsSource.Prometheus != nil {
-		sourceCount++
-	}
-	if policy.Spec.MetricsSource.Datadog != nil {
-		sourceCount++
-	}
-	if policy.Spec.MetricsSource.CloudWatch != nil {
-		sourceCount++
-	}
-	if policy.Spec.MetricsSource.VPA != nil {
-		sourceCount++
-	}
-	if sourceCount > 1 {
-		return warnings, fmt.Errorf("metricsSource: at most one of prometheus, datadog, cloudwatch, or vpa may be set")
+	if err := exclusiveMetricsProviderError(&policy.Spec.MetricsSource); err != nil {
+		return warnings, err
 	}
 
 	// Validate VPA settings if specified.
@@ -618,6 +604,29 @@ func validateSLOGuardrails(guardrails []attunev1alpha1.SLOGuardrail) error {
 				return err
 			}
 		}
+	}
+	return nil
+}
+
+func exclusiveMetricsProviderError(ms *attunev1alpha1.MetricsSource) error {
+	if ms == nil {
+		return nil
+	}
+	n := 0
+	if ms.Prometheus != nil {
+		n++
+	}
+	if ms.Datadog != nil {
+		n++
+	}
+	if ms.CloudWatch != nil {
+		n++
+	}
+	if ms.VPA != nil {
+		n++
+	}
+	if n > 1 {
+		return fmt.Errorf("metricsSource: at most one of prometheus, datadog, cloudwatch, or vpa may be set")
 	}
 	return nil
 }
