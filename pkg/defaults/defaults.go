@@ -381,6 +381,29 @@ func MergeMetricsSource(policy *attunev1alpha1.MetricsSource, defaults *attunev1
 		policy.MemoryRecordingMetric = defaults.MemoryRecordingMetric
 		inherited = append(inherited, "memoryRecordingMetric")
 	}
+	// Provider blocks are mutually exclusive. Inherit only when the policy
+	// did not set any of them so a cluster Datadog/CloudWatch/VPA/Prometheus
+	// default is not dropped (and we never add a second provider).
+	policyHasProvider := policy.Prometheus != nil || policy.Datadog != nil ||
+		policy.CloudWatch != nil || policy.VPA != nil
+	if !policyHasProvider {
+		if defaults.Prometheus != nil {
+			policy.Prometheus = defaults.Prometheus
+			inherited = append(inherited, "prometheus")
+		}
+		if defaults.Datadog != nil {
+			policy.Datadog = defaults.Datadog
+			inherited = append(inherited, "datadog")
+		}
+		if defaults.CloudWatch != nil {
+			policy.CloudWatch = defaults.CloudWatch
+			inherited = append(inherited, "cloudwatch")
+		}
+		if defaults.VPA != nil {
+			policy.VPA = defaults.VPA
+			inherited = append(inherited, "vpa")
+		}
+	}
 	return inherited
 }
 
