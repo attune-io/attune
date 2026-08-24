@@ -835,6 +835,22 @@ func TestMergeMetricsSource_ProviderBlocks(t *testing.T) {
 	assert.Nil(t, empty.Datadog)
 	assert.Nil(t, empty.CloudWatch)
 	assert.Nil(t, empty.VPA)
+
+	cwOnly := &attunev1alpha1.MetricsSource{}
+	inherited = MergeMetricsSource(cwOnly, &attunev1alpha1.MetricsSource{
+		CloudWatch: &attunev1alpha1.CloudWatchConfig{Region: "eu-west-1"},
+	})
+	assert.Equal(t, []string{"cloudwatch"}, inherited)
+	require.NotNil(t, cwOnly.CloudWatch)
+	assert.Equal(t, "eu-west-1", cwOnly.CloudWatch.Region)
+
+	vpaOnly := &attunev1alpha1.MetricsSource{}
+	inherited = MergeMetricsSource(vpaOnly, &attunev1alpha1.MetricsSource{
+		VPA: &attunev1alpha1.VPAConfig{Name: "workload-vpa"},
+	})
+	assert.Equal(t, []string{"vpa"}, inherited)
+	require.NotNil(t, vpaOnly.VPA)
+	assert.Equal(t, "workload-vpa", vpaOnly.VPA.Name)
 }
 
 func TestMergeUpdateStrategy_StatusBudget(t *testing.T) {

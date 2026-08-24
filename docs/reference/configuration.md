@@ -223,7 +223,7 @@ CR manually but managed through Helm values.
 | `defaults.costPricing.cpuPerCoreHour` | string | `"0.031"` | Cost per vCPU-hour for savings estimates |
 | `defaults.costPricing.memoryPerGiBHour` | string | `"0.004"` | Cost per GiB-hour for savings estimates |
 | `defaults.excludeKnownSidecars` | bool | (operator default `true` if unset) | When set on the AttuneDefaults CR, policies that leave the field unset inherit this value. `false` restores exclude-only-via-`excludedContainers`. |
-| `defaults.metricsSource.*` | object | | Default metrics source (e.g., shared Prometheus address) |
+| `defaults.metricsSource.*` | object | | Default metrics source (e.g., shared Prometheus address). At most one of prometheus, datadog, cloudwatch, or vpa. |
 | `defaults.updateStrategy.*` | object | | Default update strategy (type, cooldown, autoRevert, etc.) |
 
 The rendered CR has the same spec as a manually created `AttuneDefaults`
@@ -379,9 +379,10 @@ All fields from `AttuneDefaults` are available in
 ## Alternative Metrics Sources
 
 By default, Attune queries Prometheus for CPU and memory usage data.
-The CRD also supports Datadog and CloudWatch Container Insights as
-alternative metrics sources. **At most one** of `prometheus`, `datadog`, or
-`cloudwatch` may be set per policy.
+The CRD also supports Datadog, CloudWatch Container Insights, and VPA
+as alternative metrics sources. **At most one** of `prometheus`,
+`datadog`, `cloudwatch`, or `vpa` may be set on a policy or on
+`AttuneDefaults` / `AttuneNamespaceDefaults`.
 
 > The Datadog collector queries the `/api/v1/query` endpoint and converts
 > nanocores to cores automatically. The CloudWatch collector uses the
@@ -549,7 +550,8 @@ updateStrategy:
 | `metricsSource.vpa.name` | string | (required) | Name of the VerticalPodAutoscaler object to consume recommendations from |
 | `metricsSource.vpa.namespace` | string | (policy namespace) | Namespace of the VPA. Defaults to the policy's namespace. |
 
-At most one of `prometheus`, `datadog`, `cloudwatch`, or `vpa` may be set per policy.
+At most one of `prometheus`, `datadog`, `cloudwatch`, or `vpa` may be set
+on a policy or on `AttuneDefaults` / `AttuneNamespaceDefaults`.
 
 ### Initial Sizing
 

@@ -87,6 +87,10 @@ func (v *AttuneNamespaceDefaultsValidator) ValidateDelete(_ context.Context, _ *
 }
 
 func validateDefaultsSpec(spec attunev1alpha1.AttuneDefaultsSpec) (admission.Warnings, error) {
+	if err := exclusiveMetricsProviderError(spec.MetricsSource); err != nil {
+		return nil, err
+	}
+
 	// Validate Prometheus settings if provided.
 	if spec.MetricsSource != nil && spec.MetricsSource.Prometheus != nil {
 		prometheus := spec.MetricsSource.Prometheus

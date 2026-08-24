@@ -884,3 +884,19 @@ func TestDefaultsValidate_HistoryWindowInvalid(t *testing.T) {
 		})
 	}
 }
+
+func TestDefaultsValidator_RejectsMultipleMetricsProviders(t *testing.T) {
+	v := &AttuneDefaultsValidator{}
+	defaults := &attunev1alpha1.AttuneDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			MetricsSource: &attunev1alpha1.MetricsSource{
+				Prometheus: &attunev1alpha1.PrometheusConfig{Address: "http://prom:9090"},
+				Datadog:    &attunev1alpha1.DatadogConfig{Site: "datadoghq.com"},
+			},
+		},
+	}
+	_, err := v.ValidateCreate(context.Background(), defaults)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "at most one of prometheus, datadog, cloudwatch, or vpa")
+}
