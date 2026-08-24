@@ -113,6 +113,12 @@ func (r *AttunePolicyReconciler) executeResizes(
 		canaryAutoPromote = policy.Spec.UpdateStrategy.Canary.AutoPromote
 	}
 
+	// Pre-build name→Object map for O(1) workload lookups.
+	workloadMap := make(map[string]client.Object, len(workloads))
+	for _, w := range workloads {
+		workloadMap[w.GetName()] = w
+	}
+
 	// Canary auto-promotion: if all canary pods passed the observation
 	// period without reverts, promote to full rollout.
 	if mode == attunev1alpha1.UpdateTypeCanary && canaryAutoPromote {
@@ -123,6 +129,12 @@ func (r *AttunePolicyReconciler) executeResizes(
 			}
 		}
 		for _, rec := range recommendations {
+			if rec.Stale {
+				continue
+			}
+			if w := workloadMap[rec.Workload]; w != nil && isBatchWorkload(w) {
+				continue
+			}
 			policy.Status.Canary.UpsertWorkload(rec.Workload)
 		}
 		mode = r.resolveCanaryPhase(ctx, policy, mode)
@@ -183,12 +195,6 @@ func (r *AttunePolicyReconciler) executeResizes(
 
 	var historyMu sync.Mutex
 	var wg sync.WaitGroup
-
-	// Pre-build name→Object map for O(1) workload lookups.
-	workloadMap := make(map[string]client.Object, len(workloads))
-	for _, w := range workloads {
-		workloadMap[w.GetName()] = w
-	}
 
 	for _, rec := range recommendations {
 		if ctx.Err() != nil {

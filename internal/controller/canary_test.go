@@ -24,6 +24,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -440,6 +441,31 @@ func TestExecuteResizes_PromotedAppResizesAll_UnpromotedStaysCanary(t *testing.T
 	// canary 10% of 3 pods is 1 pod × cpu+memory = 2.
 	assert.Equal(t, 6, aOK, "promoted app must resize every eligible pod")
 	assert.Equal(t, 2, bOK, "unpromoted app must stay on the canary percentage (min 1)")
+}
+
+func TestExecuteResizes_CanarySeedSkipsBatchAndStale(t *testing.T) {
+	pod := newResizePod("api-server", "500m", "512Mi", "1000m", "1Gi")
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	cj := &batchv1.CronJob{ObjectMeta: metav1.ObjectMeta{Name: "nightly", Namespace: "default"}}
+	reconciler, _ := newResizeReconciler(pod, deploy, cj)
+
+	policy := canaryAutoPromotePolicy(10 * time.Minute)
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("api-server", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),
+		newResizeRecommendation("nightly", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),
+		func() attunev1alpha1.WorkloadRecommendation {
+			r := newResizeRecommendation("stale-app", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi")
+			r.Stale = true
+			return r
+		}(),
+	}
+
+	_, _ = reconciler.executeResizes(context.Background(), policy,
+		[]client.Object{deploy, cj}, recs, podMap("api-server", pod), nil, nil)
+	require.NotNil(t, policy.Status.Canary)
+	assert.NotNil(t, policy.Status.Canary.WorkloadStatus("api-server"))
+	assert.Nil(t, policy.Status.Canary.WorkloadStatus("nightly"), "batch workloads must not block FullRollout")
+	assert.Nil(t, policy.Status.Canary.WorkloadStatus("stale-app"), "stale recs must not block FullRollout")
 }
 
 func derefPods(pods []*corev1.Pod) []corev1.Pod {
