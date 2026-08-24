@@ -288,6 +288,28 @@ func TestResolveCanaryPhase_PromotesOneAppOnly(t *testing.T) {
 	assert.False(t, policy.Status.Canary.AllowsHPARetune("app-b"))
 }
 
+func TestResolveCanaryPhase_DoesNotPromoteFromLeftoverHistory(t *testing.T) {
+	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	old := metav1.NewTime(now.Add(-2 * time.Hour))
+	policy := canaryAutoPromotePolicy(10 * time.Minute)
+	policy.Status.Canary = &attunev1alpha1.CanaryStatus{
+		Phase: attunev1alpha1.CanaryPhaseInProgress,
+		Workloads: []attunev1alpha1.CanaryWorkloadStatus{
+			{Workload: "app-b", Phase: attunev1alpha1.CanaryPhaseInProgress},
+		},
+	}
+	policy.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{
+		{Workload: "app-b", Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: old},
+	}
+
+	r := NewAttunePolicyReconciler()
+	r.SetNowFunc(func() time.Time { return now })
+	mode := r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode)
+	assert.Equal(t, attunev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.WorkloadStatus("app-b").Phase,
+		"leftover Success from before this canary watch must not promote")
+}
+
 func TestResolveCanaryPhase_LaterRevertedRowIsNonProductionShape(t *testing.T) {
 	// Non-production fixture: a later Reverted row after Success.
 	// Production flips Success in place (see ResetsWhenSuccessFlippedToReverted).

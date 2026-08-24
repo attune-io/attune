@@ -53,6 +53,10 @@ func (cs *CanaryStatus) WorkloadPromoted(workload string) bool {
 	if ws := cs.WorkloadStatus(workload); ws != nil {
 		return ws.Phase == CanaryPhaseFullRollout
 	}
+	// Per-app rows exist: an unlisted app has not been watched yet.
+	if len(cs.Workloads) > 0 {
+		return false
+	}
 	return cs.Phase == CanaryPhaseFullRollout
 }
 

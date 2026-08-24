@@ -152,6 +152,27 @@ func TestIsWorkloadCooldownActive_FallsBackToPolicyWide(t *testing.T) {
 	assert.True(t, r.isCooldownActive(policy))
 }
 
+func TestIsWorkloadCooldownActive_MarkResizeTimeDoesNotLockSiblings(t *testing.T) {
+	r := NewAttunePolicyReconciler()
+	now := time.Date(2026, 8, 24, 15, 0, 0, 0, time.UTC)
+	r.SetNowFunc(func() time.Time { return now })
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{
+				lastResizeAnnotation:             now.Format(time.RFC3339),
+				lastResizeAnnotationKey("app-a"): now.Format(time.RFC3339),
+			},
+		},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Cooldown: &metav1.Duration{Duration: 1 * time.Hour},
+			},
+		},
+	}
+	assert.True(t, r.isWorkloadCooldownActive(policy, "app-a"))
+	assert.False(t, r.isWorkloadCooldownActive(policy, "app-b"), "B must not inherit the policy-wide stamp once any per-app key exists")
+}
+
 func TestIsWorkloadCooldownActive_MalformedPerWorkload(t *testing.T) {
 	r := NewAttunePolicyReconciler()
 	policy := &attunev1alpha1.AttunePolicy{

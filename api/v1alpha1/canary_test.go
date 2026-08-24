@@ -49,6 +49,16 @@ func TestCanaryStatus_AllowsCreateSizing(t *testing.T) {
 	done := &CanaryStatus{Phase: CanaryPhaseFullRollout}
 	assert.True(t, done.AllowsCreateSizing("any", "new-pod"))
 	assert.True(t, done.AllowsHPARetune("any"))
+
+	onlyA := &CanaryStatus{
+		Phase: CanaryPhaseFullRollout,
+		Workloads: []CanaryWorkloadStatus{
+			{Workload: "app-a", Phase: CanaryPhaseFullRollout},
+		},
+	}
+	assert.True(t, onlyA.AllowsHPARetune("app-a"))
+	assert.False(t, onlyA.AllowsHPARetune("app-b"), "unlisted app is not promoted")
+	assert.False(t, onlyA.AllowsCreateSizing("app-b", "b-new"))
 }
 
 func TestCanaryStatus_RollupPhase(t *testing.T) {

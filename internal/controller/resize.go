@@ -116,6 +116,15 @@ func (r *AttunePolicyReconciler) executeResizes(
 	// Canary auto-promotion: if all canary pods passed the observation
 	// period without reverts, promote to full rollout.
 	if mode == attunev1alpha1.UpdateTypeCanary && canaryAutoPromote {
+		if policy.Status.Canary == nil {
+			policy.Status.Canary = &attunev1alpha1.CanaryStatus{
+				Phase:              attunev1alpha1.CanaryPhaseInProgress,
+				ObservedGeneration: policy.Generation,
+			}
+		}
+		for _, rec := range recommendations {
+			policy.Status.Canary.UpsertWorkload(rec.Workload)
+		}
 		mode = r.resolveCanaryPhase(ctx, policy, mode)
 	}
 
@@ -1041,9 +1050,6 @@ func canaryWorkloadNames(policy *attunev1alpha1.AttunePolicy) []string {
 			add(w.Workload)
 		}
 	}
-	for _, h := range policy.Status.ResizeHistory {
-		add(h.Workload)
-	}
 	return names
 }
 
@@ -1071,7 +1077,12 @@ func (r *AttunePolicyReconciler) resolveOneCanaryWorkload(
 		}
 		return
 	}
-	if ws.StartTime == nil || ws.StartTime.Time.Before(firstSuccess.Time) {
+	// Do not adopt leftover Success rows from before this app's canary
+	// watch started (prior Auto/OneShot history).
+	if ws.StartTime == nil {
+		return
+	}
+	if ws.StartTime.Time.Before(firstSuccess.Time) {
 		t := *firstSuccess
 		ws.StartTime = &t
 	}
@@ -1164,9 +1175,14 @@ func earliestSuccessfulInPlaceAfter(history []attunev1alpha1.ResizeHistoryEntry,
 // resizePreChecks holds per-cycle cached data for shouldSkipResize,
 // avoiding redundant API calls when checking many pods in the same namespace.
 // nodeCache uses sync.Map for safe concurrent access when MaxConcurrentResizes > 1.
+type nodePodCache struct {
+	pods []corev1.Pod
+	err  error
+}
+
 type resizePreChecks struct {
 	nodeCache   sync.Map // string -> *corev1.Node
-	nodePods    sync.Map // string -> []corev1.Pod
+	nodePods    sync.Map // string -> nodePodCache
 	limitRanges []corev1.LimitRange
 	quotas      []corev1.ResourceQuota
 }
@@ -1260,7 +1276,10 @@ func (r *AttunePolicyReconciler) shouldSkipResize(
 				// Decreases stay allowed. Missing nodeName or a failed
 				// neighbor list leaves only the this-pod check above.
 				if targetIncreasesRequests(pod, containerRec.Name, target) {
-					nCPU, nMem := r.neighborRequestTotals(ctx, pod, checks)
+					nCPU, nMem, nErr := r.neighborRequestTotals(ctx, pod, checks)
+					if nErr != nil {
+						return true, "node neighbor list unavailable; skipping request increase"
+					}
 					allocCPU := node.Status.Allocatable.Cpu().MilliValue()
 					allocMem := node.Status.Allocatable.Memory().Value()
 					if totalCPU+nCPU > allocCPU || totalMem+nMem > allocMem {
@@ -1315,7 +1334,8 @@ func recordCapacitySkip(policy *attunev1alpha1.AttunePolicy, reason string) {
 	switch {
 	case strings.Contains(reason, "exceed node allocatable"):
 		operatormetrics.CapacitySkipTotal.WithLabelValues(policy.Namespace, policy.Name, "allocatable").Inc()
-	case strings.Contains(reason, "neighbors"), strings.Contains(reason, "free request budget"):
+	case strings.Contains(reason, "neighbors"), strings.Contains(reason, "free request budget"),
+		strings.Contains(reason, "neighbor list unavailable"):
 		operatormetrics.CapacitySkipTotal.WithLabelValues(policy.Namespace, policy.Name, "neighbors").Inc()
 	case strings.Contains(reason, "MemoryPressure"),
 		strings.Contains(reason, "DiskPressure"),
@@ -1330,25 +1350,31 @@ func recordCapacitySkip(policy *attunev1alpha1.AttunePolicy, reason string) {
 // podsOnNode lists pods scheduled on nodeName (cached per cycle).
 // The result is filtered by spec.nodeName so fake clientsets that ignore
 // field selectors still behave.
-func (r *AttunePolicyReconciler) podsOnNode(ctx context.Context, nodeName string, checks *resizePreChecks) []corev1.Pod {
+func (r *AttunePolicyReconciler) podsOnNode(ctx context.Context, nodeName string, checks *resizePreChecks) ([]corev1.Pod, error) {
 	if nodeName == "" {
-		return nil
+		return nil, nil
 	}
 	if checks != nil {
 		if v, ok := checks.nodePods.Load(nodeName); ok {
-			if pods, ok := v.([]corev1.Pod); ok {
-				return pods
+			if cached, ok := v.(nodePodCache); ok {
+				return cached.pods, cached.err
 			}
 		}
 	}
 	if r.Clientset == nil {
-		return nil
+		// Unit paths without a Clientset keep the this-pod check only.
+		// Production executeResizes always has a Clientset; a live List
+		// error is fail-closed above the caller.
+		return nil, nil
 	}
 	list, err := r.Clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{
 		FieldSelector: "spec.nodeName=" + nodeName,
 	})
 	if err != nil {
-		return nil
+		if checks != nil {
+			checks.nodePods.Store(nodeName, nodePodCache{err: err})
+		}
+		return nil, err
 	}
 	filtered := make([]corev1.Pod, 0, len(list.Items))
 	for i := range list.Items {
@@ -1357,9 +1383,9 @@ func (r *AttunePolicyReconciler) podsOnNode(ctx context.Context, nodeName string
 		}
 	}
 	if checks != nil {
-		checks.nodePods.Store(nodeName, filtered)
+		checks.nodePods.Store(nodeName, nodePodCache{pods: filtered})
 	}
-	return filtered
+	return filtered, nil
 }
 
 func samePod(a, b *corev1.Pod) bool {
@@ -1370,13 +1396,17 @@ func samePod(a, b *corev1.Pod) bool {
 }
 
 // neighborRequestTotals sums running-container requests of other pods on
-// the same node. The target pod is excluded. Missing Clientset or empty
-// nodeName returns zeros (this-pod allocatable check still applies).
-func (r *AttunePolicyReconciler) neighborRequestTotals(ctx context.Context, pod *corev1.Pod, checks *resizePreChecks) (cpu, mem int64) {
+// the same node. The target pod is excluded. Empty nodeName returns zeros.
+// A list error is returned so increases can fail closed.
+func (r *AttunePolicyReconciler) neighborRequestTotals(ctx context.Context, pod *corev1.Pod, checks *resizePreChecks) (cpu, mem int64, err error) {
 	if pod.Spec.NodeName == "" {
-		return 0, 0
+		return 0, 0, nil
 	}
-	for _, n := range r.podsOnNode(ctx, pod.Spec.NodeName, checks) {
+	neighbors, err := r.podsOnNode(ctx, pod.Spec.NodeName, checks)
+	if err != nil {
+		return 0, 0, err
+	}
+	for _, n := range neighbors {
 		if samePod(pod, &n) {
 			continue
 		}
@@ -1386,7 +1416,7 @@ func (r *AttunePolicyReconciler) neighborRequestTotals(ctx context.Context, pod 
 			mem += c.Resources.Requests.Memory().Value()
 		}
 	}
-	return cpu, mem
+	return cpu, mem, nil
 }
 
 // targetIncreasesRequests reports whether target raises CPU and/or memory

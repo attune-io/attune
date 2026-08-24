@@ -43,7 +43,9 @@ Metric: `attune_capacity_skip_total{reason="neighbors"}`.
 
 Decreases stay allowed. Pods without `nodeName` skip this gate (not
 scheduled yet). DaemonSet pods use the same formula on their current
-node. A failed neighbor list leaves only the this-pod allocatable check.
+node. A failed neighbor list **skips the increase** (fail-closed; same
+class as unavailable node status). There is no extra safety margin:
+the comparison is a hard greater-than against allocatable.
 
 Static and mirror pods without requests do not consume the budget.
 

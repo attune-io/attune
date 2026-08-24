@@ -386,12 +386,26 @@ func parseLastResizeTime(ann map[string]string, key string) (time.Time, bool) {
 // lastResizeTimeForWorkload returns the last resize time for one workload.
 // Prefers attune.io/last-resize-time.<workload>, then the policy-wide
 // attune.io/last-resize-time key (upgrade fallback).
+func hasPerWorkloadResizeKeys(ann map[string]string) bool {
+	for k := range ann {
+		if strings.HasPrefix(k, lastResizeAnnotationPrefix) {
+			return true
+		}
+	}
+	return false
+}
+
 func lastResizeTimeForWorkload(policy *attunev1alpha1.AttunePolicy, workload string) (time.Time, bool) {
 	ann := policy.Annotations
 	if workload != "" && ann != nil {
 		if _, exists := ann[lastResizeAnnotationKey(workload)]; exists {
 			// Present but malformed: do not fall back to the policy-wide key.
 			return parseLastResizeTime(ann, lastResizeAnnotationKey(workload))
+		}
+		// After the first per-app stamp, a missing key means this app
+		// has never resized. Do not inherit the policy-wide last stamp.
+		if hasPerWorkloadResizeKeys(ann) {
+			return time.Time{}, false
 		}
 	}
 	return parseLastResizeTime(ann, lastResizeAnnotation)
