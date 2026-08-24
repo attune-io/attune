@@ -192,6 +192,32 @@ func TestResolveCanaryPhase_DoesNotPromoteLateResizeWithoutWatchingIt(t *testing
 	assert.Equal(t, attunev1alpha1.CanaryPhaseFullRollout, policy.Status.Canary.Phase)
 }
 
+func TestResolveCanaryPhase_ResetsWhenSuccessFlippedToReverted(t *testing.T) {
+	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	resizeAt := metav1.NewTime(now.Add(-4 * time.Minute))
+	watchStart := metav1.NewTime(now.Add(-4*time.Minute + 2*time.Second))
+	policy := canaryAutoPromotePolicy(10 * time.Minute)
+	policy.Status.Canary = &attunev1alpha1.CanaryStatus{
+		Phase:     attunev1alpha1.CanaryPhaseInProgress,
+		StartTime: &watchStart,
+		Pods:      []string{"api-server-aaa"},
+	}
+	// Production safety revert flips the Success row in place and keeps
+	// the original resize timestamp, which is before StartTime.
+	policy.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{
+		{Method: "InPlace", Result: attunev1alpha1.ResizeResultReverted, Timestamp: resizeAt},
+	}
+
+	r := NewAttunePolicyReconciler()
+	r.SetNowFunc(func() time.Time { return now })
+
+	mode := r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode)
+	assert.Equal(t, attunev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.Phase)
+	assert.Nil(t, policy.Status.Canary.StartTime, "in-place Success flipped to Reverted must clear the clock")
+	assert.Empty(t, policy.Status.Canary.Pods)
+}
+
 func TestResolveCanaryPhase_ResetsOnRevert(t *testing.T) {
 	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
 	start := metav1.NewTime(now.Add(-4 * time.Minute))

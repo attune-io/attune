@@ -962,18 +962,16 @@ func (r *AttunePolicyReconciler) resolveCanaryPhase(ctx context.Context, policy 
 	lastRevert := latestMatchingHistoryTime(policy.Status.ResizeHistory, func(h attunev1alpha1.ResizeHistoryEntry) bool {
 		return h.Result == attunev1alpha1.ResizeResultReverted
 	})
-	if lastRevert != nil && (cs.StartTime == nil || lastRevert.After(cs.StartTime.Time)) {
-		logger.Info("Canary observation found reverts, resetting watch",
-			"policy", policy.Name, "observationPeriod", observationPeriod)
-		cs.StartTime = nil
-		cs.Pods = nil
-	}
-
 	firstSuccess := earliestSuccessfulInPlaceAfter(policy.Status.ResizeHistory, lastRevert)
 	if firstSuccess == nil {
-		if cs.StartTime != nil {
-			logger.Info("Canary observation has no successful in-place resize yet, staying in canary mode",
+		// Production reverts flip the Success row in place and keep its
+		// original timestamp, which is often not after StartTime. Reset
+		// whenever there is no live in-place success after the last revert.
+		if cs.StartTime != nil || len(cs.Pods) > 0 {
+			logger.Info("Canary observation has no successful in-place resize yet, resetting watch",
 				"policy", policy.Name, "observationPeriod", observationPeriod)
+			cs.StartTime = nil
+			cs.Pods = nil
 		}
 		return currentMode
 	}

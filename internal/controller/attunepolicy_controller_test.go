@@ -4813,7 +4813,7 @@ func TestReconcile_PrometheusQueryErrorsMentionCPUAndMemoryWhenBothFail(t *testi
 
 // ---------- resolveCanaryPhase ----------
 
-func TestResolveCanaryPhase_InitializesOnFirstCall(t *testing.T) {
+func TestResolveCanaryPhase_DoesNotInitializeWithoutHistory(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeCanary
 	policy.Spec.UpdateStrategy.Canary = &attunev1alpha1.CanaryConfig{
@@ -4826,10 +4826,7 @@ func TestResolveCanaryPhase_InitializesOnFirstCall(t *testing.T) {
 	mode := reconciler.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
 
 	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode, "first call should stay in canary mode")
-	if policy.Status.Canary != nil {
-		assert.Nil(t, policy.Status.Canary.StartTime, "observation clock must not start before an in-place resize")
-		assert.NotEqual(t, attunev1alpha1.CanaryPhaseFullRollout, policy.Status.Canary.Phase)
-	}
+	assert.Nil(t, policy.Status.Canary, "observation must not start before an in-place resize")
 }
 
 func TestResolveCanaryPhase_PromotesAfterObservation(t *testing.T) {
