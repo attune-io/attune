@@ -19,6 +19,7 @@ package resize
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -26,9 +27,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 )
@@ -429,6 +432,56 @@ func TestResizePod_UpdateResizeAPIError(t *testing.T) {
 	assert.Equal(t, "web-0", results[0].PodName)
 	assert.Equal(t, "app", results[0].Container)
 	assert.Equal(t, "InPlace", results[0].Method)
+}
+
+func TestResizePod_ConflictThenSuccess(t *testing.T) {
+	pod := newTestPod("web-0", "default", "app", "100m", "128Mi", "200m", "256Mi")
+	fakeClient := fake.NewSimpleClientset(pod)
+	var updates atomic.Int32
+	fakeClient.PrependReactor("update", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if action.GetSubresource() != "resize" {
+			return false, nil, nil
+		}
+		if updates.Add(1) == 1 {
+			return true, nil, apierrors.NewConflict(
+				schema.GroupResource{Resource: "pods"}, "web-0", fmt.Errorf("resourceVersion changed"))
+		}
+		return false, nil, nil
+	})
+
+	resizer := NewPodResizer(fakeClient, testr.New(t))
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("250m"),
+			corev1.ResourceMemory: resource.MustParse("512Mi"),
+		},
+	}
+
+	results, err := resizer.ResizePod(context.Background(), pod, "app", target)
+	require.NoError(t, err)
+	assert.Equal(t, int32(2), updates.Load(), "first UpdateResize 409 must retry")
+	require.NotEmpty(t, results)
+	assert.True(t, results[0].Success)
+	assert.Equal(t, "app", results[0].Container)
+	assert.Equal(t, "InPlace", results[0].Method)
+}
+
+func TestResizePod_GetNotFound(t *testing.T) {
+	pod := newTestPod("web-0", "default", "app", "100m", "128Mi", "200m", "256Mi")
+	fakeClient := fake.NewSimpleClientset()
+	resizer := NewPodResizer(fakeClient, testr.New(t))
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("250m"),
+			corev1.ResourceMemory: resource.MustParse("512Mi"),
+		},
+	}
+
+	results, err := resizer.ResizePod(context.Background(), pod, "app", target)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "re-fetching pod default/web-0")
+	require.Len(t, results, 2)
+	assert.False(t, results[0].Success)
 }
 
 // ---------- findContainer ----------
