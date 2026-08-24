@@ -64,9 +64,10 @@ spec:
 ## Monitoring canary pods
 
 The operator tracks which pods were selected for the canary subset in
-`status.canary.pods` and per app in `status.canary.workloads`. You can
-see the count in `kubectl attune status` (the CANARY column), or list
-the exact pod names:
+`status.canary.pods` and per app in `status.canary.workloads`. The
+`kubectl attune status` CANARY column shows `CanaryInProgress (1/2 apps)`
+when some apps are promoted and others are still watching. List the
+per-app rows:
 
 ```bash
 kubectl get attunepolicy my-app -o jsonpath='{.status.canary.workloads}' | jq .
