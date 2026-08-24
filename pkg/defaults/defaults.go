@@ -387,19 +387,17 @@ func MergeMetricsSource(policy *attunev1alpha1.MetricsSource, defaults *attunev1
 	policyHasProvider := policy.Prometheus != nil || policy.Datadog != nil ||
 		policy.CloudWatch != nil || policy.VPA != nil
 	if !policyHasProvider {
-		if defaults.Prometheus != nil {
+		switch {
+		case defaults.Prometheus != nil:
 			policy.Prometheus = defaults.Prometheus
 			inherited = append(inherited, "prometheus")
-		}
-		if defaults.Datadog != nil {
+		case defaults.Datadog != nil:
 			policy.Datadog = defaults.Datadog
 			inherited = append(inherited, "datadog")
-		}
-		if defaults.CloudWatch != nil {
+		case defaults.CloudWatch != nil:
 			policy.CloudWatch = defaults.CloudWatch
 			inherited = append(inherited, "cloudwatch")
-		}
-		if defaults.VPA != nil {
+		case defaults.VPA != nil:
 			policy.VPA = defaults.VPA
 			inherited = append(inherited, "vpa")
 		}
