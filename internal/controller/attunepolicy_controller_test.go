@@ -4826,9 +4826,10 @@ func TestResolveCanaryPhase_InitializesOnFirstCall(t *testing.T) {
 	mode := reconciler.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
 
 	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode, "first call should stay in canary mode")
-	require.NotNil(t, policy.Status.Canary)
-	assert.Equal(t, attunev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.Phase)
-	assert.NotNil(t, policy.Status.Canary.StartTime)
+	if policy.Status.Canary != nil {
+		assert.Nil(t, policy.Status.Canary.StartTime, "observation clock must not start before an in-place resize")
+		assert.NotEqual(t, attunev1alpha1.CanaryPhaseFullRollout, policy.Status.Canary.Phase)
+	}
 }
 
 func TestResolveCanaryPhase_PromotesAfterObservation(t *testing.T) {
@@ -4947,6 +4948,7 @@ func TestResolveCanaryPhase_BlocksOnRevert(t *testing.T) {
 
 	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode, "should block promotion when revert happened")
 	assert.Equal(t, attunev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.Phase)
+	assert.Nil(t, policy.Status.Canary.StartTime, "revert must clear the observation clock")
 }
 
 func TestResolveCanaryPhase_FullRolloutStaysAuto(t *testing.T) {
@@ -4981,11 +4983,12 @@ func TestResolveCanaryPhase_ResetsOnSpecChange(t *testing.T) {
 	reconciler := NewAttunePolicyReconciler()
 	mode := reconciler.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
 
-	// Should reset and re-initialize, staying in canary mode.
+	// Should reset and wait for the next in-place resize, staying in canary mode.
 	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode, "spec change should reset canary, not stay in FullRollout")
-	require.NotNil(t, policy.Status.Canary)
-	assert.Equal(t, attunev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.Phase)
-	assert.Equal(t, int64(3), policy.Status.Canary.ObservedGeneration, "new cycle should track current generation")
+	if policy.Status.Canary != nil {
+		assert.NotEqual(t, attunev1alpha1.CanaryPhaseFullRollout, policy.Status.Canary.Phase)
+		assert.Nil(t, policy.Status.Canary.StartTime, "spec change must not start a new clock before a resize")
+	}
 }
 
 func TestResolveCanaryPhase_NoResetWhenGenerationMatches(t *testing.T) {

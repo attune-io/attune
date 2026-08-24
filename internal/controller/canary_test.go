@@ -17,13 +17,16 @@ limitations under the License.
 package controller
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 )
@@ -130,5 +133,139 @@ func TestSelectPodsForResize_MixedEligibility(t *testing.T) {
 	for _, p := range selected {
 		assert.Equal(t, corev1.PodRunning, p.Status.Phase)
 		assert.Nil(t, p.DeletionTimestamp)
+	}
+}
+
+func canaryAutoPromotePolicy(period time.Duration) *attunev1alpha1.AttunePolicy {
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeCanary
+	policy.Spec.UpdateStrategy.Canary = &attunev1alpha1.CanaryConfig{
+		Percentage:        20,
+		ObservationPeriod: metav1.Duration{Duration: period},
+		AutoPromote:       true,
+	}
+	return policy
+}
+
+func TestResolveCanaryPhase_DoesNotStartWatchWithoutInPlaceSuccess(t *testing.T) {
+	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	policy := canaryAutoPromotePolicy(10 * time.Minute)
+	policy.Status.Canary = &attunev1alpha1.CanaryStatus{
+		Phase:     attunev1alpha1.CanaryPhaseInProgress,
+		StartTime: &metav1.Time{Time: now.Add(-10 * time.Minute)},
+	}
+
+	r := NewAttunePolicyReconciler()
+	r.SetNowFunc(func() time.Time { return now })
+
+	mode := r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode)
+	assert.Equal(t, attunev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.Phase)
+	assert.NotEqual(t, attunev1alpha1.CanaryPhaseFullRollout, policy.Status.Canary.Phase)
+}
+
+func TestResolveCanaryPhase_DoesNotPromoteLateResizeWithoutWatchingIt(t *testing.T) {
+	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	premature := metav1.NewTime(now.Add(-10 * time.Minute))
+	lateSuccess := metav1.NewTime(now.Add(-30 * time.Second))
+	policy := canaryAutoPromotePolicy(10 * time.Minute)
+	policy.Status.Canary = &attunev1alpha1.CanaryStatus{
+		Phase:     attunev1alpha1.CanaryPhaseInProgress,
+		StartTime: &premature,
+	}
+	policy.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{
+		{Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: lateSuccess},
+	}
+
+	r := NewAttunePolicyReconciler()
+	r.SetNowFunc(func() time.Time { return now })
+
+	mode := r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode, "late first success must not promote on a premature clock")
+	assert.Equal(t, attunev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.Phase)
+	require.NotNil(t, policy.Status.Canary.StartTime)
+	assert.Equal(t, lateSuccess.Time, policy.Status.Canary.StartTime.Time, "watch must re-anchor to the successful resize")
+
+	r.SetNowFunc(func() time.Time { return lateSuccess.Add(10 * time.Minute) })
+	mode = r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+	assert.Equal(t, attunev1alpha1.UpdateTypeAuto, mode, "same resize aged a full period should promote")
+	assert.Equal(t, attunev1alpha1.CanaryPhaseFullRollout, policy.Status.Canary.Phase)
+}
+
+func TestResolveCanaryPhase_ResetsOnRevert(t *testing.T) {
+	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	start := metav1.NewTime(now.Add(-4 * time.Minute))
+	policy := canaryAutoPromotePolicy(10 * time.Minute)
+	policy.Status.Canary = &attunev1alpha1.CanaryStatus{
+		Phase:     attunev1alpha1.CanaryPhaseInProgress,
+		StartTime: &start,
+		Pods:      []string{"api-server-aaa"},
+	}
+	policy.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{
+		{Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: metav1.NewTime(start.Add(1 * time.Minute))},
+		{Result: attunev1alpha1.ResizeResultReverted, Timestamp: metav1.NewTime(start.Add(2 * time.Minute))},
+	}
+
+	r := NewAttunePolicyReconciler()
+	r.SetNowFunc(func() time.Time { return now })
+
+	mode := r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode)
+	assert.Equal(t, attunev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.Phase)
+	assert.Nil(t, policy.Status.Canary.StartTime, "revert must start a new observation instead of freezing")
+	assert.Empty(t, policy.Status.Canary.Pods)
+
+	nextSuccess := metav1.NewTime(now.Add(1 * time.Minute))
+	policy.Status.ResizeHistory = append(policy.Status.ResizeHistory, attunev1alpha1.ResizeHistoryEntry{
+		Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: nextSuccess,
+	})
+	r.SetNowFunc(func() time.Time { return nextSuccess.Time })
+	mode = r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode)
+	require.NotNil(t, policy.Status.Canary.StartTime)
+	assert.Equal(t, nextSuccess.Time, policy.Status.Canary.StartTime.Time)
+
+	r.SetNowFunc(func() time.Time { return nextSuccess.Add(10 * time.Minute) })
+	mode = r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+	assert.Equal(t, attunev1alpha1.UpdateTypeAuto, mode)
+	assert.Equal(t, attunev1alpha1.CanaryPhaseFullRollout, policy.Status.Canary.Phase)
+}
+
+func TestExecuteResizes_CanaryAutoPromoteStartsWatchAfterInPlaceResize(t *testing.T) {
+	pod := newResizePod("api-server", "500m", "512Mi", "1000m", "1Gi")
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	reconciler, _ := newResizeReconciler(pod, deploy)
+
+	policy := canaryAutoPromotePolicy(10 * time.Minute)
+	recommendations := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("api-server", "500m", "512Mi", "1000m", "1Gi", "750m", "384Mi", "1500m", "768Mi"),
+	}
+
+	count, history := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
+		recommendations, podMap("api-server", pod), nil, nil)
+	assert.Equal(t, 1, count)
+	require.NotEmpty(t, history)
+	require.NotNil(t, policy.Status.Canary)
+	assert.Equal(t, attunev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.Phase)
+	require.NotNil(t, policy.Status.Canary.StartTime, "watch starts after a successful in-place resize")
+	assert.Contains(t, policy.Status.Canary.Pods, pod.Name)
+}
+
+func TestExecuteResizes_CanaryDoesNotStartWatchWhenNoResize(t *testing.T) {
+	pod := newResizePod("api-server", "750m", "384Mi", "1500m", "768Mi")
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	reconciler, _ := newResizeReconciler(pod, deploy)
+
+	policy := canaryAutoPromotePolicy(10 * time.Minute)
+	recommendations := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("api-server", "500m", "512Mi", "0", "0", "750m", "384Mi", "1500m", "768Mi"),
+	}
+
+	count, history := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
+		recommendations, podMap("api-server", pod), nil, nil)
+	assert.Equal(t, 0, count)
+	assert.Empty(t, history)
+	if policy.Status.Canary != nil {
+		assert.Nil(t, policy.Status.Canary.StartTime, "skipped resize must not start the observation clock")
 	}
 }
