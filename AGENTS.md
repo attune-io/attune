@@ -365,7 +365,13 @@ Dependabot PRs (#348, #349 etc.) are important for **Dependency-Update-Tool (10)
    merge to main is not a `GITHUB_TOKEN` push (those do not re-trigger
    CI/Security/Docs on main). `auto-approve.yaml` (`pull_request`)
    excludes `dependabot[bot]` because secrets are unavailable in that context.
-6. If the PR is behind and you want it to move faster, the rebase above + `gh pr comment` or just wait is preferred over broad CI skips.
+6. After a merge to main, `dependabot-auto-merge.yaml` comments
+   `@dependabot rebase` on open Dependabot PRs that REST reports as
+   `behind` (App token, not a GITHUB_TOKEN git push). That is required
+   because the ruleset has `strict_required_status_checks_policy: true`.
+   Dependabot `rebase-strategy: auto` can lag for hours. To hurry one
+   PR, `gh pr comment N --body "@dependabot rebase"` or run
+   `scripts/rebase-dependabot.sh N`.
 7. After a Dependabot merge, if main has no CI/Security runs for the merge
    SHA, dispatch them: `gh workflow run CI --ref main` (and Security/Docs).
 
@@ -383,7 +389,7 @@ on `update-type`; CI is the real safety gate.
 - Token-Permissions warnings are minimized by scoping writes only where gh commands truly need them (see the dependabot-auto-merge and auto-approve jobs).
 
 See also:
-- `.github/workflows/dependabot-auto-merge.yaml` (the NOTE about the removed rebase job)
+- `.github/workflows/dependabot-auto-merge.yaml` (`@dependabot rebase` on behind PRs after main push; docker PRs sync `go.mod` with `--root`)
 - `.github/workflows/dco.yaml` (bot + merge-commit skips)
 - `pr-title.yaml` (Dependabot is exempted from semantic title)
 
@@ -393,8 +399,10 @@ When in doubt, prefer letting Dependabot open a fresh PR on conflict rather than
 (`golang:X.Y.Z@sha256:...`) must stay on the same patch. `setup-go` and
 govulncheck read `go.mod`; Dependabot docker PRs only bump the image.
 `hack/verify-go-version-sync.sh` enforces the match. The Dependabot
-auto-merge workflow copies the Dockerfile tag into `go.mod` on docker
-PRs so those updates can go green without a human follow-up.
+auto-merge workflow copies the script to `/tmp` (do not run PR-controlled
+files) then must call `--write --root "$GITHUB_WORKSPACE"`. Without
+`--root`, the script treats `/tmp/..` as the repo and fails with
+`go.mod not found at //go.mod`.
 
 ### Issue closure in PR descriptions
 

@@ -2,12 +2,20 @@ name: Dependabot Auto-Merge
 
 on:
   pull_request_target:
+  # After a merge to main, remaining Dependabot PRs are behind and cannot
+  # satisfy strict_required_status_checks_policy. Comment @dependabot rebase
+  # (App token) instead of pushing with GITHUB_TOKEN.
+  push:
+    branches:
+      - main
 
 permissions:
   contents: read
 
 concurrency:
-  group: dependabot-auto-merge-${{ github.event.pull_request.number }}
+  # push events have no pull_request.number; use run_id so they do not
+  # share one empty group.
+  group: dependabot-auto-merge-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -88,7 +96,9 @@ jobs:
           cp hack/verify-go-version-sync.sh /tmp/verify-go-version-sync.sh
           git fetch origin "$PR_BRANCH"
           git checkout -B "sync-go-version" "origin/${PR_BRANCH}"
-          bash /tmp/verify-go-version-sync.sh --write
+          # --root is required: the script lives in /tmp, so its
+          # dirname/.. would otherwise be / and look for //go.mod.
+          bash /tmp/verify-go-version-sync.sh --write --root "${GITHUB_WORKSPACE}"
           if git diff --quiet -- go.mod; then
             echo "OK: go.mod already matches Dockerfile"
             exit 0
@@ -102,17 +112,45 @@ jobs:
             "HEAD:refs/heads/${PR_BRANCH}"
           echo "OK: pushed go.mod sync to ${PR_BRANCH}"
 
-  # NOTE: A rebase-dependabot job was removed here. It updated open
-  # Dependabot PR branches on every push to main, but caused more harm
-  # than good: GITHUB_TOKEN pushes do not trigger other workflows (GitHub
-  # infinite-loop prevention), so the rebase invalidated existing CI
-  # results without starting new ones, leaving PRs stuck in "no required
-  # checks reported" limbo. With strict_required_status_checks_policy
-  # disabled in the branch ruleset, PRs can merge when behind main, so
-  # auto-rebase is unnecessary. Dependabot handles its own rebases when
-  # conflicts arise.
-  #
-  # See AGENTS.md "Handling Dependabot PRs" for the supported process
-  # (always rebase cleanly when helping a PR; the DCO workflow skips merge
-  # commits to avoid blocking legitimate updates). This design protects
-  # our high Scorecard scores (CI-Tests=10, Branch-Protection, etc.).
+  rebase-outdated:
+    name: Rebase outdated Dependabot PRs
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      pull-requests: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app-token
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+      - name: Ask Dependabot to rebase behind PRs
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+        shell: bash -Eeuo pipefail {0}
+        run: |
+          # REST mergeable_state is the source of truth. GraphQL often
+          # stays UNKNOWN. Do not git-push with GITHUB_TOKEN (that
+          # invalidates checks without starting new runs).
+          mapfile -t nums < <(gh api "repos/${REPO}/pulls?state=open&per_page=100" \
+            --jq '.[] | select(.user.login=="dependabot[bot]" and .mergeable_state=="behind") | .number')
+          if [[ ${#nums[@]} -eq 0 ]]; then
+            echo "OK: no behind Dependabot PRs"
+            exit 0
+          fi
+          for n in "${nums[@]}"; do
+            last="$(gh api "repos/${REPO}/issues/${n}/comments" \
+              --jq '.[-1].body // empty')"
+            if [[ "${last}" == *"@dependabot rebase"* ]]; then
+              echo "OK: #${n} already asked to rebase"
+              continue
+            fi
+            gh pr comment "${n}" --repo "${REPO}" --body "@dependabot rebase"
+            echo "OK: asked Dependabot to rebase #${n}"
+          done

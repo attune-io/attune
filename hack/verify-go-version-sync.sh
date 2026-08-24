@@ -44,7 +44,17 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$ROOT" ]]; then
-  ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  # Prefer the script location (hack/../). When CI copies this file to
+  # /tmp so it is not executed from a Dependabot branch, fall back to cwd.
+  SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  if [[ -f "${SCRIPT_ROOT}/go.mod" ]]; then
+    ROOT="${SCRIPT_ROOT}"
+  elif [[ -f "${PWD}/go.mod" ]]; then
+    ROOT="${PWD}"
+    echo "OK: script is outside the repo; using cwd ${ROOT}"
+  else
+    ROOT="${SCRIPT_ROOT}"
+  fi
 fi
 
 echo "PLAN: compare go.mod go directive with Dockerfile golang tag (mode=${MODE})"
