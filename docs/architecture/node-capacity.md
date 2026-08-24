@@ -28,13 +28,26 @@ Reason string: `total pod requests would exceed node allocatable`.
 
 Metric: `attune_capacity_skip_total{reason="allocatable"}`.
 
-### What this is not
+## Neighbor free request budget
 
-- Not a full free-headroom model against all other pods on the node. The
-  check is **intra-pod** vs node allocatable (the kubelet / scheduler already
-  enforced neighbor pods when this pod was placed).
-- Does not sum every pod on the node. That would race with the scheduler and
-  mis-account static/mirror pods without requests.
+For a **request increase** on a scheduled pod (`spec.nodeName` set):
+
+1. List other pods on the same node (all namespaces)
+2. Sum running-container requests of those pods (same running-container
+   set as above). Neighbors with no requests add zero
+3. Skip if `this_pod_new + neighbor_sum` exceeds allocatable CPU or memory
+
+Reason string: `node free request budget exceeded by neighbors`.
+
+Metric: `attune_capacity_skip_total{reason="neighbors"}`.
+
+Decreases stay allowed. Pods without `nodeName` skip this gate (not
+scheduled yet). DaemonSet pods use the same formula on their current
+node. A failed neighbor list **skips the increase** (fail-closed; same
+class as unavailable node status). There is no extra safety margin:
+the comparison is a hard greater-than against allocatable.
+
+Static and mirror pods without requests do not consume the budget.
 
 ## DaemonSet special case
 

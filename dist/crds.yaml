@@ -2777,6 +2777,37 @@ spec:
                     description: StartTime is when the canary subset was first resized.
                     format: date-time
                     type: string
+                  workloads:
+                    description: |-
+                      Workloads tracks per-app canary phase. Policy Phase stays
+                      CanaryInProgress until every listed app has reached FullRollout.
+                    items:
+                      description: CanaryWorkloadStatus is one matched app during
+                        a canary rollout.
+                      properties:
+                        phase:
+                          description: Phase is CanaryInProgress or FullRollout for
+                            this app.
+                          type: string
+                        pods:
+                          description: Pods lists this app's canary pod names.
+                          items:
+                            type: string
+                          maxItems: 100
+                          type: array
+                        startTime:
+                          description: StartTime is when this app's canary subset
+                            was first resized.
+                          format: date-time
+                          type: string
+                        workload:
+                          description: Workload is the Deployment or StatefulSet name.
+                          type: string
+                      required:
+                      - workload
+                      type: object
+                    maxItems: 100
+                    type: array
                 type: object
               conditions:
                 description: Conditions represent the latest available observations

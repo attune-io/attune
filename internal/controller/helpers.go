@@ -361,31 +361,91 @@ func (r *AttunePolicyReconciler) parseCooldown(policy *attunev1alpha1.AttunePoli
 	return defaultCooldown
 }
 
-// isCooldownActive checks if the policy is within the cooldown window since last resize.
-// The cooldown is multiplied by 2^N where N is the number of consecutive reverts
-// (exponential backoff), capped at 16x the base cooldown.
-func (r *AttunePolicyReconciler) isCooldownActive(policy *attunev1alpha1.AttunePolicy) bool {
-	ann := policy.Annotations
+// lastResizeAnnotationKey returns the per-workload last-resize annotation.
+func lastResizeAnnotationKey(workload string) string {
+	return lastResizeAnnotationPrefix + workload
+}
+
+// parseLastResizeTime parses an RFC3339 last-resize annotation.
+// Malformed values are treated as no previous resize.
+func parseLastResizeTime(ann map[string]string, key string) (time.Time, bool) {
 	if ann == nil {
-		return false
+		return time.Time{}, false
 	}
-	lastStr, ok := ann[lastResizeAnnotation]
+	lastStr, ok := ann[key]
 	if !ok {
-		return false
+		return time.Time{}, false
 	}
 	last, err := time.Parse(time.RFC3339, lastStr)
 	if err != nil {
+		return time.Time{}, false
+	}
+	return last, true
+}
+
+// lastResizeTimeForWorkload returns the last resize time for one workload.
+// Prefers attune.io/last-resize-time.<workload>, then the policy-wide
+// attune.io/last-resize-time key (upgrade fallback).
+func hasPerWorkloadResizeKeys(ann map[string]string) bool {
+	for k := range ann {
+		if strings.HasPrefix(k, lastResizeAnnotationPrefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func lastResizeTimeForWorkload(policy *attunev1alpha1.AttunePolicy, workload string) (time.Time, bool) {
+	ann := policy.Annotations
+	if workload != "" && ann != nil {
+		if _, exists := ann[lastResizeAnnotationKey(workload)]; exists {
+			// Present but malformed: do not fall back to the policy-wide key.
+			return parseLastResizeTime(ann, lastResizeAnnotationKey(workload))
+		}
+		// After the first per-app stamp, a missing key means this app
+		// has never resized. Do not inherit the policy-wide last stamp.
+		if hasPerWorkloadResizeKeys(ann) {
+			return time.Time{}, false
+		}
+	}
+	return parseLastResizeTime(ann, lastResizeAnnotation)
+}
+
+// isCooldownActive reports whether the policy-wide last-resize annotation
+// is still inside the cooldown window (legacy single-workload / upgrade path).
+func (r *AttunePolicyReconciler) isCooldownActive(policy *attunev1alpha1.AttunePolicy) bool {
+	return r.isWorkloadCooldownActive(policy, "")
+}
+
+// isWorkloadCooldownActive reports whether one workload is still inside
+// its cooldown (base duration times 2^N consecutive reverts for that app).
+func (r *AttunePolicyReconciler) isWorkloadCooldownActive(policy *attunev1alpha1.AttunePolicy, workload string) bool {
+	last, ok := lastResizeTimeForWorkload(policy, workload)
+	if !ok {
 		return false
 	}
-	cooldown := r.getEffectiveCooldown(policy)
-	return r.now().Sub(last) < cooldown
+	return r.now().Sub(last) < r.getEffectiveCooldown(policy, workload)
+}
+
+// allWorkloadsCooling is true when every named workload is still cooling
+// down. Empty input is false (nothing to block).
+func (r *AttunePolicyReconciler) allWorkloadsCooling(policy *attunev1alpha1.AttunePolicy, workloads []string) bool {
+	if len(workloads) == 0 {
+		return false
+	}
+	for _, w := range workloads {
+		if !r.isWorkloadCooldownActive(policy, w) {
+			return false
+		}
+	}
+	return true
 }
 
 // getEffectiveCooldown returns the cooldown with exponential backoff applied
-// based on the number of consecutive reverts in the resize history.
-func (r *AttunePolicyReconciler) getEffectiveCooldown(policy *attunev1alpha1.AttunePolicy) time.Duration {
+// based on consecutive reverts for the named workload (empty = whole history).
+func (r *AttunePolicyReconciler) getEffectiveCooldown(policy *attunev1alpha1.AttunePolicy, workload string) time.Duration {
 	base := r.parseCooldown(policy)
-	reverts := consecutiveReverts(policy.Status.ResizeHistory)
+	reverts := consecutiveRevertsForWorkload(policy.Status.ResizeHistory, workload)
 	if reverts == 0 {
 		return base
 	}
@@ -396,11 +456,12 @@ func (r *AttunePolicyReconciler) getEffectiveCooldown(policy *attunev1alpha1.Att
 	return base * time.Duration(multiplier)
 }
 
-// setCooldownStatus populates the CooldownStatus on the policy with the
-// effective cooldown, backoff multiplier, and consecutive revert count.
+// setCooldownStatus populates the CooldownStatus summary. ConsecutiveReverts
+// and backoff are the maximum across workloads so a hot app does not look
+// like the whole policy is blocked.
 func (r *AttunePolicyReconciler) setCooldownStatus(policy *attunev1alpha1.AttunePolicy) {
 	base := r.parseCooldown(policy)
-	reverts := consecutiveReverts(policy.Status.ResizeHistory)
+	reverts := maxConsecutiveReverts(policy.Status.ResizeHistory)
 	capped := reverts
 	if capped > maxBackoffDoublings {
 		capped = maxBackoffDoublings
@@ -414,14 +475,21 @@ func (r *AttunePolicyReconciler) setCooldownStatus(policy *attunev1alpha1.Attune
 	}
 }
 
-// markResizeTime sets the last-resize-time annotation on the policy using a
-// merge patch to avoid 409 Conflict with concurrent spec changes.
-func (r *AttunePolicyReconciler) markResizeTime(ctx context.Context, policy *attunev1alpha1.AttunePolicy) error {
+// markResizeTime sets last-resize-time on the policy (policy-wide plus each
+// named workload) using a merge patch to avoid 409 Conflict with spec updates.
+func (r *AttunePolicyReconciler) markResizeTime(ctx context.Context, policy *attunev1alpha1.AttunePolicy, workloads ...string) error {
 	patch := client.MergeFrom(policy.DeepCopy())
 	if policy.Annotations == nil {
 		policy.Annotations = make(map[string]string)
 	}
-	policy.Annotations[lastResizeAnnotation] = r.now().UTC().Format(time.RFC3339)
+	ts := r.now().UTC().Format(time.RFC3339)
+	policy.Annotations[lastResizeAnnotation] = ts
+	for _, w := range workloads {
+		if w == "" {
+			continue
+		}
+		policy.Annotations[lastResizeAnnotationKey(w)] = ts
+	}
 	return r.Patch(ctx, policy, patch)
 }
 
@@ -804,17 +872,46 @@ func markLatestCycleReverted(history []attunev1alpha1.ResizeHistoryEntry, worklo
 }
 
 // consecutiveReverts returns the number of consecutive reverted entries at the
-// end of the resize history.
+// end of the resize history (policy-wide, for tests and degraded-rate helpers).
 func consecutiveReverts(history []attunev1alpha1.ResizeHistoryEntry) int {
+	return consecutiveRevertsForWorkload(history, "")
+}
+
+// consecutiveRevertsForWorkload counts trailing Reverted rows for one
+// workload, skipping other apps. Empty workload uses the whole history.
+func consecutiveRevertsForWorkload(history []attunev1alpha1.ResizeHistoryEntry, workload string) int {
 	count := 0
 	for i := len(history) - 1; i >= 0; i-- {
+		if workload != "" && history[i].Workload != workload {
+			continue
+		}
 		if history[i].Result == attunev1alpha1.ResizeResultReverted {
 			count++
-		} else {
-			break
+			continue
 		}
+		break
 	}
 	return count
+}
+
+// maxConsecutiveReverts is the highest per-workload trailing revert streak.
+func maxConsecutiveReverts(history []attunev1alpha1.ResizeHistoryEntry) int {
+	if len(history) == 0 {
+		return 0
+	}
+	seen := map[string]struct{}{}
+	max := 0
+	for i := range history {
+		w := history[i].Workload
+		if _, ok := seen[w]; ok {
+			continue
+		}
+		seen[w] = struct{}{}
+		if n := consecutiveRevertsForWorkload(history, w); n > max {
+			max = n
+		}
+	}
+	return max
 }
 
 // updateStatusWithRetry performs a status update with up to 4 attempts

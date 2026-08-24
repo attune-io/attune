@@ -846,6 +846,31 @@ type CanaryStatus struct {
 	// +kubebuilder:validation:MaxItems=100
 	// +optional
 	Pods []string `json:"pods,omitempty"`
+
+	// Workloads tracks per-app canary phase. Policy Phase stays
+	// CanaryInProgress until every listed app has reached FullRollout.
+	// +optional
+	// +kubebuilder:validation:MaxItems=100
+	Workloads []CanaryWorkloadStatus `json:"workloads,omitempty"`
+}
+
+// CanaryWorkloadStatus is one matched app during a canary rollout.
+type CanaryWorkloadStatus struct {
+	// Workload is the Deployment or StatefulSet name.
+	Workload string `json:"workload"`
+
+	// Phase is CanaryInProgress or FullRollout for this app.
+	// +optional
+	Phase CanaryPhase `json:"phase,omitempty"`
+
+	// StartTime is when this app's canary subset was first resized.
+	// +optional
+	StartTime *metav1.Time `json:"startTime,omitempty"`
+
+	// Pods lists this app's canary pod names.
+	// +optional
+	// +kubebuilder:validation:MaxItems=100
+	Pods []string `json:"pods,omitempty"`
 }
 
 // WorkloadStatus summarizes workload counts.

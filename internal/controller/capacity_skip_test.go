@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -27,7 +28,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	kubefake "k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -43,6 +46,7 @@ func TestRecordCapacitySkip(t *testing.T) {
 	beforeAlloc := testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("ns-cap", "cap-test", "allocatable"))
 	beforePress := testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("ns-cap", "cap-test", "pressure"))
 	beforeUnavail := testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("ns-cap", "cap-test", "unavailable"))
+	beforeNeighbors := testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("ns-cap", "cap-test", "neighbors"))
 
 	// Exact producer strings from shouldSkipResize / nodePressureBlocksIncrease.
 	recordCapacitySkip(policy, "total pod requests would exceed node allocatable")
@@ -50,6 +54,8 @@ func TestRecordCapacitySkip(t *testing.T) {
 	recordCapacitySkip(policy, "node has DiskPressure; skipping resource request increase")
 	recordCapacitySkip(policy, "node has PIDPressure; skipping resource request increase")
 	recordCapacitySkip(policy, "node status unavailable; skipping request increase")
+	recordCapacitySkip(policy, "node free request budget exceeded by neighbors")
+	recordCapacitySkip(policy, "node neighbor list unavailable; skipping request increase")
 	recordCapacitySkip(policy, "quota/limitrange violation: too large")                  // no metric
 	recordCapacitySkip(policy, "")                                                       // no metric
 	recordCapacitySkip(nil, "node has MemoryPressure; skipping memory request increase") // no metric
@@ -57,6 +63,7 @@ func TestRecordCapacitySkip(t *testing.T) {
 	assert.Equal(t, beforeAlloc+1, testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("ns-cap", "cap-test", "allocatable")))
 	assert.Equal(t, beforePress+3, testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("ns-cap", "cap-test", "pressure")))
 	assert.Equal(t, beforeUnavail+1, testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("ns-cap", "cap-test", "unavailable")))
+	assert.Equal(t, beforeNeighbors+2, testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("ns-cap", "cap-test", "neighbors")))
 }
 
 // TestGetNodeForResize_PrefersClientsetThenFallsBack covers live vs cache
@@ -541,4 +548,131 @@ func TestComputeSavings_ReclaimedAliases(t *testing.T) {
 	assert.NotEmpty(t, savings.ReclaimedCPURequest)
 	assert.NotEmpty(t, savings.ReclaimedMemoryRequest)
 	assert.Greater(t, acc.totalCPUSaved, int64(0))
+}
+
+func neighborTestNode(name, cpu, mem string) *corev1.Node {
+	return &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Status: corev1.NodeStatus{
+			Allocatable: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse(cpu),
+				corev1.ResourceMemory: resource.MustParse(mem),
+			},
+		},
+	}
+}
+
+func neighborPod(name, nodeName, cpu, mem string) *corev1.Pod {
+	p := newResizePod(name, cpu, mem, cpu, mem)
+	p.Name = name
+	p.Spec.NodeName = nodeName
+	return p
+}
+
+func TestExecuteResizes_NeighborBudget_SkipsIncrease(t *testing.T) {
+	const nodeName = "shared-node"
+	pod := newResizePod("app", "500m", "512Mi", "2000m", "2Gi")
+	pod.Spec.NodeName = nodeName
+	neighbor := neighborPod("other", nodeName, "1000m", "1Gi")
+	node := neighborTestNode(nodeName, "2000m", "8Gi")
+	deploy := newTestDeployment("app", "default", map[string]string{"app": "app"})
+
+	reconciler, _ := newResizeReconciler(pod, deploy, node, neighbor)
+	reconciler.Clientset = kubefake.NewSimpleClientset(pod.DeepCopy(), neighbor.DeepCopy(), node.DeepCopy())
+	recorder := events.NewFakeRecorder(10)
+	reconciler.Recorder = recorder
+
+	policy := newTestPolicy("nb-skip", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	// This pod 1500m + neighbor 1000m = 2500m > 2000m allocatable.
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("app", "500m", "512Mi", "2000m", "2Gi", "1500m", "512Mi", "2000m", "2Gi"),
+	}
+	before := testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("default", "nb-skip", "neighbors"))
+	count, history := reconciler.executeResizes(context.Background(), policy,
+		[]client.Object{deploy}, recs, podMap("app", pod), nil, nil)
+	assert.Equal(t, 0, count)
+	assert.Empty(t, history)
+	assert.Equal(t, before+1, testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("default", "nb-skip", "neighbors")))
+
+	found := false
+	for {
+		select {
+		case event := <-recorder.Events:
+			if strings.Contains(event, "ResizeSkipped") && strings.Contains(event, "neighbors") {
+				found = true
+			}
+		default:
+			require.True(t, found, "expected ResizeSkipped mentioning neighbors")
+			return
+		}
+	}
+}
+
+func TestExecuteResizes_NeighborBudget_ZeroRequestNeighborAllowsIncrease(t *testing.T) {
+	const nodeName = "shared-node-zero"
+	pod := newResizePod("app", "500m", "512Mi", "2000m", "2Gi")
+	pod.Spec.NodeName = nodeName
+	neighbor := neighborPod("silent", nodeName, "0", "0")
+	node := neighborTestNode(nodeName, "2000m", "8Gi")
+	deploy := newTestDeployment("app", "default", map[string]string{"app": "app"})
+
+	reconciler, _ := newResizeReconciler(pod, deploy, node, neighbor)
+	reconciler.Clientset = kubefake.NewSimpleClientset(pod.DeepCopy(), neighbor.DeepCopy(), node.DeepCopy())
+
+	policy := newTestPolicy("nb-zero", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("app", "500m", "512Mi", "2000m", "2Gi", "1500m", "512Mi", "2000m", "2Gi"),
+	}
+	count, _ := reconciler.executeResizes(context.Background(), policy,
+		[]client.Object{deploy}, recs, podMap("app", pod), nil, nil)
+	assert.Equal(t, 1, count, "neighbor with no requests must not block")
+}
+
+func TestExecuteResizes_NeighborBudget_DecreaseStillApplies(t *testing.T) {
+	const nodeName = "shared-node-dec"
+	pod := newResizePod("app", "1500m", "512Mi", "2000m", "2Gi")
+	pod.Spec.NodeName = nodeName
+	neighbor := neighborPod("hog", nodeName, "1800m", "1Gi")
+	node := neighborTestNode(nodeName, "2000m", "8Gi")
+	deploy := newTestDeployment("app", "default", map[string]string{"app": "app"})
+
+	reconciler, _ := newResizeReconciler(pod, deploy, node, neighbor)
+	reconciler.Clientset = kubefake.NewSimpleClientset(pod.DeepCopy(), neighbor.DeepCopy(), node.DeepCopy())
+
+	policy := newTestPolicy("nb-dec", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("app", "1500m", "512Mi", "2000m", "2Gi", "200m", "512Mi", "2000m", "2Gi"),
+	}
+	count, _ := reconciler.executeResizes(context.Background(), policy,
+		[]client.Object{deploy}, recs, podMap("app", pod), nil, nil)
+	assert.Equal(t, 1, count, "decreases stay allowed when neighbors fill the node")
+}
+
+func TestExecuteResizes_NeighborListError_SkipsIncrease(t *testing.T) {
+	const nodeName = "shared-node-err"
+	pod := newResizePod("app", "500m", "512Mi", "2000m", "2Gi")
+	pod.Spec.NodeName = nodeName
+	node := neighborTestNode(nodeName, "8000m", "8Gi")
+	deploy := newTestDeployment("app", "default", map[string]string{"app": "app"})
+
+	reconciler, _ := newResizeReconciler(pod, deploy, node)
+	cs := kubefake.NewSimpleClientset(pod.DeepCopy(), node.DeepCopy())
+	cs.PrependReactor("list", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, fmt.Errorf("list pods forbidden")
+	})
+	reconciler.Clientset = cs
+
+	policy := newTestPolicy("nb-err", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("app", "500m", "512Mi", "2000m", "2Gi", "1500m", "512Mi", "2000m", "2Gi"),
+	}
+	before := testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("default", "nb-err", "neighbors"))
+	count, _ := reconciler.executeResizes(context.Background(), policy,
+		[]client.Object{deploy}, recs, podMap("app", pod), nil, nil)
+	assert.Equal(t, 0, count, "increase must not apply when neighbor list fails")
+	assert.Equal(t, before+1, testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("default", "nb-err", "neighbors")))
 }

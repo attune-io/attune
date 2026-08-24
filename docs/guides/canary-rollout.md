@@ -29,7 +29,7 @@ spec:
 | `canary.autoPromote` | Automatically promote to full fleet after observation passes without reverts (default: false) |
 | `cpu.maxChangePercent` | Maximum CPU change per resize cycle (default 50%) |
 | `memory.maxChangePercent` | Maximum memory change per resize cycle (default 30%) |
-| `cooldown` | Minimum time between successive resize operations |
+| `cooldown` | Minimum time between successive resizes of the same workload |
 | `autoRevert` | Automatically restore original resources on safety violation |
 
 !!! note
@@ -49,20 +49,27 @@ spec:
    safety monitor checks for OOMKill, restart spikes, pod NotReady, CPU
    throttle, and SLO guardrail breaches. Skipped cycles (budget, node
    pressure, already at target) do not start the clock.
-5. **Verdict**: if all canary pods remain healthy, the resize is considered
-   successful. If any violation is detected, the operator auto-reverts and
-   starts a new observation after the next successful in-place resize.
-6. **Cooldown**: the operator waits for the `cooldown` duration before the
-   next reconciliation cycle.
+5. **Verdict**: if that app's canary pods remain healthy, **that app**
+   is promoted (`status.canary.workloads[].phase=FullRollout`). Other
+   apps on the same policy keep watching. Policy `status.canary.phase`
+   becomes `FullRollout` only when every listed app has been promoted.
+   A revert on one app resets that app's clock only.
+6. **Isolation**: while an app is still in canary, CREATE initial sizing,
+   startup boost, and HPA retune do not apply to the rest of that app
+   (or to other apps). New pods stay at their template size until that
+   app is promoted (or the pod is already in `status.canary.workloads[].pods`).
+7. **Cooldown**: the operator waits for that workload's `cooldown` before
+   resizing it again. Other apps on the policy are not locked.
 
 ## Monitoring canary pods
 
 The operator tracks which pods were selected for the canary subset in
-`status.canary.pods`. You can see the count in `kubectl attune status`
-(the CANARY column), or list the exact pod names:
+`status.canary.pods` and per app in `status.canary.workloads`. You can
+see the count in `kubectl attune status` (the CANARY column), or list
+the exact pod names:
 
 ```bash
-kubectl get attunepolicy my-app -o jsonpath='{.status.canary.pods}' | jq .
+kubectl get attunepolicy my-app -o jsonpath='{.status.canary.workloads}' | jq .
 ```
 
 Watch resize events:

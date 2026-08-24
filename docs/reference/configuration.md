@@ -261,7 +261,7 @@ that do not set them explicitly. Policy-level values always take precedence.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `type` | string | `Recommend` | `Observe`, `Recommend`, `OneShot`, `Canary`, `Auto` |
-| `cooldown` | duration | `1h` | Minimum time between resizes |
+| `cooldown` | duration | `1h` | Minimum time between resizes of the same workload. Other apps on the same policy are not locked. Request increases also skip when this pod plus other pods on the node would exceed allocatable (always-on neighbor budget; see [Node capacity](../architecture/node-capacity.md)). |
 | `autoRevert` | bool | `true` | Revert unsafe resizes automatically |
 | `resizeMethod` | string | `InPlaceOnly` | `InPlaceOnly` or `InPlaceOrRecreate` |
 | `maxConcurrentResizes` | int32 | `1` | Max pods to resize simultaneously |
@@ -273,7 +273,7 @@ that do not set them explicitly. Policy-level values always take precedence.
 | `export` | object | (none) | Metrics export configuration |
 | `safetyObservationPeriod` | duration | `5m` | Post-resize observation window (min: 1m) |
 | `sloGuardrails` | list | `[]` | Application-level SLO PromQL checks after resize |
-| `canary` | object | (none) | Canary rollout configuration (percentage, observationPeriod) |
+| `canary` | object | (none) | Canary rollout (percentage, observationPeriod). CREATE sizing, startup boost, and HPA stay off for an app until that app is promoted. |
 | `initialSizing` | bool | `false` | Enable mutating webhook for pod creation |
 
 Example: set a cluster-wide maintenance window and budget cap via
@@ -566,7 +566,7 @@ The controller sets these conditions on each `AttunePolicy`:
 | Condition | Reasons | Description |
 |-----------|---------|-------------|
 | `Ready` | `Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `PrometheusUnavailable`, `InvalidConfig`, `WorkloadDiscoveryFailed`, `Paused` | Overall health |
-| `Resizing` | `InProgress`, `Idle`, `CooldownActive` | Active resize operation state (only in resize modes) |
+| `Resizing` | `InProgress`, `Idle`, `CooldownActive` | Active resize operation state (only in resize modes). `CooldownActive` is set only when every matched workload is still cooling down. |
 | `Degraded` | `HighRevertRate` | Set when 3+ of the last 5 resizes were reverted |
 | `ScheduleBlocked` | `OutsideWindow`, `InsideWindow` | Set when `updateStrategy.schedule` is configured; indicates whether the current time is within an allowed resize window |
 | `ResizeBlocked` | `PodsDeferred`, `PodsInfeasible`, `PodsDeferredAndInfeasible` | Pods stuck Deferred or Infeasible; see troubleshooting "Deferred or Infeasible resize" |
@@ -574,8 +574,10 @@ The controller sets these conditions on each `AttunePolicy`:
 
 ## Exponential Backoff
 
-When consecutive resizes are reverted, the cooldown doubles per revert
-(capped at 16x). A successful resize resets the multiplier.
+When consecutive resizes of the **same workload** are reverted, that
+app's cooldown doubles per revert (capped at 16x). A successful resize
+on that app resets its multiplier. Other apps on the policy keep their
+own timer. `status.cooldown` reports the highest backoff among apps.
 
 | Consecutive reverts | Effective cooldown |
 |---------------------|-------------------|

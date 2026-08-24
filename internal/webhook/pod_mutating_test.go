@@ -379,7 +379,7 @@ func TestPodMutatingHandler_OneShotMode(t *testing.T) {
 	require.NotNil(t, resp.Patches, "OneShot mode should mutate")
 }
 
-func TestPodMutatingHandler_CanaryMode(t *testing.T) {
+func TestPodMutatingHandler_CanaryMode_SkipsUntilPromoted(t *testing.T) {
 	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeCanary)
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
 
@@ -388,7 +388,44 @@ func TestPodMutatingHandler_CanaryMode(t *testing.T) {
 
 	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
 	require.True(t, resp.Allowed)
-	require.NotNil(t, resp.Patches, "Canary mode should mutate")
+	assert.Nil(t, resp.Patches, "canary CREATE must not apply the full recommendation until that app is promoted")
+}
+
+func TestPodMutatingHandler_CanaryMode_MutatesCanarySlice(t *testing.T) {
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeCanary)
+	policy.Status.Canary = &attunev1alpha1.CanaryStatus{
+		Phase: attunev1alpha1.CanaryPhaseInProgress,
+		Pods:  []string{"my-app-abc-xyz"},
+		Workloads: []attunev1alpha1.CanaryWorkloadStatus{
+			{Workload: "my-app", Phase: attunev1alpha1.CanaryPhaseInProgress, Pods: []string{"my-app-abc-xyz"}},
+		},
+	}
+	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
+
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
+	require.True(t, resp.Allowed)
+	require.NotNil(t, resp.Patches, "pod already in the canary slice may be sized")
+}
+
+func TestPodMutatingHandler_CanaryMode_MutatesAfterPromote(t *testing.T) {
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeCanary)
+	policy.Status.Canary = &attunev1alpha1.CanaryStatus{
+		Phase: attunev1alpha1.CanaryPhaseFullRollout,
+		Workloads: []attunev1alpha1.CanaryWorkloadStatus{
+			{Workload: "my-app", Phase: attunev1alpha1.CanaryPhaseFullRollout},
+		},
+	}
+	pod := testPod("my-app-new-xyz", "ReplicaSet", "my-app-abc")
+
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
+	require.True(t, resp.Allowed)
+	require.NotNil(t, resp.Patches, "promoted app may CREATE-size new pods")
 }
 
 func TestResolveOwner(t *testing.T) {

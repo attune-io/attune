@@ -221,6 +221,101 @@ func TestResolveCanaryPhase_ResetsWhenSuccessFlippedToReverted(t *testing.T) {
 func TestResolveCanaryPhase_ResetsOnRevert(t *testing.T) {
 	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
 	start := metav1.NewTime(now.Add(-4 * time.Minute))
+	resizeAt := start.Add(1 * time.Minute)
+	policy := canaryAutoPromotePolicy(10 * time.Minute)
+	policy.Status.Canary = &attunev1alpha1.CanaryStatus{
+		Phase:     attunev1alpha1.CanaryPhaseInProgress,
+		StartTime: &start,
+		Pods:      []string{"api-server-aaa"},
+	}
+	// Production flip-in-place: same timestamp as the original Success.
+	policy.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{
+		flippedSuccessRevert("api-server", "InPlace", resizeAt, "oomkill"),
+	}
+
+	r := NewAttunePolicyReconciler()
+	r.SetNowFunc(func() time.Time { return now })
+
+	mode := r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode)
+	assert.Equal(t, attunev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.Phase)
+	assert.Nil(t, policy.Status.Canary.StartTime, "revert must start a new observation instead of freezing")
+	assert.Empty(t, policy.Status.Canary.Pods)
+
+	nextSuccess := metav1.NewTime(now.Add(1 * time.Minute))
+	policy.Status.ResizeHistory = append(policy.Status.ResizeHistory, attunev1alpha1.ResizeHistoryEntry{
+		Workload: "api-server", Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: nextSuccess,
+	})
+	r.SetNowFunc(func() time.Time { return nextSuccess.Time })
+	mode = r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode)
+	require.NotNil(t, policy.Status.Canary.StartTime)
+	assert.Equal(t, nextSuccess.Time, policy.Status.Canary.StartTime.Time)
+
+	r.SetNowFunc(func() time.Time { return nextSuccess.Add(10 * time.Minute) })
+	mode = r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+	assert.Equal(t, attunev1alpha1.UpdateTypeAuto, mode)
+	assert.Equal(t, attunev1alpha1.CanaryPhaseFullRollout, policy.Status.Canary.Phase)
+}
+
+func TestResolveCanaryPhase_PromotesOneAppOnly(t *testing.T) {
+	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	policy := canaryAutoPromotePolicy(10 * time.Minute)
+	aStart := metav1.NewTime(now.Add(-15 * time.Minute))
+	bStart := metav1.NewTime(now.Add(-2 * time.Minute))
+	policy.Status.Canary = &attunev1alpha1.CanaryStatus{
+		Phase:     attunev1alpha1.CanaryPhaseInProgress,
+		StartTime: &aStart,
+		Workloads: []attunev1alpha1.CanaryWorkloadStatus{
+			{Workload: "app-a", Phase: attunev1alpha1.CanaryPhaseInProgress, StartTime: &aStart, Pods: []string{"a-1"}},
+			{Workload: "app-b", Phase: attunev1alpha1.CanaryPhaseInProgress, StartTime: &bStart, Pods: []string{"b-1"}},
+		},
+	}
+	policy.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{
+		{Workload: "app-a", Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: aStart},
+		{Workload: "app-b", Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: bStart},
+	}
+
+	r := NewAttunePolicyReconciler()
+	r.SetNowFunc(func() time.Time { return now })
+	mode := r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+
+	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode, "fleet stays in canary while B is still watching")
+	assert.Equal(t, attunev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.Phase)
+	assert.Equal(t, attunev1alpha1.CanaryPhaseFullRollout, policy.Status.Canary.WorkloadStatus("app-a").Phase)
+	assert.Equal(t, attunev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.WorkloadStatus("app-b").Phase)
+	assert.True(t, policy.Status.Canary.AllowsHPARetune("app-a"))
+	assert.False(t, policy.Status.Canary.AllowsHPARetune("app-b"))
+}
+
+func TestResolveCanaryPhase_DoesNotPromoteFromLeftoverHistory(t *testing.T) {
+	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	old := metav1.NewTime(now.Add(-2 * time.Hour))
+	policy := canaryAutoPromotePolicy(10 * time.Minute)
+	policy.Status.Canary = &attunev1alpha1.CanaryStatus{
+		Phase: attunev1alpha1.CanaryPhaseInProgress,
+		Workloads: []attunev1alpha1.CanaryWorkloadStatus{
+			{Workload: "app-b", Phase: attunev1alpha1.CanaryPhaseInProgress},
+		},
+	}
+	policy.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{
+		{Workload: "app-b", Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: old},
+	}
+
+	r := NewAttunePolicyReconciler()
+	r.SetNowFunc(func() time.Time { return now })
+	mode := r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
+	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode)
+	assert.Equal(t, attunev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.WorkloadStatus("app-b").Phase,
+		"leftover Success from before this canary watch must not promote")
+}
+
+func TestResolveCanaryPhase_LaterRevertedRowIsNonProductionShape(t *testing.T) {
+	// Non-production fixture: a later Reverted row after Success.
+	// Production flips Success in place (see ResetsWhenSuccessFlippedToReverted).
+	// Kept so a naive "look for a later Reverted row" check is not the only coverage.
+	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	start := metav1.NewTime(now.Add(-4 * time.Minute))
 	policy := canaryAutoPromotePolicy(10 * time.Minute)
 	policy.Status.Canary = &attunev1alpha1.CanaryStatus{
 		Phase:     attunev1alpha1.CanaryPhaseInProgress,
@@ -237,24 +332,7 @@ func TestResolveCanaryPhase_ResetsOnRevert(t *testing.T) {
 
 	mode := r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
 	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode)
-	assert.Equal(t, attunev1alpha1.CanaryPhaseInProgress, policy.Status.Canary.Phase)
-	assert.Nil(t, policy.Status.Canary.StartTime, "revert must start a new observation instead of freezing")
-	assert.Empty(t, policy.Status.Canary.Pods)
-
-	nextSuccess := metav1.NewTime(now.Add(1 * time.Minute))
-	policy.Status.ResizeHistory = append(policy.Status.ResizeHistory, attunev1alpha1.ResizeHistoryEntry{
-		Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: nextSuccess,
-	})
-	r.SetNowFunc(func() time.Time { return nextSuccess.Time })
-	mode = r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
-	assert.Equal(t, attunev1alpha1.UpdateTypeCanary, mode)
-	require.NotNil(t, policy.Status.Canary.StartTime)
-	assert.Equal(t, nextSuccess.Time, policy.Status.Canary.StartTime.Time)
-
-	r.SetNowFunc(func() time.Time { return nextSuccess.Add(10 * time.Minute) })
-	mode = r.resolveCanaryPhase(context.Background(), policy, attunev1alpha1.UpdateTypeCanary)
-	assert.Equal(t, attunev1alpha1.UpdateTypeAuto, mode)
-	assert.Equal(t, attunev1alpha1.CanaryPhaseFullRollout, policy.Status.Canary.Phase)
+	assert.Nil(t, policy.Status.Canary.StartTime, "even a later Reverted row must reset the clock")
 }
 
 func TestExecuteResizes_CanaryAutoPromoteStartsWatchAfterInPlaceResize(t *testing.T) {

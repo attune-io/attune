@@ -302,8 +302,9 @@ Total times all Prometheus samples for a container metric were non-finite
 ### attune_capacity_skip_total
 
 Resize attempts skipped because of node **allocatable** headroom, node
-**pressure** conditions, or **unavailable** node status when applying a
-request increase (always-on safety gates). See
+**neighbor request budget**, node **pressure** conditions, or
+**unavailable** node status when applying a request increase (always-on
+safety gates). See
 [Node capacity formulas](../architecture/node-capacity.md) and
 [Troubleshooting: Resize skipped for capacity](../guides/troubleshooting.md#resize-skipped-for-node-capacity-or-pressure).
 
@@ -311,7 +312,7 @@ request increase (always-on safety gates). See
 |-------|-------------|
 | `namespace` | Policy namespace |
 | `policy` | Policy name |
-| `reason` | `allocatable`, `pressure`, or `unavailable` |
+| `reason` | `allocatable`, `neighbors`, `pressure`, or `unavailable` |
 
 ```promql
 sum by (namespace, policy, reason) (

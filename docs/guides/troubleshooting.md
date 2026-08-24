@@ -519,12 +519,14 @@ sum(rate(attune_fleet_report_export_total{result="failed"}[5m]))
 ### Resize skipped for node capacity or pressure
 
 **Symptom**: Events show `ResizeSkipped` with "exceed node allocatable",
+"node free request budget exceeded by neighbors",
 "node has MemoryPressure/DiskPressure/PIDPressure", or
 "node status unavailable", and `attune_capacity_skip_total` increments
-(`reason` label: `allocatable`, `pressure`, or `unavailable`).
+(`reason` label: `allocatable`, `neighbors`, `pressure`, or `unavailable`).
 
 **Cause**: Always-on safety gates refuse request **increases** that would
 make this pod's total requests exceed the node's allocatable, that would
+not fit after other pods on the node have reserved requests, that would
 raise requests while the node is under pressure, or when the Node object
 cannot be loaded (API/RBAC failure). Decreases still proceed.
 
