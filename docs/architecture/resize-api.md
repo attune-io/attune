@@ -47,9 +47,9 @@ Before calling `UpdateResize`, the controller runs several safety checks:
 3. **Memory limit usage floor**: When decreasing a memory limit, raises
    the target if it would fall at or below recent usage plus
    `memory.decreaseUsageMarginPercent` headroom.
-4. **Node capacity / pressure**: Verifies that total pod requests after
-   resize don't exceed the node's allocatable resources; skips request
-   increases under MemoryPressure / DiskPressure / PIDPressure.
+4. **Node capacity / pressure**: Verifies that this pod's requests after
+   resize, plus other pods on the node, do not exceed allocatable; skips
+   request increases under MemoryPressure / DiskPressure / PIDPressure.
 5. **LimitRange/ResourceQuota**: Checks that the target doesn't violate
    namespace constraints.
 6. **QoS preservation**: Ensures the resize won't change the pod's QoS

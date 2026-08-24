@@ -392,8 +392,10 @@ func TestExecuteResizes_PromotedAppResizesAll_UnpromotedStaysCanary(t *testing.T
 	deployA := newTestDeployment("app-a", "default", map[string]string{"app": "app-a"})
 	deployB := newTestDeployment("app-b", "default", map[string]string{"app": "app-b"})
 
-	extras := []client.Object{deployA, deployB}
-	csObjs := []runtime.Object{deployA.DeepCopy(), deployB.DeepCopy()}
+	extras := make([]client.Object, 0, 2+(len(aPods)-1)+len(bPods))
+	extras = append(extras, deployA, deployB)
+	csObjs := make([]runtime.Object, 0, 2+len(aPods)+len(bPods))
+	csObjs = append(csObjs, deployA.DeepCopy(), deployB.DeepCopy())
 	for _, p := range append(aPods, bPods...) {
 		csObjs = append(csObjs, p.DeepCopy())
 	}

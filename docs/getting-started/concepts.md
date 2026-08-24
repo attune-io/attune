@@ -147,9 +147,9 @@ spec:
   excludeKnownSidecars: false
 ```
 
-Before executing a resize, the operator also checks that the total resource
-requests across all containers (with the new target applied) do not exceed the
-node's allocatable resources.
+Before executing a resize, the operator also checks that this pod's requests
+(with the new target applied) plus other pods on the same node do not exceed
+the node's allocatable resources.
 
 ## Prometheus auto-discovery
 

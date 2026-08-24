@@ -11815,6 +11815,34 @@ func TestReconcile_SufficientDataRequeuesAtCooldown(t *testing.T) {
 		"sufficient data should requeue at cooldown interval")
 }
 
+func TestReconcile_AllCoolingRequeuesAtRemaining(t *testing.T) {
+	now := time.Date(2026, 8, 24, 16, 0, 0, 0, time.UTC)
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: 1 * time.Hour}
+	policy.Annotations = map[string]string{
+		lastResizeAnnotation:                     now.Add(-50 * time.Minute).UTC().Format(time.RFC3339),
+		lastResizeAnnotationKey("api-server"):    now.Add(-50 * time.Minute).UTC().Format(time.RFC3339),
+		lastResizeAnnotationKey("other-service"): now.Add(-5 * time.Minute).UTC().Format(time.RFC3339),
+	}
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	pod := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
+
+	mc := &mockCollector{
+		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return generateSamples(200, 0.1), nil
+		},
+	}
+	reconciler, _ := newReconcilerForReconcile(mc, policy, deploy, pod)
+	reconciler.SetNowFunc(func() time.Time { return now })
+
+	result, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, 10*time.Minute, result.RequeueAfter,
+		"all matched apps cooling must requeue at remaining cooldown, not a fresh 1h")
+}
+
 // --- Issue #437: persistResizeAnnotations exhausted-retries path ---
 
 func TestExecuteResizes_AnnotationConflictExhaustedRetries(t *testing.T) {

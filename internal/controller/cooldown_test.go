@@ -197,6 +197,51 @@ func TestIsWorkloadCooldownActive_MalformedPerWorkload(t *testing.T) {
 	assert.False(t, r.isWorkloadCooldownActive(policy, "app-a"))
 }
 
+func TestMinCooldownRemaining_UsesSoonestApp(t *testing.T) {
+	r := NewAttunePolicyReconciler()
+	now := time.Date(2026, 8, 24, 16, 0, 0, 0, time.UTC)
+	r.SetNowFunc(func() time.Time { return now })
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{
+				lastResizeAnnotationKey("app-a"): now.Add(-50 * time.Minute).Format(time.RFC3339),
+				lastResizeAnnotationKey("app-b"): now.Add(-5 * time.Minute).Format(time.RFC3339),
+			},
+		},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Cooldown: &metav1.Duration{Duration: 1 * time.Hour},
+			},
+		},
+	}
+	assert.Equal(t, 10*time.Minute, r.minCooldownRemaining(policy, []string{"app-a", "app-b"}),
+		"A expires first (10m left); do not wait B's 55m")
+	assert.Equal(t, 55*time.Minute, r.minCooldownRemaining(policy, []string{"app-b"}))
+}
+
+func TestMinCooldownRemaining_IgnoresExpiredAndUnstamped(t *testing.T) {
+	r := NewAttunePolicyReconciler()
+	now := time.Date(2026, 8, 24, 16, 0, 0, 0, time.UTC)
+	r.SetNowFunc(func() time.Time { return now })
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{
+				lastResizeAnnotationKey("app-a"): now.Add(-50 * time.Minute).Format(time.RFC3339),
+				lastResizeAnnotationKey("app-b"): now.Add(-2 * time.Hour).Format(time.RFC3339),
+			},
+		},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Cooldown: &metav1.Duration{Duration: 1 * time.Hour},
+			},
+		},
+	}
+	assert.Equal(t, 10*time.Minute, r.minCooldownRemaining(policy, []string{"app-a", "app-b", "app-c"}),
+		"expired B and unstamped C must not drive remaining to 0")
+	assert.Equal(t, time.Duration(0), r.minCooldownRemaining(policy, []string{"app-b", "app-c"}),
+		"nobody cooling → 0; callers must not RequeueAfter this")
+}
+
 func TestGetEffectiveCooldown_PerWorkloadBackoff(t *testing.T) {
 	r := NewAttunePolicyReconciler()
 	cooldown := 1 * time.Hour

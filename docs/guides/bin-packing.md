@@ -7,7 +7,8 @@ Those are complementary jobs.
 ## What Attune does
 
 - Right-sizes running pods via in-place resize
-- Guards increases against node **allocatable** headroom
+- Guards increases against node **allocatable** headroom and other pods'
+  reserved requests on the same node
 - Skips request **increases** when the node is under **MemoryPressure**,
   **DiskPressure**, or **PIDPressure** (decreases still allowed)
 - Exposes savings metrics and status for capacity planning
@@ -32,7 +33,7 @@ Those are complementary jobs.
 
 See also issue-aligned behavior:
 
-- Skip resizes that would make total pod requests exceed node allocatable
+- Skip resizes that would make this pod plus neighbors exceed node allocatable
 - Skip request increases under node pressure conditions
 
 Tune `maxAllowed` and change caps so recommendations stay within typical
