@@ -90,6 +90,9 @@ func validateDefaultsSpec(spec attunev1alpha1.AttuneDefaultsSpec) (admission.War
 	if err := exclusiveMetricsProviderError(spec.MetricsSource); err != nil {
 		return nil, err
 	}
+	if err := validateMetricsSourceProviderFields(spec.MetricsSource); err != nil {
+		return nil, err
+	}
 
 	// Validate Prometheus settings if provided.
 	if spec.MetricsSource != nil && spec.MetricsSource.Prometheus != nil {

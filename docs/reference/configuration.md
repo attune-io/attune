@@ -223,7 +223,7 @@ CR manually but managed through Helm values.
 | `defaults.costPricing.cpuPerCoreHour` | string | `"0.031"` | Cost per vCPU-hour for savings estimates |
 | `defaults.costPricing.memoryPerGiBHour` | string | `"0.004"` | Cost per GiB-hour for savings estimates |
 | `defaults.excludeKnownSidecars` | bool | (operator default `true` if unset) | When set on the AttuneDefaults CR, policies that leave the field unset inherit this value. `false` restores exclude-only-via-`excludedContainers`. |
-| `defaults.metricsSource.*` | object | | Default metrics source (e.g., shared Prometheus address). At most one of prometheus, datadog, cloudwatch, or vpa. |
+| `defaults.metricsSource.*` | object | | Default metrics source (e.g., shared Prometheus address). At most one of prometheus, datadog, cloudwatch, or vpa. Provider field rules match policies (Datadog API key, CloudWatch region and cluster, VPA name, recording-metric names). |
 | `defaults.updateStrategy.*` | object | | Default update strategy (type, cooldown, autoRevert, etc.) |
 
 The rendered CR has the same spec as a manually created `AttuneDefaults`
