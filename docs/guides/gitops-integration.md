@@ -211,10 +211,11 @@ Use this ordered path when turning on PR automation for the first time.
    ```
 4. **Enable dry-run** on the policy (`pullRequest.enabled: true`,
    `dryRun: true`, `repository`, `tokenSecretRef`). Wait for condition
-   `GitOpsPullRequest` with reason `PullRequestDryRun` (or `NoDrift` if
-   templates already match). Metric
-   `attune_gitops_pr_total{result="dry_run"}` should increase when
-   drift is present.
+   `GitOpsPullRequest` with reason `PullRequestDryRun` (first pass)
+   or `PullRequestUnchanged` (same table on the next reconcile).
+   `NoDrift` means templates already match. Metric
+   `attune_gitops_pr_total{result="dry_run"}` increases once when
+   drift is first recorded.
 5. **Inspect what a real PR would say**: the condition message includes
    the repository and drift count; the body template is the same as
    live PRs (see [Status](#status)).
@@ -245,6 +246,12 @@ the condition is `PullRequestUnchanged` and Attune does not open another
 empty PR. A prior successful PR (`attune.io/gitops-pr-url`) with no stored
 fingerprint (upgrades from 0.1.22/0.1.23) is treated the same way: Attune
 records the live table and skips instead of opening one more empty PR.
+The same fingerprint is stored on `status.gitopsPR` so a Flux or Argo
+apply that replaces `metadata.annotations` does not start the empty-PR
+loop again. Attune does not rewrite those annotations on an Unchanged
+skip; rewriting them would fight the next GitOps apply. Inspect with
+`kubectl get attunepolicy <name> -o jsonpath='{.status.gitopsPR}'`.
+Field reference: [configuration](../reference/configuration.md#status-fields-gitops-pr).
 Apply real template patches (`kubectl attune diff`) so drift
 clears (`NoDrift`).
 

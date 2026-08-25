@@ -219,7 +219,9 @@ is distinguishable from zero/false. Update all 7 locations:
 4. `pkg/defaults/defaults.go` `MergeDefaults()` - Add merge
    clause (covers both controller and kubectl plugin)
 5. `internal/webhook/validation.go` - Add validation if needed
-6. Run `make manifests && make generate` to regenerate CRD + deepcopy
+6. Run `make manifests && make generate` to regenerate CRD + deepcopy.
+   After CRD/API/RBAC changes, also `make build-installer` and
+   `make build-crds` so `verify-release-artifacts` stays green.
 7. `cmd/kubectl-attune/main.go` `printEffectiveValues()` - Add
    display line so `kubectl attune explain` shows the field
 
@@ -265,7 +267,9 @@ try to use the feature or when improvement cycles audit docs.
 4. `internal/controller/` - Wire into reconciliation loop
 5. `pkg/defaults/defaults.go` - Defaults and merge logic if fields
    are defaultable (see "Adding a new defaultable field" checklist)
-6. Run `make manifests && make generate` - Regenerate CRD + deepcopy
+6. Run `make manifests && make generate` - Regenerate CRD + deepcopy.
+   After CRD/API/RBAC changes, also `make build-installer` and
+   `make build-crds` so `verify-release-artifacts` stays green.
 7. `docs/reference/configuration.md` - Add all new fields to the
    parameter table
 8. `docs/reference/configuration.md` (Status Conditions section) -

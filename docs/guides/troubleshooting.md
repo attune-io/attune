@@ -1032,9 +1032,17 @@ branch) leaves the live template unchanged, so drift stays true.
    ```
 
    If `url` is set and `drift` is empty after upgrade, Flux/Argo may be
-   replacing operator annotations. Leave the last PR open or set
-   `dryRun: true` until the chart/operator that adopts the fingerprint
-   is running.
+   replacing operator annotations. Current Attune also stores the
+   fingerprint on `status.gitopsPR`, which GitOps apply does not
+   replace. Helm does not update CRDs on `helm upgrade`; apply
+   `crds.yaml` or the API server prunes `status.gitopsPR` (see
+   [Upgrading](upgrading.md)). Leave the last PR open or set
+   `dryRun: true` only if `status.gitopsPR.driftFingerprint` is also
+   empty. Also print:
+
+   ```bash
+   kubectl get attunepolicy -A -o jsonpath='{range .items[*]}{.metadata.namespace}{"/"}{.metadata.name}{" fp="}{.status.gitopsPR.driftFingerprint}{" url="}{.status.gitopsPR.url}{"\n"}{end}'
+   ```
 
 ### GitOps PR failing
 
@@ -1048,7 +1056,9 @@ update a PR. Common cases:
 
 1. Token Secret missing, wrong key, or RBAC cannot read Secrets.
 2. Invalid `provider` / `repository` / optional `apiUrl` (including SSRF
-   rejection of private targets).
+   rejection of loopback, link-local, and cloud metadata hosts).
+   ClusterIP and other private RFC1918 addresses are allowed, same as
+   Prometheus.
 3. Forge API error (auth, branch protection, missing head branch before
    bootstrap, rate limits).
 

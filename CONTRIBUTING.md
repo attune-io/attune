@@ -132,8 +132,12 @@ If you changed CRD types (`api/v1alpha1/`), also run:
 ```bash
 make manifests   # regenerate CRDs and RBAC
 make generate    # regenerate deepcopy methods
+make build-installer IMG=ghcr.io/attune-io/attune:latest
+make build-crds
+git add -f dist/install.yaml dist/crds.yaml
 ```
-Commit the generated output.
+`make verify-quick` fails if `dist/` lags the CRD. Commit the generated
+output.
 
 ## Documentation Site
 

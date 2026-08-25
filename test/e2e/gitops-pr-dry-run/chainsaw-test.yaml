@@ -135,6 +135,10 @@ spec:
                 # only (no last-attempt, so the first live PR is not blocked).
                 # The next reconcile is PullRequestUnchanged (same table).
                 if [ "$reason" = "PullRequestDryRun" ] || [ "$reason" = "PullRequestUnchanged" ]; then
+                  if [ "$reason" = "PullRequestUnchanged" ] && [ -z "$drift" ]; then
+                    echo "FAIL: Unchanged without gitops-pr-drift"
+                    exit 1
+                  fi
                   echo "OK: GitOpsPullRequest reason=$reason status=$status (post dry-run)"
                   echo "message=$msg"
                   echo "annotation drift=$drift"

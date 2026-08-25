@@ -8,6 +8,37 @@ Maintainers: before publishing a release after multi-version product changes,
 run the full E2E Nightly matrix on tip of `main` (see
 [Releasing: full E2E matrix](../contributing/releasing.md#1b-full-e2e-matrix-required-before-tagging-a-product-release)).
 
+## v0.1.24 to v0.1.25
+
+v0.1.25 is a GitOps reliability patch. Existing policy YAML keeps working.
+
+### Apply CRDs on Helm upgrade
+
+Helm does not update CRDs on `helm upgrade`. This release adds
+`status.gitopsPR` (`driftFingerprint`, `lastAttempt`, `url`) so skip
+state survives a Flux or Argo apply that replaces
+`metadata.annotations`. Without the new CRD, the API server prunes
+that status object and only annotations remain.
+
+Before `helm upgrade`, apply:
+
+```bash
+kubectl apply --server-side --force-conflicts -f \
+  https://github.com/attune-io/attune/releases/latest/download/crds.yaml
+```
+
+Raw `dist/install.yaml` / `dist/crds.yaml` installs already include the
+field.
+
+### Empty GitOps PRs after upgrade
+
+0.1.22 stored last-attempt and PR URL but not a drift fingerprint.
+After cooldown, 0.1.24 could open another empty PR for the same table.
+0.1.25 adopts the live table when a PR URL exists and no fingerprint
+is stored, and it does not write last-attempt on dry-run (so the first
+live cycle can still open). See
+[GitOps integration](gitops-integration.md).
+
 ## v0.1.22 to v0.1.23
 
 v0.1.23 is a reliability patch. Existing policies keep working without YAML

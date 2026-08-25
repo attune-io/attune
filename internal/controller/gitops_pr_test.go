@@ -68,6 +68,30 @@ func TestGitOpsPRUnchangedSkip(t *testing.T) {
 			assert.Equal(t, tc.wantAdopted, adopted)
 		})
 	}
+	t.Run("status fingerprint preferred over empty annotations", func(t *testing.T) {
+		t.Parallel()
+		policy := &attunev1alpha1.AttunePolicy{
+			Status: attunev1alpha1.AttunePolicyStatus{
+				GitOpsPR: &attunev1alpha1.GitOpsPRStatus{DriftFingerprint: "abc"},
+			},
+		}
+		skip, adopted := gitOpsPRUnchangedSkip(policy, "abc")
+		assert.True(t, skip)
+		assert.False(t, adopted)
+	})
+}
+
+func TestGitOpsDriftStoreSource(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, "status", gitOpsDriftStoreSource(&attunev1alpha1.AttunePolicy{
+		Status: attunev1alpha1.AttunePolicyStatus{
+			GitOpsPR: &attunev1alpha1.GitOpsPRStatus{DriftFingerprint: "abc"},
+		},
+	}))
+	assert.Equal(t, "annotation", gitOpsDriftStoreSource(&attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{annotationGitOpsPRDrift: "ann"}},
+	}))
+	assert.Equal(t, "none", gitOpsDriftStoreSource(&attunev1alpha1.AttunePolicy{}))
 }
 
 func TestGitopsPREnabled(t *testing.T) {
@@ -295,6 +319,28 @@ func TestTouchGitOpsPRAnnotation_UsesReconcilerClock(t *testing.T) {
 	r.touchGitOpsPRAnnotation(policy, "https://example.com/pr/1")
 	assert.Equal(t, fixed.Format(time.RFC3339), policy.Annotations[annotationGitOpsPRLastAttempt])
 	assert.Equal(t, "https://example.com/pr/1", policy.Annotations[annotationGitOpsPRURL])
+	require.NotNil(t, policy.Status.GitOpsPR)
+	assert.Equal(t, "https://example.com/pr/1", policy.Status.GitOpsPR.URL)
+	require.NotNil(t, policy.Status.GitOpsPR.LastAttempt)
+	assert.True(t, policy.Status.GitOpsPR.LastAttempt.Time.Equal(fixed))
+}
+
+func TestMergeGitOpsPRStatus_DoesNotClearServerURL(t *testing.T) {
+	t.Parallel()
+	attempt := metav1.NewTime(time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC))
+	dest := &attunev1alpha1.AttunePolicy{
+		Status: attunev1alpha1.AttunePolicyStatus{
+			GitOpsPR: &attunev1alpha1.GitOpsPRStatus{
+				URL:         "https://github.com/org/repo/pull/41",
+				LastAttempt: &attempt,
+			},
+		},
+	}
+	mergeGitOpsPRStatus(dest, &attunev1alpha1.GitOpsPRStatus{DriftFingerprint: "abc"})
+	assert.Equal(t, "abc", dest.Status.GitOpsPR.DriftFingerprint)
+	assert.Equal(t, "https://github.com/org/repo/pull/41", dest.Status.GitOpsPR.URL)
+	require.NotNil(t, dest.Status.GitOpsPR.LastAttempt)
+	assert.True(t, dest.Status.GitOpsPR.LastAttempt.Time.Equal(attempt.Time))
 }
 
 func TestReconcileGitOpsPullRequest_MissingSecret(t *testing.T) {
@@ -847,7 +893,8 @@ func gitOpsLiveReconciler(t *testing.T, policy *attunev1alpha1.AttunePolicy, obj
 	require.NoError(t, appsv1.AddToScheme(scheme))
 	require.NoError(t, corev1.AddToScheme(scheme))
 	all := append([]client.Object{policy}, objs...)
-	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(all...).Build()
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(all...).
+		WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).Build()
 	forge := &recordingPRClient{}
 	r := NewAttunePolicyReconciler()
 	r.Client = c

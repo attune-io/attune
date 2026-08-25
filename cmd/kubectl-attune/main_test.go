@@ -2342,6 +2342,12 @@ func TestPrintEffectivePolicySummary_GitOpsPR(t *testing.T) {
 				},
 			},
 		},
+		"status": map[string]interface{}{
+			"gitopsPR": map[string]interface{}{
+				"url":              "https://github.com/org/app/pull/9",
+				"driftFingerprint": "deadbeef",
+			},
+		},
 	}}
 	r, w, err := os.Pipe()
 	require.NoError(t, err)
@@ -2355,6 +2361,8 @@ func TestPrintEffectivePolicySummary_GitOpsPR(t *testing.T) {
 	s := string(out)
 	assert.Contains(t, s, "GitOps PR")
 	assert.Contains(t, s, "github org/app (dry-run)")
+	assert.Contains(t, s, "https://github.com/org/app/pull/9")
+	assert.Contains(t, s, "deadbeef")
 }
 
 // ---------- mergeDefaultsIntoPolicy parity with controller ----------

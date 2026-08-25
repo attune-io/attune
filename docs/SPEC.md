@@ -311,6 +311,12 @@ status:
       to: ""
       method: Eviction
       result: Evicted
+
+  # Last GitOps notification PR (survives annotation wipe by Flux/Argo)
+  gitopsPR:
+    driftFingerprint: "sha256:..."
+    lastAttempt: "2026-01-15T09:00:00Z"
+    url: "https://github.com/org/repo/pull/41"
 ```
 
 #### CRD Validation (Webhook)
@@ -1559,7 +1565,7 @@ attune/
 | Category | Tools | Key takeaway |
 |----------|-------|-------------|
 | **OSS recommenders** | VPA, Goldilocks, KRR, Kubecost/OpenCost | Good for visibility and one-time audits; no autonomous application (except VPA Auto, which evicts) |
-| **OSS appliers** | Oblik, kube-reqsizer, Kedify | Apply VPA recommendations via cron or controller; no safety system or graduated rollout |
+| **OSS appliers** | Oblik, kube-reqsizer, Kedify, k8s-sustain, CruiseKube | In-place `/resize` or cron apply; k8s-sustain adds KEDA/Argo and a dashboard; none match Attune canary + SLO revert |
 | **Commercial full-stack** | CAST AI, ScaleOps, StormForge, PerfectScale, Sedai, Densify | Pod + node optimization with ML; $10k-50k+/year; SaaS dependency (except ScaleOps self-hosted) |
 | **Observability-integrated** | Datadog, nOps, Spot Ocean | Leverage existing monitoring; Datadog's `DatadogPodAutoscaler` CRD is well-designed |
 | **Attune** | (this project) | Focused on in-place resize with safety; open-source; no SaaS; Kubernetes-native CRDs |
