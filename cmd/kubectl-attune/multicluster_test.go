@@ -395,6 +395,13 @@ func TestRun_MultiClusterRejectsWizard(t *testing.T) {
 	assert.Contains(t, stderr, "wizard requires a single cluster context")
 }
 
+func TestRun_MultiClusterRejectsDoctor(t *testing.T) {
+	exitCode, _, stderr := captureRun(t, []string{"doctor", "--all-contexts"},
+		fakeDynamicClientFactory(t))
+	assert.Equal(t, 1, exitCode)
+	assert.Contains(t, stderr, "doctor requires a single cluster context")
+}
+
 func TestRun_MultiClusterRejectsPreview(t *testing.T) {
 	exitCode, _, stderr := captureRun(t, []string{"preview", "--contexts", "a,b", "my-policy"},
 		fakeDynamicClientFactory(t))

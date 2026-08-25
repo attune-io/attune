@@ -79,5 +79,5 @@ kubectl krew install attune
 ```
 
 The plugin adds commands like `kubectl attune status`, `kubectl attune recommendations`,
-and `kubectl attune explain`. Some examples reference these commands, but they always
+`kubectl attune doctor`, and `kubectl attune explain`. Some examples reference these commands, but they always
 show the standard kubectl equivalent first.

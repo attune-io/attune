@@ -220,6 +220,26 @@ confirmation.
 The wizard does not support multi-cluster mode (`--all-contexts` /
 `--contexts`).
 
+### doctor
+
+Preflight for in-place resize. Checks the cluster before you expect
+Attune to collect data or call `/resize`.
+
+```bash
+kubectl attune doctor
+kubectl attune doctor -n production
+kubectl attune doctor -A
+```
+
+| Check | Required | Passes when |
+|-------|----------|-------------|
+| Kubernetes version | Yes | Server version is 1.32 or newer |
+| `pods/resize` | Yes | Discovery lists the `pods/resize` subresource |
+| Prometheus | No | Skipped when no address is set. When a policy, `AttuneDefaults`, or `AttuneNamespaceDefaults` has `metricsSource.prometheus.address`, doctor GETs `/-/healthy` (SSRF-checked first) |
+
+Exit 0 when every required check passes. A failed Prometheus check is
+printed but does not change the exit code.
+
 ### version
 
 Shows the plugin version. Works without cluster access.
