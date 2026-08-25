@@ -1640,6 +1640,22 @@ func TestStructuredOutputCommandError(t *testing.T) {
 			wantErr: "supported only with the status command",
 		},
 		{
+			name:   "savings supports csv",
+			cmd:    "savings",
+			output: "csv",
+		},
+		{
+			name:   "recommendations supports csv",
+			cmd:    "recommendations",
+			output: "csv",
+		},
+		{
+			name:    "reject status csv",
+			cmd:     "status",
+			output:  "csv",
+			wantErr: "csv is supported only with savings and recommendations",
+		},
+		{
 			name:    "reject explain yaml",
 			cmd:     "explain",
 			output:  "yaml",
@@ -2310,6 +2326,71 @@ func TestPrintEffectivePolicySummary_PodAggregationDefault(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(out), "Pod aggregation")
 	assert.Contains(t, string(out), attunev1alpha1.DefaultPodAggregation)
+}
+
+func TestPrintSavingsCSV_HeaderAndRow(t *testing.T) {
+	items := []unstructured.Unstructured{
+		{Object: map[string]interface{}{
+			"metadata": map[string]interface{}{"name": "api", "namespace": "prod"},
+			"status": map[string]interface{}{
+				"savings": map[string]interface{}{
+					"cpuRequestReduction":     "350m",
+					"cpuRequestTotal":         "1",
+					"memoryRequestReduction":  "134217728",
+					"estimatedMonthlySavings": "$12.78",
+				},
+			},
+		}},
+	}
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+	printSavingsCSV(items, "")
+	require.NoError(t, w.Close())
+	os.Stdout = old
+	out, err := io.ReadAll(r)
+	require.NoError(t, err)
+	s := string(out)
+	assert.Contains(t, s, "namespace,name,cpu_saved,memory_saved,pct_saved,est_monthly")
+	assert.Contains(t, s, "prod,api,350m")
+	assert.Contains(t, s, "$12.78")
+	assert.NotContains(t, s, "TOTAL")
+}
+
+func TestPrintRecommendationsCSV_HeaderAndRow(t *testing.T) {
+	items := []unstructured.Unstructured{
+		{Object: map[string]interface{}{
+			"metadata": map[string]interface{}{"name": "p", "namespace": "ns"},
+			"status": map[string]interface{}{
+				"recommendations": []interface{}{
+					map[string]interface{}{
+						"workload": "api",
+						"containers": []interface{}{
+							map[string]interface{}{
+								"name":        "app",
+								"current":     map[string]interface{}{"cpuRequest": "500m", "memoryRequest": "256Mi"},
+								"recommended": map[string]interface{}{"cpuRequest": "250m", "memoryRequest": "128Mi"},
+								"confidence":  0.95,
+							},
+						},
+					},
+				},
+			},
+		}},
+	}
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+	printRecommendationsCSV(items)
+	require.NoError(t, w.Close())
+	os.Stdout = old
+	out, err := io.ReadAll(r)
+	require.NoError(t, err)
+	s := string(out)
+	assert.Contains(t, s, "namespace,policy,workload,container,cpu_req,cpu_rec,mem_req,mem_rec,confidence")
+	assert.Contains(t, s, "ns,p,api,app,500m,250m,256Mi,128Mi,95.0%")
 }
 
 func TestPrintEffectivePolicySummary_GitOpsPR(t *testing.T) {

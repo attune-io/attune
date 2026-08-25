@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -47,7 +48,7 @@ import (
 var version = "dev"
 
 const (
-	structuredOutputUsage = "Output raw AttunePolicy objects as json or yaml (status and diff)"
+	structuredOutputUsage = "Output format: json|yaml (status), yaml (diff), csv (savings and recommendations)"
 	sourcePolicy          = "policy"
 	sourceNamespace       = "namespace default"
 	sourceCluster         = "cluster default"
@@ -129,6 +130,7 @@ func run(args []string, buildClient dynamicClientFactory) int {
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Structured output note:")
 		fmt.Fprintln(os.Stderr, "  -o json|yaml is supported with status. -o yaml is supported with diff.")
+		fmt.Fprintln(os.Stderr, "  -o csv is supported with savings and recommendations.")
 		fmt.Fprintln(os.Stderr, "  For raw AttunePolicy objects with other commands, use kubectl get attunepolicy -o json|yaml.")
 	}
 
@@ -223,9 +225,17 @@ func run(args []string, buildClient dynamicClientFactory) int {
 		case "status":
 			printStatusItems(items, *sortBy, *filter)
 		case "savings":
-			printSavingsItems(items, *sortBy)
+			if *output == "csv" {
+				printSavingsCSV(items, *sortBy)
+			} else {
+				printSavingsItems(items, *sortBy)
+			}
 		case "recommendations":
-			printRecommendationsItems(items)
+			if *output == "csv" {
+				printRecommendationsCSV(items)
+			} else {
+				printRecommendationsItems(items)
+			}
 		case "history":
 			printHistoryItems(items)
 		case "diff":
@@ -262,9 +272,17 @@ func run(args []string, buildClient dynamicClientFactory) int {
 			printStatus(ctx, dynClient, *namespace, *sortBy, *filter)
 		}
 	case "savings":
-		printSavings(ctx, dynClient, *namespace, *sortBy)
+		if *output == "csv" {
+			printSavingsCSV(fetchPolicies(ctx, dynClient, *namespace).Items, *sortBy)
+		} else {
+			printSavings(ctx, dynClient, *namespace, *sortBy)
+		}
 	case "recommendations":
-		printRecommendations(ctx, dynClient, *namespace)
+		if *output == "csv" {
+			printRecommendationsCSV(fetchPolicies(ctx, dynClient, *namespace).Items)
+		} else {
+			printRecommendations(ctx, dynClient, *namespace)
+		}
 	case "export":
 		return runExportList(ctx, dynClient, *namespace, *allNamespaces, parsedArgs)
 	case "explain":
@@ -355,6 +373,12 @@ func structuredOutputCommandError(cmd, output string) error {
 			return nil
 		}
 		return fmt.Errorf("-o %s is not supported with diff; use -o yaml for patch manifests", output)
+	}
+	if output == "csv" {
+		if cmd == "savings" || cmd == "recommendations" {
+			return nil
+		}
+		return fmt.Errorf("-o csv is supported only with savings and recommendations")
 	}
 	if output != "json" && output != "yaml" {
 		return fmt.Errorf("unsupported output format %q, use json or yaml", output)
@@ -582,6 +606,35 @@ func printSavingsItems(items []unstructured.Unstructured, sortByFlag string) {
 	}
 }
 
+func writeCSV(rows [][]string) {
+	w := csv.NewWriter(os.Stdout)
+	if err := w.WriteAll(rows); err != nil {
+		fmt.Fprintf(os.Stderr, "Error writing csv: %v\n", err)
+	}
+}
+
+func printSavingsCSV(items []unstructured.Unstructured, sortByFlag string) {
+	sortPolicies(items, sortByFlag)
+	showCluster := hasClusterAnnotation(items)
+	header := []string{"namespace", "name", "cpu_saved", "memory_saved", "pct_saved", "est_monthly"}
+	if showCluster {
+		header = append([]string{"cluster"}, header...)
+	}
+	rows := [][]string{header}
+	for _, item := range items {
+		cpuSaved := getNestedString(item, "status", "savings", "cpuRequestReduction")
+		cpuTotal := getNestedString(item, "status", "savings", "cpuRequestTotal")
+		memSaved := formatMemory(getNestedString(item, "status", "savings", "memoryRequestReduction"))
+		estMonthly := getNestedString(item, "status", "savings", "estimatedMonthlySavings")
+		row := []string{item.GetNamespace(), item.GetName(), cpuSaved, memSaved, savingsPercent(cpuSaved, cpuTotal), estMonthly}
+		if showCluster {
+			row = append([]string{itemCluster(item)}, row...)
+		}
+		rows = append(rows, row)
+	}
+	writeCSV(rows)
+}
+
 func getNestedString(obj unstructured.Unstructured, fields ...string) string {
 	val, found, err := unstructured.NestedString(obj.Object, fields...)
 	if err != nil || !found {
@@ -729,6 +782,57 @@ func printRecommendationsItems(items []unstructured.Unstructured) {
 		fmt.Fprintln(os.Stderr, "\nOne or more policies use export mode (ConfigMap). Recommendations are also written to <policy>-<workload>-recommendations ConfigMaps for GitOps.")
 		fmt.Fprintln(os.Stderr, "Run 'kubectl attune export list' to inspect the exported values with last-updated timestamps. In Recommend+export, no direct resizes occur.")
 	}
+}
+
+func printRecommendationsCSV(items []unstructured.Unstructured) {
+	showCluster := hasClusterAnnotation(items)
+	header := []string{"namespace", "policy", "workload", "container", "cpu_req", "cpu_rec", "mem_req", "mem_rec", "confidence"}
+	if showCluster {
+		header = append([]string{"cluster"}, header...)
+	}
+	rows := [][]string{header}
+	for _, item := range items {
+		recs, found, _ := unstructured.NestedSlice(item.Object, "status", "recommendations")
+		if !found || len(recs) == 0 {
+			row := []string{item.GetNamespace(), item.GetName(), "", "", "", "", "", "", policyReadyReason(item)}
+			if showCluster {
+				row = append([]string{itemCluster(item)}, row...)
+			}
+			rows = append(rows, row)
+			continue
+		}
+		for _, r := range recs {
+			rec, ok := r.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			workload, _ := rec["workload"].(string)
+			containers, _ := rec["containers"].([]interface{})
+			for _, c := range containers {
+				cont, ok := c.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				name, _ := cont["name"].(string)
+				confidence, _ := cont["confidence"].(float64)
+				current, _ := cont["current"].(map[string]interface{})
+				recommended, _ := cont["recommended"].(map[string]interface{})
+				curCPU, _ := current["cpuRequest"].(string)
+				recCPU, _ := recommended["cpuRequest"].(string)
+				curMem, _ := current["memoryRequest"].(string)
+				recMem, _ := recommended["memoryRequest"].(string)
+				row := []string{
+					item.GetNamespace(), item.GetName(), workload, name,
+					curCPU, recCPU, curMem, recMem, fmt.Sprintf("%.1f%%", confidence*100),
+				}
+				if showCluster {
+					row = append([]string{itemCluster(item)}, row...)
+				}
+				rows = append(rows, row)
+			}
+		}
+	}
+	writeCSV(rows)
 }
 
 // runExportList handles the "export" top-level command and its subcommands (currently only "list").
