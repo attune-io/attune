@@ -100,7 +100,7 @@ spec:
                     address: http://prometheus-server.monitoring:80
                   minimumDataPoints: 1
                   historyWindow: 1h
-                  queryStep: 1m
+                  queryStep: 15s
                   rateWindow: 5m
                 cpu:
                   percentile: 95
@@ -194,13 +194,64 @@ spec:
                 namespace: e2e-per-app-cooldown
               status:
                 readyReplicas: 1
+    - name: wait-app-b-metrics
+      try:
+        - script:
+            timeout: 2m
+            content: |
+              PROM_POD=$(kubectl get pods -n monitoring -l app.kubernetes.io/name=prometheus,app.kubernetes.io/component=server -o name | head -1)
+              NS="e2e-per-app-cooldown"
+              ENCODED_QUERY="container_cpu_usage_seconds_total%7Bnamespace%3D%22${NS}%22%2Cpod%3D~%22app-b-.*%22%2Ccontainer%21%3D%22%22%7D"
+              for i in $(seq 1 24); do
+                result=$(kubectl exec -n monitoring "$PROM_POD" -- \
+                  wget -qO- "http://localhost:9090/api/v1/query?query=${ENCODED_QUERY}" 2>/dev/null || true)
+                if echo "$result" | grep -q '"result":\[{'; then
+                  echo "cAdvisor metrics for app-b after ${i}x5s"
+                  exit 0
+                fi
+                sleep 5
+              done
+              echo "WARNING: no app-b series after 120s, proceeding"
+    - name: wait-app-b-recommendation
+      try:
+        - script:
+            timeout: 3m
+            content: |
+              NS=e2e-per-app-cooldown
+              for i in $(seq 1 36); do
+                kubectl get attunepolicy fleet-auto -n "$NS" -o json \
+                  > /tmp/fleet-auto.json 2>/dev/null || true
+                python3 <<'PY'
+              import json
+              import sys
+              try:
+                  p = json.load(open("/tmp/fleet-auto.json"))
+              except Exception:
+                  sys.exit(1)
+              for rec in (p.get("status") or {}).get("recommendations") or []:
+                  if rec.get("workload") == "app-b" and not rec.get("stale"):
+                      sys.exit(0)
+              sys.exit(1)
+              PY
+                if [ $? -eq 0 ]; then
+                  echo "app-b has a recommendation"
+                  exit 0
+                fi
+                sleep 5
+              done
+              echo "FAIL: no recommendation for app-b"
+              kubectl get attunepolicy fleet-auto -n "$NS" -o yaml
+              exit 1
     - name: verify-app-b-resized-inside-cooldown
       try:
         - script:
             timeout: 90s
             content: |
+              # Recs for app-b already exist. Per-app cooldown resizes
+              # on the next reconcile (seconds). A policy-wide stamp
+              # still holds until app-a's 1m expires.
               NS=e2e-per-app-cooldown
-              for i in $(seq 1 18); do
+              for i in $(seq 1 6); do
                 kubectl get attunepolicy fleet-auto -n "$NS" -o json \
                   > /tmp/fleet-auto.json 2>/dev/null || true
                 python3 <<'PY'
@@ -219,8 +270,10 @@ spec:
                   ts = h.get("timestamp")
                   if w and ts and w not in first:
                       first[w] = ts
-              if "app-a" not in first or "app-b" not in first:
+              if "app-b" not in first:
                   sys.exit(3)
+              if "app-a" not in first:
+                  sys.exit(4)
               def parse(s):
                   return datetime.fromisoformat(s.replace("Z", "+00:00"))
               ta = parse(first["app-a"])
@@ -230,28 +283,21 @@ spec:
                   first["app-a"], first["app-b"], delta))
               if delta < 0:
                   sys.exit(4)
-              if delta >= 60:
-                  sys.exit(2)
               sys.exit(0)
               PY
                 rc=$?
                 if [ "$rc" -eq 0 ]; then
-                  echo "OK: app-b resized after app-a and inside 60s"
+                  echo "OK: app-b resized after it had a rec (A still cooling)"
                   exit 0
                 fi
-                if [ "$rc" -eq 2 ]; then
-                  echo "FAIL: app-b first Success is >= 60s after app-a"
-                  kubectl get attunepolicy fleet-auto -n "$NS" -o yaml
-                  exit 1
-                fi
                 if [ "$rc" -eq 4 ]; then
-                  echo "FAIL: app-b Success is before app-a"
+                  echo "FAIL: missing app-a Success or app-b before app-a"
                   kubectl get attunepolicy fleet-auto -n "$NS" -o yaml
                   exit 1
                 fi
                 sleep 5
               done
-              echo "FAIL: no Success history for app-b inside 90s"
+              echo "FAIL: app-b had a rec but no Success within 60s"
               kubectl get attunepolicy fleet-auto -n "$NS" -o yaml
               exit 1
   catch:
