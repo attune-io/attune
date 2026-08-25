@@ -21,6 +21,7 @@ rules:
       - attunepolicies/status
     verbs:
       - get
+      - patch
       - update
   # Finalizers: allow the controller to manage the cleanup finalizer
   - apiGroups:

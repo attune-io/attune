@@ -116,7 +116,7 @@ const (
 )
 
 //+kubebuilder:rbac:groups=attune.io,resources=attunepolicies,verbs=get;list;watch;patch
-//+kubebuilder:rbac:groups=attune.io,resources=attunepolicies/status,verbs=get;update
+//+kubebuilder:rbac:groups=attune.io,resources=attunepolicies/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=attune.io,resources=attunepolicies/finalizers,verbs=update
 //+kubebuilder:rbac:groups=attune.io,resources=attunedefaults,verbs=get;list;watch
 //+kubebuilder:rbac:groups=attune.io,resources=attunenamespacedefaults,verbs=get;list;watch
