@@ -3675,6 +3675,7 @@ rules:
   - attunepolicies/status
   verbs:
   - get
+  - patch
   - update
 - apiGroups:
   - autoscaling
