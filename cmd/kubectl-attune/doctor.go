@@ -139,21 +139,68 @@ func hasPodsResizeSubresource(lists []*metav1.APIResourceList) bool {
 	return false
 }
 
-func collectPrometheusAddresses(objects ...unstructured.Unstructured) []string {
-	seen := map[string]struct{}{}
-	var out []string
+type prometheusDoctorTarget struct {
+	address string
+	hasAuth bool
+}
+
+func prometheusObjectHasAuth(obj unstructured.Unstructured) bool {
+	secret, found, err := unstructured.NestedMap(obj.Object, "spec", "metricsSource", "prometheus", "bearerTokenSecret")
+	if err == nil && found && len(secret) > 0 {
+		return true
+	}
+	headers, found, err := unstructured.NestedStringMap(obj.Object, "spec", "metricsSource", "prometheus", "headers")
+	if err == nil && found && len(headers) > 0 {
+		return true
+	}
+	return false
+}
+
+func collectPrometheusTargets(objects ...unstructured.Unstructured) []prometheusDoctorTarget {
+	seen := map[string]int{}
+	var out []prometheusDoctorTarget
 	for _, obj := range objects {
 		addr := strings.TrimSpace(getNestedString(obj, "spec", "metricsSource", "prometheus", "address"))
 		if addr == "" {
 			continue
 		}
-		if _, ok := seen[addr]; ok {
+		hasAuth := prometheusObjectHasAuth(obj)
+		if i, ok := seen[addr]; ok {
+			if hasAuth {
+				out[i].hasAuth = true
+			}
 			continue
 		}
-		seen[addr] = struct{}{}
-		out = append(out, addr)
+		seen[addr] = len(out)
+		out = append(out, prometheusDoctorTarget{address: addr, hasAuth: hasAuth})
 	}
 	return out
+}
+
+func collectPrometheusAddresses(objects ...unstructured.Unstructured) []string {
+	targets := collectPrometheusTargets(objects...)
+	out := make([]string, len(targets))
+	for i, t := range targets {
+		out[i] = t.address
+	}
+	return out
+}
+
+type httpStatusError struct {
+	status int
+	url    string
+}
+
+func (e *httpStatusError) Error() string {
+	return fmt.Sprintf("GET %s: HTTP %d", e.url, e.status)
+}
+
+func pingAuthFailure(err error) bool {
+	var he *httpStatusError
+	if errors.As(err, &he) {
+		return he.status == http.StatusUnauthorized || he.status == http.StatusForbidden
+	}
+	return false
 }
 
 // clusterLocalPrometheusHost is true for Service DNS names that resolve
@@ -200,7 +247,7 @@ func pingPrometheusHealthy(ctx context.Context, address string) error {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("GET %s: HTTP %d", u.Redacted(), resp.StatusCode)
+		return &httpStatusError{status: resp.StatusCode, url: u.Redacted()}
 	}
 	return nil
 }
@@ -282,8 +329,8 @@ func runDoctorChecks(ctx context.Context, disc doctorDiscovery, objects []unstru
 		})
 	}
 
-	addrs := collectPrometheusAddresses(objects...)
-	if len(addrs) == 0 {
+	targets := collectPrometheusTargets(objects...)
+	if len(targets) == 0 {
 		detail := "skipped (no address on policies or defaults)"
 		if listErr != nil {
 			detail = "skipped (could not list policies or defaults)"
@@ -297,7 +344,9 @@ func runDoctorChecks(ctx context.Context, disc doctorDiscovery, objects []unstru
 	var failed []string
 	var reachable []string
 	var skippedLocal []string
-	for _, addr := range addrs {
+	var skippedAuth []string
+	for _, tgt := range targets {
+		addr := tgt.address
 		if err := validation.PrometheusAddress(addr); err != nil {
 			failed = append(failed, addr+": "+err.Error())
 			continue
@@ -307,6 +356,10 @@ func runDoctorChecks(ctx context.Context, disc doctorDiscovery, objects []unstru
 			continue
 		}
 		if err := ping(ctx, addr); err != nil {
+			if tgt.hasAuth && pingAuthFailure(err) {
+				skippedAuth = append(skippedAuth, addr)
+				continue
+			}
 			failed = append(failed, addr+": "+err.Error())
 			continue
 		}
@@ -319,10 +372,20 @@ func runDoctorChecks(ctx context.Context, disc doctorDiscovery, objects []unstru
 		return results
 	}
 	detail := strings.Join(reachable, ", ") + " " + prometheusHealthyPath
-	if len(reachable) == 0 && len(skippedLocal) > 0 {
+	switch {
+	case len(reachable) == 0 && len(skippedLocal) > 0 && len(skippedAuth) > 0:
+		detail = "skipped (in-cluster address; ping is from this host, not the operator pod; HTTP 401/403 on address that uses bearer token or headers)"
+	case len(reachable) == 0 && len(skippedLocal) > 0:
 		detail = "skipped (in-cluster address; ping is from this host, not the operator pod)"
-	} else if len(skippedLocal) > 0 {
-		detail += "; skipped in-cluster " + strings.Join(skippedLocal, ", ")
+	case len(reachable) == 0 && len(skippedAuth) > 0:
+		detail = "skipped (HTTP 401/403; address uses bearer token or headers the operator would send)"
+	default:
+		if len(skippedLocal) > 0 {
+			detail += "; skipped in-cluster " + strings.Join(skippedLocal, ", ")
+		}
+		if len(skippedAuth) > 0 {
+			detail += "; skipped authenticated " + strings.Join(skippedAuth, ", ")
+		}
 	}
 	results = append(results, doctorResult{
 		name: "Prometheus", required: false, ok: true,

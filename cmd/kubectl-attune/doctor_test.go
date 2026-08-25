@@ -245,6 +245,105 @@ func TestRunDoctorChecks_PrometheusOptional(t *testing.T) {
 		assert.False(t, results[2].ok)
 		assert.Contains(t, results[2].detail, "loopback")
 	})
+
+	t.Run("bearer token 401 is skip not warn", func(t *testing.T) {
+		t.Parallel()
+		authed := unstructured.Unstructured{Object: map[string]interface{}{
+			"spec": map[string]interface{}{
+				"metricsSource": map[string]interface{}{
+					"prometheus": map[string]interface{}{
+						"address":           "http://prometheus.example:9090",
+						"bearerTokenSecret": map[string]interface{}{"name": "prom-token", "key": "token"},
+					},
+				},
+			},
+		}}
+		results := runDoctorChecks(ctx, disc, []unstructured.Unstructured{authed}, nil, func(context.Context, string) error {
+			return &httpStatusError{status: 401, url: "http://prometheus.example:9090/-/healthy"}
+		})
+		require.True(t, results[2].ok, results[2].detail)
+		assert.Contains(t, results[2].detail, "401")
+		assert.Contains(t, results[2].detail, "bearer")
+		assert.False(t, doctorFailed(results))
+	})
+
+	t.Run("headers 403 is skip not warn", func(t *testing.T) {
+		t.Parallel()
+		authed := unstructured.Unstructured{Object: map[string]interface{}{
+			"spec": map[string]interface{}{
+				"metricsSource": map[string]interface{}{
+					"prometheus": map[string]interface{}{
+						"address": "http://mimir.example:8080",
+						"headers": map[string]interface{}{"X-Scope-OrgID": "team-a"},
+					},
+				},
+			},
+		}}
+		results := runDoctorChecks(ctx, disc, []unstructured.Unstructured{authed}, nil, func(context.Context, string) error {
+			return &httpStatusError{status: 403, url: "http://mimir.example:8080/-/healthy"}
+		})
+		require.True(t, results[2].ok, results[2].detail)
+		assert.Contains(t, results[2].detail, "403")
+		assert.False(t, doctorFailed(results))
+	})
+
+	t.Run("bearer token connection error is still warn", func(t *testing.T) {
+		t.Parallel()
+		authed := unstructured.Unstructured{Object: map[string]interface{}{
+			"spec": map[string]interface{}{
+				"metricsSource": map[string]interface{}{
+					"prometheus": map[string]interface{}{
+						"address":           "http://prometheus.example:9090",
+						"bearerTokenSecret": map[string]interface{}{"name": "prom-token", "key": "token"},
+					},
+				},
+			},
+		}}
+		results := runDoctorChecks(ctx, disc, []unstructured.Unstructured{authed}, nil, func(context.Context, string) error {
+			return fmt.Errorf("connection refused")
+		})
+		require.False(t, results[2].ok, results[2].detail)
+		assert.Contains(t, results[2].detail, "connection refused")
+		assert.False(t, doctorFailed(results), "Prometheus is optional")
+	})
+
+	t.Run("401 without auth config is still warn", func(t *testing.T) {
+		t.Parallel()
+		results := runDoctorChecks(ctx, disc, []unstructured.Unstructured{obj}, nil, func(context.Context, string) error {
+			return &httpStatusError{status: 401, url: "http://prometheus.example:9090/-/healthy"}
+		})
+		require.False(t, results[2].ok, results[2].detail)
+		assert.Contains(t, results[2].detail, "HTTP 401")
+	})
+
+	t.Run("same address with and without auth merges auth", func(t *testing.T) {
+		t.Parallel()
+		plain := obj
+		authed := unstructured.Unstructured{Object: map[string]interface{}{
+			"spec": map[string]interface{}{
+				"metricsSource": map[string]interface{}{
+					"prometheus": map[string]interface{}{
+						"address":           "http://prometheus.example:9090",
+						"bearerTokenSecret": map[string]interface{}{"name": "prom-token", "key": "token"},
+					},
+				},
+			},
+		}}
+		results := runDoctorChecks(ctx, disc, []unstructured.Unstructured{plain, authed}, nil, func(context.Context, string) error {
+			return &httpStatusError{status: 401, url: "http://prometheus.example:9090/-/healthy"}
+		})
+		require.True(t, results[2].ok, results[2].detail)
+		assert.Contains(t, results[2].detail, "401")
+	})
+}
+
+func TestPingAuthFailure(t *testing.T) {
+	t.Parallel()
+	assert.True(t, pingAuthFailure(&httpStatusError{status: 401, url: "http://x"}))
+	assert.True(t, pingAuthFailure(&httpStatusError{status: 403, url: "http://x"}))
+	assert.False(t, pingAuthFailure(&httpStatusError{status: 500, url: "http://x"}))
+	assert.False(t, pingAuthFailure(fmt.Errorf("HTTP 401")))
+	assert.False(t, pingAuthFailure(nil))
 }
 
 func TestPrintDoctorResults_OptionalWarn(t *testing.T) {
