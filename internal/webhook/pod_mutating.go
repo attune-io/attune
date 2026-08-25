@@ -120,7 +120,7 @@ func (h *PodMutatingHandler) Handle(ctx context.Context, req admission.Request) 
 	pod.Annotations[AnnotationInitialSizingPolicy] = fmt.Sprintf("%s/%s", req.Namespace, policy.Name)
 
 	h.Logger.Info("initial sizing applied",
-		"pod", pod.Name, "namespace", req.Namespace,
+		"pod", podAdmissionName(pod, req.Name), "namespace", req.Namespace,
 		"policy", policy.Name, "owner", ownerKind+"/"+ownerName)
 
 	marshaledPod, err := json.Marshal(pod)
@@ -358,6 +358,22 @@ func hasSuccessfulInPlaceHistory(history []attunev1alpha1.ResizeHistoryEntry, wo
 		}
 	}
 	return false
+}
+
+// podAdmissionName is the best identifier at CREATE. ReplicaSet pods
+// often have an empty Name and only GenerateName until the API assigns
+// one. Do not use this for canary slice matching.
+func podAdmissionName(pod *corev1.Pod, reqName string) string {
+	if pod != nil && pod.Name != "" {
+		return pod.Name
+	}
+	if reqName != "" {
+		return reqName
+	}
+	if pod != nil && pod.GenerateName != "" {
+		return pod.GenerateName
+	}
+	return ""
 }
 
 // hasMinConfidence returns true if all containers meet the minimum confidence.
