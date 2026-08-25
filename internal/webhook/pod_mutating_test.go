@@ -24,6 +24,7 @@ import (
 
 	jsonpatch "github.com/evanphx/json-patch/v5"
 	"github.com/go-logr/logr"
+	"github.com/go-logr/logr/funcr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	admissionv1 "k8s.io/api/admission/v1"
@@ -166,6 +167,41 @@ func TestPodAdmissionName(t *testing.T) {
 	assert.Equal(t, "from-req", podAdmissionName(generated, "from-req"))
 	assert.Equal(t, "app-abc-", podAdmissionName(generated, ""))
 	assert.Equal(t, "", podAdmissionName(nil, ""))
+}
+
+func TestGetWorkloadObject(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("DaemonSet", func(t *testing.T) {
+		t.Parallel()
+		ds := &appsv1.DaemonSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "my-ds", Namespace: "default",
+				Labels: map[string]string{"app": "agent"},
+			},
+		}
+		cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(ds).Build()
+		obj, err := getWorkloadObject(ctx, cl, "default", "DaemonSet", "my-ds")
+		require.NoError(t, err)
+		assert.Equal(t, "my-ds", obj.GetName())
+		assert.Equal(t, "agent", obj.GetLabels()["app"])
+	})
+
+	t.Run("unsupported kind", func(t *testing.T) {
+		t.Parallel()
+		cl := fake.NewClientBuilder().WithScheme(testScheme()).Build()
+		_, err := getWorkloadObject(ctx, cl, "default", "Job", "my-job")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `unsupported workload kind "Job"`)
+	})
+
+	t.Run("missing object", func(t *testing.T) {
+		t.Parallel()
+		cl := fake.NewClientBuilder().WithScheme(testScheme()).Build()
+		_, err := getWorkloadObject(ctx, cl, "default", "Deployment", "missing")
+		require.Error(t, err)
+	})
 }
 
 func TestPodMutatingHandler_HappyPath(t *testing.T) {
@@ -506,11 +542,17 @@ func TestPodMutatingHandler_CanaryMode_EmptyNameSkips(t *testing.T) {
 	pod.GenerateName = "my-app-abc-"
 
 	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
-	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+	var logged string
+	handler := &PodMutatingHandler{
+		Client: cl,
+		Logger: funcr.NewJSON(func(obj string) { logged += obj }, funcr.Options{Verbosity: 1}),
+	}
 
 	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
 	require.True(t, resp.Allowed)
 	assert.Nil(t, resp.Patches, "empty CREATE Name is not in the canary slice")
+	assert.Contains(t, logged, "canary has not promoted this app")
+	assert.Contains(t, logged, `"pod":""`)
 }
 
 func TestPodMutatingHandler_CanaryMode_MutatesCanarySlice(t *testing.T) {
