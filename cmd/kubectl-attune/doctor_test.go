@@ -415,6 +415,17 @@ func TestPingPrometheusHealthy(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "loopback")
 	})
+
+	t.Run("redirect to cloud metadata is rejected", func(t *testing.T) {
+		t.Parallel()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "http://metadata.google.internal/-/healthy", http.StatusFound)
+		}))
+		t.Cleanup(srv.Close)
+		err := pingPrometheusHealthy(ctx, pingTestURL(srv.URL))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "metadata")
+	})
 }
 
 func TestPrintDoctorResults_OptionalWarn(t *testing.T) {
