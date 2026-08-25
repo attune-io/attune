@@ -2403,8 +2403,34 @@ func TestPrintRecommendationsCSV_HeaderAndRow(t *testing.T) {
 	out, err := io.ReadAll(r)
 	require.NoError(t, err)
 	s := string(out)
-	assert.Contains(t, s, "namespace,policy,workload,container,cpu_req,cpu_rec,mem_req,mem_rec,confidence")
+	assert.Contains(t, s, "namespace,policy,workload,container,cpu_req,cpu_rec,mem_req,mem_rec,confidence_or_status")
 	assert.Contains(t, s, "ns,p,api,app,500m,250m,256Mi,128Mi,95.0%")
+}
+
+func TestPrintRecommendationsCSV_EmptyRecsUseReadyReason(t *testing.T) {
+	items := []unstructured.Unstructured{
+		{Object: map[string]interface{}{
+			"metadata": map[string]interface{}{"name": "p", "namespace": "ns"},
+			"status": map[string]interface{}{
+				"conditions": []interface{}{
+					map[string]interface{}{"type": "Ready", "status": "False", "reason": "InsufficientData"},
+				},
+			},
+		}},
+	}
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+	printRecommendationsCSV(items)
+	require.NoError(t, w.Close())
+	os.Stdout = old
+	out, err := io.ReadAll(r)
+	require.NoError(t, err)
+	s := string(out)
+	assert.Contains(t, s, "confidence_or_status")
+	assert.Contains(t, s, "ns,p,,,,,,,InsufficientData")
+	assert.NotContains(t, s, ",confidence\n")
 }
 
 func TestPrintEffectivePolicySummary_GitOpsPR(t *testing.T) {

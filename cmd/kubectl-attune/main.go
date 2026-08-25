@@ -795,7 +795,7 @@ func printRecommendationsItems(items []unstructured.Unstructured) {
 
 func printRecommendationsCSV(items []unstructured.Unstructured) {
 	showCluster := hasClusterAnnotation(items)
-	header := []string{"namespace", "policy", "workload", "container", "cpu_req", "cpu_rec", "mem_req", "mem_rec", "confidence"}
+	header := []string{"namespace", "policy", "workload", "container", "cpu_req", "cpu_rec", "mem_req", "mem_rec", "confidence_or_status"}
 	if showCluster {
 		header = append([]string{"cluster"}, header...)
 	}

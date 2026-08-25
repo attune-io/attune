@@ -258,7 +258,10 @@ kubectl attune version
 - `status`: JSON or YAML of raw `AttunePolicy` objects
 - `diff`: YAML patch manifests
 - `savings` and `recommendations`: CSV (header plus one data row per
-  policy or container; no totals row)
+  policy or container; no totals row). Recommendations CSV uses
+  `confidence_or_status` for the last column: a confidence percent
+  when recommendations exist, otherwise the policy Ready reason
+  (same as the table's CONFIDENCE / STATUS column).
 
 ```bash
 kubectl attune status -o json
