@@ -188,7 +188,8 @@ minimal.
 
 | When | Command | What you're checking |
 |------|---------|---------------------|
-| Just installed | `kubectl attune status -w` | Operator picked up your policy |
+| Just installed | `kubectl attune doctor` | Cluster is 1.32+ and lists `pods/resize` |
+| Policy created | `kubectl attune status -w` | Operator picked up your policy |
 | Waiting for data | `kubectl attune status -w` | Progress percentage climbing |
 | First recommendations | `kubectl attune recommendations` | Values look reasonable |
 | Understanding a recommendation | `kubectl attune explain <policy>` | Full pipeline trace |

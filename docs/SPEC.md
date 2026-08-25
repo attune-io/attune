@@ -1252,6 +1252,7 @@ Distributed via Krew:
 ```bash
 kubectl krew install attune
 
+kubectl attune doctor
 kubectl attune status -n production
 kubectl attune savings
 kubectl attune recommendations -n production

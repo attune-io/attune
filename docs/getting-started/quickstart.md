@@ -19,6 +19,7 @@ recommendations, and promoting to Canary mode, all in about five minutes.
     - **Kubernetes 1.32+** — 1.32 requires the `InPlacePodVerticalScaling` feature gate; 1.33–1.34 beta enabled by default; **1.35+ GA**.
     - **A metrics source** — Prometheus (default), Datadog, or CloudWatch Container Insights. This guide uses Prometheus; see [Datadog Setup](../guides/datadog-setup.md) or [CloudWatch Setup](../guides/cloudwatch-setup.md) for alternatives.
     - **Attune installed** — see [Installation](installation.md) for Helm and raw manifest options. Default Helm install needs **cert-manager** (or `--set webhooks.enabled=false`).
+    - **Cluster preflight** — `kubectl attune doctor` checks Kubernetes 1.32+ and `pods/resize` before you wait on recommendations.
     - **Prometheus reachability** — the chart NetworkPolicy allows Prometheus egress on port **9090** by default. If your Service listens on port **80** (common with `prometheus-server.monitoring:80`), set `--set networkPolicy.prometheusPort=80` at install time or you will get no data.
 
 ## What else can Attune do?
