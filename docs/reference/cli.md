@@ -237,7 +237,7 @@ Doctor is single-context. `--all-contexts` and `--contexts` are rejected.
 |-------|----------|-------------|
 | Kubernetes version | Yes | Server version is 1.32 or newer |
 | `pods/resize` | Yes | Discovery lists the `pods/resize` subresource |
-| Prometheus | No | Skipped when no address was seen (none set, or listing failed with no objects). Also skipped for in-cluster DNS (`.svc` / `.cluster.local`). Other addresses, including `service.namespace` without `.svc`, are GET `/-/healthy` from this host (SSRF-checked first). Optional failures print `WARN`, not `FAIL`. |
+| Prometheus | No | Skipped when no address was seen (none set, or listing failed with no objects). Also skipped for in-cluster DNS (`.svc` / `.cluster.local`). Other addresses, including `service.namespace` without `.svc`, are GET `/-/healthy` from this host (SSRF-checked first). A 401/403 on an address that sets `bearerTokenSecret` or `headers` is skipped (this host does not send the operator's auth). Optional failures print `WARN`, not `FAIL`. |
 
 Exit 0 when every required check passes. A failed Prometheus check is
 printed as `WARN` and does not change the exit code. The ping runs on

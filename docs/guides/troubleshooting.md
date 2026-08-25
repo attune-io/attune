@@ -179,6 +179,8 @@ namespace. This is usually a typo in the workload name or an incorrect
 **Check first**: `kubectl attune doctor` confirms Kubernetes 1.32+ and
 `pods/resize`. A failed Prometheus ping is optional (printed as `WARN`)
 and does not prove the operator cannot reach an in-cluster address.
+A 401 or 403 on an address that sets `bearerTokenSecret` or custom
+`headers` is skipped the same way: doctor does not send those credentials.
 
 **Cause**: Not enough Prometheus data points to generate recommendations.
 The default minimum is 48 Prometheus range-query samples. With the default
