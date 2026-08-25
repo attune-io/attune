@@ -215,6 +215,18 @@ func TestRunDoctorChecks_PrometheusOptional(t *testing.T) {
 		assert.NotContains(t, results[2].detail, "no address")
 	})
 
+	t.Run("list error with a collected address still pings", func(t *testing.T) {
+		t.Parallel()
+		pinged := false
+		results := runDoctorChecks(ctx, disc, []unstructured.Unstructured{obj}, fmt.Errorf("list AttuneDefaults: forbidden"), func(context.Context, string) error {
+			pinged = true
+			return nil
+		})
+		assert.True(t, pinged)
+		require.True(t, results[2].ok, results[2].detail)
+		assert.Contains(t, results[2].detail, "http://prometheus.example:9090")
+	})
+
 	t.Run("ssrf rejected without ping", func(t *testing.T) {
 		t.Parallel()
 		bad := unstructured.Unstructured{Object: map[string]interface{}{
@@ -245,6 +257,15 @@ func TestPrintDoctorResults_OptionalWarn(t *testing.T) {
 	out := buf.String()
 	assert.Contains(t, out, "WARN")
 	assert.NotContains(t, out, "FAIL")
+
+	buf.Reset()
+	printDoctorResults(&buf, []doctorResult{
+		{name: "Kubernetes version", required: true, detail: "below 1.32"},
+		{name: "Prometheus", required: false, detail: "connection refused"},
+	})
+	out = buf.String()
+	assert.Contains(t, out, "FAIL")
+	assert.Contains(t, out, "WARN")
 }
 
 func TestClusterLocalPrometheusHost(t *testing.T) {
@@ -253,6 +274,9 @@ func TestClusterLocalPrometheusHost(t *testing.T) {
 	assert.True(t, clusterLocalPrometheusHost("http://prom.ns.svc.cluster.local:9090"))
 	assert.False(t, clusterLocalPrometheusHost("http://prometheus.example:9090"))
 	assert.False(t, clusterLocalPrometheusHost("not a url"))
+	// Chart and docs use service.namespace without .svc. That is still
+	// pinged; do not treat every two-label host as in-cluster.
+	assert.False(t, clusterLocalPrometheusHost("http://prometheus-server.monitoring:80"))
 }
 
 func TestListDoctorObjects_KeepsPartialOnError(t *testing.T) {
