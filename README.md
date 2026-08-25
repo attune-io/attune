@@ -55,6 +55,8 @@ In-place apply is the shared primitive (Kubernetes `/resize`). Attune is the
 | Production path | <1% run in production | Manual apply | **Observe → Recommend → Canary → Auto** |
 
 > **Migrating from VPA?** See the step-by-step [migration guide](docs/guides/migrating-from-vpa.md) for field-by-field mapping, mode matrix, side-by-side YAML, and zero-downtime cutover.
+>
+> Other 2026 in-place appliers (k8s-sustain, CruiseKube, Kedify PRA) are compared in [Why Attune](docs/why-attune.md#other-2026-in-place-appliers).
 
 ## Quick Start
 

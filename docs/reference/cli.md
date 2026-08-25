@@ -231,6 +231,8 @@ kubectl attune doctor -n production
 kubectl attune doctor -A
 ```
 
+Doctor is single-context. `--all-contexts` and `--contexts` are rejected.
+
 | Check | Required | Passes when |
 |-------|----------|-------------|
 | Kubernetes version | Yes | Server version is 1.32 or newer |
