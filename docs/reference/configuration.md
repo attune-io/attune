@@ -581,7 +581,8 @@ The controller sets these conditions on each `AttunePolicy`:
 `status.gitopsPR` is written alongside the `attune.io/gitops-pr-*`
 annotations. Status survives a Flux or Argo apply that replaces
 `metadata.annotations` on the policy. Reads prefer status, then
-annotations.
+annotations. Unchanged skip does not rewrite wiped annotations
+(that would fight GitOps apply).
 
 | Field | Type | Description |
 |-------|------|-------------|

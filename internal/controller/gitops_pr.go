@@ -95,9 +95,6 @@ func (r *AttunePolicyReconciler) reconcileGitOpsPullRequest(
 			} else {
 				logger.V(1).Info("GitOps PR skipped: drift table unchanged since last PR",
 					"fingerprintSource", gitOpsDriftStoreSource(policy))
-				if gitOpsRestoreAnnotationsFromStatus(policy) {
-					r.persistGitOpsPRAnnotations(ctx, policy)
-				}
 			}
 			setGitOpsPRCondition(policy, metav1.ConditionFalse, attunev1alpha1.ReasonGitOpsPRUnchanged,
 				"Drift table unchanged since last pull request; not opening a new empty PR")
@@ -301,34 +298,6 @@ func ensureGitOpsPRStatus(policy *attunev1alpha1.AttunePolicy) *attunev1alpha1.G
 		policy.Status.GitOpsPR = &attunev1alpha1.GitOpsPRStatus{}
 	}
 	return policy.Status.GitOpsPR
-}
-
-// gitOpsRestoreAnnotationsFromStatus copies skip state from status onto
-// annotations when GitOps apply wiped metadata.annotations. Returns true
-// when any annotation was filled so the caller can persist.
-func gitOpsRestoreAnnotationsFromStatus(policy *attunev1alpha1.AttunePolicy) bool {
-	if policy.Status.GitOpsPR == nil {
-		return false
-	}
-	if policy.Annotations == nil {
-		policy.Annotations = map[string]string{}
-	}
-	changed := false
-	if policy.Annotations[annotationGitOpsPRDrift] == "" && policy.Status.GitOpsPR.DriftFingerprint != "" {
-		policy.Annotations[annotationGitOpsPRDrift] = policy.Status.GitOpsPR.DriftFingerprint
-		changed = true
-	}
-	if policy.Annotations[annotationGitOpsPRURL] == "" && policy.Status.GitOpsPR.URL != "" {
-		policy.Annotations[annotationGitOpsPRURL] = policy.Status.GitOpsPR.URL
-		changed = true
-	}
-	if policy.Annotations[annotationGitOpsPRLastAttempt] == "" &&
-		policy.Status.GitOpsPR.LastAttempt != nil &&
-		!policy.Status.GitOpsPR.LastAttempt.Time.IsZero() {
-		policy.Annotations[annotationGitOpsPRLastAttempt] = policy.Status.GitOpsPR.LastAttempt.UTC().Format(time.RFC3339)
-		changed = true
-	}
-	return changed
 }
 
 func setGitOpsPRDriftAnnotation(policy *attunev1alpha1.AttunePolicy, fingerprint string) {

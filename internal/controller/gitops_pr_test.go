@@ -70,32 +70,17 @@ func TestGitOpsPRUnchangedSkip(t *testing.T) {
 	}
 }
 
-func TestGitOpsRestoreAnnotationsFromStatus(t *testing.T) {
+func TestGitOpsDriftStoreSource(t *testing.T) {
 	t.Parallel()
-	attempt := metav1.NewTime(time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC))
-	policy := &attunev1alpha1.AttunePolicy{
+	assert.Equal(t, "status", gitOpsDriftStoreSource(&attunev1alpha1.AttunePolicy{
 		Status: attunev1alpha1.AttunePolicyStatus{
-			GitOpsPR: &attunev1alpha1.GitOpsPRStatus{
-				DriftFingerprint: "abc",
-				URL:              "https://github.com/org/repo/pull/1",
-				LastAttempt:      &attempt,
-			},
+			GitOpsPR: &attunev1alpha1.GitOpsPRStatus{DriftFingerprint: "abc"},
 		},
-	}
-	assert.True(t, gitOpsRestoreAnnotationsFromStatus(policy))
-	assert.Equal(t, "abc", policy.Annotations[annotationGitOpsPRDrift])
-	assert.Equal(t, "https://github.com/org/repo/pull/1", policy.Annotations[annotationGitOpsPRURL])
-	assert.Equal(t, attempt.UTC().Format(time.RFC3339), policy.Annotations[annotationGitOpsPRLastAttempt])
-	assert.False(t, gitOpsRestoreAnnotationsFromStatus(policy), "second call is a no-op")
-
-	empty := &attunev1alpha1.AttunePolicy{}
-	assert.False(t, gitOpsRestoreAnnotationsFromStatus(empty))
-
-	assert.Equal(t, "status", gitOpsDriftStoreSource(policy))
+	}))
 	assert.Equal(t, "annotation", gitOpsDriftStoreSource(&attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{annotationGitOpsPRDrift: "ann"}},
 	}))
-	assert.Equal(t, "none", gitOpsDriftStoreSource(empty))
+	assert.Equal(t, "none", gitOpsDriftStoreSource(&attunev1alpha1.AttunePolicy{}))
 }
 
 func TestGitopsPREnabled(t *testing.T) {

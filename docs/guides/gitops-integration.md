@@ -248,7 +248,8 @@ fingerprint (upgrades from 0.1.22/0.1.23) is treated the same way: Attune
 records the live table and skips instead of opening one more empty PR.
 The same fingerprint is stored on `status.gitopsPR` so a Flux or Argo
 apply that replaces `metadata.annotations` does not start the empty-PR
-loop again. Inspect with
+loop again. Attune does not rewrite those annotations on an Unchanged
+skip; rewriting them would fight the next GitOps apply. Inspect with
 `kubectl get attunepolicy <name> -o jsonpath='{.status.gitopsPR}'`.
 Field reference: [configuration](../reference/configuration.md#status-fields-gitops-pr).
 Apply real template patches (`kubectl attune diff`) so drift
