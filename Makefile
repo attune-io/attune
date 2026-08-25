@@ -380,6 +380,7 @@ _deploy-stack:
 		--set image.tag=$(lastword $(subst :, ,$(IMG))) \
 		--set image.pullPolicy=Never \
 		--set webhooks.enabled=true \
+		--set initialSizing.enabled=true \
 		--set metrics.enabled=true \
 		--set leaderElection.enabled=false \
 		--set maxConcurrentReconciles=4 \

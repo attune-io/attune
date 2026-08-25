@@ -174,7 +174,7 @@ func (h *PodMutatingHandler) findMatchingPolicy(
 				continue
 			}
 			if rec.Workload == ownerName && rec.Kind == ownerKind {
-				if hasMinConfidence(rec.Containers, minConfidenceForInitialSizing) {
+				if recEligibleForCreateSizing(rec, policy.Status.ResizeHistory, ownerName) {
 					return policy, rec
 				}
 			}
@@ -321,6 +321,37 @@ func extractDeploymentName(rsName string) string {
 		}
 	}
 	return ""
+}
+
+// recEligibleForCreateSizing is true when every container meets the
+// confidence floor, or this workload already has a successful in-place
+// resize. One Success means we trust CREATE for that name even when
+// the current rec is still low-confidence (short history windows).
+func recEligibleForCreateSizing(
+	rec *attunev1alpha1.WorkloadRecommendation,
+	history []attunev1alpha1.ResizeHistoryEntry,
+	workload string,
+) bool {
+	if rec == nil {
+		return false
+	}
+	if hasMinConfidence(rec.Containers, minConfidenceForInitialSizing) {
+		return true
+	}
+	return hasSuccessfulInPlaceHistory(history, workload)
+}
+
+func hasSuccessfulInPlaceHistory(history []attunev1alpha1.ResizeHistoryEntry, workload string) bool {
+	if workload == "" {
+		return false
+	}
+	for i := range history {
+		h := history[i]
+		if h.Workload == workload && h.Method == "InPlace" && h.Result == attunev1alpha1.ResizeResultSuccess {
+			return true
+		}
+	}
+	return false
 }
 
 // hasMinConfidence returns true if all containers meet the minimum confidence.
