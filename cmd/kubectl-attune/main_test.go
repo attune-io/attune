@@ -1484,6 +1484,13 @@ func TestRun_MainWiring(t *testing.T) {
 			wantStderr:   "status accepts no positional arguments",
 		},
 		{
+			name:         "doctor rejects leftover positional args",
+			args:         []string{"doctor", "extra"},
+			factory:      fakeDynamicClientFactory(t, policy),
+			wantExitCode: 1,
+			wantStderr:   "doctor accepts no positional arguments",
+		},
+		{
 			name:         "explain rejects trailing args after policy name",
 			args:         []string{"explain", "api-svc", "extra"},
 			factory:      fakeDynamicClientFactory(t, policy),
@@ -1546,6 +1553,7 @@ func TestIsZeroArgCommand(t *testing.T) {
 		{cmd: "savings", want: true},
 		{cmd: "recommendations", want: true},
 		{cmd: "history", want: true},
+		{cmd: "doctor", want: true},
 		{cmd: "explain", want: false},
 		{cmd: "version", want: false},
 	}
@@ -1589,6 +1597,12 @@ func TestZeroArgCommandArgs(t *testing.T) {
 			cmd:     "history",
 			args:    []string{"extra"},
 			wantErr: "history accepts no positional arguments",
+		},
+		{
+			name:    "doctor rejects positional arg",
+			cmd:     "doctor",
+			args:    []string{"extra"},
+			wantErr: "doctor accepts no positional arguments",
 		},
 	}
 

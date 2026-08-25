@@ -123,6 +123,7 @@ func run(args []string, buildClient dynamicClientFactory) int {
 		fmt.Fprintln(os.Stderr, "  history           Show resize history (including eviction fallbacks)")
 		fmt.Fprintln(os.Stderr, "  diff              Show resource change diffs from recommendations")
 		fmt.Fprintln(os.Stderr, "  wizard            Interactive policy creation and type promotion")
+		fmt.Fprintln(os.Stderr, "  doctor            Check cluster version, pods/resize, and Prometheus")
 		fmt.Fprintln(os.Stderr, "  version           Print plugin version")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Flags:")
@@ -184,7 +185,7 @@ func run(args []string, buildClient dynamicClientFactory) int {
 
 	isMultiCtx := *allContexts || *contexts != ""
 	if isMultiCtx {
-		if cmd == "explain" || cmd == "preview" || cmd == "wizard" || cmd == "export" {
+		if cmd == "explain" || cmd == "preview" || cmd == "wizard" || cmd == "export" || cmd == "doctor" {
 			fmt.Fprintf(os.Stderr, "Error: %s requires a single cluster context; remove --contexts/--all-contexts\n", cmd)
 			return 1
 		}
@@ -295,6 +296,13 @@ func run(args []string, buildClient dynamicClientFactory) int {
 		printDiff(ctx, dynClient, *namespace, *output)
 	case "wizard":
 		return runWizard(ctx, dynClient, *namespace, parsedArgs, newInteractivePrompter())
+	case "doctor":
+		disc, err := buildDoctorDiscovery(*kubeconfig, "")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return 1
+		}
+		return runDoctor(ctx, os.Stdout, os.Stderr, disc, dynClient, *namespace, pingPrometheusHealthy)
 	}
 	return 0
 }
@@ -326,7 +334,7 @@ func buildDynamicClient(kubeconfigPath, contextOverride string) (dynamic.Interfa
 
 func isKnownCommand(cmd string) bool {
 	switch cmd {
-	case "status", "savings", "recommendations", "explain", "history", "preview", "version", "wizard", "diff", "export":
+	case "status", "savings", "recommendations", "explain", "history", "preview", "version", "wizard", "diff", "export", "doctor":
 		return true
 	default:
 		return false
@@ -335,7 +343,7 @@ func isKnownCommand(cmd string) bool {
 
 func isZeroArgCommand(cmd string) bool {
 	switch cmd {
-	case "status", "savings", "recommendations", "history", "diff":
+	case "status", "savings", "recommendations", "history", "diff", "doctor":
 		return true
 	default:
 		return false
