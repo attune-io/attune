@@ -421,8 +421,8 @@ func TestRunDoctor_ExitCodes(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := runDoctor(context.Background(), &stdout, &stderr, resizeDiscovery("1", "32", true), dyn, "default", nil)
 	assert.Equal(t, 0, code)
-	assert.Contains(t, stdout.String(), "pods/resize")
-	assert.Contains(t, stdout.String(), "ok")
+	assert.Contains(t, stdout.String(), "pods/resize            ok   [required] discovered")
+	assert.Contains(t, stdout.String(), "Kubernetes version     ok   [required]")
 	assert.Empty(t, stderr.String())
 
 	stdout.Reset()
