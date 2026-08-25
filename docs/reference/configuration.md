@@ -561,7 +561,7 @@ on a policy or on `AttuneDefaults` / `AttuneNamespaceDefaults`.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `updateStrategy.initialSizing` | bool | `false` | When true and the initial sizing webhook is enabled, new pods matching this policy receive recommended resources at creation time via a mutating admission webhook. Requires the namespace label `attune.io/initial-sizing=enabled`. |
+| `updateStrategy.initialSizing` | bool | `false` | When true and the initial sizing webhook is enabled, new pods matching this policy (by `targetRef.name` or `targetRef.selector`) receive recommended resources at creation time via a mutating admission webhook. Requires the namespace label `attune.io/initial-sizing=enabled`. Canary still skips CREATE for an app until that app is promoted (or the pod is already in the canary slice). |
 
 ## Status Conditions
 

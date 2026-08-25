@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/retry"
@@ -411,6 +412,10 @@ func workloadKindName(w client.Object) string {
 		return "StatefulSet"
 	case *appsv1.DaemonSet:
 		return "DaemonSet"
+	case *batchv1.Job:
+		return "Job"
+	case *batchv1.CronJob:
+		return "CronJob"
 	default:
 		return w.GetObjectKind().GroupVersionKind().Kind
 	}

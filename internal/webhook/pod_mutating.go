@@ -23,8 +23,11 @@ import (
 	"net/http"
 
 	"github.com/go-logr/logr"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
@@ -91,7 +94,7 @@ func (h *PodMutatingHandler) Handle(ctx context.Context, req admission.Request) 
 	}
 
 	// Find a matching policy with initial sizing enabled.
-	policy, rec := h.findMatchingPolicy(policies.Items, ownerKind, ownerName, pod.Name)
+	policy, rec := h.findMatchingPolicy(ctx, req.Namespace, policies.Items, ownerKind, ownerName, pod.Name)
 	if policy == nil || rec == nil {
 		return admission.Allowed("no matching policy with initial sizing")
 	}
@@ -133,6 +136,8 @@ func (h *PodMutatingHandler) Handle(ctx context.Context, req admission.Request) 
 // findMatchingPolicy finds a policy that targets the given owner workload
 // and has initial sizing enabled with valid recommendations.
 func (h *PodMutatingHandler) findMatchingPolicy(
+	ctx context.Context,
+	namespace string,
 	policies []attunev1alpha1.AttunePolicy,
 	ownerKind, ownerName, podName string,
 ) (*attunev1alpha1.AttunePolicy, *attunev1alpha1.WorkloadRecommendation) {
@@ -158,17 +163,7 @@ func (h *PodMutatingHandler) findMatchingPolicy(
 			continue
 		}
 
-		// Check targetRef matches.
-		if policy.Spec.TargetRef.Kind != ownerKind {
-			continue
-		}
-		if policy.Spec.TargetRef.Name != nil && *policy.Spec.TargetRef.Name != ownerName {
-			continue
-		}
-		// Selector-based policies would need to fetch the workload object
-		// to check labels. Skip them for now; name-based matching covers
-		// the primary use case.
-		if policy.Spec.TargetRef.Name == nil && policy.Spec.TargetRef.Selector != nil {
+		if !h.targetRefMatches(ctx, namespace, policy, ownerKind, ownerName) {
 			continue
 		}
 
@@ -186,6 +181,56 @@ func (h *PodMutatingHandler) findMatchingPolicy(
 		}
 	}
 	return nil, nil
+}
+
+// targetRefMatches reports whether this policy's targetRef covers the
+// owning workload. Name is exact. A selector fetches the workload and
+// matches its labels (fail closed on Get or parse errors).
+func (h *PodMutatingHandler) targetRefMatches(
+	ctx context.Context,
+	namespace string,
+	policy *attunev1alpha1.AttunePolicy,
+	ownerKind, ownerName string,
+) bool {
+	if policy.Spec.TargetRef.Kind != ownerKind {
+		return false
+	}
+	if policy.Spec.TargetRef.Name != nil {
+		return *policy.Spec.TargetRef.Name == ownerName
+	}
+	if policy.Spec.TargetRef.Selector == nil {
+		return true
+	}
+	sel, err := metav1.LabelSelectorAsSelector(policy.Spec.TargetRef.Selector)
+	if err != nil || sel.Empty() {
+		return false
+	}
+	obj, err := getWorkloadObject(ctx, h.Client, namespace, ownerKind, ownerName)
+	if err != nil {
+		h.Logger.Error(err, "fetching workload for initial-sizing selector",
+			"kind", ownerKind, "name", ownerName, "namespace", namespace)
+		return false
+	}
+	return sel.Matches(labels.Set(obj.GetLabels()))
+}
+
+func getWorkloadObject(ctx context.Context, c client.Client, namespace, kind, name string) (client.Object, error) {
+	key := types.NamespacedName{Namespace: namespace, Name: name}
+	var obj client.Object
+	switch kind {
+	case "Deployment":
+		obj = &appsv1.Deployment{}
+	case "StatefulSet":
+		obj = &appsv1.StatefulSet{}
+	case "DaemonSet":
+		obj = &appsv1.DaemonSet{}
+	default:
+		return nil, fmt.Errorf("unsupported workload kind %q", kind)
+	}
+	if err := c.Get(ctx, key, obj); err != nil {
+		return nil, err
+	}
+	return obj, nil
 }
 
 // mutateContainer applies the recommendation to a single container.
