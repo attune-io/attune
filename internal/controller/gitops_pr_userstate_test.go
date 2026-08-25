@@ -163,6 +163,50 @@ func TestReconcileGitOpsPullRequest_AdoptThenRecsChangeOpens(t *testing.T) {
 	assert.Equal(t, 1, forge.createsBefore)
 }
 
+func TestReconcileGitOpsPullRequest_AdoptThenAnnotationWipeStillSkips(t *testing.T) {
+	t.Parallel()
+	start := time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC)
+	now := start
+	policy := gitOpsEnabledPolicy("authentik", "ns-adopt-wipe", false, map[string]string{
+		annotationGitOpsPRLastAttempt: start.Add(-25 * time.Hour).Format(time.RFC3339),
+		annotationGitOpsPRURL:         "https://github.com/org/repo/pull/41",
+	})
+	dep := gitOpsDriftDeployment("api", "ns-adopt-wipe", "1")
+	r, c, forge := gitOpsLiveReconciler(t, policy, dep)
+	r.SetNowFunc(func() time.Time { return now })
+
+	r.reconcileGitOpsPullRequest(context.Background(), policy, []client.Object{dep}, gitOpsCPURec("api", "100m"))
+	require.Equal(t, attunev1alpha1.ReasonGitOpsPRUnchanged, gitOpsPRReason(policy))
+	assert.Empty(t, forge.calls)
+	gitOpsReload(t, c, policy)
+	require.NotNil(t, policy.Status.GitOpsPR)
+	require.Equal(t, "https://github.com/org/repo/pull/41", policy.Status.GitOpsPR.URL,
+		"adopt must persist URL so a later annotation wipe is not treated as dry-run")
+
+	policy.Annotations = map[string]string{}
+	require.NoError(t, c.Update(context.Background(), policy))
+	now = start.Add(25 * time.Hour)
+	gitOpsReload(t, c, policy)
+	require.Empty(t, policy.Annotations[annotationGitOpsPRURL])
+	require.Equal(t, "https://github.com/org/repo/pull/41", policy.Status.GitOpsPR.URL)
+
+	r.reconcileGitOpsPullRequest(context.Background(), policy, []client.Object{dep}, gitOpsCPURec("api", "100m"))
+	assert.Equal(t, attunev1alpha1.ReasonGitOpsPRUnchanged, gitOpsPRReason(policy))
+	assert.Empty(t, forge.calls, "status URL after adopt must skip after annotation wipe")
+}
+
+func TestReconcileGitOpsPullRequest_InvalidAPIURLDoesNotOpen(t *testing.T) {
+	t.Parallel()
+	policy := gitOpsEnabledPolicy("p", "ns-ssrf", false, nil)
+	policy.Spec.UpdateStrategy.Export.PullRequest.APIURL = "http://127.0.0.1:1"
+	dep := gitOpsDriftDeployment("api", "ns-ssrf", "1")
+	r, _, forge := gitOpsLiveReconciler(t, policy, dep)
+	r.SetNowFunc(func() time.Time { return time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC) })
+	r.reconcileGitOpsPullRequest(context.Background(), policy, []client.Object{dep}, gitOpsCPURec("api", "100m"))
+	assert.Equal(t, attunev1alpha1.ReasonGitOpsPRFailed, gitOpsPRReason(policy))
+	assert.Empty(t, forge.calls)
+}
+
 func TestReconcileGitOpsPullRequest_OpenPRRecsChangeDuringCooldown(t *testing.T) {
 	t.Parallel()
 	start := time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC)

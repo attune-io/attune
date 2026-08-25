@@ -1145,6 +1145,12 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *attu
 		prEffective = fmt.Sprintf("%s %s (%s)", provider, repo, mode)
 	}
 	printEffectiveField("GitOps PR", prConfigured, prEffective, selected, false)
+	if url := getNestedString(item, "status", "gitopsPR", "url"); url != "" {
+		printEffectiveField("GitOps PR URL", "", url, selected, false)
+	}
+	if fp := getNestedString(item, "status", "gitopsPR", "driftFingerprint"); fp != "" {
+		printEffectiveField("GitOps PR fingerprint", "", fp, selected, false)
+	}
 
 	// Schedule window display
 	if sched := effective.Spec.UpdateStrategy.Schedule; sched != nil {

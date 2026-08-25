@@ -28,6 +28,7 @@ import (
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 	"github.com/attune-io/attune/internal/gitops"
 	"github.com/attune-io/attune/internal/operatormetrics"
+	"github.com/attune-io/attune/internal/validation"
 )
 
 const (
@@ -91,6 +92,7 @@ func (r *AttunePolicyReconciler) reconcileGitOpsPullRequest(
 			if adopted {
 				logger.V(1).Info("GitOps PR skipped: adopting drift fingerprint from last PR")
 				setGitOpsPRDriftAnnotation(policy, fp)
+				gitOpsAdoptAnnotationState(policy)
 				r.persistGitOpsPRAnnotations(ctx, policy)
 			} else {
 				logger.V(1).Info("GitOps PR skipped: drift table unchanged since last PR",
@@ -128,6 +130,16 @@ func (r *AttunePolicyReconciler) reconcileGitOpsPullRequest(
 	title := fmt.Sprintf("chore(attune): apply recommendations for %s/%s", policy.Namespace, policy.Name)
 	body := gitops.FormatPRBody(policy.Namespace, policy.Name, drifts)
 	head := gitops.BranchName(policy.Namespace, policy.Name)
+
+	if cfg.APIURL != "" {
+		if err := validation.PrometheusAddress(cfg.APIURL); err != nil {
+			logger.Error(err, "GitOps PR: apiUrl failed SSRF checks")
+			setGitOpsPRCondition(policy, metav1.ConditionFalse, attunev1alpha1.ReasonGitOpsPRFailed,
+				"apiUrl is not an allowed HTTP(S) host")
+			operatormetrics.GitOpsPRTotal.WithLabelValues(policy.Namespace, policy.Name, "failed").Inc()
+			return
+		}
+	}
 
 	if dryRun {
 		logger.Info("GitOps PR dry-run", "provider", provider, "repository", cfg.Repository,
@@ -298,6 +310,28 @@ func ensureGitOpsPRStatus(policy *attunev1alpha1.AttunePolicy) *attunev1alpha1.G
 		policy.Status.GitOpsPR = &attunev1alpha1.GitOpsPRStatus{}
 	}
 	return policy.Status.GitOpsPR
+}
+
+// gitOpsAdoptAnnotationState copies URL and last-attempt from annotations
+// into status so a later Flux/Argo annotation wipe cannot look like a
+// dry-run-only fingerprint (empty URL) and open another empty PR.
+func gitOpsAdoptAnnotationState(policy *attunev1alpha1.AttunePolicy) {
+	st := ensureGitOpsPRStatus(policy)
+	if st.URL == "" {
+		if policy.Annotations != nil {
+			st.URL = policy.Annotations[annotationGitOpsPRURL]
+		}
+	}
+	if st.LastAttempt == nil || st.LastAttempt.Time.IsZero() {
+		if policy.Annotations != nil {
+			if last := policy.Annotations[annotationGitOpsPRLastAttempt]; last != "" {
+				if t, err := time.Parse(time.RFC3339, last); err == nil {
+					mt := metav1.NewTime(t.UTC())
+					st.LastAttempt = &mt
+				}
+			}
+		}
+	}
 }
 
 func setGitOpsPRDriftAnnotation(policy *attunev1alpha1.AttunePolicy, fingerprint string) {
