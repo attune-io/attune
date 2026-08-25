@@ -43,6 +43,32 @@ func TestReconcileGitOpsPullRequest_DryRunThenLiveOpensPR(t *testing.T) {
 	assert.Equal(t, 1, forge.createsBefore)
 }
 
+func TestReconcileGitOpsPullRequest_LiveAfterDryRunWithLastAttemptStillCools(t *testing.T) {
+	t.Parallel()
+	start := time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC)
+	dep := gitOpsDriftDeployment("api", "ns-stale-dry", "1")
+	recs := gitOpsCPURec("api", "100m")
+	policy := gitOpsEnabledPolicy("p", "ns-stale-dry", true, nil)
+	r, c, forge := gitOpsLiveReconciler(t, policy, dep)
+	r.SetNowFunc(func() time.Time { return start })
+	r.reconcileGitOpsPullRequest(context.Background(), policy, []client.Object{dep}, recs)
+	require.Equal(t, attunev1alpha1.ReasonGitOpsPRDryRun, gitOpsPRReason(policy))
+	fp := policy.Annotations[annotationGitOpsPRDrift]
+	require.NotEmpty(t, fp)
+
+	// 0.1.24 dry-run wrote last-attempt. Live must still honor cooldown
+	// so a failed API retry window is not skipped.
+	gitOpsReload(t, c, policy)
+	*policy.Spec.UpdateStrategy.Export.PullRequest.DryRun = false
+	if policy.Annotations == nil {
+		policy.Annotations = map[string]string{}
+	}
+	policy.Annotations[annotationGitOpsPRLastAttempt] = start.Add(-time.Hour).Format(time.RFC3339)
+	r.reconcileGitOpsPullRequest(context.Background(), policy, []client.Object{dep}, recs)
+	assert.Equal(t, attunev1alpha1.ReasonGitOpsPRCooldown, gitOpsPRReason(policy))
+	assert.Empty(t, forge.calls)
+}
+
 func TestReconcileGitOpsPullRequest_PersistRetriesFirstPatchFail(t *testing.T) {
 	t.Parallel()
 	scheme := runtime.NewScheme()
