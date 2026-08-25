@@ -90,6 +90,12 @@ func TestGitOpsRestoreAnnotationsFromStatus(t *testing.T) {
 
 	empty := &attunev1alpha1.AttunePolicy{}
 	assert.False(t, gitOpsRestoreAnnotationsFromStatus(empty))
+
+	assert.Equal(t, "status", gitOpsDriftStoreSource(policy))
+	assert.Equal(t, "annotation", gitOpsDriftStoreSource(&attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{annotationGitOpsPRDrift: "ann"}},
+	}))
+	assert.Equal(t, "none", gitOpsDriftStoreSource(empty))
 }
 
 func TestGitopsPREnabled(t *testing.T) {

@@ -93,7 +93,8 @@ func (r *AttunePolicyReconciler) reconcileGitOpsPullRequest(
 				setGitOpsPRDriftAnnotation(policy, fp)
 				r.persistGitOpsPRAnnotations(ctx, policy)
 			} else {
-				logger.V(1).Info("GitOps PR skipped: drift table unchanged since last PR")
+				logger.V(1).Info("GitOps PR skipped: drift table unchanged since last PR",
+					"fingerprintSource", gitOpsDriftStoreSource(policy))
 				if gitOpsRestoreAnnotationsFromStatus(policy) {
 					r.persistGitOpsPRAnnotations(ctx, policy)
 				}
@@ -261,6 +262,16 @@ func gitOpsPRUnchangedSkip(policy *attunev1alpha1.AttunePolicy, fp string) (skip
 		return true, true
 	}
 	return false, false
+}
+
+func gitOpsDriftStoreSource(policy *attunev1alpha1.AttunePolicy) string {
+	if policy.Status.GitOpsPR != nil && policy.Status.GitOpsPR.DriftFingerprint != "" {
+		return "status"
+	}
+	if policy.Annotations[annotationGitOpsPRDrift] != "" {
+		return "annotation"
+	}
+	return "none"
 }
 
 func gitOpsStoredDrift(policy *attunev1alpha1.AttunePolicy) string {
