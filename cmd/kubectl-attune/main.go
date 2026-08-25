@@ -620,7 +620,8 @@ func printSavingsCSV(items []unstructured.Unstructured, sortByFlag string) {
 	if showCluster {
 		header = append([]string{"cluster"}, header...)
 	}
-	rows := [][]string{header}
+	rows := make([][]string, 0, 1+len(items))
+	rows = append(rows, header)
 	for _, item := range items {
 		cpuSaved := getNestedString(item, "status", "savings", "cpuRequestReduction")
 		cpuTotal := getNestedString(item, "status", "savings", "cpuRequestTotal")
@@ -790,7 +791,8 @@ func printRecommendationsCSV(items []unstructured.Unstructured) {
 	if showCluster {
 		header = append([]string{"cluster"}, header...)
 	}
-	rows := [][]string{header}
+	rows := make([][]string, 0, 1+len(items))
+	rows = append(rows, header)
 	for _, item := range items {
 		recs, found, _ := unstructured.NestedSlice(item.Object, "status", "recommendations")
 		if !found || len(recs) == 0 {
