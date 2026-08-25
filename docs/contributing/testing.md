@@ -159,7 +159,7 @@ make test-e2e-smoke
 | `test/e2e/startup-boost/` | (cross-cutting) | CPU startup boost is applied to new pods |
 | `test/e2e/configmap-export/` | (cross-cutting) | Recommendations are exported to a ConfigMap (`schema-version` + export-schema label) |
 | `test/e2e/fleet-report/` | (infra) | Fleet report ConfigMap is written when `fleetReport` is enabled in E2E Helm |
-| `test/e2e/gitops-pr-dry-run/` | (cross-cutting) | GitOps PR dry-run sets `PullRequestDryRun`/`PullRequestUnchanged`/`PullRequestCooldown` without forge credentials |
+| `test/e2e/gitops-pr-dry-run/` | (cross-cutting) | GitOps PR dry-run sets `PullRequestDryRun` or `PullRequestUnchanged` without forge credentials |
 
 GitOps PR unit tests must cover the **second cycle** after merge, not only
 the first open. `TestReconcileGitOpsPullRequest_LivePathDoesNotRecreateAfterMerge`

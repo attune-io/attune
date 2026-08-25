@@ -127,28 +127,26 @@ spec:
                   -o jsonpath='{range .status.conditions[?(@.type=="GitOpsPullRequest")]}{.message}{end}' 2>/dev/null || true)
                 status=$(kubectl -n "$NS" get attunepolicy "$POL" \
                   -o jsonpath='{range .status.conditions[?(@.type=="GitOpsPullRequest")]}{.status}{end}' 2>/dev/null || true)
-                ann=$(kubectl -n "$NS" get attunepolicy "$POL" \
-                  -o jsonpath='{.metadata.annotations.attune\.io/gitops-pr-last-attempt}' 2>/dev/null || true)
+                drift=$(kubectl -n "$NS" get attunepolicy "$POL" \
+                  -o jsonpath='{.metadata.annotations.attune\.io/gitops-pr-drift}' 2>/dev/null || true)
                 recs=$(kubectl -n "$NS" get attunepolicy "$POL" \
                   -o jsonpath='{.status.recommendations[*].workload}' 2>/dev/null || true)
-                # Dry-run sets PullRequestDryRun + last-attempt annotation. The next
-                # reconcile is PullRequestUnchanged (same drift table) or
-                # PullRequestCooldown. All prove the path ran without forge HTTP.
-                if [ -n "$ann" ]; then
-                  if [ "$reason" = "PullRequestDryRun" ] || [ "$reason" = "PullRequestCooldown" ] || [ "$reason" = "PullRequestUnchanged" ]; then
-                    echo "OK: GitOpsPullRequest reason=$reason status=$status (post dry-run)"
-                    echo "message=$msg"
-                    echo "annotation last-attempt=$ann"
-                    case "$msg" in
-                      *dry-run-not-used*|*Bearer*|*ghp_*)
-                        echo "FAIL: token material leaked into condition message"
-                        exit 1
-                        ;;
-                    esac
-                    exit 0
-                  fi
+                # Dry-run sets PullRequestDryRun and persists gitops-pr-drift
+                # only (no last-attempt, so the first live PR is not blocked).
+                # The next reconcile is PullRequestUnchanged (same table).
+                if [ "$reason" = "PullRequestDryRun" ] || [ "$reason" = "PullRequestUnchanged" ]; then
+                  echo "OK: GitOpsPullRequest reason=$reason status=$status (post dry-run)"
+                  echo "message=$msg"
+                  echo "annotation drift=$drift"
+                  case "$msg" in
+                    *dry-run-not-used*|*Bearer*|*ghp_*)
+                      echo "FAIL: token material leaked into condition message"
+                      exit 1
+                      ;;
+                  esac
+                  exit 0
                 fi
-                echo "waiting i=$i reason='$reason' status='$status' ann='$ann' recs='$recs'"
+                echo "waiting i=$i reason='$reason' status='$status' drift='$drift' recs='$recs'"
                 sleep 5
               done
               echo "FAIL: PullRequestDryRun not observed"

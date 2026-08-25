@@ -1017,7 +1017,9 @@ branch) leaves the live template unchanged, so drift stays true.
 4. On Attune versions that include the unchanged-drift skip, the
    condition is `PullRequestUnchanged` instead of another empty PR.
    A dry-run of the same table does not block the first live PR (no
-   `gitops-pr-url` yet).
+   `gitops-pr-url` yet). If a 0.1.24 dry-run already wrote
+   `attune.io/gitops-pr-last-attempt`, delete that annotation or wait
+   out `cooldown` before the first live open.
 5. v0.1.24 wrote `attune.io/gitops-pr-drift` only after opening a PR.
    Upgrading from 0.1.22/0.1.23 therefore still opened one more empty
    PR when `cooldown` expired (last-attempt and URL were present, the
