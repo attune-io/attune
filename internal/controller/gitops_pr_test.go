@@ -539,6 +539,7 @@ func TestReconcileGitOpsPullRequest_UnchangedDriftSkipsAfterCooldown(t *testing.
 
 	// Cooldown expired; same recommendation vs same template must not open again.
 	now = start.Add(25 * time.Hour)
+	gitOpsReload(t, c, policy)
 	r.reconcileGitOpsPullRequest(context.Background(), policy, []client.Object{dep}, recs)
 	assert.Equal(t, attunev1alpha1.ReasonGitOpsPRUnchanged, gitOpsPRReason(policy))
 	assert.Equal(t, firstFP, policy.Annotations[annotationGitOpsPRDrift])
@@ -626,8 +627,10 @@ func TestReconcileGitOpsPullRequest_LivePathDoesNotRecreateAfterMerge(t *testing
 	require.Equal(t, 0, fakeForge.createsAfter)
 
 	// User merged the empty PR; GitHub deleted the head branch.
+	// Next reconcile loads the policy from the API, not this pointer.
 	fakeForge.SimulateMerge()
 	now = start.Add(25 * time.Hour)
+	gitOpsReload(t, c, policy)
 	r.reconcileGitOpsPullRequest(context.Background(), policy, []client.Object{dep}, recs)
 	assert.Equal(t, attunev1alpha1.ReasonGitOpsPRUnchanged, gitOpsPRReason(policy))
 	assert.Equal(t, 0, fakeForge.createsAfter, "same drift after merge must not CreateOrUpdate")
@@ -808,6 +811,50 @@ func TestReconcileGitOpsPullRequest_FailedAttemptWithoutURLStillRetries(t *testi
 	assert.Equal(t, 1, fakeForge.createsBefore, "failed prior attempt with no URL must retry")
 }
 
+func gitOpsEnabledPolicy(name, ns string, dry bool, anns map[string]string) *attunev1alpha1.AttunePolicy {
+	en := true
+	d := dry
+	return &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, Annotations: anns},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Export: &attunev1alpha1.ExportConfig{
+					PullRequest: &attunev1alpha1.GitOpsPullRequestConfig{
+						Enabled:    &en,
+						DryRun:     &d,
+						Repository: "org/repo",
+						TokenSecretRef: &attunev1alpha1.SecretKeyRef{
+							Name: "tok", Key: "token",
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func gitOpsReload(t *testing.T, c client.Client, policy *attunev1alpha1.AttunePolicy) {
+	t.Helper()
+	fresh := &attunev1alpha1.AttunePolicy{}
+	require.NoError(t, c.Get(context.Background(), client.ObjectKeyFromObject(policy), fresh))
+	*policy = *fresh
+}
+
+func gitOpsLiveReconciler(t *testing.T, policy *attunev1alpha1.AttunePolicy, objs ...client.Object) (*AttunePolicyReconciler, client.Client, *recordingPRClient) {
+	t.Helper()
+	scheme := runtime.NewScheme()
+	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+	all := append([]client.Object{policy}, objs...)
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(all...).Build()
+	forge := &recordingPRClient{}
+	r := NewAttunePolicyReconciler()
+	r.Client = c
+	r.gitopsPRClient = forge
+	return r, c, forge
+}
+
 func gitOpsDriftDeployment(name, ns, cpu string) *appsv1.Deployment {
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
@@ -829,15 +876,49 @@ func gitOpsDriftDeployment(name, ns, cpu string) *appsv1.Deployment {
 }
 
 func gitOpsCPURec(workload, cpu string) []attunev1alpha1.WorkloadRecommendation {
-	return []attunev1alpha1.WorkloadRecommendation{{
+	return []attunev1alpha1.WorkloadRecommendation{gitOpsCPUWorkloadRec(workload, cpu)}
+}
+
+func gitOpsCPUWorkloadRec(workload, cpu string) attunev1alpha1.WorkloadRecommendation {
+	return gitOpsWorkloadRec(workload, cpu, "")
+}
+
+func gitOpsWorkloadRec(workload, cpu, mem string) attunev1alpha1.WorkloadRecommendation {
+	rec := attunev1alpha1.ResourceValues{}
+	if cpu != "" {
+		rec.CPURequest = resource.MustParse(cpu)
+	}
+	if mem != "" {
+		rec.MemoryRequest = resource.MustParse(mem)
+	}
+	return attunev1alpha1.WorkloadRecommendation{
 		Workload: workload, Kind: "Deployment",
 		Containers: []attunev1alpha1.ContainerRecommendation{{
-			Name: "app",
-			Recommended: attunev1alpha1.ResourceValues{
-				CPURequest: resource.MustParse(cpu),
-			},
+			Name: "app", Recommended: rec,
 		}},
-	}}
+	}
+}
+
+func gitOpsDeploymentResources(name, ns, cpu, mem string) *appsv1.Deployment {
+	req := corev1.ResourceList{
+		corev1.ResourceCPU: resource.MustParse(cpu),
+	}
+	if mem != "" {
+		req[corev1.ResourceMemory] = resource.MustParse(mem)
+	}
+	return &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:      "app",
+						Resources: corev1.ResourceRequirements{Requests: req},
+					}},
+				},
+			},
+		},
+	}
 }
 
 func TestReconcileGitOpsPullRequest_IncompleteConfig(t *testing.T) {

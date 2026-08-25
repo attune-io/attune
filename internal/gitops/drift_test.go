@@ -58,6 +58,44 @@ func TestComputeDrift_AboveThreshold(t *testing.T) {
 	assert.NotContains(t, body, "token")
 }
 
+func TestComputeDrift_LimitsOnlyMismatchIsNotDrift(t *testing.T) {
+	t.Parallel()
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "api"},
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name: "app",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("1Gi"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("2"),
+								corev1.ResourceMemory: resource.MustParse("4Gi"),
+							},
+						},
+					}},
+				},
+			},
+		},
+	}
+	recs := []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "api", Kind: "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "app",
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest:    resource.MustParse("500m"),
+				MemoryRequest: resource.MustParse("1Gi"),
+			},
+		}},
+	}}
+	assert.Empty(t, ComputeDrift([]client.Object{dep}, recs, 10),
+		"GitOps drift compares requests only; limits-only mismatch is not a PR")
+}
+
 func TestComputeDrift_BelowThreshold(t *testing.T) {
 	t.Parallel()
 	dep := &appsv1.Deployment{
