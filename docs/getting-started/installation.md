@@ -205,6 +205,9 @@ kubectl krew install attune
 
 # Or build from source
 make build-plugin && sudo cp bin/kubectl-attune /usr/local/bin/
+
+# Confirm the cluster can run in-place resize
+kubectl attune doctor
 ```
 
 See the [CLI Reference](../reference/cli.md) for available commands.

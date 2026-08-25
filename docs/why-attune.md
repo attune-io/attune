@@ -362,7 +362,7 @@ available. They are not in the table above.
 | **License** | ISC | BUSL-1.1 | Commercial | Apache-2.0 |
 | **In-place `/resize`** | Yes (1.33+; eviction fallback) | Yes (requires 1.33+) | Yes (seconds-scale band) | Yes (1.32+) |
 | **Canary + auto-revert** | No | No | No (utilization band, not a recommender) | Yes |
-| **What they add** | KEDA + Argo Rollouts, dashboard simulator | Install preflight, product dashboard | Fast spike reaction from kubelet stats | Safety loop, `kubectl attune explain`, GitOps export |
+| **What they add** | KEDA + Argo Rollouts, dashboard simulator | Install preflight, product dashboard | Fast spike reaction from kubelet stats | Safety loop, `kubectl attune doctor`, `explain`, GitOps export |
 
 k8s-sustain is the closest open-source operator. CruiseKube is
 source-available with a production-use BUSL. Kedify PRA is a

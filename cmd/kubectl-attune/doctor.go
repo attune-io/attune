@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -28,6 +29,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	k8sversion "k8s.io/apimachinery/pkg/version"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
@@ -54,7 +56,6 @@ type doctorDiscovery interface {
 type prometheusPinger func(ctx context.Context, address string) error
 
 // buildDoctorDiscovery loads a typed clientset Discovery from kubeconfig.
-// Tests replace this to inject a fake discovery client.
 var buildDoctorDiscovery = defaultBuildDoctorDiscovery
 
 func defaultBuildDoctorDiscovery(kubeconfigPath, contextOverride string) (doctorDiscovery, error) {
@@ -121,7 +122,6 @@ func classifyKubernetesVersion(info *k8sversion.Info) error {
 	return fmt.Errorf("cluster version %d.%d is below Attune's minimum 1.32 (in-place pod resize)", major, minor)
 }
 
-// hasPodsResizeSubresource reports whether discovery lists pods/resize.
 func hasPodsResizeSubresource(lists []*metav1.APIResourceList) bool {
 	for _, list := range lists {
 		if list == nil {
@@ -154,6 +154,18 @@ func collectPrometheusAddresses(objects ...unstructured.Unstructured) []string {
 		out = append(out, addr)
 	}
 	return out
+}
+
+// clusterLocalPrometheusHost is true for Service DNS names that resolve
+// only inside the cluster. Doctor runs on the kubectl host, so those
+// addresses cannot be pinged the way the operator would.
+func clusterLocalPrometheusHost(address string) bool {
+	u, err := url.Parse(address)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	return strings.HasSuffix(host, ".svc") || strings.HasSuffix(host, ".cluster.local")
 }
 
 func pingPrometheusHealthy(ctx context.Context, address string) error {
@@ -193,30 +205,30 @@ func pingPrometheusHealthy(ctx context.Context, address string) error {
 	return nil
 }
 
+func appendListedResources(ctx context.Context, dynClient dynamic.Interface, resource schema.GroupVersionResource, namespace, kind string, out []unstructured.Unstructured, errs []error) ([]unstructured.Unstructured, []error) {
+	var list *unstructured.UnstructuredList
+	var err error
+	if namespace == "" {
+		list, err = dynClient.Resource(resource).List(ctx, metav1.ListOptions{})
+	} else {
+		list, err = dynClient.Resource(resource).Namespace(namespace).List(ctx, metav1.ListOptions{})
+	}
+	if err != nil && !apierrors.IsNotFound(err) && !isNoResourceMatch(err) {
+		return out, append(errs, fmt.Errorf("list %s: %w", kind, err))
+	}
+	if list != nil {
+		out = append(out, list.Items...)
+	}
+	return out, errs
+}
+
 func listDoctorObjects(ctx context.Context, dynClient dynamic.Interface, namespace string) ([]unstructured.Unstructured, error) {
 	var out []unstructured.Unstructured
-	policies, err := dynClient.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{})
-	if err != nil && !apierrors.IsNotFound(err) && !isNoResourceMatch(err) {
-		return nil, fmt.Errorf("list AttunePolicies: %w", err)
-	}
-	if policies != nil {
-		out = append(out, policies.Items...)
-	}
-	defaults, err := dynClient.Resource(defaultsGVR).List(ctx, metav1.ListOptions{})
-	if err != nil && !apierrors.IsNotFound(err) && !isNoResourceMatch(err) {
-		return nil, fmt.Errorf("list AttuneDefaults: %w", err)
-	}
-	if defaults != nil {
-		out = append(out, defaults.Items...)
-	}
-	nsDefaults, err := dynClient.Resource(namespaceDefaultsGVR).Namespace(namespace).List(ctx, metav1.ListOptions{})
-	if err != nil && !apierrors.IsNotFound(err) && !isNoResourceMatch(err) {
-		return nil, fmt.Errorf("list AttuneNamespaceDefaults: %w", err)
-	}
-	if nsDefaults != nil {
-		out = append(out, nsDefaults.Items...)
-	}
-	return out, nil
+	var errs []error
+	out, errs = appendListedResources(ctx, dynClient, gvr, namespace, "AttunePolicies", out, errs)
+	out, errs = appendListedResources(ctx, dynClient, defaultsGVR, "", "AttuneDefaults", out, errs)
+	out, errs = appendListedResources(ctx, dynClient, namespaceDefaultsGVR, namespace, "AttuneNamespaceDefaults", out, errs)
+	return out, errors.Join(errs...)
 }
 
 type doctorResult struct {
@@ -226,7 +238,7 @@ type doctorResult struct {
 	detail   string
 }
 
-func runDoctorChecks(ctx context.Context, disc doctorDiscovery, objects []unstructured.Unstructured, ping prometheusPinger) []doctorResult {
+func runDoctorChecks(ctx context.Context, disc doctorDiscovery, objects []unstructured.Unstructured, listErr error, ping prometheusPinger) []doctorResult {
 	if ping == nil {
 		ping = pingPrometheusHealthy
 	}
@@ -272,21 +284,33 @@ func runDoctorChecks(ctx context.Context, disc doctorDiscovery, objects []unstru
 
 	addrs := collectPrometheusAddresses(objects...)
 	if len(addrs) == 0 {
+		detail := "skipped (no address on policies or defaults)"
+		if listErr != nil {
+			detail = "skipped (could not list policies or defaults)"
+		}
 		results = append(results, doctorResult{
 			name: "Prometheus", required: false, ok: true,
-			detail: "skipped (no address on policies or defaults)",
+			detail: detail,
 		})
 		return results
 	}
 	var failed []string
+	var reachable []string
+	var skippedLocal []string
 	for _, addr := range addrs {
 		if err := validation.PrometheusAddress(addr); err != nil {
 			failed = append(failed, addr+": "+err.Error())
 			continue
 		}
+		if clusterLocalPrometheusHost(addr) {
+			skippedLocal = append(skippedLocal, addr)
+			continue
+		}
 		if err := ping(ctx, addr); err != nil {
 			failed = append(failed, addr+": "+err.Error())
+			continue
 		}
+		reachable = append(reachable, addr)
 	}
 	if len(failed) > 0 {
 		results = append(results, doctorResult{
@@ -294,9 +318,15 @@ func runDoctorChecks(ctx context.Context, disc doctorDiscovery, objects []unstru
 		})
 		return results
 	}
+	detail := strings.Join(reachable, ", ") + " " + prometheusHealthyPath
+	if len(reachable) == 0 && len(skippedLocal) > 0 {
+		detail = "skipped (in-cluster address; ping is from this host, not the operator pod)"
+	} else if len(skippedLocal) > 0 {
+		detail += "; skipped in-cluster " + strings.Join(skippedLocal, ", ")
+	}
 	results = append(results, doctorResult{
 		name: "Prometheus", required: false, ok: true,
-		detail: strings.Join(addrs, ", ") + " " + prometheusHealthyPath,
+		detail: detail,
 	})
 	return results
 }
@@ -315,6 +345,8 @@ func printDoctorResults(w io.Writer, results []doctorResult) {
 		status := "FAIL"
 		if r.ok {
 			status = "ok"
+		} else if !r.required {
+			status = "WARN"
 		}
 		kind := "required"
 		if !r.required {
@@ -329,7 +361,7 @@ func runDoctor(ctx context.Context, stdout, stderr io.Writer, disc doctorDiscove
 	if err != nil {
 		fmt.Fprintf(stderr, "Warning: %v\n", err)
 	}
-	results := runDoctorChecks(ctx, disc, objects, ping)
+	results := runDoctorChecks(ctx, disc, objects, err, ping)
 	printDoctorResults(stdout, results)
 	if doctorFailed(results) {
 		fmt.Fprintln(stderr, "doctor: one or more checks failed")

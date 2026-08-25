@@ -176,6 +176,10 @@ namespace. This is usually a typo in the workload name or an incorrect
 
 **Symptom**: Ready condition is `False` with reason `InsufficientData`.
 
+**Check first**: `kubectl attune doctor` confirms Kubernetes 1.32+ and
+`pods/resize`. A failed Prometheus ping is optional (printed as `WARN`)
+and does not prove the operator cannot reach an in-cluster address.
+
 **Cause**: Not enough Prometheus data points to generate recommendations.
 The default minimum is 48 Prometheus range-query samples. With the default
 `queryStep: 5m`, that is about 4 hours of data.
@@ -357,6 +361,9 @@ attempting a resize.
 disabled by default. The `/resize` subresource is only available when the
 `InPlacePodVerticalScaling` feature gate is enabled on all control plane
 components and kubelets.
+
+**Check first**: `kubectl attune doctor` reports whether the cluster is
+1.32+ and whether discovery lists `pods/resize`.
 
 **Fix**: Enable the feature gate on all components. For managed clusters,
 check your provider's documentation. For self-managed clusters:

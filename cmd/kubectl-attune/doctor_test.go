@@ -129,7 +129,7 @@ func TestRunDoctorChecks_VersionAndDiscovery(t *testing.T) {
 
 	t.Run("pass 1.32 with resize", func(t *testing.T) {
 		t.Parallel()
-		results := runDoctorChecks(ctx, resizeDiscovery("1", "32", true), nil, nil)
+		results := runDoctorChecks(ctx, resizeDiscovery("1", "32", true), nil, nil, nil)
 		require.Len(t, results, 3)
 		assert.True(t, results[0].ok, results[0].detail)
 		assert.True(t, results[1].ok, results[1].detail)
@@ -140,7 +140,7 @@ func TestRunDoctorChecks_VersionAndDiscovery(t *testing.T) {
 
 	t.Run("fail 1.31", func(t *testing.T) {
 		t.Parallel()
-		results := runDoctorChecks(ctx, resizeDiscovery("1", "31", true), nil, nil)
+		results := runDoctorChecks(ctx, resizeDiscovery("1", "31", true), nil, nil, nil)
 		require.False(t, results[0].ok)
 		assert.Contains(t, results[0].detail, "1.32")
 		assert.True(t, doctorFailed(results))
@@ -148,7 +148,7 @@ func TestRunDoctorChecks_VersionAndDiscovery(t *testing.T) {
 
 	t.Run("fail missing resize", func(t *testing.T) {
 		t.Parallel()
-		results := runDoctorChecks(ctx, resizeDiscovery("1", "32", false), nil, nil)
+		results := runDoctorChecks(ctx, resizeDiscovery("1", "32", false), nil, nil, nil)
 		require.False(t, results[1].ok)
 		assert.Contains(t, results[1].detail, "InPlacePodVerticalScaling")
 		assert.True(t, doctorFailed(results))
@@ -162,29 +162,57 @@ func TestRunDoctorChecks_PrometheusOptional(t *testing.T) {
 	obj := unstructured.Unstructured{Object: map[string]interface{}{
 		"spec": map[string]interface{}{
 			"metricsSource": map[string]interface{}{
-				"prometheus": map[string]interface{}{"address": "http://prom.monitoring.svc:9090"},
+				"prometheus": map[string]interface{}{"address": "http://prometheus.example:9090"},
 			},
 		},
 	}}
 
 	t.Run("reachable", func(t *testing.T) {
 		t.Parallel()
-		results := runDoctorChecks(ctx, disc, []unstructured.Unstructured{obj}, func(context.Context, string) error {
+		results := runDoctorChecks(ctx, disc, []unstructured.Unstructured{obj}, nil, func(context.Context, string) error {
 			return nil
 		})
 		require.True(t, results[2].ok, results[2].detail)
-		assert.Contains(t, results[2].detail, "http://prom.monitoring.svc:9090")
+		assert.Contains(t, results[2].detail, "http://prometheus.example:9090")
 		assert.False(t, doctorFailed(results))
 	})
 
 	t.Run("unreachable does not fail required exit", func(t *testing.T) {
 		t.Parallel()
-		results := runDoctorChecks(ctx, disc, []unstructured.Unstructured{obj}, func(context.Context, string) error {
+		results := runDoctorChecks(ctx, disc, []unstructured.Unstructured{obj}, nil, func(context.Context, string) error {
 			return fmt.Errorf("connection refused")
 		})
 		require.False(t, results[2].ok)
 		assert.Contains(t, results[2].detail, "connection refused")
 		assert.False(t, doctorFailed(results), "Prometheus is optional")
+	})
+
+	t.Run("in-cluster address is not pinged from kubectl host", func(t *testing.T) {
+		t.Parallel()
+		local := unstructured.Unstructured{Object: map[string]interface{}{
+			"spec": map[string]interface{}{
+				"metricsSource": map[string]interface{}{
+					"prometheus": map[string]interface{}{"address": "http://prom.monitoring.svc:9090"},
+				},
+			},
+		}}
+		pinged := false
+		results := runDoctorChecks(ctx, disc, []unstructured.Unstructured{local}, nil, func(context.Context, string) error {
+			pinged = true
+			return fmt.Errorf("should not ping")
+		})
+		assert.False(t, pinged)
+		require.True(t, results[2].ok, results[2].detail)
+		assert.Contains(t, results[2].detail, "in-cluster")
+		assert.False(t, doctorFailed(results))
+	})
+
+	t.Run("list error without address is not claimed as no address", func(t *testing.T) {
+		t.Parallel()
+		results := runDoctorChecks(ctx, disc, nil, fmt.Errorf("list AttuneDefaults: forbidden"), nil)
+		require.True(t, results[2].ok)
+		assert.Contains(t, results[2].detail, "could not list")
+		assert.NotContains(t, results[2].detail, "no address")
 	})
 
 	t.Run("ssrf rejected without ping", func(t *testing.T) {
@@ -197,7 +225,7 @@ func TestRunDoctorChecks_PrometheusOptional(t *testing.T) {
 			},
 		}}
 		pinged := false
-		results := runDoctorChecks(ctx, disc, []unstructured.Unstructured{bad}, func(context.Context, string) error {
+		results := runDoctorChecks(ctx, disc, []unstructured.Unstructured{bad}, nil, func(context.Context, string) error {
 			pinged = true
 			return nil
 		})
@@ -205,6 +233,57 @@ func TestRunDoctorChecks_PrometheusOptional(t *testing.T) {
 		assert.False(t, results[2].ok)
 		assert.Contains(t, results[2].detail, "loopback")
 	})
+}
+
+func TestPrintDoctorResults_OptionalWarn(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	printDoctorResults(&buf, []doctorResult{
+		{name: "Kubernetes version", required: true, ok: true, detail: "v1.32.0"},
+		{name: "Prometheus", required: false, detail: "connection refused"},
+	})
+	out := buf.String()
+	assert.Contains(t, out, "WARN")
+	assert.NotContains(t, out, "FAIL")
+}
+
+func TestClusterLocalPrometheusHost(t *testing.T) {
+	t.Parallel()
+	assert.True(t, clusterLocalPrometheusHost("http://prom.ns.svc:9090"))
+	assert.True(t, clusterLocalPrometheusHost("http://prom.ns.svc.cluster.local:9090"))
+	assert.False(t, clusterLocalPrometheusHost("http://prometheus.example:9090"))
+	assert.False(t, clusterLocalPrometheusHost("not a url"))
+}
+
+func TestListDoctorObjects_KeepsPartialOnError(t *testing.T) {
+	t.Parallel()
+	scheme := runtime.NewScheme()
+	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{
+			gvr:                  "AttunePolicyList",
+			defaultsGVR:          "AttuneDefaultsList",
+			namespaceDefaultsGVR: "AttuneNamespaceDefaultsList",
+		})
+	policy := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "attune.io/v1alpha1",
+		"kind":       "AttunePolicy",
+		"metadata":   map[string]interface{}{"name": "p", "namespace": "default"},
+		"spec": map[string]interface{}{
+			"metricsSource": map[string]interface{}{
+				"prometheus": map[string]interface{}{"address": "http://prometheus.example:9090"},
+			},
+		},
+	}}
+	_, err := dyn.Resource(gvr).Namespace("default").Create(context.Background(), policy, metav1.CreateOptions{})
+	require.NoError(t, err)
+	dyn.PrependReactor("list", "attunedefaults", func(clienttesting.Action) (bool, runtime.Object, error) {
+		return true, nil, fmt.Errorf("forbidden")
+	})
+	got, err := listDoctorObjects(context.Background(), dyn, "default")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "AttuneDefaults")
+	require.Len(t, got, 1)
+	assert.Equal(t, "p", got[0].GetName())
 }
 
 func TestRunDoctor_ExitCodes(t *testing.T) {

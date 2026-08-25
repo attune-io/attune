@@ -231,14 +231,17 @@ kubectl attune doctor -n production
 kubectl attune doctor -A
 ```
 
+Doctor is single-context. `--all-contexts` and `--contexts` are rejected.
+
 | Check | Required | Passes when |
 |-------|----------|-------------|
 | Kubernetes version | Yes | Server version is 1.32 or newer |
 | `pods/resize` | Yes | Discovery lists the `pods/resize` subresource |
-| Prometheus | No | Skipped when no address is set. When a policy, `AttuneDefaults`, or `AttuneNamespaceDefaults` has `metricsSource.prometheus.address`, doctor GETs `/-/healthy` (SSRF-checked first) |
+| Prometheus | No | Skipped when no address is set, when listing policies/defaults fails, or when the address is in-cluster DNS (`.svc` / `.cluster.local`). Other addresses are GET `/-/healthy` from this host (SSRF-checked first). Optional failures print `WARN`, not `FAIL`. |
 
 Exit 0 when every required check passes. A failed Prometheus check is
-printed but does not change the exit code.
+printed as `WARN` and does not change the exit code. The ping runs on
+the machine that invoked kubectl, not inside the operator pod.
 
 ### version
 
