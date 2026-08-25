@@ -174,7 +174,12 @@ spec:
                   -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}'); do
                   cpu=$(kubectl get pod "$pod" -n "$NS" \
                     -o jsonpath='{.spec.containers[0].resources.requests.cpu}')
-                  if [ "$cpu" = "500m" ]; then
+                  if [ -z "$cpu" ]; then
+                    echo "empty cpu request on $pod"
+                    continue
+                  fi
+                  # 500m and 0.5 are the same Quantity.
+                  if [ "$cpu" = "500m" ] || [ "$cpu" = "0.5" ]; then
                     unchanged=$((unchanged + 1))
                   else
                     changed=$((changed + 1))
