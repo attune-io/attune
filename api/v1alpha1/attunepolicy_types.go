@@ -814,6 +814,26 @@ type AttunePolicyStatus struct {
 	// this policy, even when no state changes occur.
 	// +optional
 	LastReconcileTime *metav1.Time `json:"lastReconcileTime,omitempty"`
+
+	// GitOpsPR records the last notification PR. Status survives a GitOps
+	// apply that replaces metadata.annotations on the policy.
+	// +optional
+	GitOpsPR *GitOpsPRStatus `json:"gitopsPR,omitempty"`
+}
+
+// GitOpsPRStatus is the last export.pullRequest notification.
+type GitOpsPRStatus struct {
+	// DriftFingerprint is a stable hash of the last notified drift table.
+	// +optional
+	DriftFingerprint string `json:"driftFingerprint,omitempty"`
+
+	// LastAttempt is when Attune last tried to open or update a PR.
+	// +optional
+	LastAttempt *metav1.Time `json:"lastAttempt,omitempty"`
+
+	// URL is the last successfully opened or updated pull request.
+	// +optional
+	URL string `json:"url,omitempty"`
 }
 
 // WorkloadError records an error encountered while processing a specific workload.

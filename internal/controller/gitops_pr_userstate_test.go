@@ -69,6 +69,36 @@ func TestReconcileGitOpsPullRequest_LiveAfterDryRunWithLastAttemptStillCools(t *
 	assert.Empty(t, forge.calls)
 }
 
+func TestReconcileGitOpsPullRequest_AnnotationWipeStatusStillSkips(t *testing.T) {
+	t.Parallel()
+	start := time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC)
+	now := start
+	policy := gitOpsEnabledPolicy("authentik", "ns-wipe", false, nil)
+	dep := gitOpsDriftDeployment("api", "ns-wipe", "1")
+	r, c, forge := gitOpsLiveReconciler(t, policy, dep)
+	r.SetNowFunc(func() time.Time { return now })
+	recs := gitOpsCPURec("api", "100m")
+
+	r.reconcileGitOpsPullRequest(context.Background(), policy, []client.Object{dep}, recs)
+	require.Equal(t, 1, forge.createsBefore)
+	require.NotNil(t, policy.Status.GitOpsPR)
+	require.NotEmpty(t, policy.Status.GitOpsPR.DriftFingerprint)
+
+	// Flux/Argo replaced metadata.annotations from git.
+	gitOpsReload(t, c, policy)
+	policy.Annotations = map[string]string{}
+	require.NoError(t, c.Update(context.Background(), policy))
+	now = start.Add(25 * time.Hour)
+	gitOpsReload(t, c, policy)
+	require.Empty(t, policy.Annotations[annotationGitOpsPRDrift])
+	require.NotNil(t, policy.Status.GitOpsPR)
+	require.NotEmpty(t, policy.Status.GitOpsPR.DriftFingerprint)
+
+	r.reconcileGitOpsPullRequest(context.Background(), policy, []client.Object{dep}, recs)
+	assert.Equal(t, attunev1alpha1.ReasonGitOpsPRUnchanged, gitOpsPRReason(policy))
+	assert.Equal(t, 1, len(forge.calls), "status fingerprint must skip after annotation wipe")
+}
+
 func TestReconcileGitOpsPullRequest_PersistRetriesFirstPatchFail(t *testing.T) {
 	t.Parallel()
 	scheme := runtime.NewScheme()

@@ -246,6 +246,9 @@ the condition is `PullRequestUnchanged` and Attune does not open another
 empty PR. A prior successful PR (`attune.io/gitops-pr-url`) with no stored
 fingerprint (upgrades from 0.1.22/0.1.23) is treated the same way: Attune
 records the live table and skips instead of opening one more empty PR.
+The same fingerprint is stored on `status.gitopsPR` so a Flux or Argo
+apply that replaces `metadata.annotations` does not start the empty-PR
+loop again.
 Apply real template patches (`kubectl attune diff`) so drift
 clears (`NoDrift`).
 

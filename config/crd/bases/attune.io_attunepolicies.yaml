@@ -1128,6 +1128,25 @@ spec:
                       including backoff.
                     type: string
                 type: object
+              gitopsPR:
+                description: |-
+                  GitOpsPR records the last notification PR. Status survives a GitOps
+                  apply that replaces metadata.annotations on the policy.
+                properties:
+                  driftFingerprint:
+                    description: DriftFingerprint is a stable hash of the last notified
+                      drift table.
+                    type: string
+                  lastAttempt:
+                    description: LastAttempt is when Attune last tried to open or
+                      update a PR.
+                    format: date-time
+                    type: string
+                  url:
+                    description: URL is the last successfully opened or updated pull
+                      request.
+                    type: string
+                type: object
               lastReconcileTime:
                 description: |-
                   LastReconcileTime is the timestamp of the most recent reconciliation.

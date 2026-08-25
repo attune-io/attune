@@ -847,7 +847,8 @@ func gitOpsLiveReconciler(t *testing.T, policy *attunev1alpha1.AttunePolicy, obj
 	require.NoError(t, appsv1.AddToScheme(scheme))
 	require.NoError(t, corev1.AddToScheme(scheme))
 	all := append([]client.Object{policy}, objs...)
-	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(all...).Build()
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(all...).
+		WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).Build()
 	forge := &recordingPRClient{}
 	r := NewAttunePolicyReconciler()
 	r.Client = c

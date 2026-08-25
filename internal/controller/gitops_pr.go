@@ -85,7 +85,7 @@ func (r *AttunePolicyReconciler) reconcileGitOpsPullRequest(
 	if skip, adopted := gitOpsPRUnchangedSkip(policy, fp); skip {
 		// Dry-run writes the fingerprint without a PR URL. A later live
 		// cycle of the same table must still open the first real PR.
-		if !adopted && !dryRun && policy.Annotations[annotationGitOpsPRURL] == "" {
+		if !adopted && !dryRun && gitOpsStoredURL(policy) == "" {
 			logger.V(1).Info("GitOps PR: first live cycle after dry-run, opening PR")
 		} else {
 			if adopted {
@@ -105,7 +105,7 @@ func (r *AttunePolicyReconciler) reconcileGitOpsPullRequest(
 	if cfg.Cooldown != nil && cfg.Cooldown.Duration > 0 {
 		cooldown = cfg.Cooldown.Duration
 	}
-	if last, ok := policy.Annotations[annotationGitOpsPRLastAttempt]; ok {
+	if last := gitOpsStoredLastAttempt(policy); last != "" {
 		if t, err := time.Parse(time.RFC3339, last); err == nil && r.now().Sub(t) < cooldown {
 			until := t.Add(cooldown).UTC()
 			logger.V(1).Info("GitOps PR skipped: cooldown active",
@@ -230,9 +230,14 @@ func (r *AttunePolicyReconciler) touchGitOpsPRAnnotation(policy *attunev1alpha1.
 	if policy.Annotations == nil {
 		policy.Annotations = map[string]string{}
 	}
-	policy.Annotations[annotationGitOpsPRLastAttempt] = r.now().UTC().Format(time.RFC3339)
+	now := r.now().UTC()
+	policy.Annotations[annotationGitOpsPRLastAttempt] = now.Format(time.RFC3339)
+	st := ensureGitOpsPRStatus(policy)
+	t := metav1.NewTime(now)
+	st.LastAttempt = &t
 	if url != "" {
 		policy.Annotations[annotationGitOpsPRURL] = url
+		st.URL = url
 	}
 }
 
@@ -246,13 +251,42 @@ func gitOpsPRUnchangedSkip(policy *attunev1alpha1.AttunePolicy, fp string) (skip
 	if fp == "" {
 		return false, false
 	}
-	if policy.Annotations[annotationGitOpsPRDrift] == fp {
+	if gitOpsStoredDrift(policy) == fp {
 		return true, false
 	}
-	if policy.Annotations[annotationGitOpsPRDrift] == "" && policy.Annotations[annotationGitOpsPRURL] != "" {
+	if gitOpsStoredDrift(policy) == "" && gitOpsStoredURL(policy) != "" {
 		return true, true
 	}
 	return false, false
+}
+
+func gitOpsStoredDrift(policy *attunev1alpha1.AttunePolicy) string {
+	if policy.Status.GitOpsPR != nil && policy.Status.GitOpsPR.DriftFingerprint != "" {
+		return policy.Status.GitOpsPR.DriftFingerprint
+	}
+	return policy.Annotations[annotationGitOpsPRDrift]
+}
+
+func gitOpsStoredURL(policy *attunev1alpha1.AttunePolicy) string {
+	if policy.Status.GitOpsPR != nil && policy.Status.GitOpsPR.URL != "" {
+		return policy.Status.GitOpsPR.URL
+	}
+	return policy.Annotations[annotationGitOpsPRURL]
+}
+
+func gitOpsStoredLastAttempt(policy *attunev1alpha1.AttunePolicy) string {
+	if policy.Status.GitOpsPR != nil && policy.Status.GitOpsPR.LastAttempt != nil &&
+		!policy.Status.GitOpsPR.LastAttempt.Time.IsZero() {
+		return policy.Status.GitOpsPR.LastAttempt.UTC().Format(time.RFC3339)
+	}
+	return policy.Annotations[annotationGitOpsPRLastAttempt]
+}
+
+func ensureGitOpsPRStatus(policy *attunev1alpha1.AttunePolicy) *attunev1alpha1.GitOpsPRStatus {
+	if policy.Status.GitOpsPR == nil {
+		policy.Status.GitOpsPR = &attunev1alpha1.GitOpsPRStatus{}
+	}
+	return policy.Status.GitOpsPR
 }
 
 func setGitOpsPRDriftAnnotation(policy *attunev1alpha1.AttunePolicy, fingerprint string) {
@@ -263,6 +297,7 @@ func setGitOpsPRDriftAnnotation(policy *attunev1alpha1.AttunePolicy, fingerprint
 		policy.Annotations = map[string]string{}
 	}
 	policy.Annotations[annotationGitOpsPRDrift] = fingerprint
+	ensureGitOpsPRStatus(policy).DriftFingerprint = fingerprint
 }
 
 // persistGitOpsPRAnnotations patches policy annotations so cooldown survives restarts.
@@ -296,6 +331,14 @@ func (r *AttunePolicyReconciler) persistGitOpsPRAnnotations(ctx context.Context,
 		if err := r.Patch(ctx, latest, client.MergeFrom(base)); err != nil {
 			lastErr = err
 			continue
+		}
+		if policy.Status.GitOpsPR != nil {
+			stBase := latest.DeepCopy()
+			latest.Status.GitOpsPR = policy.Status.GitOpsPR.DeepCopy()
+			if err := r.Status().Patch(ctx, latest, client.MergeFrom(stBase)); err != nil {
+				lastErr = err
+				continue
+			}
 		}
 		return
 	}

@@ -1032,9 +1032,10 @@ branch) leaves the live template unchanged, so drift stays true.
    ```
 
    If `url` is set and `drift` is empty after upgrade, Flux/Argo may be
-   replacing operator annotations. Leave the last PR open or set
-   `dryRun: true` until the chart/operator that adopts the fingerprint
-   is running.
+   replacing operator annotations. Current Attune also stores the
+   fingerprint on `status.gitopsPR`, which GitOps apply does not
+   replace. Leave the last PR open or set `dryRun: true` only if
+   `status.gitopsPR.driftFingerprint` is also empty.
 
 ### GitOps PR failing
 
