@@ -255,7 +255,10 @@ pod (the CREATE is still allowed).
    labels match. An empty selector matches nothing.
 4. On Canary, CREATE sizing waits until that app is promoted, or the pod
    name is already in `status.canary.workloads[].pods`.
-5. Check operator logs for `fetching workload for initial-sizing selector`
+5. The webhook applies a rec when every container has confidence at least
+   0.5, or this workload already has a successful in-place resize. A 1h
+   `historyWindow` never reaches 0.5 on its own.
+6. Check operator logs for `fetching workload for initial-sizing selector`
    or `initial sizing applied`.
 
 ### Paused

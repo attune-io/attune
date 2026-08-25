@@ -295,6 +295,86 @@ func TestPodMutatingHandler_LowConfidence(t *testing.T) {
 	assert.Nil(t, resp.Patches, "low confidence should skip initial sizing")
 }
 
+func TestPodMutatingHandler_LowConfidence_SuccessfulHistoryApplies(t *testing.T) {
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
+	policy.Status.Recommendations[0].Containers[0].Confidence = 0.01
+	policy.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{
+		{
+			Workload:  "my-app",
+			Container: "app",
+			Resource:  "memory",
+			From:      "64Mi",
+			To:        "256Mi",
+			Method:    "InPlace",
+			Result:    attunev1alpha1.ResizeResultSuccess,
+		},
+	}
+	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
+
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
+	require.True(t, resp.Allowed)
+	require.NotNil(t, resp.Patches, "a rec already applied in-place may CREATE-size")
+}
+
+func TestPodMutatingHandler_LowConfidence_WrongWorkloadHistorySkips(t *testing.T) {
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
+	policy.Status.Recommendations[0].Containers[0].Confidence = 0.01
+	policy.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{
+		{
+			Workload: "other-app",
+			Method:   "InPlace",
+			Result:   attunev1alpha1.ResizeResultSuccess,
+		},
+	}
+	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
+	require.True(t, resp.Allowed)
+	assert.Nil(t, resp.Patches, "Success on a different workload must not unlock CREATE")
+}
+
+func TestPodMutatingHandler_LowConfidence_RevertedHistorySkips(t *testing.T) {
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
+	policy.Status.Recommendations[0].Containers[0].Confidence = 0.01
+	policy.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{
+		{
+			Workload: "my-app",
+			Method:   "InPlace",
+			Result:   attunev1alpha1.ResizeResultReverted,
+		},
+	}
+	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
+	require.True(t, resp.Allowed)
+	assert.Nil(t, resp.Patches, "Reverted history must not unlock CREATE")
+}
+
+func TestPodMutatingHandler_LowConfidence_EmptyMethodHistoryApplies(t *testing.T) {
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
+	policy.Status.Recommendations[0].Containers[0].Confidence = 0.01
+	policy.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{
+		{
+			Workload: "my-app",
+			Result:   attunev1alpha1.ResizeResultSuccess,
+		},
+	}
+	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
+	require.True(t, resp.Allowed)
+	require.NotNil(t, resp.Patches, "legacy Success with empty Method is InPlace")
+}
+
 func TestPodMutatingHandler_StatefulSet(t *testing.T) {
 	policy := testPolicy("sts-policy", "default", "StatefulSet", "my-sts", true, attunev1alpha1.UpdateTypeAuto)
 	pod := testPod("my-sts-0", "StatefulSet", "my-sts")
