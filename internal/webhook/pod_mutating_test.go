@@ -24,6 +24,7 @@ import (
 
 	jsonpatch "github.com/evanphx/json-patch/v5"
 	"github.com/go-logr/logr"
+	"github.com/go-logr/logr/funcr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	admissionv1 "k8s.io/api/admission/v1"
@@ -541,11 +542,17 @@ func TestPodMutatingHandler_CanaryMode_EmptyNameSkips(t *testing.T) {
 	pod.GenerateName = "my-app-abc-"
 
 	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
-	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+	var logged string
+	handler := &PodMutatingHandler{
+		Client: cl,
+		Logger: funcr.NewJSON(func(obj string) { logged += obj }, funcr.Options{Verbosity: 1}),
+	}
 
 	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
 	require.True(t, resp.Allowed)
 	assert.Nil(t, resp.Patches, "empty CREATE Name is not in the canary slice")
+	assert.Contains(t, logged, "canary has not promoted this app")
+	assert.Contains(t, logged, `"pod":""`)
 }
 
 func TestPodMutatingHandler_CanaryMode_MutatesCanarySlice(t *testing.T) {

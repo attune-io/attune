@@ -160,6 +160,8 @@ func (h *PodMutatingHandler) findMatchingPolicy(
 		// this app has been promoted or the pod is already in the slice.
 		if policy.Spec.UpdateStrategy.Type == attunev1alpha1.UpdateTypeCanary &&
 			!policy.Status.Canary.AllowsCreateSizing(ownerName, podName) {
+			h.Logger.V(1).Info("initial sizing skipped: canary has not promoted this app",
+				"policy", policy.Name, "owner", ownerName, "pod", podName)
 			continue
 		}
 
