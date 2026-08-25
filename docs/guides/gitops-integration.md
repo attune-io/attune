@@ -220,7 +220,8 @@ Use this ordered path when turning on PR automation for the first time.
    live PRs (see [Status](#status)).
 6. **Turn off dry-run** (`dryRun: false` or omit). On the first live run
    with drift, Attune **bootstraps the head branch** if missing, then
-   opens the PR:
+   opens the PR. A prior dry-run of the same table records the fingerprint
+   only; it does not set a PR URL, so it does not block that first live PR:
    - **GitHub:** empty bootstrap commit on
      `attune/recommendations-<ns>-<policy>` (same tree as `baseBranch`).
    - **GitLab:** branch from `baseBranch` plus
@@ -241,7 +242,10 @@ Cooldown (default 24h) prevents PR thrash. After a merge, if the head branch
 is deleted, the next cycle may bootstrap again **only when the drift table
 changed**. If template vs recommendation is the same set as the last PR,
 the condition is `PullRequestUnchanged` and Attune does not open another
-empty PR. Apply real template patches (`kubectl attune diff`) so drift
+empty PR. A prior successful PR (`attune.io/gitops-pr-url`) with no stored
+fingerprint (upgrades from 0.1.22/0.1.23) is treated the same way: Attune
+records the live table and skips instead of opening one more empty PR.
+Apply real template patches (`kubectl attune diff`) so drift
 clears (`NoDrift`).
 
 ### Branch bootstrap

@@ -1016,6 +1016,25 @@ branch) leaves the live template unchanged, so drift stays true.
    or `dryRun: true`.
 4. On Attune versions that include the unchanged-drift skip, the
    condition is `PullRequestUnchanged` instead of another empty PR.
+   A dry-run of the same table does not block the first live PR (no
+   `gitops-pr-url` yet). If a 0.1.24 dry-run already wrote
+   `attune.io/gitops-pr-last-attempt`, delete that annotation or wait
+   out `cooldown` before the first live open.
+5. v0.1.24 wrote `attune.io/gitops-pr-drift` only after opening a PR.
+   Upgrading from 0.1.22/0.1.23 therefore still opened one more empty
+   PR when `cooldown` expired (last-attempt and URL were present, the
+   fingerprint was not). Later versions record the live table when a
+   prior PR URL exists and the fingerprint annotation is missing, then
+   skip. Confirm the annotation is present:
+
+   ```bash
+   kubectl get attunepolicy -A -o jsonpath='{range .items[*]}{.metadata.namespace}{"/"}{.metadata.name}{" drift="}{.metadata.annotations.attune\.io/gitops-pr-drift}{" url="}{.metadata.annotations.attune\.io/gitops-pr-url}{"\n"}{end}'
+   ```
+
+   If `url` is set and `drift` is empty after upgrade, Flux/Argo may be
+   replacing operator annotations. Leave the last PR open or set
+   `dryRun: true` until the chart/operator that adopts the fingerprint
+   is running.
 
 ### GitOps PR failing
 

@@ -80,12 +80,25 @@ func (r *AttunePolicyReconciler) reconcileGitOpsPullRequest(
 			"No recommendation drift above minChangePercent vs templates")
 		return
 	}
+	dryRun := cfg.DryRun != nil && *cfg.DryRun
 	fp := gitops.DriftFingerprint(drifts)
-	if fp != "" && policy.Annotations[annotationGitOpsPRDrift] == fp {
-		logger.V(1).Info("GitOps PR skipped: drift table unchanged since last PR")
-		setGitOpsPRCondition(policy, metav1.ConditionFalse, attunev1alpha1.ReasonGitOpsPRUnchanged,
-			"Drift table unchanged since last pull request; not opening a new empty PR")
-		return
+	if skip, adopted := gitOpsPRUnchangedSkip(policy, fp); skip {
+		// Dry-run writes the fingerprint without a PR URL. A later live
+		// cycle of the same table must still open the first real PR.
+		if !adopted && !dryRun && policy.Annotations[annotationGitOpsPRURL] == "" {
+			logger.V(1).Info("GitOps PR: first live cycle after dry-run, opening PR")
+		} else {
+			if adopted {
+				logger.V(1).Info("GitOps PR skipped: adopting drift fingerprint from last PR")
+				setGitOpsPRDriftAnnotation(policy, fp)
+				r.persistGitOpsPRAnnotations(ctx, policy)
+			} else {
+				logger.V(1).Info("GitOps PR skipped: drift table unchanged since last PR")
+			}
+			setGitOpsPRCondition(policy, metav1.ConditionFalse, attunev1alpha1.ReasonGitOpsPRUnchanged,
+				"Drift table unchanged since last pull request; not opening a new empty PR")
+			return
+		}
 	}
 
 	cooldown := defaultGitOpsPRCooldown
@@ -115,13 +128,13 @@ func (r *AttunePolicyReconciler) reconcileGitOpsPullRequest(
 	body := gitops.FormatPRBody(policy.Namespace, policy.Name, drifts)
 	head := gitops.BranchName(policy.Namespace, policy.Name)
 
-	dryRun := cfg.DryRun != nil && *cfg.DryRun
 	if dryRun {
 		logger.Info("GitOps PR dry-run", "provider", provider, "repository", cfg.Repository,
 			"head", head, "base", base, "driftCount", len(drifts))
 		setGitOpsPRCondition(policy, metav1.ConditionTrue, attunev1alpha1.ReasonGitOpsPRDryRun,
 			fmt.Sprintf("Dry-run: would open/update PR on %s (%d drifted resources)", cfg.Repository, len(drifts)))
-		r.touchGitOpsPRAnnotation(policy, "")
+		// Fingerprint only. last-attempt would block the first live PR
+		// for the default 24h cooldown (docs: turn off dry-run, then open).
 		setGitOpsPRDriftAnnotation(policy, fp)
 		r.persistGitOpsPRAnnotations(ctx, policy)
 		operatormetrics.GitOpsPRTotal.WithLabelValues(policy.Namespace, policy.Name, "dry_run").Inc()
@@ -223,6 +236,25 @@ func (r *AttunePolicyReconciler) touchGitOpsPRAnnotation(policy *attunev1alpha1.
 	}
 }
 
+// gitOpsPRUnchangedSkip reports whether the current drift table should
+// not open a new PR. adopted is true when 0.1.22 (or a persist miss)
+// left last-attempt+URL but no fingerprint: treat the live table as the
+// last notification and persist the hash instead of opening another
+// empty PR. Do not adopt when URL is empty; that last-attempt may be a
+// failed API call that should retry after cooldown.
+func gitOpsPRUnchangedSkip(policy *attunev1alpha1.AttunePolicy, fp string) (skip, adopted bool) {
+	if fp == "" {
+		return false, false
+	}
+	if policy.Annotations[annotationGitOpsPRDrift] == fp {
+		return true, false
+	}
+	if policy.Annotations[annotationGitOpsPRDrift] == "" && policy.Annotations[annotationGitOpsPRURL] != "" {
+		return true, true
+	}
+	return false, false
+}
+
 func setGitOpsPRDriftAnnotation(policy *attunev1alpha1.AttunePolicy, fingerprint string) {
 	if fingerprint == "" {
 		return
@@ -240,27 +272,35 @@ func (r *AttunePolicyReconciler) persistGitOpsPRAnnotations(ctx context.Context,
 		return
 	}
 	logger := log.FromContext(ctx)
-	latest := &attunev1alpha1.AttunePolicy{}
-	if err := r.Get(ctx, client.ObjectKeyFromObject(policy), latest); err != nil {
-		logger.V(1).Info("GitOps PR: failed to re-get policy for annotation persist",
-			"error", err.Error(), "policy", policy.Name, "namespace", policy.Namespace)
+	const attempts = 3
+	var lastErr error
+	for range attempts {
+		latest := &attunev1alpha1.AttunePolicy{}
+		if err := r.Get(ctx, client.ObjectKeyFromObject(policy), latest); err != nil {
+			lastErr = err
+			continue
+		}
+		base := latest.DeepCopy()
+		if latest.Annotations == nil {
+			latest.Annotations = map[string]string{}
+		}
+		if v, ok := policy.Annotations[annotationGitOpsPRLastAttempt]; ok {
+			latest.Annotations[annotationGitOpsPRLastAttempt] = v
+		}
+		if v, ok := policy.Annotations[annotationGitOpsPRURL]; ok {
+			latest.Annotations[annotationGitOpsPRURL] = v
+		}
+		if v, ok := policy.Annotations[annotationGitOpsPRDrift]; ok {
+			latest.Annotations[annotationGitOpsPRDrift] = v
+		}
+		if err := r.Patch(ctx, latest, client.MergeFrom(base)); err != nil {
+			lastErr = err
+			continue
+		}
 		return
 	}
-	base := latest.DeepCopy()
-	if latest.Annotations == nil {
-		latest.Annotations = map[string]string{}
-	}
-	if v, ok := policy.Annotations[annotationGitOpsPRLastAttempt]; ok {
-		latest.Annotations[annotationGitOpsPRLastAttempt] = v
-	}
-	if v, ok := policy.Annotations[annotationGitOpsPRURL]; ok {
-		latest.Annotations[annotationGitOpsPRURL] = v
-	}
-	if v, ok := policy.Annotations[annotationGitOpsPRDrift]; ok {
-		latest.Annotations[annotationGitOpsPRDrift] = v
-	}
-	if err := r.Patch(ctx, latest, client.MergeFrom(base)); err != nil {
-		logger.V(1).Info("GitOps PR: failed to patch cooldown annotations",
-			"error", err.Error(), "policy", policy.Name, "namespace", policy.Namespace)
+	if lastErr != nil {
+		logger.V(1).Info("GitOps PR: failed to persist cooldown annotations",
+			"error", lastErr.Error(), "policy", policy.Name, "namespace", policy.Namespace)
 	}
 }
