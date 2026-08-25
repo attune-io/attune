@@ -347,7 +347,13 @@ func hasSuccessfulInPlaceHistory(history []attunev1alpha1.ResizeHistoryEntry, wo
 	}
 	for i := range history {
 		h := history[i]
-		if h.Workload == workload && h.Method == "InPlace" && h.Result == attunev1alpha1.ResizeResultSuccess {
+		// Empty Method is InPlace, same as resizeHistoryMethod in the
+		// controller (legacy rows before the field was required).
+		method := h.Method
+		if method == "" {
+			method = "InPlace"
+		}
+		if h.Workload == workload && method == "InPlace" && h.Result == attunev1alpha1.ResizeResultSuccess {
 			return true
 		}
 	}

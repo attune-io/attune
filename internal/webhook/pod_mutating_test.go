@@ -357,6 +357,24 @@ func TestPodMutatingHandler_LowConfidence_RevertedHistorySkips(t *testing.T) {
 	assert.Nil(t, resp.Patches, "Reverted history must not unlock CREATE")
 }
 
+func TestPodMutatingHandler_LowConfidence_EmptyMethodHistoryApplies(t *testing.T) {
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
+	policy.Status.Recommendations[0].Containers[0].Confidence = 0.01
+	policy.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{
+		{
+			Workload: "my-app",
+			Result:   attunev1alpha1.ResizeResultSuccess,
+		},
+	}
+	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
+	require.True(t, resp.Allowed)
+	require.NotNil(t, resp.Patches, "legacy Success with empty Method is InPlace")
+}
+
 func TestPodMutatingHandler_StatefulSet(t *testing.T) {
 	policy := testPolicy("sts-policy", "default", "StatefulSet", "my-sts", true, attunev1alpha1.UpdateTypeAuto)
 	pod := testPod("my-sts-0", "StatefulSet", "my-sts")
