@@ -230,13 +230,18 @@ kubectl attune version
 
 ## Structured output
 
-`--output` / `-o` is supported with the `status` command (JSON or YAML) and the
-`diff` command (YAML only). It prints the raw `AttunePolicy` objects returned by
-the cluster.
+`--output` / `-o` is supported with:
+
+- `status`: JSON or YAML of raw `AttunePolicy` objects
+- `diff`: YAML patch manifests
+- `savings` and `recommendations`: CSV (header plus one data row per
+  policy or container; no totals row)
 
 ```bash
 kubectl attune status -o json
 kubectl attune status -A -o yaml
+kubectl attune savings -A -o csv
+kubectl attune recommendations -n prod -o csv
 ```
 
 For other commands, use the human-oriented plugin output, or fetch raw objects

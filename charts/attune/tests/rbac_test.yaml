@@ -7,6 +7,20 @@ tests:
       - isKind:
           of: ClusterRole
 
+  - it: should include attunepolicies status patch for gitopsPR
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - attune.io
+            resources:
+              - attunepolicies/status
+            verbs:
+              - get
+              - patch
+              - update
+
   - it: should include attunepolicies permissions
     asserts:
       - contains:
