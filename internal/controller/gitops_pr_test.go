@@ -70,6 +70,28 @@ func TestGitOpsPRUnchangedSkip(t *testing.T) {
 	}
 }
 
+func TestGitOpsRestoreAnnotationsFromStatus(t *testing.T) {
+	t.Parallel()
+	attempt := metav1.NewTime(time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC))
+	policy := &attunev1alpha1.AttunePolicy{
+		Status: attunev1alpha1.AttunePolicyStatus{
+			GitOpsPR: &attunev1alpha1.GitOpsPRStatus{
+				DriftFingerprint: "abc",
+				URL:              "https://github.com/org/repo/pull/1",
+				LastAttempt:      &attempt,
+			},
+		},
+	}
+	assert.True(t, gitOpsRestoreAnnotationsFromStatus(policy))
+	assert.Equal(t, "abc", policy.Annotations[annotationGitOpsPRDrift])
+	assert.Equal(t, "https://github.com/org/repo/pull/1", policy.Annotations[annotationGitOpsPRURL])
+	assert.Equal(t, attempt.UTC().Format(time.RFC3339), policy.Annotations[annotationGitOpsPRLastAttempt])
+	assert.False(t, gitOpsRestoreAnnotationsFromStatus(policy), "second call is a no-op")
+
+	empty := &attunev1alpha1.AttunePolicy{}
+	assert.False(t, gitOpsRestoreAnnotationsFromStatus(empty))
+}
+
 func TestGitopsPREnabled(t *testing.T) {
 	t.Parallel()
 	assert.False(t, gitopsPREnabled(nil))

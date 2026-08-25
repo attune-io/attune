@@ -576,6 +576,19 @@ The controller sets these conditions on each `AttunePolicy`:
 | `ResizeBlocked` | `PodsDeferred`, `PodsInfeasible`, `PodsDeferredAndInfeasible` | Pods stuck Deferred or Infeasible; see troubleshooting "Deferred or Infeasible resize" |
 | `GitOpsPullRequest` | `PullRequestOpen`, `PullRequestFailed`, `NoDrift`, `PullRequestUnchanged`, `PullRequestCooldown`, `PullRequestDryRun`, `PullRequestDisabled` | Opt-in `export.pullRequest` automation status (see [GitOps integration](../guides/gitops-integration.md)) |
 
+### Status fields (GitOps PR)
+
+`status.gitopsPR` is written alongside the `attune.io/gitops-pr-*`
+annotations. Status survives a Flux or Argo apply that replaces
+`metadata.annotations` on the policy. Reads prefer status, then
+annotations.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `status.gitopsPR.driftFingerprint` | string | Stable hash of the last notified drift table. Matching live drift sets `PullRequestUnchanged` instead of opening another empty PR. |
+| `status.gitopsPR.lastAttempt` | date-time | When Attune last tried to open or update a PR (also used for cooldown). Dry-run does not set this. |
+| `status.gitopsPR.url` | string | Last successfully opened or updated pull request URL. |
+
 ## Exponential Backoff
 
 When consecutive resizes of the **same workload** are reverted, that

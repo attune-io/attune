@@ -94,6 +94,9 @@ func (r *AttunePolicyReconciler) reconcileGitOpsPullRequest(
 				r.persistGitOpsPRAnnotations(ctx, policy)
 			} else {
 				logger.V(1).Info("GitOps PR skipped: drift table unchanged since last PR")
+				if gitOpsRestoreAnnotationsFromStatus(policy) {
+					r.persistGitOpsPRAnnotations(ctx, policy)
+				}
 			}
 			setGitOpsPRCondition(policy, metav1.ConditionFalse, attunev1alpha1.ReasonGitOpsPRUnchanged,
 				"Drift table unchanged since last pull request; not opening a new empty PR")
@@ -289,6 +292,34 @@ func ensureGitOpsPRStatus(policy *attunev1alpha1.AttunePolicy) *attunev1alpha1.G
 	return policy.Status.GitOpsPR
 }
 
+// gitOpsRestoreAnnotationsFromStatus copies skip state from status onto
+// annotations when GitOps apply wiped metadata.annotations. Returns true
+// when any annotation was filled so the caller can persist.
+func gitOpsRestoreAnnotationsFromStatus(policy *attunev1alpha1.AttunePolicy) bool {
+	if policy.Status.GitOpsPR == nil {
+		return false
+	}
+	if policy.Annotations == nil {
+		policy.Annotations = map[string]string{}
+	}
+	changed := false
+	if policy.Annotations[annotationGitOpsPRDrift] == "" && policy.Status.GitOpsPR.DriftFingerprint != "" {
+		policy.Annotations[annotationGitOpsPRDrift] = policy.Status.GitOpsPR.DriftFingerprint
+		changed = true
+	}
+	if policy.Annotations[annotationGitOpsPRURL] == "" && policy.Status.GitOpsPR.URL != "" {
+		policy.Annotations[annotationGitOpsPRURL] = policy.Status.GitOpsPR.URL
+		changed = true
+	}
+	if policy.Annotations[annotationGitOpsPRLastAttempt] == "" &&
+		policy.Status.GitOpsPR.LastAttempt != nil &&
+		!policy.Status.GitOpsPR.LastAttempt.Time.IsZero() {
+		policy.Annotations[annotationGitOpsPRLastAttempt] = policy.Status.GitOpsPR.LastAttempt.UTC().Format(time.RFC3339)
+		changed = true
+	}
+	return changed
+}
+
 func setGitOpsPRDriftAnnotation(policy *attunev1alpha1.AttunePolicy, fingerprint string) {
 	if fingerprint == "" {
 		return
@@ -300,8 +331,9 @@ func setGitOpsPRDriftAnnotation(policy *attunev1alpha1.AttunePolicy, fingerprint
 	ensureGitOpsPRStatus(policy).DriftFingerprint = fingerprint
 }
 
-// persistGitOpsPRAnnotations patches policy annotations so cooldown survives restarts.
-// Best-effort; failures do not fail reconcile but are logged at V(1).
+// persistGitOpsPRAnnotations patches policy annotations and status.gitopsPR
+// so cooldown survives restarts and GitOps annotation wipes. Best-effort;
+// failures do not fail reconcile but are logged at Info.
 func (r *AttunePolicyReconciler) persistGitOpsPRAnnotations(ctx context.Context, policy *attunev1alpha1.AttunePolicy) {
 	if policy.Annotations == nil {
 		return
@@ -343,7 +375,7 @@ func (r *AttunePolicyReconciler) persistGitOpsPRAnnotations(ctx context.Context,
 		return
 	}
 	if lastErr != nil {
-		logger.V(1).Info("GitOps PR: failed to persist cooldown annotations",
+		logger.Info("GitOps PR: failed to persist cooldown annotations and status.gitopsPR",
 			"error", lastErr.Error(), "policy", policy.Name, "namespace", policy.Namespace)
 	}
 }

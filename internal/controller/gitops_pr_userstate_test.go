@@ -97,6 +97,10 @@ func TestReconcileGitOpsPullRequest_AnnotationWipeStatusStillSkips(t *testing.T)
 	r.reconcileGitOpsPullRequest(context.Background(), policy, []client.Object{dep}, recs)
 	assert.Equal(t, attunev1alpha1.ReasonGitOpsPRUnchanged, gitOpsPRReason(policy))
 	assert.Equal(t, 1, len(forge.calls), "status fingerprint must skip after annotation wipe")
+	gitOpsReload(t, c, policy)
+	assert.Equal(t, policy.Status.GitOpsPR.DriftFingerprint, policy.Annotations[annotationGitOpsPRDrift],
+		"unchanged skip must restore wiped annotations from status")
+	assert.Equal(t, policy.Status.GitOpsPR.URL, policy.Annotations[annotationGitOpsPRURL])
 }
 
 func TestReconcileGitOpsPullRequest_PersistRetriesFirstPatchFail(t *testing.T) {

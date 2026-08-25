@@ -311,6 +311,12 @@ status:
       to: ""
       method: Eviction
       result: Evicted
+
+  # Last GitOps notification PR (survives annotation wipe by Flux/Argo)
+  gitopsPR:
+    driftFingerprint: "sha256:..."
+    lastAttempt: "2026-01-15T09:00:00Z"
+    url: "https://github.com/org/repo/pull/41"
 ```
 
 #### CRD Validation (Webhook)
