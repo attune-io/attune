@@ -29,6 +29,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	k8sversion "k8s.io/apimachinery/pkg/version"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
@@ -204,27 +205,29 @@ func pingPrometheusHealthy(ctx context.Context, address string) error {
 	return nil
 }
 
+func appendListedResources(ctx context.Context, dynClient dynamic.Interface, resource schema.GroupVersionResource, namespace, kind string, out []unstructured.Unstructured, errs []error) ([]unstructured.Unstructured, []error) {
+	var list *unstructured.UnstructuredList
+	var err error
+	if namespace == "" {
+		list, err = dynClient.Resource(resource).List(ctx, metav1.ListOptions{})
+	} else {
+		list, err = dynClient.Resource(resource).Namespace(namespace).List(ctx, metav1.ListOptions{})
+	}
+	if err != nil && !apierrors.IsNotFound(err) && !isNoResourceMatch(err) {
+		return out, append(errs, fmt.Errorf("list %s: %w", kind, err))
+	}
+	if list != nil {
+		out = append(out, list.Items...)
+	}
+	return out, errs
+}
+
 func listDoctorObjects(ctx context.Context, dynClient dynamic.Interface, namespace string) ([]unstructured.Unstructured, error) {
 	var out []unstructured.Unstructured
 	var errs []error
-	policies, err := dynClient.Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{})
-	if err != nil && !apierrors.IsNotFound(err) && !isNoResourceMatch(err) {
-		errs = append(errs, fmt.Errorf("list AttunePolicies: %w", err))
-	} else if policies != nil {
-		out = append(out, policies.Items...)
-	}
-	defaults, err := dynClient.Resource(defaultsGVR).List(ctx, metav1.ListOptions{})
-	if err != nil && !apierrors.IsNotFound(err) && !isNoResourceMatch(err) {
-		errs = append(errs, fmt.Errorf("list AttuneDefaults: %w", err))
-	} else if defaults != nil {
-		out = append(out, defaults.Items...)
-	}
-	nsDefaults, err := dynClient.Resource(namespaceDefaultsGVR).Namespace(namespace).List(ctx, metav1.ListOptions{})
-	if err != nil && !apierrors.IsNotFound(err) && !isNoResourceMatch(err) {
-		errs = append(errs, fmt.Errorf("list AttuneNamespaceDefaults: %w", err))
-	} else if nsDefaults != nil {
-		out = append(out, nsDefaults.Items...)
-	}
+	out, errs = appendListedResources(ctx, dynClient, gvr, namespace, "AttunePolicies", out, errs)
+	out, errs = appendListedResources(ctx, dynClient, defaultsGVR, "", "AttuneDefaults", out, errs)
+	out, errs = appendListedResources(ctx, dynClient, namespaceDefaultsGVR, namespace, "AttuneNamespaceDefaults", out, errs)
 	return out, errors.Join(errs...)
 }
 
