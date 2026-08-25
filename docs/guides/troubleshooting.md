@@ -1018,9 +1018,10 @@ branch) leaves the live template unchanged, so drift stays true.
    condition is `PullRequestUnchanged` instead of another empty PR.
 5. v0.1.24 wrote `attune.io/gitops-pr-drift` only after opening a PR.
    Upgrading from 0.1.22/0.1.23 therefore still opened one more empty
-   set when `cooldown` expired (last-attempt and URL were present, the
-   fingerprint was not). Later versions adopt that fingerprint from the
-   last PR URL and skip. Confirm the annotation is present:
+   PR when `cooldown` expired (last-attempt and URL were present, the
+   fingerprint was not). Later versions record the live table when a
+   prior PR URL exists and the fingerprint annotation is missing, then
+   skip. Confirm the annotation is present:
 
    ```bash
    kubectl get attunepolicy -A -o jsonpath='{range .items[*]}{.metadata.namespace}{"/"}{.metadata.name}{" drift="}{.metadata.annotations.attune\.io/gitops-pr-drift}{" url="}{.metadata.annotations.attune\.io/gitops-pr-url}{"\n"}{end}'

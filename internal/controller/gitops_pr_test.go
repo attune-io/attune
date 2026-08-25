@@ -691,6 +691,10 @@ func TestReconcileGitOpsPullRequest_PreFingerprintUpgradeDoesNotRecreate(t *test
 	assert.Equal(t, attunev1alpha1.ReasonGitOpsPRUnchanged, gitOpsPRReason(policy))
 	assert.Empty(t, fakeForge.calls, "upgrade with prior PR URL must not open another empty PR")
 	require.NotEmpty(t, policy.Annotations[annotationGitOpsPRDrift])
+	stored := &attunev1alpha1.AttunePolicy{}
+	require.NoError(t, c.Get(context.Background(), client.ObjectKeyFromObject(policy), stored))
+	require.Equal(t, policy.Annotations[annotationGitOpsPRDrift], stored.Annotations[annotationGitOpsPRDrift],
+		"adopt must persist attune.io/gitops-pr-drift on the API object")
 
 	// Fingerprint now persists; later cycles stay quiet.
 	r.reconcileGitOpsPullRequest(context.Background(), policy, []client.Object{dep}, recs)
@@ -747,6 +751,9 @@ func TestReconcileGitOpsPullRequest_PreFingerprintBackfillDuringCooldown(t *test
 		"missing fingerprint with a prior PR URL should adopt, not wait out cooldown")
 	assert.Empty(t, fakeForge.calls)
 	require.NotEmpty(t, policy.Annotations[annotationGitOpsPRDrift])
+	stored := &attunev1alpha1.AttunePolicy{}
+	require.NoError(t, c.Get(context.Background(), client.ObjectKeyFromObject(policy), stored))
+	require.Equal(t, policy.Annotations[annotationGitOpsPRDrift], stored.Annotations[annotationGitOpsPRDrift])
 
 	now = start.Add(24 * time.Hour)
 	r.reconcileGitOpsPullRequest(context.Background(), policy, []client.Object{dep}, recs)
