@@ -6,6 +6,31 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.25](https://github.com/attune-io/attune/compare/v0.1.24...v0.1.25) (2026-08-25)
+
+
+### Features
+
+* add kubectl attune doctor preflight ([#582](https://github.com/attune-io/attune/issues/582)) ([18fd82a](https://github.com/attune-io/attune/commit/18fd82a416634b4f5ec00664190fa168cce6d9fd))
+* isolate cooldown, canary, and node neighbor budget ([#571](https://github.com/attune-io/attune/issues/571)) ([14b5ba4](https://github.com/attune-io/attune/commit/14b5ba4ff15709780e22c7ce1cad91ae900b989d))
+
+
+### Bug Fixes
+
+* apply create sizing for selector canary policies ([#574](https://github.com/attune-io/attune/issues/574)) ([7950b86](https://github.com/attune-io/attune/commit/7950b866c5ed8e3789e7e23925ee26dba5616132))
+* create-size after in-place success and add isolation e2e ([#575](https://github.com/attune-io/attune/issues/575)) ([00be48a](https://github.com/attune-io/attune/commit/00be48a4c1cd590103be71f894bac6d72f8e033c))
+* default helm image tag to bare appVersion ([#554](https://github.com/attune-io/attune/issues/554)) ([e3c2d2a](https://github.com/attune-io/attune/commit/e3c2d2a792298f0e8f223bd1942025857a59b70d))
+* grant status patch rbac and add csv output ([#581](https://github.com/attune-io/attune/issues/581)) ([a2bd4e9](https://github.com/attune-io/attune/commit/a2bd4e9b696647a63405a22c3b3e4b2f688c347c))
+* keep kubectl attune doctor honest for in-cluster prometheus ([#583](https://github.com/attune-io/attune/issues/583)) ([34a9765](https://github.com/attune-io/attune/commit/34a976593c13625a8e33857a8318e6c3538fec47))
+* log canary create skip and cover doctor prometheus ping ([#589](https://github.com/attune-io/attune/issues/589)) ([4aeccac](https://github.com/attune-io/attune/commit/4aeccacd5d8b9434bd2ea5801c430429cf37a868))
+* log generateName when create sizing has no pod name ([#587](https://github.com/attune-io/attune/issues/587)) ([66992e4](https://github.com/attune-io/attune/commit/66992e41b5aa353f6aa9db0040a4859c9d94a9bb))
+* name recommendations csv last column honestly ([#586](https://github.com/attune-io/attune/issues/586)) ([17791b7](https://github.com/attune-io/attune/commit/17791b7d9060ff6b6cf02d22a14a5ad847f86224))
+* per-app canary seed and remaining cooldown requeue ([#572](https://github.com/attune-io/attune/issues/572)) ([d84b567](https://github.com/attune-io/attune/commit/d84b56770a7951634f1c12f0fd5ab667bb57ea0c))
+* persist gitops skip state on policy status ([#580](https://github.com/attune-io/attune/issues/580)) ([ae3d3b6](https://github.com/attune-io/attune/commit/ae3d3b61148983a93d6db9ce8bbab6c197a28ad9))
+* skip doctor prometheus warn on authenticated 401 ([#585](https://github.com/attune-io/attune/issues/585)) ([152fcb0](https://github.com/attune-io/attune/commit/152fcb05577ce3a2fd3a2dfe8e9eeb6ff9ab4dcb))
+* skip extra gitops PRs after upgrade without blocking first live open ([#577](https://github.com/attune-io/attune/issues/577)) ([9a6274b](https://github.com/attune-io/attune/commit/9a6274b9433724ec95abff3c649312c978d37f1b))
+* start canary observation after a successful in-place resize ([#568](https://github.com/attune-io/attune/issues/568)) ([8dd730a](https://github.com/attune-io/attune/commit/8dd730a98bda927926b867d046426a4c12a44a22))
+
 ## [0.1.24](https://github.com/attune-io/attune/compare/v0.1.23...v0.1.24) (2026-08-24)
 
 
