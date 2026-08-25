@@ -81,8 +81,14 @@ func (r *AttunePolicyReconciler) reconcileGitOpsPullRequest(
 		return
 	}
 	fp := gitops.DriftFingerprint(drifts)
-	if fp != "" && policy.Annotations[annotationGitOpsPRDrift] == fp {
-		logger.V(1).Info("GitOps PR skipped: drift table unchanged since last PR")
+	if skip, adopted := gitOpsPRUnchangedSkip(policy, fp); skip {
+		if adopted {
+			logger.V(1).Info("GitOps PR skipped: adopting drift fingerprint from last PR")
+			setGitOpsPRDriftAnnotation(policy, fp)
+			r.persistGitOpsPRAnnotations(ctx, policy)
+		} else {
+			logger.V(1).Info("GitOps PR skipped: drift table unchanged since last PR")
+		}
 		setGitOpsPRCondition(policy, metav1.ConditionFalse, attunev1alpha1.ReasonGitOpsPRUnchanged,
 			"Drift table unchanged since last pull request; not opening a new empty PR")
 		return
@@ -221,6 +227,25 @@ func (r *AttunePolicyReconciler) touchGitOpsPRAnnotation(policy *attunev1alpha1.
 	if url != "" {
 		policy.Annotations[annotationGitOpsPRURL] = url
 	}
+}
+
+// gitOpsPRUnchangedSkip reports whether the current drift table should
+// not open a new PR. adopted is true when 0.1.22 (or a persist miss)
+// left last-attempt+URL but no fingerprint: treat the live table as the
+// last notification and persist the hash instead of opening another
+// empty PR. Do not adopt when URL is empty; that last-attempt may be a
+// failed API call that should retry after cooldown.
+func gitOpsPRUnchangedSkip(policy *attunev1alpha1.AttunePolicy, fp string) (skip, adopted bool) {
+	if fp == "" {
+		return false, false
+	}
+	if policy.Annotations[annotationGitOpsPRDrift] == fp {
+		return true, false
+	}
+	if policy.Annotations[annotationGitOpsPRDrift] == "" && policy.Annotations[annotationGitOpsPRURL] != "" {
+		return true, true
+	}
+	return false, false
 }
 
 func setGitOpsPRDriftAnnotation(policy *attunev1alpha1.AttunePolicy, fingerprint string) {

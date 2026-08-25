@@ -25,6 +25,51 @@ import (
 	"github.com/attune-io/attune/internal/operatormetrics"
 )
 
+func TestGitOpsPRUnchangedSkip(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name        string
+		fp          string
+		annotations map[string]string
+		wantSkip    bool
+		wantAdopted bool
+	}{
+		{name: "empty fingerprint", fp: ""},
+		{
+			name:        "matching fingerprint",
+			fp:          "abc",
+			annotations: map[string]string{annotationGitOpsPRDrift: "abc"},
+			wantSkip:    true,
+		},
+		{
+			name:        "prior URL without fingerprint",
+			fp:          "abc",
+			annotations: map[string]string{annotationGitOpsPRURL: "https://github.com/org/repo/pull/1"},
+			wantSkip:    true,
+			wantAdopted: true,
+		},
+		{
+			name:        "failed attempt has no URL",
+			fp:          "abc",
+			annotations: map[string]string{annotationGitOpsPRLastAttempt: "2026-08-23T00:00:00Z"},
+		},
+		{
+			name:        "different stored fingerprint",
+			fp:          "new",
+			annotations: map[string]string{annotationGitOpsPRDrift: "old", annotationGitOpsPRURL: "https://github.com/org/repo/pull/1"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			policy := &attunev1alpha1.AttunePolicy{ObjectMeta: metav1.ObjectMeta{Annotations: tc.annotations}}
+			skip, adopted := gitOpsPRUnchangedSkip(policy, tc.fp)
+			assert.Equal(t, tc.wantSkip, skip)
+			assert.Equal(t, tc.wantAdopted, adopted)
+		})
+	}
+}
+
 func TestGitopsPREnabled(t *testing.T) {
 	t.Parallel()
 	assert.False(t, gitopsPREnabled(nil))
@@ -594,6 +639,198 @@ func TestReconcileGitOpsPullRequest_LivePathDoesNotRecreateAfterMerge(t *testing
 	assert.Equal(t, attunev1alpha1.ReasonGitOpsPROpen, gitOpsPRReason(policy))
 	assert.Equal(t, 1, fakeForge.createsAfter, "changed drift may open a new PR")
 	assert.Equal(t, 2, len(fakeForge.calls))
+}
+
+// 0.1.22 wrote last-attempt + URL but not attune.io/gitops-pr-drift.
+// After upgrade, cooldown expiry used to open another empty PR for the
+// same table (#537 comment after 0.1.24).
+func TestReconcileGitOpsPullRequest_PreFingerprintUpgradeDoesNotRecreate(t *testing.T) {
+	t.Parallel()
+	scheme := runtime.NewScheme()
+	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+
+	en := true
+	dry := false
+	start := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "authentik",
+			Namespace: "authentik",
+			Annotations: map[string]string{
+				annotationGitOpsPRLastAttempt: start.Add(-25 * time.Hour).Format(time.RFC3339),
+				annotationGitOpsPRURL:         "https://github.com/org/repo/pull/41",
+			},
+		},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Export: &attunev1alpha1.ExportConfig{
+					PullRequest: &attunev1alpha1.GitOpsPullRequestConfig{
+						Enabled:    &en,
+						DryRun:     &dry,
+						Repository: "org/repo",
+						TokenSecretRef: &attunev1alpha1.SecretKeyRef{
+							Name: "tok", Key: "token",
+						},
+					},
+				},
+			},
+		},
+	}
+	dep := gitOpsDriftDeployment("api", "authentik", "1")
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(policy, dep).Build()
+	fakeForge := &recordingPRClient{}
+	r := NewAttunePolicyReconciler()
+	r.Client = c
+	r.gitopsPRClient = fakeForge
+	r.SetNowFunc(func() time.Time { return start })
+	recs := gitOpsCPURec("api", "100m")
+
+	r.reconcileGitOpsPullRequest(context.Background(), policy, []client.Object{dep}, recs)
+	assert.Equal(t, attunev1alpha1.ReasonGitOpsPRUnchanged, gitOpsPRReason(policy))
+	assert.Empty(t, fakeForge.calls, "upgrade with prior PR URL must not open another empty PR")
+	require.NotEmpty(t, policy.Annotations[annotationGitOpsPRDrift])
+
+	// Fingerprint now persists; later cycles stay quiet.
+	r.reconcileGitOpsPullRequest(context.Background(), policy, []client.Object{dep}, recs)
+	assert.Equal(t, attunev1alpha1.ReasonGitOpsPRUnchanged, gitOpsPRReason(policy))
+	assert.Empty(t, fakeForge.calls)
+}
+
+func TestReconcileGitOpsPullRequest_PreFingerprintBackfillDuringCooldown(t *testing.T) {
+	t.Parallel()
+	scheme := runtime.NewScheme()
+	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+
+	en := true
+	dry := false
+	start := time.Date(2026, 8, 24, 18, 0, 0, 0, time.UTC)
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "authentik",
+			Namespace: "authentik",
+			Annotations: map[string]string{
+				annotationGitOpsPRLastAttempt: start.Add(-1 * time.Hour).Format(time.RFC3339),
+				annotationGitOpsPRURL:         "https://github.com/org/repo/pull/41",
+			},
+		},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Export: &attunev1alpha1.ExportConfig{
+					PullRequest: &attunev1alpha1.GitOpsPullRequestConfig{
+						Enabled:    &en,
+						DryRun:     &dry,
+						Repository: "org/repo",
+						TokenSecretRef: &attunev1alpha1.SecretKeyRef{
+							Name: "tok", Key: "token",
+						},
+					},
+				},
+			},
+		},
+	}
+	dep := gitOpsDriftDeployment("api", "authentik", "1")
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(policy, dep).Build()
+	fakeForge := &recordingPRClient{}
+	r := NewAttunePolicyReconciler()
+	r.Client = c
+	r.gitopsPRClient = fakeForge
+	now := start
+	r.SetNowFunc(func() time.Time { return now })
+	recs := gitOpsCPURec("api", "100m")
+
+	r.reconcileGitOpsPullRequest(context.Background(), policy, []client.Object{dep}, recs)
+	assert.Equal(t, attunev1alpha1.ReasonGitOpsPRUnchanged, gitOpsPRReason(policy),
+		"missing fingerprint with a prior PR URL should adopt, not wait out cooldown")
+	assert.Empty(t, fakeForge.calls)
+	require.NotEmpty(t, policy.Annotations[annotationGitOpsPRDrift])
+
+	now = start.Add(24 * time.Hour)
+	r.reconcileGitOpsPullRequest(context.Background(), policy, []client.Object{dep}, recs)
+	assert.Equal(t, attunev1alpha1.ReasonGitOpsPRUnchanged, gitOpsPRReason(policy))
+	assert.Empty(t, fakeForge.calls, "backfill during cooldown must prevent the next-morning empty PR")
+}
+
+func TestReconcileGitOpsPullRequest_FailedAttemptWithoutURLStillRetries(t *testing.T) {
+	t.Parallel()
+	scheme := runtime.NewScheme()
+	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+
+	en := true
+	dry := false
+	start := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "authentik",
+			Namespace: "authentik",
+			Annotations: map[string]string{
+				// Failed API writes last-attempt but not URL.
+				annotationGitOpsPRLastAttempt: start.Add(-25 * time.Hour).Format(time.RFC3339),
+			},
+		},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Export: &attunev1alpha1.ExportConfig{
+					PullRequest: &attunev1alpha1.GitOpsPullRequestConfig{
+						Enabled:    &en,
+						DryRun:     &dry,
+						Repository: "org/repo",
+						TokenSecretRef: &attunev1alpha1.SecretKeyRef{
+							Name: "tok", Key: "token",
+						},
+					},
+				},
+			},
+		},
+	}
+	dep := gitOpsDriftDeployment("api", "authentik", "1")
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(policy, dep).Build()
+	fakeForge := &recordingPRClient{}
+	r := NewAttunePolicyReconciler()
+	r.Client = c
+	r.gitopsPRClient = fakeForge
+	r.SetNowFunc(func() time.Time { return start })
+
+	r.reconcileGitOpsPullRequest(context.Background(), policy, []client.Object{dep}, gitOpsCPURec("api", "100m"))
+	assert.Equal(t, attunev1alpha1.ReasonGitOpsPROpen, gitOpsPRReason(policy))
+	assert.Equal(t, 1, fakeForge.createsBefore, "failed prior attempt with no URL must retry")
+}
+
+func gitOpsDriftDeployment(name, ns, cpu string) *appsv1.Deployment {
+	return &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name: "app",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse(cpu),
+							},
+						},
+					}},
+				},
+			},
+		},
+	}
+}
+
+func gitOpsCPURec(workload, cpu string) []attunev1alpha1.WorkloadRecommendation {
+	return []attunev1alpha1.WorkloadRecommendation{{
+		Workload: workload, Kind: "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "app",
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest: resource.MustParse(cpu),
+			},
+		}},
+	}}
 }
 
 func TestReconcileGitOpsPullRequest_IncompleteConfig(t *testing.T) {

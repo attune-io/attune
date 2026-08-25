@@ -241,7 +241,10 @@ Cooldown (default 24h) prevents PR thrash. After a merge, if the head branch
 is deleted, the next cycle may bootstrap again **only when the drift table
 changed**. If template vs recommendation is the same set as the last PR,
 the condition is `PullRequestUnchanged` and Attune does not open another
-empty PR. Apply real template patches (`kubectl attune diff`) so drift
+empty PR. A prior successful PR (`attune.io/gitops-pr-url`) with no stored
+fingerprint (upgrades from 0.1.22/0.1.23) is treated the same way: Attune
+records the live table and skips instead of opening one more empty PR.
+Apply real template patches (`kubectl attune diff`) so drift
 clears (`NoDrift`).
 
 ### Branch bootstrap
