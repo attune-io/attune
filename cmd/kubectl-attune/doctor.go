@@ -177,15 +177,6 @@ func collectPrometheusTargets(objects ...unstructured.Unstructured) []prometheus
 	return out
 }
 
-func collectPrometheusAddresses(objects ...unstructured.Unstructured) []string {
-	targets := collectPrometheusTargets(objects...)
-	out := make([]string, len(targets))
-	for i, t := range targets {
-		out[i] = t.address
-	}
-	return out
-}
-
 type httpStatusError struct {
 	status int
 	url    string
