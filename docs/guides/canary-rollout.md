@@ -57,7 +57,9 @@ spec:
 6. **Isolation**: while an app is still in canary, CREATE initial sizing,
    startup boost, and HPA retune do not apply to the rest of that app
    (or to other apps). New pods stay at their template size until that
-   app is promoted (or the pod is already in `status.canary.workloads[].pods`).
+   app is promoted (or the assigned pod name is already in
+   `status.canary.workloads[].pods`). ReplicaSet CREATE often has an empty
+   `metadata.name`; that empty name is not treated as a slice identity.
    Selector-based policies are included: the CREATE webhook fetches the
    owning Deployment/StatefulSet/DaemonSet and matches `targetRef.selector`.
 7. **Cooldown**: the operator waits for that workload's `cooldown` before

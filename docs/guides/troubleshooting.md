@@ -259,13 +259,19 @@ pod (the CREATE is still allowed).
    and `updateStrategy.initialSizing: true`.
 3. If `targetRef.selector` is set, confirm the owner object exists and its
    labels match. An empty selector matches nothing.
-4. On Canary, CREATE sizing waits until that app is promoted, or the pod
-   name is already in `status.canary.workloads[].pods`.
+4. On Canary, CREATE sizing waits until that app is promoted, or the
+   assigned pod name is already in `status.canary.workloads[].pods`.
+   ReplicaSet CREATE often has an empty `metadata.name` and only
+   `generateName`. An empty name is not treated as a canary-slice
+   identity, so those pods stay at template size until the app is
+   promoted.
 5. The webhook applies a rec when every container has confidence at least
    0.5, or this workload already has a successful in-place resize. A 1h
    `historyWindow` never reaches 0.5 on its own.
 6. Check operator logs for `fetching workload for initial-sizing selector`
-   or `initial sizing applied`.
+   or `initial sizing applied`. When CREATE has no assigned name, that
+   Info line uses `generateName` (for example `my-app-abc-`), not the
+   name kubelet later assigns.
 
 ### Paused
 
