@@ -234,6 +234,30 @@ for example an unsupported kind, an invalid selector, or a client/list error.
 4. Check operator logs for the exact discovery error if the target still
    looks correct.
 
+### New pods still start at template size
+
+**Symptom**: `updateStrategy.initialSizing` is true, but new pods keep the
+Deployment template requests. The pod has no `attune.io/initial-sizing=applied`
+annotation.
+
+**Cause**: The mutating webhook only patches CREATE when every gate passes.
+A selector policy also has to fetch the owning Deployment, StatefulSet, or
+DaemonSet and match `targetRef.selector`. Get or parse errors skip the
+pod (the CREATE is still allowed).
+
+**Fix**:
+
+1. Confirm the Helm/operator value `initialSizing.enabled` is true and the
+   namespace has label `attune.io/initial-sizing=enabled`.
+2. Confirm the policy is Auto, OneShot, or Canary (not Observe or Recommend)
+   and `updateStrategy.initialSizing: true`.
+3. If `targetRef.selector` is set, confirm the owner object exists and its
+   labels match. An empty selector matches nothing.
+4. On Canary, CREATE sizing waits until that app is promoted, or the pod
+   name is already in `status.canary.workloads[].pods`.
+5. Check operator logs for `fetching workload for initial-sizing selector`
+   or `initial sizing applied`.
+
 ### Paused
 
 **Symptom**: Ready condition is `False` with reason `Paused`.
