@@ -211,10 +211,11 @@ Use this ordered path when turning on PR automation for the first time.
    ```
 4. **Enable dry-run** on the policy (`pullRequest.enabled: true`,
    `dryRun: true`, `repository`, `tokenSecretRef`). Wait for condition
-   `GitOpsPullRequest` with reason `PullRequestDryRun` (or `NoDrift` if
-   templates already match). Metric
-   `attune_gitops_pr_total{result="dry_run"}` should increase when
-   drift is present.
+   `GitOpsPullRequest` with reason `PullRequestDryRun` (first pass)
+   or `PullRequestUnchanged` (same table on the next reconcile).
+   `NoDrift` means templates already match. Metric
+   `attune_gitops_pr_total{result="dry_run"}` increases once when
+   drift is first recorded.
 5. **Inspect what a real PR would say**: the condition message includes
    the repository and drift count; the body template is the same as
    live PRs (see [Status](#status)).
