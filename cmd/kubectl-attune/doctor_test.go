@@ -19,7 +19,11 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -33,6 +37,18 @@ import (
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	clienttesting "k8s.io/client-go/testing"
 )
+
+// pingTestURL rewrites httptest's 127.0.0.1 listener to localhost so
+// validation.PrometheusAddress allows the request. Literal loopback
+// IPs are rejected as SSRF.
+func pingTestURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	u.Host = "localhost:" + u.Port()
+	return u.String()
+}
 
 func TestClassifyKubernetesVersion(t *testing.T) {
 	t.Parallel()
@@ -348,6 +364,57 @@ func TestPingAuthFailure(t *testing.T) {
 	assert.False(t, pingAuthFailure(&httpStatusError{status: 500, url: "http://x"}))
 	assert.False(t, pingAuthFailure(fmt.Errorf("HTTP 401")))
 	assert.False(t, pingAuthFailure(nil))
+}
+
+func TestPingPrometheusHealthy(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("ok hits /-/healthy", func(t *testing.T) {
+		t.Parallel()
+		var gotPath, gotQuery string
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			gotPath = r.URL.Path
+			gotQuery = r.URL.RawQuery
+			w.WriteHeader(http.StatusOK)
+		}))
+		t.Cleanup(srv.Close)
+		require.NoError(t, pingPrometheusHealthy(ctx, pingTestURL(srv.URL)+"/prom?foo=1"))
+		assert.Equal(t, "/prom/-/healthy", gotPath)
+		assert.Empty(t, gotQuery)
+	})
+
+	t.Run("non-200 is httpStatusError", func(t *testing.T) {
+		t.Parallel()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusUnauthorized)
+		}))
+		t.Cleanup(srv.Close)
+		err := pingPrometheusHealthy(ctx, pingTestURL(srv.URL))
+		require.Error(t, err)
+		var he *httpStatusError
+		require.True(t, errors.As(err, &he), "got %T: %v", err, err)
+		assert.Equal(t, http.StatusUnauthorized, he.status)
+		assert.True(t, pingAuthFailure(err))
+	})
+
+	t.Run("loopback IP rejected before request", func(t *testing.T) {
+		t.Parallel()
+		err := pingPrometheusHealthy(ctx, "http://127.0.0.1:1")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "loopback")
+	})
+
+	t.Run("redirect to loopback is rejected", func(t *testing.T) {
+		t.Parallel()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "http://127.0.0.1:1/-/healthy", http.StatusFound)
+		}))
+		t.Cleanup(srv.Close)
+		err := pingPrometheusHealthy(ctx, pingTestURL(srv.URL))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "loopback")
+	})
 }
 
 func TestPrintDoctorResults_OptionalWarn(t *testing.T) {

@@ -168,6 +168,41 @@ func TestPodAdmissionName(t *testing.T) {
 	assert.Equal(t, "", podAdmissionName(nil, ""))
 }
 
+func TestGetWorkloadObject(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("DaemonSet", func(t *testing.T) {
+		t.Parallel()
+		ds := &appsv1.DaemonSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "my-ds", Namespace: "default",
+				Labels: map[string]string{"app": "agent"},
+			},
+		}
+		cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(ds).Build()
+		obj, err := getWorkloadObject(ctx, cl, "default", "DaemonSet", "my-ds")
+		require.NoError(t, err)
+		assert.Equal(t, "my-ds", obj.GetName())
+		assert.Equal(t, "agent", obj.GetLabels()["app"])
+	})
+
+	t.Run("unsupported kind", func(t *testing.T) {
+		t.Parallel()
+		cl := fake.NewClientBuilder().WithScheme(testScheme()).Build()
+		_, err := getWorkloadObject(ctx, cl, "default", "Job", "my-job")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `unsupported workload kind "Job"`)
+	})
+
+	t.Run("missing object", func(t *testing.T) {
+		t.Parallel()
+		cl := fake.NewClientBuilder().WithScheme(testScheme()).Build()
+		_, err := getWorkloadObject(ctx, cl, "default", "Deployment", "missing")
+		require.Error(t, err)
+	})
+}
+
 func TestPodMutatingHandler_HappyPath(t *testing.T) {
 	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
