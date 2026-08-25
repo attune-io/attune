@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -976,6 +977,8 @@ func TestWorkloadKindName(t *testing.T) {
 	assert.Equal(t, "Deployment", workloadKindName(&appsv1.Deployment{}))
 	assert.Equal(t, "StatefulSet", workloadKindName(&appsv1.StatefulSet{}))
 	assert.Equal(t, "DaemonSet", workloadKindName(&appsv1.DaemonSet{}))
+	assert.Equal(t, "Job", workloadKindName(&batchv1.Job{}))
+	assert.Equal(t, "CronJob", workloadKindName(&batchv1.CronJob{}))
 	// Unknown object falls back to GVK kind (empty when unset).
 	assert.Equal(t, "", workloadKindName(&corev1.Pod{}))
 }

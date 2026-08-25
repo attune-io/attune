@@ -104,7 +104,7 @@ spec:
       percentage: 10           # % of pods to resize first
       observationPeriod: 30m   # watch canary pods before proceeding (minimum: 1m)
       autoPromote: true        # promote to full fleet after safe observation (default: false)
-    cooldown: 1h               # min time between resize operations (default: 1h)
+    cooldown: 1h               # min time between resizes of the same workload (default: 1h)
     autoRevert: true           # revert on safety violation (default: true)
     safetyObservationPeriod: 5m  # post-resize safety watch period (default: 5m, minimum: 1m)
     resizeMethod: InPlaceOnly  # InPlaceOnly | InPlaceOrRecreate (default: InPlaceOnly)

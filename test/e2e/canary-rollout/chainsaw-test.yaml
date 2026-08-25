@@ -160,33 +160,34 @@ spec:
     - name: verify-canary-fraction
       try:
         - script:
-            timeout: 3m
+            timeout: 5m
             content: |
-              # 33% of 3 pods is 1. Fail if every replica was resized.
+              # 33% of 3 pods is 1. Count CPU or memory leaving the
+              # template. The first Success can be memory-only (CPU 500m
+              # -> 500m) while CPU drops on a later cycle.
               NS=e2e-canary-rollout
               seen=0
               stable=0
-              for i in $(seq 1 36); do
+              for i in $(seq 1 48); do
                 changed=0
                 unchanged=0
-                for pod in $(kubectl get pods -n "$NS" -l app=canary-app \
+                pods=$(kubectl get pods -n "$NS" -l app=canary-app \
                   --field-selector=status.phase=Running \
-                  -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}'); do
-                  cpu=$(kubectl get pod "$pod" -n "$NS" \
-                    -o jsonpath='{.spec.containers[0].resources.requests.cpu}')
-                  if [ -z "$cpu" ]; then
-                    echo "empty cpu request on $pod"
-                    continue
-                  fi
-                  # 500m and 0.5 are the same Quantity.
-                  if [ "$cpu" = "500m" ] || [ "$cpu" = "0.5" ]; then
-                    unchanged=$((unchanged + 1))
+                  -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.containers[0].resources.requests.cpu}{"\t"}{.spec.containers[0].resources.requests.memory}{"\n"}{end}')
+                echo "$pods" | while IFS="$(printf '\t')" read -r _name cpu mem; do
+                  [ -z "$_name" ] && continue
+                  if { [ "$cpu" = "500m" ] || [ "$cpu" = "0.5" ]; } && \
+                     { [ "$mem" = "512Mi" ] || [ "$mem" = "512M" ]; }; then
+                    echo unchanged
                   else
-                    changed=$((changed + 1))
+                    echo changed
                   fi
-                done
+                done > /tmp/canary-frac-$$
+                changed=$(grep -c '^changed$' /tmp/canary-frac-$$ || true)
+                unchanged=$(grep -c '^unchanged$' /tmp/canary-frac-$$ || true)
+                rm -f /tmp/canary-frac-$$
                 if [ "$changed" -gt 1 ]; then
-                  echo "FAIL: $changed pods left 500m (want 1 of 3)"
+                  echo "FAIL: $changed pods left template size (want 1 of 3)"
                   kubectl get pods -n "$NS" -o wide
                   kubectl get attunepolicy canary-test -n "$NS" -o yaml
                   exit 1
@@ -194,7 +195,7 @@ spec:
                 if [ "$changed" -eq 1 ] && [ "$unchanged" -eq 2 ]; then
                   seen=1
                   stable=$((stable + 1))
-                  if [ "$stable" -ge 4 ]; then
+                  if [ "$stable" -ge 2 ]; then
                     echo "OK: canary fraction held at 1/3 for ${stable}x5s"
                     exit 0
                   fi

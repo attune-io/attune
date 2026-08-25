@@ -479,9 +479,11 @@ type UpdateStrategy struct {
 
 	// InitialSizing enables a mutating admission webhook that sets resource
 	// requests/limits on new pods at creation time, based on existing
-	// recommendations. This eliminates the "deploy with bad defaults, wait
-	// for first reconcile" gap. Requires the namespace label
-	// attune.io/initial-sizing=enabled. Defaults to false.
+	// recommendations. Matching uses targetRef.name or targetRef.selector
+	// (the webhook fetches the owning Deployment, StatefulSet, or DaemonSet
+	// and fail-closes on Get or parse errors). This eliminates the
+	// "deploy with bad defaults, wait for first reconcile" gap. Requires
+	// the namespace label attune.io/initial-sizing=enabled. Defaults to false.
 	// +optional
 	InitialSizing *bool `json:"initialSizing,omitempty"`
 

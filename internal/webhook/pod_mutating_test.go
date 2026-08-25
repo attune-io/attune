@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	admissionv1 "k8s.io/api/admission/v1"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -65,8 +66,15 @@ func strPtr(s string) *string { return &s }
 func testScheme() *runtime.Scheme {
 	s := runtime.NewScheme()
 	_ = corev1.AddToScheme(s)
+	_ = appsv1.AddToScheme(s)
 	_ = attunev1alpha1.AddToScheme(s)
 	return s
+}
+
+func testDeployment(name, ns string, labels map[string]string) *appsv1.Deployment {
+	return &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, Labels: labels},
+	}
 }
 
 func makePodRaw(t *testing.T, pod *corev1.Pod) []byte {
@@ -454,6 +462,93 @@ func TestPodMutatingHandler_CanaryMode_PromotedAppOnly(t *testing.T) {
 	respSlice := handler.Handle(context.Background(), makeAdmissionRequest(t, bCanary, "default"))
 	require.True(t, respSlice.Allowed)
 	require.NotNil(t, respSlice.Patches, "unpromoted app-b canary-slice pod may be sized")
+}
+
+func TestPodMutatingHandler_SelectorPolicy_CanaryIsolation(t *testing.T) {
+	// Multi-app canary policies use a selector. CREATE must still size only
+	// the promoted app (or the unpromoted canary slice).
+	policy := testPolicy("fleet", "default", "Deployment", "app-a", true, attunev1alpha1.UpdateTypeCanary)
+	policy.Spec.TargetRef.Name = nil
+	policy.Spec.TargetRef.Selector = &metav1.LabelSelector{
+		MatchLabels: map[string]string{"tier": "api"},
+	}
+	policy.Status.Recommendations = append(policy.Status.Recommendations, attunev1alpha1.WorkloadRecommendation{
+		Workload: "app-b",
+		Kind:     "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{
+			{
+				Name:       "app",
+				Confidence: 0.8,
+				Recommended: attunev1alpha1.ResourceValues{
+					CPURequest:    resource.MustParse("500m"),
+					MemoryRequest: resource.MustParse("256Mi"),
+				},
+			},
+		},
+	})
+	policy.Status.Canary = &attunev1alpha1.CanaryStatus{
+		Phase: attunev1alpha1.CanaryPhaseInProgress,
+		Workloads: []attunev1alpha1.CanaryWorkloadStatus{
+			{Workload: "app-a", Phase: attunev1alpha1.CanaryPhaseFullRollout},
+			{Workload: "app-b", Phase: attunev1alpha1.CanaryPhaseInProgress, Pods: []string{"app-b-canary"}},
+		},
+	}
+	deployA := testDeployment("app-a", "default", map[string]string{"tier": "api"})
+	deployB := testDeployment("app-b", "default", map[string]string{"tier": "api"})
+	deployOther := testDeployment("other", "default", map[string]string{"tier": "batch"})
+
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).
+		WithObjects(policy, deployA, deployB, deployOther).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	respA := handler.Handle(context.Background(), makeAdmissionRequest(t,
+		testPod("app-a-new", "ReplicaSet", "app-a-abc"), "default"))
+	require.True(t, respA.Allowed)
+	require.NotNil(t, respA.Patches, "selector-matched promoted app must CREATE-size")
+
+	respB := handler.Handle(context.Background(), makeAdmissionRequest(t,
+		testPod("app-b-new", "ReplicaSet", "app-b-abc"), "default"))
+	require.True(t, respB.Allowed)
+	assert.Nil(t, respB.Patches, "selector-matched unpromoted app must not CREATE-size")
+
+	respOther := handler.Handle(context.Background(), makeAdmissionRequest(t,
+		testPod("other-new", "ReplicaSet", "other-abc"), "default"))
+	require.True(t, respOther.Allowed)
+	assert.Nil(t, respOther.Patches, "workload outside the selector must not CREATE-size")
+
+	respSlice := handler.Handle(context.Background(), makeAdmissionRequest(t,
+		testPod("app-b-canary", "ReplicaSet", "app-b-abc"), "default"))
+	require.True(t, respSlice.Allowed)
+	require.NotNil(t, respSlice.Patches, "selector-matched unpromoted canary-slice pod may be sized")
+}
+
+func TestPodMutatingHandler_SelectorPolicy_EmptySelectorFailsClosed(t *testing.T) {
+	policy := testPolicy("fleet", "default", "Deployment", "app-a", true, attunev1alpha1.UpdateTypeAuto)
+	policy.Spec.TargetRef.Name = nil
+	policy.Spec.TargetRef.Selector = &metav1.LabelSelector{}
+	deployA := testDeployment("app-a", "default", map[string]string{"tier": "api"})
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, deployA).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	resp := handler.Handle(context.Background(), makeAdmissionRequest(t,
+		testPod("app-a-new", "ReplicaSet", "app-a-abc"), "default"))
+	require.True(t, resp.Allowed)
+	assert.Nil(t, resp.Patches, "empty targetRef.selector must not match every Deployment")
+}
+
+func TestPodMutatingHandler_SelectorPolicy_MissingWorkloadFailsClosed(t *testing.T) {
+	policy := testPolicy("fleet", "default", "Deployment", "app-a", true, attunev1alpha1.UpdateTypeAuto)
+	policy.Spec.TargetRef.Name = nil
+	policy.Spec.TargetRef.Selector = &metav1.LabelSelector{
+		MatchLabels: map[string]string{"tier": "api"},
+	}
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	resp := handler.Handle(context.Background(), makeAdmissionRequest(t,
+		testPod("app-a-new", "ReplicaSet", "app-a-abc"), "default"))
+	require.True(t, resp.Allowed)
+	assert.Nil(t, resp.Patches, "Get miss on the owning Deployment must not CREATE-size")
 }
 
 func TestPodMutatingHandler_CanaryMode_MutatesAfterPromote(t *testing.T) {

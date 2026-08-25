@@ -58,6 +58,8 @@ spec:
    startup boost, and HPA retune do not apply to the rest of that app
    (or to other apps). New pods stay at their template size until that
    app is promoted (or the pod is already in `status.canary.workloads[].pods`).
+   Selector-based policies are included: the CREATE webhook fetches the
+   owning Deployment/StatefulSet/DaemonSet and matches `targetRef.selector`.
 7. **Cooldown**: the operator waits for that workload's `cooldown` before
    resizing it again. Other apps on the policy are not locked.
 
