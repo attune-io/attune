@@ -157,6 +157,51 @@ spec:
               echo "No resize occurred within timeout"
               kubectl get attunepolicy canary-test -n e2e-canary-rollout -o yaml
               exit 1
+    - name: verify-canary-fraction
+      try:
+        - script:
+            timeout: 3m
+            content: |
+              # 33% of 3 pods is 1. Fail if every replica was resized.
+              NS=e2e-canary-rollout
+              seen=0
+              stable=0
+              for i in $(seq 1 36); do
+                changed=0
+                unchanged=0
+                for pod in $(kubectl get pods -n "$NS" -l app=canary-app \
+                  --field-selector=status.phase=Running \
+                  -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}'); do
+                  cpu=$(kubectl get pod "$pod" -n "$NS" \
+                    -o jsonpath='{.spec.containers[0].resources.requests.cpu}')
+                  if [ "$cpu" = "500m" ]; then
+                    unchanged=$((unchanged + 1))
+                  else
+                    changed=$((changed + 1))
+                  fi
+                done
+                if [ "$changed" -gt 1 ]; then
+                  echo "FAIL: $changed pods left 500m (want 1 of 3)"
+                  kubectl get pods -n "$NS" -o wide
+                  kubectl get attunepolicy canary-test -n "$NS" -o yaml
+                  exit 1
+                fi
+                if [ "$changed" -eq 1 ] && [ "$unchanged" -eq 2 ]; then
+                  seen=1
+                  stable=$((stable + 1))
+                  if [ "$stable" -ge 4 ]; then
+                    echo "OK: canary fraction held at 1/3 for ${stable}x5s"
+                    exit 0
+                  fi
+                else
+                  stable=0
+                fi
+                sleep 5
+              done
+              echo "FAIL: changed=$changed unchanged=$unchanged seen=$seen"
+              kubectl get pods -n "$NS" -o wide
+              kubectl get attunepolicy canary-test -n "$NS" -o yaml
+              exit 1
   catch:
     - describe:
         apiVersion: attune.io/v1alpha1
