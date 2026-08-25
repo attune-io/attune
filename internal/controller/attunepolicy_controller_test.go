@@ -9622,6 +9622,149 @@ func TestApplyStartupBoosts_SkipsDuringCanaryInProgress(t *testing.T) {
 	}
 }
 
+func TestApplyStartupBoosts_PromotedSiblingStillBoosts(t *testing.T) {
+	scheme := testScheme()
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{Type: attunev1alpha1.UpdateTypeCanary},
+			CPU: attunev1alpha1.ResourceConfig{
+				StartupBoost: &attunev1alpha1.StartupBoost{
+					Multiplier: "3.0",
+					Duration:   metav1.Duration{Duration: 2 * time.Minute},
+				},
+			},
+		},
+		Status: attunev1alpha1.AttunePolicyStatus{
+			Canary: &attunev1alpha1.CanaryStatus{
+				Phase: attunev1alpha1.CanaryPhaseInProgress,
+				Workloads: []attunev1alpha1.CanaryWorkloadStatus{
+					{Workload: "app-a", Phase: attunev1alpha1.CanaryPhaseInProgress, Pods: []string{"app-a-canary"}},
+					{Workload: "app-b", Phase: attunev1alpha1.CanaryPhaseFullRollout},
+				},
+			},
+		},
+	}
+	newPod := func(name string) *corev1.Pod {
+		return &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:              name,
+				Namespace:         "default",
+				CreationTimestamp: metav1.NewTime(now.Add(-30 * time.Second)),
+			},
+			Status: corev1.PodStatus{Phase: corev1.PodRunning},
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{
+						Name: "main",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m")},
+						},
+					},
+				},
+			},
+		}
+	}
+	podA := newPod("app-a-new")
+	podB := newPod("app-b-new")
+	clientset := kubefake.NewSimpleClientset(podA, podB)
+	r := NewAttunePolicyReconciler()
+	r.Client = fake.NewClientBuilder().WithScheme(scheme).WithObjects(podA, podB).Build()
+	r.Scheme = scheme
+	r.Clientset = clientset
+	r.SetNowFunc(func() time.Time { return now })
+
+	resizer := resize.NewPodResizer(clientset, logr.Discard())
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		{Workload: "app-a", Kind: "Deployment", Containers: []attunev1alpha1.ContainerRecommendation{
+			{Name: "main", Recommended: attunev1alpha1.ResourceValues{CPURequest: resource.MustParse("200m")}},
+		}},
+		{Workload: "app-b", Kind: "Deployment", Containers: []attunev1alpha1.ContainerRecommendation{
+			{Name: "main", Recommended: attunev1alpha1.ResourceValues{CPURequest: resource.MustParse("200m")}},
+		}},
+	}
+	r.applyStartupBoosts(context.Background(), policy, map[string][]corev1.Pod{
+		"app-a": {*podA},
+		"app-b": {*podB},
+	}, recs, resizer, nil)
+
+	boosted := map[string]bool{}
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() != "update" || a.GetSubresource() != "resize" {
+			continue
+		}
+		updated := a.(k8stesting.UpdateAction).GetObject().(*corev1.Pod)
+		boosted[updated.Name] = true
+	}
+	assert.False(t, boosted["app-a-new"], "unpromoted app-a must not boost a new pod")
+	assert.True(t, boosted["app-b-new"], "promoted app-b must still get startup boost")
+}
+
+func TestApplyStartupBoosts_UnpromotedCanarySliceStillBoosts(t *testing.T) {
+	scheme := testScheme()
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{Type: attunev1alpha1.UpdateTypeCanary},
+			CPU: attunev1alpha1.ResourceConfig{
+				StartupBoost: &attunev1alpha1.StartupBoost{
+					Multiplier: "3.0",
+					Duration:   metav1.Duration{Duration: 2 * time.Minute},
+				},
+			},
+		},
+		Status: attunev1alpha1.AttunePolicyStatus{
+			Canary: &attunev1alpha1.CanaryStatus{
+				Phase: attunev1alpha1.CanaryPhaseInProgress,
+				Workloads: []attunev1alpha1.CanaryWorkloadStatus{
+					{Workload: "app-a", Phase: attunev1alpha1.CanaryPhaseInProgress, Pods: []string{"app-a-canary"}},
+				},
+			},
+		},
+	}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "app-a-canary",
+			Namespace:         "default",
+			CreationTimestamp: metav1.NewTime(now.Add(-30 * time.Second)),
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m")},
+					},
+				},
+			},
+		},
+	}
+	clientset := kubefake.NewSimpleClientset(pod)
+	r := NewAttunePolicyReconciler()
+	r.Client = fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod).Build()
+	r.Scheme = scheme
+	r.Clientset = clientset
+	r.SetNowFunc(func() time.Time { return now })
+	resizer := resize.NewPodResizer(clientset, logr.Discard())
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		{Workload: "app-a", Kind: "Deployment", Containers: []attunev1alpha1.ContainerRecommendation{
+			{Name: "main", Recommended: attunev1alpha1.ResourceValues{CPURequest: resource.MustParse("200m")}},
+		}},
+	}
+	r.applyStartupBoosts(context.Background(), policy, map[string][]corev1.Pod{"app-a": {*pod}}, recs, resizer, nil)
+
+	found := false
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			found = true
+		}
+	}
+	assert.True(t, found, "unpromoted canary-slice pod must still get startup boost")
+}
+
 func TestApplyStartupBoosts_NaNMultiplierSkipped(t *testing.T) {
 	// NaN multiplier must be treated as invalid and skip the boost entirely.
 	// Before the fix, NaN <= 1 evaluated to false, so NaN passed the guard.
@@ -11841,6 +11984,100 @@ func TestReconcile_AllCoolingRequeuesAtRemaining(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 10*time.Minute, result.RequeueAfter,
 		"all matched apps cooling must requeue at remaining cooldown, not a fresh 1h")
+}
+
+func TestReconcile_CanaryDoesNotRetuneHPAUntilPromoted(t *testing.T) {
+	run := func(t *testing.T, promoted bool) int32 {
+		t.Helper()
+		policy := newTestPolicy("test-policy", "default")
+		policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeCanary
+		policy.Spec.UpdateStrategy.Canary = &attunev1alpha1.CanaryConfig{
+			Percentage:        100,
+			ObservationPeriod: metav1.Duration{Duration: 10 * time.Minute},
+		}
+		policy.Spec.CPU.MaxChangePercent = int32Ptr(100)
+		phase := attunev1alpha1.CanaryPhaseInProgress
+		if promoted {
+			phase = attunev1alpha1.CanaryPhaseFullRollout
+		}
+		policy.Status.Canary = &attunev1alpha1.CanaryStatus{
+			Phase: phase,
+			Workloads: []attunev1alpha1.CanaryWorkloadStatus{
+				{Workload: "api-server", Phase: phase, Pods: []string{"api-server-abc-1"}},
+			},
+		}
+
+		deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+		pod := newResizePod("api-server", "500m", "512Mi", "1000m", "1Gi")
+		oldTarget := int32(80)
+		hpa := &autoscalingv2.HorizontalPodAutoscaler{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "api-server-hpa",
+				Namespace: "default",
+				Annotations: map[string]string{
+					annotationHPAAutoTune: "true",
+				},
+			},
+			Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+				ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+					Kind: "Deployment",
+					Name: "api-server",
+				},
+				Metrics: []autoscalingv2.MetricSpec{
+					{
+						Type: autoscalingv2.ResourceMetricSourceType,
+						Resource: &autoscalingv2.ResourceMetricSource{
+							Name: corev1.ResourceCPU,
+							Target: autoscalingv2.MetricTarget{
+								Type:               autoscalingv2.UtilizationMetricType,
+								AverageUtilization: &oldTarget,
+							},
+						},
+					},
+				},
+			},
+		}
+
+		mc := &mockCollector{
+			queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+				return generateSamples(200, 0.1), nil
+			},
+		}
+		reconciler, fakeClient := newReconcilerForReconcile(mc, policy, deploy, pod, hpa)
+		reconciler.Clientset = kubefake.NewSimpleClientset(pod.DeepCopy())
+
+		_, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+			NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
+		})
+		require.NoError(t, err)
+
+		var updatedPolicy attunev1alpha1.AttunePolicy
+		require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+			Name: "test-policy", Namespace: "default",
+		}, &updatedPolicy))
+		require.Greater(t, updatedPolicy.Status.Workloads.Resized, int32(0),
+			"canary must actually resize so HPA skip is on the live path")
+		require.NotEmpty(t, updatedPolicy.Status.Recommendations)
+		assert.Equal(t, "Deployment", updatedPolicy.Status.Recommendations[0].Kind,
+			"rec.Kind must match HPA ScaleTargetRef so adjustHPATargets is reachable")
+
+		var updatedHPA autoscalingv2.HorizontalPodAutoscaler
+		require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+			Name: "api-server-hpa", Namespace: "default",
+		}, &updatedHPA))
+		require.NotNil(t, updatedHPA.Spec.Metrics[0].Resource.Target.AverageUtilization)
+		return *updatedHPA.Spec.Metrics[0].Resource.Target.AverageUtilization
+	}
+
+	t.Run("unpromoted keeps 80", func(t *testing.T) {
+		assert.Equal(t, int32(80), run(t, false),
+			"unpromoted canary resize must not rewrite the HPA target")
+	})
+	t.Run("promoted retunes away from 80", func(t *testing.T) {
+		got := run(t, true)
+		assert.NotEqual(t, int32(80), got,
+			"promoted canary must retune HPA so the skip is proven reachable (got %d)", got)
+	})
 }
 
 // --- Issue #437: persistResizeAnnotations exhausted-retries path ---

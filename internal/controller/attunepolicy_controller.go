@@ -918,7 +918,10 @@ func (r *AttunePolicyReconciler) processWorkloads(
 	for _, workload := range workloads {
 		g.Go(func() error {
 			workloadName := workload.GetName()
-			workloadKind := workload.GetObjectKind().GroupVersionKind().Kind
+			// Typed fake clients clear TypeMeta. Use the same helper as
+			// template persistence so rec.Kind is Deployment/STS/DS and
+			// HPA ScaleTargetRef matching works in tests and in cache misses.
+			workloadKind := workloadKindName(workload)
 
 			workloadMeta := metav1.ObjectMeta{Annotations: workload.GetAnnotations()}
 			if conflictDetector.CheckAnnotationOptOut(workloadMeta) {

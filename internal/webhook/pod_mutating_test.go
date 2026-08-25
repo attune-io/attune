@@ -410,6 +410,52 @@ func TestPodMutatingHandler_CanaryMode_MutatesCanarySlice(t *testing.T) {
 	require.NotNil(t, resp.Patches, "pod already in the canary slice may be sized")
 }
 
+func TestPodMutatingHandler_CanaryMode_PromotedAppOnly(t *testing.T) {
+	// One policy, two apps. CREATE must size only the promoted app (or a
+	// pod already in the unpromoted app's canary slice).
+	policy := testPolicy("my-policy", "default", "Deployment", "app-a", true, attunev1alpha1.UpdateTypeCanary)
+	policy.Spec.TargetRef.Name = nil
+	policy.Status.Recommendations = append(policy.Status.Recommendations, attunev1alpha1.WorkloadRecommendation{
+		Workload: "app-b",
+		Kind:     "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{
+			{
+				Name:       "app",
+				Confidence: 0.8,
+				Recommended: attunev1alpha1.ResourceValues{
+					CPURequest:    resource.MustParse("500m"),
+					MemoryRequest: resource.MustParse("256Mi"),
+				},
+			},
+		},
+	})
+	policy.Status.Canary = &attunev1alpha1.CanaryStatus{
+		Phase: attunev1alpha1.CanaryPhaseInProgress,
+		Workloads: []attunev1alpha1.CanaryWorkloadStatus{
+			{Workload: "app-a", Phase: attunev1alpha1.CanaryPhaseFullRollout},
+			{Workload: "app-b", Phase: attunev1alpha1.CanaryPhaseInProgress, Pods: []string{"app-b-canary"}},
+		},
+	}
+
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	aNew := testPod("app-a-new", "ReplicaSet", "app-a-abc")
+	respA := handler.Handle(context.Background(), makeAdmissionRequest(t, aNew, "default"))
+	require.True(t, respA.Allowed)
+	require.NotNil(t, respA.Patches, "promoted app-a must CREATE-size a new pod")
+
+	bNew := testPod("app-b-new", "ReplicaSet", "app-b-abc")
+	respB := handler.Handle(context.Background(), makeAdmissionRequest(t, bNew, "default"))
+	require.True(t, respB.Allowed)
+	assert.Nil(t, respB.Patches, "unpromoted app-b must not CREATE-size a new pod")
+
+	bCanary := testPod("app-b-canary", "ReplicaSet", "app-b-abc")
+	respSlice := handler.Handle(context.Background(), makeAdmissionRequest(t, bCanary, "default"))
+	require.True(t, respSlice.Allowed)
+	require.NotNil(t, respSlice.Patches, "unpromoted app-b canary-slice pod may be sized")
+}
+
 func TestPodMutatingHandler_CanaryMode_MutatesAfterPromote(t *testing.T) {
 	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeCanary)
 	policy.Status.Canary = &attunev1alpha1.CanaryStatus{
