@@ -37,6 +37,8 @@ func TestCanaryStatus_AllowsCreateSizing(t *testing.T) {
 	}
 	assert.True(t, inProgress.AllowsCreateSizing("app-a", "a-canary"))
 	assert.False(t, inProgress.AllowsCreateSizing("app-a", "a-new"))
+	assert.False(t, inProgress.AllowsCreateSizing("app-a", ""),
+		"ReplicaSet CREATE often has an empty Name; do not treat it as the canary slice")
 	assert.True(t, inProgress.AllowsCreateSizing("app-b", "b-new"), "promoted app may CREATE-size")
 	assert.False(t, inProgress.AllowsHPARetune("app-a"))
 	assert.True(t, inProgress.AllowsHPARetune("app-b"))
@@ -44,6 +46,8 @@ func TestCanaryStatus_AllowsCreateSizing(t *testing.T) {
 	legacy := &CanaryStatus{Phase: CanaryPhaseInProgress, Pods: []string{"only-this"}}
 	assert.True(t, legacy.AllowsCreateSizing("any", "only-this"))
 	assert.False(t, legacy.AllowsCreateSizing("any", "other"))
+	assert.False(t, legacy.AllowsCreateSizing("any", ""),
+		"empty Name is not a canary-slice identity")
 	assert.False(t, legacy.AllowsHPARetune("any"))
 
 	done := &CanaryStatus{Phase: CanaryPhaseFullRollout}

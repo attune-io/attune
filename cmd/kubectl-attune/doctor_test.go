@@ -80,7 +80,7 @@ func TestHasPodsResizeSubresource(t *testing.T) {
 	}))
 }
 
-func TestCollectPrometheusAddresses(t *testing.T) {
+func TestCollectPrometheusTargets(t *testing.T) {
 	t.Parallel()
 	policy := unstructured.Unstructured{Object: map[string]interface{}{
 		"spec": map[string]interface{}{
@@ -103,8 +103,12 @@ func TestCollectPrometheusAddresses(t *testing.T) {
 			},
 		},
 	}}
-	got := collectPrometheusAddresses(policy, defaults, other, unstructured.Unstructured{})
-	assert.Equal(t, []string{"http://prom.ns.svc:9090", "https://thanos.example:9090"}, got)
+	got := collectPrometheusTargets(policy, defaults, other, unstructured.Unstructured{})
+	require.Len(t, got, 2)
+	assert.Equal(t, "http://prom.ns.svc:9090", got[0].address)
+	assert.False(t, got[0].hasAuth)
+	assert.Equal(t, "https://thanos.example:9090", got[1].address)
+	assert.False(t, got[1].hasAuth)
 }
 
 func resizeDiscovery(major, minor string, withResize bool) *fakediscovery.FakeDiscovery {
@@ -421,8 +425,8 @@ func TestRunDoctor_ExitCodes(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := runDoctor(context.Background(), &stdout, &stderr, resizeDiscovery("1", "32", true), dyn, "default", nil)
 	assert.Equal(t, 0, code)
-	assert.Contains(t, stdout.String(), "pods/resize")
-	assert.Contains(t, stdout.String(), "ok")
+	assert.Contains(t, stdout.String(), "pods/resize            ok   [required] discovered")
+	assert.Contains(t, stdout.String(), "Kubernetes version     ok   [required]")
 	assert.Empty(t, stderr.String())
 
 	stdout.Reset()

@@ -490,6 +490,29 @@ func TestPodMutatingHandler_CanaryMode_SkipsUntilPromoted(t *testing.T) {
 	assert.Nil(t, resp.Patches, "canary CREATE must not apply the full recommendation until that app is promoted")
 }
 
+func TestPodMutatingHandler_CanaryMode_EmptyNameSkips(t *testing.T) {
+	// ReplicaSet CREATE often has Name="" and only GenerateName. Canary
+	// matching uses the real name. An empty name must not match the
+	// slice and must not be treated as generateName.
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeCanary)
+	policy.Status.Canary = &attunev1alpha1.CanaryStatus{
+		Phase: attunev1alpha1.CanaryPhaseInProgress,
+		Pods:  []string{"my-app-abc-xyz"},
+		Workloads: []attunev1alpha1.CanaryWorkloadStatus{
+			{Workload: "my-app", Phase: attunev1alpha1.CanaryPhaseInProgress, Pods: []string{"my-app-abc-xyz"}},
+		},
+	}
+	pod := testPod("", "ReplicaSet", "my-app-abc")
+	pod.GenerateName = "my-app-abc-"
+
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
+	require.True(t, resp.Allowed)
+	assert.Nil(t, resp.Patches, "empty CREATE Name is not in the canary slice")
+}
+
 func TestPodMutatingHandler_CanaryMode_MutatesCanarySlice(t *testing.T) {
 	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeCanary)
 	policy.Status.Canary = &attunev1alpha1.CanaryStatus{
