@@ -170,7 +170,18 @@ func pingPrometheusHealthy(ctx context.Context, address string) error {
 	if err != nil {
 		return err
 	}
-	client := &http.Client{Timeout: prometheusPingTimeout}
+	client := &http.Client{
+		Timeout: prometheusPingTimeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return fmt.Errorf("too many redirects")
+			}
+			if err := validation.PrometheusAddress(req.URL.String()); err != nil {
+				return err
+			}
+			return nil
+		},
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
@@ -246,10 +257,12 @@ func runDoctorChecks(ctx context.Context, disc doctorDiscovery, objects []unstru
 			name: "pods/resize", required: true, detail: err.Error(),
 		})
 	} else if !hasPodsResizeSubresource(lists) {
+		detail := "subresource not found; enable InPlacePodVerticalScaling (1.32 alpha) or use Kubernetes 1.33+"
+		if err != nil {
+			detail = err.Error() + "; " + detail
+		}
 		results = append(results, doctorResult{
-			name:     "pods/resize",
-			required: true,
-			detail:   "subresource not found; enable InPlacePodVerticalScaling (1.32 alpha) or use Kubernetes 1.33+",
+			name: "pods/resize", required: true, detail: detail,
 		})
 	} else {
 		results = append(results, doctorResult{
@@ -314,8 +327,7 @@ func printDoctorResults(w io.Writer, results []doctorResult) {
 func runDoctor(ctx context.Context, stdout, stderr io.Writer, disc doctorDiscovery, dynClient dynamic.Interface, namespace string, ping prometheusPinger) int {
 	objects, err := listDoctorObjects(ctx, dynClient, namespace)
 	if err != nil {
-		fmt.Fprintf(stderr, "Error: %v\n", err)
-		return 1
+		fmt.Fprintf(stderr, "Warning: %v\n", err)
 	}
 	results := runDoctorChecks(ctx, disc, objects, ping)
 	printDoctorResults(stdout, results)
