@@ -157,6 +157,17 @@ func testPod(name string, ownerKind, ownerName string) *corev1.Pod {
 	return pod
 }
 
+func TestPodAdmissionName(t *testing.T) {
+	t.Parallel()
+	named := testPod("app-abc-xyz", "ReplicaSet", "app-abc")
+	generated := testPod("", "ReplicaSet", "app-abc")
+	generated.GenerateName = "app-abc-"
+	assert.Equal(t, "app-abc-xyz", podAdmissionName(named, "ignored"))
+	assert.Equal(t, "from-req", podAdmissionName(generated, "from-req"))
+	assert.Equal(t, "app-abc-", podAdmissionName(generated, ""))
+	assert.Equal(t, "", podAdmissionName(nil, ""))
+}
+
 func TestPodMutatingHandler_HappyPath(t *testing.T) {
 	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
