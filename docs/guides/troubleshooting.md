@@ -1056,7 +1056,9 @@ update a PR. Common cases:
 
 1. Token Secret missing, wrong key, or RBAC cannot read Secrets.
 2. Invalid `provider` / `repository` / optional `apiUrl` (including SSRF
-   rejection of private targets).
+   rejection of loopback, link-local, and cloud metadata hosts).
+   ClusterIP and other private RFC1918 addresses are allowed, same as
+   Prometheus.
 3. Forge API error (auth, branch protection, missing head branch before
    bootstrap, rate limits).
 

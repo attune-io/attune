@@ -305,6 +305,26 @@ func gitOpsStoredLastAttempt(policy *attunev1alpha1.AttunePolicy) string {
 	return policy.Annotations[annotationGitOpsPRLastAttempt]
 }
 
+// mergeGitOpsPRStatus copies non-empty fields from src onto dest so a
+// fingerprint-only persist cannot clear a URL or lastAttempt already
+// stored on the server object.
+func mergeGitOpsPRStatus(dest *attunev1alpha1.AttunePolicy, src *attunev1alpha1.GitOpsPRStatus) {
+	if src == nil {
+		return
+	}
+	st := ensureGitOpsPRStatus(dest)
+	if src.DriftFingerprint != "" {
+		st.DriftFingerprint = src.DriftFingerprint
+	}
+	if src.URL != "" {
+		st.URL = src.URL
+	}
+	if src.LastAttempt != nil && !src.LastAttempt.Time.IsZero() {
+		t := src.LastAttempt.DeepCopy()
+		st.LastAttempt = t
+	}
+}
+
 func ensureGitOpsPRStatus(policy *attunev1alpha1.AttunePolicy) *attunev1alpha1.GitOpsPRStatus {
 	if policy.Status.GitOpsPR == nil {
 		policy.Status.GitOpsPR = &attunev1alpha1.GitOpsPRStatus{}
@@ -380,7 +400,7 @@ func (r *AttunePolicyReconciler) persistGitOpsPRAnnotations(ctx context.Context,
 		}
 		if policy.Status.GitOpsPR != nil {
 			stBase := latest.DeepCopy()
-			latest.Status.GitOpsPR = policy.Status.GitOpsPR.DeepCopy()
+			mergeGitOpsPRStatus(latest, policy.Status.GitOpsPR)
 			if err := r.Status().Patch(ctx, latest, client.MergeFrom(stBase)); err != nil {
 				lastErr = err
 				continue
