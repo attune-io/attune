@@ -1290,7 +1290,14 @@ func TestWasteGrade(t *testing.T) {
 	}{
 		{name: "A under 10 percent cpu", curCPU: "105m", recCPU: "100m", curMem: "100Mi", recMem: "100Mi", want: "A"},
 		{name: "A exact match", curCPU: "100m", recCPU: "100m", curMem: "256Mi", recMem: "256Mi", want: "A"},
-		{name: "A under-provisioned", curCPU: "80m", recCPU: "100m", curMem: "128Mi", recMem: "256Mi", want: "A"},
+		{name: "A within 10 percent under", curCPU: "240m", recCPU: "250m", curMem: "100Mi", recMem: "100Mi", want: "A"},
+		{name: "A at 10 percent under", curCPU: "90m", recCPU: "100m", curMem: "100Mi", recMem: "100Mi", want: "A"},
+		{name: "U just beyond 10 percent under", curCPU: "89m", recCPU: "100m", curMem: "100Mi", recMem: "100Mi", want: "U"},
+		{name: "U under-provisioned", curCPU: "80m", recCPU: "100m", curMem: "128Mi", recMem: "256Mi", want: "U"},
+		{name: "U zero request", curCPU: "0", recCPU: "250m", curMem: "0", recMem: "512Mi", want: "U"},
+		{name: "U scale-up", curCPU: "100m", recCPU: "2000m", curMem: "128Mi", recMem: "128Mi", want: "U"},
+		{name: "U wins cpu over mem under", curCPU: "180m", recCPU: "100m", curMem: "40Mi", recMem: "100Mi", want: "U"},
+		{name: "U wins cpu under mem over", curCPU: "40m", recCPU: "100m", curMem: "180Mi", recMem: "100Mi", want: "U"},
 		{name: "B at 10 percent", curCPU: "110m", recCPU: "100m", curMem: "100Mi", recMem: "100Mi", want: "B"},
 		{name: "B just under 25 percent", curCPU: "124m", recCPU: "100m", curMem: "100Mi", recMem: "100Mi", want: "B"},
 		{name: "C at 25 percent", curCPU: "125m", recCPU: "100m", curMem: "100Mi", recMem: "100Mi", want: "C"},
@@ -1376,6 +1383,64 @@ func TestPrintRecommendations(t *testing.T) {
 	assert.Contains(t, output, "250m")
 	assert.Contains(t, output, "85.0%")
 	assert.Regexp(t, `(?m)\bF\b`, output)
+}
+
+func TestPrintRecommendations_UnderProvisionedGradeU(t *testing.T) {
+	policy := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "attune.io/v1alpha1",
+			"kind":       "AttunePolicy",
+			"metadata": map[string]interface{}{
+				"name":      "web",
+				"namespace": "prod",
+			},
+			"status": map[string]interface{}{
+				"recommendations": []interface{}{
+					map[string]interface{}{
+						"workload": "api",
+						"containers": []interface{}{
+							map[string]interface{}{
+								"name":       "app",
+								"confidence": 0.92,
+								"current": map[string]interface{}{
+									"cpuRequest":    "0",
+									"memoryRequest": "0",
+								},
+								"recommended": map[string]interface{}{
+									"cpuRequest":    "250m",
+									"memoryRequest": "512Mi",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{gvr: "AttunePolicyList"}, policy)
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	printRecommendations(context.Background(), dynClient, "prod")
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	output := buf.String()
+
+	assert.Contains(t, output, "GRADE")
+	assert.Contains(t, output, "250m")
+	assert.Regexp(t, `(?m)\bU\b`, output)
+	assert.NotRegexp(t, `(?m)\bA\b`, output)
 }
 
 func TestPrintRecommendations_CollectingData(t *testing.T) {
@@ -2506,6 +2571,41 @@ func TestPrintRecommendationsCSV_HeaderAndRow(t *testing.T) {
 	s := string(out)
 	assert.Contains(t, s, "namespace,policy,workload,container,cpu_req,cpu_rec,mem_req,mem_rec,grade,confidence_or_status")
 	assert.Contains(t, s, "ns,p,api,app,500m,250m,256Mi,128Mi,F,95.0%")
+}
+
+func TestPrintRecommendationsCSV_UnderProvisionedGradeU(t *testing.T) {
+	items := []unstructured.Unstructured{
+		{Object: map[string]interface{}{
+			"metadata": map[string]interface{}{"name": "p", "namespace": "ns"},
+			"status": map[string]interface{}{
+				"recommendations": []interface{}{
+					map[string]interface{}{
+						"workload": "api",
+						"containers": []interface{}{
+							map[string]interface{}{
+								"name":        "app",
+								"current":     map[string]interface{}{"cpuRequest": "0", "memoryRequest": "0"},
+								"recommended": map[string]interface{}{"cpuRequest": "250m", "memoryRequest": "512Mi"},
+								"confidence":  0.92,
+							},
+						},
+					},
+				},
+			},
+		}},
+	}
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+	printRecommendationsCSV(items)
+	require.NoError(t, w.Close())
+	os.Stdout = old
+	out, err := io.ReadAll(r)
+	require.NoError(t, err)
+	s := string(out)
+	assert.Contains(t, s, "ns,p,api,app,0,250m,0,512Mi,U,92.0%")
+	assert.NotContains(t, s, ",A,")
 }
 
 func TestPrintRecommendationsCSV_EmptyRecsUseReadyReason(t *testing.T) {
