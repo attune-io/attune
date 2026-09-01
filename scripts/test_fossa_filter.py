@@ -55,6 +55,26 @@ class TestIsFalsePositive(unittest.TestCase):
             "type": "outdated",
         }))
 
+    def test_k8s_client_go_vulnerability(self):
+        # Main 2026-09-01: FOSSA License Check attributed k8s server
+        # CVEs to client-go. OSV/govulncheck report none for v0.36.4.
+        self.assertTrue(is_false_positive({
+            "revisionId": "go+k8s.io/client-go$v0.36.4",
+            "type": "vulnerability",
+        }))
+
+    def test_k8s_apimachinery_vulnerability(self):
+        self.assertTrue(is_false_positive({
+            "revisionId": "go+k8s.io/apimachinery$v0.36.4",
+            "type": "vulnerability",
+        }))
+
+    def test_non_k8s_vulnerability_is_genuine(self):
+        self.assertFalse(is_false_positive({
+            "revisionId": "go+github.com/evil/pkg$v1.0.0",
+            "type": "vulnerability",
+        }))
+
     def test_golang_text_ccbysa(self):
         self.assertTrue(is_false_positive({
             "revisionId": "go+golang.org/x/text$v0.37.0",
@@ -140,6 +160,16 @@ class TestMain(unittest.TestCase):
     def test_all_false_positives_exit_0(self):
         path = self._write_tmp(json.dumps([
             {"revisionId": "go+k8s.io/client-go$v0.36.2", "type": "outdated"},
+        ]))
+        sys.argv = ["fossa-filter.py", path]
+        self.assertEqual(main(), 0)
+
+    def test_k8s_vulnerability_payload_exit_0(self):
+        # Exact remaining issues from main run 33497447108.
+        path = self._write_tmp(json.dumps([
+            {"revisionId": "go+k8s.io/client-go$v0.36.4", "type": "vulnerability"},
+            {"revisionId": "go+k8s.io/apimachinery$v0.36.4", "type": "vulnerability"},
+            {"revisionId": "go+k8s.io/client-go$v0.36.4", "type": "vulnerability"},
         ]))
         sys.argv = ["fossa-filter.py", path]
         self.assertEqual(main(), 0)
