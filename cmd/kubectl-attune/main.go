@@ -1615,9 +1615,11 @@ func parseDollarCents(s string) int64 {
 	return int64(f * 100)
 }
 
-// wasteGrade maps request waste to A-F. Waste is (current-rec)/rec for each
-// resource; the worse of CPU or memory wins. Under-request (current <= rec)
-// is A. "-" is used when no pair can be compared (collecting, missing rec,
+// wasteGrade maps request waste to A-F, or U when under-provisioned.
+// Waste is (current-rec)/rec for each resource. More than 10% under
+// the recommendation is U and wins over A-F (risk over cost). The
+// worse of CPU or memory waste otherwise selects the letter. "-" is
+// used when no pair can be compared (collecting, missing rec,
 // unparseable, or non-positive rec).
 func wasteGrade(curCPU, recCPU, curMem, recMem string) string {
 	cpuWaste, cpuOK := requestWaste(curCPU, recCPU)
@@ -1625,8 +1627,11 @@ func wasteGrade(curCPU, recCPU, curMem, recMem string) string {
 	if !cpuOK && !memOK {
 		return "-"
 	}
+	if (cpuOK && cpuWaste < -0.10) || (memOK && memWaste < -0.10) {
+		return "U"
+	}
 	waste := 0.0
-	if cpuOK {
+	if cpuOK && cpuWaste > waste {
 		waste = cpuWaste
 	}
 	if memOK && memWaste > waste {
@@ -1663,9 +1668,6 @@ func requestWaste(current, recommended string) (float64, bool) {
 		return 0, false
 	}
 	curMilli := cur.MilliValue()
-	if curMilli <= recMilli {
-		return 0, true
-	}
 	return float64(curMilli-recMilli) / float64(recMilli), true
 }
 
