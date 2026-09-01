@@ -20,13 +20,19 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/attune-io/attune/internal/validation"
 )
+
+var errGitOpsRedirect = errors.New("redirects are not allowed")
 
 // PRRequest is the input for create-or-update PR.
 type PRRequest struct {
@@ -83,7 +89,7 @@ func (c *GitHubClient) CreateOrUpdate(ctx context.Context, req PRRequest) (PRRes
 	}
 	httpClient := c.HTTP
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 30 * time.Second}
+		httpClient = newGitOpsHTTPClient()
 	}
 
 	// Find existing open PR for this head branch. GitHub supports head=owner:ref
@@ -154,7 +160,7 @@ func (c *GitHubClient) CreateOrUpdate(ctx context.Context, req PRRequest) (PRRes
 		return PRResult{}, err
 	}
 	if code < 200 || code >= 300 {
-		return PRResult{}, fmt.Errorf("github create PR: status %d: %s", code, redactToken(string(respBody), c.Token))
+		return PRResult{}, fmt.Errorf("github create PR: status %d", code)
 	}
 	var created struct {
 		Number  int    `json:"number"`
@@ -240,7 +246,7 @@ func (c *GitHubClient) ensureHeadBranch(ctx context.Context, httpClient HTTPDoer
 		return fmt.Errorf("github create bootstrap commit: %w", err)
 	}
 	if code < 200 || code >= 300 {
-		return fmt.Errorf("github create bootstrap commit: status %d: %s", code, redactToken(string(newCommitBody), c.Token))
+		return fmt.Errorf("github create bootstrap commit: status %d", code)
 	}
 	var newCommit struct {
 		SHA string `json:"sha"`
@@ -258,7 +264,7 @@ func (c *GitHubClient) ensureHeadBranch(ctx context.Context, httpClient HTTPDoer
 		"ref": "refs/heads/" + head,
 		"sha": newCommit.SHA,
 	}
-	refBody, code, err := c.doJSON(ctx, httpClient, http.MethodPost, createRefURL, createRefPayload)
+	_, code, err = c.doJSON(ctx, httpClient, http.MethodPost, createRefURL, createRefPayload)
 	if err != nil {
 		return fmt.Errorf("github create head branch: %w", err)
 	}
@@ -270,12 +276,15 @@ func (c *GitHubClient) ensureHeadBranch(ctx context.Context, httpClient HTTPDoer
 		}
 	}
 	if code < 200 || code >= 300 {
-		return fmt.Errorf("github create head branch: status %d: %s", code, redactToken(string(refBody), c.Token))
+		return fmt.Errorf("github create head branch: status %d", code)
 	}
 	return nil
 }
 
 func (c *GitHubClient) doJSON(ctx context.Context, httpClient HTTPDoer, method, rawURL string, payload interface{}) ([]byte, int, error) {
+	if err := validation.GitOpsAPIURL(rawURL); err != nil {
+		return nil, 0, fmt.Errorf("gitops api url rejected")
+	}
 	var rdr io.Reader
 	if payload != nil {
 		b, err := json.Marshal(payload)
@@ -315,7 +324,7 @@ func (c *GitLabClient) CreateOrUpdate(ctx context.Context, req PRRequest) (PRRes
 	}
 	httpClient := c.HTTP
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 30 * time.Second}
+		httpClient = newGitOpsHTTPClient()
 	}
 	project := url.PathEscape(c.Project)
 
@@ -365,7 +374,7 @@ func (c *GitLabClient) CreateOrUpdate(ctx context.Context, req PRRequest) (PRRes
 		return PRResult{}, err
 	}
 	if code < 200 || code >= 300 {
-		return PRResult{}, fmt.Errorf("gitlab create MR: status %d: %s", code, redactToken(string(respBody), c.Token))
+		return PRResult{}, fmt.Errorf("gitlab create MR: status %d", code)
 	}
 	var created struct {
 		IID    int    `json:"iid"`
@@ -432,12 +441,15 @@ func (c *GitLabClient) ensureHeadBranch(ctx context.Context, httpClient HTTPDoer
 				continue
 			}
 		}
-		return fmt.Errorf("gitlab create head branch: status %d: %s", code, redactToken(string(respBody), c.Token))
+		return fmt.Errorf("gitlab create head branch: status %d", code)
 	}
 	return fmt.Errorf("gitlab create head branch: exhausted create/update attempts")
 }
 
 func (c *GitLabClient) doJSON(ctx context.Context, httpClient HTTPDoer, method, rawURL string, payload interface{}) ([]byte, int, error) {
+	if err := validation.GitOpsAPIURL(rawURL); err != nil {
+		return nil, 0, fmt.Errorf("gitops api url rejected")
+	}
 	var rdr io.Reader
 	if payload != nil {
 		b, err := json.Marshal(payload)
@@ -464,6 +476,47 @@ func (c *GitLabClient) doJSON(ctx context.Context, httpClient HTTPDoer, method, 
 		return nil, resp.StatusCode, err
 	}
 	return body, resp.StatusCode, nil
+}
+
+func newGitOpsHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout:       30 * time.Second,
+		Transport:     gitopsSafeTransport(),
+		CheckRedirect: gitopsCheckRedirect,
+	}
+}
+
+func gitopsCheckRedirect(*http.Request, []*http.Request) error {
+	return errGitOpsRedirect
+}
+
+// gitopsSafeTransport resolves hostnames and refuses private, loopback,
+// link-local, and metadata IPs before dialing. Stricter than the Prometheus
+// transport, which must allow ClusterIP scrapes.
+func gitopsSafeTransport() http.RoundTripper {
+	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	return &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				return nil, fmt.Errorf("gitops dial: invalid address")
+			}
+			ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+			if err != nil {
+				return nil, fmt.Errorf("gitops dial: DNS resolution failed")
+			}
+			for _, ip := range ips {
+				if validation.GitOpsBlockedIP(ip.IP) {
+					return nil, fmt.Errorf("gitops SSRF blocked: resolved to a disallowed address")
+				}
+			}
+			return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
+		},
+		ResponseHeaderTimeout: 30 * time.Second,
+		IdleConnTimeout:       90 * time.Second,
+		MaxIdleConnsPerHost:   10,
+	}
 }
 
 func redactToken(s, token string) string {

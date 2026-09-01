@@ -132,10 +132,10 @@ func (r *AttunePolicyReconciler) reconcileGitOpsPullRequest(
 	head := gitops.BranchName(policy.Namespace, policy.Name)
 
 	if cfg.APIURL != "" {
-		if err := validation.PrometheusAddress(cfg.APIURL); err != nil {
+		if err := validation.GitOpsAPIURL(cfg.APIURL); err != nil {
 			logger.Error(err, "GitOps PR: apiUrl failed SSRF checks")
 			setGitOpsPRCondition(policy, metav1.ConditionFalse, attunev1alpha1.ReasonGitOpsPRFailed,
-				"apiUrl is not an allowed HTTP(S) host")
+				"apiUrl is not an allowed HTTPS host")
 			operatormetrics.GitOpsPRTotal.WithLabelValues(policy.Namespace, policy.Name, "failed").Inc()
 			return
 		}
@@ -187,10 +187,11 @@ func (r *AttunePolicyReconciler) reconcileGitOpsPullRequest(
 		Title: title, Body: body, Head: head, Base: base, Labels: cfg.Labels,
 	})
 	if err != nil {
-		// Never include raw API bodies that might echo credentials.
+		// Never include raw API bodies or error strings that might echo
+		// IMDS credentials. Status is a short static message only.
 		logger.Error(err, "GitOps PR create/update failed", "provider", provider, "repository", cfg.Repository)
 		setGitOpsPRCondition(policy, metav1.ConditionFalse, attunev1alpha1.ReasonGitOpsPRFailed,
-			fmt.Sprintf("PR API error: %v", err))
+			"PR API request failed")
 		operatormetrics.GitOpsPRTotal.WithLabelValues(policy.Namespace, policy.Name, "failed").Inc()
 		r.touchGitOpsPRAnnotation(policy, "")
 		r.persistGitOpsPRAnnotations(ctx, policy)

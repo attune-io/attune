@@ -264,7 +264,7 @@ that do not set them explicitly. Policy-level values always take precedence.
 | `cooldown` | duration | `1h` | Minimum time between resizes of the same workload. Other apps on the same policy are not locked. When every matched app is still cooling, the next reconcile waits only until the soonest per-app window expires (a watch event does not restart a full cooldown). |
 | `autoRevert` | bool | `true` | Revert unsafe resizes automatically |
 | `resizeMethod` | string | `InPlaceOnly` | `InPlaceOnly` or `InPlaceOrRecreate` |
-| `maxConcurrentResizes` | int32 | `1` | Max pods to resize simultaneously |
+| `maxConcurrentResizes` | int32 | `1` (built-in when unset) | Max pods to resize simultaneously. Omitted on the policy so AttuneDefaults can apply before the built-in 1. |
 | `maxStatusRecommendations` | *int32 | `100` (operator default) | Cap for `status.recommendations` length; full set still drives resizes |
 | `includeExplanationsInStatus` | *bool | `true` | When false, strip recommendation explanation chains from status |
 | `maxTotalCpuIncrease` | quantity | (none) | Max aggregate CPU increase per cycle |
@@ -406,8 +406,8 @@ as alternative metrics sources. **At most one** of `prometheus`,
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `metricsSource.cloudwatch.region` | string | (required) | AWS region (e.g., `us-east-1`) |
-| `metricsSource.cloudwatch.clusterName` | string | (required) | EKS cluster name for Container Insights metric filtering |
-| `metricsSource.cloudwatch.roleArn` | string | `""` | Optional IAM role ARN for cross-account access (IRSA/Pod Identity used if empty) |
+| `metricsSource.cloudwatch.clusterName` | string | (required) | EKS cluster name for Container Insights metric filtering (1-100 chars, alphanumeric / hyphen / underscore) |
+| `metricsSource.cloudwatch.roleArn` | string | `""` | Optional IAM role ARN for cross-account access (`arn:aws:iam::ACCOUNT:role/NAME`; IRSA/Pod Identity used if empty) |
 
 ## Policy-Level Fields
 

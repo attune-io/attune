@@ -31,6 +31,8 @@ import (
 	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/go-logr/logr"
+
+	"github.com/attune-io/attune/internal/validation"
 )
 
 // CloudWatchAPI is the subset of the CloudWatch client used by the collector.
@@ -51,6 +53,12 @@ type CloudWatchCollector struct {
 // Insights metrics. It uses the default AWS credential chain (IRSA, Pod Identity,
 // instance profile) and optionally assumes a cross-account IAM role.
 func NewCloudWatchCollector(ctx context.Context, region, clusterName, roleARN string, logger logr.Logger) (*CloudWatchCollector, error) {
+	if err := validation.CloudWatchClusterName(clusterName); err != nil {
+		return nil, fmt.Errorf("cloudwatch clusterName: %w", err)
+	}
+	if err := validation.CloudWatchRoleARN(roleARN); err != nil {
+		return nil, fmt.Errorf("cloudwatch roleArn: %w", err)
+	}
 	cfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(region))
 	if err != nil {
 		return nil, fmt.Errorf("loading AWS config: %w", err)
@@ -92,6 +100,9 @@ func (c *CloudWatchCollector) QueryRangeGrouped(ctx context.Context, query strin
 	if err := json.Unmarshal([]byte(query), &spec); err != nil {
 		return nil, fmt.Errorf("parsing CloudWatch query spec: %w", err)
 	}
+	if err := validateCloudWatchQuerySpec(spec); err != nil {
+		return nil, fmt.Errorf("CloudWatch query spec: %w", err)
+	}
 
 	period := spec.Period
 	if period < 60 {
@@ -99,10 +110,15 @@ func (c *CloudWatchCollector) QueryRangeGrouped(ctx context.Context, query strin
 	}
 	period32 := int32(min(period, 86400)) //nolint:gosec // period is clamped to [60, 86400]
 
-	// Build a SEARCH expression to find all matching Container Insights metrics.
+	// Metric/Stat/ClusterName/Namespace/PodPrefix are pinned or allowlisted
+	// above so they cannot break out of the quoted SEARCH terms.
+	prefixTerm := ""
+	if spec.PodPrefix != "" {
+		prefixTerm = fmt.Sprintf(` PodName="%s*"`, spec.PodPrefix)
+	}
 	searchExpr := fmt.Sprintf(
-		`SEARCH('{ContainerInsights,ClusterName,Namespace,PodName,ContainerName} MetricName="%s" ClusterName="%s" Namespace="%s"', '%s', %d)`,
-		spec.Metric, spec.ClusterName, spec.Namespace, spec.Stat, period32,
+		`SEARCH('{ContainerInsights,ClusterName,Namespace,PodName,ContainerName} MetricName="%s" ClusterName="%s" Namespace="%s"%s', '%s', %d)`,
+		spec.Metric, spec.ClusterName, spec.Namespace, prefixTerm, spec.Stat, period32,
 	)
 
 	input := &cloudwatch.GetMetricDataInput{
@@ -142,6 +158,9 @@ func (c *CloudWatchCollector) QueryRangeGrouped(ctx context.Context, query strin
 			}
 
 			for i, ts := range result.Timestamps {
+				if i >= len(result.Values) {
+					break
+				}
 				value := result.Values[i]
 				// Skip non-finite values from CloudWatch (e.g., insufficient
 				// data for a statistic returns NaN).
@@ -187,6 +206,32 @@ func (c *CloudWatchCollector) Query(ctx context.Context, query string, ts time.T
 
 // Close is a no-op; the AWS SDK client does not need explicit cleanup.
 func (c *CloudWatchCollector) Close() error {
+	return nil
+}
+
+// validateCloudWatchQuerySpec pins Metric/Stat to values the query builder
+// emits and allowlists interpolated SEARCH tokens so a crafted JSON spec
+// cannot inject extra SEARCH terms.
+func validateCloudWatchQuerySpec(spec CloudWatchQuerySpec) error {
+	switch spec.Metric {
+	case "container_cpu_usage_total", "container_memory_working_set":
+	default:
+		return fmt.Errorf("unsupported metric")
+	}
+	if spec.Stat != "Average" {
+		return fmt.Errorf("unsupported stat")
+	}
+	if err := validation.CloudWatchClusterName(spec.ClusterName); err != nil {
+		return err
+	}
+	if err := validation.CloudWatchSEARCHToken(spec.Namespace); err != nil {
+		return fmt.Errorf("namespace: %w", err)
+	}
+	if spec.PodPrefix != "" {
+		if err := validation.CloudWatchSEARCHToken(spec.PodPrefix); err != nil {
+			return fmt.Errorf("podPrefix: %w", err)
+		}
+	}
 	return nil
 }
 

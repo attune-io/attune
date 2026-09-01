@@ -1212,6 +1212,24 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *attu
 	}
 	printEffectiveField("Initial sizing", formatBoolField(item, "spec", "updateStrategy", "initialSizing"), formatBoolPtr(effective.Spec.UpdateStrategy.InitialSizing), selected, updateDefaults != nil && updateDefaults.InitialSizing != nil)
 	printEffectiveField("Max concurrent resizes", formatInt64Field(item, "spec", "updateStrategy", "maxConcurrentResizes"), formatInt32Val(effective.Spec.UpdateStrategy.MaxConcurrentResizes), selected, updateDefaults != nil && updateDefaults.MaxConcurrentResizes != 0)
+	var costPricing *attunev1alpha1.CostPricing
+	if selected.defaults != nil {
+		costPricing = selected.defaults.Spec.CostPricing
+	}
+	cpuPrice := "0.031"
+	cpuPriceInherited := false
+	if costPricing != nil && costPricing.CPUPerCoreHour != "" {
+		cpuPrice = costPricing.CPUPerCoreHour
+		cpuPriceInherited = true
+	}
+	memPrice := "0.004"
+	memPriceInherited := false
+	if costPricing != nil && costPricing.MemoryPerGiBHour != "" {
+		memPrice = costPricing.MemoryPerGiBHour
+		memPriceInherited = true
+	}
+	printEffectiveField("CPU per core-hour", "", cpuPrice, selected, cpuPriceInherited)
+	printEffectiveField("Memory per GiB-hour", "", memPrice, selected, memPriceInherited)
 	printEffectiveField("History window", getNestedString(item, "spec", "metricsSource", "historyWindow"), formatDurationPtr(effective.Spec.MetricsSource.HistoryWindow), selected, metricsDefaults != nil && metricsDefaults.HistoryWindow != nil)
 	printEffectiveField("Rate window", getNestedString(item, "spec", "metricsSource", "rateWindow"), formatDurationPtr(effective.Spec.MetricsSource.RateWindow), selected, metricsDefaults != nil && metricsDefaults.RateWindow != nil)
 	podAggEffective := effective.Spec.MetricsSource.PodAggregation

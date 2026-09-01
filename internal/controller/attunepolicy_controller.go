@@ -79,8 +79,9 @@ const (
 	annotationOriginalRestartCountPrefix = "attune.io/original-restart-count."
 
 	// HPA auto-tune annotations.
-	annotationHPAAutoTune    = "attune.io/auto-tune"
-	annotationHPAOriginalCPU = "attune.io/original-target-cpu"
+	annotationHPAAutoTune           = "attune.io/auto-tune"
+	annotationHPAOriginalCPU        = "attune.io/original-target-cpu"
+	annotationHPAOriginalCPURequest = "attune.io/original-cpu-request"
 
 	// Startup boost annotation.
 	annotationStartupBoostAt = "attune.io/startup-boost-at"
@@ -129,7 +130,7 @@ const (
 //+kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=get;list;watch;create;patch
 //+kubebuilder:rbac:groups=autoscaling,resources=horizontalpodautoscalers,verbs=get;list;watch;update;patch
 //+kubebuilder:rbac:groups=autoscaling.k8s.io,resources=verticalpodautoscalers,verbs=get;list;watch
-//+kubebuilder:rbac:groups=monitoring.coreos.com,resources=prometheuses,verbs=get;list
+//+kubebuilder:rbac:groups=monitoring.coreos.com,resources=prometheuses,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get

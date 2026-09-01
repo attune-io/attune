@@ -4495,6 +4495,7 @@ func TestApplyBuiltInDefaults_FillsAllFields(t *testing.T) {
 	assert.Equal(t, attunev1alpha1.DefaultControlledValues, *policy.Spec.Memory.ControlledValues)
 	require.NotNil(t, policy.Spec.ExcludeKnownSidecars)
 	assert.True(t, *policy.Spec.ExcludeKnownSidecars)
+	assert.Equal(t, attunev1alpha1.DefaultMaxConcurrentResizes, policy.Spec.UpdateStrategy.MaxConcurrentResizes)
 }
 
 func TestApplyBuiltInDefaults_PreservesUserValues(t *testing.T) {
@@ -4551,10 +4552,11 @@ func TestMergeDefaults_ClusterDefaultsTakeEffect(t *testing.T) {
 				MaxChangePercent: int32Ptr(60),
 			},
 			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
-				Type:         attunev1alpha1.UpdateTypeAuto,
-				Cooldown:     &cooldown,
-				AutoRevert:   &autoRevert,
-				ResizeMethod: attunev1alpha1.ResizeMethodInPlaceOrRecreate,
+				Type:                 attunev1alpha1.UpdateTypeAuto,
+				Cooldown:             &cooldown,
+				AutoRevert:           &autoRevert,
+				ResizeMethod:         attunev1alpha1.ResizeMethodInPlaceOrRecreate,
+				MaxConcurrentResizes: 5,
 			},
 		},
 	}
@@ -4571,6 +4573,7 @@ func TestMergeDefaults_ClusterDefaultsTakeEffect(t *testing.T) {
 	assert.Equal(t, 30*time.Minute, policy.Spec.UpdateStrategy.Cooldown.Duration)
 	assert.False(t, *policy.Spec.UpdateStrategy.AutoRevert)
 	assert.Equal(t, attunev1alpha1.ResizeMethodInPlaceOrRecreate, policy.Spec.UpdateStrategy.ResizeMethod)
+	assert.Equal(t, int32(5), policy.Spec.UpdateStrategy.MaxConcurrentResizes)
 	assert.Equal(t, int32(80), *policy.Spec.CPU.MaxChangePercent)
 	assert.Equal(t, int32(60), *policy.Spec.Memory.MaxChangePercent)
 }
@@ -9413,6 +9416,7 @@ func TestAdjustHPATargets_ScalesTargetUtilization(t *testing.T) {
 	require.NotNil(t, hpa.Spec.Metrics[0].Resource.Target.AverageUtilization)
 	assert.Equal(t, int32(40), *hpa.Spec.Metrics[0].Resource.Target.AverageUtilization)
 	assert.Equal(t, "80", hpa.Annotations[annotationHPAOriginalCPU])
+	assert.Equal(t, "200m", hpa.Annotations[annotationHPAOriginalCPURequest])
 }
 
 func TestAdjustHPATargets_PreservesThirdPartyAnnotations(t *testing.T) {
@@ -9472,6 +9476,7 @@ func TestAdjustHPATargets_PreservesThirdPartyAnnotations(t *testing.T) {
 	// Our annotations should be set.
 	assert.Equal(t, "true", hpa.Annotations[annotationHPAAutoTune])
 	assert.Equal(t, "80", hpa.Annotations[annotationHPAOriginalCPU])
+	assert.Equal(t, "200m", hpa.Annotations[annotationHPAOriginalCPURequest])
 
 	// Third-party annotation must survive (the bug was that the stale
 	// copy's annotations overwrote the fresh copy, dropping this).
@@ -9959,6 +9964,131 @@ func TestAdjustHPATargets_IdempotentOnSecondCall(t *testing.T) {
 	require.NoError(t, err)
 	// Should be 40 (idempotent), not 20 (double-adjusted).
 	assert.Equal(t, int32(40), *hpa.Spec.Metrics[0].Resource.Target.AverageUtilization)
+	assert.Equal(t, "80", hpa.Annotations[annotationHPAOriginalCPU])
+	assert.Equal(t, "200m", hpa.Annotations[annotationHPAOriginalCPURequest])
+}
+
+func TestAdjustHPATargets_PreservesAbsoluteThresholdAcrossResizes(t *testing.T) {
+	// Two distinct resizes must keep the original absolute threshold
+	// (200m * 80% = 160m): 200m@80% -> 400m is 40%; 400m -> 800m is 20%.
+	// Rebasing the stored original percent on this cycle's old/new request
+	// would leave the second resize at 40%.
+	scheme := testScheme()
+	origTarget := int32(80)
+	hpas := []autoscalingv2.HorizontalPodAutoscaler{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "my-app-hpa",
+				Namespace: "default",
+				Annotations: map[string]string{
+					annotationHPAAutoTune: "true",
+				},
+			},
+			Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+				ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+					Kind: "Deployment",
+					Name: "my-app",
+				},
+				Metrics: []autoscalingv2.MetricSpec{
+					{
+						Type: autoscalingv2.ResourceMetricSourceType,
+						Resource: &autoscalingv2.ResourceMetricSource{
+							Name: corev1.ResourceCPU,
+							Target: autoscalingv2.MetricTarget{
+								Type:               autoscalingv2.UtilizationMetricType,
+								AverageUtilization: &origTarget,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&hpas[0]).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+
+	r.adjustHPATargets(context.Background(), hpas, "my-app", "Deployment",
+		resource.MustParse("200m"), resource.MustParse("400m"), resource.Quantity{})
+
+	var hpa autoscalingv2.HorizontalPodAutoscaler
+	err := fakeClient.Get(context.Background(), client.ObjectKey{
+		Namespace: "default",
+		Name:      "my-app-hpa",
+	}, &hpa)
+	require.NoError(t, err)
+	require.Equal(t, int32(40), *hpa.Spec.Metrics[0].Resource.Target.AverageUtilization)
+	assert.Equal(t, "80", hpa.Annotations[annotationHPAOriginalCPU])
+	assert.Equal(t, "200m", hpa.Annotations[annotationHPAOriginalCPURequest])
+
+	r.adjustHPATargets(context.Background(), []autoscalingv2.HorizontalPodAutoscaler{hpa},
+		"my-app", "Deployment",
+		resource.MustParse("400m"), resource.MustParse("800m"), resource.Quantity{})
+
+	err = fakeClient.Get(context.Background(), client.ObjectKey{
+		Namespace: "default",
+		Name:      "my-app-hpa",
+	}, &hpa)
+	require.NoError(t, err)
+	assert.Equal(t, int32(20), *hpa.Spec.Metrics[0].Resource.Target.AverageUtilization,
+		"second distinct resize must use original request 200m, not last request 400m")
+	assert.Equal(t, "80", hpa.Annotations[annotationHPAOriginalCPU])
+	assert.Equal(t, "200m", hpa.Annotations[annotationHPAOriginalCPURequest])
+}
+
+func TestAdjustHPATargets_LegacyPercentOnlyUsesCurrentTarget(t *testing.T) {
+	// HPAs written before original-cpu-request was stored have only the
+	// original percent. Do not rebase that percent on this cycle's
+	// old/new request (80 * 400/800 = 40). Use currentTarget * old/new
+	// (40 * 400/800 = 20) and do not backfill a wrong original request.
+	scheme := testScheme()
+	current := int32(40)
+	hpa := autoscalingv2.HorizontalPodAutoscaler{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "legacy-hpa",
+			Namespace: "default",
+			Annotations: map[string]string{
+				annotationHPAAutoTune:    "true",
+				annotationHPAOriginalCPU: "80",
+			},
+		},
+		Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+			ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+				Kind: "Deployment",
+				Name: "my-app",
+			},
+			Metrics: []autoscalingv2.MetricSpec{
+				{
+					Type: autoscalingv2.ResourceMetricSourceType,
+					Resource: &autoscalingv2.ResourceMetricSource{
+						Name: corev1.ResourceCPU,
+						Target: autoscalingv2.MetricTarget{
+							Type:               autoscalingv2.UtilizationMetricType,
+							AverageUtilization: &current,
+						},
+					},
+				},
+			},
+		},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&hpa).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+
+	r.adjustHPATargets(context.Background(), []autoscalingv2.HorizontalPodAutoscaler{hpa},
+		"my-app", "Deployment",
+		resource.MustParse("400m"), resource.MustParse("800m"), resource.Quantity{})
+
+	var stored autoscalingv2.HorizontalPodAutoscaler
+	require.NoError(t, fakeClient.Get(context.Background(),
+		client.ObjectKey{Namespace: "default", Name: "legacy-hpa"}, &stored))
+	assert.Equal(t, int32(20), *stored.Spec.Metrics[0].Resource.Target.AverageUtilization)
+	assert.Equal(t, "80", stored.Annotations[annotationHPAOriginalCPU])
+	assert.Empty(t, stored.Annotations[annotationHPAOriginalCPURequest],
+		"must not backfill this cycle's request as the original")
 }
 
 func TestApplyStartupBoosts_ExpiresBoostAfterDuration(t *testing.T) {

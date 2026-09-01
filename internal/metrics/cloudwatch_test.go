@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"testing"
 	"time"
 
@@ -179,7 +180,7 @@ func TestCloudWatchCollector_APIError(t *testing.T) {
 
 	c := NewCloudWatchCollectorWithClient(mock, "c", logr.Discard())
 
-	spec := CloudWatchQuerySpec{Metric: "x", ClusterName: "c", Namespace: "ns", Period: 300, Stat: "Average"}
+	spec := CloudWatchQuerySpec{Metric: "container_memory_working_set", ClusterName: "c", Namespace: "ns", Period: 300, Stat: "Average"}
 	query, _ := json.Marshal(spec)
 
 	_, err := c.QueryRangeGrouped(context.Background(), string(query),
@@ -326,6 +327,263 @@ func TestCloudWatchCollector_Close(t *testing.T) {
 	c := &CloudWatchCollector{}
 	require.NoError(t, c.Close(), "Close is a no-op and must succeed")
 	require.NoError(t, c.Close(), "Close must be idempotent")
+}
+
+func TestCloudWatchCollector_QueryRangeGrouped_NaNInfFiltered(t *testing.T) {
+	ts1 := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
+	ts2 := ts1.Add(1 * time.Minute)
+	ts3 := ts1.Add(2 * time.Minute)
+	ts4 := ts1.Add(3 * time.Minute)
+	ts5 := ts1.Add(4 * time.Minute)
+
+	mock := &mockCloudWatchClient{
+		getMetricDataFn: func(_ context.Context, _ *cloudwatch.GetMetricDataInput, _ ...func(*cloudwatch.Options)) (*cloudwatch.GetMetricDataOutput, error) {
+			return &cloudwatch.GetMetricDataOutput{
+				MetricDataResults: []cwtypes.MetricDataResult{
+					{
+						Label:      aws.String("metric pod-a main"),
+						Timestamps: []time.Time{ts1, ts2, ts3, ts4, ts5},
+						Values:     []float64{0.25, math.NaN(), math.Inf(1), math.Inf(-1), 0.75},
+					},
+				},
+			}, nil
+		},
+	}
+
+	c := NewCloudWatchCollectorWithClient(mock, "c", logr.Discard())
+	spec := CloudWatchQuerySpec{
+		Metric:      "container_memory_working_set",
+		ClusterName: "c",
+		Namespace:   "ns",
+		PodPrefix:   "pod-",
+		Period:      300,
+		Stat:        "Average",
+	}
+	query, err := json.Marshal(spec)
+	require.NoError(t, err)
+
+	grouped, err := c.QueryRangeGrouped(context.Background(), string(query),
+		ts1.Add(-time.Hour), ts5, time.Minute)
+	require.NoError(t, err)
+	require.Len(t, grouped["main"], 2, "NaN, +Inf, and -Inf samples should be filtered out")
+	assert.InDelta(t, 0.25, grouped["main"][0].Value, 0.001)
+	assert.InDelta(t, 0.75, grouped["main"][1].Value, 0.001)
+}
+
+func TestCloudWatchCollector_QueryRangeGrouped_ShortValuesNoPanic(t *testing.T) {
+	ts1 := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
+	ts2 := ts1.Add(1 * time.Minute)
+	ts3 := ts1.Add(2 * time.Minute)
+
+	mock := &mockCloudWatchClient{
+		getMetricDataFn: func(_ context.Context, _ *cloudwatch.GetMetricDataInput, _ ...func(*cloudwatch.Options)) (*cloudwatch.GetMetricDataOutput, error) {
+			return &cloudwatch.GetMetricDataOutput{
+				MetricDataResults: []cwtypes.MetricDataResult{
+					{
+						Label:      aws.String("metric pod-a main"),
+						Timestamps: []time.Time{ts1, ts2, ts3},
+						Values:     []float64{42.0},
+					},
+				},
+			}, nil
+		},
+	}
+
+	c := NewCloudWatchCollectorWithClient(mock, "c", logr.Discard())
+	spec := CloudWatchQuerySpec{
+		Metric:      "container_memory_working_set",
+		ClusterName: "c",
+		Namespace:   "ns",
+		PodPrefix:   "pod-",
+		Period:      300,
+		Stat:        "Average",
+	}
+	query, err := json.Marshal(spec)
+	require.NoError(t, err)
+
+	grouped, err := c.QueryRangeGrouped(context.Background(), string(query),
+		ts1.Add(-time.Hour), ts3, time.Minute)
+	require.NoError(t, err)
+	require.Len(t, grouped["main"], 1)
+	assert.InDelta(t, 42.0, grouped["main"][0].Value, 0.001)
+	assert.Equal(t, ts1, grouped["main"][0].Timestamp)
+}
+
+func TestNewCloudWatchCollector_RejectsHostileInputs(t *testing.T) {
+	t.Parallel()
+	_, err := NewCloudWatchCollector(context.Background(), "us-east-1",
+		`x" Namespace="kube-system" MetricName="container_memory_working_set`, "", logr.Discard())
+	require.Error(t, err)
+	_, err = NewCloudWatchCollector(context.Background(), "us-east-1", "prod",
+		`arn:aws:iam::123456789012:role/x" extra`, logr.Discard())
+	require.Error(t, err)
+}
+
+func TestCloudWatchCollector_HostileClusterNameNotInSEARCH(t *testing.T) {
+	t.Parallel()
+	var gotExpr string
+	called := false
+	mock := &mockCloudWatchClient{
+		getMetricDataFn: func(_ context.Context, params *cloudwatch.GetMetricDataInput, _ ...func(*cloudwatch.Options)) (*cloudwatch.GetMetricDataOutput, error) {
+			called = true
+			if len(params.MetricDataQueries) > 0 {
+				gotExpr = aws.ToString(params.MetricDataQueries[0].Expression)
+			}
+			return &cloudwatch.GetMetricDataOutput{}, nil
+		},
+	}
+	c := NewCloudWatchCollectorWithClient(mock, "c", logr.Discard())
+	spec := CloudWatchQuerySpec{
+		Metric:      "container_memory_working_set",
+		ClusterName: `x" Namespace="kube-system" MetricName="container_memory_working_set`,
+		Namespace:   "ns",
+		Period:      300,
+		Stat:        "Average",
+	}
+	query, err := json.Marshal(spec)
+	require.NoError(t, err)
+
+	_, err = c.QueryRangeGrouped(context.Background(), string(query),
+		time.Now().Add(-time.Hour), time.Now(), time.Minute)
+	require.Error(t, err)
+	assert.False(t, called, "must not send GetMetricData when clusterName is hostile")
+	assert.NotContains(t, gotExpr, `Namespace="kube-system"`)
+	assert.NotContains(t, gotExpr, `x"`)
+}
+
+func TestCloudWatchCollector_ValidClusterNameQuotedInSEARCH(t *testing.T) {
+	t.Parallel()
+	var gotExpr string
+	mock := &mockCloudWatchClient{
+		getMetricDataFn: func(_ context.Context, params *cloudwatch.GetMetricDataInput, _ ...func(*cloudwatch.Options)) (*cloudwatch.GetMetricDataOutput, error) {
+			if len(params.MetricDataQueries) > 0 {
+				gotExpr = aws.ToString(params.MetricDataQueries[0].Expression)
+			}
+			return &cloudwatch.GetMetricDataOutput{}, nil
+		},
+	}
+	c := NewCloudWatchCollectorWithClient(mock, "my-eks-cluster", logr.Discard())
+	spec := CloudWatchQuerySpec{
+		Metric:      "container_memory_working_set",
+		ClusterName: "my-eks-cluster",
+		Namespace:   "default",
+		Period:      300,
+		Stat:        "Average",
+	}
+	query, err := json.Marshal(spec)
+	require.NoError(t, err)
+
+	_, err = c.QueryRangeGrouped(context.Background(), string(query),
+		time.Now().Add(-time.Hour), time.Now(), time.Minute)
+	require.NoError(t, err)
+	assert.Contains(t, gotExpr, `ClusterName="my-eks-cluster"`)
+	assert.Contains(t, gotExpr, `MetricName="container_memory_working_set"`)
+	assert.Contains(t, gotExpr, `'Average'`)
+}
+
+func TestCloudWatchCollector_PinsMetricAndStat(t *testing.T) {
+	t.Parallel()
+	called := false
+	mock := &mockCloudWatchClient{
+		getMetricDataFn: func(_ context.Context, _ *cloudwatch.GetMetricDataInput, _ ...func(*cloudwatch.Options)) (*cloudwatch.GetMetricDataOutput, error) {
+			called = true
+			return &cloudwatch.GetMetricDataOutput{}, nil
+		},
+	}
+	c := NewCloudWatchCollectorWithClient(mock, "c", logr.Discard())
+
+	for _, spec := range []CloudWatchQuerySpec{
+		{Metric: `x" ClusterName="other`, ClusterName: "c", Namespace: "ns", Period: 300, Stat: "Average"},
+		{Metric: "container_memory_working_set", ClusterName: "c", Namespace: "ns", Period: 300, Stat: `Average' MetricName="evil`},
+		{Metric: "AWS/EC2 CPUUtilization", ClusterName: "c", Namespace: "ns", Period: 300, Stat: "Average"},
+	} {
+		query, err := json.Marshal(spec)
+		require.NoError(t, err)
+		_, err = c.QueryRangeGrouped(context.Background(), string(query),
+			time.Now().Add(-time.Hour), time.Now(), time.Minute)
+		require.Error(t, err, "spec=%+v", spec)
+	}
+	assert.False(t, called, "must not send GetMetricData for unpinned Metric/Stat")
+}
+
+func TestCloudWatchCollector_PodPrefixInSEARCH(t *testing.T) {
+	t.Parallel()
+	var gotExpr string
+	mock := &mockCloudWatchClient{
+		getMetricDataFn: func(_ context.Context, params *cloudwatch.GetMetricDataInput, _ ...func(*cloudwatch.Options)) (*cloudwatch.GetMetricDataOutput, error) {
+			if len(params.MetricDataQueries) > 0 {
+				gotExpr = aws.ToString(params.MetricDataQueries[0].Expression)
+			}
+			return &cloudwatch.GetMetricDataOutput{}, nil
+		},
+	}
+	c := NewCloudWatchCollectorWithClient(mock, "c", logr.Discard())
+	spec := CloudWatchQuerySpec{
+		Metric:      "container_memory_working_set",
+		ClusterName: "c",
+		Namespace:   "default",
+		PodPrefix:   "api-server-",
+		Period:      300,
+		Stat:        "Average",
+	}
+	query, err := json.Marshal(spec)
+	require.NoError(t, err)
+
+	_, err = c.QueryRangeGrouped(context.Background(), string(query),
+		time.Now().Add(-time.Hour), time.Now(), time.Minute)
+	require.NoError(t, err)
+	assert.Contains(t, gotExpr, `PodName="api-server-*"`)
+}
+
+func TestCloudWatchCollector_HostilePodPrefixNotInSEARCH(t *testing.T) {
+	t.Parallel()
+	called := false
+	mock := &mockCloudWatchClient{
+		getMetricDataFn: func(_ context.Context, _ *cloudwatch.GetMetricDataInput, _ ...func(*cloudwatch.Options)) (*cloudwatch.GetMetricDataOutput, error) {
+			called = true
+			return &cloudwatch.GetMetricDataOutput{}, nil
+		},
+	}
+	c := NewCloudWatchCollectorWithClient(mock, "c", logr.Discard())
+	spec := CloudWatchQuerySpec{
+		Metric:      "container_memory_working_set",
+		ClusterName: "c",
+		Namespace:   "default",
+		PodPrefix:   `api" ClusterName="other`,
+		Period:      300,
+		Stat:        "Average",
+	}
+	query, err := json.Marshal(spec)
+	require.NoError(t, err)
+	_, err = c.QueryRangeGrouped(context.Background(), string(query),
+		time.Now().Add(-time.Hour), time.Now(), time.Minute)
+	require.Error(t, err)
+	assert.False(t, called, "must not send GetMetricData when podPrefix contains a quote")
+}
+
+func TestCloudWatchCollector_HostileNamespaceNotInSEARCH(t *testing.T) {
+	t.Parallel()
+	called := false
+	mock := &mockCloudWatchClient{
+		getMetricDataFn: func(_ context.Context, _ *cloudwatch.GetMetricDataInput, _ ...func(*cloudwatch.Options)) (*cloudwatch.GetMetricDataOutput, error) {
+			called = true
+			return &cloudwatch.GetMetricDataOutput{}, nil
+		},
+	}
+	c := NewCloudWatchCollectorWithClient(mock, "c", logr.Discard())
+	spec := CloudWatchQuerySpec{
+		Metric:      "container_memory_working_set",
+		ClusterName: "c",
+		Namespace:   `ns" MetricName="container_cpu_usage_total`,
+		Period:      300,
+		Stat:        "Average",
+	}
+	query, err := json.Marshal(spec)
+	require.NoError(t, err)
+	_, err = c.QueryRangeGrouped(context.Background(), string(query),
+		time.Now().Add(-time.Hour), time.Now(), time.Minute)
+	require.Error(t, err)
+	assert.False(t, called)
 }
 
 // Verify CloudWatchCollector implements MetricsCollector.

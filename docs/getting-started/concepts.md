@@ -12,12 +12,13 @@ recommendation parameters, and controls how resizes are applied.
 values for metrics source, resource config, and update strategy.
 
 **AttuneNamespaceDefaults** (namespaced, short name `and`) sets
-per-namespace defaults for policies in the same namespace. If a namespace
-has a `AttuneNamespaceDefaults`, the controller uses it instead of the
-cluster-scoped `AttuneDefaults`. Fields omitted there fall back to the
-operator's built-in defaults. If multiple defaults objects exist at one
-scope, the controller deterministically picks the lexicographically
-smallest `metadata.name`.
+per-namespace defaults for policies in the same namespace. Precedence is
+per field: policy spec > namespace defaults > cluster `AttuneDefaults` >
+built-in defaults. Fields set on the namespace object win; fields left
+unset (including `costPricing.cpuPerCoreHour` vs `memoryPerGiBHour`
+independently) inherit from cluster `AttuneDefaults`, then built-ins.
+If multiple defaults objects exist at one scope, the controller
+deterministically picks the lexicographically smallest `metadata.name`.
 
 ## Update modes
 

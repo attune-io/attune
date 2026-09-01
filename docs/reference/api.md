@@ -7,12 +7,12 @@
 
 ### Defaulting Behavior
 
-Fields are defaulted in three layers. Only `weight` and `maxConcurrentResizes`
-appear in the stored spec when omitted by the user (they are CRD schema or
-webhook defaults). All other defaultable fields (`type`, `controlledValues`,
+Fields are defaulted in three layers. Only `weight`
+appears in the stored spec when omitted by the user (it is a CRD schema
+default). All other defaultable fields (`type`, `controlledValues`,
 `cooldown`, `historyWindow`, `minimumDataPoints`, `queryStep`, `rateWindow`, `podAggregation`, `autoRevert`,
 `resizeMethod`, `cpu.maxChangePercent`, `memory.maxChangePercent`,
-`safetyObservationPeriod`, `excludeKnownSidecars`) are applied
+`safetyObservationPeriod`, `excludeKnownSidecars`, `maxConcurrentResizes`) are applied
 by the controller at reconcile time so that cluster-wide `AttuneDefaults`
 and namespace-scoped `AttuneNamespaceDefaults` can override them. These
 fields will appear empty in `kubectl get attunepolicy -o yaml` but still control runtime
@@ -108,7 +108,7 @@ spec:
     autoRevert: true           # revert on safety violation (default: true)
     safetyObservationPeriod: 5m  # post-resize safety watch period (default: 5m, minimum: 1m)
     resizeMethod: InPlaceOnly  # InPlaceOnly | InPlaceOrRecreate (default: InPlaceOnly)
-    maxConcurrentResizes: 1    # parallel pod resizes per cycle (default: 1, max: 50)
+    # maxConcurrentResizes omitted so AttuneDefaults can apply (built-in: 1, max: 50)
     maxTotalCpuIncrease: "2000m"    # max aggregate CPU increase per cycle (default: unlimited)
     maxTotalMemoryIncrease: "4Gi"   # max aggregate memory increase per cycle (default: unlimited)
     export:                         # optional: export recommendations to ConfigMaps
@@ -380,12 +380,16 @@ cluster-scoped AttuneDefaults. This enables different configurations
 for different environments (e.g., conservative settings for production,
 aggressive settings for staging).
 
-**Resolution order**: policy spec first, then one defaults source.
+**Precedence order (per field):** policy spec > namespace defaults >
+cluster defaults > built-in defaults.
 
-If a namespace has an AttuneNamespaceDefaults, the controller uses it
-instead of the cluster-scoped AttuneDefaults for all policies in that
-namespace. Fields not specified in the namespace defaults are not inherited
-from cluster defaults; they fall back to the operator's built-in defaults.
+When both cluster and namespace defaults exist, fields set on the
+namespace object win; fields left unset on the namespace object are
+filled from the cluster AttuneDefaults (not from built-ins alone).
+This includes `costPricing`: `cpuPerCoreHour` and `memoryPerGiBHour`
+merge independently. Example: cluster sets `cooldown=10m` and
+`percentile=95`; namespace sets only `percentile=90` → effective
+defaults use `percentile=90` and `cooldown=10m`.
 
 If multiple defaults objects exist at the same scope, selection is
 deterministic: the controller uses the object with the lexicographically

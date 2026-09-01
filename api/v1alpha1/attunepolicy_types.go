@@ -513,7 +513,9 @@ type UpdateStrategy struct {
 
 	// MaxConcurrentResizes is the maximum number of pods to resize
 	// concurrently within a single reconcile cycle. Default: 1 (serial).
-	// +kubebuilder:default=1
+	// Applied by the controller after AttuneDefaults merge so cluster
+	// and namespace defaults can override the built-in value. Zero is
+	// treated as unset; explicit values must be 1-50.
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=50
 	// +optional

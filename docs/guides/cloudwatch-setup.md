@@ -138,8 +138,8 @@ spec:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `region` | string | (required) | AWS region where CloudWatch metrics are stored (e.g., `us-east-1`) |
-| `clusterName` | string | (required) | EKS cluster name, used as the `ClusterName` dimension filter |
-| `roleArn` | string | (optional) | IAM role ARN to assume for cross-account access |
+| `clusterName` | string | (required) | EKS cluster name, used as the `ClusterName` dimension filter (alphanumeric, hyphen, underscore) |
+| `roleArn` | string | (optional) | IAM role ARN to assume for cross-account access (`arn:aws:iam::ACCOUNT:role/NAME`) |
 
 ## Step 3: Verify the integration
 

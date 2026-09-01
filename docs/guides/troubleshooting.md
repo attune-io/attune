@@ -735,6 +735,22 @@ schedule:
 Valid values: `Monday`, `Tuesday`, `Wednesday`, `Thursday`, `Friday`,
 `Saturday`, `Sunday`.
 
+### Policy rejected: invalid CloudWatch clusterName
+
+**Symptom**: `kubectl apply` fails with:
+```
+admission webhook "validation.attune.io" denied the request:
+metricsSource.cloudwatch.clusterName: clusterName must be an EKS-style name
+```
+
+**Cause**: `clusterName` is interpolated into a CloudWatch SEARCH expression.
+Only EKS-style names are accepted: 1-100 characters, start with
+alphanumeric, then alphanumeric, hyphen, or underscore. Quotes, spaces,
+and other SEARCH metacharacters are rejected.
+
+**Fix**: Use the EKS cluster name as shown in the AWS console (for example
+`my-eks-cluster`).
+
 ## Deleting a policy
 
 When you delete a `AttunePolicy`, the operator uses a
@@ -1071,9 +1087,9 @@ update a PR. Common cases:
 
 1. Token Secret missing, wrong key, or RBAC cannot read Secrets.
 2. Invalid `provider` / `repository` / optional `apiUrl` (including SSRF
-   rejection of loopback, link-local, and cloud metadata hosts).
-   ClusterIP and other private RFC1918 addresses are allowed, same as
-   Prometheus.
+   rejection of http, userinfo, loopback, link-local, private RFC1918,
+   and cloud metadata hosts). GitOps `apiUrl` is stricter than
+   Prometheus: in-cluster private addresses are not allowed.
 3. Forge API error (auth, branch protection, missing head branch before
    bootstrap, rate limits).
 

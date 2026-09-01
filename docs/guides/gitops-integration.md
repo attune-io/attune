@@ -142,11 +142,12 @@ default 24h).
   - **GitLab**: `api` (or project-scoped token with write_repository +
     write to merge requests) on one project.
   Prefer short-lived or fine-grained tokens.
-- Optional `apiUrl` (Enterprise GitHub / self-hosted GitLab) is validated
-  like Prometheus addresses: `http`/`https` only, and cloud metadata plus
-  loopback hosts are rejected so a policy cannot aim the operator token at
-  `169.254.169.254` or similar. Private ClusterIP-style hosts remain allowed
-  for on-prem Git forges.
+- Optional `apiUrl` (Enterprise GitHub / self-hosted GitLab) must be
+  `https`, must not include userinfo, and is rejected when it targets
+  loopback, link-local, private RFC1918, or cloud metadata hosts
+  (`169.254.169.254` and similar). This is stricter than Prometheus
+  addresses so a policy cannot aim the operator token at in-cluster
+  endpoints.
 
 ### Example
 

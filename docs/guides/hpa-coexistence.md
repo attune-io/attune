@@ -50,12 +50,18 @@ spec:
 
 ### QoS-aware HPA target adjustment
 
-When Attune lowers a pod's CPU request, it recalculates the HPA target to
+When Attune changes a pod's CPU request, it recalculates the HPA target to
 preserve the same absolute CPU threshold:
 
 ```
-newTarget = baseTarget * (oldRequest / newRequest)
+newTarget = originalTarget * (originalRequest / newRequest)
 ```
+
+The first adjustment stores the original utilization percent on the HPA as
+`attune.io/original-target-cpu` and the original CPU request as
+`attune.io/original-cpu-request`. Later resizes reuse those values so the
+absolute threshold does not drift. For example, `200m` at 80% (160m
+absolute) becomes 40% at `400m`, then 20% at `800m`, not 40% again.
 
 The upper cap on this target depends on the pod's QoS class:
 

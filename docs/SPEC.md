@@ -361,10 +361,11 @@ Global defaults to avoid repetition across many AttunePolicy resources.
 ### 3.4 AttuneNamespaceDefaults (Namespaced, Optional)
 
 Namespace-scoped defaults reuse the same spec as `AttuneDefaults` but apply
-only within one namespace. If a `AttuneNamespaceDefaults` exists for the
-policy namespace, the controller uses it instead of cluster-scoped
-`AttuneDefaults`. Fields omitted there fall back to the operator's
-built-in defaults.
+only within one namespace. Precedence is per field: policy spec >
+namespace defaults > cluster `AttuneDefaults` > built-in defaults.
+Fields set on the namespace object win; fields left unset (including
+`costPricing.cpuPerCoreHour` vs `memoryPerGiBHour` independently) inherit
+from cluster `AttuneDefaults`, then built-ins.
 
 ```yaml
 apiVersion: attune.io/v1alpha1
@@ -455,7 +456,7 @@ Status conditions use `meta.SetStatusCondition()` from `k8s.io/apimachinery/pkg/
 A single controller reconciles `AttunePolicy` resources. The reconcile function:
 
 ```
-1. FETCH policy and resolve one defaults source: AttuneNamespaceDefaults for the namespace if present, otherwise AttuneDefaults
+1. FETCH policy and resolve defaults: merge AttuneNamespaceDefaults (if present) over AttuneDefaults; unset namespace fields inherit from cluster, then built-ins
 2. DISCOVER target workloads (by name or label selector)
 3. For each workload:
    a. CHECK for conflicting policies (highest weight wins)
@@ -891,7 +892,7 @@ Ship a pre-built Grafana dashboard JSON covering:
 
 **What to test**:
 - AttunePolicy CR creation, validation, defaulting
-- AttuneNamespaceDefaults overrides cluster `AttuneDefaults`
+- AttuneNamespaceDefaults overrides set fields on cluster `AttuneDefaults`; unset namespace fields inherit from cluster, then built-ins
 - AttuneDefaults merging with policy-level overrides
 - Controller discovers workloads by name and by selector
 - Controller handles workload updates (new pods, scale events)

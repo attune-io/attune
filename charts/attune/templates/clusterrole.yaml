@@ -145,6 +145,7 @@ rules:
     verbs:
       - get
       - list
+      - watch
   # Nodes: read-only (capacity pre-check before resize)
   - apiGroups:
       - ""

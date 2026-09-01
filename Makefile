@@ -234,13 +234,15 @@ test-fuzz: ## Run fuzz tests (coverage-guided; FUZZTIME=30s default, deadline-fl
 	./scripts/run-fuzz.sh
 
 .PHONY: python-test
-python-test: ## Run helper script tests (fossa-filter, run-fuzz classifier, go-version sync, helm image tag)
+python-test: ## Run helper script tests (fossa-filter, run-fuzz classifier, go-version sync, helm image tag, fleet reports, nightly issue body)
 	python3 scripts/test_fossa_filter.py -v
 	bash scripts/test_run_fuzz.sh
 	bash scripts/test_verify_go_version_sync.sh
 	bash scripts/test_verify_helm_image_tag.sh
 	bash scripts/test_release_image_tags.sh
 	bash scripts/test_e2e_install_cert_manager.sh
+	bash scripts/test_collect_fleet_reports.sh
+	bash scripts/test_nightly_failure_issue_body.sh
 
 .PHONY: test-bench
 test-bench: ## Run benchmark tests
