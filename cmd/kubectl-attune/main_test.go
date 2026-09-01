@@ -2319,6 +2319,68 @@ func TestPrintEffectivePolicySummary_DoesNotPanic(t *testing.T) {
 	printEffectivePolicySummary(item, policy, selectedDefaults{defaults: defaults, source: "cluster"})
 }
 
+func TestPrintEffectivePolicySummary_CostPricing(t *testing.T) {
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{Type: attunev1alpha1.UpdateTypeAuto},
+		},
+	}
+	item := unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{},
+	}}
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	old := os.Stdout
+	os.Stdout = w
+	printEffectivePolicySummary(item, policy, selectedDefaults{})
+	_ = w.Close()
+	os.Stdout = old
+	out, err := io.ReadAll(r)
+	require.NoError(t, err)
+	s := string(out)
+	assert.Contains(t, s, "CPU per core-hour: 0.031 (source: built-in default, configured: <unset>)")
+	assert.Contains(t, s, "Memory per GiB-hour: 0.004 (source: built-in default, configured: <unset>)")
+
+	defaults := &attunev1alpha1.AttuneDefaults{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CostPricing: &attunev1alpha1.CostPricing{
+				CPUPerCoreHour:   "0.05",
+				MemoryPerGiBHour: "0.009",
+			},
+		},
+	}
+	r, w, err = os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+	printEffectivePolicySummary(item, policy, selectedDefaults{defaults: defaults, source: sourceCluster})
+	_ = w.Close()
+	os.Stdout = old
+	out, err = io.ReadAll(r)
+	require.NoError(t, err)
+	s = string(out)
+	assert.Contains(t, s, "CPU per core-hour: 0.05 (source: cluster default, configured: <unset>)")
+	assert.Contains(t, s, "Memory per GiB-hour: 0.009 (source: cluster default, configured: <unset>)")
+
+	// Per-field inherit: namespace can set CPU only; memory stays built-in.
+	cpuOnly := &attunev1alpha1.AttuneDefaults{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			CostPricing: &attunev1alpha1.CostPricing{CPUPerCoreHour: "0.01"},
+		},
+	}
+	r, w, err = os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+	printEffectivePolicySummary(item, policy, selectedDefaults{defaults: cpuOnly, source: sourceNamespace})
+	_ = w.Close()
+	os.Stdout = old
+	out, err = io.ReadAll(r)
+	require.NoError(t, err)
+	s = string(out)
+	assert.Contains(t, s, "CPU per core-hour: 0.01 (source: namespace default, configured: <unset>)")
+	assert.Contains(t, s, "Memory per GiB-hour: 0.004 (source: built-in default, configured: <unset>)")
+}
+
 func TestPrintEffectivePolicySummary_PodAggregationDefault(t *testing.T) {
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{
