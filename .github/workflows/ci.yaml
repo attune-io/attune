@@ -30,6 +30,7 @@ env:
   PROMETHEUS_IMAGE: "quay.io/prometheus/prometheus:v3.4.1"
   PROMETHEUS_CHART_VERSION: "27.22.0"
   STRESS_NG_IMAGE: "ghcr.io/alexei-led/stress-ng:0.20.01"
+  CPU_BURN_IMAGE: "docker.io/library/busybox:1.37"
 
 jobs:
   # Detect which files changed so downstream jobs can skip irrelevant work.
@@ -103,9 +104,14 @@ jobs:
               - 'dist/**'
               - 'Makefile'
             # Helper scripts + their unit tests (FOSSA filter, fuzz classifier,
-            # fleet reports, nightly issue body). Lint runs make python-test.
+            # fleet reports, nightly issue body, cert-manager installer).
+            # Lint runs make python-test, which also covers the helper used
+            # by setup-e2e-cluster and e2e-nightly.yaml.
             scripts:
               - 'scripts/**'
+              - 'hack/e2e-install-cert-manager.sh'
+              - '.github/actions/setup-e2e-cluster/**'
+              - '.github/workflows/e2e-nightly.yaml'
 
   lint:
     name: Lint
@@ -146,9 +152,7 @@ jobs:
 
       - name: Verify go.mod matches Dockerfile golang tag
         shell: bash -Eeuo pipefail {0}
-        run: |
-          bash scripts/test_verify_go_version_sync.sh
-          bash hack/verify-go-version-sync.sh
+        run: bash hack/verify-go-version-sync.sh
 
       - name: Check license boilerplate
         shell: bash -Eeuo pipefail {0}
@@ -561,6 +565,7 @@ jobs:
           prometheus-image: ${{ env.PROMETHEUS_IMAGE }}
           prometheus-chart-version: ${{ env.PROMETHEUS_CHART_VERSION }}
           stress-ng-image: ${{ env.STRESS_NG_IMAGE }}
+          cpu-burn-image: ${{ env.CPU_BURN_IMAGE }}
 
       # Lint/unit either succeeded or were path-skipped (see job if: above).
 
