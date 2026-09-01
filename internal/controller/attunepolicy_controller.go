@@ -79,8 +79,9 @@ const (
 	annotationOriginalRestartCountPrefix = "attune.io/original-restart-count."
 
 	// HPA auto-tune annotations.
-	annotationHPAAutoTune    = "attune.io/auto-tune"
-	annotationHPAOriginalCPU = "attune.io/original-target-cpu"
+	annotationHPAAutoTune           = "attune.io/auto-tune"
+	annotationHPAOriginalCPU        = "attune.io/original-target-cpu"
+	annotationHPAOriginalCPURequest = "attune.io/original-cpu-request"
 
 	// Startup boost annotation.
 	annotationStartupBoostAt = "attune.io/startup-boost-at"

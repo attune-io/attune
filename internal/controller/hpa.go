@@ -58,19 +58,29 @@ func (r *AttunePolicyReconciler) adjustHPATargets(
 				continue
 			}
 			currentTarget := *m.Resource.Target.AverageUtilization
-			// Use the stored original target (from first adjustment) to avoid
-			// progressive drift on subsequent cycles.
+			// Preserve the original absolute CPU threshold across N resizes:
+			// newTarget = originalTarget * (originalRequest / newRequest).
+			// Using the stored percent with this cycle's old/new request
+			// rebases against the last request and drifts (200m@80% -> 400m
+			// is 40%; 400m -> 800m must be 20%, not 40%).
+			// Legacy HPAs that only have original-target-cpu fall back to
+			// currentTarget * (oldRequest / newRequest).
 			baseTarget := currentTarget
-			if stored := hpa.Annotations[annotationHPAOriginalCPU]; stored != "" {
-				if v, parseErr := strconv.ParseInt(stored, 10, 32); parseErr == nil {
-					baseTarget = int32(v)
+			baseRequest := oldCPURequest
+			storedTarget := hpa.Annotations[annotationHPAOriginalCPU]
+			storedRequest := hpa.Annotations[annotationHPAOriginalCPURequest]
+			if storedTarget != "" && storedRequest != "" {
+				if v, parseErr := strconv.ParseInt(storedTarget, 10, 32); parseErr == nil {
+					if q, qErr := resource.ParseQuantity(storedRequest); qErr == nil && !q.IsZero() {
+						baseTarget = int32(v)
+						baseRequest = q
+					}
 				}
 			}
-			// newTarget = baseTarget * (oldRequest / newRequest), with a
 			// QoS-aware upper cap: Burstable pods (limit > request) can
 			// use targets above 100% up to floor(limit/request*100);
 			// Guaranteed pods (limit == request) are capped at 100%.
-			newTarget := int32(float64(baseTarget) * float64(oldCPURequest.MilliValue()) / float64(newCPURequest.MilliValue()))
+			newTarget := int32(float64(baseTarget) * float64(baseRequest.MilliValue()) / float64(newCPURequest.MilliValue()))
 			maxTarget := int32(100)
 			if !cpuLimit.IsZero() && cpuLimit.Cmp(newCPURequest) > 0 {
 				maxTarget = int32(float64(cpuLimit.MilliValue()) / float64(newCPURequest.MilliValue()) * 100)
@@ -86,12 +96,16 @@ func (r *AttunePolicyReconciler) adjustHPATargets(
 				break
 			}
 
-			// Store original target for rollback if not already stored.
+			// Store original target and request on first adjustment only.
+			// Do not backfill original-cpu-request on legacy HPAs that
+			// already have original-target-cpu; this cycle's old request
+			// is not the original.
 			if hpa.Annotations[annotationHPAOriginalCPU] == "" {
 				if hpa.Annotations == nil {
 					hpa.Annotations = make(map[string]string)
 				}
 				hpa.Annotations[annotationHPAOriginalCPU] = strconv.FormatInt(int64(currentTarget), 10)
+				hpa.Annotations[annotationHPAOriginalCPURequest] = oldCPURequest.String()
 			}
 			logger.Info("Auto-tuning HPA CPU target after resize",
 				"hpa", hpa.Name, "workload", workloadName,
@@ -119,6 +133,9 @@ func (r *AttunePolicyReconciler) adjustHPATargets(
 			}
 			if v, ok := hpa.Annotations[annotationHPAOriginalCPU]; ok {
 				fresh.Annotations[annotationHPAOriginalCPU] = v
+			}
+			if v, ok := hpa.Annotations[annotationHPAOriginalCPURequest]; ok {
+				fresh.Annotations[annotationHPAOriginalCPURequest] = v
 			}
 			for fj := range fresh.Spec.Metrics {
 				fm := &fresh.Spec.Metrics[fj]
