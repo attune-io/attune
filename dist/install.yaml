@@ -680,10 +680,12 @@ spec:
                       the namespace label attune.io/initial-sizing=enabled. Defaults to false.
                     type: boolean
                   maxConcurrentResizes:
-                    default: 1
                     description: |-
                       MaxConcurrentResizes is the maximum number of pods to resize
                       concurrently within a single reconcile cycle. Default: 1 (serial).
+                      Applied by the controller after AttuneDefaults merge so cluster
+                      and namespace defaults can override the built-in value. Zero is
+                      treated as unset; explicit values must be 1-50.
                     format: int32
                     maximum: 50
                     minimum: 1
@@ -1564,10 +1566,12 @@ spec:
                       the namespace label attune.io/initial-sizing=enabled. Defaults to false.
                     type: boolean
                   maxConcurrentResizes:
-                    default: 1
                     description: |-
                       MaxConcurrentResizes is the maximum number of pods to resize
                       concurrently within a single reconcile cycle. Default: 1 (serial).
+                      Applied by the controller after AttuneDefaults merge so cluster
+                      and namespace defaults can override the built-in value. Zero is
+                      treated as unset; explicit values must be 1-50.
                     format: int32
                     maximum: 50
                     minimum: 1
@@ -2540,10 +2544,12 @@ spec:
                       the namespace label attune.io/initial-sizing=enabled. Defaults to false.
                     type: boolean
                   maxConcurrentResizes:
-                    default: 1
                     description: |-
                       MaxConcurrentResizes is the maximum number of pods to resize
                       concurrently within a single reconcile cycle. Default: 1 (serial).
+                      Applied by the controller after AttuneDefaults merge so cluster
+                      and namespace defaults can override the built-in value. Zero is
+                      treated as unset; explicit values must be 1-50.
                     format: int32
                     maximum: 50
                     minimum: 1

@@ -7,12 +7,12 @@
 
 ### Defaulting Behavior
 
-Fields are defaulted in three layers. Only `weight` and `maxConcurrentResizes`
-appear in the stored spec when omitted by the user (they are CRD schema or
-webhook defaults). All other defaultable fields (`type`, `controlledValues`,
+Fields are defaulted in three layers. Only `weight`
+appears in the stored spec when omitted by the user (it is a CRD schema
+default). All other defaultable fields (`type`, `controlledValues`,
 `cooldown`, `historyWindow`, `minimumDataPoints`, `queryStep`, `rateWindow`, `podAggregation`, `autoRevert`,
 `resizeMethod`, `cpu.maxChangePercent`, `memory.maxChangePercent`,
-`safetyObservationPeriod`, `excludeKnownSidecars`) are applied
+`safetyObservationPeriod`, `excludeKnownSidecars`, `maxConcurrentResizes`) are applied
 by the controller at reconcile time so that cluster-wide `AttuneDefaults`
 and namespace-scoped `AttuneNamespaceDefaults` can override them. These
 fields will appear empty in `kubectl get attunepolicy -o yaml` but still control runtime

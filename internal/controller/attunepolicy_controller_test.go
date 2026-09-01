@@ -4495,6 +4495,7 @@ func TestApplyBuiltInDefaults_FillsAllFields(t *testing.T) {
 	assert.Equal(t, attunev1alpha1.DefaultControlledValues, *policy.Spec.Memory.ControlledValues)
 	require.NotNil(t, policy.Spec.ExcludeKnownSidecars)
 	assert.True(t, *policy.Spec.ExcludeKnownSidecars)
+	assert.Equal(t, attunev1alpha1.DefaultMaxConcurrentResizes, policy.Spec.UpdateStrategy.MaxConcurrentResizes)
 }
 
 func TestApplyBuiltInDefaults_PreservesUserValues(t *testing.T) {
@@ -4551,10 +4552,11 @@ func TestMergeDefaults_ClusterDefaultsTakeEffect(t *testing.T) {
 				MaxChangePercent: int32Ptr(60),
 			},
 			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
-				Type:         attunev1alpha1.UpdateTypeAuto,
-				Cooldown:     &cooldown,
-				AutoRevert:   &autoRevert,
-				ResizeMethod: attunev1alpha1.ResizeMethodInPlaceOrRecreate,
+				Type:                 attunev1alpha1.UpdateTypeAuto,
+				Cooldown:             &cooldown,
+				AutoRevert:           &autoRevert,
+				ResizeMethod:         attunev1alpha1.ResizeMethodInPlaceOrRecreate,
+				MaxConcurrentResizes: 5,
 			},
 		},
 	}
@@ -4571,6 +4573,7 @@ func TestMergeDefaults_ClusterDefaultsTakeEffect(t *testing.T) {
 	assert.Equal(t, 30*time.Minute, policy.Spec.UpdateStrategy.Cooldown.Duration)
 	assert.False(t, *policy.Spec.UpdateStrategy.AutoRevert)
 	assert.Equal(t, attunev1alpha1.ResizeMethodInPlaceOrRecreate, policy.Spec.UpdateStrategy.ResizeMethod)
+	assert.Equal(t, int32(5), policy.Spec.UpdateStrategy.MaxConcurrentResizes)
 	assert.Equal(t, int32(80), *policy.Spec.CPU.MaxChangePercent)
 	assert.Equal(t, int32(60), *policy.Spec.Memory.MaxChangePercent)
 }

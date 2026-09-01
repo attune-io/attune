@@ -63,6 +63,9 @@ func ApplyBuiltInDefaults(policy *attunev1alpha1.AttunePolicy) {
 		v := attunev1alpha1.DefaultAutoRevert
 		policy.Spec.UpdateStrategy.AutoRevert = &v
 	}
+	if policy.Spec.UpdateStrategy.MaxConcurrentResizes == 0 {
+		policy.Spec.UpdateStrategy.MaxConcurrentResizes = attunev1alpha1.DefaultMaxConcurrentResizes
+	}
 	if policy.Spec.UpdateStrategy.ResizeMethod == "" {
 		policy.Spec.UpdateStrategy.ResizeMethod = attunev1alpha1.DefaultResizeMethod
 	}
@@ -201,13 +204,26 @@ func policyToDefaultsSpec(policy *attunev1alpha1.AttunePolicy, cost *attunev1alp
 }
 
 func pickCostPricing(namespace, cluster *attunev1alpha1.CostPricing) *attunev1alpha1.CostPricing {
-	if namespace != nil {
-		return namespace.DeepCopy()
+	if namespace == nil && cluster == nil {
+		return nil
 	}
-	if cluster != nil {
-		return cluster.DeepCopy()
+	out := &attunev1alpha1.CostPricing{}
+	switch {
+	case namespace != nil && namespace.CPUPerCoreHour != "":
+		out.CPUPerCoreHour = namespace.CPUPerCoreHour
+	case cluster != nil && cluster.CPUPerCoreHour != "":
+		out.CPUPerCoreHour = cluster.CPUPerCoreHour
 	}
-	return nil
+	switch {
+	case namespace != nil && namespace.MemoryPerGiBHour != "":
+		out.MemoryPerGiBHour = namespace.MemoryPerGiBHour
+	case cluster != nil && cluster.MemoryPerGiBHour != "":
+		out.MemoryPerGiBHour = cluster.MemoryPerGiBHour
+	}
+	if out.CPUPerCoreHour == "" && out.MemoryPerGiBHour == "" {
+		return nil
+	}
+	return out
 }
 
 // MergeDefaults merges values from an AttuneDefaults resource into the

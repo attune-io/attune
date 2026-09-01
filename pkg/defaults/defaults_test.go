@@ -65,6 +65,7 @@ func TestApplyBuiltInDefaults_FillsAllFields(t *testing.T) {
 	require.NotNil(t, policy.Spec.ExcludeKnownSidecars)
 	assert.True(t, *policy.Spec.ExcludeKnownSidecars)
 	assert.Equal(t, attunev1alpha1.DefaultExcludeKnownSidecars, *policy.Spec.ExcludeKnownSidecars)
+	assert.Equal(t, attunev1alpha1.DefaultMaxConcurrentResizes, policy.Spec.UpdateStrategy.MaxConcurrentResizes)
 }
 
 func TestApplyBuiltInDefaults_DoesNotOverrideExistingValues(t *testing.T) {
@@ -530,6 +531,56 @@ func TestMergeUpdateStrategy_PartialInheritance(t *testing.T) {
 	assert.Equal(t, time.Hour, policy.Cooldown.Duration)
 }
 
+func TestMergeUpdateStrategy_MaxConcurrentResizesUnsetInherits(t *testing.T) {
+	defaults := &attunev1alpha1.UpdateStrategy{MaxConcurrentResizes: 5}
+	policy := &attunev1alpha1.UpdateStrategy{} // omitted field is 0
+
+	inherited := MergeUpdateStrategy(policy, defaults)
+
+	assert.Contains(t, inherited, "maxConcurrentResizes")
+	assert.Equal(t, int32(5), policy.MaxConcurrentResizes)
+}
+
+func TestMergeUpdateStrategy_MaxConcurrentResizesExplicitWins(t *testing.T) {
+	defaults := &attunev1alpha1.UpdateStrategy{MaxConcurrentResizes: 5}
+	policy := &attunev1alpha1.UpdateStrategy{MaxConcurrentResizes: 2}
+
+	inherited := MergeUpdateStrategy(policy, defaults)
+
+	assert.NotContains(t, inherited, "maxConcurrentResizes")
+	assert.Equal(t, int32(2), policy.MaxConcurrentResizes)
+}
+
+func TestMergeAndApply_MaxConcurrentResizesDefaultsThenBuiltIn(t *testing.T) {
+	// Policy omit + AttuneDefaults 5 => 5 (built-in 1 must not overwrite).
+	policy := &attunev1alpha1.AttunePolicy{}
+	defaults := &attunev1alpha1.AttuneDefaults{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{MaxConcurrentResizes: 5},
+		},
+	}
+	inherited := MergeDefaults(policy, defaults)
+	ApplyBuiltInDefaults(policy)
+	assert.Contains(t, inherited, "maxConcurrentResizes")
+	assert.Equal(t, int32(5), policy.Spec.UpdateStrategy.MaxConcurrentResizes)
+
+	// Policy omit + no AttuneDefaults => built-in 1.
+	bare := &attunev1alpha1.AttunePolicy{}
+	ApplyBuiltInDefaults(bare)
+	assert.Equal(t, attunev1alpha1.DefaultMaxConcurrentResizes, bare.Spec.UpdateStrategy.MaxConcurrentResizes)
+
+	// Policy explicit 2 + defaults 5 => 2.
+	explicit := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{MaxConcurrentResizes: 2},
+		},
+	}
+	inherited = MergeDefaults(explicit, defaults)
+	ApplyBuiltInDefaults(explicit)
+	assert.NotContains(t, inherited, "maxConcurrentResizes")
+	assert.Equal(t, int32(2), explicit.Spec.UpdateStrategy.MaxConcurrentResizes)
+}
+
 func TestMergeUpdateStrategy_BothEmptyTypeNoInheritance(t *testing.T) {
 	// When both policy.Type and defaults.Type are empty strings,
 	// Type should NOT be reported as inherited (it should remain empty
@@ -640,7 +691,8 @@ func TestCombineDefaultsLayers_AllSpecSectionsAndCostPricing(t *testing.T) {
 			},
 			ExcludeKnownSidecars: &falseVal,
 			CostPricing: &attunev1alpha1.CostPricing{
-				CPUPerCoreHour: "0.05",
+				CPUPerCoreHour:   "0.05",
+				MemoryPerGiBHour: "0.004",
 			},
 		},
 	}
@@ -668,12 +720,14 @@ func TestCombineDefaultsLayers_AllSpecSectionsAndCostPricing(t *testing.T) {
 	assert.False(t, *got.Spec.ExcludeKnownSidecars)
 	require.NotNil(t, got.Spec.CostPricing)
 	assert.Equal(t, "0.05", got.Spec.CostPricing.CPUPerCoreHour)
+	assert.Equal(t, "0.004", got.Spec.CostPricing.MemoryPerGiBHour)
 
-	// Namespace CostPricing wins when set.
+	// Namespace CPU + cluster memory both survive (field-level merge).
 	ns.Spec.CostPricing = &attunev1alpha1.CostPricing{CPUPerCoreHour: "0.01"}
 	got = CombineDefaultsLayers(cluster, ns)
 	require.NotNil(t, got.Spec.CostPricing)
 	assert.Equal(t, "0.01", got.Spec.CostPricing.CPUPerCoreHour)
+	assert.Equal(t, "0.004", got.Spec.CostPricing.MemoryPerGiBHour)
 }
 
 func TestCombineDefaultsLayers_NamespaceSetsAllSectionsOverCluster(t *testing.T) {

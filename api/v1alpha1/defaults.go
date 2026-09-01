@@ -66,6 +66,7 @@ const (
 	DefaultResizeMethod                     = ResizeMethodInPlaceOnly
 	DefaultMinimumDataPoints          int32 = 48
 	DefaultAutoRevert                       = true
+	DefaultMaxConcurrentResizes       int32 = 1
 	DefaultQueryStep                        = 5 * time.Minute
 	// DefaultExcludeKnownSidecars skips well-known mesh/sidecar container
 	// names unless the policy or AttuneDefaults sets excludeKnownSidecars
