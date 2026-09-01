@@ -5,6 +5,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"testing"
 	"time"
@@ -417,6 +418,38 @@ func TestReconcileGitOpsPullRequest_MissingSecret(t *testing.T) {
 	assert.Equal(t, before+1, promtestutil.ToFloat64(operatormetrics.GitOpsPRTotal.WithLabelValues("default", "p", "failed")))
 }
 
+func TestReconcileGitOpsPullRequest_APIErrorStatusOmitsBody(t *testing.T) {
+	t.Parallel()
+	scheme := runtime.NewScheme()
+	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+
+	en := true
+	dry := false
+	policy := gitOpsEnabledPolicy("p", "default", dry, nil)
+	policy.Spec.UpdateStrategy.Export.PullRequest.Enabled = &en
+	dep := gitOpsDriftDeployment("api", "default", "1")
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(policy, dep).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = c
+	r.gitopsPRClient = leakingPRClient{}
+
+	r.reconcileGitOpsPullRequest(context.Background(), policy, []client.Object{dep}, gitOpsCPURec("api", "100m"))
+
+	var reason, message string
+	for _, cond := range policy.Status.Conditions {
+		if cond.Type == attunev1alpha1.ConditionGitOpsPullRequest {
+			reason = cond.Reason
+			message = cond.Message
+		}
+	}
+	assert.Equal(t, attunev1alpha1.ReasonGitOpsPRFailed, reason)
+	assert.Equal(t, "PR API request failed", message)
+	assert.NotContains(t, message, "ami-secret")
+	assert.NotContains(t, message, "status 403")
+}
+
 func TestReconcileGitOpsPullRequest_DryRunIncrementsMetric(t *testing.T) {
 	// Complements DryRun reason assertion: dry-run path increments metric
 	// and never requires a Secret in the fake client.
@@ -512,6 +545,14 @@ func (c *recordingPRClient) CreateOrUpdate(_ context.Context, req gitops.PRReque
 }
 
 func (c *recordingPRClient) SimulateMerge() { c.merged = true }
+
+// leakingPRClient returns an error that looks like an IMDS/API body leak.
+// Status must never copy that string.
+type leakingPRClient struct{}
+
+func (leakingPRClient) CreateOrUpdate(_ context.Context, _ gitops.PRRequest) (gitops.PRResult, error) {
+	return gitops.PRResult{}, fmt.Errorf("github create PR: status 403: ami-secret-should-not-leak")
+}
 
 func itoaPR(n int) string {
 	if n < 0 {

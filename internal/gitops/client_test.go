@@ -287,6 +287,8 @@ func TestGitHubClient_MissingConfigAndListError(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "status 401")
 	assert.NotContains(t, err.Error(), "super-secret-token")
+	assert.NotContains(t, err.Error(), "Bad credentials")
+	assert.NotContains(t, err.Error(), "{")
 }
 
 func TestPathEscapeRef(t *testing.T) {
@@ -417,6 +419,70 @@ func TestGitLabClient_EnsureHead_FileExistsOnBase_UsesUpdate(t *testing.T) {
 	require.Len(t, commitBodies, 2)
 	assert.Contains(t, commitBodies[0], `"create"`)
 	assert.Contains(t, commitBodies[1], `"update"`)
+}
+
+func TestGitHubClient_CreatePRErrorOmitsResponseBody(t *testing.T) {
+	t.Parallel()
+	const planted = "ami-secret-should-not-leak"
+	client := &GitHubClient{
+		Token:      "tok",
+		Repository: "org/repo",
+		HTTP: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/pulls") {
+				return jsonResp(200, "[]"), nil
+			}
+			if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/git/ref/heads/") {
+				return jsonResp(200, map[string]interface{}{
+					"object": map[string]string{"sha": "abc"},
+				}), nil
+			}
+			if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/pulls") {
+				return jsonResp(403, `{"message":"`+planted+`"}`), nil
+			}
+			return jsonResp(500, planted), nil
+		}),
+	}
+	_, err := client.CreateOrUpdate(context.Background(), PRRequest{
+		Title: "t", Body: "b", Head: "h", Base: "main",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "status 403")
+	assert.NotContains(t, err.Error(), planted)
+}
+
+func TestGitHubClient_RedirectToIMDSDoesNotLeakBody(t *testing.T) {
+	t.Parallel()
+	const planted = "ami-secret-should-not-leak"
+	var sawIMDS bool
+	client := &GitHubClient{
+		Token:      "tok",
+		Repository: "org/repo",
+		HTTP: &http.Client{
+			CheckRedirect: gitopsCheckRedirect,
+			Transport: roundTripFuncTransport(func(r *http.Request) (*http.Response, error) {
+				if strings.Contains(r.URL.Host, "169.254.169.254") {
+					sawIMDS = true
+					return jsonResp(200, planted), nil
+				}
+				resp := jsonResp(http.StatusFound, planted)
+				resp.Header.Set("Location", "http://169.254.169.254/latest/meta-data/")
+				resp.Request = r
+				return resp, nil
+			}),
+		},
+	}
+	_, err := client.CreateOrUpdate(context.Background(), PRRequest{
+		Title: "t", Body: "b", Head: "h", Base: "main",
+	})
+	require.Error(t, err)
+	assert.False(t, sawIMDS, "must not follow redirect to IMDS")
+	assert.NotContains(t, err.Error(), planted)
+}
+
+type roundTripFuncTransport func(*http.Request) (*http.Response, error)
+
+func (f roundTripFuncTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
 }
 
 func TestRedactToken_Encodings(t *testing.T) {

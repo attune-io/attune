@@ -238,7 +238,7 @@ func TestValidate_GitOpsPullRequestAPIURL_SSRF(t *testing.T) {
 			TokenSecretRef: &attunev1alpha1.SecretKeyRef{
 				Name: "tok", Key: "token",
 			},
-			APIURL: "http://169.254.169.254/",
+			APIURL: "https://169.254.169.254/",
 		},
 	}
 
@@ -246,6 +246,47 @@ func TestValidate_GitOpsPullRequestAPIURL_SSRF(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "apiUrl")
 	assert.Contains(t, err.Error(), "metadata")
+}
+
+func TestValidate_GitOpsPullRequestAPIURL_HTTPRejected(t *testing.T) {
+	validator := &AttunePolicyValidator{}
+	en := true
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.Export = &attunev1alpha1.ExportConfig{
+		PullRequest: &attunev1alpha1.GitOpsPullRequestConfig{
+			Enabled:    &en,
+			Repository: "org/repo",
+			TokenSecretRef: &attunev1alpha1.SecretKeyRef{
+				Name: "tok", Key: "token",
+			},
+			APIURL: "http://ghe.example.com/api/v3",
+		},
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "apiUrl")
+	assert.Contains(t, err.Error(), "https")
+}
+
+func TestValidate_GitOpsPullRequestAPIURL_PrivateRejected(t *testing.T) {
+	validator := &AttunePolicyValidator{}
+	en := true
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.Export = &attunev1alpha1.ExportConfig{
+		PullRequest: &attunev1alpha1.GitOpsPullRequestConfig{
+			Enabled:    &en,
+			Repository: "org/repo",
+			TokenSecretRef: &attunev1alpha1.SecretKeyRef{
+				Name: "tok", Key: "token",
+			},
+			APIURL: "https://10.96.0.1/",
+		},
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "apiUrl")
 }
 
 func TestValidate_GitOpsPullRequestAPIURL_EnterpriseOK(t *testing.T) {
@@ -1208,6 +1249,46 @@ func TestValidate_CloudWatchMissingCluster(t *testing.T) {
 	_, err := validator.ValidateCreate(context.Background(), policy)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "clusterName is required")
+}
+
+func TestValidate_CloudWatchHostileClusterName(t *testing.T) {
+	validator := &AttunePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.MetricsSource.CloudWatch = &attunev1alpha1.CloudWatchConfig{
+		Region:      "us-east-1",
+		ClusterName: `x" Namespace="kube-system" MetricName="container_memory_working_set`,
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "clusterName")
+}
+
+func TestValidate_CloudWatchHostileRoleARN(t *testing.T) {
+	validator := &AttunePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.MetricsSource.CloudWatch = &attunev1alpha1.CloudWatchConfig{
+		Region:      "us-east-1",
+		ClusterName: "prod",
+		RoleARN:     `arn:aws:iam::123456789012:role/x" extra`,
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "roleArn")
+}
+
+func TestValidate_CloudWatchValidRoleARN(t *testing.T) {
+	validator := &AttunePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.MetricsSource.CloudWatch = &attunev1alpha1.CloudWatchConfig{
+		Region:      "us-east-1",
+		ClusterName: "my-eks-cluster",
+		RoleARN:     "arn:aws:iam::123456789012:role/CloudWatchReadOnly",
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	assert.NoError(t, err)
 }
 
 func TestValidate_AllThreeSourcesSet(t *testing.T) {

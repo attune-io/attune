@@ -978,6 +978,27 @@ func TestDefaultsValidator_ProviderFieldConstraints(t *testing.T) {
 			wantErr: "metricsSource.cloudwatch.clusterName is required",
 		},
 		{
+			name: "cloudwatch SEARCH injection cluster name",
+			ms: &attunev1alpha1.MetricsSource{
+				CloudWatch: &attunev1alpha1.CloudWatchConfig{
+					Region:      "us-east-1",
+					ClusterName: `x" Namespace="kube-system" MetricName="container_memory_working_set`,
+				},
+			},
+			wantErr: "metricsSource.cloudwatch.clusterName",
+		},
+		{
+			name: "cloudwatch hostile role arn",
+			ms: &attunev1alpha1.MetricsSource{
+				CloudWatch: &attunev1alpha1.CloudWatchConfig{
+					Region:      "us-east-1",
+					ClusterName: "prod",
+					RoleARN:     `arn:aws:iam::123456789012:role/x" extra`,
+				},
+			},
+			wantErr: "metricsSource.cloudwatch.roleArn",
+		},
+		{
 			name:    "vpa missing name",
 			ms:      &attunev1alpha1.MetricsSource{VPA: &attunev1alpha1.VPAConfig{}},
 			wantErr: "metricsSource.vpa.name is required",

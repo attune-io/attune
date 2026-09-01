@@ -406,8 +406,8 @@ as alternative metrics sources. **At most one** of `prometheus`,
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `metricsSource.cloudwatch.region` | string | (required) | AWS region (e.g., `us-east-1`) |
-| `metricsSource.cloudwatch.clusterName` | string | (required) | EKS cluster name for Container Insights metric filtering |
-| `metricsSource.cloudwatch.roleArn` | string | `""` | Optional IAM role ARN for cross-account access (IRSA/Pod Identity used if empty) |
+| `metricsSource.cloudwatch.clusterName` | string | (required) | EKS cluster name for Container Insights metric filtering (1-100 chars, alphanumeric / hyphen / underscore) |
+| `metricsSource.cloudwatch.roleArn` | string | `""` | Optional IAM role ARN for cross-account access (`arn:aws:iam::ACCOUNT:role/NAME`; IRSA/Pod Identity used if empty) |
 
 ## Policy-Level Fields
 

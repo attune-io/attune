@@ -119,11 +119,11 @@ func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (a
 			return warnings, fmt.Errorf("updateStrategy.export.pullRequest.provider must be github or gitlab")
 		}
 		// apiUrl is optional (defaults to github.com / gitlab.com). When set,
-		// apply the same SSRF host checks as Prometheus addresses so a
-		// malicious policy cannot aim the operator's bearer token at cloud
-		// metadata or loopback endpoints.
+		// require https and reject private/metadata/userinfo so a malicious
+		// policy cannot aim the operator's bearer token at in-cluster or
+		// cloud metadata endpoints. This is stricter than PrometheusAddress.
 		if pr.APIURL != "" {
-			if err := validation.PrometheusAddress(pr.APIURL); err != nil {
+			if err := validation.GitOpsAPIURL(pr.APIURL); err != nil {
 				return warnings, fmt.Errorf("updateStrategy.export.pullRequest.apiUrl: %w", err)
 			}
 		}
@@ -613,6 +613,12 @@ func validateMetricsSourceProviderFields(ms *attunev1alpha1.MetricsSource) error
 		}
 		if cw.ClusterName == "" {
 			return fmt.Errorf("metricsSource.cloudwatch.clusterName is required")
+		}
+		if err := validation.CloudWatchClusterName(cw.ClusterName); err != nil {
+			return fmt.Errorf("metricsSource.cloudwatch.clusterName: %w", err)
+		}
+		if err := validation.CloudWatchRoleARN(cw.RoleARN); err != nil {
+			return fmt.Errorf("metricsSource.cloudwatch.roleArn: %w", err)
 		}
 	}
 	if m := ms.CPURecordingMetric; m != "" && !rsmetrics.ValidRecordingMetricName(m) {
