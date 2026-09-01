@@ -19,6 +19,7 @@ package webhook
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -33,7 +34,9 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
@@ -261,6 +264,22 @@ func TestPodMutatingHandler_NotCreate(t *testing.T) {
 	}
 	resp := handler.Handle(context.Background(), req)
 	assert.True(t, resp.Allowed)
+}
+
+func TestPodMutatingHandler_ListErrorFailOpen(t *testing.T) {
+	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithInterceptorFuncs(interceptor.Funcs{
+		List: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) error {
+			return fmt.Errorf("simulated list error")
+		},
+	}).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
+	assert.True(t, resp.Allowed)
+	assert.Nil(t, resp.Patches)
+	require.NotNil(t, resp.Result)
+	assert.Contains(t, resp.Result.Message, "error listing policies")
 }
 
 func TestPodMutatingHandler_NoOwner(t *testing.T) {

@@ -398,6 +398,27 @@ func TestResizePod_ContainerNotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "not found")
 }
 
+func TestResizePod_ContainerMissingAfterRetryGet(t *testing.T) {
+	pod := newTestPod("web-0", "default", "app", "100m", "128Mi", "200m", "256Mi")
+	stored := newTestPod("web-0", "default", "sidecar", "100m", "128Mi", "200m", "256Mi")
+	fakeClient := fake.NewSimpleClientset(stored)
+
+	resizer := NewPodResizer(fakeClient, testr.New(t))
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("250m"),
+			corev1.ResourceMemory: resource.MustParse("512Mi"),
+		},
+	}
+
+	results, err := resizer.ResizePod(context.Background(), pod, "app", target)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `container "app" not found`)
+	require.Len(t, results, 2)
+	assert.False(t, results[0].Success)
+	assert.False(t, results[1].Success)
+}
+
 func TestResizePod_UpdateResizeAPIError(t *testing.T) {
 	pod := newTestPod("web-0", "default", "app", "100m", "128Mi", "200m", "256Mi")
 	fakeClient := fake.NewSimpleClientset(pod)

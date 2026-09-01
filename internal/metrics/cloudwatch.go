@@ -142,6 +142,9 @@ func (c *CloudWatchCollector) QueryRangeGrouped(ctx context.Context, query strin
 			}
 
 			for i, ts := range result.Timestamps {
+				if i >= len(result.Values) {
+					break
+				}
 				value := result.Values[i]
 				// Skip non-finite values from CloudWatch (e.g., insufficient
 				// data for a statistic returns NaN).

@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"testing"
 	"time"
 
@@ -326,6 +327,86 @@ func TestCloudWatchCollector_Close(t *testing.T) {
 	c := &CloudWatchCollector{}
 	require.NoError(t, c.Close(), "Close is a no-op and must succeed")
 	require.NoError(t, c.Close(), "Close must be idempotent")
+}
+
+func TestCloudWatchCollector_QueryRangeGrouped_NaNInfFiltered(t *testing.T) {
+	ts1 := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
+	ts2 := ts1.Add(1 * time.Minute)
+	ts3 := ts1.Add(2 * time.Minute)
+	ts4 := ts1.Add(3 * time.Minute)
+	ts5 := ts1.Add(4 * time.Minute)
+
+	mock := &mockCloudWatchClient{
+		getMetricDataFn: func(_ context.Context, _ *cloudwatch.GetMetricDataInput, _ ...func(*cloudwatch.Options)) (*cloudwatch.GetMetricDataOutput, error) {
+			return &cloudwatch.GetMetricDataOutput{
+				MetricDataResults: []cwtypes.MetricDataResult{
+					{
+						Label:      aws.String("metric pod-a main"),
+						Timestamps: []time.Time{ts1, ts2, ts3, ts4, ts5},
+						Values:     []float64{0.25, math.NaN(), math.Inf(1), math.Inf(-1), 0.75},
+					},
+				},
+			}, nil
+		},
+	}
+
+	c := NewCloudWatchCollectorWithClient(mock, "c", logr.Discard())
+	spec := CloudWatchQuerySpec{
+		Metric:      "container_memory_working_set",
+		ClusterName: "c",
+		Namespace:   "ns",
+		PodPrefix:   "pod-",
+		Period:      300,
+		Stat:        "Average",
+	}
+	query, err := json.Marshal(spec)
+	require.NoError(t, err)
+
+	grouped, err := c.QueryRangeGrouped(context.Background(), string(query),
+		ts1.Add(-time.Hour), ts5, time.Minute)
+	require.NoError(t, err)
+	require.Len(t, grouped["main"], 2, "NaN, +Inf, and -Inf samples should be filtered out")
+	assert.InDelta(t, 0.25, grouped["main"][0].Value, 0.001)
+	assert.InDelta(t, 0.75, grouped["main"][1].Value, 0.001)
+}
+
+func TestCloudWatchCollector_QueryRangeGrouped_ShortValuesNoPanic(t *testing.T) {
+	ts1 := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
+	ts2 := ts1.Add(1 * time.Minute)
+	ts3 := ts1.Add(2 * time.Minute)
+
+	mock := &mockCloudWatchClient{
+		getMetricDataFn: func(_ context.Context, _ *cloudwatch.GetMetricDataInput, _ ...func(*cloudwatch.Options)) (*cloudwatch.GetMetricDataOutput, error) {
+			return &cloudwatch.GetMetricDataOutput{
+				MetricDataResults: []cwtypes.MetricDataResult{
+					{
+						Label:      aws.String("metric pod-a main"),
+						Timestamps: []time.Time{ts1, ts2, ts3},
+						Values:     []float64{42.0},
+					},
+				},
+			}, nil
+		},
+	}
+
+	c := NewCloudWatchCollectorWithClient(mock, "c", logr.Discard())
+	spec := CloudWatchQuerySpec{
+		Metric:      "container_memory_working_set",
+		ClusterName: "c",
+		Namespace:   "ns",
+		PodPrefix:   "pod-",
+		Period:      300,
+		Stat:        "Average",
+	}
+	query, err := json.Marshal(spec)
+	require.NoError(t, err)
+
+	grouped, err := c.QueryRangeGrouped(context.Background(), string(query),
+		ts1.Add(-time.Hour), ts3, time.Minute)
+	require.NoError(t, err)
+	require.Len(t, grouped["main"], 1)
+	assert.InDelta(t, 42.0, grouped["main"][0].Value, 0.001)
+	assert.Equal(t, ts1, grouped["main"][0].Timestamp)
 }
 
 // Verify CloudWatchCollector implements MetricsCollector.
