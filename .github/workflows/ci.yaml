@@ -46,6 +46,7 @@ jobs:
       docs: ${{ steps.filter.outputs.docs }}
       e2e: ${{ steps.filter.outputs.e2e }}
       manifests: ${{ steps.filter.outputs.manifests }}
+      scripts: ${{ steps.filter.outputs.scripts }}
     steps:
       - uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
         with:
@@ -101,13 +102,17 @@ jobs:
               - 'charts/attune/crds/**'
               - 'dist/**'
               - 'Makefile'
+            # Helper scripts + their unit tests (FOSSA filter, fuzz classifier,
+            # fleet reports, nightly issue body). Lint runs make python-test.
+            scripts:
+              - 'scripts/**'
 
   lint:
     name: Lint
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
     needs: changes
-    if: needs.changes.outputs.go == 'true'
+    if: needs.changes.outputs.go == 'true' || needs.changes.outputs.scripts == 'true'
     steps:
       - uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
         with:
@@ -170,6 +175,10 @@ jobs:
       - name: Verify Helm schema field names match CRD
         shell: bash -Eeuo pipefail {0}
         run: bash hack/verify-helm-schema-fields.sh
+
+      - name: Run helper script tests
+        shell: bash -Eeuo pipefail {0}
+        run: make python-test
 
   docs-check:
     name: Docs Check
