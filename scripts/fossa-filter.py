@@ -38,7 +38,11 @@ KNOWN_FALSE_POSITIVES: dict[str, set[str]] = {
     # FOSSA flags it as outdated because patch versions within the same
     # minor exist, but we intentionally pin to v0.36.x for K8s 1.36 API
     # compatibility. This applies to all k8s.io modules.
-    "k8s.io/": {"outdated"},
+    #
+    # FOSSA also attributes Kubernetes *server* CVEs to client-go and
+    # apimachinery (shared monorepo). OSV and govulncheck report none
+    # for v0.36.4. Security/govulncheck is the real vuln gate.
+    "k8s.io/": {"outdated", "vulnerability"},
     # golang.org/x/text bundles Unicode CLDR data files with CC-BY-SA
     # notices. The module itself is BSD-3-Clause. See golang/go#53534.
     "golang.org/x/text": {"CC-BY-SA-1.0", "CC-BY-SA-2.0", "CC-BY-SA-2.5",
@@ -74,6 +78,10 @@ def is_false_positive(issue: dict) -> bool:
         ):
             if prefix == "k8s.io/":
                 return True
+        # FOSSA "vulnerability" on k8s.io/* is usually a server CVE
+        # attributed to the client library. Govulncheck owns real vulns.
+        if "vulnerability" in patterns and issue_type == "vulnerability":
+            return True
         # Check license issues
         if license_id in patterns:
             return True
