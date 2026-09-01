@@ -110,11 +110,15 @@ func (c *CloudWatchCollector) QueryRangeGrouped(ctx context.Context, query strin
 	}
 	period32 := int32(min(period, 86400)) //nolint:gosec // period is clamped to [60, 86400]
 
-	// Metric/Stat/ClusterName/Namespace are pinned or allowlisted above so
-	// they cannot break out of the quoted SEARCH terms.
+	// Metric/Stat/ClusterName/Namespace/PodPrefix are pinned or allowlisted
+	// above so they cannot break out of the quoted SEARCH terms.
+	prefixTerm := ""
+	if spec.PodPrefix != "" {
+		prefixTerm = fmt.Sprintf(` PodName="%s*"`, spec.PodPrefix)
+	}
 	searchExpr := fmt.Sprintf(
-		`SEARCH('{ContainerInsights,ClusterName,Namespace,PodName,ContainerName} MetricName="%s" ClusterName="%s" Namespace="%s"', '%s', %d)`,
-		spec.Metric, spec.ClusterName, spec.Namespace, spec.Stat, period32,
+		`SEARCH('{ContainerInsights,ClusterName,Namespace,PodName,ContainerName} MetricName="%s" ClusterName="%s" Namespace="%s"%s', '%s', %d)`,
+		spec.Metric, spec.ClusterName, spec.Namespace, prefixTerm, spec.Stat, period32,
 	)
 
 	input := &cloudwatch.GetMetricDataInput{
@@ -222,6 +226,11 @@ func validateCloudWatchQuerySpec(spec CloudWatchQuerySpec) error {
 	}
 	if err := validation.CloudWatchSEARCHToken(spec.Namespace); err != nil {
 		return fmt.Errorf("namespace: %w", err)
+	}
+	if spec.PodPrefix != "" {
+		if err := validation.CloudWatchSEARCHToken(spec.PodPrefix); err != nil {
+			return fmt.Errorf("podPrefix: %w", err)
+		}
 	}
 	return nil
 }

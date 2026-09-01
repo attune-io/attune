@@ -83,6 +83,20 @@ tests:
               - update
               - watch
 
+  - it: should include Prometheus Operator prometheuses list and watch
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - monitoring.coreos.com
+            resources:
+              - prometheuses
+            verbs:
+              - get
+              - list
+              - watch
+
   - it: should include node read permissions for capacity pre-check
     asserts:
       - contains:

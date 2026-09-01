@@ -506,6 +506,61 @@ func TestCloudWatchCollector_PinsMetricAndStat(t *testing.T) {
 	assert.False(t, called, "must not send GetMetricData for unpinned Metric/Stat")
 }
 
+func TestCloudWatchCollector_PodPrefixInSEARCH(t *testing.T) {
+	t.Parallel()
+	var gotExpr string
+	mock := &mockCloudWatchClient{
+		getMetricDataFn: func(_ context.Context, params *cloudwatch.GetMetricDataInput, _ ...func(*cloudwatch.Options)) (*cloudwatch.GetMetricDataOutput, error) {
+			if len(params.MetricDataQueries) > 0 {
+				gotExpr = aws.ToString(params.MetricDataQueries[0].Expression)
+			}
+			return &cloudwatch.GetMetricDataOutput{}, nil
+		},
+	}
+	c := NewCloudWatchCollectorWithClient(mock, "c", logr.Discard())
+	spec := CloudWatchQuerySpec{
+		Metric:      "container_memory_working_set",
+		ClusterName: "c",
+		Namespace:   "default",
+		PodPrefix:   "api-server-",
+		Period:      300,
+		Stat:        "Average",
+	}
+	query, err := json.Marshal(spec)
+	require.NoError(t, err)
+
+	_, err = c.QueryRangeGrouped(context.Background(), string(query),
+		time.Now().Add(-time.Hour), time.Now(), time.Minute)
+	require.NoError(t, err)
+	assert.Contains(t, gotExpr, `PodName="api-server-*"`)
+}
+
+func TestCloudWatchCollector_HostilePodPrefixNotInSEARCH(t *testing.T) {
+	t.Parallel()
+	called := false
+	mock := &mockCloudWatchClient{
+		getMetricDataFn: func(_ context.Context, _ *cloudwatch.GetMetricDataInput, _ ...func(*cloudwatch.Options)) (*cloudwatch.GetMetricDataOutput, error) {
+			called = true
+			return &cloudwatch.GetMetricDataOutput{}, nil
+		},
+	}
+	c := NewCloudWatchCollectorWithClient(mock, "c", logr.Discard())
+	spec := CloudWatchQuerySpec{
+		Metric:      "container_memory_working_set",
+		ClusterName: "c",
+		Namespace:   "default",
+		PodPrefix:   `api" ClusterName="other`,
+		Period:      300,
+		Stat:        "Average",
+	}
+	query, err := json.Marshal(spec)
+	require.NoError(t, err)
+	_, err = c.QueryRangeGrouped(context.Background(), string(query),
+		time.Now().Add(-time.Hour), time.Now(), time.Minute)
+	require.Error(t, err)
+	assert.False(t, called, "must not send GetMetricData when podPrefix contains a quote")
+}
+
 func TestCloudWatchCollector_HostileNamespaceNotInSEARCH(t *testing.T) {
 	t.Parallel()
 	called := false
