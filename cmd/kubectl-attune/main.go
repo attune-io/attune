@@ -708,9 +708,9 @@ func printRecommendationsItems(items []unstructured.Unstructured) {
 	showCluster := hasClusterAnnotation(items)
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 3, ' ', 0)
 	if showCluster {
-		fmt.Fprintln(w, "CLUSTER\tNAMESPACE\tPOLICY\tWORKLOAD\tCONTAINER\tCPU REQ\tCPU REC\tMEM REQ\tMEM REC\tCONFIDENCE / STATUS")
+		fmt.Fprintln(w, "CLUSTER\tNAMESPACE\tPOLICY\tWORKLOAD\tCONTAINER\tCPU REQ\tCPU REC\tMEM REQ\tMEM REC\tGRADE\tCONFIDENCE / STATUS")
 	} else {
-		fmt.Fprintln(w, "NAMESPACE\tPOLICY\tWORKLOAD\tCONTAINER\tCPU REQ\tCPU REC\tMEM REQ\tMEM REC\tCONFIDENCE / STATUS")
+		fmt.Fprintln(w, "NAMESPACE\tPOLICY\tWORKLOAD\tCONTAINER\tCPU REQ\tCPU REC\tMEM REQ\tMEM REC\tGRADE\tCONFIDENCE / STATUS")
 	}
 
 	var collecting int
@@ -722,10 +722,10 @@ func printRecommendationsItems(items []unstructured.Unstructured) {
 		if !found || len(recs) == 0 {
 			collecting++
 			if showCluster {
-				fmt.Fprintf(w, "%s\t%s\t%s\t-\t-\t-\t-\t-\t-\t%s\n",
+				fmt.Fprintf(w, "%s\t%s\t%s\t-\t-\t-\t-\t-\t-\t-\t%s\n",
 					cluster, ns, policyName, policyReadyReason(item))
 			} else {
-				fmt.Fprintf(w, "%s\t%s\t-\t-\t-\t-\t-\t-\t%s\n",
+				fmt.Fprintf(w, "%s\t%s\t-\t-\t-\t-\t-\t-\t-\t%s\n",
 					ns, policyName, policyReadyReason(item))
 			}
 			continue
@@ -754,13 +754,14 @@ func printRecommendationsItems(items []unstructured.Unstructured) {
 				recCPU, _ := recommended["cpuRequest"].(string)
 				curMem, _ := current["memoryRequest"].(string)
 				recMem, _ := recommended["memoryRequest"].(string)
+				grade := wasteGrade(curCPU, recCPU, curMem, recMem)
 
 				if showCluster {
-					fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%.1f%%\n",
-						cluster, ns, policyName, workload, name, curCPU, recCPU, curMem, recMem, confidence*100)
+					fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%.1f%%\n",
+						cluster, ns, policyName, workload, name, curCPU, recCPU, curMem, recMem, grade, confidence*100)
 				} else {
-					fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%.1f%%\n",
-						ns, policyName, workload, name, curCPU, recCPU, curMem, recMem, confidence*100)
+					fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%.1f%%\n",
+						ns, policyName, workload, name, curCPU, recCPU, curMem, recMem, grade, confidence*100)
 				}
 			}
 		}
@@ -795,7 +796,7 @@ func printRecommendationsItems(items []unstructured.Unstructured) {
 
 func printRecommendationsCSV(items []unstructured.Unstructured) {
 	showCluster := hasClusterAnnotation(items)
-	header := []string{"namespace", "policy", "workload", "container", "cpu_req", "cpu_rec", "mem_req", "mem_rec", "confidence_or_status"}
+	header := []string{"namespace", "policy", "workload", "container", "cpu_req", "cpu_rec", "mem_req", "mem_rec", "grade", "confidence_or_status"}
 	if showCluster {
 		header = append([]string{"cluster"}, header...)
 	}
@@ -804,7 +805,7 @@ func printRecommendationsCSV(items []unstructured.Unstructured) {
 	for _, item := range items {
 		recs, found, _ := unstructured.NestedSlice(item.Object, "status", "recommendations")
 		if !found || len(recs) == 0 {
-			row := []string{item.GetNamespace(), item.GetName(), "", "", "", "", "", "", policyReadyReason(item)}
+			row := []string{item.GetNamespace(), item.GetName(), "", "", "", "", "", "", "-", policyReadyReason(item)}
 			if showCluster {
 				row = append([]string{itemCluster(item)}, row...)
 			}
@@ -833,7 +834,8 @@ func printRecommendationsCSV(items []unstructured.Unstructured) {
 				recMem, _ := recommended["memoryRequest"].(string)
 				row := []string{
 					item.GetNamespace(), item.GetName(), workload, name,
-					curCPU, recCPU, curMem, recMem, fmt.Sprintf("%.1f%%", confidence*100),
+					curCPU, recCPU, curMem, recMem, wasteGrade(curCPU, recCPU, curMem, recMem),
+					fmt.Sprintf("%.1f%%", confidence*100),
 				}
 				if showCluster {
 					row = append([]string{itemCluster(item)}, row...)
@@ -1611,6 +1613,60 @@ func parseDollarCents(s string) int64 {
 		return 0
 	}
 	return int64(f * 100)
+}
+
+// wasteGrade maps request waste to A-F. Waste is (current-rec)/rec for each
+// resource; the worse of CPU or memory wins. Under-request (current <= rec)
+// is A. "-" is used when no pair can be compared (collecting, missing rec,
+// unparseable, or non-positive rec).
+func wasteGrade(curCPU, recCPU, curMem, recMem string) string {
+	cpuWaste, cpuOK := requestWaste(curCPU, recCPU)
+	memWaste, memOK := requestWaste(curMem, recMem)
+	if !cpuOK && !memOK {
+		return "-"
+	}
+	waste := 0.0
+	if cpuOK {
+		waste = cpuWaste
+	}
+	if memOK && memWaste > waste {
+		waste = memWaste
+	}
+	switch {
+	case waste < 0.10:
+		return "A"
+	case waste < 0.25:
+		return "B"
+	case waste < 0.50:
+		return "C"
+	case waste < 0.75:
+		return "D"
+	default:
+		return "F"
+	}
+}
+
+func requestWaste(current, recommended string) (float64, bool) {
+	if current == "" || recommended == "" {
+		return 0, false
+	}
+	cur, err := resource.ParseQuantity(current)
+	if err != nil {
+		return 0, false
+	}
+	rec, err := resource.ParseQuantity(recommended)
+	if err != nil {
+		return 0, false
+	}
+	recMilli := rec.MilliValue()
+	if recMilli <= 0 {
+		return 0, false
+	}
+	curMilli := cur.MilliValue()
+	if curMilli <= recMilli {
+		return 0, true
+	}
+	return float64(curMilli-recMilli) / float64(recMilli), true
 }
 
 // savingsPercent computes the CPU savings percentage from reduction and total strings.

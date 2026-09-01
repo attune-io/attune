@@ -146,10 +146,10 @@ kubectl get attunepolicies -n production
 # api-services    Recommend   3           3      0         True    2d
 
 kubectl attune recommendations -n production
-# NAMESPACE   POLICY        WORKLOAD    CONTAINER  CPU REQ  CPU REC  MEM REQ  MEM REC  CONFIDENCE
-# production  api-services  api-server  app        500m     320m     512Mi    384Mi    92.0%
-# production  api-services  worker      main       1000m    480m     2Gi      1.2Gi    88.5%
-# production  api-services  frontend    nginx      250m     120m     256Mi    180Mi    95.1%
+# NAMESPACE   POLICY        WORKLOAD    CONTAINER  CPU REQ  CPU REC  MEM REQ  MEM REC  GRADE  CONFIDENCE
+# production  api-services  api-server  app        500m     320m     512Mi    384Mi    D      92.0%
+# production  api-services  worker      main       1000m    480m     2Gi      1.2Gi    F      88.5%
+# production  api-services  frontend    nginx      250m     120m     256Mi    180Mi    F      95.1%
 
 kubectl attune savings -n production
 # NAMESPACE   NAME          CPU SAVED  MEMORY SAVED  % SAVED  EST. MONTHLY
@@ -237,8 +237,8 @@ production   api-services   Canary  3          0        1        Monitoring   Id
 Example output (`kubectl attune recommendations`):
 
 ```
-NAMESPACE   POLICY        WORKLOAD    CONTAINER  CPU REQ  CPU REC  MEM REQ  MEM REC  CONFIDENCE
-production  api-services  api-server  app        500m     320m     512Mi    384Mi    92.0%
+NAMESPACE   POLICY        WORKLOAD    CONTAINER  CPU REQ  CPU REC  MEM REQ  MEM REC  GRADE  CONFIDENCE
+production  api-services  api-server  app        500m     320m     512Mi    384Mi    D      92.0%
 ```
 
 ## Grafana Dashboard
