@@ -91,10 +91,11 @@ kubectl attune preview -n production api-services
 
 ### recommendations
 
-Shows per-container current vs recommended values with confidence scores.
-When a policy is still collecting data, the last column shows the current
-status message instead. When any policy uses export mode, a footer note points
-to `kubectl attune export list` for the GitOps ConfigMap view and last-export timestamps.
+Shows per-container current vs recommended values with a waste grade and
+confidence scores. When a policy is still collecting data, GRADE is `-` and
+the last column shows the current status message instead. When any policy
+uses export mode, a footer note points to `kubectl attune export list` for
+the GitOps ConfigMap view and last-export timestamps.
 
 ```bash
 kubectl attune recommendations
@@ -111,6 +112,7 @@ kubectl attune recommendations -n production
 | CPU REC | Recommended CPU request |
 | MEM REQ | Current memory request |
 | MEM REC | Recommended memory request |
+| GRADE | Request waste vs recommendation (worse of CPU or memory): A under 10% over, B 10-25%, C 25-50%, D 50-75%, F 75% or more. Current at or below the recommendation is A. `-` while collecting or when quantities cannot be compared. |
 | CONFIDENCE / STATUS | Confidence percentage when recommendations exist, otherwise the current `Ready` message or reason |
 
 ### export
@@ -259,10 +261,11 @@ kubectl attune version
 - `status`: JSON or YAML of raw `AttunePolicy` objects
 - `diff`: YAML patch manifests
 - `savings` and `recommendations`: CSV (header plus one data row per
-  policy or container; no totals row). Recommendations CSV uses
-  `confidence_or_status` for the last column: a confidence percent
-  when recommendations exist, otherwise the policy Ready reason
-  (same as the table's CONFIDENCE / STATUS column).
+  policy or container; no totals row). Recommendations CSV includes
+  `grade` after `mem_rec` (same A-F bands as the table GRADE column,
+  or `-` while collecting). `confidence_or_status` is the last column:
+  a confidence percent when recommendations exist, otherwise the
+  policy Ready reason (same as the table's CONFIDENCE / STATUS column).
 
 ```bash
 kubectl attune status -o json

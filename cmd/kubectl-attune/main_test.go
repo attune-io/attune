@@ -1279,7 +1279,42 @@ func TestPrintSavings_NoSavings(t *testing.T) {
 	assert.Regexp(t, `fresh-policy\s+-\s+-\s+-\s+-`, output)
 }
 
-// ---------- printRecommendations ----------
+// ---------- wasteGrade ----------
+
+func TestWasteGrade(t *testing.T) {
+	tests := []struct {
+		name           string
+		curCPU, recCPU string
+		curMem, recMem string
+		want           string
+	}{
+		{name: "A under 10 percent cpu", curCPU: "105m", recCPU: "100m", curMem: "100Mi", recMem: "100Mi", want: "A"},
+		{name: "A exact match", curCPU: "100m", recCPU: "100m", curMem: "256Mi", recMem: "256Mi", want: "A"},
+		{name: "A under-provisioned", curCPU: "80m", recCPU: "100m", curMem: "128Mi", recMem: "256Mi", want: "A"},
+		{name: "B at 10 percent", curCPU: "110m", recCPU: "100m", curMem: "100Mi", recMem: "100Mi", want: "B"},
+		{name: "B just under 25 percent", curCPU: "124m", recCPU: "100m", curMem: "100Mi", recMem: "100Mi", want: "B"},
+		{name: "C at 25 percent", curCPU: "125m", recCPU: "100m", curMem: "100Mi", recMem: "100Mi", want: "C"},
+		{name: "C just under 50 percent", curCPU: "149m", recCPU: "100m", curMem: "100Mi", recMem: "100Mi", want: "C"},
+		{name: "D at 50 percent", curCPU: "150m", recCPU: "100m", curMem: "100Mi", recMem: "100Mi", want: "D"},
+		{name: "D just under 75 percent", curCPU: "174m", recCPU: "100m", curMem: "100Mi", recMem: "100Mi", want: "D"},
+		{name: "F at 75 percent", curCPU: "175m", recCPU: "100m", curMem: "100Mi", recMem: "100Mi", want: "F"},
+		{name: "F double request", curCPU: "500m", recCPU: "250m", curMem: "256Mi", recMem: "128Mi", want: "F"},
+		{name: "worse of cpu and memory", curCPU: "105m", recCPU: "100m", curMem: "200Mi", recMem: "100Mi", want: "F"},
+		{name: "memory only when cpu missing", curCPU: "", recCPU: "", curMem: "125Mi", recMem: "100Mi", want: "C"},
+		{name: "cpu only when memory missing", curCPU: "110m", recCPU: "100m", curMem: "", recMem: "", want: "B"},
+		{name: "mixed units 1Gi vs 512Mi", curCPU: "100m", recCPU: "100m", curMem: "1Gi", recMem: "512Mi", want: "F"},
+		{name: "cores vs millicores", curCPU: "1", recCPU: "500m", curMem: "100Mi", recMem: "100Mi", want: "F"},
+		{name: "collecting empty", curCPU: "", recCPU: "", curMem: "", recMem: "", want: "-"},
+		{name: "missing recommended", curCPU: "500m", recCPU: "", curMem: "256Mi", recMem: "", want: "-"},
+		{name: "unparseable", curCPU: "not-a-qty", recCPU: "100m", curMem: "nope", recMem: "128Mi", want: "-"},
+		{name: "zero recommended", curCPU: "100m", recCPU: "0", curMem: "", recMem: "", want: "-"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, wasteGrade(tt.curCPU, tt.recCPU, tt.curMem, tt.recMem))
+		})
+	}
+}
 
 func TestPrintRecommendations(t *testing.T) {
 	policy := &unstructured.Unstructured{
@@ -1334,11 +1369,13 @@ func TestPrintRecommendations(t *testing.T) {
 	output := buf.String()
 
 	assert.Contains(t, output, "CONFIDENCE / STATUS")
+	assert.Contains(t, output, "GRADE")
 	assert.Contains(t, output, "web-deploy")
 	assert.Contains(t, output, "app")
 	assert.Contains(t, output, "500m")
 	assert.Contains(t, output, "250m")
 	assert.Contains(t, output, "85.0%")
+	assert.Regexp(t, `(?m)\bF\b`, output)
 }
 
 func TestPrintRecommendations_CollectingData(t *testing.T) {
@@ -1383,8 +1420,10 @@ func TestPrintRecommendations_CollectingData(t *testing.T) {
 	output := buf.String()
 
 	assert.Contains(t, output, "CONFIDENCE / STATUS")
+	assert.Contains(t, output, "GRADE")
 	assert.Contains(t, output, "new-policy")
 	assert.Contains(t, output, "Not enough data")
+	assert.Regexp(t, `(?m)new-policy\s+-\s+-\s+-\s+-\s+-\s+-\s+-\s+Not enough data`, output)
 }
 
 func captureRun(t *testing.T, args []string, buildClient dynamicClientFactory) (int, string, string) {
@@ -2465,8 +2504,8 @@ func TestPrintRecommendationsCSV_HeaderAndRow(t *testing.T) {
 	out, err := io.ReadAll(r)
 	require.NoError(t, err)
 	s := string(out)
-	assert.Contains(t, s, "namespace,policy,workload,container,cpu_req,cpu_rec,mem_req,mem_rec,confidence_or_status")
-	assert.Contains(t, s, "ns,p,api,app,500m,250m,256Mi,128Mi,95.0%")
+	assert.Contains(t, s, "namespace,policy,workload,container,cpu_req,cpu_rec,mem_req,mem_rec,grade,confidence_or_status")
+	assert.Contains(t, s, "ns,p,api,app,500m,250m,256Mi,128Mi,F,95.0%")
 }
 
 func TestPrintRecommendationsCSV_EmptyRecsUseReadyReason(t *testing.T) {
@@ -2490,8 +2529,8 @@ func TestPrintRecommendationsCSV_EmptyRecsUseReadyReason(t *testing.T) {
 	out, err := io.ReadAll(r)
 	require.NoError(t, err)
 	s := string(out)
-	assert.Contains(t, s, "confidence_or_status")
-	assert.Contains(t, s, "ns,p,,,,,,,InsufficientData")
+	assert.Contains(t, s, "namespace,policy,workload,container,cpu_req,cpu_rec,mem_req,mem_rec,grade,confidence_or_status")
+	assert.Contains(t, s, "ns,p,,,,,,,-,InsufficientData")
 	assert.NotContains(t, s, ",confidence\n")
 }
 

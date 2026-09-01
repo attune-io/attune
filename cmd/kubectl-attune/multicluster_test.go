@@ -373,10 +373,12 @@ func TestPrintRecommendationsItems_ShowsClusterColumn(t *testing.T) {
 	output := buf.String()
 
 	assert.Contains(t, output, "CLUSTER")
+	assert.Contains(t, output, "GRADE")
 	assert.Contains(t, output, "prod-east")
 	assert.Contains(t, output, "api-deploy")
 	assert.Contains(t, output, "250m")
 	assert.Contains(t, output, "95.0%")
+	assert.Regexp(t, `(?m)\bF\b`, output)
 }
 
 // ---------- run() multi-cluster validation ----------
