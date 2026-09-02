@@ -88,7 +88,7 @@ runs:
           age=$(( $(date +%s) - started_epoch ))
           if (( age > 3600 )); then
             echo "Deleting stale k3d cluster '$cluster' (age: ${age}s)"
-            k3d cluster delete "$cluster" || true
+            bash hack/k3d-delete.sh "$cluster"
           fi
         done
         docker builder prune -f || true
@@ -157,7 +157,7 @@ runs:
             break
           fi
           echo "::warning::k3d cluster create attempt $attempt failed, retrying in 10s..."
-          k3d cluster delete "${{ inputs.cluster-name }}" 2>/dev/null || true
+          bash hack/k3d-delete.sh "${{ inputs.cluster-name }}"
           sleep 10
           if (( attempt == 3 )); then
             echo "::error::k3d cluster creation failed after 3 attempts"

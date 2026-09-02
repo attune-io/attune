@@ -355,6 +355,65 @@ func TestPrintPreview(t *testing.T) {
 	assert.Contains(t, output, "Memory")
 }
 
+func TestPrintPreview_StaleSkipped(t *testing.T) {
+	policy := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "attune.io/v1alpha1",
+			"kind":       "AttunePolicy",
+			"metadata": map[string]interface{}{
+				"name":      "web-app",
+				"namespace": "default",
+			},
+			"spec": map[string]interface{}{
+				"updateStrategy": map[string]interface{}{"type": "Recommend"},
+			},
+			"status": map[string]interface{}{
+				"recommendations": []interface{}{
+					map[string]interface{}{
+						"workload": "web-deploy",
+						"stale":    true,
+						"containers": []interface{}{
+							map[string]interface{}{
+								"name":        "app",
+								"current":     map[string]interface{}{"cpuRequest": "500m", "memoryRequest": "256Mi"},
+								"recommended": map[string]interface{}{"cpuRequest": "250m", "memoryRequest": "256Mi"},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{gvr: "AttunePolicyList"}, policy)
+
+	oldOut, oldErr := os.Stdout, os.Stderr
+	outR, outW, err := os.Pipe()
+	require.NoError(t, err)
+	errR, errW, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout, os.Stderr = outW, errW
+
+	printPreview(context.Background(), dynClient, "default", "web-app")
+
+	require.NoError(t, outW.Close())
+	require.NoError(t, errW.Close())
+	os.Stdout, os.Stderr = oldOut, oldErr
+
+	var outBuf, errBuf bytes.Buffer
+	_, err = outBuf.ReadFrom(outR)
+	require.NoError(t, err)
+	_, err = errBuf.ReadFrom(errR)
+	require.NoError(t, err)
+
+	assert.NotContains(t, outBuf.String(), "500m")
+	assert.NotContains(t, outBuf.String(), "250m")
+	assert.Contains(t, errBuf.String(), "stale")
+	assert.Contains(t, errBuf.String(), "web-deploy")
+}
+
 func TestPrintHistory(t *testing.T) {
 	policy := &unstructured.Unstructured{
 		Object: map[string]interface{}{
@@ -1323,6 +1382,15 @@ func TestWasteGrade(t *testing.T) {
 	}
 }
 
+func TestRecommendationGrade_StaleOverridesWaste(t *testing.T) {
+	rec := map[string]interface{}{"stale": true}
+	assert.Equal(t, "-", recommendationGrade(rec, "0", "250m", "0", "512Mi"))
+	assert.Equal(t, "-", recommendationGrade(rec, "500m", "250m", "256Mi", "128Mi"))
+	fresh := map[string]interface{}{"stale": false}
+	assert.Equal(t, "U", recommendationGrade(fresh, "0", "250m", "0", "512Mi"))
+	assert.Equal(t, "F", recommendationGrade(map[string]interface{}{}, "500m", "250m", "256Mi", "128Mi"))
+}
+
 func TestPrintRecommendations(t *testing.T) {
 	policy := &unstructured.Unstructured{
 		Object: map[string]interface{}{
@@ -1441,6 +1509,65 @@ func TestPrintRecommendations_UnderProvisionedGradeU(t *testing.T) {
 	assert.Contains(t, output, "250m")
 	assert.Regexp(t, `(?m)\bU\b`, output)
 	assert.NotRegexp(t, `(?m)\bA\b`, output)
+}
+
+func TestPrintRecommendations_StaleGradeDash(t *testing.T) {
+	policy := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "attune.io/v1alpha1",
+			"kind":       "AttunePolicy",
+			"metadata": map[string]interface{}{
+				"name":      "web",
+				"namespace": "prod",
+			},
+			"status": map[string]interface{}{
+				"recommendations": []interface{}{
+					map[string]interface{}{
+						"workload": "api",
+						"stale":    true,
+						"containers": []interface{}{
+							map[string]interface{}{
+								"name":       "app",
+								"confidence": 0.92,
+								"current": map[string]interface{}{
+									"cpuRequest":    "0",
+									"memoryRequest": "0",
+								},
+								"recommended": map[string]interface{}{
+									"cpuRequest":    "250m",
+									"memoryRequest": "512Mi",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{gvr: "AttunePolicyList"}, policy)
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	printRecommendations(context.Background(), dynClient, "prod")
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	output := buf.String()
+
+	assert.Contains(t, output, "250m")
+	assert.Regexp(t, `(?m)\s-\s+stale\b`, output)
+	assert.NotRegexp(t, `(?m)\bU\b`, output)
+	assert.NotContains(t, output, "92.0%")
 }
 
 func TestPrintRecommendations_CollectingData(t *testing.T) {
@@ -1937,6 +2064,53 @@ func TestPrintExplain(t *testing.T) {
 	assert.Contains(t, output, "Raw percentile:              200m")
 	assert.Contains(t, output, "Change filter [10.00%, 50.00%]: 250m (max_change_capped)")
 	assert.Contains(t, output, "Final adjustment:           memory decrease blocked by allowDecrease=false")
+}
+
+func TestPrintExplain_StaleNote(t *testing.T) {
+	policy := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "attune.io/v1alpha1",
+			"kind":       "AttunePolicy",
+			"metadata": map[string]interface{}{
+				"name":      "my-policy",
+				"namespace": "default",
+			},
+			"status": map[string]interface{}{
+				"recommendations": []interface{}{
+					map[string]interface{}{
+						"workload": "web-deploy",
+						"stale":    true,
+						"containers": []interface{}{
+							map[string]interface{}{
+								"name":        "app",
+								"confidence":  0.85,
+								"current":     map[string]interface{}{"cpuRequest": "500m"},
+								"recommended": map[string]interface{}{"cpuRequest": "250m"},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{
+			gvr:                  "AttunePolicyList",
+			namespaceDefaultsGVR: "AttuneNamespaceDefaultsList",
+			defaultsGVR:          "AttuneDefaultsList",
+		}, policy)
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+	printExplain(context.Background(), dynClient, "default", "my-policy")
+	w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	assert.Contains(t, buf.String(), "stale (no fresh Prometheus data")
 }
 
 func TestPrintExplain_NoRecommendations(t *testing.T) {
@@ -2606,6 +2780,43 @@ func TestPrintRecommendationsCSV_UnderProvisionedGradeU(t *testing.T) {
 	s := string(out)
 	assert.Contains(t, s, "ns,p,api,app,0,250m,0,512Mi,U,92.0%")
 	assert.NotContains(t, s, ",A,")
+}
+
+func TestPrintRecommendationsCSV_StaleGradeDash(t *testing.T) {
+	items := []unstructured.Unstructured{
+		{Object: map[string]interface{}{
+			"metadata": map[string]interface{}{"name": "p", "namespace": "ns"},
+			"status": map[string]interface{}{
+				"recommendations": []interface{}{
+					map[string]interface{}{
+						"workload": "api",
+						"stale":    true,
+						"containers": []interface{}{
+							map[string]interface{}{
+								"name":        "app",
+								"current":     map[string]interface{}{"cpuRequest": "0", "memoryRequest": "0"},
+								"recommended": map[string]interface{}{"cpuRequest": "250m", "memoryRequest": "512Mi"},
+								"confidence":  0.92,
+							},
+						},
+					},
+				},
+			},
+		}},
+	}
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+	printRecommendationsCSV(items)
+	require.NoError(t, w.Close())
+	os.Stdout = old
+	out, err := io.ReadAll(r)
+	require.NoError(t, err)
+	s := string(out)
+	assert.Contains(t, s, "ns,p,api,app,0,250m,0,512Mi,-,stale")
+	assert.NotContains(t, s, ",U,")
+	assert.NotContains(t, s, "92.0%")
 }
 
 func TestPrintRecommendationsCSV_EmptyRecsUseReadyReason(t *testing.T) {
