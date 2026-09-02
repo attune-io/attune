@@ -2419,7 +2419,9 @@ func TestE2E_MemoryLimitDecrease_VersionAware(t *testing.T) {
 				AllowDecrease:    boolPtr(true),
 				ControlledValues: &controlled,
 				MinAllowed:       quantityPtr("64Mi"),
-				MaxAllowed:       quantityPtr("8Gi"),
+				// Pause confidence can recommend ~1Gi. Cap MaxAllowed below the
+				// 512Mi start so a 1.33 clamp stays on the initial limit.
+				MaxAllowed:       quantityPtr("256Mi"),
 				MaxChangePercent: int32Ptr(100),
 			},
 			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
@@ -2461,7 +2463,9 @@ func TestE2E_MemoryLimitDecrease_VersionAware(t *testing.T) {
 	// Poll applied pod resources: CPU may move first; on 1.35 memory limit
 	// should drop; on 1.33–1.34 the platform clamp keeps the limit.
 	var finalMemLim resource.Quantity
-	require.NoError(t, wait.PollUntilContextTimeout(ctx, 3*time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
+	var lastPodName string
+	var lastMemReq resource.Quantity
+	pollErr := wait.PollUntilContextTimeout(ctx, 3*time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
 		var pods corev1.PodList
 		if err := k8sClient.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{"app": appName}); err != nil {
 			return false, nil
@@ -2471,6 +2475,7 @@ func TestE2E_MemoryLimitDecrease_VersionAware(t *testing.T) {
 		}
 		// Prefer a Running pod after any restart.
 		var c *corev1.Container
+		var podName string
 		for i := range pods.Items {
 			if pods.Items[i].DeletionTimestamp != nil {
 				continue
@@ -2478,6 +2483,7 @@ func TestE2E_MemoryLimitDecrease_VersionAware(t *testing.T) {
 			for j := range pods.Items[i].Spec.Containers {
 				if pods.Items[i].Spec.Containers[j].Name == "app" {
 					c = &pods.Items[i].Spec.Containers[j]
+					podName = pods.Items[i].Name
 					break
 				}
 			}
@@ -2487,6 +2493,10 @@ func TestE2E_MemoryLimitDecrease_VersionAware(t *testing.T) {
 		}
 		if c == nil {
 			return false, nil
+		}
+		lastPodName = podName
+		if req := c.Resources.Requests.Memory(); req != nil && !req.IsZero() {
+			lastMemReq = *req
 		}
 		lim := c.Resources.Limits.Memory()
 		if lim == nil || lim.IsZero() {
@@ -2522,8 +2532,13 @@ func TestE2E_MemoryLimitDecrease_VersionAware(t *testing.T) {
 			}
 		}
 		return false, nil
-	}), "timed out waiting for version-aware memory limit outcome (allowInPlace=%v, last limit=%s)",
-		allowDecrease, finalMemLim.String())
+	})
+	if pollErr != nil {
+		t.Logf("version-aware poll timeout: pod=%s request=%s limit=%s",
+			lastPodName, lastMemReq.String(), finalMemLim.String())
+	}
+	require.NoError(t, pollErr, "timed out waiting for version-aware memory limit outcome (allowInPlace=%v, last request=%s last limit=%s)",
+		allowDecrease, lastMemReq.String(), finalMemLim.String())
 
 	t.Logf("final memory limit=%s initial=%s allowInPlaceDecrease=%v", finalMemLim.String(), initMem, allowDecrease)
 
