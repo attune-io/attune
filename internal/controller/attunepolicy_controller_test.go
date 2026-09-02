@@ -1748,6 +1748,109 @@ func TestComputeRecommendations_InsufficientDataPoints(t *testing.T) {
 	assert.Nil(t, rec) // No recommendation because data points are insufficient
 }
 
+// TestComputeRecommendations_EmptyQueryReusesPriorAsStale is the live-red
+// contract: an empty Prometheus query must reuse the prior rec and set
+// Stale. Removing the production Stale assignment fails this test.
+func TestComputeRecommendations_EmptyQueryReusesPriorAsStale(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	deploy := newTestDeployment("api-server", "default", nil)
+	reconciler := newReconcilerWithClient()
+
+	priorData := metav1.NewTime(time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC))
+	cpuRec, err := resource.ParseQuantity("250m")
+	require.NoError(t, err)
+	memRec, err := resource.ParseQuantity("256Mi")
+	require.NoError(t, err)
+	policy.Status.Recommendations = []attunev1alpha1.WorkloadRecommendation{{
+		Workload:     "api-server",
+		Kind:         "Deployment",
+		LastDataTime: &priorData,
+		Stale:        false,
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "main",
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest:    cpuRec,
+				MemoryRequest: memRec,
+			},
+		}},
+	}}
+
+	mc := &mockCollector{
+		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return nil, nil
+		},
+	}
+
+	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil, nil)
+	require.NoError(t, err)
+	require.NotNil(t, rec, "empty query must reuse the prior recommendation, not drop it")
+	assert.True(t, rec.Stale, "reused rec after empty Prometheus query must be marked stale")
+	require.NotNil(t, rec.LastDataTime, "LastDataTime must stay the last non-empty sample")
+	assert.True(t, rec.LastDataTime.Equal(&priorData), "LastDataTime must not be overwritten with reconcile now")
+	require.Len(t, rec.Containers, 1)
+	assert.True(t, rec.Containers[0].Recommended.CPURequest.Equal(cpuRec), "reused CPU rec")
+	assert.True(t, rec.Containers[0].Recommended.MemoryRequest.Equal(memRec), "reused memory rec")
+	assert.False(t, policy.Status.Recommendations[0].Stale, "reuse must DeepCopy, not mutate status in place")
+}
+
+func TestComputeRecommendations_LastDataTimeOlderThanHistoryWindowIsStale(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.MetricsSource.HistoryWindow = &metav1.Duration{Duration: 2 * time.Hour}
+	policy.Spec.MetricsSource.MinimumDataPoints = int32Ptr(1)
+	deploy := newTestDeployment("api-server", "default", nil)
+	now := time.Date(2026, 9, 1, 15, 0, 0, 0, time.UTC)
+	reconciler := newReconcilerWithClient()
+	reconciler.SetNowFunc(func() time.Time { return now })
+
+	old := now.Add(-3 * time.Hour)
+	mc := &mockCollector{
+		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return []rsmetrics.Sample{{Timestamp: old, Value: 0.1}}, nil
+		},
+	}
+
+	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil, nil)
+	require.NoError(t, err)
+	require.NotNil(t, rec)
+	assert.True(t, rec.Stale, "last sample older than historyWindow must mark the rec stale")
+	require.NotNil(t, rec.LastDataTime)
+	assert.True(t, rec.LastDataTime.Equal(&metav1.Time{Time: old}), "LastDataTime is the last non-empty sample, not now")
+}
+
+func TestComputeRecommendations_FreshDataClearsStale(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.MetricsSource.MinimumDataPoints = int32Ptr(1)
+	deploy := newTestDeployment("api-server", "default", nil)
+	now := time.Date(2026, 9, 1, 15, 0, 0, 0, time.UTC)
+	reconciler := newReconcilerWithClient()
+	reconciler.SetNowFunc(func() time.Time { return now })
+
+	staleStamp := metav1.NewTime(now.Add(-48 * time.Hour))
+	policy.Status.Recommendations = []attunev1alpha1.WorkloadRecommendation{{
+		Workload:     "api-server",
+		Kind:         "Deployment",
+		LastDataTime: &staleStamp,
+		Stale:        true,
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "main",
+		}},
+	}}
+
+	fresh := now.Add(-5 * time.Minute)
+	mc := &mockCollector{
+		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return []rsmetrics.Sample{{Timestamp: fresh, Value: 0.1}}, nil
+		},
+	}
+
+	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil, nil)
+	require.NoError(t, err)
+	require.NotNil(t, rec)
+	assert.False(t, rec.Stale, "fresh Prometheus data must clear stale")
+	require.NotNil(t, rec.LastDataTime)
+	assert.True(t, rec.LastDataTime.After(staleStamp.Time), "LastDataTime must advance to the new samples")
+}
+
 func TestComputeRecommendations_AllNaNInfSamplesLogsDataQuality(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	deploy := newTestDeployment("api-server", "default", nil)
@@ -6458,6 +6561,33 @@ func TestComputeRecommendations_ExcludeAllContainers(t *testing.T) {
 	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil, nil)
 	assert.NoError(t, err)
 	assert.Nil(t, rec, "all containers excluded, should return nil")
+}
+
+func TestComputeRecommendations_ExcludeAllDoesNotReusePriorAsStale(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.ExcludedContainers = []string{"main"}
+	deploy := newTestDeployment("api-server", "default", nil)
+	reconciler := newReconcilerWithClient()
+
+	priorData := metav1.NewTime(time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC))
+	policy.Status.Recommendations = []attunev1alpha1.WorkloadRecommendation{{
+		Workload:     "api-server",
+		Kind:         "Deployment",
+		LastDataTime: &priorData,
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "main",
+		}},
+	}}
+
+	mc := &mockCollector{
+		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return generateSamples(200, 0.1), nil
+		},
+	}
+
+	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil, nil)
+	require.NoError(t, err)
+	assert.Nil(t, rec, "exclude-all must drop the rec, not reuse it as a Prometheus gap")
 }
 
 func TestComputeRecommendations_KnownSidecarsExcludedByDefault(t *testing.T) {
