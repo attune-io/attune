@@ -214,17 +214,24 @@ func TestGitLabClient_Create_BootstrapsMissingHead(t *testing.T) {
 
 func TestGitLabClient_Update(t *testing.T) {
 	t.Parallel()
+	var putMethod, putPath, putBody string
 	client := &GitLabClient{
 		Token:   "gl-token",
 		Project: "g/p",
 		HTTP: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 			if r.Method == http.MethodGet {
-				body, _ := json.Marshal([]map[string]interface{}{
+				return jsonResp(200, []map[string]interface{}{
 					{"iid": 3, "web_url": "https://gitlab.com/g/p/-/merge_requests/3"},
-				})
-				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(string(body))), Header: make(http.Header)}, nil
+				}), nil
 			}
-			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{}`)), Header: make(http.Header)}, nil
+			if r.Method == http.MethodPut {
+				b, _ := io.ReadAll(r.Body)
+				putMethod = r.Method
+				putPath = r.URL.Path
+				putBody = string(b)
+				return jsonResp(200, `{}`), nil
+			}
+			return jsonResp(500, `{"message":"unexpected"}`), nil
 		}),
 	}
 	res, err := client.CreateOrUpdate(context.Background(), PRRequest{
@@ -233,6 +240,10 @@ func TestGitLabClient_Update(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, res.Updated)
 	assert.Equal(t, 3, res.Number)
+	assert.Equal(t, http.MethodPut, putMethod, "update must PUT the existing MR")
+	assert.Contains(t, putPath, "/merge_requests/3")
+	assert.Contains(t, putBody, `"title":"t"`)
+	assert.Contains(t, putBody, `"description":"b"`)
 }
 
 func TestGitHubClient_UpdateExisting(t *testing.T) {
