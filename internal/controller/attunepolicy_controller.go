@@ -356,11 +356,20 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 	}
 
+	// Bound PromQL (safety observation and recommendations) so a hung
+	// Prometheus cannot stall the whole reconcile.
+	promTimeout := r.PrometheusTimeout
+	if promTimeout <= 0 {
+		promTimeout = 5 * time.Minute
+	}
+	workloadCtx, workloadCancel := context.WithTimeout(ctx, promTimeout)
+	defer workloadCancel()
+
 	// Check pending safety observations from previous resizes before computing
 	// new recommendations. Uses already-discovered workloads for provenance.
 	var safetyObservationsPending bool
 	if autoRevertEnabled(policy.Spec.UpdateStrategy) {
-		safetyObservationsPending = r.checkPendingSafetyObservations(ctx, &policy, collector, workloads)
+		safetyObservationsPending = r.checkPendingSafetyObservations(workloadCtx, &policy, collector, workloads)
 	}
 
 	logger.Info("Discovered workloads", "count", len(workloads))
@@ -373,14 +382,6 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{RequeueAfter: r.parseCooldown(&policy)}, nil
 	}
 
-	// Step 4-8: Process each workload with a timeout to prevent indefinite
-	// stalls when Prometheus is unresponsive.
-	promTimeout := r.PrometheusTimeout
-	if promTimeout <= 0 {
-		promTimeout = 5 * time.Minute
-	}
-	workloadCtx, workloadCancel := context.WithTimeout(ctx, promTimeout)
-	defer workloadCancel()
 	// One NS-wide pod list shared by metrics sampling and later resize/status
 	// paths (avoids per-workload List during sampling then a second full List).
 	var podsByWorkload map[string][]corev1.Pod
