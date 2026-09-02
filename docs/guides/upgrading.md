@@ -91,6 +91,18 @@ existing open MR only when that MR's target is `baseBranch`. An MR
 whose target is not `baseBranch` is not kept in sync. Attune may open
 a new MR against `baseBranch` and leave the old one open.
 
+### GitLab update no longer clears labels
+
+A GitLab MR update used to send an empty `labels` field when
+`export.pullRequest.labels` was unset. GitLab treats that as "remove
+every label." Updates now omit `labels` unless the policy sets them.
+
+### GitLab re-bootstrap after merge
+
+After the first Attune MR merges, the next drift cycle writes a new
+marker commit (timestamped) so GitLab can open another MR. A reused
+empty marker file no longer blocks the next cycle.
+
 ## v0.1.24 to v0.1.25
 
 v0.1.25 is a GitOps reliability patch. Existing policy YAML keeps working.

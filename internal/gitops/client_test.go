@@ -436,6 +436,8 @@ func TestGitLabClient_ListOpenMRsNoMatchingTargetCreates(t *testing.T) {
 				return jsonResp(200, map[string]interface{}{
 					"name": "attune/x",
 				}), nil
+			case r.Method == http.MethodPost && strings.Contains(path, "/repository/commits"):
+				return jsonResp(201, map[string]string{"id": "c1"}), nil
 			case r.Method == http.MethodPost && strings.HasSuffix(path, "/merge_requests"):
 				b, _ := io.ReadAll(r.Body)
 				createBody = string(b)
@@ -507,6 +509,8 @@ func TestGitLabClient_MissingConfigAndCreateErrors(t *testing.T) {
 						return jsonResp(200, "[]"), nil
 					case r.Method == http.MethodGet && strings.Contains(path, "/repository/branches/"):
 						return jsonResp(200, map[string]interface{}{"name": "attune/x"}), nil
+					case r.Method == http.MethodPost && strings.Contains(path, "/repository/commits"):
+						return jsonResp(201, map[string]string{"id": "c1"}), nil
 					case r.Method == http.MethodPost && strings.HasSuffix(path, "/merge_requests"):
 						return jsonResp(tc.createCode, tc.createBody), nil
 					default:
@@ -543,6 +547,8 @@ func TestGitOpsClients_EscapeWeirdBranchNames(t *testing.T) {
 				case r.Method == http.MethodGet && strings.Contains(path, "/repository/branches/"):
 					branchEscapedPath = r.URL.EscapedPath()
 					return jsonResp(200, map[string]interface{}{"name": head}), nil
+				case r.Method == http.MethodPost && strings.Contains(path, "/repository/commits"):
+					return jsonResp(201, map[string]string{"id": "c1"}), nil
 				case r.Method == http.MethodPost && strings.HasSuffix(path, "/merge_requests"):
 					return jsonResp(201, map[string]interface{}{
 						"iid": 4, "web_url": "https://gitlab.com/g/p/-/merge_requests/4",
@@ -788,6 +794,90 @@ func TestGitLabClient_Update_IncludesLabels(t *testing.T) {
 	assert.Contains(t, putBody, `"labels"`)
 	assert.Contains(t, putBody, "attune")
 	assert.Contains(t, putBody, "rightsizing")
+}
+
+func TestGitLabClient_Update_OmitsEmptyLabels(t *testing.T) {
+	t.Parallel()
+	var putBody string
+	client := &GitLabClient{
+		Token:   "gl-token",
+		Project: "g/p",
+		HTTP: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			if r.Method == http.MethodGet {
+				return jsonResp(200, []map[string]interface{}{
+					{"iid": 3, "web_url": "https://gitlab.com/g/p/-/merge_requests/3", "target_branch": "main"},
+				}), nil
+			}
+			if r.Method == http.MethodPut {
+				b, _ := io.ReadAll(r.Body)
+				putBody = string(b)
+				return jsonResp(200, `{}`), nil
+			}
+			return jsonResp(500, `{"message":"unexpected"}`), nil
+		}),
+	}
+	res, err := client.CreateOrUpdate(context.Background(), PRRequest{
+		Title: "t", Body: "b", Head: "attune/x", Base: "main",
+		// Labels nil: GitLab treats "labels":"" as unassign-all.
+	})
+	require.NoError(t, err)
+	assert.True(t, res.Updated)
+	var payload map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(putBody), &payload))
+	_, hasLabels := payload["labels"]
+	assert.False(t, hasLabels, `PUT must omit "labels" when none are configured; empty string wipes MR labels`)
+	assert.NotContains(t, putBody, `"labels"`)
+}
+
+func TestGitLabClient_EnsureHead_SecondBootstrapUpdatesDistinctContent(t *testing.T) {
+	t.Parallel()
+	var commitBodies []string
+	branchExists := false
+	client := &GitLabClient{
+		Token:   "gl-token",
+		Project: "g/p",
+		HTTP: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			path := r.URL.Path
+			switch {
+			case r.Method == http.MethodGet && strings.Contains(path, "/repository/branches/"):
+				if branchExists {
+					return jsonResp(200, map[string]interface{}{"name": "attune/x"}), nil
+				}
+				return jsonResp(404, `{"message":"404 Branch Not Found"}`), nil
+			case r.Method == http.MethodPost && strings.Contains(path, "/repository/commits"):
+				b, _ := io.ReadAll(r.Body)
+				commitBodies = append(commitBodies, string(b))
+				branchExists = true
+				return jsonResp(201, map[string]string{"id": "c1"}), nil
+			default:
+				return jsonResp(500, `{"message":"unexpected `+r.Method+` `+path+`"}`), nil
+			}
+		}),
+	}
+	ctx := context.Background()
+	base := "https://gitlab.com/api/v4"
+	project := url.PathEscape("g/p")
+	require.NoError(t, client.ensureHeadBranch(ctx, client.HTTP, base, project, "attune/x", "main"))
+	require.NoError(t, client.ensureHeadBranch(ctx, client.HTTP, base, project, "attune/x", "main"))
+	require.Len(t, commitBodies, 2, "second ensureHead must POST a marker update when the head branch already exists")
+
+	type commitPayload struct {
+		StartBranch string `json:"start_branch"`
+		Actions     []struct {
+			Action  string `json:"action"`
+			Content string `json:"content"`
+		} `json:"actions"`
+	}
+	var first, second commitPayload
+	require.NoError(t, json.Unmarshal([]byte(commitBodies[0]), &first))
+	require.NoError(t, json.Unmarshal([]byte(commitBodies[1]), &second))
+	require.NotEmpty(t, first.Actions)
+	require.NotEmpty(t, second.Actions)
+	assert.Equal(t, "create", first.Actions[0].Action)
+	assert.Equal(t, "update", second.Actions[0].Action)
+	assert.NotEqual(t, first.Actions[0].Content, second.Actions[0].Content,
+		"second bootstrap must change marker content so GitLab accepts a new commit")
+	assert.Empty(t, second.StartBranch, "existing head must be updated in place, not rewritten from start_branch")
 }
 
 func TestGitHubClient_CreatePRErrorOmitsResponseBody(t *testing.T) {
