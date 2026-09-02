@@ -113,7 +113,7 @@ kubectl attune recommendations -n production
 | MEM REQ | Current memory request |
 | MEM REC | Recommended memory request |
 | GRADE | Request waste vs recommendation (worse of CPU or memory): A under 10% over (or up to 10% under), B 10-25%, C 25-50%, D 50-75%, F 75% or more. `U` when current is more than 10% below the recommendation, including a zero request. `U` wins if one resource is under-provisioned and the other is waste. `-` while collecting, when the workload rec is stale, or when quantities cannot be compared. |
-| CONFIDENCE / STATUS | Confidence percentage when recommendations exist, otherwise the current `Ready` message or reason |
+| CONFIDENCE / STATUS | Confidence percentage when recommendations exist, `stale` when the workload rec is based on cached Prometheus data, otherwise the current `Ready` message or reason |
 
 ### export
 

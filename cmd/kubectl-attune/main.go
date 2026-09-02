@@ -755,13 +755,14 @@ func printRecommendationsItems(items []unstructured.Unstructured) {
 				curMem, _ := current["memoryRequest"].(string)
 				recMem, _ := recommended["memoryRequest"].(string)
 				grade := recommendationGrade(rec, curCPU, recCPU, curMem, recMem)
+				confOrStatus := recConfidenceOrStatus(rec, confidence)
 
 				if showCluster {
-					fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%.1f%%\n",
-						cluster, ns, policyName, workload, name, curCPU, recCPU, curMem, recMem, grade, confidence*100)
+					fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+						cluster, ns, policyName, workload, name, curCPU, recCPU, curMem, recMem, grade, confOrStatus)
 				} else {
-					fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%.1f%%\n",
-						ns, policyName, workload, name, curCPU, recCPU, curMem, recMem, grade, confidence*100)
+					fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+						ns, policyName, workload, name, curCPU, recCPU, curMem, recMem, grade, confOrStatus)
 				}
 			}
 		}
@@ -835,7 +836,7 @@ func printRecommendationsCSV(items []unstructured.Unstructured) {
 				row := []string{
 					item.GetNamespace(), item.GetName(), workload, name,
 					curCPU, recCPU, curMem, recMem, recommendationGrade(rec, curCPU, recCPU, curMem, recMem),
-					fmt.Sprintf("%.1f%%", confidence*100),
+					recConfidenceOrStatus(rec, confidence),
 				}
 				if showCluster {
 					row = append([]string{itemCluster(item)}, row...)
@@ -1061,6 +1062,9 @@ func printExplain(ctx context.Context, dynClient dynamic.Interface, namespace, p
 		}
 		workload, _ := rec["workload"].(string)
 		fmt.Printf("\nWorkload: %s\n", workload)
+		if recStale(rec) {
+			fmt.Printf("  stale (no fresh Prometheus data; resize is blocked)\n")
+		}
 		containers, _ := rec["containers"].([]interface{})
 		for _, c := range containers {
 			cont, ok := c.(map[string]interface{})
@@ -1631,6 +1635,13 @@ func recStale(rec map[string]interface{}) bool {
 	}
 	b, ok := v.(bool)
 	return ok && b
+}
+
+func recConfidenceOrStatus(rec map[string]interface{}, confidence float64) string {
+	if recStale(rec) {
+		return "stale"
+	}
+	return fmt.Sprintf("%.1f%%", confidence*100)
 }
 
 // wasteGrade maps request waste to A-F, or U when under-provisioned.

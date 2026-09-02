@@ -1565,8 +1565,9 @@ func TestPrintRecommendations_StaleGradeDash(t *testing.T) {
 	output := buf.String()
 
 	assert.Contains(t, output, "250m")
-	assert.Regexp(t, `(?m)\s-\s+92.0%`, output)
+	assert.Regexp(t, `(?m)\s-\s+stale\b`, output)
 	assert.NotRegexp(t, `(?m)\bU\b`, output)
+	assert.NotContains(t, output, "92.0%")
 }
 
 func TestPrintRecommendations_CollectingData(t *testing.T) {
@@ -2063,6 +2064,53 @@ func TestPrintExplain(t *testing.T) {
 	assert.Contains(t, output, "Raw percentile:              200m")
 	assert.Contains(t, output, "Change filter [10.00%, 50.00%]: 250m (max_change_capped)")
 	assert.Contains(t, output, "Final adjustment:           memory decrease blocked by allowDecrease=false")
+}
+
+func TestPrintExplain_StaleNote(t *testing.T) {
+	policy := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "attune.io/v1alpha1",
+			"kind":       "AttunePolicy",
+			"metadata": map[string]interface{}{
+				"name":      "my-policy",
+				"namespace": "default",
+			},
+			"status": map[string]interface{}{
+				"recommendations": []interface{}{
+					map[string]interface{}{
+						"workload": "web-deploy",
+						"stale":    true,
+						"containers": []interface{}{
+							map[string]interface{}{
+								"name":        "app",
+								"confidence":  0.85,
+								"current":     map[string]interface{}{"cpuRequest": "500m"},
+								"recommended": map[string]interface{}{"cpuRequest": "250m"},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{
+			gvr:                  "AttunePolicyList",
+			namespaceDefaultsGVR: "AttuneNamespaceDefaultsList",
+			defaultsGVR:          "AttuneDefaultsList",
+		}, policy)
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+	printExplain(context.Background(), dynClient, "default", "my-policy")
+	w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	assert.Contains(t, buf.String(), "stale (no fresh Prometheus data")
 }
 
 func TestPrintExplain_NoRecommendations(t *testing.T) {
@@ -2766,8 +2814,9 @@ func TestPrintRecommendationsCSV_StaleGradeDash(t *testing.T) {
 	out, err := io.ReadAll(r)
 	require.NoError(t, err)
 	s := string(out)
-	assert.Contains(t, s, "ns,p,api,app,0,250m,0,512Mi,-,92.0%")
+	assert.Contains(t, s, "ns,p,api,app,0,250m,0,512Mi,-,stale")
 	assert.NotContains(t, s, ",U,")
+	assert.NotContains(t, s, "92.0%")
 }
 
 func TestPrintRecommendationsCSV_EmptyRecsUseReadyReason(t *testing.T) {
