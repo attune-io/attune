@@ -1215,10 +1215,12 @@ type nodePodCache struct {
 }
 
 type resizePreChecks struct {
-	nodeCache   sync.Map // string -> *corev1.Node
-	nodePods    sync.Map // string -> nodePodCache
-	limitRanges []corev1.LimitRange
-	quotas      []corev1.ResourceQuota
+	nodeCache         sync.Map // string -> *corev1.Node
+	nodePods          sync.Map // string -> nodePodCache
+	limitRanges       []corev1.LimitRange
+	quotas            []corev1.ResourceQuota
+	limitRangeListErr error
+	quotaListErr      error
 }
 
 // buildResizePreChecks pre-fetches namespace-scoped LimitRanges and
@@ -1226,18 +1228,22 @@ type resizePreChecks struct {
 // share the data without duplicate API calls.
 func (r *AttunePolicyReconciler) buildResizePreChecks(ctx context.Context, policy *attunev1alpha1.AttunePolicy) *resizePreChecks {
 	logger := log.FromContext(ctx)
+	checks := &resizePreChecks{}
 	var limitRanges corev1.LimitRangeList
 	if err := r.List(ctx, &limitRanges, client.InNamespace(policy.Namespace)); err != nil {
 		logger.Info("Could not pre-fetch LimitRanges, quota pre-checks skipped", "error", err)
+		checks.limitRangeListErr = err
+	} else {
+		checks.limitRanges = limitRanges.Items
 	}
 	var quotas corev1.ResourceQuotaList
 	if err := r.List(ctx, &quotas, client.InNamespace(policy.Namespace)); err != nil {
 		logger.Info("Could not pre-fetch ResourceQuotas, quota pre-checks skipped", "error", err)
+		checks.quotaListErr = err
+	} else {
+		checks.quotas = quotas.Items
 	}
-	return &resizePreChecks{
-		limitRanges: limitRanges.Items,
-		quotas:      quotas.Items,
-	}
+	return checks
 }
 
 // shouldSkipResize runs pre-checks and returns whether to skip the resize
@@ -1335,7 +1341,20 @@ func (r *AttunePolicyReconciler) shouldSkipResize(
 			corev1.ResourceMemory: containerRec.Current.MemoryRequest.DeepCopy(),
 		},
 	}
+	if !containerRec.Current.CPULimit.IsZero() || !containerRec.Current.MemoryLimit.IsZero() {
+		currentRes.Limits = corev1.ResourceList{}
+		if !containerRec.Current.CPULimit.IsZero() {
+			currentRes.Limits[corev1.ResourceCPU] = containerRec.Current.CPULimit.DeepCopy()
+		}
+		if !containerRec.Current.MemoryLimit.IsZero() {
+			currentRes.Limits[corev1.ResourceMemory] = containerRec.Current.MemoryLimit.DeepCopy()
+		}
+	}
 	if checks != nil {
+		if targetIncreasesRequests(pod, containerRec.Name, target) &&
+			(checks.quotaListErr != nil || checks.limitRangeListErr != nil) {
+			return true, "quota list unavailable; skipping request increase"
+		}
 		if err := checkQuotaCompatibilityFromLists(checks.limitRanges, checks.quotas, currentRes, target); err != nil {
 			return true, "quota/limitrange violation: " + err.Error()
 		}

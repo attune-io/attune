@@ -161,6 +161,120 @@ func TestComputeVPARecommendationsForWorkload_NoMatchingContainer(t *testing.T) 
 	assert.Nil(t, rec, "no matching container should result in no recommendation")
 }
 
+func TestComputeVPARecommendationsForWorkload_MemoryFromCPURatio(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.MetricsSource.Prometheus = nil
+	policy.Spec.MetricsSource.VPA = &attunev1alpha1.VPAConfig{Name: "my-vpa"}
+	ratio := "2.0"
+	policy.Spec.Memory.MemoryFromCPURatio = &ratio
+
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+
+	vpaCPU, err := resource.ParseQuantity("1000m")
+	require.NoError(t, err)
+	vpaMem, err := resource.ParseQuantity("128Mi")
+	require.NoError(t, err)
+	vpaRecs := []rsmetrics.VPAContainerRecommendation{
+		{
+			ContainerName: "main",
+			CPUTarget:     vpaCPU,
+			MemoryTarget:  vpaMem,
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(testScheme()).
+		WithObjects(deploy).
+		Build()
+
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = testScheme()
+
+	rec, _, err := reconciler.computeVPARecommendationsForWorkload(
+		context.Background(), policy, deploy, vpaRecs, nil, nil, nil,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, rec)
+	require.Len(t, rec.Containers, 1)
+
+	cRec := rec.Containers[0]
+	// VPA memory target 128Mi plus ~30% overhead is ~166Mi. Ratio 2.0
+	// from the CPU rec is several times larger.
+	floor, err := resource.ParseQuantity("256Mi")
+	require.NoError(t, err)
+	assert.True(t, cRec.Recommended.MemoryRequest.Cmp(floor) > 0,
+		"memoryFromCpuRatio should derive memory from CPU, not the 128Mi VPA target (got %s)",
+		cRec.Recommended.MemoryRequest.String())
+	require.NotNil(t, cRec.Explanation)
+	require.NotNil(t, cRec.Explanation.Memory)
+	assert.Contains(t, cRec.Explanation.Memory.FinalAdjustment, "memoryFromCpuRatio=2.0")
+}
+
+func TestComputeVPARecommendationsForWorkload_ReusesStaleWhenNoContainerRecs(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.MetricsSource.Prometheus = nil
+	policy.Spec.MetricsSource.VPA = &attunev1alpha1.VPAConfig{Name: "my-vpa"}
+
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+
+	now := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
+	priorData := metav1.NewTime(now.Add(-time.Minute))
+	cpuRec, err := resource.ParseQuantity("250m")
+	require.NoError(t, err)
+	memRec, err := resource.ParseQuantity("256Mi")
+	require.NoError(t, err)
+	policy.Status.Recommendations = []attunev1alpha1.WorkloadRecommendation{{
+		Workload:     "api-server",
+		Kind:         "Deployment",
+		LastDataTime: &priorData,
+		Stale:        false,
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "main",
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest:    cpuRec,
+				MemoryRequest: memRec,
+			},
+		}},
+	}}
+
+	// VPA has a rec for a different container, so this workload yields zero recs.
+	vpaCPU, err := resource.ParseQuantity("250m")
+	require.NoError(t, err)
+	vpaMem, err := resource.ParseQuantity("512Mi")
+	require.NoError(t, err)
+	vpaRecs := []rsmetrics.VPAContainerRecommendation{
+		{
+			ContainerName: "web",
+			CPUTarget:     vpaCPU,
+			MemoryTarget:  vpaMem,
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(testScheme()).
+		WithObjects(deploy).
+		Build()
+
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = testScheme()
+	reconciler.SetNowFunc(func() time.Time { return now })
+
+	rec, _, err := reconciler.computeVPARecommendationsForWorkload(
+		context.Background(), policy, deploy, vpaRecs, nil, nil, nil,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, rec, "empty VPA recs must reuse the prior recommendation, not drop it")
+	assert.True(t, rec.Stale, "reused rec after empty VPA recs must be marked stale")
+	require.NotNil(t, rec.LastDataTime)
+	assert.True(t, rec.LastDataTime.Equal(&priorData))
+	require.Len(t, rec.Containers, 1)
+	assert.True(t, rec.Containers[0].Recommended.CPURequest.Equal(cpuRec))
+	assert.True(t, rec.Containers[0].Recommended.MemoryRequest.Equal(memRec))
+	assert.False(t, policy.Status.Recommendations[0].Stale, "reuse must DeepCopy, not mutate status in place")
+}
+
 func newVPAPolicy(name, namespace, vpaName string) *attunev1alpha1.AttunePolicy {
 	return &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{
