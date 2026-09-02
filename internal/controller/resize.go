@@ -1353,7 +1353,7 @@ func (r *AttunePolicyReconciler) shouldSkipResize(
 	if checks != nil {
 		if targetIncreasesRequests(pod, containerRec.Name, target) &&
 			(checks.quotaListErr != nil || checks.limitRangeListErr != nil) {
-			return true, "quota list unavailable; skipping request increase"
+			return true, "quota list unavailable; skipping request increase; check RBAC list/watch on resourcequotas and limitranges"
 		}
 		if err := checkQuotaCompatibilityFromLists(checks.limitRanges, checks.quotas, currentRes, target); err != nil {
 			return true, "quota/limitrange violation: " + err.Error()

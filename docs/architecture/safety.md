@@ -162,6 +162,12 @@ Before executing a resize, the controller performs two checks:
 2. **ResourceQuota**: Checks aggregate namespace headroom. If the resize
    would increase CPU or memory requests beyond the remaining headroom
    (`hard - used`) in any ResourceQuota, the resize is skipped.
+   Headroom uses `requests.cpu` / `requests.memory` when those names are
+   set, or the `cpu` / `memory` aliases when a quota uses the short names.
+
+If listing ResourceQuotas or LimitRanges fails (for example missing
+`list`/`watch` RBAC), request increases fail closed and are skipped.
+Decreases still proceed.
 
 Both checks prevent resize failures that would produce confusing API errors.
 Skipped resizes are logged but do not set error conditions.

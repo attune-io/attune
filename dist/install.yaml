@@ -151,12 +151,13 @@ spec:
                     type: integer
                   memoryFromCpuRatio:
                     description: |-
-                      MemoryFromCPURatio derives memory recommendations from CPU recommendations
-                      using a fixed ratio, instead of using Prometheus memory metrics. Useful for
-                      JVM, Go, and .NET workloads where heap scales linearly with CPU allocation
-                      and Prometheus memory metrics are unreliable (JVM reserves heap upfront,
-                      Go GC targets a fixed percentage of available memory).
-                      Example: "2.0" means memory = 2x the CPU recommendation in bytes
+                      MemoryFromCPURatio derives memory from the CPU recommendation as GiB
+                      per core, instead of the memory signal from the active source
+                      (Prometheus usage or VPA memory target). Useful for JVM, Go, and .NET
+                      workloads where heap scales linearly with CPU allocation and source
+                      memory metrics are unreliable (JVM reserves heap upfront, Go GC
+                      targets a fixed percentage of available memory).
+                      Example: "2.0" means 1 core = 2 GiB memory
                       (e.g., 500m CPU -> 1Gi memory). The derived value still passes through
                       minAllowed, maxAllowed, and maxChangePercent bounds.
                       Only valid on the memory ResourceConfig; ignored on CPU.
@@ -303,12 +304,13 @@ spec:
                     type: integer
                   memoryFromCpuRatio:
                     description: |-
-                      MemoryFromCPURatio derives memory recommendations from CPU recommendations
-                      using a fixed ratio, instead of using Prometheus memory metrics. Useful for
-                      JVM, Go, and .NET workloads where heap scales linearly with CPU allocation
-                      and Prometheus memory metrics are unreliable (JVM reserves heap upfront,
-                      Go GC targets a fixed percentage of available memory).
-                      Example: "2.0" means memory = 2x the CPU recommendation in bytes
+                      MemoryFromCPURatio derives memory from the CPU recommendation as GiB
+                      per core, instead of the memory signal from the active source
+                      (Prometheus usage or VPA memory target). Useful for JVM, Go, and .NET
+                      workloads where heap scales linearly with CPU allocation and source
+                      memory metrics are unreliable (JVM reserves heap upfront, Go GC
+                      targets a fixed percentage of available memory).
+                      Example: "2.0" means 1 core = 2 GiB memory
                       (e.g., 500m CPU -> 1Gi memory). The derived value still passes through
                       minAllowed, maxAllowed, and maxChangePercent bounds.
                       Only valid on the memory ResourceConfig; ignored on CPU.
@@ -1043,12 +1045,13 @@ spec:
                     type: integer
                   memoryFromCpuRatio:
                     description: |-
-                      MemoryFromCPURatio derives memory recommendations from CPU recommendations
-                      using a fixed ratio, instead of using Prometheus memory metrics. Useful for
-                      JVM, Go, and .NET workloads where heap scales linearly with CPU allocation
-                      and Prometheus memory metrics are unreliable (JVM reserves heap upfront,
-                      Go GC targets a fixed percentage of available memory).
-                      Example: "2.0" means memory = 2x the CPU recommendation in bytes
+                      MemoryFromCPURatio derives memory from the CPU recommendation as GiB
+                      per core, instead of the memory signal from the active source
+                      (Prometheus usage or VPA memory target). Useful for JVM, Go, and .NET
+                      workloads where heap scales linearly with CPU allocation and source
+                      memory metrics are unreliable (JVM reserves heap upfront, Go GC
+                      targets a fixed percentage of available memory).
+                      Example: "2.0" means 1 core = 2 GiB memory
                       (e.g., 500m CPU -> 1Gi memory). The derived value still passes through
                       minAllowed, maxAllowed, and maxChangePercent bounds.
                       Only valid on the memory ResourceConfig; ignored on CPU.
@@ -1195,12 +1198,13 @@ spec:
                     type: integer
                   memoryFromCpuRatio:
                     description: |-
-                      MemoryFromCPURatio derives memory recommendations from CPU recommendations
-                      using a fixed ratio, instead of using Prometheus memory metrics. Useful for
-                      JVM, Go, and .NET workloads where heap scales linearly with CPU allocation
-                      and Prometheus memory metrics are unreliable (JVM reserves heap upfront,
-                      Go GC targets a fixed percentage of available memory).
-                      Example: "2.0" means memory = 2x the CPU recommendation in bytes
+                      MemoryFromCPURatio derives memory from the CPU recommendation as GiB
+                      per core, instead of the memory signal from the active source
+                      (Prometheus usage or VPA memory target). Useful for JVM, Go, and .NET
+                      workloads where heap scales linearly with CPU allocation and source
+                      memory metrics are unreliable (JVM reserves heap upfront, Go GC
+                      targets a fixed percentage of available memory).
+                      Example: "2.0" means 1 core = 2 GiB memory
                       (e.g., 500m CPU -> 1Gi memory). The derived value still passes through
                       minAllowed, maxAllowed, and maxChangePercent bounds.
                       Only valid on the memory ResourceConfig; ignored on CPU.
@@ -1931,12 +1935,13 @@ spec:
                     type: integer
                   memoryFromCpuRatio:
                     description: |-
-                      MemoryFromCPURatio derives memory recommendations from CPU recommendations
-                      using a fixed ratio, instead of using Prometheus memory metrics. Useful for
-                      JVM, Go, and .NET workloads where heap scales linearly with CPU allocation
-                      and Prometheus memory metrics are unreliable (JVM reserves heap upfront,
-                      Go GC targets a fixed percentage of available memory).
-                      Example: "2.0" means memory = 2x the CPU recommendation in bytes
+                      MemoryFromCPURatio derives memory from the CPU recommendation as GiB
+                      per core, instead of the memory signal from the active source
+                      (Prometheus usage or VPA memory target). Useful for JVM, Go, and .NET
+                      workloads where heap scales linearly with CPU allocation and source
+                      memory metrics are unreliable (JVM reserves heap upfront, Go GC
+                      targets a fixed percentage of available memory).
+                      Example: "2.0" means 1 core = 2 GiB memory
                       (e.g., 500m CPU -> 1Gi memory). The derived value still passes through
                       minAllowed, maxAllowed, and maxChangePercent bounds.
                       Only valid on the memory ResourceConfig; ignored on CPU.
@@ -2091,12 +2096,13 @@ spec:
                     type: integer
                   memoryFromCpuRatio:
                     description: |-
-                      MemoryFromCPURatio derives memory recommendations from CPU recommendations
-                      using a fixed ratio, instead of using Prometheus memory metrics. Useful for
-                      JVM, Go, and .NET workloads where heap scales linearly with CPU allocation
-                      and Prometheus memory metrics are unreliable (JVM reserves heap upfront,
-                      Go GC targets a fixed percentage of available memory).
-                      Example: "2.0" means memory = 2x the CPU recommendation in bytes
+                      MemoryFromCPURatio derives memory from the CPU recommendation as GiB
+                      per core, instead of the memory signal from the active source
+                      (Prometheus usage or VPA memory target). Useful for JVM, Go, and .NET
+                      workloads where heap scales linearly with CPU allocation and source
+                      memory metrics are unreliable (JVM reserves heap upfront, Go GC
+                      targets a fixed percentage of available memory).
+                      Example: "2.0" means 1 core = 2 GiB memory
                       (e.g., 500m CPU -> 1Gi memory). The derived value still passes through
                       minAllowed, maxAllowed, and maxChangePercent bounds.
                       Only valid on the memory ResourceConfig; ignored on CPU.

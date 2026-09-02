@@ -1472,7 +1472,7 @@ func TestCheckQuotaCompatibility_ListError(t *testing.T) {
 			current:   zeroCurrent,
 			target:    increase,
 			wantErr:   true,
-			errSubstr: "unavailable",
+			errSubstr: "ResourceQuota list unavailable; skipping request increase; check RBAC list/watch on resourcequotas and limitranges",
 		},
 		{
 			name: "ResourceQuota list error allows decrease",
@@ -1492,7 +1492,7 @@ func TestCheckQuotaCompatibility_ListError(t *testing.T) {
 			current:   zeroCurrent,
 			target:    increase,
 			wantErr:   true,
-			errSubstr: "unavailable",
+			errSubstr: "LimitRange list unavailable; skipping request increase; check RBAC list/watch on resourcequotas and limitranges",
 		},
 		{
 			name: "LimitRange list error allows decrease",

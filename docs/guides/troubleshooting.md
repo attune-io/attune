@@ -481,7 +481,9 @@ together, or switch to `RequestsOnly` if the pod should be Burstable.
 with a message mentioning `exceed ResourceQuota`.
 
 **Cause**: The resize would increase CPU or memory requests beyond the
-remaining headroom in the namespace's ResourceQuota.
+remaining headroom in the namespace's ResourceQuota. Attune uses
+`requests.cpu` / `requests.memory` when those names are present, or the
+`cpu` / `memory` aliases when a quota uses the short names.
 
 **Fix**:
 
@@ -493,6 +495,36 @@ remaining headroom in the namespace's ResourceQuota.
 
 2. Either increase the quota limits, or tighten the policy's resource
    bounds so recommendations stay within quota.
+
+### Resize skipped: quota list unavailable
+
+**Symptom**: Operator logs `quota list unavailable; skipping request increase`
+or `ResourceQuota list unavailable` / `LimitRange list unavailable`.
+Request increases are skipped.
+
+**Cause**: The controller could not list ResourceQuotas or LimitRanges in
+the pod namespace, usually because the operator ServiceAccount is missing
+`list`/`watch` on those resources. Request increases fail closed so a
+quota cannot be exceeded while the check is unavailable. Decreases still
+proceed.
+
+**Fix**:
+
+1. Confirm the operator ServiceAccount can list quotas and limit ranges
+   in the workload namespace:
+
+    ```bash
+    # Helm release "attune" → ServiceAccount "attune" in the operator
+    # namespace (typically attune-system). Raw manifests use
+    # attune-controller-manager instead.
+    kubectl auth can-i list resourcequotas -n <ns> \
+      --as system:serviceaccount:<operator-ns>:attune
+    kubectl auth can-i list limitranges -n <ns> \
+      --as system:serviceaccount:<operator-ns>:attune
+    ```
+
+2. Grant `list` and `watch` on `resourcequotas` and `limitranges` if
+   either command returns `no`.
 
 ## Revert issues
 

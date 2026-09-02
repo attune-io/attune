@@ -24,6 +24,11 @@ kubectl attune status
 kubectl attune status -n production
 kubectl attune status -A
 kubectl attune status --watch          # live-refresh every 10s
+kubectl attune status --sort-by savings
+kubectl attune status --filter pending
+kubectl attune status --contexts prod-east,prod-west
+kubectl attune status --all-contexts
+kubectl attune savings --sort-by savings -A
 ```
 
 | Flag | Description |
@@ -295,6 +300,14 @@ with `kubectl get attunepolicy -o json|yaml`.
 | `--filter` | | Filter by condition: `degraded`, `pending`, `collecting`, `ready`, `noworkloads` (`status` only) |
 | `--all-contexts` | | Query all kubeconfig contexts and merge results (`status`, `savings`, `recommendations`, `history` only) |
 | `--contexts` | | Comma-separated list of specific kubeconfig contexts to query (same commands as `--all-contexts`) |
+
+```bash
+kubectl attune status --sort-by savings
+kubectl attune status --filter pending
+kubectl attune status --contexts prod-east,prod-west
+kubectl attune status --all-contexts
+kubectl attune savings --sort-by savings -A
+```
 
 ## Manager Binary Flags
 

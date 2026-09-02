@@ -779,7 +779,7 @@ func (r *AttunePolicyReconciler) checkQuotaCompatibility(ctx context.Context, na
 	if err := r.List(ctx, &limitRangeList, client.InNamespace(namespace)); err != nil {
 		logger.V(1).Info("Could not list LimitRanges", "error", err)
 		if requestIncrease {
-			return fmt.Errorf("LimitRange list unavailable; skipping request increase")
+			return fmt.Errorf("LimitRange list unavailable; skipping request increase; check RBAC list/watch on resourcequotas and limitranges")
 		}
 	}
 
@@ -787,7 +787,7 @@ func (r *AttunePolicyReconciler) checkQuotaCompatibility(ctx context.Context, na
 	if err := r.List(ctx, &quotaList, client.InNamespace(namespace)); err != nil {
 		logger.V(1).Info("Could not list ResourceQuotas", "error", err)
 		if requestIncrease {
-			return fmt.Errorf("ResourceQuota list unavailable; skipping request increase")
+			return fmt.Errorf("ResourceQuota list unavailable; skipping request increase; check RBAC list/watch on resourcequotas and limitranges")
 		}
 	}
 
