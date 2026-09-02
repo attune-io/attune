@@ -287,6 +287,7 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 	seriesCapped = cpuCapped || memCapped
 
 	var containerRecs []attunev1alpha1.ContainerRecommendation
+	eligibleContainers := 0
 
 	for _, container := range containers {
 		containerName := container.Name
@@ -297,6 +298,7 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 				"reason", pkgdefaults.ExclusionReason(policy, containerName))
 			continue
 		}
+		eligibleContainers++
 
 		cpuSamples := samplesForContainer(cpuSamplesByContainer, containerName)
 		memSamples := samplesForContainer(memSamplesByContainer, containerName)
@@ -466,14 +468,73 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 	}
 
 	if len(containerRecs) == 0 {
+		// Only reuse when an eligible container had no usable data.
+		// Exclude-all must still return nil so status drops the rec.
+		if eligibleContainers > 0 {
+			if reused := reuseStaleRecommendation(policy, workload.GetName()); reused != nil {
+				logger.Info("Reusing prior recommendation as stale; Prometheus returned no fresh data",
+					"workload", workload.GetName())
+				return reused, queryErrors, failedMetricTypes, maxDataPoints, seriesCapped, nil
+			}
+		}
 		return nil, queryErrors, failedMetricTypes, maxDataPoints, seriesCapped, nil
 	}
 
-	lastDataTime := metav1.NewTime(now)
+	last := latestFiniteSampleTime(cpuSamplesByContainer, memSamplesByContainer)
+	if last.IsZero() {
+		last = now
+	}
+	lastDataTime := metav1.NewTime(last)
+	stale := now.Sub(last) > historyWindow
+	if stale {
+		logger.Info("Recommendation is stale; last Prometheus data is older than history window",
+			"workload", workload.GetName(),
+			"lastDataTime", lastDataTime,
+			"historyWindow", historyWindow)
+	}
 	return &attunev1alpha1.WorkloadRecommendation{
 		Containers:   containerRecs,
 		LastDataTime: &lastDataTime,
+		Stale:        stale,
 	}, queryErrors, failedMetricTypes, maxDataPoints, seriesCapped, nil
+}
+
+// reuseStaleRecommendation copies a prior status rec so an empty Prometheus
+// query does not wipe the last known sizing. LastDataTime stays the last
+// non-empty sample. Callers must treat the copy as stale.
+func reuseStaleRecommendation(policy *attunev1alpha1.AttunePolicy, workload string) *attunev1alpha1.WorkloadRecommendation {
+	if policy == nil || workload == "" {
+		return nil
+	}
+	for i := range policy.Status.Recommendations {
+		prior := &policy.Status.Recommendations[i]
+		if prior.Workload != workload || len(prior.Containers) == 0 {
+			continue
+		}
+		rec := prior.DeepCopy()
+		rec.Stale = true
+		return rec
+	}
+	return nil
+}
+
+// latestFiniteSampleTime is the newest timestamp among finite samples.
+// NaN/Inf points are ignored so LastDataTime tracks usable Prometheus data.
+func latestFiniteSampleTime(groups ...map[string][]rsmetrics.Sample) time.Time {
+	var latest time.Time
+	for _, group := range groups {
+		for _, samples := range group {
+			for _, sample := range samples {
+				if math.IsNaN(sample.Value) || math.IsInf(sample.Value, 0) {
+					continue
+				}
+				if sample.Timestamp.After(latest) {
+					latest = sample.Timestamp
+				}
+			}
+		}
+	}
+	return latest
 }
 
 // maxProfileSamples returns the sample cap for BuildProfile input.
