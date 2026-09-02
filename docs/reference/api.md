@@ -168,7 +168,7 @@ spec:
 | `recommendations[].containers[].confidence` | `float64` | Confidence score (0-1) |
 | `recommendations[].containers[].dataPoints` | `int32` | Prometheus samples used |
 | `recommendations[].containers[].lastUpdated` | `Time` | Last recommendation timestamp |
-| `recommendations[].stale` | `bool` | `true` when Prometheus returned no fresh data; last-known values stay in status. Resize, boost, initial sizing webhook, template persistence, ConfigMap rewrite, kubectl preview/diff/wizard, and GitOps drift are skipped until fresh data arrives |
+| `recommendations[].stale` | `bool` | `true` when the newest finite sample is older than `3 * queryStep` (default 15m), or when the last rec was reused after an empty query. Resize, boost, initial sizing webhook, template persistence, ConfigMap rewrite, kubectl preview/diff/wizard, and GitOps drift are skipped until fresh data arrives. Stale recs do not count toward Ready or savings. Reuse expires after the same freshness bound |
 | `recommendations[].lastDataTime` | `Time` | Timestamp of the most recent Prometheus data point |
 
 | `savings.cpuRequestReduction` | `string` | Total CPU request reduction (e.g. "1200m") |

@@ -123,7 +123,7 @@ func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (a
 		// policy cannot aim the operator's bearer token at in-cluster or
 		// cloud metadata endpoints. This is stricter than PrometheusAddress.
 		if pr.APIURL != "" {
-			if err := validation.GitOpsAPIURL(pr.APIURL); err != nil {
+			if err := validation.GitOpsAPIURLAllowingPrivate(pr.APIURL, pr.AllowPrivateEndpoints); err != nil {
 				return warnings, fmt.Errorf("updateStrategy.export.pullRequest.apiUrl: %w", err)
 			}
 		}

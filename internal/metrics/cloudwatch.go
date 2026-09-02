@@ -110,15 +110,14 @@ func (c *CloudWatchCollector) QueryRangeGrouped(ctx context.Context, query strin
 	}
 	period32 := int32(min(period, 86400)) //nolint:gosec // period is clamped to [60, 86400]
 
-	// Metric/Stat/ClusterName/Namespace/PodPrefix are pinned or allowlisted
-	// above so they cannot break out of the quoted SEARCH terms.
-	prefixTerm := ""
-	if spec.PodPrefix != "" {
-		prefixTerm = fmt.Sprintf(` PodName="%s*"`, spec.PodPrefix)
-	}
+	// Metric/Stat/ClusterName/Namespace are pinned or allowlisted above so
+	// they cannot break out of the quoted SEARCH terms. PodPrefix is not
+	// interpolated: CloudWatch quoted tokens are exact matches, so
+	// PodName="api-*" would never match real pods. Client-side HasPrefix
+	// below is the real filter.
 	searchExpr := fmt.Sprintf(
-		`SEARCH('{ContainerInsights,ClusterName,Namespace,PodName,ContainerName} MetricName="%s" ClusterName="%s" Namespace="%s"%s', '%s', %d)`,
-		spec.Metric, spec.ClusterName, spec.Namespace, prefixTerm, spec.Stat, period32,
+		`SEARCH('{ContainerInsights,ClusterName,Namespace,PodName,ContainerName} MetricName="%s" ClusterName="%s" Namespace="%s"', '%s', %d)`,
+		spec.Metric, spec.ClusterName, spec.Namespace, spec.Stat, period32,
 	)
 
 	input := &cloudwatch.GetMetricDataInput{

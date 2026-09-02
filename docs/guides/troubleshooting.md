@@ -809,9 +809,14 @@ large pod count.
 
 When Prometheus does not return fresh data during a reconcile cycle, the
 operator marks the recommendation as **stale** and skips apply paths that
-would act on outdated metrics. Resize is one example; startup boost, initial
-sizing (CREATE webhook), and template persistence are also skipped, the
-recommendation ConfigMap is not rewritten, and a GitOps apply PR is not
+would act on outdated metrics. A rec is stale when the newest finite
+sample is older than `3 * queryStep` (default 15m), or when the last
+known rec is reused after an empty query. Reuse expires after that same
+bound; then the rec drops and Ready can become `InsufficientData`.
+Stale recs do not increment `workloads.withRecommendations` and do not
+enter savings gauges. Resize is one skipped apply path; startup boost,
+initial sizing (CREATE webhook), and template persistence are also skipped,
+the recommendation ConfigMap is not rewritten, and a GitOps apply PR is not
 opened. You will see this in the operator logs (resize example):
 
 ```

@@ -532,7 +532,8 @@ func TestCloudWatchCollector_PodPrefixInSEARCH(t *testing.T) {
 	_, err = c.QueryRangeGrouped(context.Background(), string(query),
 		time.Now().Add(-time.Hour), time.Now(), time.Minute)
 	require.NoError(t, err)
-	assert.Contains(t, gotExpr, `PodName="api-server-*"`)
+	assert.NotContains(t, gotExpr, `PodName=`, "quoted SEARCH has no prefix wildcard; filter client-side")
+	assert.Contains(t, gotExpr, `MetricName="container_memory_working_set"`)
 }
 
 func TestCloudWatchCollector_HostilePodPrefixNotInSEARCH(t *testing.T) {

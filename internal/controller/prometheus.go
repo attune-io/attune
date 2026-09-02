@@ -471,9 +471,11 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 		// Only reuse when an eligible container had no usable data.
 		// Exclude-all must still return nil so status drops the rec.
 		if eligibleContainers > 0 {
-			if reused := reuseStaleRecommendation(policy, workload.GetName()); reused != nil {
+			freshness := recommendationFreshnessBound(queryStep)
+			if reused := reuseStaleRecommendation(policy, workloadKindName(workload), workload.GetName(), now, freshness); reused != nil {
 				logger.Info("Reusing prior recommendation as stale; Prometheus returned no fresh data",
-					"workload", workload.GetName())
+					"workload", workload.GetName(),
+					"kind", workloadKindName(workload))
 				return reused, queryErrors, failedMetricTypes, maxDataPoints, seriesCapped, nil
 			}
 		}
@@ -485,12 +487,13 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 		last = now
 	}
 	lastDataTime := metav1.NewTime(last)
-	stale := now.Sub(last) > historyWindow
+	freshness := recommendationFreshnessBound(queryStep)
+	stale := now.Sub(last) > freshness
 	if stale {
-		logger.Info("Recommendation is stale; last Prometheus data is older than history window",
+		logger.Info("Recommendation is stale; last Prometheus data is older than freshness bound",
 			"workload", workload.GetName(),
 			"lastDataTime", lastDataTime,
-			"historyWindow", historyWindow)
+			"freshnessBound", freshness)
 	}
 	return &attunev1alpha1.WorkloadRecommendation{
 		Containers:   containerRecs,
@@ -501,14 +504,22 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 
 // reuseStaleRecommendation copies a prior status rec so an empty Prometheus
 // query does not wipe the last known sizing. LastDataTime stays the last
-// non-empty sample. Callers must treat the copy as stale.
-func reuseStaleRecommendation(policy *attunev1alpha1.AttunePolicy, workload string) *attunev1alpha1.WorkloadRecommendation {
+// non-empty sample. Callers must treat the copy as stale. Reuse is refused
+// when Kind does not match (including an empty prior Kind), LastDataTime
+// is missing, or the last sample is older than freshness.
+func reuseStaleRecommendation(policy *attunev1alpha1.AttunePolicy, kind, workload string, now time.Time, freshness time.Duration) *attunev1alpha1.WorkloadRecommendation {
 	if policy == nil || workload == "" {
 		return nil
 	}
 	for i := range policy.Status.Recommendations {
 		prior := &policy.Status.Recommendations[i]
 		if prior.Workload != workload || len(prior.Containers) == 0 {
+			continue
+		}
+		if kind != "" && prior.Kind != kind {
+			continue
+		}
+		if prior.LastDataTime == nil || now.Sub(prior.LastDataTime.Time) > freshness {
 			continue
 		}
 		rec := prior.DeepCopy()

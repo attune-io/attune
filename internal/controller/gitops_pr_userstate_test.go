@@ -203,7 +203,7 @@ func TestReconcileGitOpsPullRequest_InvalidAPIURLDoesNotOpen(t *testing.T) {
 	r, _, forge := gitOpsLiveReconciler(t, policy, dep)
 	r.SetNowFunc(func() time.Time { return time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC) })
 	r.reconcileGitOpsPullRequest(context.Background(), policy, []client.Object{dep}, gitOpsCPURec("api", "100m"))
-	assert.Equal(t, attunev1alpha1.ReasonGitOpsPRFailed, gitOpsPRReason(policy))
+	assert.Equal(t, attunev1alpha1.ReasonGitOpsEndpointBlocked, gitOpsPRReason(policy))
 	assert.Empty(t, forge.calls)
 }
 
