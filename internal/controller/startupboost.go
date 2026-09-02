@@ -64,6 +64,13 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 	now := r.now()
 
 	for _, rec := range recommendations {
+		// Stale recs stay in the slice after Prometheus gaps; do not
+		// boost from last-known CPU the way resize already skips.
+		if rec.Stale {
+			logger.V(1).Info("Skipping startup boost for workload with stale recommendation",
+				"workload", rec.Workload)
+			continue
+		}
 		pods := podsByWorkload[rec.Workload]
 		// Build per-container recommendation map for this workload.
 		recMap := make(map[string]resource.Quantity, len(rec.Containers))

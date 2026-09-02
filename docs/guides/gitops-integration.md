@@ -100,13 +100,13 @@ reference).
 For environments that want the operator to compute recommendations but require **all** resource changes to flow through Git (ArgoCD, Flux, etc.):
 
 1. Set `updateStrategy.type: Recommend` (or `Auto` with `export` also enabled) plus `export.configMap: true`.
-2. The operator creates one ConfigMap per workload (named `<policy>-<workload>-recommendations`) containing per-container CPU/memory recommendations, confidence, and a RFC3339 `last-updated` timestamp. The ConfigMap carries the `attune.io/policy` label.
+2. The operator creates one ConfigMap per workload (named `<policy>-<workload>-recommendations`) containing per-container CPU/memory recommendations, confidence, and a RFC3339 `last-updated` timestamp. The ConfigMap carries the `attune.io/policy` label. If `status.recommendations[].stale` is true, the operator does not rewrite that ConfigMap or bump `last-updated`. Do not treat a frozen `last-updated` as fresh. GitOps apply PRs are not opened from that recommendation.
 3. Your CI/CD pipeline (or a lightweight sidecar) reads the ConfigMaps and proposes patches to the Deployment/StatefulSet specs stored in Git.
 4. GitOps applies the patches through the normal sync/approval flow.
 
 See the [Auto mode guide](auto-mode.md#exporting-recommendations-to-configmaps) for the exact ConfigMap schema, example output, and owner-reference cleanup behavior.
 
-**Orphan cleanup (stale recommendation removal)**: When a workload leaves the policy selector (selector change, scale-to-zero, or deletion while the policy still exists), the operator automatically deletes the corresponding recommendation ConfigMap on the next reconcile. Only ConfigMaps bearing the matching `attune.io/policy` label are considered. This guarantees GitOps consumers never see stale recommendations for workloads no longer in scope.
+**Orphan cleanup (workload left the policy)**: When a workload leaves the policy selector (selector change, scale-to-zero, or deletion while the policy still exists), the operator automatically deletes the corresponding recommendation ConfigMap on the next reconcile. Only ConfigMaps bearing the matching `attune.io/policy` label are considered. That is different from `recommendations[].stale`: orphan cleanup removes exports for workloads that are no longer in scope; a stale flag keeps last-known status and leaves the existing ConfigMap as-is (no rewrite, no `last-updated` bump).
 
 **Consuming the ConfigMap from CI (example)**:
 

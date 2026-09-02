@@ -211,7 +211,7 @@ key renames require a schema bump and docs update.
 | `<container>.cpu-request` / `memory-request` | Recommended requests |
 | `<container>.cpu-limit` / `memory-limit` | Recommended limits (when non-zero) |
 | `<container>.confidence` | Confidence score string |
-| `last-updated` / `generated-at` | RFC3339 generation time |
+| `last-updated` / `generated-at` | RFC3339 generation time. These keys do not move while `status.recommendations[].stale` is true (the operator does not rewrite the ConfigMap). |
 
 Labels: `attune.io/policy`, `attune.io/workload`, `attune.io/export-schema=v1`.
 

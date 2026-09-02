@@ -821,6 +821,75 @@ func TestApplyTemplatePersistence_SkipsMidRollout(t *testing.T) {
 	assert.Empty(t, history, "mid-rollout must not patch")
 }
 
+func TestApplyTemplatePersistence_SkipsStale(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
+
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "default"},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: int32Ptr(1),
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "api"}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "api"}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:  "app",
+						Image: "nginx",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("512Mi"),
+							},
+						},
+					}},
+				},
+			},
+		},
+		Status: appsv1.DeploymentStatus{Replicas: 1, UpdatedReplicas: 1, AvailableReplicas: 1},
+	}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = cl
+	r.Scheme = scheme
+
+	policy := newTestPolicy("p", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeRecommend
+	policy.Spec.UpdateStrategy.TemplatePersistence = &attunev1alpha1.TemplatePersistence{
+		Enabled: boolPtr(true),
+		When:    attunev1alpha1.TemplatePersistenceOnRecommendation,
+	}
+	recs := []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "api",
+		Kind:     "Deployment",
+		Stale:    true,
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "app",
+			Current: attunev1alpha1.ResourceValues{
+				CPURequest:    resource.MustParse("500m"),
+				MemoryRequest: resource.MustParse("512Mi"),
+			},
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest:    resource.MustParse("200m"),
+				MemoryRequest: resource.MustParse("256Mi"),
+			},
+		}},
+	}}
+
+	history := r.applyTemplatePersistence(context.Background(), policy, []client.Object{deploy}, recs,
+		attunev1alpha1.TemplatePersistenceOnRecommendation, nil)
+	assert.Empty(t, history, "stale rec must not patch the workload template")
+
+	var updated appsv1.Deployment
+	require.NoError(t, cl.Get(context.Background(), client.ObjectKeyFromObject(deploy), &updated))
+	assert.Equal(t, int64(500), updated.Spec.Template.Spec.Containers[0].Resources.Requests.Cpu().MilliValue(),
+		"stale rec must leave template CPU request unchanged")
+	assert.True(t, updated.Spec.Template.Spec.Containers[0].Resources.Requests.Memory().Equal(resource.MustParse("512Mi")),
+		"stale rec must leave template memory request unchanged")
+}
+
 func TestApplyTemplatePersistence_NoOpWhenTemplateMatches(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, appsv1.AddToScheme(scheme))

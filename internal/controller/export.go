@@ -48,6 +48,12 @@ func (r *AttunePolicyReconciler) exportRecommendationConfigMaps(
 	r.cleanupOrphanedRecommendationConfigMaps(ctx, policy, recommendations)
 
 	for _, rec := range recommendations {
+		// Stale recs stay in currentWorkloads so existing ConfigMaps are not deleted.
+		if rec.Stale {
+			logger.V(1).Info("Skipping ConfigMap rewrite for stale recommendation",
+				"workload", rec.Workload)
+			continue
+		}
 		cmName := fmt.Sprintf("%s-%s-recommendations", policy.Name, rec.Workload)
 		// Kubernetes resource names are limited to 253 characters.
 		if len(cmName) > 253 {
