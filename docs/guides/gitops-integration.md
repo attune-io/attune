@@ -144,10 +144,13 @@ default 24h).
   Prefer short-lived or fine-grained tokens.
 - Optional `apiUrl` (Enterprise GitHub / self-hosted GitLab) must be
   `https`, must not include userinfo, and is rejected when it targets
-  loopback, link-local, private RFC1918, or cloud metadata hosts
-  (`169.254.169.254` and similar). This is stricter than Prometheus
-  addresses so a policy cannot aim the operator token at in-cluster
-  endpoints.
+  loopback, link-local, or cloud metadata hosts (`169.254.169.254` and
+  similar). Private RFC1918/ULA hosts are rejected unless
+  `allowPrivateEndpoints: true` (self-hosted GitLab/Gitea/Bitbucket).
+  This is stricter than Prometheus addresses so a policy cannot aim the
+  operator token at in-cluster endpoints. Corporate `HTTPS_PROXY` is
+  not treated as the SSRF target. A blocked endpoint sets
+  `GitOpsEndpointBlocked` on the `GitOpsPullRequest` condition.
 
 ### Example
 
@@ -186,6 +189,7 @@ Condition type `GitOpsPullRequest`:
 | `PullRequestDryRun` | Would open/update PR |
 | `PullRequestOpen` | PR URL in message |
 | `PullRequestFailed` | API or config error (message is safe) |
+| `GitOpsEndpointBlocked` | `apiUrl` resolved to a disallowed address (set `allowPrivateEndpoints` for RFC1918 self-hosted forges) |
 
 Metric: `attune_gitops_pr_total{result=created|updated|dry_run|failed}`.
 

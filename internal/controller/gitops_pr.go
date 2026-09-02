@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -132,9 +133,9 @@ func (r *AttunePolicyReconciler) reconcileGitOpsPullRequest(
 	head := gitops.BranchName(policy.Namespace, policy.Name)
 
 	if cfg.APIURL != "" {
-		if err := validation.GitOpsAPIURL(cfg.APIURL); err != nil {
+		if err := validation.GitOpsAPIURLAllowingPrivate(cfg.APIURL, cfg.AllowPrivateEndpoints); err != nil {
 			logger.Error(err, "GitOps PR: apiUrl failed SSRF checks")
-			setGitOpsPRCondition(policy, metav1.ConditionFalse, attunev1alpha1.ReasonGitOpsPRFailed,
+			setGitOpsPRCondition(policy, metav1.ConditionFalse, attunev1alpha1.ReasonGitOpsEndpointBlocked,
 				"apiUrl is not an allowed HTTPS host")
 			operatormetrics.GitOpsPRTotal.WithLabelValues(policy.Namespace, policy.Name, "failed").Inc()
 			return
@@ -170,15 +171,17 @@ func (r *AttunePolicyReconciler) reconcileGitOpsPullRequest(
 		switch provider {
 		case "gitlab":
 			prClient = &gitops.GitLabClient{
-				BaseURL: cfg.APIURL,
-				Token:   token,
-				Project: cfg.Repository,
+				BaseURL:      cfg.APIURL,
+				Token:        token,
+				Project:      cfg.Repository,
+				AllowPrivate: cfg.AllowPrivateEndpoints,
 			}
 		default:
 			prClient = &gitops.GitHubClient{
-				BaseURL:    cfg.APIURL,
-				Token:      token,
-				Repository: cfg.Repository,
+				BaseURL:      cfg.APIURL,
+				Token:        token,
+				Repository:   cfg.Repository,
+				AllowPrivate: cfg.AllowPrivateEndpoints,
 			}
 		}
 	}
@@ -190,8 +193,13 @@ func (r *AttunePolicyReconciler) reconcileGitOpsPullRequest(
 		// Never include raw API bodies or error strings that might echo
 		// IMDS credentials. Status is a short static message only.
 		logger.Error(err, "GitOps PR create/update failed", "provider", provider, "repository", cfg.Repository)
-		setGitOpsPRCondition(policy, metav1.ConditionFalse, attunev1alpha1.ReasonGitOpsPRFailed,
-			"PR API request failed")
+		reason := attunev1alpha1.ReasonGitOpsPRFailed
+		msg := "PR API request failed"
+		if errors.Is(err, gitops.ErrSSRFBlocked) {
+			reason = attunev1alpha1.ReasonGitOpsEndpointBlocked
+			msg = "GitOps API URL resolved to a disallowed address"
+		}
+		setGitOpsPRCondition(policy, metav1.ConditionFalse, reason, msg)
 		operatormetrics.GitOpsPRTotal.WithLabelValues(policy.Namespace, policy.Name, "failed").Inc()
 		r.touchGitOpsPRAnnotation(policy, "")
 		r.persistGitOpsPRAnnotations(ctx, policy)

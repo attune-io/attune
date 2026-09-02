@@ -1463,7 +1463,7 @@ func generateSamples(count int, baseValue float64) []rsmetrics.Sample {
 	now := time.Now()
 	for i := 0; i < count; i++ {
 		samples[i] = rsmetrics.Sample{
-			Timestamp: now.Add(-time.Duration(count-i) * time.Hour),
+			Timestamp: now.Add(-time.Duration(count-1-i) * time.Hour),
 			Value:     baseValue + float64(i%10)*0.01,
 		}
 	}
@@ -1755,8 +1755,10 @@ func TestComputeRecommendations_EmptyQueryReusesPriorAsStale(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	deploy := newTestDeployment("api-server", "default", nil)
 	reconciler := newReconcilerWithClient()
+	now := time.Date(2026, 9, 1, 15, 0, 0, 0, time.UTC)
+	reconciler.SetNowFunc(func() time.Time { return now })
 
-	priorData := metav1.NewTime(time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC))
+	priorData := metav1.NewTime(now.Add(-time.Minute))
 	cpuRec, err := resource.ParseQuantity("250m")
 	require.NoError(t, err)
 	memRec, err := resource.ParseQuantity("256Mi")
@@ -1794,7 +1796,8 @@ func TestComputeRecommendations_EmptyQueryReusesPriorAsStale(t *testing.T) {
 }
 
 func TestComputeRecommendations_QueryGapsReusePriorAsStale(t *testing.T) {
-	priorData := metav1.NewTime(time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC))
+	now := time.Date(2026, 9, 1, 15, 0, 0, 0, time.UTC)
+	priorData := metav1.NewTime(now.Add(-time.Minute))
 	cpuRec, err := resource.ParseQuantity("250m")
 	require.NoError(t, err)
 	memRec, err := resource.ParseQuantity("256Mi")
@@ -1842,6 +1845,7 @@ func TestComputeRecommendations_QueryGapsReusePriorAsStale(t *testing.T) {
 			policy := newTestPolicy("test-policy", "default")
 			deploy := newTestDeployment("api-server", "default", nil)
 			reconciler := newReconcilerWithClient()
+			reconciler.SetNowFunc(func() time.Time { return now })
 			policy.Status.Recommendations = []attunev1alpha1.WorkloadRecommendation{{
 				Workload:     "api-server",
 				Kind:         "Deployment",
@@ -1882,7 +1886,9 @@ func TestComputeRecommendations_LastDataTimeOlderThanHistoryWindowIsStale(t *tes
 	reconciler := newReconcilerWithClient()
 	reconciler.SetNowFunc(func() time.Time { return now })
 
-	old := now.Add(-3 * time.Hour)
+	// 30m is inside the 2h history window (old check never fired) and
+	// outside 3*queryStep (15m). The mock still ignores start/end.
+	old := now.Add(-30 * time.Minute)
 	mc := &mockCollector{
 		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
 			return []rsmetrics.Sample{{Timestamp: old, Value: 0.1}}, nil
@@ -1892,9 +1898,151 @@ func TestComputeRecommendations_LastDataTimeOlderThanHistoryWindowIsStale(t *tes
 	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
-	assert.True(t, rec.Stale, "last sample older than historyWindow must mark the rec stale")
+	assert.True(t, rec.Stale, "last sample older than 3*queryStep must mark the rec stale even when inside historyWindow")
 	require.NotNil(t, rec.LastDataTime)
 	assert.True(t, rec.LastDataTime.Equal(&metav1.Time{Time: old}), "LastDataTime is the last non-empty sample, not now")
+}
+
+func TestComputeRecommendations_InWindowSampleOlderThanFreshnessIsStale(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.MetricsSource.HistoryWindow = &metav1.Duration{Duration: 7 * 24 * time.Hour}
+	policy.Spec.MetricsSource.MinimumDataPoints = int32Ptr(1)
+	deploy := newTestDeployment("api-server", "default", nil)
+	now := time.Date(2026, 9, 1, 15, 0, 0, 0, time.UTC)
+	reconciler := newReconcilerWithClient()
+	reconciler.SetNowFunc(func() time.Time { return now })
+
+	// Two hours old is inside a 7d history window but outside 3*queryStep (15m).
+	old := now.Add(-2 * time.Hour)
+	mc := &mockCollector{
+		queryRangeFunc: func(_ context.Context, _ string, start, end time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			if old.Before(start) || old.After(end) {
+				return nil, nil
+			}
+			return []rsmetrics.Sample{{Timestamp: old, Value: 0.1}}, nil
+		},
+	}
+
+	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil, nil)
+	require.NoError(t, err)
+	require.NotNil(t, rec)
+	assert.True(t, rec.Stale, "in-window sample older than 3*queryStep must be stale")
+	require.NotNil(t, rec.LastDataTime)
+	assert.True(t, rec.LastDataTime.Equal(&metav1.Time{Time: old}))
+}
+
+func TestComputeRecommendations_ExpiredReuseIsDropped(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	deploy := newTestDeployment("api-server", "default", nil)
+	now := time.Date(2026, 9, 1, 15, 0, 0, 0, time.UTC)
+	reconciler := newReconcilerWithClient()
+	reconciler.SetNowFunc(func() time.Time { return now })
+
+	expired := metav1.NewTime(now.Add(-time.Hour))
+	cpuRec, err := resource.ParseQuantity("250m")
+	require.NoError(t, err)
+	policy.Status.Recommendations = []attunev1alpha1.WorkloadRecommendation{{
+		Workload:     "api-server",
+		Kind:         "Deployment",
+		LastDataTime: &expired,
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name:        "main",
+			Recommended: attunev1alpha1.ResourceValues{CPURequest: cpuRec},
+		}},
+	}}
+
+	mc := &mockCollector{
+		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return nil, nil
+		},
+	}
+
+	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil, nil)
+	require.NoError(t, err)
+	assert.Nil(t, rec, "reuse must expire when LastDataTime is older than 3*queryStep")
+}
+
+func TestComputeRecommendations_ReuseIgnoresDifferentKind(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	sts := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "api-server", Namespace: "default"},
+		Spec: appsv1.StatefulSetSpec{
+			Replicas: int32Ptr(1),
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "api-server"}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "api-server"}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:  "main",
+						Image: "nginx:latest",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("512Mi"),
+							},
+						},
+					}},
+				},
+			},
+		},
+	}
+	now := time.Date(2026, 9, 1, 15, 0, 0, 0, time.UTC)
+	reconciler := newReconcilerWithClient()
+	reconciler.SetNowFunc(func() time.Time { return now })
+
+	priorData := metav1.NewTime(now.Add(-time.Minute))
+	cpuRec, err := resource.ParseQuantity("250m")
+	require.NoError(t, err)
+	policy.Status.Recommendations = []attunev1alpha1.WorkloadRecommendation{{
+		Workload:     "api-server",
+		Kind:         "Deployment",
+		LastDataTime: &priorData,
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name:        "main",
+			Recommended: attunev1alpha1.ResourceValues{CPURequest: cpuRec},
+		}},
+	}}
+
+	mc := &mockCollector{
+		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return nil, nil
+		},
+	}
+
+	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, sts, mc, nil, nil, nil, nil, nil)
+	require.NoError(t, err)
+	assert.Nil(t, rec, "must not reuse a Deployment rec for a StatefulSet of the same name")
+}
+
+func TestComputeRecommendations_ReuseIgnoresEmptyPriorKind(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	deploy := newTestDeployment("api-server", "default", nil)
+	now := time.Date(2026, 9, 1, 15, 0, 0, 0, time.UTC)
+	reconciler := newReconcilerWithClient()
+	reconciler.SetNowFunc(func() time.Time { return now })
+
+	priorData := metav1.NewTime(now.Add(-time.Minute))
+	cpuRec, err := resource.ParseQuantity("250m")
+	require.NoError(t, err)
+	policy.Status.Recommendations = []attunev1alpha1.WorkloadRecommendation{{
+		Workload:     "api-server",
+		Kind:         "",
+		LastDataTime: &priorData,
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name:        "main",
+			Recommended: attunev1alpha1.ResourceValues{CPURequest: cpuRec},
+		}},
+	}}
+
+	mc := &mockCollector{
+		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return nil, nil
+		},
+	}
+
+	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil, nil)
+	require.NoError(t, err)
+	assert.Nil(t, rec, "empty prior Kind must not reuse onto a typed workload")
 }
 
 func TestComputeRecommendations_FreshDataClearsStale(t *testing.T) {
@@ -12228,6 +12376,54 @@ func TestSetReadyCondition(t *testing.T) {
 	}
 }
 
+func TestProcessWorkloads_StaleRecNotCountedForReady(t *testing.T) {
+	now := time.Date(2026, 9, 1, 15, 0, 0, 0, time.UTC)
+	prior := metav1.NewTime(now.Add(-time.Minute))
+	cpuRec, err := resource.ParseQuantity("250m")
+	require.NoError(t, err)
+
+	dep := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(dep).Build()
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Status.Recommendations = []attunev1alpha1.WorkloadRecommendation{{
+		Workload:     "api-server",
+		Kind:         "Deployment",
+		LastDataTime: &prior,
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name:        "main",
+			Recommended: attunev1alpha1.ResourceValues{CPURequest: cpuRec},
+		}},
+	}}
+
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.SetNowFunc(func() time.Time { return now })
+	r.MetricsFactory = mockMetricsFactory(&mockCollector{
+		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return nil, nil
+		},
+	})
+
+	result := r.processWorkloads(context.Background(), policy, []client.Object{dep}, &mockCollector{
+		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return nil, nil
+		},
+	}, nil, nil)
+
+	require.Len(t, result.recommendations, 1)
+	assert.True(t, result.recommendations[0].Stale)
+	assert.Equal(t, int32(0), result.workloadsWithRecs, "stale reuse must not keep Ready=Monitoring")
+}
+
+func TestRecommendationFreshnessBound(t *testing.T) {
+	assert.Equal(t, 15*time.Minute, recommendationFreshnessBound(5*time.Minute))
+	assert.Equal(t, 15*time.Minute, recommendationFreshnessBound(0))
+	assert.Equal(t, 45*time.Second, recommendationFreshnessBound(15*time.Second))
+}
+
 func TestProcessWorkloads_Parallel(t *testing.T) {
 	// Track peak concurrent queries to prove parallelism.
 	var inflight atomic.Int32
@@ -12382,7 +12578,7 @@ func TestProcessWorkloads_ParallelPartialFailure(t *testing.T) {
 
 func TestProcessWorkloads_MixedStaleAndFresh(t *testing.T) {
 	now := time.Now()
-	priorData := metav1.NewTime(now.Add(-24 * time.Hour))
+	priorData := metav1.NewTime(now.Add(-time.Minute))
 	cpuRec, err := resource.ParseQuantity("250m")
 	require.NoError(t, err)
 	memRec, err := resource.ParseQuantity("256Mi")
@@ -12455,6 +12651,7 @@ func TestProcessWorkloads_MixedStaleAndFresh(t *testing.T) {
 	require.NotNil(t, recA.LastDataTime)
 	assert.True(t, recA.LastDataTime.Equal(&priorData), "stale reuse must preserve LastDataTime")
 	assert.False(t, recB.Stale, "fresh Prometheus data must not mark app-b stale")
+	assert.Equal(t, int32(1), result.workloadsWithRecs, "only the fresh rec counts toward Ready")
 }
 
 func TestReconcile_InsufficientDataRequeuesAtQueryStep(t *testing.T) {

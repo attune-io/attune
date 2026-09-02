@@ -450,6 +450,43 @@ func TestReconcileGitOpsPullRequest_APIErrorStatusOmitsBody(t *testing.T) {
 	assert.NotContains(t, message, "status 403")
 }
 
+type ssrfBlockedPRClient struct{}
+
+func (ssrfBlockedPRClient) CreateOrUpdate(_ context.Context, _ gitops.PRRequest) (gitops.PRResult, error) {
+	return gitops.PRResult{}, fmt.Errorf("%w: host %q resolved to a disallowed address", gitops.ErrSSRFBlocked, "gitlab.corp.example")
+}
+
+func TestReconcileGitOpsPullRequest_SSRFBlockedReason(t *testing.T) {
+	t.Parallel()
+	scheme := runtime.NewScheme()
+	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+
+	en := true
+	dry := false
+	policy := gitOpsEnabledPolicy("p", "default", dry, nil)
+	policy.Spec.UpdateStrategy.Export.PullRequest.Enabled = &en
+	dep := gitOpsDriftDeployment("api", "default", "1")
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(policy, dep).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = c
+	r.gitopsPRClient = ssrfBlockedPRClient{}
+
+	r.reconcileGitOpsPullRequest(context.Background(), policy, []client.Object{dep}, gitOpsCPURec("api", "100m"))
+
+	var reason, message string
+	for _, cond := range policy.Status.Conditions {
+		if cond.Type == attunev1alpha1.ConditionGitOpsPullRequest {
+			reason = cond.Reason
+			message = cond.Message
+		}
+	}
+	assert.Equal(t, attunev1alpha1.ReasonGitOpsEndpointBlocked, reason)
+	assert.Equal(t, "GitOps API URL resolved to a disallowed address", message)
+	assert.NotContains(t, message, "gitlab.corp.example")
+}
+
 func TestReconcileGitOpsPullRequest_DryRunIncrementsMetric(t *testing.T) {
 	// Complements DryRun reason assertion: dry-run path increments metric
 	// and never requires a Secret in the fake client.

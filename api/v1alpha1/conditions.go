@@ -53,13 +53,14 @@ const (
 	ReasonPodsInfeasible            = "PodsInfeasible"
 	ReasonPodsDeferredAndInfeasible = "PodsDeferredAndInfeasible"
 	// GitOps PR automation reasons.
-	ReasonGitOpsPROpen      = "PullRequestOpen"
-	ReasonGitOpsPRFailed    = "PullRequestFailed"
-	ReasonGitOpsPRNoDrift   = "NoDrift"
-	ReasonGitOpsPRCooldown  = "PullRequestCooldown"
-	ReasonGitOpsPRDryRun    = "PullRequestDryRun"
-	ReasonGitOpsPRDisabled  = "PullRequestDisabled"
-	ReasonGitOpsPRUnchanged = "PullRequestUnchanged"
+	ReasonGitOpsPROpen          = "PullRequestOpen"
+	ReasonGitOpsPRFailed        = "PullRequestFailed"
+	ReasonGitOpsPRNoDrift       = "NoDrift"
+	ReasonGitOpsPRCooldown      = "PullRequestCooldown"
+	ReasonGitOpsPRDryRun        = "PullRequestDryRun"
+	ReasonGitOpsPRDisabled      = "PullRequestDisabled"
+	ReasonGitOpsPRUnchanged     = "PullRequestUnchanged"
+	ReasonGitOpsEndpointBlocked = "GitOpsEndpointBlocked"
 )
 
 // CanaryPhaseInProgress and CanaryPhaseFullRollout are now typed constants

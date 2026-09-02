@@ -999,7 +999,9 @@ func (r *AttunePolicyReconciler) processWorkloads(
 				rec.Workload = workloadName
 				rec.Kind = workloadKind
 				result.recommendations = append(result.recommendations, *rec)
-				result.workloadsWithRecs++
+				if !rec.Stale {
+					result.workloadsWithRecs++
+				}
 			}
 			if seriesCapped {
 				result.seriesCapped = true

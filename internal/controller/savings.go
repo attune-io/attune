@@ -48,6 +48,9 @@ type savingsAccumulator struct {
 func accumulateSavings(recommendations []attunev1alpha1.WorkloadRecommendation) savingsAccumulator {
 	var acc savingsAccumulator
 	for _, rec := range recommendations {
+		if rec.Stale {
+			continue
+		}
 		for _, c := range rec.Containers {
 			acc.totalCPU += c.Current.CPURequest.MilliValue()
 			acc.totalMem += c.Current.MemoryRequest.Value()

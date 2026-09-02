@@ -229,6 +229,48 @@ func TestComputeSavings_Mixed(t *testing.T) {
 	assert.Equal(t, "$4.53", savings.EstimatedMonthlyCostIncrease)
 }
 
+func TestComputeSavings_SkipsStale(t *testing.T) {
+	r := newSavingsReconciler()
+	recommendations := []attunev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "fresh",
+			Kind:     "Deployment",
+			Containers: []attunev1alpha1.ContainerRecommendation{{
+				Name: "main",
+				Current: attunev1alpha1.ResourceValues{
+					CPURequest:    resource.MustParse("500m"),
+					MemoryRequest: resource.MustParse("256Mi"),
+				},
+				Recommended: attunev1alpha1.ResourceValues{
+					CPURequest:    resource.MustParse("100m"),
+					MemoryRequest: resource.MustParse("128Mi"),
+				},
+			}},
+		},
+		{
+			Workload: "stale",
+			Kind:     "Deployment",
+			Stale:    true,
+			Containers: []attunev1alpha1.ContainerRecommendation{{
+				Name: "main",
+				Current: attunev1alpha1.ResourceValues{
+					CPURequest:    resource.MustParse("2000m"),
+					MemoryRequest: resource.MustParse("2Gi"),
+				},
+				Recommended: attunev1alpha1.ResourceValues{
+					CPURequest:    resource.MustParse("100m"),
+					MemoryRequest: resource.MustParse("128Mi"),
+				},
+			}},
+		},
+	}
+
+	savings, acc := r.computeSavings(recommendations, nil)
+	assert.Equal(t, "400m", savings.CPURequestReduction, "stale rec must not add 1900m")
+	assert.Equal(t, int64(400), acc.totalCPUSaved)
+	assert.Equal(t, int64(500), acc.totalCPU)
+}
+
 // --- Defense-in-depth parsing helpers ---
 
 func TestParseFloat64_ValidValue(t *testing.T) {

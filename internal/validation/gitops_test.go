@@ -49,6 +49,7 @@ func TestGitOpsAPIURL_RejectsIMDS(t *testing.T) {
 	blocked := []string{
 		"https://169.254.169.254/",
 		"https://169.254.169.254/latest/meta-data/",
+		"https://[fd00:ec2::254]/",
 		"https://[fd00:ec2::254]/latest/meta-data/",
 		"https://metadata.google.internal/computeMetadata",
 		"https://METADATA.GOOGLE.INTERNAL/foo",
@@ -123,6 +124,28 @@ func TestGitOpsBlockedIP(t *testing.T) {
 			assert.Equal(t, tt.blocked, GitOpsBlockedIP(ip), tt.ip)
 		})
 	}
+}
+
+func TestGitOpsAPIURL_AllowPrivateRFC1918(t *testing.T) {
+	t.Parallel()
+	assert.NoError(t, GitOpsAPIURLAllowingPrivate("https://10.96.0.1/", true))
+	assert.NoError(t, GitOpsAPIURLAllowingPrivate("https://192.168.1.10:8443/", true))
+	assert.NoError(t, GitOpsAPIURLAllowingPrivate("https://[fd00::1]/", true))
+	assert.Error(t, GitOpsAPIURLAllowingPrivate("https://127.0.0.1/", true))
+	assert.Error(t, GitOpsAPIURLAllowingPrivate("https://169.254.169.254/", true))
+	assert.Error(t, GitOpsAPIURLAllowingPrivate("https://[fd00:ec2::254]/", true), "IPv6 IMDS stays blocked")
+	assert.Error(t, GitOpsAPIURLAllowingPrivate("https://localhost/", true))
+	assert.Error(t, GitOpsAPIURL("https://10.96.0.1/"), "default still blocks RFC1918")
+}
+
+func TestGitOpsAlwaysBlockedIP(t *testing.T) {
+	t.Parallel()
+	assert.True(t, GitOpsAlwaysBlockedIP(net.ParseIP("127.0.0.1")))
+	assert.True(t, GitOpsAlwaysBlockedIP(net.ParseIP("169.254.169.254")))
+	assert.True(t, GitOpsAlwaysBlockedIP(net.ParseIP("::1")))
+	assert.True(t, GitOpsAlwaysBlockedIP(net.ParseIP("fd00:ec2::254")), "AWS IPv6 IMDS")
+	assert.False(t, GitOpsAlwaysBlockedIP(net.ParseIP("10.0.0.1")))
+	assert.False(t, GitOpsAlwaysBlockedIP(net.ParseIP("8.8.8.8")))
 }
 
 func TestPrometheusAddress_StillAllowsPrivate(t *testing.T) {

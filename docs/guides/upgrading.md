@@ -8,6 +8,58 @@ Maintainers: before publishing a release after multi-version product changes,
 run the full E2E Nightly matrix on tip of `main` (see
 [Releasing: full E2E matrix](../contributing/releasing.md#1b-full-e2e-matrix-required-before-tagging-a-product-release)).
 
+## v0.1.25 to v0.1.26
+
+v0.1.26 tightens stale-recommendation handling and CloudWatch collection.
+Existing policy YAML keeps working. Read this section if you inherit
+`maxConcurrentResizes` from `AttuneDefaults`, use CloudWatch, or run a
+self-hosted Git forge.
+
+### Inherit maxConcurrentResizes from AttuneDefaults
+
+The built-in default moved from the CRD OpenAPI schema into the
+controller so `AttuneDefaults` can set a cluster-wide value. Policies
+created before that change already have `maxConcurrentResizes: 1` stored
+in etcd. That explicit `1` wins over `AttuneDefaults`.
+
+To inherit a cluster-wide value, remove the field from those policies:
+
+```bash
+kubectl patch attunepolicy POLICY -n NS --type=json \
+  -p='[{"op":"remove","path":"/spec/updateStrategy/maxConcurrentResizes"}]'
+```
+
+Helm does not upgrade CRDs on `helm upgrade`. Apply CRDs before the
+chart upgrade or new policies on a stale CRD still materialize `1`:
+
+```bash
+kubectl apply --server-side --force-conflicts -f \
+  https://github.com/attune-io/attune/releases/latest/download/crds.yaml
+```
+
+### Stale recommendations expire
+
+A recommendation is fresh only when the newest finite sample is newer
+than `3 * queryStep` (default 15m). Older in-window samples are marked
+`stale`. Empty Prometheus results reuse the last rec only inside that
+same window. After it expires, the rec drops and Ready can become
+`InsufficientData`. Stale recs no longer count toward
+`workloads.withRecommendations` or savings gauges.
+
+### CloudWatch pod prefix
+
+CloudWatch `SEARCH` no longer emits `PodName="prefix*"`. Quoted CloudWatch
+tokens are exact matches, so that term matched nothing. Filtering is
+client-side only.
+
+### Self-hosted GitOps forges
+
+`export.pullRequest.apiUrl` still rejects private IP literals by default.
+Set `allowPrivateEndpoints: true` for RFC1918/ULA self-hosted GitLab,
+Gitea, or Bitbucket. Loopback and link-local (including IMDS) stay
+blocked. Corporate `HTTPS_PROXY` on a private address is no longer
+treated as the SSRF target.
+
 ## v0.1.24 to v0.1.25
 
 v0.1.25 is a GitOps reliability patch. Existing policy YAML keeps working.

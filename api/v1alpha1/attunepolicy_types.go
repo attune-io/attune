@@ -681,6 +681,12 @@ type GitOpsPullRequestConfig struct {
 	// +optional
 	APIURL string `json:"apiUrl,omitempty"`
 
+	// AllowPrivateEndpoints permits RFC1918/ULA API hosts (self-hosted
+	// GitLab/Gitea/Bitbucket). Loopback, link-local (including cloud
+	// metadata), and unspecified addresses stay blocked. Default false.
+	// +optional
+	AllowPrivateEndpoints bool `json:"allowPrivateEndpoints,omitempty"`
+
 	// Cooldown is the minimum time between PR create/update attempts for this
 	// policy. Defaults to 24h.
 	// +optional

@@ -451,6 +451,7 @@ provider PRs when templates drift. Full cookbook:
 | `updateStrategy.export.pullRequest.repository` | string | (required when enabled) | `owner/repo` (GitHub) or project path/id (GitLab). |
 | `updateStrategy.export.pullRequest.tokenSecretRef` | object | (required when enabled) | Secret `name` + `key` for a fine-scoped API token. Never log the token. |
 | `updateStrategy.export.pullRequest.apiUrl` | string | provider default | Enterprise GitHub or self-hosted GitLab API base (SSRF-validated). |
+| `updateStrategy.export.pullRequest.allowPrivateEndpoints` | bool | `false` | Permit RFC1918/ULA API hosts for self-hosted forges. Loopback, link-local (IMDS), and unspecified stay blocked. |
 | `updateStrategy.export.pullRequest.baseBranch` | string | `main` | Target branch for the PR. |
 | `updateStrategy.export.pullRequest.cooldown` | duration | `24h` | Minimum time between PR create/update attempts for this policy. |
 | `updateStrategy.export.pullRequest.minChangePercent` | int32 | `10` | Minimum absolute percent change (per container resource vs template) to open or update a PR (1-100). |
@@ -574,7 +575,7 @@ The controller sets these conditions on each `AttunePolicy`:
 | `Degraded` | `HighRevertRate` | Set when 3+ of the last 5 resizes were reverted |
 | `ScheduleBlocked` | `OutsideWindow`, `InsideWindow` | Set when `updateStrategy.schedule` is configured; indicates whether the current time is within an allowed resize window |
 | `ResizeBlocked` | `PodsDeferred`, `PodsInfeasible`, `PodsDeferredAndInfeasible` | Pods stuck Deferred or Infeasible; see troubleshooting "Deferred or Infeasible resize" |
-| `GitOpsPullRequest` | `PullRequestOpen`, `PullRequestFailed`, `NoDrift`, `PullRequestUnchanged`, `PullRequestCooldown`, `PullRequestDryRun`, `PullRequestDisabled` | Opt-in `export.pullRequest` automation status (see [GitOps integration](../guides/gitops-integration.md)) |
+| `GitOpsPullRequest` | `PullRequestOpen`, `PullRequestFailed`, `GitOpsEndpointBlocked`, `NoDrift`, `PullRequestUnchanged`, `PullRequestCooldown`, `PullRequestDryRun`, `PullRequestDisabled` | Opt-in `export.pullRequest` automation status (see [GitOps integration](../guides/gitops-integration.md)) |
 
 ### Status fields (GitOps PR)
 

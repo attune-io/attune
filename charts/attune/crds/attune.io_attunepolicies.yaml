@@ -690,6 +690,12 @@ spec:
                           PullRequest enables opt-in GitOps PR automation (default off).
                           Requires a token Secret and repository identity. Never logs the token.
                         properties:
+                          allowPrivateEndpoints:
+                            description: |-
+                              AllowPrivateEndpoints permits RFC1918/ULA API hosts (self-hosted
+                              GitLab/Gitea/Bitbucket). Loopback, link-local (including cloud
+                              metadata), and unspecified addresses stay blocked. Default false.
+                            type: boolean
                           apiUrl:
                             description: |-
                               APIURL overrides the API base URL (Enterprise GitHub or self-hosted GitLab).

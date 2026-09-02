@@ -307,6 +307,16 @@ func (r *AttunePolicyReconciler) getMinimumDataPoints(policy *attunev1alpha1.Att
 	return defaultMinimumDataPoints
 }
 
+// recommendationFreshnessBound is how recent the newest finite sample must
+// be for a recommendation to count as fresh. Three query steps covers a
+// couple of missed scrapes without treating the whole historyWindow as current.
+func recommendationFreshnessBound(queryStep time.Duration) time.Duration {
+	if queryStep <= 0 {
+		queryStep = attunev1alpha1.DefaultQueryStep
+	}
+	return 3 * queryStep
+}
+
 // getQueryStep returns the query step interval from the policy or the default (5m).
 // When MinQueryStep is set on the reconciler, enforces that floor (tier-aware).
 func (r *AttunePolicyReconciler) getQueryStep(policy *attunev1alpha1.AttunePolicy) time.Duration {

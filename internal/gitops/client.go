@@ -34,6 +34,9 @@ import (
 
 var errGitOpsRedirect = errors.New("redirects are not allowed")
 
+// ErrSSRFBlocked is returned when the GitOps HTTP dial refuses the resolved address.
+var ErrSSRFBlocked = errors.New("gitops SSRF blocked")
+
 // PRRequest is the input for create-or-update PR.
 type PRRequest struct {
 	Title  string
@@ -63,18 +66,20 @@ type HTTPDoer interface {
 
 // GitHubClient implements PullRequestClient for GitHub REST API.
 type GitHubClient struct {
-	BaseURL    string // default https://api.github.com
-	Token      string
-	Repository string // owner/repo
-	HTTP       HTTPDoer
+	BaseURL      string // default https://api.github.com
+	Token        string
+	Repository   string // owner/repo
+	HTTP         HTTPDoer
+	AllowPrivate bool
 }
 
 // GitLabClient implements PullRequestClient for GitLab REST API.
 type GitLabClient struct {
-	BaseURL string // default https://gitlab.com/api/v4
-	Token   string
-	Project string // URL-encoded path or numeric id path "group/project"
-	HTTP    HTTPDoer
+	BaseURL      string // default https://gitlab.com/api/v4
+	Token        string
+	Project      string // URL-encoded path or numeric id path "group/project"
+	HTTP         HTTPDoer
+	AllowPrivate bool
 }
 
 const bootstrapCommitMessage = "chore(attune): bootstrap recommendation branch"
@@ -89,7 +94,7 @@ func (c *GitHubClient) CreateOrUpdate(ctx context.Context, req PRRequest) (PRRes
 	}
 	httpClient := c.HTTP
 	if httpClient == nil {
-		httpClient = newGitOpsHTTPClient()
+		httpClient = newGitOpsHTTPClient(c.AllowPrivate)
 	}
 
 	// Find existing open PR for this head branch. GitHub supports head=owner:ref
@@ -282,7 +287,7 @@ func (c *GitHubClient) ensureHeadBranch(ctx context.Context, httpClient HTTPDoer
 }
 
 func (c *GitHubClient) doJSON(ctx context.Context, httpClient HTTPDoer, method, rawURL string, payload interface{}) ([]byte, int, error) {
-	if err := validation.GitOpsAPIURL(rawURL); err != nil {
+	if err := validation.GitOpsAPIURLAllowingPrivate(rawURL, c.AllowPrivate); err != nil {
 		return nil, 0, fmt.Errorf("gitops api url rejected")
 	}
 	var rdr io.Reader
@@ -324,7 +329,7 @@ func (c *GitLabClient) CreateOrUpdate(ctx context.Context, req PRRequest) (PRRes
 	}
 	httpClient := c.HTTP
 	if httpClient == nil {
-		httpClient = newGitOpsHTTPClient()
+		httpClient = newGitOpsHTTPClient(c.AllowPrivate)
 	}
 	project := url.PathEscape(c.Project)
 
@@ -447,7 +452,7 @@ func (c *GitLabClient) ensureHeadBranch(ctx context.Context, httpClient HTTPDoer
 }
 
 func (c *GitLabClient) doJSON(ctx context.Context, httpClient HTTPDoer, method, rawURL string, payload interface{}) ([]byte, int, error) {
-	if err := validation.GitOpsAPIURL(rawURL); err != nil {
+	if err := validation.GitOpsAPIURLAllowingPrivate(rawURL, c.AllowPrivate); err != nil {
 		return nil, 0, fmt.Errorf("gitops api url rejected")
 	}
 	var rdr io.Reader
@@ -478,10 +483,10 @@ func (c *GitLabClient) doJSON(ctx context.Context, httpClient HTTPDoer, method, 
 	return body, resp.StatusCode, nil
 }
 
-func newGitOpsHTTPClient() *http.Client {
+func newGitOpsHTTPClient(allowPrivate bool) *http.Client {
 	return &http.Client{
 		Timeout:       30 * time.Second,
-		Transport:     gitopsSafeTransport(),
+		Transport:     gitopsSafeTransport(allowPrivate),
 		CheckRedirect: gitopsCheckRedirect,
 	}
 }
@@ -490,33 +495,50 @@ func gitopsCheckRedirect(*http.Request, []*http.Request) error {
 	return errGitOpsRedirect
 }
 
-// gitopsSafeTransport resolves hostnames and refuses private, loopback,
-// link-local, and metadata IPs before dialing. Stricter than the Prometheus
-// transport, which must allow ClusterIP scrapes.
-func gitopsSafeTransport() http.RoundTripper {
-	dialer := &net.Dialer{Timeout: 10 * time.Second}
-	return &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			host, port, err := net.SplitHostPort(addr)
-			if err != nil {
-				return nil, fmt.Errorf("gitops dial: invalid address")
-			}
-			ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
-			if err != nil {
-				return nil, fmt.Errorf("gitops dial: DNS resolution failed")
-			}
-			for _, ip := range ips {
-				if validation.GitOpsBlockedIP(ip.IP) {
-					return nil, fmt.Errorf("gitops SSRF blocked: resolved to a disallowed address")
-				}
-			}
-			return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
+// gitopsSafeTransport checks the request URL host (the SSRF target) before
+// the request is sent. The inner transport may use HTTPS_PROXY; the proxy
+// hop itself is not the SSRF target. allowPrivate permits RFC1918/ULA
+// forges. Loopback, link-local, unspecified, and AWS IPv6 IMDS stay blocked.
+func gitopsSafeTransport(allowPrivate bool) http.RoundTripper {
+	return &gitopsSSRFTransport{
+		allowPrivate: allowPrivate,
+		base: &http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			DialContext:           (&net.Dialer{Timeout: 10 * time.Second}).DialContext,
+			ResponseHeaderTimeout: 30 * time.Second,
+			IdleConnTimeout:       90 * time.Second,
+			MaxIdleConnsPerHost:   10,
 		},
-		ResponseHeaderTimeout: 30 * time.Second,
-		IdleConnTimeout:       90 * time.Second,
-		MaxIdleConnsPerHost:   10,
 	}
+}
+
+type gitopsSSRFTransport struct {
+	allowPrivate bool
+	base         http.RoundTripper
+}
+
+func (t *gitopsSSRFTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	host := req.URL.Hostname()
+	if host == "" {
+		return nil, fmt.Errorf("gitops dial: invalid address")
+	}
+	ips, err := net.DefaultResolver.LookupIPAddr(req.Context(), host)
+	if err != nil {
+		return nil, fmt.Errorf("gitops dial: DNS resolution failed")
+	}
+	for _, ip := range ips {
+		if gitopsDialBlocked(ip.IP, t.allowPrivate) {
+			return nil, fmt.Errorf("%w: host %q resolved to a disallowed address", ErrSSRFBlocked, host)
+		}
+	}
+	return t.base.RoundTrip(req)
+}
+
+func gitopsDialBlocked(ip net.IP, allowPrivate bool) bool {
+	if allowPrivate {
+		return validation.GitOpsAlwaysBlockedIP(ip)
+	}
+	return validation.GitOpsBlockedIP(ip)
 }
 
 func redactToken(s, token string) string {

@@ -289,6 +289,32 @@ func TestValidate_GitOpsPullRequestAPIURL_PrivateRejected(t *testing.T) {
 	assert.Contains(t, err.Error(), "apiUrl")
 }
 
+func TestValidate_GitOpsPullRequestAPIURL_PrivateAllowedWhenOptIn(t *testing.T) {
+	validator := &AttunePolicyValidator{}
+	en := true
+	policy := validPolicy()
+	policy.Spec.UpdateStrategy.Export = &attunev1alpha1.ExportConfig{
+		PullRequest: &attunev1alpha1.GitOpsPullRequestConfig{
+			Enabled:               &en,
+			Repository:            "org/repo",
+			TokenSecretRef:        &attunev1alpha1.SecretKeyRef{Name: "tok", Key: "token"},
+			APIURL:                "https://10.96.0.1/",
+			AllowPrivateEndpoints: true,
+		},
+	}
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	assert.NoError(t, err)
+
+	policy.Spec.UpdateStrategy.Export.PullRequest.APIURL = "https://169.254.169.254/"
+	_, err = validator.ValidateCreate(context.Background(), policy)
+	require.Error(t, err, "link-local/IMDS stays blocked when allowPrivateEndpoints is set")
+
+	policy.Spec.UpdateStrategy.Export.PullRequest.APIURL = "https://[fd00:ec2::254]/"
+	_, err = validator.ValidateCreate(context.Background(), policy)
+	require.Error(t, err, "IPv6 IMDS stays blocked when allowPrivateEndpoints is set")
+}
+
 func TestValidate_GitOpsPullRequestAPIURL_EnterpriseOK(t *testing.T) {
 	validator := &AttunePolicyValidator{}
 	en := true
