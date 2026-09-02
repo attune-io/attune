@@ -164,6 +164,14 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 	monitor := r.newSafetyMonitor(logger, collector, policy.Spec.UpdateStrategy.SLOGuardrails)
 	observationPeriod := getObservationPeriod(policy)
 
+	// Revert must not inherit a spent PrometheusTimeout. PromQL/throttle
+	// checks use ctx (workloadCtx); rollback uses a fresh deadline.
+	revertPod := func(record safety.ResizeRecord) error {
+		revertCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), safetyRevertTimeout)
+		defer cancel()
+		return monitor.RevertPod(revertCtx, record)
+	}
+
 	// Build a set of workload names this policy targets for provenance checks.
 	workloadNames := make(map[string]bool, len(workloads))
 	for _, w := range workloads {
@@ -226,7 +234,7 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 						if v := safety.CheckCriticalStatuses(pod, record); v != nil {
 							logger.Info("Critical safety event detected during observation period, reverting early",
 								"pod", pod.Name, "container", record.Container, "reason", v.Reason)
-							if revertErr := monitor.RevertPod(ctx, record); revertErr != nil {
+							if revertErr := revertPod(record); revertErr != nil {
 								logger.Error(revertErr, "Failed to revert pod during early critical check", "pod", pod.Name)
 								continue
 							}
@@ -274,7 +282,7 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 			if !verdict.Safe {
 				logger.Info("Deferred safety violation detected, reverting",
 					"pod", pod.Name, "container", record.Container, "reason", verdict.Reason)
-				if revertErr := monitor.RevertPod(ctx, record); revertErr != nil {
+				if revertErr := revertPod(record); revertErr != nil {
 					logger.Error(revertErr, "Failed to revert pod during safety observation", "pod", pod.Name)
 					revertFailed = true
 					continue

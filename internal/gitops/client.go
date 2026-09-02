@@ -37,6 +37,32 @@ var errGitOpsRedirect = errors.New("redirects are not allowed")
 // ErrSSRFBlocked is returned when the GitOps HTTP dial refuses the resolved address.
 var ErrSSRFBlocked = errors.New("gitops SSRF blocked")
 
+// ErrLabelsApplied is returned with a populated PRResult when the PR exists
+// but applying labels failed. Callers must persist the URL.
+var ErrLabelsApplied = errors.New("labels applied failed")
+
+type gitopsRequestHostKey struct{}
+
+func withGitOpsRequestHost(ctx context.Context, host string) context.Context {
+	return context.WithValue(ctx, gitopsRequestHostKey{}, host)
+}
+
+func gitopsRequestHost(ctx context.Context) string {
+	host, _ := ctx.Value(gitopsRequestHostKey{}).(string)
+	return host
+}
+
+func gitopsSameHost(dialHost, requestHost string) bool {
+	a := strings.TrimSuffix(strings.ToLower(dialHost), ".")
+	b := strings.TrimSuffix(strings.ToLower(requestHost), ".")
+	if a == b {
+		return true
+	}
+	ipA := net.ParseIP(a)
+	ipB := net.ParseIP(b)
+	return ipA != nil && ipB != nil && ipA.Equal(ipB)
+}
+
 // PRRequest is the input for create-or-update PR.
 type PRRequest struct {
 	Title  string
@@ -144,7 +170,8 @@ func (c *GitHubClient) CreateOrUpdate(ctx context.Context, req PRRequest) (PRRes
 			return PRResult{}, fmt.Errorf("github update PR: status %d", code)
 		}
 		if err := c.applyIssueLabels(ctx, httpClient, base, pr.Number, req.Labels); err != nil {
-			return PRResult{}, err
+			return PRResult{URL: pr.HTMLURL, Number: pr.Number, Updated: true},
+				fmt.Errorf("%w: %w", ErrLabelsApplied, err)
 		}
 		return PRResult{URL: pr.HTMLURL, Number: pr.Number, Updated: true}, nil
 	}
@@ -178,7 +205,8 @@ func (c *GitHubClient) CreateOrUpdate(ctx context.Context, req PRRequest) (PRRes
 		return PRResult{}, fmt.Errorf("github create PR decode: %w", err)
 	}
 	if err := c.applyIssueLabels(ctx, httpClient, base, created.Number, req.Labels); err != nil {
-		return PRResult{}, err
+		return PRResult{URL: created.HTMLURL, Number: created.Number, Updated: false},
+			fmt.Errorf("%w: %w", ErrLabelsApplied, err)
 	}
 	return PRResult{URL: created.HTMLURL, Number: created.Number, Updated: false}, nil
 }
@@ -548,6 +576,12 @@ func gitopsDialContext(ctx context.Context, network, addr string, allowPrivate b
 	if err != nil {
 		return nil, fmt.Errorf("gitops dial: invalid address %q: %w", addr, err)
 	}
+	// HTTPS_PROXY / HTTP_PROXY hops are not the SSRF target. Dial them with
+	// the default dialer. The request URL host is checked in RoundTrip and
+	// pin-dialed below when this addr is the request host (direct).
+	if reqHost := gitopsRequestHost(ctx); reqHost != "" && !gitopsSameHost(host, reqHost) {
+		return dialer.DialContext(ctx, network, addr)
+	}
 	if validation.GitOpsBlockedHost(host) {
 		return nil, fmt.Errorf("%w: host %q is a disallowed address", ErrSSRFBlocked, host)
 	}
@@ -588,7 +622,7 @@ func (t *gitopsSSRFTransport) RoundTrip(req *http.Request) (*http.Response, erro
 			return nil, fmt.Errorf("%w: host %q resolved to a disallowed address", ErrSSRFBlocked, host)
 		}
 	}
-	return t.base.RoundTrip(req)
+	return t.base.RoundTrip(req.WithContext(withGitOpsRequestHost(req.Context(), host)))
 }
 
 func gitopsDialBlocked(ip net.IP, allowPrivate bool) bool {

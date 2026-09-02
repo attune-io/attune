@@ -6232,6 +6232,93 @@ func TestCheckPendingSafetyObservations_UnsafeVerdictReverts(t *testing.T) {
 	assert.True(t, foundResize, "should have called UpdateResize to revert the pod")
 }
 
+func TestCheckPendingSafetyObservations_RevertUsesWithoutCancel(t *testing.T) {
+	// PromQL can spend the whole PrometheusTimeout. RevertPod must not
+	// inherit that dead deadline (same class as persist confirm).
+	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "cancelled-ctx-pod",
+			Namespace: "default",
+			Labels:    map[string]string{"app": "test", "attune.io/tracked": "true"},
+			Annotations: map[string]string{
+				"attune.io/resized-at":                   resizedAt,
+				"attune.io/resized-workload":             "api-server",
+				"attune.io/resized-containers":           "main",
+				"attune.io/original-cpu-request.main":    "500m",
+				"attune.io/original-memory-request.main": "512Mi",
+				"attune.io/policy":                       "test-policy",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  "main",
+					Image: "nginx",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("250m"),
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionFalse},
+			},
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "main", RestartCount: 0},
+			},
+		},
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	reconciler, _ := newSafetyTestReconciler(pod)
+	reconciler.Clientset = &cancelAwareResizeClientset{Interface: reconciler.Clientset}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	reconciler.checkPendingSafetyObservations(ctx, policy, nil, safetyWorkloads())
+
+	var foundResize bool
+	for _, a := range reconciler.Clientset.(*cancelAwareResizeClientset).Interface.(*kubefake.Clientset).Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			foundResize = true
+		}
+	}
+	assert.True(t, foundResize, "revert must still UpdateResize after a spent Prometheus deadline")
+}
+
+type cancelAwareResizeClientset struct {
+	kubernetes.Interface
+}
+
+func (c *cancelAwareResizeClientset) CoreV1() corev1client.CoreV1Interface {
+	return &cancelAwareResizeCoreV1{CoreV1Interface: c.Interface.CoreV1()}
+}
+
+type cancelAwareResizeCoreV1 struct {
+	corev1client.CoreV1Interface
+}
+
+func (c *cancelAwareResizeCoreV1) Pods(namespace string) corev1client.PodInterface {
+	return &cancelAwareResizePods{PodInterface: c.CoreV1Interface.Pods(namespace)}
+}
+
+type cancelAwareResizePods struct {
+	corev1client.PodInterface
+}
+
+func (p *cancelAwareResizePods) UpdateResize(ctx context.Context, name string, pod *corev1.Pod, opts metav1.UpdateOptions) (*corev1.Pod, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return p.PodInterface.UpdateResize(ctx, name, pod, opts)
+}
+
 func TestCheckPendingSafetyObservations_UnsafeVerdictMarksHistoryReverted(t *testing.T) {
 	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
 	pod := &corev1.Pod{

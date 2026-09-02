@@ -192,6 +192,17 @@ func (r *AttunePolicyReconciler) reconcileGitOpsPullRequest(
 	if err != nil {
 		// Never include raw API bodies or error strings that might echo
 		// IMDS credentials. Status is a short static message only.
+		if res.URL != "" {
+			logger.Error(err, "GitOps PR opened but labels were not applied",
+				"provider", provider, "repository", cfg.Repository)
+			setGitOpsPRCondition(policy, metav1.ConditionFalse, attunev1alpha1.ReasonGitOpsPRFailed,
+				fmt.Sprintf("PR open; labels not applied: %s", res.URL))
+			operatormetrics.GitOpsPRTotal.WithLabelValues(policy.Namespace, policy.Name, "failed").Inc()
+			r.touchGitOpsPRAnnotation(policy, res.URL)
+			setGitOpsPRDriftAnnotation(policy, fp)
+			r.persistGitOpsPRAnnotations(ctx, policy)
+			return
+		}
 		logger.Error(err, "GitOps PR create/update failed", "provider", provider, "repository", cfg.Repository)
 		reason := attunev1alpha1.ReasonGitOpsPRFailed
 		msg := "PR API request failed"

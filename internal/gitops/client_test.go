@@ -446,11 +446,14 @@ func TestGitHubClient_Create_Labels403ReturnsStatusNotToken(t *testing.T) {
 			}
 		}),
 	}
-	_, err := client.CreateOrUpdate(context.Background(), PRRequest{
+	res, err := client.CreateOrUpdate(context.Background(), PRRequest{
 		Title: "t", Body: "b", Head: "attune/x", Base: "main",
 		Labels: []string{"attune", "rightsizing"},
 	})
 	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrLabelsApplied)
+	assert.Equal(t, "https://github.com/org/repo/pull/7", res.URL)
+	assert.Equal(t, 7, res.Number)
 	assert.Contains(t, err.Error(), "status 403")
 	assert.NotContains(t, err.Error(), token)
 }

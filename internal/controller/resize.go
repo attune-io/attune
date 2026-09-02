@@ -673,7 +673,10 @@ func (r *AttunePolicyReconciler) resizeContainer(
 			WorkloadName:      workloadName,
 		}
 		revertFailed := false
-		if revertErr := monitor.RevertPod(ctx, revertRecord); revertErr != nil {
+		revertCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), safetyRevertTimeout)
+		revertErr := monitor.RevertPod(revertCtx, revertRecord)
+		cancel()
+		if revertErr != nil {
 			logger.Error(revertErr, "Failed to revert pod after "+reason, "pod", pod.Name)
 			operatormetrics.RevertFailuresTotal.WithLabelValues(pod.Namespace, workloadName, reason).Inc()
 			revertFailed = true
@@ -822,6 +825,9 @@ const (
 	confirmTrackingAttempts = 3
 	confirmTrackingTimeout  = 5 * time.Second
 	confirmTrackingBackoff  = 50 * time.Millisecond
+	// safetyRevertTimeout is used with context.WithoutCancel so a spent
+	// PrometheusTimeout cannot cancel rollback.
+	safetyRevertTimeout = 5 * time.Second
 )
 
 // confirmTrackingAnnotations returns the live pod when a Clientset Get shows

@@ -18,10 +18,13 @@ package gitops
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/http/httptrace"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -144,4 +147,116 @@ func TestGitopsSafeTransport_DNSRebindBlockedIMDSv6AllowPrivate(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrSSRFBlocked)
 	assert.GreaterOrEqual(t, lookups.Load(), int32(2), "dial must re-resolve so a rebind is visible")
+}
+
+func TestGitopsSafeTransport_HTTPSProxyPrivateNotSSRF(t *testing.T) {
+	// Corporate HTTPS_PROXY is often RFC1918. SSRF is the request host
+	// (the forge), not the proxy hop DialContext sees.
+	orig := lookupIPAddr
+	t.Cleanup(func() { lookupIPAddr = orig })
+	lookupIPAddr = func(_ context.Context, host string) ([]net.IPAddr, error) {
+		if host == "forge.example" {
+			return []net.IPAddr{{IP: net.ParseIP("1.1.1.1")}}, nil
+		}
+		if ip := net.ParseIP(host); ip != nil {
+			return []net.IPAddr{{IP: ip}}, nil
+		}
+		return nil, errors.New("unexpected lookup")
+	}
+
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "[]")
+	}))
+	t.Cleanup(proxy.Close)
+
+	dialer := &net.Dialer{Timeout: 2 * time.Second}
+	client := &http.Client{
+		Timeout: 3 * time.Second,
+		Transport: &gitopsSSRFTransport{
+			allowPrivate: false,
+			base: &http.Transport{
+				Proxy: func(*http.Request) (*url.URL, error) {
+					return url.Parse(proxy.URL)
+				},
+				DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+					return gitopsDialContext(ctx, network, addr, false, dialer)
+				},
+			},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://forge.example/api", nil)
+	require.NoError(t, err)
+	resp, err := client.Do(req)
+	if resp != nil {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+	}
+	require.NoError(t, err, "HTTPS_PROXY to a private hop must not return ErrSSRFBlocked")
+}
+
+func TestGitopsSafeTransport_HTTPSProxyPrivateIPNotSSRF(t *testing.T) {
+	orig := lookupIPAddr
+	t.Cleanup(func() { lookupIPAddr = orig })
+	lookupIPAddr = func(_ context.Context, host string) ([]net.IPAddr, error) {
+		if host == "forge.example" {
+			return []net.IPAddr{{IP: net.ParseIP("1.1.1.1")}}, nil
+		}
+		if ip := net.ParseIP(host); ip != nil {
+			return []net.IPAddr{{IP: ip}}, nil
+		}
+		return nil, errors.New("unexpected lookup")
+	}
+
+	dialer := &net.Dialer{Timeout: 200 * time.Millisecond}
+	client := &http.Client{
+		Timeout: time.Second,
+		Transport: &gitopsSSRFTransport{
+			allowPrivate: false,
+			base: &http.Transport{
+				Proxy: func(*http.Request) (*url.URL, error) {
+					return url.Parse("http://10.1.2.3:9")
+				},
+				DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+					return gitopsDialContext(ctx, network, addr, false, dialer)
+				},
+			},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://forge.example/api", nil)
+	require.NoError(t, err)
+	resp, err := client.Do(req)
+	if resp != nil {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+	}
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, ErrSSRFBlocked, "RFC1918 HTTPS_PROXY hop is not the SSRF target")
+}
+
+func TestGitopsSafeTransport_AllowPrivateBlocksIMDSv6RequestHost(t *testing.T) {
+	orig := lookupIPAddr
+	t.Cleanup(func() { lookupIPAddr = orig })
+	lookupIPAddr = func(_ context.Context, _ string) ([]net.IPAddr, error) {
+		return []net.IPAddr{{IP: net.ParseIP("fd00:ec2::254")}}, nil
+	}
+
+	client := newGitOpsHTTPClient(true)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://forge.example/latest/meta-data", nil)
+	require.NoError(t, err)
+	resp, err := client.Do(req)
+	if resp != nil {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+	}
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrSSRFBlocked, "allowPrivate still blocks fd00:ec2::254 as request host")
 }
