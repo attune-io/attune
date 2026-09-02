@@ -55,6 +55,10 @@ func ComputeDrift(
 ) []ContainerDrift {
 	byKey := map[string]attunev1alpha1.WorkloadRecommendation{}
 	for _, r := range recs {
+		// Stale last-known recs must not open GitOps apply PRs.
+		if r.Stale {
+			continue
+		}
 		byKey[r.Kind+"/"+r.Workload] = r
 	}
 	var out []ContainerDrift
@@ -65,6 +69,9 @@ func ComputeDrift(
 		if !ok {
 			// try match on workload name only
 			for _, r := range recs {
+				if r.Stale {
+					continue
+				}
 				if r.Workload == name {
 					rec = r
 					ok = true

@@ -9575,6 +9575,82 @@ func TestExportRecommendationConfigMaps_SkipsLongName(t *testing.T) {
 	assert.True(t, apierrors.IsNotFound(err), "ConfigMap with name >253 chars should not be created")
 }
 
+func TestExportRecommendationConfigMaps_SkipsStale(t *testing.T) {
+	scheme := testScheme()
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-policy",
+			Namespace: "default",
+			UID:       "abc-123",
+		},
+	}
+	const t0 = "2026-01-01T00:00:00Z"
+	existingCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-policy-my-app-recommendations",
+			Namespace: "default",
+			Labels: map[string]string{
+				"attune.io/policy":   "test-policy",
+				"attune.io/workload": "my-app",
+			},
+		},
+		Data: map[string]string{
+			"main.cpu-request": "100m",
+			"last-updated":     t0,
+		},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(policy, existingCM).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.SetNowFunc(func() time.Time { return time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC) })
+
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "my-app",
+			Kind:     "Deployment",
+			Stale:    true,
+			Containers: []attunev1alpha1.ContainerRecommendation{
+				{
+					Name:       "main",
+					Confidence: 0.95,
+					Recommended: attunev1alpha1.ResourceValues{
+						CPURequest:    resource.MustParse("500m"),
+						MemoryRequest: resource.MustParse("512Mi"),
+					},
+				},
+			},
+		},
+	}
+
+	r.exportRecommendationConfigMaps(context.Background(), policy, recs)
+
+	var cm corev1.ConfigMap
+	err := fakeClient.Get(context.Background(), client.ObjectKey{
+		Namespace: "default",
+		Name:      "test-policy-my-app-recommendations",
+	}, &cm)
+	require.NoError(t, err, "stale rec must remain in currentWorkloads so the CM is not deleted")
+	assert.Equal(t, "100m", cm.Data["main.cpu-request"], "stale rec must not overwrite existing cpu-request")
+	assert.Equal(t, t0, cm.Data["last-updated"], "stale rec must not restamp last-updated")
+
+	// No existing CM: a stale-only rec must not create one.
+	staleOnlyPolicy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "stale-only",
+			Namespace: "default",
+			UID:       "def-456",
+		},
+	}
+	require.NoError(t, fakeClient.Create(context.Background(), staleOnlyPolicy))
+	r.exportRecommendationConfigMaps(context.Background(), staleOnlyPolicy, recs)
+	err = fakeClient.Get(context.Background(), client.ObjectKey{
+		Namespace: "default",
+		Name:      "stale-only-my-app-recommendations",
+	}, &cm)
+	assert.True(t, apierrors.IsNotFound(err), "stale-only rec must not create a ConfigMap")
+}
+
 func TestAdjustHPATargets_ScalesTargetUtilization(t *testing.T) {
 	scheme := testScheme()
 	oldTarget := int32(80)

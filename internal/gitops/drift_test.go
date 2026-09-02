@@ -430,3 +430,58 @@ func TestComputeDrift_SkipsWorkloadWithoutRecommendation(t *testing.T) {
 	}}
 	assert.Empty(t, ComputeDrift([]client.Object{dep}, recs, 10))
 }
+
+func TestComputeDrift_SkipsStaleRecommendation(t *testing.T) {
+	t.Parallel()
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "api"},
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name: "app",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("500m"),
+							},
+						},
+					}},
+				},
+			},
+		},
+	}
+
+	t.Run("kind match", func(t *testing.T) {
+		t.Parallel()
+		recs := []attunev1alpha1.WorkloadRecommendation{{
+			Workload: "api",
+			Kind:     "Deployment",
+			Stale:    true,
+			Containers: []attunev1alpha1.ContainerRecommendation{{
+				Name: "app",
+				Recommended: attunev1alpha1.ResourceValues{
+					CPURequest: resource.MustParse("200m"),
+				},
+			}},
+		}}
+		assert.Empty(t, ComputeDrift([]client.Object{dep}, recs, 10),
+			"stale rec must not produce GitOps drift")
+	})
+
+	t.Run("name-only match", func(t *testing.T) {
+		t.Parallel()
+		recs := []attunev1alpha1.WorkloadRecommendation{{
+			Workload: "api",
+			Kind:     "ReplicaSet",
+			Stale:    true,
+			Containers: []attunev1alpha1.ContainerRecommendation{{
+				Name: "app",
+				Recommended: attunev1alpha1.ResourceValues{
+					CPURequest: resource.MustParse("200m"),
+				},
+			}},
+		}}
+		assert.Empty(t, ComputeDrift([]client.Object{dep}, recs, 10),
+			"stale rec must not produce GitOps drift via name-only match")
+	})
+}
