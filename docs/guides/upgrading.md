@@ -10,9 +10,11 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 ## v0.1.25 to v0.1.26
 
-v0.1.26 tightens stale-recommendation handling and CloudWatch collection.
-Existing policy YAML keeps working. Read this section if you inherit
-`maxConcurrentResizes` from `AttuneDefaults`, use CloudWatch, or run a
+v0.1.26 tightens stale-recommendation handling, CloudWatch collection,
+ResourceQuota list fail-closed, VPA `memoryFromCpuRatio`, and GitOps
+labels. Existing policy YAML keeps working. Read this section if you
+inherit `maxConcurrentResizes` from `AttuneDefaults`, use CloudWatch,
+ResourceQuota, VPA with a memory ratio, GitOps labels, or run a
 self-hosted Git forge.
 
 ### Inherit maxConcurrentResizes from AttuneDefaults
@@ -59,6 +61,27 @@ Set `allowPrivateEndpoints: true` for RFC1918/ULA self-hosted GitLab,
 Gitea, or Bitbucket. Loopback and link-local (including IMDS) stay
 blocked. Corporate `HTTPS_PROXY` on a private address is no longer
 treated as the SSRF target.
+
+### ResourceQuota List fail-closed
+
+If listing ResourceQuotas or LimitRanges fails (missing `list`/`watch`
+RBAC or an API error), Attune skips request increases. Decreases still
+apply. This is the same class of fail-closed behavior as
+[node-status unavailability](#request-increases-fail-closed-when-node-status-is-unavailable).
+See [troubleshooting: quota list unavailable](troubleshooting.md#resize-skipped-quota-list-unavailable).
+
+### VPA honors memoryFromCpuRatio
+
+When `metricsSource.vpa` is set and `memory.memoryFromCpuRatio` is also
+set, Attune now derives memory from the CPU recommendation instead of
+using the VPA memory target. Unset `memory.memoryFromCpuRatio` to keep
+VPA memory targets.
+
+### GitOps labels fail-closed
+
+If `export.pullRequest.labels` is set and the forge rejects the labels
+API, PR create and update fail instead of succeeding unlabeled. Grant
+the forge label permission or drop `labels`.
 
 ## v0.1.24 to v0.1.25
 
