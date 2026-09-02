@@ -2219,6 +2219,94 @@ func TestComputeRecommendations_CPUAllNaNMemoryValid(t *testing.T) {
 		"Memory recommendation should change when memory samples are valid")
 }
 
+// TestComputeRecommendations_OneSidedMemoryGapDoesNotRecommendTemplate is
+// the live-red contract: CPU series can be fresh while memory is empty or
+// all NaN. The missing-memory arm must not emit the pod-template request
+// (256Mi) as a fresh apply target after a live increase to 1Gi.
+func TestComputeRecommendations_OneSidedMemoryGapDoesNotRecommendTemplate(t *testing.T) {
+	templateMem := resource.MustParse("256Mi")
+	liveMem := resource.MustParse("1Gi")
+
+	nanSamples := make([]rsmetrics.Sample, 50)
+	now := time.Now()
+	for i := range nanSamples {
+		nanSamples[i] = rsmetrics.Sample{
+			Timestamp: now.Add(-time.Duration(50-i) * time.Hour),
+			Value:     math.NaN(),
+		}
+	}
+
+	tests := []struct {
+		name          string
+		memorySamples map[string][]rsmetrics.Sample
+		useLivePod    bool
+		usePriorRec   bool
+	}{
+		{name: "empty memory samples, live 1Gi", useLivePod: true},
+		{name: "NaN memory samples, live 1Gi", memorySamples: map[string][]rsmetrics.Sample{"main": nanSamples}, useLivePod: true},
+		{name: "empty memory samples, last rec 1Gi", usePriorRec: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			policy := newTestPolicy("test-policy", "default")
+			deploy := newTestDeployment("api-server", "default", nil)
+			deploy.Spec.Template.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory] = templateMem.DeepCopy()
+
+			if tt.usePriorRec {
+				priorData := metav1.NewTime(now.Add(-time.Minute))
+				policy.Status.Recommendations = []attunev1alpha1.WorkloadRecommendation{{
+					Workload:     "api-server",
+					Kind:         "Deployment",
+					LastDataTime: &priorData,
+					Stale:        false,
+					Containers: []attunev1alpha1.ContainerRecommendation{{
+						Name: "main",
+						Recommended: attunev1alpha1.ResourceValues{
+							CPURequest:    resource.MustParse("500m"),
+							MemoryRequest: liveMem.DeepCopy(),
+						},
+					}},
+				}}
+			}
+
+			var pods []corev1.Pod
+			if tt.useLivePod {
+				pods = []corev1.Pod{*newResizePod("api-server", "500m", "1Gi", "1000m", "1Gi")}
+			}
+
+			reconciler := newReconcilerWithClient()
+			mc := &mockCollector{
+				queryRangeGroupedFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) (map[string][]rsmetrics.Sample, error) {
+					if strings.Contains(query, "memory_working_set_bytes") {
+						if tt.memorySamples != nil {
+							return tt.memorySamples, nil
+						}
+						return map[string][]rsmetrics.Sample{}, nil
+					}
+					return map[string][]rsmetrics.Sample{"main": generateSamples(200, 0.1)}, nil
+				},
+			}
+
+			rec, _, _, _, _, err := reconciler.computeRecommendations(
+				context.Background(), policy, deploy, mc, nil, nil, nil, nil, pods)
+			require.NoError(t, err)
+			require.NotNil(t, rec, "CPU-only data must still produce a recommendation")
+			require.Len(t, rec.Containers, 1)
+
+			got := rec.Containers[0].Recommended.MemoryRequest
+			if rec.Stale {
+				return
+			}
+			assert.False(t, got.Equal(templateMem),
+				"fresh rec must not recommend template memory %s when memory samples are missing (got %s)",
+				templateMem.String(), got.String())
+			assert.True(t, got.Equal(liveMem),
+				"fresh rec must keep live/last memory %s, got %s", liveMem.String(), got.String())
+		})
+	}
+}
+
 func TestComputeRecommendations_QueryError(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	deploy := newTestDeployment("api-server", "default", nil)
@@ -5227,6 +5315,9 @@ func TestReconcile_PrometheusUnavailable(t *testing.T) {
 func TestReconcile_PrometheusQueryErrorsMentionBlockedDataTypes(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	// Live pod lets the missing-memory arm hold current requests so the
+	// CPU-only rec stays fresh (template is not a hybrid apply target).
+	pod := newResizePod("api-server", "500m", "512Mi", "1000m", "1Gi")
 
 	reconciler, fakeClient := newReconcilerForReconcile(&mockCollector{
 		queryRangeGroupedFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) (map[string][]rsmetrics.Sample, error) {
@@ -5235,7 +5326,7 @@ func TestReconcile_PrometheusQueryErrorsMentionBlockedDataTypes(t *testing.T) {
 			}
 			return map[string][]rsmetrics.Sample{"main": generateSamples(200, 0.1)}, nil
 		},
-	}, policy, deploy)
+	}, policy, deploy, pod)
 
 	req := ctrl.Request{
 		NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},

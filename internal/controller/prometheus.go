@@ -288,6 +288,10 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 
 	var containerRecs []attunev1alpha1.ContainerRecommendation
 	eligibleContainers := 0
+	// True when a container had data for only one resource and neither live
+	// pods nor a prior rec could hold the missing arm (template must not
+	// become a fresh apply target).
+	partialUnfilled := false
 
 	for _, container := range containers {
 		containerName := container.Name
@@ -367,6 +371,7 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 		explanation := &attunev1alpha1.ContainerRecommendationExplanation{}
 
 		// Compute CPU recommendation.
+		cpuApplied := false
 		if cpuProfile.DataPoints >= int(minimumDataPoints) {
 			cpuRec, cpuExplain, _ := cpuEngine.RecommendWithExplanation(cpuProfile, rec.Current.CPURequest)
 			// CPU AllowDecrease defaults to true (nil || *ptr) because CPU
@@ -375,11 +380,13 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 			cpuRec = r.enforceAllowDecrease(cpuAllowDecrease, cpuRec, rec.Current.CPURequest, &cpuExplain, policy, containerName, "CPU")
 			rec.Recommended.CPURequest = cpuRec
 			explanation.CPU = toAPIRecommendationExplanation(cpuExplain)
+			cpuApplied = true
 		}
 
 		// Compute memory recommendation.
 		// When memoryFromCpuRatio is set, derive memory from the CPU
 		// recommendation instead of using Prometheus memory metrics.
+		memApplied := false
 		if policy.Spec.Memory.MemoryFromCPURatio != nil && *policy.Spec.Memory.MemoryFromCPURatio != "" && explanation.CPU != nil {
 			ratio := parseFloat64Ratio(*policy.Spec.Memory.MemoryFromCPURatio)
 			allowDecrease := policy.Spec.Memory.AllowDecrease != nil && *policy.Spec.Memory.AllowDecrease
@@ -390,6 +397,7 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 				memExplain.FinalAdjustment = appendNote(memExplain.FinalAdjustment,
 					fmt.Sprintf("derived from CPU via memoryFromCpuRatio=%s", *policy.Spec.Memory.MemoryFromCPURatio))
 				explanation.Memory = toAPIRecommendationExplanation(memExplain)
+				memApplied = true
 			}
 		} else if memProfile.DataPoints >= int(minimumDataPoints) {
 			memRec, memExplain, _ := memEngine.RecommendWithExplanation(memProfile, rec.Current.MemoryRequest)
@@ -399,6 +407,20 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 			memRec = r.enforceAllowDecrease(memAllowDecrease, memRec, rec.Current.MemoryRequest, &memExplain, policy, containerName, "memory")
 			rec.Recommended.MemoryRequest = memRec
 			explanation.Memory = toAPIRecommendationExplanation(memExplain)
+			memApplied = true
+		}
+
+		// One-sided Prometheus gap: keep live (or last rec) on the missing
+		// arm. Template Current must not become a fresh apply target after
+		// an in-place increase (1Gi live, 256Mi template).
+		if !cpuApplied || !memApplied {
+			prior := priorContainerRecommendation(policy, workloadKindName(workload), workload.GetName(), containerName)
+			if !cpuApplied && !holdMissingResourceRequest(&rec, corev1.ResourceCPU, pods, prior) {
+				partialUnfilled = true
+			}
+			if !memApplied && !holdMissingResourceRequest(&rec, corev1.ResourceMemory, pods, prior) {
+				partialUnfilled = true
+			}
 		}
 		if explanation.CPU != nil || explanation.Memory != nil {
 			rec.Explanation = explanation
@@ -488,12 +510,13 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 	}
 	lastDataTime := metav1.NewTime(last)
 	freshness := recommendationFreshnessBound(queryStep)
-	stale := now.Sub(last) > freshness
+	stale := now.Sub(last) > freshness || partialUnfilled
 	if stale {
 		logger.Info("Recommendation is stale; last Prometheus data is older than freshness bound",
 			"workload", workload.GetName(),
 			"lastDataTime", lastDataTime,
-			"freshnessBound", freshness)
+			"freshnessBound", freshness,
+			"partialUnfilled", partialUnfilled)
 	}
 	return &attunev1alpha1.WorkloadRecommendation{
 		Containers:   containerRecs,
@@ -525,6 +548,113 @@ func reuseStaleRecommendation(policy *attunev1alpha1.AttunePolicy, kind, workloa
 		rec := prior.DeepCopy()
 		rec.Stale = true
 		return rec
+	}
+	return nil
+}
+
+// holdMissingResourceRequest copies live (max request across pods) or last
+// successful Recommended into Current and Recommended for a resource that
+// had no usable series. Returns false when no hold value exists.
+func holdMissingResourceRequest(
+	rec *attunev1alpha1.ContainerRecommendation,
+	res corev1.ResourceName,
+	pods []corev1.Pod,
+	prior *attunev1alpha1.ContainerRecommendation,
+) bool {
+	if rec == nil {
+		return false
+	}
+	req, lim, ok := liveResourceHold(pods, rec.Name, res)
+	if !ok {
+		req, lim, ok = priorResourceHold(prior, res)
+	}
+	if !ok {
+		return false
+	}
+	switch res {
+	case corev1.ResourceCPU:
+		rec.Current.CPURequest = req.DeepCopy()
+		rec.Recommended.CPURequest = req.DeepCopy()
+		if !lim.IsZero() {
+			rec.Current.CPULimit = lim.DeepCopy()
+			rec.Recommended.CPULimit = lim.DeepCopy()
+		}
+	case corev1.ResourceMemory:
+		rec.Current.MemoryRequest = req.DeepCopy()
+		rec.Recommended.MemoryRequest = req.DeepCopy()
+		if !lim.IsZero() {
+			rec.Current.MemoryLimit = lim.DeepCopy()
+			rec.Recommended.MemoryLimit = lim.DeepCopy()
+		}
+	default:
+		return false
+	}
+	return true
+}
+
+func liveResourceHold(pods []corev1.Pod, container string, res corev1.ResourceName) (req, lim k8sresource.Quantity, ok bool) {
+	for i := range pods {
+		c := findContainerByName(&pods[i], container)
+		if c == nil {
+			continue
+		}
+		q, has := c.Resources.Requests[res]
+		if !has || q.IsZero() {
+			continue
+		}
+		if !ok || q.Cmp(req) > 0 {
+			req = q.DeepCopy()
+			if l, hasLim := c.Resources.Limits[res]; hasLim && !l.IsZero() {
+				lim = l.DeepCopy()
+			} else {
+				lim = k8sresource.Quantity{}
+			}
+			ok = true
+		}
+	}
+	return req, lim, ok
+}
+
+func priorResourceHold(prior *attunev1alpha1.ContainerRecommendation, res corev1.ResourceName) (req, lim k8sresource.Quantity, ok bool) {
+	if prior == nil {
+		return req, lim, false
+	}
+	switch res {
+	case corev1.ResourceCPU:
+		req = prior.Recommended.CPURequest
+		lim = prior.Recommended.CPULimit
+		if req.IsZero() {
+			req = prior.Current.CPURequest
+			lim = prior.Current.CPULimit
+		}
+	case corev1.ResourceMemory:
+		req = prior.Recommended.MemoryRequest
+		lim = prior.Recommended.MemoryLimit
+		if req.IsZero() {
+			req = prior.Current.MemoryRequest
+			lim = prior.Current.MemoryLimit
+		}
+	}
+	return req, lim, !req.IsZero()
+}
+
+func priorContainerRecommendation(policy *attunev1alpha1.AttunePolicy, kind, workload, container string) *attunev1alpha1.ContainerRecommendation {
+	if policy == nil || workload == "" || container == "" {
+		return nil
+	}
+	for i := range policy.Status.Recommendations {
+		prior := &policy.Status.Recommendations[i]
+		if prior.Workload != workload {
+			continue
+		}
+		if kind != "" && prior.Kind != kind {
+			continue
+		}
+		for j := range prior.Containers {
+			if prior.Containers[j].Name == container {
+				return &prior.Containers[j]
+			}
+		}
 	}
 	return nil
 }
