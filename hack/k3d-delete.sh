@@ -24,8 +24,11 @@ TIMEOUT_BIN="${TIMEOUT_BIN:-timeout}"
 
 echo "PLAN: delete k3d cluster ${NAME} (timeout ${TIMEOUT_SEC}s)"
 
+KILL_AFTER="${K3D_DELETE_KILL_AFTER_SEC:-5}"
 if command -v "${TIMEOUT_BIN}" >/dev/null 2>&1; then
-  "${TIMEOUT_BIN}" "${TIMEOUT_SEC}" "${K3D}" cluster delete "${NAME}" || true
+  # SIGTERM at TIMEOUT_SEC, then SIGKILL so a wedged docker/k3d cannot
+  # ignore TERM and hold the E2E job until the 30m cap.
+  "${TIMEOUT_BIN}" -k "${KILL_AFTER}" "${TIMEOUT_SEC}" "${K3D}" cluster delete "${NAME}" || true
 else
   echo "::warning::timeout not found; deleting ${NAME} without a bound"
   "${K3D}" cluster delete "${NAME}" || true
