@@ -633,8 +633,10 @@ func (r *AttunePolicyReconciler) resizeContainer(
 			break
 		}
 	}
+	current := liveContainerCurrent(pod, containerRec)
+
 	if anySuccess {
-		if curLim := containerRec.Current.MemoryLimit; !curLim.IsZero() {
+		if curLim := current.MemoryLimit; !curLim.IsZero() {
 			if newLim, ok := target.Limits[corev1.ResourceMemory]; ok && newLim.Cmp(curLim) < 0 {
 				operatormetrics.MemoryLimitDecreaseTotal.WithLabelValues(
 					policy.Namespace, policy.Name, "applied").Inc()
@@ -642,21 +644,7 @@ func (r *AttunePolicyReconciler) resizeContainer(
 		}
 	}
 
-	originalResources := corev1.ResourceRequirements{
-		Requests: corev1.ResourceList{
-			corev1.ResourceCPU:    containerRec.Current.CPURequest.DeepCopy(),
-			corev1.ResourceMemory: containerRec.Current.MemoryRequest.DeepCopy(),
-		},
-	}
-	if !containerRec.Current.CPULimit.IsZero() || !containerRec.Current.MemoryLimit.IsZero() {
-		originalResources.Limits = make(corev1.ResourceList)
-		if !containerRec.Current.CPULimit.IsZero() {
-			originalResources.Limits[corev1.ResourceCPU] = containerRec.Current.CPULimit.DeepCopy()
-		}
-		if !containerRec.Current.MemoryLimit.IsZero() {
-			originalResources.Limits[corev1.ResourceMemory] = containerRec.Current.MemoryLimit.DeepCopy()
-		}
-	}
+	originalResources := resourceRequirementsFromValues(current)
 
 	var restartCount int32
 	if cs := findContainerStatusByName(pod, containerRec.Name); cs != nil {
@@ -776,13 +764,16 @@ func (r *AttunePolicyReconciler) persistResizeAnnotations(
 		freshPod.Labels[labelTracked] = "true"
 		freshPod.Annotations[annotationPolicy] = policyName
 		appendResizedContainer(freshPod, containerRec.Name)
-		freshPod.Annotations[annotationOriginalCPUPrefix+containerRec.Name] = containerRec.Current.CPURequest.String()
-		freshPod.Annotations[annotationOriginalMemoryPrefix+containerRec.Name] = containerRec.Current.MemoryRequest.String()
-		if !containerRec.Current.CPULimit.IsZero() {
-			freshPod.Annotations[annotationOriginalCPULimitPrefix+containerRec.Name] = containerRec.Current.CPULimit.String()
+		// Snapshot the pre-resize live container. rec.Current is the
+		// pod-template value and is stale after an earlier in-place resize.
+		current := liveContainerCurrent(pod, containerRec)
+		freshPod.Annotations[annotationOriginalCPUPrefix+containerRec.Name] = current.CPURequest.String()
+		freshPod.Annotations[annotationOriginalMemoryPrefix+containerRec.Name] = current.MemoryRequest.String()
+		if !current.CPULimit.IsZero() {
+			freshPod.Annotations[annotationOriginalCPULimitPrefix+containerRec.Name] = current.CPULimit.String()
 		}
-		if !containerRec.Current.MemoryLimit.IsZero() {
-			freshPod.Annotations[annotationOriginalMemoryLimitPrefix+containerRec.Name] = containerRec.Current.MemoryLimit.String()
+		if !current.MemoryLimit.IsZero() {
+			freshPod.Annotations[annotationOriginalMemoryLimitPrefix+containerRec.Name] = current.MemoryLimit.String()
 		}
 		freshPod.Annotations[annotationOriginalRestartCountPrefix+containerRec.Name] = strconv.FormatInt(int64(restartCount), 10)
 
@@ -918,6 +909,57 @@ func resizedContainersContains(list, container string) bool {
 		}
 	}
 	return false
+}
+
+// liveContainerCurrent returns the live container's requests/limits when
+// the named container exists on the pod. rec.Current is the workload
+// template and is stale after an in-place resize. Undo annotations and
+// quota deltas must use live values. Falls back to rec.Current when the
+// pod is nil or the container is missing.
+func liveContainerCurrent(pod *corev1.Pod, rec attunev1alpha1.ContainerRecommendation) attunev1alpha1.ResourceValues {
+	if pod == nil {
+		return rec.Current
+	}
+	c := findContainerByName(pod, rec.Name)
+	if c == nil {
+		return rec.Current
+	}
+	cur := attunev1alpha1.ResourceValues{}
+	if req, ok := c.Resources.Requests[corev1.ResourceCPU]; ok {
+		cur.CPURequest = req.DeepCopy()
+	}
+	if req, ok := c.Resources.Requests[corev1.ResourceMemory]; ok {
+		cur.MemoryRequest = req.DeepCopy()
+	}
+	if lim, ok := c.Resources.Limits[corev1.ResourceCPU]; ok {
+		cur.CPULimit = lim.DeepCopy()
+	}
+	if lim, ok := c.Resources.Limits[corev1.ResourceMemory]; ok {
+		cur.MemoryLimit = lim.DeepCopy()
+	}
+	return cur
+}
+
+// resourceRequirementsFromValues copies request/limit quantities into a
+// ResourceRequirements. Zero limits are omitted so pods without limits
+// stay limit-free.
+func resourceRequirementsFromValues(v attunev1alpha1.ResourceValues) corev1.ResourceRequirements {
+	req := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    v.CPURequest.DeepCopy(),
+			corev1.ResourceMemory: v.MemoryRequest.DeepCopy(),
+		},
+	}
+	if !v.CPULimit.IsZero() || !v.MemoryLimit.IsZero() {
+		req.Limits = corev1.ResourceList{}
+		if !v.CPULimit.IsZero() {
+			req.Limits[corev1.ResourceCPU] = v.CPULimit.DeepCopy()
+		}
+		if !v.MemoryLimit.IsZero() {
+			req.Limits[corev1.ResourceMemory] = v.MemoryLimit.DeepCopy()
+		}
+	}
+	return req
 }
 
 // buildResizeTarget constructs the target ResourceRequirements from a container recommendation.
@@ -1340,22 +1382,9 @@ func (r *AttunePolicyReconciler) shouldSkipResize(
 		}
 	}
 
-	// Quota/LimitRange violation.
-	currentRes := corev1.ResourceRequirements{
-		Requests: corev1.ResourceList{
-			corev1.ResourceCPU:    containerRec.Current.CPURequest.DeepCopy(),
-			corev1.ResourceMemory: containerRec.Current.MemoryRequest.DeepCopy(),
-		},
-	}
-	if !containerRec.Current.CPULimit.IsZero() || !containerRec.Current.MemoryLimit.IsZero() {
-		currentRes.Limits = corev1.ResourceList{}
-		if !containerRec.Current.CPULimit.IsZero() {
-			currentRes.Limits[corev1.ResourceCPU] = containerRec.Current.CPULimit.DeepCopy()
-		}
-		if !containerRec.Current.MemoryLimit.IsZero() {
-			currentRes.Limits[corev1.ResourceMemory] = containerRec.Current.MemoryLimit.DeepCopy()
-		}
-	}
+	// Quota/LimitRange violation. Headroom is target minus live requests;
+	// the template (rec.Current) is stale after an in-place resize.
+	currentRes := resourceRequirementsFromValues(liveContainerCurrent(pod, containerRec))
 	if checks != nil {
 		if targetIncreasesRequests(pod, containerRec.Name, target) &&
 			(checks.quotaListErr != nil || checks.limitRangeListErr != nil) {

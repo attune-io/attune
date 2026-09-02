@@ -48,6 +48,14 @@ same window. After it expires, the rec drops and Ready can become
 `InsufficientData`. Stale recs no longer count toward
 `workloads.withRecommendations` or savings gauges.
 
+### One-sided Prometheus sample gap
+
+If Prometheus has fresh samples for only one resource (CPU or memory)
+and the other series is empty or all NaN, Attune no longer recommends
+the pod-template request for the missing arm. After an in-place resize
+the template can be stale (256Mi while the live pod is already 1Gi).
+The missing arm now holds the live request or the last rec instead.
+
 ### CloudWatch pod prefix
 
 CloudWatch `SEARCH` no longer emits `PodName="prefix*"`. Quoted CloudWatch
