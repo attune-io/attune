@@ -2896,6 +2896,32 @@ func TestResolveDatadogCollector_WithAppKey(t *testing.T) {
 	assert.NotNil(t, collector, "collector should succeed when app-key is present")
 }
 
+func TestResolveDatadogCollector_RejectsInvalidSite(t *testing.T) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "dd-keys", Namespace: "default"},
+		Data: map[string][]byte{
+			"api-key": []byte("test-api-key"),
+		},
+	}
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Datadog: &attunev1alpha1.DatadogConfig{
+					Site:            "evil.example",
+					APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "dd-keys", Key: "api-key"},
+				},
+			},
+		},
+	}
+	reconciler := newReconcilerWithClient(secret)
+
+	collector, _, err := reconciler.resolveDatadogCollector(context.Background(), policy)
+	require.Error(t, err)
+	assert.Nil(t, collector)
+	assert.Contains(t, err.Error(), "not a recognized Datadog site")
+}
+
 func TestResolveDatadogCollector_MissingSecret(t *testing.T) {
 	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},

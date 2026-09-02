@@ -589,12 +589,7 @@ func validateMetricsSourceProviderFields(ms *attunev1alpha1.MetricsSource) error
 		}
 	}
 	if dd := ms.Datadog; dd != nil {
-		validSites := map[string]bool{
-			"datadoghq.com": true, "datadoghq.eu": true,
-			"us3.datadoghq.com": true, "us5.datadoghq.com": true,
-			"ap1.datadoghq.com": true, "ddog-gov.com": true,
-		}
-		if dd.Site != "" && !validSites[dd.Site] {
+		if err := validation.DatadogSite(dd.Site); err != nil {
 			return fmt.Errorf("metricsSource.datadog.site %q is not a recognized Datadog site", dd.Site)
 		}
 		if dd.APIKeySecretRef.Name == "" {

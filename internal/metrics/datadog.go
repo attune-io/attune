@@ -19,6 +19,7 @@ package metrics
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -28,7 +29,11 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+
+	"github.com/attune-io/attune/internal/validation"
 )
+
+var errDatadogRedirect = errors.New("datadog redirects are not allowed")
 
 // datadogSeriesResponse models the JSON response from /api/v1/query.
 type datadogSeriesResponse struct {
@@ -60,21 +65,29 @@ type DatadogCollector struct {
 // NewDatadogCollector creates a collector that queries the Datadog API.
 // site is the Datadog site (e.g. "datadoghq.com"), apiKey and appKey are
 // authentication credentials read from a Kubernetes Secret.
-func NewDatadogCollector(site, apiKey, appKey string, logger logr.Logger) *DatadogCollector {
+func NewDatadogCollector(site, apiKey, appKey string, logger logr.Logger) (*DatadogCollector, error) {
 	if site == "" {
 		site = "datadoghq.com"
 	}
+	if err := validation.DatadogSite(site); err != nil {
+		return nil, fmt.Errorf("datadog site: %w", err)
+	}
 	return &DatadogCollector{
 		httpClient: &http.Client{
-			Timeout:   30 * time.Second,
-			Transport: &http.Transport{Proxy: http.ProxyFromEnvironment},
+			Timeout:       30 * time.Second,
+			Transport:     &http.Transport{Proxy: http.ProxyFromEnvironment},
+			CheckRedirect: datadogCheckRedirect,
 		},
 		baseURL:       fmt.Sprintf("https://api.%s", site),
 		apiKey:        apiKey,
 		appKey:        appKey,
 		logger:        logger,
 		cpuMetricName: "kubernetes.cpu.usage.total",
-	}
+	}, nil
+}
+
+func datadogCheckRedirect(*http.Request, []*http.Request) error {
+	return errDatadogRedirect
 }
 
 // QueryRange executes a Datadog metric query and returns flattened samples.

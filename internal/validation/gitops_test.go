@@ -138,6 +138,18 @@ func TestGitOpsAPIURL_AllowPrivateRFC1918(t *testing.T) {
 	assert.Error(t, GitOpsAPIURL("https://10.96.0.1/"), "default still blocks RFC1918")
 }
 
+func TestGitOpsBlockedHost(t *testing.T) {
+	t.Parallel()
+	assert.True(t, GitOpsBlockedHost("metadata.google.internal"))
+	assert.True(t, GitOpsBlockedHost("METADATA.GOOGLE.INTERNAL"))
+	assert.True(t, GitOpsBlockedHost("metadata.google.internal."))
+	assert.True(t, GitOpsBlockedHost("169.254.169.254"))
+	assert.True(t, GitOpsBlockedHost("fd00:ec2::254"))
+	assert.True(t, GitOpsBlockedHost("localhost"))
+	assert.False(t, GitOpsBlockedHost("api.github.com"))
+	assert.False(t, GitOpsBlockedHost("ghe.example.com"))
+}
+
 func TestGitOpsAlwaysBlockedIP(t *testing.T) {
 	t.Parallel()
 	assert.True(t, GitOpsAlwaysBlockedIP(net.ParseIP("127.0.0.1")))

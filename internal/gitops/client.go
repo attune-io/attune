@@ -495,21 +495,53 @@ func gitopsCheckRedirect(*http.Request, []*http.Request) error {
 	return errGitOpsRedirect
 }
 
+// lookupIPAddr is the DNS hook used by GitOps SSRF checks. Tests replace it
+// to simulate rebinding (allowlisted IP, then IMDS).
+var lookupIPAddr = func(ctx context.Context, host string) ([]net.IPAddr, error) {
+	return net.DefaultResolver.LookupIPAddr(ctx, host)
+}
+
 // gitopsSafeTransport checks the request URL host (the SSRF target) before
 // the request is sent. The inner transport may use HTTPS_PROXY; the proxy
 // hop itself is not the SSRF target. allowPrivate permits RFC1918/ULA
 // forges. Loopback, link-local, unspecified, and AWS IPv6 IMDS stay blocked.
 func gitopsSafeTransport(allowPrivate bool) http.RoundTripper {
+	dialer := &net.Dialer{Timeout: 10 * time.Second}
 	return &gitopsSSRFTransport{
 		allowPrivate: allowPrivate,
 		base: &http.Transport{
-			Proxy:                 http.ProxyFromEnvironment,
-			DialContext:           (&net.Dialer{Timeout: 10 * time.Second}).DialContext,
+			Proxy: http.ProxyFromEnvironment,
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				return gitopsDialContext(ctx, network, addr, allowPrivate, dialer)
+			},
 			ResponseHeaderTimeout: 30 * time.Second,
 			IdleConnTimeout:       90 * time.Second,
 			MaxIdleConnsPerHost:   10,
 		},
 	}
+}
+
+func gitopsDialContext(ctx context.Context, network, addr string, allowPrivate bool, dialer *net.Dialer) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, fmt.Errorf("gitops dial: invalid address %q: %w", addr, err)
+	}
+	if validation.GitOpsBlockedHost(host) {
+		return nil, fmt.Errorf("%w: host %q is a disallowed address", ErrSSRFBlocked, host)
+	}
+	ips, err := lookupIPAddr(ctx, host)
+	if err != nil {
+		return nil, fmt.Errorf("gitops dial: DNS resolution failed")
+	}
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("gitops dial: DNS resolution failed")
+	}
+	for _, ip := range ips {
+		if gitopsDialBlocked(ip.IP, allowPrivate) {
+			return nil, fmt.Errorf("%w: host %q resolved to a disallowed address", ErrSSRFBlocked, host)
+		}
+	}
+	return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
 }
 
 type gitopsSSRFTransport struct {
@@ -522,7 +554,10 @@ func (t *gitopsSSRFTransport) RoundTrip(req *http.Request) (*http.Response, erro
 	if host == "" {
 		return nil, fmt.Errorf("gitops dial: invalid address")
 	}
-	ips, err := net.DefaultResolver.LookupIPAddr(req.Context(), host)
+	if validation.GitOpsBlockedHost(host) {
+		return nil, fmt.Errorf("%w: host %q is a disallowed address", ErrSSRFBlocked, host)
+	}
+	ips, err := lookupIPAddr(req.Context(), host)
 	if err != nil {
 		return nil, fmt.Errorf("gitops dial: DNS resolution failed")
 	}

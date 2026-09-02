@@ -54,19 +54,8 @@ func GitOpsAPIURLAllowingPrivate(address string, allowPrivate bool) error {
 		return fmt.Errorf("host is required")
 	}
 
-	blockedHosts := []string{
-		"metadata.google.internal",
-		"metadata.internal",
-		"instance-data.ec2.internal",
-		"169.254.169.254",
-		"fd00:ec2::254",
-		"localhost",
-	}
-	lowerHost := strings.ToLower(hostname)
-	for _, blocked := range blockedHosts {
-		if lowerHost == blocked {
-			return fmt.Errorf("address must not target cloud metadata endpoint %q", hostname)
-		}
+	if GitOpsBlockedHost(hostname) {
+		return fmt.Errorf("address must not target cloud metadata endpoint %q", hostname)
 	}
 
 	if ip := net.ParseIP(hostname); ip != nil {
@@ -79,6 +68,22 @@ func GitOpsAPIURLAllowingPrivate(address string, allowPrivate bool) error {
 		}
 	}
 	return nil
+}
+
+// GitOpsBlockedHost reports metadata and loopback hostnames that must never
+// be dialed, including when allowPrivateEndpoints is set.
+func GitOpsBlockedHost(host string) bool {
+	switch strings.ToLower(strings.TrimSuffix(host, ".")) {
+	case "metadata.google.internal",
+		"metadata.internal",
+		"instance-data.ec2.internal",
+		"169.254.169.254",
+		"fd00:ec2::254",
+		"localhost":
+		return true
+	default:
+		return false
+	}
 }
 
 // awsIMDSv6 is the AWS EC2 Instance Metadata Service v2 IPv6 endpoint.
