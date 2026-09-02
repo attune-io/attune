@@ -2053,6 +2053,10 @@ func printPreview(ctx context.Context, dynClient dynamic.Interface, namespace, p
 			continue
 		}
 		workload, _ := rec["workload"].(string)
+		if recStale(rec) {
+			fmt.Fprintf(os.Stderr, "Skipping stale recommendation for %s (no fresh Prometheus data).\n", workload)
+			continue
+		}
 		containers, _ := rec["containers"].([]interface{})
 
 		for _, c := range containers {

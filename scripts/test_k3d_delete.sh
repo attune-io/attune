@@ -88,6 +88,10 @@ fi
 status=$?
 kill "${waiter}" 2>/dev/null || true
 wait "${waiter}" 2>/dev/null || true
+# GNU timeout exits 124 when it kills the child (TERM=143, KILL=137).
+if [[ "${status}" -eq 137 || "${status}" -eq 143 ]]; then
+  exit 124
+fi
 exit "${status}"
 EOF
 chmod +x "${TMP}/timeout"
@@ -109,7 +113,7 @@ echo "DO: hung delete ignores TERM and is still bounded by SIGKILL"
 : >"${K3D_LOG}"
 export K3D_DELETE_KILL_AFTER_SEC=1
 start=$(date +%s)
-K3D_HANG=1 bash "${SCRIPT}" hung-cluster
+K3D_HANG=1 bash "${SCRIPT}" hung-cluster >"${TMP}/hung.out" 2>&1 || true
 elapsed=$(( $(date +%s) - start ))
 if (( elapsed > 8 )); then
   fail "hung delete took ${elapsed}s; expected TERM at 1s then KILL at +1s"

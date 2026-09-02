@@ -88,6 +88,58 @@ func TestPrintDiff_UnifiedOutput(t *testing.T) {
 	assert.Contains(t, output, "+      memory: \"384Mi\"")
 }
 
+func TestPrintDiff_StaleSkipped(t *testing.T) {
+	policy := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "attune.io/v1alpha1",
+			"kind":       "AttunePolicy",
+			"metadata": map[string]interface{}{
+				"name":      "api-server-attune",
+				"namespace": "default",
+			},
+			"status": map[string]interface{}{
+				"recommendations": []interface{}{
+					map[string]interface{}{
+						"workload": "api-server",
+						"kind":     "Deployment",
+						"stale":    true,
+						"containers": []interface{}{
+							map[string]interface{}{
+								"name":        "app",
+								"current":     map[string]interface{}{"cpuRequest": "500m", "memoryRequest": "512Mi"},
+								"recommended": map[string]interface{}{"cpuRequest": "280m", "memoryRequest": "384Mi"},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{gvr: "AttunePolicyList"}, policy)
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	printDiff(context.Background(), dynClient, "default", "")
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	output := buf.String()
+
+	assert.Contains(t, output, "stale recs skipped")
+	assert.NotContains(t, output, "--- a/")
+	assert.NotContains(t, output, "cpu: \"280m\"")
+}
+
 func TestPrintDiff_NoChanges(t *testing.T) {
 	policy := &unstructured.Unstructured{
 		Object: map[string]interface{}{

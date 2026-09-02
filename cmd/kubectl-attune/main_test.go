@@ -355,6 +355,65 @@ func TestPrintPreview(t *testing.T) {
 	assert.Contains(t, output, "Memory")
 }
 
+func TestPrintPreview_StaleSkipped(t *testing.T) {
+	policy := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "attune.io/v1alpha1",
+			"kind":       "AttunePolicy",
+			"metadata": map[string]interface{}{
+				"name":      "web-app",
+				"namespace": "default",
+			},
+			"spec": map[string]interface{}{
+				"updateStrategy": map[string]interface{}{"type": "Recommend"},
+			},
+			"status": map[string]interface{}{
+				"recommendations": []interface{}{
+					map[string]interface{}{
+						"workload": "web-deploy",
+						"stale":    true,
+						"containers": []interface{}{
+							map[string]interface{}{
+								"name":        "app",
+								"current":     map[string]interface{}{"cpuRequest": "500m", "memoryRequest": "256Mi"},
+								"recommended": map[string]interface{}{"cpuRequest": "250m", "memoryRequest": "256Mi"},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{gvr: "AttunePolicyList"}, policy)
+
+	oldOut, oldErr := os.Stdout, os.Stderr
+	outR, outW, err := os.Pipe()
+	require.NoError(t, err)
+	errR, errW, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout, os.Stderr = outW, errW
+
+	printPreview(context.Background(), dynClient, "default", "web-app")
+
+	require.NoError(t, outW.Close())
+	require.NoError(t, errW.Close())
+	os.Stdout, os.Stderr = oldOut, oldErr
+
+	var outBuf, errBuf bytes.Buffer
+	_, err = outBuf.ReadFrom(outR)
+	require.NoError(t, err)
+	_, err = errBuf.ReadFrom(errR)
+	require.NoError(t, err)
+
+	assert.NotContains(t, outBuf.String(), "500m")
+	assert.NotContains(t, outBuf.String(), "250m")
+	assert.Contains(t, errBuf.String(), "stale")
+	assert.Contains(t, errBuf.String(), "web-deploy")
+}
+
 func TestPrintHistory(t *testing.T) {
 	policy := &unstructured.Unstructured{
 		Object: map[string]interface{}{

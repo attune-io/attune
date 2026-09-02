@@ -300,6 +300,10 @@ func wizardPromote(ctx context.Context, dynClient dynamic.Interface, namespace s
 				continue
 			}
 			workload, _ := rec["workload"].(string)
+			if recStale(rec) {
+				fmt.Printf("  %s: stale (skipped; no fresh Prometheus data)\n", workload)
+				continue
+			}
 			containers, _ := rec["containers"].([]interface{})
 			for _, c := range containers {
 				cont, ok := c.(map[string]interface{})

@@ -42,6 +42,7 @@ func printDiffItems(items []unstructured.Unstructured, output string) {
 	}
 
 	hasOutput := false
+	staleSkipped := 0
 	for _, item := range items {
 		recs, found, _ := unstructured.NestedSlice(item.Object, "status", "recommendations")
 		if !found || len(recs) == 0 {
@@ -54,6 +55,10 @@ func printDiffItems(items []unstructured.Unstructured, output string) {
 		for _, r := range recs {
 			rec, ok := r.(map[string]interface{})
 			if !ok {
+				continue
+			}
+			if recStale(rec) {
+				staleSkipped++
 				continue
 			}
 			workload, _ := rec["workload"].(string)
@@ -76,6 +81,10 @@ func printDiffItems(items []unstructured.Unstructured, output string) {
 	}
 
 	if !hasOutput {
+		if staleSkipped > 0 {
+			fmt.Println("No fresh recommendations available (stale recs skipped). Run 'kubectl attune status' to check policy status.")
+			return
+		}
 		fmt.Println("No recommendations available. Run 'kubectl attune status' to check policy status.")
 	}
 }
