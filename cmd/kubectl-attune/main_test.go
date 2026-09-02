@@ -1323,6 +1323,15 @@ func TestWasteGrade(t *testing.T) {
 	}
 }
 
+func TestRecommendationGrade_StaleOverridesWaste(t *testing.T) {
+	rec := map[string]interface{}{"stale": true}
+	assert.Equal(t, "-", recommendationGrade(rec, "0", "250m", "0", "512Mi"))
+	assert.Equal(t, "-", recommendationGrade(rec, "500m", "250m", "256Mi", "128Mi"))
+	fresh := map[string]interface{}{"stale": false}
+	assert.Equal(t, "U", recommendationGrade(fresh, "0", "250m", "0", "512Mi"))
+	assert.Equal(t, "F", recommendationGrade(map[string]interface{}{}, "500m", "250m", "256Mi", "128Mi"))
+}
+
 func TestPrintRecommendations(t *testing.T) {
 	policy := &unstructured.Unstructured{
 		Object: map[string]interface{}{
@@ -1441,6 +1450,64 @@ func TestPrintRecommendations_UnderProvisionedGradeU(t *testing.T) {
 	assert.Contains(t, output, "250m")
 	assert.Regexp(t, `(?m)\bU\b`, output)
 	assert.NotRegexp(t, `(?m)\bA\b`, output)
+}
+
+func TestPrintRecommendations_StaleGradeDash(t *testing.T) {
+	policy := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "attune.io/v1alpha1",
+			"kind":       "AttunePolicy",
+			"metadata": map[string]interface{}{
+				"name":      "web",
+				"namespace": "prod",
+			},
+			"status": map[string]interface{}{
+				"recommendations": []interface{}{
+					map[string]interface{}{
+						"workload": "api",
+						"stale":    true,
+						"containers": []interface{}{
+							map[string]interface{}{
+								"name":       "app",
+								"confidence": 0.92,
+								"current": map[string]interface{}{
+									"cpuRequest":    "0",
+									"memoryRequest": "0",
+								},
+								"recommended": map[string]interface{}{
+									"cpuRequest":    "250m",
+									"memoryRequest": "512Mi",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{gvr: "AttunePolicyList"}, policy)
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	printRecommendations(context.Background(), dynClient, "prod")
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	output := buf.String()
+
+	assert.Contains(t, output, "250m")
+	assert.Regexp(t, `(?m)\s-\s+92.0%`, output)
+	assert.NotRegexp(t, `(?m)\bU\b`, output)
 }
 
 func TestPrintRecommendations_CollectingData(t *testing.T) {
@@ -2606,6 +2673,42 @@ func TestPrintRecommendationsCSV_UnderProvisionedGradeU(t *testing.T) {
 	s := string(out)
 	assert.Contains(t, s, "ns,p,api,app,0,250m,0,512Mi,U,92.0%")
 	assert.NotContains(t, s, ",A,")
+}
+
+func TestPrintRecommendationsCSV_StaleGradeDash(t *testing.T) {
+	items := []unstructured.Unstructured{
+		{Object: map[string]interface{}{
+			"metadata": map[string]interface{}{"name": "p", "namespace": "ns"},
+			"status": map[string]interface{}{
+				"recommendations": []interface{}{
+					map[string]interface{}{
+						"workload": "api",
+						"stale":    true,
+						"containers": []interface{}{
+							map[string]interface{}{
+								"name":        "app",
+								"current":     map[string]interface{}{"cpuRequest": "0", "memoryRequest": "0"},
+								"recommended": map[string]interface{}{"cpuRequest": "250m", "memoryRequest": "512Mi"},
+								"confidence":  0.92,
+							},
+						},
+					},
+				},
+			},
+		}},
+	}
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+	printRecommendationsCSV(items)
+	require.NoError(t, w.Close())
+	os.Stdout = old
+	out, err := io.ReadAll(r)
+	require.NoError(t, err)
+	s := string(out)
+	assert.Contains(t, s, "ns,p,api,app,0,250m,0,512Mi,-,92.0%")
+	assert.NotContains(t, s, ",U,")
 }
 
 func TestPrintRecommendationsCSV_EmptyRecsUseReadyReason(t *testing.T) {

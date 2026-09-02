@@ -754,7 +754,7 @@ func printRecommendationsItems(items []unstructured.Unstructured) {
 				recCPU, _ := recommended["cpuRequest"].(string)
 				curMem, _ := current["memoryRequest"].(string)
 				recMem, _ := recommended["memoryRequest"].(string)
-				grade := wasteGrade(curCPU, recCPU, curMem, recMem)
+				grade := recommendationGrade(rec, curCPU, recCPU, curMem, recMem)
 
 				if showCluster {
 					fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%.1f%%\n",
@@ -834,7 +834,7 @@ func printRecommendationsCSV(items []unstructured.Unstructured) {
 				recMem, _ := recommended["memoryRequest"].(string)
 				row := []string{
 					item.GetNamespace(), item.GetName(), workload, name,
-					curCPU, recCPU, curMem, recMem, wasteGrade(curCPU, recCPU, curMem, recMem),
+					curCPU, recCPU, curMem, recMem, recommendationGrade(rec, curCPU, recCPU, curMem, recMem),
 					fmt.Sprintf("%.1f%%", confidence*100),
 				}
 				if showCluster {
@@ -1613,6 +1613,24 @@ func parseDollarCents(s string) int64 {
 		return 0
 	}
 	return int64(f * 100)
+}
+
+// recommendationGrade is wasteGrade unless the workload rec is stale.
+// The operator does not resize from stale recs; GRADE must not look live.
+func recommendationGrade(rec map[string]interface{}, curCPU, recCPU, curMem, recMem string) string {
+	if recStale(rec) {
+		return "-"
+	}
+	return wasteGrade(curCPU, recCPU, curMem, recMem)
+}
+
+func recStale(rec map[string]interface{}) bool {
+	v, ok := rec["stale"]
+	if !ok {
+		return false
+	}
+	b, ok := v.(bool)
+	return ok && b
 }
 
 // wasteGrade maps request waste to A-F, or U when under-provisioned.
