@@ -104,12 +104,14 @@ jobs:
               - 'dist/**'
               - 'Makefile'
             # Helper scripts + their unit tests (FOSSA filter, fuzz classifier,
-            # fleet reports, nightly issue body, cert-manager installer).
+            # fleet reports, nightly issue body, cert-manager installer,
+            # bounded k3d delete).
             # Lint runs make python-test, which also covers the helper used
             # by setup-e2e-cluster and e2e-nightly.yaml.
             scripts:
               - 'scripts/**'
               - 'hack/e2e-install-cert-manager.sh'
+              - 'hack/k3d-delete.sh'
               - '.github/actions/setup-e2e-cluster/**'
               - '.github/workflows/e2e-nightly.yaml'
 
@@ -640,9 +642,7 @@ jobs:
       - name: Cleanup k3d cluster
         if: always()
         shell: bash -Eeuo pipefail {0}
-        run: |
-          k3d cluster delete "$K3D_CLUSTER_NAME" 2>/dev/null || true
-          rm -f "$KUBECONFIG"
+        run: bash hack/k3d-delete.sh "$K3D_CLUSTER_NAME" "$KUBECONFIG"
 
   govulncheck:
     name: Govulncheck

@@ -158,7 +158,7 @@ jobs:
             age=$(( $(date +%s) - started_epoch ))
             if (( age > 3600 )); then
               echo "Deleting stale k3d cluster '$cluster' (age: ${age}s)"
-              k3d cluster delete "$cluster" || true
+              bash hack/k3d-delete.sh "$cluster"
             fi
           done
           docker builder prune -f || true
@@ -265,7 +265,7 @@ jobs:
               --kubeconfig-update-default=false \
               --kubeconfig-switch-context=false; then
               echo "::warning::k3d cluster create attempt $attempt failed, retrying in 10s..."
-              k3d cluster delete "$CLUSTER_NAME" 2>/dev/null || true
+              bash hack/k3d-delete.sh "$CLUSTER_NAME"
               sleep 10
               if (( attempt == 3 )); then
                 echo "::error::k3d cluster creation failed after 3 attempts"
@@ -317,7 +317,7 @@ jobs:
 
           recreate_v132_cluster() {
             echo "Recreating k3d cluster ${CLUSTER_NAME} for feature-gate race recovery..."
-            k3d cluster delete "$CLUSTER_NAME" 2>/dev/null || true
+            bash hack/k3d-delete.sh "$CLUSTER_NAME"
             K3S_CONFIG="/tmp/k3s-v132-config.yaml"
             cat > "$K3S_CONFIG" <<'K3SEOF'
           kube-apiserver-arg:
@@ -605,9 +605,7 @@ jobs:
       - name: Cleanup k3d cluster
         if: always()
         shell: bash -Eeuo pipefail {0}
-        run: |
-          k3d cluster delete "$CLUSTER_NAME" 2>/dev/null || true
-          rm -f "$KUBECONFIG"
+        run: bash hack/k3d-delete.sh "$CLUSTER_NAME" "$KUBECONFIG"
 
   fuzz:
     name: Fuzz Tests
