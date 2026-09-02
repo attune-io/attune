@@ -83,6 +83,14 @@ If `export.pullRequest.labels` is set and the forge rejects the labels
 API, PR create and update fail instead of succeeding unlabeled. Grant
 the forge label permission or drop `labels`.
 
+### GitLab merge request matching
+
+The GitLab list call now filters by source branch, target branch
+(`baseBranch`, default `main`), and `per_page=100`. Attune updates an
+existing open MR only when that MR's target is `baseBranch`. An MR
+whose target is not `baseBranch` is not kept in sync. Attune may open
+a new MR against `baseBranch` and leave the old one open.
+
 ## v0.1.24 to v0.1.25
 
 v0.1.25 is a GitOps reliability patch. Existing policy YAML keeps working.

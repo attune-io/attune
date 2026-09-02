@@ -1877,7 +1877,11 @@ func TestComputeRecommendations_QueryGapsReusePriorAsStale(t *testing.T) {
 	}
 }
 
-func TestComputeRecommendations_LastDataTimeOlderThanHistoryWindowIsStale(t *testing.T) {
+// TestComputeRecommendations_LastDataTimeOlderThanFreshnessBoundIsStale
+// covers the live stale check (now.Sub(last) > 3*queryStep). A
+// historyWindow comparison cannot fire: the range is [now-window, now],
+// so last is never older than historyWindow.
+func TestComputeRecommendations_LastDataTimeOlderThanFreshnessBoundIsStale(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.MetricsSource.HistoryWindow = &metav1.Duration{Duration: 2 * time.Hour}
 	policy.Spec.MetricsSource.MinimumDataPoints = int32Ptr(1)
@@ -1886,8 +1890,7 @@ func TestComputeRecommendations_LastDataTimeOlderThanHistoryWindowIsStale(t *tes
 	reconciler := newReconcilerWithClient()
 	reconciler.SetNowFunc(func() time.Time { return now })
 
-	// 30m is inside the 2h history window (old check never fired) and
-	// outside 3*queryStep (15m). The mock still ignores start/end.
+	// 30m is inside the 2h history window and outside 3*queryStep (15m).
 	old := now.Add(-30 * time.Minute)
 	mc := &mockCollector{
 		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
@@ -1898,7 +1901,7 @@ func TestComputeRecommendations_LastDataTimeOlderThanHistoryWindowIsStale(t *tes
 	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
-	assert.True(t, rec.Stale, "last sample older than 3*queryStep must mark the rec stale even when inside historyWindow")
+	assert.True(t, rec.Stale, "last sample older than 3*queryStep must mark the rec stale")
 	require.NotNil(t, rec.LastDataTime)
 	assert.True(t, rec.LastDataTime.Equal(&metav1.Time{Time: old}), "LastDataTime is the last non-empty sample, not now")
 }

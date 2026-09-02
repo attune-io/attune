@@ -337,7 +337,7 @@ func (c *GitHubClient) ensureHeadBranch(ctx context.Context, httpClient HTTPDoer
 
 func (c *GitHubClient) doJSON(ctx context.Context, httpClient HTTPDoer, method, rawURL string, payload interface{}) ([]byte, int, error) {
 	if err := validation.GitOpsAPIURLAllowingPrivate(rawURL, c.AllowPrivate); err != nil {
-		return nil, 0, fmt.Errorf("gitops api url rejected")
+		return nil, 0, fmt.Errorf("gitops api url rejected: %w", err)
 	}
 	var rdr io.Reader
 	if payload != nil {
@@ -382,8 +382,11 @@ func (c *GitLabClient) CreateOrUpdate(ctx context.Context, req PRRequest) (PRRes
 	}
 	project := url.PathEscape(c.Project)
 
-	listURL := fmt.Sprintf("%s/projects/%s/merge_requests?state=opened&source_branch=%s",
-		base, project, url.QueryEscape(req.Head))
+	// Find existing open MR for this source branch. Filter by target_branch and
+	// request per_page=100 so we do not miss the MR when the project has many
+	// open MRs (default list page size is 20).
+	listURL := fmt.Sprintf("%s/projects/%s/merge_requests?state=opened&source_branch=%s&target_branch=%s&per_page=100",
+		base, project, url.QueryEscape(req.Head), url.QueryEscape(req.Base))
 	body, code, err := c.doJSON(ctx, httpClient, http.MethodGet, listURL, nil)
 	if err != nil {
 		return PRResult{}, err
@@ -392,14 +395,28 @@ func (c *GitLabClient) CreateOrUpdate(ctx context.Context, req PRRequest) (PRRes
 		return PRResult{}, fmt.Errorf("gitlab list MRs: status %d", code)
 	}
 	var existing []struct {
-		IID    int    `json:"iid"`
-		WebURL string `json:"web_url"`
+		IID          int    `json:"iid"`
+		WebURL       string `json:"web_url"`
+		TargetBranch string `json:"target_branch"`
 	}
 	if err := json.Unmarshal(body, &existing); err != nil {
 		return PRResult{}, fmt.Errorf("gitlab list MRs decode: %w", err)
 	}
-	if len(existing) > 0 {
-		patchURL := fmt.Sprintf("%s/projects/%s/merge_requests/%d", base, project, existing[0].IID)
+	var mr struct {
+		IID          int    `json:"iid"`
+		WebURL       string `json:"web_url"`
+		TargetBranch string `json:"target_branch"`
+	}
+	matched := false
+	for i := range existing {
+		if existing[i].TargetBranch == req.Base {
+			mr = existing[i]
+			matched = true
+			break
+		}
+	}
+	if matched {
+		patchURL := fmt.Sprintf("%s/projects/%s/merge_requests/%d", base, project, mr.IID)
 		payload := map[string]interface{}{
 			"title":       req.Title,
 			"description": req.Body,
@@ -412,7 +429,7 @@ func (c *GitLabClient) CreateOrUpdate(ctx context.Context, req PRRequest) (PRRes
 		if code < 200 || code >= 300 {
 			return PRResult{}, fmt.Errorf("gitlab update MR: status %d", code)
 		}
-		return PRResult{URL: existing[0].WebURL, Number: existing[0].IID, Updated: true}, nil
+		return PRResult{URL: mr.WebURL, Number: mr.IID, Updated: true}, nil
 	}
 
 	if err := c.ensureHeadBranch(ctx, httpClient, base, project, req.Head, req.Base); err != nil {
@@ -506,7 +523,7 @@ func (c *GitLabClient) ensureHeadBranch(ctx context.Context, httpClient HTTPDoer
 
 func (c *GitLabClient) doJSON(ctx context.Context, httpClient HTTPDoer, method, rawURL string, payload interface{}) ([]byte, int, error) {
 	if err := validation.GitOpsAPIURLAllowingPrivate(rawURL, c.AllowPrivate); err != nil {
-		return nil, 0, fmt.Errorf("gitops api url rejected")
+		return nil, 0, fmt.Errorf("gitops api url rejected: %w", err)
 	}
 	var rdr io.Reader
 	if payload != nil {
@@ -585,17 +602,9 @@ func gitopsDialContext(ctx context.Context, network, addr string, allowPrivate b
 	if reqHost := gitopsRequestHost(ctx); reqHost != "" && !gitopsSameHost(host, reqHost) {
 		return dialer.DialContext(ctx, network, addr)
 	}
-	if validation.GitOpsBlockedHost(host) {
-		return nil, fmt.Errorf("%w: host %q is a disallowed address", ErrSSRFBlocked, host)
-	}
-	ips, err := gitopsResolveHost(ctx, host)
+	ips, err := gitopsAuthorizeHost(ctx, host, allowPrivate)
 	if err != nil {
 		return nil, err
-	}
-	for _, ip := range ips {
-		if gitopsDialBlocked(ip.IP, allowPrivate) {
-			return nil, fmt.Errorf("%w: host %q resolved to a disallowed address", ErrSSRFBlocked, host)
-		}
 	}
 	return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
 }
@@ -610,19 +619,28 @@ func (t *gitopsSSRFTransport) RoundTrip(req *http.Request) (*http.Response, erro
 	if host == "" {
 		return nil, fmt.Errorf("gitops dial: invalid address")
 	}
+	if _, err := gitopsAuthorizeHost(req.Context(), host, t.allowPrivate); err != nil {
+		return nil, err
+	}
+	return t.base.RoundTrip(req.WithContext(withGitOpsRequestHost(req.Context(), host)))
+}
+
+// gitopsAuthorizeHost resolves host and rejects metadata, loopback, and
+// (unless allowPrivate) RFC1918/ULA. Callers that pin-dial use the addresses.
+func gitopsAuthorizeHost(ctx context.Context, host string, allowPrivate bool) ([]net.IPAddr, error) {
 	if validation.GitOpsBlockedHost(host) {
 		return nil, fmt.Errorf("%w: host %q is a disallowed address", ErrSSRFBlocked, host)
 	}
-	ips, err := gitopsResolveHost(req.Context(), host)
+	ips, err := gitopsResolveHost(ctx, host)
 	if err != nil {
 		return nil, err
 	}
 	for _, ip := range ips {
-		if gitopsDialBlocked(ip.IP, t.allowPrivate) {
+		if gitopsDialBlocked(ip.IP, allowPrivate) {
 			return nil, fmt.Errorf("%w: host %q resolved to a disallowed address", ErrSSRFBlocked, host)
 		}
 	}
-	return t.base.RoundTrip(req.WithContext(withGitOpsRequestHost(req.Context(), host)))
+	return ips, nil
 }
 
 // gitopsResolveHost looks up host and fails closed on resolver errors or

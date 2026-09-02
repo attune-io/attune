@@ -262,9 +262,14 @@ clears (`NoDrift`).
 
 ### Branch bootstrap
 
-The operator updates an existing open PR whose head branch is
-`attune/recommendations-<ns>-<policy>`. When no open PR exists and that head
-branch is **missing** on the remote, Attune creates it automatically:
+The operator updates an existing open PR or MR only when **head/source is
+the Attune branch** (`attune/recommendations-<ns>-<policy>`) **and the
+target is `baseBranch`** (default `main`). Changing `baseBranch` or
+retargeting the existing PR/MR can leave the old one open and create a
+new one against the current `baseBranch`.
+
+When no matching open PR/MR exists and that head branch is **missing**
+on the remote, Attune creates it automatically:
 
 - **GitHub:** empty bootstrap commit on the new branch (same tree as
   `baseBranch`, so the PR has a single commit delta).
@@ -281,5 +286,6 @@ On GitLab, if `.attune/RECOMMENDATION_DRIFT.md` already exists on
 non-empty.
 
 If bootstrap fails (token scopes, missing `baseBranch`, network), status shows
-`PullRequestFailed` with a redacted API error.
+`PullRequestFailed` with the static message `PR API request failed`.
+The condition does not include the API response body.
 

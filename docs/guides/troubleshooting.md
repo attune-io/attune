@@ -1120,7 +1120,7 @@ branch) leaves the live template unchanged, so drift stays true.
 ### GitOps PR failing
 
 **Symptom**: Status condition `GitOpsPullRequest` is `False` with reason
-`PullRequestFailed`, Events or metrics show
+`PullRequestFailed` or `GitOpsEndpointBlocked`, Events or metrics show
 `attune_gitops_pr_total{result="failed"}`, or the `AttuneGitOpsPRFailures`
 alert fires.
 
@@ -1128,12 +1128,25 @@ alert fires.
 update a PR. Common cases:
 
 1. Token Secret missing, wrong key, or RBAC cannot read Secrets.
-2. Invalid `provider` / `repository` / optional `apiUrl` (including SSRF
-   rejection of http, userinfo, loopback, link-local, private RFC1918,
-   and cloud metadata hosts). GitOps `apiUrl` is stricter than
-   Prometheus: in-cluster private addresses are not allowed.
+2. Invalid `provider` / `repository` / optional `apiUrl`. Preflight
+   rejects a non-HTTPS URL, userinfo, loopback, link-local (including
+   IMDS), or a private RFC1918/ULA host when
+   `allowPrivateEndpoints` is false. Dial-time SSRF still blocks
+   loopback, link-local, and IMDS even when
+   `allowPrivateEndpoints: true`. Set that flag only for self-hosted
+   forges on RFC1918/ULA. GitOps `apiUrl` is stricter than Prometheus:
+   in-cluster loopback and metadata addresses stay blocked.
 3. Forge API error (auth, branch protection, missing head branch before
-   bootstrap, rate limits).
+   bootstrap, rate limits). Status is the static message
+   `PR API request failed` (no API body).
+
+Match the condition **message** to the check that failed:
+
+| Message | When |
+|---------|------|
+| `apiUrl is not an allowed HTTPS host` | Preflight on `apiUrl` (reason `GitOpsEndpointBlocked`) |
+| `GitOps API URL resolved to a disallowed address` | Dial-time SSRF (reason `GitOpsEndpointBlocked`) |
+| `PR API request failed` | Forge API error after the URL was allowed (reason `PullRequestFailed`) |
 
 **Fix**:
 

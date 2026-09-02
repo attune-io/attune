@@ -24,6 +24,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -413,19 +415,43 @@ func TestPingPrometheusHealthy(t *testing.T) {
 		t.Cleanup(srv.Close)
 		err := pingPrometheusHealthy(ctx, pingTestURL(srv.URL))
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "loopback")
+		var uerr *url.Error
+		require.ErrorAs(t, err, &uerr)
+		assert.EqualError(t, uerr.Err, `address must not target loopback/metadata IP "127.0.0.1"`)
 	})
+}
 
-	t.Run("redirect to cloud metadata is rejected", func(t *testing.T) {
-		t.Parallel()
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			http.Redirect(w, r, "http://metadata.google.internal/-/healthy", http.StatusFound)
-		}))
-		t.Cleanup(srv.Close)
-		err := pingPrometheusHealthy(ctx, pingTestURL(srv.URL))
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "metadata")
+// TestPingPrometheusHealthy_RedirectToCloudMetadata is not Parallel: it
+// wraps DefaultTransport so a missing CheckRedirect cannot hide behind
+// "lookup metadata.google.internal" (that string still contains "metadata").
+func TestPingPrometheusHealthy_RedirectToCloudMetadata(t *testing.T) {
+	var sawMetadata atomic.Bool
+	orig := http.DefaultTransport
+	http.DefaultTransport = pingRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if strings.EqualFold(r.URL.Hostname(), "metadata.google.internal") {
+			sawMetadata.Store(true)
+			return nil, errors.New("test: followed redirect to cloud metadata")
+		}
+		return orig.RoundTrip(r)
 	})
+	t.Cleanup(func() { http.DefaultTransport = orig })
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://metadata.google.internal/-/healthy", http.StatusFound)
+	}))
+	t.Cleanup(srv.Close)
+	err := pingPrometheusHealthy(context.Background(), pingTestURL(srv.URL))
+	require.Error(t, err)
+	var uerr *url.Error
+	require.ErrorAs(t, err, &uerr)
+	assert.EqualError(t, uerr.Err, `address must not target cloud metadata endpoint "metadata.google.internal"`)
+	assert.False(t, sawMetadata.Load(), "must not follow redirect to metadata.google.internal")
+}
+
+type pingRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f pingRoundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
 }
 
 func TestPrintDoctorResults_OptionalWarn(t *testing.T) {
