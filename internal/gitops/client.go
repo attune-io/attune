@@ -143,6 +143,9 @@ func (c *GitHubClient) CreateOrUpdate(ctx context.Context, req PRRequest) (PRRes
 		if code < 200 || code >= 300 {
 			return PRResult{}, fmt.Errorf("github update PR: status %d", code)
 		}
+		if err := c.applyIssueLabels(ctx, httpClient, base, pr.Number, req.Labels); err != nil {
+			return PRResult{}, err
+		}
 		return PRResult{URL: pr.HTMLURL, Number: pr.Number, Updated: true}, nil
 	}
 
@@ -174,12 +177,27 @@ func (c *GitHubClient) CreateOrUpdate(ctx context.Context, req PRRequest) (PRRes
 	if err := json.Unmarshal(respBody, &created); err != nil {
 		return PRResult{}, fmt.Errorf("github create PR decode: %w", err)
 	}
-	// Labels (best-effort)
-	if len(req.Labels) > 0 && created.Number > 0 {
-		labURL := fmt.Sprintf("%s/repos/%s/issues/%d/labels", base, c.Repository, created.Number)
-		_, _, _ = c.doJSON(ctx, httpClient, http.MethodPost, labURL, map[string]interface{}{"labels": req.Labels})
+	if err := c.applyIssueLabels(ctx, httpClient, base, created.Number, req.Labels); err != nil {
+		return PRResult{}, err
 	}
 	return PRResult{URL: created.HTMLURL, Number: created.Number, Updated: false}, nil
+}
+
+// applyIssueLabels POSTs configured labels onto the GitHub issue/PR.
+// Failures are returned (not swallowed) so reconcile can retry.
+func (c *GitHubClient) applyIssueLabels(ctx context.Context, httpClient HTTPDoer, apiBase string, number int, labels []string) error {
+	if len(labels) == 0 || number <= 0 {
+		return nil
+	}
+	labURL := fmt.Sprintf("%s/repos/%s/issues/%d/labels", apiBase, c.Repository, number)
+	_, code, err := c.doJSON(ctx, httpClient, http.MethodPost, labURL, map[string]interface{}{"labels": labels})
+	if err != nil {
+		return fmt.Errorf("github apply labels: %w", err)
+	}
+	if code < 200 || code >= 300 {
+		return fmt.Errorf("github apply labels: status %d", code)
+	}
+	return nil
 }
 
 // ensureHeadBranch creates req head from base with an empty bootstrap commit when
@@ -351,7 +369,11 @@ func (c *GitLabClient) CreateOrUpdate(ctx context.Context, req PRRequest) (PRRes
 	}
 	if len(existing) > 0 {
 		patchURL := fmt.Sprintf("%s/projects/%s/merge_requests/%d", base, project, existing[0].IID)
-		payload := map[string]string{"title": req.Title, "description": req.Body}
+		payload := map[string]interface{}{
+			"title":       req.Title,
+			"description": req.Body,
+			"labels":      strings.Join(req.Labels, ","),
+		}
 		_, code, err := c.doJSON(ctx, httpClient, http.MethodPut, patchURL, payload)
 		if err != nil {
 			return PRResult{}, err

@@ -327,7 +327,7 @@ func runDoctorChecks(ctx context.Context, disc doctorDiscovery, objects []unstru
 			detail = "skipped (could not list policies or defaults)"
 		}
 		results = append(results, doctorResult{
-			name: "Prometheus", required: false, ok: true,
+			name: "Prometheus", required: false, ok: false,
 			detail: detail,
 		})
 		return results
@@ -379,7 +379,7 @@ func runDoctorChecks(ctx context.Context, disc doctorDiscovery, objects []unstru
 		}
 	}
 	results = append(results, doctorResult{
-		name: "Prometheus", required: false, ok: true,
+		name: "Prometheus", required: false, ok: len(reachable) > 0,
 		detail: detail,
 	})
 	return results

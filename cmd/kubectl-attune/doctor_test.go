@@ -153,8 +153,8 @@ func TestRunDoctorChecks_VersionAndDiscovery(t *testing.T) {
 		require.Len(t, results, 3)
 		assert.True(t, results[0].ok, results[0].detail)
 		assert.True(t, results[1].ok, results[1].detail)
-		assert.True(t, results[2].ok)
-		assert.Contains(t, results[2].detail, "skipped")
+		assert.False(t, results[2].ok, "no Prometheus ping is not ok")
+		assert.Contains(t, results[2].detail, "skipped (no address on policies or defaults)")
 		assert.False(t, doctorFailed(results))
 	})
 
@@ -222,7 +222,7 @@ func TestRunDoctorChecks_PrometheusOptional(t *testing.T) {
 			return fmt.Errorf("should not ping")
 		})
 		assert.False(t, pinged)
-		require.True(t, results[2].ok, results[2].detail)
+		require.False(t, results[2].ok, "skip-only in-cluster is WARN, not ok: %s", results[2].detail)
 		assert.Contains(t, results[2].detail, "in-cluster")
 		assert.False(t, doctorFailed(results))
 	})
@@ -230,7 +230,7 @@ func TestRunDoctorChecks_PrometheusOptional(t *testing.T) {
 	t.Run("list error without address is not claimed as no address", func(t *testing.T) {
 		t.Parallel()
 		results := runDoctorChecks(ctx, disc, nil, fmt.Errorf("list AttuneDefaults: forbidden"), nil)
-		require.True(t, results[2].ok)
+		require.False(t, results[2].ok, "no ping is not ok")
 		assert.Contains(t, results[2].detail, "could not list")
 		assert.NotContains(t, results[2].detail, "no address")
 	})
@@ -281,7 +281,7 @@ func TestRunDoctorChecks_PrometheusOptional(t *testing.T) {
 		results := runDoctorChecks(ctx, disc, []unstructured.Unstructured{authed}, nil, func(context.Context, string) error {
 			return &httpStatusError{status: 401, url: "http://prometheus.example:9090/-/healthy"}
 		})
-		require.True(t, results[2].ok, results[2].detail)
+		require.False(t, results[2].ok, "401 with configured auth is skip/WARN, not ok: %s", results[2].detail)
 		assert.Contains(t, results[2].detail, "401")
 		assert.Contains(t, results[2].detail, "bearer")
 		assert.False(t, doctorFailed(results))
@@ -302,7 +302,7 @@ func TestRunDoctorChecks_PrometheusOptional(t *testing.T) {
 		results := runDoctorChecks(ctx, disc, []unstructured.Unstructured{authed}, nil, func(context.Context, string) error {
 			return &httpStatusError{status: 403, url: "http://mimir.example:8080/-/healthy"}
 		})
-		require.True(t, results[2].ok, results[2].detail)
+		require.False(t, results[2].ok, "403 with configured auth is skip/WARN, not ok: %s", results[2].detail)
 		assert.Contains(t, results[2].detail, "403")
 		assert.False(t, doctorFailed(results))
 	})
@@ -352,7 +352,7 @@ func TestRunDoctorChecks_PrometheusOptional(t *testing.T) {
 		results := runDoctorChecks(ctx, disc, []unstructured.Unstructured{plain, authed}, nil, func(context.Context, string) error {
 			return &httpStatusError{status: 401, url: "http://prometheus.example:9090/-/healthy"}
 		})
-		require.True(t, results[2].ok, results[2].detail)
+		require.False(t, results[2].ok, "skip-only 401 is WARN, not ok: %s", results[2].detail)
 		assert.Contains(t, results[2].detail, "401")
 	})
 }
@@ -505,6 +505,8 @@ func TestRunDoctor_ExitCodes(t *testing.T) {
 	assert.Equal(t, 0, code)
 	assert.Contains(t, stdout.String(), "pods/resize            ok   [required] discovered")
 	assert.Contains(t, stdout.String(), "Kubernetes version     ok   [required]")
+	assert.Contains(t, stdout.String(), "Prometheus             WARN [optional] skipped (no address on policies or defaults)")
+	assert.NotContains(t, stdout.String(), "Prometheus             ok")
 	assert.Empty(t, stderr.String())
 
 	stdout.Reset()
