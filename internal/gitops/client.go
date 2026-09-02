@@ -113,6 +113,14 @@ type GitLabClient struct {
 
 const bootstrapCommitMessage = "chore(attune): bootstrap recommendation branch"
 
+const gitlabMarkerPath = ".attune/RECOMMENDATION_DRIFT.md"
+
+const gitlabMarkerPreamble = "Attune recommendation drift branch.\n\nSee the merge request description for the drift table. Apply template patches via `kubectl attune diff` or your GitOps pipeline.\n"
+
+func gitlabBootstrapMarkerContent() string {
+	return gitlabMarkerPreamble + "\nbootstrapped: " + time.Now().UTC().Format(time.RFC3339Nano) + "\n"
+}
+
 func (c *GitHubClient) CreateOrUpdate(ctx context.Context, req PRRequest) (PRResult, error) {
 	if c.Token == "" || c.Repository == "" {
 		return PRResult{}, fmt.Errorf("github: token and repository required")
@@ -420,7 +428,10 @@ func (c *GitLabClient) CreateOrUpdate(ctx context.Context, req PRRequest) (PRRes
 		payload := map[string]interface{}{
 			"title":       req.Title,
 			"description": req.Body,
-			"labels":      strings.Join(req.Labels, ","),
+		}
+		// GitLab treats labels="" as unassign-all. Omit when unset (GitHub no-ops).
+		if len(req.Labels) > 0 {
+			payload["labels"] = strings.Join(req.Labels, ",")
 		}
 		_, code, err := c.doJSON(ctx, httpClient, http.MethodPut, patchURL, payload)
 		if err != nil {
@@ -442,7 +453,9 @@ func (c *GitLabClient) CreateOrUpdate(ctx context.Context, req PRRequest) (PRRes
 		"description":   req.Body,
 		"source_branch": req.Head,
 		"target_branch": req.Base,
-		"labels":        strings.Join(req.Labels, ","),
+	}
+	if len(req.Labels) > 0 {
+		payload["labels"] = strings.Join(req.Labels, ",")
 	}
 	respBody, code, err := c.doJSON(ctx, httpClient, http.MethodPost, createURL, payload)
 	if err != nil {
@@ -461,27 +474,51 @@ func (c *GitLabClient) CreateOrUpdate(ctx context.Context, req PRRequest) (PRRes
 	return PRResult{URL: created.WebURL, Number: created.IID, Updated: false}, nil
 }
 
-// ensureHeadBranch creates the source branch from base with a bootstrap commit
-// when missing. GitLab rejects MRs with no commit delta, so we add a small
-// marker file under .attune/ rather than an empty commit.
+// ensureHeadBranch ensures head has a commit that is not on base.
+// GitLab rejects MRs with no commit delta, so a marker file under .attune/
+// is created or updated. Content includes a unique timestamp so a second
+// bootstrap after merge is not an empty update. If head already exists
+// (GET 200; typical after merge without delete-source-branch), the marker
+// is updated in place. Callers must not invoke this on the existing-open-MR
+// path (that path must not rewrite the branch).
 func (c *GitLabClient) ensureHeadBranch(ctx context.Context, httpClient HTTPDoer, apiBase, projectEscaped, head, baseBranch string) error {
 	branchURL := fmt.Sprintf("%s/projects/%s/repository/branches/%s", apiBase, projectEscaped, url.PathEscape(head))
 	_, code, err := c.doJSON(ctx, httpClient, http.MethodGet, branchURL, nil)
 	if err != nil {
 		return fmt.Errorf("gitlab check head branch: %w", err)
 	}
-	if code >= 200 && code < 300 {
-		return nil
-	}
-	if code != http.StatusNotFound {
+	if code != http.StatusNotFound && (code < 200 || code >= 300) {
 		return fmt.Errorf("gitlab check head branch: status %d", code)
 	}
 
-	// Create branch + bootstrap file commit in one request (start_branch).
-	// Prefer "create"; if the marker already exists on base (prior merge),
-	// retry with "update" so re-bootstrap still produces a non-empty delta.
 	commitURL := fmt.Sprintf("%s/projects/%s/repository/commits", apiBase, projectEscaped)
-	markerContent := "Attune recommendation drift branch.\n\nSee the merge request description for the drift table. Apply template patches via `kubectl attune diff` or your GitOps pipeline.\n"
+	markerContent := gitlabBootstrapMarkerContent()
+
+	if code >= 200 && code < 300 {
+		// Head exists. Update the marker so a new MR has a non-empty delta.
+		payload := map[string]interface{}{
+			"branch":         head,
+			"commit_message": bootstrapCommitMessage,
+			"actions": []map[string]string{
+				{
+					"action":    "update",
+					"file_path": gitlabMarkerPath,
+					"content":   markerContent,
+				},
+			},
+		}
+		_, code, err := c.doJSON(ctx, httpClient, http.MethodPost, commitURL, payload)
+		if err != nil {
+			return fmt.Errorf("gitlab update head marker: %w", err)
+		}
+		if code < 200 || code >= 300 {
+			return fmt.Errorf("gitlab update head marker: status %d", code)
+		}
+		return nil
+	}
+
+	// Branch missing: create from base. Prefer "create"; if the marker already
+	// exists on base (prior merge), retry with "update".
 	for _, action := range []string{"create", "update"} {
 		payload := map[string]interface{}{
 			"branch":         head,
@@ -490,7 +527,7 @@ func (c *GitLabClient) ensureHeadBranch(ctx context.Context, httpClient HTTPDoer
 			"actions": []map[string]string{
 				{
 					"action":    action,
-					"file_path": ".attune/RECOMMENDATION_DRIFT.md",
+					"file_path": gitlabMarkerPath,
 					"content":   markerContent,
 				},
 			},
