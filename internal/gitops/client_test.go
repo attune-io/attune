@@ -416,6 +416,7 @@ func TestGitLabClient_ListOpenMRsPrefersTargetBranch(t *testing.T) {
 func TestGitLabClient_ListOpenMRsNoMatchingTargetCreates(t *testing.T) {
 	t.Parallel()
 	var methods []string
+	var createBody string
 	client := &GitLabClient{
 		Token:   "gl-token",
 		Project: "g/p",
@@ -436,6 +437,8 @@ func TestGitLabClient_ListOpenMRsNoMatchingTargetCreates(t *testing.T) {
 					"name": "attune/x",
 				}), nil
 			case r.Method == http.MethodPost && strings.HasSuffix(path, "/merge_requests"):
+				b, _ := io.ReadAll(r.Body)
+				createBody = string(b)
 				return jsonResp(201, map[string]interface{}{
 					"iid": 9, "web_url": "https://gitlab.com/g/p/-/merge_requests/9",
 				}), nil
@@ -444,9 +447,11 @@ func TestGitLabClient_ListOpenMRsNoMatchingTargetCreates(t *testing.T) {
 			}
 		}),
 	}
-	res, err := client.CreateOrUpdate(context.Background(), PRRequest{
-		Title: "t", Body: "b", Head: "attune/x", Base: "main",
-	})
+	req := PRRequest{
+		Title: "new mr", Body: "drift table", Head: "attune/x", Base: "main",
+		Labels: []string{"attune", "rightsizing"},
+	}
+	res, err := client.CreateOrUpdate(context.Background(), req)
 	require.NoError(t, err)
 	assert.False(t, res.Updated)
 	assert.Equal(t, 9, res.Number)
@@ -456,6 +461,138 @@ func TestGitLabClient_ListOpenMRsNoMatchingTargetCreates(t *testing.T) {
 	for _, m := range methods {
 		assert.NotContains(t, m, "/merge_requests/1")
 	}
+	var payload map[string]string
+	require.NoError(t, json.Unmarshal([]byte(createBody), &payload))
+	assert.Equal(t, req.Head, payload["source_branch"])
+	assert.Equal(t, req.Base, payload["target_branch"], "create must use req.Base, not the listed MR target")
+	assert.NotEqual(t, "develop", payload["target_branch"])
+	assert.Equal(t, req.Title, payload["title"])
+	assert.Equal(t, req.Body, payload["description"])
+	assert.Equal(t, strings.Join(req.Labels, ","), payload["labels"])
+}
+
+func TestGitLabClient_MissingConfigAndCreateErrors(t *testing.T) {
+	t.Parallel()
+	_, err := (&GitLabClient{}).CreateOrUpdate(context.Background(), PRRequest{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "token and project required")
+
+	_, err = (&GitLabClient{Token: "tok"}).CreateOrUpdate(context.Background(), PRRequest{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "token and project required")
+
+	_, err = (&GitLabClient{Project: "g/p"}).CreateOrUpdate(context.Background(), PRRequest{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "token and project required")
+
+	cases := []struct {
+		name       string
+		createCode int
+		createBody string
+		wantSub    string
+	}{
+		{name: "conflict", createCode: http.StatusConflict, createBody: `{"message":"exists"}`, wantSub: "gitlab create MR: status 409"},
+		{name: "decode", createCode: http.StatusCreated, createBody: `not-json`, wantSub: "gitlab create MR decode"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			client := &GitLabClient{
+				Token:   "gl-token",
+				Project: "g/p",
+				HTTP: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+					path := r.URL.Path
+					switch {
+					case r.Method == http.MethodGet && strings.Contains(path, "/merge_requests"):
+						return jsonResp(200, "[]"), nil
+					case r.Method == http.MethodGet && strings.Contains(path, "/repository/branches/"):
+						return jsonResp(200, map[string]interface{}{"name": "attune/x"}), nil
+					case r.Method == http.MethodPost && strings.HasSuffix(path, "/merge_requests"):
+						return jsonResp(tc.createCode, tc.createBody), nil
+					default:
+						return jsonResp(500, `{"message":"unexpected `+r.Method+` `+path+`"}`), nil
+					}
+				}),
+			}
+			_, err := client.CreateOrUpdate(context.Background(), PRRequest{
+				Title: "t", Body: "b", Head: "attune/x", Base: "main",
+			})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantSub)
+		})
+	}
+}
+
+func TestGitOpsClients_EscapeWeirdBranchNames(t *testing.T) {
+	t.Parallel()
+	const head = "attune/ns/pol"
+	const baseBranch = "release/1.0+rc&x"
+
+	t.Run("gitlab", func(t *testing.T) {
+		t.Parallel()
+		var listQuery, branchEscapedPath string
+		client := &GitLabClient{
+			Token:   "gl-token",
+			Project: "g/p",
+			HTTP: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				path := r.URL.Path
+				switch {
+				case r.Method == http.MethodGet && strings.Contains(path, "/merge_requests"):
+					listQuery = r.URL.RawQuery
+					return jsonResp(200, "[]"), nil
+				case r.Method == http.MethodGet && strings.Contains(path, "/repository/branches/"):
+					branchEscapedPath = r.URL.EscapedPath()
+					return jsonResp(200, map[string]interface{}{"name": head}), nil
+				case r.Method == http.MethodPost && strings.HasSuffix(path, "/merge_requests"):
+					return jsonResp(201, map[string]interface{}{
+						"iid": 4, "web_url": "https://gitlab.com/g/p/-/merge_requests/4",
+					}), nil
+				default:
+					return jsonResp(500, `{"message":"unexpected `+r.Method+` `+path+`"}`), nil
+				}
+			}),
+		}
+		res, err := client.CreateOrUpdate(context.Background(), PRRequest{
+			Title: "t", Body: "b", Head: head, Base: baseBranch,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 4, res.Number)
+		assert.Contains(t, listQuery, "target_branch="+url.QueryEscape(baseBranch))
+		assert.Contains(t, listQuery, "source_branch="+url.QueryEscape(head))
+		assert.Contains(t, branchEscapedPath, url.PathEscape(head))
+		assert.Contains(t, branchEscapedPath, "%2F")
+	})
+
+	t.Run("github", func(t *testing.T) {
+		t.Parallel()
+		var listQuery string
+		client := &GitHubClient{
+			Token:      "tok",
+			Repository: "org/repo",
+			HTTP: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/pulls") {
+					listQuery = r.URL.RawQuery
+					return jsonResp(200, []map[string]interface{}{
+						{
+							"number": 8, "html_url": "https://github.com/org/repo/pull/8",
+							"head": map[string]string{"ref": head},
+						},
+					}), nil
+				}
+				if r.Method == http.MethodPatch {
+					return jsonResp(200, `{}`), nil
+				}
+				return jsonResp(500, `{"message":"unexpected"}`), nil
+			}),
+		}
+		res, err := client.CreateOrUpdate(context.Background(), PRRequest{
+			Title: "t", Body: "b", Head: head, Base: baseBranch,
+		})
+		require.NoError(t, err)
+		assert.True(t, res.Updated)
+		assert.Contains(t, listQuery, "base="+url.QueryEscape(baseBranch))
+		assert.Contains(t, listQuery, "head="+url.QueryEscape("org:"+head))
+	})
 }
 
 func TestGitHubClient_EnsureHead_RaceRefExists(t *testing.T) {
