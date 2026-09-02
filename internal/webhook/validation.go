@@ -590,7 +590,7 @@ func validateMetricsSourceProviderFields(ms *attunev1alpha1.MetricsSource) error
 	}
 	if dd := ms.Datadog; dd != nil {
 		if err := validation.DatadogSite(dd.Site); err != nil {
-			return fmt.Errorf("metricsSource.datadog.site %q is not a recognized Datadog site", dd.Site)
+			return fmt.Errorf("metricsSource.datadog.site: %w", err)
 		}
 		if dd.APIKeySecretRef.Name == "" {
 			return fmt.Errorf("metricsSource.datadog.apiKeySecretRef.name is required")

@@ -16,7 +16,11 @@ limitations under the License.
 
 package validation
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+	"strings"
+)
 
 // validDatadogSites is the allowlist of Datadog site values used to
 // construct https://api.<site>. Empty site means the caller default.
@@ -37,7 +41,17 @@ func DatadogSite(site string) error {
 		return nil
 	}
 	if !validDatadogSites[site] {
-		return fmt.Errorf("site %q is not a recognized Datadog site", site)
+		return fmt.Errorf("site %q is not a recognized Datadog site (allowed: %s)", site, datadogAllowedSites())
 	}
 	return nil
+}
+
+// datadogAllowedSites returns the allowlist in stable sorted order for errors.
+func datadogAllowedSites() string {
+	sites := make([]string, 0, len(validDatadogSites))
+	for s := range validDatadogSites {
+		sites = append(sites, s)
+	}
+	sort.Strings(sites)
+	return strings.Join(sites, ", ")
 }

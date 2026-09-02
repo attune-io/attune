@@ -240,6 +240,57 @@ func TestGitopsSafeTransport_HTTPSProxyPrivateIPNotSSRF(t *testing.T) {
 	assert.NotErrorIs(t, err, ErrSSRFBlocked, "RFC1918 HTTPS_PROXY hop is not the SSRF target")
 }
 
+func TestGitopsResolveHost_DNSErrorIncludesHost(t *testing.T) {
+	orig := lookupIPAddr
+	t.Cleanup(func() { lookupIPAddr = orig })
+	dnsErr := errors.New("no such host")
+	lookupIPAddr = func(_ context.Context, _ string) ([]net.IPAddr, error) {
+		return nil, dnsErr
+	}
+
+	_, err := gitopsResolveHost(context.Background(), "forge.example")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, dnsErr)
+	assert.Contains(t, err.Error(), `DNS resolution failed for "forge.example"`)
+
+	dialer := &net.Dialer{Timeout: time.Second}
+	_, err = gitopsDialContext(context.Background(), "tcp", "forge.example:443", false, dialer)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, dnsErr)
+	assert.Contains(t, err.Error(), `DNS resolution failed for "forge.example"`)
+}
+
+func TestGitopsResolveHost_EmptyDNSFailsClosed(t *testing.T) {
+	orig := lookupIPAddr
+	t.Cleanup(func() { lookupIPAddr = orig })
+	lookupIPAddr = func(_ context.Context, _ string) ([]net.IPAddr, error) {
+		return nil, nil
+	}
+
+	_, err := gitopsResolveHost(context.Background(), "forge.example")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, errGitOpsEmptyDNS)
+	assert.Contains(t, err.Error(), `DNS resolution failed for "forge.example"`)
+
+	called := false
+	rt := &gitopsSSRFTransport{
+		base: roundTripFuncTransport(func(*http.Request) (*http.Response, error) {
+			called = true
+			return nil, errors.New("base must not be called on empty DNS")
+		}),
+	}
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://forge.example/api", nil)
+	require.NoError(t, err)
+	resp, err := rt.RoundTrip(req)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	require.Error(t, err)
+	assert.ErrorIs(t, err, errGitOpsEmptyDNS)
+	assert.Contains(t, err.Error(), `DNS resolution failed for "forge.example"`)
+	assert.False(t, called, "RoundTrip must fail closed before the inner transport")
+}
+
 func TestGitopsSafeTransport_AllowPrivateBlocksIMDSv6RequestHost(t *testing.T) {
 	orig := lookupIPAddr
 	t.Cleanup(func() { lookupIPAddr = orig })

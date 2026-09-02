@@ -961,7 +961,7 @@ func TestDefaultsValidator_ProviderFieldConstraints(t *testing.T) {
 					APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "dd-key", Key: "api-key"},
 				},
 			},
-			wantErr: "is not a recognized Datadog site",
+			wantErr: "metricsSource.datadog.site:",
 		},
 		{
 			name: "cloudwatch missing region",

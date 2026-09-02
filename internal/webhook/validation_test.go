@@ -1229,7 +1229,10 @@ func TestValidate_DatadogInvalidSite(t *testing.T) {
 
 	_, err := validator.ValidateCreate(context.Background(), policy)
 	require.Error(t, err)
+	assert.Contains(t, err.Error(), "metricsSource.datadog.site:")
 	assert.Contains(t, err.Error(), "not a recognized Datadog site")
+	assert.Contains(t, err.Error(), "allowed:")
+	assert.Contains(t, err.Error(), "datadoghq.com")
 }
 
 func TestValidate_DatadogMissingSecret(t *testing.T) {

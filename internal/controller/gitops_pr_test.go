@@ -630,7 +630,7 @@ func TestReconcileGitOpsPullRequest_LabelFailureKeepsURL(t *testing.T) {
 		}
 	}
 	assert.Equal(t, attunev1alpha1.ReasonGitOpsPRFailed, reason)
-	assert.Contains(t, message, "PR open; labels not applied")
+	assert.Contains(t, message, "failed applying configured labels")
 	assert.Contains(t, message, "https://github.com/org/repo/pull/7")
 	assert.Equal(t, "https://github.com/org/repo/pull/7", policy.Annotations[annotationGitOpsPRURL])
 	assert.Equal(t, "https://github.com/org/repo/pull/7", gitOpsStoredURL(policy))

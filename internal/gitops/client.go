@@ -34,6 +34,9 @@ import (
 
 var errGitOpsRedirect = errors.New("redirects are not allowed")
 
+// errGitOpsEmptyDNS is wrapped when DNS returns no addresses (fail closed).
+var errGitOpsEmptyDNS = errors.New("empty address list")
+
 // ErrSSRFBlocked is returned when the GitOps HTTP dial refuses the resolved address.
 var ErrSSRFBlocked = errors.New("gitops SSRF blocked")
 
@@ -585,12 +588,9 @@ func gitopsDialContext(ctx context.Context, network, addr string, allowPrivate b
 	if validation.GitOpsBlockedHost(host) {
 		return nil, fmt.Errorf("%w: host %q is a disallowed address", ErrSSRFBlocked, host)
 	}
-	ips, err := lookupIPAddr(ctx, host)
+	ips, err := gitopsResolveHost(ctx, host)
 	if err != nil {
-		return nil, fmt.Errorf("gitops dial: DNS resolution failed")
-	}
-	if len(ips) == 0 {
-		return nil, fmt.Errorf("gitops dial: DNS resolution failed")
+		return nil, err
 	}
 	for _, ip := range ips {
 		if gitopsDialBlocked(ip.IP, allowPrivate) {
@@ -613,9 +613,9 @@ func (t *gitopsSSRFTransport) RoundTrip(req *http.Request) (*http.Response, erro
 	if validation.GitOpsBlockedHost(host) {
 		return nil, fmt.Errorf("%w: host %q is a disallowed address", ErrSSRFBlocked, host)
 	}
-	ips, err := lookupIPAddr(req.Context(), host)
+	ips, err := gitopsResolveHost(req.Context(), host)
 	if err != nil {
-		return nil, fmt.Errorf("gitops dial: DNS resolution failed")
+		return nil, err
 	}
 	for _, ip := range ips {
 		if gitopsDialBlocked(ip.IP, t.allowPrivate) {
@@ -623,6 +623,19 @@ func (t *gitopsSSRFTransport) RoundTrip(req *http.Request) (*http.Response, erro
 		}
 	}
 	return t.base.RoundTrip(req.WithContext(withGitOpsRequestHost(req.Context(), host)))
+}
+
+// gitopsResolveHost looks up host and fails closed on resolver errors or
+// an empty address list. The host is always named and the cause is wrapped.
+func gitopsResolveHost(ctx context.Context, host string) ([]net.IPAddr, error) {
+	ips, err := lookupIPAddr(ctx, host)
+	if err != nil {
+		return nil, fmt.Errorf("gitops dial: DNS resolution failed for %q: %w", host, err)
+	}
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("gitops dial: DNS resolution failed for %q: %w", host, errGitOpsEmptyDNS)
+	}
+	return ips, nil
 }
 
 func gitopsDialBlocked(ip net.IP, allowPrivate bool) bool {

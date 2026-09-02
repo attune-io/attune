@@ -40,8 +40,10 @@ func TestDatadogSite(t *testing.T) {
 
 	err := DatadogSite("evil.example")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not a recognized Datadog site")
+	assert.Contains(t, err.Error(), `site "evil.example" is not a recognized Datadog site`)
+	assert.Contains(t, err.Error(), "allowed: ap1.datadoghq.com, datadoghq.com, datadoghq.eu, ddog-gov.com, us3.datadoghq.com, us5.datadoghq.com")
 
 	err = DatadogSite("datadoghq.com.evil.example")
 	require.Error(t, err)
+	assert.Contains(t, err.Error(), "allowed:")
 }
