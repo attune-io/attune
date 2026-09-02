@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -66,6 +67,7 @@ func (r *AttunePolicyReconciler) computeVPARecommendationsForWorkload(
 	const vpaDataPoints = 1
 
 	var containerRecs []attunev1alpha1.ContainerRecommendation
+	eligibleContainers := 0
 
 	for _, container := range containers {
 		containerName := container.Name
@@ -76,6 +78,7 @@ func (r *AttunePolicyReconciler) computeVPARecommendationsForWorkload(
 				"reason", pkgdefaults.ExclusionReason(policy, containerName))
 			continue
 		}
+		eligibleContainers++
 
 		vpaRec, found := vpaByContainer[containerName]
 		if !found {
@@ -122,12 +125,27 @@ func (r *AttunePolicyReconciler) computeVPARecommendationsForWorkload(
 		cRec.Recommended.CPURequest = cpuRec
 		explanation.CPU = toAPIRecommendationExplanation(cpuExplain)
 
-		// Compute memory recommendation through the standard engine pipeline.
-		memRec, memExplain, _ := memEngine.RecommendWithExplanation(memProfile, cRec.Current.MemoryRequest)
+		// Compute memory recommendation. When memoryFromCpuRatio is set,
+		// derive memory from the CPU recommendation instead of the VPA
+		// memory target (same as the Prometheus path).
 		memAllowDecrease := policy.Spec.Memory.AllowDecrease != nil && *policy.Spec.Memory.AllowDecrease
-		memRec = r.enforceAllowDecrease(memAllowDecrease, memRec, cRec.Current.MemoryRequest, &memExplain, policy, containerName, "memory")
-		cRec.Recommended.MemoryRequest = memRec
-		explanation.Memory = toAPIRecommendationExplanation(memExplain)
+		if policy.Spec.Memory.MemoryFromCPURatio != nil && *policy.Spec.Memory.MemoryFromCPURatio != "" && explanation.CPU != nil {
+			ratio := parseFloat64Ratio(*policy.Spec.Memory.MemoryFromCPURatio)
+			memRec, memExplain, applied := deriveMemoryFromCPU(
+				cpuRec, ratio, memEngine, vpaDataPoints, cRec.Current.MemoryRequest, memAllowDecrease)
+			if applied {
+				cRec.Recommended.MemoryRequest = memRec
+				memExplain.FinalAdjustment = appendNote(memExplain.FinalAdjustment,
+					fmt.Sprintf("derived from CPU via memoryFromCpuRatio=%s", *policy.Spec.Memory.MemoryFromCPURatio))
+				explanation.Memory = toAPIRecommendationExplanation(memExplain)
+			}
+		}
+		if explanation.Memory == nil {
+			memRec, memExplain, _ := memEngine.RecommendWithExplanation(memProfile, cRec.Current.MemoryRequest)
+			memRec = r.enforceAllowDecrease(memAllowDecrease, memRec, cRec.Current.MemoryRequest, &memExplain, policy, containerName, "memory")
+			cRec.Recommended.MemoryRequest = memRec
+			explanation.Memory = toAPIRecommendationExplanation(memExplain)
+		}
 		explanation.CPU.FinalAdjustment = appendNote(explanation.CPU.FinalAdjustment, "source: VPA")
 		explanation.Memory.FinalAdjustment = appendNote(explanation.Memory.FinalAdjustment, "source: VPA")
 
@@ -151,6 +169,17 @@ func (r *AttunePolicyReconciler) computeVPARecommendationsForWorkload(
 	}
 
 	if len(containerRecs) == 0 {
+		// Only reuse when an eligible container had no VPA rec.
+		// Exclude-all must still return nil so status drops the rec.
+		if eligibleContainers > 0 {
+			freshness := recommendationFreshnessBound(0)
+			if reused := reuseStaleRecommendation(policy, workloadKindName(workload), workload.GetName(), now, freshness); reused != nil {
+				logger.Info("Reusing prior recommendation as stale; VPA returned no container recommendations",
+					"workload", workload.GetName(),
+					"kind", workloadKindName(workload))
+				return reused, maxDataPoints, nil
+			}
+		}
 		return nil, maxDataPoints, nil
 	}
 

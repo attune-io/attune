@@ -421,6 +421,113 @@ func TestGitLabClient_EnsureHead_FileExistsOnBase_UsesUpdate(t *testing.T) {
 	assert.Contains(t, commitBodies[1], `"update"`)
 }
 
+func TestGitHubClient_Create_Labels403ReturnsStatusNotToken(t *testing.T) {
+	t.Parallel()
+	const token = "super-secret-gh-token"
+	client := &GitHubClient{
+		Token:      token,
+		Repository: "org/repo",
+		HTTP: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			switch {
+			case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/pulls"):
+				return jsonResp(200, "[]"), nil
+			case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/git/ref/heads/"):
+				return jsonResp(200, map[string]interface{}{
+					"object": map[string]string{"sha": "abc"},
+				}), nil
+			case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/pulls"):
+				return jsonResp(201, map[string]interface{}{
+					"number": 7, "html_url": "https://github.com/org/repo/pull/7",
+				}), nil
+			case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/labels"):
+				return jsonResp(403, `{"message":"Resource not accessible by integration `+token+`"}`), nil
+			default:
+				return jsonResp(500, `{"message":"unexpected `+r.Method+` `+r.URL.Path+`"}`), nil
+			}
+		}),
+	}
+	res, err := client.CreateOrUpdate(context.Background(), PRRequest{
+		Title: "t", Body: "b", Head: "attune/x", Base: "main",
+		Labels: []string{"attune", "rightsizing"},
+	})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrLabelsApplied)
+	assert.Equal(t, "https://github.com/org/repo/pull/7", res.URL)
+	assert.Equal(t, 7, res.Number)
+	assert.Contains(t, err.Error(), "status 403")
+	assert.NotContains(t, err.Error(), token)
+}
+
+func TestGitHubClient_Update_AppliesLabels(t *testing.T) {
+	t.Parallel()
+	var labelPosted bool
+	var labelBody string
+	client := &GitHubClient{
+		Token:      "tok",
+		Repository: "org/repo",
+		HTTP: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/pulls") {
+				return jsonResp(200, []map[string]interface{}{
+					{
+						"number":   9,
+						"html_url": "https://github.com/org/repo/pull/9",
+						"head":     map[string]interface{}{"ref": "attune/x"},
+					},
+				}), nil
+			}
+			if r.Method == http.MethodPatch && strings.Contains(r.URL.Path, "/pulls/9") {
+				return jsonResp(200, map[string]interface{}{}), nil
+			}
+			if r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/issues/9/labels") {
+				b, _ := io.ReadAll(r.Body)
+				labelPosted = true
+				labelBody = string(b)
+				return jsonResp(200, `[]`), nil
+			}
+			return jsonResp(500, `{"message":"unexpected `+r.Method+` `+r.URL.Path+`"}`), nil
+		}),
+	}
+	res, err := client.CreateOrUpdate(context.Background(), PRRequest{
+		Title: "t", Body: "b", Head: "attune/x", Base: "main",
+		Labels: []string{"attune"},
+	})
+	require.NoError(t, err)
+	assert.True(t, res.Updated)
+	assert.True(t, labelPosted, "update must POST /issues/{n}/labels")
+	assert.Contains(t, labelBody, "attune")
+}
+
+func TestGitLabClient_Update_IncludesLabels(t *testing.T) {
+	t.Parallel()
+	var putBody string
+	client := &GitLabClient{
+		Token:   "gl-token",
+		Project: "g/p",
+		HTTP: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			if r.Method == http.MethodGet {
+				return jsonResp(200, []map[string]interface{}{
+					{"iid": 3, "web_url": "https://gitlab.com/g/p/-/merge_requests/3"},
+				}), nil
+			}
+			if r.Method == http.MethodPut {
+				b, _ := io.ReadAll(r.Body)
+				putBody = string(b)
+				return jsonResp(200, `{}`), nil
+			}
+			return jsonResp(500, `{"message":"unexpected"}`), nil
+		}),
+	}
+	res, err := client.CreateOrUpdate(context.Background(), PRRequest{
+		Title: "t", Body: "b", Head: "attune/x", Base: "main",
+		Labels: []string{"attune", "rightsizing"},
+	})
+	require.NoError(t, err)
+	assert.True(t, res.Updated)
+	assert.Contains(t, putBody, `"labels"`)
+	assert.Contains(t, putBody, "attune")
+	assert.Contains(t, putBody, "rightsizing")
+}
+
 func TestGitHubClient_CreatePRErrorOmitsResponseBody(t *testing.T) {
 	t.Parallel()
 	const planted = "ami-secret-should-not-leak"

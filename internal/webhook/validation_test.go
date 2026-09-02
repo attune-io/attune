@@ -784,9 +784,22 @@ func TestValidate_MemoryFromCPURatioInvalid(t *testing.T) {
 
 			_, err := validator.ValidateCreate(context.Background(), policy)
 			assert.Error(t, err)
+			assert.Contains(t, err.Error(), "memory.memoryFromCpuRatio")
 			assert.Contains(t, err.Error(), tt.wantErr)
 		})
 	}
+}
+
+func TestValidate_CPUMemoryFromCPURatioFieldPath(t *testing.T) {
+	validator := &AttunePolicyValidator{}
+	policy := validPolicy()
+	nan := "NaN"
+	policy.Spec.CPU.MemoryFromCPURatio = &nan
+
+	_, err := validator.ValidateCreate(context.Background(), policy)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cpu.memoryFromCpuRatio")
+	assert.NotContains(t, err.Error(), "memory.memoryFromCpuRatio")
 }
 
 func TestValidate_MemoryFromCPURatioValid(t *testing.T) {
@@ -1216,7 +1229,10 @@ func TestValidate_DatadogInvalidSite(t *testing.T) {
 
 	_, err := validator.ValidateCreate(context.Background(), policy)
 	require.Error(t, err)
+	assert.Contains(t, err.Error(), "metricsSource.datadog.site:")
 	assert.Contains(t, err.Error(), "not a recognized Datadog site")
+	assert.Contains(t, err.Error(), "allowed:")
+	assert.Contains(t, err.Error(), "datadoghq.com")
 }
 
 func TestValidate_DatadogMissingSecret(t *testing.T) {

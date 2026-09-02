@@ -375,7 +375,7 @@ All fields from `AttuneDefaults` are available in
 | Section | Fields |
 |---------|--------|
 | `metricsSource` | `prometheus.address`, `prometheus.headers`, `prometheus.queryParameters`, `prometheus.bearerTokenSecret`, `prometheus.tls`, `datadog.site`, `datadog.apiKeySecretRef`, `cloudwatch.region`, `cloudwatch.clusterName`, `cloudwatch.roleArn`, `historyWindow`, `minimumDataPoints`, `queryStep`, `rateWindow`, `podAggregation`, `cpuRecordingMetric`, `memoryRecordingMetric` |
-| `cpu` | `percentile`, `overhead`, `minAllowed`, `maxAllowed`, `controlledValues`, `burstSensitivity`, `allowDecrease`, `startupBoost`, `maxChangePercent`, `maxIncreasePercent`, `maxDecreasePercent`, `memoryFromCpuRatio` |
+| `cpu` | `percentile`, `overhead`, `minAllowed`, `maxAllowed`, `controlledValues`, `burstSensitivity`, `allowDecrease`, `startupBoost`, `maxChangePercent`, `maxIncreasePercent`, `maxDecreasePercent` |
 | `memory` | Same as `cpu` (no `startupBoost`), plus `decreaseUsageMarginPercent` and `memoryFromCpuRatio` |
 | `updateStrategy` | `type`, `cooldown`, `autoRevert`, `resizeMethod`, `initialSizing`, `maxConcurrentResizes`, `maxStatusRecommendations`, `includeExplanationsInStatus`, `maxTotalCpuIncrease`, `maxTotalMemoryIncrease`, `schedule`, `export`, `canary`, `safetyObservationPeriod`, `sloGuardrails`, `templatePersistence` |
 | `costPricing` | `cpuPerCoreHour`, `memoryPerGiBHour` |
@@ -519,7 +519,7 @@ See the [startup boost guide](../guides/startup-boost.md) for details.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `memory.memoryFromCpuRatio` | string | (none) | Derives memory recommendation from CPU instead of querying Prometheus for memory metrics. The value is a ratio of GiB per core (e.g., `"2.0"` means 1 core = 2 GiB memory). Useful for JVM and heap-bound workloads where memory is proportional to CPU. |
+| `memory.memoryFromCpuRatio` | string | (none) | Derives memory from the CPU recommendation (GiB per core) instead of the memory signal from the active source (Prometheus usage or VPA memory target). For example, `"2.0"` means 1 core = 2 GiB memory. Useful for JVM and heap-bound workloads where memory is proportional to CPU. The derived value still goes through min/max/change caps. |
 
 ### SLO Guardrails
 
@@ -554,6 +554,9 @@ updateStrategy:
 |-------|------|---------|-------------|
 | `metricsSource.vpa.name` | string | (required) | Name of the VerticalPodAutoscaler object to consume recommendations from |
 | `metricsSource.vpa.namespace` | string | (policy namespace) | Namespace of the VPA. Defaults to the policy's namespace. |
+
+`memory.memoryFromCpuRatio` applies here too: when set, memory is derived
+from the CPU recommendation instead of the VPA memory target.
 
 At most one of `prometheus`, `datadog`, `cloudwatch`, or `vpa` may be set
 on a policy or on `AttuneDefaults` / `AttuneNamespaceDefaults`.

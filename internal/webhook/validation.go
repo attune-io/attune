@@ -410,22 +410,22 @@ func validateOverhead(resource, overhead string) error {
 	return nil
 }
 
-func validateMemoryFromCPURatio(ratio *string) error {
+func validateMemoryFromCPURatio(fieldPath string, ratio *string) error {
 	if ratio == nil || *ratio == "" {
 		return nil
 	}
 	v, err := strconv.ParseFloat(*ratio, 64)
 	if err != nil {
-		return fmt.Errorf("memory.memoryFromCpuRatio %q is not a valid number: %w", *ratio, err)
+		return fmt.Errorf("%s %q is not a valid number: %w", fieldPath, *ratio, err)
 	}
 	if math.IsNaN(v) || math.IsInf(v, 0) {
-		return fmt.Errorf("memory.memoryFromCpuRatio must be a finite number, got %s", *ratio)
+		return fmt.Errorf("%s must be a finite number, got %s", fieldPath, *ratio)
 	}
 	if v <= 0 {
-		return fmt.Errorf("memory.memoryFromCpuRatio must be positive, got %s", *ratio)
+		return fmt.Errorf("%s must be positive, got %s", fieldPath, *ratio)
 	}
 	if v > 1000 { //nolint:mnd // 1000 matches the controller ceiling for GiB-per-core ratios
-		return fmt.Errorf("memory.memoryFromCpuRatio must be <= 1000, got %s", *ratio)
+		return fmt.Errorf("%s must be <= 1000, got %s", fieldPath, *ratio)
 	}
 	return nil
 }
@@ -589,13 +589,8 @@ func validateMetricsSourceProviderFields(ms *attunev1alpha1.MetricsSource) error
 		}
 	}
 	if dd := ms.Datadog; dd != nil {
-		validSites := map[string]bool{
-			"datadoghq.com": true, "datadoghq.eu": true,
-			"us3.datadoghq.com": true, "us5.datadoghq.com": true,
-			"ap1.datadoghq.com": true, "ddog-gov.com": true,
-		}
-		if dd.Site != "" && !validSites[dd.Site] {
-			return fmt.Errorf("metricsSource.datadog.site %q is not a recognized Datadog site", dd.Site)
+		if err := validation.DatadogSite(dd.Site); err != nil {
+			return fmt.Errorf("metricsSource.datadog.site: %w", err)
 		}
 		if dd.APIKeySecretRef.Name == "" {
 			return fmt.Errorf("metricsSource.datadog.apiKeySecretRef.name is required")

@@ -728,6 +728,124 @@ func TestCheckQuotaCompatibility_MemoryQuotaExceeded(t *testing.T) {
 	assert.Contains(t, err.Error(), "exceed ResourceQuota")
 }
 
+func TestCheckQuotaHeadroom_ResourceNameAliases(t *testing.T) {
+	cpu100, err := resource.ParseQuantity("100m")
+	require.NoError(t, err)
+	cpu150, err := resource.ParseQuantity("150m")
+	require.NoError(t, err)
+	cpu200, err := resource.ParseQuantity("200m")
+	require.NoError(t, err)
+	cpu500, err := resource.ParseQuantity("500m")
+	require.NoError(t, err)
+	mem128, err := resource.ParseQuantity("128Mi")
+	require.NoError(t, err)
+	mem190, err := resource.ParseQuantity("190Mi")
+	require.NoError(t, err)
+	mem200, err := resource.ParseQuantity("200Mi")
+	require.NoError(t, err)
+	mem256, err := resource.ParseQuantity("256Mi")
+	require.NoError(t, err)
+	mem512, err := resource.ParseQuantity("512Mi")
+	require.NoError(t, err)
+	lim400, err := resource.ParseQuantity("400m")
+	require.NoError(t, err)
+	lim450, err := resource.ParseQuantity("450m")
+	require.NoError(t, err)
+	lim500, err := resource.ParseQuantity("500m")
+	require.NoError(t, err)
+	lim800, err := resource.ParseQuantity("800m")
+	require.NoError(t, err)
+
+	req := func(cpu, mem resource.Quantity) corev1.ResourceRequirements {
+		return corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    cpu,
+				corev1.ResourceMemory: mem,
+			},
+		}
+	}
+	reqLim := func(cpu, mem, limCPU, limMem resource.Quantity) corev1.ResourceRequirements {
+		return corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    cpu,
+				corev1.ResourceMemory: mem,
+			},
+			Limits: corev1.ResourceList{
+				corev1.ResourceCPU:    limCPU,
+				corev1.ResourceMemory: limMem,
+			},
+		}
+	}
+
+	tests := []struct {
+		name    string
+		hard    corev1.ResourceList
+		used    corev1.ResourceList
+		current corev1.ResourceRequirements
+		target  corev1.ResourceRequirements
+		wantErr string
+	}{
+		{
+			name:    "cpu alias blocks increase when headroom is insufficient",
+			hard:    corev1.ResourceList{corev1.ResourceCPU: cpu200},
+			used:    corev1.ResourceList{corev1.ResourceCPU: cpu150},
+			current: req(cpu100, mem256),
+			target:  req(cpu500, mem256),
+			wantErr: "exceed ResourceQuota",
+		},
+		{
+			name:    "requests.cpu still blocks increase when headroom is insufficient",
+			hard:    corev1.ResourceList{corev1.ResourceRequestsCPU: cpu200},
+			used:    corev1.ResourceList{corev1.ResourceRequestsCPU: cpu150},
+			current: req(cpu100, mem256),
+			target:  req(cpu500, mem256),
+			wantErr: "exceed ResourceQuota",
+		},
+		{
+			name:    "memory alias blocks increase when headroom is insufficient",
+			hard:    corev1.ResourceList{corev1.ResourceMemory: mem200},
+			used:    corev1.ResourceList{corev1.ResourceMemory: mem190},
+			current: req(cpu100, mem128),
+			target:  req(cpu100, mem512),
+			wantErr: "exceed ResourceQuota",
+		},
+		{
+			name:    "cpu alias allows increase when headroom is sufficient",
+			hard:    corev1.ResourceList{corev1.ResourceCPU: cpu500},
+			used:    corev1.ResourceList{corev1.ResourceCPU: cpu100},
+			current: req(cpu100, mem256),
+			target:  req(cpu200, mem256),
+		},
+		{
+			name:    "limits.cpu blocks limit increase when headroom is insufficient",
+			hard:    corev1.ResourceList{corev1.ResourceLimitsCPU: lim500},
+			used:    corev1.ResourceList{corev1.ResourceLimitsCPU: lim450},
+			current: reqLim(cpu100, mem256, lim400, mem512),
+			target:  reqLim(cpu100, mem256, lim800, mem512),
+			wantErr: "exceed ResourceQuota",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			quota := corev1.ResourceQuota{
+				ObjectMeta: metav1.ObjectMeta{Name: "compute"},
+				Status: corev1.ResourceQuotaStatus{
+					Hard: tt.hard,
+					Used: tt.used,
+				},
+			}
+			got := checkQuotaHeadroom(quota, tt.current, tt.target)
+			if tt.wantErr == "" {
+				assert.NoError(t, got)
+				return
+			}
+			require.Error(t, got)
+			assert.Contains(t, got.Error(), tt.wantErr)
+		})
+	}
+}
+
 func TestCheckQuotaCompatibility_LimitsAboveMaximum(t *testing.T) {
 	lr := &corev1.LimitRange{
 		ObjectMeta: metav1.ObjectMeta{Name: "limits", Namespace: "default"},
@@ -1310,64 +1428,109 @@ func TestNewSafetyMonitor_EmptyGuardrails(t *testing.T) {
 
 // ---------- checkQuotaCompatibility List failure paths ----------
 
-func TestCheckQuotaCompatibility_LimitRangeListError(t *testing.T) {
-	scheme := testScheme()
+func TestCheckQuotaCompatibility_ListError(t *testing.T) {
+	cpu100, err := resource.ParseQuantity("100m")
+	require.NoError(t, err)
+	cpu500, err := resource.ParseQuantity("500m")
+	require.NoError(t, err)
+	mem256, err := resource.ParseQuantity("256Mi")
+	require.NoError(t, err)
 
-	// Inject a List error only for LimitRange objects.
-	c := fake.NewClientBuilder().WithScheme(scheme).
-		WithInterceptorFuncs(interceptor.Funcs{
-			List: func(ctx context.Context, cl client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
-				if _, ok := list.(*corev1.LimitRangeList); ok {
-					return fmt.Errorf("simulated LimitRange list failure")
-				}
-				return cl.List(ctx, list, opts...)
-			},
-		}).
-		Build()
-
-	r := NewAttunePolicyReconciler()
-	r.Client = c
-
-	target := corev1.ResourceRequirements{
+	increase := corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
-			corev1.ResourceCPU:    resource.MustParse("500m"),
-			corev1.ResourceMemory: resource.MustParse("256Mi"),
+			corev1.ResourceCPU:    cpu500,
+			corev1.ResourceMemory: mem256,
+		},
+	}
+	decrease := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    cpu100,
+			corev1.ResourceMemory: mem256,
+		},
+	}
+	currentHigh := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    cpu500,
+			corev1.ResourceMemory: mem256,
 		},
 	}
 
-	// Should log-and-continue (no error returned) with empty LimitRange list.
-	err := r.checkQuotaCompatibility(context.Background(), "default", zeroCurrent, target)
-	assert.NoError(t, err)
-}
-
-func TestCheckQuotaCompatibility_ResourceQuotaListError(t *testing.T) {
-	scheme := testScheme()
-
-	// Inject a List error only for ResourceQuota objects.
-	c := fake.NewClientBuilder().WithScheme(scheme).
-		WithInterceptorFuncs(interceptor.Funcs{
-			List: func(ctx context.Context, cl client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
-				if _, ok := list.(*corev1.ResourceQuotaList); ok {
-					return fmt.Errorf("simulated ResourceQuota list failure")
-				}
-				return cl.List(ctx, list, opts...)
+	tests := []struct {
+		name      string
+		failOn    func(client.ObjectList) bool
+		current   corev1.ResourceRequirements
+		target    corev1.ResourceRequirements
+		wantErr   bool
+		errSubstr string
+	}{
+		{
+			name: "ResourceQuota list error blocks request increase",
+			failOn: func(list client.ObjectList) bool {
+				_, ok := list.(*corev1.ResourceQuotaList)
+				return ok
 			},
-		}).
-		Build()
-
-	r := NewAttunePolicyReconciler()
-	r.Client = c
-
-	target := corev1.ResourceRequirements{
-		Requests: corev1.ResourceList{
-			corev1.ResourceCPU:    resource.MustParse("500m"),
-			corev1.ResourceMemory: resource.MustParse("256Mi"),
+			current:   zeroCurrent,
+			target:    increase,
+			wantErr:   true,
+			errSubstr: "ResourceQuota list unavailable; skipping request increase; check RBAC list/watch on resourcequotas and limitranges",
+		},
+		{
+			name: "ResourceQuota list error allows decrease",
+			failOn: func(list client.ObjectList) bool {
+				_, ok := list.(*corev1.ResourceQuotaList)
+				return ok
+			},
+			current: currentHigh,
+			target:  decrease,
+		},
+		{
+			name: "LimitRange list error blocks request increase",
+			failOn: func(list client.ObjectList) bool {
+				_, ok := list.(*corev1.LimitRangeList)
+				return ok
+			},
+			current:   zeroCurrent,
+			target:    increase,
+			wantErr:   true,
+			errSubstr: "LimitRange list unavailable; skipping request increase; check RBAC list/watch on resourcequotas and limitranges",
+		},
+		{
+			name: "LimitRange list error allows decrease",
+			failOn: func(list client.ObjectList) bool {
+				_, ok := list.(*corev1.LimitRangeList)
+				return ok
+			},
+			current: currentHigh,
+			target:  decrease,
 		},
 	}
 
-	// Should log-and-continue (no error returned) with empty ResourceQuota list.
-	err := r.checkQuotaCompatibility(context.Background(), "default", zeroCurrent, target)
-	assert.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			scheme := testScheme()
+			c := fake.NewClientBuilder().WithScheme(scheme).
+				WithInterceptorFuncs(interceptor.Funcs{
+					List: func(ctx context.Context, cl client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+						if tt.failOn(list) {
+							return fmt.Errorf("simulated list failure")
+						}
+						return cl.List(ctx, list, opts...)
+					},
+				}).
+				Build()
+
+			r := NewAttunePolicyReconciler()
+			r.Client = c
+
+			got := r.checkQuotaCompatibility(context.Background(), "default", tt.current, tt.target)
+			if !tt.wantErr {
+				assert.NoError(t, got)
+				return
+			}
+			require.Error(t, got)
+			assert.Contains(t, got.Error(), tt.errSubstr)
+		})
+	}
 }
 
 // ---------- SetNowFunc nil path ----------

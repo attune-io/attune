@@ -22,6 +22,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -361,7 +362,8 @@ func TestLatestSampleValue(t *testing.T) {
 }
 
 func TestNewDatadogCollector_Defaults(t *testing.T) {
-	c := NewDatadogCollector("", "api", "app", logr.Discard())
+	c, err := NewDatadogCollector("", "api", "app", logr.Discard())
+	require.NoError(t, err)
 	require.NotNil(t, c)
 	assert.Equal(t, "https://api.datadoghq.com", c.baseURL)
 	assert.Equal(t, "api", c.apiKey)
@@ -369,12 +371,48 @@ func TestNewDatadogCollector_Defaults(t *testing.T) {
 	assert.Equal(t, "kubernetes.cpu.usage.total", c.cpuMetricName)
 	require.NotNil(t, c.httpClient)
 	assert.Equal(t, 30*time.Second, c.httpClient.Timeout)
+	require.NotNil(t, c.httpClient.CheckRedirect)
 }
 
 func TestNewDatadogCollector_CustomSite(t *testing.T) {
-	c := NewDatadogCollector("datadoghq.eu", "k", "a", logr.Discard())
+	c, err := NewDatadogCollector("datadoghq.eu", "k", "a", logr.Discard())
+	require.NoError(t, err)
 	require.NotNil(t, c)
 	assert.Equal(t, "https://api.datadoghq.eu", c.baseURL)
+}
+
+func TestNewDatadogCollector_RejectsInvalidSite(t *testing.T) {
+	c, err := NewDatadogCollector("evil.example", "k", "a", logr.Discard())
+	require.Error(t, err)
+	assert.Nil(t, c)
+	assert.Contains(t, err.Error(), "not a recognized Datadog site")
+
+	c, err = NewDatadogCollector("datadoghq.com.evil.example", "k", "a", logr.Discard())
+	require.Error(t, err)
+	assert.Nil(t, c)
+}
+
+func TestNewDatadogCollector_DoesNotFollowRedirects(t *testing.T) {
+	var sawEvil atomic.Bool
+	evil := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		sawEvil.Store(true)
+		assert.Empty(t, r.Header.Get("DD-API-KEY"), "API key must not be sent to the redirect target")
+	}))
+	defer evil.Close()
+
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, evil.URL, http.StatusFound)
+	}))
+	defer origin.Close()
+
+	c, err := NewDatadogCollector("datadoghq.com", "secret-api-key", "app", logr.Discard())
+	require.NoError(t, err)
+	c.baseURL = origin.URL
+
+	_, err = c.QueryRangeGrouped(context.Background(), "avg:system.cpu.user{*}", time.Unix(1700000000, 0), time.Unix(1700000600, 0), time.Minute)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, errDatadogRedirect)
+	assert.False(t, sawEvil.Load(), "must not follow redirect to attacker host")
 }
 
 // Verify DatadogCollector implements MetricsCollector.

@@ -14,7 +14,7 @@ GOTESTSUM_VERSION ?= v1.13.0
 GOVULNCHECK_VERSION ?= v1.7.0
 K3D_VERSION ?= v5.8.3
 GITLEAKS_VERSION ?= 8.30.1
-CERT_MANAGER_VERSION ?= v1.17.2
+CERT_MANAGER_VERSION ?= v1.21.1
 KO_VERSION ?= v0.18.0
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
@@ -476,7 +476,7 @@ gotestsum: ## Install gotestsum
 SETUP_ENVTEST = $(LOCALBIN)/setup-envtest
 .PHONY: setup-envtest
 setup-envtest: ## Install setup-envtest
-	@test -s $(SETUP_ENVTEST) || go install sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.24
+	@test -s $(SETUP_ENVTEST) || go install sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.24.1
 
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint-$(GOLANGCI_LINT_VERSION)
 .PHONY: golangci-lint

@@ -1931,6 +1931,39 @@ func TestComputeRecommendations_InWindowSampleOlderThanFreshnessIsStale(t *testi
 	assert.True(t, rec.LastDataTime.Equal(&metav1.Time{Time: old}))
 }
 
+// TestComputeRecommendations_NewestNonFiniteDoesNotRefreshLastDataTime is
+// the live-red contract: NaN/Inf at now must not advance LastDataTime or
+// clear stale. Removing the finite-only filter fails this test.
+func TestComputeRecommendations_NewestNonFiniteDoesNotRefreshLastDataTime(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.MetricsSource.MinimumDataPoints = int32Ptr(1)
+	deploy := newTestDeployment("api-server", "default", nil)
+	now := time.Date(2026, 9, 1, 15, 0, 0, 0, time.UTC)
+	reconciler := newReconcilerWithClient()
+	reconciler.SetNowFunc(func() time.Time { return now })
+
+	old := now.Add(-30 * time.Minute)
+	mc := &mockCollector{
+		queryRangeGroupedFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) (map[string][]rsmetrics.Sample, error) {
+			return map[string][]rsmetrics.Sample{
+				"main": {
+					{Timestamp: old, Value: 0.1},
+					{Timestamp: now, Value: math.NaN()},
+					{Timestamp: now, Value: math.Inf(1)},
+				},
+			}, nil
+		},
+	}
+
+	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil, nil)
+	require.NoError(t, err)
+	require.NotNil(t, rec)
+	assert.True(t, rec.Stale, "newest NaN/Inf must not refresh LastDataTime; 30m-old finite sample is stale")
+	require.NotNil(t, rec.LastDataTime)
+	assert.True(t, rec.LastDataTime.Equal(&metav1.Time{Time: old}), "LastDataTime must stay the last finite sample, not now")
+	assert.False(t, rec.LastDataTime.Time.Equal(now), "NaN/Inf at now must not become LastDataTime")
+}
+
 func TestComputeRecommendations_ExpiredReuseIsDropped(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	deploy := newTestDeployment("api-server", "default", nil)
@@ -1960,6 +1993,36 @@ func TestComputeRecommendations_ExpiredReuseIsDropped(t *testing.T) {
 	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	assert.Nil(t, rec, "reuse must expire when LastDataTime is older than 3*queryStep")
+}
+
+func TestComputeRecommendations_ReuseIgnoresMissingLastDataTime(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	deploy := newTestDeployment("api-server", "default", nil)
+	now := time.Date(2026, 9, 1, 15, 0, 0, 0, time.UTC)
+	reconciler := newReconcilerWithClient()
+	reconciler.SetNowFunc(func() time.Time { return now })
+
+	cpuRec, err := resource.ParseQuantity("250m")
+	require.NoError(t, err)
+	policy.Status.Recommendations = []attunev1alpha1.WorkloadRecommendation{{
+		Workload:     "api-server",
+		Kind:         "Deployment",
+		LastDataTime: nil,
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name:        "main",
+			Recommended: attunev1alpha1.ResourceValues{CPURequest: cpuRec},
+		}},
+	}}
+
+	mc := &mockCollector{
+		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return nil, nil
+		},
+	}
+
+	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil, nil)
+	require.NoError(t, err)
+	assert.Nil(t, rec, "reuse must refuse a prior rec with missing LastDataTime")
 }
 
 func TestComputeRecommendations_ReuseIgnoresDifferentKind(t *testing.T) {
@@ -2190,6 +2253,58 @@ func TestComputeRecommendations_PartialQueryErrorTracksFailedMetricType(t *testi
 	require.NotNil(t, rec)
 	assert.Equal(t, 1, qErrors)
 	assert.Equal(t, []string{"memory"}, failedMetricTypes)
+}
+
+// TestComputeRecommendations_SeriesCappedUsesPartialData is the live-red
+// contract: ErrSeriesCapped is a soft error. Treating it as a hard fail
+// reuses the prior stale row and fails this test.
+func TestComputeRecommendations_SeriesCappedUsesPartialData(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.MetricsSource.MinimumDataPoints = int32Ptr(1)
+	deploy := newTestDeployment("api-server", "default", nil)
+	now := time.Date(2026, 9, 1, 15, 0, 0, 0, time.UTC)
+	reconciler := newReconcilerWithClient()
+	reconciler.SetNowFunc(func() time.Time { return now })
+
+	priorData := metav1.NewTime(now.Add(-2 * time.Minute))
+	priorCPU, err := resource.ParseQuantity("250m")
+	require.NoError(t, err)
+	priorMem, err := resource.ParseQuantity("256Mi")
+	require.NoError(t, err)
+	policy.Status.Recommendations = []attunev1alpha1.WorkloadRecommendation{{
+		Workload:     "api-server",
+		Kind:         "Deployment",
+		LastDataTime: &priorData,
+		Stale:        false,
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "main",
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest:    priorCPU,
+				MemoryRequest: priorMem,
+			},
+		}},
+	}}
+
+	fresh := now.Add(-30 * time.Second)
+	mc := &mockCollector{
+		queryRangeGroupedFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) (map[string][]rsmetrics.Sample, error) {
+			samples := []rsmetrics.Sample{{Timestamp: fresh, Value: 0.1}}
+			if !strings.Contains(query, "cpu_usage_seconds_total") {
+				samples = []rsmetrics.Sample{{Timestamp: fresh, Value: 128 * 1024 * 1024}}
+			}
+			return map[string][]rsmetrics.Sample{"main": samples}, fmt.Errorf("%w: kept 1 series", rsmetrics.ErrSeriesCapped)
+		},
+	}
+
+	rec, qErrors, _, _, seriesCapped, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil, nil)
+	require.NoError(t, err)
+	assert.True(t, seriesCapped, "ErrSeriesCapped must surface as seriesCapped, not a hard query error")
+	assert.Equal(t, 0, qErrors, "series cap is a soft error; partial samples must not increment queryErrors")
+	require.NotNil(t, rec)
+	assert.False(t, rec.Stale, "partial capped samples must produce a fresh rec, not reuse the prior status row")
+	require.NotNil(t, rec.LastDataTime)
+	assert.True(t, rec.LastDataTime.Equal(&metav1.Time{Time: fresh}), "LastDataTime must come from the partial samples")
+	assert.False(t, rec.LastDataTime.Equal(&priorData), "must not reuse the prior status LastDataTime")
 }
 
 func TestComputeRecommendations_ContextCancelledDuringParallelQueries(t *testing.T) {
@@ -2779,6 +2894,32 @@ func TestResolveDatadogCollector_WithAppKey(t *testing.T) {
 	collector, _, err := reconciler.resolveDatadogCollector(context.Background(), policy)
 	require.NoError(t, err)
 	assert.NotNil(t, collector, "collector should succeed when app-key is present")
+}
+
+func TestResolveDatadogCollector_RejectsInvalidSite(t *testing.T) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "dd-keys", Namespace: "default"},
+		Data: map[string][]byte{
+			"api-key": []byte("test-api-key"),
+		},
+	}
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Datadog: &attunev1alpha1.DatadogConfig{
+					Site:            "evil.example",
+					APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "dd-keys", Key: "api-key"},
+				},
+			},
+		},
+	}
+	reconciler := newReconcilerWithClient(secret)
+
+	collector, _, err := reconciler.resolveDatadogCollector(context.Background(), policy)
+	require.Error(t, err)
+	assert.Nil(t, collector)
+	assert.Contains(t, err.Error(), "not a recognized Datadog site")
 }
 
 func TestResolveDatadogCollector_MissingSecret(t *testing.T) {
@@ -6089,6 +6230,93 @@ func TestCheckPendingSafetyObservations_UnsafeVerdictReverts(t *testing.T) {
 		}
 	}
 	assert.True(t, foundResize, "should have called UpdateResize to revert the pod")
+}
+
+func TestCheckPendingSafetyObservations_RevertUsesWithoutCancel(t *testing.T) {
+	// PromQL can spend the whole PrometheusTimeout. RevertPod must not
+	// inherit that dead deadline (same class as persist confirm).
+	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "cancelled-ctx-pod",
+			Namespace: "default",
+			Labels:    map[string]string{"app": "test", "attune.io/tracked": "true"},
+			Annotations: map[string]string{
+				"attune.io/resized-at":                   resizedAt,
+				"attune.io/resized-workload":             "api-server",
+				"attune.io/resized-containers":           "main",
+				"attune.io/original-cpu-request.main":    "500m",
+				"attune.io/original-memory-request.main": "512Mi",
+				"attune.io/policy":                       "test-policy",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  "main",
+					Image: "nginx",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("250m"),
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionFalse},
+			},
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "main", RestartCount: 0},
+			},
+		},
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	reconciler, _ := newSafetyTestReconciler(pod)
+	reconciler.Clientset = &cancelAwareResizeClientset{Interface: reconciler.Clientset}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	reconciler.checkPendingSafetyObservations(ctx, policy, nil, safetyWorkloads())
+
+	var foundResize bool
+	for _, a := range reconciler.Clientset.(*cancelAwareResizeClientset).Interface.(*kubefake.Clientset).Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			foundResize = true
+		}
+	}
+	assert.True(t, foundResize, "revert must still UpdateResize after a spent Prometheus deadline")
+}
+
+type cancelAwareResizeClientset struct {
+	kubernetes.Interface
+}
+
+func (c *cancelAwareResizeClientset) CoreV1() corev1client.CoreV1Interface {
+	return &cancelAwareResizeCoreV1{CoreV1Interface: c.Interface.CoreV1()}
+}
+
+type cancelAwareResizeCoreV1 struct {
+	corev1client.CoreV1Interface
+}
+
+func (c *cancelAwareResizeCoreV1) Pods(namespace string) corev1client.PodInterface {
+	return &cancelAwareResizePods{PodInterface: c.CoreV1Interface.Pods(namespace)}
+}
+
+type cancelAwareResizePods struct {
+	corev1client.PodInterface
+}
+
+func (p *cancelAwareResizePods) UpdateResize(ctx context.Context, name string, pod *corev1.Pod, opts metav1.UpdateOptions) (*corev1.Pod, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return p.PodInterface.UpdateResize(ctx, name, pod, opts)
 }
 
 func TestCheckPendingSafetyObservations_UnsafeVerdictMarksHistoryReverted(t *testing.T) {

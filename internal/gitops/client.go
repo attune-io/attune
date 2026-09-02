@@ -34,8 +34,37 @@ import (
 
 var errGitOpsRedirect = errors.New("redirects are not allowed")
 
+// errGitOpsEmptyDNS is wrapped when DNS returns no addresses (fail closed).
+var errGitOpsEmptyDNS = errors.New("empty address list")
+
 // ErrSSRFBlocked is returned when the GitOps HTTP dial refuses the resolved address.
 var ErrSSRFBlocked = errors.New("gitops SSRF blocked")
+
+// ErrLabelsApplied is returned with a populated PRResult when the PR exists
+// but applying labels failed. Callers must persist the URL.
+var ErrLabelsApplied = errors.New("labels applied failed")
+
+type gitopsRequestHostKey struct{}
+
+func withGitOpsRequestHost(ctx context.Context, host string) context.Context {
+	return context.WithValue(ctx, gitopsRequestHostKey{}, host)
+}
+
+func gitopsRequestHost(ctx context.Context) string {
+	host, _ := ctx.Value(gitopsRequestHostKey{}).(string)
+	return host
+}
+
+func gitopsSameHost(dialHost, requestHost string) bool {
+	a := strings.TrimSuffix(strings.ToLower(dialHost), ".")
+	b := strings.TrimSuffix(strings.ToLower(requestHost), ".")
+	if a == b {
+		return true
+	}
+	ipA := net.ParseIP(a)
+	ipB := net.ParseIP(b)
+	return ipA != nil && ipB != nil && ipA.Equal(ipB)
+}
 
 // PRRequest is the input for create-or-update PR.
 type PRRequest struct {
@@ -143,6 +172,10 @@ func (c *GitHubClient) CreateOrUpdate(ctx context.Context, req PRRequest) (PRRes
 		if code < 200 || code >= 300 {
 			return PRResult{}, fmt.Errorf("github update PR: status %d", code)
 		}
+		if err := c.applyIssueLabels(ctx, httpClient, base, pr.Number, req.Labels); err != nil {
+			return PRResult{URL: pr.HTMLURL, Number: pr.Number, Updated: true},
+				fmt.Errorf("%w: %w", ErrLabelsApplied, err)
+		}
 		return PRResult{URL: pr.HTMLURL, Number: pr.Number, Updated: true}, nil
 	}
 
@@ -174,12 +207,28 @@ func (c *GitHubClient) CreateOrUpdate(ctx context.Context, req PRRequest) (PRRes
 	if err := json.Unmarshal(respBody, &created); err != nil {
 		return PRResult{}, fmt.Errorf("github create PR decode: %w", err)
 	}
-	// Labels (best-effort)
-	if len(req.Labels) > 0 && created.Number > 0 {
-		labURL := fmt.Sprintf("%s/repos/%s/issues/%d/labels", base, c.Repository, created.Number)
-		_, _, _ = c.doJSON(ctx, httpClient, http.MethodPost, labURL, map[string]interface{}{"labels": req.Labels})
+	if err := c.applyIssueLabels(ctx, httpClient, base, created.Number, req.Labels); err != nil {
+		return PRResult{URL: created.HTMLURL, Number: created.Number, Updated: false},
+			fmt.Errorf("%w: %w", ErrLabelsApplied, err)
 	}
 	return PRResult{URL: created.HTMLURL, Number: created.Number, Updated: false}, nil
+}
+
+// applyIssueLabels POSTs configured labels onto the GitHub issue/PR.
+// Failures are returned (not swallowed) so reconcile can retry.
+func (c *GitHubClient) applyIssueLabels(ctx context.Context, httpClient HTTPDoer, apiBase string, number int, labels []string) error {
+	if len(labels) == 0 || number <= 0 {
+		return nil
+	}
+	labURL := fmt.Sprintf("%s/repos/%s/issues/%d/labels", apiBase, c.Repository, number)
+	_, code, err := c.doJSON(ctx, httpClient, http.MethodPost, labURL, map[string]interface{}{"labels": labels})
+	if err != nil {
+		return fmt.Errorf("github apply labels: %w", err)
+	}
+	if code < 200 || code >= 300 {
+		return fmt.Errorf("github apply labels: status %d", code)
+	}
+	return nil
 }
 
 // ensureHeadBranch creates req head from base with an empty bootstrap commit when
@@ -351,7 +400,11 @@ func (c *GitLabClient) CreateOrUpdate(ctx context.Context, req PRRequest) (PRRes
 	}
 	if len(existing) > 0 {
 		patchURL := fmt.Sprintf("%s/projects/%s/merge_requests/%d", base, project, existing[0].IID)
-		payload := map[string]string{"title": req.Title, "description": req.Body}
+		payload := map[string]interface{}{
+			"title":       req.Title,
+			"description": req.Body,
+			"labels":      strings.Join(req.Labels, ","),
+		}
 		_, code, err := c.doJSON(ctx, httpClient, http.MethodPut, patchURL, payload)
 		if err != nil {
 			return PRResult{}, err
@@ -495,21 +548,56 @@ func gitopsCheckRedirect(*http.Request, []*http.Request) error {
 	return errGitOpsRedirect
 }
 
+// lookupIPAddr is the DNS hook used by GitOps SSRF checks. Tests replace it
+// to simulate rebinding (allowlisted IP, then IMDS).
+var lookupIPAddr = func(ctx context.Context, host string) ([]net.IPAddr, error) {
+	return net.DefaultResolver.LookupIPAddr(ctx, host)
+}
+
 // gitopsSafeTransport checks the request URL host (the SSRF target) before
 // the request is sent. The inner transport may use HTTPS_PROXY; the proxy
 // hop itself is not the SSRF target. allowPrivate permits RFC1918/ULA
 // forges. Loopback, link-local, unspecified, and AWS IPv6 IMDS stay blocked.
 func gitopsSafeTransport(allowPrivate bool) http.RoundTripper {
+	dialer := &net.Dialer{Timeout: 10 * time.Second}
 	return &gitopsSSRFTransport{
 		allowPrivate: allowPrivate,
 		base: &http.Transport{
-			Proxy:                 http.ProxyFromEnvironment,
-			DialContext:           (&net.Dialer{Timeout: 10 * time.Second}).DialContext,
+			Proxy: http.ProxyFromEnvironment,
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				return gitopsDialContext(ctx, network, addr, allowPrivate, dialer)
+			},
 			ResponseHeaderTimeout: 30 * time.Second,
 			IdleConnTimeout:       90 * time.Second,
 			MaxIdleConnsPerHost:   10,
 		},
 	}
+}
+
+func gitopsDialContext(ctx context.Context, network, addr string, allowPrivate bool, dialer *net.Dialer) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, fmt.Errorf("gitops dial: invalid address %q: %w", addr, err)
+	}
+	// HTTPS_PROXY / HTTP_PROXY hops are not the SSRF target. Dial them with
+	// the default dialer. The request URL host is checked in RoundTrip and
+	// pin-dialed below when this addr is the request host (direct).
+	if reqHost := gitopsRequestHost(ctx); reqHost != "" && !gitopsSameHost(host, reqHost) {
+		return dialer.DialContext(ctx, network, addr)
+	}
+	if validation.GitOpsBlockedHost(host) {
+		return nil, fmt.Errorf("%w: host %q is a disallowed address", ErrSSRFBlocked, host)
+	}
+	ips, err := gitopsResolveHost(ctx, host)
+	if err != nil {
+		return nil, err
+	}
+	for _, ip := range ips {
+		if gitopsDialBlocked(ip.IP, allowPrivate) {
+			return nil, fmt.Errorf("%w: host %q resolved to a disallowed address", ErrSSRFBlocked, host)
+		}
+	}
+	return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
 }
 
 type gitopsSSRFTransport struct {
@@ -522,16 +610,32 @@ func (t *gitopsSSRFTransport) RoundTrip(req *http.Request) (*http.Response, erro
 	if host == "" {
 		return nil, fmt.Errorf("gitops dial: invalid address")
 	}
-	ips, err := net.DefaultResolver.LookupIPAddr(req.Context(), host)
+	if validation.GitOpsBlockedHost(host) {
+		return nil, fmt.Errorf("%w: host %q is a disallowed address", ErrSSRFBlocked, host)
+	}
+	ips, err := gitopsResolveHost(req.Context(), host)
 	if err != nil {
-		return nil, fmt.Errorf("gitops dial: DNS resolution failed")
+		return nil, err
 	}
 	for _, ip := range ips {
 		if gitopsDialBlocked(ip.IP, t.allowPrivate) {
 			return nil, fmt.Errorf("%w: host %q resolved to a disallowed address", ErrSSRFBlocked, host)
 		}
 	}
-	return t.base.RoundTrip(req)
+	return t.base.RoundTrip(req.WithContext(withGitOpsRequestHost(req.Context(), host)))
+}
+
+// gitopsResolveHost looks up host and fails closed on resolver errors or
+// an empty address list. The host is always named and the cause is wrapped.
+func gitopsResolveHost(ctx context.Context, host string) ([]net.IPAddr, error) {
+	ips, err := lookupIPAddr(ctx, host)
+	if err != nil {
+		return nil, fmt.Errorf("gitops dial: DNS resolution failed for %q: %w", host, err)
+	}
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("gitops dial: DNS resolution failed for %q: %w", host, errGitOpsEmptyDNS)
+	}
+	return ips, nil
 }
 
 func gitopsDialBlocked(ip net.IP, allowPrivate bool) bool {

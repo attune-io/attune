@@ -591,6 +591,56 @@ func (leakingPRClient) CreateOrUpdate(_ context.Context, _ gitops.PRRequest) (gi
 	return gitops.PRResult{}, fmt.Errorf("github create PR: status 403: ami-secret-should-not-leak")
 }
 
+// labelsFailedPRClient returns a PR URL plus a label-apply error so the
+// controller must persist the URL instead of wiping it.
+type labelsFailedPRClient struct{}
+
+func (labelsFailedPRClient) CreateOrUpdate(_ context.Context, _ gitops.PRRequest) (gitops.PRResult, error) {
+	return gitops.PRResult{
+		URL:    "https://github.com/org/repo/pull/7",
+		Number: 7,
+	}, fmt.Errorf("%w: github apply labels: status 403", gitops.ErrLabelsApplied)
+}
+
+func TestReconcileGitOpsPullRequest_LabelFailureKeepsURL(t *testing.T) {
+	t.Parallel()
+	scheme := runtime.NewScheme()
+	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+
+	en := true
+	dry := false
+	policy := gitOpsEnabledPolicy("p", "default", dry, nil)
+	policy.Spec.UpdateStrategy.Export.PullRequest.Enabled = &en
+	dep := gitOpsDriftDeployment("api", "default", "1")
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(policy, dep).
+		WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = c
+	r.gitopsPRClient = labelsFailedPRClient{}
+
+	r.reconcileGitOpsPullRequest(context.Background(), policy, []client.Object{dep}, gitOpsCPURec("api", "100m"))
+
+	var reason, message string
+	for _, cond := range policy.Status.Conditions {
+		if cond.Type == attunev1alpha1.ConditionGitOpsPullRequest {
+			reason = cond.Reason
+			message = cond.Message
+		}
+	}
+	assert.Equal(t, attunev1alpha1.ReasonGitOpsPRFailed, reason)
+	assert.Contains(t, message, "failed applying configured labels")
+	assert.Contains(t, message, "https://github.com/org/repo/pull/7")
+	assert.Equal(t, "https://github.com/org/repo/pull/7", policy.Annotations[annotationGitOpsPRURL])
+	assert.Equal(t, "https://github.com/org/repo/pull/7", gitOpsStoredURL(policy))
+
+	stored := &attunev1alpha1.AttunePolicy{}
+	require.NoError(t, c.Get(context.Background(), client.ObjectKeyFromObject(policy), stored))
+	assert.Equal(t, "https://github.com/org/repo/pull/7", stored.Annotations[annotationGitOpsPRURL])
+	assert.NotEmpty(t, stored.Annotations[annotationGitOpsPRLastAttempt])
+}
+
 func itoaPR(n int) string {
 	if n < 0 {
 		n = 0

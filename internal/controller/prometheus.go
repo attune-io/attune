@@ -648,6 +648,14 @@ func (r *AttunePolicyReconciler) promQLBuilder(policy *attunev1alpha1.AttunePoli
 func (r *AttunePolicyReconciler) resolveDatadogCollector(ctx context.Context, policy *attunev1alpha1.AttunePolicy) (rsmetrics.MetricsCollector, rsmetrics.QueryBuilder, error) {
 	dd := policy.Spec.MetricsSource.Datadog
 
+	site := dd.Site
+	if site == "" {
+		site = "datadoghq.com"
+	}
+	if err := validation.DatadogSite(site); err != nil {
+		return nil, nil, fmt.Errorf("datadog site: %w", err)
+	}
+
 	// Read API key from the referenced Secret.
 	apiKey, err := r.readSecretKey(ctx, policy.Namespace, dd.APIKeySecretRef.Name, dd.APIKeySecretRef.Key)
 	if err != nil {
@@ -657,17 +665,15 @@ func (r *AttunePolicyReconciler) resolveDatadogCollector(ctx context.Context, po
 	// Read optional app key from the same Secret (key "app-key").
 	appKey, _ := r.readSecretKey(ctx, policy.Namespace, dd.APIKeySecretRef.Name, "app-key")
 
-	site := dd.Site
-	if site == "" {
-		site = "datadoghq.com"
-	}
-
 	// Cache the collector keyed by site + API key (non-crypto identifier), with full
 	// TTL eviction, capacity bound, and race-safe LoadOrStore.
 	// We avoid hashing the actual secret bytes to satisfy CodeQL "weak crypto on sensitive data".
 	cacheKey := fmt.Sprintf("datadog:%s|%s", site, secretForCacheKey(apiKey))
 	collector, err := r.getOrCreateCollectorByKey(cacheKey, "datadog:"+site, func() (rsmetrics.MetricsCollector, error) {
-		inner := rsmetrics.NewDatadogCollector(site, apiKey, appKey, log.FromContext(ctx).WithName("datadog"))
+		inner, innerErr := rsmetrics.NewDatadogCollector(site, apiKey, appKey, log.FromContext(ctx).WithName("datadog"))
+		if innerErr != nil {
+			return nil, innerErr
+		}
 		// Datadog: 300 requests/hour => ~0.08 QPS; burst of 3 for concurrent queries.
 		return rsmetrics.NewRateLimitedCollector(inner, 0.08, 3), nil
 	})

@@ -772,16 +772,23 @@ func (r *AttunePolicyReconciler) setDegradedCondition(policy *attunev1alpha1.Att
 // LimitRange or ResourceQuota constraints in the namespace.
 func (r *AttunePolicyReconciler) checkQuotaCompatibility(ctx context.Context, namespace string, currentResources, target corev1.ResourceRequirements) error {
 	logger := log.FromContext(ctx)
+	requestIncrease := resourcesIncreaseRequests(currentResources, target)
 
 	// Check LimitRange per-container min/max.
 	var limitRangeList corev1.LimitRangeList
 	if err := r.List(ctx, &limitRangeList, client.InNamespace(namespace)); err != nil {
 		logger.V(1).Info("Could not list LimitRanges", "error", err)
+		if requestIncrease {
+			return fmt.Errorf("LimitRange list unavailable; skipping request increase; check RBAC list/watch on resourcequotas and limitranges")
+		}
 	}
 
 	var quotaList corev1.ResourceQuotaList
 	if err := r.List(ctx, &quotaList, client.InNamespace(namespace)); err != nil {
 		logger.V(1).Info("Could not list ResourceQuotas", "error", err)
+		if requestIncrease {
+			return fmt.Errorf("ResourceQuota list unavailable; skipping request increase; check RBAC list/watch on resourcequotas and limitranges")
+		}
 	}
 
 	return checkQuotaCompatibilityFromLists(limitRangeList.Items, quotaList.Items, currentResources, target)
@@ -850,9 +857,7 @@ func checkQuotaHeadroom(quota corev1.ResourceQuota, current, target corev1.Resou
 	memDelta := target.Requests.Memory().Value() - current.Requests.Memory().Value()
 
 	if cpuDelta > 0 {
-		hardCPU, hasHard := quota.Status.Hard[corev1.ResourceRequestsCPU]
-		usedCPU, hasUsed := quota.Status.Used[corev1.ResourceRequestsCPU]
-		if hasHard && hasUsed {
+		if hardCPU, usedCPU, ok := quotaHardUsed(quota, corev1.ResourceRequestsCPU, corev1.ResourceCPU); ok {
 			headroom := hardCPU.MilliValue() - usedCPU.MilliValue()
 			if cpuDelta > headroom {
 				return fmt.Errorf("CPU increase of %dm would exceed ResourceQuota %s (headroom: %dm)",
@@ -862,9 +867,7 @@ func checkQuotaHeadroom(quota corev1.ResourceQuota, current, target corev1.Resou
 	}
 
 	if memDelta > 0 {
-		hardMem, hasHard := quota.Status.Hard[corev1.ResourceRequestsMemory]
-		usedMem, hasUsed := quota.Status.Used[corev1.ResourceRequestsMemory]
-		if hasHard && hasUsed {
+		if hardMem, usedMem, ok := quotaHardUsed(quota, corev1.ResourceRequestsMemory, corev1.ResourceMemory); ok {
 			headroom := hardMem.Value() - usedMem.Value()
 			if memDelta > headroom {
 				return fmt.Errorf("memory increase of %s would exceed ResourceQuota %s (headroom: %s)",
@@ -875,7 +878,59 @@ func checkQuotaHeadroom(quota corev1.ResourceQuota, current, target corev1.Resou
 		}
 	}
 
+	if target.Limits != nil {
+		cpuLimDelta := target.Limits.Cpu().MilliValue() - current.Limits.Cpu().MilliValue()
+		memLimDelta := target.Limits.Memory().Value() - current.Limits.Memory().Value()
+		if cpuLimDelta > 0 {
+			hardCPU, hasHard := quota.Status.Hard[corev1.ResourceLimitsCPU]
+			usedCPU, hasUsed := quota.Status.Used[corev1.ResourceLimitsCPU]
+			if hasHard && hasUsed {
+				headroom := hardCPU.MilliValue() - usedCPU.MilliValue()
+				if cpuLimDelta > headroom {
+					return fmt.Errorf("CPU limit increase of %dm would exceed ResourceQuota %s (headroom: %dm)",
+						cpuLimDelta, quota.Name, headroom)
+				}
+			}
+		}
+		if memLimDelta > 0 {
+			hardMem, hasHard := quota.Status.Hard[corev1.ResourceLimitsMemory]
+			usedMem, hasUsed := quota.Status.Used[corev1.ResourceLimitsMemory]
+			if hasHard && hasUsed {
+				headroom := hardMem.Value() - usedMem.Value()
+				if memLimDelta > headroom {
+					return fmt.Errorf("memory limit increase of %s would exceed ResourceQuota %s (headroom: %s)",
+						resource.NewQuantity(memLimDelta, resource.BinarySI).String(),
+						quota.Name,
+						resource.NewQuantity(headroom, resource.BinarySI).String())
+				}
+			}
+		}
+	}
+
 	return nil
+}
+
+// quotaHardUsed resolves a ResourceQuota hard/used pair, preferring the
+// requests.* name and falling back to the cpu/memory alias.
+func quotaHardUsed(quota corev1.ResourceQuota, preferred, alias corev1.ResourceName) (hard, used resource.Quantity, ok bool) {
+	hard, hasHard := quota.Status.Hard[preferred]
+	if !hasHard {
+		hard, hasHard = quota.Status.Hard[alias]
+	}
+	used, hasUsed := quota.Status.Used[preferred]
+	if !hasUsed {
+		used, hasUsed = quota.Status.Used[alias]
+	}
+	return hard, used, hasHard && hasUsed
+}
+
+// resourcesIncreaseRequests reports whether target raises CPU or memory
+// requests relative to current.
+func resourcesIncreaseRequests(current, target corev1.ResourceRequirements) bool {
+	if target.Requests.Cpu().MilliValue() > current.Requests.Cpu().MilliValue() {
+		return true
+	}
+	return target.Requests.Memory().Value() > current.Requests.Memory().Value()
 }
 
 // markLatestCycleReverted marks history entries from the most recent resize
