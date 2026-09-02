@@ -1063,7 +1063,7 @@ func printExplain(ctx context.Context, dynClient dynamic.Interface, namespace, p
 		workload, _ := rec["workload"].(string)
 		fmt.Printf("\nWorkload: %s\n", workload)
 		if recStale(rec) {
-			fmt.Printf("  stale (no fresh Prometheus data; last-known status is kept; apply paths skip until fresh data: resize, boost, export rewrite, GitOps, preview/diff/wizard)\n")
+			fmt.Printf("  stale (no fresh Prometheus data; last-known status is kept; apply paths skip until fresh data: resize, boost, initial sizing, template persist, export rewrite, GitOps, preview/diff/wizard)\n")
 		}
 		containers, _ := rec["containers"].([]interface{})
 		for _, c := range containers {

@@ -249,7 +249,8 @@ annotation.
 **Cause**: The mutating webhook only patches CREATE when every gate passes.
 A selector policy also has to fetch the owning Deployment, StatefulSet, or
 DaemonSet and match `targetRef.selector`. Get or parse errors skip the
-pod (the CREATE is still allowed).
+pod (the CREATE is still allowed). A stale recommendation also skips
+initial sizing (last-known values stay in status, but CREATE is not patched).
 
 **Fix**:
 
@@ -808,9 +809,10 @@ large pod count.
 
 When Prometheus does not return fresh data during a reconcile cycle, the
 operator marks the recommendation as **stale** and skips apply paths that
-would act on outdated metrics. Resize is one example; startup boost is also
-skipped, the recommendation ConfigMap is not rewritten, and a GitOps apply
-PR is not opened. You will see this in the operator logs (resize example):
+would act on outdated metrics. Resize is one example; startup boost, initial
+sizing (CREATE webhook), and template persistence are also skipped, the
+recommendation ConfigMap is not rewritten, and a GitOps apply PR is not
+opened. You will see this in the operator logs (resize example):
 
 ```
 Skipping resize for workload with stale recommendation  workload=my-app
@@ -1008,6 +1010,7 @@ spec:
   `when: OnRecommendation` for Recommend.
 - **`OnRecommendation`**: still skipped in **Observe** mode.
 - **Canary**: template patches wait until canary reaches `FullRollout`.
+- **Stale recommendation**: `recommendations[].stale` is true; the template is not patched until fresh Prometheus data.
 
 ### Mid-rollout or no-op
 

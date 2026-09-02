@@ -59,7 +59,7 @@ Each entry in the array contains:
 | `containers[].explanation` | Estimator chain (percentile → margin → burst → confidence → bounds → change filter) |
 | `containers[].confidence` | Score between 0 and 1 |
 | `containers[].dataPoints` | Number of Prometheus samples used |
-| `stale` | When true, Prometheus returned no fresh data; last-known values stay in status. Resize, boost, ConfigMap rewrite, kubectl diff/preview/wizard, and GitOps drift are skipped until fresh Prometheus data |
+| `stale` | When true, Prometheus returned no fresh data; last-known values stay in status. Resize, boost, initial sizing webhook, template persistence, ConfigMap rewrite, kubectl diff/preview/wizard, and GitOps drift are skipped until fresh Prometheus data |
 
 ### Why is CPU recommended at Xm?
 
@@ -88,7 +88,7 @@ Recommendations can look "ready" while pods stay unchanged. Common reasons:
 | Budget cap | events `BudgetExhausted`, metric `attune_budget_exhausted_total` | Raise per-cycle caps or reduce targets |
 | Canary not promoted | `status.canary.phase` | Wait for observation or set `autoPromote` |
 | Deferred / Infeasible | condition `ResizeBlocked`, `workloads.deferred` / `infeasible` | See [troubleshooting](troubleshooting.md#deferred-or-infeasible-resize-stuck-pods) |
-| Stale data | `recommendations[].stale` | Last-known values stay in status. Resize, boost, ConfigMap rewrite, kubectl diff/preview/wizard, and GitOps drift skip until fresh Prometheus data. Fix Prometheus reachability |
+| Stale data | `recommendations[].stale` | Last-known values stay in status. Resize, boost, initial sizing webhook, template persistence, ConfigMap rewrite, kubectl diff/preview/wizard, and GitOps drift skip until fresh Prometheus data. Fix Prometheus reachability |
 | Schedule window | condition `ScheduleBlocked` | Wait for window or adjust schedule |
 | At target after clamp | events / logs for filtering or memory clamp | Expected when already near recommendation |
 

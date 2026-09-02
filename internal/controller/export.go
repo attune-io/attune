@@ -50,6 +50,8 @@ func (r *AttunePolicyReconciler) exportRecommendationConfigMaps(
 	for _, rec := range recommendations {
 		// Stale recs stay in currentWorkloads so existing ConfigMaps are not deleted.
 		if rec.Stale {
+			logger.V(1).Info("Skipping ConfigMap rewrite for stale recommendation",
+				"workload", rec.Workload)
 			continue
 		}
 		cmName := fmt.Sprintf("%s-%s-recommendations", policy.Name, rec.Workload)

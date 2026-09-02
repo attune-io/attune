@@ -168,7 +168,7 @@ spec:
 | `recommendations[].containers[].confidence` | `float64` | Confidence score (0-1) |
 | `recommendations[].containers[].dataPoints` | `int32` | Prometheus samples used |
 | `recommendations[].containers[].lastUpdated` | `Time` | Last recommendation timestamp |
-| `recommendations[].stale` | `bool` | `true` when Prometheus returned no fresh data; last-known values stay in status. Resize, boost, ConfigMap rewrite, kubectl preview/diff/wizard, and GitOps drift are skipped until fresh data arrives |
+| `recommendations[].stale` | `bool` | `true` when Prometheus returned no fresh data; last-known values stay in status. Resize, boost, initial sizing webhook, template persistence, ConfigMap rewrite, kubectl preview/diff/wizard, and GitOps drift are skipped until fresh data arrives |
 | `recommendations[].lastDataTime` | `Time` | Timestamp of the most recent Prometheus data point |
 
 | `savings.cpuRequestReduction` | `string` | Total CPU request reduction (e.g. "1200m") |

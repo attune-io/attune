@@ -173,6 +173,10 @@ func (h *PodMutatingHandler) findMatchingPolicy(
 		for j := range policy.Status.Recommendations {
 			rec := &policy.Status.Recommendations[j]
 			if rec.Stale {
+				if rec.Workload == ownerName && rec.Kind == ownerKind {
+					h.Logger.V(1).Info("initial sizing skipped: recommendation is stale",
+						"policy", policy.Name, "owner", ownerName, "pod", podName)
+				}
 				continue
 			}
 			if rec.Workload == ownerName && rec.Kind == ownerKind {
