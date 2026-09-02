@@ -672,7 +672,7 @@
             },
             "memoryFromCpuRatio": {
               "type": "string",
-              "description": "Derive memory from CPU using this ratio (e.g. 4.0 = 4 GiB per core)"
+              "description": "Ignored on CPU. Only memory.memoryFromCpuRatio derives memory from CPU (GiB per core)."
             },
             "startupBoost": {
               "type": "object",

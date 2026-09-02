@@ -410,22 +410,22 @@ func validateOverhead(resource, overhead string) error {
 	return nil
 }
 
-func validateMemoryFromCPURatio(ratio *string) error {
+func validateMemoryFromCPURatio(fieldPath string, ratio *string) error {
 	if ratio == nil || *ratio == "" {
 		return nil
 	}
 	v, err := strconv.ParseFloat(*ratio, 64)
 	if err != nil {
-		return fmt.Errorf("memory.memoryFromCpuRatio %q is not a valid number: %w", *ratio, err)
+		return fmt.Errorf("%s %q is not a valid number: %w", fieldPath, *ratio, err)
 	}
 	if math.IsNaN(v) || math.IsInf(v, 0) {
-		return fmt.Errorf("memory.memoryFromCpuRatio must be a finite number, got %s", *ratio)
+		return fmt.Errorf("%s must be a finite number, got %s", fieldPath, *ratio)
 	}
 	if v <= 0 {
-		return fmt.Errorf("memory.memoryFromCpuRatio must be positive, got %s", *ratio)
+		return fmt.Errorf("%s must be positive, got %s", fieldPath, *ratio)
 	}
 	if v > 1000 { //nolint:mnd // 1000 matches the controller ceiling for GiB-per-core ratios
-		return fmt.Errorf("memory.memoryFromCpuRatio must be <= 1000, got %s", *ratio)
+		return fmt.Errorf("%s must be <= 1000, got %s", fieldPath, *ratio)
 	}
 	return nil
 }

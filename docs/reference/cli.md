@@ -249,7 +249,7 @@ Doctor is single-context. `--all-contexts` and `--contexts` are rejected.
 |-------|----------|-------------|
 | Kubernetes version | Yes | Server version is 1.32 or newer |
 | `pods/resize` | Yes | Discovery lists the `pods/resize` subresource |
-| Prometheus | No | Skipped when no address was seen (none set, or listing failed with no objects). Also skipped for in-cluster DNS (`.svc` / `.cluster.local`). Other addresses, including `service.namespace` without `.svc`, are GET `/-/healthy` from this host (SSRF-checked first). A 401/403 on an address that sets `bearerTokenSecret` or `headers` is skipped (this host does not send the operator's auth). Optional failures print `WARN`, not `FAIL`. |
+| Prometheus | No | Skip-without-ping is `WARN` (`ok:false`), not Pass: no address was seen (none set, or listing failed with no objects). Also `WARN` for in-cluster DNS (`.svc` / `.cluster.local`) and for HTTP 401/403 on an address that sets `bearerTokenSecret` or `headers` (this host does not send the operator's auth). Other addresses, including `service.namespace` without `.svc`, are GET `/-/healthy` from this host (SSRF-checked first). Optional failures print `WARN`, not `FAIL`. |
 
 Exit 0 when every required check passes. A failed Prometheus check is
 printed as `WARN` and does not change the exit code. The ping runs on
@@ -267,8 +267,8 @@ kubectl attune version
 
 `--output` / `-o` is supported with:
 
-- `status`: JSON or YAML of raw `AttunePolicy` objects
-- `diff`: YAML patch manifests
+- `status` only: `-o json` or `-o yaml` dumps raw `AttunePolicy` objects
+- `diff`: `-o yaml` prints YAML patch manifests (not raw policy objects)
 - `savings` and `recommendations`: CSV (header plus one data row per
   policy or container; no totals row). Recommendations CSV includes
   `grade` after `mem_rec` (same A-F bands as the table GRADE column,
@@ -294,11 +294,11 @@ with `kubectl get attunepolicy -o json|yaml`.
 | `--namespace` | `-n` | Target namespace (defaults to current context) |
 | `--all-namespaces` | `-A` | List across all namespaces |
 | `--kubeconfig` | | Path to kubeconfig file |
-| `--output` | `-o` | Output raw `AttunePolicy` objects as `json` or `yaml` (`status` and `diff`) |
+| `--output` | `-o` | `status`: raw `AttunePolicy` objects as `json` or `yaml`. `diff`: YAML patch manifests (`-o yaml` only). `savings` and `recommendations`: `csv` |
 | `--watch` | `-w` | Continuously refresh status every 10 seconds (`status` only) |
 | `--sort-by` | | Sort output: `name`, `namespace`, `savings`, `age` (`status` and `savings` only) |
 | `--filter` | | Filter by condition: `degraded`, `pending`, `collecting`, `ready`, `noworkloads` (`status` only) |
-| `--all-contexts` | | Query all kubeconfig contexts and merge results (`status`, `savings`, `recommendations`, `history` only) |
+| `--all-contexts` | | Query all kubeconfig contexts and merge results (`status`, `savings`, `recommendations`, `history`, `diff`) |
 | `--contexts` | | Comma-separated list of specific kubeconfig contexts to query (same commands as `--all-contexts`) |
 
 ```bash

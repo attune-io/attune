@@ -237,7 +237,7 @@ func validateResourceConfigFields(prefix string, rc *attunev1alpha1.ResourceConf
 	}
 
 	// MemoryFromCPURatio (only meaningful on memory, but validate on any ResourceConfig)
-	if err := validateMemoryFromCPURatio(rc.MemoryFromCPURatio); err != nil {
+	if err := validateMemoryFromCPURatio(prefix+".memoryFromCpuRatio", rc.MemoryFromCPURatio); err != nil {
 		return err
 	}
 

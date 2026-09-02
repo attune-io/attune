@@ -375,7 +375,7 @@ All fields from `AttuneDefaults` are available in
 | Section | Fields |
 |---------|--------|
 | `metricsSource` | `prometheus.address`, `prometheus.headers`, `prometheus.queryParameters`, `prometheus.bearerTokenSecret`, `prometheus.tls`, `datadog.site`, `datadog.apiKeySecretRef`, `cloudwatch.region`, `cloudwatch.clusterName`, `cloudwatch.roleArn`, `historyWindow`, `minimumDataPoints`, `queryStep`, `rateWindow`, `podAggregation`, `cpuRecordingMetric`, `memoryRecordingMetric` |
-| `cpu` | `percentile`, `overhead`, `minAllowed`, `maxAllowed`, `controlledValues`, `burstSensitivity`, `allowDecrease`, `startupBoost`, `maxChangePercent`, `maxIncreasePercent`, `maxDecreasePercent`, `memoryFromCpuRatio` |
+| `cpu` | `percentile`, `overhead`, `minAllowed`, `maxAllowed`, `controlledValues`, `burstSensitivity`, `allowDecrease`, `startupBoost`, `maxChangePercent`, `maxIncreasePercent`, `maxDecreasePercent` |
 | `memory` | Same as `cpu` (no `startupBoost`), plus `decreaseUsageMarginPercent` and `memoryFromCpuRatio` |
 | `updateStrategy` | `type`, `cooldown`, `autoRevert`, `resizeMethod`, `initialSizing`, `maxConcurrentResizes`, `maxStatusRecommendations`, `includeExplanationsInStatus`, `maxTotalCpuIncrease`, `maxTotalMemoryIncrease`, `schedule`, `export`, `canary`, `safetyObservationPeriod`, `sloGuardrails`, `templatePersistence` |
 | `costPricing` | `cpuPerCoreHour`, `memoryPerGiBHour` |
