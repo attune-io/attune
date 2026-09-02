@@ -804,11 +804,13 @@ to limit the cache to the namespaces where your policies exist. Also raise
 operator memory via a `clusterSize` preset if you intentionally watch a
 large pod count.
 
-## Resizes skipped due to stale recommendations
+## Apply paths skipped due to stale recommendations
 
 When Prometheus does not return fresh data during a reconcile cycle, the
-operator marks the recommendation as **stale** and skips the resize to avoid
-acting on outdated metrics. You will see this in the operator logs:
+operator marks the recommendation as **stale** and skips apply paths that
+would act on outdated metrics. Resize is one example; startup boost is also
+skipped, the recommendation ConfigMap is not rewritten, and a GitOps apply
+PR is not opened. You will see this in the operator logs (resize example):
 
 ```
 Skipping resize for workload with stale recommendation  workload=my-app
@@ -829,7 +831,7 @@ kubectl logs -n attune-system deploy/attune \
   | grep -E "stale|Prometheus query returned no data"
 ```
 
-Resizes resume automatically once fresh data is available.
+Apply paths resume automatically once fresh data is available.
 
 ## Deployment-owned ReplicaSet targeting
 

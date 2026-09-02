@@ -72,7 +72,8 @@ The `--sort-by` flag also works with the `savings` command.
 
 Shows a per-container comparison of current vs recommended resources for a
 single policy. Use this before promoting from Recommend to Canary or Auto
-to preview what changes would be applied.
+to preview what changes would be applied. Workloads whose recommendation is
+stale are skipped until Prometheus returns fresh data.
 
 ```bash
 kubectl attune preview -n production api-services
@@ -129,6 +130,8 @@ kubectl attune export list -A
 
 The `LAST UPDATED` column shows the RFC3339 timestamp when the operator last wrote that workload's recommendations
 (the value inside the ConfigMap's `last-updated` key). This is the authoritative handoff for GitOps pipelines.
+A frozen `last-updated` is not fresh when `status.recommendations[].stale` is true: the operator does not rewrite
+the ConfigMap or bump the timestamp until Prometheus returns new data.
 
 | Column     | Description |
 |------------|-------------|
@@ -169,7 +172,7 @@ kubectl attune explain -n production api-services
 
 ### diff
 
-Shows resource change recommendations in diff format for GitOps workflows. Outputs the difference between current and recommended resources for each workload.
+Shows resource change recommendations in diff format for GitOps workflows. Outputs the difference between current and recommended resources for each workload. Workloads whose recommendation is stale are skipped until Prometheus returns fresh data.
 
 ```bash
 kubectl attune diff
@@ -218,7 +221,8 @@ then offers to apply directly or save the YAML to a file.
 
 **Promote flow**: lists existing policies with their current mode and
 status, shows the recommendation summary, and updates the mode after
-confirmation.
+confirmation. Stale recommendations are skipped (same as `preview` and
+`diff`) until Prometheus returns fresh data.
 
 The wizard does not support multi-cluster mode (`--all-contexts` /
 `--contexts`).

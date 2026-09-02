@@ -952,7 +952,8 @@ type WorkloadRecommendation struct {
 
 	// Stale indicates the recommendation is based on cached data because
 	// Prometheus did not return fresh data during the most recent query.
-	// Resizes are not executed with stale recommendations.
+	// Resizes, startup boost, ConfigMap rewrite, and GitOps drift are not
+	// executed with stale recommendations.
 	// +optional
 	Stale bool `json:"stale,omitempty"`
 }
