@@ -1793,6 +1793,86 @@ func TestComputeRecommendations_EmptyQueryReusesPriorAsStale(t *testing.T) {
 	assert.False(t, policy.Status.Recommendations[0].Stale, "reuse must DeepCopy, not mutate status in place")
 }
 
+func TestComputeRecommendations_QueryGapsReusePriorAsStale(t *testing.T) {
+	priorData := metav1.NewTime(time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC))
+	cpuRec, err := resource.ParseQuantity("250m")
+	require.NoError(t, err)
+	memRec, err := resource.ParseQuantity("256Mi")
+	require.NoError(t, err)
+
+	nanSamples := make([]rsmetrics.Sample, 50)
+	nanNow := time.Now()
+	for i := range nanSamples {
+		nanSamples[i] = rsmetrics.Sample{
+			Timestamp: nanNow.Add(-time.Duration(50-i) * time.Hour),
+			Value:     math.NaN(),
+		}
+	}
+
+	tests := []struct {
+		name            string
+		queryRangeFunc  func(context.Context, string, time.Time, time.Time, time.Duration) ([]rsmetrics.Sample, error)
+		wantQueryErrors int
+		wantFailedTypes []string
+	}{
+		{
+			name: "both queries error",
+			queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+				return nil, fmt.Errorf("connection refused")
+			},
+			wantQueryErrors: 2,
+			wantFailedTypes: []string{"CPU", "memory"},
+		},
+		{
+			name: "insufficient data points",
+			queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+				return generateSamples(20, 0.1), nil
+			},
+		},
+		{
+			name: "all NaN samples",
+			queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+				return nanSamples, nil
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			policy := newTestPolicy("test-policy", "default")
+			deploy := newTestDeployment("api-server", "default", nil)
+			reconciler := newReconcilerWithClient()
+			policy.Status.Recommendations = []attunev1alpha1.WorkloadRecommendation{{
+				Workload:     "api-server",
+				Kind:         "Deployment",
+				LastDataTime: &priorData,
+				Stale:        false,
+				Containers: []attunev1alpha1.ContainerRecommendation{{
+					Name: "main",
+					Recommended: attunev1alpha1.ResourceValues{
+						CPURequest:    cpuRec,
+						MemoryRequest: memRec,
+					},
+				}},
+			}}
+
+			mc := &mockCollector{queryRangeFunc: tt.queryRangeFunc}
+			rec, qErrors, failedMetricTypes, _, _, err := reconciler.computeRecommendations(
+				context.Background(), policy, deploy, mc, nil, nil, nil, nil, nil)
+			require.NoError(t, err)
+			require.NotNil(t, rec, "Prometheus gap must reuse the prior recommendation")
+			assert.True(t, rec.Stale, "reused rec must be marked stale")
+			require.NotNil(t, rec.LastDataTime)
+			assert.True(t, rec.LastDataTime.Equal(&priorData), "LastDataTime must stay the last non-empty sample")
+			assert.False(t, policy.Status.Recommendations[0].Stale, "reuse must DeepCopy, not mutate status in place")
+			if tt.wantQueryErrors > 0 {
+				assert.Equal(t, tt.wantQueryErrors, qErrors)
+				assert.ElementsMatch(t, tt.wantFailedTypes, failedMetricTypes)
+			}
+		})
+	}
+}
+
 func TestComputeRecommendations_LastDataTimeOlderThanHistoryWindowIsStale(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.MetricsSource.HistoryWindow = &metav1.Duration{Duration: 2 * time.Hour}
@@ -9694,6 +9774,85 @@ func TestApplyStartupBoosts_AppliesBoostToNewPod(t *testing.T) {
 	assert.True(t, foundResize, "expected a resize action for startup boost")
 }
 
+func TestApplyStartupBoosts_SkipsStaleRecommendation(t *testing.T) {
+	scheme := testScheme()
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			CPU: attunev1alpha1.ResourceConfig{
+				StartupBoost: &attunev1alpha1.StartupBoost{
+					Multiplier: "3.0",
+					Duration:   metav1.Duration{Duration: 2 * time.Minute},
+				},
+			},
+		},
+	}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "my-app-abc",
+			Namespace:         "default",
+			CreationTimestamp: metav1.NewTime(now.Add(-30 * time.Second)),
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("100m"),
+							corev1.ResourceMemory: resource.MustParse("128Mi"),
+						},
+					},
+				},
+			},
+		},
+	}
+	clientset := kubefake.NewSimpleClientset(pod)
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
+	r.SetNowFunc(func() time.Time { return now })
+
+	logger := ctrl.Log.WithName("test")
+	resizer := resize.NewPodResizer(clientset, logger)
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "my-app",
+			Kind:     "Deployment",
+			Stale:    true,
+			Containers: []attunev1alpha1.ContainerRecommendation{
+				{
+					Name: "main",
+					Recommended: attunev1alpha1.ResourceValues{
+						CPURequest: resource.MustParse("200m"),
+					},
+				},
+			},
+		},
+	}
+	podsByWorkload := map[string][]corev1.Pod{"my-app": {*pod}}
+
+	r.applyStartupBoosts(context.Background(), policy, podsByWorkload, recs, resizer, nil)
+
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			t.Fatal("startup boost must not resize from a stale recommendation")
+		}
+	}
+
+	var updated corev1.Pod
+	err := fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "my-app-abc", Namespace: "default",
+	}, &updated)
+	require.NoError(t, err)
+	assert.Empty(t, updated.Annotations[annotationStartupBoostAt],
+		"stale rec must not persist a startup-boost annotation")
+}
+
 func TestApplyStartupBoosts_SkipsDuringCanaryInProgress(t *testing.T) {
 	scheme := testScheme()
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -12143,6 +12302,83 @@ func TestProcessWorkloads_ParallelPartialFailure(t *testing.T) {
 	// Verify parallelism still occurred despite failures.
 	assert.Greater(t, peakInflight.Load(), int32(1),
 		"expected concurrent queries even with partial failures")
+}
+
+func TestProcessWorkloads_MixedStaleAndFresh(t *testing.T) {
+	now := time.Now()
+	priorData := metav1.NewTime(now.Add(-24 * time.Hour))
+	cpuRec, err := resource.ParseQuantity("250m")
+	require.NoError(t, err)
+	memRec, err := resource.ParseQuantity("256Mi")
+	require.NoError(t, err)
+
+	samples := make([]rsmetrics.Sample, 60)
+	for i := range samples {
+		samples[i] = rsmetrics.Sample{
+			Timestamp: now.Add(-time.Duration(60-i) * 5 * time.Minute),
+			Value:     0.1,
+		}
+	}
+	grouped := map[string][]rsmetrics.Sample{"main": samples}
+
+	collector := &mockCollector{
+		queryRangeGroupedFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) (map[string][]rsmetrics.Sample, error) {
+			if strings.Contains(query, "app-a-") {
+				return nil, fmt.Errorf("connection refused")
+			}
+			return grouped, nil
+		},
+	}
+
+	depA := newTestDeployment("app-a", "default", map[string]string{"app": "app-a"})
+	depB := newTestDeployment("app-b", "default", map[string]string{"app": "app-b"})
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithRuntimeObjects(depA, depB).
+		Build()
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.TargetRef.Name = nil
+	policy.Spec.TargetRef.Selector = &metav1.LabelSelector{}
+	priorContainers := []attunev1alpha1.ContainerRecommendation{{
+		Name: "main",
+		Recommended: attunev1alpha1.ResourceValues{
+			CPURequest:    cpuRec,
+			MemoryRequest: memRec,
+		},
+	}}
+	policy.Status.Recommendations = []attunev1alpha1.WorkloadRecommendation{
+		{Workload: "app-a", Kind: "Deployment", LastDataTime: &priorData, Stale: false, Containers: priorContainers},
+		{Workload: "app-b", Kind: "Deployment", LastDataTime: &priorData, Stale: false, Containers: priorContainers},
+	}
+
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.MetricsFactory = mockMetricsFactory(collector)
+	r.SetNowFunc(func() time.Time { return now })
+
+	result := r.processWorkloads(context.Background(), policy, []client.Object{depA, depB}, collector, nil, nil)
+
+	require.Len(t, result.recommendations, 2)
+	assert.Greater(t, result.totalQueryErrors, 0, "app-a query errors must be counted")
+
+	var recA, recB *attunev1alpha1.WorkloadRecommendation
+	for i := range result.recommendations {
+		switch result.recommendations[i].Workload {
+		case "app-a":
+			recA = &result.recommendations[i]
+		case "app-b":
+			recB = &result.recommendations[i]
+		}
+	}
+	require.NotNil(t, recA, "app-a must reuse the prior rec as stale")
+	require.NotNil(t, recB, "app-b must produce a fresh rec")
+	assert.True(t, recA.Stale)
+	require.NotNil(t, recA.LastDataTime)
+	assert.True(t, recA.LastDataTime.Equal(&priorData), "stale reuse must preserve LastDataTime")
+	assert.False(t, recB.Stale, "fresh Prometheus data must not mark app-b stale")
 }
 
 func TestReconcile_InsufficientDataRequeuesAtQueryStep(t *testing.T) {
