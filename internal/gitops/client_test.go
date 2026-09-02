@@ -344,6 +344,75 @@ func TestGitHubClient_ListOpenPRsUsesHeadFilter(t *testing.T) {
 	assert.Contains(t, listQuery, "base=main")
 }
 
+func TestGitLabClient_ListOpenMRsUsesTargetBranchFilter(t *testing.T) {
+	t.Parallel()
+	var listQuery string
+	client := &GitLabClient{
+		Token:   "gl-token",
+		Project: "g/p",
+		HTTP: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/merge_requests") {
+				listQuery = r.URL.RawQuery
+				return jsonResp(200, []map[string]interface{}{
+					{
+						"iid": 5, "web_url": "https://gitlab.com/g/p/-/merge_requests/5",
+						"target_branch": "main",
+					},
+				}), nil
+			}
+			if r.Method == http.MethodPut && strings.Contains(r.URL.Path, "/merge_requests/5") {
+				return jsonResp(200, map[string]interface{}{}), nil
+			}
+			return jsonResp(500, `{"message":"unexpected"}`), nil
+		}),
+	}
+	res, err := client.CreateOrUpdate(context.Background(), PRRequest{
+		Title: "t", Body: "b", Head: "attune/x", Base: "main",
+	})
+	require.NoError(t, err)
+	assert.True(t, res.Updated)
+	assert.Equal(t, 5, res.Number)
+	assert.Contains(t, listQuery, "source_branch=")
+	assert.Contains(t, listQuery, "attune%2Fx")
+	assert.Contains(t, listQuery, "target_branch=main")
+	assert.Contains(t, listQuery, "per_page=100")
+}
+
+func TestGitLabClient_ListOpenMRsPrefersTargetBranch(t *testing.T) {
+	t.Parallel()
+	var putPath string
+	client := &GitLabClient{
+		Token:   "gl-token",
+		Project: "g/p",
+		HTTP: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/merge_requests") {
+				return jsonResp(200, []map[string]interface{}{
+					{
+						"iid": 1, "web_url": "https://gitlab.com/g/p/-/merge_requests/1",
+						"target_branch": "develop",
+					},
+					{
+						"iid": 2, "web_url": "https://gitlab.com/g/p/-/merge_requests/2",
+						"target_branch": "main",
+					},
+				}), nil
+			}
+			if r.Method == http.MethodPut && strings.Contains(r.URL.Path, "/merge_requests/") {
+				putPath = r.URL.Path
+				return jsonResp(200, `{}`), nil
+			}
+			return jsonResp(500, `{"message":"unexpected"}`), nil
+		}),
+	}
+	res, err := client.CreateOrUpdate(context.Background(), PRRequest{
+		Title: "t", Body: "b", Head: "attune/x", Base: "main",
+	})
+	require.NoError(t, err)
+	assert.True(t, res.Updated)
+	assert.Equal(t, 2, res.Number)
+	assert.Contains(t, putPath, "/merge_requests/2")
+}
+
 func TestGitHubClient_EnsureHead_RaceRefExists(t *testing.T) {
 	t.Parallel()
 	var headGets int
@@ -601,6 +670,36 @@ type roundTripFuncTransport func(*http.Request) (*http.Response, error)
 
 func (f roundTripFuncTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	return f(r)
+}
+
+func TestGitHubClient_DoJSONWrapsAllowlistCause(t *testing.T) {
+	t.Parallel()
+	client := &GitHubClient{
+		Token:      "tok",
+		Repository: "org/repo",
+		BaseURL:    "http://ghe.example.com",
+	}
+	_, err := client.CreateOrUpdate(context.Background(), PRRequest{
+		Title: "t", Body: "b", Head: "h", Base: "main",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "gitops api url rejected")
+	assert.Contains(t, err.Error(), "scheme must be https")
+}
+
+func TestGitLabClient_DoJSONWrapsAllowlistCause(t *testing.T) {
+	t.Parallel()
+	client := &GitLabClient{
+		Token:   "gl-token",
+		Project: "g/p",
+		BaseURL: "https://169.254.169.254",
+	}
+	_, err := client.CreateOrUpdate(context.Background(), PRRequest{
+		Title: "t", Body: "b", Head: "h", Base: "main",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "gitops api url rejected")
+	assert.Contains(t, err.Error(), "169.254.169.254")
 }
 
 func TestRedactToken_Encodings(t *testing.T) {
