@@ -104,7 +104,7 @@ echo
 banner "Step 2: Install cert-manager and Prometheus"
 
 info "Installing cert-manager..."
-kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.17.2/cert-manager.yaml >/dev/null
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.21.1/cert-manager.yaml >/dev/null
 wait_for "cert-manager webhook ready" 120 \
   "kubectl wait --for=condition=Available deployment/cert-manager-webhook -n cert-manager --timeout=5s"
 

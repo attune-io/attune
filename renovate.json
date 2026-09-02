@@ -22,6 +22,19 @@
       ],
       "depNameTemplate": "quay.io/prometheus/prometheus",
       "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": [
+        "^\\.github/workflows/.*\\.ya?ml$",
+        "^Makefile$"
+      ],
+      "matchStrings": [
+        "CERT_MANAGER_VERSION:\\s*[\"']?(?<currentValue>v[^\"'\\s]+)[\"']?",
+        "CERT_MANAGER_VERSION\\s*\\?=\\s*[\"']?(?<currentValue>v[^\"'\\s]+)[\"']?"
+      ],
+      "depNameTemplate": "cert-manager/cert-manager",
+      "datasourceTemplate": "github-releases"
     }
   ]
 }

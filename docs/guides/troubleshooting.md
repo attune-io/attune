@@ -326,7 +326,7 @@ ready. This typically means cert-manager is missing or broken.
 2. If cert-manager is not installed, install it:
 
     ```bash
-    kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.17.2/cert-manager.yaml
+    kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.21.1/cert-manager.yaml
     kubectl wait --for=condition=Available deployment/cert-manager-webhook -n cert-manager --timeout=120s
     ```
 
