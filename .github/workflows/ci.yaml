@@ -40,15 +40,15 @@ jobs:
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 5
     outputs:
-      go: ${{ steps.filter.outputs.go }}
-      go-source: ${{ steps.filter.outputs.go-source }}
-      bench: ${{ steps.filter.outputs.bench }}
-      helm: ${{ steps.filter.outputs.helm }}
-      yaml: ${{ steps.filter.outputs.yaml }}
-      docs: ${{ steps.filter.outputs.docs }}
-      e2e: ${{ steps.filter.outputs.e2e }}
-      manifests: ${{ steps.filter.outputs.manifests }}
-      scripts: ${{ steps.filter.outputs.scripts }}
+      go: ${{ steps.force.outputs.go || steps.filter.outputs.go }}
+      go-source: ${{ steps.force.outputs.go-source || steps.filter.outputs.go-source }}
+      bench: ${{ steps.force.outputs.bench || steps.filter.outputs.bench }}
+      helm: ${{ steps.force.outputs.helm || steps.filter.outputs.helm }}
+      yaml: ${{ steps.force.outputs.yaml || steps.filter.outputs.yaml }}
+      docs: ${{ steps.force.outputs.docs || steps.filter.outputs.docs }}
+      e2e: ${{ steps.force.outputs.e2e || steps.filter.outputs.e2e }}
+      manifests: ${{ steps.force.outputs.manifests || steps.filter.outputs.manifests }}
+      scripts: ${{ steps.force.outputs.scripts || steps.filter.outputs.scripts }}
     steps:
       - uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
         with:
@@ -119,6 +119,20 @@ jobs:
               - 'hack/k3d-delete.sh'
               - '.github/actions/setup-e2e-cluster/**'
               - '.github/workflows/e2e-nightly.yaml'
+
+      - name: Force full matrix on workflow_dispatch
+        if: github.event_name == 'workflow_dispatch'
+        id: force
+        run: |
+          echo "go=true" >> "$GITHUB_OUTPUT"
+          echo "go-source=true" >> "$GITHUB_OUTPUT"
+          echo "helm=true" >> "$GITHUB_OUTPUT"
+          echo "yaml=true" >> "$GITHUB_OUTPUT"
+          echo "docs=true" >> "$GITHUB_OUTPUT"
+          echo "e2e=true" >> "$GITHUB_OUTPUT"
+          echo "manifests=true" >> "$GITHUB_OUTPUT"
+          echo "scripts=true" >> "$GITHUB_OUTPUT"
+          echo "bench=true" >> "$GITHUB_OUTPUT"
 
   lint:
     name: Lint
@@ -215,7 +229,9 @@ jobs:
 
       - name: Install MkDocs
         shell: bash -Eeuo pipefail {0}
-        run: pip install mkdocs-material==9.7.6
+        run: |
+          python3 -m pip install --user --break-system-packages --require-hashes -r docs/requirements.txt
+          echo "$(python3 -m site --user-base)/bin" >> "$GITHUB_PATH"
 
       - name: Build docs site
         shell: bash -Eeuo pipefail {0}

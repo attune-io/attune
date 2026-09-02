@@ -476,7 +476,7 @@ gotestsum: ## Install gotestsum
 SETUP_ENVTEST = $(LOCALBIN)/setup-envtest
 .PHONY: setup-envtest
 setup-envtest: ## Install setup-envtest
-	@test -s $(SETUP_ENVTEST) || go install sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.24
+	@test -s $(SETUP_ENVTEST) || go install sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.24.1
 
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint-$(GOLANGCI_LINT_VERSION)
 .PHONY: golangci-lint
