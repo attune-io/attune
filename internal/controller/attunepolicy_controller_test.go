@@ -1931,6 +1931,39 @@ func TestComputeRecommendations_InWindowSampleOlderThanFreshnessIsStale(t *testi
 	assert.True(t, rec.LastDataTime.Equal(&metav1.Time{Time: old}))
 }
 
+// TestComputeRecommendations_NewestNonFiniteDoesNotRefreshLastDataTime is
+// the live-red contract: NaN/Inf at now must not advance LastDataTime or
+// clear stale. Removing the finite-only filter fails this test.
+func TestComputeRecommendations_NewestNonFiniteDoesNotRefreshLastDataTime(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.MetricsSource.MinimumDataPoints = int32Ptr(1)
+	deploy := newTestDeployment("api-server", "default", nil)
+	now := time.Date(2026, 9, 1, 15, 0, 0, 0, time.UTC)
+	reconciler := newReconcilerWithClient()
+	reconciler.SetNowFunc(func() time.Time { return now })
+
+	old := now.Add(-30 * time.Minute)
+	mc := &mockCollector{
+		queryRangeGroupedFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) (map[string][]rsmetrics.Sample, error) {
+			return map[string][]rsmetrics.Sample{
+				"main": {
+					{Timestamp: old, Value: 0.1},
+					{Timestamp: now, Value: math.NaN()},
+					{Timestamp: now, Value: math.Inf(1)},
+				},
+			}, nil
+		},
+	}
+
+	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil, nil)
+	require.NoError(t, err)
+	require.NotNil(t, rec)
+	assert.True(t, rec.Stale, "newest NaN/Inf must not refresh LastDataTime; 30m-old finite sample is stale")
+	require.NotNil(t, rec.LastDataTime)
+	assert.True(t, rec.LastDataTime.Equal(&metav1.Time{Time: old}), "LastDataTime must stay the last finite sample, not now")
+	assert.False(t, rec.LastDataTime.Time.Equal(now), "NaN/Inf at now must not become LastDataTime")
+}
+
 func TestComputeRecommendations_ExpiredReuseIsDropped(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	deploy := newTestDeployment("api-server", "default", nil)
@@ -1960,6 +1993,36 @@ func TestComputeRecommendations_ExpiredReuseIsDropped(t *testing.T) {
 	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	assert.Nil(t, rec, "reuse must expire when LastDataTime is older than 3*queryStep")
+}
+
+func TestComputeRecommendations_ReuseIgnoresMissingLastDataTime(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	deploy := newTestDeployment("api-server", "default", nil)
+	now := time.Date(2026, 9, 1, 15, 0, 0, 0, time.UTC)
+	reconciler := newReconcilerWithClient()
+	reconciler.SetNowFunc(func() time.Time { return now })
+
+	cpuRec, err := resource.ParseQuantity("250m")
+	require.NoError(t, err)
+	policy.Status.Recommendations = []attunev1alpha1.WorkloadRecommendation{{
+		Workload:     "api-server",
+		Kind:         "Deployment",
+		LastDataTime: nil,
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name:        "main",
+			Recommended: attunev1alpha1.ResourceValues{CPURequest: cpuRec},
+		}},
+	}}
+
+	mc := &mockCollector{
+		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return nil, nil
+		},
+	}
+
+	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil, nil)
+	require.NoError(t, err)
+	assert.Nil(t, rec, "reuse must refuse a prior rec with missing LastDataTime")
 }
 
 func TestComputeRecommendations_ReuseIgnoresDifferentKind(t *testing.T) {
@@ -2190,6 +2253,58 @@ func TestComputeRecommendations_PartialQueryErrorTracksFailedMetricType(t *testi
 	require.NotNil(t, rec)
 	assert.Equal(t, 1, qErrors)
 	assert.Equal(t, []string{"memory"}, failedMetricTypes)
+}
+
+// TestComputeRecommendations_SeriesCappedUsesPartialData is the live-red
+// contract: ErrSeriesCapped is a soft error. Treating it as a hard fail
+// reuses the prior stale row and fails this test.
+func TestComputeRecommendations_SeriesCappedUsesPartialData(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.MetricsSource.MinimumDataPoints = int32Ptr(1)
+	deploy := newTestDeployment("api-server", "default", nil)
+	now := time.Date(2026, 9, 1, 15, 0, 0, 0, time.UTC)
+	reconciler := newReconcilerWithClient()
+	reconciler.SetNowFunc(func() time.Time { return now })
+
+	priorData := metav1.NewTime(now.Add(-2 * time.Minute))
+	priorCPU, err := resource.ParseQuantity("250m")
+	require.NoError(t, err)
+	priorMem, err := resource.ParseQuantity("256Mi")
+	require.NoError(t, err)
+	policy.Status.Recommendations = []attunev1alpha1.WorkloadRecommendation{{
+		Workload:     "api-server",
+		Kind:         "Deployment",
+		LastDataTime: &priorData,
+		Stale:        false,
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "main",
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest:    priorCPU,
+				MemoryRequest: priorMem,
+			},
+		}},
+	}}
+
+	fresh := now.Add(-30 * time.Second)
+	mc := &mockCollector{
+		queryRangeGroupedFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) (map[string][]rsmetrics.Sample, error) {
+			samples := []rsmetrics.Sample{{Timestamp: fresh, Value: 0.1}}
+			if !strings.Contains(query, "cpu_usage_seconds_total") {
+				samples = []rsmetrics.Sample{{Timestamp: fresh, Value: 128 * 1024 * 1024}}
+			}
+			return map[string][]rsmetrics.Sample{"main": samples}, fmt.Errorf("%w: kept 1 series", rsmetrics.ErrSeriesCapped)
+		},
+	}
+
+	rec, qErrors, _, _, seriesCapped, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil, nil)
+	require.NoError(t, err)
+	assert.True(t, seriesCapped, "ErrSeriesCapped must surface as seriesCapped, not a hard query error")
+	assert.Equal(t, 0, qErrors, "series cap is a soft error; partial samples must not increment queryErrors")
+	require.NotNil(t, rec)
+	assert.False(t, rec.Stale, "partial capped samples must produce a fresh rec, not reuse the prior status row")
+	require.NotNil(t, rec.LastDataTime)
+	assert.True(t, rec.LastDataTime.Equal(&metav1.Time{Time: fresh}), "LastDataTime must come from the partial samples")
+	assert.False(t, rec.LastDataTime.Equal(&priorData), "must not reuse the prior status LastDataTime")
 }
 
 func TestComputeRecommendations_ContextCancelledDuringParallelQueries(t *testing.T) {
