@@ -402,16 +402,20 @@ func (c *GitLabClient) CreateOrUpdate(ctx context.Context, req PRRequest) (PRRes
 	if err := json.Unmarshal(body, &existing); err != nil {
 		return PRResult{}, fmt.Errorf("gitlab list MRs decode: %w", err)
 	}
-	if len(existing) > 0 {
-		mr := existing[0]
-		// Prefer an entry whose target matches when the response still includes
-		// unrelated MRs (ignored target_branch filter).
-		for i := range existing {
-			if existing[i].TargetBranch == req.Base {
-				mr = existing[i]
-				break
-			}
+	var mr struct {
+		IID          int    `json:"iid"`
+		WebURL       string `json:"web_url"`
+		TargetBranch string `json:"target_branch"`
+	}
+	matched := false
+	for i := range existing {
+		if existing[i].TargetBranch == req.Base {
+			mr = existing[i]
+			matched = true
+			break
 		}
+	}
+	if matched {
 		patchURL := fmt.Sprintf("%s/projects/%s/merge_requests/%d", base, project, mr.IID)
 		payload := map[string]interface{}{
 			"title":       req.Title,

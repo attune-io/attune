@@ -221,7 +221,7 @@ func TestGitLabClient_Update(t *testing.T) {
 		HTTP: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 			if r.Method == http.MethodGet {
 				return jsonResp(200, []map[string]interface{}{
-					{"iid": 3, "web_url": "https://gitlab.com/g/p/-/merge_requests/3"},
+					{"iid": 3, "web_url": "https://gitlab.com/g/p/-/merge_requests/3", "target_branch": "main"},
 				}), nil
 			}
 			if r.Method == http.MethodPut {
@@ -413,6 +413,51 @@ func TestGitLabClient_ListOpenMRsPrefersTargetBranch(t *testing.T) {
 	assert.Contains(t, putPath, "/merge_requests/2")
 }
 
+func TestGitLabClient_ListOpenMRsNoMatchingTargetCreates(t *testing.T) {
+	t.Parallel()
+	var methods []string
+	client := &GitLabClient{
+		Token:   "gl-token",
+		Project: "g/p",
+		HTTP: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			methods = append(methods, r.Method+" "+r.URL.Path)
+			path := r.URL.Path
+			switch {
+			case r.Method == http.MethodGet && strings.Contains(path, "/merge_requests"):
+				// List is non-empty, but no MR targets req.Base (main).
+				return jsonResp(200, []map[string]interface{}{
+					{
+						"iid": 1, "web_url": "https://gitlab.com/g/p/-/merge_requests/1",
+						"target_branch": "develop",
+					},
+				}), nil
+			case r.Method == http.MethodGet && strings.Contains(path, "/repository/branches/"):
+				return jsonResp(200, map[string]interface{}{
+					"name": "attune/x",
+				}), nil
+			case r.Method == http.MethodPost && strings.HasSuffix(path, "/merge_requests"):
+				return jsonResp(201, map[string]interface{}{
+					"iid": 9, "web_url": "https://gitlab.com/g/p/-/merge_requests/9",
+				}), nil
+			default:
+				return jsonResp(500, `{"message":"unexpected `+r.Method+` `+path+`"}`), nil
+			}
+		}),
+	}
+	res, err := client.CreateOrUpdate(context.Background(), PRRequest{
+		Title: "t", Body: "b", Head: "attune/x", Base: "main",
+	})
+	require.NoError(t, err)
+	assert.False(t, res.Updated)
+	assert.Equal(t, 9, res.Number)
+	joined := strings.Join(methods, "\n")
+	assert.Contains(t, joined, "POST")
+	assert.NotContains(t, joined, http.MethodPut)
+	for _, m := range methods {
+		assert.NotContains(t, m, "/merge_requests/1")
+	}
+}
+
 func TestGitHubClient_EnsureHead_RaceRefExists(t *testing.T) {
 	t.Parallel()
 	var headGets int
@@ -586,7 +631,7 @@ func TestGitLabClient_Update_IncludesLabels(t *testing.T) {
 		HTTP: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 			if r.Method == http.MethodGet {
 				return jsonResp(200, []map[string]interface{}{
-					{"iid": 3, "web_url": "https://gitlab.com/g/p/-/merge_requests/3"},
+					{"iid": 3, "web_url": "https://gitlab.com/g/p/-/merge_requests/3", "target_branch": "main"},
 				}), nil
 			}
 			if r.Method == http.MethodPut {
