@@ -554,7 +554,10 @@ func reuseStaleRecommendation(policy *attunev1alpha1.AttunePolicy, kind, workloa
 
 // holdMissingResourceRequest copies live (max request across pods) or last
 // successful Recommended into Current and Recommended for a resource that
-// had no usable series. Returns false when no hold value exists.
+// had no usable series. When both exist, the larger request wins so a
+// last rec is not overwritten by pods still at the template. A zero live
+// limit is applied too; leaving the template limit would clamp the hold.
+// Returns false when no hold value exists.
 func holdMissingResourceRequest(
 	rec *attunev1alpha1.ContainerRecommendation,
 	res corev1.ResourceName,
@@ -564,32 +567,49 @@ func holdMissingResourceRequest(
 	if rec == nil {
 		return false
 	}
-	req, lim, ok := liveResourceHold(pods, rec.Name, res)
-	if !ok {
-		req, lim, ok = priorResourceHold(prior, res)
-	}
-	if !ok {
+	if res != corev1.ResourceCPU && res != corev1.ResourceMemory {
 		return false
 	}
+	liveReq, liveLim, liveOK := liveResourceHold(pods, rec.Name, res)
+	priorReq, priorLim, priorOK := priorResourceHold(prior, res)
+	if !liveOK && !priorOK {
+		return false
+	}
+
+	req, lim := liveReq, liveLim
+	// Prefer last rec when it is larger than live, or when live is still
+	// the template Current (in-place resize not applied yet).
+	if priorOK {
+		templateReq := requestFromResourceValues(rec.Current, res)
+		if !liveOK || priorReq.Cmp(liveReq) > 0 || liveReq.Equal(templateReq) {
+			req, lim = priorReq, priorLim
+		}
+	}
+
 	switch res {
 	case corev1.ResourceCPU:
 		rec.Current.CPURequest = req.DeepCopy()
 		rec.Recommended.CPURequest = req.DeepCopy()
-		if !lim.IsZero() {
-			rec.Current.CPULimit = lim.DeepCopy()
-			rec.Recommended.CPULimit = lim.DeepCopy()
-		}
+		rec.Current.CPULimit = lim.DeepCopy()
+		rec.Recommended.CPULimit = lim.DeepCopy()
 	case corev1.ResourceMemory:
 		rec.Current.MemoryRequest = req.DeepCopy()
 		rec.Recommended.MemoryRequest = req.DeepCopy()
-		if !lim.IsZero() {
-			rec.Current.MemoryLimit = lim.DeepCopy()
-			rec.Recommended.MemoryLimit = lim.DeepCopy()
-		}
-	default:
-		return false
+		rec.Current.MemoryLimit = lim.DeepCopy()
+		rec.Recommended.MemoryLimit = lim.DeepCopy()
 	}
 	return true
+}
+
+func requestFromResourceValues(v attunev1alpha1.ResourceValues, res corev1.ResourceName) k8sresource.Quantity {
+	switch res {
+	case corev1.ResourceCPU:
+		return v.CPURequest
+	case corev1.ResourceMemory:
+		return v.MemoryRequest
+	default:
+		return k8sresource.Quantity{}
+	}
 }
 
 func liveResourceHold(pods []corev1.Pod, container string, res corev1.ResourceName) (req, lim k8sresource.Quantity, ok bool) {
