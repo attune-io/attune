@@ -157,26 +157,35 @@ spec:
               for i in $(seq 1 60); do
                 RESIZED=$(kubectl get attunepolicy canary-test -n e2e-canary-rollout \
                   -o jsonpath='{.status.workloads.resized}' 2>/dev/null || true)
-                # Canary resizes a subset; items[0] may still be at 500m.
+                # Canary resizes a subset. First Success can be memory-only.
                 CPUS=$(kubectl get pods -n e2e-canary-rollout -l app=canary-app \
                   -o jsonpath='{range .items[*]}{.spec.containers[0].resources.requests.cpu}{"\n"}{end}' 2>/dev/null || true)
+                MEMS=$(kubectl get pods -n e2e-canary-rollout -l app=canary-app \
+                  -o jsonpath='{range .items[*]}{.spec.containers[0].resources.requests.memory}{"\n"}{end}' 2>/dev/null || true)
                 decreased=0
                 for CPU in $CPUS; do
                   milli=$(cpu_milli "$CPU")
+                  if [ "$milli" -gt 500 ]; then
+                    echo "FAIL: canary resized CPU up to $CPU"
+                    exit 1
+                  fi
                   if [ "$milli" -gt 0 ] && [ "$milli" -lt 500 ]; then
                     decreased=1
-                    dec_cpu=$CPU
-                    dec_milli=$milli
+                  fi
+                done
+                for MEM in $MEMS; do
+                  if [ -n "$MEM" ] && [ "$MEM" != "512Mi" ] && [ "$MEM" != "512M" ]; then
+                    decreased=1
                   fi
                 done
                 if [ "${RESIZED:-0}" -ge 1 ] 2>/dev/null && [ "$decreased" = "1" ]; then
-                  echo "Resize confirmed: resized=$RESIZED liveCPU=$dec_cpu (${dec_milli}m < 500m start)"
+                  echo "Resize confirmed: resized=$RESIZED cpus=$(echo $CPUS | tr '\n' ' ')"
                   exit 0
                 fi
                 echo "Waiting... resized=$RESIZED cpus=$(echo $CPUS | tr '\n' ' ')"
                 sleep 5
               done
-              echo "No downward resize within timeout"
+              echo "No downward CPU or memory resize within timeout"
               kubectl get attunepolicy canary-test -n e2e-canary-rollout -o yaml
               kubectl get pods -n e2e-canary-rollout -l app=canary-app -o yaml
               exit 1
