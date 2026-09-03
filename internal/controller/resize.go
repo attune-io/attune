@@ -915,7 +915,8 @@ func resizedContainersContains(list, container string) bool {
 // the named container exists on the pod. rec.Current is the workload
 // template and is stale after an in-place resize. Undo annotations and
 // quota deltas must use live values. Falls back to rec.Current when the
-// pod is nil or the container is missing.
+// pod is nil or the container is missing. Keys absent on the live
+// container keep rec.Current (do not invent zero).
 func liveContainerCurrent(pod *corev1.Pod, rec attunev1alpha1.ContainerRecommendation) attunev1alpha1.ResourceValues {
 	if pod == nil {
 		return rec.Current
@@ -924,7 +925,9 @@ func liveContainerCurrent(pod *corev1.Pod, rec attunev1alpha1.ContainerRecommend
 	if c == nil {
 		return rec.Current
 	}
-	cur := attunev1alpha1.ResourceValues{}
+	// Start from rec.Current so missing live keys (no limit) do not invent
+	// zero and wipe the snapshot used for quota deltas and undo.
+	cur := rec.Current
 	if req, ok := c.Resources.Requests[corev1.ResourceCPU]; ok {
 		cur.CPURequest = req.DeepCopy()
 	}

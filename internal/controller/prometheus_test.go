@@ -21,6 +21,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
@@ -308,4 +309,93 @@ func TestDeriveMemoryFromCPU_ExactMath(t *testing.T) {
 	pctDiff := float64(diff) / float64(twoGi.Value()) * 100
 	assert.InDelta(t, 0, pctDiff, 5,
 		"memory %s should be within 5%% of 2Gi (got %.1f%% diff)", memRec.String(), pctDiff)
+}
+
+func TestHoldMissingResourceRequest_PrefersLargerLastRecOverTemplateLive(t *testing.T) {
+	templateMem := resource.MustParse("256Mi")
+	lastRec := resource.MustParse("1Gi")
+	rec := &attunev1alpha1.ContainerRecommendation{
+		Name: "main",
+		Current: attunev1alpha1.ResourceValues{
+			MemoryRequest: templateMem.DeepCopy(),
+			MemoryLimit:   resource.MustParse("512Mi"),
+		},
+		Recommended: attunev1alpha1.ResourceValues{
+			MemoryRequest: templateMem.DeepCopy(),
+			MemoryLimit:   resource.MustParse("512Mi"),
+		},
+	}
+	// Pods still at the template; last rec is the in-place target.
+	pod := newResizePod("api-server", "500m", "256Mi", "1000m", "512Mi")
+	prior := &attunev1alpha1.ContainerRecommendation{
+		Name: "main",
+		Recommended: attunev1alpha1.ResourceValues{
+			MemoryRequest: lastRec.DeepCopy(),
+		},
+	}
+
+	ok := holdMissingResourceRequest(rec, corev1.ResourceMemory, []corev1.Pod{*pod}, prior)
+	require.True(t, ok)
+	assert.True(t, rec.Recommended.MemoryRequest.Equal(lastRec),
+		"must keep last rec %s over template-live %s, got %s",
+		lastRec.String(), templateMem.String(), rec.Recommended.MemoryRequest.String())
+}
+
+func TestHoldMissingResourceRequest_LargerLiveBeatsSmallerLastRec(t *testing.T) {
+	liveMem := resource.MustParse("1Gi")
+	rec := &attunev1alpha1.ContainerRecommendation{
+		Name: "main",
+		Current: attunev1alpha1.ResourceValues{
+			MemoryRequest: resource.MustParse("256Mi"),
+		},
+		Recommended: attunev1alpha1.ResourceValues{
+			MemoryRequest: resource.MustParse("256Mi"),
+		},
+	}
+	pod := newResizePod("api-server", "500m", "1Gi", "1000m", "1Gi")
+	prior := &attunev1alpha1.ContainerRecommendation{
+		Name: "main",
+		Recommended: attunev1alpha1.ResourceValues{
+			MemoryRequest: resource.MustParse("256Mi"),
+		},
+	}
+
+	ok := holdMissingResourceRequest(rec, corev1.ResourceMemory, []corev1.Pod{*pod}, prior)
+	require.True(t, ok)
+	assert.True(t, rec.Recommended.MemoryRequest.Equal(liveMem),
+		"larger live %s must beat last rec 256Mi, got %s",
+		liveMem.String(), rec.Recommended.MemoryRequest.String())
+}
+
+func TestHoldMissingResourceRequest_ZeroLiveLimitClearsTemplateLimit(t *testing.T) {
+	liveMem := resource.MustParse("1Gi")
+	rec := &attunev1alpha1.ContainerRecommendation{
+		Name: "main",
+		Current: attunev1alpha1.ResourceValues{
+			MemoryRequest: resource.MustParse("256Mi"),
+			MemoryLimit:   resource.MustParse("512Mi"),
+		},
+		Recommended: attunev1alpha1.ResourceValues{
+			MemoryRequest: resource.MustParse("256Mi"),
+			MemoryLimit:   resource.MustParse("512Mi"),
+		},
+	}
+	pod := newResizePod("api-server", "500m", "1Gi", "1000m", "1Gi")
+	delete(pod.Spec.Containers[0].Resources.Limits, corev1.ResourceMemory)
+
+	ok := holdMissingResourceRequest(rec, corev1.ResourceMemory, []corev1.Pod{*pod}, nil)
+	require.True(t, ok)
+	assert.True(t, rec.Recommended.MemoryRequest.Equal(liveMem),
+		"held request must stay live %s, got %s", liveMem.String(), rec.Recommended.MemoryRequest.String())
+	assert.True(t, rec.Recommended.MemoryLimit.IsZero(),
+		"held rec must not keep template memory limit when live has none, got %s",
+		rec.Recommended.MemoryLimit.String())
+	assert.True(t, rec.Current.MemoryLimit.IsZero(),
+		"Current limit must also drop so quota/undo does not keep the template limit")
+
+	target, clamped := buildResizeTarget(*rec)
+	gotTargetMem := target.Requests[corev1.ResourceMemory]
+	assert.True(t, gotTargetMem.Equal(liveMem),
+		"resize target must keep held %s, got %s", liveMem.String(), gotTargetMem.String())
+	assert.Empty(t, clamped, "leftover template limit must not clamp the held request")
 }

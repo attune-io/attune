@@ -2221,8 +2221,9 @@ func TestComputeRecommendations_CPUAllNaNMemoryValid(t *testing.T) {
 
 // TestComputeRecommendations_OneSidedMemoryGapDoesNotRecommendTemplate is
 // the live-red contract: CPU series can be fresh while memory is empty or
-// all NaN. The missing-memory arm must not emit the pod-template request
-// (256Mi) as a fresh apply target after a live increase to 1Gi.
+// all NaN. The missing-memory arm must stay fresh and keep live/last
+// (1Gi), not the pod-template request (256Mi). A Stale early-return would
+// still pass if the hold were deleted.
 func TestComputeRecommendations_OneSidedMemoryGapDoesNotRecommendTemplate(t *testing.T) {
 	templateMem := resource.MustParse("256Mi")
 	liveMem := resource.MustParse("1Gi")
@@ -2241,10 +2242,13 @@ func TestComputeRecommendations_OneSidedMemoryGapDoesNotRecommendTemplate(t *tes
 		memorySamples map[string][]rsmetrics.Sample
 		useLivePod    bool
 		usePriorRec   bool
+		liveRequest   string
 	}{
 		{name: "empty memory samples, live 1Gi", useLivePod: true},
 		{name: "NaN memory samples, live 1Gi", memorySamples: map[string][]rsmetrics.Sample{"main": nanSamples}, useLivePod: true},
 		{name: "empty memory samples, last rec 1Gi", usePriorRec: true},
+		// Finding 2: pods still at the template must not overwrite last rec.
+		{name: "empty memory samples, live at template, last rec 1Gi", useLivePod: true, usePriorRec: true, liveRequest: "256Mi"},
 	}
 
 	for _, tt := range tests {
@@ -2272,7 +2276,11 @@ func TestComputeRecommendations_OneSidedMemoryGapDoesNotRecommendTemplate(t *tes
 
 			var pods []corev1.Pod
 			if tt.useLivePod {
-				pods = []corev1.Pod{*newResizePod("api-server", "500m", "1Gi", "1000m", "1Gi")}
+				liveReq := "1Gi"
+				if tt.liveRequest != "" {
+					liveReq = tt.liveRequest
+				}
+				pods = []corev1.Pod{*newResizePod("api-server", "500m", liveReq, "1000m", "1Gi")}
 			}
 
 			reconciler := newReconcilerWithClient()
@@ -2293,18 +2301,151 @@ func TestComputeRecommendations_OneSidedMemoryGapDoesNotRecommendTemplate(t *tes
 			require.NoError(t, err)
 			require.NotNil(t, rec, "CPU-only data must still produce a recommendation")
 			require.Len(t, rec.Containers, 1)
+			require.False(t, rec.Stale,
+				"held missing-memory arm must stay fresh; a stale-skip would green without a hold")
 
 			got := rec.Containers[0].Recommended.MemoryRequest
-			if rec.Stale {
-				return
-			}
-			assert.False(t, got.Equal(templateMem),
-				"fresh rec must not recommend template memory %s when memory samples are missing (got %s)",
-				templateMem.String(), got.String())
 			assert.True(t, got.Equal(liveMem),
 				"fresh rec must keep live/last memory %s, got %s", liveMem.String(), got.String())
 		})
 	}
+}
+
+// TestComputeRecommendations_OneSidedCPUGapDoesNotRecommendTemplate is the
+// CPU twin of the memory-gap hold: memory series can be fresh while CPU
+// is empty or all NaN. The missing-CPU arm must stay fresh at live/last,
+// not the pod-template request.
+func TestComputeRecommendations_OneSidedCPUGapDoesNotRecommendTemplate(t *testing.T) {
+	templateCPU := resource.MustParse("100m")
+	liveCPU := resource.MustParse("500m")
+
+	nanSamples := make([]rsmetrics.Sample, 50)
+	now := time.Now()
+	for i := range nanSamples {
+		nanSamples[i] = rsmetrics.Sample{
+			Timestamp: now.Add(-time.Duration(50-i) * time.Hour),
+			Value:     math.NaN(),
+		}
+	}
+
+	tests := []struct {
+		name        string
+		cpuSamples  map[string][]rsmetrics.Sample
+		useLivePod  bool
+		usePriorRec bool
+		liveRequest string
+	}{
+		{name: "empty CPU samples, live 500m", useLivePod: true},
+		{name: "NaN CPU samples, live 500m", cpuSamples: map[string][]rsmetrics.Sample{"main": nanSamples}, useLivePod: true},
+		{name: "empty CPU samples, last rec 500m", usePriorRec: true},
+		{name: "empty CPU samples, live at template, last rec 500m", useLivePod: true, usePriorRec: true, liveRequest: "100m"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			policy := newTestPolicy("test-policy", "default")
+			deploy := newTestDeployment("api-server", "default", nil)
+			deploy.Spec.Template.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU] = templateCPU.DeepCopy()
+
+			if tt.usePriorRec {
+				priorData := metav1.NewTime(now.Add(-time.Minute))
+				policy.Status.Recommendations = []attunev1alpha1.WorkloadRecommendation{{
+					Workload:     "api-server",
+					Kind:         "Deployment",
+					LastDataTime: &priorData,
+					Stale:        false,
+					Containers: []attunev1alpha1.ContainerRecommendation{{
+						Name: "main",
+						Recommended: attunev1alpha1.ResourceValues{
+							CPURequest:    liveCPU.DeepCopy(),
+							MemoryRequest: resource.MustParse("1Gi"),
+						},
+					}},
+				}}
+			}
+
+			var pods []corev1.Pod
+			if tt.useLivePod {
+				liveReq := "500m"
+				if tt.liveRequest != "" {
+					liveReq = tt.liveRequest
+				}
+				pods = []corev1.Pod{*newResizePod("api-server", liveReq, "1Gi", "1000m", "1Gi")}
+			}
+
+			reconciler := newReconcilerWithClient()
+			mc := &mockCollector{
+				queryRangeGroupedFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) (map[string][]rsmetrics.Sample, error) {
+					if strings.Contains(query, "cpu_usage_seconds_total") {
+						if tt.cpuSamples != nil {
+							return tt.cpuSamples, nil
+						}
+						return map[string][]rsmetrics.Sample{}, nil
+					}
+					return map[string][]rsmetrics.Sample{"main": generateSamples(200, 256*1024*1024)}, nil
+				},
+			}
+
+			rec, _, _, _, _, err := reconciler.computeRecommendations(
+				context.Background(), policy, deploy, mc, nil, nil, nil, nil, pods)
+			require.NoError(t, err)
+			require.NotNil(t, rec, "memory-only data must still produce a recommendation")
+			require.Len(t, rec.Containers, 1)
+			require.False(t, rec.Stale,
+				"held missing-CPU arm must stay fresh; a stale-skip would green without a hold")
+
+			got := rec.Containers[0].Recommended.CPURequest
+			assert.True(t, got.Equal(liveCPU),
+				"fresh rec must keep live/last CPU %s, got %s", liveCPU.String(), got.String())
+		})
+	}
+}
+
+// TestComputeRecommendations_HoldDropsLeftoverTemplateLimit is the live-red
+// contract for a hold whose live request has no limit: Recommended must
+// not keep the template limit, or clampRequestsToLimits shrinks the hold.
+func TestComputeRecommendations_HoldDropsLeftoverTemplateLimit(t *testing.T) {
+	templateMem := resource.MustParse("256Mi")
+	templateLim := resource.MustParse("512Mi")
+	liveMem := resource.MustParse("1Gi")
+
+	policy := newTestPolicy("test-policy", "default")
+	deploy := newTestDeployment("api-server", "default", nil)
+	deploy.Spec.Template.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory] = templateMem.DeepCopy()
+	deploy.Spec.Template.Spec.Containers[0].Resources.Limits[corev1.ResourceMemory] = templateLim.DeepCopy()
+
+	pod := newResizePod("api-server", "500m", "1Gi", "1000m", "1Gi")
+	delete(pod.Spec.Containers[0].Resources.Limits, corev1.ResourceMemory)
+
+	reconciler := newReconcilerWithClient()
+	mc := &mockCollector{
+		queryRangeGroupedFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) (map[string][]rsmetrics.Sample, error) {
+			if strings.Contains(query, "memory_working_set_bytes") {
+				return map[string][]rsmetrics.Sample{}, nil
+			}
+			return map[string][]rsmetrics.Sample{"main": generateSamples(200, 0.1)}, nil
+		},
+	}
+
+	rec, _, _, _, _, err := reconciler.computeRecommendations(
+		context.Background(), policy, deploy, mc, nil, nil, nil, nil, []corev1.Pod{*pod})
+	require.NoError(t, err)
+	require.NotNil(t, rec)
+	require.Len(t, rec.Containers, 1)
+	require.False(t, rec.Stale, "held live memory must stay fresh")
+
+	got := rec.Containers[0]
+	assert.True(t, got.Recommended.MemoryRequest.Equal(liveMem),
+		"held memory request must stay live %s, got %s", liveMem.String(), got.Recommended.MemoryRequest.String())
+	assert.True(t, got.Recommended.MemoryLimit.IsZero(),
+		"held rec must not keep template memory limit %s when live has none, got %s",
+		templateLim.String(), got.Recommended.MemoryLimit.String())
+
+	target, clamped := buildResizeTarget(got)
+	gotTargetMem := target.Requests[corev1.ResourceMemory]
+	assert.True(t, gotTargetMem.Equal(liveMem),
+		"resize target must keep held %s, got %s", liveMem.String(), gotTargetMem.String())
+	assert.Empty(t, clamped, "leftover template limit must not clamp the held request")
 }
 
 func TestComputeRecommendations_QueryError(t *testing.T) {

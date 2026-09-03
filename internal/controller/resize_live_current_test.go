@@ -146,3 +146,25 @@ func TestLiveContainerCurrent_PrefersLiveOverTemplate(t *testing.T) {
 	assert.Equal(t, rec.Current, liveContainerCurrent(nil, rec),
 		"nil pod must fall back to rec.Current")
 }
+
+func TestLiveContainerCurrent_MissingKeysKeepCurrent(t *testing.T) {
+	pod := newResizePod("api-server", "500m", "1Gi", "1000m", "2Gi")
+	delete(pod.Spec.Containers[0].Resources.Limits, corev1.ResourceMemory)
+	rec := attunev1alpha1.ContainerRecommendation{
+		Name: "main",
+		Current: attunev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("500m"),
+			CPULimit:      resource.MustParse("1000m"),
+			MemoryRequest: resource.MustParse("256Mi"),
+			MemoryLimit:   resource.MustParse("512Mi"),
+		},
+	}
+
+	got := liveContainerCurrent(pod, rec)
+	assert.True(t, got.MemoryRequest.Equal(resource.MustParse("1Gi")),
+		"live memory request must overlay Current, got %s", got.MemoryRequest.String())
+	assert.True(t, got.MemoryLimit.Equal(resource.MustParse("512Mi")),
+		"missing live limit must keep rec.Current, not invent zero; got %s", got.MemoryLimit.String())
+	assert.True(t, got.CPULimit.Equal(resource.MustParse("1000m")),
+		"present live CPU limit must still overlay Current")
+}
