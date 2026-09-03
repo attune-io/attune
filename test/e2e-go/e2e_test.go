@@ -35,6 +35,7 @@ import (
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -1343,8 +1344,10 @@ func TestE2E_EvictionFallback_ResizesWithInPlaceOrRecreate(t *testing.T) {
 	t.Parallel()
 	ns := uniqueNS("evict")
 	createNamespace(t, ns)
-	createDeployment(t, "evict-app", ns, "250m", "256Mi", 2)
-	waitForDeploymentReady(t, "evict-app", ns, 60*time.Second)
+	// Two replicas so last-replica eviction guard does not block. Keep
+	// requests small so both schedule on the shared k3d node.
+	createDeployment(t, "evict-app", ns, "200m", "128Mi", 2)
+	waitForDeploymentReady(t, "evict-app", ns, 90*time.Second)
 
 	deployName := "evict-app"
 	policy := &attunev1alpha1.AttunePolicy{
@@ -1362,7 +1365,7 @@ func TestE2E_EvictionFallback_ResizesWithInPlaceOrRecreate(t *testing.T) {
 				Percentile:       95,
 				Overhead:         "20",
 				MinAllowed:       quantityPtr("50m"),
-				MaxAllowed:       quantityPtr("4000m"),
+				MaxAllowed:       quantityPtr("100m"),
 				MaxChangePercent: int32Ptr(100),
 			},
 			Memory: attunev1alpha1.ResourceConfig{
@@ -1381,16 +1384,73 @@ func TestE2E_EvictionFallback_ResizesWithInPlaceOrRecreate(t *testing.T) {
 			},
 		},
 	}
+	var startPods corev1.PodList
+	require.NoError(t, k8sClient.List(ctx, &startPods, client.InNamespace(ns), client.MatchingLabels{"app": "evict-app"}))
+	require.GreaterOrEqual(t, len(startPods.Items), 2, "need two pods before eviction")
+	origUIDs := map[types.UID]string{}
+	for i := range startPods.Items {
+		origUIDs[startPods.Items[i].UID] = startPods.Items[i].Name
+		require.NoError(t, tryPatchPodResizePending(t, startPods.Items[i].Name, ns, "Infeasible"))
+	}
+
+	// Create the policy after Infeasible is already on the original pods so
+	// the first executeResizes hits eviction instead of a successful in-place.
 	require.NoError(t, k8sClient.Create(ctx, policy))
 
-	// Wait for resize. With InPlaceOrRecreate, the resize should succeed
-	// either in-place or via eviction fallback.
-	waitForResize(t, "evict-policy", ns, 3*time.Minute)
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 3*time.Second, 4*time.Minute, true, func(ctx context.Context) (bool, error) {
+		var live corev1.PodList
+		if err := k8sClient.List(ctx, &live, client.InNamespace(ns), client.MatchingLabels{"app": "evict-app"}); err != nil {
+			return false, nil
+		}
+		// Only inject on the original pods. Replacement pods must stay
+		// so the last-replica guard can settle the Deployment.
+		for i := range live.Items {
+			pod := &live.Items[i]
+			if _, ok := origUIDs[pod.UID]; !ok {
+				continue
+			}
+			if err := tryPatchPodResizePending(t, pod.Name, ns, "Infeasible"); err != nil {
+				if apierrors.IsNotFound(err) {
+					t.Logf("original pod %s gone while injecting Infeasible", pod.Name)
+					continue
+				}
+				t.Logf("inject Infeasible on %s: %v", pod.Name, err)
+			}
+		}
 
-	var p attunev1alpha1.AttunePolicy
-	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "evict-policy", Namespace: ns}, &p))
-	assert.GreaterOrEqual(t, p.Status.Workloads.Resized, int32(1),
-		"at least one workload should be resized with InPlaceOrRecreate")
+		var p attunev1alpha1.AttunePolicy
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "evict-policy", Namespace: ns}, &p); err != nil {
+			return false, nil
+		}
+		historyEvicted := false
+		for _, h := range p.Status.ResizeHistory {
+			if h.Method == "Eviction" && h.Result == attunev1alpha1.ResizeResultEvicted {
+				historyEvicted = true
+				break
+			}
+		}
+
+		replaced := 0
+		stillOrig := 0
+		for i := range live.Items {
+			if _, ok := origUIDs[live.Items[i].UID]; ok {
+				stillOrig++
+			} else {
+				replaced++
+			}
+		}
+		t.Logf("eviction wait: historyEvicted=%v stillOrig=%d replaced=%d", historyEvicted, stillOrig, replaced)
+		return historyEvicted || replaced >= 1, nil
+	}), "InPlaceOrRecreate must evict an Infeasible pod (history Evicted or original UID replaced)")
+
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 3*time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
+		var deploy appsv1.Deployment
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "evict-app", Namespace: ns}, &deploy); err != nil {
+			return false, nil
+		}
+		t.Logf("post-eviction ReadyReplicas=%d", deploy.Status.ReadyReplicas)
+		return deploy.Status.ReadyReplicas >= 1, nil
+	}), "Deployment must keep at least one ready replica after eviction")
 }
 
 func TestE2E_RecommendMode_KeepsRecommendationsWithoutLivePods(t *testing.T) {
@@ -2629,11 +2689,12 @@ func TestE2E_MemoryLimitDecrease_VersionAware(t *testing.T) {
 	}
 }
 
-// patchPodResizePending sets PodResizePending with the given reason (Deferred
-// or Infeasible). Kubelet may overwrite status; callers re-apply in a loop.
-func patchPodResizePending(t *testing.T, podName, namespace, reason string) {
+// tryPatchPodResizePending sets PodResizePending with the given reason
+// (Deferred or Infeasible). Kubelet may overwrite status; callers re-apply
+// in a loop. Returns NotFound when the pod is already gone (evicted).
+func tryPatchPodResizePending(t *testing.T, podName, namespace, reason string) error {
 	t.Helper()
-	require.NoError(t, retry.RetryOnConflict(retry.DefaultRetry, func() error {
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		pod, err := clientset.CoreV1().Pods(namespace).Get(ctx, podName, metav1.GetOptions{})
 		if err != nil {
 			return err
@@ -2659,7 +2720,18 @@ func patchPodResizePending(t *testing.T, podName, namespace, reason string) {
 		}
 		_, err = clientset.CoreV1().Pods(namespace).UpdateStatus(ctx, pod, metav1.UpdateOptions{})
 		return err
-	}))
+	})
+}
+
+// patchPodResizePending sets PodResizePending. A missing pod is logged, not fatal.
+func patchPodResizePending(t *testing.T, podName, namespace, reason string) {
+	t.Helper()
+	err := tryPatchPodResizePending(t, podName, namespace, reason)
+	if apierrors.IsNotFound(err) {
+		t.Logf("pod %s already gone while injecting %s", podName, reason)
+		return
+	}
+	require.NoError(t, err)
 }
 
 // TestE2E_ResizeBlocked_DeferredAndInfeasibleStatus injects kubelet-style
