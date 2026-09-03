@@ -3494,8 +3494,10 @@ func TestE2E_Infeasible_EvictsWithInPlaceOrRecreate(t *testing.T) {
 	t.Parallel()
 	ns := uniqueNS("evictif")
 	createNamespace(t, ns)
-	createDeployment(t, "evictif-app", ns, "500m", "256Mi", 2)
-	waitForDeploymentReady(t, "evictif-app", ns, 60*time.Second)
+	// Two small Burstable replicas so last-replica protection does not
+	// block eviction and the pair still schedules on a busy k3d node.
+	createDeployment(t, "evictif-app", ns, "200m", "128Mi", 2)
+	waitForDeploymentReady(t, "evictif-app", ns, 180*time.Second)
 
 	name := "evictif-app"
 	policy := &attunev1alpha1.AttunePolicy{
@@ -3513,7 +3515,7 @@ func TestE2E_Infeasible_EvictsWithInPlaceOrRecreate(t *testing.T) {
 				Percentile:       95,
 				Overhead:         "20",
 				MinAllowed:       quantityPtr("50m"),
-				MaxAllowed:       quantityPtr("250m"),
+				MaxAllowed:       quantityPtr("100m"),
 				MaxChangePercent: int32Ptr(100),
 			},
 			Memory: attunev1alpha1.ResourceConfig{
