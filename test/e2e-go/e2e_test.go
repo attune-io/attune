@@ -1829,7 +1829,7 @@ func TestE2E_MultiReplica_ProgressiveResize(t *testing.T) {
 				Percentile:       95,
 				Overhead:         "20",
 				MinAllowed:       quantityPtr("50m"),
-				MaxAllowed:       quantityPtr("4000m"),
+				MaxAllowed:       quantityPtr("100m"),
 				MaxChangePercent: int32Ptr(100),
 			},
 			Memory: attunev1alpha1.ResourceConfig{
@@ -1850,13 +1850,35 @@ func TestE2E_MultiReplica_ProgressiveResize(t *testing.T) {
 	}
 	require.NoError(t, k8sClient.Create(ctx, policy))
 
-	waitForResize(t, "multi-rep-policy", ns, 3*time.Minute)
+	origCPU := resource.MustParse("250m")
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 5*time.Minute, true, func(ctx context.Context) (bool, error) {
+		var pods corev1.PodList
+		if err := k8sClient.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{"app": "multi-rep-app"}); err != nil {
+			return false, nil
+		}
+		decreased := 0
+		for _, pod := range pods.Items {
+			if pod.Status.Phase != corev1.PodRunning {
+				continue
+			}
+			for _, c := range pod.Spec.Containers {
+				if c.Name != "app" {
+					continue
+				}
+				cpu := c.Resources.Requests.Cpu()
+				if cpu != nil && cpu.Cmp(origCPU) < 0 {
+					decreased++
+				}
+			}
+		}
+		t.Logf("progressive resize: %d/3 pods decreased from 250m", decreased)
+		return decreased == 3, nil
+	}), "all 3 replicas should eventually decrease with maxConcurrentResizes=1")
 
-	// Verify at least one pod was resized and the deployment stayed available.
 	var deploy appsv1.Deployment
 	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "multi-rep-app", Namespace: ns}, &deploy))
-	assert.GreaterOrEqual(t, deploy.Status.ReadyReplicas, int32(1),
-		"at least one replica should remain ready during progressive resize")
+	assert.Equal(t, int32(3), deploy.Status.ReadyReplicas,
+		"all replicas must stay ready after progressive resize")
 }
 
 func TestE2E_GuaranteedQoS_RequestsAndLimits(t *testing.T) {
@@ -3214,4 +3236,350 @@ func TestE2E_RuntimeProfileJava_BlocksMemoryDecrease(t *testing.T) {
 	assert.GreaterOrEqual(t, c.Resources.Requests.Memory().Value(), origMem.Value(),
 		"memory should not decrease under java defaults, got %s",
 		c.Resources.Requests.Memory().String())
+}
+
+func TestE2E_Paused_StopsAfterResize(t *testing.T) {
+	t.Parallel()
+	ns := uniqueNS("paused")
+	createNamespace(t, ns)
+	createDeployment(t, "paused-app", ns, "500m", "256Mi", 1)
+	waitForDeploymentReady(t, "paused-app", ns, 60*time.Second)
+
+	deployName := "paused-app"
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "paused-policy", Namespace: ns},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			TargetRef: attunev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Prometheus:        &attunev1alpha1.PrometheusConfig{Address: promAddr},
+				MinimumDataPoints: int32Ptr(1),
+				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
+				RateWindow:        &metav1.Duration{Duration: 5 * time.Minute},
+			},
+			CPU: attunev1alpha1.ResourceConfig{
+				Percentile:       95,
+				Overhead:         "20",
+				MinAllowed:       quantityPtr("50m"),
+				MaxAllowed:       quantityPtr("250m"),
+				MaxChangePercent: int32Ptr(100),
+			},
+			Memory: attunev1alpha1.ResourceConfig{
+				Percentile:       99,
+				Overhead:         "30",
+				AllowDecrease:    boolPtr(true),
+				MinAllowed:       quantityPtr("64Mi"),
+				MaxAllowed:       quantityPtr("8Gi"),
+				MaxChangePercent: int32Ptr(100),
+			},
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Type:       attunev1alpha1.UpdateTypeAuto,
+				Cooldown:   &metav1.Duration{Duration: time.Minute},
+				AutoRevert: boolPtr(false),
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, policy))
+	waitForLiveCPUDecrease(t, "paused-policy", ns, "paused-app", resource.MustParse("500m"), 4*time.Minute,
+		"need a resize before pause")
+
+	cpuBefore := liveAppCPU(t, ns, "paused-app")
+	require.NoError(t, retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		var p attunev1alpha1.AttunePolicy
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "paused-policy", Namespace: ns}, &p); err != nil {
+			return err
+		}
+		p.Spec.Paused = boolPtr(true)
+		return k8sClient.Update(ctx, &p)
+	}))
+
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 3*time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
+		var p attunev1alpha1.AttunePolicy
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "paused-policy", Namespace: ns}, &p); err != nil {
+			return false, nil
+		}
+		for _, c := range p.Status.Conditions {
+			if c.Type == attunev1alpha1.ConditionReady && c.Reason == attunev1alpha1.ReasonPaused {
+				return true, nil
+			}
+		}
+		return false, nil
+	}), "Ready reason should become Paused")
+
+	deadline := time.Now().Add(45 * time.Second)
+	for time.Now().Before(deadline) {
+		live := liveAppCPU(t, ns, "paused-app")
+		assert.Equal(t, cpuBefore.MilliValue(), live.MilliValue(),
+			"paused policy must not keep changing live CPU")
+		time.Sleep(5 * time.Second)
+	}
+}
+
+func TestE2E_StatefulSet_AutoDecreasesCPU(t *testing.T) {
+	t.Parallel()
+	ns := uniqueNS("sts")
+	createNamespace(t, ns)
+
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "sts-app", Namespace: ns},
+		Spec: corev1.ServiceSpec{
+			ClusterIP: "None",
+			Selector:  map[string]string{"app": "sts-app"},
+			Ports:     []corev1.ServicePort{{Name: "http", Port: 80}},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, svc))
+
+	sts := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "sts-app", Namespace: ns, Labels: map[string]string{"app": "sts-app"}},
+		Spec: appsv1.StatefulSetSpec{
+			ServiceName: "sts-app",
+			Replicas:    int32Ptr(1),
+			Selector:    &metav1.LabelSelector{MatchLabels: map[string]string{"app": "sts-app"}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "sts-app"}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:  "app",
+						Image: "registry.k8s.io/pause:3.9",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("256Mi"),
+							},
+						},
+					}},
+				},
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, sts))
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 2*time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
+		var pods corev1.PodList
+		if err := k8sClient.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{"app": "sts-app"}); err != nil {
+			return false, nil
+		}
+		for _, p := range pods.Items {
+			if p.Status.Phase == corev1.PodRunning {
+				return true, nil
+			}
+		}
+		return false, nil
+	}), "StatefulSet pod did not become Running")
+
+	name := "sts-app"
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "sts-policy", Namespace: ns},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			TargetRef: attunev1alpha1.TargetRef{Kind: "StatefulSet", Name: &name},
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Prometheus:        &attunev1alpha1.PrometheusConfig{Address: promAddr},
+				MinimumDataPoints: int32Ptr(1),
+				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
+				RateWindow:        &metav1.Duration{Duration: 5 * time.Minute},
+			},
+			CPU: attunev1alpha1.ResourceConfig{
+				Percentile:       95,
+				Overhead:         "20",
+				MinAllowed:       quantityPtr("50m"),
+				MaxAllowed:       quantityPtr("250m"),
+				MaxChangePercent: int32Ptr(100),
+			},
+			Memory: attunev1alpha1.ResourceConfig{
+				Percentile:       99,
+				Overhead:         "30",
+				AllowDecrease:    boolPtr(true),
+				MinAllowed:       quantityPtr("64Mi"),
+				MaxAllowed:       quantityPtr("8Gi"),
+				MaxChangePercent: int32Ptr(100),
+			},
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Type:       attunev1alpha1.UpdateTypeAuto,
+				Cooldown:   &metav1.Duration{Duration: time.Minute},
+				AutoRevert: boolPtr(true),
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, policy))
+	waitForLiveCPUDecrease(t, "sts-policy", ns, "sts-app", resource.MustParse("500m"), 4*time.Minute,
+		"StatefulSet Auto should decrease idle pause CPU")
+}
+
+func TestE2E_ExcludeKnownSidecars_OmitsIstioProxy(t *testing.T) {
+	t.Parallel()
+	ns := uniqueNS("knownsc")
+	createNamespace(t, ns)
+
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "knownsc-app", Namespace: ns, Labels: map[string]string{"app": "knownsc-app"}},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: int32Ptr(1),
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "knownsc-app"}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "knownsc-app"}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "app",
+							Image: "registry.k8s.io/pause:3.9",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("250m"),
+									corev1.ResourceMemory: resource.MustParse("256Mi"),
+								},
+							},
+						},
+						{
+							Name:  "istio-proxy",
+							Image: "registry.k8s.io/pause:3.9",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("100m"),
+									corev1.ResourceMemory: resource.MustParse("128Mi"),
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, deploy))
+	waitForDeploymentReady(t, "knownsc-app", ns, 60*time.Second)
+
+	name := "knownsc-app"
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "knownsc-policy", Namespace: ns},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			TargetRef: attunev1alpha1.TargetRef{Kind: "Deployment", Name: &name},
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Prometheus:        &attunev1alpha1.PrometheusConfig{Address: promAddr},
+				MinimumDataPoints: int32Ptr(1),
+				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
+				RateWindow:        &metav1.Duration{Duration: 5 * time.Minute},
+			},
+			CPU:    attunev1alpha1.ResourceConfig{Percentile: 95, Overhead: "20"},
+			Memory: attunev1alpha1.ResourceConfig{Percentile: 99, Overhead: "30"},
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Type:     attunev1alpha1.UpdateTypeRecommend,
+				Cooldown: &metav1.Duration{Duration: time.Minute},
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, policy))
+
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
+		var p attunev1alpha1.AttunePolicy
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "knownsc-policy", Namespace: ns}, &p); err != nil {
+			return false, nil
+		}
+		if p.Status.Workloads.WithRecommendations < 1 {
+			return false, nil
+		}
+		for _, rec := range p.Status.Recommendations {
+			for _, c := range rec.Containers {
+				if c.Name == "istio-proxy" {
+					t.Errorf("default excludeKnownSidecars left istio-proxy in recommendations")
+					return true, nil
+				}
+			}
+		}
+		return true, nil
+	}), "expected recommendations without istio-proxy via default excludeKnownSidecars")
+}
+
+func TestE2E_Infeasible_EvictsWithInPlaceOrRecreate(t *testing.T) {
+	t.Parallel()
+	ns := uniqueNS("evictif")
+	createNamespace(t, ns)
+	createDeployment(t, "evictif-app", ns, "500m", "256Mi", 2)
+	waitForDeploymentReady(t, "evictif-app", ns, 60*time.Second)
+
+	name := "evictif-app"
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "evictif-policy", Namespace: ns},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			TargetRef: attunev1alpha1.TargetRef{Kind: "Deployment", Name: &name},
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Prometheus:        &attunev1alpha1.PrometheusConfig{Address: promAddr},
+				MinimumDataPoints: int32Ptr(1),
+				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
+				RateWindow:        &metav1.Duration{Duration: 5 * time.Minute},
+			},
+			CPU: attunev1alpha1.ResourceConfig{
+				Percentile:       95,
+				Overhead:         "20",
+				MinAllowed:       quantityPtr("50m"),
+				MaxAllowed:       quantityPtr("250m"),
+				MaxChangePercent: int32Ptr(100),
+			},
+			Memory: attunev1alpha1.ResourceConfig{
+				Percentile:       99,
+				Overhead:         "30",
+				AllowDecrease:    boolPtr(true),
+				MinAllowed:       quantityPtr("64Mi"),
+				MaxAllowed:       quantityPtr("8Gi"),
+				MaxChangePercent: int32Ptr(100),
+			},
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Type:         attunev1alpha1.UpdateTypeAuto,
+				Cooldown:     &metav1.Duration{Duration: time.Minute},
+				ResizeMethod: attunev1alpha1.ResizeMethodInPlaceOrRecreate,
+				AutoRevert:   boolPtr(false),
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, policy))
+
+	var pods corev1.PodList
+	require.NoError(t, k8sClient.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{"app": "evictif-app"}))
+	require.NotEmpty(t, pods.Items)
+	target := pods.Items[0].Name
+	origUID := pods.Items[0].UID
+
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 4*time.Minute, true, func(ctx context.Context) (bool, error) {
+		patchPodResizePending(t, target, ns, "Infeasible")
+		var p attunev1alpha1.AttunePolicy
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "evictif-policy", Namespace: ns}, &p); err != nil {
+			return false, nil
+		}
+		for _, h := range p.Status.ResizeHistory {
+			if h.Method == "Eviction" && h.Result == attunev1alpha1.ResizeResultEvicted {
+				t.Logf("eviction history: workload=%s container=%s", h.Workload, h.Container)
+				return true, nil
+			}
+		}
+		var live corev1.PodList
+		if err := k8sClient.List(ctx, &live, client.InNamespace(ns), client.MatchingLabels{"app": "evictif-app"}); err == nil {
+			for _, pod := range live.Items {
+				if pod.Name == target && pod.UID != origUID {
+					t.Logf("pod %s UID changed after eviction", target)
+					return true, nil
+				}
+			}
+		}
+		return false, nil
+	}), "InPlaceOrRecreate should evict an Infeasible pod")
+}
+
+func liveAppCPU(t *testing.T, namespace, app string) resource.Quantity {
+	t.Helper()
+	var pods corev1.PodList
+	require.NoError(t, k8sClient.List(ctx, &pods, client.InNamespace(namespace), client.MatchingLabels{"app": app}))
+	require.NotEmpty(t, pods.Items)
+	for _, pod := range pods.Items {
+		if pod.Status.Phase != corev1.PodRunning {
+			continue
+		}
+		for _, c := range pod.Spec.Containers {
+			if c.Name == "app" && c.Resources.Requests.Cpu() != nil {
+				return *c.Resources.Requests.Cpu()
+			}
+		}
+	}
+	t.Fatalf("no running app container CPU in %s/%s", namespace, app)
+	return resource.Quantity{}
 }
