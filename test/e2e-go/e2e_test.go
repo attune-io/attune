@@ -1393,29 +1393,40 @@ func TestE2E_EvictionFallback_ResizesWithInPlaceOrRecreate(t *testing.T) {
 		require.NoError(t, tryPatchPodResizePending(t, startPods.Items[i].Name, ns, "Infeasible"))
 	}
 
+	// Kubelet clears injected Infeasible within seconds. Re-apply on a
+	// short ticker so executeResizes still sees it when recs land.
+	stopInject := make(chan struct{})
+	defer close(stopInject)
+	go func() {
+		ticker := time.NewTicker(200 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopInject:
+				return
+			case <-ticker.C:
+				var live corev1.PodList
+				if err := k8sClient.List(ctx, &live, client.InNamespace(ns), client.MatchingLabels{"app": "evict-app"}); err != nil {
+					continue
+				}
+				for i := range live.Items {
+					if _, ok := origUIDs[live.Items[i].UID]; !ok {
+						continue
+					}
+					_ = tryPatchPodResizePending(t, live.Items[i].Name, ns, "Infeasible")
+				}
+			}
+		}
+	}()
+
 	// Create the policy after Infeasible is already on the original pods so
 	// the first executeResizes hits eviction instead of a successful in-place.
 	require.NoError(t, k8sClient.Create(ctx, policy))
 
-	require.NoError(t, wait.PollUntilContextTimeout(ctx, 3*time.Second, 4*time.Minute, true, func(ctx context.Context) (bool, error) {
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 1*time.Second, 4*time.Minute, true, func(ctx context.Context) (bool, error) {
 		var live corev1.PodList
 		if err := k8sClient.List(ctx, &live, client.InNamespace(ns), client.MatchingLabels{"app": "evict-app"}); err != nil {
 			return false, nil
-		}
-		// Only inject on the original pods. Replacement pods must stay
-		// so the last-replica guard can settle the Deployment.
-		for i := range live.Items {
-			pod := &live.Items[i]
-			if _, ok := origUIDs[pod.UID]; !ok {
-				continue
-			}
-			if err := tryPatchPodResizePending(t, pod.Name, ns, "Infeasible"); err != nil {
-				if apierrors.IsNotFound(err) {
-					t.Logf("original pod %s gone while injecting Infeasible", pod.Name)
-					continue
-				}
-				t.Logf("inject Infeasible on %s: %v", pod.Name, err)
-			}
 		}
 
 		var p attunev1alpha1.AttunePolicy
@@ -1439,7 +1450,8 @@ func TestE2E_EvictionFallback_ResizesWithInPlaceOrRecreate(t *testing.T) {
 				replaced++
 			}
 		}
-		t.Logf("eviction wait: historyEvicted=%v stillOrig=%d replaced=%d", historyEvicted, stillOrig, replaced)
+		t.Logf("eviction wait: historyEvicted=%v stillOrig=%d replaced=%d recs=%d resized=%d",
+			historyEvicted, stillOrig, replaced, p.Status.Workloads.WithRecommendations, p.Status.Workloads.Resized)
 		return historyEvicted || replaced >= 1, nil
 	}), "InPlaceOrRecreate must evict an Infeasible pod (history Evicted or original UID replaced)")
 
