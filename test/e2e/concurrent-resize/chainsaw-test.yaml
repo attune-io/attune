@@ -99,6 +99,8 @@ spec:
                 cpu:
                   percentile: 95
                   overhead: "20"
+                  minAllowed: 1m
+                  maxAllowed: "50m"
                   maxChangePercent: 100
                 memory:
                   percentile: 99
@@ -126,17 +128,31 @@ spec:
         - script:
             timeout: 5m
             content: |
+              set -e
+              cpu_milli() {
+                v=$1
+                case "$v" in
+                  *m) echo "${v%m}" ;;
+                  "") echo 0 ;;
+                  *) echo $((v * 1000)) ;;
+                esac
+              }
               for i in $(seq 1 60); do
                 RESIZED=$(kubectl get attunepolicy concurrent-test -n e2e-concurrent-resize \
-                  -o jsonpath='{.status.workloads.resized}' 2>/dev/null)
-                if [ "$RESIZED" -ge 1 ] 2>/dev/null; then
-                  echo "Concurrent resize confirmed: $RESIZED workload(s) resized"
+                  -o jsonpath='{.status.workloads.resized}' 2>/dev/null || true)
+                CPU=$(kubectl get pods -n e2e-concurrent-resize -l app=concurrent-app \
+                  -o jsonpath='{.items[0].spec.containers[0].resources.requests.cpu}' 2>/dev/null || true)
+                milli=$(cpu_milli "$CPU")
+                if [ "${RESIZED:-0}" -ge 1 ] 2>/dev/null && [ "$milli" -gt 0 ] && [ "$milli" -lt 100 ]; then
+                  echo "Concurrent resize decrease: resized=$RESIZED liveCPU=$CPU"
                   exit 0
                 fi
+                echo "Waiting... resized=$RESIZED cpu=$CPU milli=$milli"
                 sleep 5
               done
-              echo "No resize occurred within timeout"
+              echo "No downward resize within timeout"
               kubectl get attunepolicy concurrent-test -n e2e-concurrent-resize -o yaml
+              kubectl get pods -n e2e-concurrent-resize -l app=concurrent-app -o yaml
               exit 1
   catch:
     - describe:

@@ -530,37 +530,58 @@ func TestE2E_AutoMode_ResizesRunningPod(t *testing.T) {
 	t.Parallel()
 	ns := uniqueNS("auto")
 	createNamespace(t, ns)
-	createDeployment(t, "auto-app", ns, "250m", "256Mi", 1)
+	createDeployment(t, "auto-app", ns, "500m", "256Mi", 1)
 	waitForDeploymentReady(t, "auto-app", ns, 60*time.Second)
 
-	createPolicy(t, "auto-policy", ns, "auto-app", attunev1alpha1.UpdateTypeAuto)
+	// Idle pause: pin MaxAllowed below start so a cost-multiplying increase
+	// cannot satisfy waitForResize / "something changed".
+	deployName := "auto-app"
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "auto-policy", Namespace: ns},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			TargetRef: attunev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Prometheus:        &attunev1alpha1.PrometheusConfig{Address: promAddr},
+				MinimumDataPoints: int32Ptr(1),
+				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
+				RateWindow:        &metav1.Duration{Duration: 5 * time.Minute},
+			},
+			CPU: attunev1alpha1.ResourceConfig{
+				Percentile:       95,
+				Overhead:         "20",
+				MinAllowed:       quantityPtr("50m"),
+				MaxAllowed:       quantityPtr("250m"),
+				MaxChangePercent: int32Ptr(100),
+			},
+			Memory: attunev1alpha1.ResourceConfig{
+				Percentile:       99,
+				Overhead:         "30",
+				AllowDecrease:    boolPtr(true),
+				MinAllowed:       quantityPtr("64Mi"),
+				MaxAllowed:       quantityPtr("8Gi"),
+				MaxChangePercent: int32Ptr(100),
+			},
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Type:       attunev1alpha1.UpdateTypeAuto,
+				Cooldown:   &metav1.Duration{Duration: time.Minute},
+				AutoRevert: boolPtr(true),
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, policy))
 
-	// Wait for resize to complete (pod resources should change).
-	waitForResize(t, "auto-policy", ns, 3*time.Minute)
+	origCPU := resource.MustParse("500m")
+	waitForLiveCPUDecrease(t, "auto-policy", ns, "auto-app", origCPU, 4*time.Minute,
+		"Auto mode should decrease idle pause CPU below start")
 
-	// Verify the pod's resources actually changed.
 	var podList corev1.PodList
 	require.NoError(t, k8sClient.List(ctx, &podList,
 		client.InNamespace(ns),
 		client.MatchingLabels{"app": "auto-app"},
 	))
 	require.NotEmpty(t, podList.Items)
-
-	pod := podList.Items[0]
-
-	// Verify the resize actually changed the pod's resources.
-	// We don't assert direction (up/down) because the recommendation
-	// depends on actual Prometheus data which varies per run.
-	origCPU := resource.MustParse("250m")
-	origMem := resource.MustParse("256Mi")
-	cpuReq := pod.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
-	memReq := pod.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory]
-	assert.True(t, cpuReq.Cmp(origCPU) != 0 || memReq.Cmp(origMem) != 0,
-		"at least one resource should have changed after resize, cpu=%s mem=%s",
-		cpuReq.String(), memReq.String())
-
-	// Verify pod is still Running.
-	assert.Equal(t, corev1.PodRunning, pod.Status.Phase)
+	assert.Equal(t, corev1.PodRunning, podList.Items[0].Status.Phase)
 }
 
 func TestE2E_OneShotMode_ResizesOnePod(t *testing.T) {
@@ -583,59 +604,59 @@ func TestE2E_OneShotMode_ResizesOnePod(t *testing.T) {
 
 func TestE2E_AutoMode_RecordsResizeHistory(t *testing.T) {
 	t.Parallel()
-	ns := uniqueNS("revert")
+	ns := uniqueNS("history")
 	createNamespace(t, ns)
 
-	// Deploy a pod with a liveness probe that checks for a file.
-	// After resize, the annotation change triggers the operator's observation.
-	// We use a pod that will fail its liveness probe to trigger restarts.
-	deploy := &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "revert-app",
-			Namespace: ns,
-			Labels:    map[string]string{"app": "revert-app"},
-		},
-		Spec: appsv1.DeploymentSpec{
-			Replicas: int32Ptr(1),
-			Selector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{"app": "revert-app"},
+	// History bookkeeping only (not a safety-revert test). Live restore after
+	// OOM/SLO is covered by TestE2E_OOMKill_TriggersRevert and slo-guardrails.
+	createDeployment(t, "history-app", ns, "500m", "256Mi", 1)
+	waitForDeploymentReady(t, "history-app", ns, 60*time.Second)
+
+	deployName := "history-app"
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "history-policy", Namespace: ns},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			TargetRef: attunev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Prometheus:        &attunev1alpha1.PrometheusConfig{Address: promAddr},
+				MinimumDataPoints: int32Ptr(1),
+				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
+				RateWindow:        &metav1.Duration{Duration: 5 * time.Minute},
 			},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{"app": "revert-app"},
-				},
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{
-						{
-							Name:  "app",
-							Image: "registry.k8s.io/pause:3.9",
-							Resources: corev1.ResourceRequirements{
-								Requests: corev1.ResourceList{
-									corev1.ResourceCPU:    resource.MustParse("250m"),
-									corev1.ResourceMemory: resource.MustParse("256Mi"),
-								},
-							},
-						},
-					},
-				},
+			CPU: attunev1alpha1.ResourceConfig{
+				Percentile:       95,
+				Overhead:         "20",
+				MinAllowed:       quantityPtr("50m"),
+				MaxAllowed:       quantityPtr("250m"),
+				MaxChangePercent: int32Ptr(100),
+			},
+			Memory: attunev1alpha1.ResourceConfig{
+				Percentile:       99,
+				Overhead:         "30",
+				AllowDecrease:    boolPtr(true),
+				MinAllowed:       quantityPtr("64Mi"),
+				MaxAllowed:       quantityPtr("8Gi"),
+				MaxChangePercent: int32Ptr(100),
+			},
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Type:       attunev1alpha1.UpdateTypeAuto,
+				Cooldown:   &metav1.Duration{Duration: time.Minute},
+				AutoRevert: boolPtr(true),
 			},
 		},
 	}
-	require.NoError(t, k8sClient.Create(ctx, deploy))
-	waitForDeploymentReady(t, "revert-app", ns, 60*time.Second)
+	require.NoError(t, k8sClient.Create(ctx, policy))
 
-	policy := createPolicy(t, "revert-policy", ns, "revert-app", attunev1alpha1.UpdateTypeAuto)
+	waitForLiveCPUDecrease(t, "history-policy", ns, "history-app", resource.MustParse("500m"), 4*time.Minute,
+		"history test needs a successful resize first")
 
-	// Wait for initial resize.
-	waitForResize(t, "revert-policy", ns, 3*time.Minute)
-
-	// Verify the resize occurred and check that history entries exist.
 	var updatedPolicy attunev1alpha1.AttunePolicy
 	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{
-		Name: policy.Name, Namespace: ns,
+		Name: "history-policy", Namespace: ns,
 	}, &updatedPolicy))
 	assert.NotEmpty(t, updatedPolicy.Status.ResizeHistory,
-		"resize history should have at least one entry")
+		"resize history should have at least one entry after a live resize")
 }
 
 func TestE2E_MultiContainer_ExcludesSidecar(t *testing.T) {
@@ -707,7 +728,7 @@ func TestE2E_MultiContainer_ExcludesSidecar(t *testing.T) {
 				Percentile:       95,
 				Overhead:         "20",
 				MinAllowed:       quantityPtr("50m"),
-				MaxAllowed:       quantityPtr("4000m"),
+				MaxAllowed:       quantityPtr("100m"),
 				MaxChangePercent: int32Ptr(100),
 			},
 			Memory: attunev1alpha1.ResourceConfig{
@@ -728,9 +749,10 @@ func TestE2E_MultiContainer_ExcludesSidecar(t *testing.T) {
 	}
 	require.NoError(t, k8sClient.Create(ctx, policy))
 
-	waitForResize(t, "multi-policy", ns, 3*time.Minute)
+	// App starts at 250m; MaxAllowed 100m forces a decrease on the app only.
+	waitForLiveCPUDecrease(t, "multi-policy", ns, "multi-app", resource.MustParse("250m"), 4*time.Minute,
+		"app container CPU should decrease while sidecar is excluded")
 
-	// Verify only app container was resized.
 	var podList corev1.PodList
 	require.NoError(t, k8sClient.List(ctx, &podList,
 		client.InNamespace(ns),
@@ -752,10 +774,8 @@ func TestE2E_MultiContainer_ExcludesSidecar(t *testing.T) {
 		}
 		if c.Name == "app" {
 			origCPU := resource.MustParse("250m")
-			origMem := resource.MustParse("256Mi")
-			assert.True(t, c.Resources.Requests.Cpu().Cmp(origCPU) != 0 ||
-				c.Resources.Requests.Memory().Cmp(origMem) != 0,
-				"app container should have at least one resource changed")
+			assert.Less(t, c.Resources.Requests.Cpu().MilliValue(), origCPU.MilliValue(),
+				"app container CPU should decrease from start, got %s", c.Resources.Requests.Cpu().String())
 		}
 	}
 }
@@ -1714,32 +1734,76 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 		return false, nil
 	}), "timed out waiting for OOMKill")
 
-	// Phase 4: Wait for the safety monitor to detect OOMKill and record a
-	// Reverted entry in the resize history.
+	// Phase 4: Wait for an OOMKill Reverted history row (not any revert).
 	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 5*time.Minute, true, func(ctx context.Context) (bool, error) {
 		var p attunev1alpha1.AttunePolicy
 		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "oom-policy", Namespace: ns}, &p); err != nil {
 			return false, nil
 		}
 		for _, h := range p.Status.ResizeHistory {
-			if h.Result == attunev1alpha1.ResizeResultReverted {
-				t.Logf("Revert detected: workload=%s container=%s resource=%s", h.Workload, h.Container, h.Resource)
+			if h.Result == attunev1alpha1.ResizeResultReverted &&
+				(h.Reason == "oomkill" || strings.Contains(strings.ToLower(h.Reason), "oom")) {
+				t.Logf("OOM revert detected: workload=%s container=%s reason=%s",
+					h.Workload, h.Container, h.Reason)
 				return true, nil
 			}
 		}
 		return false, nil
-	}), "timed out waiting for safety revert after OOMKill")
+	}), "timed out waiting for OOMKill Reverted history")
+
+	// Pause so Auto cannot immediately re-decrease (cooldown is 1m, but pause
+	// is the hard stop). Then require live requests back at pre-resize values.
+	require.NoError(t, retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		var p attunev1alpha1.AttunePolicy
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "oom-policy", Namespace: ns}, &p); err != nil {
+			return err
+		}
+		p.Spec.Paused = boolPtr(true)
+		return k8sClient.Update(ctx, &p)
+	}))
+
+	origCPU := resource.MustParse("500m")
+	origMem := resource.MustParse("64Mi")
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 3*time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
+		var pods corev1.PodList
+		if err := k8sClient.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{"app": "oom-app"}); err != nil {
+			return false, nil
+		}
+		for _, pod := range pods.Items {
+			if pod.Status.Phase != corev1.PodRunning {
+				continue
+			}
+			for _, c := range pod.Spec.Containers {
+				if c.Name != "app" {
+					continue
+				}
+				cpu := c.Resources.Requests.Cpu()
+				mem := c.Resources.Requests.Memory()
+				if cpu != nil && mem != nil &&
+					cpu.Cmp(origCPU) == 0 && mem.Cmp(origMem) == 0 {
+					t.Logf("live resources restored on %s: cpu=%s mem=%s",
+						pod.Name, cpu.String(), mem.String())
+					return true, nil
+				}
+				t.Logf("waiting for restore on %s: cpu=%s mem=%s (want %s/%s)",
+					pod.Name, cpu, mem, origCPU.String(), origMem.String())
+			}
+		}
+		return false, nil
+	}), "timed out waiting for OOMKill revert to restore live pod resources")
 
 	var finalPolicy attunev1alpha1.AttunePolicy
 	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "oom-policy", Namespace: ns}, &finalPolicy))
-	hasRevert := false
+	hasOOMRevert := false
 	for i, h := range finalPolicy.Status.ResizeHistory {
-		t.Logf("  [%d] workload=%s container=%s resource=%s result=%s", i, h.Workload, h.Container, h.Resource, h.Result)
-		if h.Result == attunev1alpha1.ResizeResultReverted {
-			hasRevert = true
+		t.Logf("  [%d] workload=%s container=%s resource=%s result=%s reason=%s",
+			i, h.Workload, h.Container, h.Resource, h.Result, h.Reason)
+		if h.Result == attunev1alpha1.ResizeResultReverted &&
+			(h.Reason == "oomkill" || strings.Contains(strings.ToLower(h.Reason), "oom")) {
+			hasOOMRevert = true
 		}
 	}
-	assert.True(t, hasRevert, "resize history should contain a Reverted entry after OOMKill")
+	assert.True(t, hasOOMRevert, "resize history should contain an OOMKill Reverted entry")
 }
 
 func TestE2E_MultiReplica_ProgressiveResize(t *testing.T) {
@@ -1849,7 +1913,7 @@ func TestE2E_GuaranteedQoS_RequestsAndLimits(t *testing.T) {
 				Overhead:         "20",
 				ControlledValues: &controlledBoth,
 				MinAllowed:       quantityPtr("50m"),
-				MaxAllowed:       quantityPtr("4000m"),
+				MaxAllowed:       quantityPtr("100m"),
 				MaxChangePercent: int32Ptr(100),
 			},
 			Memory: attunev1alpha1.ResourceConfig{
@@ -1872,9 +1936,9 @@ func TestE2E_GuaranteedQoS_RequestsAndLimits(t *testing.T) {
 
 	// Guaranteed QoS with memory resize forces a container restart, so allow
 	// extra time for the resize + restart + readiness cycle.
-	waitForResize(t, "qos-policy", ns, 5*time.Minute)
-
-	// Re-fetch pods after resize (the pod may have restarted from memory resize).
+	origCPU := resource.MustParse("250m")
+	waitForLiveCPUDecrease(t, "qos-policy", ns, "qos-app", origCPU, 6*time.Minute,
+		"Guaranteed QoS idle pause should decrease CPU below start")
 	waitForDeploymentReady(t, "qos-app", ns, 120*time.Second)
 
 	var podList corev1.PodList
@@ -1887,12 +1951,8 @@ func TestE2E_GuaranteedQoS_RequestsAndLimits(t *testing.T) {
 		"CPU requests and limits should match after resize (Guaranteed QoS)")
 	assert.Equal(t, c.Resources.Requests.Memory().Value(), c.Resources.Limits.Memory().Value(),
 		"memory requests and limits should match after resize (Guaranteed QoS)")
-
-	// At least one resource should have changed from the initial values.
-	origCPU := resource.MustParse("250m")
-	origMem := resource.MustParse("256Mi")
-	assert.True(t, c.Resources.Requests.Cpu().Cmp(origCPU) != 0 || c.Resources.Requests.Memory().Cmp(origMem) != 0,
-		"at least one resource should have changed, cpu=%s mem=%s", c.Resources.Requests.Cpu().String(), c.Resources.Requests.Memory().String())
+	assert.Less(t, c.Resources.Requests.Cpu().MilliValue(), origCPU.MilliValue(),
+		"CPU should decrease from start, got %s", c.Resources.Requests.Cpu().String())
 }
 
 func TestE2E_LabelSelector_MultipleWorkloads(t *testing.T) {
@@ -2244,7 +2304,7 @@ func TestE2E_MultiContainer_SequentialResize(t *testing.T) {
 				Percentile:       95,
 				Overhead:         "20",
 				MinAllowed:       quantityPtr("50m"),
-				MaxAllowed:       quantityPtr("4000m"),
+				MaxAllowed:       quantityPtr("100m"),
 				MaxChangePercent: int32Ptr(100),
 			},
 			Memory: attunev1alpha1.ResourceConfig{
@@ -2266,7 +2326,7 @@ func TestE2E_MultiContainer_SequentialResize(t *testing.T) {
 
 	waitForResize(t, "multi-resize-policy", ns, 3*time.Minute)
 
-	// Verify both containers were resized.
+	// Verify both containers were resized downward (MaxAllowed 100m < 250m start).
 	var podList corev1.PodList
 	require.NoError(t, k8sClient.List(ctx, &podList,
 		client.InNamespace(ns),
@@ -2276,19 +2336,19 @@ func TestE2E_MultiContainer_SequentialResize(t *testing.T) {
 
 	pod := podList.Items[0]
 	origCPU := resource.MustParse("250m")
-	origMem := resource.MustParse("256Mi")
-	resizedContainers := 0
+	decreasedContainers := 0
 	for _, c := range pod.Spec.Containers {
-		cpuChanged := c.Resources.Requests.Cpu().Cmp(origCPU) != 0
-		memChanged := c.Resources.Requests.Memory().Cmp(origMem) != 0
-		if cpuChanged || memChanged {
-			resizedContainers++
-			t.Logf("container %s resized: cpu=%s mem=%s",
-				c.Name, c.Resources.Requests.Cpu(), c.Resources.Requests.Memory())
+		cpu := c.Resources.Requests.Cpu()
+		if cpu != nil && cpu.Cmp(origCPU) < 0 {
+			decreasedContainers++
+			t.Logf("container %s CPU decreased: cpu=%s mem=%s",
+				c.Name, cpu.String(), c.Resources.Requests.Memory())
+		} else {
+			t.Logf("container %s CPU not decreased: cpu=%s", c.Name, cpu)
 		}
 	}
-	assert.Equal(t, 2, resizedContainers,
-		"both containers should be resized; sequential UpdateResize requires fresh resourceVersion propagation")
+	assert.Equal(t, 2, decreasedContainers,
+		"both containers should decrease CPU; sequential UpdateResize requires fresh resourceVersion")
 
 	// Verify resize history records both containers.
 	var p attunev1alpha1.AttunePolicy
