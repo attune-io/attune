@@ -3636,7 +3636,7 @@ func TestE2E_PodAggregationAndBurstSensitivity_InExplanation(t *testing.T) {
 	createDeployment(t, "aggburst-app", ns, "250m", "256Mi", 1)
 	waitForDeploymentReady(t, "aggburst-app", ns, 60*time.Second)
 
-	burstOff := "0"
+	burstOff := "0.5"
 	name := "aggburst-app"
 	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "aggburst-policy", Namespace: ns},
@@ -3687,16 +3687,17 @@ func TestE2E_PodAggregationAndBurstSensitivity_InExplanation(t *testing.T) {
 				}
 				note = c.Explanation.CPU.FinalAdjustment
 				t.Logf("cpu finalAdjustment=%q", note)
-				if strings.Contains(note, "podAggregation=Avg") && strings.Contains(note, "burstSensitivity=0") {
+				if strings.Contains(note, "podAggregation=Avg") && strings.Contains(note, "burstSensitivity=0.5") {
 					return true, nil
 				}
 			}
 		}
 		return false, nil
-	}), "explanation must record Avg aggregation and burstSensitivity=0")
+	}), "explanation must record Avg aggregation and burstSensitivity=0.5")
 	assert.Contains(t, note, "podAggregation=Avg")
-	assert.Contains(t, note, "burstSensitivity=0")
+	assert.Contains(t, note, "burstSensitivity=0.5")
 	assert.NotContains(t, note, "podAggregation=Max")
+	assert.NotContains(t, note, "burstSensitivity=0.1")
 }
 
 func liveAppCPU(t *testing.T, namespace, app string) resource.Quantity {
