@@ -91,22 +91,26 @@ spec:
             content: |
               set -e
               for i in $(seq 1 36); do
-                cpu_lim=$(kubectl get attunepolicy reqonly-test -n e2e-requests-only \
-                  -o jsonpath='{.status.recommendations[0].containers[0].recommended.cpuLimit}' 2>/dev/null || true)
-                mem_lim=$(kubectl get attunepolicy reqonly-test -n e2e-requests-only \
-                  -o jsonpath='{.status.recommendations[0].containers[0].recommended.memoryLimit}' 2>/dev/null || true)
                 recs=$(kubectl get attunepolicy reqonly-test -n e2e-requests-only \
                   -o jsonpath='{.status.workloads.withRecommendations}' 2>/dev/null || true)
-                if [ "${recs:-0}" -ge 1 ] 2>/dev/null; then
-                  if [ "$cpu_lim" = "500m" ] && { [ "$mem_lim" = "512Mi" ] || [ "$mem_lim" = "536870912" ]; }; then
-                    echo "OK: RequestsOnly kept recommended limits at current (cpu=$cpu_lim mem=$mem_lim)"
+                rec_cpu=$(kubectl get attunepolicy reqonly-test -n e2e-requests-only \
+                  -o jsonpath='{.status.recommendations[0].containers[0].recommended.cpuLimit}' 2>/dev/null || true)
+                cur_cpu=$(kubectl get attunepolicy reqonly-test -n e2e-requests-only \
+                  -o jsonpath='{.status.recommendations[0].containers[0].current.cpuLimit}' 2>/dev/null || true)
+                rec_mem=$(kubectl get attunepolicy reqonly-test -n e2e-requests-only \
+                  -o jsonpath='{.status.recommendations[0].containers[0].recommended.memoryLimit}' 2>/dev/null || true)
+                cur_mem=$(kubectl get attunepolicy reqonly-test -n e2e-requests-only \
+                  -o jsonpath='{.status.recommendations[0].containers[0].current.memoryLimit}' 2>/dev/null || true)
+                if [ "${recs:-0}" -ge 1 ] 2>/dev/null && [ -n "$rec_cpu" ] && [ -n "$rec_mem" ]; then
+                  if [ "$rec_cpu" = "$cur_cpu" ] && [ "$rec_mem" = "$cur_mem" ]; then
+                    echo "OK: RequestsOnly kept recommended limits at current (cpu=$rec_cpu mem=$rec_mem)"
                     exit 0
                   fi
-                  echo "FAIL: RequestsOnly changed recommended limits (cpu=$cpu_lim mem=$mem_lim)"
+                  echo "FAIL: RequestsOnly changed recommended limits (rec cpu=$rec_cpu/$cur_cpu mem=$rec_mem/$cur_mem)"
                   kubectl get attunepolicy reqonly-test -n e2e-requests-only -o yaml
                   exit 1
                 fi
-                echo "Waiting... recs=$recs cpu_lim=$cpu_lim mem_lim=$mem_lim"
+                echo "Waiting... recs=$recs rec_cpu=$rec_cpu cur_cpu=$cur_cpu rec_mem=$rec_mem"
                 sleep 5
               done
               echo "FAIL: timed out waiting for recommendations under RequestsOnly"

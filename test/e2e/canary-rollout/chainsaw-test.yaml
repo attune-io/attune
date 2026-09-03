@@ -157,14 +157,23 @@ spec:
               for i in $(seq 1 60); do
                 RESIZED=$(kubectl get attunepolicy canary-test -n e2e-canary-rollout \
                   -o jsonpath='{.status.workloads.resized}' 2>/dev/null || true)
-                CPU=$(kubectl get pods -n e2e-canary-rollout -l app=canary-app \
-                  -o jsonpath='{.items[0].spec.containers[0].resources.requests.cpu}' 2>/dev/null || true)
-                milli=$(cpu_milli "$CPU")
-                if [ "${RESIZED:-0}" -ge 1 ] 2>/dev/null && [ "$milli" -gt 0 ] && [ "$milli" -lt 500 ]; then
-                  echo "Resize confirmed: resized=$RESIZED liveCPU=$CPU (${milli}m < 500m start)"
+                # Canary resizes a subset; items[0] may still be at 500m.
+                CPUS=$(kubectl get pods -n e2e-canary-rollout -l app=canary-app \
+                  -o jsonpath='{range .items[*]}{.spec.containers[0].resources.requests.cpu}{"\n"}{end}' 2>/dev/null || true)
+                decreased=0
+                for CPU in $CPUS; do
+                  milli=$(cpu_milli "$CPU")
+                  if [ "$milli" -gt 0 ] && [ "$milli" -lt 500 ]; then
+                    decreased=1
+                    dec_cpu=$CPU
+                    dec_milli=$milli
+                  fi
+                done
+                if [ "${RESIZED:-0}" -ge 1 ] 2>/dev/null && [ "$decreased" = "1" ]; then
+                  echo "Resize confirmed: resized=$RESIZED liveCPU=$dec_cpu (${dec_milli}m < 500m start)"
                   exit 0
                 fi
-                echo "Waiting... resized=$RESIZED cpu=$CPU milli=$milli"
+                echo "Waiting... resized=$RESIZED cpus=$(echo $CPUS | tr '\n' ' ')"
                 sleep 5
               done
               echo "No downward resize within timeout"
