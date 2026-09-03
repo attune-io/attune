@@ -3562,6 +3562,73 @@ func TestE2E_ExcludeKnownSidecars_OmitsIstioProxy(t *testing.T) {
 	}), "expected recommendations without istio-proxy via default excludeKnownSidecars")
 }
 
+func TestE2E_MemoryFromCPURatio_DerivesMemory(t *testing.T) {
+	t.Parallel()
+	ns := uniqueNS("memratio")
+	createNamespace(t, ns)
+	createDeployment(t, "memratio-app", ns, "500m", "1Gi", 1)
+	waitForDeploymentReady(t, "memratio-app", ns, 60*time.Second)
+
+	ratio := "2.0"
+	name := "memratio-app"
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "memratio-policy", Namespace: ns},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			TargetRef: attunev1alpha1.TargetRef{Kind: "Deployment", Name: &name},
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Prometheus:        &attunev1alpha1.PrometheusConfig{Address: promAddr},
+				MinimumDataPoints: int32Ptr(1),
+				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
+				RateWindow:        &metav1.Duration{Duration: 5 * time.Minute},
+			},
+			CPU: attunev1alpha1.ResourceConfig{
+				Percentile:       95,
+				Overhead:         "20",
+				MinAllowed:       quantityPtr("50m"),
+				MaxAllowed:       quantityPtr("100m"),
+				MaxChangePercent: int32Ptr(100),
+			},
+			Memory: attunev1alpha1.ResourceConfig{
+				Percentile:         99,
+				Overhead:           "30",
+				AllowDecrease:      boolPtr(true),
+				MinAllowed:         quantityPtr("64Mi"),
+				MaxAllowed:         quantityPtr("8Gi"),
+				MaxChangePercent:   int32Ptr(100),
+				MemoryFromCPURatio: &ratio,
+			},
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Type:     attunev1alpha1.UpdateTypeRecommend,
+				Cooldown: &metav1.Duration{Duration: time.Minute},
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, policy))
+
+	var note string
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
+		var p attunev1alpha1.AttunePolicy
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "memratio-policy", Namespace: ns}, &p); err != nil {
+			return false, nil
+		}
+		for _, rec := range p.Status.Recommendations {
+			for _, c := range rec.Containers {
+				if c.Name != "app" || c.Explanation == nil || c.Explanation.Memory == nil {
+					continue
+				}
+				note = c.Explanation.Memory.FinalAdjustment
+				t.Logf("memory finalAdjustment=%q rec=%s", note, c.Recommended.MemoryRequest.String())
+				if strings.Contains(note, "memoryFromCpuRatio=2.0") {
+					return true, nil
+				}
+			}
+		}
+		return false, nil
+	}), "memory recommendation must be derived from CPU via memoryFromCpuRatio")
+	assert.Contains(t, note, "memoryFromCpuRatio=2.0")
+}
+
 func liveAppCPU(t *testing.T, namespace, app string) resource.Quantity {
 	t.Helper()
 	var pods corev1.PodList
