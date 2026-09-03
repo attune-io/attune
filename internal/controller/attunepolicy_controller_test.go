@@ -6085,7 +6085,8 @@ func TestReconcile_WorkloadOptedOut(t *testing.T) {
 	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
 		Name: "test-policy", Namespace: "default",
 	}, &updated))
-	// Workload was discovered but skipped, so no recommendations.
+	// Skip is not discovery: the workload still matches targetRef.
+	assert.Equal(t, int32(1), updated.Status.Workloads.Discovered)
 	assert.Equal(t, int32(0), updated.Status.Workloads.WithRecommendations)
 }
 

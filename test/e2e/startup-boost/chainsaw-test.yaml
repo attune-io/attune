@@ -138,16 +138,9 @@ spec:
                   echo "Startup boost annotation found: $ANNOTATION"
                   exit 0
                 fi
-                # Also check if a resize occurred (boost may have been applied and expired)
-                RESIZED=$(kubectl get attunepolicy boost-test -n e2e-startup-boost \
-                  -o jsonpath='{.status.workloads.resized}' 2>/dev/null)
-                if [ "$RESIZED" -ge 1 ] 2>/dev/null; then
-                  echo "Resize occurred ($RESIZED), boost was applied"
-                  exit 0
-                fi
                 sleep 5
               done
-              echo "No startup boost annotation or resize found"
+              echo "No startup boost annotation found"
               kubectl get pods -n e2e-startup-boost -l app=boost-app -o yaml
               exit 1
   catch:

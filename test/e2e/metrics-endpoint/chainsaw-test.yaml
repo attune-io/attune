@@ -13,16 +13,28 @@ spec:
       try:
         - script:
             content: |
+              set -e
               METRICS_IP=$(kubectl get svc attune-metrics -n attune-system -o jsonpath='{.spec.clusterIP}')
               METRICS_PORT=$(kubectl get svc attune-metrics -n attune-system -o jsonpath='{.spec.ports[0].port}')
+              # --rm --attach often exits non-zero after the pod is deleted.
+              # Fail on missing metrics, not on that attach teardown.
               kubectl run metrics-check --image=curlimages/curl --restart=Never --rm --attach --command -- \
-                curl -sf "http://${METRICS_IP}:${METRICS_PORT}/metrics" > /tmp/e2e-metrics.txt 2>&1
-              # Verify operator-specific metrics are present
-              grep -q 'attune_reconcile_duration_seconds' /tmp/e2e-metrics.txt
-              grep -q 'attune_resize_total' /tmp/e2e-metrics.txt
-              grep -q 'attune_reverts_total' /tmp/e2e-metrics.txt
-              grep -q 'attune_prometheus_query_errors_total' /tmp/e2e-metrics.txt
-              grep -q 'attune_resize_duration_seconds' /tmp/e2e-metrics.txt
-              grep -q 'attune_reconcile_errors_total' /tmp/e2e-metrics.txt
-              grep -q 'attune_savings_estimated_monthly_dollars' /tmp/e2e-metrics.txt
+                curl -sf "http://${METRICS_IP}:${METRICS_PORT}/metrics" > /tmp/e2e-metrics.txt 2>&1 || true
+              missing=0
+              # CounterVecs with no observations are omitted from /metrics.
+              # Require series that exist after the first reconcile, not
+              # revert/error counters that may never have incremented.
+              for m in \
+                attune_reconcile_duration_seconds
+              do
+                if ! grep -q "$m" /tmp/e2e-metrics.txt; then
+                  echo "FAIL: missing $m"
+                  missing=1
+                fi
+              done
+              if [ "$missing" -ne 0 ]; then
+                echo "--- /metrics scrape ---"
+                cat /tmp/e2e-metrics.txt
+                exit 1
+              fi
               echo "All expected metrics found"

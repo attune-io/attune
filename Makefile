@@ -189,6 +189,7 @@ lint-chainsaw: chainsaw ## Fast validation of Chainsaw test definitions (no clus
 	@for f in test/e2e/*/chainsaw-test.yaml; do \
 		$(CHAINSAW) lint test -f "$$f" || exit 1; \
 	done
+	@bash hack/verify-chainsaw-scripts.sh
 
 .PHONY: lint-fix
 lint-fix: golangci-lint ## Run golangci-lint with auto-fix
@@ -244,6 +245,7 @@ python-test: ## Run helper script tests (fossa-filter, run-fuzz classifier, go-v
 	bash scripts/test_k3d_delete.sh
 	bash scripts/test_collect_fleet_reports.sh
 	bash scripts/test_nightly_failure_issue_body.sh
+	bash scripts/test_verify_chainsaw_scripts.sh
 
 .PHONY: test-bench
 test-bench: ## Run benchmark tests

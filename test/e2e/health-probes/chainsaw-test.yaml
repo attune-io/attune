@@ -14,6 +14,7 @@ spec:
         - script:
             timeout: 60s
             content: |
+              set -e
               # Use wget (available in distroless/static via busybox) or port-forward
               POD=$(kubectl get pods -n attune-system -l app.kubernetes.io/name=attune \
                 -o jsonpath='{.items[0].metadata.name}')
@@ -37,8 +38,10 @@ spec:
                 fi
                 sleep 1
               done
-              curl -sf http://localhost:18081/healthz && echo "healthz OK"
-              curl -sf http://localhost:18081/readyz && echo "readyz OK"
+              curl -sf http://localhost:18081/healthz
+              echo "healthz OK"
+              curl -sf http://localhost:18081/readyz
+              echo "readyz OK"
               kill "$PF_PID" 2>/dev/null || true
               echo "Health probes OK"
       catch:
