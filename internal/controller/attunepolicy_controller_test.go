@@ -8904,6 +8904,8 @@ func TestExecuteResizes_BudgetCapsDefersExcessiveIncrease(t *testing.T) {
 	pod := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
 	reconciler, _ := newResizeReconciler(pod, deploy)
+	recorder := events.NewFakeRecorder(10)
+	reconciler.Recorder = recorder
 
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
@@ -8914,9 +8916,44 @@ func TestExecuteResizes_BudgetCapsDefersExcessiveIncrease(t *testing.T) {
 		newResizeRecommendation("api-server", "200m", "256Mi", "0", "0", "800m", "256Mi", "0", "0"),
 	}
 
-	count, _ := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
+	beforeBudget := promtestutil.ToFloat64(operatormetrics.BudgetExhaustedTotal.WithLabelValues("default", "test-policy"))
+	count, history := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
 		recommendations, podMap("api-server", pod), nil, nil)
 	assert.Equal(t, 0, count, "resize should be deferred when CPU increase exceeds budget")
+	assert.Empty(t, history, "budget gate must not record Success history")
+	afterBudget := promtestutil.ToFloat64(operatormetrics.BudgetExhaustedTotal.WithLabelValues("default", "test-policy"))
+	assert.Equal(t, beforeBudget+1, afterBudget, "BudgetExhaustedTotal should increment")
+
+	// status.workloads.resized is set only from executeResizes count (and Success
+	// history self-heal). Both must stay zero when the gate fires.
+	policy.Status.Workloads.Resized = safeInt32(count)
+	if policy.Status.Workloads.Resized == 0 {
+		resizedWorkloads := make(map[string]bool)
+		for _, h := range history {
+			if isSuccessfulInPlaceHistory(h) {
+				resizedWorkloads[h.Workload] = true
+			}
+		}
+		if derived := safeInt32(len(resizedWorkloads)); derived > policy.Status.Workloads.Resized {
+			policy.Status.Workloads.Resized = derived
+		}
+	}
+	assert.Equal(t, int32(0), policy.Status.Workloads.Resized,
+		"workloads.resized must stay 0 when budget defers the only increase")
+
+	found := false
+	for {
+		select {
+		case event := <-recorder.Events:
+			if strings.Contains(event, "BudgetExhausted") {
+				found = true
+			}
+		default:
+			goto doneEvents
+		}
+	}
+doneEvents:
+	assert.True(t, found, "BudgetExhausted event must fire when increase exceeds budget")
 }
 
 func TestExecuteResizes_BudgetCapsAllowsWithinBudget(t *testing.T) {

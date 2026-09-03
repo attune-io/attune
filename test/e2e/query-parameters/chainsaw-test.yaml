@@ -80,18 +80,25 @@ spec:
                 namespace: e2e-query-parameters
               status:
                 readyReplicas: 1
-    - name: verify-policy-discovers-workload
+    - name: verify-query-parameters-still-produce-recommendations
       try:
-        - assert:
-            resource:
-              apiVersion: attune.io/v1alpha1
-              kind: AttunePolicy
-              metadata:
-                name: qp-test
-                namespace: e2e-query-parameters
-              status:
-                workloads:
-                  discovered: 1
+        - script:
+            timeout: 3m
+            content: |
+              set -e
+              for i in $(seq 1 36); do
+                recs=$(kubectl get attunepolicy qp-test -n e2e-query-parameters \
+                  -o jsonpath='{.status.workloads.withRecommendations}' 2>/dev/null || true)
+                if [ "${recs:-0}" -ge 1 ] 2>/dev/null; then
+                  echo "OK: queryParameters still allow recommendations (withRecommendations=$recs)"
+                  exit 0
+                fi
+                echo "Waiting... withRecommendations=$recs"
+                sleep 5
+              done
+              echo "FAIL: timed out waiting for recommendations with queryParameters"
+              kubectl get attunepolicy qp-test -n e2e-query-parameters -o yaml
+              exit 1
   catch:
     - describe:
         apiVersion: attune.io/v1alpha1

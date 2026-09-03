@@ -3,7 +3,8 @@ kind: Test
 metadata:
   name: recommend-mode
 spec:
-  description: Verify that an AttunePolicy in Recommend mode discovers workloads and reaches Ready condition
+  description: >
+    Verify Recommend mode surfaces recommendations and never resizes
   timeouts:
     apply: 30s
     assert: 2m
@@ -93,44 +94,39 @@ spec:
                 namespace: e2e-recommend-mode
               status:
                 readyReplicas: 1
-    - name: verify-status
+    - name: verify-recommend-surfaces-recs-without-resize
       try:
         - script:
             timeout: 3m
             content: |
-              # The operator may transition quickly from InsufficientData to Monitoring
-              # when minimumDataPoints is 1 and Prometheus scrapes fast. Accept either
-              # state as valid — both prove the policy discovered the workload and
-              # the controller reconciled it.
+              set -e
+              # resized=0 alone is weak: prove recommendations were produced.
               for i in $(seq 1 36); do
                 reason=$(kubectl get attunepolicy recommend-test -n e2e-recommend-mode \
-                  -o jsonpath='{.status.conditions[?(@.type=="Ready")].reason}' 2>/dev/null)
+                  -o jsonpath='{.status.conditions[?(@.type=="Ready")].reason}' 2>/dev/null || true)
                 discovered=$(kubectl get attunepolicy recommend-test -n e2e-recommend-mode \
-                  -o jsonpath='{.status.workloads.discovered}' 2>/dev/null)
-                if [ "$discovered" = "1" ]; then
-                  if [ "$reason" = "InsufficientData" ] || [ "$reason" = "Monitoring" ]; then
-                    echo "OK: workloads discovered=$discovered, Ready reason=$reason"
-                    exit 0
-                  fi
+                  -o jsonpath='{.status.workloads.discovered}' 2>/dev/null || true)
+                recs=$(kubectl get attunepolicy recommend-test -n e2e-recommend-mode \
+                  -o jsonpath='{.status.workloads.withRecommendations}' 2>/dev/null || true)
+                surfaced=$(kubectl get attunepolicy recommend-test -n e2e-recommend-mode \
+                  -o jsonpath='{.status.recommendations[*].workload}' 2>/dev/null || true)
+                resized=$(kubectl get attunepolicy recommend-test -n e2e-recommend-mode \
+                  -o jsonpath='{.status.workloads.resized}' 2>/dev/null || true)
+                if [ "${resized:-0}" -ge 1 ] 2>/dev/null; then
+                  echo "FAIL: Recommend mode resized a workload (resized=$resized)"
+                  kubectl get attunepolicy recommend-test -n e2e-recommend-mode -o yaml
+                  exit 1
                 fi
-                echo "Waiting... discovered=$discovered reason=$reason"
+                if [ "$discovered" = "1" ] && [ "${recs:-0}" -ge 1 ] 2>/dev/null && [ -n "$surfaced" ]; then
+                  echo "OK: Recommend surfaced recs without resizing (reason=$reason recs=$recs workloads=$surfaced)"
+                  exit 0
+                fi
+                echo "Waiting... discovered=$discovered recs=$recs surfaced='$surfaced' reason=$reason"
                 sleep 5
               done
-              echo "FAIL: timed out waiting for policy to discover workloads"
+              echo "FAIL: timed out waiting for Recommend recommendations with resized=0"
               kubectl get attunepolicy recommend-test -n e2e-recommend-mode -o yaml
               exit 1
-    - name: verify-no-resizes
-      try:
-        - assert:
-            resource:
-              apiVersion: attune.io/v1alpha1
-              kind: AttunePolicy
-              metadata:
-                name: recommend-test
-                namespace: e2e-recommend-mode
-              status:
-                workloads:
-                  resized: 0
   catch:
     - describe:
         apiVersion: attune.io/v1alpha1

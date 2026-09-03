@@ -3,7 +3,9 @@ kind: Test
 metadata:
   name: webhook-validation
 spec:
-  description: Verify that the validating webhook rejects invalid policies
+  description: >
+    Verify CRD schema and validating-webhook rejections with attributed error
+    messages (schema vs webhook)
   timeouts:
     apply: 30s
     assert: 30s
@@ -17,17 +19,20 @@ spec:
               kind: Namespace
               metadata:
                 name: e2e-webhook-validation
-    - name: reject-invalid-overhead
+    - name: reject-schema-invalid-overhead
+      description: >
+        overhead "not-a-number" is rejected by the CRD OpenAPI pattern before
+        the webhook runs
       try:
-        - apply:
-            expect:
-              - check:
-                  ($error != null): true
-            resource:
+        - script:
+            timeout: 30s
+            content: |
+              set -e
+              cat > /tmp/bad-margin-schema.yaml <<'YAML'
               apiVersion: attune.io/v1alpha1
               kind: AttunePolicy
               metadata:
-                name: bad-margin
+                name: bad-margin-schema
                 namespace: e2e-webhook-validation
               spec:
                 targetRef:
@@ -43,17 +48,31 @@ spec:
                   percentile: 99
                 updateStrategy:
                   type: Recommend
-    - name: reject-negative-cooldown
+              YAML
+              set +e
+              out=$(kubectl apply -f /tmp/bad-margin-schema.yaml 2>&1)
+              rc=$?
+              set -e
+              if [ "$rc" -eq 0 ]; then
+                echo "FAIL: invalid overhead was accepted"
+                echo "$out"
+                exit 1
+              fi
+              echo "$out" | grep -qiE 'Invalid value|pattern|admission webhook|denied'
+              echo "OK: CRD/schema rejected not-a-number overhead"
+              echo "$out" | head -5
+    - name: reject-webhook-negative-cooldown
+      description: cooldown -5m is a plain string in the CRD; webhook rejects it
       try:
-        - apply:
-            expect:
-              - check:
-                  ($error != null): true
-            resource:
+        - script:
+            timeout: 30s
+            content: |
+              set -e
+              cat > /tmp/bad-cooldown-neg.yaml <<'YAML'
               apiVersion: attune.io/v1alpha1
               kind: AttunePolicy
               metadata:
-                name: bad-cooldown
+                name: bad-cooldown-neg
                 namespace: e2e-webhook-validation
               spec:
                 targetRef:
@@ -69,6 +88,138 @@ spec:
                 updateStrategy:
                   type: Recommend
                   cooldown: -5m
+              YAML
+              set +e
+              out=$(kubectl apply -f /tmp/bad-cooldown-neg.yaml 2>&1)
+              rc=$?
+              set -e
+              if [ "$rc" -eq 0 ]; then
+                echo "FAIL: negative cooldown was accepted"
+                echo "$out"
+                exit 1
+              fi
+              echo "$out" | grep -q 'cooldown must be non-negative'
+              echo "OK: webhook rejected negative cooldown"
+              echo "$out" | head -5
+    - name: reject-webhook-subminute-cooldown
+      description: cooldown 30s passes CRD string type; webhook enforces 1m floor
+      try:
+        - script:
+            timeout: 30s
+            content: |
+              set -e
+              cat > /tmp/bad-cooldown-floor.yaml <<'YAML'
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
+              metadata:
+                name: bad-cooldown-floor
+                namespace: e2e-webhook-validation
+              spec:
+                targetRef:
+                  kind: Deployment
+                  name: my-app
+                metricsSource:
+                  prometheus:
+                    address: http://prometheus-server.monitoring:80
+                cpu:
+                  percentile: 95
+                memory:
+                  percentile: 99
+                updateStrategy:
+                  type: Recommend
+                  cooldown: 30s
+              YAML
+              set +e
+              out=$(kubectl apply -f /tmp/bad-cooldown-floor.yaml 2>&1)
+              rc=$?
+              set -e
+              if [ "$rc" -eq 0 ]; then
+                echo "FAIL: sub-minute cooldown was accepted"
+                echo "$out"
+                exit 1
+              fi
+              echo "$out" | grep -q 'cooldown must be at least 1m'
+              echo "OK: webhook rejected sub-minute cooldown"
+              echo "$out" | head -5
+    - name: reject-webhook-overhead-above-max
+      description: overhead 901 matches CRD number pattern; webhook enforces <=900
+      try:
+        - script:
+            timeout: 30s
+            content: |
+              set -e
+              cat > /tmp/bad-overhead-max.yaml <<'YAML'
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
+              metadata:
+                name: bad-overhead-max
+                namespace: e2e-webhook-validation
+              spec:
+                targetRef:
+                  kind: Deployment
+                  name: my-app
+                metricsSource:
+                  prometheus:
+                    address: http://prometheus-server.monitoring:80
+                cpu:
+                  percentile: 95
+                  overhead: "901"
+                memory:
+                  percentile: 99
+                updateStrategy:
+                  type: Recommend
+              YAML
+              set +e
+              out=$(kubectl apply -f /tmp/bad-overhead-max.yaml 2>&1)
+              rc=$?
+              set -e
+              if [ "$rc" -eq 0 ]; then
+                echo "FAIL: overhead 901 was accepted"
+                echo "$out"
+                exit 1
+              fi
+              echo "$out" | grep -q 'cpu.overhead must be <= 900'
+              echo "OK: webhook rejected overhead above 900"
+              echo "$out" | head -5
+    - name: reject-webhook-prometheus-ssrf
+      description: IMDS link-local address is blocked by ValidatePrometheusAddress
+      try:
+        - script:
+            timeout: 30s
+            content: |
+              set -e
+              cat > /tmp/bad-prom-ssrf.yaml <<'YAML'
+              apiVersion: attune.io/v1alpha1
+              kind: AttunePolicy
+              metadata:
+                name: bad-prom-ssrf
+                namespace: e2e-webhook-validation
+              spec:
+                targetRef:
+                  kind: Deployment
+                  name: my-app
+                metricsSource:
+                  prometheus:
+                    address: http://169.254.169.254/latest/meta-data/
+                cpu:
+                  percentile: 95
+                memory:
+                  percentile: 99
+                updateStrategy:
+                  type: Recommend
+              YAML
+              set +e
+              out=$(kubectl apply -f /tmp/bad-prom-ssrf.yaml 2>&1)
+              rc=$?
+              set -e
+              if [ "$rc" -eq 0 ]; then
+                echo "FAIL: IMDS prometheus address was accepted"
+                echo "$out"
+                exit 1
+              fi
+              echo "$out" | grep -qiE 'metadata|loopback|link-local|must not target'
+              echo "OK: webhook rejected IMDS prometheus address"
+              echo "$out" | head -5
   catch:
     - describe:
         apiVersion: attune.io/v1alpha1
