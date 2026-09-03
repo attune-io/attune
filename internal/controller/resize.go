@@ -710,7 +710,7 @@ func (r *AttunePolicyReconciler) resizeContainer(
 		RestartCount:      restartCount,
 		WorkloadName:      workloadName,
 	}
-	if reason, err := r.runImmediateSafetyCheck(ctx, policy, monitor, record); err != nil {
+	if reason, err := r.runImmediateSafetyCheck(ctx, policy, record); err != nil {
 		return history, resizeOutcomeInPlace
 	} else if reason != "" {
 		revert(reason)

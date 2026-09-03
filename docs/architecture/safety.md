@@ -28,8 +28,11 @@ The recommended production path is Recommend, then Canary, then Auto.
 ## Auto-revert triggers
 
 When `autoRevert: true` (the default), the safety monitor checks each
-resized pod for the following conditions. Any match triggers an immediate
-revert via `UpdateResize`:
+resized pod for the following conditions. A match during the observation
+period reverts the resize via `UpdateResize`. Right after apply, only
+OOMKill and restart+2 revert immediately. NotReady, throttle, and SLO
+wait for the observation period (they are often transient while the
+container adjusts):
 
 ### OOMKill
 
@@ -86,6 +89,8 @@ if condition.Type == PodReady && condition.Status != ConditionTrue
 ```
 
 The pod's Ready condition is `False`, meaning readiness probes are failing.
+This check runs only after the observation period. A brief Ready=False
+right after `UpdateResize` does not revert.
 
 **Mitigation**: verify that readiness probes are not sensitive to resource
 allocation changes. Some applications expose health endpoints that degrade
@@ -212,13 +217,14 @@ sequenceDiagram
     participant K as K8s API
 
     E->>K: UpdateResize (new resources)
-    E->>S: CheckPod(record)
-    S->>K: Get pod status
-    alt OOMKill / Restart / NotReady
+    E->>K: Get pod status
+    E->>S: CheckCriticalStatuses(pod)
+    alt OOMKill / Restart+2
         S-->>E: Verdict{Safe: false}
         E->>S: RevertPod(record)
         S->>K: UpdateResize (original resources)
-    else Healthy
+    else NotReady / throttle / SLO / healthy
+        Note over E,S: Defer non-critical checks to observation
         S-->>E: Verdict{Safe: true}
     end
 ```
