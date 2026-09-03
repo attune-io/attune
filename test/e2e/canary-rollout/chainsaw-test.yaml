@@ -106,7 +106,7 @@ spec:
                   percentile: 95
                   overhead: "20"
                   minAllowed: 50m
-                  maxAllowed: "4000m"
+                  maxAllowed: "250m"
                   controlledValues: RequestsAndLimits
                   maxChangePercent: 100
                 memory:
@@ -145,17 +145,28 @@ spec:
         - script:
             timeout: 5m
             content: |
+              set -e
               for i in $(seq 1 60); do
                 RESIZED=$(kubectl get attunepolicy canary-test -n e2e-canary-rollout \
                   -o jsonpath='{.status.workloads.resized}' 2>/dev/null)
-                if [ "$RESIZED" -ge 1 ] 2>/dev/null; then
-                  echo "Resize confirmed: $RESIZED pod(s) resized"
+                CPU=$(kubectl get pods -n e2e-canary-rollout -l app=canary-app \
+                  -o jsonpath='{.items[0].spec.containers[0].resources.requests.cpu}' 2>/dev/null || true)
+                if [ "${RESIZED:-0}" -ge 1 ] 2>/dev/null && [ -n "$CPU" ] && [ "$CPU" != "500m" ]; then
+                  case "$CPU" in
+                    1|1000m|2|2000m|4000m)
+                      echo "FAIL: idle pause resized CPU up to $CPU"
+                      exit 1
+                      ;;
+                  esac
+                  echo "Resize confirmed: resized=$RESIZED liveCPU=$CPU (below 500m start)"
                   exit 0
                 fi
+                echo "Waiting... resized=$RESIZED cpu=$CPU"
                 sleep 5
               done
-              echo "No resize occurred within timeout"
+              echo "No downward resize within timeout"
               kubectl get attunepolicy canary-test -n e2e-canary-rollout -o yaml
+              kubectl get pods -n e2e-canary-rollout -l app=canary-app -o yaml
               exit 1
     - name: verify-canary-fraction
       try:

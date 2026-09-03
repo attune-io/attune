@@ -123,7 +123,7 @@ spec:
                   percentile: 95
                   overhead: "20"
                   minAllowed: 50m
-                  maxAllowed: "4000m"
+                  maxAllowed: "250m"
                   maxChangePercent: 100
                 memory:
                   percentile: 99

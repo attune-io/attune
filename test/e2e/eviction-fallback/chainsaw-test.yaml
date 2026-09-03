@@ -99,6 +99,8 @@ spec:
                 cpu:
                   percentile: 95
                   overhead: "20"
+                  minAllowed: 50m
+                  maxAllowed: "250m"
                   maxChangePercent: 100
                 memory:
                   percentile: 99

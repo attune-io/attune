@@ -104,7 +104,7 @@ spec:
                   percentile: 95
                   overhead: "20"
                   minAllowed: 50m
-                  maxAllowed: "4000m"
+                  maxAllowed: "100m"
                   maxChangePercent: 100
                 memory:
                   percentile: 99
@@ -163,27 +163,33 @@ spec:
       description: |
         After evaluationWindow (1m) elapses post-resize, the safety monitor
         queries vector(1) which returns 1.0, breaching the threshold of 0.5.
-        This triggers an auto-revert. Verify that resizeHistory contains
-        a Reverted entry with reason slo:always-breach.
+        This triggers an auto-revert. Verify history and that live requests
+        are restored to the original 200m / 128Mi.
       try:
         - script:
             timeout: 5m
             content: |
+              set -e
               for i in $(seq 1 60); do
-                # Check resizeHistory for a Reverted entry with SLO reason
                 HISTORY=$(kubectl get attunepolicy slo-test -n e2e-slo-guardrails \
                   -o jsonpath='{range .status.resizeHistory[*]}{.result}={.reason}{"\n"}{end}' 2>/dev/null)
+                CPU=$(kubectl get pods -n e2e-slo-guardrails -l app=slo-app \
+                  -o jsonpath='{.items[0].spec.containers[0].resources.requests.cpu}' 2>/dev/null || true)
+                MEM=$(kubectl get pods -n e2e-slo-guardrails -l app=slo-app \
+                  -o jsonpath='{.items[0].spec.containers[0].resources.requests.memory}' 2>/dev/null || true)
                 if echo "$HISTORY" | grep -q "Reverted=slo:always-breach"; then
-                  echo "SLO guardrail revert confirmed:"
-                  echo "$HISTORY"
-                  # Also verify the event was emitted
-                  kubectl get events -n e2e-slo-guardrails --field-selector reason=Reverted \
-                    -o jsonpath='{range .items[*]}{.message}{"\n"}{end}' 2>/dev/null | head -5
-                  exit 0
+                  if [ "$CPU" = "200m" ] && { [ "$MEM" = "128Mi" ] || [ "$MEM" = "134217728" ]; }; then
+                    echo "SLO revert restored live resources: cpu=$CPU mem=$MEM"
+                    echo "$HISTORY"
+                    exit 0
+                  fi
+                  echo "History Reverted but live not restored yet (cpu=$CPU mem=$MEM)"
                 fi
+                echo "Waiting... cpu=$CPU mem=$MEM"
+                echo "$HISTORY"
                 sleep 5
               done
-              echo "Timed out waiting for SLO guardrail revert"
+              echo "Timed out waiting for SLO revert to restore 200m/128Mi"
               echo "--- Policy status ---"
               kubectl get attunepolicy slo-test -n e2e-slo-guardrails -o yaml
               echo "--- Pod status ---"
