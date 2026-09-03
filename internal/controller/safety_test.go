@@ -113,7 +113,6 @@ func TestRunImmediateSafetyCheck_AutoRevertDisabled(t *testing.T) {
 	reason, err := r.runImmediateSafetyCheck(
 		context.Background(),
 		policy,
-		nil, // monitor not needed when autoRevert is disabled
 		safety.ResizeRecord{},
 	)
 	assert.NoError(t, err)
@@ -139,7 +138,6 @@ func TestRunImmediateSafetyCheck_CheckPodError(t *testing.T) {
 	}
 
 	ctx := log.IntoContext(context.Background(), logr.Discard())
-	monitor := safety.NewMonitor(cs, logr.Discard())
 
 	record := safety.ResizeRecord{
 		PodName:   "test-pod",
@@ -154,8 +152,8 @@ func TestRunImmediateSafetyCheck_CheckPodError(t *testing.T) {
 		},
 	}
 
-	reason, err := r.runImmediateSafetyCheck(ctx, policy, monitor, record)
-	assert.Error(t, err, "should propagate CheckPod error")
+	reason, err := r.runImmediateSafetyCheck(ctx, policy, record)
+	assert.Error(t, err, "should propagate Get error")
 	assert.Empty(t, reason, "no revert reason when the check itself fails")
 }
 
@@ -189,7 +187,6 @@ func TestRunImmediateSafetyCheck_UnsafePod(t *testing.T) {
 	}
 
 	ctx := log.IntoContext(context.Background(), logr.Discard())
-	monitor := safety.NewMonitor(cs, logr.Discard())
 
 	record := safety.ResizeRecord{
 		PodName:      "test-pod",
@@ -205,7 +202,7 @@ func TestRunImmediateSafetyCheck_UnsafePod(t *testing.T) {
 		},
 	}
 
-	reason, err := r.runImmediateSafetyCheck(ctx, policy, monitor, record)
+	reason, err := r.runImmediateSafetyCheck(ctx, policy, record)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, reason, "should return a revert reason for unsafe pod")
 	assert.Contains(t, reason, "restart", "reason should mention restart increase")
@@ -248,7 +245,6 @@ func TestRunImmediateSafetyCheck_SafePod(t *testing.T) {
 	}
 
 	ctx := log.IntoContext(context.Background(), logr.Discard())
-	monitor := safety.NewMonitor(cs, logr.Discard())
 
 	record := safety.ResizeRecord{
 		PodName:      "healthy-pod",
@@ -264,7 +260,66 @@ func TestRunImmediateSafetyCheck_SafePod(t *testing.T) {
 		},
 	}
 
-	reason, err := r.runImmediateSafetyCheck(ctx, policy, monitor, record)
+	reason, err := r.runImmediateSafetyCheck(ctx, policy, record)
 	assert.NoError(t, err)
 	assert.Empty(t, reason, "healthy pod should not trigger revert")
+}
+
+func TestRunImmediateSafetyCheck_NotReadyDoesNotRevert(t *testing.T) {
+	// Ready=False with no OOM and no extra restarts is transient during
+	// adjustment. Immediate check must not revert; full CheckPod would.
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "notready-pod",
+			Namespace: "default",
+		},
+		Status: corev1.PodStatus{
+			Conditions: []corev1.PodCondition{
+				{
+					Type:   corev1.PodReady,
+					Status: corev1.ConditionFalse,
+				},
+			},
+			ContainerStatuses: []corev1.ContainerStatus{
+				{
+					Name:         "main",
+					Ready:        false,
+					RestartCount: 0,
+				},
+			},
+		},
+	}
+
+	cs := kubefake.NewSimpleClientset(pod)
+	r := NewAttunePolicyReconciler()
+	r.Clientset = cs
+
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				AutoRevert: boolPtr(true),
+			},
+		},
+	}
+
+	ctx := log.IntoContext(context.Background(), logr.Discard())
+
+	record := safety.ResizeRecord{
+		PodName:      "notready-pod",
+		Namespace:    "default",
+		Container:    "main",
+		ResizedAt:    time.Now(),
+		RestartCount: 0,
+		OriginalResources: corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("100m"),
+				corev1.ResourceMemory: resource.MustParse("128Mi"),
+			},
+		},
+	}
+
+	reason, err := r.runImmediateSafetyCheck(ctx, policy, record)
+	assert.NoError(t, err)
+	assert.Empty(t, reason, "transient not-ready must not trigger immediate revert")
+	assert.NotEqual(t, "notready", reason, "immediate check must not use full CheckPod")
 }

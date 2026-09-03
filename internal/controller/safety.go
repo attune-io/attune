@@ -39,33 +39,32 @@ import (
 	"github.com/attune-io/attune/internal/throttle"
 )
 
-// runImmediateSafetyCheck performs an immediate safety check on a freshly
-// resized pod. If auto-revert is not enabled it returns ("", nil). A non-nil
-// error means the check itself failed (the caller should defer to the
-// observation cycle). A non-empty revertReason means the pod is unsafe and
-// should be reverted.
+// runImmediateSafetyCheck performs an immediate post-apply safety check on a
+// freshly resized pod. Only critical statuses (OOMKill, restart+2) revert
+// immediately; NotReady, throttle, and SLO wait for the observation period.
+// If auto-revert is not enabled it returns ("", nil). A non-nil error means
+// the check itself failed (the caller should defer to the observation cycle).
+// A non-empty revertReason means the pod is unsafe and should be reverted.
 func (r *AttunePolicyReconciler) runImmediateSafetyCheck(
 	ctx context.Context,
 	policy *attunev1alpha1.AttunePolicy,
-	monitor *safety.Monitor,
 	record safety.ResizeRecord,
 ) (revertReason string, err error) {
 	if !autoRevertEnabled(policy.Spec.UpdateStrategy) {
 		return "", nil
 	}
-	record.ObservationEnd = record.ResizedAt.Add(getObservationPeriod(policy))
 
 	logger := log.FromContext(ctx)
-	verdict, checkErr := monitor.CheckPod(ctx, record, record.ResizedAt)
-	if checkErr != nil {
-		logger.Error(checkErr, "Safety check failed, deferring to observation cycle",
+	pod, getErr := r.Clientset.CoreV1().Pods(record.Namespace).Get(ctx, record.PodName, metav1.GetOptions{})
+	if getErr != nil {
+		logger.Error(getErr, "Safety check failed, deferring to observation cycle",
 			"pod", record.PodName)
-		return "", checkErr
+		return "", getErr
 	}
-	if !verdict.Safe {
+	if v := safety.CheckCriticalStatuses(pod, record); v != nil {
 		logger.Info("Safety violation detected, reverting",
-			"pod", record.PodName, "reason", verdict.Reason)
-		return verdict.Reason, nil
+			"pod", record.PodName, "reason", v.Reason)
+		return v.Reason, nil
 	}
 	return "", nil
 }
