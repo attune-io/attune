@@ -1033,9 +1033,9 @@ func TestE2E_BudgetCaps_LimitsPerCycleIncrease(t *testing.T) {
 
 	waitForPolicyDiscovered(t, "budinc-policy", ns, 2*time.Minute)
 
-	// Wait for an increase recommendation that exceeds the 20m budget, or for
-	// the gate event itself.
-	var sawBigIncrease bool
+	// Wait until the budget gate fires. A large increase rec alone is not
+	// enough: cooldown, change filter, or query gaps can also leave the pod
+	// at 50m without proving maxTotalCpuIncrease ran.
 	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 5*time.Minute, true, func(ctx context.Context) (bool, error) {
 		if policyHasEvent(t, ns, "budinc-policy", "BudgetExhausted") {
 			return true, nil
@@ -1052,34 +1052,16 @@ func TestE2E_BudgetCaps_LimitsPerCycleIncrease(t *testing.T) {
 				inc := c.Recommended.CPURequest.MilliValue() - c.Current.CPURequest.MilliValue()
 				t.Logf("rec current=%s rec=%s increase=%dm",
 					c.Current.CPURequest.String(), c.Recommended.CPURequest.String(), inc)
-				if inc > 20 {
-					sawBigIncrease = true
-					return true, nil
-				}
 			}
 		}
 		return false, nil
-	}), "timed out waiting for CPU increase rec > 20m (burn) or BudgetExhausted")
+	}), "timed out waiting for BudgetExhausted (CPU increase over maxTotalCpuIncrease)")
 
-	// Wait until the controller has attempted the resize (BudgetExhausted) or
-	// we can prove the live pod never left 50m after a big increase rec.
-	require.NoError(t, wait.PollUntilContextTimeout(ctx, 3*time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
-		if policyHasEvent(t, ns, "budinc-policy", "BudgetExhausted") {
-			return true, nil
-		}
-		return sawBigIncrease && countPodsWithCPURequest(t, ns, app, origCPU) == 1, nil
-	}), "timed out waiting for BudgetExhausted or stable deferred pod")
-
-	// Live pod is the source of truth: CPU must not have increased past budget.
-	// status.workloads.resized can be sticky/misleading if any other resource
-	// path ever counted; with memory pinned it should stay 0, but we do not
-	// hard-fail on it if the live pod and gate event are correct.
 	stillAtOrig := countPodsWithCPURequest(t, ns, app, origCPU)
-	exhausted := policyHasEvent(t, ns, "budinc-policy", "BudgetExhausted")
 	var p attunev1alpha1.AttunePolicy
 	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "budinc-policy", Namespace: ns}, &p))
-	t.Logf("resized=%d stillAtOrig=%d BudgetExhausted=%v sawBigIncrease=%v",
-		p.Status.Workloads.Resized, stillAtOrig, exhausted, sawBigIncrease)
+	t.Logf("resized=%d stillAtOrig=%d BudgetExhausted=true",
+		p.Status.Workloads.Resized, stillAtOrig)
 
 	require.Equal(t, 1, stillAtOrig,
 		"pod CPU must remain at original 50m when increase exceeds maxTotalCpuIncrease")
@@ -1091,12 +1073,9 @@ func TestE2E_BudgetCaps_LimitsPerCycleIncrease(t *testing.T) {
 	require.NotNil(t, liveCPU)
 	assert.LessOrEqual(t, liveCPU.MilliValue(), origCPU.MilliValue()+cpuBudget.MilliValue(),
 		"live CPU must not exceed original+budget, got %s", liveCPU.String())
-	assert.True(t, exhausted || sawBigIncrease,
-		"expected BudgetExhausted and/or observed increase rec > budget")
-	if p.Status.Workloads.Resized != 0 {
-		t.Logf("WARN: status.workloads.resized=%d while live CPU stayed gated; treating live pod as authority",
-			p.Status.Workloads.Resized)
-	}
+	// Memory is pinned min=max so no free memory path can bump resized.
+	assert.Equal(t, int32(0), p.Status.Workloads.Resized,
+		"increase larger than maxTotalCpuIncrease must not set workloads.resized")
 }
 
 // TestE2E_GuaranteedQoS_CPUResizeWithMemoryHeld verifies that when memory
@@ -1321,12 +1300,23 @@ func TestE2E_BearerToken_Authenticates(t *testing.T) {
 
 	// Prometheus doesn't require auth, but the operator should successfully
 	// read the Secret, inject the bearer token, and query without error.
+	// Discovered alone only proves targetRef listing; withRecommendations
+	// proves the authenticated collector path returned samples.
 	waitForPolicyDiscovered(t, "bearer-policy", ns, 2*time.Minute)
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
+		var p attunev1alpha1.AttunePolicy
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "bearer-policy", Namespace: ns}, &p); err != nil {
+			return false, nil
+		}
+		return p.Status.Workloads.WithRecommendations >= 1, nil
+	}), "policy with bearer token should produce recommendations")
 
 	var p attunev1alpha1.AttunePolicy
 	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "bearer-policy", Namespace: ns}, &p))
 	assert.Equal(t, int32(1), p.Status.Workloads.Discovered,
 		"policy with bearer token should discover workloads")
+	assert.GreaterOrEqual(t, p.Status.Workloads.WithRecommendations, int32(1),
+		"bearer token path must complete Prometheus queries")
 }
 
 func TestE2E_EvictionFallback_ResizesWithInPlaceOrRecreate(t *testing.T) {

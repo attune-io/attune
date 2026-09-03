@@ -3,7 +3,9 @@ kind: Test
 metadata:
   name: observe-mode
 spec:
-  description: Verify that an AttunePolicy in Observe mode reaches a condition without generating recommendations or performing resizes
+  description: >
+    Verify Observe mode computes data (withRecommendations) but does not
+    surface status.recommendations and never resizes
   timeouts:
     apply: 30s
     assert: 2m
@@ -82,43 +84,46 @@ spec:
                 namespace: e2e-observe-mode
               status:
                 readyReplicas: 1
-    - name: verify-policy-has-condition
+    - name: verify-observe-collects-without-surfacing-or-resizing
       try:
         - script:
             timeout: 3m
             content: |
-              # The operator may transition quickly from InsufficientData to Monitoring
-              # when minimumDataPoints is 1 and Prometheus scrapes fast. Accept either
-              # state as valid — both prove the policy discovered the workload.
+              set -e
+              # Observe computes recs internally (withRecommendations) but leaves
+              # status.recommendations empty and never resizes. resized=0 alone
+              # is not enough: a crashed operator also never resizes.
               for i in $(seq 1 36); do
                 reason=$(kubectl get attunepolicy observe-test -n e2e-observe-mode \
-                  -o jsonpath='{.status.conditions[?(@.type=="Ready")].reason}' 2>/dev/null)
+                  -o jsonpath='{.status.conditions[?(@.type=="Ready")].reason}' 2>/dev/null || true)
                 discovered=$(kubectl get attunepolicy observe-test -n e2e-observe-mode \
-                  -o jsonpath='{.status.workloads.discovered}' 2>/dev/null)
-                if [ "$discovered" = "1" ]; then
-                  if [ "$reason" = "InsufficientData" ] || [ "$reason" = "Monitoring" ]; then
-                    echo "OK: workloads discovered=$discovered, Ready reason=$reason"
-                    exit 0
-                  fi
+                  -o jsonpath='{.status.workloads.discovered}' 2>/dev/null || true)
+                recs=$(kubectl get attunepolicy observe-test -n e2e-observe-mode \
+                  -o jsonpath='{.status.workloads.withRecommendations}' 2>/dev/null || true)
+                surfaced=$(kubectl get attunepolicy observe-test -n e2e-observe-mode \
+                  -o jsonpath='{.status.recommendations[*].workload}' 2>/dev/null || true)
+                resized=$(kubectl get attunepolicy observe-test -n e2e-observe-mode \
+                  -o jsonpath='{.status.workloads.resized}' 2>/dev/null || true)
+                if [ "${resized:-0}" -ge 1 ] 2>/dev/null; then
+                  echo "FAIL: Observe mode resized a workload (resized=$resized)"
+                  kubectl get attunepolicy observe-test -n e2e-observe-mode -o yaml
+                  exit 1
                 fi
-                echo "Waiting... discovered=$discovered reason=$reason"
+                if [ -n "$surfaced" ]; then
+                  echo "FAIL: Observe mode surfaced recommendations ($surfaced)"
+                  kubectl get attunepolicy observe-test -n e2e-observe-mode -o yaml
+                  exit 1
+                fi
+                if [ "$discovered" = "1" ] && [ "${recs:-0}" -ge 1 ] 2>/dev/null; then
+                  echo "OK: Observe collected data without surfacing or resizing (reason=$reason recs=$recs)"
+                  exit 0
+                fi
+                echo "Waiting... discovered=$discovered recs=$recs reason=$reason resized=$resized"
                 sleep 5
               done
-              echo "FAIL: timed out waiting for policy to discover workloads"
+              echo "FAIL: timed out waiting for Observe withRecommendations>=1 and empty recommendations"
               kubectl get attunepolicy observe-test -n e2e-observe-mode -o yaml
               exit 1
-    - name: verify-no-resizes
-      try:
-        - assert:
-            resource:
-              apiVersion: attune.io/v1alpha1
-              kind: AttunePolicy
-              metadata:
-                name: observe-test
-                namespace: e2e-observe-mode
-              status:
-                workloads:
-                  resized: 0
   catch:
     - describe:
         apiVersion: attune.io/v1alpha1

@@ -133,18 +133,29 @@ spec:
                 namespace: e2e-vpa-conflict
               status:
                 readyReplicas: 1
-    - name: verify-policy-reconciles-despite-vpa
+    - name: verify-vpa-conflict-warning
       try:
-        - assert:
-            resource:
-              apiVersion: attune.io/v1alpha1
-              kind: AttunePolicy
-              metadata:
-                name: vpa-conflict-test
-                namespace: e2e-vpa-conflict
-              status:
-                workloads:
-                  discovered: 1
+        - script:
+            timeout: 3m
+            content: |
+              set -e
+              for i in $(seq 1 36); do
+                discovered=$(kubectl get attunepolicy vpa-conflict-test -n e2e-vpa-conflict \
+                  -o jsonpath='{.status.workloads.discovered}' 2>/dev/null || true)
+                events=$(kubectl get events -n e2e-vpa-conflict \
+                  --field-selector involvedObject.name=vpa-conflict-test,involvedObject.kind=AttunePolicy,reason=VPAConflict \
+                  -o jsonpath='{.items[*].reason}' 2>/dev/null || true)
+                if [ "$discovered" = "1" ] && echo "$events" | grep -q VPAConflict; then
+                  echo "OK: discovered=1 and VPAConflict warning event present"
+                  exit 0
+                fi
+                echo "Waiting... discovered=$discovered events='$events'"
+                sleep 5
+              done
+              echo "FAIL: timed out waiting for VPAConflict event with discovered=1"
+              kubectl get attunepolicy vpa-conflict-test -n e2e-vpa-conflict -o yaml
+              kubectl get events -n e2e-vpa-conflict --sort-by='.lastTimestamp' | tail -20
+              exit 1
   catch:
     - describe:
         apiVersion: attune.io/v1alpha1

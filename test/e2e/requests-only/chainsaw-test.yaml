@@ -3,7 +3,9 @@ kind: Test
 metadata:
   name: requests-only
 spec:
-  description: Verify that an AttunePolicy with controlledValues RequestsOnly is accepted and reconciles
+  description: >
+    Verify RequestsOnly keeps recommended limits at the current limits
+    (does not scale limits with the request recommendation)
   timeouts:
     apply: 30s
     assert: 2m
@@ -82,18 +84,34 @@ spec:
                 namespace: e2e-requests-only
               status:
                 readyReplicas: 1
-    - name: verify-policy-reconciles
+    - name: verify-recommended-limits-unchanged
       try:
-        - assert:
-            resource:
-              apiVersion: attune.io/v1alpha1
-              kind: AttunePolicy
-              metadata:
-                name: reqonly-test
-                namespace: e2e-requests-only
-              status:
-                workloads:
-                  discovered: 1
+        - script:
+            timeout: 3m
+            content: |
+              set -e
+              for i in $(seq 1 36); do
+                cpu_lim=$(kubectl get attunepolicy reqonly-test -n e2e-requests-only \
+                  -o jsonpath='{.status.recommendations[0].containers[0].recommended.cpuLimit}' 2>/dev/null || true)
+                mem_lim=$(kubectl get attunepolicy reqonly-test -n e2e-requests-only \
+                  -o jsonpath='{.status.recommendations[0].containers[0].recommended.memoryLimit}' 2>/dev/null || true)
+                recs=$(kubectl get attunepolicy reqonly-test -n e2e-requests-only \
+                  -o jsonpath='{.status.workloads.withRecommendations}' 2>/dev/null || true)
+                if [ "${recs:-0}" -ge 1 ] 2>/dev/null; then
+                  if [ "$cpu_lim" = "500m" ] && { [ "$mem_lim" = "512Mi" ] || [ "$mem_lim" = "536870912" ]; }; then
+                    echo "OK: RequestsOnly kept recommended limits at current (cpu=$cpu_lim mem=$mem_lim)"
+                    exit 0
+                  fi
+                  echo "FAIL: RequestsOnly changed recommended limits (cpu=$cpu_lim mem=$mem_lim)"
+                  kubectl get attunepolicy reqonly-test -n e2e-requests-only -o yaml
+                  exit 1
+                fi
+                echo "Waiting... recs=$recs cpu_lim=$cpu_lim mem_lim=$mem_lim"
+                sleep 5
+              done
+              echo "FAIL: timed out waiting for recommendations under RequestsOnly"
+              kubectl get attunepolicy reqonly-test -n e2e-requests-only -o yaml
+              exit 1
   catch:
     - describe:
         apiVersion: attune.io/v1alpha1

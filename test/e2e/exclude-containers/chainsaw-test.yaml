@@ -3,7 +3,9 @@ kind: Test
 metadata:
   name: exclude-containers
 spec:
-  description: Verify that excludedContainers skips sidecar containers in multi-container pods
+  description: >
+    Verify excludedContainers omits the sidecar from status.recommendations
+    while the app container is recommended
   timeouts:
     apply: 30s
     assert: 2m
@@ -91,18 +93,32 @@ spec:
                 namespace: e2e-exclude-containers
               status:
                 readyReplicas: 1
-    - name: verify-policy-discovers-workload
+    - name: verify-sidecar-excluded-from-recommendations
       try:
-        - assert:
-            resource:
-              apiVersion: attune.io/v1alpha1
-              kind: AttunePolicy
-              metadata:
-                name: exclude-sidecar
-                namespace: e2e-exclude-containers
-              status:
-                workloads:
-                  discovered: 1
+        - script:
+            timeout: 3m
+            content: |
+              set -e
+              for i in $(seq 1 36); do
+                names=$(kubectl get attunepolicy exclude-sidecar -n e2e-exclude-containers \
+                  -o jsonpath='{.status.recommendations[*].containers[*].name}' 2>/dev/null || true)
+                recs=$(kubectl get attunepolicy exclude-sidecar -n e2e-exclude-containers \
+                  -o jsonpath='{.status.workloads.withRecommendations}' 2>/dev/null || true)
+                if echo " $names " | grep -q ' istio-proxy '; then
+                  echo "FAIL: excluded sidecar appeared in recommendations: $names"
+                  kubectl get attunepolicy exclude-sidecar -n e2e-exclude-containers -o yaml
+                  exit 1
+                fi
+                if [ "${recs:-0}" -ge 1 ] 2>/dev/null && echo " $names " | grep -q ' app '; then
+                  echo "OK: recommendations include app only (names='$names')"
+                  exit 0
+                fi
+                echo "Waiting... recs=$recs names='$names'"
+                sleep 5
+              done
+              echo "FAIL: timed out waiting for app-only recommendations"
+              kubectl get attunepolicy exclude-sidecar -n e2e-exclude-containers -o yaml
+              exit 1
   catch:
     - describe:
         apiVersion: attune.io/v1alpha1
