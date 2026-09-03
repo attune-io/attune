@@ -28,8 +28,7 @@ spec:
             timeout: 30s
             content: |
               set -e
-              set +e
-              out=$(kubectl apply -f - 2>&1 <<'YAML'
+              cat > /tmp/bad-margin-schema.yaml <<'YAML'
               apiVersion: attune.io/v1alpha1
               kind: AttunePolicy
               metadata:
@@ -50,6 +49,8 @@ spec:
                 updateStrategy:
                   type: Recommend
               YAML
+              set +e
+              out=$(kubectl apply -f /tmp/bad-margin-schema.yaml 2>&1)
               rc=$?
               set -e
               if [ "$rc" -eq 0 ]; then
@@ -67,8 +68,7 @@ spec:
             timeout: 30s
             content: |
               set -e
-              set +e
-              out=$(kubectl apply -f - 2>&1 <<'YAML'
+              cat > /tmp/bad-cooldown-neg.yaml <<'YAML'
               apiVersion: attune.io/v1alpha1
               kind: AttunePolicy
               metadata:
@@ -89,6 +89,8 @@ spec:
                   type: Recommend
                   cooldown: -5m
               YAML
+              set +e
+              out=$(kubectl apply -f /tmp/bad-cooldown-neg.yaml 2>&1)
               rc=$?
               set -e
               if [ "$rc" -eq 0 ]; then
@@ -106,8 +108,7 @@ spec:
             timeout: 30s
             content: |
               set -e
-              set +e
-              out=$(kubectl apply -f - 2>&1 <<'YAML'
+              cat > /tmp/bad-cooldown-floor.yaml <<'YAML'
               apiVersion: attune.io/v1alpha1
               kind: AttunePolicy
               metadata:
@@ -128,6 +129,8 @@ spec:
                   type: Recommend
                   cooldown: 30s
               YAML
+              set +e
+              out=$(kubectl apply -f /tmp/bad-cooldown-floor.yaml 2>&1)
               rc=$?
               set -e
               if [ "$rc" -eq 0 ]; then
@@ -145,8 +148,7 @@ spec:
             timeout: 30s
             content: |
               set -e
-              set +e
-              out=$(kubectl apply -f - 2>&1 <<'YAML'
+              cat > /tmp/bad-overhead-max.yaml <<'YAML'
               apiVersion: attune.io/v1alpha1
               kind: AttunePolicy
               metadata:
@@ -167,6 +169,8 @@ spec:
                 updateStrategy:
                   type: Recommend
               YAML
+              set +e
+              out=$(kubectl apply -f /tmp/bad-overhead-max.yaml 2>&1)
               rc=$?
               set -e
               if [ "$rc" -eq 0 ]; then
@@ -184,8 +188,7 @@ spec:
             timeout: 30s
             content: |
               set -e
-              set +e
-              out=$(kubectl apply -f - 2>&1 <<'YAML'
+              cat > /tmp/bad-prom-ssrf.yaml <<'YAML'
               apiVersion: attune.io/v1alpha1
               kind: AttunePolicy
               metadata:
@@ -205,6 +208,8 @@ spec:
                 updateStrategy:
                   type: Recommend
               YAML
+              set +e
+              out=$(kubectl apply -f /tmp/bad-prom-ssrf.yaml 2>&1)
               rc=$?
               set -e
               if [ "$rc" -eq 0 ]; then
