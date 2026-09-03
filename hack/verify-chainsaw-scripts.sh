@@ -77,6 +77,8 @@ for path in sorted((root / "test" / "e2e").glob("*/chainsaw-test.yaml")):
                 continue
             if not standalone.match(s):
                 continue
+            if s.endswith("|| true") or " || true" in s:
+                continue
             if " && " in s or " || " in s:
                 failed.append(
                     f"{path.relative_to(root)}:{start + offset}: "

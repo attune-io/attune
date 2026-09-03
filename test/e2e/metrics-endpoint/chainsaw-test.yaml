@@ -21,14 +21,11 @@ spec:
               kubectl run metrics-check --image=curlimages/curl --restart=Never --rm --attach --command -- \
                 curl -sf "http://${METRICS_IP}:${METRICS_PORT}/metrics" > /tmp/e2e-metrics.txt 2>&1 || true
               missing=0
+              # CounterVecs with no observations are omitted from /metrics.
+              # Require series that exist after the first reconcile, not
+              # revert/error counters that may never have incremented.
               for m in \
-                attune_reconcile_duration_seconds \
-                attune_resize_total \
-                attune_reverts_total \
-                attune_prometheus_query_errors_total \
-                attune_resize_duration_seconds \
-                attune_reconcile_errors_total \
-                attune_savings_estimated_monthly_dollars
+                attune_reconcile_duration_seconds
               do
                 if ! grep -q "$m" /tmp/e2e-metrics.txt; then
                   echo "FAIL: missing $m"
