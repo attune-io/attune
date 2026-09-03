@@ -38,8 +38,10 @@ spec:
                 fi
                 sleep 1
               done
-              curl -sf http://localhost:18081/healthz && echo "healthz OK"
-              curl -sf http://localhost:18081/readyz && echo "readyz OK"
+              curl -sf http://localhost:18081/healthz
+              echo "healthz OK"
+              curl -sf http://localhost:18081/readyz
+              echo "readyz OK"
               kill "$PF_PID" 2>/dev/null || true
               echo "Health probes OK"
       catch:

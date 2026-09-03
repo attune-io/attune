@@ -78,4 +78,15 @@ if ! out="$("$SCRIPT" --root "$cond" 2>&1)"; then
 fi
 assert_contains "OK:" "$out" "grep inside if is allowed"
 
+andlist="${tmpdir}/andlist"
+write_test "$andlist" "probes" "              set -e
+              curl -sf http://127.0.0.1:9/readyz && echo readyz OK
+              echo Health probes OK"
+set +e
+out="$("$SCRIPT" --root "$andlist" 2>&1)"
+rc=$?
+set -e
+assert_eq "1" "$rc" "set -e plus curl && echo exits 1"
+assert_contains "&&/||" "$out" "AND-OR list is reported"
+
 echo "DONE: verify-chainsaw-scripts classifier"

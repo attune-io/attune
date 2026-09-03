@@ -34,7 +34,7 @@ spec:
                   percentile: 95
                   overhead: "40"
                 updateStrategy:
-                  type: Recommend
+                  type: Observe
         - apply:
             resource:
               apiVersion: apps/v1
@@ -83,7 +83,7 @@ spec:
                 memory:
                   percentile: 99
                   overhead: "30"
-                # type intentionally omitted: inherited from AttuneDefaults (Recommend)
+                # type intentionally omitted: inherited from AttuneDefaults (Observe)
                 updateStrategy:
                   cooldown: 1m
     - name: verify-policy-reconciles
@@ -118,18 +118,21 @@ spec:
               done
               echo "WARNING: No cAdvisor metrics for $NS after 120s, proceeding"
     - name: verify-type-inherited
-      description: Verify that type was inherited from defaults (Recommend) by checking the status condition
+      description: Verify that type was inherited from defaults (Observe), not the built-in Recommend
       try:
         - script:
-            timeout: 2m
+            timeout: 3m
             content: |
+              # Built-in default type is also Recommend, so recs+resized=0 does
+              # not prove merge. Observe computes recs but leaves
+              # status.recommendations empty.
               for i in $(seq 1 36); do
-                REASON=$(kubectl get attunepolicy inherits-defaults -n e2e-defaults-merge \
-                  -o jsonpath='{.status.conditions[?(@.type=="Ready")].reason}' 2>/dev/null)
                 TYPE=$(kubectl get attunepolicy inherits-defaults -n e2e-defaults-merge \
                   -o jsonpath='{.spec.updateStrategy.type}' 2>/dev/null)
                 RECS=$(kubectl get attunepolicy inherits-defaults -n e2e-defaults-merge \
                   -o jsonpath='{.status.workloads.withRecommendations}' 2>/dev/null)
+                SURFACED=$(kubectl get attunepolicy inherits-defaults -n e2e-defaults-merge \
+                  -o jsonpath='{.status.recommendations[*].workload}' 2>/dev/null)
                 RESIZED=$(kubectl get attunepolicy inherits-defaults -n e2e-defaults-merge \
                   -o jsonpath='{.status.workloads.resized}' 2>/dev/null)
                 if [ -n "$TYPE" ]; then
@@ -138,18 +141,23 @@ spec:
                   exit 1
                 fi
                 if [ "${RESIZED:-0}" -ge 1 ] 2>/dev/null; then
-                  echo "FAIL: inherited Recommend resized a workload (resized=$RESIZED)"
+                  echo "FAIL: inherited Observe resized a workload (resized=$RESIZED)"
                   kubectl get attunepolicy inherits-defaults -n e2e-defaults-merge -o yaml
                   exit 1
                 fi
-                if [ "${RECS:-0}" -ge 1 ] 2>/dev/null && [ "$REASON" = "Monitoring" ]; then
-                  echo "OK: type inherited as Recommend (recs=$RECS resized=${RESIZED:-0})"
+                if [ -n "$SURFACED" ]; then
+                  echo "FAIL: Observe surfaced recommendations ($SURFACED); type merge used built-in Recommend"
+                  kubectl get attunepolicy inherits-defaults -n e2e-defaults-merge -o yaml
+                  exit 1
+                fi
+                if [ "${RECS:-0}" -ge 1 ] 2>/dev/null; then
+                  echo "OK: type inherited as Observe (withRecommendations=$RECS, status recs empty)"
                   exit 0
                 fi
-                echo "Waiting... reason=$REASON recs=$RECS resized=$RESIZED type='$TYPE'"
+                echo "Waiting... recs=$RECS surfaced='$SURFACED' resized=$RESIZED type='$TYPE'"
                 sleep 5
               done
-              echo "Timed out waiting for inherited Recommend to produce recs without resizing"
+              echo "Timed out waiting for inherited Observe (recs computed, not surfaced)"
               kubectl get attunepolicy inherits-defaults -n e2e-defaults-merge -o yaml
               exit 1
   catch:

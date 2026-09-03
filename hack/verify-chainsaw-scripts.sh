@@ -2,10 +2,10 @@
 # Copyright 2026 attune Authors
 # SPDX-License-Identifier: Apache-2.0
 #
-# Fail if a Chainsaw try-step script has neither set -e nor exit 1.
-# Chainsaw runs script.content under sh without implicit errexit, so the
-# last command's exit code is the step result. An echo after a failed
-# grep or curl makes the step pass unconditionally (#628).
+# Fail if a Chainsaw try-step script has a bare grep -q or curl -sf
+# (including curl -sf ... && echo). Chainsaw runs script.content under
+# sh without implicit errexit. set -e does not apply to && / || lists,
+# so a failed curl on the left of && still exits 0 (#628).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -70,13 +70,19 @@ def script_blocks(text: str):
 for path in sorted((root / "test" / "e2e").glob("*/chainsaw-test.yaml")):
     text = path.read_text()
     for start, body in script_blocks(text):
-        if "set -e" in body:
-            continue
+        has_errexit = "set -e" in body
         for offset, line in enumerate(body.splitlines()):
             s = line.strip()
             if s.startswith("if ") or s.startswith("elif ") or s.startswith("#"):
                 continue
-            if standalone.match(s):
+            if not standalone.match(s):
+                continue
+            if " && " in s or " || " in s:
+                failed.append(
+                    f"{path.relative_to(root)}:{start + offset}: "
+                    f"'{s.split()[0]}' in &&/|| is not covered by set -e"
+                )
+            elif not has_errexit:
                 failed.append(
                     f"{path.relative_to(root)}:{start + offset}: "
                     f"bare '{s.split()[0]}' without set -e (exit code is ignored)"
