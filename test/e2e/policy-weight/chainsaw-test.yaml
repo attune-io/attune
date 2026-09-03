@@ -6,7 +6,7 @@ spec:
   description: Verify that a higher-weight policy takes precedence over a lower-weight policy on the same workload
   timeouts:
     apply: 30s
-    assert: 2m
+    assert: 4m
     delete: 30s
   steps:
     - name: create-resources
@@ -96,6 +96,25 @@ spec:
                 updateStrategy:
                   type: Recommend
                   cooldown: 1m
+    - name: wait-for-metrics
+      try:
+        - script:
+            timeout: 2m
+            content: |
+              set -e
+              PROM_POD=$(kubectl get pods -n monitoring -l app.kubernetes.io/name=prometheus,app.kubernetes.io/component=server -o name | head -1)
+              NS="e2e-policy-weight"
+              ENCODED_QUERY="container_cpu_usage_seconds_total%7Bnamespace%3D%22${NS}%22%2Ccontainer%21%3D%22%22%7D"
+              for i in $(seq 1 24); do
+                result=$(kubectl exec -n monitoring "$PROM_POD" -- \
+                  wget -qO- "http://localhost:9090/api/v1/query?query=${ENCODED_QUERY}" 2>/dev/null || true)
+                if echo "$result" | grep -q '"result":\[{'; then
+                  echo "cAdvisor metrics available for namespace $NS after ${i}x5s"
+                  exit 0
+                fi
+                sleep 5
+              done
+              echo "WARNING: No cAdvisor metrics for $NS after 120s, proceeding"
     - name: verify-high-weight-discovers
       try:
         - assert:
@@ -108,7 +127,7 @@ spec:
               status:
                 workloads:
                   discovered: 1
-    - name: verify-low-weight-skips
+    - name: verify-low-weight-still-discovers
       try:
         - assert:
             resource:
@@ -120,6 +139,35 @@ spec:
               status:
                 workloads:
                   discovered: 1
+    - name: verify-high-weight-owns-recommendations
+      try:
+        - script:
+            timeout: 3m
+            content: |
+              # Losing policy still discovers the workload. Precedence is
+              # at recommend time: only the higher-weight policy writes recs.
+              for i in $(seq 1 36); do
+                high=$(kubectl get attunepolicy high-weight -n e2e-policy-weight \
+                  -o jsonpath='{.status.workloads.withRecommendations}' 2>/dev/null)
+                low=$(kubectl get attunepolicy low-weight -n e2e-policy-weight \
+                  -o jsonpath='{.status.workloads.withRecommendations}' 2>/dev/null)
+                if [ "${low:-0}" -ge 1 ] 2>/dev/null; then
+                  echo "FAIL: low-weight policy wrote recommendations (high=$high low=$low)"
+                  kubectl get attunepolicy high-weight -n e2e-policy-weight -o yaml
+                  kubectl get attunepolicy low-weight -n e2e-policy-weight -o yaml
+                  exit 1
+                fi
+                if [ "${high:-0}" -ge 1 ] 2>/dev/null; then
+                  echo "OK: high-weight owns recs (high=$high low=${low:-0})"
+                  exit 0
+                fi
+                echo "Waiting... high=$high low=$low"
+                sleep 5
+              done
+              echo "FAIL: high-weight never produced recommendations"
+              kubectl get attunepolicy high-weight -n e2e-policy-weight -o yaml
+              kubectl get attunepolicy low-weight -n e2e-policy-weight -o yaml
+              exit 1
   catch:
     - describe:
         apiVersion: attune.io/v1alpha1

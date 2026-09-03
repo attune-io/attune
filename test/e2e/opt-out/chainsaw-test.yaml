@@ -95,30 +95,53 @@ spec:
                 namespace: e2e-opt-out
               status:
                 readyReplicas: 1
+    - name: wait-for-metrics
+      try:
+        - script:
+            timeout: 2m
+            content: |
+              set -e
+              PROM_POD=$(kubectl get pods -n monitoring -l app.kubernetes.io/name=prometheus,app.kubernetes.io/component=server -o name | head -1)
+              NS="e2e-opt-out"
+              ENCODED_QUERY="container_cpu_usage_seconds_total%7Bnamespace%3D%22${NS}%22%2Ccontainer%21%3D%22%22%7D"
+              for i in $(seq 1 24); do
+                result=$(kubectl exec -n monitoring "$PROM_POD" -- \
+                  wget -qO- "http://localhost:9090/api/v1/query?query=${ENCODED_QUERY}" 2>/dev/null || true)
+                if echo "$result" | grep -q '"result":\[{'; then
+                  echo "cAdvisor metrics available for namespace $NS after ${i}x5s"
+                  exit 0
+                fi
+                sleep 5
+              done
+              echo "WARNING: No cAdvisor metrics for $NS after 120s, proceeding"
     - name: verify-workload-not-processed
       try:
         - script:
             timeout: 3m
             content: |
-              # The policy may briefly show InsufficientData before the operator
-              # processes the skip annotation. Accept either InsufficientData or
-              # Monitoring — the real assertion is that discovered stays 0 (the
-              # skipped workload is not counted).
+              # Skip is not discovery: the workload still matches targetRef.
+              # Opt-out must leave discovered=1 and never produce recs.
+              # Monitoring means recs exist, so skip was ignored.
               for i in $(seq 1 36); do
                 reason=$(kubectl get attunepolicy opt-out-test -n e2e-opt-out \
                   -o jsonpath='{.status.conditions[?(@.type=="Ready")].reason}' 2>/dev/null)
                 discovered=$(kubectl get attunepolicy opt-out-test -n e2e-opt-out \
                   -o jsonpath='{.status.workloads.discovered}' 2>/dev/null)
-                if [ -n "$reason" ]; then
-                  if [ "$reason" = "InsufficientData" ] || [ "$reason" = "Monitoring" ] || [ "$reason" = "NoWorkloadsFound" ]; then
-                    echo "OK: discovered=$discovered, Ready reason=$reason"
-                    exit 0
-                  fi
+                recs=$(kubectl get attunepolicy opt-out-test -n e2e-opt-out \
+                  -o jsonpath='{.status.workloads.withRecommendations}' 2>/dev/null)
+                if [ "${recs:-0}" -ge 1 ] 2>/dev/null || [ "$reason" = "Monitoring" ]; then
+                  echo "FAIL: skipped workload produced recommendations (discovered=$discovered recs=$recs reason=$reason)"
+                  kubectl get attunepolicy opt-out-test -n e2e-opt-out -o yaml
+                  exit 1
                 fi
-                echo "Waiting... discovered=$discovered reason=$reason"
+                if [ "$i" -ge 12 ] && [ "$discovered" = "1" ] && [ "${recs:-0}" = "0" ]; then
+                  echo "OK: skipped workload discovered but not recommended (reason=$reason)"
+                  exit 0
+                fi
+                echo "Waiting... discovered=$discovered recs=$recs reason=$reason"
                 sleep 5
               done
-              echo "FAIL: timed out waiting for policy to set a Ready condition"
+              echo "FAIL: timed out waiting for discovered=1 with no recommendations"
               kubectl get attunepolicy opt-out-test -n e2e-opt-out -o yaml
               exit 1
   catch:

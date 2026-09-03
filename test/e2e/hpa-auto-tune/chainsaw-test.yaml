@@ -159,6 +159,17 @@ spec:
                   CURRENT=$(kubectl get hpa tune-app -n e2e-hpa-auto-tune \
                     -o jsonpath='{.spec.metrics[0].resource.target.averageUtilization}' 2>/dev/null)
                   echo "Current averageUtilization: $CURRENT"
+                  if [ "$ORIG" != "70" ]; then
+                    echo "FAIL: original-target-cpu is '$ORIG', want 70"
+                    kubectl get hpa tune-app -n e2e-hpa-auto-tune -o yaml
+                    exit 1
+                  fi
+                  if [ -z "$CURRENT" ] || [ "$CURRENT" = "$ORIG" ]; then
+                    echo "FAIL: HPA target was not tuned (still $CURRENT)"
+                    kubectl get hpa tune-app -n e2e-hpa-auto-tune -o yaml
+                    exit 1
+                  fi
+                  echo "OK: HPA target tuned from $ORIG to $CURRENT"
                   exit 0
                 fi
                 sleep 5

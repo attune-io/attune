@@ -929,7 +929,7 @@ func (r *AttunePolicyReconciler) processWorkloads(
 			if conflictDetector.CheckAnnotationOptOut(workloadMeta) {
 				logger.Info("Workload opted out via annotation", "workload", workloadName)
 				r.emitEventOnce(policy, corev1.EventTypeNormal, "WorkloadOptOut", "recommend",
-					"Workload %s opted out via attune.io/exclude annotation", workloadName)
+					"Workload %s opted out via attune.io/skip annotation", workloadName)
 				return nil
 			}
 

@@ -13,6 +13,7 @@ spec:
       try:
         - script:
             content: |
+              set -e
               METRICS_IP=$(kubectl get svc attune-metrics -n attune-system -o jsonpath='{.spec.clusterIP}')
               METRICS_PORT=$(kubectl get svc attune-metrics -n attune-system -o jsonpath='{.spec.ports[0].port}')
               kubectl run metrics-check --image=curlimages/curl --restart=Never --rm --attach --command -- \

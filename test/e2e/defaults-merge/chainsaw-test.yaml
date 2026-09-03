@@ -6,7 +6,7 @@ spec:
   description: Verify that AttuneDefaults values are merged into a policy that omits them
   timeouts:
     apply: 60s
-    assert: 2m
+    assert: 4m
     delete: 30s
   steps:
     - name: create-resources
@@ -98,26 +98,58 @@ spec:
               status:
                 workloads:
                   discovered: 1
+    - name: wait-for-metrics
+      try:
+        - script:
+            timeout: 2m
+            content: |
+              set -e
+              PROM_POD=$(kubectl get pods -n monitoring -l app.kubernetes.io/name=prometheus,app.kubernetes.io/component=server -o name | head -1)
+              NS="e2e-defaults-merge"
+              ENCODED_QUERY="container_cpu_usage_seconds_total%7Bnamespace%3D%22${NS}%22%2Ccontainer%21%3D%22%22%7D"
+              for i in $(seq 1 24); do
+                result=$(kubectl exec -n monitoring "$PROM_POD" -- \
+                  wget -qO- "http://localhost:9090/api/v1/query?query=${ENCODED_QUERY}" 2>/dev/null || true)
+                if echo "$result" | grep -q '"result":\[{'; then
+                  echo "cAdvisor metrics available for namespace $NS after ${i}x5s"
+                  exit 0
+                fi
+                sleep 5
+              done
+              echo "WARNING: No cAdvisor metrics for $NS after 120s, proceeding"
     - name: verify-type-inherited
       description: Verify that type was inherited from defaults (Recommend) by checking the status condition
       try:
         - script:
             timeout: 2m
             content: |
-              for i in $(seq 1 24); do
+              for i in $(seq 1 36); do
                 REASON=$(kubectl get attunepolicy inherits-defaults -n e2e-defaults-merge \
                   -o jsonpath='{.status.conditions[?(@.type=="Ready")].reason}' 2>/dev/null)
-                if [ "$REASON" = "InsufficientData" ] || [ "$REASON" = "Monitoring" ]; then
-                  echo "Policy is in Recommend type (reason: $REASON)"
-                  # Verify the policy spec does NOT have type set (it was inherited)
-                  TYPE=$(kubectl get attunepolicy inherits-defaults -n e2e-defaults-merge \
-                    -o jsonpath='{.spec.updateStrategy.type}' 2>/dev/null)
-                  echo "Spec type value: '$TYPE'"
+                TYPE=$(kubectl get attunepolicy inherits-defaults -n e2e-defaults-merge \
+                  -o jsonpath='{.spec.updateStrategy.type}' 2>/dev/null)
+                RECS=$(kubectl get attunepolicy inherits-defaults -n e2e-defaults-merge \
+                  -o jsonpath='{.status.workloads.withRecommendations}' 2>/dev/null)
+                RESIZED=$(kubectl get attunepolicy inherits-defaults -n e2e-defaults-merge \
+                  -o jsonpath='{.status.workloads.resized}' 2>/dev/null)
+                if [ -n "$TYPE" ]; then
+                  echo "FAIL: spec.updateStrategy.type was written back ('$TYPE'); want inherited unset"
+                  kubectl get attunepolicy inherits-defaults -n e2e-defaults-merge -o yaml
+                  exit 1
+                fi
+                if [ "${RESIZED:-0}" -ge 1 ] 2>/dev/null; then
+                  echo "FAIL: inherited Recommend resized a workload (resized=$RESIZED)"
+                  kubectl get attunepolicy inherits-defaults -n e2e-defaults-merge -o yaml
+                  exit 1
+                fi
+                if [ "${RECS:-0}" -ge 1 ] 2>/dev/null && [ "$REASON" = "Monitoring" ]; then
+                  echo "OK: type inherited as Recommend (recs=$RECS resized=${RESIZED:-0})"
                   exit 0
                 fi
+                echo "Waiting... reason=$REASON recs=$RECS resized=$RESIZED type='$TYPE'"
                 sleep 5
               done
-              echo "Timed out waiting for Ready condition"
+              echo "Timed out waiting for inherited Recommend to produce recs without resizing"
               kubectl get attunepolicy inherits-defaults -n e2e-defaults-merge -o yaml
               exit 1
   catch:

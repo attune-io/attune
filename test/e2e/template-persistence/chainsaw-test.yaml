@@ -138,8 +138,7 @@ spec:
                     echo "Resize history contains TemplatePatched"
                     exit 0
                   fi
-                  echo "WARN: history not yet showing TemplatePatched: $HIST"
-                  exit 0
+                  echo "template changed; waiting for TemplatePatched history: $HIST"
                 fi
                 sleep 5
               done

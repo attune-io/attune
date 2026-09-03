@@ -283,6 +283,8 @@ spec:
                   first["app-a"], first["app-b"], delta))
               if delta < 0:
                   sys.exit(4)
+              if delta >= 60:
+                  sys.exit(4)
               sys.exit(0)
               PY
                 rc=$?
@@ -291,7 +293,7 @@ spec:
                   exit 0
                 fi
                 if [ "$rc" -eq 4 ]; then
-                  echo "FAIL: missing app-a Success or app-b before app-a"
+                  echo "FAIL: missing app-a Success, app-b before app-a, or delta>=60s"
                   kubectl get attunepolicy fleet-auto -n "$NS" -o yaml
                   exit 1
                 fi
