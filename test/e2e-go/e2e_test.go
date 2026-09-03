@@ -1734,28 +1734,37 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 		return false, nil
 	}), "timed out waiting for OOMKill")
 
-	// Phase 4: Wait for OOMKill revert in history, then prove live resources
-	// were restored to the pre-resize Guaranteed requests (500m / 64Mi).
-	origCPU := resource.MustParse("500m")
-	origMem := resource.MustParse("64Mi")
+	// Phase 4: Wait for an OOMKill Reverted history row (not any revert).
 	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 5*time.Minute, true, func(ctx context.Context) (bool, error) {
 		var p attunev1alpha1.AttunePolicy
 		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "oom-policy", Namespace: ns}, &p); err != nil {
 			return false, nil
 		}
-		oomRevert := false
 		for _, h := range p.Status.ResizeHistory {
 			if h.Result == attunev1alpha1.ResizeResultReverted &&
 				(h.Reason == "oomkill" || strings.Contains(strings.ToLower(h.Reason), "oom")) {
 				t.Logf("OOM revert detected: workload=%s container=%s reason=%s",
 					h.Workload, h.Container, h.Reason)
-				oomRevert = true
-				break
+				return true, nil
 			}
 		}
-		if !oomRevert {
-			return false, nil
+		return false, nil
+	}), "timed out waiting for OOMKill Reverted history")
+
+	// Pause so Auto cannot immediately re-decrease (cooldown is 1m, but pause
+	// is the hard stop). Then require live requests back at pre-resize values.
+	require.NoError(t, retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		var p attunev1alpha1.AttunePolicy
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "oom-policy", Namespace: ns}, &p); err != nil {
+			return err
 		}
+		p.Spec.Paused = boolPtr(true)
+		return k8sClient.Update(ctx, &p)
+	}))
+
+	origCPU := resource.MustParse("500m")
+	origMem := resource.MustParse("64Mi")
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 3*time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
 		var pods corev1.PodList
 		if err := k8sClient.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{"app": "oom-app"}); err != nil {
 			return false, nil

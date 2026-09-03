@@ -141,22 +141,25 @@ spec:
             timeout: 5m
             content: |
               set -e
+              cpu_milli() {
+                v=$1
+                case "$v" in
+                  *m) echo "${v%m}" ;;
+                  "") echo 0 ;;
+                  *) echo $((v * 1000)) ;;
+                esac
+              }
               for i in $(seq 1 60); do
                 RESIZED=$(kubectl get attunepolicy auto-test -n e2e-auto-mode \
-                  -o jsonpath='{.status.workloads.resized}' 2>/dev/null)
+                  -o jsonpath='{.status.workloads.resized}' 2>/dev/null || true)
                 CPU=$(kubectl get pods -n e2e-auto-mode -l app=auto-app \
                   -o jsonpath='{.items[0].spec.containers[0].resources.requests.cpu}' 2>/dev/null || true)
-                if [ "${RESIZED:-0}" -ge 1 ] 2>/dev/null && [ -n "$CPU" ] && [ "$CPU" != "500m" ]; then
-                  case "$CPU" in
-                    1|1000m|2|2000m|4000m)
-                      echo "FAIL: idle pause resized CPU up to $CPU"
-                      exit 1
-                      ;;
-                  esac
-                  echo "Resize confirmed: resized=$RESIZED liveCPU=$CPU (below 500m start)"
+                milli=$(cpu_milli "$CPU")
+                if [ "${RESIZED:-0}" -ge 1 ] 2>/dev/null && [ "$milli" -gt 0 ] && [ "$milli" -lt 500 ]; then
+                  echo "Resize confirmed: resized=$RESIZED liveCPU=$CPU (${milli}m < 500m start)"
                   exit 0
                 fi
-                echo "Waiting... resized=$RESIZED cpu=$CPU"
+                echo "Waiting... resized=$RESIZED cpu=$CPU milli=$milli"
                 sleep 5
               done
               echo "No downward resize within timeout"

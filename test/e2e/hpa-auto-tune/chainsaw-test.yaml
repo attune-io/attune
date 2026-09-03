@@ -151,14 +151,26 @@ spec:
         - script:
             timeout: 5m
             content: |
+              set -e
+              cpu_milli() {
+                v=$1
+                case "$v" in
+                  *m) echo "${v%m}" ;;
+                  "") echo 0 ;;
+                  *) echo $((v * 1000)) ;;
+                esac
+              }
               for i in $(seq 1 60); do
                 ORIG=$(kubectl get hpa tune-app -n e2e-hpa-auto-tune \
-                  -o jsonpath='{.metadata.annotations.attune\.io/original-target-cpu}' 2>/dev/null)
+                  -o jsonpath='{.metadata.annotations.attune\.io/original-target-cpu}' 2>/dev/null || true)
                 if [ -n "$ORIG" ]; then
                   echo "HPA original-target-cpu annotation found: $ORIG"
                   CURRENT=$(kubectl get hpa tune-app -n e2e-hpa-auto-tune \
-                    -o jsonpath='{.spec.metrics[0].resource.target.averageUtilization}' 2>/dev/null)
-                  echo "Current averageUtilization: $CURRENT"
+                    -o jsonpath='{.spec.metrics[0].resource.target.averageUtilization}' 2>/dev/null || true)
+                  CPU=$(kubectl get pods -n e2e-hpa-auto-tune -l app=tune-app \
+                    -o jsonpath='{.items[0].spec.containers[0].resources.requests.cpu}' 2>/dev/null || true)
+                  milli=$(cpu_milli "$CPU")
+                  echo "Current averageUtilization: $CURRENT liveCPU=$CPU"
                   if [ "$ORIG" != "70" ]; then
                     echo "FAIL: original-target-cpu is '$ORIG', want 70"
                     kubectl get hpa tune-app -n e2e-hpa-auto-tune -o yaml
@@ -169,7 +181,12 @@ spec:
                     kubectl get hpa tune-app -n e2e-hpa-auto-tune -o yaml
                     exit 1
                   fi
-                  echo "OK: HPA target tuned from $ORIG to $CURRENT"
+                  if [ "$milli" -ge 500 ]; then
+                    echo "FAIL: HPA tuned but live CPU did not decrease (cpu=$CPU)"
+                    kubectl get pods -n e2e-hpa-auto-tune -l app=tune-app -o yaml
+                    exit 1
+                  fi
+                  echo "OK: HPA target tuned from $ORIG to $CURRENT and CPU decreased to $CPU"
                   exit 0
                 fi
                 sleep 5
