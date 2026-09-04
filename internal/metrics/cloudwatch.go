@@ -155,11 +155,17 @@ func (c *CloudWatchCollector) QueryRangeGrouped(ctx context.Context, query strin
 				continue
 			}
 
+			hadPoints := false
+			before := len(grouped[container])
 			for i, ts := range result.Timestamps {
 				if i >= len(result.Values) {
 					break
 				}
-				grouped[container] = appendFiniteScaled(ctx, grouped[container], ts, result.Values[i], isCPU)
+				hadPoints = true
+				grouped[container] = appendFiniteScaled(grouped[container], ts, result.Values[i], isCPU)
+			}
+			if hadPoints && len(grouped[container]) == before {
+				recordDroppedNonFinite(ctx, metricTypeFromCPU(isCPU))
 			}
 		}
 

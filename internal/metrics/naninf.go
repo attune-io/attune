@@ -32,7 +32,8 @@ type nanInfLabelContext struct {
 }
 
 // WithNanInfLabels attaches policy identity used when QueryRangeGrouped
-// increments attune_nan_inf_samples_total for a dropped NaN/Inf point.
+// increments attune_nan_inf_samples_total for a series whose samples were
+// all non-finite (NaN or Inf). Mixed series drop the bad points only.
 func WithNanInfLabels(ctx context.Context, namespace, policy, metricType string) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
@@ -49,6 +50,9 @@ func WithNanInfLabels(ctx context.Context, namespace, policy, metricType string)
 // not become Prometheus series.
 const nanInfUntrackedContainer = "untracked"
 
+// recordDroppedNonFinite increments attune_nan_inf_samples_total once for
+// an unusable series (it had points and every one was NaN or Inf). Call
+// after the series, never inside the per-point loop.
 func recordDroppedNonFinite(ctx context.Context, fallbackMetricType string) {
 	ns, policy, metricType := "", "", fallbackMetricType
 	if ctx != nil {

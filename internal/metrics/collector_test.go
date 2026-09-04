@@ -226,7 +226,47 @@ func TestQueryRangeGrouped_NaNInfFiltered(t *testing.T) {
 	assert.InDelta(t, 0.25, grouped["app"][0].Value, 0.001)
 	assert.InDelta(t, 0.75, grouped["app"][1].Value, 0.001)
 	after := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("prom-ns", "prom-policy", "untracked", "cpu"))
-	assert.Equal(t, before+3, after, "each dropped NaN/Inf point must increment the counter")
+	assert.Equal(t, before, after, "mixed finite+NaN series must not increment the unusable-series counter")
+}
+
+func TestQueryRangeGrouped_AllNonFiniteIncrementsOnce(t *testing.T) {
+	response := `{
+		"status": "success",
+		"data": {
+			"resultType": "matrix",
+			"result": [
+				{
+					"metric": {"__name__": "cpu_usage", "container": "app"},
+					"values": [
+						[1700000000, "NaN"],
+						[1700000060, "Inf"],
+						[1700000120, "-Inf"]
+					]
+				}
+			]
+		}
+	}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(response))
+	}))
+	defer server.Close()
+
+	collector, err := NewPrometheusCollector(server.URL, logr.Discard(), http.DefaultTransport)
+	require.NoError(t, err)
+
+	start := time.Unix(1700000000, 0)
+	end := time.Unix(1700000300, 0)
+	step := 60 * time.Second
+
+	ctx := WithNanInfLabels(context.Background(), "prom-ns", "prom-policy", "cpu")
+	before := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("prom-ns", "prom-policy", "untracked", "cpu"))
+	grouped, err := collector.QueryRangeGrouped(ctx, "cpu_usage", start, end, step)
+	require.NoError(t, err)
+	assert.Empty(t, grouped["app"], "all-non-finite series keeps no samples")
+	after := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("prom-ns", "prom-policy", "untracked", "cpu"))
+	assert.Equal(t, before+1, after, "all-non-finite series increments the counter once")
 }
 
 func TestQuery_Success(t *testing.T) {

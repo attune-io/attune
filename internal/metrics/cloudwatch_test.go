@@ -374,7 +374,48 @@ func TestCloudWatchCollector_QueryRangeGrouped_NaNInfFiltered(t *testing.T) {
 	assert.InDelta(t, 0.25, grouped["main"][0].Value, 0.001)
 	assert.InDelta(t, 0.75, grouped["main"][1].Value, 0.001)
 	after := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("cw-ns", "cw-policy", "untracked", "memory"))
-	assert.Equal(t, before+3, after, "each dropped NaN/Inf point must increment the counter")
+	assert.Equal(t, before, after, "mixed finite+NaN series must not increment the unusable-series counter")
+}
+
+func TestCloudWatchCollector_QueryRangeGrouped_AllNonFiniteIncrementsOnce(t *testing.T) {
+	ts1 := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
+	ts2 := ts1.Add(1 * time.Minute)
+	ts3 := ts1.Add(2 * time.Minute)
+
+	mock := &mockCloudWatchClient{
+		getMetricDataFn: func(_ context.Context, _ *cloudwatch.GetMetricDataInput, _ ...func(*cloudwatch.Options)) (*cloudwatch.GetMetricDataOutput, error) {
+			return &cloudwatch.GetMetricDataOutput{
+				MetricDataResults: []cwtypes.MetricDataResult{
+					{
+						Label:      aws.String("metric pod-a main"),
+						Timestamps: []time.Time{ts1, ts2, ts3},
+						Values:     []float64{math.NaN(), math.Inf(1), math.Inf(-1)},
+					},
+				},
+			}, nil
+		},
+	}
+
+	c := NewCloudWatchCollectorWithClient(mock, "c", logr.Discard())
+	spec := CloudWatchQuerySpec{
+		Metric:      "container_memory_working_set",
+		ClusterName: "c",
+		Namespace:   "ns",
+		PodPrefix:   "pod-",
+		Period:      300,
+		Stat:        "Average",
+	}
+	query, err := json.Marshal(spec)
+	require.NoError(t, err)
+
+	ctx := WithNanInfLabels(context.Background(), "cw-ns", "cw-policy", "memory")
+	before := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("cw-ns", "cw-policy", "untracked", "memory"))
+	grouped, err := c.QueryRangeGrouped(ctx, string(query),
+		ts1.Add(-time.Hour), ts3, time.Minute)
+	require.NoError(t, err)
+	assert.Empty(t, grouped["main"], "all-non-finite series keeps no samples")
+	after := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("cw-ns", "cw-policy", "untracked", "memory"))
+	assert.Equal(t, before+1, after, "all-non-finite series increments the counter once")
 }
 
 func TestCloudWatchCollector_QueryRangeGrouped_ShortValuesNoPanic(t *testing.T) {

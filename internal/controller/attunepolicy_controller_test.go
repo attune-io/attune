@@ -8667,8 +8667,8 @@ func TestComputeRecommendations_NanInfSamplesMetric(t *testing.T) {
 	assert.Nil(t, rec, "should produce no recommendation when all data is NaN/Inf")
 	afterCPU := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("default", "test-policy", "untracked", "cpu"))
 	afterMem := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("default", "test-policy", "untracked", "memory"))
-	assert.Equal(t, beforeCPU+3, afterCPU, "collector must increment for each dropped CPU NaN/Inf point")
-	assert.Equal(t, beforeMem+3, afterMem, "collector must increment for each dropped memory NaN/Inf point")
+	assert.Equal(t, beforeCPU+1, afterCPU, "collector must increment once when the CPU series is entirely non-finite")
+	assert.Equal(t, beforeMem+1, afterMem, "collector must increment once when the memory series is entirely non-finite")
 }
 
 func TestExecuteResizes_RequestClampedMetric(t *testing.T) {

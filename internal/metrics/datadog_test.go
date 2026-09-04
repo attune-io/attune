@@ -54,7 +54,23 @@ func TestDatadogCollector_QueryRangeGrouped_NaNInfFiltered(t *testing.T) {
 	assert.InDelta(t, 0.25, grouped["main"][0].Value, 0.001)
 	assert.InDelta(t, 0.75, grouped["main"][1].Value, 0.001)
 	after := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("dd-ns", "dd-policy", "untracked", "cpu"))
-	assert.Equal(t, before+3, after, "each dropped NaN/Inf point must increment the counter")
+	assert.Equal(t, before, after, "mixed finite+NaN series must not increment the unusable-series counter")
+}
+
+func TestDatadogCollector_QueryRangeGrouped_AllNonFiniteIncrementsOnce(t *testing.T) {
+	ts1 := 1700000000000.0
+	points := [][2]float64{
+		{ts1, math.NaN()},
+		{ts1 + 60000, math.Inf(1)},
+		{ts1 + 120000, math.Inf(-1)},
+	}
+
+	ctx := WithNanInfLabels(context.Background(), "dd-ns", "dd-policy", "cpu")
+	before := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("dd-ns", "dd-policy", "untracked", "cpu"))
+	got := appendDatadogSamples(ctx, nil, points, true)
+	assert.Empty(t, got, "all-non-finite series keeps no samples")
+	after := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("dd-ns", "dd-policy", "untracked", "cpu"))
+	assert.Equal(t, before+1, after, "all-non-finite series increments the counter once")
 }
 
 func TestDatadogCollector_QueryRangeGrouped(t *testing.T) {

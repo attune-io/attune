@@ -180,10 +180,11 @@ func (c *DatadogCollector) Close() error {
 }
 
 // appendFiniteScaled appends a sample after dropping NaN/Inf. CPU values
-// are converted from nanocores to cores.
-func appendFiniteScaled(ctx context.Context, dst []Sample, ts time.Time, value float64, isCPU bool) []Sample {
+// are converted from nanocores to cores. Non-finite points are dropped
+// silently; callers increment attune_nan_inf_samples_total once per
+// series when every point was unusable.
+func appendFiniteScaled(dst []Sample, ts time.Time, value float64, isCPU bool) []Sample {
 	if math.IsNaN(value) || math.IsInf(value, 0) {
-		recordDroppedNonFinite(ctx, metricTypeFromCPU(isCPU))
 		return dst
 	}
 	if isCPU {
@@ -194,10 +195,19 @@ func appendFiniteScaled(ctx context.Context, dst []Sample, ts time.Time, value f
 
 // appendDatadogSamples converts Datadog [timestamp_ms, value] points to
 // Samples, dropping NaN/Inf. CPU values are converted from nanocores to cores.
+// Increments the nan-inf counter once when the series had points and none
+// were finite.
 func appendDatadogSamples(ctx context.Context, dst []Sample, points [][2]float64, isCPU bool) []Sample {
+	if len(points) == 0 {
+		return dst
+	}
+	before := len(dst)
 	for _, point := range points {
 		ts := time.Unix(int64(point[0])/1000, 0)
-		dst = appendFiniteScaled(ctx, dst, ts, point[1], isCPU)
+		dst = appendFiniteScaled(dst, ts, point[1], isCPU)
+	}
+	if len(dst) == before {
+		recordDroppedNonFinite(ctx, metricTypeFromCPU(isCPU))
 	}
 	return dst
 }
