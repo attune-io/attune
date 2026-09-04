@@ -14,6 +14,7 @@ GOTESTSUM_VERSION ?= v1.13.0
 SETUP_ENVTEST_VERSION ?= v0.24.1
 ENVTEST_K8S_VERSION ?= 1.35.0
 GOVULNCHECK_VERSION ?= v1.7.0
+YAMLLINT_VERSION ?= 1.37.1
 K3D_VERSION ?= v5.8.3
 GITLEAKS_VERSION ?= 8.30.1
 CERT_MANAGER_VERSION ?= v1.21.1
@@ -177,12 +178,12 @@ lint: golangci-lint ## Run golangci-lint
 
 .PHONY: yaml-lint
 yaml-lint: ## Lint YAML files (mirrors CI)
-	@command -v yamllint >/dev/null 2>&1 || python3 -c "import yamllint" 2>/dev/null || { echo "Installing yamllint..."; python3 -m pip install --user --break-system-packages yamllint 2>/dev/null || python3 -m pip install --user yamllint; }
+	@command -v yamllint >/dev/null 2>&1 || python3 -c "import yamllint" 2>/dev/null || { echo "Installing yamllint $(YAMLLINT_VERSION)..."; python3 -m pip install --user --break-system-packages "yamllint==$(YAMLLINT_VERSION)" 2>/dev/null || python3 -m pip install --user "yamllint==$(YAMLLINT_VERSION)"; }
 	@if command -v yamllint >/dev/null 2>&1; then \
-		yamllint -d '{extends: default, rules: {line-length: {max: 200}, truthy: {check-keys: false}, indentation: {spaces: 2, indent-sequences: whatever}, document-start: disable}}' \
+		yamllint -c .yamllint.yaml \
 			config/ charts/attune/Chart.yaml charts/attune/values.yaml charts/attune/ci/ test/e2e/; \
 	else \
-		python3 -m yamllint -d '{extends: default, rules: {line-length: {max: 200}, truthy: {check-keys: false}, indentation: {spaces: 2, indent-sequences: whatever}, document-start: disable}}' \
+		python3 -m yamllint -c .yamllint.yaml \
 			config/ charts/attune/Chart.yaml charts/attune/values.yaml charts/attune/ci/ test/e2e/; \
 	fi
 

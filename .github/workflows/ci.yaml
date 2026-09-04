@@ -287,24 +287,12 @@ jobs:
 
       - name: Install yamllint
         shell: bash -Eeuo pipefail {0}
-        run: pip install yamllint
+        run: pip install yamllint==1.37.1
 
       - name: YAML lint
         shell: bash -Eeuo pipefail {0}
         run: |
-          yamllint_config="${RUNNER_TEMP:-/tmp}/yamllint-${GITHUB_RUN_ID}-${GITHUB_JOB}.yaml"
-          cat > "$yamllint_config" <<'EOF'
-          extends: default
-          rules:
-            line-length:
-              max: 200
-            truthy:
-              check-keys: false
-            indentation:
-              spaces: 2
-              indent-sequences: whatever
-          EOF
-          yamllint -c "$yamllint_config" \
+          yamllint -c .yamllint.yaml \
             config/ charts/attune/Chart.yaml charts/attune/values.yaml charts/attune/ci/ test/e2e/
 
   lint-chainsaw:
