@@ -145,7 +145,7 @@ func (c *DatadogCollector) QueryRangeGrouped(ctx context.Context, query string, 
 	grouped := make(map[string][]Sample, len(ddResp.Series))
 	for _, series := range ddResp.Series {
 		container := extractDatadogTag(series.TagSet, "kube_container_name")
-		grouped[container] = appendDatadogSamples(grouped[container], series.Pointlist, isCPU)
+		grouped[container] = appendDatadogSamples(ctx, container, grouped[container], series.Pointlist, isCPU)
 	}
 
 	c.logger.V(1).Info("Datadog query completed",
@@ -168,15 +168,22 @@ func (c *DatadogCollector) Query(ctx context.Context, query string, ts time.Time
 	return latestSampleValue(samples, "Datadog")
 }
 
-// Close is a no-op; the HTTP client does not need explicit cleanup.
+// Close releases idle HTTP connections on the collector transport.
 func (c *DatadogCollector) Close() error {
+	if c == nil || c.httpClient == nil {
+		return nil
+	}
+	if t, ok := c.httpClient.Transport.(*http.Transport); ok && t != nil {
+		t.CloseIdleConnections()
+	}
 	return nil
 }
 
 // appendFiniteScaled appends a sample after dropping NaN/Inf. CPU values
 // are converted from nanocores to cores.
-func appendFiniteScaled(dst []Sample, ts time.Time, value float64, isCPU bool) []Sample {
+func appendFiniteScaled(ctx context.Context, container string, dst []Sample, ts time.Time, value float64, isCPU bool) []Sample {
 	if math.IsNaN(value) || math.IsInf(value, 0) {
+		recordDroppedNonFinite(ctx, container, metricTypeFromCPU(isCPU))
 		return dst
 	}
 	if isCPU {
@@ -187,10 +194,10 @@ func appendFiniteScaled(dst []Sample, ts time.Time, value float64, isCPU bool) [
 
 // appendDatadogSamples converts Datadog [timestamp_ms, value] points to
 // Samples, dropping NaN/Inf. CPU values are converted from nanocores to cores.
-func appendDatadogSamples(dst []Sample, points [][2]float64, isCPU bool) []Sample {
+func appendDatadogSamples(ctx context.Context, container string, dst []Sample, points [][2]float64, isCPU bool) []Sample {
 	for _, point := range points {
 		ts := time.Unix(int64(point[0])/1000, 0)
-		dst = appendFiniteScaled(dst, ts, point[1], isCPU)
+		dst = appendFiniteScaled(ctx, container, dst, ts, point[1], isCPU)
 	}
 	return dst
 }

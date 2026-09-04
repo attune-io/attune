@@ -27,8 +27,11 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	promtestutil "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/attune-io/attune/internal/operatormetrics"
 )
 
 func TestDatadogCollector_QueryRangeGrouped_NaNInfFiltered(t *testing.T) {
@@ -42,12 +45,16 @@ func TestDatadogCollector_QueryRangeGrouped_NaNInfFiltered(t *testing.T) {
 		{ts1 + 240000, 750000000}, // 0.75 cores
 	}
 
+	ctx := WithNanInfLabels(context.Background(), "dd-ns", "dd-policy", "cpu")
+	before := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("dd-ns", "dd-policy", "main", "cpu"))
 	grouped := map[string][]Sample{
-		"main": appendDatadogSamples(nil, points, true),
+		"main": appendDatadogSamples(ctx, "main", nil, points, true),
 	}
 	require.Len(t, grouped["main"], 2, "NaN, +Inf, and -Inf samples should be filtered out")
 	assert.InDelta(t, 0.25, grouped["main"][0].Value, 0.001)
 	assert.InDelta(t, 0.75, grouped["main"][1].Value, 0.001)
+	after := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("dd-ns", "dd-policy", "main", "cpu"))
+	assert.Equal(t, before+3, after, "each dropped NaN/Inf point must increment the counter")
 }
 
 func TestDatadogCollector_QueryRangeGrouped(t *testing.T) {
@@ -320,8 +327,13 @@ func TestDatadogCollector_Query_ReturnsLatestTimestamp(t *testing.T) {
 
 func TestDatadogCollector_Close(t *testing.T) {
 	c := &DatadogCollector{}
-	require.NoError(t, c.Close(), "Close is a no-op and must succeed")
+	require.NoError(t, c.Close(), "nil HTTP client must succeed")
 	require.NoError(t, c.Close(), "Close must be idempotent")
+
+	transport := &http.Transport{}
+	c = &DatadogCollector{httpClient: &http.Client{Transport: transport}}
+	require.NoError(t, c.Close())
+	require.NoError(t, c.Close(), "CloseIdleConnections must be idempotent")
 }
 
 func TestLatestSampleValue(t *testing.T) {

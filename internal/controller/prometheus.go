@@ -268,11 +268,13 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 	var cpuErr, memErr, cpuCapped, memCapped bool
 	var qg errgroup.Group
 	qg.Go(func() error {
-		cpuSamplesByContainer, cpuErr, cpuCapped = queryMetricsGrouped(ctx, collector, qb, policy.Namespace, podRegex, "cpu", start, now, queryStep, rateWindow)
+		cpuCtx := rsmetrics.WithNanInfLabels(ctx, policy.Namespace, policy.Name, "cpu")
+		cpuSamplesByContainer, cpuErr, cpuCapped = queryMetricsGrouped(cpuCtx, collector, qb, policy.Namespace, podRegex, "cpu", start, now, queryStep, rateWindow)
 		return nil
 	})
 	qg.Go(func() error {
-		memSamplesByContainer, memErr, memCapped = queryMetricsGrouped(ctx, collector, qb, policy.Namespace, podRegex, "memory", start, now, queryStep, rateWindow)
+		memCtx := rsmetrics.WithNanInfLabels(ctx, policy.Namespace, policy.Name, "memory")
+		memSamplesByContainer, memErr, memCapped = queryMetricsGrouped(memCtx, collector, qb, policy.Namespace, podRegex, "memory", start, now, queryStep, rateWindow)
 		return nil
 	})
 	_ = qg.Wait()

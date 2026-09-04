@@ -20,6 +20,8 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"net/http"
+	"net/http/httptest"
 	"regexp"
 	"strings"
 	"sync"
@@ -1663,6 +1665,34 @@ func TestGetOrCreateCollector_EvictionClosesCollector(t *testing.T) {
 
 	assert.True(t, closable.closed,
 		"Close() should be called on evicted collector that implements io.Closer")
+}
+
+func TestGetOrCreateCollector_EvictionClosesRateLimitedInner(t *testing.T) {
+	inner := &closableMockCollector{}
+	wrapped := rsmetrics.NewRateLimitedCollector(inner, 10, 20)
+
+	now := time.Now()
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.CollectorTTL = time.Millisecond
+	reconciler.MetricsFactory = func(_ string, _ *rsmetrics.CollectorOptions) (rsmetrics.MetricsCollector, error) {
+		return &closableMockCollector{}, nil
+	}
+	reconciler.SetNowFunc(func() time.Time { return now })
+
+	reconciler.collectors.Store("http://old:9090", &collectorEntry{
+		collector: wrapped,
+		lastUsed:  now,
+	})
+
+	now = now.Add(2 * time.Millisecond)
+
+	_, err := reconciler.getOrCreateCollector(
+		&attunev1alpha1.PrometheusConfig{Address: "http://new:9090"}, nil,
+	)
+	require.NoError(t, err)
+
+	assert.True(t, inner.closed,
+		"RateLimitedCollector.Close must reach the inner collector on eviction")
 }
 
 func TestGetOrCreateCollector_ConcurrentRaceClosesUnused(t *testing.T) {
@@ -8601,25 +8631,44 @@ func TestComputeRecommendations_NanInfSamplesMetric(t *testing.T) {
 	deploy := newTestDeployment("api-server", "default", nil)
 	reconciler := newReconcilerWithClient()
 
-	// Return NaN/Inf samples so BuildProfile yields 0 data points.
-	mc := &mockCollector{
-		queryRangeGroupedFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) (map[string][]rsmetrics.Sample, error) {
-			return map[string][]rsmetrics.Sample{
-				"main": {
-					{Timestamp: time.Now().Add(-1 * time.Hour), Value: math.NaN()},
-					{Timestamp: time.Now().Add(-2 * time.Hour), Value: math.Inf(1)},
-					{Timestamp: time.Now().Add(-3 * time.Hour), Value: math.Inf(-1)},
-				},
-			}, nil
-		},
-	}
+	// Real Prometheus collector: NaN/Inf are dropped before samples leave,
+	// so the operator counter must increment at the collector, not only
+	// when a mock skips that filter.
+	response := `{
+		"status": "success",
+		"data": {
+			"resultType": "matrix",
+			"result": [
+				{
+					"metric": {"container": "main"},
+					"values": [
+						[1700000000, "NaN"],
+						[1700000060, "Inf"],
+						[1700000120, "-Inf"]
+					]
+				}
+			]
+		}
+	}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(response))
+	}))
+	defer server.Close()
 
-	before := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("default", "test-policy", "main", "cpu"))
-	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, mc, nil, nil, nil, nil, nil)
+	collector, err := rsmetrics.NewPrometheusCollector(server.URL, logr.Discard(), http.DefaultTransport)
+	require.NoError(t, err)
+
+	beforeCPU := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("default", "test-policy", "main", "cpu"))
+	beforeMem := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("default", "test-policy", "main", "memory"))
+	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, collector, nil, nil, nil, nil, nil)
 	assert.NoError(t, err)
 	assert.Nil(t, rec, "should produce no recommendation when all data is NaN/Inf")
-	after := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("default", "test-policy", "main", "cpu"))
-	assert.Equal(t, before+1, after, "NanInfSamplesTotal should increment for CPU")
+	afterCPU := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("default", "test-policy", "main", "cpu"))
+	afterMem := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("default", "test-policy", "main", "memory"))
+	assert.Equal(t, beforeCPU+3, afterCPU, "collector must increment for each dropped CPU NaN/Inf point")
+	assert.Equal(t, beforeMem+3, afterMem, "collector must increment for each dropped memory NaN/Inf point")
 }
 
 func TestExecuteResizes_RequestClampedMetric(t *testing.T) {

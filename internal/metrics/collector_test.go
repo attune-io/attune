@@ -28,10 +28,12 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	promtestutil "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/attune-io/attune/internal/operatormetrics"
 	"github.com/attune-io/attune/internal/throttle"
 )
 
@@ -216,11 +218,15 @@ func TestQueryRangeGrouped_NaNInfFiltered(t *testing.T) {
 	end := time.Unix(1700000300, 0)
 	step := 60 * time.Second
 
-	grouped, err := collector.QueryRangeGrouped(context.Background(), "cpu_usage", start, end, step)
+	ctx := WithNanInfLabels(context.Background(), "prom-ns", "prom-policy", "cpu")
+	before := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("prom-ns", "prom-policy", "app", "cpu"))
+	grouped, err := collector.QueryRangeGrouped(ctx, "cpu_usage", start, end, step)
 	require.NoError(t, err)
 	require.Len(t, grouped["app"], 2, "NaN, +Inf, and -Inf samples should be filtered out")
 	assert.InDelta(t, 0.25, grouped["app"][0].Value, 0.001)
 	assert.InDelta(t, 0.75, grouped["app"][1].Value, 0.001)
+	after := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("prom-ns", "prom-policy", "app", "cpu"))
+	assert.Equal(t, before+3, after, "each dropped NaN/Inf point must increment the counter")
 }
 
 func TestQuery_Success(t *testing.T) {
