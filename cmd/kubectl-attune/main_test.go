@@ -2895,6 +2895,61 @@ func TestPrintEffectivePolicySummary_PodAggregationDefault(t *testing.T) {
 	assert.Contains(t, string(out), attunev1alpha1.DefaultPodAggregation)
 }
 
+func TestPrintEffectivePolicySummary_StatusBudgetFields(t *testing.T) {
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{Type: attunev1alpha1.UpdateTypeAuto},
+		},
+	}
+	item := unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{},
+	}}
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	old := os.Stdout
+	os.Stdout = w
+	printEffectivePolicySummary(item, policy, selectedDefaults{})
+	_ = w.Close()
+	os.Stdout = old
+	out, err := io.ReadAll(r)
+	require.NoError(t, err)
+	s := string(out)
+	assert.Contains(t, s, "Max status recommendations: 100 (source: built-in default, configured: <unset>)")
+	assert.Contains(t, s, "Include explanations in status: true (source: built-in default, configured: <unset>)")
+
+	maxRecs := int32(50)
+	include := false
+	defaults := &attunev1alpha1.AttuneDefaults{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				MaxStatusRecommendations:    &maxRecs,
+				IncludeExplanationsInStatus: &include,
+			},
+		},
+	}
+	inherited := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Type:                        attunev1alpha1.UpdateTypeAuto,
+				MaxStatusRecommendations:    &maxRecs,
+				IncludeExplanationsInStatus: &include,
+			},
+		},
+	}
+	r, w, err = os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+	printEffectivePolicySummary(item, inherited, selectedDefaults{defaults: defaults, source: sourceCluster})
+	_ = w.Close()
+	os.Stdout = old
+	out, err = io.ReadAll(r)
+	require.NoError(t, err)
+	s = string(out)
+	assert.Contains(t, s, "Max status recommendations: 50 (source: cluster default, configured: <unset>)")
+	assert.Contains(t, s, "Include explanations in status: false (source: cluster default, configured: <unset>)")
+}
+
 func TestPrintSavingsCSV_HeaderAndRow(t *testing.T) {
 	items := []unstructured.Unstructured{
 		{Object: map[string]interface{}{

@@ -1236,6 +1236,16 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *attu
 	}
 	printEffectiveField("Initial sizing", formatBoolField(item, "spec", "updateStrategy", "initialSizing"), formatBoolPtr(effective.Spec.UpdateStrategy.InitialSizing), selected, updateDefaults != nil && updateDefaults.InitialSizing != nil)
 	printEffectiveField("Max concurrent resizes", formatInt64Field(item, "spec", "updateStrategy", "maxConcurrentResizes"), formatInt32Val(effective.Spec.UpdateStrategy.MaxConcurrentResizes), selected, updateDefaults != nil && updateDefaults.MaxConcurrentResizes != 0)
+	maxStatusRecs := formatInt32Ptr(effective.Spec.UpdateStrategy.MaxStatusRecommendations)
+	if maxStatusRecs == "" {
+		maxStatusRecs = strconv.FormatInt(int64(attunev1alpha1.DefaultMaxStatusRecommendations), 10)
+	}
+	printEffectiveField("Max status recommendations", formatInt64Ptr(rawInt64Field(item, "spec", "updateStrategy", "maxStatusRecommendations")), maxStatusRecs, selected, updateDefaults != nil && updateDefaults.MaxStatusRecommendations != nil)
+	includeExpl := formatBoolPtr(effective.Spec.UpdateStrategy.IncludeExplanationsInStatus)
+	if includeExpl == "" {
+		includeExpl = strconv.FormatBool(attunev1alpha1.DefaultIncludeExplanationsInStatus)
+	}
+	printEffectiveField("Include explanations in status", formatBoolField(item, "spec", "updateStrategy", "includeExplanationsInStatus"), includeExpl, selected, updateDefaults != nil && updateDefaults.IncludeExplanationsInStatus != nil)
 	var costPricing *attunev1alpha1.CostPricing
 	if selected.defaults != nil {
 		costPricing = selected.defaults.Spec.CostPricing
