@@ -340,5 +340,9 @@ typically set via the Helm chart `values.yaml` rather than directly.
 | `--prometheus-qps` | `10` | Maximum Prometheus queries per second across all policies |
 | `--prometheus-burst` | `20` | Maximum burst of Prometheus queries above the QPS limit |
 | `--prometheus-timeout` | `5m` | Maximum time for all Prometheus queries in a single reconciliation |
-| `--max-concurrent-reconciles` | `1` | Number of policies reconciled concurrently |
+| `--max-concurrent-reconciles` | `2` | Maximum number of AttunePolicy reconciles running in parallel |
+| `--max-workload-workers` | `10` | Maximum parallel workers processing workloads within a single AttunePolicy reconcile |
+| `--requeue-jitter` | `2m` | Maximum extra delay added only to full cooldown RequeueAfter values |
+| `--max-status-recommendations` | `100` | Default cap for status.recommendations entries (full set still used for resizes) |
+| `--status-include-explanations` | `true` | When true, write recommendation explanation chains to status |
 | `--watch-namespaces` | (all) | Comma-separated list of namespaces to watch (empty = all namespaces) |
