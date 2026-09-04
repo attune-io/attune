@@ -185,7 +185,7 @@ patches become slow under conflict retries:
 1. **Prometheus payload and server load** (common with high-replica workloads).
    Symptom: slow or timed-out range queries, high Prometheus memory/CPU,
    `attune_reconcile_duration_seconds` P99 large,
-   `Prometheus query timeout exceeded` on Ready. Fix: reduce `historyWindow`,
+   `Metrics query timeout exceeded` on Ready. Fix: reduce `historyWindow`,
    increase `queryStep`, increase `prometheusTimeout` only after cutting cost,
    add recording rules or Prometheus capacity. See
    [Large Deployments](#large-deployments-high-replica-counts).

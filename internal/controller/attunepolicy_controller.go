@@ -1060,11 +1060,11 @@ func (r *AttunePolicyReconciler) setReadyCondition(
 	if workloadsWithRecs > 0 {
 		message := fmt.Sprintf("Watching %d workloads, %d with recommendations", workloadCount, workloadsWithRecs)
 		if totalQueryErrors > 0 {
-			message = fmt.Sprintf("%s; Prometheus query errors (%d) prevented %s data collection for part of the recommendation set, check operator logs",
+			message = fmt.Sprintf("%s; Metrics query errors (%d) prevented %s data collection for part of the recommendation set, check operator logs",
 				message, totalQueryErrors, blockedDataTypes)
 		}
 		if promTimedOut {
-			message += "; Prometheus query timeout exceeded, some workloads may have incomplete data"
+			message += "; Metrics query timeout exceeded, some workloads may have incomplete data"
 		}
 		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
 			Type:               attunev1alpha1.ConditionReady,
@@ -1089,10 +1089,10 @@ func (r *AttunePolicyReconciler) setReadyCondition(
 		eta.Truncate(time.Minute))
 	if promTimedOut {
 		reason = attunev1alpha1.ReasonMetricsUnavailable
-		message = fmt.Sprintf("Prometheus query timeout exceeded after %s; some workloads may not have been queried", effectiveTimeout)
+		message = fmt.Sprintf("Metrics query timeout exceeded after %s; some workloads may not have been queried", effectiveTimeout)
 	} else if totalQueryErrors > 0 {
 		reason = attunev1alpha1.ReasonMetricsUnavailable
-		message = fmt.Sprintf("Prometheus query errors (%d) prevented %s data collection; check operator logs", totalQueryErrors, blockedDataTypes)
+		message = fmt.Sprintf("Metrics query errors (%d) prevented %s data collection; check operator logs", totalQueryErrors, blockedDataTypes)
 	}
 	meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
 		Type:               attunev1alpha1.ConditionReady,

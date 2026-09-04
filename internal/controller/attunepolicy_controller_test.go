@@ -5549,7 +5549,7 @@ func TestReconcile_PrometheusQueryErrorsMentionBlockedDataTypes(t *testing.T) {
 	assert.Equal(t, metav1.ConditionTrue, cond.Status)
 	assert.Equal(t, attunev1alpha1.ReasonMonitoring, cond.Reason)
 	assert.Contains(t, cond.Message, "Watching 1 workloads, 1 with recommendations")
-	assert.Contains(t, cond.Message, "Prometheus query errors (1)")
+	assert.Contains(t, cond.Message, "Metrics query errors (1)")
 	assert.Contains(t, cond.Message, "memory data collection")
 	assert.NotContains(t, cond.Message, "CPU and/or memory")
 }
@@ -5580,7 +5580,7 @@ func TestReconcile_PrometheusQueryErrorsMentionCPUAndMemoryWhenBothFail(t *testi
 	require.NotNil(t, cond)
 	assert.Equal(t, metav1.ConditionFalse, cond.Status)
 	assert.Equal(t, attunev1alpha1.ReasonMetricsUnavailable, cond.Reason)
-	assert.Contains(t, cond.Message, "Prometheus query errors (2)")
+	assert.Contains(t, cond.Message, "Metrics query errors (2)")
 	assert.Contains(t, cond.Message, "CPU and memory data collection")
 }
 
@@ -12861,7 +12861,7 @@ func TestSetReadyCondition(t *testing.T) {
 			queryErrorTypes:   map[string]struct{}{"CPU": {}},
 			wantStatus:        metav1.ConditionTrue,
 			wantReason:        attunev1alpha1.ReasonMonitoring,
-			wantMsgContains:   "Prometheus query errors (2) prevented CPU data collection",
+			wantMsgContains:   "Metrics query errors (2) prevented CPU data collection",
 		},
 		{
 			name:              "ready with recommendations and both CPU and memory errors",
@@ -12881,7 +12881,7 @@ func TestSetReadyCondition(t *testing.T) {
 			promTimedOut:      true,
 			wantStatus:        metav1.ConditionTrue,
 			wantReason:        attunev1alpha1.ReasonMonitoring,
-			wantMsgContains:   "Prometheus query timeout exceeded",
+			wantMsgContains:   "Metrics query timeout exceeded",
 		},
 		{
 			name:              "not ready collecting data",
@@ -12902,7 +12902,7 @@ func TestSetReadyCondition(t *testing.T) {
 			maxDataPoints:     0,
 			wantStatus:        metav1.ConditionFalse,
 			wantReason:        attunev1alpha1.ReasonMetricsUnavailable,
-			wantMsgContains:   "Prometheus query errors (1) prevented memory data collection",
+			wantMsgContains:   "Metrics query errors (1) prevented memory data collection",
 		},
 		{
 			name:              "not ready max data points exceeds minimum clamps remaining to 0",
@@ -12923,7 +12923,7 @@ func TestSetReadyCondition(t *testing.T) {
 			promTimeout:       5 * time.Minute,
 			wantStatus:        metav1.ConditionFalse,
 			wantReason:        attunev1alpha1.ReasonMetricsUnavailable,
-			wantMsgContains:   "Prometheus query timeout exceeded after 5m0s",
+			wantMsgContains:   "Metrics query timeout exceeded after 5m0s",
 		},
 		{
 			name:              "ready with timeout and query errors combined",
@@ -12935,7 +12935,7 @@ func TestSetReadyCondition(t *testing.T) {
 			promTimeout:       5 * time.Minute,
 			wantStatus:        metav1.ConditionTrue,
 			wantReason:        attunev1alpha1.ReasonMonitoring,
-			wantMsgContains:   "Prometheus query timeout exceeded",
+			wantMsgContains:   "Metrics query timeout exceeded",
 		},
 	}
 
