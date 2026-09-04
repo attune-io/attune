@@ -52,9 +52,13 @@ const (
 	ReasonHighRevertRate          = "HighRevertRate"
 	ReasonNoWorkloadsFound        = "NoWorkloadsFound"
 	ReasonWorkloadDiscoveryFailed = "WorkloadDiscoveryFailed"
-	ReasonOutsideWindow           = "OutsideWindow"
-	ReasonInsideWindow            = "InsideWindow"
-	ReasonPaused                  = "Paused"
+	// ReasonConflictCheckFailed is set when listing AttunePolicies for
+	// conflict detection fails. Recommendations from the last successful
+	// cycle are kept; this cycle does not compute new ones.
+	ReasonConflictCheckFailed = "ConflictCheckFailed"
+	ReasonOutsideWindow       = "OutsideWindow"
+	ReasonInsideWindow        = "InsideWindow"
+	ReasonPaused              = "Paused"
 	// ResizeBlocked condition reasons.
 	ReasonPodsDeferred              = "PodsDeferred"
 	ReasonPodsInfeasible            = "PodsInfeasible"

@@ -72,7 +72,7 @@ Total number of reconciliation errors by type.
 
 | Label | Description |
 |-------|-------------|
-| `error_type` | `fetch`, `fetch_defaults`, `prometheus_config`, `collector_options`, `collector_create`, `discover_workloads`, `get_pods`, `compute_recommendations`, `status_update`, or `safety_observation` |
+| `error_type` | `fetch`, `fetch_defaults`, `prometheus_config`, `collector_options`, `collector_create`, `discover_workloads`, `list_policies`, `get_pods`, `compute_recommendations`, `status_update`, or `safety_observation` |
 
 ### attune_webhook_validation_total
 

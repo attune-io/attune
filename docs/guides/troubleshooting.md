@@ -179,6 +179,22 @@ namespace. This is usually a typo in the workload name or an incorrect
 3. Ensure the `targetRef.kind` matches the workload type (`Deployment`,
    `StatefulSet`, `DaemonSet`, `ReplicaSet`, `Job`, or `CronJob`).
 
+### ConflictCheckFailed
+
+**Symptom**: Ready condition is `False` with reason `ConflictCheckFailed`.
+
+**Cause**: The operator could not list `AttunePolicy` objects in the
+namespace while checking for overlapping targets. That cycle does not
+compute new recommendations. Last-known recommendations stay on status
+so this does not look like bootstrap `InsufficientData`.
+
+**Fix**:
+
+1. Confirm the operator ServiceAccount can `list` and `watch`
+   `attunepolicies.attune.io`.
+2. Check API server health and operator logs for the list error.
+3. Watch `attune_reconcile_errors_total{error_type="list_policies"}`.
+
 ### InsufficientData
 
 **Symptom**: Ready condition is `False` with reason `InsufficientData`.

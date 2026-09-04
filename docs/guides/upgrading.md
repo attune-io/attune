@@ -88,6 +88,15 @@ apply. This is the same class of fail-closed behavior as
 [node-status unavailability](#request-increases-fail-closed-when-node-status-is-unavailable).
 See [troubleshooting: quota list unavailable](troubleshooting.md#resize-skipped-quota-list-unavailable).
 
+### Conflict-check policy list fail-closed
+
+If listing `AttunePolicy` objects for conflict detection fails, that
+reconcile no longer computes recommendations. Ready is
+`ConflictCheckFailed` instead of looking like bootstrap
+`InsufficientData`. Last-known recommendations stay on status. Check
+RBAC `list`/`watch` on `attunepolicies` and API server health. See
+[troubleshooting: ConflictCheckFailed](troubleshooting.md#conflictcheckfailed).
+
 ### VPA honors memoryFromCpuRatio
 
 When `metricsSource.vpa` is set and `memory.memoryFromCpuRatio` is also

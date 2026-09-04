@@ -7137,6 +7137,69 @@ func TestReconcile_DiscoverWorkloadsError(t *testing.T) {
 	assert.Contains(t, cond.Message, "Failed to discover workloads")
 }
 
+func TestReconcile_ListPoliciesErrorFailsClosed(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	priorCPU := resource.MustParse("250m")
+	priorMem := resource.MustParse("256Mi")
+	policy.Status.Recommendations = []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "api-server",
+		Kind:     "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "main",
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest:    priorCPU,
+				MemoryRequest: priorMem,
+			},
+		}},
+	}}
+	policy.Status.Workloads = attunev1alpha1.WorkloadStatus{
+		Discovered:          1,
+		WithRecommendations: 1,
+	}
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+
+	scheme := testScheme()
+	failingClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(policy, deploy).
+		WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
+		WithInterceptorFuncs(interceptor.Funcs{
+			List: func(ctx context.Context, cw client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+				if u, ok := list.(*unstructured.UnstructuredList); ok && u.GetKind() == "AttunePolicyList" {
+					return fmt.Errorf("simulated policy list failure")
+				}
+				return cw.List(ctx, list, opts...)
+			},
+		}).
+		Build()
+	reconciler := newReconcilerForReconcileWithClient(&mockCollector{}, failingClient, scheme)
+	reconciler.Recorder = &fakeEventRecorder{}
+
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"}}
+	result, err := reconciler.Reconcile(context.Background(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, 1*time.Minute, result.RequeueAfter)
+
+	var updated attunev1alpha1.AttunePolicy
+	require.NoError(t, failingClient.Get(context.Background(), req.NamespacedName, &updated))
+	cond := meta.FindStatusCondition(updated.Status.Conditions, attunev1alpha1.ConditionReady)
+	require.NotNil(t, cond)
+	assert.Equal(t, metav1.ConditionFalse, cond.Status)
+	assert.Equal(t, attunev1alpha1.ReasonConflictCheckFailed, cond.Reason)
+	assert.Contains(t, cond.Message, "Failed to list AttunePolicies for conflict detection")
+	assert.Contains(t, cond.Message, "simulated policy list failure")
+	assert.Contains(t, cond.Message, "recommendations not computed")
+	require.Len(t, updated.Status.Recommendations, 1)
+	assert.Equal(t, "api-server", updated.Status.Recommendations[0].Workload)
+	require.Len(t, updated.Status.Recommendations[0].Containers, 1)
+	assert.True(t, updated.Status.Recommendations[0].Containers[0].Recommended.CPURequest.Equal(priorCPU))
+	assert.True(t, updated.Status.Recommendations[0].Containers[0].Recommended.MemoryRequest.Equal(priorMem))
+	require.NotEmpty(t, updated.Status.WorkloadErrors)
+	assert.Equal(t, "*", updated.Status.WorkloadErrors[0].Workload)
+	assert.Contains(t, updated.Status.WorkloadErrors[0].Error, "simulated policy list failure")
+	assert.Equal(t, int32(1), updated.Status.Workloads.WithRecommendations)
+	require.NotNil(t, updated.Status.LastReconcileTime)
+}
+
 func TestReconcile_FetchDefaultsErrorFailsClosed(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.MetricsSource.Prometheus = nil

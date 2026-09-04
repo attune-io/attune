@@ -246,6 +246,7 @@ type workloadProcessingResult struct {
 	gaugeKeys         []gaugeKey
 	hpaList           autoscalingv2.HorizontalPodAutoscalerList
 	seriesCapped      bool
+	listPoliciesErr   error
 }
 
 // deleteGaugeKeys removes recommendation gauge values for the given keys.
@@ -392,6 +393,22 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// Best-effort refresh of dynamic pod cache filter from active policies.
 	r.refreshPodCacheFilter(ctx)
 	wpResult := r.processWorkloads(workloadCtx, &policy, workloads, collector, queryBuilder, podsByWorkload)
+	if wpResult.listPoliciesErr != nil {
+		nowMeta := metav1.NewTime(r.now())
+		policy.Status.LastReconcileTime = &nowMeta
+		policy.Status.WorkloadErrors = []attunev1alpha1.WorkloadError{{
+			Workload: "*",
+			Error:    wpResult.listPoliciesErr.Error(),
+		}}
+		r.setFailedCondition(ctx, &policy, attunev1alpha1.ReasonConflictCheckFailed,
+			fmt.Sprintf("Failed to list AttunePolicies for conflict detection: %v; recommendations not computed", wpResult.listPoliciesErr))
+		if r.Recorder != nil {
+			r.Recorder.Eventf(&policy, nil, corev1.EventTypeWarning, attunev1alpha1.ReasonConflictCheckFailed, "recommend",
+				"Failed to list AttunePolicies for conflict detection: %v; recommendations not computed",
+				wpResult.listPoliciesErr)
+		}
+		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
+	}
 	promTimedOut := workloadCtx.Err() == context.DeadlineExceeded
 	if promTimedOut {
 		logger.Info("Metrics query timeout exceeded, using partial results",
@@ -873,6 +890,7 @@ func (r *AttunePolicyReconciler) processWorkloads(
 	if err != nil {
 		logger.Error(err, "Failed to list AttunePolicies for conflict detection")
 		operatormetrics.ReconcileErrorsTotal.WithLabelValues("list_policies").Inc()
+		result.listPoliciesErr = err
 		return result
 	}
 

@@ -40,13 +40,14 @@ func TestDefaultConstants(t *testing.T) {
 		ReasonInProgress,
 		ReasonIdle,
 		ReasonCooldownActive,
-
 		ReasonHighRevertRate,
+		ReasonConflictCheckFailed,
 	}
 	for _, r := range reasons {
 		assert.NotEmpty(t, r, "reason constant should not be empty")
 	}
 	assert.Equal(t, "MetricsUnavailable", ReasonMetricsUnavailable)
+	assert.Equal(t, "ConflictCheckFailed", ReasonConflictCheckFailed)
 	assert.Equal(t, "PrometheusUnavailable", ReasonPrometheusUnavailable)
 	assert.True(t, IsMetricsUnavailable(ReasonMetricsUnavailable))
 	assert.True(t, IsMetricsUnavailable(ReasonPrometheusUnavailable))

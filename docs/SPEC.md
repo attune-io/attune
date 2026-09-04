@@ -397,7 +397,7 @@ spec:
 
 | Condition Type | Reasons | Description |
 |---------------|---------|-------------|
-| `Ready` | `Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `MetricsUnavailable` (alias `PrometheusUnavailable`), `InvalidConfig`, `WorkloadDiscoveryFailed`, `Paused` | Overall health |
+| `Ready` | `Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `MetricsUnavailable` (alias `PrometheusUnavailable`), `InvalidConfig`, `WorkloadDiscoveryFailed`, `ConflictCheckFailed`, `Paused` | Overall health |
 | `Resizing` | `InProgress`, `Idle`, `CooldownActive` | Active resize operation |
 | `Degraded` | `HighRevertRate` | Some resizes failing |
 | `ScheduleBlocked` | `OutsideWindow`, `InsideWindow` | Whether the current time is within the configured resize schedule window |
