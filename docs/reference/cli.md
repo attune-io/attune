@@ -35,7 +35,7 @@ kubectl attune savings --sort-by savings -A
 |------|-------------|
 | `-w`, `--watch` | Continuously refresh the status table every 10 seconds. Press Ctrl+C to stop. Useful during initial data collection to track progress without manually re-running the command. |
 | `--sort-by` | Sort output by field: `name`, `namespace`, `savings`, or `age`. |
-| `--filter` | Filter policies by Ready condition reason: `degraded`, `pending`, `collecting`, `ready`, or `noworkloads`. |
+| `--filter` | Filter policies by Ready condition reason or message: `degraded`, `pending`, `collecting`, `ready`, `noworkloads`, `conflictcheckfailed`, or `invalidconfig`. `collecting` matches `InsufficientData` only, not `ConflictCheckFailed`. |
 
 | Column | Description |
 |--------|-------------|
@@ -308,7 +308,7 @@ with `kubectl get attunepolicy -o json|yaml`.
 | `--output` | `-o` | `status`: raw `AttunePolicy` objects as `json` or `yaml`. `diff`: YAML patch manifests (`-o yaml` only). `savings` and `recommendations`: `csv` |
 | `--watch` | `-w` | Continuously refresh status every 10 seconds (`status` only) |
 | `--sort-by` | | Sort output: `name`, `namespace`, `savings`, `age` (`status` and `savings` only) |
-| `--filter` | | Filter by condition: `degraded`, `pending`, `collecting`, `ready`, `noworkloads` (`status` only) |
+| `--filter` | | Filter by Ready reason or message: `degraded`, `pending`, `collecting`, `ready`, `noworkloads`, `conflictcheckfailed`, `invalidconfig` (`status` only) |
 | `--all-contexts` | | Query all kubeconfig contexts and merge results (`status`, `savings`, `recommendations`, `history`, `diff`) |
 | `--contexts` | | Comma-separated list of specific kubeconfig contexts to query (same commands as `--all-contexts`) |
 

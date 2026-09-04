@@ -1050,6 +1050,52 @@ func TestFilterPolicies_EmptyFilterReturnsAll(t *testing.T) {
 	assert.Len(t, result, 2)
 }
 
+func TestFilterPolicies_ConflictCheckFailed(t *testing.T) {
+	// policyReadyReason returns the Ready=False message, which does not
+	// contain "conflictcheckfailed". Matching only that display string
+	// (main-branch filterPolicies) misses this policy.
+	conflict := *conflictCheckFailedPolicy("conflict-policy", "default", nil, nil)
+	collecting := unstructured.Unstructured{Object: map[string]interface{}{
+		"metadata": map[string]interface{}{"name": "collecting-policy", "namespace": "default"},
+		"status": map[string]interface{}{
+			"conditions": []interface{}{
+				map[string]interface{}{
+					"type":    "Ready",
+					"status":  "False",
+					"reason":  "InsufficientData",
+					"message": "Not enough data",
+				},
+			},
+		},
+	}}
+	invalid := unstructured.Unstructured{Object: map[string]interface{}{
+		"metadata": map[string]interface{}{"name": "invalid-policy", "namespace": "default"},
+		"status": map[string]interface{}{
+			"conditions": []interface{}{
+				map[string]interface{}{
+					"type":    "Ready",
+					"status":  "False",
+					"reason":  "InvalidConfig",
+					"message": "cpu.maxAllowed must be greater than minAllowed",
+				},
+			},
+		},
+	}}
+	items := []unstructured.Unstructured{conflict, collecting, invalid}
+
+	got := filterPolicies(items, "conflictcheckfailed")
+	require.Len(t, got, 1)
+	assert.Equal(t, "conflict-policy", got[0].GetName())
+
+	got = filterPolicies(items, "collecting")
+	require.Len(t, got, 1)
+	assert.Equal(t, "collecting-policy", got[0].GetName())
+
+	got = filterPolicies(items, "invalidconfig")
+	require.Len(t, got, 1)
+	assert.Equal(t, "invalid-policy", got[0].GetName())
+}
+
 func TestRun_FilterFlagRejectedForNonStatus(t *testing.T) {
 	code := run([]string{"savings", "--filter", "degraded"}, func(string, string) (dynamic.Interface, string, error) {
 		return nil, "default", nil

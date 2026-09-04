@@ -107,7 +107,7 @@ func run(args []string, buildClient dynamicClientFactory) int {
 	watch := fs.Bool("w", false, "Watch mode: refresh status every 10 seconds (status command only)")
 	fs.BoolVar(watch, "watch", false, "Watch mode: refresh status every 10 seconds (status command only)")
 	sortBy := fs.String("sort-by", "", "Sort output: name, namespace, savings, age (status/savings commands)")
-	filter := fs.String("filter", "", "Filter policies by Ready condition reason: degraded, pending, collecting, ready, noworkloads (status command)")
+	filter := fs.String("filter", "", "Filter policies by Ready condition reason or message: degraded, pending, collecting, ready, noworkloads, conflictcheckfailed, invalidconfig (status command)")
 	contexts := fs.String("contexts", "", "Comma-separated kubeconfig contexts to query (multi-cluster)")
 	allContexts := fs.Bool("all-contexts", false, "Query all contexts in kubeconfig (multi-cluster)")
 	fs.Usage = func() {
@@ -1917,8 +1917,9 @@ func printStructured(ctx context.Context, dynClient dynamic.Interface, namespace
 }
 
 // filterPolicies returns items matching the given filter keyword based on the
-// Ready condition reason. Supported filters: degraded, pending, collecting,
-// ready, noworkloads. Empty filter returns all items.
+// Ready condition reason and message. Supported filters: degraded, pending,
+// collecting, ready, noworkloads, conflictcheckfailed, invalidconfig.
+// Empty filter returns all items.
 func filterPolicies(items []unstructured.Unstructured, filterFlag string) []unstructured.Unstructured {
 	if filterFlag == "" {
 		return items
@@ -1926,22 +1927,27 @@ func filterPolicies(items []unstructured.Unstructured, filterFlag string) []unst
 	f := strings.ToLower(filterFlag)
 	var result []unstructured.Unstructured
 	for _, item := range items {
-		reason := strings.ToLower(policyReadyReason(item))
+		_, condReason, condMsg := readyConditionFields(item)
+		reason := strings.ToLower(condReason)
+		msg := strings.ToLower(condMsg)
+		display := strings.ToLower(policyReadyReason(item))
 		degraded := strings.ToLower(getConditionReason(item, "Degraded"))
 		var match bool
 		switch f {
 		case "degraded":
 			match = degraded != "-" && degraded != ""
 		case "pending":
-			match = reason == "pending"
+			match = reason == "pending" || display == "pending"
 		case "collecting":
+			// Use the condition reason only. Ready=False messages such as
+			// ConflictCheckFailed must not match as collecting data.
 			match = strings.Contains(reason, "insufficientdata") || strings.Contains(reason, "collecting")
 		case "ready":
 			match = strings.Contains(reason, "monitoring") || strings.Contains(reason, "ready")
 		case "noworkloads":
-			match = strings.Contains(reason, "noworkloadsfound") || strings.Contains(reason, "no matching workloads")
+			match = strings.Contains(reason, "noworkloadsfound") || strings.Contains(msg, "no matching workloads")
 		default:
-			match = strings.Contains(reason, f)
+			match = strings.Contains(reason, f) || strings.Contains(msg, f)
 		}
 		if match {
 			result = append(result, item)
