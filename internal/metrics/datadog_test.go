@@ -31,6 +31,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestDatadogCollector_QueryRangeGrouped_NaNInfFiltered(t *testing.T) {
+	// encoding/json cannot transport NaN/Inf; QueryRangeGrouped uses this helper after unmarshal.
+	ts1 := 1700000000000.0
+	points := [][2]float64{
+		{ts1, 250000000},          // 0.25 cores after nanocore conversion
+		{ts1 + 60000, math.NaN()}, // dropped
+		{ts1 + 120000, math.Inf(1)},
+		{ts1 + 180000, math.Inf(-1)},
+		{ts1 + 240000, 750000000}, // 0.75 cores
+	}
+
+	grouped := map[string][]Sample{
+		"main": appendDatadogSamples(nil, points, true),
+	}
+	require.Len(t, grouped["main"], 2, "NaN, +Inf, and -Inf samples should be filtered out")
+	assert.InDelta(t, 0.25, grouped["main"][0].Value, 0.001)
+	assert.InDelta(t, 0.75, grouped["main"][1].Value, 0.001)
+}
+
 func TestDatadogCollector_QueryRangeGrouped(t *testing.T) {
 	// Simulate Datadog /api/v1/query response.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

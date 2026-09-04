@@ -145,21 +145,7 @@ func (c *DatadogCollector) QueryRangeGrouped(ctx context.Context, query string, 
 	grouped := make(map[string][]Sample, len(ddResp.Series))
 	for _, series := range ddResp.Series {
 		container := extractDatadogTag(series.TagSet, "kube_container_name")
-		for _, point := range series.Pointlist {
-			ts := time.Unix(int64(point[0])/1000, 0) // Datadog timestamps are milliseconds
-			value := point[1]
-			if math.IsNaN(value) || math.IsInf(value, 0) {
-				continue
-			}
-			// Convert nanocores to cores for CPU metrics.
-			if isCPU {
-				value /= 1e9
-			}
-			grouped[container] = append(grouped[container], Sample{
-				Timestamp: ts,
-				Value:     value,
-			})
-		}
+		grouped[container] = appendDatadogSamples(grouped[container], series.Pointlist, isCPU)
 	}
 
 	c.logger.V(1).Info("Datadog query completed",
@@ -185,6 +171,23 @@ func (c *DatadogCollector) Query(ctx context.Context, query string, ts time.Time
 // Close is a no-op; the HTTP client does not need explicit cleanup.
 func (c *DatadogCollector) Close() error {
 	return nil
+}
+
+// appendDatadogSamples converts Datadog [timestamp_ms, value] points to
+// Samples, dropping NaN/Inf. CPU values are converted from nanocores to cores.
+func appendDatadogSamples(dst []Sample, points [][2]float64, isCPU bool) []Sample {
+	for _, point := range points {
+		ts := time.Unix(int64(point[0])/1000, 0)
+		value := point[1]
+		if math.IsNaN(value) || math.IsInf(value, 0) {
+			continue
+		}
+		if isCPU {
+			value /= 1e9
+		}
+		dst = append(dst, Sample{Timestamp: ts, Value: value})
+	}
+	return dst
 }
 
 // extractDatadogTag extracts a tag value from a Datadog tag set.
