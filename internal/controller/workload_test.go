@@ -18,9 +18,11 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr/funcr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
@@ -30,6 +32,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 	rsmetrics "github.com/attune-io/attune/internal/metrics"
@@ -963,4 +966,42 @@ func TestWorkload_JobIndexedCompletionRegex(t *testing.T) {
 	ca := newWorkloadAdapter(cronJob)
 	require.NotNil(t, ca)
 	assert.Contains(t, ca.PodNameRegexSuffix(), "[0-9]+")
+}
+
+func TestQueryMetricsGrouped_InfoAndErrorOmitQuery(t *testing.T) {
+	var logged string
+	logger := funcr.NewJSON(func(obj string) { logged += obj + "\n" }, funcr.Options{})
+	ctx := log.IntoContext(context.Background(), logger)
+	now := time.Now()
+	start := now.Add(-time.Hour)
+
+	t.Run("series capped", func(t *testing.T) {
+		logged = ""
+		mc := &mockCollector{
+			queryRangeGroupedFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) (map[string][]rsmetrics.Sample, error) {
+				return map[string][]rsmetrics.Sample{"main": {{Timestamp: now, Value: 0.1}}}, fmt.Errorf("%w: kept 1 series", rsmetrics.ErrSeriesCapped)
+			},
+		}
+		_, hard, capped := queryMetricsGrouped(ctx, mc, nil, "default", "pod-.*", "cpu", start, now, time.Minute, 5*time.Minute)
+		assert.False(t, hard)
+		assert.True(t, capped)
+		assert.Contains(t, logged, "Prometheus series capped")
+		assert.NotContains(t, logged, `"query"`)
+		assert.NotContains(t, logged, `namespace="default"`)
+	})
+
+	t.Run("hard error", func(t *testing.T) {
+		logged = ""
+		mc := &mockCollector{
+			queryRangeGroupedFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) (map[string][]rsmetrics.Sample, error) {
+				return nil, fmt.Errorf("backend unavailable")
+			},
+		}
+		_, hard, capped := queryMetricsGrouped(ctx, mc, nil, "default", "pod-.*", "cpu", start, now, time.Minute, 5*time.Minute)
+		assert.True(t, hard)
+		assert.False(t, capped)
+		assert.Contains(t, logged, "Failed to query grouped metrics")
+		assert.NotContains(t, logged, `"query"`)
+		assert.NotContains(t, logged, `namespace="default"`)
+	})
 }

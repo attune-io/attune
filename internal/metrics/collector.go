@@ -328,6 +328,8 @@ func (c *PrometheusCollector) QueryRangeGrouped(ctx context.Context, query strin
 	capped := limit > 0 && len(matrix) > limit
 	if capped {
 		c.logger.Info("Prometheus range query series capped",
+			"limit", limit, "got", len(matrix))
+		c.logger.V(2).Info("Prometheus range query series capped",
 			"limit", limit, "got", len(matrix), "query", query)
 		// Prefer one series per container before filling remaining budget so
 		// high-cardinality pods do not starve entire containers under None aggregation.

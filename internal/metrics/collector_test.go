@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/go-logr/logr/funcr"
 	promtestutil "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/assert"
@@ -904,6 +905,46 @@ func TestQueryRangeGrouped_SeriesCapByContainer(t *testing.T) {
 		got[string(s.Metric["container"])] = true
 	}
 	assert.True(t, got["a"] && got["b"] && got["c"])
+}
+
+func TestQueryRangeGrouped_SeriesCapInfoOmitsQuery(t *testing.T) {
+	response := `{
+		"status": "success",
+		"data": {
+			"resultType": "matrix",
+			"result": [
+				{
+					"metric": {"__name__": "cpu_usage", "pod": "test-pod", "container": "app"},
+					"values": [[1700000000, "0.25"]]
+				},
+				{
+					"metric": {"__name__": "cpu_usage", "pod": "test-pod", "container": "sidecar"},
+					"values": [[1700000000, "0.05"]]
+				}
+			]
+		}
+	}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(response))
+	}))
+	defer server.Close()
+
+	var logged string
+	logger := funcr.NewJSON(func(obj string) { logged += obj + "\n" }, funcr.Options{})
+	collector, err := NewPrometheusCollectorWithOptions(server.URL, logger, &CollectorOptions{MaxSeries: 1}, http.DefaultTransport)
+	require.NoError(t, err)
+
+	secretQuery := `rate(container_cpu_usage_seconds_total{namespace="secret-ns"}[5m])`
+	start := time.Unix(1700000000, 0)
+	end := time.Unix(1700000120, 0)
+	_, err = collector.QueryRangeGrouped(context.Background(), secretQuery, start, end, time.Minute)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrSeriesCapped)
+	assert.Contains(t, logged, "Prometheus range query series capped")
+	assert.NotContains(t, logged, secretQuery)
+	assert.NotContains(t, logged, `"query"`)
 }
 
 func TestValidRecordingMetricName(t *testing.T) {
