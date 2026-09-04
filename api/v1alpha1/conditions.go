@@ -32,8 +32,15 @@ const (
 
 // Condition reason constants for AttunePolicy.
 const (
-	ReasonMonitoring            = "Monitoring"
-	ReasonInsufficientData      = "InsufficientData"
+	ReasonMonitoring       = "Monitoring"
+	ReasonInsufficientData = "InsufficientData"
+	// ReasonMetricsUnavailable is set when the configured metrics backend
+	// (Prometheus, Datadog, or CloudWatch) cannot be resolved or queried.
+	ReasonMetricsUnavailable = "MetricsUnavailable"
+	// ReasonPrometheusUnavailable is the pre-0.1.26 Ready reason for the
+	// same condition. Writers emit ReasonMetricsUnavailable. Readers treat
+	// both as metrics-backend unavailable so existing status still skips
+	// requeue jitter until the next reconcile.
 	ReasonPrometheusUnavailable = "PrometheusUnavailable"
 	// ReasonSeriesCapped means a Prometheus range query returned more series
 	// than the configured cap; partial data was used for recommendations.
@@ -62,6 +69,13 @@ const (
 	ReasonGitOpsPRUnchanged     = "PullRequestUnchanged"
 	ReasonGitOpsEndpointBlocked = "GitOpsEndpointBlocked"
 )
+
+// IsMetricsUnavailable reports whether a Ready reason means the metrics
+// backend could not be used. Accepts both MetricsUnavailable and the
+// pre-0.1.26 PrometheusUnavailable alias.
+func IsMetricsUnavailable(reason string) bool {
+	return reason == ReasonMetricsUnavailable || reason == ReasonPrometheusUnavailable
+}
 
 // CanaryPhaseInProgress and CanaryPhaseFullRollout are now typed constants
 // defined in attunepolicy_types.go as CanaryPhase values.

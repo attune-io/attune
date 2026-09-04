@@ -34,6 +34,7 @@ func TestDefaultConstants(t *testing.T) {
 	reasons := []string{
 		ReasonMonitoring,
 		ReasonInsufficientData,
+		ReasonMetricsUnavailable,
 		ReasonPrometheusUnavailable,
 		ReasonInvalidConfig,
 		ReasonInProgress,
@@ -45,6 +46,11 @@ func TestDefaultConstants(t *testing.T) {
 	for _, r := range reasons {
 		assert.NotEmpty(t, r, "reason constant should not be empty")
 	}
+	assert.Equal(t, "MetricsUnavailable", ReasonMetricsUnavailable)
+	assert.Equal(t, "PrometheusUnavailable", ReasonPrometheusUnavailable)
+	assert.True(t, IsMetricsUnavailable(ReasonMetricsUnavailable))
+	assert.True(t, IsMetricsUnavailable(ReasonPrometheusUnavailable))
+	assert.False(t, IsMetricsUnavailable(ReasonInsufficientData))
 }
 
 func TestIsSupportedTargetKind(t *testing.T) {

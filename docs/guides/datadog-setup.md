@@ -110,7 +110,7 @@ kubectl get attunepolicy my-app -n production -o wide
 |-----------|---------|
 | `Ready: True, Reason: Monitoring` | Datadog reachable, recommendations computed |
 | `Ready: False, Reason: InsufficientData` | Datadog reachable but not enough history yet |
-| `Ready: False, Reason: PrometheusUnavailable` | Missing Secret, Datadog 403, or Datadog 429 |
+| `Ready: False, Reason: MetricsUnavailable` | Missing Secret, Datadog 403, or Datadog 429 |
 
 If the condition message mentions a Datadog API error, check the
 operator logs:

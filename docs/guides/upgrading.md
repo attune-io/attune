@@ -12,10 +12,20 @@ run the full E2E Nightly matrix on tip of `main` (see
 
 v0.1.26 tightens stale-recommendation handling, CloudWatch collection,
 ResourceQuota list fail-closed, VPA `memoryFromCpuRatio`, and GitOps
-labels. Existing policy YAML keeps working. Read this section if you
-inherit `maxConcurrentResizes` from `AttuneDefaults`, use CloudWatch,
-ResourceQuota, VPA with a memory ratio, GitOps labels, or run a
-self-hosted Git forge.
+labels. Ready reason `MetricsUnavailable` replaces `PrometheusUnavailable`
+for all metrics backends. Existing policy YAML keeps working. Read this
+section if you inherit `maxConcurrentResizes` from `AttuneDefaults`, use
+CloudWatch, ResourceQuota, VPA with a memory ratio, GitOps labels, or run
+a self-hosted Git forge.
+
+### Ready reason MetricsUnavailable
+
+When the metrics backend cannot be resolved or queried, Ready is now
+`MetricsUnavailable` instead of `PrometheusUnavailable`. Datadog Secret
+failures and CloudWatch IAM failures use the same reason. Alerts that
+match `reason="PrometheusUnavailable"` should also match
+`reason="MetricsUnavailable"`. The operator still treats the old reason
+as bootstrap (no requeue jitter) until the next reconcile overwrites it.
 
 ### Inherit maxConcurrentResizes from AttuneDefaults
 

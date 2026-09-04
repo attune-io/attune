@@ -67,7 +67,7 @@ spec:
             timeout: 3m
             content: |
               # The first reconcile may set InsufficientData (before reaching Prometheus)
-              # and the second sets PrometheusUnavailable (after query fails). Accept either.
+              # and the second sets MetricsUnavailable (after query fails). Accept either.
               for i in $(seq 1 36); do
                 reason=$(kubectl get ap unreachable-prom -n e2e-prom-unreachable \
                   -o jsonpath='{.status.conditions[?(@.type=="Ready")].reason}' 2>/dev/null)
@@ -76,7 +76,7 @@ spec:
                 discovered=$(kubectl get ap unreachable-prom -n e2e-prom-unreachable \
                   -o jsonpath='{.status.workloads.discovered}' 2>/dev/null)
                 if [ "$status" = "False" ] && [ "$discovered" = "1" ]; then
-                  if [ "$reason" = "PrometheusUnavailable" ] || [ "$reason" = "InsufficientData" ]; then
+                  if [ "$reason" = "MetricsUnavailable" ] || [ "$reason" = "PrometheusUnavailable" ] || [ "$reason" = "InsufficientData" ]; then
                     echo "OK: Ready=False reason=$reason discovered=$discovered"
                     exit 0
                   fi

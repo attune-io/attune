@@ -682,11 +682,18 @@ func TestPrintStatus_ReadyContract(t *testing.T) {
 			wantOutput: "InsufficientData",
 		},
 		{
-			name:       "prometheus unavailable actionable message",
+			name:       "prometheus unavailable alias actionable message",
 			reason:     "PrometheusUnavailable",
 			status:     "False",
 			message:    "Cannot create metrics collector: TLS handshake timeout",
 			wantOutput: "Cannot create metrics collector: TLS handshake timeout",
+		},
+		{
+			name:       "metrics unavailable actionable message",
+			reason:     "MetricsUnavailable",
+			status:     "False",
+			message:    "Cannot resolve metrics source: reading secret attune/dd-key",
+			wantOutput: "Cannot resolve metrics source: reading secret attune/dd-key",
 		},
 		{
 			name:       "invalid config actionable message",

@@ -28,14 +28,15 @@ container) and continues.
 
 See [Scaling: PrometheusSeriesCapped](scaling.md#ready-reason-prometheusseriescapped).
 
-### PrometheusUnavailable
+### MetricsUnavailable
 
-**Symptom**: Ready condition is `False` with reason `PrometheusUnavailable`.
+**Symptom**: Ready condition is `False` with reason `MetricsUnavailable`.
+Policies last written before this reason existed may still show the
+older `PrometheusUnavailable` alias until the next reconcile.
 
-**Cause**: `PrometheusUnavailable` means the controller could not use the
+**Cause**: `MetricsUnavailable` means the controller could not use the
 metrics backend (Prometheus, Datadog, or CloudWatch) for this reconcile.
-The reason name is unchanged for all three backends. The condition
-message tells you which step failed:
+The condition message tells you which step failed:
 
 - `Cannot resolve Prometheus config` means address resolution failed. The
   operator checks (in order): policy spec, one defaults source

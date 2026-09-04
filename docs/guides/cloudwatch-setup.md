@@ -153,7 +153,7 @@ kubectl get attunepolicy my-app -n production -o wide
 |-----------|---------|
 | `Ready: True, Reason: Monitoring` | CloudWatch reachable, recommendations computed |
 | `Ready: False, Reason: InsufficientData` | CloudWatch reachable but not enough history yet |
-| `Ready: False, Reason: PrometheusUnavailable` | IAM, AssumeRole, or CloudWatch query failure |
+| `Ready: False, Reason: MetricsUnavailable` | IAM, AssumeRole, or CloudWatch query failure |
 
 Check the operator logs for CloudWatch-specific messages:
 

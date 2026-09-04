@@ -136,7 +136,7 @@ spec:
                   -o jsonpath='{.status.conditions[?(@.type=="Ready")].reason}' 2>/dev/null)
                 RECS=$(kubectl get attunepolicy ns-defaults-test -n e2e-namespace-defaults \
                   -o jsonpath='{.status.workloads.withRecommendations}' 2>/dev/null)
-                if [ "$REASON" = "PrometheusUnavailable" ]; then
+                if [ "$REASON" = "PrometheusUnavailable" ] || [ "$REASON" = "MetricsUnavailable" ]; then
                   echo "FAIL: policy used the wrong-address cluster default"
                   kubectl get attunepolicy ns-defaults-test -n e2e-namespace-defaults -o yaml
                   exit 1

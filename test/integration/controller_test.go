@@ -864,14 +864,14 @@ func TestReconcile_BearerTokenSecretReadFailureSetsPrometheusUnavailable(t *test
 		}
 		for _, c := range fetched.Status.Conditions {
 			if c.Type == "Ready" {
-				return c.Reason == "PrometheusUnavailable" &&
+				return c.Reason == attunev1alpha1.ReasonMetricsUnavailable &&
 					strings.Contains(c.Message, "prom-auth-missing/token") &&
 					strings.Contains(c.Message, "reading secret integration-test/prom-auth-missing")
 			}
 		}
 		return false
 	}, 30*time.Second, 500*time.Millisecond,
-		"policy with a missing bearerTokenSecret should surface PrometheusUnavailable with the secret reference")
+		"policy with a missing bearerTokenSecret should surface MetricsUnavailable with the secret reference")
 }
 
 func TestReconcile_MetricsFactoryFailureSetsPrometheusUnavailable(t *testing.T) {
@@ -901,14 +901,14 @@ func TestReconcile_MetricsFactoryFailureSetsPrometheusUnavailable(t *testing.T) 
 		}
 		for _, c := range fetched.Status.Conditions {
 			if c.Type == "Ready" {
-				return c.Reason == "PrometheusUnavailable" &&
+				return c.Reason == attunev1alpha1.ReasonMetricsUnavailable &&
 					strings.Contains(c.Message, "Cannot resolve metrics source") &&
 					strings.Contains(c.Message, factoryErr.Error())
 			}
 		}
 		return false
 	}, 30*time.Second, 500*time.Millisecond,
-		"policy with a failing metrics factory should surface PrometheusUnavailable with the factory error")
+		"policy with a failing metrics factory should surface MetricsUnavailable with the factory error")
 }
 
 func TestReconcile_BearerTokenSecretWiredToCollector(t *testing.T) {
@@ -935,7 +935,7 @@ func TestReconcile_BearerTokenSecretWiredToCollector(t *testing.T) {
 
 	// The reconciler should read the Secret and create a collector without errors.
 	// If the bearer token wiring is broken, the policy status would show
-	// PrometheusUnavailable. We verify it reaches Ready/InsufficientData instead.
+	// MetricsUnavailable. We verify it reaches Ready/InsufficientData instead.
 	assert.Eventually(t, func() bool {
 		var fetched attunev1alpha1.AttunePolicy
 		if err := k8sClient.Get(ctx, types.NamespacedName{
@@ -944,15 +944,15 @@ func TestReconcile_BearerTokenSecretWiredToCollector(t *testing.T) {
 			return false
 		}
 		for _, c := range fetched.Status.Conditions {
-			// Any condition other than PrometheusUnavailable means the
+			// Any condition other than metrics-backend unavailable means the
 			// Secret was read and the collector was created successfully.
-			if c.Type == "Ready" && c.Reason != "PrometheusUnavailable" {
+			if c.Type == "Ready" && !attunev1alpha1.IsMetricsUnavailable(c.Reason) {
 				return true
 			}
 		}
 		return false
 	}, 30*time.Second, 500*time.Millisecond,
-		"policy with bearerTokenSecret should reconcile without PrometheusUnavailable")
+		"policy with bearerTokenSecret should reconcile without MetricsUnavailable")
 }
 
 // ---------- Resize execution path (#20) ----------

@@ -59,7 +59,7 @@ helm install attune \
     Many examples use a Service URL on port **80**
     (`http://prometheus-server.monitoring:80`). If the Service port is 80
     (or anything other than 9090), set the chart value to match or you will
-    see `PrometheusUnavailable` / no data:
+    see `MetricsUnavailable` / no data:
 
     ```bash
     helm upgrade attune oci://ghcr.io/attune-io/charts/attune \
