@@ -32,9 +32,10 @@ See [Scaling: PrometheusSeriesCapped](scaling.md#ready-reason-prometheusseriesca
 
 **Symptom**: Ready condition is `False` with reason `PrometheusUnavailable`.
 
-**Cause**: `PrometheusUnavailable` means the controller could not use
-Prometheus for this reconcile. The condition message tells you which step
-failed:
+**Cause**: `PrometheusUnavailable` means the controller could not use the
+metrics backend (Prometheus, Datadog, or CloudWatch) for this reconcile.
+The reason name is unchanged for all three backends. The condition
+message tells you which step failed:
 
 - `Cannot resolve Prometheus config` means address resolution failed. The
   operator checks (in order): policy spec, one defaults source
@@ -47,6 +48,11 @@ failed:
   expired before all Prometheus queries completed.
 - `Prometheus query errors (` means Prometheus answered, but one or more
   metric queries failed. This can still happen when Prometheus is reachable.
+- `cannot read Datadog API key`, `datadog API returned 403`, or
+  `datadog API returned 429` means the Datadog Secret is missing, the
+  API key is rejected, or Datadog rate-limited the collector.
+- `loading AWS config`, `AccessDeniedException`, or `AssumeRole` means
+  CloudWatch IAM credentials, role assumption, or `GetMetricData` failed.
 
 If the condition message includes `Cannot resolve Prometheus config: SSRF blocked`,
 the configured address points at `localhost`, `127.0.0.1`, `::1`, or a
