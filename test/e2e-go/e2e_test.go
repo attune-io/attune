@@ -3814,6 +3814,13 @@ func assertExclusiveProviderDoesNotUseClusterPrometheus(t *testing.T, policyName
 		t.Logf("%s: discovered=%d withRecs=%d recs=%d resized=%d ready=%s",
 			policyName, last.Status.Workloads.Discovered, last.Status.Workloads.WithRecommendations,
 			len(last.Status.Recommendations), last.Status.Workloads.Resized, reason)
+		if last.Status.Workloads.WithRecommendations > 0 || len(last.Status.Recommendations) > 0 {
+			return false, fmt.Errorf("cluster Prometheus fallback: withRecs=%d recs=%d ready=%s",
+				last.Status.Workloads.WithRecommendations, len(last.Status.Recommendations), reason)
+		}
+		if reason == attunev1alpha1.ReasonMonitoring {
+			return false, fmt.Errorf("exclusive provider reached Monitoring; cluster Prometheus was used")
+		}
 		return reason == attunev1alpha1.ReasonPrometheusUnavailable, nil
 	}), "exclusive Datadog/CloudWatch policy must surface PrometheusUnavailable instead of using cluster Prometheus")
 
