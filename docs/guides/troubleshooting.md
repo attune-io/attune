@@ -11,11 +11,12 @@ kubectl get attunepolicy <name> -o jsonpath='{.status.conditions}' | jq .
 ### PrometheusSeriesCapped
 
 **Symptom:** Ready is True with reason `PrometheusSeriesCapped`, or logs show
-"Prometheus range query series capped".
+"Prometheus range query series capped" or a CloudWatch series/page cap.
 
 **Cause:** A range query returned more series than `--max-prometheus-series`
-(default 5000). Attune keeps partial data (preferring at least one series per
-container) and continues.
+(default 5000). CloudWatch `GetMetricData` uses the same series default and
+also stops after 20 result pages. Attune keeps partial data (preferring at
+least one series per container) and continues.
 
 **Fix:**
 

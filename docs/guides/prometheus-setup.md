@@ -69,9 +69,11 @@ If you configure `metricsSource.prometheus.bearerTokenSecret`, the Secret must l
     The operator validates `metricsSource.prometheus.address` to block
     loopback and cloud metadata endpoints. `http://127.0.0.1:9090`,
     `http://[::1]:9090`, `http://169.254.169.254/...`, and metadata
-    hostnames are rejected. Do not point a policy at a local port-forward
-    or a workstation URL. Use a Service DNS name or ClusterIP that the
-    operator can reach from inside the cluster, such as
+    hostnames are rejected. Addresses with URL userinfo
+    (`http://user:password@host`) are also rejected; use
+    `bearerTokenSecret` or `headers`. Do not point a policy at a local
+    port-forward or a workstation URL. Use a Service DNS name or
+    ClusterIP that the operator can reach from inside the cluster, such as
     `http://prometheus-server.monitoring:80`. Private cluster IPs are
     allowed.
 

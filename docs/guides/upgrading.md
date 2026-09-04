@@ -13,10 +13,10 @@ run the full E2E Nightly matrix on tip of `main` (see
 v0.1.26 tightens stale-recommendation handling, CloudWatch collection,
 ResourceQuota list fail-closed, VPA `memoryFromCpuRatio`, and GitOps
 labels. Ready reason `MetricsUnavailable` replaces `PrometheusUnavailable`
-for all metrics backends. Existing policy YAML keeps working. Read this
-section if you inherit `maxConcurrentResizes` from `AttuneDefaults`, use
-CloudWatch, ResourceQuota, VPA with a memory ratio, GitOps labels, or run
-a self-hosted Git forge.
+for all metrics backends. Most existing policy YAML keeps working. Read
+this section if you inherit `maxConcurrentResizes` from `AttuneDefaults`,
+use CloudWatch, ResourceQuota, VPA with a memory ratio, GitOps labels,
+Prometheus URL userinfo, or run a self-hosted Git forge.
 
 ### Ready reason MetricsUnavailable
 
@@ -71,6 +71,32 @@ The missing arm now holds the live request or the last rec instead.
 CloudWatch `SEARCH` no longer emits `PodName="prefix*"`. Quoted CloudWatch
 tokens are exact matches, so that term matched nothing. Filtering is
 client-side only.
+
+### CloudWatch series and page cap
+
+`GetMetricData` now stops after 5000 kept series (same default as
+Prometheus `maxSeries`) or 20 result pages. The operator keeps partial
+data and may set Ready `PrometheusSeriesCapped`. Large Container Insights
+namespaces no longer paginate without bound. This is fail-soft, not a
+hard query error.
+
+### Prometheus address must not include userinfo
+
+`metricsSource.prometheus.address` no longer accepts
+`http://user:password@host`. The webhook rejects create and update. The
+reconciler also rejects the address, so existing objects fail immediately
+after the operator rolls (`MetricsUnavailable`, SSRF blocked). Move
+credentials to `bearerTokenSecret` or `headers`. Apply the same change
+on `AttuneDefaults` and `AttuneNamespaceDefaults` before you upgrade.
+
+### AttuneDefaults GitOps pullRequest validation
+
+`AttuneDefaults` and `AttuneNamespaceDefaults` now use the same
+`export.pullRequest` rules as `AttunePolicy`: when `enabled` is true,
+`repository` and `tokenSecretRef` are required, and `apiUrl` must be
+https without userinfo. Defaults CRs that used to persist an incomplete
+`pullRequest` block fail on the next UPDATE. Complete the fields or set
+`enabled: false` before you upgrade.
 
 ### Self-hosted GitOps forges
 
