@@ -144,10 +144,10 @@ make test-e2e-smoke
 | `test/e2e/opt-out/` | (cross-cutting) | `attune.io/skip` annotation is respected |
 | `test/e2e/exclude-containers/` | (cross-cutting) | `excludedContainers` skips sidecars |
 | `test/e2e/multi-selector/` | (cross-cutting) | Label selector matches multiple deployments |
-| `test/e2e/eviction-fallback/` | (cross-cutting) | InPlaceOrRecreate is accepted and still resizes workloads (in-place path) |
+| `test/e2e/eviction-fallback/` | (cross-cutting) | InPlaceOrRecreate is accepted; Go E2E injects Infeasible and requires Evicted history |
 | `test/e2e/schedule-window/` | (cross-cutting) | Schedule windows block resizes outside the allowed time |
 | `test/e2e/budget-caps/` | (cross-cutting) | Budget caps are accepted and the policy still resizes workloads |
-| `test/e2e/concurrent-resize/` | (cross-cutting) | `maxConcurrentResizes` is accepted and workloads still resize |
+| `test/e2e/concurrent-resize/` | (cross-cutting) | `maxConcurrentResizes` is accepted and live CPU decreases; in-flight bound is unit-tested |
 | `test/e2e/namespace-defaults/` | (cross-cutting) | AttuneNamespaceDefaults overrides cluster defaults |
 | `test/e2e/defaults-merge/` | (cross-cutting) | AttuneDefaults values are inherited by a policy that omits them |
 | `test/e2e/hpa-conflict/` | (cross-cutting) | HPA conflict is warning-only, policy still reconciles |
