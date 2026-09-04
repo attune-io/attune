@@ -114,6 +114,10 @@ const (
 
 	// defaultMaxStatusRecommendations is used when neither CR nor flag sets a cap.
 	defaultMaxStatusRecommendations = attunev1alpha1.DefaultMaxStatusRecommendations
+
+	// conflictCheckFailedMessage is written to status, conditions, and
+	// Events. The raw List error stays in operator logs only.
+	conflictCheckFailedMessage = "Failed to list AttunePolicies for conflict detection; recommendations not computed"
 )
 
 //+kubebuilder:rbac:groups=attune.io,resources=attunepolicies,verbs=get;list;watch;patch
@@ -398,14 +402,12 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		policy.Status.LastReconcileTime = &nowMeta
 		policy.Status.WorkloadErrors = []attunev1alpha1.WorkloadError{{
 			Workload: "*",
-			Error:    wpResult.listPoliciesErr.Error(),
+			Error:    conflictCheckFailedMessage,
 		}}
-		r.setFailedCondition(ctx, &policy, attunev1alpha1.ReasonConflictCheckFailed,
-			fmt.Sprintf("Failed to list AttunePolicies for conflict detection: %v; recommendations not computed", wpResult.listPoliciesErr))
+		r.setFailedCondition(ctx, &policy, attunev1alpha1.ReasonConflictCheckFailed, conflictCheckFailedMessage)
 		if r.Recorder != nil {
 			r.Recorder.Eventf(&policy, nil, corev1.EventTypeWarning, attunev1alpha1.ReasonConflictCheckFailed, "recommend",
-				"Failed to list AttunePolicies for conflict detection: %v; recommendations not computed",
-				wpResult.listPoliciesErr)
+				conflictCheckFailedMessage)
 		}
 		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 	}
