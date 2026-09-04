@@ -405,10 +405,8 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			Error:    conflictCheckFailedMessage,
 		}}
 		r.setFailedCondition(ctx, &policy, attunev1alpha1.ReasonConflictCheckFailed, conflictCheckFailedMessage)
-		if r.Recorder != nil {
-			r.Recorder.Eventf(&policy, nil, corev1.EventTypeWarning, attunev1alpha1.ReasonConflictCheckFailed, "recommend",
-				conflictCheckFailedMessage)
-		}
+		r.emitEventOnce(&policy, corev1.EventTypeWarning, attunev1alpha1.ReasonConflictCheckFailed, "recommend",
+			conflictCheckFailedMessage)
 		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 	}
 	promTimedOut := workloadCtx.Err() == context.DeadlineExceeded
