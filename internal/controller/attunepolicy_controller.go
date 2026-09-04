@@ -394,7 +394,7 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	wpResult := r.processWorkloads(workloadCtx, &policy, workloads, collector, queryBuilder, podsByWorkload)
 	promTimedOut := workloadCtx.Err() == context.DeadlineExceeded
 	if promTimedOut {
-		logger.Info("Prometheus query timeout exceeded, using partial results",
+		logger.Info("Metrics query timeout exceeded, using partial results",
 			"timeout", promTimeout,
 			"workloadsWithRecommendations", wpResult.workloadsWithRecs,
 			"workloadsTotal", len(workloads))
