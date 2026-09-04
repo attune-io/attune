@@ -49,7 +49,7 @@ flowchart TD
     G -->|found?| Z
     G -->|not found| H[Auto-discovery:<br/>well-known service names]
     H -->|found?| Z
-    H -->|not found| I[PrometheusUnavailable<br/>condition set]
+    H -->|not found| I[MetricsUnavailable<br/>condition set]
 ```
 
 ### 1. Policy-level address (highest priority)
@@ -243,7 +243,7 @@ kubectl get attunepolicy -A
 |-----------|---------|
 | `Ready: True, Reason: Monitoring` | Prometheus reachable, recommendations computed |
 | `Ready: False, Reason: InsufficientData` | Prometheus reachable but not enough history yet |
-| `Ready: False, Reason: PrometheusUnavailable` | Prometheus could not be used for this reconcile. Check the condition message and [Troubleshooting](troubleshooting.md#prometheusunavailable) for address, auth/TLS, timeout, or query failures. |
+| `Ready: False, Reason: MetricsUnavailable` | Prometheus could not be used for this reconcile. Check the condition message and [Troubleshooting](troubleshooting.md#metricsunavailable) for address, auth/TLS, timeout, or query failures. |
 
 If the condition is `InsufficientData`, wait for enough samples to accumulate.
 By default, recommendations need `minimumDataPoints: 48` Prometheus range-query

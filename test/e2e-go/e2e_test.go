@@ -1622,7 +1622,7 @@ func TestE2E_BearerToken_SecretRotation(t *testing.T) {
 	}))
 
 	// Prometheus doesn't enforce auth, so both tokens work. The key assertion
-	// is that the reconcile succeeds (no PrometheusUnavailable condition)
+	// is that the reconcile succeeds (no MetricsUnavailable condition)
 	// and workloads are still discovered after a fresh reconcile.
 	forcePolicyReconcile(t, "rotate-policy", ns, 45*time.Second)
 
@@ -1631,11 +1631,11 @@ func TestE2E_BearerToken_SecretRotation(t *testing.T) {
 	assert.Equal(t, int32(1), p2.Status.Workloads.Discovered,
 		"policy should continue discovering workloads after token rotation")
 
-	// Verify no PrometheusUnavailable condition set.
+	// Verify no MetricsUnavailable condition set.
 	for _, c := range p2.Status.Conditions {
 		if c.Type == "Ready" {
-			assert.NotEqual(t, "PrometheusUnavailable", c.Reason,
-				"reconcile should succeed after token rotation, not show PrometheusUnavailable")
+			assert.False(t, attunev1alpha1.IsMetricsUnavailable(c.Reason),
+				"reconcile should succeed after token rotation, not show MetricsUnavailable")
 		}
 	}
 }
@@ -3793,7 +3793,7 @@ func exclusiveProviderPolicy(ns, policyName, deployName string, source attunev1a
 }
 
 // assertExclusiveProviderDoesNotUseClusterPrometheus waits until Ready is
-// PrometheusUnavailable with zero recs. MergeDefaults only inherits a
+// MetricsUnavailable with zero recs. MergeDefaults only inherits a
 // cluster Prometheus address when the policy set no provider, so a Datadog
 // or CloudWatch policy that still produces recs has fallen back to the
 // in-cluster Prometheus used by every other E2E.
@@ -3821,11 +3821,11 @@ func assertExclusiveProviderDoesNotUseClusterPrometheus(t *testing.T, policyName
 		if reason == attunev1alpha1.ReasonMonitoring {
 			return false, fmt.Errorf("exclusive provider reached Monitoring; cluster Prometheus was used")
 		}
-		return reason == attunev1alpha1.ReasonPrometheusUnavailable, nil
-	}), "exclusive Datadog/CloudWatch policy must surface PrometheusUnavailable instead of using cluster Prometheus")
+		return attunev1alpha1.IsMetricsUnavailable(reason), nil
+	}), "exclusive Datadog/CloudWatch policy must surface MetricsUnavailable instead of using cluster Prometheus")
 
-	assert.Equal(t, attunev1alpha1.ReasonPrometheusUnavailable, readyReason(last),
-		"Ready reason must stay PrometheusUnavailable")
+	assert.Equal(t, attunev1alpha1.ReasonMetricsUnavailable, readyReason(last),
+		"Ready reason must stay MetricsUnavailable")
 	assert.Equal(t, int32(0), last.Status.Workloads.WithRecommendations,
 		"cluster Prometheus fallback would produce recommendations")
 	assert.Empty(t, last.Status.Recommendations,

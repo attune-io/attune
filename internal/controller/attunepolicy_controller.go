@@ -159,7 +159,8 @@ type AttunePolicyReconciler struct {
 	MaxWorkloadWorkers int
 	// RequeueJitter is the maximum extra delay added only to full cooldown
 	// RequeueAfter values (default: 0 = no jitter). Skipped while Ready is
-	// InsufficientData or PrometheusUnavailable. Deterministic per policy UID
+	// InsufficientData or MetricsUnavailable (PrometheusUnavailable alias
+	// still counts). Deterministic per policy UID
 	// so tests stay stable when set to 0.
 	RequeueJitter time.Duration
 	// MaxProfileSamples caps samples before BuildProfile (default: 10000).
@@ -341,7 +342,7 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	if err != nil {
 		logger.Error(err, "Failed to resolve metrics source")
 		operatormetrics.ReconcileErrorsTotal.WithLabelValues("metrics_source").Inc()
-		r.setFailedCondition(ctx, &policy, attunev1alpha1.ReasonPrometheusUnavailable,
+		r.setFailedCondition(ctx, &policy, attunev1alpha1.ReasonMetricsUnavailable,
 			fmt.Sprintf("Cannot resolve metrics source: %v", err))
 		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 	}
@@ -726,7 +727,7 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// InsufficientData still uses cooldown. Jittering that wait delayed
 	// first recommendations by up to RequeueJitter (nightly #520).
 	bootstrap := readyCond != nil && (readyCond.Reason == attunev1alpha1.ReasonInsufficientData ||
-		readyCond.Reason == attunev1alpha1.ReasonPrometheusUnavailable)
+		attunev1alpha1.IsMetricsUnavailable(readyCond.Reason))
 	if requeueAfter == cooldown && !bootstrap {
 		requeueAfter = r.addRequeueJitter(requeueAfter, &policy)
 	}
@@ -737,7 +738,7 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 // addRequeueJitter spreads full cooldown RequeueAfter values so many
 // AttunePolicies do not unlock on the same second. Callers skip this during
-// InsufficientData / PrometheusUnavailable bootstrap.
+// InsufficientData / MetricsUnavailable bootstrap.
 func (r *AttunePolicyReconciler) addRequeueJitter(base time.Duration, policy *attunev1alpha1.AttunePolicy) time.Duration {
 	if r.RequeueJitter <= 0 || base <= 0 {
 		return base
@@ -1087,10 +1088,10 @@ func (r *AttunePolicyReconciler) setReadyCondition(
 		progressPercent(maxDataPoints, int(minimumDP)),
 		eta.Truncate(time.Minute))
 	if promTimedOut {
-		reason = attunev1alpha1.ReasonPrometheusUnavailable
+		reason = attunev1alpha1.ReasonMetricsUnavailable
 		message = fmt.Sprintf("Prometheus query timeout exceeded after %s; some workloads may not have been queried", effectiveTimeout)
 	} else if totalQueryErrors > 0 {
-		reason = attunev1alpha1.ReasonPrometheusUnavailable
+		reason = attunev1alpha1.ReasonMetricsUnavailable
 		message = fmt.Sprintf("Prometheus query errors (%d) prevented %s data collection; check operator logs", totalQueryErrors, blockedDataTypes)
 	}
 	meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{

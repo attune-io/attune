@@ -62,7 +62,7 @@ What to check during this phase:
 
 - **Ready shows `NoWorkloadsFound`?** Your `targetRef.name` or `kind` doesn't
   match any workload. Check spelling and namespace.
-- **Ready shows `PrometheusUnavailable`?** The operator can't reach your
+- **Ready shows `MetricsUnavailable`?** The operator can't reach your
   Prometheus instance. Verify the address and network policy.
 - **Progress percentage is climbing?** Everything is working. Wait for it
   to reach 100%.

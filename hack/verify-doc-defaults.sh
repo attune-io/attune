@@ -252,12 +252,13 @@ ready_reason_reference_files=(
 for f in "${ready_reason_reference_files[@]}"; do
   check_default "Ready reasons ($f)" "Monitoring" "$f"
   check_default "Ready reasons ($f)" "InsufficientData" "$f"
+  check_default "Ready reasons ($f)" "MetricsUnavailable" "$f"
   check_default "Ready reasons ($f)" "PrometheusUnavailable" "$f"
   check_default "Ready reasons ($f)" "InvalidConfig" "$f"
   check_default "Ready reasons ($f)" "WorkloadDiscoveryFailed" "$f"
 done
 
-check_default "Ready troubleshooting section" "^### PrometheusUnavailable" "docs/guides/troubleshooting.md"
+check_default "Ready troubleshooting section" "^### MetricsUnavailable" "docs/guides/troubleshooting.md"
 check_default "Ready troubleshooting section" "^### InsufficientData" "docs/guides/troubleshooting.md"
 check_default "Ready troubleshooting section" "^### InvalidConfig" "docs/guides/troubleshooting.md"
 check_default "Ready troubleshooting section" "^### WorkloadDiscoveryFailed" "docs/guides/troubleshooting.md"

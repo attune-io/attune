@@ -283,7 +283,7 @@ legacy behavior or richer status.
 | Status recommendation cap | 100 | `maxStatusRecommendations` | `updateStrategy.maxStatusRecommendations` |
 | Strip status explanations | Off (include) | `statusIncludeExplanations` | `updateStrategy.includeExplanationsInStatus` |
 | Workload workers per policy | 10 | `maxWorkloadWorkers` / `--max-workload-workers` | - |
-| Requeue jitter | 2m | `requeueJitter` / `--requeue-jitter` | Applied only to full cooldown requeues; skipped during InsufficientData / PrometheusUnavailable |
+| Requeue jitter | 2m | `requeueJitter` / `--requeue-jitter` | Applied only to full cooldown requeues; skipped during InsufficientData / MetricsUnavailable |
 | Lazy pod lists | Observe skips full lists; Recommend still lists for Deferred/Infeasible UX | - | - |
 | Namespace-wide pod list + in-memory match | On | - | - |
 | Representative pod sample for metrics | 100 pods | `maxPodsInMetricsQuery` / `--max-pods-in-metrics-query` | - |

@@ -296,200 +296,35 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 	partialUnfilled := false
 
 	for _, container := range containers {
-		containerName := container.Name
-
-		if excludeSet[containerName] {
+		if excludeSet[container.Name] {
 			logger.Info("Skipping excluded container",
-				"container", containerName,
-				"reason", pkgdefaults.ExclusionReason(policy, containerName))
+				"container", container.Name,
+				"reason", pkgdefaults.ExclusionReason(policy, container.Name))
 			continue
 		}
 		eligibleContainers++
 
-		cpuSamples := samplesForContainer(cpuSamplesByContainer, containerName)
-		memSamples := samplesForContainer(memSamplesByContainer, containerName)
-
-		// Bound sample volume before percentile work (high-replica / long windows).
-		maxSamples := r.maxProfileSamples()
-		cpuSamples = rsmetrics.DownsampleSamples(cpuSamples, maxSamples)
-		memSamples = rsmetrics.DownsampleSamples(memSamples, maxSamples)
-
-		// Build UsageProfile from samples.
-		cpuProfile := rsmetrics.BuildProfile(cpuSamples)
-		memProfile := rsmetrics.BuildProfile(memSamples)
-
-		// Detect when all samples were non-finite (NaN/Inf). This means
-		// Prometheus returned data but every value was unusable.
-		if len(cpuSamples) > 0 && cpuProfile.DataPoints == 0 {
-			operatormetrics.NanInfSamplesTotal.WithLabelValues(
-				policy.Namespace, policy.Name, containerName, "cpu").Inc()
-			logger.V(1).Info("All CPU samples are NaN/Inf, data quality issue",
-				"container", containerName, "rawSamples", len(cpuSamples))
-		}
-		if len(memSamples) > 0 && memProfile.DataPoints == 0 {
-			operatormetrics.NanInfSamplesTotal.WithLabelValues(
-				policy.Namespace, policy.Name, containerName, "memory").Inc()
-			logger.V(1).Info("All memory samples are NaN/Inf, data quality issue",
-				"container", containerName, "rawSamples", len(memSamples))
-		}
-
-		// Track maximum data points across all containers.
-		if pts := cpuProfile.DataPoints; pts > maxDataPoints {
+		crec, ok, unfilled, pts := r.recommendContainer(ctx, recommendContainerInput{
+			policy:            policy,
+			workload:          workload,
+			container:         container,
+			cpuSamples:        samplesForContainer(cpuSamplesByContainer, container.Name),
+			memSamples:        samplesForContainer(memSamplesByContainer, container.Name),
+			cpuEngine:         cpuEngine,
+			memEngine:         memEngine,
+			pods:              pods,
+			now:               now,
+			minimumDataPoints: minimumDataPoints,
+		})
+		if pts > maxDataPoints {
 			maxDataPoints = pts
 		}
-		if pts := memProfile.DataPoints; pts > maxDataPoints {
-			maxDataPoints = pts
+		if unfilled {
+			partialUnfilled = true
 		}
-
-		// Check for sufficient data points.
-		if cpuProfile.DataPoints < int(minimumDataPoints) && memProfile.DataPoints < int(minimumDataPoints) {
-			logger.Info("Insufficient data points",
-				"container", containerName,
-				"cpuPoints", cpuProfile.DataPoints,
-				"memPoints", memProfile.DataPoints,
-				"minimum", minimumDataPoints)
-			continue
+		if ok {
+			containerRecs = append(containerRecs, crec)
 		}
-
-		// Log per-resource NaN/Inf data quality issues even when the
-		// container has enough data from the other resource to produce a
-		// recommendation. Without this, a user sees CPU unchanged with no
-		// explanation when only CPU samples are non-finite.
-		if len(cpuSamples) > 0 && cpuProfile.DataPoints == 0 {
-			logger.V(1).Info("All CPU samples were NaN/Inf, using current CPU request",
-				"container", containerName,
-				"sampleCount", len(cpuSamples))
-		}
-		if len(memSamples) > 0 && memProfile.DataPoints == 0 {
-			logger.V(1).Info("All memory samples were NaN/Inf, using current memory request",
-				"container", containerName,
-				"sampleCount", len(memSamples))
-		}
-
-		rec := newContainerRecommendation(container,
-			safeInt32(cpuProfile.DataPoints+memProfile.DataPoints),
-			(cpuProfile.Confidence+memProfile.Confidence)/2.0, now)
-
-		explanation := &attunev1alpha1.ContainerRecommendationExplanation{}
-
-		// Compute CPU recommendation.
-		cpuApplied := false
-		if cpuProfile.DataPoints >= int(minimumDataPoints) {
-			cpuRec, cpuExplain, _ := cpuEngine.RecommendWithExplanation(cpuProfile, rec.Current.CPURequest)
-			// CPU AllowDecrease defaults to true (nil || *ptr) because CPU
-			// throttle is detected by the safety monitor.
-			cpuAllowDecrease := policy.Spec.CPU.AllowDecrease == nil || *policy.Spec.CPU.AllowDecrease
-			cpuRec = r.enforceAllowDecrease(cpuAllowDecrease, cpuRec, rec.Current.CPURequest, &cpuExplain, policy, containerName, "CPU")
-			rec.Recommended.CPURequest = cpuRec
-			explanation.CPU = toAPIRecommendationExplanation(cpuExplain)
-			cpuApplied = true
-		}
-
-		// Compute memory recommendation.
-		// When memoryFromCpuRatio is set, derive memory from the CPU
-		// recommendation instead of using Prometheus memory metrics.
-		memApplied := false
-		if policy.Spec.Memory.MemoryFromCPURatio != nil && *policy.Spec.Memory.MemoryFromCPURatio != "" && explanation.CPU != nil {
-			ratio := parseFloat64Ratio(*policy.Spec.Memory.MemoryFromCPURatio)
-			allowDecrease := policy.Spec.Memory.AllowDecrease != nil && *policy.Spec.Memory.AllowDecrease
-			memRec, memExplain, applied := deriveMemoryFromCPU(
-				rec.Recommended.CPURequest, ratio, memEngine, minimumDataPoints, rec.Current.MemoryRequest, allowDecrease)
-			if applied {
-				rec.Recommended.MemoryRequest = memRec
-				memExplain.FinalAdjustment = appendNote(memExplain.FinalAdjustment,
-					fmt.Sprintf("derived from CPU via memoryFromCpuRatio=%s", *policy.Spec.Memory.MemoryFromCPURatio))
-				explanation.Memory = toAPIRecommendationExplanation(memExplain)
-				memApplied = true
-			}
-		} else if memProfile.DataPoints >= int(minimumDataPoints) {
-			memRec, memExplain, _ := memEngine.RecommendWithExplanation(memProfile, rec.Current.MemoryRequest)
-			// Memory AllowDecrease defaults to false (!= nil && *ptr) to
-			// prevent OOMKills from memory reduction.
-			memAllowDecrease := policy.Spec.Memory.AllowDecrease != nil && *policy.Spec.Memory.AllowDecrease
-			memRec = r.enforceAllowDecrease(memAllowDecrease, memRec, rec.Current.MemoryRequest, &memExplain, policy, containerName, "memory")
-			rec.Recommended.MemoryRequest = memRec
-			explanation.Memory = toAPIRecommendationExplanation(memExplain)
-			memApplied = true
-		}
-
-		// One-sided Prometheus gap: keep live (or last rec) on the missing
-		// arm. Template Current must not become a fresh apply target after
-		// an in-place increase (1Gi live, 256Mi template).
-		if !cpuApplied || !memApplied {
-			prior := priorContainerRecommendation(policy, workloadKindName(workload), workload.GetName(), containerName)
-			if !cpuApplied && !holdMissingResourceRequest(&rec, corev1.ResourceCPU, pods, prior) {
-				partialUnfilled = true
-			}
-			if !memApplied && !holdMissingResourceRequest(&rec, corev1.ResourceMemory, pods, prior) {
-				partialUnfilled = true
-			}
-		}
-		recordQuerySettings(policy, explanation)
-		if explanation.CPU != nil || explanation.Memory != nil {
-			rec.Explanation = explanation
-		}
-
-		// V(1): log per-container recommendation summary.
-		cpuChanged := !rec.Recommended.CPURequest.Equal(rec.Current.CPURequest)
-		memChanged := !rec.Recommended.MemoryRequest.Equal(rec.Current.MemoryRequest)
-		cpuChangeFilter, memChangeFilter := "", ""
-		if explanation.CPU != nil {
-			cpuChangeFilter = explanation.CPU.ChangeFilterApplied
-		}
-		if explanation.Memory != nil {
-			memChangeFilter = explanation.Memory.ChangeFilterApplied
-		}
-		logger.V(1).Info("Computed recommendation",
-			"container", containerName,
-			"cpuCurrent", &rec.Current.CPURequest,
-			"cpuRecommended", &rec.Recommended.CPURequest,
-			"cpuChanged", cpuChanged,
-			"cpuChangeFilter", cpuChangeFilter,
-			"memCurrent", &rec.Current.MemoryRequest,
-			"memRecommended", &rec.Recommended.MemoryRequest,
-			"memChanged", memChanged,
-			"memChangeFilter", memChangeFilter,
-			"confidence", rec.Confidence)
-
-		// V(2): log full recommendation chain if explanation is available.
-		if explanation.CPU != nil {
-			logger.V(2).Info("CPU recommendation chain",
-				"container", containerName,
-				"rawPercentile", &explanation.CPU.RawPercentile,
-				"afterOverhead", &explanation.CPU.AfterOverhead,
-				"burstFactor", explanation.CPU.BurstFactor,
-				"afterConfidence", &explanation.CPU.AfterConfidence,
-				"boundsApplied", explanation.CPU.BoundsApplied,
-				"changeFilter", explanation.CPU.ChangeFilterApplied,
-				"final", &explanation.CPU.Final)
-		}
-		if explanation.Memory != nil {
-			logger.V(2).Info("Memory recommendation chain",
-				"container", containerName,
-				"rawPercentile", &explanation.Memory.RawPercentile,
-				"afterOverhead", &explanation.Memory.AfterOverhead,
-				"burstFactor", explanation.Memory.BurstFactor,
-				"afterConfidence", &explanation.Memory.AfterConfidence,
-				"boundsApplied", explanation.Memory.BoundsApplied,
-				"changeFilter", explanation.Memory.ChangeFilterApplied,
-				"final", &explanation.Memory.Final)
-		}
-
-		// Scale limits proportionally if ControlledValues is RequestsAndLimits.
-		scaleControlledLimits(policy, &rec, rec.Current.CPURequest, rec.Current.CPULimit, rec.Current.MemoryRequest, rec.Current.MemoryLimit)
-
-		// Set recommendation gauges for this container.
-		setRecommendationGauges(policy.Namespace, workload.GetName(), containerName, &rec)
-		if rec.Explanation != nil {
-			if rec.Explanation.CPU != nil {
-				operatormetrics.BurstFactor.WithLabelValues(policy.Namespace, workload.GetName(), containerName, "cpu").Set(rec.Explanation.CPU.BurstFactor)
-			}
-			if rec.Explanation.Memory != nil {
-				operatormetrics.BurstFactor.WithLabelValues(policy.Namespace, workload.GetName(), containerName, "memory").Set(rec.Explanation.Memory.BurstFactor)
-			}
-		}
-
-		containerRecs = append(containerRecs, rec)
 	}
 
 	if len(containerRecs) == 0 {
@@ -526,6 +361,199 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 		LastDataTime: &lastDataTime,
 		Stale:        stale,
 	}, queryErrors, failedMetricTypes, maxDataPoints, seriesCapped, nil
+}
+
+// recommendContainerInput is the already-fetched query result for one
+// container. Dual PromQL and stale reuse stay in computeRecommendations.
+type recommendContainerInput struct {
+	policy            *attunev1alpha1.AttunePolicy
+	workload          client.Object
+	container         corev1.Container
+	cpuSamples        []rsmetrics.Sample
+	memSamples        []rsmetrics.Sample
+	cpuEngine         *recommendation.RecommendationEngine
+	memEngine         *recommendation.RecommendationEngine
+	pods              []corev1.Pod
+	now               time.Time
+	minimumDataPoints int32
+}
+
+// recommendContainer builds one container rec from grouped samples.
+// ok is false when both resources are below minimumDataPoints.
+// dataPoints is the larger of the CPU and memory profile counts.
+func (r *AttunePolicyReconciler) recommendContainer(
+	ctx context.Context,
+	in recommendContainerInput,
+) (rec attunev1alpha1.ContainerRecommendation, ok bool, partialUnfilled bool, dataPoints int) {
+	logger := log.FromContext(ctx)
+	policy := in.policy
+	workload := in.workload
+	container := in.container
+	containerName := container.Name
+	cpuSamples := in.cpuSamples
+	memSamples := in.memSamples
+	cpuEngine := in.cpuEngine
+	memEngine := in.memEngine
+	pods := in.pods
+	now := in.now
+	minimumDataPoints := in.minimumDataPoints
+
+	maxSamples := r.maxProfileSamples()
+	cpuSamples = rsmetrics.DownsampleSamples(cpuSamples, maxSamples)
+	memSamples = rsmetrics.DownsampleSamples(memSamples, maxSamples)
+
+	cpuProfile := rsmetrics.BuildProfile(cpuSamples)
+	memProfile := rsmetrics.BuildProfile(memSamples)
+
+	if len(cpuSamples) > 0 && cpuProfile.DataPoints == 0 {
+		operatormetrics.NanInfSamplesTotal.WithLabelValues(
+			policy.Namespace, policy.Name, containerName, "cpu").Inc()
+		logger.V(1).Info("All CPU samples are NaN/Inf, data quality issue",
+			"container", containerName, "rawSamples", len(cpuSamples))
+	}
+	if len(memSamples) > 0 && memProfile.DataPoints == 0 {
+		operatormetrics.NanInfSamplesTotal.WithLabelValues(
+			policy.Namespace, policy.Name, containerName, "memory").Inc()
+		logger.V(1).Info("All memory samples are NaN/Inf, data quality issue",
+			"container", containerName, "rawSamples", len(memSamples))
+	}
+
+	if pts := cpuProfile.DataPoints; pts > dataPoints {
+		dataPoints = pts
+	}
+	if pts := memProfile.DataPoints; pts > dataPoints {
+		dataPoints = pts
+	}
+
+	if cpuProfile.DataPoints < int(minimumDataPoints) && memProfile.DataPoints < int(minimumDataPoints) {
+		logger.Info("Insufficient data points",
+			"container", containerName,
+			"cpuPoints", cpuProfile.DataPoints,
+			"memPoints", memProfile.DataPoints,
+			"minimum", minimumDataPoints)
+		return rec, false, false, dataPoints
+	}
+
+	if len(cpuSamples) > 0 && cpuProfile.DataPoints == 0 {
+		logger.V(1).Info("All CPU samples were NaN/Inf, using current CPU request",
+			"container", containerName,
+			"sampleCount", len(cpuSamples))
+	}
+	if len(memSamples) > 0 && memProfile.DataPoints == 0 {
+		logger.V(1).Info("All memory samples were NaN/Inf, using current memory request",
+			"container", containerName,
+			"sampleCount", len(memSamples))
+	}
+
+	rec = newContainerRecommendation(container,
+		safeInt32(cpuProfile.DataPoints+memProfile.DataPoints),
+		(cpuProfile.Confidence+memProfile.Confidence)/2.0, now)
+
+	explanation := &attunev1alpha1.ContainerRecommendationExplanation{}
+
+	cpuApplied := false
+	if cpuProfile.DataPoints >= int(minimumDataPoints) {
+		cpuRec, cpuExplain, _ := cpuEngine.RecommendWithExplanation(cpuProfile, rec.Current.CPURequest)
+		cpuAllowDecrease := policy.Spec.CPU.AllowDecrease == nil || *policy.Spec.CPU.AllowDecrease
+		cpuRec = r.enforceAllowDecrease(cpuAllowDecrease, cpuRec, rec.Current.CPURequest, &cpuExplain, policy, containerName, "CPU")
+		rec.Recommended.CPURequest = cpuRec
+		explanation.CPU = toAPIRecommendationExplanation(cpuExplain)
+		cpuApplied = true
+	}
+
+	memApplied := false
+	if policy.Spec.Memory.MemoryFromCPURatio != nil && *policy.Spec.Memory.MemoryFromCPURatio != "" && explanation.CPU != nil {
+		ratio := parseFloat64Ratio(*policy.Spec.Memory.MemoryFromCPURatio)
+		allowDecrease := policy.Spec.Memory.AllowDecrease != nil && *policy.Spec.Memory.AllowDecrease
+		memRec, memExplain, applied := deriveMemoryFromCPU(
+			rec.Recommended.CPURequest, ratio, memEngine, minimumDataPoints, rec.Current.MemoryRequest, allowDecrease)
+		if applied {
+			rec.Recommended.MemoryRequest = memRec
+			memExplain.FinalAdjustment = appendNote(memExplain.FinalAdjustment,
+				fmt.Sprintf("derived from CPU via memoryFromCpuRatio=%s", *policy.Spec.Memory.MemoryFromCPURatio))
+			explanation.Memory = toAPIRecommendationExplanation(memExplain)
+			memApplied = true
+		}
+	} else if memProfile.DataPoints >= int(minimumDataPoints) {
+		memRec, memExplain, _ := memEngine.RecommendWithExplanation(memProfile, rec.Current.MemoryRequest)
+		memAllowDecrease := policy.Spec.Memory.AllowDecrease != nil && *policy.Spec.Memory.AllowDecrease
+		memRec = r.enforceAllowDecrease(memAllowDecrease, memRec, rec.Current.MemoryRequest, &memExplain, policy, containerName, "memory")
+		rec.Recommended.MemoryRequest = memRec
+		explanation.Memory = toAPIRecommendationExplanation(memExplain)
+		memApplied = true
+	}
+
+	if !cpuApplied || !memApplied {
+		prior := priorContainerRecommendation(policy, workloadKindName(workload), workload.GetName(), containerName)
+		if !cpuApplied && !holdMissingResourceRequest(&rec, corev1.ResourceCPU, pods, prior) {
+			partialUnfilled = true
+		}
+		if !memApplied && !holdMissingResourceRequest(&rec, corev1.ResourceMemory, pods, prior) {
+			partialUnfilled = true
+		}
+	}
+	recordQuerySettings(policy, explanation)
+	if explanation.CPU != nil || explanation.Memory != nil {
+		rec.Explanation = explanation
+	}
+
+	cpuChanged := !rec.Recommended.CPURequest.Equal(rec.Current.CPURequest)
+	memChanged := !rec.Recommended.MemoryRequest.Equal(rec.Current.MemoryRequest)
+	cpuChangeFilter, memChangeFilter := "", ""
+	if explanation.CPU != nil {
+		cpuChangeFilter = explanation.CPU.ChangeFilterApplied
+	}
+	if explanation.Memory != nil {
+		memChangeFilter = explanation.Memory.ChangeFilterApplied
+	}
+	logger.V(1).Info("Computed recommendation",
+		"container", containerName,
+		"cpuCurrent", &rec.Current.CPURequest,
+		"cpuRecommended", &rec.Recommended.CPURequest,
+		"cpuChanged", cpuChanged,
+		"cpuChangeFilter", cpuChangeFilter,
+		"memCurrent", &rec.Current.MemoryRequest,
+		"memRecommended", &rec.Recommended.MemoryRequest,
+		"memChanged", memChanged,
+		"memChangeFilter", memChangeFilter,
+		"confidence", rec.Confidence)
+
+	if explanation.CPU != nil {
+		logger.V(2).Info("CPU recommendation chain",
+			"container", containerName,
+			"rawPercentile", &explanation.CPU.RawPercentile,
+			"afterOverhead", &explanation.CPU.AfterOverhead,
+			"burstFactor", explanation.CPU.BurstFactor,
+			"afterConfidence", &explanation.CPU.AfterConfidence,
+			"boundsApplied", explanation.CPU.BoundsApplied,
+			"changeFilter", explanation.CPU.ChangeFilterApplied,
+			"final", &explanation.CPU.Final)
+	}
+	if explanation.Memory != nil {
+		logger.V(2).Info("Memory recommendation chain",
+			"container", containerName,
+			"rawPercentile", &explanation.Memory.RawPercentile,
+			"afterOverhead", &explanation.Memory.AfterOverhead,
+			"burstFactor", explanation.Memory.BurstFactor,
+			"afterConfidence", &explanation.Memory.AfterConfidence,
+			"boundsApplied", explanation.Memory.BoundsApplied,
+			"changeFilter", explanation.Memory.ChangeFilterApplied,
+			"final", &explanation.Memory.Final)
+	}
+
+	scaleControlledLimits(policy, &rec, rec.Current.CPURequest, rec.Current.CPULimit, rec.Current.MemoryRequest, rec.Current.MemoryLimit)
+
+	setRecommendationGauges(policy.Namespace, workload.GetName(), containerName, &rec)
+	if rec.Explanation != nil {
+		if rec.Explanation.CPU != nil {
+			operatormetrics.BurstFactor.WithLabelValues(policy.Namespace, workload.GetName(), containerName, "cpu").Set(rec.Explanation.CPU.BurstFactor)
+		}
+		if rec.Explanation.Memory != nil {
+			operatormetrics.BurstFactor.WithLabelValues(policy.Namespace, workload.GetName(), containerName, "memory").Set(rec.Explanation.Memory.BurstFactor)
+		}
+	}
+
+	return rec, true, partialUnfilled, dataPoints
 }
 
 // reuseStaleRecommendation copies a prior status rec so an empty Prometheus

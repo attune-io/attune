@@ -5513,7 +5513,7 @@ func TestReconcile_PrometheusUnavailable(t *testing.T) {
 		Name: "test-policy", Namespace: "default",
 	}, &updated))
 	require.Len(t, updated.Status.Conditions, 1)
-	assert.Equal(t, "PrometheusUnavailable", updated.Status.Conditions[0].Reason)
+	assert.Equal(t, attunev1alpha1.ReasonMetricsUnavailable, updated.Status.Conditions[0].Reason)
 }
 
 func TestReconcile_PrometheusQueryErrorsMentionBlockedDataTypes(t *testing.T) {
@@ -5579,7 +5579,7 @@ func TestReconcile_PrometheusQueryErrorsMentionCPUAndMemoryWhenBothFail(t *testi
 	cond := meta.FindStatusCondition(updated.Status.Conditions, attunev1alpha1.ConditionReady)
 	require.NotNil(t, cond)
 	assert.Equal(t, metav1.ConditionFalse, cond.Status)
-	assert.Equal(t, attunev1alpha1.ReasonPrometheusUnavailable, cond.Reason)
+	assert.Equal(t, attunev1alpha1.ReasonMetricsUnavailable, cond.Reason)
 	assert.Contains(t, cond.Message, "Prometheus query errors (2)")
 	assert.Contains(t, cond.Message, "CPU and memory data collection")
 }
@@ -7078,7 +7078,7 @@ func TestReconcile_MetricsFactoryError(t *testing.T) {
 		Name: "test-policy", Namespace: "default",
 	}, &updated))
 	require.Len(t, updated.Status.Conditions, 1)
-	assert.Equal(t, "PrometheusUnavailable", updated.Status.Conditions[0].Reason)
+	assert.Equal(t, attunev1alpha1.ReasonMetricsUnavailable, updated.Status.Conditions[0].Reason)
 	assert.Contains(t, updated.Status.Conditions[0].Message, "TLS handshake timeout")
 }
 
@@ -7105,7 +7105,7 @@ func TestReconcile_BearerTokenSecretReadErrorIncludesSecretRef(t *testing.T) {
 	}, &updated))
 	cond := meta.FindStatusCondition(updated.Status.Conditions, attunev1alpha1.ConditionReady)
 	require.NotNil(t, cond)
-	assert.Equal(t, attunev1alpha1.ReasonPrometheusUnavailable, cond.Reason)
+	assert.Equal(t, attunev1alpha1.ReasonMetricsUnavailable, cond.Reason)
 	assert.Contains(t, cond.Message, "prom-token/token")
 	assert.Contains(t, cond.Message, "reading secret default/prom-token")
 }
@@ -12901,7 +12901,7 @@ func TestSetReadyCondition(t *testing.T) {
 			queryErrorTypes:   map[string]struct{}{"memory": {}},
 			maxDataPoints:     0,
 			wantStatus:        metav1.ConditionFalse,
-			wantReason:        attunev1alpha1.ReasonPrometheusUnavailable,
+			wantReason:        attunev1alpha1.ReasonMetricsUnavailable,
 			wantMsgContains:   "Prometheus query errors (1) prevented memory data collection",
 		},
 		{
@@ -12922,7 +12922,7 @@ func TestSetReadyCondition(t *testing.T) {
 			promTimedOut:      true,
 			promTimeout:       5 * time.Minute,
 			wantStatus:        metav1.ConditionFalse,
-			wantReason:        attunev1alpha1.ReasonPrometheusUnavailable,
+			wantReason:        attunev1alpha1.ReasonMetricsUnavailable,
 			wantMsgContains:   "Prometheus query timeout exceeded after 5m0s",
 		},
 		{

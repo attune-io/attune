@@ -324,7 +324,7 @@ blockerRefreshInterval: "0s"
 podLabelSelector: ""
 
 # -- Maximum extra delay added only to full cooldown requeues.
-# Skipped while Ready is InsufficientData or PrometheusUnavailable so
+# Skipped while Ready is InsufficientData or MetricsUnavailable so
 # bootstrap is not delayed by jitter. Set to "0s" to disable. Default 2m
 # (empty omits the flag and keeps the binary default).
 requeueJitter: "2m"
