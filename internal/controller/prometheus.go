@@ -842,19 +842,28 @@ func (r *AttunePolicyReconciler) resolveDatadogCollector(ctx context.Context, po
 		return nil, nil, fmt.Errorf("datadog site: %w", err)
 	}
 
-	// Read API key from the referenced Secret.
-	apiKey, err := r.readSecretKey(ctx, policy.Namespace, dd.APIKeySecretRef.Name, dd.APIKeySecretRef.Key)
-	if err != nil {
-		return nil, nil, fmt.Errorf("cannot read Datadog API key: %w", err)
+	// One Get for the API-key Secret. API key is required; app-key is optional
+	// (absent key is empty). Other Get errors already fail the required key.
+	var secret corev1.Secret
+	secretNS := policy.Namespace
+	secretName := dd.APIKeySecretRef.Name
+	if err := r.Get(ctx, types.NamespacedName{Namespace: secretNS, Name: secretName}, &secret); err != nil {
+		return nil, nil, fmt.Errorf("cannot read Datadog API key: %w", fmt.Errorf("reading secret %s/%s: %w", secretNS, secretName, err))
+	}
+	apiKeyData, ok := secret.Data[dd.APIKeySecretRef.Key]
+	if !ok {
+		return nil, nil, fmt.Errorf("cannot read Datadog API key: %w", fmt.Errorf("key %q not found in secret %s/%s", dd.APIKeySecretRef.Key, secretNS, secretName))
+	}
+	apiKey := string(apiKeyData)
+	var appKey string
+	if appKeyData, ok := secret.Data["app-key"]; ok {
+		appKey = string(appKeyData)
 	}
 
-	// Read optional app key from the same Secret (key "app-key").
-	appKey, _ := r.readSecretKey(ctx, policy.Namespace, dd.APIKeySecretRef.Name, "app-key")
-
-	// Cache the collector keyed by site + API key (non-crypto identifier), with full
-	// TTL eviction, capacity bound, and race-safe LoadOrStore.
-	// We avoid hashing the actual secret bytes to satisfy CodeQL "weak crypto on sensitive data".
-	cacheKey := fmt.Sprintf("datadog:%s|%s", site, secretForCacheKey(apiKey))
+	// Cache keyed by site + API key + app key (non-crypto identifiers) so
+	// adding or rotating app-key creates a new collector. Full TTL eviction,
+	// capacity bound, and race-safe LoadOrStore.
+	cacheKey := fmt.Sprintf("datadog:%s|%s|%s", site, secretForCacheKey(apiKey), secretForCacheKey(appKey))
 	collector, err := r.getOrCreateCollectorByKey(cacheKey, "datadog:"+site, func() (rsmetrics.MetricsCollector, error) {
 		inner, innerErr := rsmetrics.NewDatadogCollector(site, apiKey, appKey, log.FromContext(ctx).WithName("datadog"))
 		if innerErr != nil {

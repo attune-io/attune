@@ -173,19 +173,24 @@ func (c *DatadogCollector) Close() error {
 	return nil
 }
 
+// appendFiniteScaled appends a sample after dropping NaN/Inf. CPU values
+// are converted from nanocores to cores.
+func appendFiniteScaled(dst []Sample, ts time.Time, value float64, isCPU bool) []Sample {
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return dst
+	}
+	if isCPU {
+		value /= 1e9
+	}
+	return append(dst, Sample{Timestamp: ts, Value: value})
+}
+
 // appendDatadogSamples converts Datadog [timestamp_ms, value] points to
 // Samples, dropping NaN/Inf. CPU values are converted from nanocores to cores.
 func appendDatadogSamples(dst []Sample, points [][2]float64, isCPU bool) []Sample {
 	for _, point := range points {
 		ts := time.Unix(int64(point[0])/1000, 0)
-		value := point[1]
-		if math.IsNaN(value) || math.IsInf(value, 0) {
-			continue
-		}
-		if isCPU {
-			value /= 1e9
-		}
-		dst = append(dst, Sample{Timestamp: ts, Value: value})
+		dst = appendFiniteScaled(dst, ts, point[1], isCPU)
 	}
 	return dst
 }

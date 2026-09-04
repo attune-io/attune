@@ -3223,6 +3223,39 @@ func TestResolveDatadogCollector_CachesCollector(t *testing.T) {
 	assert.Same(t, c1, c2, "second call should return cached collector")
 }
 
+func TestResolveDatadogCollector_AddingAppKeyRecreatesCollector(t *testing.T) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "dd-keys", Namespace: "default"},
+		Data: map[string][]byte{
+			"api-key": []byte("test-api-key"),
+		},
+	}
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Datadog: &attunev1alpha1.DatadogConfig{
+					Site:            "datadoghq.com",
+					APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "dd-keys", Key: "api-key"},
+				},
+			},
+		},
+	}
+	reconciler := newReconcilerWithClient(secret)
+
+	c1, _, err1 := reconciler.resolveDatadogCollector(context.Background(), policy)
+	require.NoError(t, err1)
+
+	var current corev1.Secret
+	require.NoError(t, reconciler.Get(context.Background(), types.NamespacedName{Name: "dd-keys", Namespace: "default"}, &current))
+	current.Data["app-key"] = []byte("test-app-key")
+	require.NoError(t, reconciler.Update(context.Background(), &current))
+
+	c2, _, err2 := reconciler.resolveDatadogCollector(context.Background(), policy)
+	require.NoError(t, err2)
+	assert.NotSame(t, c1, c2, "inserting app-key must create a new collector")
+}
+
 // ---------- resolveCloudWatchCollector ----------
 
 func TestResolveCloudWatchCollector_CreatesCollector(t *testing.T) {

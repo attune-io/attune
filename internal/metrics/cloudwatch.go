@@ -20,7 +20,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math"
 	"strings"
 	"time"
 
@@ -160,20 +159,7 @@ func (c *CloudWatchCollector) QueryRangeGrouped(ctx context.Context, query strin
 				if i >= len(result.Values) {
 					break
 				}
-				value := result.Values[i]
-				// Skip non-finite values from CloudWatch (e.g., insufficient
-				// data for a statistic returns NaN).
-				if math.IsNaN(value) || math.IsInf(value, 0) {
-					continue
-				}
-				// Container Insights CPU is in nanocores; convert to cores.
-				if isCPU {
-					value /= 1e9
-				}
-				grouped[container] = append(grouped[container], Sample{
-					Timestamp: ts,
-					Value:     value,
-				})
+				grouped[container] = appendFiniteScaled(grouped[container], ts, result.Values[i], isCPU)
 			}
 		}
 
