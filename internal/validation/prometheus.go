@@ -50,6 +50,11 @@ func PrometheusAddress(address string) error {
 		return fmt.Errorf("host is required")
 	}
 
+	// Auth belongs on bearerTokenSecret / headers, not the URL.
+	if parsed.User != nil {
+		return fmt.Errorf("must not include userinfo")
+	}
+
 	hostname := parsed.Hostname()
 
 	// Block cloud metadata endpoints (hostnames and IPs).
