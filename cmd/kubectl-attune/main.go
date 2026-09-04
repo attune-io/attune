@@ -720,7 +720,11 @@ func printRecommendationsItems(items []unstructured.Unstructured) {
 		cluster := itemCluster(item)
 		recs, found, _ := unstructured.NestedSlice(item.Object, "status", "recommendations")
 		if !found || len(recs) == 0 {
-			collecting++
+			// ConflictCheckFailed (and Ready=False with workloadErrors) is not
+			// bootstrap collection. Last-known recs may be empty this cycle.
+			if !policyShowsReadyFailure(item) {
+				collecting++
+			}
 			if showCluster {
 				fmt.Fprintf(w, "%s\t%s\t%s\t-\t-\t-\t-\t-\t-\t-\t%s\n",
 					cluster, ns, policyName, policyReadyReason(item))
@@ -779,6 +783,7 @@ func printRecommendationsItems(items []unstructured.Unstructured) {
 		fmt.Fprintf(os.Stderr, "\n%d %s collecting data. Run 'kubectl attune status' for details.\n",
 			collecting, noun)
 	}
+	printReadyFailureWarnings(items)
 
 	// Export mode awareness (issues #145, #146): surface that some policies write
 	// recommendations to ConfigMaps instead of (or in addition to) direct resizes.
@@ -1048,12 +1053,25 @@ func printExplain(ctx context.Context, dynClient dynamic.Interface, namespace, p
 
 	recs, found, _ := unstructured.NestedSlice(item.Object, "status", "recommendations")
 	if !found || len(recs) == 0 {
-		fmt.Printf("%s/%s has no recommendations yet (%s).\n", namespace, policyName, policyReadyReason(*item))
+		if policyShowsReadyFailure(*item) {
+			_, reason, msg := readyConditionFields(*item)
+			if reason == "" {
+				reason = policyReadyReason(*item)
+			}
+			if msg == "" {
+				msg = reason
+			}
+			fmt.Printf("%s/%s has no recommendations (%s): %s\n", namespace, policyName, reason, msg)
+		} else {
+			fmt.Printf("%s/%s has no recommendations yet (%s).\n", namespace, policyName, policyReadyReason(*item))
+		}
 		printEffectivePolicySummary(*item, effective, selected)
+		printReadyFailureWarnings([]unstructured.Unstructured{*item})
 		return
 	}
 
 	fmt.Printf("Policy: %s/%s\n", namespace, policyName)
+	printReadyFailureWarnings([]unstructured.Unstructured{*item})
 	printEffectivePolicySummary(*item, effective, selected)
 	for _, r := range recs {
 		rec, ok := r.(map[string]interface{})
@@ -1717,8 +1735,10 @@ func savingsPercent(saved, total string) string {
 	return fmt.Sprintf("%.0f%%", pct)
 }
 
-// policyReadyReason extracts the Ready condition reason from an unstructured policy.
-func policyReadyReason(item unstructured.Unstructured) string {
+const conflictCheckFailedHelp = "See docs/guides/troubleshooting.md#conflictcheckfailed"
+
+// readyConditionFields returns the Ready condition status, reason, and message.
+func readyConditionFields(item unstructured.Unstructured) (status, reason, message string) {
 	conditions, _, _ := unstructured.NestedSlice(item.Object, "status", "conditions")
 	for _, c := range conditions {
 		cond, ok := c.(map[string]interface{})
@@ -1726,19 +1746,79 @@ func policyReadyReason(item unstructured.Unstructured) string {
 			continue
 		}
 		if t, _ := cond["type"].(string); t == "Ready" {
-			status, _ := cond["status"].(string)
-			reason, _ := cond["reason"].(string)
-			msg, _ := cond["message"].(string)
-			if status == "False" && msg != "" {
-				return msg
-			}
-			if reason != "" {
-				return reason
-			}
-			if status != "" {
-				return status
+			status, _ = cond["status"].(string)
+			reason, _ = cond["reason"].(string)
+			message, _ = cond["message"].(string)
+			return status, reason, message
+		}
+	}
+	return "", "", ""
+}
+
+// policyShowsReadyFailure is true when last-known recommendations must not be
+// presented as healthy: ConflictCheckFailed, or Ready=False with workloadErrors.
+func policyShowsReadyFailure(item unstructured.Unstructured) bool {
+	status, reason, _ := readyConditionFields(item)
+	if reason == attunev1alpha1.ReasonConflictCheckFailed {
+		return true
+	}
+	if status != "False" {
+		return false
+	}
+	errors, found, _ := unstructured.NestedSlice(item.Object, "status", "workloadErrors")
+	return found && len(errors) > 0
+}
+
+func printReadyFailureWarnings(items []unstructured.Unstructured) {
+	sawConflict := false
+	for _, item := range items {
+		if !policyShowsReadyFailure(item) {
+			continue
+		}
+		_, reason, msg := readyConditionFields(item)
+		if reason == "" {
+			reason = "Unknown"
+		}
+		if msg == "" {
+			msg = policyReadyReason(item)
+		}
+		fmt.Fprintf(os.Stderr, "\nWarning: %s/%s Ready=False (%s): %s\n",
+			item.GetNamespace(), item.GetName(), reason, msg)
+		errors, found, _ := unstructured.NestedSlice(item.Object, "status", "workloadErrors")
+		if found {
+			for _, e := range errors {
+				entry, ok := e.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				wl, _ := entry["workload"].(string)
+				errMsg, _ := entry["error"].(string)
+				if wl == "" && errMsg == "" {
+					continue
+				}
+				fmt.Fprintf(os.Stderr, "  %s: %s\n", wl, errMsg)
 			}
 		}
+		if reason == attunev1alpha1.ReasonConflictCheckFailed {
+			sawConflict = true
+		}
+	}
+	if sawConflict {
+		fmt.Fprintln(os.Stderr, conflictCheckFailedHelp)
+	}
+}
+
+// policyReadyReason extracts the Ready condition reason from an unstructured policy.
+func policyReadyReason(item unstructured.Unstructured) string {
+	status, reason, msg := readyConditionFields(item)
+	if status == "False" && msg != "" {
+		return msg
+	}
+	if reason != "" {
+		return reason
+	}
+	if status != "" {
+		return status
 	}
 	return "Pending"
 }

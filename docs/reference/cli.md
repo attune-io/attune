@@ -99,9 +99,15 @@ kubectl attune preview -n production api-services
 
 Shows per-container current vs recommended values with a waste grade and
 confidence scores. When a policy is still collecting data, GRADE is `-` and
-the last column shows the current status message instead. When any policy
-uses export mode, a footer note points to `kubectl attune export list` for
-the GitOps ConfigMap view and last-export timestamps.
+the last column shows the current status message instead. When Ready is
+`False` for `ConflictCheckFailed` (or `Ready=False` with `workloadErrors`),
+a footer prints the Ready message so last-known recommendations are not
+shown as healthy. Empty recommendations plus `ConflictCheckFailed` do not
+print the collecting-data note. See
+[ConflictCheckFailed](../guides/troubleshooting.md#conflictcheckfailed).
+When any policy uses export mode, a footer note points to
+`kubectl attune export list` for the GitOps ConfigMap view and last-export
+timestamps.
 
 ```bash
 kubectl attune recommendations
@@ -168,7 +174,11 @@ Metrics source (`prometheus` / `datadog` / `cloudwatch` / `vpa`),
 `allowDecrease`, `burstSensitivity`, `maxChangePercent`,
 `maxIncreasePercent`, `maxDecreasePercent`, `memoryFromCpuRatio`).
 Each value shows whether it came from the policy, a namespace default, a cluster
-default, or the built-in default. When export mode + Recommend/Observe is active, a note explains the GitOps implications.
+default, or the built-in default. When Ready is `False` for
+`ConflictCheckFailed` (or `Ready=False` with `workloadErrors`), explain
+prints the Ready message instead of implying the policy is still collecting
+data. See [ConflictCheckFailed](../guides/troubleshooting.md#conflictcheckfailed).
+When export mode + Recommend/Observe is active, a note explains the GitOps implications.
 
 ```bash
 kubectl attune explain -n production api-services
