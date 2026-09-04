@@ -8660,13 +8660,13 @@ func TestComputeRecommendations_NanInfSamplesMetric(t *testing.T) {
 	collector, err := rsmetrics.NewPrometheusCollector(server.URL, logr.Discard(), http.DefaultTransport)
 	require.NoError(t, err)
 
-	beforeCPU := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("default", "test-policy", "main", "cpu"))
-	beforeMem := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("default", "test-policy", "main", "memory"))
+	beforeCPU := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("default", "test-policy", "untracked", "cpu"))
+	beforeMem := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("default", "test-policy", "untracked", "memory"))
 	rec, _, _, _, _, err := reconciler.computeRecommendations(context.Background(), policy, deploy, collector, nil, nil, nil, nil, nil)
 	assert.NoError(t, err)
 	assert.Nil(t, rec, "should produce no recommendation when all data is NaN/Inf")
-	afterCPU := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("default", "test-policy", "main", "cpu"))
-	afterMem := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("default", "test-policy", "main", "memory"))
+	afterCPU := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("default", "test-policy", "untracked", "cpu"))
+	afterMem := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("default", "test-policy", "untracked", "memory"))
 	assert.Equal(t, beforeCPU+3, afterCPU, "collector must increment for each dropped CPU NaN/Inf point")
 	assert.Equal(t, beforeMem+3, afterMem, "collector must increment for each dropped memory NaN/Inf point")
 }

@@ -296,7 +296,7 @@ Total times all Prometheus samples for a container metric were non-finite
 |-------|-------------|
 | `namespace` | Policy namespace |
 | `policy` | Policy name |
-| `container` | Container name |
+| `container` | Container name. Collector-dropped NaN/Inf use `container=untracked` so scrape cardinality stays bounded. |
 | `metric_type` | `cpu` or `memory` |
 
 ### attune_capacity_skip_total

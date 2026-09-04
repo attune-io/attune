@@ -339,7 +339,7 @@ func (c *PrometheusCollector) QueryRangeGrouped(ctx context.Context, query strin
 		for _, sp := range series.Values {
 			v := float64(sp.Value)
 			if math.IsNaN(v) || math.IsInf(v, 0) {
-				recordDroppedNonFinite(ctx, container, fallbackMetricType(query))
+				recordDroppedNonFinite(ctx, fallbackMetricType(query))
 				continue
 			}
 			grouped[container] = append(grouped[container], Sample{

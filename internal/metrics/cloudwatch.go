@@ -159,7 +159,7 @@ func (c *CloudWatchCollector) QueryRangeGrouped(ctx context.Context, query strin
 				if i >= len(result.Values) {
 					break
 				}
-				grouped[container] = appendFiniteScaled(ctx, container, grouped[container], ts, result.Values[i], isCPU)
+				grouped[container] = appendFiniteScaled(ctx, grouped[container], ts, result.Values[i], isCPU)
 			}
 		}
 

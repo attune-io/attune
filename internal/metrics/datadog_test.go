@@ -46,14 +46,14 @@ func TestDatadogCollector_QueryRangeGrouped_NaNInfFiltered(t *testing.T) {
 	}
 
 	ctx := WithNanInfLabels(context.Background(), "dd-ns", "dd-policy", "cpu")
-	before := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("dd-ns", "dd-policy", "main", "cpu"))
+	before := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("dd-ns", "dd-policy", "untracked", "cpu"))
 	grouped := map[string][]Sample{
-		"main": appendDatadogSamples(ctx, "main", nil, points, true),
+		"main": appendDatadogSamples(ctx, nil, points, true),
 	}
 	require.Len(t, grouped["main"], 2, "NaN, +Inf, and -Inf samples should be filtered out")
 	assert.InDelta(t, 0.25, grouped["main"][0].Value, 0.001)
 	assert.InDelta(t, 0.75, grouped["main"][1].Value, 0.001)
-	after := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("dd-ns", "dd-policy", "main", "cpu"))
+	after := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("dd-ns", "dd-policy", "untracked", "cpu"))
 	assert.Equal(t, before+3, after, "each dropped NaN/Inf point must increment the counter")
 }
 

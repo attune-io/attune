@@ -219,13 +219,13 @@ func TestQueryRangeGrouped_NaNInfFiltered(t *testing.T) {
 	step := 60 * time.Second
 
 	ctx := WithNanInfLabels(context.Background(), "prom-ns", "prom-policy", "cpu")
-	before := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("prom-ns", "prom-policy", "app", "cpu"))
+	before := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("prom-ns", "prom-policy", "untracked", "cpu"))
 	grouped, err := collector.QueryRangeGrouped(ctx, "cpu_usage", start, end, step)
 	require.NoError(t, err)
 	require.Len(t, grouped["app"], 2, "NaN, +Inf, and -Inf samples should be filtered out")
 	assert.InDelta(t, 0.25, grouped["app"][0].Value, 0.001)
 	assert.InDelta(t, 0.75, grouped["app"][1].Value, 0.001)
-	after := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("prom-ns", "prom-policy", "app", "cpu"))
+	after := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("prom-ns", "prom-policy", "untracked", "cpu"))
 	assert.Equal(t, before+3, after, "each dropped NaN/Inf point must increment the counter")
 }
 

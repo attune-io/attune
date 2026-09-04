@@ -145,7 +145,7 @@ func (c *DatadogCollector) QueryRangeGrouped(ctx context.Context, query string, 
 	grouped := make(map[string][]Sample, len(ddResp.Series))
 	for _, series := range ddResp.Series {
 		container := extractDatadogTag(series.TagSet, "kube_container_name")
-		grouped[container] = appendDatadogSamples(ctx, container, grouped[container], series.Pointlist, isCPU)
+		grouped[container] = appendDatadogSamples(ctx, grouped[container], series.Pointlist, isCPU)
 	}
 
 	c.logger.V(1).Info("Datadog query completed",
@@ -181,9 +181,9 @@ func (c *DatadogCollector) Close() error {
 
 // appendFiniteScaled appends a sample after dropping NaN/Inf. CPU values
 // are converted from nanocores to cores.
-func appendFiniteScaled(ctx context.Context, container string, dst []Sample, ts time.Time, value float64, isCPU bool) []Sample {
+func appendFiniteScaled(ctx context.Context, dst []Sample, ts time.Time, value float64, isCPU bool) []Sample {
 	if math.IsNaN(value) || math.IsInf(value, 0) {
-		recordDroppedNonFinite(ctx, container, metricTypeFromCPU(isCPU))
+		recordDroppedNonFinite(ctx, metricTypeFromCPU(isCPU))
 		return dst
 	}
 	if isCPU {
@@ -194,10 +194,10 @@ func appendFiniteScaled(ctx context.Context, container string, dst []Sample, ts 
 
 // appendDatadogSamples converts Datadog [timestamp_ms, value] points to
 // Samples, dropping NaN/Inf. CPU values are converted from nanocores to cores.
-func appendDatadogSamples(ctx context.Context, container string, dst []Sample, points [][2]float64, isCPU bool) []Sample {
+func appendDatadogSamples(ctx context.Context, dst []Sample, points [][2]float64, isCPU bool) []Sample {
 	for _, point := range points {
 		ts := time.Unix(int64(point[0])/1000, 0)
-		dst = appendFiniteScaled(ctx, container, dst, ts, point[1], isCPU)
+		dst = appendFiniteScaled(ctx, dst, ts, point[1], isCPU)
 	}
 	return dst
 }

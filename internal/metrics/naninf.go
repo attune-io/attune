@@ -44,7 +44,12 @@ func WithNanInfLabels(ctx context.Context, namespace, policy, metricType string)
 	})
 }
 
-func recordDroppedNonFinite(ctx context.Context, container, fallbackMetricType string) {
+// nanInfUntrackedContainer is the container label for collector-dropped
+// NaN/Inf points. Backend series labels are attacker-controlled and must
+// not become Prometheus series.
+const nanInfUntrackedContainer = "untracked"
+
+func recordDroppedNonFinite(ctx context.Context, fallbackMetricType string) {
 	ns, policy, metricType := "", "", fallbackMetricType
 	if ctx != nil {
 		if labels, ok := ctx.Value(nanInfLabelKey{}).(nanInfLabelContext); ok {
@@ -57,7 +62,7 @@ func recordDroppedNonFinite(ctx context.Context, container, fallbackMetricType s
 	if metricType == "" {
 		metricType = "unknown"
 	}
-	operatormetrics.NanInfSamplesTotal.WithLabelValues(ns, policy, container, metricType).Inc()
+	operatormetrics.NanInfSamplesTotal.WithLabelValues(ns, policy, nanInfUntrackedContainer, metricType).Inc()
 }
 
 func fallbackMetricType(query string) string {

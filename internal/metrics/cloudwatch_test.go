@@ -366,14 +366,14 @@ func TestCloudWatchCollector_QueryRangeGrouped_NaNInfFiltered(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := WithNanInfLabels(context.Background(), "cw-ns", "cw-policy", "memory")
-	before := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("cw-ns", "cw-policy", "main", "memory"))
+	before := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("cw-ns", "cw-policy", "untracked", "memory"))
 	grouped, err := c.QueryRangeGrouped(ctx, string(query),
 		ts1.Add(-time.Hour), ts5, time.Minute)
 	require.NoError(t, err)
 	require.Len(t, grouped["main"], 2, "NaN, +Inf, and -Inf samples should be filtered out")
 	assert.InDelta(t, 0.25, grouped["main"][0].Value, 0.001)
 	assert.InDelta(t, 0.75, grouped["main"][1].Value, 0.001)
-	after := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("cw-ns", "cw-policy", "main", "memory"))
+	after := promtestutil.ToFloat64(operatormetrics.NanInfSamplesTotal.WithLabelValues("cw-ns", "cw-policy", "untracked", "memory"))
 	assert.Equal(t, before+3, after, "each dropped NaN/Inf point must increment the counter")
 }
 
