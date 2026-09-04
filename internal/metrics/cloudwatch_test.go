@@ -254,7 +254,7 @@ func TestQueryRangeGrouped_PageCapped(t *testing.T) {
 	}
 
 	c := NewCloudWatchCollectorWithClient(mock, "c", logr.Discard())
-	c.maxPages = 3
+	c.maxPages = 20
 	c.maxSeries = 100
 
 	spec := CloudWatchQuerySpec{Metric: "container_memory_working_set", ClusterName: "c", Namespace: "ns", PodPrefix: "pod-", Period: 300, Stat: "Average"}
@@ -264,8 +264,45 @@ func TestQueryRangeGrouped_PageCapped(t *testing.T) {
 	grouped, err := c.QueryRangeGrouped(context.Background(), string(query),
 		ts.Add(-time.Hour), ts, 5*time.Minute)
 	require.ErrorIs(t, err, ErrSeriesCapped)
-	assert.Equal(t, 3, callCount, "must stop after the page cap even when NextToken remains set")
-	assert.Len(t, grouped["main"], 3)
+	assert.Equal(t, 20, callCount, "must stop after the page cap even when NextToken remains set")
+	assert.Len(t, grouped["main"], 20)
+}
+
+func TestQueryRangeGrouped_PageCapped_NoKeptSeries(t *testing.T) {
+	// Namespace SEARCH + PodPrefix: every page can be other workloads.
+	// Hitting the page cap with seriesKept==0 is empty data, not capped.
+	ts := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
+	callCount := 0
+
+	mock := &mockCloudWatchClient{
+		getMetricDataFn: func(_ context.Context, _ *cloudwatch.GetMetricDataInput, _ ...func(*cloudwatch.Options)) (*cloudwatch.GetMetricDataOutput, error) {
+			callCount++
+			return &cloudwatch.GetMetricDataOutput{
+				MetricDataResults: []cwtypes.MetricDataResult{
+					{
+						Label:      aws.String(fmt.Sprintf("metric other-%d main", callCount)),
+						Timestamps: []time.Time{ts},
+						Values:     []float64{float64(callCount)},
+					},
+				},
+				NextToken: aws.String("more"),
+			}, nil
+		},
+	}
+
+	c := NewCloudWatchCollectorWithClient(mock, "c", logr.Discard())
+	c.maxPages = 20
+	c.maxSeries = 100
+
+	spec := CloudWatchQuerySpec{Metric: "container_memory_working_set", ClusterName: "c", Namespace: "ns", PodPrefix: "pod-", Period: 300, Stat: "Average"}
+	query, err := json.Marshal(spec)
+	require.NoError(t, err)
+
+	grouped, err := c.QueryRangeGrouped(context.Background(), string(query),
+		ts.Add(-time.Hour), ts, 5*time.Minute)
+	require.NoError(t, err, "page cap with zero kept series is empty data, not ErrSeriesCapped")
+	assert.Equal(t, 20, callCount, "must still stop after the page cap")
+	assert.Empty(t, grouped)
 }
 
 func TestQueryRangeGrouped_SeriesCappedLogOmitsQuery(t *testing.T) {

@@ -204,6 +204,11 @@ func (c *CloudWatchCollector) QueryRangeGrouped(ctx context.Context, query strin
 				"pages", page,
 				"limit", maxPages,
 				"series", seriesKept)
+			// Namespace SEARCH + PodPrefix can exhaust the page cap on
+			// other workloads. Zero kept series is empty data, not a cap.
+			if seriesKept == 0 {
+				return grouped, nil
+			}
 			return grouped, fmt.Errorf("%w: kept %d series after %d pages", ErrSeriesCapped, seriesKept, page)
 		}
 		input.NextToken = output.NextToken
