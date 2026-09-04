@@ -225,6 +225,75 @@ func TestDefaultsValidator_ValidSchedule(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestDefaultsValidator_GitOpsPullRequestRequiresRepository(t *testing.T) {
+	v := &AttuneDefaultsValidator{}
+	en := true
+	defaults := &attunev1alpha1.AttuneDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Export: &attunev1alpha1.ExportConfig{
+					PullRequest: &attunev1alpha1.GitOpsPullRequestConfig{
+						Enabled: &en,
+						TokenSecretRef: &attunev1alpha1.SecretKeyRef{
+							Name: "tok", Key: "token",
+						},
+					},
+				},
+			},
+		},
+	}
+	_, err := v.ValidateCreate(context.Background(), defaults)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "repository")
+}
+
+func TestDefaultsValidator_GitOpsPullRequestAPIURLRejected(t *testing.T) {
+	v := &AttuneDefaultsValidator{}
+	en := true
+	token := &attunev1alpha1.SecretKeyRef{Name: "tok", Key: "token"}
+
+	httpURL := &attunev1alpha1.AttuneDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Export: &attunev1alpha1.ExportConfig{
+					PullRequest: &attunev1alpha1.GitOpsPullRequestConfig{
+						Enabled:        &en,
+						Repository:     "org/repo",
+						TokenSecretRef: token,
+						APIURL:         "http://ghe.example.com/api/v3",
+					},
+				},
+			},
+		},
+	}
+	_, err := v.ValidateCreate(context.Background(), httpURL)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "apiUrl")
+	assert.Contains(t, err.Error(), "https")
+
+	userinfo := &attunev1alpha1.AttuneDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Export: &attunev1alpha1.ExportConfig{
+					PullRequest: &attunev1alpha1.GitOpsPullRequestConfig{
+						Enabled:        &en,
+						Repository:     "org/repo",
+						TokenSecretRef: token,
+						APIURL:         "https://user:token@ghe.example.com",
+					},
+				},
+			},
+		},
+	}
+	_, err = v.ValidateCreate(context.Background(), userinfo)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "apiUrl")
+	assert.Contains(t, err.Error(), "userinfo")
+}
+
 func TestDefaultsValidator_RecordsMetrics(t *testing.T) {
 	operatormetrics.WebhookValidationTotal.Reset()
 	operatormetrics.WebhookDuration.Reset()

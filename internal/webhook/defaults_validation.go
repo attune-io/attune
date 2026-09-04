@@ -114,6 +114,13 @@ func validateDefaultsSpec(spec attunev1alpha1.AttuneDefaultsSpec) (admission.War
 		}
 	}
 
+	// GitOps PR on defaults is copied onto policies by MergeDefaults.
+	if spec.UpdateStrategy != nil {
+		if err := validateGitOpsPullRequest(*spec.UpdateStrategy); err != nil {
+			return nil, err
+		}
+	}
+
 	// Validate queryStep bounds (10s to 1h).
 	if spec.MetricsSource != nil && spec.MetricsSource.QueryStep != nil {
 		qs := spec.MetricsSource.QueryStep.Duration
