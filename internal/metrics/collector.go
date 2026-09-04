@@ -127,7 +127,7 @@ func isBlockedIP(ip net.IP) bool {
 }
 
 var errEmptyInstantQuery = errors.New("empty result from instant query")
-var errNonFiniteInstantQuery = errors.New("non-finite result from instant query")
+var errNonFiniteInstantQuery = errors.New("instant query returned NaN or Inf (often 0/0 in PromQL); rewrite the query so it always returns a finite scalar")
 
 // ErrSeriesCapped is returned when a range query returned more series than
 // MaxSeries and the result was truncated. Callers may still use the partial
