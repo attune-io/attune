@@ -25,6 +25,7 @@ import (
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
@@ -146,6 +147,14 @@ func (h *PodMutatingHandler) findMatchingPolicy(
 
 		// Check initial sizing is enabled.
 		if policy.Spec.UpdateStrategy == nil || policy.Spec.UpdateStrategy.InitialSizing == nil || !*policy.Spec.UpdateStrategy.InitialSizing {
+			continue
+		}
+
+		// Reconcile fail-closed keeps last recs when conflict listing
+		// fails. Do not CREATE-size from those leftover recommendations.
+		if cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionReady); cond != nil && cond.Reason == attunev1alpha1.ReasonConflictCheckFailed {
+			h.Logger.V(1).Info("initial sizing skipped: policy conflict check failed",
+				"policy", policy.Name, "owner", ownerName, "pod", podName)
 			continue
 		}
 
