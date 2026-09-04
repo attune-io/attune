@@ -5549,7 +5549,7 @@ func TestReconcile_PrometheusQueryErrorsMentionBlockedDataTypes(t *testing.T) {
 	assert.Equal(t, metav1.ConditionTrue, cond.Status)
 	assert.Equal(t, attunev1alpha1.ReasonMonitoring, cond.Reason)
 	assert.Contains(t, cond.Message, "Watching 1 workloads, 1 with recommendations")
-	assert.Contains(t, cond.Message, "Prometheus query errors (1)")
+	assert.Contains(t, cond.Message, "Metrics query errors (1)")
 	assert.Contains(t, cond.Message, "memory data collection")
 	assert.NotContains(t, cond.Message, "CPU and/or memory")
 }
@@ -5580,7 +5580,7 @@ func TestReconcile_PrometheusQueryErrorsMentionCPUAndMemoryWhenBothFail(t *testi
 	require.NotNil(t, cond)
 	assert.Equal(t, metav1.ConditionFalse, cond.Status)
 	assert.Equal(t, attunev1alpha1.ReasonMetricsUnavailable, cond.Reason)
-	assert.Contains(t, cond.Message, "Prometheus query errors (2)")
+	assert.Contains(t, cond.Message, "Metrics query errors (2)")
 	assert.Contains(t, cond.Message, "CPU and memory data collection")
 }
 
@@ -12861,7 +12861,7 @@ func TestSetReadyCondition(t *testing.T) {
 			queryErrorTypes:   map[string]struct{}{"CPU": {}},
 			wantStatus:        metav1.ConditionTrue,
 			wantReason:        attunev1alpha1.ReasonMonitoring,
-			wantMsgContains:   "Prometheus query errors (2) prevented CPU data collection",
+			wantMsgContains:   "Metrics query errors (2) prevented CPU data collection",
 		},
 		{
 			name:              "ready with recommendations and both CPU and memory errors",
@@ -12881,7 +12881,7 @@ func TestSetReadyCondition(t *testing.T) {
 			promTimedOut:      true,
 			wantStatus:        metav1.ConditionTrue,
 			wantReason:        attunev1alpha1.ReasonMonitoring,
-			wantMsgContains:   "Prometheus query timeout exceeded",
+			wantMsgContains:   "Metrics query timeout exceeded",
 		},
 		{
 			name:              "not ready collecting data",
@@ -12902,7 +12902,7 @@ func TestSetReadyCondition(t *testing.T) {
 			maxDataPoints:     0,
 			wantStatus:        metav1.ConditionFalse,
 			wantReason:        attunev1alpha1.ReasonMetricsUnavailable,
-			wantMsgContains:   "Prometheus query errors (1) prevented memory data collection",
+			wantMsgContains:   "Metrics query errors (1) prevented memory data collection",
 		},
 		{
 			name:              "not ready max data points exceeds minimum clamps remaining to 0",
@@ -12923,7 +12923,7 @@ func TestSetReadyCondition(t *testing.T) {
 			promTimeout:       5 * time.Minute,
 			wantStatus:        metav1.ConditionFalse,
 			wantReason:        attunev1alpha1.ReasonMetricsUnavailable,
-			wantMsgContains:   "Prometheus query timeout exceeded after 5m0s",
+			wantMsgContains:   "Metrics query timeout exceeded after 5m0s",
 		},
 		{
 			name:              "ready with timeout and query errors combined",
@@ -12935,7 +12935,7 @@ func TestSetReadyCondition(t *testing.T) {
 			promTimeout:       5 * time.Minute,
 			wantStatus:        metav1.ConditionTrue,
 			wantReason:        attunev1alpha1.ReasonMonitoring,
-			wantMsgContains:   "Prometheus query timeout exceeded",
+			wantMsgContains:   "Metrics query timeout exceeded",
 		},
 	}
 
@@ -13286,6 +13286,34 @@ func TestReconcile_InsufficientDataShortCooldownDoesNotJitter(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 1*time.Minute, result.RequeueAfter,
 		"InsufficientData must not add RequeueJitter when cooldown < queryStep")
+}
+
+func TestReconcile_MetricsUnavailableDoesNotJitter(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Cooldown = &metav1.Duration{Duration: 1 * time.Minute}
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+
+	reconciler, fakeClient := newReconcilerForReconcile(&mockCollector{
+		queryRangeGroupedFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) (map[string][]rsmetrics.Sample, error) {
+			return nil, fmt.Errorf("connection refused")
+		},
+	}, policy, deploy)
+	reconciler.RequeueJitter = 2 * time.Minute
+
+	result, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, 1*time.Minute, result.RequeueAfter,
+		"MetricsUnavailable must not add RequeueJitter")
+
+	var updated attunev1alpha1.AttunePolicy
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "test-policy", Namespace: "default",
+	}, &updated))
+	cond := meta.FindStatusCondition(updated.Status.Conditions, attunev1alpha1.ConditionReady)
+	require.NotNil(t, cond)
+	assert.Equal(t, attunev1alpha1.ReasonMetricsUnavailable, cond.Reason)
 }
 
 func TestReconcile_SufficientDataRequeuesAtCooldown(t *testing.T) {

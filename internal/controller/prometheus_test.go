@@ -606,5 +606,11 @@ func TestRecommendContainer_SkipAndProduce(t *testing.T) {
 		assert.Greater(t, pts, 0)
 		assert.Equal(t, "main", rec.Name)
 		assert.True(t, unfilled, "memory arm has no samples and no hold source")
+		currentCPU := container.Resources.Requests[corev1.ResourceCPU]
+		assert.False(t, rec.Recommended.CPURequest.IsZero(), "CPU arm must write a recommended request")
+		assert.False(t, rec.Recommended.CPURequest.Equal(currentCPU),
+			"CPU rec must differ from the 500m current request")
+		require.NotNil(t, rec.Explanation)
+		require.NotNil(t, rec.Explanation.CPU)
 	})
 }

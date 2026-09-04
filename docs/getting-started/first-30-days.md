@@ -62,8 +62,9 @@ What to check during this phase:
 
 - **Ready shows `NoWorkloadsFound`?** Your `targetRef.name` or `kind` doesn't
   match any workload. Check spelling and namespace.
-- **Ready shows `MetricsUnavailable`?** The operator can't reach your
-  Prometheus instance. Verify the address and network policy.
+- **Ready shows `MetricsUnavailable`?** The operator could not use the
+  configured metrics backend (Prometheus, Datadog, or CloudWatch). Check
+  the Ready message and [troubleshooting](../guides/troubleshooting.md#metricsunavailable).
 - **Progress percentage is climbing?** Everything is working. Wait for it
   to reach 100%.
 

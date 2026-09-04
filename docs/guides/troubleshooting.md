@@ -45,10 +45,10 @@ The condition message tells you which step failed:
 - `Cannot create metrics collector`, `reading secret`, or transport errors
   like `TLS handshake timeout` mean the address was found but auth, headers,
   bearer token secret, CA bundle, or TLS setup failed.
-- `Prometheus query timeout exceeded` means the reconcile-level timeout
-  expired before all Prometheus queries completed.
-- `Prometheus query errors (` means Prometheus answered, but one or more
-  metric queries failed. This can still happen when Prometheus is reachable.
+- `Metrics query timeout exceeded` means the reconcile-level timeout
+  expired before all backend queries completed.
+- `Metrics query errors (` means the backend answered, but one or more
+  metric queries failed. This can still happen when the backend is reachable.
 - `cannot read Datadog API key`, `datadog API returned 403`, or
   `datadog API returned 429` means the Datadog Secret is missing, the
   API key is rejected, or Datadog rate-limited the collector.
@@ -99,10 +99,10 @@ verify the credentials and connection details before changing timeouts:
 3. Test the exact Prometheus URL from inside the cluster with the same auth
    mechanism the operator uses.
 
-If the condition message includes `Prometheus query timeout exceeded`, the
+If the condition message includes `Metrics query timeout exceeded`, the
 operator's reconcile-level timeout expired before all workload queries
-completed. This typically happens when Prometheus is slow to respond
-(not down, just overloaded) or when a policy targets many workloads.
+completed. This typically happens when the metrics backend is slow to
+respond (not down, just overloaded) or when a policy targets many workloads.
 
 **Fix query timeouts**:
 
@@ -113,7 +113,7 @@ completed. This typically happens when Prometheus is slow to respond
 3. Check Prometheus health: high query latency often indicates Prometheus
    itself needs more resources or recording rules.
 
-If the condition message includes `Prometheus query errors (`, Prometheus was
+If the condition message includes `Metrics query errors (`, the backend was
 reachable but one or more metric queries still failed.
 
 **Fix query errors**:
