@@ -17,14 +17,17 @@ limitations under the License.
 package controller
 
 import (
+	"context"
 	"math"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 	rsmetrics "github.com/attune-io/attune/internal/metrics"
@@ -546,4 +549,62 @@ func TestHoldMissingResourceRequest_ZeroLiveLimitClearsTemplateLimit(t *testing.
 	assert.True(t, gotTargetMem.Equal(liveMem),
 		"resize target must keep held %s, got %s", liveMem.String(), gotTargetMem.String())
 	assert.Empty(t, clamped, "leftover template limit must not clamp the held request")
+}
+
+func TestRecommendContainer_SkipAndProduce(t *testing.T) {
+	r := NewAttunePolicyReconciler()
+	cpuEng, memEng := buildRecommendationEngines(&attunev1alpha1.AttunePolicy{})
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "ns"},
+	}
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "p", Namespace: "ns"},
+	}
+	container := corev1.Container{
+		Name: "main",
+		Resources: corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("500m"),
+				corev1.ResourceMemory: resource.MustParse("256Mi"),
+			},
+		},
+	}
+
+	t.Run("insufficient both sides", func(t *testing.T) {
+		_, ok, unfilled, pts := r.recommendContainer(context.Background(), recommendContainerInput{
+			policy:            policy,
+			workload:          deploy,
+			container:         container,
+			cpuEngine:         cpuEng,
+			memEngine:         memEng,
+			now:               time.Now(),
+			minimumDataPoints: 1,
+		})
+		assert.False(t, ok)
+		assert.False(t, unfilled)
+		assert.Equal(t, 0, pts)
+	})
+
+	t.Run("cpu samples produce rec", func(t *testing.T) {
+		now := time.Now()
+		samples := []rsmetrics.Sample{
+			{Value: 0.10, Timestamp: now.Add(-2 * time.Minute)},
+			{Value: 0.12, Timestamp: now.Add(-time.Minute)},
+			{Value: 0.11, Timestamp: now},
+		}
+		rec, ok, unfilled, pts := r.recommendContainer(context.Background(), recommendContainerInput{
+			policy:            policy,
+			workload:          deploy,
+			container:         container,
+			cpuSamples:        samples,
+			cpuEngine:         cpuEng,
+			memEngine:         memEng,
+			now:               now,
+			minimumDataPoints: 1,
+		})
+		require.True(t, ok)
+		assert.Greater(t, pts, 0)
+		assert.Equal(t, "main", rec.Name)
+		assert.True(t, unfilled, "memory arm has no samples and no hold source")
+	})
 }
