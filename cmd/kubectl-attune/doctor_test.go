@@ -152,11 +152,13 @@ func TestRunDoctorChecks_VersionAndDiscovery(t *testing.T) {
 	t.Run("pass 1.32 with resize", func(t *testing.T) {
 		t.Parallel()
 		results := runDoctorChecks(ctx, resizeDiscovery("1", "32", true), nil, nil, nil)
-		require.Len(t, results, 3)
+		require.Len(t, results, 4)
 		assert.True(t, results[0].ok, results[0].detail)
 		assert.True(t, results[1].ok, results[1].detail)
 		assert.False(t, results[2].ok, "no Prometheus ping is not ok")
 		assert.Contains(t, results[2].detail, "skipped (no address on policies or defaults)")
+		assert.False(t, results[3].ok)
+		assert.Contains(t, results[3].detail, "no AttunePolicies in scope")
 		assert.False(t, doctorFailed(results))
 	})
 
@@ -532,6 +534,7 @@ func TestRunDoctor_ExitCodes(t *testing.T) {
 	assert.Contains(t, stdout.String(), "pods/resize            ok   [required] discovered")
 	assert.Contains(t, stdout.String(), "Kubernetes version     ok   [required]")
 	assert.Contains(t, stdout.String(), "Prometheus             WARN [optional] skipped (no address on policies or defaults)")
+	assert.Contains(t, stdout.String(), "AttunePolicies         WARN [optional] no AttunePolicies in scope")
 	assert.NotContains(t, stdout.String(), "Prometheus             ok")
 	assert.Empty(t, stderr.String())
 
@@ -541,6 +544,69 @@ func TestRunDoctor_ExitCodes(t *testing.T) {
 	assert.Equal(t, 1, code)
 	assert.Contains(t, stderr.String(), "one or more checks failed")
 	assert.Contains(t, stdout.String(), "FAIL")
+}
+
+func TestRunDoctorChecks_PolicyScopeWarn(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	disc := resizeDiscovery("1", "32", true)
+
+	t.Run("zero policies", func(t *testing.T) {
+		t.Parallel()
+		results := runDoctorChecks(ctx, disc, nil, nil, nil)
+		got := results[len(results)-1]
+		assert.Equal(t, "AttunePolicies", got.name)
+		assert.False(t, got.required)
+		assert.False(t, got.ok)
+		assert.Equal(t, "no AttunePolicies in scope", got.detail)
+		assert.False(t, doctorFailed(results))
+	})
+
+	t.Run("Ready False ConflictCheckFailed", func(t *testing.T) {
+		t.Parallel()
+		policy := unstructured.Unstructured{Object: map[string]interface{}{
+			"kind":     "AttunePolicy",
+			"metadata": map[string]interface{}{"name": "web", "namespace": "default"},
+			"status": map[string]interface{}{
+				"conditions": []interface{}{
+					map[string]interface{}{
+						"type":    "Ready",
+						"status":  "False",
+						"reason":  "ConflictCheckFailed",
+						"message": "Failed to list AttunePolicies for conflict detection; recommendations not computed",
+					},
+				},
+			},
+		}}
+		results := runDoctorChecks(ctx, disc, []unstructured.Unstructured{policy}, nil, nil)
+		got := results[len(results)-1]
+		assert.False(t, got.ok)
+		assert.False(t, got.required)
+		assert.Equal(t, "1 policies, 1 Ready=False (reasons: ConflictCheckFailed)", got.detail)
+		assert.False(t, doctorFailed(results))
+	})
+
+	t.Run("all Ready", func(t *testing.T) {
+		t.Parallel()
+		policy := unstructured.Unstructured{Object: map[string]interface{}{
+			"kind":     "AttunePolicy",
+			"metadata": map[string]interface{}{"name": "web", "namespace": "default"},
+			"status": map[string]interface{}{
+				"conditions": []interface{}{
+					map[string]interface{}{
+						"type":   "Ready",
+						"status": "True",
+						"reason": "Monitoring",
+					},
+				},
+			},
+		}}
+		results := runDoctorChecks(ctx, disc, []unstructured.Unstructured{policy}, nil, nil)
+		got := results[len(results)-1]
+		assert.True(t, got.ok)
+		assert.Equal(t, "1 policies Ready", got.detail)
+		assert.False(t, doctorFailed(results))
+	})
 }
 
 func TestParseVersionPart(t *testing.T) {

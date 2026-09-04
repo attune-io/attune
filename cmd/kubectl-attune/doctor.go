@@ -330,6 +330,7 @@ func runDoctorChecks(ctx context.Context, disc doctorDiscovery, objects []unstru
 			name: "Prometheus", required: false, ok: false,
 			detail: detail,
 		})
+		results = append(results, attunePolicyDoctorResult(objects))
 		return results
 	}
 	var failed []string
@@ -360,6 +361,7 @@ func runDoctorChecks(ctx context.Context, disc doctorDiscovery, objects []unstru
 		results = append(results, doctorResult{
 			name: "Prometheus", required: false, detail: strings.Join(failed, "; "),
 		})
+		results = append(results, attunePolicyDoctorResult(objects))
 		return results
 	}
 	detail := strings.Join(reachable, ", ") + " " + prometheusHealthyPath
@@ -382,7 +384,50 @@ func runDoctorChecks(ctx context.Context, disc doctorDiscovery, objects []unstru
 		name: "Prometheus", required: false, ok: len(reachable) > 0,
 		detail: detail,
 	})
+	results = append(results, attunePolicyDoctorResult(objects))
 	return results
+}
+
+func attunePolicyDoctorResult(objects []unstructured.Unstructured) doctorResult {
+	var total, notReady int
+	var reasons []string
+	seen := map[string]struct{}{}
+	for _, obj := range objects {
+		if obj.GetKind() != "AttunePolicy" {
+			continue
+		}
+		total++
+		status, reason, _ := readyConditionFields(obj)
+		if status != "False" {
+			continue
+		}
+		notReady++
+		if reason == "" {
+			reason = "Unknown"
+		}
+		if _, ok := seen[reason]; ok {
+			continue
+		}
+		seen[reason] = struct{}{}
+		reasons = append(reasons, reason)
+	}
+	if total == 0 {
+		return doctorResult{
+			name: "AttunePolicies", required: false,
+			detail: "no AttunePolicies in scope",
+		}
+	}
+	if notReady == 0 {
+		return doctorResult{
+			name: "AttunePolicies", required: false, ok: true,
+			detail: fmt.Sprintf("%d policies Ready", total),
+		}
+	}
+	return doctorResult{
+		name: "AttunePolicies", required: false,
+		detail: fmt.Sprintf("%d policies, %d Ready=False (reasons: %s)",
+			total, notReady, strings.Join(reasons, ", ")),
+	}
 }
 
 func doctorFailed(results []doctorResult) bool {
