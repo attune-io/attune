@@ -1945,7 +1945,7 @@ func TestE2E_MultiReplica_ProgressiveResize(t *testing.T) {
 		}
 		t.Logf("progressive resize: %d/3 pods decreased from 250m", decreased)
 		return decreased == 3, nil
-	}), "all 3 replicas should eventually decrease with maxConcurrentResizes=1")
+	}), "all 3 replicas should eventually decrease; in-flight maxConcurrentResizes is unit-tested")
 
 	var deploy appsv1.Deployment
 	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "multi-rep-app", Namespace: ns}, &deploy))
