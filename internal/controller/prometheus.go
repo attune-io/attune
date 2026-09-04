@@ -422,6 +422,7 @@ func (r *AttunePolicyReconciler) computeRecommendations(
 				partialUnfilled = true
 			}
 		}
+		recordQuerySettings(policy, explanation)
 		if explanation.CPU != nil || explanation.Memory != nil {
 			rec.Explanation = explanation
 		}
@@ -777,17 +778,52 @@ func (r *AttunePolicyReconciler) resolveMetricsCollector(ctx context.Context, po
 	}
 }
 
-// promQLBuilder constructs a PromQLQueryBuilder from policy metricsSource settings.
-func (r *AttunePolicyReconciler) promQLBuilder(policy *attunev1alpha1.AttunePolicy) *rsmetrics.PromQLQueryBuilder {
-	agg := rsmetrics.PodAggregationMax
+// resolvePodAggregation maps the policy field to the PromQL reduction used
+// by QueryBuilder. Empty and unknown values follow applyPodAggregation (Max).
+func resolvePodAggregation(policy *attunev1alpha1.AttunePolicy) rsmetrics.PodAggregationMode {
 	switch policy.Spec.MetricsSource.PodAggregation {
 	case "Avg":
-		agg = rsmetrics.PodAggregationAvg
+		return rsmetrics.PodAggregationAvg
 	case "None":
-		agg = rsmetrics.PodAggregationNone
+		return rsmetrics.PodAggregationNone
+	default:
+		return rsmetrics.PodAggregationMax
 	}
+}
+
+func podAggregationNote(policy *attunev1alpha1.AttunePolicy) string {
+	return "podAggregation=" + string(resolvePodAggregation(policy))
+}
+
+func burstSensitivityNote(raw *string) string {
+	bs := recommendation.DefaultBurstSensitivity
+	if raw != nil {
+		bs = parseFloat64NonNeg(*raw, recommendation.DefaultBurstSensitivity)
+	}
+	return fmt.Sprintf("burstSensitivity=%g", bs)
+}
+
+// recordQuerySettings stamps the PromQL aggregation and the burst
+// sensitivity that buildRecommendationEngines passed into the estimator.
+func recordQuerySettings(policy *attunev1alpha1.AttunePolicy, explanation *attunev1alpha1.ContainerRecommendationExplanation) {
+	if explanation == nil {
+		return
+	}
+	agg := podAggregationNote(policy)
+	if explanation.CPU != nil {
+		explanation.CPU.FinalAdjustment = appendNote(explanation.CPU.FinalAdjustment, agg)
+		explanation.CPU.FinalAdjustment = appendNote(explanation.CPU.FinalAdjustment, burstSensitivityNote(policy.Spec.CPU.BurstSensitivity))
+	}
+	if explanation.Memory != nil {
+		explanation.Memory.FinalAdjustment = appendNote(explanation.Memory.FinalAdjustment, agg)
+		explanation.Memory.FinalAdjustment = appendNote(explanation.Memory.FinalAdjustment, burstSensitivityNote(policy.Spec.Memory.BurstSensitivity))
+	}
+}
+
+// promQLBuilder constructs a PromQLQueryBuilder from policy metricsSource settings.
+func (r *AttunePolicyReconciler) promQLBuilder(policy *attunev1alpha1.AttunePolicy) *rsmetrics.PromQLQueryBuilder {
 	return &rsmetrics.PromQLQueryBuilder{
-		Aggregation:  agg,
+		Aggregation:  resolvePodAggregation(policy),
 		CPUMetric:    policy.Spec.MetricsSource.CPURecordingMetric,
 		MemoryMetric: policy.Spec.MetricsSource.MemoryRecordingMetric,
 	}

@@ -1393,29 +1393,40 @@ func TestE2E_EvictionFallback_ResizesWithInPlaceOrRecreate(t *testing.T) {
 		require.NoError(t, tryPatchPodResizePending(t, startPods.Items[i].Name, ns, "Infeasible"))
 	}
 
+	// Kubelet clears injected Infeasible within seconds. Re-apply on a
+	// short ticker so executeResizes still sees it when recs land.
+	stopInject := make(chan struct{})
+	defer close(stopInject)
+	go func() {
+		ticker := time.NewTicker(200 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopInject:
+				return
+			case <-ticker.C:
+				var live corev1.PodList
+				if err := k8sClient.List(ctx, &live, client.InNamespace(ns), client.MatchingLabels{"app": "evict-app"}); err != nil {
+					continue
+				}
+				for i := range live.Items {
+					if _, ok := origUIDs[live.Items[i].UID]; !ok {
+						continue
+					}
+					_ = tryPatchPodResizePending(t, live.Items[i].Name, ns, "Infeasible")
+				}
+			}
+		}
+	}()
+
 	// Create the policy after Infeasible is already on the original pods so
 	// the first executeResizes hits eviction instead of a successful in-place.
 	require.NoError(t, k8sClient.Create(ctx, policy))
 
-	require.NoError(t, wait.PollUntilContextTimeout(ctx, 3*time.Second, 4*time.Minute, true, func(ctx context.Context) (bool, error) {
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 1*time.Second, 4*time.Minute, true, func(ctx context.Context) (bool, error) {
 		var live corev1.PodList
 		if err := k8sClient.List(ctx, &live, client.InNamespace(ns), client.MatchingLabels{"app": "evict-app"}); err != nil {
 			return false, nil
-		}
-		// Only inject on the original pods. Replacement pods must stay
-		// so the last-replica guard can settle the Deployment.
-		for i := range live.Items {
-			pod := &live.Items[i]
-			if _, ok := origUIDs[pod.UID]; !ok {
-				continue
-			}
-			if err := tryPatchPodResizePending(t, pod.Name, ns, "Infeasible"); err != nil {
-				if apierrors.IsNotFound(err) {
-					t.Logf("original pod %s gone while injecting Infeasible", pod.Name)
-					continue
-				}
-				t.Logf("inject Infeasible on %s: %v", pod.Name, err)
-			}
 		}
 
 		var p attunev1alpha1.AttunePolicy
@@ -1439,7 +1450,8 @@ func TestE2E_EvictionFallback_ResizesWithInPlaceOrRecreate(t *testing.T) {
 				replaced++
 			}
 		}
-		t.Logf("eviction wait: historyEvicted=%v stillOrig=%d replaced=%d", historyEvicted, stillOrig, replaced)
+		t.Logf("eviction wait: historyEvicted=%v stillOrig=%d replaced=%d recs=%d resized=%d",
+			historyEvicted, stillOrig, replaced, p.Status.Workloads.WithRecommendations, p.Status.Workloads.Resized)
 		return historyEvicted || replaced >= 1, nil
 	}), "InPlaceOrRecreate must evict an Infeasible pod (history Evicted or original UID replaced)")
 
@@ -3627,6 +3639,77 @@ func TestE2E_MemoryFromCPURatio_DerivesMemory(t *testing.T) {
 		return false, nil
 	}), "memory recommendation must be derived from CPU via memoryFromCpuRatio")
 	assert.Contains(t, note, "memoryFromCpuRatio=2.0")
+}
+
+func TestE2E_PodAggregationAndBurstSensitivity_InExplanation(t *testing.T) {
+	t.Parallel()
+	ns := uniqueNS("aggburst")
+	createNamespace(t, ns)
+	createDeployment(t, "aggburst-app", ns, "250m", "256Mi", 1)
+	waitForDeploymentReady(t, "aggburst-app", ns, 60*time.Second)
+
+	burstOff := "0.5"
+	name := "aggburst-app"
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "aggburst-policy", Namespace: ns},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			TargetRef: attunev1alpha1.TargetRef{Kind: "Deployment", Name: &name},
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Prometheus:        &attunev1alpha1.PrometheusConfig{Address: promAddr},
+				MinimumDataPoints: int32Ptr(1),
+				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
+				RateWindow:        &metav1.Duration{Duration: 5 * time.Minute},
+				PodAggregation:    "Avg",
+			},
+			CPU: attunev1alpha1.ResourceConfig{
+				Percentile:       95,
+				Overhead:         "20",
+				BurstSensitivity: &burstOff,
+				MinAllowed:       quantityPtr("50m"),
+				MaxAllowed:       quantityPtr("4000m"),
+				MaxChangePercent: int32Ptr(100),
+			},
+			Memory: attunev1alpha1.ResourceConfig{
+				Percentile:       99,
+				Overhead:         "30",
+				AllowDecrease:    boolPtr(true),
+				MinAllowed:       quantityPtr("64Mi"),
+				MaxAllowed:       quantityPtr("8Gi"),
+				MaxChangePercent: int32Ptr(100),
+			},
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Type:     attunev1alpha1.UpdateTypeRecommend,
+				Cooldown: &metav1.Duration{Duration: time.Minute},
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, policy))
+
+	var note string
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
+		var p attunev1alpha1.AttunePolicy
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "aggburst-policy", Namespace: ns}, &p); err != nil {
+			return false, nil
+		}
+		for _, rec := range p.Status.Recommendations {
+			for _, c := range rec.Containers {
+				if c.Name != "app" || c.Explanation == nil || c.Explanation.CPU == nil {
+					continue
+				}
+				note = c.Explanation.CPU.FinalAdjustment
+				t.Logf("cpu finalAdjustment=%q", note)
+				if strings.Contains(note, "podAggregation=Avg") && strings.Contains(note, "burstSensitivity=0.5") {
+					return true, nil
+				}
+			}
+		}
+		return false, nil
+	}), "explanation must record Avg aggregation and burstSensitivity=0.5")
+	assert.Contains(t, note, "podAggregation=Avg")
+	assert.Contains(t, note, "burstSensitivity=0.5")
+	assert.NotContains(t, note, "podAggregation=Max")
+	assert.NotContains(t, note, "burstSensitivity=0.1")
 }
 
 func liveAppCPU(t *testing.T, namespace, app string) resource.Quantity {

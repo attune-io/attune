@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	rsmetrics "github.com/attune-io/attune/internal/metrics"
 	"github.com/attune-io/attune/internal/recommendation"
 )
 
@@ -238,6 +239,51 @@ func TestDeriveMemoryFromCPU_MinBoundEnforced(t *testing.T) {
 	minBound := resource.MustParse("256Mi")
 	assert.True(t, memRec.Cmp(minBound) >= 0,
 		"memory %s should be clamped to minBound %s", memRec.String(), minBound.String())
+}
+
+func TestResolvePodAggregation(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want rsmetrics.PodAggregationMode
+	}{
+		{name: "avg", in: "Avg", want: rsmetrics.PodAggregationAvg},
+		{name: "none", in: "None", want: rsmetrics.PodAggregationNone},
+		{name: "max", in: "Max", want: rsmetrics.PodAggregationMax},
+		{name: "empty defaults to max", in: "", want: rsmetrics.PodAggregationMax},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			policy := &attunev1alpha1.AttunePolicy{}
+			policy.Spec.MetricsSource.PodAggregation = tt.in
+			assert.Equal(t, tt.want, resolvePodAggregation(policy))
+			assert.Equal(t, "podAggregation="+string(tt.want), podAggregationNote(policy))
+		})
+	}
+}
+
+func TestBurstSensitivityNote(t *testing.T) {
+	zero := "0"
+	tuned := "0.3"
+	assert.Equal(t, "burstSensitivity=0.1", burstSensitivityNote(nil))
+	assert.Equal(t, "burstSensitivity=0", burstSensitivityNote(&zero))
+	assert.Equal(t, "burstSensitivity=0.3", burstSensitivityNote(&tuned))
+}
+
+func TestRecordQuerySettings_StampsResolvedValues(t *testing.T) {
+	zero := "0"
+	policy := &attunev1alpha1.AttunePolicy{}
+	policy.Spec.MetricsSource.PodAggregation = "Avg"
+	policy.Spec.CPU.BurstSensitivity = &zero
+	explain := &attunev1alpha1.ContainerRecommendationExplanation{
+		CPU:    &attunev1alpha1.ResourceRecommendationExplanation{},
+		Memory: &attunev1alpha1.ResourceRecommendationExplanation{},
+	}
+	recordQuerySettings(policy, explain)
+	assert.Contains(t, explain.CPU.FinalAdjustment, "podAggregation=Avg")
+	assert.Contains(t, explain.CPU.FinalAdjustment, "burstSensitivity=0")
+	assert.NotContains(t, explain.CPU.FinalAdjustment, "podAggregation=Max")
+	assert.Contains(t, explain.Memory.FinalAdjustment, "podAggregation=Avg")
 }
 
 func Test_appendNote(t *testing.T) {
