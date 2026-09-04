@@ -66,6 +66,7 @@ jobs:
               - 'Dockerfile'
               - 'hack/verify-go-version-sync.sh'
               - '.github/workflows/ci.yaml'
+              - '.golangci.yml'
             go-source:
               - '**/*.go'
               - 'go.mod'
@@ -100,6 +101,7 @@ jobs:
               - 'charts/attune/README.md.gotmpl'
             e2e:
               - 'test/e2e/**'
+              - '.chainsaw.yaml'
             # CRDs, kustomize, and tracked release manifests (dist/).
             # Used by crd-freshness so dist/ cannot lag without a CI failure.
             manifests:
