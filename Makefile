@@ -313,7 +313,11 @@ ko-build-local: ko ## Build operator image as OCI tarball via ko (no Docker daem
 
 .PHONY: docker-build
 docker-build: ## Build container image via Docker (alternative to ko-build-local)
-	DOCKER_BUILDKIT=1 docker build -t $(IMG) .
+	DOCKER_BUILDKIT=1 docker build \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg COMMIT=$(COMMIT) \
+		--build-arg DATE=$(BUILD_DATE) \
+		-t $(IMG) .
 
 .PHONY: docker-push
 docker-push: ## Push container image
@@ -323,7 +327,11 @@ PLATFORMS ?= linux/amd64,linux/arm64
 
 .PHONY: docker-buildx
 docker-buildx: ## Build and push multi-arch container image
-	docker buildx build --platform $(PLATFORMS) --push -t $(IMG) .
+	docker buildx build --platform $(PLATFORMS) --push \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg COMMIT=$(COMMIT) \
+		--build-arg DATE=$(BUILD_DATE) \
+		-t $(IMG) .
 
 ##@ Deployment
 
@@ -353,7 +361,7 @@ K3S_VERSION ?= v1.35.4-k3s1
 
 # Kind settings (upstream K8s, production-accurate)
 KIND_CLUSTER_NAME ?= attune
-KIND_NODE_IMAGE ?= kindest/node:v1.33.7
+KIND_NODE_IMAGE ?= kindest/node:v1.35.0
 
 .PHONY: k3d-create
 k3d-create: ## Create a k3d cluster for local dev (fast, uses k3s)
