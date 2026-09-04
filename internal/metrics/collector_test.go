@@ -383,6 +383,40 @@ func TestQuery_PrometheusError(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestQuery_NaNRejected(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1700000000,"NaN"]}]}}`))
+	}))
+	defer server.Close()
+
+	collector, err := NewPrometheusCollector(server.URL, logr.Discard(), http.DefaultTransport)
+	require.NoError(t, err)
+
+	val, err := collector.Query(context.Background(), "ratio", time.Unix(1700000000, 0))
+	require.Error(t, err)
+	assert.ErrorIs(t, err, errNonFiniteInstantQuery)
+	assert.Zero(t, val)
+}
+
+func TestQuery_InfRejected(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"scalar","result":[1700000000,"+Inf"]}}`))
+	}))
+	defer server.Close()
+
+	collector, err := NewPrometheusCollector(server.URL, logr.Discard(), http.DefaultTransport)
+	require.NoError(t, err)
+
+	val, err := collector.Query(context.Background(), "scalar_metric", time.Unix(1700000000, 0))
+	require.Error(t, err)
+	assert.ErrorIs(t, err, errNonFiniteInstantQuery)
+	assert.Zero(t, val)
+}
+
 func TestNewPrometheusCollector_InvalidAddress(t *testing.T) {
 	_, err := NewPrometheusCollector("://bad-url", logr.Discard())
 	assert.Error(t, err)

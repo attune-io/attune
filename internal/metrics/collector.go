@@ -127,6 +127,7 @@ func isBlockedIP(ip net.IP) bool {
 }
 
 var errEmptyInstantQuery = errors.New("empty result from instant query")
+var errNonFiniteInstantQuery = errors.New("non-finite result from instant query")
 
 // ErrSeriesCapped is returned when a range query returned more series than
 // MaxSeries and the result was truncated. Callers may still use the partial
@@ -417,12 +418,19 @@ func (c *PrometheusCollector) Query(ctx context.Context, query string, ts time.T
 		if len(v) != 1 {
 			return 0, fmt.Errorf("expected exactly one sample from instant query, got %d", len(v))
 		}
-		return float64(v[0].Value), nil
+		return finiteInstantValue(float64(v[0].Value))
 	case *model.Scalar:
-		return float64(v.Value), nil
+		return finiteInstantValue(float64(v.Value))
 	default:
 		return 0, fmt.Errorf("unexpected result type %T, expected vector or scalar", result)
 	}
+}
+
+func finiteInstantValue(v float64) (float64, error) {
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return 0, errNonFiniteInstantQuery
+	}
+	return v, nil
 }
 
 // GetThrottleRatio queries Prometheus for the CPU throttle ratio of a container.
@@ -441,14 +449,10 @@ func (c *PrometheusCollector) GetThrottleRatio(ctx context.Context, namespace, p
 	)
 	val, err := c.Query(ctx, query, ts)
 	if err != nil {
-		if errors.Is(err, errEmptyInstantQuery) {
+		if errors.Is(err, errEmptyInstantQuery) || errors.Is(err, errNonFiniteInstantQuery) {
 			return 0, nil
 		}
 		return 0, err
-	}
-	// Prometheus returns NaN for 0/0 (both rates zero). Treat as no data.
-	if math.IsNaN(val) || math.IsInf(val, 0) {
-		return 0, nil
 	}
 	return val, nil
 }
