@@ -62,6 +62,30 @@ func (m *mockCollector) Query(ctx context.Context, query string, ts time.Time) (
 	return 42.0, nil
 }
 
+type closableMockCollector struct {
+	mockCollector
+	closed int
+}
+
+func (m *closableMockCollector) Close() error {
+	m.closed++
+	return nil
+}
+
+func TestRateLimitedCollector_CloseForwards(t *testing.T) {
+	inner := &closableMockCollector{}
+	rl := NewRateLimitedCollector(inner, 10, 20)
+	require.NoError(t, rl.Close())
+	assert.Equal(t, 1, inner.closed)
+	require.NoError(t, rl.Close())
+	assert.Equal(t, 2, inner.closed)
+}
+
+func TestRateLimitedCollector_CloseInnerNotCloser(t *testing.T) {
+	rl := NewRateLimitedCollector(&mockCollector{}, 10, 20)
+	require.NoError(t, rl.Close())
+}
+
 func TestRateLimitedCollector_PassesThrough(t *testing.T) {
 	mock := &mockCollector{}
 	rl := NewRateLimitedCollector(mock, 10, 20)

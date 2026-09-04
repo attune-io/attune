@@ -149,7 +149,7 @@ For detailed PromQL expressions and alert tuning, see the
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `collectorTTL` | string | `"10m"` | How long unused Prometheus collectors stay cached before eviction. Maps to the `--collector-ttl` manager flag. Increase if policies frequently rotate Prometheus addresses; decrease in memory-constrained environments. |
+| `collectorTTL` | string | `"10m"` | How long unused collectors (Prometheus, Datadog, CloudWatch) stay cached before eviction. Maps to the `--collector-ttl` manager flag. Increase if policies frequently rotate Prometheus addresses; decrease in memory-constrained environments. |
 
 ## Prometheus Query Timeout
 

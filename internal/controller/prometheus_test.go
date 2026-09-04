@@ -17,7 +17,9 @@ limitations under the License.
 package controller
 
 import (
+	"math"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -40,6 +42,106 @@ func newTestMemEngine() *recommendation.RecommendationEngine {
 		100,                        // maxIncreasePct (wide)
 		100,                        // maxDecreasePct (wide)
 	)
+}
+
+func TestSamplesForContainer(t *testing.T) {
+	named := []rsmetrics.Sample{{Value: 1.5}}
+	fallback := []rsmetrics.Sample{{Value: 9.0}}
+
+	tests := []struct {
+		name      string
+		grouped   map[string][]rsmetrics.Sample
+		container string
+		want      []rsmetrics.Sample
+	}{
+		{
+			name: "named-key hit",
+			grouped: map[string][]rsmetrics.Sample{
+				"web": named,
+				"":    fallback,
+			},
+			container: "web",
+			want:      named,
+		},
+		{
+			name: "empty-key fallback",
+			grouped: map[string][]rsmetrics.Sample{
+				"": fallback,
+			},
+			container: "web",
+			want:      fallback,
+		},
+		{
+			name:      "nil map",
+			grouped:   nil,
+			container: "web",
+			want:      nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := samplesForContainer(tt.grouped, tt.container)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestLatestFiniteSampleTime(t *testing.T) {
+	t1 := time.Unix(1000, 0)
+	t2 := time.Unix(2000, 0)
+	t3 := time.Unix(3000, 0)
+	t4 := time.Unix(4000, 0)
+
+	tests := []struct {
+		name   string
+		groups []map[string][]rsmetrics.Sample
+		want   time.Time
+	}{
+		{
+			name: "newest finite across two groups",
+			groups: []map[string][]rsmetrics.Sample{
+				{
+					"web": {
+						{Timestamp: t1, Value: 1.0},
+						{Timestamp: t4, Value: math.NaN()},
+					},
+				},
+				{
+					"db": {
+						{Timestamp: t3, Value: math.Inf(1)},
+						{Timestamp: t2, Value: 2.0},
+						{Timestamp: t4, Value: math.Inf(-1)},
+					},
+				},
+			},
+			want: t2,
+		},
+		{
+			name: "zero time when every point is non-finite",
+			groups: []map[string][]rsmetrics.Sample{
+				{
+					"web": {
+						{Timestamp: t3, Value: math.NaN()},
+						{Timestamp: t4, Value: math.Inf(1)},
+					},
+				},
+				{
+					"db": {
+						{Timestamp: t2, Value: math.Inf(-1)},
+					},
+				},
+			},
+			want: time.Time{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := latestFiniteSampleTime(tt.groups...)
+			assert.True(t, got.Equal(tt.want), "got %v want %v", got, tt.want)
+		})
+	}
 }
 
 func Test_secretForCacheKey(t *testing.T) {

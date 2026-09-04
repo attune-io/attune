@@ -519,6 +519,117 @@ func TestResolveMetricsCollector_VPA(t *testing.T) {
 	assert.Nil(t, qb, "VPA source should return nil query builder")
 }
 
+func defaultsWithPrometheus() *attunev1alpha1.AttuneDefaults {
+	return &attunev1alpha1.AttuneDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			MetricsSource: &attunev1alpha1.MetricsSource{
+				Prometheus: &attunev1alpha1.PrometheusConfig{
+					Address: "http://prometheus.monitoring.svc:9090",
+				},
+			},
+		},
+	}
+}
+
+func TestResolveMetricsCollector_Datadog(t *testing.T) {
+	defaults := defaultsWithPrometheus()
+
+	t.Run("policy Datadog wins over defaults Prometheus", func(t *testing.T) {
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "dd-keys", Namespace: "default"},
+			Data: map[string][]byte{
+				"api-key": []byte("test-api-key-12345"),
+			},
+		}
+		policy := &attunev1alpha1.AttunePolicy{
+			ObjectMeta: metav1.ObjectMeta{Name: "dd-policy", Namespace: "default"},
+			Spec: attunev1alpha1.AttunePolicySpec{
+				MetricsSource: attunev1alpha1.MetricsSource{
+					Datadog: &attunev1alpha1.DatadogConfig{
+						Site:            "datadoghq.com",
+						APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "dd-keys", Key: "api-key"},
+					},
+				},
+			},
+		}
+
+		scheme := testScheme()
+		fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(secret).Build()
+
+		reconciler := NewAttunePolicyReconciler()
+		reconciler.Client = fakeClient
+		reconciler.Scheme = scheme
+
+		collector, qb, err := reconciler.resolveMetricsCollector(
+			context.Background(), policy, defaults,
+		)
+		require.NoError(t, err)
+		assert.NotNil(t, collector)
+		assert.IsType(t, &rsmetrics.DatadogQueryBuilder{}, qb)
+	})
+
+	t.Run("missing Secret is an error not Prometheus", func(t *testing.T) {
+		policy := &attunev1alpha1.AttunePolicy{
+			ObjectMeta: metav1.ObjectMeta{Name: "dd-policy", Namespace: "default"},
+			Spec: attunev1alpha1.AttunePolicySpec{
+				MetricsSource: attunev1alpha1.MetricsSource{
+					Datadog: &attunev1alpha1.DatadogConfig{
+						Site:            "datadoghq.com",
+						APIKeySecretRef: attunev1alpha1.SecretKeyRef{Name: "missing-keys", Key: "api-key"},
+					},
+				},
+			},
+		}
+
+		scheme := testScheme()
+		fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+		reconciler := NewAttunePolicyReconciler()
+		reconciler.Client = fakeClient
+		reconciler.Scheme = scheme
+
+		collector, qb, err := reconciler.resolveMetricsCollector(
+			context.Background(), policy, defaults,
+		)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "Datadog API key")
+		assert.Nil(t, collector, "missing Secret must not fall through to Prometheus")
+		assert.Nil(t, qb)
+	})
+}
+
+func TestResolveMetricsCollector_CloudWatch(t *testing.T) {
+	defaults := defaultsWithPrometheus()
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "cw-policy", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			MetricsSource: attunev1alpha1.MetricsSource{
+				CloudWatch: &attunev1alpha1.CloudWatchConfig{
+					Region:      "us-east-1",
+					ClusterName: "test-cluster",
+				},
+			},
+		},
+	}
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = scheme
+
+	collector, qb, err := reconciler.resolveMetricsCollector(
+		context.Background(), policy, defaults,
+	)
+	require.NoError(t, err)
+	assert.NotNil(t, collector)
+	cwQB, ok := qb.(*rsmetrics.CloudWatchQueryBuilder)
+	require.True(t, ok, "policy CloudWatch must win over defaults Prometheus")
+	assert.Equal(t, "test-cluster", cwQB.ClusterName)
+}
+
 func TestReconcile_VPASource_EmptyRecommendations(t *testing.T) {
 	policy := newVPAPolicy("vpa-policy", "default", "empty-vpa")
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})

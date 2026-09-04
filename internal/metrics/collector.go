@@ -336,6 +336,7 @@ func (c *PrometheusCollector) QueryRangeGrouped(ctx context.Context, query strin
 	grouped := make(map[string][]Sample, len(matrix))
 	for _, series := range matrix {
 		container := string(series.Metric[model.LabelName("container")])
+		before := len(grouped[container])
 		for _, sp := range series.Values {
 			v := float64(sp.Value)
 			if math.IsNaN(v) || math.IsInf(v, 0) {
@@ -345,6 +346,9 @@ func (c *PrometheusCollector) QueryRangeGrouped(ctx context.Context, query strin
 				Timestamp: sp.Timestamp.Time(),
 				Value:     v,
 			})
+		}
+		if len(series.Values) > 0 && len(grouped[container]) == before {
+			recordDroppedNonFinite(ctx, fallbackMetricType(query))
 		}
 	}
 

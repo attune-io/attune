@@ -18,12 +18,15 @@ package metrics
 
 import (
 	"context"
+	"io"
 	"time"
 
 	"golang.org/x/time/rate"
 
 	"github.com/attune-io/attune/internal/throttle"
 )
+
+var _ io.Closer = (*RateLimitedCollector)(nil)
 
 // RateLimitedCollector wraps a MetricsCollector with rate limiting.
 type RateLimitedCollector struct {
@@ -125,4 +128,17 @@ func (c *RateLimitedCollector) GetThrottleRatios(ctx context.Context, namespace 
 		out[k] = v
 	}
 	return out, nil
+}
+
+// Close forwards to the inner collector when it implements io.Closer.
+// Production caches *RateLimitedCollector, so eviction must reach
+// PrometheusCollector.Close / DatadogCollector.Close through this wrapper.
+func (c *RateLimitedCollector) Close() error {
+	if c == nil || c.inner == nil {
+		return nil
+	}
+	if closer, ok := c.inner.(io.Closer); ok {
+		return closer.Close()
+	}
+	return nil
 }

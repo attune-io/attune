@@ -110,6 +110,7 @@ kubectl get attunepolicy my-app -n production -o wide
 |-----------|---------|
 | `Ready: True, Reason: Monitoring` | Datadog reachable, recommendations computed |
 | `Ready: False, Reason: InsufficientData` | Datadog reachable but not enough history yet |
+| `Ready: False, Reason: PrometheusUnavailable` | Missing Secret, Datadog 403, or Datadog 429 |
 
 If the condition message mentions a Datadog API error, check the
 operator logs:
@@ -125,7 +126,7 @@ kubectl logs -n attune-system deployment/attune \
 |-------|-------|-----|
 | `cannot read Datadog API key` | Secret not found or missing key | Verify the Secret exists in the policy namespace with the correct key name |
 | `datadog API returned 403` | Invalid API key or insufficient permissions | Regenerate the API key in the Datadog console |
-| `datadog API returned 429` | Rate limited | Add an `app-key` to the Secret for higher limits; the operator rate-limits to ~0.08 QPS per collector |
+| `datadog API returned 429` | Rate limited | Add an `app-key` to the existing Secret for higher limits; the next reconcile builds a new collector. The operator rate-limits to ~0.08 QPS per collector |
 | `empty result from Datadog instant query` | No metrics for the workload | Verify the Datadog Agent is collecting Kubernetes metrics for the target namespace and pods |
 
 ## Rate limiting
@@ -139,7 +140,9 @@ If you have many policies using Datadog, consider:
 
 - Adding an Application key to increase the rate limit
 - Using cluster-wide or namespace defaults to share the collector across
-  policies (the operator caches collectors by site + API key)
+  policies (the operator caches collectors by site + API key + app-key).
+  Adding or rotating `app-key` takes effect on the next reconcile. Do not
+  restart the operator.
 
 ## Using Datadog as the cluster default
 
@@ -206,9 +209,9 @@ spec:
 - **No auto-discovery.** Unlike Prometheus, Datadog has no in-cluster
   service to discover automatically. The `apiKeySecretRef` is always
   required.
-- **One metrics source per policy.** A policy cannot combine Datadog and
-  Prometheus data. Set `metricsSource.datadog` or
-  `metricsSource.prometheus`, not both.
+- **Exclusive provider.** At most one of prometheus, datadog, cloudwatch,
+  or vpa. If the policy already sets any provider, cluster AttuneDefaults
+  does not merge another.
 - **Safety monitor throttle detection** uses the same metrics source as
   recommendations. Datadog does not expose CFS throttle metrics
   (`container_cpu_cfs_throttled_periods_total`), so CPU throttle-based

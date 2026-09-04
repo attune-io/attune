@@ -158,6 +158,7 @@ Shows the stored recommendation reasoning for a single policy, including
 percentile selection, overhead, confidence adjustment, bounds, and
 change filtering for CPU and memory. It also prints the effective values for
 all controller-applied defaults: `type`, `cooldown`, `queryStep`,
+Metrics source (`prometheus` / `datadog` / `cloudwatch` / `vpa`),
 `minimumDataPoints`, `historyWindow`, `resizeMethod`, `autoRevert`,
 `initialSizing`, `maxConcurrentResizes`, `rateWindow`, `export`,
 `templatePersistence`, budget caps (`maxTotalCPUIncrease`,
@@ -320,7 +321,7 @@ typically set via the Helm chart `values.yaml` rather than directly.
 | `--health-probe-bind-address` | `:8081` | Address the health/readiness probe endpoint binds to |
 | `--leader-elect` | `false` | Enable leader election (required for HA with multiple replicas) |
 | `--enable-webhooks` | `true` | Enable admission webhooks for defaulting and validation (requires cert-manager) |
-| `--collector-ttl` | `10m` | How long unused Prometheus collectors stay cached before eviction |
+| `--collector-ttl` | `10m` | How long unused collectors (Prometheus, Datadog, CloudWatch) stay cached before eviction |
 | `--zap-log-level` | `info` | Log verbosity: `debug`, `info`, `error`, or integer (higher = more verbose) |
 | `--zap-encoder` | `json` | Log format: `json` (default) or `console` (human-readable) |
 | `--zap-stacktrace-level` | `error` | Minimum level for automatic stacktrace capture |

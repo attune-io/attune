@@ -153,6 +153,7 @@ kubectl get attunepolicy my-app -n production -o wide
 |-----------|---------|
 | `Ready: True, Reason: Monitoring` | CloudWatch reachable, recommendations computed |
 | `Ready: False, Reason: InsufficientData` | CloudWatch reachable but not enough history yet |
+| `Ready: False, Reason: PrometheusUnavailable` | IAM, AssumeRole, or CloudWatch query failure |
 
 Check the operator logs for CloudWatch-specific messages:
 
@@ -243,9 +244,9 @@ additional Secrets.
   configuration.
 - **No auto-discovery.** The `region` and `clusterName` fields are
   always required. The operator does not auto-detect the EKS cluster.
-- **One metrics source per policy.** A policy cannot combine CloudWatch
-  and Prometheus data. Set `metricsSource.cloudwatch` or
-  `metricsSource.prometheus`, not both.
+- **Exclusive provider.** At most one of prometheus, datadog, cloudwatch,
+  or vpa. If the policy already sets any provider, cluster AttuneDefaults
+  does not merge another.
 - **Safety monitor throttle detection** uses the same metrics source as
   recommendations. CloudWatch Container Insights does not expose CFS
   throttle metrics (`container_cpu_cfs_throttled_periods_total`), so
