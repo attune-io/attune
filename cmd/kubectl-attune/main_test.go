@@ -1672,12 +1672,11 @@ func TestPrintRecommendations_CollectingData(t *testing.T) {
 }
 
 func conflictCheckFailedPolicy(name, ns string, recs []interface{}, extraErrors []interface{}) *unstructured.Unstructured {
-	errors := []interface{}{
-		map[string]interface{}{
-			"workload": "*",
-			"error":    "Failed to list AttunePolicies for conflict detection; recommendations not computed",
-		},
-	}
+	errors := make([]interface{}, 0, 1+len(extraErrors))
+	errors = append(errors, map[string]interface{}{
+		"workload": "*",
+		"error":    "Failed to list AttunePolicies for conflict detection; recommendations not computed",
+	})
 	errors = append(errors, extraErrors...)
 	status := map[string]interface{}{
 		"conditions": []interface{}{
