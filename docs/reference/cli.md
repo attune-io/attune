@@ -35,12 +35,12 @@ kubectl attune savings --sort-by savings -A
 |------|-------------|
 | `-w`, `--watch` | Continuously refresh the status table every 10 seconds. Press Ctrl+C to stop. Useful during initial data collection to track progress without manually re-running the command. |
 | `--sort-by` | Sort output by field: `name`, `namespace`, `savings`, or `age`. |
-| `--filter` | Filter policies by Ready condition reason: `degraded`, `pending`, `collecting`, `ready`, or `noworkloads`. |
+| `--filter` | Filter policies by Ready condition reason or message: `degraded`, `pending`, `collecting`, `ready`, `noworkloads`, `conflictcheckfailed`, or `invalidconfig`. `collecting` matches `InsufficientData` only, not `ConflictCheckFailed`. |
 
 | Column | Description |
 |--------|-------------|
 | PENDING | Workloads with active recommendations that are still awaiting resize |
-| READY | Current `Ready` reason (`Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `MetricsUnavailable` (alias `PrometheusUnavailable`), `InvalidConfig`, `WorkloadDiscoveryFailed`, or `Paused`), or the current `Ready` condition message when `Ready=False` includes actionable details |
+| READY | Current `Ready` reason (`Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `MetricsUnavailable` (alias `PrometheusUnavailable`), `InvalidConfig`, `WorkloadDiscoveryFailed`, `ConflictCheckFailed`, or `Paused`), or the current `Ready` condition message when `Ready=False` includes actionable details |
 | RESIZING | `InProgress`, `Idle`, `CooldownActive`, or `-` (non-resize modes) |
 | DEGRADED | `HighRevertRate` or `-` |
 | CANARY | Canary phase. With per-app rows: `CanaryInProgress (1/2 apps)`. Legacy: `CanaryInProgress (2 pods)`. `-` when mode is not Canary |
@@ -99,9 +99,15 @@ kubectl attune preview -n production api-services
 
 Shows per-container current vs recommended values with a waste grade and
 confidence scores. When a policy is still collecting data, GRADE is `-` and
-the last column shows the current status message instead. When any policy
-uses export mode, a footer note points to `kubectl attune export list` for
-the GitOps ConfigMap view and last-export timestamps.
+the last column shows the current status message instead. When Ready is
+`False` for `ConflictCheckFailed` (or `Ready=False` with `workloadErrors`),
+a footer prints the Ready message so last-known recommendations are not
+shown as healthy. Empty recommendations plus `ConflictCheckFailed` do not
+print the collecting-data note. See
+[ConflictCheckFailed](../guides/troubleshooting.md#conflictcheckfailed).
+When any policy uses export mode, a footer note points to
+`kubectl attune export list` for the GitOps ConfigMap view and last-export
+timestamps.
 
 ```bash
 kubectl attune recommendations
@@ -160,7 +166,8 @@ change filtering for CPU and memory. It also prints the effective values for
 all controller-applied defaults: `type`, `cooldown`, `queryStep`,
 Metrics source (`prometheus` / `datadog` / `cloudwatch` / `vpa`),
 `minimumDataPoints`, `historyWindow`, `resizeMethod`, `autoRevert`,
-`initialSizing`, `maxConcurrentResizes`, `rateWindow`, `export`,
+`initialSizing`, `maxConcurrentResizes`, `maxStatusRecommendations`,
+`includeExplanationsInStatus`, `rateWindow`, `export`,
 `templatePersistence`, budget caps (`maxTotalCPUIncrease`,
 `maxTotalMemoryIncrease`), cost pricing (`cpuPerCoreHour`,
 `memoryPerGiBHour`), and per-resource fields (`percentile`,
@@ -168,7 +175,11 @@ Metrics source (`prometheus` / `datadog` / `cloudwatch` / `vpa`),
 `allowDecrease`, `burstSensitivity`, `maxChangePercent`,
 `maxIncreasePercent`, `maxDecreasePercent`, `memoryFromCpuRatio`).
 Each value shows whether it came from the policy, a namespace default, a cluster
-default, or the built-in default. When export mode + Recommend/Observe is active, a note explains the GitOps implications.
+default, or the built-in default. When Ready is `False` for
+`ConflictCheckFailed` (or `Ready=False` with `workloadErrors`), explain
+prints the Ready message instead of implying the policy is still collecting
+data. See [ConflictCheckFailed](../guides/troubleshooting.md#conflictcheckfailed).
+When export mode + Recommend/Observe is active, a note explains the GitOps implications.
 
 ```bash
 kubectl attune explain -n production api-services
@@ -251,6 +262,7 @@ Doctor is single-context. `--all-contexts` and `--contexts` are rejected.
 | Kubernetes version | Yes | Server version is 1.32 or newer |
 | `pods/resize` | Yes | Discovery lists the `pods/resize` subresource |
 | Prometheus | No | Skip-without-ping is `WARN` (`ok:false`), not Pass: no address was seen (none set, or listing failed with no objects). Also `WARN` for in-cluster DNS (`.svc` / `.cluster.local`) and for HTTP 401/403 on an address that sets `bearerTokenSecret` or `headers` (this host does not send the operator's auth). Other addresses, including `service.namespace` without `.svc`, are GET `/-/healthy` from this host (SSRF-checked first). Optional failures print `WARN`, not `FAIL`. |
+| AttunePolicies | No | `WARN` when the scoped list is empty (`no AttunePolicies in scope`) or any policy is `Ready=False` (reasons include `ConflictCheckFailed`). |
 
 Exit 0 when every required check passes. A failed Prometheus check is
 printed as `WARN` and does not change the exit code. The ping runs on
@@ -298,7 +310,7 @@ with `kubectl get attunepolicy -o json|yaml`.
 | `--output` | `-o` | `status`: raw `AttunePolicy` objects as `json` or `yaml`. `diff`: YAML patch manifests (`-o yaml` only). `savings` and `recommendations`: `csv` |
 | `--watch` | `-w` | Continuously refresh status every 10 seconds (`status` only) |
 | `--sort-by` | | Sort output: `name`, `namespace`, `savings`, `age` (`status` and `savings` only) |
-| `--filter` | | Filter by condition: `degraded`, `pending`, `collecting`, `ready`, `noworkloads` (`status` only) |
+| `--filter` | | Filter by Ready reason or message: `degraded`, `pending`, `collecting`, `ready`, `noworkloads`, `conflictcheckfailed`, `invalidconfig` (`status` only) |
 | `--all-contexts` | | Query all kubeconfig contexts and merge results (`status`, `savings`, `recommendations`, `history`, `diff`) |
 | `--contexts` | | Comma-separated list of specific kubeconfig contexts to query (same commands as `--all-contexts`) |
 
@@ -329,5 +341,9 @@ typically set via the Helm chart `values.yaml` rather than directly.
 | `--prometheus-qps` | `10` | Maximum Prometheus queries per second across all policies |
 | `--prometheus-burst` | `20` | Maximum burst of Prometheus queries above the QPS limit |
 | `--prometheus-timeout` | `5m` | Maximum time for all Prometheus queries in a single reconciliation |
-| `--max-concurrent-reconciles` | `1` | Number of policies reconciled concurrently |
+| `--max-concurrent-reconciles` | `2` | Maximum number of AttunePolicy reconciles running in parallel |
+| `--max-workload-workers` | `10` | Maximum parallel workers processing workloads within a single AttunePolicy reconcile |
+| `--requeue-jitter` | `2m` | Maximum extra delay added only to full cooldown RequeueAfter values |
+| `--max-status-recommendations` | `100` | Default cap for status.recommendations entries (full set still used for resizes) |
+| `--status-include-explanations` | `true` | When true, write recommendation explanation chains to status |
 | `--watch-namespaces` | (all) | Comma-separated list of namespaces to watch (empty = all namespaces) |

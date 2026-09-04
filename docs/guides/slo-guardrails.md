@@ -123,7 +123,10 @@ You can also set `sloGuardrails` on `AttuneDefaults` or
 | False reverts right after resize | Widen `evaluationWindow`; exclude cold-start noise from the query |
 | Guardrail never evaluated | Mode is Observe/Recommend (no applying resize), or `autoRevert: false` |
 
-Operator logs at V(1) include skipped guardrails (query errors, NaN/Inf). See
+Query failures log at Error (`SLO guardrail query failed`). Leftover
+NaN or Inf after a successful Query logs at Info (`non-finite`). Grep
+operator logs for those strings, or for
+`instant query returned NaN or Inf`. See
 [Troubleshooting: high revert rate](troubleshooting.md#high-revert-rate) and
 [architecture safety](../architecture/safety.md).
 

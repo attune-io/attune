@@ -275,8 +275,9 @@ func TestListPolicies_ListError(t *testing.T) {
 		},
 	}).Build()
 
-	result := detector.ListPolicies(context.Background(), errClient, "default")
+	result, err := detector.ListPolicies(context.Background(), errClient, "default")
 	assert.Nil(t, result, "ListPolicies should return nil on List error")
+	assert.Error(t, err, "ListPolicies should return the List error")
 }
 
 func TestCheckHPAConflict_DifferentKind(t *testing.T) {
@@ -389,6 +390,21 @@ func TestCheckPolicyConflict_SkipsSelf(t *testing.T) {
 
 	result := detector.CheckPolicyConflict(context.Background(), c, "default", "my-app", "Deployment", nil, "current-policy", 100)
 	assert.Nil(t, result, "should not conflict with itself")
+}
+
+func TestCheckPolicyConflict_ListErrorReturnsConflict(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+
+	errClient := fake.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
+		List: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) error {
+			return fmt.Errorf("simulated API error")
+		},
+	}).Build()
+
+	result := detector.CheckPolicyConflict(context.Background(), errClient, "default", "my-app", "Deployment", nil, "current", 100)
+	assert.NotNil(t, result, "list failure must be fail-closed, not treated as no conflict")
+	assert.Equal(t, ConflictPolicy, result.Type)
+	assert.Contains(t, result.Message, "simulated API error")
 }
 
 // ---------- CheckVPAConflictInMemory ----------

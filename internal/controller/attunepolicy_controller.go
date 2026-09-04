@@ -114,6 +114,10 @@ const (
 
 	// defaultMaxStatusRecommendations is used when neither CR nor flag sets a cap.
 	defaultMaxStatusRecommendations = attunev1alpha1.DefaultMaxStatusRecommendations
+
+	// conflictCheckFailedMessage is written to status, conditions, and
+	// Events. The raw List error stays in operator logs only.
+	conflictCheckFailedMessage = "Failed to list AttunePolicies for conflict detection; recommendations not computed"
 )
 
 //+kubebuilder:rbac:groups=attune.io,resources=attunepolicies,verbs=get;list;watch;patch
@@ -246,6 +250,7 @@ type workloadProcessingResult struct {
 	gaugeKeys         []gaugeKey
 	hpaList           autoscalingv2.HorizontalPodAutoscalerList
 	seriesCapped      bool
+	listPoliciesErr   error
 }
 
 // deleteGaugeKeys removes recommendation gauge values for the given keys.
@@ -392,6 +397,18 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// Best-effort refresh of dynamic pod cache filter from active policies.
 	r.refreshPodCacheFilter(ctx)
 	wpResult := r.processWorkloads(workloadCtx, &policy, workloads, collector, queryBuilder, podsByWorkload)
+	if wpResult.listPoliciesErr != nil {
+		nowMeta := metav1.NewTime(r.now())
+		policy.Status.LastReconcileTime = &nowMeta
+		policy.Status.WorkloadErrors = []attunev1alpha1.WorkloadError{{
+			Workload: "*",
+			Error:    conflictCheckFailedMessage,
+		}}
+		r.setFailedCondition(ctx, &policy, attunev1alpha1.ReasonConflictCheckFailed, conflictCheckFailedMessage)
+		r.emitEventOnce(&policy, corev1.EventTypeWarning, attunev1alpha1.ReasonConflictCheckFailed, "recommend",
+			conflictCheckFailedMessage)
+		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
+	}
 	promTimedOut := workloadCtx.Err() == context.DeadlineExceeded
 	if promTimedOut {
 		logger.Info("Metrics query timeout exceeded, using partial results",
@@ -869,7 +886,13 @@ func (r *AttunePolicyReconciler) processWorkloads(
 		logger.Error(err, "Failed to list HPAs for conflict detection")
 	}
 	vpaList := conflictDetector.ListVPAs(ctx, r.Client, policy.Namespace)
-	policyList := conflictDetector.ListPolicies(ctx, r.Client, policy.Namespace)
+	policyList, err := conflictDetector.ListPolicies(ctx, r.Client, policy.Namespace)
+	if err != nil {
+		logger.Error(err, "Failed to list AttunePolicies for conflict detection")
+		operatormetrics.ReconcileErrorsTotal.WithLabelValues("list_policies").Inc()
+		result.listPoliciesErr = err
+		return result
+	}
 
 	// Clear gauge values that THIS policy previously set.
 	policyKey := policy.Namespace + "/" + policy.Name

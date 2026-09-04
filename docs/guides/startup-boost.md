@@ -8,13 +8,27 @@ that expires after a configurable duration.
 
 ## How it works
 
-1. The operator detects a newly created or restarted pod (within the boost
-   duration window from container start time).
-2. It resizes the pod's CPU request to `recommended_cpu * multiplier`.
-3. Once the duration expires (or the container reaches Ready, whichever comes
-   first), the operator resizes back to the steady-state recommendation.
-4. If the boosted CPU would exceed the container's CPU limit or the node's
-   allocatable CPU, the boost is capped automatically.
+1. The operator detects a newly created pod whose age (`now` minus
+   `pod.CreationTimestamp`) is still within `startupBoost.duration`.
+   Container start time is not used.
+2. It resizes each eligible container's CPU request to
+   `recommended_cpu * multiplier`. Native sidecars (init containers with
+   `restartPolicy: Always`) are included. Known sidecar names such as
+   `istio-proxy` stay excluded via `EffectiveExcludedContainers`.
+3. After a successful apply, the operator writes
+   `attune.io/startup-boost-at`. The boost expires when that timestamp
+   plus `duration` elapses. Container Ready is not checked.
+4. If the boosted CPU would exceed the container's CPU limit,
+   `maxAllowed`, or the node's allocatable CPU, the boost is capped
+   automatically.
+
+### Native sidecars
+
+Init containers with `restartPolicy: Always` follow the same apply and
+expiry path as regular containers. Known sidecar names (`istio-proxy`,
+and the rest of the built-in list) remain auto-excluded unless you set
+`excludeKnownSidecars: false`. See
+[Istio integration](istio-integration.md#native-sidecar-mode).
 
 ## Configuration
 
@@ -87,8 +101,9 @@ attune_startup_boost_total
 ```
 
 This counter increments each time a startup boost is applied. Use it to
-track how often boosts fire and whether the duration is calibrated correctly
-(if boosts expire before Ready, duration may be too short).
+track how often boosts fire and whether `duration` covers the startup
+window (expiry is `attune.io/startup-boost-at` plus `duration`, not
+container Ready).
 
 The pre-built [Grafana dashboard](https://github.com/attune-io/attune/blob/main/deploy/grafana/dashboard.json)
 includes a Startup Boost panel that visualizes this metric.
@@ -102,7 +117,8 @@ includes a Startup Boost panel that visualizes this metric.
   requests and receive the boost on the next reconcile (if still within
   the duration window).
 - Only applies when the operator is in a resize-capable mode (Auto,
-  OneShot, or Canary). In Recommend mode, the boost is computed in the
-  recommendation but not applied.
+  OneShot, or Canary). Startup boost is a live in-place CPU overlay on
+  the pod, not a field on the recommendation object. Recommend and
+  Observe modes compute the steady-state recommendation only.
 
 See [`examples/14-startup-boost.yaml`](https://github.com/attune-io/attune/blob/main/examples/14-startup-boost.yaml) for a complete example.

@@ -573,7 +573,7 @@ The controller sets these conditions on each `AttunePolicy`:
 
 | Condition | Reasons | Description |
 |-----------|---------|-------------|
-| `Ready` | `Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `MetricsUnavailable` (alias `PrometheusUnavailable`), `InvalidConfig`, `WorkloadDiscoveryFailed`, `Paused` | Overall health |
+| `Ready` | `Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `MetricsUnavailable` (alias `PrometheusUnavailable`), `InvalidConfig`, `WorkloadDiscoveryFailed`, `ConflictCheckFailed`, `Paused` | Overall health |
 | `Resizing` | `InProgress`, `Idle`, `CooldownActive` | Active resize operation state (only in resize modes). `CooldownActive` is set only when every matched workload is still cooling down. |
 | `Degraded` | `HighRevertRate` | Set when 3+ of the last 5 resizes were reverted |
 | `ScheduleBlocked` | `OutsideWindow`, `InsideWindow` | Set when `updateStrategy.schedule` is configured; indicates whether the current time is within an allowed resize window |

@@ -70,6 +70,16 @@ func TestPrometheusAddress_NoHost(t *testing.T) {
 	assert.Error(t, PrometheusAddress("http://"))
 }
 
+func TestPrometheusAddress_RejectsUserinfo(t *testing.T) {
+	err := PrometheusAddress("http://user:pass@prometheus.monitoring:9090")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "must not include userinfo")
+
+	err = PrometheusAddress("https://user@prometheus.monitoring:9090")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "must not include userinfo")
+}
+
 func TestPrometheusQueryParameters_AllowsBackendSpecificKeys(t *testing.T) {
 	err := PrometheusQueryParameters(map[string]string{
 		"dedup":            "true",

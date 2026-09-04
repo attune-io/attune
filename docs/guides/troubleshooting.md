@@ -11,11 +11,12 @@ kubectl get attunepolicy <name> -o jsonpath='{.status.conditions}' | jq .
 ### PrometheusSeriesCapped
 
 **Symptom:** Ready is True with reason `PrometheusSeriesCapped`, or logs show
-"Prometheus range query series capped".
+"Prometheus range query series capped" or a CloudWatch series/page cap.
 
 **Cause:** A range query returned more series than `--max-prometheus-series`
-(default 5000). Attune keeps partial data (preferring at least one series per
-container) and continues.
+(default 5000). CloudWatch `GetMetricData` uses the same series default and
+also stops after 20 result pages. Attune keeps partial data (preferring at
+least one series per container) and continues.
 
 **Fix:**
 
@@ -178,6 +179,22 @@ namespace. This is usually a typo in the workload name or an incorrect
 
 3. Ensure the `targetRef.kind` matches the workload type (`Deployment`,
    `StatefulSet`, `DaemonSet`, `ReplicaSet`, `Job`, or `CronJob`).
+
+### ConflictCheckFailed
+
+**Symptom**: Ready condition is `False` with reason `ConflictCheckFailed`.
+
+**Cause**: The operator could not list `AttunePolicy` objects in the
+namespace while checking for overlapping targets. That cycle does not
+compute new recommendations. Last-known recommendations stay on status
+so this does not look like bootstrap `InsufficientData`.
+
+**Fix**:
+
+1. Confirm the operator ServiceAccount can `list` and `watch`
+   `attunepolicies.attune.io`.
+2. Check API server health and operator logs for the list error.
+3. Watch `attune_reconcile_errors_total{error_type="list_policies"}`.
 
 ### InsufficientData
 

@@ -28,6 +28,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	"github.com/go-logr/logr"
+	"github.com/go-logr/logr/funcr"
 	promtestutil "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -190,6 +191,150 @@ func TestCloudWatchCollector_APIError(t *testing.T) {
 		time.Now().Add(-time.Hour), time.Now(), time.Minute)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "access denied")
+}
+
+func TestQueryRangeGrouped_SeriesCapped(t *testing.T) {
+	ts := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
+	callCount := 0
+
+	mock := &mockCloudWatchClient{
+		getMetricDataFn: func(_ context.Context, _ *cloudwatch.GetMetricDataInput, _ ...func(*cloudwatch.Options)) (*cloudwatch.GetMetricDataOutput, error) {
+			callCount++
+			if callCount == 1 {
+				return &cloudwatch.GetMetricDataOutput{
+					MetricDataResults: []cwtypes.MetricDataResult{
+						{Label: aws.String("metric pod-a app1"), Timestamps: []time.Time{ts}, Values: []float64{1}},
+						{Label: aws.String("metric pod-b app2"), Timestamps: []time.Time{ts}, Values: []float64{2}},
+						{Label: aws.String("metric pod-c app3"), Timestamps: []time.Time{ts}, Values: []float64{3}},
+					},
+					NextToken: aws.String("page2"),
+				}, nil
+			}
+			return &cloudwatch.GetMetricDataOutput{
+				MetricDataResults: []cwtypes.MetricDataResult{
+					{Label: aws.String("metric pod-d app4"), Timestamps: []time.Time{ts}, Values: []float64{4}},
+				},
+			}, nil
+		},
+	}
+
+	c := NewCloudWatchCollectorWithClient(mock, "c", logr.Discard())
+	c.maxSeries = 2
+
+	spec := CloudWatchQuerySpec{Metric: "container_memory_working_set", ClusterName: "c", Namespace: "ns", PodPrefix: "pod-", Period: 300, Stat: "Average"}
+	query, err := json.Marshal(spec)
+	require.NoError(t, err)
+
+	grouped, err := c.QueryRangeGrouped(context.Background(), string(query),
+		ts.Add(-time.Hour), ts, 5*time.Minute)
+	require.ErrorIs(t, err, ErrSeriesCapped)
+	assert.Equal(t, 1, callCount, "must stop pagination once the series cap is hit")
+	assert.GreaterOrEqual(t, len(grouped), 2, "partial data from the capped page must still be returned")
+	assert.NotContains(t, grouped, "app4", "must not fetch the next page after the cap")
+}
+
+func TestQueryRangeGrouped_PageCapped(t *testing.T) {
+	ts := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
+	callCount := 0
+
+	mock := &mockCloudWatchClient{
+		getMetricDataFn: func(_ context.Context, _ *cloudwatch.GetMetricDataInput, _ ...func(*cloudwatch.Options)) (*cloudwatch.GetMetricDataOutput, error) {
+			callCount++
+			return &cloudwatch.GetMetricDataOutput{
+				MetricDataResults: []cwtypes.MetricDataResult{
+					{
+						Label:      aws.String(fmt.Sprintf("metric pod-%d main", callCount)),
+						Timestamps: []time.Time{ts},
+						Values:     []float64{float64(callCount)},
+					},
+				},
+				NextToken: aws.String("more"),
+			}, nil
+		},
+	}
+
+	c := NewCloudWatchCollectorWithClient(mock, "c", logr.Discard())
+	c.maxPages = 20
+	c.maxSeries = 100
+
+	spec := CloudWatchQuerySpec{Metric: "container_memory_working_set", ClusterName: "c", Namespace: "ns", PodPrefix: "pod-", Period: 300, Stat: "Average"}
+	query, err := json.Marshal(spec)
+	require.NoError(t, err)
+
+	grouped, err := c.QueryRangeGrouped(context.Background(), string(query),
+		ts.Add(-time.Hour), ts, 5*time.Minute)
+	require.ErrorIs(t, err, ErrSeriesCapped)
+	assert.Equal(t, 20, callCount, "must stop after the page cap even when NextToken remains set")
+	assert.Len(t, grouped["main"], 20)
+}
+
+func TestQueryRangeGrouped_PageCapped_NoKeptSeries(t *testing.T) {
+	// Namespace SEARCH + PodPrefix: every page can be other workloads.
+	// Hitting the page cap with seriesKept==0 is empty data, not capped.
+	ts := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
+	callCount := 0
+
+	mock := &mockCloudWatchClient{
+		getMetricDataFn: func(_ context.Context, _ *cloudwatch.GetMetricDataInput, _ ...func(*cloudwatch.Options)) (*cloudwatch.GetMetricDataOutput, error) {
+			callCount++
+			return &cloudwatch.GetMetricDataOutput{
+				MetricDataResults: []cwtypes.MetricDataResult{
+					{
+						Label:      aws.String(fmt.Sprintf("metric other-%d main", callCount)),
+						Timestamps: []time.Time{ts},
+						Values:     []float64{float64(callCount)},
+					},
+				},
+				NextToken: aws.String("more"),
+			}, nil
+		},
+	}
+
+	c := NewCloudWatchCollectorWithClient(mock, "c", logr.Discard())
+	c.maxPages = 20
+	c.maxSeries = 100
+
+	spec := CloudWatchQuerySpec{Metric: "container_memory_working_set", ClusterName: "c", Namespace: "ns", PodPrefix: "pod-", Period: 300, Stat: "Average"}
+	query, err := json.Marshal(spec)
+	require.NoError(t, err)
+
+	grouped, err := c.QueryRangeGrouped(context.Background(), string(query),
+		ts.Add(-time.Hour), ts, 5*time.Minute)
+	require.NoError(t, err, "page cap with zero kept series is empty data, not ErrSeriesCapped")
+	assert.Equal(t, 20, callCount, "must still stop after the page cap")
+	assert.Empty(t, grouped)
+}
+
+func TestQueryRangeGrouped_SeriesCappedLogOmitsQuery(t *testing.T) {
+	ts := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
+	var logged string
+	logger := funcr.NewJSON(func(obj string) { logged += obj + "\n" }, funcr.Options{})
+
+	mock := &mockCloudWatchClient{
+		getMetricDataFn: func(_ context.Context, _ *cloudwatch.GetMetricDataInput, _ ...func(*cloudwatch.Options)) (*cloudwatch.GetMetricDataOutput, error) {
+			return &cloudwatch.GetMetricDataOutput{
+				MetricDataResults: []cwtypes.MetricDataResult{
+					{Label: aws.String("metric pod-a app1"), Timestamps: []time.Time{ts}, Values: []float64{1}},
+					{Label: aws.String("metric pod-b app2"), Timestamps: []time.Time{ts}, Values: []float64{2}},
+				},
+				NextToken: aws.String("page2"),
+			}, nil
+		},
+	}
+
+	c := NewCloudWatchCollectorWithClient(mock, "c", logger)
+	c.maxSeries = 1
+
+	spec := CloudWatchQuerySpec{Metric: "container_memory_working_set", ClusterName: "c", Namespace: "secret-ns", PodPrefix: "pod-", Period: 300, Stat: "Average"}
+	query, err := json.Marshal(spec)
+	require.NoError(t, err)
+
+	_, err = c.QueryRangeGrouped(context.Background(), string(query),
+		ts.Add(-time.Hour), ts, 5*time.Minute)
+	require.ErrorIs(t, err, ErrSeriesCapped)
+	assert.Contains(t, logged, "CloudWatch GetMetricData series capped")
+	assert.NotContains(t, logged, string(query))
+	assert.NotContains(t, logged, `"query"`)
 }
 
 func TestCloudWatchCollector_Pagination(t *testing.T) {

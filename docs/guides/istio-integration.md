@@ -76,6 +76,10 @@ is auto-excluded by default (same as traditional sidecar mode). Set
 `excludeKnownSidecars: false` only if you intentionally want Attune to
 right-size the proxy.
 
+Startup boost uses the same inclusion rules: native sidecars are eligible
+for the live CPU overlay, and `istio-proxy` stays excluded unless you
+opt in. See [Startup Boost](startup-boost.md#native-sidecars).
+
 The operator's safety monitor also checks native sidecar container
 statuses for OOMKill and restart spike detection.
 

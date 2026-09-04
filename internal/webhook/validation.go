@@ -106,27 +106,8 @@ func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (a
 	}
 
 	// GitOps PR automation: when enabled, require repository + token secret.
-	if us.Export != nil && us.Export.PullRequest != nil &&
-		us.Export.PullRequest.Enabled != nil && *us.Export.PullRequest.Enabled {
-		pr := us.Export.PullRequest
-		if pr.Repository == "" {
-			return warnings, fmt.Errorf("updateStrategy.export.pullRequest.repository is required when pullRequest.enabled is true")
-		}
-		if pr.TokenSecretRef == nil || pr.TokenSecretRef.Name == "" || pr.TokenSecretRef.Key == "" {
-			return warnings, fmt.Errorf("updateStrategy.export.pullRequest.tokenSecretRef.name and key are required when pullRequest.enabled is true")
-		}
-		if pr.Provider != "" && pr.Provider != "github" && pr.Provider != "gitlab" {
-			return warnings, fmt.Errorf("updateStrategy.export.pullRequest.provider must be github or gitlab")
-		}
-		// apiUrl is optional (defaults to github.com / gitlab.com). When set,
-		// require https and reject private/metadata/userinfo so a malicious
-		// policy cannot aim the operator's bearer token at in-cluster or
-		// cloud metadata endpoints. This is stricter than PrometheusAddress.
-		if pr.APIURL != "" {
-			if err := validation.GitOpsAPIURLAllowingPrivate(pr.APIURL, pr.AllowPrivateEndpoints); err != nil {
-				return warnings, fmt.Errorf("updateStrategy.export.pullRequest.apiUrl: %w", err)
-			}
-		}
+	if err := validateGitOpsPullRequest(*us); err != nil {
+		return warnings, err
 	}
 
 	// Validate canary observation period has a minimum floor.
@@ -386,6 +367,36 @@ func warnIneffectiveSettings(policy *attunev1alpha1.AttunePolicy) admission.Warn
 	}
 
 	return w
+}
+
+// validateGitOpsPullRequest checks required fields and apiUrl when
+// updateStrategy.export.pullRequest.enabled is true. Shared by AttunePolicy
+// and AttuneDefaults because MergeDefaults copies Export onto policies.
+func validateGitOpsPullRequest(us attunev1alpha1.UpdateStrategy) error {
+	if us.Export == nil || us.Export.PullRequest == nil ||
+		us.Export.PullRequest.Enabled == nil || !*us.Export.PullRequest.Enabled {
+		return nil
+	}
+	pr := us.Export.PullRequest
+	if pr.Repository == "" {
+		return fmt.Errorf("updateStrategy.export.pullRequest.repository is required when pullRequest.enabled is true")
+	}
+	if pr.TokenSecretRef == nil || pr.TokenSecretRef.Name == "" || pr.TokenSecretRef.Key == "" {
+		return fmt.Errorf("updateStrategy.export.pullRequest.tokenSecretRef.name and key are required when pullRequest.enabled is true")
+	}
+	if pr.Provider != "" && pr.Provider != "github" && pr.Provider != "gitlab" {
+		return fmt.Errorf("updateStrategy.export.pullRequest.provider must be github or gitlab")
+	}
+	// apiUrl is optional (defaults to github.com / gitlab.com). When set,
+	// require https and reject private/metadata/userinfo so a malicious
+	// spec cannot aim the operator's bearer token at in-cluster or
+	// cloud metadata endpoints. This is stricter than PrometheusAddress.
+	if pr.APIURL != "" {
+		if err := validation.GitOpsAPIURLAllowingPrivate(pr.APIURL, pr.AllowPrivateEndpoints); err != nil {
+			return fmt.Errorf("updateStrategy.export.pullRequest.apiUrl: %w", err)
+		}
+	}
+	return nil
 }
 
 func validateOverhead(resource, overhead string) error {

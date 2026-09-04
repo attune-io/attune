@@ -477,7 +477,7 @@ jobs:
           # Docker daemon entirely, avoiding containerd storage races.
           VERSION=e2e COMMIT=$(git rev-parse --short HEAD) DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
             KO_DOCKER_REPO=attune ko build ./cmd/manager/ \
-            --bare --tags=e2e --platform=linux/$(go env GOARCH) \
+            --bare --tags=e2e --platform="linux/$(go env GOARCH)" \
             --tarball=/tmp/attune-e2e.tar --push=false
           k3d image import /tmp/attune-e2e.tar -c "$CLUSTER_NAME"
 

@@ -212,6 +212,12 @@ func queryMetricsGrouped(ctx context.Context, collector rsmetrics.MetricsCollect
 
 	if v1Logger.Enabled() {
 		v1Logger.Info("Querying metrics backend",
+			"metric", metric,
+			"start", start.Format(time.RFC3339), "end", end.Format(time.RFC3339),
+			"step", step)
+	}
+	if v2Logger.Enabled() {
+		v2Logger.Info("Querying metrics backend",
 			"metric", metric, "query", query,
 			"start", start.Format(time.RFC3339), "end", end.Format(time.RFC3339),
 			"step", step)
@@ -225,11 +231,14 @@ func queryMetricsGrouped(ctx context.Context, collector rsmetrics.MetricsCollect
 		// Soft error: series cap still returns usable partial data.
 		if errors.Is(err, rsmetrics.ErrSeriesCapped) {
 			logger.Info("Prometheus series capped; using partial data",
-				"metric", metric, "query", query, "err", err)
+				"metric", metric, "err", err)
+			v2Logger.Info("Prometheus series capped; using partial data",
+				"metric", metric, "query", query)
 			return grouped, false, true
 		}
 		operatormetrics.PrometheusQueryErrors.WithLabelValues(namespace, queryType).Inc()
-		logger.Error(err, "Failed to query grouped metrics", "metric", metric, "query", query)
+		logger.Error(err, "Failed to query grouped metrics", "metric", metric)
+		v2Logger.Info("Failed to query grouped metrics", "metric", metric, "query", query)
 		return map[string][]rsmetrics.Sample{}, true, false
 	}
 
@@ -241,10 +250,12 @@ func queryMetricsGrouped(ctx context.Context, collector rsmetrics.MetricsCollect
 		}
 		if totalSamples == 0 {
 			v1Logger.Info("Metrics query returned no data",
-				"metric", metric, "query", query)
+				"metric", metric)
 		}
 	}
 	if v2Logger.Enabled() {
+		v2Logger.Info("Metrics query details",
+			"metric", metric, "query", query)
 		// V(2): log per-container sample counts.
 		for container, samples := range grouped {
 			v2Logger.Info("Metrics query samples",

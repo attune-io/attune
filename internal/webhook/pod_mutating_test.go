@@ -335,6 +335,51 @@ func TestPodMutatingHandler_RecommendMode(t *testing.T) {
 	assert.Nil(t, resp.Patches, "Recommend mode should not mutate")
 }
 
+func TestPodMutatingHandler_ConflictCheckFailedDoesNotOverrideHealthyPolicy(t *testing.T) {
+	// B is fail-closed (leftover recs kept) and listed first. A is healthy
+	// with higher weight. CREATE must skip B and apply A's recs.
+	policyB := testPolicy("policy-b", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
+	policyB.Spec.Weight = 1
+	policyB.Status.Conditions = []metav1.Condition{{
+		Type:   attunev1alpha1.ConditionReady,
+		Status: metav1.ConditionFalse,
+		Reason: attunev1alpha1.ReasonConflictCheckFailed,
+	}}
+	policyB.Status.Recommendations[0].Containers[0].Recommended.CPURequest = resource.MustParse("999m")
+	policyB.Status.Recommendations[0].Containers[0].Recommended.MemoryRequest = resource.MustParse("1Gi")
+
+	policyA := testPolicy("policy-a", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
+	policyA.Spec.Weight = 1000
+
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policyA, policyB).Build()
+	var logged string
+	handler := &PodMutatingHandler{
+		Client: cl,
+		Logger: funcr.NewJSON(func(obj string) { logged += obj }, funcr.Options{Verbosity: 1}),
+	}
+
+	// Slice order puts B first so leftover recs would win without the skip.
+	picked, rec := handler.findMatchingPolicy(context.Background(), "default",
+		[]attunev1alpha1.AttunePolicy{*policyB, *policyA},
+		"Deployment", "my-app", "my-app-abc-xyz")
+	require.NotNil(t, picked, "healthy higher-weight policy must still match")
+	require.NotNil(t, rec)
+	assert.Equal(t, "policy-a", picked.Name, "ConflictCheckFailed policy must not be selected")
+	assert.Equal(t, resource.MustParse("500m"), rec.Containers[0].Recommended.CPURequest)
+
+	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
+	req := makeAdmissionRequest(t, pod, "default")
+	resp := handler.Handle(context.Background(), req)
+	require.True(t, resp.Allowed)
+	require.NotEmpty(t, resp.Patches, "healthy policy A must still CREATE-size")
+
+	mutatedPod := patchedPod(t, req.Object.Raw, resp)
+	assert.Equal(t, resource.MustParse("500m"), mutatedPod.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU])
+	assert.Equal(t, resource.MustParse("256Mi"), mutatedPod.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory])
+	assert.Equal(t, "default/policy-a", mutatedPod.Annotations[AnnotationInitialSizingPolicy])
+	assert.Contains(t, logged, "policy conflict check failed")
+}
+
 func TestPodMutatingHandler_StaleRecommendation(t *testing.T) {
 	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
 	policy.Status.Recommendations[0].Stale = true

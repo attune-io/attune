@@ -13,10 +13,10 @@ run the full E2E Nightly matrix on tip of `main` (see
 v0.1.26 tightens stale-recommendation handling, CloudWatch collection,
 ResourceQuota list fail-closed, VPA `memoryFromCpuRatio`, and GitOps
 labels. Ready reason `MetricsUnavailable` replaces `PrometheusUnavailable`
-for all metrics backends. Existing policy YAML keeps working. Read this
-section if you inherit `maxConcurrentResizes` from `AttuneDefaults`, use
-CloudWatch, ResourceQuota, VPA with a memory ratio, GitOps labels, or run
-a self-hosted Git forge.
+for all metrics backends. Most existing policy YAML keeps working. Read
+this section if you inherit `maxConcurrentResizes` from `AttuneDefaults`,
+use CloudWatch, ResourceQuota, VPA with a memory ratio, GitOps labels,
+Prometheus URL userinfo, or run a self-hosted Git forge.
 
 ### Ready reason MetricsUnavailable
 
@@ -72,6 +72,32 @@ CloudWatch `SEARCH` no longer emits `PodName="prefix*"`. Quoted CloudWatch
 tokens are exact matches, so that term matched nothing. Filtering is
 client-side only.
 
+### CloudWatch series and page cap
+
+`GetMetricData` now stops after 5000 kept series (same default as
+Prometheus `maxSeries`) or 20 result pages. The operator keeps partial
+data and may set Ready `PrometheusSeriesCapped`. Large Container Insights
+namespaces no longer paginate without bound. This is fail-soft, not a
+hard query error.
+
+### Prometheus address must not include userinfo
+
+`metricsSource.prometheus.address` no longer accepts
+`http://user:password@host`. The webhook rejects create and update. The
+reconciler also rejects the address, so existing objects fail immediately
+after the operator rolls (`MetricsUnavailable`, SSRF blocked). Move
+credentials to `bearerTokenSecret` or `headers`. Apply the same change
+on `AttuneDefaults` and `AttuneNamespaceDefaults` before you upgrade.
+
+### AttuneDefaults GitOps pullRequest validation
+
+`AttuneDefaults` and `AttuneNamespaceDefaults` now use the same
+`export.pullRequest` rules as `AttunePolicy`: when `enabled` is true,
+`repository` and `tokenSecretRef` are required, and `apiUrl` must be
+https without userinfo. Defaults CRs that used to persist an incomplete
+`pullRequest` block fail on the next UPDATE. Complete the fields or set
+`enabled: false` before you upgrade.
+
 ### Self-hosted GitOps forges
 
 `export.pullRequest.apiUrl` still rejects private IP literals by default.
@@ -87,6 +113,15 @@ RBAC or an API error), Attune skips request increases. Decreases still
 apply. This is the same class of fail-closed behavior as
 [node-status unavailability](#request-increases-fail-closed-when-node-status-is-unavailable).
 See [troubleshooting: quota list unavailable](troubleshooting.md#resize-skipped-quota-list-unavailable).
+
+### Conflict-check policy list fail-closed
+
+If listing `AttunePolicy` objects for conflict detection fails, that
+reconcile no longer computes recommendations. Ready is
+`ConflictCheckFailed` instead of looking like bootstrap
+`InsufficientData`. Last-known recommendations stay on status. Check
+RBAC `list`/`watch` on `attunepolicies` and API server health. See
+[troubleshooting: ConflictCheckFailed](troubleshooting.md#conflictcheckfailed).
 
 ### VPA honors memoryFromCpuRatio
 

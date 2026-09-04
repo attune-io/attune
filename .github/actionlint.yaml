@@ -1,0 +1,6 @@
+# actionlint 1.7.12 does not know the code-quality permission
+# (rhysd/actionlint#672). Unit tests need it for coverage upload.
+paths:
+  .github/workflows/ci.yaml:
+    ignore:
+      - 'unknown permission scope "code-quality"'

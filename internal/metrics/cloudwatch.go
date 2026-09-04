@@ -40,12 +40,22 @@ type CloudWatchAPI interface {
 	GetMetricData(ctx context.Context, params *cloudwatch.GetMetricDataInput, optFns ...func(*cloudwatch.Options)) (*cloudwatch.GetMetricDataOutput, error)
 }
 
+// defaultMaxCloudWatchPages bounds GetMetricData NextToken loops so a
+// hostile or huge SEARCH cannot paginate forever even when series stay
+// under DefaultMaxPrometheusSeries.
+const defaultMaxCloudWatchPages = 20
+
 // CloudWatchCollector implements MetricsCollector by querying Amazon CloudWatch
 // Container Insights metrics.
 type CloudWatchCollector struct {
 	client      CloudWatchAPI
 	clusterName string
 	logger      logr.Logger
+	// maxSeries caps kept MetricDataResults per query. 0 uses
+	// DefaultMaxPrometheusSeries (same default as Prometheus).
+	maxSeries int
+	// maxPages caps GetMetricData pagination. 0 uses defaultMaxCloudWatchPages.
+	maxPages int
 }
 
 // NewCloudWatchCollector creates a collector that queries CloudWatch Container
@@ -134,9 +144,13 @@ func (c *CloudWatchCollector) QueryRangeGrouped(ctx context.Context, query strin
 
 	isCPU := spec.Metric == "container_cpu_usage_total"
 	grouped := make(map[string][]Sample)
+	limit := c.seriesLimit()
+	maxPages := c.pageLimit()
+	seriesKept := 0
 
-	// Paginate through results.
-	for {
+	// Paginate through results. Stop when kept series or page count exceeds
+	// the cap so a large SEARCH cannot grow unbounded.
+	for page := 1; ; page++ {
 		output, err := c.client.GetMetricData(ctx, input)
 		if err != nil {
 			return nil, fmt.Errorf("CloudWatch GetMetricData failed: %w", err)
@@ -167,10 +181,35 @@ func (c *CloudWatchCollector) QueryRangeGrouped(ctx context.Context, query strin
 			if hadPoints && len(grouped[container]) == before {
 				recordDroppedNonFinite(ctx, metricTypeFromCPU(isCPU))
 			}
+			seriesKept++
+		}
+
+		if limit > 0 && seriesKept >= limit {
+			c.logger.Info("CloudWatch GetMetricData series capped",
+				"metric", spec.Metric,
+				"namespace", spec.Namespace,
+				"limit", limit,
+				"series", seriesKept,
+				"pages", page)
+			return grouped, fmt.Errorf("%w: kept %d series", ErrSeriesCapped, seriesKept)
 		}
 
 		if output.NextToken == nil {
 			break
+		}
+		if page >= maxPages {
+			c.logger.Info("CloudWatch GetMetricData page cap reached",
+				"metric", spec.Metric,
+				"namespace", spec.Namespace,
+				"pages", page,
+				"limit", maxPages,
+				"series", seriesKept)
+			// Namespace SEARCH + PodPrefix can exhaust the page cap on
+			// other workloads. Zero kept series is empty data, not a cap.
+			if seriesKept == 0 {
+				return grouped, nil
+			}
+			return grouped, fmt.Errorf("%w: kept %d series after %d pages", ErrSeriesCapped, seriesKept, page)
 		}
 		input.NextToken = output.NextToken
 	}
@@ -182,6 +221,23 @@ func (c *CloudWatchCollector) QueryRangeGrouped(ctx context.Context, query strin
 		"totalSamples", countSamples(grouped))
 
 	return grouped, nil
+}
+
+// seriesLimit is the per-query kept-series cap. Zero maxSeries uses the
+// same default as Prometheus.
+func (c *CloudWatchCollector) seriesLimit() int {
+	if c.maxSeries > 0 {
+		return c.maxSeries
+	}
+	return DefaultMaxPrometheusSeries
+}
+
+// pageLimit is the per-query GetMetricData page cap.
+func (c *CloudWatchCollector) pageLimit() int {
+	if c.maxPages > 0 {
+		return c.maxPages
+	}
+	return defaultMaxCloudWatchPages
 }
 
 // Query executes a CloudWatch instant query by querying a 10-minute window

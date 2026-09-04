@@ -24,6 +24,7 @@ env:
   K3S_IMAGE: "rancher/k3s:v1.35.4-k3s1"
   ENVTEST_K8S_VERSION: "1.35.0"
   HELM_UNITTEST_VERSION: "v0.7.2"
+  ACTIONLINT_VERSION: "v1.7.12"
   GOCOVER_COBERTURA_VERSION: "v1.5.0"
   BENCHSTAT_VERSION: "v0.0.0-20260512194132-3cf34090a3db"
   CERT_MANAGER_VERSION: "v1.21.1"
@@ -49,6 +50,7 @@ jobs:
       e2e: ${{ steps.force.outputs.e2e || steps.filter.outputs.e2e }}
       manifests: ${{ steps.force.outputs.manifests || steps.filter.outputs.manifests }}
       scripts: ${{ steps.force.outputs.scripts || steps.filter.outputs.scripts }}
+      workflows: ${{ steps.force.outputs.workflows || steps.filter.outputs.workflows }}
     steps:
       - uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
         with:
@@ -66,6 +68,7 @@ jobs:
               - 'Dockerfile'
               - 'hack/verify-go-version-sync.sh'
               - '.github/workflows/ci.yaml'
+              - '.golangci.yml'
             go-source:
               - '**/*.go'
               - 'go.mod'
@@ -100,6 +103,7 @@ jobs:
               - 'charts/attune/README.md.gotmpl'
             e2e:
               - 'test/e2e/**'
+              - '.chainsaw.yaml'
             # CRDs, kustomize, and tracked release manifests (dist/).
             # Used by crd-freshness so dist/ cannot lag without a CI failure.
             manifests:
@@ -119,20 +123,28 @@ jobs:
               - 'hack/k3d-delete.sh'
               - '.github/actions/setup-e2e-cluster/**'
               - '.github/workflows/e2e-nightly.yaml'
+            workflows:
+              - '.github/workflows/**'
+              - '.github/actions/**'
+              - '.github/zizmor.yml'
+              - '.github/actionlint.yaml'
 
       - name: Force full matrix on workflow_dispatch
         if: github.event_name == 'workflow_dispatch'
         id: force
         run: |
-          echo "go=true" >> "$GITHUB_OUTPUT"
-          echo "go-source=true" >> "$GITHUB_OUTPUT"
-          echo "helm=true" >> "$GITHUB_OUTPUT"
-          echo "yaml=true" >> "$GITHUB_OUTPUT"
-          echo "docs=true" >> "$GITHUB_OUTPUT"
-          echo "e2e=true" >> "$GITHUB_OUTPUT"
-          echo "manifests=true" >> "$GITHUB_OUTPUT"
-          echo "scripts=true" >> "$GITHUB_OUTPUT"
-          echo "bench=true" >> "$GITHUB_OUTPUT"
+          {
+            echo "go=true"
+            echo "go-source=true"
+            echo "helm=true"
+            echo "yaml=true"
+            echo "docs=true"
+            echo "e2e=true"
+            echo "manifests=true"
+            echo "scripts=true"
+            echo "bench=true"
+            echo "workflows=true"
+          } >> "$GITHUB_OUTPUT"
 
   lint:
     name: Lint
@@ -287,24 +299,12 @@ jobs:
 
       - name: Install yamllint
         shell: bash -Eeuo pipefail {0}
-        run: pip install yamllint
+        run: pip install yamllint==1.37.1
 
       - name: YAML lint
         shell: bash -Eeuo pipefail {0}
         run: |
-          yamllint_config="${RUNNER_TEMP:-/tmp}/yamllint-${GITHUB_RUN_ID}-${GITHUB_JOB}.yaml"
-          cat > "$yamllint_config" <<'EOF'
-          extends: default
-          rules:
-            line-length:
-              max: 200
-            truthy:
-              check-keys: false
-            indentation:
-              spaces: 2
-              indent-sequences: whatever
-          EOF
-          yamllint -c "$yamllint_config" \
+          yamllint -c .yamllint.yaml \
             config/ charts/attune/Chart.yaml charts/attune/values.yaml charts/attune/ci/ test/e2e/
 
   lint-chainsaw:
@@ -879,6 +879,44 @@ jobs:
         run: |
           make docker-build IMG=attune:ci-${{ github.sha }}
 
+  workflow-sanity:
+    name: Workflow sanity
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 5
+    needs: changes
+    if: needs.changes.outputs.workflows == 'true' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/install-binary-tool
+        with:
+          name: actionlint
+          version: ${{ env.ACTIONLINT_VERSION }}
+          install-command: |
+            VER="${{ env.ACTIONLINT_VERSION }}"
+            VER="${VER#v}"
+            case "$(uname -s)" in
+              Linux)  AL_OS=linux ;;
+              Darwin) AL_OS=darwin ;;
+              *) echo "unsupported OS: $(uname -s)" >&2; exit 1 ;;
+            esac
+            case "$(uname -m)" in
+              x86_64) AL_ARCH=amd64 ;;
+              aarch64|arm64) AL_ARCH=arm64 ;;
+              *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;;
+            esac
+            curl -fsSL "https://github.com/rhysd/actionlint/releases/download/${{ env.ACTIONLINT_VERSION }}/actionlint_${VER}_${AL_OS}_${AL_ARCH}.tar.gz" \
+              | tar xz -C "$TOOL_DIR" actionlint
+
+      - name: Run actionlint
+        shell: bash -Eeuo pipefail {0}
+        run: actionlint -color
+
   # Gate job: always runs, aggregates all conditional job results.
   # This is the ONLY required status check for branch protection,
   # so docs-only PRs (where Go jobs are skipped) can still merge.
@@ -902,6 +940,7 @@ jobs:
       - crd-freshness
       - helm-lint
       - build
+      - workflow-sanity
     steps:
       - name: Check job results
         shell: bash -Eeuo pipefail {0}
@@ -919,6 +958,7 @@ jobs:
             "${{ needs.crd-freshness.result }}" \
             "${{ needs.helm-lint.result }}" \
             "${{ needs.build.result }}" \
+            "${{ needs.workflow-sanity.result }}" \
           )
           for r in "${results[@]}"; do
             if [[ "$r" != "success" && "$r" != "skipped" ]]; then

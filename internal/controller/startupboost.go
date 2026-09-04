@@ -95,7 +95,7 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 			if boostAtStr == "" && podAge < boostDuration {
 				// New pod within boost window: apply boosted CPU.
 				boostedAny := false
-				for _, c := range pod.Spec.Containers {
+				for _, c := range append(nativeSidecars(pod.Spec.InitContainers), pod.Spec.Containers...) {
 					recCPU, ok := recMap[c.Name]
 					if !ok {
 						continue
@@ -213,7 +213,7 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 				if now.Sub(boostAt) >= boostDuration {
 					// Boost expired: resize back to steady-state.
 					var boostReduceFailed bool
-					for _, c := range pod.Spec.Containers {
+					for _, c := range append(nativeSidecars(pod.Spec.InitContainers), pod.Spec.Containers...) {
 						recCPU, ok := recMap[c.Name]
 						if !ok {
 							continue

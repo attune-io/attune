@@ -11,11 +11,15 @@ CHAINSAW_VERSION ?= v0.2.15
 KUSTOMIZE_VERSION ?= v5.6.0
 HELM_DOCS_VERSION ?= v1.14.2
 GOTESTSUM_VERSION ?= v1.13.0
+SETUP_ENVTEST_VERSION ?= v0.24.1
+ENVTEST_K8S_VERSION ?= 1.35.0
 GOVULNCHECK_VERSION ?= v1.7.0
+YAMLLINT_VERSION ?= 1.37.1
 K3D_VERSION ?= v5.8.3
 GITLEAKS_VERSION ?= 8.30.1
 CERT_MANAGER_VERSION ?= v1.21.1
 KO_VERSION ?= v0.18.0
+HELM_UNITTEST_VERSION ?= v0.7.2
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -175,12 +179,12 @@ lint: golangci-lint ## Run golangci-lint
 
 .PHONY: yaml-lint
 yaml-lint: ## Lint YAML files (mirrors CI)
-	@command -v yamllint >/dev/null 2>&1 || python3 -c "import yamllint" 2>/dev/null || { echo "Installing yamllint..."; python3 -m pip install --user --break-system-packages yamllint 2>/dev/null || python3 -m pip install --user yamllint; }
+	@command -v yamllint >/dev/null 2>&1 || python3 -c "import yamllint" 2>/dev/null || { echo "Installing yamllint $(YAMLLINT_VERSION)..."; python3 -m pip install --user --break-system-packages "yamllint==$(YAMLLINT_VERSION)" 2>/dev/null || python3 -m pip install --user "yamllint==$(YAMLLINT_VERSION)"; }
 	@if command -v yamllint >/dev/null 2>&1; then \
-		yamllint -d '{extends: default, rules: {line-length: {max: 200}, truthy: {check-keys: false}, indentation: {spaces: 2, indent-sequences: whatever}, document-start: disable}}' \
+		yamllint -c .yamllint.yaml \
 			config/ charts/attune/Chart.yaml charts/attune/values.yaml charts/attune/ci/ test/e2e/; \
 	else \
-		python3 -m yamllint -d '{extends: default, rules: {line-length: {max: 200}, truthy: {check-keys: false}, indentation: {spaces: 2, indent-sequences: whatever}, document-start: disable}}' \
+		python3 -m yamllint -c .yamllint.yaml \
 			config/ charts/attune/Chart.yaml charts/attune/values.yaml charts/attune/ci/ test/e2e/; \
 	fi
 
@@ -211,7 +215,7 @@ test: manifests generate gotestsum ## Run unit tests
 
 .PHONY: test-integration
 test-integration: manifests generate setup-envtest gotestsum ## Run integration tests
-	KUBEBUILDER_ASSETS="$(shell $(SETUP_ENVTEST) use -p path)" \
+	KUBEBUILDER_ASSETS="$(shell $(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 		$(GOTESTSUM) --format pkgname \
 		--rerun-fails --rerun-fails-max-failures=3 \
 		--packages="./test/integration/..." \
@@ -309,7 +313,11 @@ ko-build-local: ko ## Build operator image as OCI tarball via ko (no Docker daem
 
 .PHONY: docker-build
 docker-build: ## Build container image via Docker (alternative to ko-build-local)
-	DOCKER_BUILDKIT=1 docker build -t $(IMG) .
+	DOCKER_BUILDKIT=1 docker build \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg COMMIT=$(COMMIT) \
+		--build-arg DATE=$(BUILD_DATE) \
+		-t $(IMG) .
 
 .PHONY: docker-push
 docker-push: ## Push container image
@@ -319,7 +327,11 @@ PLATFORMS ?= linux/amd64,linux/arm64
 
 .PHONY: docker-buildx
 docker-buildx: ## Build and push multi-arch container image
-	docker buildx build --platform $(PLATFORMS) --push -t $(IMG) .
+	docker buildx build --platform $(PLATFORMS) --push \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg COMMIT=$(COMMIT) \
+		--build-arg DATE=$(BUILD_DATE) \
+		-t $(IMG) .
 
 ##@ Deployment
 
@@ -349,7 +361,7 @@ K3S_VERSION ?= v1.35.4-k3s1
 
 # Kind settings (upstream K8s, production-accurate)
 KIND_CLUSTER_NAME ?= attune
-KIND_NODE_IMAGE ?= kindest/node:v1.33.7
+KIND_NODE_IMAGE ?= kindest/node:v1.35.0
 
 .PHONY: k3d-create
 k3d-create: ## Create a k3d cluster for local dev (fast, uses k3s)
@@ -475,10 +487,13 @@ gotestsum: ## Install gotestsum
 		mv $(LOCALBIN)/gotestsum $(GOTESTSUM); \
 	}
 
-SETUP_ENVTEST = $(LOCALBIN)/setup-envtest
+SETUP_ENVTEST = $(LOCALBIN)/setup-envtest-$(SETUP_ENVTEST_VERSION)
 .PHONY: setup-envtest
 setup-envtest: ## Install setup-envtest
-	@test -s $(SETUP_ENVTEST) || go install sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.24.1
+	@test -s $(SETUP_ENVTEST) || { \
+		go install sigs.k8s.io/controller-runtime/tools/setup-envtest@$(SETUP_ENVTEST_VERSION) && \
+		mv $(LOCALBIN)/setup-envtest $(SETUP_ENVTEST); \
+	}
 
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint-$(GOLANGCI_LINT_VERSION)
 .PHONY: golangci-lint
@@ -541,5 +556,29 @@ helm-docs-check: helm-docs-gen ## Verify Helm docs are up to date
 
 .PHONY: helm-unittest
 helm-unittest: ## Run Helm chart unit tests
-	@helm plugin list | grep -q unittest || helm plugin install https://github.com/helm-unittest/helm-unittest.git --verify=false
+	@ASSET_VERSION="$(HELM_UNITTEST_VERSION)"; \
+	ASSET_VERSION="$${ASSET_VERSION#v}"; \
+	case "$$(uname -s)" in \
+	  Linux)  HU_OS=linux ;; \
+	  Darwin) HU_OS=macos ;; \
+	  *) echo "unsupported OS: $$(uname -s)" >&2; exit 1 ;; \
+	esac; \
+	case "$$(uname -m)" in \
+	  x86_64) HU_ARCH=amd64 ;; \
+	  aarch64|arm64) HU_ARCH=arm64 ;; \
+	  *) echo "unsupported arch: $$(uname -m)" >&2; exit 1 ;; \
+	esac; \
+	PLUGINS_ROOT="$$(helm env HELM_PLUGINS)"; \
+	rm -rf "$$PLUGINS_ROOT/helm-unittest.git"; \
+	HAVE=""; \
+	if [ -f "$$PLUGINS_ROOT/unittest/plugin.yaml" ]; then \
+	  HAVE=$$(awk -F'"' '/^version:/{print $$2; exit}' "$$PLUGINS_ROOT/unittest/plugin.yaml"); \
+	fi; \
+	if [ "$$HAVE" != "$$ASSET_VERSION" ]; then \
+	  echo "Installing helm-unittest $(HELM_UNITTEST_VERSION) ($$HU_OS/$$HU_ARCH)"; \
+	  rm -rf "$$PLUGINS_ROOT/unittest"; \
+	  mkdir -p "$$PLUGINS_ROOT/unittest"; \
+	  curl -fsSL "https://github.com/helm-unittest/helm-unittest/releases/download/$(HELM_UNITTEST_VERSION)/helm-unittest-$${HU_OS}-$${HU_ARCH}-$${ASSET_VERSION}.tgz" \
+	    | tar xz -C "$$PLUGINS_ROOT/unittest"; \
+	fi
 	helm unittest charts/attune

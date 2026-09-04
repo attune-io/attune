@@ -1050,6 +1050,52 @@ func TestFilterPolicies_EmptyFilterReturnsAll(t *testing.T) {
 	assert.Len(t, result, 2)
 }
 
+func TestFilterPolicies_ConflictCheckFailed(t *testing.T) {
+	// policyReadyReason returns the Ready=False message, which does not
+	// contain "conflictcheckfailed". Matching only that display string
+	// (main-branch filterPolicies) misses this policy.
+	conflict := *conflictCheckFailedPolicy("conflict-policy", "default", nil, nil)
+	collecting := unstructured.Unstructured{Object: map[string]interface{}{
+		"metadata": map[string]interface{}{"name": "collecting-policy", "namespace": "default"},
+		"status": map[string]interface{}{
+			"conditions": []interface{}{
+				map[string]interface{}{
+					"type":    "Ready",
+					"status":  "False",
+					"reason":  "InsufficientData",
+					"message": "Not enough data",
+				},
+			},
+		},
+	}}
+	invalid := unstructured.Unstructured{Object: map[string]interface{}{
+		"metadata": map[string]interface{}{"name": "invalid-policy", "namespace": "default"},
+		"status": map[string]interface{}{
+			"conditions": []interface{}{
+				map[string]interface{}{
+					"type":    "Ready",
+					"status":  "False",
+					"reason":  "InvalidConfig",
+					"message": "cpu.maxAllowed must be greater than minAllowed",
+				},
+			},
+		},
+	}}
+	items := []unstructured.Unstructured{conflict, collecting, invalid}
+
+	got := filterPolicies(items, "conflictcheckfailed")
+	require.Len(t, got, 1)
+	assert.Equal(t, "conflict-policy", got[0].GetName())
+
+	got = filterPolicies(items, "collecting")
+	require.Len(t, got, 1)
+	assert.Equal(t, "collecting-policy", got[0].GetName())
+
+	got = filterPolicies(items, "invalidconfig")
+	require.Len(t, got, 1)
+	assert.Equal(t, "invalid-policy", got[0].GetName())
+}
+
 func TestRun_FilterFlagRejectedForNonStatus(t *testing.T) {
 	code := run([]string{"savings", "--filter", "degraded"}, func(string, string) (dynamic.Interface, string, error) {
 		return nil, "default", nil
@@ -1625,6 +1671,110 @@ func TestPrintRecommendations_CollectingData(t *testing.T) {
 	assert.Regexp(t, `(?m)new-policy\s+-\s+-\s+-\s+-\s+-\s+-\s+-\s+Not enough data`, output)
 }
 
+func conflictCheckFailedPolicy(name, ns string, recs []interface{}, extraErrors []interface{}) *unstructured.Unstructured {
+	errors := make([]interface{}, 0, 1+len(extraErrors))
+	errors = append(errors, map[string]interface{}{
+		"workload": "*",
+		"error":    "Failed to list AttunePolicies for conflict detection; recommendations not computed",
+	})
+	errors = append(errors, extraErrors...)
+	status := map[string]interface{}{
+		"conditions": []interface{}{
+			map[string]interface{}{
+				"type":    "Ready",
+				"status":  "False",
+				"reason":  attunev1alpha1.ReasonConflictCheckFailed,
+				"message": "Failed to list AttunePolicies for conflict detection; recommendations not computed",
+			},
+		},
+		"workloadErrors": errors,
+	}
+	if recs != nil {
+		status["recommendations"] = recs
+	}
+	return &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "attune.io/v1alpha1",
+		"kind":       "AttunePolicy",
+		"metadata":   map[string]interface{}{"name": name, "namespace": ns},
+		"status":     status,
+	}}
+}
+
+func captureStdoutStderr(t *testing.T, fn func()) (string, string) {
+	t.Helper()
+	oldOut, oldErr := os.Stdout, os.Stderr
+	outR, outW, err := os.Pipe()
+	require.NoError(t, err)
+	errR, errW, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout, os.Stderr = outW, errW
+	fn()
+	require.NoError(t, outW.Close())
+	require.NoError(t, errW.Close())
+	os.Stdout, os.Stderr = oldOut, oldErr
+	var outBuf, errBuf bytes.Buffer
+	_, err = outBuf.ReadFrom(outR)
+	require.NoError(t, err)
+	_, err = errBuf.ReadFrom(errR)
+	require.NoError(t, err)
+	return outBuf.String(), errBuf.String()
+}
+
+func TestPrintRecommendations_ConflictCheckFailedEmptyRecs(t *testing.T) {
+	policy := conflictCheckFailedPolicy("web", "default", nil, nil)
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{gvr: "AttunePolicyList"}, policy)
+
+	stdout, stderr := captureStdoutStderr(t, func() {
+		printRecommendations(context.Background(), dynClient, "default")
+	})
+
+	assert.Contains(t, stdout, "web")
+	assert.Contains(t, stdout, "Failed to list AttunePolicies for conflict detection")
+	assert.NotContains(t, stderr, "collecting data")
+	assert.Contains(t, stderr, "Warning: default/web Ready=False (ConflictCheckFailed)")
+	assert.Contains(t, stderr, "See docs/guides/troubleshooting.md#conflictcheckfailed")
+}
+
+func TestPrintRecommendations_ConflictCheckFailedWithRecs(t *testing.T) {
+	recs := []interface{}{
+		map[string]interface{}{
+			"workload": "api",
+			"containers": []interface{}{
+				map[string]interface{}{
+					"name":       "app",
+					"confidence": 0.9,
+					"current": map[string]interface{}{
+						"cpuRequest":    "500m",
+						"memoryRequest": "512Mi",
+					},
+					"recommended": map[string]interface{}{
+						"cpuRequest":    "250m",
+						"memoryRequest": "384Mi",
+					},
+				},
+			},
+		},
+	}
+	policy := conflictCheckFailedPolicy("web", "default", recs, nil)
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{gvr: "AttunePolicyList"}, policy)
+
+	stdout, stderr := captureStdoutStderr(t, func() {
+		printRecommendations(context.Background(), dynClient, "default")
+	})
+
+	assert.Contains(t, stdout, "api")
+	assert.Contains(t, stdout, "250m")
+	assert.Contains(t, stdout, "90.0%")
+	assert.NotContains(t, stderr, "collecting data")
+	assert.Contains(t, stderr, "Warning: default/web Ready=False (ConflictCheckFailed)")
+	assert.Contains(t, stderr, "Failed to list AttunePolicies for conflict detection")
+	assert.Contains(t, stderr, "See docs/guides/troubleshooting.md#conflictcheckfailed")
+}
+
 func captureRun(t *testing.T, args []string, buildClient dynamicClientFactory) (int, string, string) {
 	t.Helper()
 	oldStdout := os.Stdout
@@ -2171,6 +2321,61 @@ func TestPrintExplain_NoRecommendations(t *testing.T) {
 	assert.Contains(t, output, "Metrics source: prometheus (auto-discover)")
 }
 
+func TestPrintExplain_ConflictCheckFailedEmptyRecs(t *testing.T) {
+	policy := conflictCheckFailedPolicy("web", "default", nil, nil)
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{
+			gvr:                  "AttunePolicyList",
+			namespaceDefaultsGVR: "AttuneNamespaceDefaultsList",
+			defaultsGVR:          "AttuneDefaultsList",
+		}, policy)
+
+	stdout, stderr := captureStdoutStderr(t, func() {
+		printExplain(context.Background(), dynClient, "default", "web")
+	})
+
+	assert.Contains(t, stdout, "default/web has no recommendations (ConflictCheckFailed): Failed to list AttunePolicies for conflict detection; recommendations not computed")
+	assert.NotContains(t, stdout, "no recommendations yet")
+	assert.Contains(t, stdout, "Effective values:")
+	assert.Contains(t, stderr, "Warning: default/web Ready=False (ConflictCheckFailed)")
+	assert.Contains(t, stderr, "See docs/guides/troubleshooting.md#conflictcheckfailed")
+}
+
+func TestPrintExplain_ConflictCheckFailedWithRecs(t *testing.T) {
+	recs := []interface{}{
+		map[string]interface{}{
+			"workload": "api",
+			"containers": []interface{}{
+				map[string]interface{}{
+					"name":        "app",
+					"confidence":  0.9,
+					"current":     map[string]interface{}{"cpuRequest": "500m"},
+					"recommended": map[string]interface{}{"cpuRequest": "250m"},
+				},
+			},
+		},
+	}
+	policy := conflictCheckFailedPolicy("web", "default", recs, nil)
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{
+			gvr:                  "AttunePolicyList",
+			namespaceDefaultsGVR: "AttuneNamespaceDefaultsList",
+			defaultsGVR:          "AttuneDefaultsList",
+		}, policy)
+
+	stdout, stderr := captureStdoutStderr(t, func() {
+		printExplain(context.Background(), dynClient, "default", "web")
+	})
+
+	assert.Contains(t, stdout, "Policy: default/web")
+	assert.Contains(t, stdout, "Workload: api")
+	assert.Contains(t, stdout, "Container: app")
+	assert.Contains(t, stderr, "Warning: default/web Ready=False (ConflictCheckFailed)")
+	assert.Contains(t, stderr, "See docs/guides/troubleshooting.md#conflictcheckfailed")
+}
+
 func TestPrintExplain_ShowsPolicyNamespaceAndBuiltInEffectiveValues(t *testing.T) {
 	cooldown := "30m"
 	queryStep := "10m"
@@ -2687,6 +2892,61 @@ func TestPrintEffectivePolicySummary_PodAggregationDefault(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(out), "Pod aggregation")
 	assert.Contains(t, string(out), attunev1alpha1.DefaultPodAggregation)
+}
+
+func TestPrintEffectivePolicySummary_StatusBudgetFields(t *testing.T) {
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{Type: attunev1alpha1.UpdateTypeAuto},
+		},
+	}
+	item := unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{},
+	}}
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	old := os.Stdout
+	os.Stdout = w
+	printEffectivePolicySummary(item, policy, selectedDefaults{})
+	_ = w.Close()
+	os.Stdout = old
+	out, err := io.ReadAll(r)
+	require.NoError(t, err)
+	s := string(out)
+	assert.Contains(t, s, "Max status recommendations: 100 (source: built-in default, configured: <unset>)")
+	assert.Contains(t, s, "Include explanations in status: true (source: built-in default, configured: <unset>)")
+
+	maxRecs := int32(50)
+	include := false
+	defaults := &attunev1alpha1.AttuneDefaults{
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				MaxStatusRecommendations:    &maxRecs,
+				IncludeExplanationsInStatus: &include,
+			},
+		},
+	}
+	inherited := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Type:                        attunev1alpha1.UpdateTypeAuto,
+				MaxStatusRecommendations:    &maxRecs,
+				IncludeExplanationsInStatus: &include,
+			},
+		},
+	}
+	r, w, err = os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+	printEffectivePolicySummary(item, inherited, selectedDefaults{defaults: defaults, source: sourceCluster})
+	_ = w.Close()
+	os.Stdout = old
+	out, err = io.ReadAll(r)
+	require.NoError(t, err)
+	s = string(out)
+	assert.Contains(t, s, "Max status recommendations: 50 (source: cluster default, configured: <unset>)")
+	assert.Contains(t, s, "Include explanations in status: false (source: cluster default, configured: <unset>)")
 }
 
 func TestPrintSavingsCSV_HeaderAndRow(t *testing.T) {
