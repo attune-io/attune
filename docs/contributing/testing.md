@@ -42,7 +42,7 @@ This installs the `setup-envtest` tool if needed, downloads the Kubernetes
 binaries, and runs:
 
 ```bash
-KUBEBUILDER_ASSETS="$(setup-envtest use -p path)" \
+KUBEBUILDER_ASSETS="$(setup-envtest use 1.35.0 -p path)" \
   go test ./test/integration/... -race -count=1 -timeout=15m -tags=integration
 ```
 

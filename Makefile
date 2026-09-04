@@ -11,6 +11,8 @@ CHAINSAW_VERSION ?= v0.2.15
 KUSTOMIZE_VERSION ?= v5.6.0
 HELM_DOCS_VERSION ?= v1.14.2
 GOTESTSUM_VERSION ?= v1.13.0
+SETUP_ENVTEST_VERSION ?= v0.24.1
+ENVTEST_K8S_VERSION ?= 1.35.0
 GOVULNCHECK_VERSION ?= v1.7.0
 K3D_VERSION ?= v5.8.3
 GITLEAKS_VERSION ?= 8.30.1
@@ -211,7 +213,7 @@ test: manifests generate gotestsum ## Run unit tests
 
 .PHONY: test-integration
 test-integration: manifests generate setup-envtest gotestsum ## Run integration tests
-	KUBEBUILDER_ASSETS="$(shell $(SETUP_ENVTEST) use -p path)" \
+	KUBEBUILDER_ASSETS="$(shell $(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 		$(GOTESTSUM) --format pkgname \
 		--rerun-fails --rerun-fails-max-failures=3 \
 		--packages="./test/integration/..." \
@@ -475,10 +477,13 @@ gotestsum: ## Install gotestsum
 		mv $(LOCALBIN)/gotestsum $(GOTESTSUM); \
 	}
 
-SETUP_ENVTEST = $(LOCALBIN)/setup-envtest
+SETUP_ENVTEST = $(LOCALBIN)/setup-envtest-$(SETUP_ENVTEST_VERSION)
 .PHONY: setup-envtest
 setup-envtest: ## Install setup-envtest
-	@test -s $(SETUP_ENVTEST) || go install sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.24.1
+	@test -s $(SETUP_ENVTEST) || { \
+		go install sigs.k8s.io/controller-runtime/tools/setup-envtest@$(SETUP_ENVTEST_VERSION) && \
+		mv $(LOCALBIN)/setup-envtest $(SETUP_ENVTEST); \
+	}
 
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint-$(GOLANGCI_LINT_VERSION)
 .PHONY: golangci-lint
