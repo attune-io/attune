@@ -19,6 +19,7 @@ K3D_VERSION ?= v5.8.3
 GITLEAKS_VERSION ?= 8.30.1
 CERT_MANAGER_VERSION ?= v1.21.1
 KO_VERSION ?= v0.18.0
+HELM_UNITTEST_VERSION ?= v0.7.2
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -547,5 +548,29 @@ helm-docs-check: helm-docs-gen ## Verify Helm docs are up to date
 
 .PHONY: helm-unittest
 helm-unittest: ## Run Helm chart unit tests
-	@helm plugin list | grep -q unittest || helm plugin install https://github.com/helm-unittest/helm-unittest.git --verify=false
+	@ASSET_VERSION="$(HELM_UNITTEST_VERSION)"; \
+	ASSET_VERSION="$${ASSET_VERSION#v}"; \
+	case "$$(uname -s)" in \
+	  Linux)  HU_OS=linux ;; \
+	  Darwin) HU_OS=macos ;; \
+	  *) echo "unsupported OS: $$(uname -s)" >&2; exit 1 ;; \
+	esac; \
+	case "$$(uname -m)" in \
+	  x86_64) HU_ARCH=amd64 ;; \
+	  aarch64|arm64) HU_ARCH=arm64 ;; \
+	  *) echo "unsupported arch: $$(uname -m)" >&2; exit 1 ;; \
+	esac; \
+	PLUGINS_ROOT="$$(helm env HELM_PLUGINS)"; \
+	rm -rf "$$PLUGINS_ROOT/helm-unittest.git"; \
+	HAVE=""; \
+	if [ -f "$$PLUGINS_ROOT/unittest/plugin.yaml" ]; then \
+	  HAVE=$$(awk -F'"' '/^version:/{print $$2; exit}' "$$PLUGINS_ROOT/unittest/plugin.yaml"); \
+	fi; \
+	if [ "$$HAVE" != "$$ASSET_VERSION" ]; then \
+	  echo "Installing helm-unittest $(HELM_UNITTEST_VERSION) ($$HU_OS/$$HU_ARCH)"; \
+	  rm -rf "$$PLUGINS_ROOT/unittest"; \
+	  mkdir -p "$$PLUGINS_ROOT/unittest"; \
+	  curl -fsSL "https://github.com/helm-unittest/helm-unittest/releases/download/$(HELM_UNITTEST_VERSION)/helm-unittest-$${HU_OS}-$${HU_ARCH}-$${ASSET_VERSION}.tgz" \
+	    | tar xz -C "$$PLUGINS_ROOT/unittest"; \
+	fi
 	helm unittest charts/attune
