@@ -212,7 +212,7 @@ the estimator chain: `rawPercentile`, `overhead`, `afterOverhead`,
 
 | Type | Reasons | Description |
 |------|---------|-------------|
-| `Ready` | `Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `MetricsUnavailable`, `InvalidConfig`, `WorkloadDiscoveryFailed`, `Paused` | Overall health |
+| `Ready` | `Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `MetricsUnavailable` (alias `PrometheusUnavailable`), `InvalidConfig`, `WorkloadDiscoveryFailed`, `Paused` | Overall health |
 | `Resizing` | `InProgress`, `Idle`, `CooldownActive` | Active resize operation state. `CooldownActive` only when every matched app is still cooling |
 | `Degraded` | `HighRevertRate` | High revert rate detected (3+ of last 5 reverted) |
 | `ScheduleBlocked` | `OutsideWindow`, `InsideWindow` | Whether the current time is within the configured resize schedule window |
