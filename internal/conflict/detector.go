@@ -160,9 +160,17 @@ func policyTargetsWorkload(logger logr.Logger, policy unstructured.Unstructured,
 // CheckPolicyConflict checks if another AttunePolicy with higher weight
 // targets the same workload. Returns a Conflict if a higher-weight policy
 // exists (the current policy should defer). Returns nil if the current policy
-// has the highest weight or no overlap exists.
+// has the highest weight or no overlap exists. A List error is a Conflict
+// so the wrapper fails closed instead of treating the workload as unconflicted.
 func (d *Detector) CheckPolicyConflict(ctx context.Context, c client.Client, namespace, workloadName, workloadKind string, workloadLabels map[string]string, currentPolicyName string, currentWeight int32) *Conflict {
-	return d.CheckPolicyConflictInMemory(d.ListPolicies(ctx, c, namespace), workloadName, workloadKind, workloadLabels, currentPolicyName, currentWeight)
+	policyList, err := d.ListPolicies(ctx, c, namespace)
+	if err != nil {
+		return &Conflict{
+			Type:    ConflictPolicy,
+			Message: fmt.Sprintf("failed to list AttunePolicies for conflict check: %v", err),
+		}
+	}
+	return d.CheckPolicyConflictInMemory(policyList, workloadName, workloadKind, workloadLabels, currentPolicyName, currentWeight)
 }
 
 // CheckHPAConflict checks if an HPA targets the same workload and returns a Conflict if so.
@@ -228,7 +236,9 @@ func (d *Detector) CheckVPAConflictInMemory(vpaList *unstructured.UnstructuredLi
 }
 
 // ListPolicies fetches all AttunePolicies in the namespace once for efficient conflict checking.
-func (d *Detector) ListPolicies(ctx context.Context, c client.Client, namespace string) *unstructured.UnstructuredList {
+// On List error it returns (nil, err) so callers can fail closed instead of
+// treating an unknown policy set as "no conflicts."
+func (d *Detector) ListPolicies(ctx context.Context, c client.Client, namespace string) (*unstructured.UnstructuredList, error) {
 	policyList := &unstructured.UnstructuredList{}
 	policyList.SetGroupVersionKind(schema.GroupVersionKind{
 		Group:   "attune.io",
@@ -237,10 +247,9 @@ func (d *Detector) ListPolicies(ctx context.Context, c client.Client, namespace 
 	})
 
 	if err := c.List(ctx, policyList, client.InNamespace(namespace)); err != nil {
-		d.logger.V(1).Info("Could not list AttunePolicies for conflict check", "error", err)
-		return nil
+		return nil, err
 	}
-	return policyList
+	return policyList, nil
 }
 
 // CheckPolicyConflictInMemory checks for policy conflicts against a pre-fetched list.

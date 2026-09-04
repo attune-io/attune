@@ -869,7 +869,12 @@ func (r *AttunePolicyReconciler) processWorkloads(
 		logger.Error(err, "Failed to list HPAs for conflict detection")
 	}
 	vpaList := conflictDetector.ListVPAs(ctx, r.Client, policy.Namespace)
-	policyList := conflictDetector.ListPolicies(ctx, r.Client, policy.Namespace)
+	policyList, err := conflictDetector.ListPolicies(ctx, r.Client, policy.Namespace)
+	if err != nil {
+		logger.Error(err, "Failed to list AttunePolicies for conflict detection")
+		operatormetrics.ReconcileErrorsTotal.WithLabelValues("list_policies").Inc()
+		return result
+	}
 
 	// Clear gauge values that THIS policy previously set.
 	policyKey := policy.Namespace + "/" + policy.Name
