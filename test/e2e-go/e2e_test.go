@@ -292,6 +292,10 @@ func waitForPolicyDiscovered(t *testing.T, name, namespace string, timeout time.
 	}), "policy %s/%s workloads.discovered still 0 after %s", namespace, name, timeout)
 }
 
+// waitForResize returns when Workloads.Resized > 0. That counter is
+// per-workload: one successful container is enough. Tests that need
+// every container to land must poll live requests
+// (waitForNamedContainersCPUDecrease).
 func waitForResize(t *testing.T, policyName, namespace string, timeout time.Duration) {
 	t.Helper()
 	start := time.Now()
@@ -454,6 +458,21 @@ func touchPolicySpec(t *testing.T, name, namespace string) {
 // parallel Prometheus load (nightly MemoryAllowDecrease / GuaranteedQoS flakes).
 func waitForLiveCPUDecrease(t *testing.T, policyName, namespace, app string, origCPU resource.Quantity, timeout time.Duration, msg string) {
 	t.Helper()
+	waitForNamedContainersCPUDecrease(t, policyName, namespace, app, []string{"app"}, origCPU, timeout, msg)
+}
+
+// waitForNamedContainersCPUDecrease waits until a Running, non-deleting pod
+// has every named container's CPU request strictly below origCPU.
+//
+// Reads pods via Clientset (not the informer cache) so a just-written
+// /resize spec is visible. Re-touches the policy under parallel
+// Prometheus load, same as waitForLiveCPUDecrease.
+func waitForNamedContainersCPUDecrease(t *testing.T, policyName, namespace, app string, names []string, origCPU resource.Quantity, timeout time.Duration, msg string) {
+	t.Helper()
+	want := make(map[string]struct{}, len(names))
+	for _, n := range names {
+		want[n] = struct{}{}
+	}
 	lastTouch := time.Now()
 	lastDiag := time.Time{}
 	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, timeout, true, func(ctx context.Context) (bool, error) {
@@ -461,24 +480,38 @@ func waitForLiveCPUDecrease(t *testing.T, policyName, namespace, app string, ori
 			touchPolicySpec(t, policyName, namespace)
 			lastTouch = time.Now()
 		}
-		var pods corev1.PodList
-		if err := k8sClient.List(ctx, &pods, client.InNamespace(namespace), client.MatchingLabels{"app": app}); err != nil {
+		pods, err := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
+			LabelSelector: "app=" + app,
+		})
+		if err != nil {
 			return false, nil
 		}
-		for _, pod := range pods.Items {
-			if pod.Status.Phase != corev1.PodRunning {
+		for i := range pods.Items {
+			pod := &pods.Items[i]
+			if pod.Status.Phase != corev1.PodRunning || pod.DeletionTimestamp != nil {
 				continue
 			}
+			seen := 0
 			for _, c := range pod.Spec.Containers {
-				if c.Name != "app" {
+				if _, ok := want[c.Name]; !ok {
 					continue
 				}
 				cpu := c.Resources.Requests.Cpu()
-				if cpu != nil && cpu.Cmp(origCPU) < 0 {
-					t.Logf("Pod %s CPU decreased: cpu=%dm (from %dm) mem=%s",
-						pod.Name, cpu.MilliValue(), origCPU.MilliValue(), c.Resources.Requests.Memory().String())
-					return true, nil
+				if cpu == nil || cpu.Cmp(origCPU) >= 0 {
+					continue
 				}
+				seen++
+			}
+			if seen == len(want) && len(want) > 0 {
+				for _, c := range pod.Spec.Containers {
+					if _, ok := want[c.Name]; !ok {
+						continue
+					}
+					cpu := c.Resources.Requests.Cpu()
+					t.Logf("Pod %s container %s CPU decreased: cpu=%dm (from %dm) mem=%s",
+						pod.Name, c.Name, cpu.MilliValue(), origCPU.MilliValue(), c.Resources.Requests.Memory().String())
+				}
+				return true, nil
 			}
 		}
 		if time.Since(lastDiag) > 30*time.Second {
@@ -491,18 +524,24 @@ func waitForLiveCPUDecrease(t *testing.T, policyName, namespace, app string, ori
 				for _, c := range p.Status.Conditions {
 					t.Logf("  condition %s: status=%s reason=%s", c.Type, c.Status, c.Reason)
 				}
+				for _, h := range p.Status.ResizeHistory {
+					t.Logf("  history: workload=%s container=%s resource=%s result=%s",
+						h.Workload, h.Container, h.Resource, h.Result)
+				}
 			}
-			for _, pod := range pods.Items {
+			for i := range pods.Items {
+				pod := &pods.Items[i]
 				for _, c := range pod.Spec.Containers {
-					if c.Name == "app" {
-						cpu := c.Resources.Requests.Cpu()
-						if cpu == nil {
-							t.Logf("  pod %s phase=%s cpu=<nil>", pod.Name, pod.Status.Phase)
-							continue
-						}
-						t.Logf("  pod %s phase=%s cpu=%s (%dm) cmpOrig=%d",
-							pod.Name, pod.Status.Phase, cpu.String(), cpu.MilliValue(), cpu.Cmp(origCPU))
+					if _, ok := want[c.Name]; !ok {
+						continue
 					}
+					cpu := c.Resources.Requests.Cpu()
+					if cpu == nil {
+						t.Logf("  pod %s phase=%s container=%s cpu=<nil>", pod.Name, pod.Status.Phase, c.Name)
+						continue
+					}
+					t.Logf("  pod %s phase=%s container=%s cpu=%s (%dm) cmpOrig=%d",
+						pod.Name, pod.Status.Phase, c.Name, cpu.String(), cpu.MilliValue(), cpu.Cmp(origCPU))
 				}
 			}
 		}
@@ -2418,31 +2457,27 @@ func TestE2E_MultiContainer_SequentialResize(t *testing.T) {
 	}
 	require.NoError(t, k8sClient.Create(ctx, policy))
 
-	waitForResize(t, "multi-resize-policy", ns, 3*time.Minute)
-
-	// Verify both containers were resized downward (MaxAllowed 100m < 250m start).
-	var podList corev1.PodList
-	require.NoError(t, k8sClient.List(ctx, &podList,
-		client.InNamespace(ns),
-		client.MatchingLabels{"app": "multi-resize-app"},
-	))
-	require.NotEmpty(t, podList.Items)
-
-	pod := podList.Items[0]
+	// Workloads.Resized is per-workload, so waitForResize can return after
+	// the first container. Poll the live pod spec until both decrease
+	// (MaxAllowed 100m < 250m start).
 	origCPU := resource.MustParse("250m")
-	decreasedContainers := 0
-	for _, c := range pod.Spec.Containers {
-		cpu := c.Resources.Requests.Cpu()
-		if cpu != nil && cpu.Cmp(origCPU) < 0 {
-			decreasedContainers++
-			t.Logf("container %s CPU decreased: cpu=%s mem=%s",
-				c.Name, cpu.String(), c.Resources.Requests.Memory())
-		} else {
-			t.Logf("container %s CPU not decreased: cpu=%s", c.Name, cpu)
+	waitForNamedContainersCPUDecrease(t, "multi-resize-policy", ns, "multi-resize-app",
+		[]string{"web", "worker"}, origCPU, 6*time.Minute,
+		"both web and worker CPU should decrease; sequential UpdateResize requires fresh resourceVersion")
+
+	pods, err := clientset.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{
+		LabelSelector: "app=multi-resize-app",
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, pods.Items)
+	var pod *corev1.Pod
+	for i := range pods.Items {
+		if pods.Items[i].DeletionTimestamp == nil {
+			pod = &pods.Items[i]
+			break
 		}
 	}
-	assert.Equal(t, 2, decreasedContainers,
-		"both containers should decrease CPU; sequential UpdateResize requires fresh resourceVersion")
+	require.NotNil(t, pod, "expected a non-deleting pod")
 
 	// Verify resize history records both containers.
 	var p attunev1alpha1.AttunePolicy

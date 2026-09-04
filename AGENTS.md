@@ -489,6 +489,11 @@ directory. When referencing files elsewhere in the repo (e.g., `charts/`,
 - E2E wait helpers (`waitForDeploymentReady`, `waitForResize`, etc.) must
   log diagnostic state on timeout (pod phase, container state, events).
   Silent timeouts make CI failures undiagnosable.
+- `waitForResize` returns when `Workloads.Resized > 0`. That counter is
+  per-workload: one successful container is enough. Multi-container tests
+  must poll live requests (`waitForNamedContainersCPUDecrease`) instead of
+  a one-shot List after `waitForResize`. Read pods via Clientset so the
+  informer cache cannot hide a just-written `/resize` spec.
 - Chainsaw assertions must target **stable** operator states, not transient
   ones. With `minimumDataPoints: 1`, the operator can transition from
   `InsufficientData` to `Monitoring` within seconds. A static assert on
