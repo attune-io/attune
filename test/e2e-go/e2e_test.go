@@ -3712,6 +3712,129 @@ func TestE2E_PodAggregationAndBurstSensitivity_InExplanation(t *testing.T) {
 	assert.NotContains(t, note, "burstSensitivity=0.1")
 }
 
+func TestE2E_DatadogSource_DoesNotUseClusterPrometheus(t *testing.T) {
+	t.Parallel()
+	ns := uniqueNS("ddsrc")
+	createNamespace(t, ns)
+	createDeployment(t, "ddsrc-app", ns, "250m", "256Mi", 1)
+	waitForDeploymentReady(t, "ddsrc-app", ns, 60*time.Second)
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "dd-api", Namespace: ns},
+		Data:       map[string][]byte{"api-key": []byte("e2e-fake-datadog-key")},
+	}
+	require.NoError(t, k8sClient.Create(ctx, secret))
+
+	name := "ddsrc-app"
+	require.NoError(t, k8sClient.Create(ctx, exclusiveProviderPolicy(ns, "ddsrc-policy", name, attunev1alpha1.MetricsSource{
+		Datadog: &attunev1alpha1.DatadogConfig{
+			Site: "datadoghq.com",
+			APIKeySecretRef: attunev1alpha1.SecretKeyRef{
+				Name: "dd-api",
+				Key:  "api-key",
+			},
+		},
+		MinimumDataPoints: int32Ptr(1),
+		HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+		QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
+		RateWindow:        &metav1.Duration{Duration: 5 * time.Minute},
+	})))
+	assertExclusiveProviderDoesNotUseClusterPrometheus(t, "ddsrc-policy", ns)
+}
+
+func TestE2E_CloudWatchSource_DoesNotUseClusterPrometheus(t *testing.T) {
+	t.Parallel()
+	ns := uniqueNS("cwsrc")
+	createNamespace(t, ns)
+	createDeployment(t, "cwsrc-app", ns, "250m", "256Mi", 1)
+	waitForDeploymentReady(t, "cwsrc-app", ns, 60*time.Second)
+
+	name := "cwsrc-app"
+	require.NoError(t, k8sClient.Create(ctx, exclusiveProviderPolicy(ns, "cwsrc-policy", name, attunev1alpha1.MetricsSource{
+		CloudWatch: &attunev1alpha1.CloudWatchConfig{
+			Region:      "us-east-1",
+			ClusterName: "e2e-cluster",
+		},
+		MinimumDataPoints: int32Ptr(1),
+		HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+		QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
+		RateWindow:        &metav1.Duration{Duration: 5 * time.Minute},
+	})))
+	assertExclusiveProviderDoesNotUseClusterPrometheus(t, "cwsrc-policy", ns)
+}
+
+func exclusiveProviderPolicy(ns, policyName, deployName string, source attunev1alpha1.MetricsSource) *attunev1alpha1.AttunePolicy {
+	return &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: policyName, Namespace: ns},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			TargetRef:     attunev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
+			MetricsSource: source,
+			CPU: attunev1alpha1.ResourceConfig{
+				Percentile:       95,
+				Overhead:         "20",
+				MinAllowed:       quantityPtr("50m"),
+				MaxAllowed:       quantityPtr("4000m"),
+				MaxChangePercent: int32Ptr(100),
+			},
+			Memory: attunev1alpha1.ResourceConfig{
+				Percentile:       99,
+				Overhead:         "30",
+				AllowDecrease:    boolPtr(true),
+				MinAllowed:       quantityPtr("64Mi"),
+				MaxAllowed:       quantityPtr("8Gi"),
+				MaxChangePercent: int32Ptr(100),
+			},
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Type:     attunev1alpha1.UpdateTypeRecommend,
+				Cooldown: &metav1.Duration{Duration: time.Minute},
+			},
+		},
+	}
+}
+
+// assertExclusiveProviderDoesNotUseClusterPrometheus waits until Ready is
+// PrometheusUnavailable with zero recs. MergeDefaults only inherits a
+// cluster Prometheus address when the policy set no provider, so a Datadog
+// or CloudWatch policy that still produces recs has fallen back to the
+// in-cluster Prometheus used by every other E2E.
+func assertExclusiveProviderDoesNotUseClusterPrometheus(t *testing.T, policyName, ns string) {
+	t.Helper()
+	var last attunev1alpha1.AttunePolicy
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 3*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: policyName, Namespace: ns}, &last); err != nil {
+			return false, nil
+		}
+		reason := ""
+		for _, c := range last.Status.Conditions {
+			if c.Type == attunev1alpha1.ConditionReady {
+				reason = c.Reason
+				break
+			}
+		}
+		t.Logf("%s: discovered=%d withRecs=%d recs=%d resized=%d ready=%s",
+			policyName, last.Status.Workloads.Discovered, last.Status.Workloads.WithRecommendations,
+			len(last.Status.Recommendations), last.Status.Workloads.Resized, reason)
+		return reason == attunev1alpha1.ReasonPrometheusUnavailable, nil
+	}), "exclusive Datadog/CloudWatch policy must surface PrometheusUnavailable instead of using cluster Prometheus")
+
+	assert.Equal(t, attunev1alpha1.ReasonPrometheusUnavailable, readyReason(last),
+		"Ready reason must stay PrometheusUnavailable")
+	assert.Equal(t, int32(0), last.Status.Workloads.WithRecommendations,
+		"cluster Prometheus fallback would produce recommendations")
+	assert.Empty(t, last.Status.Recommendations,
+		"cluster Prometheus fallback would populate status.recommendations")
+	assert.Equal(t, int32(0), last.Status.Workloads.Resized)
+}
+
+func readyReason(p attunev1alpha1.AttunePolicy) string {
+	for _, c := range p.Status.Conditions {
+		if c.Type == attunev1alpha1.ConditionReady {
+			return c.Reason
+		}
+	}
+	return ""
+}
+
 func liveAppCPU(t *testing.T, namespace, app string) resource.Quantity {
 	t.Helper()
 	var pods corev1.PodList
