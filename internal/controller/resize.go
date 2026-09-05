@@ -1374,8 +1374,8 @@ func (r *AttunePolicyReconciler) shouldSkipResize(
 				}
 				// Neighbor request budget: skip *increases* that would not
 				// fit after other pods already reserved allocatable.
-				// Decreases stay allowed. Missing nodeName or a failed
-				// neighbor list leaves only the this-pod check above.
+				// Decreases stay allowed. A failed neighbor list is
+				// fail-closed for increases (see nErr below).
 				if targetIncreasesRequests(pod, containerRec.Name, target) {
 					nCPU, nMem, nErr := r.neighborRequestTotals(ctx, pod, checks)
 					if nErr != nil {

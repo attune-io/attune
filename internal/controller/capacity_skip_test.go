@@ -756,6 +756,30 @@ func TestNeighborRequestTotals_IgnoresInformerOnlyNeighbor(t *testing.T) {
 	assert.Equal(t, 1, count, "informer-only neighbor must not be counted (watch-namespaces fail-open guard)")
 }
 
+func TestNeighborRequestTotals_CountsOtherNamespaceOnClientset(t *testing.T) {
+	const nodeName = "node-xns"
+	self := newResizePod("app", "500m", "512Mi", "2000m", "2Gi")
+	self.Spec.NodeName = nodeName
+	self.UID = "self-uid"
+	otherNS := neighborPod("other-ns-pod", nodeName, "1500m", "1Gi")
+	otherNS.Namespace = "other"
+	otherNS.UID = "other-uid"
+	node := neighborTestNode(nodeName, "2000m", "8Gi")
+	deploy := newTestDeployment("app", "default", map[string]string{"app": "app"})
+
+	reconciler, _ := newResizeReconciler(self, deploy, node)
+	reconciler.Clientset = kubefake.NewSimpleClientset(self.DeepCopy(), otherNS.DeepCopy(), node.DeepCopy())
+
+	policy := newTestPolicy("nb-xns", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("app", "500m", "512Mi", "2000m", "2Gi", "1500m", "512Mi", "2000m", "2Gi"),
+	}
+	count, _ := reconciler.executeResizes(context.Background(), policy,
+		[]client.Object{deploy}, recs, podMap("app", self), nil, nil)
+	assert.Equal(t, 0, count, "Clientset neighbor in another namespace must still count")
+}
+
 func TestNeighborRequestTotals_SingleFlightOneList(t *testing.T) {
 	const nodeName = "node-sf"
 	self := newResizePod("app", "500m", "512Mi", "2000m", "2Gi")

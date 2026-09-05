@@ -232,6 +232,18 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 				if earlyRecords, buildErr := buildResizeRecords(pod, observationPeriod); buildErr == nil {
 					for _, record := range earlyRecords {
 						if v := safety.CheckCriticalStatuses(pod, record); v != nil {
+							confirmed, confirmErr := r.confirmCriticalStatuses(ctx, pod, record)
+							if confirmErr != nil {
+								logger.Error(confirmErr, "Early critical confirm Get failed", "pod", pod.Name)
+								observationsPending = true
+								continue
+							}
+							if confirmed == nil {
+								logger.V(1).Info("Cached critical verdict not confirmed on live pod",
+									"pod", pod.Name, "container", record.Container, "cachedReason", v.Reason)
+								continue
+							}
+							v = confirmed
 							logger.Info("Critical safety event detected during observation period, reverting early",
 								"pod", pod.Name, "container", record.Container, "reason", v.Reason)
 							if revertErr := revertPod(record); revertErr != nil {
@@ -345,6 +357,27 @@ func (r *AttunePolicyReconciler) confirmSafetyVerdict(
 		return safety.SafetyVerdict{}, fmt.Errorf("confirming safety verdict for %s/%s: %w", listed.Namespace, listed.Name, err)
 	}
 	return monitor.CheckPodObject(ctx, fresh, record, r.now())
+}
+
+// confirmCriticalStatuses re-Gets and re-runs only OOM/restart checks.
+// Full CheckPodObject is wrong here: observation has not elapsed, so Ready
+// flaps and SLO/throttle must not trigger an early revert.
+func (r *AttunePolicyReconciler) confirmCriticalStatuses(
+	ctx context.Context,
+	listed *corev1.Pod,
+	record safety.ResizeRecord,
+) (*safety.SafetyVerdict, error) {
+	if r.Clientset == nil {
+		return nil, fmt.Errorf("confirming critical verdict for %s/%s: no clientset", listed.Namespace, listed.Name)
+	}
+	fresh, err := r.Clientset.CoreV1().Pods(listed.Namespace).Get(ctx, listed.Name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("confirming critical verdict for %s/%s: %w", listed.Namespace, listed.Name, err)
+	}
+	return safety.CheckCriticalStatuses(fresh, record), nil
 }
 
 func trackedWorkloadForPolicy(pod *corev1.Pod, policyName string, workloadNames map[string]bool) (string, bool) {

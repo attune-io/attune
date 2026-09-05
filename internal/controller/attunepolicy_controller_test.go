@@ -4596,6 +4596,73 @@ func TestCheckPendingSafetyObservations_EarlyCriticalOOMKill(t *testing.T) {
 	assert.True(t, foundResize, "OOMKill during observation period should trigger early revert")
 }
 
+func TestCheckPendingSafetyObservations_EarlyCriticalOOMKillNotConfirmed(t *testing.T) {
+	resizedAt := time.Now().UTC().Add(-10 * time.Second).Format(time.RFC3339)
+	listed := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "oom-stale",
+			Namespace: "default",
+			Labels:    map[string]string{"attune.io/tracked": "true"},
+			Annotations: map[string]string{
+				"attune.io/resized-at":                   resizedAt,
+				"attune.io/resized-workload":             "api-server",
+				"attune.io/resized-containers":           "main",
+				"attune.io/original-cpu-request.main":    "500m",
+				"attune.io/original-memory-request.main": "512Mi",
+				"attune.io/policy":                       "test-policy",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("250m"),
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{
+					Name: "main",
+					LastTerminationState: corev1.ContainerState{
+						Terminated: &corev1.ContainerStateTerminated{
+							Reason:     "OOMKilled",
+							FinishedAt: metav1.NewTime(time.Now()),
+						},
+					},
+				},
+			},
+		},
+	}
+	live := listed.DeepCopy()
+	live.Status.ContainerStatuses = []corev1.ContainerStatus{
+		{Name: "main", RestartCount: 0},
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.AutoRevert = boolPtr(true)
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(safetyTestDeploy, listed).Build()
+	clientset := kubefake.NewSimpleClientset(live)
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = scheme
+	reconciler.Clientset = clientset
+
+	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
+
+	for _, a := range clientset.Actions() {
+		assert.False(t, a.GetVerb() == "update" && a.GetSubresource() == "resize",
+			"stale listed OOM must not revert after live confirm is clean")
+	}
+}
+
 func TestCheckPendingSafetyObservations_EarlyCriticalHealthySkipped(t *testing.T) {
 	// Pod was resized recently and is healthy. Early critical check should
 	// NOT trigger a revert even though the observation period hasn't elapsed.
@@ -13895,6 +13962,14 @@ func TestCheckPendingSafetyObservations_AnnotationCleanupPatch(t *testing.T) {
 	require.NoError(t, err)
 	_, hasResizedAt := updated.Annotations[annotationResizedAt]
 	assert.False(t, hasResizedAt, "tracking annotations should be removed after cleanup")
+	_, hasContainers := updated.Annotations[annotationResizedContainers]
+	assert.False(t, hasContainers)
+	_, hasPolicy := updated.Annotations[annotationPolicy]
+	assert.False(t, hasPolicy)
+	_, hasOrigCPU := updated.Annotations[annotationOriginalCPUPrefix+"main"]
+	assert.False(t, hasOrigCPU)
+	_, hasOrigMem := updated.Annotations[annotationOriginalMemoryPrefix+"main"]
+	assert.False(t, hasOrigMem)
 	_, hasTracked := updated.Labels[labelTracked]
 	assert.False(t, hasTracked, "tracked label should be removed after cleanup")
 
