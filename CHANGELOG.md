@@ -6,6 +6,37 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.26](https://github.com/attune-io/attune/compare/v0.1.25...v0.1.26) (2026-09-05)
+
+
+### Features
+
+* add a-f waste grade to kubectl attune recommendations ([#604](https://github.com/attune-io/attune/issues/604)) ([15b350b](https://github.com/attune-io/attune/commit/15b350b769709362edcfd66bdb1e24356069f7b3)), closes [#602](https://github.com/attune-io/attune/issues/602)
+* mark under-provisioned recommendations as u ([#606](https://github.com/attune-io/attune/issues/606)) ([1b6d8a6](https://github.com/attune-io/attune/commit/1b6d8a661920a8bf0f2fb4ae8debde58c7550e11)), closes [#605](https://github.com/attune-io/attune/issues/605)
+
+
+### Bug Fixes
+
+* bound stale reuse, fix cloudwatch search, and allow private gitops ([#620](https://github.com/attune-io/attune/issues/620)) ([e10c176](https://github.com/attune-io/attune/commit/e10c176e8c36c9102c9e24bd0c49519d247001a1)), closes [#614](https://github.com/attune-io/attune/issues/614) [#615](https://github.com/attune-io/attune/issues/615) [#616](https://github.com/attune-io/attune/issues/616) [#617](https://github.com/attune-io/attune/issues/617) [#618](https://github.com/attune-io/attune/issues/618) [#619](https://github.com/attune-io/attune/issues/619)
+* cut extra live Gets on safety observation and neighbor lists ([#661](https://github.com/attune-io/attune/issues/661)) ([f2edea5](https://github.com/attune-io/attune/commit/f2edea5d00abb8eaf5f6bf9fc9757406234d7ef1))
+* datadog app-key cache and nan-inf sample accounting ([#653](https://github.com/attune-io/attune/issues/653)) ([a40ca10](https://github.com/attune-io/attune/commit/a40ca1018d1b4638959ba44effbd29fabc0f792f))
+* do not apply template requests on one-sided sample gaps ([#625](https://github.com/attune-io/attune/issues/625)) ([77dc154](https://github.com/attune-io/attune/commit/77dc15447df7d3f30c371f4598ebcadaf32f3497))
+* do not immediately revert a resize for transient notready ([#627](https://github.com/attune-io/attune/issues/627)) ([44c3c56](https://github.com/attune-io/attune/commit/44c3c564f2e17b037649c7ca5fda642adda9bac0))
+* emit MetricsUnavailable and extract recommendContainer ([#654](https://github.com/attune-io/attune/issues/654)) ([4c6fcfd](https://github.com/attune-io/attune/commit/4c6fcfd803c42696a1211e143c5770e6231b9dde))
+* fail closed on policy list errors and harden metrics boundaries ([#660](https://github.com/attune-io/attune/issues/660)) ([cfd6961](https://github.com/attune-io/attune/commit/cfd696134096a009ca5b26054a7e1bf7e4bdeaab))
+* filter fossa k8s client vulnerability false positives ([#600](https://github.com/attune-io/attune/issues/600)) ([2aab348](https://github.com/attune-io/attune/commit/2aab348bc4d80ed0b5a93b500830e7b1fb8db851))
+* honor quota aliases, pin gitops dial, and warn doctor skips ([#621](https://github.com/attune-io/attune/issues/621)) ([37799c3](https://github.com/attune-io/attune/commit/37799c34576362ef005215a8d976717dfb5e65f4))
+* inherit defaults, sanitize query urls, and preserve hpa targets ([#603](https://github.com/attune-io/attune/issues/603)) ([38e8e3c](https://github.com/attune-io/attune/commit/38e8e3c2021d6934e1afb313055934fa5e424963))
+* log Metrics query timeout instead of Prometheus ([#656](https://github.com/attune-io/attune/issues/656)) ([9a03d4d](https://github.com/attune-io/attune/commit/9a03d4dc79d6d98a8340e0d7f9b3f667be911b6b))
+* mark recommendations stale when prometheus returns no data ([#610](https://github.com/attune-io/attune/issues/610)) ([812dbd9](https://github.com/attune-io/attune/commit/812dbd90754a7aa49aaf51f82c2f04326b02b27c))
+* match gitlab mrs to basebranch and tighten gitops tests ([#622](https://github.com/attune-io/attune/issues/622)) ([9b59d4d](https://github.com/attune-io/attune/commit/9b59d4d2a79f37107d8c0e7c4d75019ede2f9f07))
+* pin memory maxallowed in version-aware limit e2e ([#613](https://github.com/attune-io/attune/issues/613)) ([5080ff5](https://github.com/attune-io/attune/commit/5080ff5edbd9a1ea4166869e021c8b63e8801fb0))
+* prefer last rec over template-live and drop leftover limits on hold ([#626](https://github.com/attune-io/attune/issues/626)) ([771d269](https://github.com/attune-io/attune/commit/771d2691e655cfc56e4f4ac8dd889b444111b145))
+* skip stale rec display and bound k3d e2e cleanup ([#609](https://github.com/attune-io/attune/issues/609)) ([05bc3a1](https://github.com/attune-io/attune/commit/05bc3a165562ee7cd2a5cc5c35092fc5c3c3ee52))
+* skip stale recs on remaining apply paths ([#611](https://github.com/attune-io/attune/issues/611)) ([1f8cada](https://github.com/attune-io/attune/commit/1f8cada4494f7d9996b5541f4dacfb341fca5360))
+* stop gitlab label wipe and empty rebase bootstrap ([#624](https://github.com/attune-io/attune/issues/624)) ([35a598d](https://github.com/attune-io/attune/commit/35a598d1de07589337c641a0e2e287c176dc148e))
+* use Metrics query wording and lock jitter skip ([#655](https://github.com/attune-io/attune/issues/655)) ([767c7a8](https://github.com/attune-io/attune/commit/767c7a8d6d9a5d563e0a72af30e7a1407d27cd9c))
+
 ## [0.1.25](https://github.com/attune-io/attune/compare/v0.1.24...v0.1.25) (2026-08-25)
 
 
