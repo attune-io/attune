@@ -24,7 +24,6 @@ import (
 	"strings"
 	"time"
 
-	"k8s.io/apimachinery/pkg/api/resource"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
@@ -76,23 +75,6 @@ func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (a
 	}
 	if err := validateResourceConfigFields("memory", &policy.Spec.Memory); err != nil {
 		return warnings, err
-	}
-
-	// Policy-specific caps beyond what ResourceConfig validates:
-	// CPU maxAllowed capped at 256 cores, memory maxAllowed capped at 16Ti.
-	if policy.Spec.CPU.MaxAllowed != nil {
-		maxCPU := resource.MustParse("256")
-		if policy.Spec.CPU.MaxAllowed.Cmp(maxCPU) > 0 {
-			return warnings, fmt.Errorf("cpu.maxAllowed (%s) exceeds the maximum allowed value of 256 cores",
-				policy.Spec.CPU.MaxAllowed.String())
-		}
-	}
-	if policy.Spec.Memory.MaxAllowed != nil {
-		maxMemory := resource.MustParse("16Ti")
-		if policy.Spec.Memory.MaxAllowed.Cmp(maxMemory) > 0 {
-			return warnings, fmt.Errorf("memory.maxAllowed (%s) exceeds the maximum allowed value of 16Ti",
-				policy.Spec.Memory.MaxAllowed.String())
-		}
 	}
 
 	// Warn if memory startup boost is set (only CPU boost is implemented).
