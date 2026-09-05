@@ -215,7 +215,7 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 							"pod", pod.Name, "attempt", attempt+1)
 					}
 					if !annotationPersisted {
-						logger.V(1).Info("Startup boost annotation was not persisted after retries",
+						logger.Info("Startup boost annotation was not persisted after retries",
 							"pod", pod.Name, "retries", maxBoostAnnotationRetries)
 					}
 				}
