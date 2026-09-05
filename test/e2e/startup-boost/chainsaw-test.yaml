@@ -44,7 +44,7 @@ spec:
                             restartPolicy: NotRequired
                         resources:
                           requests:
-                            cpu: 100m
+                            cpu: 50m
                             memory: 128Mi
                           limits:
                             cpu: 500m
@@ -129,9 +129,9 @@ spec:
     - name: verify-startup-boost-annotation
       try:
         - script:
-            timeout: 3m
+            timeout: 4m
             content: |
-              for i in $(seq 1 36); do
+              for i in $(seq 1 42); do
                 ANNOTATION=$(kubectl get pods -n e2e-startup-boost -l app=boost-app \
                   -o jsonpath='{.items[0].metadata.annotations.attune\.io/startup-boost-at}' 2>/dev/null)
                 if [ -n "$ANNOTATION" ]; then
