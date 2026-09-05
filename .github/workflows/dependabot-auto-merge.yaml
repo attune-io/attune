@@ -61,6 +61,8 @@ jobs:
         with:
           client-id: ${{ vars.APP_CLIENT_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
 
       - name: Enable auto-merge
         env:
@@ -129,6 +131,7 @@ jobs:
         with:
           client-id: ${{ vars.APP_CLIENT_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          permission-pull-requests: write
       - name: Ask Dependabot to rebase behind PRs
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}

@@ -48,6 +48,8 @@ jobs:
         with:
           client-id: ${{ vars.APP_CLIENT_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
 
       # Draft PRs cannot have auto-merge enabled (GitHub API rejects it).
       # Skip cleanly so the required Auto Approve check stays green on drafts.

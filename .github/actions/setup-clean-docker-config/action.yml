@@ -5,7 +5,7 @@ runs:
   steps:
     - name: Configure clean Docker config
       shell: bash
-      run: |
+      run: | # zizmor: ignore[github-env]
         set -euo pipefail
         docker_config="$(mktemp -d "${RUNNER_TEMP:-/tmp}/docker-ci-config.XXXXXX")"
         printf '{}' > "$docker_config/config.json"

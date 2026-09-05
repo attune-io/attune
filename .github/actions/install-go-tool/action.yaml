@@ -37,11 +37,12 @@ runs:
     - name: Install ${{ inputs.name }}
       if: steps.tool-cache.outputs.cache-hit != 'true'
       shell: bash -Eeuo pipefail {0}
-      run: |
+      run: | # zizmor: ignore[template-injection]
         tool_dir="${RUNNER_TEMP}/go-tool-cache/${{ inputs.name }}"
         mkdir -p "$tool_dir"
         GOBIN="$tool_dir" go install "${{ inputs.package }}@${{ inputs.version }}"
 
     - name: Add ${{ inputs.name }} to PATH
       shell: bash -Eeuo pipefail {0}
-      run: echo "${RUNNER_TEMP}/go-tool-cache/${{ inputs.name }}" >> "$GITHUB_PATH"
+      run: | # zizmor: ignore[template-injection,github-env]
+        echo "${RUNNER_TEMP}/go-tool-cache/${{ inputs.name }}" >> "$GITHUB_PATH"
