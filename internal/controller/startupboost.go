@@ -71,6 +71,13 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 				"workload", rec.Workload)
 			continue
 		}
+		// Batch workloads are recommend-only; executeResizes already
+		// skips them. Recs still exist, so skip here too.
+		if rec.Kind == "Job" || rec.Kind == "CronJob" {
+			logger.V(1).Info("Skipping startup boost for batch workload",
+				"workload", rec.Workload, "kind", rec.Kind)
+			continue
+		}
 		pods := podsByWorkload[rec.Workload]
 		// Build per-container recommendation map for this workload.
 		recMap := make(map[string]resource.Quantity, len(rec.Containers))
@@ -94,7 +101,12 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 
 			if boostAtStr == "" && podAge < boostDuration {
 				// New pod within boost window: apply boosted CPU.
-				boostedAny := false
+				// Persist the boost timestamp when we resized or when
+				// current CPU is already at the target. Without this,
+				// a persist miss after a successful resize leaves the
+				// next reconcile with current >= boosted, no persist
+				// retry, and expiry never runs.
+				persistAnnotation := false
 				for _, c := range append(nativeSidecars(pod.Spec.InitContainers), pod.Spec.Containers...) {
 					recCPU, ok := recMap[c.Name]
 					if !ok {
@@ -113,7 +125,11 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 						boostedCPU = cpuLim.DeepCopy()
 					}
 					if c.Resources.Requests.Cpu().Cmp(boostedCPU) >= 0 {
-						continue // already at or above boosted level
+						// Already at/above boosted CPU inside the window.
+						// Persist the annotation so expiry can run later.
+						// Do not /resize again.
+						persistAnnotation = true
+						continue
 					}
 					// Safety check: verify the boosted target does not violate
 					// node allocatable, ResourceQuota, LimitRange, or QoS class.
@@ -155,17 +171,18 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 						}
 						continue
 					}
-					boostedAny = true
+					persistAnnotation = true
 					operatormetrics.StartupBoostTotal.WithLabelValues(pod.Namespace, rec.Workload, "applied").Inc()
 					logger.Info("Applied startup CPU boost",
 						"pod", pod.Name, "container", c.Name,
 						"boostedCPU", boostedCPU.String(), "steadyState", recCPU.String())
 					*pod = *refreshed
 				}
-				// Only mark the pod with boost timestamp if at least one
-				// resize succeeded. Without this guard, a failed boost
-				// would trigger a spurious expiry resize on the next reconcile.
-				if boostedAny {
+				// Persist when a resize succeeded or the pod is already
+				// at the boosted target inside the window. Do not persist
+				// from a no-op skip outside the window (this block is
+				// only entered when age < duration).
+				if persistAnnotation {
 					// Re-fetch from API server and retry on conflict to handle
 					// kubelet status churn after resize. Without retry, a 409
 					// leaves the annotation unset and the boost never expires.

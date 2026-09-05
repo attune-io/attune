@@ -10905,8 +10905,201 @@ func TestApplyStartupBoosts_SkipsWhenAlreadyAtBoostedLevel(t *testing.T) {
 		Name: "my-app-abc", Namespace: "default",
 	}, &updated)
 	require.NoError(t, err)
-	assert.Empty(t, updated.Annotations[annotationStartupBoostAt],
-		"already-at-boosted-level must not persist a startup-boost annotation")
+	assert.Equal(t, now.UTC().Format(time.RFC3339), updated.Annotations[annotationStartupBoostAt],
+		"already-at-boosted inside the window must persist a startup-boost annotation so expiry can run")
+}
+
+func TestApplyStartupBoosts_RetriesAnnotationWhenAlreadyBoosted(t *testing.T) {
+	// After a successful boost resize, if annotation persist fails, the
+	// next reconcile sees current >= boosted and must retry the annotation
+	// without a second /resize.
+	scheme := testScheme()
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			CPU: attunev1alpha1.ResourceConfig{
+				StartupBoost: &attunev1alpha1.StartupBoost{
+					Multiplier: "3.0",
+					Duration:   metav1.Duration{Duration: 2 * time.Minute},
+				},
+			},
+		},
+	}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "my-app-abc",
+			Namespace:         "default",
+			CreationTimestamp: metav1.NewTime(now.Add(-30 * time.Second)),
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("100m"),
+							corev1.ResourceMemory: resource.MustParse("128Mi"),
+						},
+					},
+				},
+			},
+		},
+	}
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "my-app",
+			Kind:     "Deployment",
+			Containers: []attunev1alpha1.ContainerRecommendation{
+				{
+					Name: "main",
+					Recommended: attunev1alpha1.ResourceValues{
+						CPURequest: resource.MustParse("200m"),
+					},
+				},
+			},
+		},
+	}
+
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+	failClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod.DeepCopy()).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Update: func(_ context.Context, _ client.WithWatch, _ client.Object, _ ...client.UpdateOption) error {
+				return fmt.Errorf("simulated persist failure")
+			},
+		}).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = failClient
+	r.Scheme = scheme
+	r.Clientset = clientset
+	r.SetNowFunc(func() time.Time { return now })
+
+	logger := ctrl.Log.WithName("test")
+	resizer := resize.NewPodResizer(clientset, logger)
+	r.applyStartupBoosts(context.Background(), policy, map[string][]corev1.Pod{"my-app": {*pod}}, recs, resizer, nil)
+
+	var foundResize bool
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			foundResize = true
+			break
+		}
+	}
+	require.True(t, foundResize, "first apply must resize to the boosted CPU")
+
+	boosted, err := clientset.CoreV1().Pods("default").Get(context.Background(), "my-app-abc", metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.True(t, boosted.Spec.Containers[0].Resources.Requests.Cpu().Cmp(resource.MustParse("100m")) > 0,
+		"clientset pod should already be at boosted CPU after the first apply")
+	assert.Empty(t, boosted.Annotations[annotationStartupBoostAt],
+		"annotation persist failed on the first apply")
+
+	// Second apply: current is already boosted, persist must be retried.
+	clientset2 := kubefake.NewSimpleClientset(boosted.DeepCopy())
+	okClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(boosted.DeepCopy()).Build()
+	r.Client = okClient
+	r.Clientset = clientset2
+	resizer2 := resize.NewPodResizer(clientset2, logger)
+	r.applyStartupBoosts(context.Background(), policy, map[string][]corev1.Pod{"my-app": {*boosted}}, recs, resizer2, nil)
+
+	for _, a := range clientset2.Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			t.Fatal("second apply must not resize when current CPU is already boosted")
+		}
+	}
+	var updated corev1.Pod
+	err = okClient.Get(context.Background(), types.NamespacedName{
+		Name: "my-app-abc", Namespace: "default",
+	}, &updated)
+	require.NoError(t, err)
+	assert.Equal(t, now.UTC().Format(time.RFC3339), updated.Annotations[annotationStartupBoostAt],
+		"second apply must retry the startup-boost annotation")
+}
+
+func TestApplyStartupBoosts_SkipsBatchWorkload(t *testing.T) {
+	scheme := testScheme()
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			CPU: attunev1alpha1.ResourceConfig{
+				StartupBoost: &attunev1alpha1.StartupBoost{
+					Multiplier: "3.0",
+					Duration:   metav1.Duration{Duration: 2 * time.Minute},
+				},
+			},
+		},
+	}
+
+	tests := []struct {
+		kind string
+	}{
+		{kind: "Job"},
+		{kind: "CronJob"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.kind, func(t *testing.T) {
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "batch-pod",
+					Namespace:         "default",
+					CreationTimestamp: metav1.NewTime(now.Add(-30 * time.Second)),
+				},
+				Status: corev1.PodStatus{Phase: corev1.PodRunning},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name: "main",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("100m"),
+									corev1.ResourceMemory: resource.MustParse("128Mi"),
+								},
+							},
+						},
+					},
+				},
+			}
+			clientset := kubefake.NewSimpleClientset(pod)
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod).Build()
+			r := NewAttunePolicyReconciler()
+			r.Client = fakeClient
+			r.Scheme = scheme
+			r.Clientset = clientset
+			r.SetNowFunc(func() time.Time { return now })
+
+			recs := []attunev1alpha1.WorkloadRecommendation{
+				{
+					Workload: "batch-job",
+					Kind:     tt.kind,
+					Containers: []attunev1alpha1.ContainerRecommendation{
+						{
+							Name: "main",
+							Recommended: attunev1alpha1.ResourceValues{
+								CPURequest: resource.MustParse("200m"),
+							},
+						},
+					},
+				},
+			}
+			r.applyStartupBoosts(context.Background(), policy, map[string][]corev1.Pod{"batch-job": {*pod}},
+				recs, resize.NewPodResizer(clientset, ctrl.Log.WithName("test")), nil)
+
+			for _, a := range clientset.Actions() {
+				if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+					t.Fatalf("startup boost must not resize %s pods", tt.kind)
+				}
+			}
+			var updated corev1.Pod
+			err := fakeClient.Get(context.Background(), types.NamespacedName{
+				Name: "batch-pod", Namespace: "default",
+			}, &updated)
+			require.NoError(t, err)
+			assert.Empty(t, updated.Annotations[annotationStartupBoostAt],
+				"batch workload must not get a startup-boost annotation")
+		})
+	}
 }
 
 func TestApplyStartupBoosts_NativeSidecars(t *testing.T) {
