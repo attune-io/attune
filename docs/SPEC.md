@@ -1014,7 +1014,12 @@ Validate compatibility with Kubernetes API conventions:
 
 ### 10.1 GitHub Actions Workflows
 
-#### `ci.yaml` - Continuous Integration (on every PR and push to main)
+#### `ci.yaml` - Continuous Integration (PRs, merge_group, and dispatch)
+
+Product tests do not run again on `push` to `main`. The branch ruleset
+requires an up-to-date PR, so a squash of a green PR is the same tree.
+`push` to `main` still runs cheap promote jobs (release-please, Docs
+deploy, Scorecard).
 
 ```
 Jobs:
@@ -1107,7 +1112,12 @@ Jobs:
     - Sign the published chart with cosign
 ```
 
-#### `security.yaml` - Security Scanning (on PR, push, weekly schedule)
+#### `bench-baseline.yaml` - Shared bench cache (push to main, path-filtered)
+
+Writes the default-branch Actions cache that PR `test-bench` jobs restore.
+PR jobs cannot update that cache scope.
+
+#### `security.yaml` - Security Scanning (on PR, weekly schedule, dispatch)
 
 ```
 Jobs:
@@ -1345,6 +1355,7 @@ attune/
 ├── .github/
 │   ├── workflows/
 │   │   ├── ci.yaml
+│   │   ├── bench-baseline.yaml
 │   │   ├── release.yaml
 │   │   ├── security.yaml
 │   │   └── docs.yaml

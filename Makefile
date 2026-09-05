@@ -239,7 +239,7 @@ test-fuzz: ## Run fuzz tests (coverage-guided; FUZZTIME=30s default, deadline-fl
 	./scripts/run-fuzz.sh
 
 .PHONY: python-test
-python-test: ## Run helper script tests (fossa-filter, run-fuzz classifier, go-version sync, helm image tag, fleet reports, nightly issue body, k3d-delete)
+python-test: ## Run helper script tests (fossa-filter, run-fuzz classifier, go-version sync, helm image tag, fleet reports, nightly issue body, k3d-delete, CI triggers)
 	python3 scripts/test_fossa_filter.py -v
 	bash scripts/test_run_fuzz.sh
 	bash scripts/test_verify_go_version_sync.sh
@@ -250,6 +250,7 @@ python-test: ## Run helper script tests (fossa-filter, run-fuzz classifier, go-v
 	bash scripts/test_collect_fleet_reports.sh
 	bash scripts/test_nightly_failure_issue_body.sh
 	bash scripts/test_verify_chainsaw_scripts.sh
+	bash scripts/test_ci_build_once.sh
 
 .PHONY: test-bench
 test-bench: ## Run benchmark tests

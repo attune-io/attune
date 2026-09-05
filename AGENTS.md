@@ -367,7 +367,7 @@ Dependabot PRs (#348, #349 etc.) are important for **Dependency-Update-Tool (10)
    `--auto --squash` with the release App token for all semver types
    (patch, minor, and major). The App token is required so the squash
    merge to main is not a `GITHUB_TOKEN` push (those do not re-trigger
-   CI/Security/Docs on main). `auto-approve.yaml` (`pull_request`)
+   Docs, Scorecard, or Release Please on main). `auto-approve.yaml` (`pull_request`)
    excludes `dependabot[bot]` because secrets are unavailable in that context.
 6. After a merge to main, `dependabot-auto-merge.yaml` comments
    `@dependabot rebase` on open Dependabot PRs. It lists Dependabot PRs
@@ -378,8 +378,12 @@ Dependabot PRs (#348, #349 etc.) are important for **Dependency-Update-Tool (10)
    `rebase-strategy: auto` can lag for hours. To hurry one PR,
    `gh pr comment N --body "@dependabot rebase"` or run
    `scripts/rebase-dependabot.sh N`.
-7. After a Dependabot merge, if main has no CI/Security runs for the merge
-   SHA, dispatch them: `gh workflow run CI --ref main` (and Security/Docs).
+7. After a Dependabot merge, do **not** `gh workflow run CI --ref main`
+   (or Security). The PR already ran the test matrix on an up-to-date
+   branch. A dispatch is a second compile of the same tree. Docs deploy
+   still runs on `push` to main. If that push was a `GITHUB_TOKEN` squash
+   and Docs did not start, dispatch **Docs** only:
+   `gh workflow run Docs --ref main`.
 
 **Grouped updates and semver classification:** `dependabot/fetch-metadata`
 classifies grouped updates by the **highest** semver type in the group. If

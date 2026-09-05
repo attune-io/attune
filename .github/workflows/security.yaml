@@ -1,8 +1,7 @@
 name: Security
 
 on:
-  push:
-    branches: [main]
+  # PR + weekly schedule. Do not add push to main (same tree as the last PR).
   pull_request:
     branches: [main]
   merge_group: {}

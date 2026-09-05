@@ -1,8 +1,9 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
+  # Product tests run on PRs (and merge_group if a queue is added).
+  # Do not add push to main: the ruleset requires an up-to-date branch,
+  # so a squash of a green PR is the same tree.
   pull_request:
     branches: [main]
   merge_group: {}
@@ -417,9 +418,7 @@ jobs:
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
     needs: changes
-    if: >
-      needs.changes.outputs.bench == 'true' ||
-      (github.ref == 'refs/heads/main' && needs.changes.outputs.go == 'true')
+    if: needs.changes.outputs.bench == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -483,22 +482,10 @@ jobs:
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "No baseline found; comparison will be available after the first main push."
+            echo "No baseline found; comparison will be available after the next main bench-baseline run."
             echo "## Benchmark Results" >> "$GITHUB_STEP_SUMMARY"
-            echo "No baseline yet. One will be established on the next merge to main." >> "$GITHUB_STEP_SUMMARY"
+            echo "No baseline yet. One is written on push to main by bench-baseline.yaml." >> "$GITHUB_STEP_SUMMARY"
           fi
-
-      - name: Promote current run as baseline (main only)
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        shell: bash -Eeuo pipefail {0}
-        run: cp bench-current.txt bench-baseline.txt
-
-      - name: Save baseline (main only)
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: bench-baseline.txt
-          key: bench-baseline-${{ matrix.pkg }}-${{ runner.os }}-${{ hashFiles('go.sum') }}
 
   test-integration:
     name: Integration Tests
@@ -916,6 +903,10 @@ jobs:
       - name: Run actionlint
         shell: bash -Eeuo pipefail {0}
         run: actionlint -color
+
+      - name: Lock CI build-once triggers
+        shell: bash -Eeuo pipefail {0}
+        run: bash scripts/test_ci_build_once.sh
 
   # Gate job: always runs, aggregates all conditional job results.
   # This is the ONLY required status check for branch protection,
