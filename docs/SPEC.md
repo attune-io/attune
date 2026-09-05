@@ -325,6 +325,7 @@ Validation is implemented in the admission webhook (`internal/webhook/validation
 not via CEL `x-kubernetes-validations` markers. The webhook enforces:
 
 - `minAllowed <= maxAllowed` for both CPU and memory resource configs
+- `cpu.maxAllowed` must not exceed 256 cores; `memory.maxAllowed` must not exceed 16Ti (AttunePolicy and AttuneDefaults)
 - Canary config required when `updateStrategy.type` is `Canary`
 - `historyWindow` bounded between 1h and 720h (30 days)
 - `burstSensitivity` bounded between 0 and 10.0

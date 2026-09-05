@@ -643,6 +643,8 @@ func TestDefaultsValidate_MaxAllowedCaps(t *testing.T) {
 		{name: "CPU 257 rejected", cpuMax: "257", wantErr: "cpu.maxAllowed"},
 		{name: "memory 17Ti rejected", memMax: "17Ti", wantErr: "memory.maxAllowed"},
 		{name: "CPU 256 accepted", cpuMax: "256"},
+		{name: "CPU 256000m accepted", cpuMax: "256000m"},
+		{name: "CPU 256001m rejected", cpuMax: "256001m", wantErr: "cpu.maxAllowed"},
 		{name: "memory 16Ti accepted", memMax: "16Ti"},
 		{name: "CPU 256 and memory 16Ti accepted", cpuMax: "256", memMax: "16Ti"},
 	}
