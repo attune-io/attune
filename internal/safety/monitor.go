@@ -107,6 +107,15 @@ type Monitor struct {
 	sloQuerier         SLOQuerier
 	sloGuardrails      []attunev1alpha1.SLOGuardrail
 	sloTemplates       map[string]*template.Template // cached parsed templates keyed by query string
+	// sloQueryMemo caches Query results for one observation pass, keyed by
+	// the interpolated PromQL string. A workload-level query then runs once
+	// for every pod that interpolates to the same string.
+	sloQueryMemo map[string]sloMemoEntry
+}
+
+type sloMemoEntry struct {
+	value float64
+	err   error
 }
 
 // NewMonitor creates a Monitor backed by the given Kubernetes client.
@@ -159,6 +168,13 @@ func (m *Monitor) WithSLOChecker(querier SLOQuerier, guardrails []attunev1alpha1
 	return m
 }
 
+// WithSLOQueryMemo enables per-pass memoization of interpolated SLO queries.
+// Call once at the start of an observation pass and drop the Monitor after.
+func (m *Monitor) WithSLOQueryMemo() *Monitor {
+	m.sloQueryMemo = make(map[string]sloMemoEntry)
+	return m
+}
+
 // CheckCriticalStatuses checks a pod's container statuses for critical safety
 // events (OOMKill and excessive restarts) that warrant an immediate revert.
 // Returns a non-nil SafetyVerdict if a critical issue is found.
@@ -208,6 +224,16 @@ func (m *Monitor) CheckPod(ctx context.Context, record ResizeRecord, now time.Ti
 			return SafetyVerdict{Safe: true}, nil
 		}
 		return SafetyVerdict{}, fmt.Errorf("getting pod %s/%s: %w", record.Namespace, record.PodName, err)
+	}
+	return m.CheckPodObject(ctx, pod, record, now)
+}
+
+// CheckPodObject is CheckPod against an already-fetched pod. Observation
+// uses the listed object so a multi-container pod is not re-Gotten per
+// container. Callers that need a live object still use CheckPod.
+func (m *Monitor) CheckPodObject(ctx context.Context, pod *corev1.Pod, record ResizeRecord, now time.Time) (SafetyVerdict, error) {
+	if pod == nil {
+		return SafetyVerdict{Safe: true}, nil
 	}
 
 	// Critical checks: OOMKill and excessive restarts.
@@ -301,7 +327,7 @@ func (m *Monitor) checkSLOGuardrails(ctx context.Context, record ResizeRecord, n
 			continue
 		}
 
-		value, err := m.sloQuerier.Query(ctx, query, now)
+		value, err := m.querySLO(ctx, query, now)
 		if err != nil {
 			m.logger.Error(err, "SLO guardrail query failed, skipping",
 				"guardrail", g.Name, "pod", record.PodName, "namespace", record.Namespace)
@@ -343,6 +369,19 @@ func (m *Monitor) checkSLOGuardrails(ctx context.Context, record ResizeRecord, n
 		}
 	}
 	return nil
+}
+
+func (m *Monitor) querySLO(ctx context.Context, query string, now time.Time) (float64, error) {
+	if m.sloQueryMemo != nil {
+		if e, ok := m.sloQueryMemo[query]; ok {
+			return e.value, e.err
+		}
+	}
+	value, err := m.sloQuerier.Query(ctx, query, now)
+	if m.sloQueryMemo != nil {
+		m.sloQueryMemo[query] = sloMemoEntry{value: value, err: err}
+	}
+	return value, err
 }
 
 // interpolateSLOQuery renders Go template variables in a PromQL query string.

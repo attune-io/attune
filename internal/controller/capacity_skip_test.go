@@ -20,7 +20,10 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
@@ -675,4 +678,136 @@ func TestExecuteResizes_NeighborListError_SkipsIncrease(t *testing.T) {
 		[]client.Object{deploy}, recs, podMap("app", pod), nil, nil)
 	assert.Equal(t, 0, count, "increase must not apply when neighbor list fails")
 	assert.Equal(t, before+1, testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("default", "nb-err", "neighbors")))
+}
+
+func TestNeighborRequestTotals_ExcludesTerminalPhase(t *testing.T) {
+	const nodeName = "node-term"
+	self := newResizePod("app", "500m", "512Mi", "2000m", "2Gi")
+	self.Spec.NodeName = nodeName
+	self.UID = "self-uid"
+	done := neighborPod("finished-job", nodeName, "1500m", "1Gi")
+	done.UID = "job-uid"
+	done.Status.Phase = corev1.PodSucceeded
+	node := neighborTestNode(nodeName, "2000m", "8Gi")
+	deploy := newTestDeployment("app", "default", map[string]string{"app": "app"})
+
+	reconciler, _ := newResizeReconciler(self, deploy, node, done)
+	reconciler.Clientset = kubefake.NewSimpleClientset(self.DeepCopy(), done.DeepCopy(), node.DeepCopy())
+
+	policy := newTestPolicy("nb-term", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("app", "500m", "512Mi", "2000m", "2Gi", "1500m", "512Mi", "2000m", "2Gi"),
+	}
+	count, _ := reconciler.executeResizes(context.Background(), policy,
+		[]client.Object{deploy}, recs, podMap("app", self), nil, nil)
+	assert.Equal(t, 1, count, "Succeeded neighbor must not consume allocatable")
+}
+
+func TestNeighborRequestTotals_IncludesTerminating(t *testing.T) {
+	const nodeName = "node-terming"
+	self := newResizePod("app", "500m", "512Mi", "2000m", "2Gi")
+	self.Spec.NodeName = nodeName
+	self.UID = "self-uid"
+	leaving := neighborPod("leaving", nodeName, "1500m", "1Gi")
+	leaving.UID = "leave-uid"
+	now := metav1.Now()
+	leaving.DeletionTimestamp = &now
+	leaving.Finalizers = []string{"attune.io/test"}
+	leaving.Status.Phase = corev1.PodRunning
+	node := neighborTestNode(nodeName, "2000m", "8Gi")
+	deploy := newTestDeployment("app", "default", map[string]string{"app": "app"})
+
+	reconciler, _ := newResizeReconciler(self, deploy, node, leaving)
+	reconciler.Clientset = kubefake.NewSimpleClientset(self.DeepCopy(), leaving.DeepCopy(), node.DeepCopy())
+
+	policy := newTestPolicy("nb-terming", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("app", "500m", "512Mi", "2000m", "2Gi", "1500m", "512Mi", "2000m", "2Gi"),
+	}
+	count, _ := reconciler.executeResizes(context.Background(), policy,
+		[]client.Object{deploy}, recs, podMap("app", self), nil, nil)
+	assert.Equal(t, 0, count, "terminating neighbor still holds allocation")
+}
+
+func TestNeighborRequestTotals_IgnoresInformerOnlyNeighbor(t *testing.T) {
+	const nodeName = "node-cache"
+	self := newResizePod("app", "500m", "512Mi", "2000m", "2Gi")
+	self.Spec.NodeName = nodeName
+	self.UID = "self-uid"
+	cachedOnly := neighborPod("other-ns-pod", nodeName, "1500m", "1Gi")
+	cachedOnly.Namespace = "other"
+	cachedOnly.UID = "other-uid"
+	node := neighborTestNode(nodeName, "2000m", "8Gi")
+	deploy := newTestDeployment("app", "default", map[string]string{"app": "app"})
+
+	// Fat neighbor exists only in the informer client, not Clientset.
+	reconciler, _ := newResizeReconciler(self, deploy, node, cachedOnly)
+	reconciler.Clientset = kubefake.NewSimpleClientset(self.DeepCopy(), node.DeepCopy())
+
+	policy := newTestPolicy("nb-cache", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("app", "500m", "512Mi", "2000m", "2Gi", "1500m", "512Mi", "2000m", "2Gi"),
+	}
+	count, _ := reconciler.executeResizes(context.Background(), policy,
+		[]client.Object{deploy}, recs, podMap("app", self), nil, nil)
+	assert.Equal(t, 1, count, "informer-only neighbor must not be counted (watch-namespaces fail-open guard)")
+}
+
+func TestNeighborRequestTotals_CountsOtherNamespaceOnClientset(t *testing.T) {
+	const nodeName = "node-xns"
+	self := newResizePod("app", "500m", "512Mi", "2000m", "2Gi")
+	self.Spec.NodeName = nodeName
+	self.UID = "self-uid"
+	otherNS := neighborPod("other-ns-pod", nodeName, "1500m", "1Gi")
+	otherNS.Namespace = "other"
+	otherNS.UID = "other-uid"
+	node := neighborTestNode(nodeName, "2000m", "8Gi")
+	deploy := newTestDeployment("app", "default", map[string]string{"app": "app"})
+
+	reconciler, _ := newResizeReconciler(self, deploy, node)
+	reconciler.Clientset = kubefake.NewSimpleClientset(self.DeepCopy(), otherNS.DeepCopy(), node.DeepCopy())
+
+	policy := newTestPolicy("nb-xns", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("app", "500m", "512Mi", "2000m", "2Gi", "1500m", "512Mi", "2000m", "2Gi"),
+	}
+	count, _ := reconciler.executeResizes(context.Background(), policy,
+		[]client.Object{deploy}, recs, podMap("app", self), nil, nil)
+	assert.Equal(t, 0, count, "Clientset neighbor in another namespace must still count")
+}
+
+func TestNeighborRequestTotals_SingleFlightOneList(t *testing.T) {
+	const nodeName = "node-sf"
+	self := newResizePod("app", "500m", "512Mi", "2000m", "2Gi")
+	self.Spec.NodeName = nodeName
+	self.UID = "self-uid"
+	other := neighborPod("other", nodeName, "100m", "64Mi")
+	other.UID = "other-uid"
+
+	reconciler := NewAttunePolicyReconciler()
+	cs := kubefake.NewSimpleClientset(self.DeepCopy(), other.DeepCopy())
+	var lists atomic.Int32
+	cs.PrependReactor("list", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		lists.Add(1)
+		time.Sleep(40 * time.Millisecond)
+		return false, nil, nil
+	})
+	reconciler.Clientset = cs
+	checks := &resizePreChecks{}
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	for range 2 {
+		go func() {
+			defer wg.Done()
+			_, _, err := reconciler.neighborRequestTotals(context.Background(), self, checks)
+			assert.NoError(t, err)
+		}()
+	}
+	wg.Wait()
+	assert.Equal(t, int32(1), lists.Load(), "two workers on one node must share one List")
 }

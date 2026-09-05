@@ -4596,6 +4596,73 @@ func TestCheckPendingSafetyObservations_EarlyCriticalOOMKill(t *testing.T) {
 	assert.True(t, foundResize, "OOMKill during observation period should trigger early revert")
 }
 
+func TestCheckPendingSafetyObservations_EarlyCriticalOOMKillNotConfirmed(t *testing.T) {
+	resizedAt := time.Now().UTC().Add(-10 * time.Second).Format(time.RFC3339)
+	listed := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "oom-stale",
+			Namespace: "default",
+			Labels:    map[string]string{"attune.io/tracked": "true"},
+			Annotations: map[string]string{
+				"attune.io/resized-at":                   resizedAt,
+				"attune.io/resized-workload":             "api-server",
+				"attune.io/resized-containers":           "main",
+				"attune.io/original-cpu-request.main":    "500m",
+				"attune.io/original-memory-request.main": "512Mi",
+				"attune.io/policy":                       "test-policy",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("250m"),
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{
+					Name: "main",
+					LastTerminationState: corev1.ContainerState{
+						Terminated: &corev1.ContainerStateTerminated{
+							Reason:     "OOMKilled",
+							FinishedAt: metav1.NewTime(time.Now()),
+						},
+					},
+				},
+			},
+		},
+	}
+	live := listed.DeepCopy()
+	live.Status.ContainerStatuses = []corev1.ContainerStatus{
+		{Name: "main", RestartCount: 0},
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.AutoRevert = boolPtr(true)
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(safetyTestDeploy, listed).Build()
+	clientset := kubefake.NewSimpleClientset(live)
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = scheme
+	reconciler.Clientset = clientset
+
+	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
+
+	for _, a := range clientset.Actions() {
+		assert.False(t, a.GetVerb() == "update" && a.GetSubresource() == "resize",
+			"stale listed OOM must not revert after live confirm is clean")
+	}
+}
+
 func TestCheckPendingSafetyObservations_EarlyCriticalHealthySkipped(t *testing.T) {
 	// Pod was resized recently and is healthy. Early critical check should
 	// NOT trigger a revert even though the observation period hasn't elapsed.
@@ -6529,6 +6596,126 @@ func TestCheckPendingSafetyObservations_UnsafeVerdictReverts(t *testing.T) {
 		}
 	}
 	assert.True(t, foundResize, "should have called UpdateResize to revert the pod")
+}
+
+func TestCheckPendingSafetyObservations_NotReadyFlapConfirmedBeforeRevert(t *testing.T) {
+	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
+	listed := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "flap-pod",
+			Namespace: "default",
+			Labels:    map[string]string{"app": "test", "attune.io/tracked": "true"},
+			Annotations: map[string]string{
+				"attune.io/resized-at":                   resizedAt,
+				"attune.io/resized-workload":             "api-server",
+				"attune.io/resized-containers":           "main",
+				"attune.io/original-cpu-request.main":    "500m",
+				"attune.io/original-memory-request.main": "512Mi",
+				"attune.io/policy":                       "test-policy",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("250m"),
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionFalse},
+			},
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "main", RestartCount: 0},
+			},
+		},
+	}
+	live := listed.DeepCopy()
+	live.Status.Conditions = []corev1.PodCondition{
+		{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(safetyTestDeploy, listed).Build()
+	clientset := kubefake.NewSimpleClientset(live)
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = scheme
+	reconciler.Clientset = clientset
+
+	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
+
+	for _, a := range clientset.Actions() {
+		assert.False(t, a.GetVerb() == "update" && a.GetSubresource() == "resize",
+			"flapping notready must not revert after live confirm")
+	}
+}
+
+func TestCheckPendingSafetyObservations_MultiContainerNoPerContainerGet(t *testing.T) {
+	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "multi-pod",
+			Namespace: "default",
+			Labels:    map[string]string{"app": "test", "attune.io/tracked": "true"},
+			Annotations: map[string]string{
+				"attune.io/resized-at":                      resizedAt,
+				"attune.io/resized-workload":                "api-server",
+				"attune.io/resized-containers":              "app,sidecar",
+				"attune.io/original-cpu-request.app":        "500m",
+				"attune.io/original-memory-request.app":     "512Mi",
+				"attune.io/original-cpu-request.sidecar":    "100m",
+				"attune.io/original-memory-request.sidecar": "128Mi",
+				"attune.io/policy":                          "test-policy",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{Name: "app", Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("250m"),
+						corev1.ResourceMemory: resource.MustParse("256Mi"),
+					},
+				}},
+				{Name: "sidecar", Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("50m"),
+						corev1.ResourceMemory: resource.MustParse("64Mi"),
+					},
+				}},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "app", RestartCount: 0},
+				{Name: "sidecar", RestartCount: 0},
+			},
+		},
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	reconciler, _ := newSafetyTestReconciler(pod)
+	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
+
+	gets := 0
+	for _, a := range reconciler.Clientset.(*kubefake.Clientset).Actions() {
+		if a.GetVerb() == "get" && a.GetResource().Resource == "pods" {
+			gets++
+		}
+	}
+	assert.Equal(t, 0, gets, "safe multi-container observation must not Get per container")
 }
 
 func TestCheckPendingSafetyObservations_RevertUsesWithoutCancel(t *testing.T) {
@@ -13709,10 +13896,9 @@ done437:
 	assert.Equal(t, 2, resizeCalls, "should have 2 UpdateResize calls: original resize + revert")
 }
 
-// --- Issue #441: annotation cleanup conflict retry in checkPendingSafetyObservations ---
+// --- Issue #658: annotation cleanup is a merge patch (no Get, no 409 loop) ---
 
-func TestCheckPendingSafetyObservations_AnnotationCleanupConflictRetry(t *testing.T) {
-	// Verify that annotation cleanup retries on 409 Conflict and succeeds.
+func TestCheckPendingSafetyObservations_AnnotationCleanupPatch(t *testing.T) {
 	resizedAt := time.Now().Add(-10 * time.Minute)
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -13742,7 +13928,15 @@ func TestCheckPendingSafetyObservations_AnnotationCleanupConflictRetry(t *testin
 				},
 			},
 		},
-		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "main", RestartCount: 0},
+			},
+		},
 	}
 
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
@@ -13751,11 +13945,8 @@ func TestCheckPendingSafetyObservations_AnnotationCleanupConflictRetry(t *testin
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod).Build()
 	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
 
-	// First annotation cleanup Update returns 409 Conflict, second succeeds.
-	wrappedClient := &conflictThenSucceedClient{Client: fakeClient, conflictsLeft: 1}
-
 	reconciler := NewAttunePolicyReconciler()
-	reconciler.Client = wrappedClient
+	reconciler.Client = fakeClient
 	reconciler.Scheme = scheme
 	reconciler.Clientset = clientset
 
@@ -13763,86 +13954,28 @@ func TestCheckPendingSafetyObservations_AnnotationCleanupConflictRetry(t *testin
 	policy.Spec.UpdateStrategy.AutoRevert = boolPtr(true)
 	policy.Spec.UpdateStrategy.SafetyObservationPeriod = &metav1.Duration{Duration: 5 * time.Minute}
 
-	workloads := []client.Object{deploy}
-	pending := reconciler.checkPendingSafetyObservations(context.Background(), policy, &mockCollector{}, workloads)
-
+	pending := reconciler.checkPendingSafetyObservations(context.Background(), policy, &mockCollector{}, []client.Object{deploy})
 	assert.False(t, pending, "should not be pending after successful cleanup")
-	assert.Equal(t, 1, wrappedClient.conflictsSeen, "should have retried once on conflict")
 
-	// Verify annotations were removed.
 	var updated corev1.Pod
-	err := wrappedClient.Get(context.Background(), client.ObjectKeyFromObject(pod), &updated)
+	err := fakeClient.Get(context.Background(), client.ObjectKeyFromObject(pod), &updated)
 	require.NoError(t, err)
 	_, hasResizedAt := updated.Annotations[annotationResizedAt]
 	assert.False(t, hasResizedAt, "tracking annotations should be removed after cleanup")
-}
+	_, hasContainers := updated.Annotations[annotationResizedContainers]
+	assert.False(t, hasContainers)
+	_, hasPolicy := updated.Annotations[annotationPolicy]
+	assert.False(t, hasPolicy)
+	_, hasOrigCPU := updated.Annotations[annotationOriginalCPUPrefix+"main"]
+	assert.False(t, hasOrigCPU)
+	_, hasOrigMem := updated.Annotations[annotationOriginalMemoryPrefix+"main"]
+	assert.False(t, hasOrigMem)
+	_, hasTracked := updated.Labels[labelTracked]
+	assert.False(t, hasTracked, "tracked label should be removed after cleanup")
 
-func TestCheckPendingSafetyObservations_AnnotationCleanupConflictExhausted(t *testing.T) {
-	// Verify that exhausting all cleanup retries logs the error but doesn't crash.
-	resizedAt := time.Now().Add(-10 * time.Minute)
-	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "api-server-abc-1",
-			Namespace: "default",
-			Labels:    map[string]string{"app": "api-server", labelTracked: "true"},
-			Annotations: map[string]string{
-				annotationResizedAt:                     resizedAt.UTC().Format(time.RFC3339),
-				annotationResizedContainers:             "main",
-				annotationOriginalCPUPrefix + "main":    "500m",
-				annotationOriginalMemoryPrefix + "main": "512Mi",
-				annotationPolicy:                        "test-policy",
-				annotationResizedWorkload:               "api-server",
-			},
-		},
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{
-				{
-					Name:  "main",
-					Image: "nginx",
-					Resources: corev1.ResourceRequirements{
-						Requests: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("750m"),
-							corev1.ResourceMemory: resource.MustParse("384Mi"),
-						},
-					},
-				},
-			},
-		},
-		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+	for _, a := range clientset.Actions() {
+		assert.NotEqual(t, "get", a.GetVerb(), "cleanup must not Get the pod")
 	}
-
-	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
-
-	scheme := testScheme()
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod).Build()
-	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
-
-	// All 3 cleanup attempts return 409 Conflict.
-	wrappedClient := &conflictThenSucceedClient{Client: fakeClient, conflictsLeft: 3}
-
-	reconciler := NewAttunePolicyReconciler()
-	reconciler.Client = wrappedClient
-	reconciler.Scheme = scheme
-	reconciler.Clientset = clientset
-
-	policy := newTestPolicy("test-policy", "default")
-	policy.Spec.UpdateStrategy.AutoRevert = boolPtr(true)
-	policy.Spec.UpdateStrategy.SafetyObservationPeriod = &metav1.Duration{Duration: 5 * time.Minute}
-
-	workloads := []client.Object{deploy}
-	pending := reconciler.checkPendingSafetyObservations(context.Background(), policy, &mockCollector{}, workloads)
-
-	// Should not crash and should not report pending (annotation cleanup is
-	// best-effort; the annotations will be cleaned on the next reconcile).
-	assert.False(t, pending)
-	assert.Equal(t, 3, wrappedClient.conflictsSeen, "should have exhausted all 3 retries")
-
-	// Annotations should still be present since all updates failed.
-	var updated corev1.Pod
-	err := wrappedClient.Get(context.Background(), client.ObjectKeyFromObject(pod), &updated)
-	require.NoError(t, err)
-	_, hasResizedAt := updated.Annotations[annotationResizedAt]
-	assert.True(t, hasResizedAt, "tracking annotations should still be present after exhausted retries")
 }
 
 // --- Issue #440: startup boost expiry memory regression test ---

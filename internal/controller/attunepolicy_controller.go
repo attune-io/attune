@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"golang.org/x/sync/errgroup"
+	"golang.org/x/sync/singleflight"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -211,6 +212,10 @@ type AttunePolicyReconciler struct {
 	// so persistent conditions are periodically surfaced without flooding.
 	// Always initialized by NewAttunePolicyReconciler.
 	eventDedup *eventDedup
+
+	// nodeNeighborFlight single-flights the live node pod List used for
+	// neighbor request budget. Per-cycle results live in resizePreChecks.
+	nodeNeighborFlight singleflight.Group
 
 	// gitopsPRClient, when set, is used instead of constructing a GitHub/GitLab
 	// client. Tests inject a fake to count CreateOrUpdate without forge HTTP.

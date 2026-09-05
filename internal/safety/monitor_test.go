@@ -19,6 +19,7 @@ package safety
 import (
 	"context"
 	"math"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1789,4 +1790,85 @@ func TestCheckPod_SLONoQuerier(t *testing.T) {
 	verdict, err := monitor.CheckPod(context.Background(), record, time.Now())
 	require.NoError(t, err)
 	assert.True(t, verdict.Safe)
+}
+
+func TestCheckPodObject_UsesListedPodWithoutGet(t *testing.T) {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "web-0", Namespace: "default"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "app", RestartCount: 0},
+			},
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+	// Nil clientset: CheckPod would fail. CheckPodObject must not Get.
+	monitor := NewMonitor(nil, testr.New(t))
+	record := ResizeRecord{
+		PodName:      "web-0",
+		Namespace:    "default",
+		Container:    "app",
+		ResizedAt:    time.Now().Add(-time.Hour),
+		RestartCount: 0,
+	}
+	verdict, err := monitor.CheckPodObject(context.Background(), pod, record, time.Now())
+	require.NoError(t, err)
+	assert.True(t, verdict.Safe)
+}
+
+type countingSLOQuerier struct {
+	n     atomic.Int32
+	value float64
+}
+
+func (m *countingSLOQuerier) Query(_ context.Context, _ string, _ time.Time) (float64, error) {
+	m.n.Add(1)
+	return m.value, nil
+}
+
+func TestCheckPodObject_SLOMemoOncePerInterpolatedQuery(t *testing.T) {
+	querier := &countingSLOQuerier{value: 0.1}
+	monitor := NewMonitor(nil, testr.New(t))
+	monitor.WithSLOChecker(querier, []attunev1alpha1.SLOGuardrail{
+		{
+			Name:      "availability",
+			Query:     `sum(rate(requests{namespace="{{ .Namespace }}",workload="{{ .WorkloadName }}"}[5m]))`,
+			Threshold: "0.5",
+		},
+	})
+	monitor.WithSLOQueryMemo()
+
+	now := time.Now()
+	resizedAt := now.Add(-6 * time.Minute)
+	healthy := func(name string) *corev1.Pod {
+		return &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+			Status: corev1.PodStatus{
+				Phase: corev1.PodRunning,
+				ContainerStatuses: []corev1.ContainerStatus{
+					{Name: "app", RestartCount: 0},
+				},
+				Conditions: []corev1.PodCondition{
+					{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+				},
+			},
+		}
+	}
+	for _, name := range []string{"web-0", "web-1", "web-2"} {
+		record := ResizeRecord{
+			PodName:      name,
+			Namespace:    "default",
+			Container:    "app",
+			ResizedAt:    resizedAt,
+			RestartCount: 0,
+			WorkloadName: "web",
+		}
+		verdict, err := monitor.CheckPodObject(context.Background(), healthy(name), record, now)
+		require.NoError(t, err)
+		assert.True(t, verdict.Safe, name)
+	}
+	assert.Equal(t, int32(1), querier.n.Load(), "workload-level SLO must query once per pass")
 }

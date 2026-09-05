@@ -1260,14 +1260,24 @@ func earliestSuccessfulInPlaceAfter(history []attunev1alpha1.ResizeHistoryEntry,
 // resizePreChecks holds per-cycle cached data for shouldSkipResize,
 // avoiding redundant API calls when checking many pods in the same namespace.
 // nodeCache uses sync.Map for safe concurrent access when MaxConcurrentResizes > 1.
-type nodePodCache struct {
-	pods []corev1.Pod
-	err  error
+// neighborReq is the compact per-pod request total used for self-exclusion.
+type neighborReq struct {
+	ns, name string
+	cpu, mem int64
+}
+
+// nodeNeighborCache holds per-cycle neighbor request sums for one node.
+// Full pod objects are not retained after the List is reduced.
+type nodeNeighborCache struct {
+	totalCPU, totalMem int64
+	byUID              map[types.UID]neighborReq
+	byName             map[string]neighborReq // namespace/name for empty-UID tests
+	err                error
 }
 
 type resizePreChecks struct {
 	nodeCache         sync.Map // string -> *corev1.Node
-	nodePods          sync.Map // string -> nodePodCache
+	nodePods          sync.Map // string -> nodeNeighborCache
 	limitRanges       []corev1.LimitRange
 	quotas            []corev1.ResourceQuota
 	limitRangeListErr error
@@ -1364,8 +1374,8 @@ func (r *AttunePolicyReconciler) shouldSkipResize(
 				}
 				// Neighbor request budget: skip *increases* that would not
 				// fit after other pods already reserved allocatable.
-				// Decreases stay allowed. Missing nodeName or a failed
-				// neighbor list leaves only the this-pod check above.
+				// Decreases stay allowed. A failed neighbor list is
+				// fail-closed for increases (see nErr below).
 				if targetIncreasesRequests(pod, containerRec.Name, target) {
 					nCPU, nMem, nErr := r.neighborRequestTotals(ctx, pod, checks)
 					if nErr != nil {
@@ -1438,52 +1448,91 @@ func recordCapacitySkip(policy *attunev1alpha1.AttunePolicy, reason string) {
 	}
 }
 
-// podsOnNode lists pods scheduled on nodeName (cached per cycle).
-// The result is filtered by spec.nodeName so fake clientsets that ignore
-// field selectors still behave.
-func (r *AttunePolicyReconciler) podsOnNode(ctx context.Context, nodeName string, checks *resizePreChecks) ([]corev1.Pod, error) {
+const nodeNeighborPageSize = int64(200)
+
+// loadNodeNeighbors returns compact neighbor request totals for nodeName.
+// The List is live (Clientset, not the informer cache) so --watch-namespaces
+// cannot under-count neighbors in unwatched namespaces.
+func (r *AttunePolicyReconciler) loadNodeNeighbors(ctx context.Context, nodeName string, checks *resizePreChecks) (nodeNeighborCache, error) {
 	if nodeName == "" {
-		return nil, nil
+		return nodeNeighborCache{}, nil
 	}
 	if checks != nil {
 		if v, ok := checks.nodePods.Load(nodeName); ok {
-			if cached, ok := v.(nodePodCache); ok {
-				return cached.pods, cached.err
+			if cached, ok := v.(nodeNeighborCache); ok {
+				return cached, cached.err
 			}
 		}
 	}
-	if r.Clientset == nil {
-		// Unit paths without a Clientset keep the this-pod check only.
-		// Production executeResizes always has a Clientset; a live List
-		// error is fail-closed above the caller.
-		return nil, nil
-	}
-	list, err := r.Clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{
-		FieldSelector: "spec.nodeName=" + nodeName,
+	v, _, _ := r.nodeNeighborFlight.Do(nodeName, func() (any, error) {
+		return r.listNodeNeighbors(ctx, nodeName), nil
 	})
-	if err != nil {
-		if checks != nil {
-			checks.nodePods.Store(nodeName, nodePodCache{err: err})
-		}
-		return nil, err
-	}
-	filtered := make([]corev1.Pod, 0, len(list.Items))
-	for i := range list.Items {
-		if list.Items[i].Spec.NodeName == nodeName {
-			filtered = append(filtered, list.Items[i])
-		}
-	}
+	cached, _ := v.(nodeNeighborCache)
 	if checks != nil {
-		checks.nodePods.Store(nodeName, nodePodCache{pods: filtered})
+		checks.nodePods.Store(nodeName, cached)
 	}
-	return filtered, nil
+	return cached, cached.err
 }
 
-func samePod(a, b *corev1.Pod) bool {
-	if a.UID != "" && b.UID != "" {
-		return a.UID == b.UID
+func (r *AttunePolicyReconciler) listNodeNeighbors(ctx context.Context, nodeName string) nodeNeighborCache {
+	if r.Clientset == nil {
+		// Unit paths without a Clientset keep the this-pod check only.
+		return nodeNeighborCache{}
 	}
-	return a.Name == b.Name && a.Namespace == b.Namespace
+	out := nodeNeighborCache{
+		byUID:  make(map[types.UID]neighborReq),
+		byName: make(map[string]neighborReq),
+	}
+	continueToken := ""
+	for {
+		list, err := r.Clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{
+			FieldSelector:   "spec.nodeName=" + nodeName,
+			ResourceVersion: "0",
+			Limit:           nodeNeighborPageSize,
+			Continue:        continueToken,
+		})
+		if err != nil {
+			out.err = err
+			return out
+		}
+		for i := range list.Items {
+			p := &list.Items[i]
+			if p.Spec.NodeName != nodeName {
+				continue
+			}
+			if p.Status.Phase == corev1.PodSucceeded || p.Status.Phase == corev1.PodFailed {
+				continue
+			}
+			req := neighborReq{ns: p.Namespace, name: p.Name}
+			running := append(nativeSidecars(p.Spec.InitContainers), p.Spec.Containers...)
+			for _, c := range running {
+				req.cpu += c.Resources.Requests.Cpu().MilliValue()
+				req.mem += c.Resources.Requests.Memory().Value()
+			}
+			out.totalCPU += req.cpu
+			out.totalMem += req.mem
+			if p.UID != "" {
+				out.byUID[p.UID] = req
+			}
+			out.byName[p.Namespace+"/"+p.Name] = req
+		}
+		if list.Continue == "" {
+			return out
+		}
+		continueToken = list.Continue
+	}
+}
+
+func (c nodeNeighborCache) exclude(pod *corev1.Pod) (cpu, mem int64) {
+	if pod.UID != "" {
+		if e, ok := c.byUID[pod.UID]; ok {
+			return c.totalCPU - e.cpu, c.totalMem - e.mem
+		}
+	}
+	if e, ok := c.byName[pod.Namespace+"/"+pod.Name]; ok {
+		return c.totalCPU - e.cpu, c.totalMem - e.mem
+	}
+	return c.totalCPU, c.totalMem
 }
 
 // neighborRequestTotals sums running-container requests of other pods on
@@ -1493,20 +1542,11 @@ func (r *AttunePolicyReconciler) neighborRequestTotals(ctx context.Context, pod 
 	if pod.Spec.NodeName == "" {
 		return 0, 0, nil
 	}
-	neighbors, err := r.podsOnNode(ctx, pod.Spec.NodeName, checks)
+	cached, err := r.loadNodeNeighbors(ctx, pod.Spec.NodeName, checks)
 	if err != nil {
 		return 0, 0, err
 	}
-	for _, n := range neighbors {
-		if samePod(pod, &n) {
-			continue
-		}
-		running := append(nativeSidecars(n.Spec.InitContainers), n.Spec.Containers...)
-		for _, c := range running {
-			cpu += c.Resources.Requests.Cpu().MilliValue()
-			mem += c.Resources.Requests.Memory().Value()
-		}
-	}
+	cpu, mem = cached.exclude(pod)
 	return cpu, mem, nil
 }
 
