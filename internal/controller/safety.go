@@ -235,7 +235,6 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 							confirmed, confirmErr := r.confirmCriticalStatuses(ctx, pod, record)
 							if confirmErr != nil {
 								logger.Error(confirmErr, "Early critical confirm Get failed", "pod", pod.Name)
-								observationsPending = true
 								continue
 							}
 							if confirmed == nil {
