@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -98,6 +99,49 @@ func removeTrackingAnnotations(pod *corev1.Pod) {
 	delete(pod.Annotations, annotationResizedWorkload)
 	delete(pod.Annotations, annotationPolicy)
 	delete(pod.Labels, labelTracked)
+}
+
+// patchRemoveTrackingAnnotations clears tracking keys with a merge patch.
+// Null-valued keys are deleted; missing keys are a no-op. No Get or
+// resourceVersion is required.
+func (r *AttunePolicyReconciler) patchRemoveTrackingAnnotations(ctx context.Context, pod *corev1.Pod) error {
+	if r.Client == nil {
+		return fmt.Errorf("patching tracking annotations on %s/%s: no client", pod.Namespace, pod.Name)
+	}
+	patch, err := trackingCleanupMergePatch(pod)
+	if err != nil {
+		return err
+	}
+	return r.Patch(ctx, pod, client.RawPatch(types.MergePatchType, patch))
+}
+
+func trackingCleanupMergePatch(pod *corev1.Pod) ([]byte, error) {
+	anns := map[string]any{
+		annotationResizedAt:         nil,
+		annotationResizedContainers: nil,
+		annotationResizedWorkload:   nil,
+		annotationPolicy:            nil,
+	}
+	if names, ok := pod.Annotations[annotationResizedContainers]; ok {
+		for _, name := range strings.Split(names, ",") {
+			name = strings.TrimSpace(name)
+			if name == "" {
+				continue
+			}
+			anns[annotationOriginalCPUPrefix+name] = nil
+			anns[annotationOriginalMemoryPrefix+name] = nil
+			anns[annotationOriginalCPULimitPrefix+name] = nil
+			anns[annotationOriginalMemoryLimitPrefix+name] = nil
+			anns[annotationOriginalRestartCountPrefix+name] = nil
+		}
+	}
+	payload := map[string]any{
+		"metadata": map[string]any{
+			"annotations": anns,
+			"labels":      map[string]any{labelTracked: nil},
+		},
+	}
+	return json.Marshal(payload)
 }
 
 // appendResizedContainer adds a container name to the comma-separated

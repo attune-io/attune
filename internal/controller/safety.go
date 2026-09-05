@@ -160,7 +160,8 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 		return
 	}
 
-	monitor := r.newSafetyMonitor(logger, collector, policy.Spec.UpdateStrategy.SLOGuardrails)
+	monitor := r.newSafetyMonitor(logger, collector, policy.Spec.UpdateStrategy.SLOGuardrails).
+		WithSLOQueryMemo()
 	observationPeriod := getObservationPeriod(policy)
 
 	// Revert must not inherit a spent PrometheusTimeout. PromQL/throttle
@@ -263,7 +264,7 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 
 		var revertFailed, throttlePending bool
 		for _, record := range records {
-			verdict, err := monitor.CheckPod(ctx, record, r.now())
+			verdict, err := monitor.CheckPodObject(ctx, pod, record, r.now())
 			if err != nil {
 				logger.Error(err, "Safety observation check failed", "pod", pod.Name, "container", record.Container)
 				operatormetrics.ReconcileErrorsTotal.WithLabelValues("safety_observation").Inc()
@@ -279,6 +280,19 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 			}
 
 			if !verdict.Safe {
+				confirmed, confirmErr := r.confirmSafetyVerdict(ctx, monitor, pod, record)
+				if confirmErr != nil {
+					logger.Error(confirmErr, "Safety confirm Get failed", "pod", pod.Name, "container", record.Container)
+					operatormetrics.ReconcileErrorsTotal.WithLabelValues("safety_observation").Inc()
+					revertFailed = true
+					continue
+				}
+				if confirmed.Safe {
+					logger.V(1).Info("Cached unsafe verdict not confirmed on live pod",
+						"pod", pod.Name, "container", record.Container, "cachedReason", verdict.Reason)
+					continue
+				}
+				verdict = confirmed
 				logger.Info("Deferred safety violation detected, reverting",
 					"pod", pod.Name, "container", record.Container, "reason", verdict.Reason)
 				if revertErr := revertPod(record); revertErr != nil {
@@ -303,39 +317,34 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 			observationsPending = true
 			continue
 		}
-		// Re-fetch directly from API server (not informer cache) to get
-		// fresh resourceVersion after UpdateResize. The cache may not have
-		// the watch event yet, causing a 409 Conflict on annotation update.
-		// Retry on conflict to handle kubelet status churn.
-		const maxCleanupRetries = 3
-		var cleanupErr error
-		for attempt := range maxCleanupRetries {
-			freshPod, getErr := r.Clientset.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
-			if getErr != nil {
-				logger.Error(getErr, "Failed to re-fetch pod for annotation cleanup", "pod", pod.Name)
-				cleanupErr = getErr
-				break
-			}
-			removeTrackingAnnotations(freshPod)
-			updateErr := r.Update(ctx, freshPod)
-			if updateErr == nil {
-				cleanupErr = nil
-				break
-			}
-			if !apierrors.IsConflict(updateErr) {
-				logger.Error(updateErr, "Failed to remove resize tracking annotations", "pod", pod.Name)
-				cleanupErr = updateErr
-				break
-			}
-			logger.V(1).Info("Annotation cleanup conflict, retrying",
-				"pod", pod.Name, "attempt", attempt+1)
-			cleanupErr = updateErr
-		}
-		if cleanupErr != nil && apierrors.IsConflict(cleanupErr) {
-			logger.Error(cleanupErr, "Exhausted annotation cleanup retries", "pod", pod.Name, "retries", maxCleanupRetries)
+		// Merge-patch nulls tracking keys. No Get and no resourceVersion,
+		// so kubelet status churn cannot 409 the cleanup.
+		if err := r.patchRemoveTrackingAnnotations(ctx, pod); err != nil {
+			logger.Error(err, "Failed to remove resize tracking annotations", "pod", pod.Name)
 		}
 	}
 	return observationsPending
+}
+
+// confirmSafetyVerdict re-Gets the pod and re-evaluates before revert so a
+// flapping Ready=False on the listed snapshot does not undo a now-healthy pod.
+func (r *AttunePolicyReconciler) confirmSafetyVerdict(
+	ctx context.Context,
+	monitor *safety.Monitor,
+	listed *corev1.Pod,
+	record safety.ResizeRecord,
+) (safety.SafetyVerdict, error) {
+	if r.Clientset == nil {
+		return safety.SafetyVerdict{}, fmt.Errorf("confirming safety verdict for %s/%s: no clientset", listed.Namespace, listed.Name)
+	}
+	fresh, err := r.Clientset.CoreV1().Pods(listed.Namespace).Get(ctx, listed.Name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return safety.SafetyVerdict{Safe: true}, nil
+	}
+	if err != nil {
+		return safety.SafetyVerdict{}, fmt.Errorf("confirming safety verdict for %s/%s: %w", listed.Namespace, listed.Name, err)
+	}
+	return monitor.CheckPodObject(ctx, fresh, record, r.now())
 }
 
 func trackedWorkloadForPolicy(pod *corev1.Pod, policyName string, workloadNames map[string]bool) (string, bool) {
