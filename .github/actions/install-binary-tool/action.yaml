@@ -30,11 +30,12 @@ runs:
       shell: bash -Eeuo pipefail {0}
       env:
         TOOL_DIR: ${{ runner.temp }}/bin-tool-cache/${{ inputs.name }}
-      run: |
+      run: | # zizmor: ignore[template-injection]
         mkdir -p "$TOOL_DIR"
         export PATH="$TOOL_DIR:$PATH"
         ${{ inputs.install-command }}
 
     - name: Add ${{ inputs.name }} to PATH
       shell: bash -Eeuo pipefail {0}
-      run: echo "${RUNNER_TEMP}/bin-tool-cache/${{ inputs.name }}" >> "$GITHUB_PATH"
+      run: | # zizmor: ignore[template-injection,github-env]
+        echo "${RUNNER_TEMP}/bin-tool-cache/${{ inputs.name }}" >> "$GITHUB_PATH"

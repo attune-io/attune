@@ -27,6 +27,7 @@ jobs:
         if: github.event_name == 'pull_request'
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Check DCO sign-off
         if: github.event_name == 'pull_request'

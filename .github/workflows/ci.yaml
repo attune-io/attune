@@ -26,6 +26,7 @@ env:
   ENVTEST_K8S_VERSION: "1.35.0"
   HELM_UNITTEST_VERSION: "v0.7.2"
   ACTIONLINT_VERSION: "v1.7.12"
+  ZIZMOR_VERSION: "v1.30.0"
   GOCOVER_COBERTURA_VERSION: "v1.5.0"
   BENCHSTAT_VERSION: "v0.0.0-20260512194132-3cf34090a3db"
   CERT_MANAGER_VERSION: "v1.21.1"
@@ -57,6 +58,8 @@ jobs:
         with:
           egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
         with:
@@ -158,6 +161,8 @@ jobs:
         with:
           egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -229,6 +234,8 @@ jobs:
         with:
           egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -269,6 +276,8 @@ jobs:
         with:
           egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Check links
         uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
         with:
@@ -293,6 +302,8 @@ jobs:
         with:
           egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -319,6 +330,8 @@ jobs:
         with:
           egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -342,6 +355,7 @@ jobs:
           egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -443,6 +457,8 @@ jobs:
         with:
           egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -498,6 +514,8 @@ jobs:
         with:
           egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -567,6 +585,8 @@ jobs:
         with:
           egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup-e2e-cluster
         with:
@@ -667,6 +687,8 @@ jobs:
         with:
           egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -695,6 +717,8 @@ jobs:
         with:
           egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -730,6 +754,8 @@ jobs:
         with:
           egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
         with:
@@ -826,6 +852,8 @@ jobs:
         with:
           egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -903,6 +931,33 @@ jobs:
       - name: Run actionlint
         shell: bash -Eeuo pipefail {0}
         run: actionlint -color
+
+      - uses: ./.github/actions/install-binary-tool
+        with:
+          name: zizmor
+          version: ${{ env.ZIZMOR_VERSION }}
+          install-command: |
+            VER="${{ env.ZIZMOR_VERSION }}"
+            case "$(uname -s)" in
+              Linux)  Z_OS=unknown-linux-gnu ;;
+              Darwin) Z_OS=apple-darwin ;;
+              *) echo "unsupported OS: $(uname -s)" >&2; exit 1 ;;
+            esac
+            case "$(uname -m)" in
+              x86_64) Z_ARCH=x86_64 ;;
+              aarch64|arm64) Z_ARCH=aarch64 ;;
+              *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;;
+            esac
+            curl -fsSL "https://github.com/zizmorcore/zizmor/releases/download/${VER}/zizmor-${Z_ARCH}-${Z_OS}.tar.gz" \
+              | tar xz -C "$TOOL_DIR" zizmor
+
+      # --offline: GITHUB_TOKEN is always set in Actions and would
+      # otherwise flip zizmor into online mode (API-backed audits).
+      # Offline keeps the gate deterministic and matches the #659
+      # local run. Config is discovered at .github/zizmor.yml.
+      - name: Run zizmor
+        shell: bash -Eeuo pipefail {0}
+        run: zizmor --offline --color=always --strict-collection .
 
       - name: Lock CI build-once triggers
         shell: bash -Eeuo pipefail {0}

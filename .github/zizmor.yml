@@ -1,0 +1,53 @@
+# zizmor config for Attune (#659).
+# Known false positives and accepted risks are listed here so the
+# workflow-sanity job stays green. Composite-action findings cannot
+# use this file; those use inline `# zizmor: ignore[...]` comments.
+#
+# Do not disable an audit unless a file-level ignore cannot express it.
+# New workflows are still audited; only the files below are skipped.
+
+rules:
+  # First-party interpolations: workflow env, matrix, job/step outputs,
+  # github.repository, secrets, and workflow_dispatch inputs. None of
+  # these are attacker-controlled issue/PR titles. Revisit if a
+  # pull_request_target job starts expanding github.event.issue.* or
+  # github.event.comment.body into a run: script.
+  template-injection:
+    ignore:
+      - dependabot-auto-merge.yaml
+      - e2e-nightly.yaml
+      - release.yaml
+
+  # Workspace-relative `./.github/actions/...` after checkout. The `$/`
+  # self-repo syntax is still new; migrate in one pass later.
+  self-repository:
+    ignore:
+      - bench-baseline.yaml
+      - ci.yaml
+      - e2e-nightly.yaml
+      - fossa.yaml
+      - security.yaml
+
+  # pull_request_target is required so these jobs can write labels,
+  # comments, or auto-merge with secrets. They do not checkout
+  # untrusted PR HEAD into a run: script that expands attacker input.
+  dangerous-triggers:
+    ignore:
+      - backport.yaml
+      - dependabot-auto-merge.yaml
+      - issue-linker.yaml
+      - labeler.yaml
+      - pr-size.yaml
+      - pr-title.yaml
+
+  # auto-approve already gates on pull_request.user.login (not only
+  # github.actor) and never runs Dependabot through this workflow.
+  bot-conditions:
+    ignore:
+      - auto-approve.yaml
+
+  # Informational: attaching install.yaml via gh is already a script
+  # step; the remaining upload action is the documented helper.
+  superfluous-actions:
+    ignore:
+      - release.yaml
