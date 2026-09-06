@@ -6,6 +6,13 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.27](https://github.com/attune-io/attune/compare/v0.1.26...v0.1.27) (2026-09-06)
+
+
+### Bug Fixes
+
+* persist startup-boost annotation and cap defaults maxallowed ([#669](https://github.com/attune-io/attune/issues/669)) ([140573c](https://github.com/attune-io/attune/commit/140573c92dbcfcba7d884df582f886c57ce0f16c))
+
 ## [0.1.26](https://github.com/attune-io/attune/compare/v0.1.25...v0.1.26) (2026-09-05)
 
 
