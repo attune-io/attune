@@ -218,8 +218,8 @@ CR manually but managed through Helm values.
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `defaults.enabled` | bool | `false` | Create an AttuneDefaults resource with the values below |
-| `defaults.cpu.*` | object | | CPU resource defaults (see [Resource Config](#resource-configuration) below) |
-| `defaults.memory.*` | object | | Memory resource defaults (see [Resource Config](#resource-configuration) below) |
+| `defaults.cpu.*` | object | | CPU resource defaults (see [Resource configuration](#resource-configuration) below) |
+| `defaults.memory.*` | object | | Memory resource defaults (see [Resource configuration](#resource-configuration) below) |
 | `defaults.costPricing.cpuPerCoreHour` | string | `"0.031"` | Cost per vCPU-hour for savings estimates |
 | `defaults.costPricing.memoryPerGiBHour` | string | `"0.004"` | Cost per GiB-hour for savings estimates |
 | `defaults.excludeKnownSidecars` | bool | (operator default `true` if unset) | When set on the AttuneDefaults CR, policies that leave the field unset inherit this value. `false` restores exclude-only-via-`excludedContainers`. |
@@ -235,6 +235,28 @@ values; see `values.yaml` for the full set.
 These fields are set on the `AttuneDefaults` cluster-scoped CRD, either
 directly or via the Helm `defaults.*` values above. They apply to all
 `AttunePolicy` resources.
+
+### Resource configuration
+
+`cpu` and `memory` on `AttunePolicy`, `AttuneDefaults`, and
+`AttuneNamespaceDefaults` share the same bound fields. When a bound is
+set, the operator clamps each recommendation to that range. Admission
+also rejects `maxAllowed` above a hard ceiling so cluster or namespace
+defaults cannot merge uncapped bounds onto policies after the policy
+itself was admitted.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `cpu.minAllowed` | quantity | (none) | Minimum CPU recommendation (for example `"50m"`). When both bounds are set, must be less than or equal to `cpu.maxAllowed`. |
+| `cpu.maxAllowed` | quantity | (none) | Maximum CPU recommendation (for example `"4000m"`). Must not exceed 256 cores. |
+| `memory.minAllowed` | quantity | (none) | Minimum memory recommendation (for example `"64Mi"`). When both bounds are set, must be less than or equal to `memory.maxAllowed`. |
+| `memory.maxAllowed` | quantity | (none) | Maximum memory recommendation (for example `"8Gi"`). Must not exceed 16Ti. |
+
+The 256-core and 16Ti values are admission caps only. They reject
+oversized `maxAllowed`; they do not inject a default clamp when the
+field is unset. Helm `defaults.cpu.*` and `defaults.memory.*` are
+subject to the same webhook because the chart creates an
+`AttuneDefaults` resource.
 
 ### Cost Pricing
 
@@ -410,6 +432,12 @@ as alternative metrics sources. **At most one** of `prometheus`,
 | `metricsSource.cloudwatch.roleArn` | string | `""` | Optional IAM role ARN for cross-account access (`arn:aws:iam::ACCOUNT:role/NAME`; IRSA/Pod Identity used if empty) |
 
 ## Policy-Level Fields
+
+Bound fields (`minAllowed`, `maxAllowed`) and their admission caps
+(256 cores CPU, 16Ti memory) are documented under
+[Resource configuration](#resource-configuration). The same fields and
+caps apply to `AttunePolicy`, `AttuneDefaults`, and
+`AttuneNamespaceDefaults`.
 
 ### spec.paused
 

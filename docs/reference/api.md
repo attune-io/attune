@@ -338,11 +338,14 @@ true recoverability.
 ### Webhook validation
 
 `AttuneDefaults` and `AttuneNamespaceDefaults` both have validating
-webhooks that reject invalid `costPricing`, schedule, and Prometheus
-address values. If `cpuPerCoreHour` or `memoryPerGiBHour` is set, the
-webhook validates that each is a parseable positive float. Invalid values
-(e.g., `"banana"`, `"-0.5"`), invalid schedule settings, and blocked
-Prometheus addresses are rejected at admission time.
+webhooks that reject invalid `costPricing`, schedule, Prometheus
+address values, and resource `maxAllowed` above the same ceilings as
+`AttunePolicy` (`cpu.maxAllowed` greater than 256 cores,
+`memory.maxAllowed` greater than 16Ti). If `cpuPerCoreHour` or
+`memoryPerGiBHour` is set, the webhook validates that each is a
+parseable positive float. Invalid values (e.g., `"banana"`, `"-0.5"`),
+invalid schedule settings, blocked Prometheus addresses, and oversized
+`maxAllowed` are rejected at admission time.
 
 ---
 

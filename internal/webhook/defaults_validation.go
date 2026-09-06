@@ -23,6 +23,7 @@ import (
 	"strconv"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/resource"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
@@ -261,6 +262,9 @@ func validateResourceConfigFields(prefix string, rc *attunev1alpha1.ResourceConf
 				prefix, rc.MinAllowed.String(), prefix, rc.MaxAllowed.String())
 		}
 	}
+	if err := validateResourceMaxAllowedCap(prefix, rc); err != nil {
+		return err
+	}
 
 	// StartupBoost (only valid for CPU, but validate format for both)
 	if sb := rc.StartupBoost; sb != nil {
@@ -285,6 +289,33 @@ func validateResourceConfigFields(prefix string, rc *attunev1alpha1.ResourceConf
 		}
 	}
 
+	return nil
+}
+
+// validateResourceMaxAllowedCap enforces the same absolute ceilings used
+// by AttunePolicy admission (256 cores CPU, 16Ti memory) so AttuneDefaults
+// cannot merge uncapped maxAllowed onto policies after admission.
+func validateResourceMaxAllowedCap(prefix string, rc *attunev1alpha1.ResourceConfig) error {
+	if rc == nil || rc.MaxAllowed == nil {
+		return nil
+	}
+	var capStr, human string
+	switch prefix {
+	case "cpu":
+		capStr, human = "256", "256 cores"
+	case "memory":
+		capStr, human = "16Ti", "16Ti"
+	default:
+		return nil
+	}
+	cap, err := resource.ParseQuantity(capStr)
+	if err != nil {
+		return fmt.Errorf("%s.maxAllowed cap %q: %w", prefix, capStr, err)
+	}
+	if rc.MaxAllowed.Cmp(cap) > 0 {
+		return fmt.Errorf("%s.maxAllowed (%s) exceeds the maximum allowed value of %s",
+			prefix, rc.MaxAllowed.String(), human)
+	}
 	return nil
 }
 

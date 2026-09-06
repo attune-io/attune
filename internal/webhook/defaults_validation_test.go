@@ -633,6 +633,49 @@ func TestDefaultsValidate_BoundsMinExceedsMax(t *testing.T) {
 	}
 }
 
+func TestDefaultsValidate_MaxAllowedCaps(t *testing.T) {
+	tests := []struct {
+		name    string
+		cpuMax  string
+		memMax  string
+		wantErr string
+	}{
+		{name: "CPU 257 rejected", cpuMax: "257", wantErr: "cpu.maxAllowed"},
+		{name: "memory 17Ti rejected", memMax: "17Ti", wantErr: "memory.maxAllowed"},
+		{name: "CPU 256 accepted", cpuMax: "256"},
+		{name: "CPU 256000m accepted", cpuMax: "256000m"},
+		{name: "CPU 256001m rejected", cpuMax: "256001m", wantErr: "cpu.maxAllowed"},
+		{name: "memory 16Ti accepted", memMax: "16Ti"},
+		{name: "CPU 256 and memory 16Ti accepted", cpuMax: "256", memMax: "16Ti"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			v := &AttuneDefaultsValidator{}
+			defaults := &attunev1alpha1.AttuneDefaults{
+				ObjectMeta: metav1.ObjectMeta{Name: "default"},
+				Spec:       attunev1alpha1.AttuneDefaultsSpec{},
+			}
+			if tc.cpuMax != "" {
+				q := resource.MustParse(tc.cpuMax)
+				defaults.Spec.CPU = &attunev1alpha1.ResourceConfig{MaxAllowed: &q}
+			}
+			if tc.memMax != "" {
+				q := resource.MustParse(tc.memMax)
+				defaults.Spec.Memory = &attunev1alpha1.ResourceConfig{MaxAllowed: &q}
+			}
+
+			_, err := v.ValidateCreate(context.Background(), defaults)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+			assert.Contains(t, err.Error(), "exceeds the maximum allowed value")
+		})
+	}
+}
+
 func TestDefaultsValidate_BurstSensitivityInvalid(t *testing.T) {
 	tests := []struct {
 		name    string

@@ -198,6 +198,35 @@ func TestValidate_CPUBoundsMaxExceedsUpperLimit(t *testing.T) {
 	assert.Empty(t, warnings)
 }
 
+func TestValidate_CPUBoundsMaxAllowedMillicores(t *testing.T) {
+	tests := []struct {
+		name    string
+		cpuMax  string
+		wantErr bool
+	}{
+		{name: "256000m accepted", cpuMax: "256000m"},
+		{name: "256001m rejected", cpuMax: "256001m", wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			validator := &AttunePolicyValidator{}
+			policy := validPolicy()
+			cpuMax := resource.MustParse(tc.cpuMax)
+			policy.Spec.CPU.MaxAllowed = &cpuMax
+
+			warnings, err := validator.ValidateCreate(context.Background(), policy)
+			if tc.wantErr {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), "cpu.maxAllowed")
+				assert.Contains(t, err.Error(), "exceeds the maximum allowed value of 256 cores")
+			} else {
+				assert.NoError(t, err)
+			}
+			assert.Empty(t, warnings)
+		})
+	}
+}
+
 func TestValidate_MemoryBoundsMaxExceedsUpperLimit(t *testing.T) {
 	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
