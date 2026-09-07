@@ -9100,6 +9100,70 @@ func TestResizeContainer_InfeasiblePodEvictedDirectly(t *testing.T) {
 	assert.Equal(t, 0, resizes, "should NOT have attempted in-place resize on Infeasible pod")
 }
 
+func TestResizeContainer_InfeasibleLiveRecheckAfterStaleCache(t *testing.T) {
+	// Listed/informer pod has no Infeasible; Clientset does. Evict.
+	listed := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
+	listed.Name = "api-server-abc-1"
+	live := listed.DeepCopy()
+	live.Status.Conditions = append(live.Status.Conditions, corev1.PodCondition{
+		Type:   "PodResizePending",
+		Status: corev1.ConditionTrue,
+		Reason: "Infeasible",
+	})
+	peer := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
+	peer.Name = "api-server-abc-2"
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(deploy, listed, peer).Build()
+	clientset := kubefake.NewSimpleClientset(live, peer.DeepCopy())
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	policy.Spec.UpdateStrategy.ResizeMethod = attunev1alpha1.ResizeMethodInPlaceOrRecreate
+
+	resizer := resize.NewPodResizer(clientset, ctrl.Log)
+	containerRec := attunev1alpha1.ContainerRecommendation{
+		Name: "app",
+		Current: attunev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("200m"),
+			MemoryRequest: resource.MustParse("256Mi"),
+		},
+		Recommended: attunev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("100m"),
+			MemoryRequest: resource.MustParse("128Mi"),
+		},
+	}
+
+	entries, outcome := r.resizeContainer(context.Background(), resizeParams{
+		Policy:       policy,
+		Pod:          listed,
+		Workload:     deploy,
+		WorkloadName: "api-server",
+		ContainerRec: containerRec,
+		Resizer:      resizer,
+		Monitor:      nil,
+		Now:          metav1.Now(),
+	})
+	assert.Equal(t, resizeOutcomeEvicted, outcome, "live Infeasible must evict even if listed pod is clear")
+	require.Len(t, entries, 1)
+	assert.Equal(t, "Eviction", entries[0].Method)
+	assert.Equal(t, attunev1alpha1.ResizeResultEvicted, entries[0].Result)
+
+	var evictions int
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "create" && a.GetResource().Resource == "pods" && a.GetSubresource() == "eviction" {
+			evictions++
+		}
+	}
+	assert.Equal(t, 1, evictions)
+}
+
 func TestResizeContainer_InfeasiblePodSkippedWithInPlaceOnly(t *testing.T) {
 	// An Infeasible pod with InPlaceOnly should be skipped entirely
 	// (no resize attempt, no eviction).

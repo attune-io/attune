@@ -546,6 +546,13 @@ func (r *AttunePolicyReconciler) resizeContainer(
 		}
 	}
 
+	// Live Get before Infeasible: the informer pod can lag kubelet (or an
+	// E2E inject loop) by a watch interval. Same class as the node
+	// pressure re-check above. Get failure keeps the listed object.
+	if live := r.livePodForResize(ctx, pod); live != nil {
+		pod = live
+	}
+
 	// Pods already marked Infeasible cannot be resized in-place on the current node.
 	if resize.IsResizeInfeasible(pod) {
 		if policy.Spec.UpdateStrategy.ResizeMethod == attunev1alpha1.ResizeMethodInPlaceOrRecreate {
@@ -1636,6 +1643,21 @@ func recentMemoryUsage(containerRec attunev1alpha1.ContainerRecommendation) (res
 		return resource.Quantity{}, false
 	}
 	return u, true
+}
+
+// livePodForResize returns the named pod from the typed Clientset when
+// configured. Used immediately before the Infeasible eviction decision so
+// a stale informer snapshot cannot hide a live Infeasible (or keep a
+// cleared one). Returns listed on Get error or when Clientset is unset.
+func (r *AttunePolicyReconciler) livePodForResize(ctx context.Context, listed *corev1.Pod) *corev1.Pod {
+	if r.Clientset == nil || listed == nil {
+		return listed
+	}
+	fresh, err := r.Clientset.CoreV1().Pods(listed.Namespace).Get(ctx, listed.Name, metav1.GetOptions{})
+	if err != nil {
+		return listed
+	}
+	return fresh
 }
 
 // getNodeForResize returns the named node for capacity/pressure checks.
