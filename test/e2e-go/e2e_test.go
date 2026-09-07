@@ -1385,7 +1385,8 @@ func TestE2E_EvictionFallback_ResizesWithInPlaceOrRecreate(t *testing.T) {
 	createNamespace(t, ns)
 	// Two replicas so last-replica eviction guard does not block. Keep
 	// requests small so both schedule on the shared k3d node.
-	createDeployment(t, "evict-app", ns, "200m", "128Mi", 2)
+	const startCPU = "200m"
+	createDeployment(t, "evict-app", ns, startCPU, "128Mi", 2)
 	waitForDeploymentReady(t, "evict-app", ns, 90*time.Second)
 
 	deployName := "evict-app"
@@ -1432,12 +1433,12 @@ func TestE2E_EvictionFallback_ResizesWithInPlaceOrRecreate(t *testing.T) {
 		require.NoError(t, tryPatchPodResizePending(t, startPods.Items[i].Name, ns, "Infeasible"))
 	}
 
-	// Kubelet clears injected Infeasible within seconds. Re-apply on a
-	// short ticker so executeResizes still sees it when recs land.
+	// Kubelet clears injected Infeasible within seconds (same class as
+	// MemoryPressure inject). 100ms ticker + live Get in resizeContainer.
 	stopInject := make(chan struct{})
 	defer close(stopInject)
 	go func() {
-		ticker := time.NewTicker(200 * time.Millisecond)
+		ticker := time.NewTicker(100 * time.Millisecond)
 		defer ticker.Stop()
 		for {
 			select {
@@ -1458,10 +1459,25 @@ func TestE2E_EvictionFallback_ResizesWithInPlaceOrRecreate(t *testing.T) {
 		}
 	}()
 
-	// Create the policy after Infeasible is already on the original pods so
-	// the first executeResizes hits eviction instead of a successful in-place.
+	// Do not create the policy until at least one original pod still shows
+	// Infeasible on a live Get. Otherwise the first apply is a guaranteed
+	// in-place and cooldown burns the rest of the wait.
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 200*time.Millisecond, 20*time.Second, true, func(ctx context.Context) (bool, error) {
+		for _, name := range origUIDs {
+			pod, err := clientset.CoreV1().Pods(ns).Get(ctx, name, metav1.GetOptions{})
+			if err != nil {
+				continue
+			}
+			if resizePendingReason(pod) == "Infeasible" {
+				return true, nil
+			}
+		}
+		return false, nil
+	}), "live Infeasible must be visible before creating the policy")
+
 	require.NoError(t, k8sClient.Create(ctx, policy))
 
+	var lastRestore time.Time
 	require.NoError(t, wait.PollUntilContextTimeout(ctx, 1*time.Second, 4*time.Minute, true, func(ctx context.Context) (bool, error) {
 		var live corev1.PodList
 		if err := k8sClient.List(ctx, &live, client.InNamespace(ns), client.MatchingLabels{"app": "evict-app"}); err != nil {
@@ -1482,16 +1498,35 @@ func TestE2E_EvictionFallback_ResizesWithInPlaceOrRecreate(t *testing.T) {
 
 		replaced := 0
 		stillOrig := 0
+		infeasible := 0
 		for i := range live.Items {
 			if _, ok := origUIDs[live.Items[i].UID]; ok {
 				stillOrig++
+				if resizePendingReason(&live.Items[i]) == "Infeasible" {
+					infeasible++
+				}
 			} else {
 				replaced++
 			}
 		}
-		t.Logf("eviction wait: historyEvicted=%v stillOrig=%d replaced=%d recs=%d resized=%d",
-			historyEvicted, stillOrig, replaced, p.Status.Workloads.WithRecommendations, p.Status.Workloads.Resized)
-		return historyEvicted || replaced >= 1, nil
+		t.Logf("eviction wait: historyEvicted=%v stillOrig=%d replaced=%d infeasible=%d recs=%d resized=%d",
+			historyEvicted, stillOrig, replaced, infeasible, p.Status.Workloads.WithRecommendations, p.Status.Workloads.Resized)
+
+		// In-place won a kubelet-clear window. Restore start CPU so the
+		// next cycle still has a decrease to apply under Infeasible.
+		if !historyEvicted && replaced == 0 && p.Status.Workloads.Resized > 0 &&
+			(lastRestore.IsZero() || time.Since(lastRestore) > 45*time.Second) {
+			lastRestore = time.Now()
+			t.Logf("in-place won the Infeasible race; restoring %s to retry eviction", startCPU)
+			for _, name := range origUIDs {
+				restorePodCPURequest(t, name, ns, startCPU)
+			}
+		}
+
+		if historyEvicted || replaced >= 1 {
+			return true, nil
+		}
+		return false, nil
 	}), "InPlaceOrRecreate must evict an Infeasible pod (history Evicted or original UID replaced)")
 
 	require.NoError(t, wait.PollUntilContextTimeout(ctx, 3*time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
@@ -1502,6 +1537,44 @@ func TestE2E_EvictionFallback_ResizesWithInPlaceOrRecreate(t *testing.T) {
 		t.Logf("post-eviction ReadyReplicas=%d", deploy.Status.ReadyReplicas)
 		return deploy.Status.ReadyReplicas >= 1, nil
 	}), "Deployment must keep at least one ready replica after eviction")
+}
+
+func resizePendingReason(pod *corev1.Pod) string {
+	for _, c := range pod.Status.Conditions {
+		if c.Type == corev1.PodResizePending && c.Status == corev1.ConditionTrue {
+			return c.Reason
+		}
+	}
+	return ""
+}
+
+func restorePodCPURequest(t *testing.T, podName, namespace, cpu string) {
+	t.Helper()
+	qty, err := resource.ParseQuantity(cpu)
+	if err != nil {
+		t.Logf("restore %s/%s: parse %s: %v", namespace, podName, cpu, err)
+		return
+	}
+	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		pod, getErr := clientset.CoreV1().Pods(namespace).Get(ctx, podName, metav1.GetOptions{})
+		if getErr != nil {
+			return getErr
+		}
+		for i := range pod.Spec.Containers {
+			if pod.Spec.Containers[i].Name != "app" {
+				continue
+			}
+			if pod.Spec.Containers[i].Resources.Requests == nil {
+				pod.Spec.Containers[i].Resources.Requests = corev1.ResourceList{}
+			}
+			pod.Spec.Containers[i].Resources.Requests[corev1.ResourceCPU] = qty
+		}
+		_, updErr := clientset.CoreV1().Pods(namespace).UpdateResize(ctx, pod.Name, pod, metav1.UpdateOptions{})
+		return updErr
+	})
+	if err != nil {
+		t.Logf("restore %s/%s CPU %s: %v", namespace, podName, cpu, err)
+	}
 }
 
 func TestE2E_RecommendMode_KeepsRecommendationsWithoutLivePods(t *testing.T) {
