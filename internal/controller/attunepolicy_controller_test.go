@@ -8700,14 +8700,15 @@ func TestExecuteResizes_RevertsOnReFetchFailure(t *testing.T) {
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(allObjects...).Build()
 	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
 
-	// Inject failure on typed clientset Get for pods. ResizePod now does a
-	// pre-resize re-fetch (call 1), then persistResizeAnnotations does a
-	// post-resize re-fetch (call 2). Fail call 2 to test annotation-persist
-	// revert. Subsequent Gets (revert's pod lookup) pass through.
+	// Inject failure on typed clientset Get for pods. resizeContainer now
+	// live-gets before Infeasible (call 1), ResizePod does a pre-resize
+	// re-fetch (call 2), then persistResizeAnnotations does a post-resize
+	// re-fetch (call 3). Fail call 3 to test annotation-persist revert.
+	// Subsequent Gets (revert's pod lookup) pass through.
 	getCount := 0
 	clientset.PrependReactor("get", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
 		getCount++
-		if getCount == 2 {
+		if getCount == 3 {
 			return true, nil, fmt.Errorf("simulated re-fetch failure")
 		}
 		return false, nil, nil
