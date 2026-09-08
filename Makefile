@@ -222,6 +222,11 @@ test: manifests generate gotestsum ## Run unit tests
 		-covermode=atomic
 	@echo ""
 	@go tool cover -func=coverage.out | grep total:
+	@COVERAGE=$$(go tool cover -func=coverage.out | grep total: | awk '{print $$3}' | tr -d '%'); \
+	if (( $$(echo "$$COVERAGE < 80" | bc -l) )); then \
+		echo "ERROR: Coverage $${COVERAGE}% is below 80% threshold" >&2; \
+		exit 1; \
+	fi
 
 .PHONY: test-integration
 test-integration: manifests generate setup-envtest gotestsum ## Run integration tests
@@ -402,7 +407,7 @@ _deploy-stack:
 		--set alertmanager.enabled=false \
 		--set prometheus-pushgateway.enabled=false \
 		--set server.global.scrape_interval=15s \
-		--wait --timeout 3m 2>/dev/null || true
+		--wait --timeout 3m
 	@echo "Installing operator via Helm..."
 	helm install attune ./charts/attune \
 		--namespace attune-system --create-namespace \
