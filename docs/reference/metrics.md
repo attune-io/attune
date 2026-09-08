@@ -72,7 +72,7 @@ Total number of reconciliation errors by type.
 
 | Label | Description |
 |-------|-------------|
-| `error_type` | `fetch`, `fetch_defaults`, `prometheus_config`, `collector_options`, `collector_create`, `discover_workloads`, `list_policies`, `get_pods`, `compute_recommendations`, `status_update`, or `safety_observation` |
+| `error_type` | `fetch`, `fetch_defaults`, `metrics_source`, `discover_workloads`, `list_policies`, `get_pods`, `compute_recommendations`, `status_update`, or `safety_observation` |
 
 ### attune_webhook_validation_total
 
@@ -80,7 +80,7 @@ Total number of webhook admission decisions.
 
 | Label | Description |
 |-------|-------------|
-| `operation` | `validate_create`, `validate_update`, `defaulting`, `defaults_validate_create`, `defaults_validate_update`, `namespace_defaults_validate_create`, or `namespace_defaults_validate_update` |
+| `operation` | `validate_create`, `validate_update`, `defaulting`, `defaults_validate_create`, `defaults_validate_update`, `namespace_defaults_validate_create`, `namespace_defaults_validate_update`, or `pod-initial-sizing` |
 | `result` | `allowed` or `rejected` |
 
 ### attune_schedule_skipped_total
@@ -453,7 +453,7 @@ Duration of webhook validation and defaulting operations.
 
 | Label | Description |
 |-------|-------------|
-| `operation` | `validate_create`, `validate_update`, `defaulting`, `defaults_validate_create`, `defaults_validate_update`, `namespace_defaults_validate_create`, or `namespace_defaults_validate_update` |
+| `operation` | `validate_create`, `validate_update`, `defaulting`, `defaults_validate_create`, `defaults_validate_update`, `namespace_defaults_validate_create`, `namespace_defaults_validate_update`, or `pod-initial-sizing` |
 
 ## Controller-runtime Workqueue Metrics
 
