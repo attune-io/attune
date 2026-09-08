@@ -1020,7 +1020,11 @@ Validate compatibility with Kubernetes API conventions:
 Product tests do not run again on `push` to `main`. The branch ruleset
 requires an up-to-date PR, so a squash of a green PR is the same tree.
 `push` to `main` still runs cheap promote jobs (release-please, Docs
-deploy, Scorecard).
+deploy, Scorecard). Curated GitHub Release notes live on
+`release-note-<semver>` (or Actions vars), not on `main`. The Release
+job applies them and deletes the notes branch. Version-bump
+`release-please*` PRs skip Helm/Docs/YAML lint and CodeQL analyze
+(required `CodeQL (go)` / `CodeQL (actions)` still report a stand-in).
 
 ```
 Jobs:

@@ -125,6 +125,7 @@ jobs:
               - 'scripts/**'
               - 'hack/e2e-install-cert-manager.sh'
               - 'hack/k3d-delete.sh'
+              - 'hack/apply-release-notes.sh'
               - '.github/actions/setup-e2e-cluster/**'
               - '.github/workflows/e2e-nightly.yaml'
             workflows:
@@ -228,7 +229,9 @@ jobs:
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
     needs: changes
-    if: needs.changes.outputs.docs == 'true' || needs.changes.outputs.helm == 'true'
+    if: >-
+      (needs.changes.outputs.docs == 'true' || needs.changes.outputs.helm == 'true') &&
+      (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release-please'))
     steps:
       - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
         with:
@@ -296,7 +299,9 @@ jobs:
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 5
     needs: changes
-    if: needs.changes.outputs.yaml == 'true'
+    if: >-
+      needs.changes.outputs.yaml == 'true' &&
+      (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release-please'))
     steps:
       - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
         with:
@@ -748,7 +753,9 @@ jobs:
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
     needs: changes
-    if: needs.changes.outputs.helm == 'true' || needs.changes.outputs.go == 'true'
+    if: >-
+      (needs.changes.outputs.helm == 'true' || needs.changes.outputs.go == 'true') &&
+      (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release-please'))
     steps:
       - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
         with:

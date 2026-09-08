@@ -37,17 +37,31 @@ jobs:
       - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
         with:
           egress-policy: audit
+      - name: Release-please stand-in
+        if: >-
+          github.event_name == 'pull_request' &&
+          startsWith(github.head_ref, 'release-please')
+        run: echo 'version-bump PR; CodeQL already ran on the feature PR'
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: >-
+          github.event_name != 'pull_request' ||
+          !startsWith(github.head_ref, 'release-please')
         with:
           persist-credentials: false
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        if: matrix.language == 'go'
+        if: >-
+          matrix.language == 'go' &&
+          (github.event_name != 'pull_request' ||
+           !startsWith(github.head_ref, 'release-please'))
         with:
           go-version-file: go.mod
           cache: true
 
       - uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        if: >-
+          github.event_name != 'pull_request' ||
+          !startsWith(github.head_ref, 'release-please')
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
@@ -55,16 +69,25 @@ jobs:
           dependency-caching: true
 
       - name: Build (Go)
-        if: matrix.build-mode == 'manual'
+        if: >-
+          matrix.build-mode == 'manual' &&
+          (github.event_name != 'pull_request' ||
+           !startsWith(github.head_ref, 'release-please'))
         run: go build ./...
 
       - uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        if: >-
+          github.event_name != 'pull_request' ||
+          !startsWith(github.head_ref, 'release-please')
         with:
           upload: always
           category: "/language:${{ matrix.language }}"
 
   govulncheck:
     name: Govulncheck
+    if: >-
+      github.event_name != 'pull_request' ||
+      !startsWith(github.head_ref, 'release-please')
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
@@ -92,6 +115,9 @@ jobs:
 
   trivy:
     name: Trivy
+    if: >-
+      github.event_name != 'pull_request' ||
+      !startsWith(github.head_ref, 'release-please')
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 10
     steps:
@@ -116,6 +142,9 @@ jobs:
 
   trivy-image:
     name: Trivy Image Scan
+    if: >-
+      github.event_name != 'pull_request' ||
+      !startsWith(github.head_ref, 'release-please')
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
     steps:

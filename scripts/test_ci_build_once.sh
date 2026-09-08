@@ -66,6 +66,30 @@ if grep -nE 'go test|make test|cargo test|cargo nextest' "${RELEASE}"; then
 fi
 echo "OK: release.yaml has no test matrix"
 
+echo "DO: curated notes use apply-release-notes.sh, not a main-file cleanup PR"
+APPLY="${ROOT}/.github/workflows/apply-release-notes.yaml"
+[[ -f "${APPLY}" ]] || fail "missing ${APPLY}"
+apply_on="$(extract_on "${APPLY}")"
+grep -q '^  workflow_dispatch:' <<<"${apply_on}" || fail "apply-release-notes.yaml: missing workflow_dispatch"
+if grep -q '^  push:' <<<"${apply_on}"; then
+  fail "apply-release-notes.yaml: push trigger is not needed"
+fi
+if grep -nE 'go test|go build|make test|docker build' "${APPLY}"; then
+  fail "apply-release-notes.yaml must not compile"
+fi
+grep -q 'hack/apply-release-notes.sh' "${RELEASE}" || fail "release.yaml must call hack/apply-release-notes.sh"
+if grep -n 'cleanup-release-notes' "${RELEASE}"; then
+  fail "release.yaml still opens a notes cleanup PR"
+fi
+echo "OK: notes-branch apply, no cleanup PR"
+
+echo "DO: release-please heads skip product compile (Recipe G)"
+grep -q "startsWith(github.head_ref, 'release-please')" "${CI}" || \
+  fail "ci.yaml missing release-please skip"
+grep -q "Release-please stand-in" "${SECURITY}" || \
+  fail "security.yaml missing CodeQL stand-in for release-please heads"
+echo "OK: Recipe G stand-in and skips present"
+
 echo "DO: PR CI restores bench baselines; main bench-baseline.yaml writes them"
 if grep -n 'actions/cache/save' "${CI}"; then
   fail "ci.yaml must not cache/save (PR cache is not visible to other PRs)"

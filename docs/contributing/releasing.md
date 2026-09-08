@@ -45,8 +45,37 @@ gh workflow run "E2E Nightly" --repo attune-io/attune
 3. Do not ship until all four K8s matrix cells and Fuzz are green on that SHA.
 
 If the release-please PR is **BEHIND** main, update/rebase it (or let
-release-please refresh) so the release notes and version bump include the
-latest commits.
+release-please refresh) so the version bump includes the latest commits.
+
+### 1c. Curated GitHub Release notes (optional)
+
+Do **not** commit `RELEASE_NOTES.md` to `main`. That path used to
+need a notes PR plus a cleanup PR after every cut.
+
+Push a one-file orphan branch named for the version. The Release job
+(or `Apply release notes`) copies it onto the GitHub Release and
+deletes the branch. Skip this for a thin patch; the auto changelog
+is enough.
+
+```bash
+# tag v0.1.27 -> branch release-note-0.1.27
+git checkout --orphan release-note-0.1.27
+git rm -rf --cached .
+# write RELEASE_NOTES.md at the repo root, then:
+git add RELEASE_NOTES.md
+git commit -s -m "docs: notes for 0.1.27"
+git push -u origin release-note-0.1.27
+```
+
+Do not open a PR for that branch. Re-apply without rebuilding:
+
+```bash
+gh workflow run "Apply release notes" -f tag=v0.1.27
+```
+
+Or skip git: set Actions variables `RELEASE_NOTES` (markdown) and
+`RELEASE_NOTES_TAG` (`v0.1.27` or `0.1.27`). The tag pin stops leftover
+text applying to a later cut.
 
 ### 2. Tag the release
 
