@@ -9230,9 +9230,10 @@ func TestTryEvictionFallback_EvictsWhenMultipleReplicas(t *testing.T) {
 	evictionBefore := promtestutil.ToFloat64(operatormetrics.EvictionTotal.WithLabelValues("default", "api-server", "success"))
 	resizeBefore := promtestutil.ToFloat64(operatormetrics.ResizeTotal.WithLabelValues("default", "api-server", "eviction", "success"))
 
-	evicted := r.tryEvictionFallback(context.Background(), policy, pod1, deploy,
+	evicted, reason := r.tryEvictionFallback(context.Background(), policy, pod1, deploy,
 		"api-server", "app", resizer)
 	assert.True(t, evicted, "should evict when multiple replicas exist")
+	assert.Empty(t, reason, "successful eviction has no failure reason")
 
 	// Verify eviction was called.
 	var evictions int
@@ -9257,15 +9258,28 @@ func TestTryEvictionFallback_SkipsLastReplica(t *testing.T) {
 	scheme := testScheme()
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
 		WithObjects(policy, deploy, pod).Build()
+	recorder := events.NewFakeRecorder(10)
 	r := NewAttunePolicyReconciler()
 	r.Client = fakeClient
 	r.Scheme = scheme
 	r.Clientset = clientset
+	r.Recorder = recorder
 	resizer := resize.NewPodResizer(clientset, ctrl.Log)
 
-	evicted := r.tryEvictionFallback(context.Background(), policy, pod, deploy,
+	evicted, reason := r.tryEvictionFallback(context.Background(), policy, pod, deploy,
 		"api-server", "app", resizer)
 	assert.False(t, evicted, "should NOT evict the last replica")
+	assert.Equal(t, reasonEvictionLastReplica, reason)
+
+	select {
+	case event := <-recorder.Events:
+		assert.Contains(t, event, "EvictionBlocked")
+		assert.Contains(t, event, "1 live Running replica")
+		assert.Contains(t, event, "spec.replicas")
+		assert.Contains(t, event, "NotReady")
+	default:
+		t.Error("expected EvictionBlocked event but none was emitted")
+	}
 }
 
 func TestResizeContainer_InfeasiblePodEvictedDirectly(t *testing.T) {
@@ -9555,6 +9569,75 @@ func TestResizeContainer_InfeasiblePodSkippedWithInPlaceOnly(t *testing.T) {
 		}
 		if a.GetVerb() == "create" && a.GetSubresource() == "eviction" {
 			t.Error("should NOT have attempted eviction with InPlaceOnly")
+		}
+	}
+}
+
+func TestResizeContainer_InfeasibleLastReplicaRecordsReason(t *testing.T) {
+	pod := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
+	pod.Name = "api-server-abc-1"
+	pod.Status.Conditions = append(pod.Status.Conditions, corev1.PodCondition{
+		Type:   "PodResizePending",
+		Status: corev1.ConditionTrue,
+		Reason: "Infeasible",
+	})
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(deploy, pod).Build()
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+	recorder := events.NewFakeRecorder(10)
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
+	r.Recorder = recorder
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	policy.Spec.UpdateStrategy.ResizeMethod = attunev1alpha1.ResizeMethodInPlaceOrRecreate
+
+	resizer := resize.NewPodResizer(clientset, ctrl.Log)
+	containerRec := attunev1alpha1.ContainerRecommendation{
+		Name: "app",
+		Current: attunev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("200m"),
+			MemoryRequest: resource.MustParse("256Mi"),
+		},
+		Recommended: attunev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("500m"),
+			MemoryRequest: resource.MustParse("512Mi"),
+		},
+	}
+
+	entries, outcome := r.resizeContainer(context.Background(), resizeParams{
+		Policy:       policy,
+		Pod:          pod,
+		Workload:     deploy,
+		WorkloadName: "api-server",
+		ContainerRec: containerRec,
+		Resizer:      resizer,
+		Monitor:      nil,
+		Now:          metav1.Now(),
+	})
+	assert.Equal(t, resizeOutcomeNone, outcome, "last live Running replica must not be evicted")
+	require.Len(t, entries, 1, "should record a Failed history entry")
+	assert.Equal(t, attunev1alpha1.ResizeResultFailed, entries[0].Result)
+	assert.Equal(t, reasonEvictionLastReplica, entries[0].Reason)
+	assert.NotEqual(t, "infeasible", entries[0].Reason)
+
+	select {
+	case event := <-recorder.Events:
+		assert.Contains(t, event, "EvictionBlocked")
+		assert.Contains(t, event, "live Running")
+	default:
+		t.Error("expected EvictionBlocked event but none was emitted")
+	}
+
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "create" && a.GetSubresource() == "eviction" {
+			t.Error("should NOT have attempted eviction of the last live Running replica")
 		}
 	}
 }
@@ -10504,9 +10587,10 @@ func TestTryEvictionFallback_EvictionDeniedByPDB(t *testing.T) {
 	r.Clientset = clientset
 	resizer := resize.NewPodResizer(clientset, ctrl.Log)
 
-	evicted := r.tryEvictionFallback(context.Background(), policy, pod1, deploy,
+	evicted, reason := r.tryEvictionFallback(context.Background(), policy, pod1, deploy,
 		"api-server", "app", resizer)
 	assert.False(t, evicted, "should return false when eviction is denied by PDB")
+	assert.Equal(t, reasonEvictionDenied, reason)
 }
 
 func TestTryEvictionFallback_StaleCacheDoesNotEvictLastLiveReplica(t *testing.T) {
@@ -10527,9 +10611,10 @@ func TestTryEvictionFallback_StaleCacheDoesNotEvictLastLiveReplica(t *testing.T)
 	r.Clientset = clientset
 	resizer := resize.NewPodResizer(clientset, ctrl.Log)
 
-	evicted := r.tryEvictionFallback(context.Background(), policy, pod1, deploy,
+	evicted, reason := r.tryEvictionFallback(context.Background(), policy, pod1, deploy,
 		"api-server", "app", resizer)
 	assert.False(t, evicted, "must not evict when live Clientset has only one running replica")
+	assert.Equal(t, reasonEvictionLastReplica, reason)
 
 	for _, a := range clientset.Actions() {
 		if a.GetVerb() == "create" && a.GetResource().Resource == "pods" && a.GetSubresource() == "eviction" {
@@ -10551,15 +10636,25 @@ func TestTryEvictionFallback_ListErrorSkipsEviction(t *testing.T) {
 	scheme := testScheme()
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
 		WithObjects(policy, deploy, pod).Build()
+	recorder := events.NewFakeRecorder(10)
 	r := NewAttunePolicyReconciler()
 	r.Client = fakeClient
 	r.Scheme = scheme
 	r.Clientset = clientset
+	r.Recorder = recorder
 	resizer := resize.NewPodResizer(clientset, ctrl.Log)
 
-	evicted := r.tryEvictionFallback(context.Background(), policy, pod, deploy,
+	evicted, reason := r.tryEvictionFallback(context.Background(), policy, pod, deploy,
 		"api-server", "app", resizer)
 	assert.False(t, evicted, "should skip eviction when pod list fails")
+	assert.Equal(t, reasonEvictionListFailed, reason)
+	select {
+	case event := <-recorder.Events:
+		assert.Contains(t, event, "EvictionBlocked")
+		assert.Contains(t, event, "cannot list live Running pods")
+	default:
+		t.Error("expected EvictionBlocked event on list failure")
+	}
 
 	// Verify no eviction was attempted.
 	for _, a := range clientset.Actions() {
@@ -10590,21 +10685,61 @@ func TestTryEvictionFallback_NilSelectorSkipsEviction(t *testing.T) {
 	scheme := testScheme()
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
 		WithObjects(policy, deploy, pod).Build()
+	recorder := events.NewFakeRecorder(10)
 	r := NewAttunePolicyReconciler()
 	r.Client = fakeClient
 	r.Scheme = scheme
 	r.Clientset = clientset
+	r.Recorder = recorder
 	resizer := resize.NewPodResizer(clientset, ctrl.Log)
 
-	evicted := r.tryEvictionFallback(context.Background(), policy, pod, deploy,
+	evicted, reason := r.tryEvictionFallback(context.Background(), policy, pod, deploy,
 		"api-server", "main", resizer)
 	assert.False(t, evicted, "should skip eviction when workload has nil selector")
+	assert.Equal(t, reasonEvictionNoSelector, reason)
+	select {
+	case event := <-recorder.Events:
+		assert.Contains(t, event, "EvictionBlocked")
+		assert.Contains(t, event, "no pod selector")
+	default:
+		t.Error("expected EvictionBlocked event when selector is nil")
+	}
 
 	// Verify no eviction was attempted.
 	for _, a := range clientset.Actions() {
 		if a.GetVerb() == "create" && a.GetResource().Resource == "pods" && a.GetSubresource() == "eviction" {
 			t.Error("eviction should not be attempted when selector is nil")
 		}
+	}
+}
+
+func TestTryEvictionFallback_NilClientsetSkipsEviction(t *testing.T) {
+	pod := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.ResizeMethod = attunev1alpha1.ResizeMethodInPlaceOrRecreate
+
+	clientset := kubefake.NewSimpleClientset(pod)
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(policy, deploy, pod).Build()
+	recorder := events.NewFakeRecorder(10)
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Recorder = recorder
+	resizer := resize.NewPodResizer(clientset, ctrl.Log)
+
+	evicted, reason := r.tryEvictionFallback(context.Background(), policy, pod, deploy,
+		"api-server", "app", resizer)
+	assert.False(t, evicted, "should skip eviction when Clientset is nil")
+	assert.Equal(t, reasonEvictionListFailed, reason)
+	select {
+	case event := <-recorder.Events:
+		assert.Contains(t, event, "EvictionBlocked")
+		assert.Contains(t, event, "clientset unavailable")
+	default:
+		t.Error("expected EvictionBlocked event when Clientset is nil")
 	}
 }
 

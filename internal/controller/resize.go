@@ -558,14 +558,17 @@ func (r *AttunePolicyReconciler) resizeContainer(
 		if policy.Spec.UpdateStrategy.ResizeMethod == attunev1alpha1.ResizeMethodInPlaceOrRecreate {
 			logger.Info("Pod resize is Infeasible, attempting eviction fallback",
 				"pod", pod.Name, "container", containerRec.Name)
-			if evicted := r.tryEvictionFallback(ctx, policy, pod, workload, workloadName, containerRec.Name, resizer); evicted {
+			evicted, reason := r.tryEvictionFallback(ctx, policy, pod, workload, workloadName, containerRec.Name, resizer)
+			if evicted {
 				return evictionHistory(), resizeOutcomeEvicted
 			}
-			// Eviction denied or blocked: record failure with actionable reason.
+			if reason == "" {
+				reason = "infeasible"
+			}
 			return []attunev1alpha1.ResizeHistoryEntry{{
 				Timestamp: now, Workload: workloadName, Container: containerRec.Name,
 				Resource: "cpu+memory", Method: resize.MethodInPlace,
-				Result: attunev1alpha1.ResizeResultFailed, Reason: "infeasible",
+				Result: attunev1alpha1.ResizeResultFailed, Reason: reason,
 			}}, resizeOutcomeNone
 		}
 		logger.Info("Pod resize is Infeasible and resizeMethod is InPlaceOnly, skipping",
@@ -593,23 +596,35 @@ func (r *AttunePolicyReconciler) resizeContainer(
 	resizeStart := r.now()
 	results, err := resizer.ResizePod(ctx, pod, containerRec.Name, target)
 	if err != nil {
-		// Attempt eviction fallback if configured.
+		evictionFailReason := ""
 		if policy.Spec.UpdateStrategy.ResizeMethod == attunev1alpha1.ResizeMethodInPlaceOrRecreate {
-			if evicted := r.tryEvictionFallback(ctx, policy, pod, workload, workloadName, containerRec.Name, resizer); evicted {
+			evicted, reason := r.tryEvictionFallback(ctx, policy, pod, workload, workloadName, containerRec.Name, resizer)
+			if evicted {
 				return evictionHistory(), resizeOutcomeEvicted
 			}
+			evictionFailReason = reason
 		}
 
 		logger.Error(err, "Failed to resize pod",
-			"pod", pod.Name, "container", containerRec.Name)
+			"pod", pod.Name, "container", containerRec.Name, "evictionReason", evictionFailReason)
 		var entries []attunev1alpha1.ResizeHistoryEntry
 		for _, res := range results {
-			entries = append(entries, newHistoryEntry(now, workloadName, containerRec.Name, res, attunev1alpha1.ResizeResultFailed))
+			entry := newHistoryEntry(now, workloadName, containerRec.Name, res, attunev1alpha1.ResizeResultFailed)
+			if evictionFailReason != "" {
+				entry.Reason = evictionFailReason
+			}
+			entries = append(entries, entry)
 			operatormetrics.ResizeTotal.WithLabelValues(pod.Namespace, workloadName, res.Resource, "failed").Inc()
 		}
 		if r.Recorder != nil {
-			r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "ResizeFailed", "resize",
-				"Failed to resize pod %s container %s: %v", pod.Name, containerRec.Name, err)
+			if evictionFailReason != "" {
+				r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "ResizeFailed", "resize",
+					"Failed to resize pod %s container %s: %v (eviction fallback: %s)",
+					pod.Name, containerRec.Name, err, evictionFailReason)
+			} else {
+				r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "ResizeFailed", "resize",
+					"Failed to resize pod %s container %s: %v", pod.Name, containerRec.Name, err)
+			}
 		}
 		return entries, resizeOutcomeNone
 	}

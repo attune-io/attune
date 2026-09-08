@@ -210,9 +210,10 @@ stateDiagram-v2
   (`EvictV1`), which enforces PodDisruptionBudgets. If the PDB would be
   violated, the eviction is denied and the pod stays as-is.
 
-- **Last replica protection.** The operator never evicts the last running
-  replica of a workload, even if the PDB would allow it. This prevents
-  complete service outage during resize.
+- **Last replica protection.** The operator never evicts the last live
+  Running replica of a workload, even if the PDB would allow it. The
+  count comes from a live Clientset list (`status.phase=Running` and no
+  deletion timestamp). `spec.replicas` and NotReady pods do not count.
 
 - **Eviction fallback restarts the pod from the current template.** When a pod
   is evicted, the workload controller (Deployment, StatefulSet) creates a
@@ -234,7 +235,7 @@ stateDiagram-v2
   set to `RestartContainer`. If your pod uses `NotRequired` (the default) or
   has no resize policy, the operator will clamp the memory limit to the
   current value and only decrease the memory request. To allow memory limit
-  decreases without a restart, upgrade to Kubernetes 1.34+ where this
+  decreases without a restart, upgrade to Kubernetes 1.35+ where this
   restriction was relaxed.
 - **Memory request decreases**: The kernel only reclaims memory when the
   working set drops below the new limit. If the application holds onto

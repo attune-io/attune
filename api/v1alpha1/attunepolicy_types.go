@@ -1109,9 +1109,11 @@ type ResizeHistoryEntry struct {
 
 	// Reason explains why the resize was reverted or failed.
 	// Only populated when Result is Reverted or Failed.
-	// Values include: oomkill, restart, notready, throttle,
-	// annotation-conflict, immediate-safety-check, slo:<name>,
-	// infeasible (kubelet Infeasible / InPlaceOnly skip).
+	// This is a free-form string, not a CRD enum. Values include:
+	// oomkill, restart, notready, throttle, annotation-conflict,
+	// immediate-safety-check, slo:<name>, infeasible (kubelet
+	// Infeasible with InPlaceOnly), eviction_last_replica,
+	// eviction_denied, eviction_list_failed, eviction_no_selector.
 	// +optional
 	Reason string `json:"reason,omitempty"`
 }

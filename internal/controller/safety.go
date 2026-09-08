@@ -70,12 +70,21 @@ func (r *AttunePolicyReconciler) runImmediateSafetyCheck(
 	return "", nil
 }
 
+const (
+	reasonEvictionLastReplica = "eviction_last_replica"
+	reasonEvictionListFailed  = "eviction_list_failed"
+	reasonEvictionNoSelector  = "eviction_no_selector"
+	reasonEvictionDenied      = "eviction_denied"
+)
+
 // tryEvictionFallback attempts to evict a pod as a fallback when in-place
 // resize fails. It checks safety guards before evicting:
 //   - Never evict the last replica of a workload
 //   - The Eviction API itself enforces PodDisruptionBudgets
 //
-// Returns true if the eviction was submitted successfully.
+// Returns evicted=true when the eviction was submitted. When evicted is
+// false, reason is a free-form history token: eviction_last_replica,
+// eviction_list_failed, eviction_no_selector, or eviction_denied.
 func (r *AttunePolicyReconciler) tryEvictionFallback(
 	ctx context.Context,
 	policy *attunev1alpha1.AttunePolicy,
@@ -83,27 +92,36 @@ func (r *AttunePolicyReconciler) tryEvictionFallback(
 	workload client.Object,
 	workloadName, containerName string,
 	resizer *resize.PodResizer,
-) bool {
+) (evicted bool, reason string) {
 	logger := log.FromContext(ctx)
 
-	// Safety: never evict the last replica. Count running pods for this workload.
+	// Safety: never evict the last replica. Count live Running pods.
 	selectorLabels := r.getPodSelectorLabels(workload)
 	if len(selectorLabels) == 0 {
 		logger.Info("Skipping eviction fallback: workload has no pod selector labels",
 			"pod", pod.Name, "workload", workloadName)
-		return false
+		r.emitEventOnce(policy, corev1.EventTypeWarning, "EvictionBlocked", "resize",
+			"Eviction fallback blocked for pod %s in workload %s: workload has no pod selector",
+			pod.Name, workloadName)
+		return false, reasonEvictionNoSelector
 	}
 	if r.Clientset == nil {
 		logger.Info("Cannot list pods for eviction safety check, skipping eviction",
 			"reason", "clientset is nil")
-		return false
+		r.emitEventOnce(policy, corev1.EventTypeWarning, "EvictionBlocked", "resize",
+			"Eviction fallback blocked for pod %s in workload %s: cannot list live Running pods (clientset unavailable)",
+			pod.Name, workloadName)
+		return false, reasonEvictionListFailed
 	}
 	podList, err := r.Clientset.CoreV1().Pods(pod.Namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: labels.SelectorFromSet(selectorLabels).String(),
 	})
 	if err != nil {
 		logger.Error(err, "Cannot list pods for eviction safety check, skipping eviction")
-		return false
+		r.emitEventOnce(policy, corev1.EventTypeWarning, "EvictionBlocked", "resize",
+			"Eviction fallback blocked for pod %s in workload %s: cannot list live Running pods: %v",
+			pod.Name, workloadName, err)
+		return false, reasonEvictionListFailed
 	}
 	running := 0
 	for _, p := range podList.Items {
@@ -113,11 +131,11 @@ func (r *AttunePolicyReconciler) tryEvictionFallback(
 	}
 	if running <= 1 {
 		logger.Info("Skipping eviction fallback: would evict the last running replica",
-			"pod", pod.Name, "workload", workloadName)
+			"pod", pod.Name, "workload", workloadName, "liveRunning", running)
 		r.emitEventOnce(policy, corev1.EventTypeWarning, "EvictionBlocked", "resize",
-			"Eviction fallback blocked for pod %s in workload %s: would evict the only running replica",
-			pod.Name, workloadName)
-		return false
+			"Eviction fallback blocked for pod %s in workload %s: %d live Running replica(s); spec.replicas and NotReady pods do not count",
+			pod.Name, workloadName, running)
+		return false, reasonEvictionLastReplica
 	}
 
 	// The Eviction API respects PDBs. If the eviction is denied, the error
@@ -129,7 +147,7 @@ func (r *AttunePolicyReconciler) tryEvictionFallback(
 		r.emitEventOnce(policy, corev1.EventTypeWarning, "EvictionDenied", "resize",
 			"Eviction fallback denied for pod %s in workload %s: %v (check PodDisruptionBudgets)",
 			pod.Name, workloadName, err)
-		return false
+		return false, reasonEvictionDenied
 	}
 
 	operatormetrics.EvictionTotal.WithLabelValues(pod.Namespace, workloadName, "success").Inc()
@@ -140,7 +158,7 @@ func (r *AttunePolicyReconciler) tryEvictionFallback(
 	}
 	logger.Info("Eviction fallback successful",
 		"pod", pod.Name, "workload", workloadName, "container", containerName)
-	return true
+	return true, ""
 }
 
 // checkPendingSafetyObservations checks pods that were previously resized and

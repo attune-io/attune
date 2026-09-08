@@ -89,7 +89,7 @@ kubectl attune preview -n production api-services
 | WORKLOAD | Target workload name |
 | CONTAINER | Container name |
 | RESOURCE | `CPU` or `Memory` |
-| CURRENT | Current resource request |
+| CURRENT | Recommendation snapshot of the current request (workload template or last recorded current). This is not necessarily the live container after an in-place resize. |
 | RECOMMENDED | Recommended resource request |
 | CHANGE | Delta description |
 
@@ -220,7 +220,7 @@ kubectl attune history -n production
 | TO | New resource value |
 | METHOD | `InPlace` or `Eviction` |
 | RESULT | `Success`, `Failed`, `Reverted`, or `Evicted` |
-| REASON | Why a resize was reverted or failed (`oomkill`, `restart`, `notready`, `throttle`, `slo:<name>`). Shows `-` for successful resizes. |
+| REASON | Why a resize was reverted or failed (`oomkill`, `restart`, `notready`, `throttle`, `slo:<name>`, `infeasible`, `eviction_last_replica`, `eviction_denied`, `eviction_list_failed`, `eviction_no_selector`). Shows `-` for successful resizes. |
 
 ### wizard
 
