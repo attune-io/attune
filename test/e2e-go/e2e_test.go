@@ -57,6 +57,10 @@ import (
 const (
 	defaultStressNGImage = "ghcr.io/alexei-led/stress-ng:0.20.01"
 	cpuBurnImage         = "docker.io/library/busybox:1.37"
+	// Parallel Go E2E shares one k3d node. 60s is too short when
+	// many pause pods schedule at once (AutoMode flake: not Ready
+	// in 1m). Poll still returns as soon as ReadyReplicas match.
+	deployReadyTimeout = 2 * time.Minute
 )
 
 var (
@@ -222,42 +226,81 @@ func waitForDeploymentReady(t *testing.T, name, namespace string, timeout time.D
 	t.Helper()
 	start := time.Now()
 	lastDiag := time.Time{}
-	require.NoError(t, wait.PollUntilContextTimeout(ctx, 2*time.Second, timeout, true, func(ctx context.Context) (bool, error) {
-		var deploy appsv1.Deployment
-		if err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, &deploy); err != nil {
+	err := wait.PollUntilContextTimeout(ctx, 2*time.Second, timeout, true, func(ctx context.Context) (bool, error) {
+		deploy, getErr := clientset.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
+		if getErr != nil {
 			return false, nil
 		}
-		if deploy.Status.ReadyReplicas == *deploy.Spec.Replicas {
+		if deploy.Spec.Replicas != nil && deploy.Status.ReadyReplicas == *deploy.Spec.Replicas {
 			return true, nil
 		}
-		// Log diagnostics every 30s so failures are debuggable.
 		if elapsed := time.Since(start); elapsed > 30*time.Second && time.Since(lastDiag) > 30*time.Second {
 			lastDiag = time.Now()
-			var pods corev1.PodList
-			if err := k8sClient.List(ctx, &pods, client.InNamespace(namespace), client.MatchingLabels(deploy.Spec.Selector.MatchLabels)); err == nil {
-				if len(pods.Items) == 0 {
-					t.Logf("waitForDeploymentReady(%s/%s): no matching pods after %s", namespace, name, elapsed.Round(time.Second))
-				}
-				for _, pod := range pods.Items {
-					t.Logf("waitForDeploymentReady(%s/%s): pod=%s phase=%s ready=%d/%d restarts=%d",
-						namespace, name, pod.Name, pod.Status.Phase,
-						deploy.Status.ReadyReplicas, *deploy.Spec.Replicas,
-						podRestartCount(pod))
-					for _, cs := range pod.Status.ContainerStatuses {
-						switch {
-						case cs.State.Waiting != nil:
-							t.Logf("  container %s: Waiting reason=%s", cs.Name, cs.State.Waiting.Reason)
-						case cs.State.Terminated != nil:
-							t.Logf("  container %s: Terminated reason=%s exit=%d", cs.Name, cs.State.Terminated.Reason, cs.State.Terminated.ExitCode)
-						case cs.State.Running != nil:
-							t.Logf("  container %s: Running", cs.Name)
-						}
-					}
-				}
-			}
+			logDeploymentReadyState(t, name, namespace, elapsed)
 		}
 		return false, nil
-	}), "deployment %s/%s did not become ready within %s", namespace, name, timeout)
+	})
+	if err != nil {
+		logDeploymentReadyState(t, name, namespace, time.Since(start))
+	}
+	require.NoError(t, err, "deployment %s/%s did not become ready within %s", namespace, name, timeout)
+}
+
+func logDeploymentReadyState(t *testing.T, name, namespace string, elapsed time.Duration) {
+	t.Helper()
+	deploy, err := clientset.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		t.Logf("waitForDeploymentReady(%s/%s): get deploy after %s: %v", namespace, name, elapsed.Round(time.Second), err)
+		return
+	}
+	want := int32(0)
+	if deploy.Spec.Replicas != nil {
+		want = *deploy.Spec.Replicas
+	}
+	t.Logf("waitForDeploymentReady(%s/%s): ready=%d/%d available=%d after %s",
+		namespace, name, deploy.Status.ReadyReplicas, want, deploy.Status.AvailableReplicas, elapsed.Round(time.Second))
+
+	sel := metav1.FormatLabelSelector(deploy.Spec.Selector)
+	pods, err := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: sel})
+	if err != nil {
+		t.Logf("waitForDeploymentReady(%s/%s): list pods: %v", namespace, name, err)
+		return
+	}
+	if len(pods.Items) == 0 {
+		t.Logf("waitForDeploymentReady(%s/%s): no matching pods (selector=%s)", namespace, name, sel)
+	}
+	for _, pod := range pods.Items {
+		t.Logf("waitForDeploymentReady(%s/%s): pod=%s phase=%s restarts=%d",
+			namespace, name, pod.Name, pod.Status.Phase, podRestartCount(pod))
+		for _, cond := range pod.Status.Conditions {
+			if cond.Status != corev1.ConditionTrue {
+				t.Logf("  condition %s=%s reason=%s msg=%s", cond.Type, cond.Status, cond.Reason, cond.Message)
+			}
+		}
+		for _, cs := range pod.Status.ContainerStatuses {
+			switch {
+			case cs.State.Waiting != nil:
+				t.Logf("  container %s: Waiting reason=%s msg=%s", cs.Name, cs.State.Waiting.Reason, cs.State.Waiting.Message)
+			case cs.State.Terminated != nil:
+				t.Logf("  container %s: Terminated reason=%s exit=%d", cs.Name, cs.State.Terminated.Reason, cs.State.Terminated.ExitCode)
+			case cs.State.Running != nil:
+				t.Logf("  container %s: Running", cs.Name)
+			}
+		}
+		evs, evErr := clientset.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{
+			FieldSelector: fmt.Sprintf("involvedObject.name=%s,involvedObject.kind=Pod", pod.Name),
+		})
+		if evErr != nil {
+			t.Logf("  list pod events: %v", evErr)
+			continue
+		}
+		for i, ev := range evs.Items {
+			if i >= 5 {
+				break
+			}
+			t.Logf("  event %s/%s: %s", ev.Reason, ev.Type, ev.Message)
+		}
+	}
 }
 
 func podRestartCount(pod corev1.Pod) int32 {
@@ -556,7 +599,7 @@ func TestE2E_PolicyDiscovery(t *testing.T) {
 	ns := uniqueNS("discovery")
 	createNamespace(t, ns)
 	createDeployment(t, "test-app", ns, "250m", "256Mi", 1)
-	waitForDeploymentReady(t, "test-app", ns, 60*time.Second)
+	waitForDeploymentReady(t, "test-app", ns, deployReadyTimeout)
 
 	createPolicy(t, "test-policy", ns, "test-app", attunev1alpha1.UpdateTypeRecommend)
 	waitForPolicyDiscovered(t, "test-policy", ns, 90*time.Second)
@@ -571,7 +614,7 @@ func TestE2E_AutoMode_ResizesRunningPod(t *testing.T) {
 	ns := uniqueNS("auto")
 	createNamespace(t, ns)
 	createDeployment(t, "auto-app", ns, "500m", "256Mi", 1)
-	waitForDeploymentReady(t, "auto-app", ns, 60*time.Second)
+	waitForDeploymentReady(t, "auto-app", ns, deployReadyTimeout)
 
 	// Idle pause: pin MaxAllowed below start so a cost-multiplying increase
 	// cannot satisfy waitForResize / "something changed".
@@ -629,7 +672,7 @@ func TestE2E_OneShotMode_ResizesOnePod(t *testing.T) {
 	ns := uniqueNS("oneshot")
 	createNamespace(t, ns)
 	createDeployment(t, "oneshot-app", ns, "250m", "256Mi", 2)
-	waitForDeploymentReady(t, "oneshot-app", ns, 60*time.Second)
+	waitForDeploymentReady(t, "oneshot-app", ns, deployReadyTimeout)
 
 	createPolicy(t, "oneshot-policy", ns, "oneshot-app", attunev1alpha1.UpdateTypeOneShot)
 
@@ -650,7 +693,7 @@ func TestE2E_AutoMode_RecordsResizeHistory(t *testing.T) {
 	// History bookkeeping only (not a safety-revert test). Live restore after
 	// OOM/SLO is covered by TestE2E_OOMKill_TriggersRevert and slo-guardrails.
 	createDeployment(t, "history-app", ns, "500m", "256Mi", 1)
-	waitForDeploymentReady(t, "history-app", ns, 60*time.Second)
+	waitForDeploymentReady(t, "history-app", ns, deployReadyTimeout)
 
 	deployName := "history-app"
 	policy := &attunev1alpha1.AttunePolicy{
@@ -748,7 +791,7 @@ func TestE2E_MultiContainer_ExcludesSidecar(t *testing.T) {
 		},
 	}
 	require.NoError(t, k8sClient.Create(ctx, deploy))
-	waitForDeploymentReady(t, "multi-app", ns, 60*time.Second)
+	waitForDeploymentReady(t, "multi-app", ns, deployReadyTimeout)
 
 	// Create policy with excludedContainers set directly to avoid update conflicts
 	// with the reconciler which starts processing immediately after creation.
@@ -947,7 +990,7 @@ func TestE2E_BudgetCaps_DefersResize(t *testing.T) {
 	// is checked per container, not per resource). Multi-pod increase
 	// gating is covered by TestE2E_BudgetCaps_LimitsPerCycleIncrease.
 	createDeployment(t, "budget-app", ns, "500m", "256Mi", 1)
-	waitForDeploymentReady(t, "budget-app", ns, 60*time.Second)
+	waitForDeploymentReady(t, "budget-app", ns, deployReadyTimeout)
 
 	tightBudget := resource.MustParse("150m")
 	cpuPin := resource.MustParse("500m")
@@ -1183,7 +1226,7 @@ func TestE2E_GuaranteedQoS_CPUResizeWithMemoryHeld(t *testing.T) {
 		},
 	}
 	require.NoError(t, k8sClient.Create(ctx, deploy))
-	waitForDeploymentReady(t, app, ns, 60*time.Second)
+	waitForDeploymentReady(t, app, ns, deployReadyTimeout)
 
 	controlled := attunev1alpha1.ControlledRequestsAndLimits
 	deployName := app
@@ -1247,7 +1290,7 @@ func TestE2E_ScheduleWindow_SkipsOutsideWindow(t *testing.T) {
 	ns := uniqueNS("sched")
 	createNamespace(t, ns)
 	createDeployment(t, "sched-app", ns, "250m", "256Mi", 1)
-	waitForDeploymentReady(t, "sched-app", ns, 60*time.Second)
+	waitForDeploymentReady(t, "sched-app", ns, deployReadyTimeout)
 
 	// Build a daysOfWeek list that excludes today.
 	allDays := []string{"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"}
@@ -1328,7 +1371,7 @@ func TestE2E_BearerToken_Authenticates(t *testing.T) {
 	require.NoError(t, k8sClient.Create(ctx, secret))
 
 	createDeployment(t, "bearer-app", ns, "250m", "256Mi", 1)
-	waitForDeploymentReady(t, "bearer-app", ns, 60*time.Second)
+	waitForDeploymentReady(t, "bearer-app", ns, deployReadyTimeout)
 
 	deployName := "bearer-app"
 	policy := &attunev1alpha1.AttunePolicy{
@@ -1584,7 +1627,7 @@ func TestE2E_RecommendMode_KeepsRecommendationsWithoutLivePods(t *testing.T) {
 
 	// Create a deployment so Prometheus collects metrics.
 	createDeployment(t, "nopods-app", ns, "250m", "256Mi", 1)
-	waitForDeploymentReady(t, "nopods-app", ns, 60*time.Second)
+	waitForDeploymentReady(t, "nopods-app", ns, deployReadyTimeout)
 
 	createPolicy(t, "nopods-policy", ns, "nopods-app", attunev1alpha1.UpdateTypeRecommend)
 	waitForPolicyDiscovered(t, "nopods-policy", ns, 2*time.Minute)
@@ -1685,7 +1728,7 @@ func TestE2E_BearerToken_SecretRotation(t *testing.T) {
 	require.NoError(t, k8sClient.Create(ctx, secret))
 
 	createDeployment(t, "rotate-app", ns, "250m", "256Mi", 1)
-	waitForDeploymentReady(t, "rotate-app", ns, 60*time.Second)
+	waitForDeploymentReady(t, "rotate-app", ns, deployReadyTimeout)
 
 	deployName := "rotate-app"
 	policy := &attunev1alpha1.AttunePolicy{
@@ -2099,7 +2142,7 @@ func TestE2E_GuaranteedQoS_RequestsAndLimits(t *testing.T) {
 		},
 	}
 	require.NoError(t, k8sClient.Create(ctx, deploy))
-	waitForDeploymentReady(t, "qos-app", ns, 60*time.Second)
+	waitForDeploymentReady(t, "qos-app", ns, deployReadyTimeout)
 
 	controlledBoth := attunev1alpha1.ControlledRequestsAndLimits
 	deployName := "qos-app"
@@ -2188,9 +2231,9 @@ func TestE2E_LabelSelector_MultipleWorkloads(t *testing.T) {
 	}
 	// One non-matching deployment.
 	createDeployment(t, "unrelated-svc", ns, "100m", "128Mi", 1)
-	waitForDeploymentReady(t, "api-svc", ns, 60*time.Second)
-	waitForDeploymentReady(t, "worker-svc", ns, 60*time.Second)
-	waitForDeploymentReady(t, "unrelated-svc", ns, 60*time.Second)
+	waitForDeploymentReady(t, "api-svc", ns, deployReadyTimeout)
+	waitForDeploymentReady(t, "worker-svc", ns, deployReadyTimeout)
+	waitForDeploymentReady(t, "unrelated-svc", ns, deployReadyTimeout)
 
 	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "selector-policy", Namespace: ns},
@@ -2228,7 +2271,7 @@ func TestE2E_PolicyDeletion_CleansUpAnnotations(t *testing.T) {
 	ns := uniqueNS("cleanup")
 	createNamespace(t, ns)
 	createDeployment(t, "cleanup-app", ns, "250m", "256Mi", 1)
-	waitForDeploymentReady(t, "cleanup-app", ns, 60*time.Second)
+	waitForDeploymentReady(t, "cleanup-app", ns, deployReadyTimeout)
 
 	policy := createPolicy(t, "cleanup-policy", ns, "cleanup-app", attunev1alpha1.UpdateTypeAuto)
 
@@ -2268,7 +2311,7 @@ func TestE2E_ScaleUp_NewReplicasGetResized(t *testing.T) {
 	ns := uniqueNS("scaleup")
 	createNamespace(t, ns)
 	createDeployment(t, "scaleup-app", ns, "250m", "256Mi", 1)
-	waitForDeploymentReady(t, "scaleup-app", ns, 60*time.Second)
+	waitForDeploymentReady(t, "scaleup-app", ns, deployReadyTimeout)
 
 	createPolicy(t, "scaleup-policy", ns, "scaleup-app", attunev1alpha1.UpdateTypeAuto)
 	waitForResize(t, "scaleup-policy", ns, 5*time.Minute)
@@ -2336,8 +2379,8 @@ func TestE2E_ConcurrentPolicies_SameNamespace(t *testing.T) {
 	createNamespace(t, ns)
 	createDeployment(t, "api-app", ns, "250m", "256Mi", 1)
 	createDeployment(t, "worker-app", ns, "250m", "256Mi", 1)
-	waitForDeploymentReady(t, "api-app", ns, 60*time.Second)
-	waitForDeploymentReady(t, "worker-app", ns, 60*time.Second)
+	waitForDeploymentReady(t, "api-app", ns, deployReadyTimeout)
+	waitForDeploymentReady(t, "worker-app", ns, deployReadyTimeout)
 
 	createPolicy(t, "api-policy", ns, "api-app", attunev1alpha1.UpdateTypeRecommend)
 	createPolicy(t, "worker-policy", ns, "worker-app", attunev1alpha1.UpdateTypeRecommend)
@@ -2379,7 +2422,7 @@ func TestE2E_MemoryAllowDecreaseFalse(t *testing.T) {
 	// data (rateWindow 5m). Memory allowDecrease defaults false: when CPU
 	// PromQL is empty, both resources stay put and waitForResize hangs (#492).
 	createDeployment(t, "nodecrease-app", ns, "500m", "256Mi", 1)
-	waitForDeploymentReady(t, "nodecrease-app", ns, 60*time.Second)
+	waitForDeploymentReady(t, "nodecrease-app", ns, deployReadyTimeout)
 
 	deployName := "nodecrease-app"
 	policy := &attunev1alpha1.AttunePolicy{
@@ -2492,7 +2535,7 @@ func TestE2E_MultiContainer_SequentialResize(t *testing.T) {
 		},
 	}
 	require.NoError(t, k8sClient.Create(ctx, deploy))
-	waitForDeploymentReady(t, "multi-resize-app", ns, 60*time.Second)
+	waitForDeploymentReady(t, "multi-resize-app", ns, deployReadyTimeout)
 
 	deployName := "multi-resize-app"
 	policy := &attunev1alpha1.AttunePolicy{
@@ -3435,7 +3478,7 @@ func TestE2E_Paused_StopsAfterResize(t *testing.T) {
 	ns := uniqueNS("paused")
 	createNamespace(t, ns)
 	createDeployment(t, "paused-app", ns, "500m", "256Mi", 1)
-	waitForDeploymentReady(t, "paused-app", ns, 60*time.Second)
+	waitForDeploymentReady(t, "paused-app", ns, deployReadyTimeout)
 
 	deployName := "paused-app"
 	policy := &attunev1alpha1.AttunePolicy{
@@ -3638,7 +3681,7 @@ func TestE2E_ExcludeKnownSidecars_OmitsIstioProxy(t *testing.T) {
 		},
 	}
 	require.NoError(t, k8sClient.Create(ctx, deploy))
-	waitForDeploymentReady(t, "knownsc-app", ns, 60*time.Second)
+	waitForDeploymentReady(t, "knownsc-app", ns, deployReadyTimeout)
 
 	name := "knownsc-app"
 	policy := &attunev1alpha1.AttunePolicy{
@@ -3687,7 +3730,7 @@ func TestE2E_MemoryFromCPURatio_DerivesMemory(t *testing.T) {
 	ns := uniqueNS("memratio")
 	createNamespace(t, ns)
 	createDeployment(t, "memratio-app", ns, "500m", "1Gi", 1)
-	waitForDeploymentReady(t, "memratio-app", ns, 60*time.Second)
+	waitForDeploymentReady(t, "memratio-app", ns, deployReadyTimeout)
 
 	ratio := "2.0"
 	name := "memratio-app"
@@ -3754,7 +3797,7 @@ func TestE2E_PodAggregationAndBurstSensitivity_InExplanation(t *testing.T) {
 	ns := uniqueNS("aggburst")
 	createNamespace(t, ns)
 	createDeployment(t, "aggburst-app", ns, "250m", "256Mi", 1)
-	waitForDeploymentReady(t, "aggburst-app", ns, 60*time.Second)
+	waitForDeploymentReady(t, "aggburst-app", ns, deployReadyTimeout)
 
 	burstOff := "0.5"
 	name := "aggburst-app"
@@ -3825,7 +3868,7 @@ func TestE2E_DatadogSource_DoesNotUseClusterPrometheus(t *testing.T) {
 	ns := uniqueNS("ddsrc")
 	createNamespace(t, ns)
 	createDeployment(t, "ddsrc-app", ns, "250m", "256Mi", 1)
-	waitForDeploymentReady(t, "ddsrc-app", ns, 60*time.Second)
+	waitForDeploymentReady(t, "ddsrc-app", ns, deployReadyTimeout)
 
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "dd-api", Namespace: ns},
@@ -3855,7 +3898,7 @@ func TestE2E_CloudWatchSource_DoesNotUseClusterPrometheus(t *testing.T) {
 	ns := uniqueNS("cwsrc")
 	createNamespace(t, ns)
 	createDeployment(t, "cwsrc-app", ns, "250m", "256Mi", 1)
-	waitForDeploymentReady(t, "cwsrc-app", ns, 60*time.Second)
+	waitForDeploymentReady(t, "cwsrc-app", ns, deployReadyTimeout)
 
 	name := "cwsrc-app"
 	require.NoError(t, k8sClient.Create(ctx, exclusiveProviderPolicy(ns, "cwsrc-policy", name, attunev1alpha1.MetricsSource{
