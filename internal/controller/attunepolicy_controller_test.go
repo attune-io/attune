@@ -4722,6 +4722,127 @@ func TestCheckPendingSafetyObservations_EarlyCriticalHealthySkipped(t *testing.T
 	}
 }
 
+func TestCheckPendingSafetyObservations_EarlyNotReadyDoesNotRevert(t *testing.T) {
+	// Ready=False during the observation window is not a critical status.
+	// Early path uses CheckCriticalStatuses only; full CheckPodObject would revert.
+	resizedAt := time.Now().UTC().Format(time.RFC3339)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "notready-pod",
+			Namespace: "default",
+			Labels:    map[string]string{"attune.io/tracked": "true"},
+			Annotations: map[string]string{
+				"attune.io/resized-at":                   resizedAt,
+				"attune.io/resized-workload":             "api-server",
+				"attune.io/resized-containers":           "main",
+				"attune.io/original-cpu-request.main":    "500m",
+				"attune.io/original-memory-request.main": "512Mi",
+				"attune.io/policy":                       "test-policy",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  "main",
+					Image: "nginx",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("250m"),
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "main", Ready: false, RestartCount: 0},
+			},
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionFalse},
+			},
+		},
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.AutoRevert = boolPtr(true)
+
+	reconciler, _ := newSafetyTestReconciler(pod)
+
+	pending := reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
+	assert.True(t, pending, "should report pending (observation period not elapsed)")
+
+	for _, a := range reconciler.Clientset.(*kubefake.Clientset).Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			t.Fatal("Ready=False during observation period should NOT trigger a revert")
+		}
+	}
+}
+
+func TestCheckPendingSafetyObservations_EarlyCriticalConfirmGet500DoesNotRevert(t *testing.T) {
+	resizedAt := time.Now().UTC().Add(-10 * time.Second).Format(time.RFC3339)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "oom-confirm-500",
+			Namespace: "default",
+			Labels:    map[string]string{"attune.io/tracked": "true"},
+			Annotations: map[string]string{
+				"attune.io/resized-at":                   resizedAt,
+				"attune.io/resized-workload":             "api-server",
+				"attune.io/resized-containers":           "main",
+				"attune.io/original-cpu-request.main":    "500m",
+				"attune.io/original-memory-request.main": "512Mi",
+				"attune.io/policy":                       "test-policy",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("250m"),
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{
+					Name: "main",
+					LastTerminationState: corev1.ContainerState{
+						Terminated: &corev1.ContainerStateTerminated{
+							Reason:     "OOMKilled",
+							FinishedAt: metav1.NewTime(time.Now()),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.AutoRevert = boolPtr(true)
+
+	reconciler, _ := newSafetyTestReconciler(pod)
+	cs := reconciler.Clientset.(*kubefake.Clientset)
+	cs.PrependReactor("get", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, apierrors.NewInternalError(fmt.Errorf("injected confirm Get 500"))
+	})
+
+	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
+
+	for _, a := range cs.Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			t.Fatal("early OOM confirm Get 500 must not revert")
+		}
+	}
+}
+
 // ---------- isCooldownActive parse error ----------
 
 func TestIsCooldownActive_MalformedDate(t *testing.T) {
@@ -6656,6 +6777,127 @@ func TestCheckPendingSafetyObservations_NotReadyFlapConfirmedBeforeRevert(t *tes
 	for _, a := range clientset.Actions() {
 		assert.False(t, a.GetVerb() == "update" && a.GetSubresource() == "resize",
 			"flapping notready must not revert after live confirm")
+	}
+}
+
+func TestCheckPendingSafetyObservations_ConfirmGet500DoesNotRevert(t *testing.T) {
+	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "confirm-500-pod",
+			Namespace: "default",
+			Labels:    map[string]string{"app": "test", "attune.io/tracked": "true"},
+			Annotations: map[string]string{
+				"attune.io/resized-at":                   resizedAt,
+				"attune.io/resized-workload":             "api-server",
+				"attune.io/resized-containers":           "main",
+				"attune.io/original-cpu-request.main":    "500m",
+				"attune.io/original-memory-request.main": "512Mi",
+				"attune.io/policy":                       "test-policy",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("250m"),
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionFalse},
+			},
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "main", RestartCount: 0},
+			},
+		},
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	reconciler, _ := newSafetyTestReconciler(pod)
+	cs := reconciler.Clientset.(*kubefake.Clientset)
+	cs.PrependReactor("get", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, apierrors.NewInternalError(fmt.Errorf("injected confirm Get 500"))
+	})
+
+	before := promtestutil.ToFloat64(operatormetrics.ReconcileErrorsTotal.WithLabelValues("safety_observation"))
+	pending := reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
+	after := promtestutil.ToFloat64(operatormetrics.ReconcileErrorsTotal.WithLabelValues("safety_observation"))
+
+	assert.True(t, pending, "confirm Get 500 should keep observation pending")
+	assert.Equal(t, before+1, after, "safety_observation should increment on confirm Get error")
+
+	for _, a := range cs.Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			t.Fatal("confirm Get 500 must not revert")
+		}
+	}
+}
+
+func TestCheckPendingSafetyObservations_ConfirmGetNotFoundDoesNotRevert(t *testing.T) {
+	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "confirm-404-pod",
+			Namespace: "default",
+			Labels:    map[string]string{"app": "test", "attune.io/tracked": "true"},
+			Annotations: map[string]string{
+				"attune.io/resized-at":                   resizedAt,
+				"attune.io/resized-workload":             "api-server",
+				"attune.io/resized-containers":           "main",
+				"attune.io/original-cpu-request.main":    "500m",
+				"attune.io/original-memory-request.main": "512Mi",
+				"attune.io/policy":                       "test-policy",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("250m"),
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionFalse},
+			},
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "main", RestartCount: 0},
+			},
+		},
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	reconciler, _ := newSafetyTestReconciler(pod)
+	cs := reconciler.Clientset.(*kubefake.Clientset)
+	cs.PrependReactor("get", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		ga, ok := action.(k8stesting.GetAction)
+		if !ok {
+			return false, nil, nil
+		}
+		return true, nil, apierrors.NewNotFound(corev1.Resource("pods"), ga.GetName())
+	})
+
+	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
+
+	for _, a := range cs.Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			t.Fatal("confirm Get 404 must not revert")
+		}
 	}
 }
 
@@ -9163,6 +9405,81 @@ func TestResizeContainer_InfeasibleLiveRecheckAfterStaleCache(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 1, evictions)
+}
+
+func TestResizeContainer_StaleInfeasibleClearedOnLiveGet(t *testing.T) {
+	// Listed/informer pod is still Infeasible; live Get has cleared it.
+	// Inverse of InfeasibleLiveRecheckAfterStaleCache: stay in-place.
+	listed := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
+	listed.Name = "api-server-abc-1"
+	listed.Status.Conditions = append(listed.Status.Conditions, corev1.PodCondition{
+		Type:   "PodResizePending",
+		Status: corev1.ConditionTrue,
+		Reason: "Infeasible",
+	})
+	live := listed.DeepCopy()
+	live.Status.Conditions = nil
+	peer := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
+	peer.Name = "api-server-abc-2"
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(deploy, listed, peer).Build()
+	clientset := kubefake.NewSimpleClientset(live, peer.DeepCopy())
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	policy.Spec.UpdateStrategy.ResizeMethod = attunev1alpha1.ResizeMethodInPlaceOrRecreate
+
+	resizer := resize.NewPodResizer(clientset, ctrl.Log)
+	containerRec := attunev1alpha1.ContainerRecommendation{
+		Name: "main",
+		Current: attunev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("200m"),
+			MemoryRequest: resource.MustParse("256Mi"),
+		},
+		Recommended: attunev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("100m"),
+			MemoryRequest: resource.MustParse("128Mi"),
+		},
+	}
+	target, _ := buildResizeTarget(containerRec)
+
+	entries, outcome := r.resizeContainer(context.Background(), resizeParams{
+		Policy:       policy,
+		Pod:          listed,
+		Workload:     deploy,
+		WorkloadName: "api-server",
+		ContainerRec: containerRec,
+		Target:       target,
+		Resizer:      resizer,
+		Monitor:      nil,
+		Now:          metav1.Now(),
+	})
+	assert.Equal(t, resizeOutcomeInPlace, outcome, "cleared live Infeasible must stay in-place")
+	require.NotEmpty(t, entries)
+	assert.NotEqual(t, resizeOutcomeEvicted, outcome)
+	for _, e := range entries {
+		assert.NotEqual(t, "Eviction", e.Method)
+		assert.NotEqual(t, attunev1alpha1.ResizeResultEvicted, e.Result)
+	}
+
+	var evictions, resizes int
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "create" && a.GetResource().Resource == "pods" && a.GetSubresource() == "eviction" {
+			evictions++
+		}
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			resizes++
+		}
+	}
+	assert.Equal(t, 0, evictions, "cleared live Infeasible must not evict")
+	assert.Greater(t, resizes, 0, "cleared live Infeasible must attempt in-place resize")
 }
 
 func TestResizeContainer_InfeasiblePodSkippedWithInPlaceOnly(t *testing.T) {
