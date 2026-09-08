@@ -4,7 +4,7 @@
 
 # Attune
 
-[![CI](https://github.com/attune-io/attune/actions/workflows/ci.yaml/badge.svg)](https://github.com/attune-io/attune/actions/workflows/ci.yaml)
+[![CI](https://github.com/attune-io/attune/actions/workflows/ci.yaml/badge.svg?event=push)](https://github.com/attune-io/attune/actions/workflows/ci.yaml)
 [![Security](https://github.com/attune-io/attune/actions/workflows/security.yaml/badge.svg)](https://github.com/attune-io/attune/actions/workflows/security.yaml)
 [![Coverage](https://img.shields.io/badge/coverage-90%25%2B-brightgreen)](https://github.com/attune-io/attune/blob/main/docs/contributing/testing.md)
 [![Release](https://img.shields.io/github/v/release/attune-io/attune?logo=github&color=green)](https://github.com/attune-io/attune/releases/latest)
