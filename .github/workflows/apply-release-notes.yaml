@@ -1,0 +1,43 @@
+# Cheap apply of curated notes onto a GitHub Release.
+# Reads branch release-note-<semver> or vars RELEASE_NOTES +
+# RELEASE_NOTES_TAG. Deletes the notes branch after a successful
+# apply. Does not compile and does not start GoReleaser.
+name: Apply release notes
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v0.1.27)"
+        required: true
+        type: string
+
+concurrency:
+  group: apply-release-notes-${{ inputs.tag }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  apply:
+    name: Apply notes
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ inputs.tag }}
+      RELEASE_NOTES: ${{ vars.RELEASE_NOTES }}
+      RELEASE_NOTES_TAG: ${{ vars.RELEASE_NOTES_TAG }}
+    steps:
+      - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Apply curated notes
+        run: bash hack/apply-release-notes.sh
