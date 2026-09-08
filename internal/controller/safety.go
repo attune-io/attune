@@ -28,6 +28,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -92,11 +93,15 @@ func (r *AttunePolicyReconciler) tryEvictionFallback(
 			"pod", pod.Name, "workload", workloadName)
 		return false
 	}
-	var podList corev1.PodList
-	if err := r.List(ctx, &podList,
-		client.InNamespace(pod.Namespace),
-		client.MatchingLabels(selectorLabels),
-	); err != nil {
+	if r.Clientset == nil {
+		logger.Info("Cannot list pods for eviction safety check, skipping eviction",
+			"reason", "clientset is nil")
+		return false
+	}
+	podList, err := r.Clientset.CoreV1().Pods(pod.Namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: labels.SelectorFromSet(selectorLabels).String(),
+	})
+	if err != nil {
 		logger.Error(err, "Cannot list pods for eviction safety check, skipping eviction")
 		return false
 	}

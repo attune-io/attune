@@ -10509,6 +10509,35 @@ func TestTryEvictionFallback_EvictionDeniedByPDB(t *testing.T) {
 	assert.False(t, evicted, "should return false when eviction is denied by PDB")
 }
 
+func TestTryEvictionFallback_StaleCacheDoesNotEvictLastLiveReplica(t *testing.T) {
+	pod1 := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
+	pod2 := newTestPod("api-server-abc-2", "default", map[string]string{"app": "api-server"})
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.ResizeMethod = attunev1alpha1.ResizeMethodInPlaceOrRecreate
+
+	// Informer cache still has two Running pods; the live API has only one.
+	clientset := kubefake.NewSimpleClientset(pod1)
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(policy, deploy, pod1, pod2).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
+	resizer := resize.NewPodResizer(clientset, ctrl.Log)
+
+	evicted := r.tryEvictionFallback(context.Background(), policy, pod1, deploy,
+		"api-server", "app", resizer)
+	assert.False(t, evicted, "must not evict when live Clientset has only one running replica")
+
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "create" && a.GetResource().Resource == "pods" && a.GetSubresource() == "eviction" {
+			t.Error("eviction should not be attempted when live replica count is 1")
+		}
+	}
+}
+
 func TestTryEvictionFallback_ListErrorSkipsEviction(t *testing.T) {
 	pod := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
@@ -10516,15 +10545,12 @@ func TestTryEvictionFallback_ListErrorSkipsEviction(t *testing.T) {
 	policy.Spec.UpdateStrategy.ResizeMethod = attunev1alpha1.ResizeMethodInPlaceOrRecreate
 
 	clientset := kubefake.NewSimpleClientset(pod)
+	clientset.PrependReactor("list", "pods", func(_ k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, fmt.Errorf("connection refused")
+	})
 	scheme := testScheme()
-	// Use an interceptor to make List fail, simulating API server unreachable.
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
-		WithObjects(policy, deploy, pod).
-		WithInterceptorFuncs(interceptor.Funcs{
-			List: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) error {
-				return fmt.Errorf("connection refused")
-			},
-		}).Build()
+		WithObjects(policy, deploy, pod).Build()
 	r := NewAttunePolicyReconciler()
 	r.Client = fakeClient
 	r.Scheme = scheme
@@ -13425,6 +13451,48 @@ func TestShouldSkipResize_AlreadyAtTarget(t *testing.T) {
 	skip, reason := r.shouldSkipResize(context.Background(), policy, pod, containerRec, target, nil)
 	assert.True(t, skip, "should skip when pod already matches target")
 	assert.Empty(t, reason, "reason should be empty for already-at-target skip")
+}
+
+func TestShouldSkipResize_RequestMatchLimitDriftDoesNotSkip(t *testing.T) {
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+
+	policy := &attunev1alpha1.AttunePolicy{}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pod", Namespace: "default"},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{Name: "app", Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("500m"),
+						corev1.ResourceMemory: resource.MustParse("256Mi"),
+					},
+				}},
+			},
+		},
+	}
+	containerRec := attunev1alpha1.ContainerRecommendation{
+		Name: "app",
+		Current: attunev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("500m"),
+			MemoryRequest: resource.MustParse("256Mi"),
+		},
+	}
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("500m"),
+			corev1.ResourceMemory: resource.MustParse("256Mi"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceMemory: resource.MustParse("512Mi"),
+		},
+	}
+
+	skip, _ := r.shouldSkipResize(context.Background(), policy, pod, containerRec, target, nil)
+	assert.False(t, skip, "must not skip when requests match but target sets a missing live limit")
 }
 
 func TestShouldSkipResize_PreChecksLimitRange(t *testing.T) {

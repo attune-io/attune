@@ -1314,6 +1314,20 @@ func (r *AttunePolicyReconciler) buildResizePreChecks(ctx context.Context, polic
 	return checks
 }
 
+// targetLimitsMatchLive reports whether every resource in targetLimits is
+// present on the live container at the same quantity. An empty target
+// limits map always matches (request-only already-at-target). A missing
+// live limit is not a match.
+func targetLimitsMatchLive(live, target corev1.ResourceList) bool {
+	for res, targetQty := range target {
+		liveQty, ok := live[res]
+		if !ok || liveQty.Cmp(targetQty) != 0 {
+			return false
+		}
+	}
+	return true
+}
+
 // shouldSkipResize runs pre-checks and returns whether to skip the resize
 // and an optional reason string. An empty reason with skip=true means the
 // pod already matches the recommendation (no log needed).
@@ -1329,7 +1343,8 @@ func (r *AttunePolicyReconciler) shouldSkipResize(
 	// so requests clamped to limits are correctly detected as no-ops).
 	if c := findContainerByName(pod, containerRec.Name); c != nil {
 		if c.Resources.Requests.Cpu().MilliValue() == target.Requests.Cpu().MilliValue() &&
-			c.Resources.Requests.Memory().Value() == target.Requests.Memory().Value() {
+			c.Resources.Requests.Memory().Value() == target.Requests.Memory().Value() &&
+			targetLimitsMatchLive(c.Resources.Limits, target.Limits) {
 			return true, ""
 		}
 	}
@@ -1584,14 +1599,7 @@ func (r *AttunePolicyReconciler) applyMemoryUsageFloor(
 	if !ok {
 		return target
 	}
-	currentLim := containerRec.Current.MemoryLimit
-	if currentLim.IsZero() {
-		if c := findContainerByName(pod, containerRec.Name); c != nil {
-			if lim, lok := c.Resources.Limits[corev1.ResourceMemory]; lok {
-				currentLim = lim
-			}
-		}
-	}
+	currentLim := liveContainerCurrent(pod, containerRec).MemoryLimit
 	if currentLim.IsZero() || targetLim.Cmp(currentLim) >= 0 {
 		return target
 	}
