@@ -112,7 +112,7 @@ to pod eviction after an in-place resize fails or is marked Infeasible.
 |-------|-------------|
 | `namespace` | Workload namespace |
 | `workload` | Workload name |
-| `result` | `success` or `denied` |
+| `result` | `success`, `denied`, `last_replica`, `list_failed`, or `no_selector` |
 
 ### attune_throttle_deferred_total
 

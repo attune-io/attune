@@ -100,6 +100,7 @@ func (r *AttunePolicyReconciler) tryEvictionFallback(
 	if len(selectorLabels) == 0 {
 		logger.Info("Skipping eviction fallback: workload has no pod selector labels",
 			"pod", pod.Name, "workload", workloadName)
+		operatormetrics.EvictionTotal.WithLabelValues(pod.Namespace, workloadName, "no_selector").Inc()
 		r.emitEventOnce(policy, corev1.EventTypeWarning, "EvictionBlocked", "resize",
 			"Eviction fallback blocked for pod %s in workload %s: workload has no pod selector",
 			pod.Name, workloadName)
@@ -108,6 +109,7 @@ func (r *AttunePolicyReconciler) tryEvictionFallback(
 	if r.Clientset == nil {
 		logger.Info("Cannot list pods for eviction safety check, skipping eviction",
 			"reason", "clientset is nil")
+		operatormetrics.EvictionTotal.WithLabelValues(pod.Namespace, workloadName, "list_failed").Inc()
 		r.emitEventOnce(policy, corev1.EventTypeWarning, "EvictionBlocked", "resize",
 			"Eviction fallback blocked for pod %s in workload %s: cannot list live Running pods (clientset unavailable)",
 			pod.Name, workloadName)
@@ -118,6 +120,7 @@ func (r *AttunePolicyReconciler) tryEvictionFallback(
 	})
 	if err != nil {
 		logger.Error(err, "Cannot list pods for eviction safety check, skipping eviction")
+		operatormetrics.EvictionTotal.WithLabelValues(pod.Namespace, workloadName, "list_failed").Inc()
 		r.emitEventOnce(policy, corev1.EventTypeWarning, "EvictionBlocked", "resize",
 			"Eviction fallback blocked for pod %s in workload %s: cannot list live Running pods: %v",
 			pod.Name, workloadName, err)
@@ -132,6 +135,7 @@ func (r *AttunePolicyReconciler) tryEvictionFallback(
 	if running <= 1 {
 		logger.Info("Skipping eviction fallback: would evict the last running replica",
 			"pod", pod.Name, "workload", workloadName, "liveRunning", running)
+		operatormetrics.EvictionTotal.WithLabelValues(pod.Namespace, workloadName, "last_replica").Inc()
 		r.emitEventOnce(policy, corev1.EventTypeWarning, "EvictionBlocked", "resize",
 			"Eviction fallback blocked for pod %s in workload %s: %d live Running replica(s); spec.replicas and NotReady pods do not count",
 			pod.Name, workloadName, running)

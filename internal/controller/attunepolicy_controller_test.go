@@ -9266,10 +9266,13 @@ func TestTryEvictionFallback_SkipsLastReplica(t *testing.T) {
 	r.Recorder = recorder
 	resizer := resize.NewPodResizer(clientset, ctrl.Log)
 
+	evictionBefore := promtestutil.ToFloat64(operatormetrics.EvictionTotal.WithLabelValues("default", "api-server", "last_replica"))
+
 	evicted, reason := r.tryEvictionFallback(context.Background(), policy, pod, deploy,
 		"api-server", "app", resizer)
 	assert.False(t, evicted, "should NOT evict the last replica")
 	assert.Equal(t, reasonEvictionLastReplica, reason)
+	assert.Equal(t, evictionBefore+1, promtestutil.ToFloat64(operatormetrics.EvictionTotal.WithLabelValues("default", "api-server", "last_replica")))
 
 	select {
 	case event := <-recorder.Events:
@@ -10644,10 +10647,13 @@ func TestTryEvictionFallback_ListErrorSkipsEviction(t *testing.T) {
 	r.Recorder = recorder
 	resizer := resize.NewPodResizer(clientset, ctrl.Log)
 
+	evictionBefore := promtestutil.ToFloat64(operatormetrics.EvictionTotal.WithLabelValues("default", "api-server", "list_failed"))
+
 	evicted, reason := r.tryEvictionFallback(context.Background(), policy, pod, deploy,
 		"api-server", "app", resizer)
 	assert.False(t, evicted, "should skip eviction when pod list fails")
 	assert.Equal(t, reasonEvictionListFailed, reason)
+	assert.Equal(t, evictionBefore+1, promtestutil.ToFloat64(operatormetrics.EvictionTotal.WithLabelValues("default", "api-server", "list_failed")))
 	select {
 	case event := <-recorder.Events:
 		assert.Contains(t, event, "EvictionBlocked")
@@ -10693,10 +10699,13 @@ func TestTryEvictionFallback_NilSelectorSkipsEviction(t *testing.T) {
 	r.Recorder = recorder
 	resizer := resize.NewPodResizer(clientset, ctrl.Log)
 
+	evictionBefore := promtestutil.ToFloat64(operatormetrics.EvictionTotal.WithLabelValues("default", "api-server", "no_selector"))
+
 	evicted, reason := r.tryEvictionFallback(context.Background(), policy, pod, deploy,
 		"api-server", "main", resizer)
 	assert.False(t, evicted, "should skip eviction when workload has nil selector")
 	assert.Equal(t, reasonEvictionNoSelector, reason)
+	assert.Equal(t, evictionBefore+1, promtestutil.ToFloat64(operatormetrics.EvictionTotal.WithLabelValues("default", "api-server", "no_selector")))
 	select {
 	case event := <-recorder.Events:
 		assert.Contains(t, event, "EvictionBlocked")

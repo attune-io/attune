@@ -460,7 +460,7 @@ attune_pods_deferred{namespace="...", policy="..."}
 attune_pods_infeasible{namespace="...", policy="..."}
 histogram_quantile(0.95, sum by (le) (rate(attune_deferred_age_seconds_bucket[15m])))
 rate(attune_infeasible_skipped_total[15m])
-rate(attune_eviction_total[15m])
+sum by (result) (rate(attune_eviction_total[15m]))
 ```
 
 **Fix**:
