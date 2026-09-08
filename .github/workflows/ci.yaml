@@ -88,6 +88,11 @@ jobs:
               - 'scripts/test_verify_helm_image_tag.sh'
               - 'hack/release-image-tags.sh'
               - 'scripts/test_release_image_tags.sh'
+              # Standalone Grafana JSON is the Helm dashboard source.
+              # Dashboard-only PRs must run verify-dashboard-metrics.sh
+              # without the full Go lint matrix.
+              - 'deploy/grafana/**'
+              - 'hack/verify-dashboard-metrics.sh'
             yaml:
               - 'config/**'
               - '.github/workflows/**'
@@ -847,6 +852,10 @@ jobs:
           bash scripts/test_verify_helm_image_tag.sh
           bash hack/verify-helm-image-tag.sh
           bash scripts/test_release_image_tags.sh
+
+      - name: Verify dashboard metrics sync
+        shell: bash -Eeuo pipefail {0}
+        run: bash hack/verify-dashboard-metrics.sh
 
   build:
     name: Build

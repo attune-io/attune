@@ -73,7 +73,7 @@ verify-helm-rbac: ## Verify Helm chart ClusterRole matches kustomize RBAC
 	@bash hack/verify-helm-rbac.sh
 
 .PHONY: verify-dashboard-metrics
-verify-dashboard-metrics: ## Verify Helm dashboard stays synced with the standalone source dashboard
+verify-dashboard-metrics: ## Verify Helm dashboards stay synced with standalone Grafana JSON (overview + fleet)
 	@bash hack/verify-dashboard-metrics.sh
 
 .PHONY: verify-doc-tool-versions
@@ -97,7 +97,7 @@ verify-helm-image-tag: ## Verify Helm default image tag is Chart.appVersion (bar
 	@bash hack/verify-helm-image-tag.sh
 
 .PHONY: verify-release-artifacts
-verify-release-artifacts: kustomize ## Verify release artifacts generate cleanly and, if present, match current sources
+verify-release-artifacts: kustomize ## Verify tracked dist/install.yaml and dist/crds.yaml exist and match current sources
 	@repo_root=$$(pwd); \
 	tmp_dir=$$(mktemp -d); \
 	trap 'rm -rf "$$tmp_dir"' EXIT; \
@@ -106,12 +106,22 @@ verify-release-artifacts: kustomize ## Verify release artifacts generate cleanly
 	$(KUSTOMIZE) build "$$tmp_dir"/config/default > "$$tmp_dir"/install.yaml; \
 	cat "$$repo_root"/charts/attune/crds/*.yaml > "$$tmp_dir"/crds.yaml; \
 	bash "$$repo_root"/hack/verify-doc-defaults.sh "$$tmp_dir"/crds.yaml; \
-	if [ -f "$$repo_root"/dist/install.yaml ] && ! diff -u "$$repo_root"/dist/install.yaml "$$tmp_dir"/install.yaml; then \
+	if [ ! -f "$$repo_root"/dist/install.yaml ]; then \
+		echo ""; \
+		echo "ERROR: dist/install.yaml is missing. Refresh it with: make build-installer IMG=$(IMG)" >&2; \
+		exit 1; \
+	fi; \
+	if ! diff -u "$$repo_root"/dist/install.yaml "$$tmp_dir"/install.yaml; then \
 		echo ""; \
 		echo "ERROR: dist/install.yaml is stale. Refresh it with: make build-installer IMG=$(IMG)" >&2; \
 		exit 1; \
 	fi; \
-	if [ -f "$$repo_root"/dist/crds.yaml ] && ! diff -u "$$repo_root"/dist/crds.yaml "$$tmp_dir"/crds.yaml; then \
+	if [ ! -f "$$repo_root"/dist/crds.yaml ]; then \
+		echo ""; \
+		echo "ERROR: dist/crds.yaml is missing. Refresh it with: make build-crds" >&2; \
+		exit 1; \
+	fi; \
+	if ! diff -u "$$repo_root"/dist/crds.yaml "$$tmp_dir"/crds.yaml; then \
 		echo ""; \
 		echo "ERROR: dist/crds.yaml is stale. Refresh it with: make build-crds" >&2; \
 		exit 1; \
