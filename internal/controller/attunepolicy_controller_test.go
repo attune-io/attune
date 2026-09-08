@@ -10349,6 +10349,143 @@ func TestExecuteResizes_MultiContainerSequential(t *testing.T) {
 	assert.True(t, resizedContainers["sidecar"], "sidecar container should have UpdateResize called")
 }
 
+func TestExecuteResizes_EvictionBlockedKeepsPriorInPlaceSuccess(t *testing.T) {
+	// One Running replica, two containers. Main resizes in-place first.
+	// After that UpdateResize, live Get reports Infeasible so sidecar
+	// attempts eviction, which last-replica blocks. Prior success must
+	// still count the workload as resized.
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "api-server-abc-1", Namespace: "default",
+			Labels: map[string]string{"app": "api-server"},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{Name: "main", Image: "nginx", Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("500m"),
+						corev1.ResourceMemory: resource.MustParse("256Mi"),
+					},
+				}},
+				{Name: "sidecar", Image: "envoy", Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("100m"),
+						corev1.ResourceMemory: resource.MustParse("64Mi"),
+					},
+				}},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "main", Ready: true, RestartCount: 0},
+				{Name: "sidecar", Ready: true, RestartCount: 0},
+			},
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	deploy.Spec.Replicas = int32Ptr(1)
+	deploy.Status.Replicas = 1
+	deploy.Status.UpdatedReplicas = 1
+	deploy.Status.AvailableReplicas = 1
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod).Build()
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+
+	var inPlaceApplied atomic.Bool
+	clientset.PrependReactor("update", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if action.GetSubresource() != "resize" {
+			return false, nil, nil
+		}
+		inPlaceApplied.Store(true)
+		return false, nil, nil
+	})
+	clientset.PrependReactor("get", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if !inPlaceApplied.Load() {
+			return false, nil, nil
+		}
+		ga, ok := action.(k8stesting.GetAction)
+		if !ok {
+			return false, nil, nil
+		}
+		obj, err := clientset.Tracker().Get(ga.GetResource(), ga.GetNamespace(), ga.GetName())
+		if err != nil {
+			return true, nil, err
+		}
+		live, ok := obj.(*corev1.Pod)
+		if !ok {
+			return false, nil, nil
+		}
+		live = live.DeepCopy()
+		live.Status.Conditions = append(live.Status.Conditions, corev1.PodCondition{
+			Type:   "PodResizePending",
+			Status: corev1.ConditionTrue,
+			Reason: "Infeasible",
+		})
+		return true, live, nil
+	})
+
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = scheme
+	reconciler.Clientset = clientset
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	policy.Spec.UpdateStrategy.ResizeMethod = attunev1alpha1.ResizeMethodInPlaceOrRecreate
+
+	recommendations := []attunev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "api-server",
+			Kind:     "Deployment",
+			Containers: []attunev1alpha1.ContainerRecommendation{
+				{
+					Name: "main",
+					Current: attunev1alpha1.ResourceValues{
+						CPURequest: resource.MustParse("500m"), MemoryRequest: resource.MustParse("256Mi"),
+					},
+					Recommended: attunev1alpha1.ResourceValues{
+						CPURequest: resource.MustParse("750m"), MemoryRequest: resource.MustParse("384Mi"),
+					},
+				},
+				{
+					Name: "sidecar",
+					Current: attunev1alpha1.ResourceValues{
+						CPURequest: resource.MustParse("100m"), MemoryRequest: resource.MustParse("64Mi"),
+					},
+					Recommended: attunev1alpha1.ResourceValues{
+						CPURequest: resource.MustParse("200m"), MemoryRequest: resource.MustParse("128Mi"),
+					},
+				},
+			},
+		},
+	}
+
+	count, history := reconciler.executeResizes(context.Background(), policy,
+		[]client.Object{deploy}, recommendations,
+		map[string][]corev1.Pod{"api-server": {*pod}}, nil, nil)
+	assert.Equal(t, 1, count, "prior in-place success must still count the workload as resized")
+
+	mainSuccess := false
+	sidecarBlocked := false
+	for _, h := range history {
+		if h.Container == "main" && h.Method == resize.MethodInPlace && h.Result == attunev1alpha1.ResizeResultSuccess {
+			mainSuccess = true
+		}
+		if h.Container == "sidecar" && h.Reason == reasonEvictionLastReplica {
+			sidecarBlocked = true
+		}
+		assert.NotEqual(t, attunev1alpha1.ResizeResultEvicted, h.Result,
+			"last-replica eviction must not evict")
+	}
+	assert.True(t, mainSuccess, "history should keep in-place Success for main")
+	assert.True(t, sidecarBlocked, "history should record eviction_last_replica for sidecar")
+}
+
 func TestExecuteResizes_MultiContainer_BudgetExhaustion(t *testing.T) {
 	// A pod with two containers where the CPU budget is exhausted after the
 	// first container resize. The second container should be skipped (budget

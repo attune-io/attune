@@ -346,9 +346,10 @@ func (r *AttunePolicyReconciler) executeResizes(
 					if outcome == resizeOutcomeEvictionBlocked {
 						// Eviction was attempted and failed. Do not retry the
 						// same List+Evict for remaining containers on this pod.
+						// Leave podResized as-is so a prior in-place success
+						// still counts (unlike Evicted, which clears it).
 						refundBudget(cpuIncrease, memIncrease)
 						podHistory = append(podHistory, entries...)
-						podResized = false
 						break
 					}
 					podHistory = append(podHistory, entries...)
