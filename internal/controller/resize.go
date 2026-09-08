@@ -343,6 +343,14 @@ func (r *AttunePolicyReconciler) executeResizes(
 						podResized = false
 						break
 					}
+					if outcome == resizeOutcomeEvictionBlocked {
+						// Eviction was attempted and failed. Do not retry the
+						// same List+Evict for remaining containers on this pod.
+						refundBudget(cpuIncrease, memIncrease)
+						podHistory = append(podHistory, entries...)
+						podResized = false
+						break
+					}
 					podHistory = append(podHistory, entries...)
 					podReservedCPU += cpuIncrease
 					podReservedMem += memIncrease
@@ -396,6 +404,9 @@ const (
 	resizeOutcomeNone resizeOutcome = iota
 	resizeOutcomeInPlace
 	resizeOutcomeEvicted
+	// resizeOutcomeEvictionBlocked means eviction fallback ran and did not
+	// evict (last replica, list failure, no selector, or PDB denial).
+	resizeOutcomeEvictionBlocked
 )
 
 // resizeContainer performs a single container resize on a pod, including
@@ -569,7 +580,7 @@ func (r *AttunePolicyReconciler) resizeContainer(
 				Timestamp: now, Workload: workloadName, Container: containerRec.Name,
 				Resource: "cpu+memory", Method: resize.MethodInPlace,
 				Result: attunev1alpha1.ResizeResultFailed, Reason: reason,
-			}}, resizeOutcomeNone
+			}}, resizeOutcomeEvictionBlocked
 		}
 		logger.Info("Pod resize is Infeasible and resizeMethod is InPlaceOnly, skipping",
 			"pod", pod.Name, "container", containerRec.Name)
@@ -625,6 +636,9 @@ func (r *AttunePolicyReconciler) resizeContainer(
 				r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "ResizeFailed", "resize",
 					"Failed to resize pod %s container %s: %v", pod.Name, containerRec.Name, err)
 			}
+		}
+		if evictionFailReason != "" {
+			return entries, resizeOutcomeEvictionBlocked
 		}
 		return entries, resizeOutcomeNone
 	}

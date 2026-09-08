@@ -9248,6 +9248,95 @@ func TestTryEvictionFallback_EvictsWhenMultipleReplicas(t *testing.T) {
 		"eviction fallback should not increment in-place resize metrics")
 }
 
+func TestTryEvictionFallback_ConcurrentTwoReplicasEvictsAtMostOne(t *testing.T) {
+	// Two executeResizes goroutines can both List running==2 and both Evict
+	// unless List+count+Evict is serialized per workload. Fake clientset
+	// does not remove a pod on Evict, so the reactor deletes it so the
+	// second List sees running==1.
+	pod1 := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
+	pod2 := newTestPod("api-server-abc-2", "default", map[string]string{"app": "api-server"})
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.ResizeMethod = attunev1alpha1.ResizeMethodInPlaceOrRecreate
+
+	clientset := kubefake.NewSimpleClientset(pod1, pod2)
+	clientset.PrependReactor("create", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if action.GetSubresource() != "eviction" {
+			return false, nil, nil
+		}
+		create, ok := action.(k8stesting.CreateAction)
+		if !ok {
+			return false, nil, nil
+		}
+		meta, ok := create.GetObject().(metav1.Object)
+		if !ok {
+			return true, nil, fmt.Errorf("eviction object is not metav1.Object")
+		}
+		ns := meta.GetNamespace()
+		if ns == "" {
+			ns = action.GetNamespace()
+		}
+		if err := clientset.Tracker().Delete(corev1.SchemeGroupVersion.WithResource("pods"), ns, meta.GetName()); err != nil {
+			return true, nil, err
+		}
+		return true, create.GetObject(), nil
+	})
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(policy, deploy, pod1, pod2).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
+	resizer := resize.NewPodResizer(clientset, ctrl.Log)
+
+	var (
+		start, done     sync.WaitGroup
+		mu              sync.Mutex
+		evictedCount    int
+		lastReplicaHits int
+	)
+	start.Add(2)
+	done.Add(2)
+	run := func(p *corev1.Pod) {
+		defer done.Done()
+		start.Done()
+		start.Wait()
+		evicted, reason := r.tryEvictionFallback(context.Background(), policy, p, deploy,
+			"api-server", "app", resizer)
+		mu.Lock()
+		defer mu.Unlock()
+		if evicted {
+			evictedCount++
+		}
+		if reason == reasonEvictionLastReplica {
+			lastReplicaHits++
+		}
+	}
+	go run(pod1)
+	go run(pod2)
+	done.Wait()
+
+	var evictions int
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "create" && a.GetResource().Resource == "pods" && a.GetSubresource() == "eviction" {
+			evictions++
+		}
+		if a.GetVerb() == "list" {
+			if lo, ok := a.(interface{ GetListOptions() metav1.ListOptions }); ok {
+				opts := lo.GetListOptions()
+				assert.Equal(t, evictionReplicaPageSize, opts.Limit, "last-replica List must paginate")
+				assert.Empty(t, opts.ResourceVersion, "last-replica List must not use ResourceVersion 0")
+			}
+		}
+	}
+	assert.LessOrEqual(t, evictions, 1, "at most one eviction create")
+	assert.LessOrEqual(t, evictedCount, 1, "at most one successful eviction")
+	assert.True(t, lastReplicaHits >= 1 || evictedCount == 1,
+		"at least one call must return last_replica or the second must see running<=1 after the first evicts")
+}
+
 func TestTryEvictionFallback_SkipsLastReplica(t *testing.T) {
 	pod := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
@@ -9624,7 +9713,7 @@ func TestResizeContainer_InfeasibleLastReplicaRecordsReason(t *testing.T) {
 		Monitor:      nil,
 		Now:          metav1.Now(),
 	})
-	assert.Equal(t, resizeOutcomeNone, outcome, "last live Running replica must not be evicted")
+	assert.Equal(t, resizeOutcomeEvictionBlocked, outcome, "last live Running replica must not be evicted")
 	require.Len(t, entries, 1, "should record a Failed history entry")
 	assert.Equal(t, attunev1alpha1.ResizeResultFailed, entries[0].Result)
 	assert.Equal(t, reasonEvictionLastReplica, entries[0].Reason)

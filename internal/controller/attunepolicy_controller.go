@@ -213,6 +213,11 @@ type AttunePolicyReconciler struct {
 	// Always initialized by NewAttunePolicyReconciler.
 	eventDedup *eventDedup
 
+	// evictionLocks serializes last-replica List+Evict per workload so two
+	// concurrent resize goroutines cannot both observe running==2 and evict.
+	// Key is namespace+"/"+workloadName. Zero value is an empty sync.Map.
+	evictionLocks sync.Map // map[string]*sync.Mutex
+
 	// nodeNeighborFlight single-flights the live node pod List used for
 	// neighbor request budget. Per-cycle results live in resizePreChecks.
 	nodeNeighborFlight singleflight.Group

@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -75,6 +76,10 @@ const (
 	reasonEvictionListFailed  = "eviction_list_failed"
 	reasonEvictionNoSelector  = "eviction_no_selector"
 	reasonEvictionDenied      = "eviction_denied"
+
+	// evictionReplicaPageSize is the live last-replica List page size.
+	// Count stops as soon as two Running pods are visible.
+	evictionReplicaPageSize = int64(50)
 )
 
 // tryEvictionFallback attempts to evict a pod as a fallback when in-place
@@ -115,9 +120,16 @@ func (r *AttunePolicyReconciler) tryEvictionFallback(
 			pod.Name, workloadName)
 		return false, reasonEvictionListFailed
 	}
-	podList, err := r.Clientset.CoreV1().Pods(pod.Namespace).List(ctx, metav1.ListOptions{
-		LabelSelector: labels.SelectorFromSet(selectorLabels).String(),
-	})
+
+	// Serialize List + count + Evict per workload so two resize goroutines
+	// cannot both observe running==2 and take the Deployment to zero.
+	lockKey := pod.Namespace + "/" + workloadName
+	v, _ := r.evictionLocks.LoadOrStore(lockKey, &sync.Mutex{})
+	mu := v.(*sync.Mutex)
+	mu.Lock()
+	defer mu.Unlock()
+
+	running, err := r.countLiveRunningReplicas(ctx, pod.Namespace, selectorLabels)
 	if err != nil {
 		logger.Error(err, "Cannot list pods for eviction safety check, skipping eviction")
 		operatormetrics.EvictionTotal.WithLabelValues(pod.Namespace, workloadName, "list_failed").Inc()
@@ -125,12 +137,6 @@ func (r *AttunePolicyReconciler) tryEvictionFallback(
 			"Eviction fallback blocked for pod %s in workload %s: cannot list live Running pods: %v",
 			pod.Name, workloadName, err)
 		return false, reasonEvictionListFailed
-	}
-	running := 0
-	for _, p := range podList.Items {
-		if p.Status.Phase == corev1.PodRunning && p.DeletionTimestamp == nil {
-			running++
-		}
 	}
 	if running <= 1 {
 		logger.Info("Skipping eviction fallback: would evict the last running replica",
@@ -163,6 +169,44 @@ func (r *AttunePolicyReconciler) tryEvictionFallback(
 	logger.Info("Eviction fallback successful",
 		"pod", pod.Name, "workload", workloadName, "container", containerName)
 	return true, ""
+}
+
+// countLiveRunningReplicas lists matching pods through the typed Clientset
+// (live API, not the informer cache) and counts Running pods with no
+// deletion timestamp. Pages with Limit and returns as soon as running>1.
+// ResourceVersion is left empty (not "0") so the list is consistent.
+// A list error is returned so the caller can fail closed.
+func (r *AttunePolicyReconciler) countLiveRunningReplicas(
+	ctx context.Context,
+	namespace string,
+	selectorLabels map[string]string,
+) (int, error) {
+	selector := labels.SelectorFromSet(selectorLabels).String()
+	continueToken := ""
+	running := 0
+	for {
+		podList, err := r.Clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
+			LabelSelector: selector,
+			Limit:         evictionReplicaPageSize,
+			Continue:      continueToken,
+		})
+		if err != nil {
+			return 0, err
+		}
+		for i := range podList.Items {
+			p := &podList.Items[i]
+			if p.Status.Phase == corev1.PodRunning && p.DeletionTimestamp == nil {
+				running++
+				if running > 1 {
+					return running, nil
+				}
+			}
+		}
+		if podList.Continue == "" {
+			return running, nil
+		}
+		continueToken = podList.Continue
+	}
 }
 
 // checkPendingSafetyObservations checks pods that were previously resized and
