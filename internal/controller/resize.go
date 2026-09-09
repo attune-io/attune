@@ -92,6 +92,8 @@ func (r *AttunePolicyReconciler) firstOneShotPodNeedingResize(
 		// Get errors fail closed: do not select the listed snapshot.
 		live, err := r.fetchLivePodForResize(ctx, p)
 		if err != nil {
+			log.FromContext(ctx).V(1).Info("OneShot: skipping pod after live Get error",
+				"pod", p.Name, "namespace", p.Namespace, "error", err)
 			continue
 		}
 		if live != nil {
@@ -614,9 +616,10 @@ func (r *AttunePolicyReconciler) resizeContainer(
 	if live, err := r.fetchLivePodForResize(ctx, pod); err != nil {
 		reason := "pod status unavailable; skipping resize"
 		logger.Info("Skipping resize: "+reason,
-			"pod", pod.Name, "container", containerRec.Name)
+			"pod", pod.Name, "namespace", pod.Namespace, "container", containerRec.Name, "error", err)
 		r.emitEventOnce(policy, corev1.EventTypeWarning, "ResizeSkipped", "resize",
 			"Resize blocked for pod %s container %s: %s", pod.Name, containerRec.Name, reason)
+		recordCapacitySkip(policy, reason)
 		return nil, resizeOutcomeNone
 	} else if live != nil {
 		pod = live
@@ -1642,7 +1645,8 @@ func recordCapacitySkip(policy *attunev1alpha1.AttunePolicy, reason string) {
 		strings.Contains(reason, "PIDPressure"),
 		strings.Contains(reason, "node pressure"):
 		operatormetrics.CapacitySkipTotal.WithLabelValues(policy.Namespace, policy.Name, "pressure").Inc()
-	case strings.Contains(reason, "node status unavailable"):
+	case strings.Contains(reason, "node status unavailable"),
+		strings.Contains(reason, "pod status unavailable"):
 		operatormetrics.CapacitySkipTotal.WithLabelValues(policy.Namespace, policy.Name, "unavailable").Inc()
 	}
 }

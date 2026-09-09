@@ -111,6 +111,8 @@ func (h *PodMutatingHandler) Handle(ctx context.Context, req admission.Request) 
 		return admission.Allowed("cannot read namespace for freeze, skipping initial sizing")
 	}
 	if frozen {
+		h.Logger.Info("skipping initial sizing: namespace has attune.io/freeze=true",
+			"namespace", req.Namespace, "policy", policy.Name)
 		return admission.Allowed("namespace has attune.io/freeze=true")
 	}
 

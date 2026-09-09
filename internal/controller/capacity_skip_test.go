@@ -59,6 +59,7 @@ func TestRecordCapacitySkip(t *testing.T) {
 	recordCapacitySkip(policy, "node has DiskPressure; skipping resource request increase (every increase is blocked; all decreases still apply; retry when the node condition clears)")
 	recordCapacitySkip(policy, "node has PIDPressure; skipping resource request increase (every increase is blocked; all decreases still apply; retry when the node condition clears)")
 	recordCapacitySkip(policy, "node status unavailable; skipping request increase")
+	recordCapacitySkip(policy, "pod status unavailable; skipping resize")
 	recordCapacitySkip(policy, "node free request budget exceeded by neighbors")
 	recordCapacitySkip(policy, "node neighbor list unavailable; skipping request increase")
 	recordCapacitySkip(policy, "quota/limitrange violation: too large")                                                                                                      // no metric
@@ -67,7 +68,7 @@ func TestRecordCapacitySkip(t *testing.T) {
 
 	assert.Equal(t, beforeAlloc+1, testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("ns-cap", "cap-test", "allocatable")))
 	assert.Equal(t, beforePress+3, testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("ns-cap", "cap-test", "pressure")))
-	assert.Equal(t, beforeUnavail+1, testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("ns-cap", "cap-test", "unavailable")))
+	assert.Equal(t, beforeUnavail+2, testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("ns-cap", "cap-test", "unavailable")))
 	assert.Equal(t, beforeNeighbors+2, testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("ns-cap", "cap-test", "neighbors")))
 }
 
@@ -723,6 +724,7 @@ func TestExecuteResizes_LiveGetFail_SkipsRequestIncrease(t *testing.T) {
 			"500m", "200Mi", "1000m", "1Gi"),
 	}
 
+	beforeUnavail := testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues(policyNS, policyName, "unavailable"))
 	count, history := reconciler.executeResizes(
 		context.Background(),
 		policy,
@@ -735,6 +737,8 @@ func TestExecuteResizes_LiveGetFail_SkipsRequestIncrease(t *testing.T) {
 	assert.Equal(t, 0, count)
 	assert.Empty(t, history)
 	assert.Equal(t, 0, resizeSubresourceCount(reconciler.Clientset.(*kubefake.Clientset)))
+	assert.Equal(t, beforeUnavail+1,
+		testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues(policyNS, policyName, "unavailable")))
 
 	found := false
 	for {
@@ -775,6 +779,7 @@ func TestExecuteResizes_LiveGetFail_SkipsMemoryLimitDecrease(t *testing.T) {
 			"200m", "64Mi", "200m", "64Mi"),
 	}
 
+	beforeUnavail := testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues(policyNS, policyName, "unavailable"))
 	count, history := reconciler.executeResizes(
 		context.Background(),
 		policy,
@@ -787,6 +792,8 @@ func TestExecuteResizes_LiveGetFail_SkipsMemoryLimitDecrease(t *testing.T) {
 	assert.Equal(t, 0, count)
 	assert.Empty(t, history)
 	assert.Equal(t, 0, resizeSubresourceCount(reconciler.Clientset.(*kubefake.Clientset)))
+	assert.Equal(t, beforeUnavail+1,
+		testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues(policyNS, policyName, "unavailable")))
 
 	found := false
 	for {
@@ -829,6 +836,7 @@ func TestExecuteResizes_LiveGetFail_SkipsRequestOnlyDecrease(t *testing.T) {
 			"200m", "256Mi", "1000m", "1Gi"),
 	}
 
+	beforeUnavail := testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues(policyNS, policyName, "unavailable"))
 	count, history := reconciler.executeResizes(
 		context.Background(),
 		policy,
@@ -841,6 +849,8 @@ func TestExecuteResizes_LiveGetFail_SkipsRequestOnlyDecrease(t *testing.T) {
 	assert.Equal(t, 0, count, "live Get error must not apply from a listed snapshot")
 	assert.Empty(t, history)
 	assert.Equal(t, 0, resizeSubresourceCount(cs))
+	assert.Equal(t, beforeUnavail+1,
+		testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues(policyNS, policyName, "unavailable")))
 
 	found := false
 	for {
