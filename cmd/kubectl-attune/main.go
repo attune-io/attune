@@ -1500,6 +1500,8 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *attu
 	printEffectiveField("  Decrease usage margin", formatPercentInt64Ptr(rawInt64Field(item, "spec", "memory", "decreaseUsageMarginPercent")), formatPercentPtr(effective.Spec.Memory.DecreaseUsageMarginPercent), selected, memDefaults != nil && memDefaults.DecreaseUsageMarginPercent != nil)
 	printEffectiveField("  Memory from CPU ratio", getNestedString(item, "spec", "memory", "memoryFromCpuRatio"), formatStringPtr(effective.Spec.Memory.MemoryFromCPURatio), selected, memDefaults != nil && memDefaults.MemoryFromCPURatio != nil)
 
+	fmt.Println("  Namespace freeze: annotate the namespace attune.io/freeze=true to skip apply.")
+
 	// Pure export / GitOps mode note (makes the recommended workflow first-class in CLI)
 	if effective.Spec.UpdateStrategy.Export != nil && effective.Spec.UpdateStrategy.Export.ConfigMap {
 		mode := effective.Spec.UpdateStrategy.Type

@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -29,6 +30,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -53,19 +55,20 @@ func TestRecordCapacitySkip(t *testing.T) {
 
 	// Exact producer strings from shouldSkipResize / nodePressureBlocksIncrease.
 	recordCapacitySkip(policy, "total pod requests would exceed node allocatable")
-	recordCapacitySkip(policy, "node has MemoryPressure; skipping memory request increase")
-	recordCapacitySkip(policy, "node has DiskPressure; skipping resource request increase")
-	recordCapacitySkip(policy, "node has PIDPressure; skipping resource request increase")
+	recordCapacitySkip(policy, "node has MemoryPressure; skipping memory request increase (CPU increases and all decreases still apply; retry when the node condition clears)")
+	recordCapacitySkip(policy, "node has DiskPressure; skipping resource request increase (every increase is blocked; all decreases still apply; retry when the node condition clears)")
+	recordCapacitySkip(policy, "node has PIDPressure; skipping resource request increase (every increase is blocked; all decreases still apply; retry when the node condition clears)")
 	recordCapacitySkip(policy, "node status unavailable; skipping request increase")
+	recordCapacitySkip(policy, "pod status unavailable; skipping resize")
 	recordCapacitySkip(policy, "node free request budget exceeded by neighbors")
 	recordCapacitySkip(policy, "node neighbor list unavailable; skipping request increase")
-	recordCapacitySkip(policy, "quota/limitrange violation: too large")                  // no metric
-	recordCapacitySkip(policy, "")                                                       // no metric
-	recordCapacitySkip(nil, "node has MemoryPressure; skipping memory request increase") // no metric
+	recordCapacitySkip(policy, "quota/limitrange violation: too large")                                                                                                      // no metric
+	recordCapacitySkip(policy, "")                                                                                                                                           // no metric
+	recordCapacitySkip(nil, "node has MemoryPressure; skipping memory request increase (CPU increases and all decreases still apply; retry when the node condition clears)") // no metric
 
 	assert.Equal(t, beforeAlloc+1, testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("ns-cap", "cap-test", "allocatable")))
 	assert.Equal(t, beforePress+3, testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("ns-cap", "cap-test", "pressure")))
-	assert.Equal(t, beforeUnavail+1, testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("ns-cap", "cap-test", "unavailable")))
+	assert.Equal(t, beforeUnavail+2, testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("ns-cap", "cap-test", "unavailable")))
 	assert.Equal(t, beforeNeighbors+2, testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("ns-cap", "cap-test", "neighbors")))
 }
 
@@ -383,11 +386,11 @@ func TestShouldSkipResize_NilNodeBlocksIncrease(t *testing.T) {
 		},
 	}
 
-	skip, reason := r.shouldSkipResize(context.Background(), &attunev1alpha1.AttunePolicy{}, pod, rec, higherMem, nil)
+	skip, reason := r.shouldSkipResize(context.Background(), pod, rec, higherMem, nil)
 	assert.True(t, skip)
 	assert.Contains(t, reason, "node status unavailable")
 
-	skip, reason = r.shouldSkipResize(context.Background(), &attunev1alpha1.AttunePolicy{}, pod, rec, lowerMem, nil)
+	skip, reason = r.shouldSkipResize(context.Background(), pod, rec, lowerMem, nil)
 	assert.False(t, skip, "decreases must not be blocked when node is unavailable: %s", reason)
 }
 
@@ -520,6 +523,344 @@ func TestExecuteResizes_NilNode_LiveRecheckBlocksIncrease(t *testing.T) {
 			}
 		default:
 			require.True(t, found)
+			return
+		}
+	}
+}
+
+// TestExecuteResizes_UsageFloorUsesLiveLimitNotStaleInformer: informer still
+// has 512Mi after live rose to 2Gi. Floor must use the live limit so usage
+// ~1.5Gi is not clipped to the stale 512Mi before UpdateResize.
+func TestExecuteResizes_UsageFloorUsesLiveLimitNotStaleInformer(t *testing.T) {
+	const (
+		policyNS   = "default"
+		policyName = "floor-live-limit-policy"
+		appName    = "floor-live-app"
+	)
+
+	listed := newResizePod(appName, "200m", "512Mi", "200m", "512Mi")
+	live := listed.DeepCopy()
+	mem2Gi, err := resource.ParseQuantity("2Gi")
+	require.NoError(t, err)
+	live.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory] = mem2Gi
+	live.Spec.Containers[0].Resources.Limits[corev1.ResourceMemory] = mem2Gi
+
+	deploy := newTestDeployment(appName, policyNS, map[string]string{"app": appName})
+	reconciler, _ := newResizeReconciler(listed, deploy)
+	reconciler.AllowInPlaceMemoryLimitDecrease = true
+	reconciler.Clientset = kubefake.NewSimpleClientset(live)
+
+	policy := newTestPolicy(policyName, policyNS)
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	recommendations := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation(appName,
+			"200m", "512Mi", "200m", "512Mi",
+			"200m", "64Mi", "200m", "64Mi"),
+	}
+	usage, err := resource.ParseQuantity("1536Mi")
+	require.NoError(t, err)
+	recommendations[0].Containers[0].Explanation = &attunev1alpha1.ContainerRecommendationExplanation{
+		Memory: &attunev1alpha1.ResourceRecommendationExplanation{
+			RawPercentile: usage,
+		},
+	}
+
+	_, _ = reconciler.executeResizes(
+		context.Background(),
+		policy,
+		[]client.Object{deploy},
+		recommendations,
+		podMap(appName, listed),
+		nil,
+		nil,
+	)
+
+	staleLimit, err := resource.ParseQuantity("512Mi")
+	require.NoError(t, err)
+	wantFloor := *resource.NewQuantity(int64(math.Ceil(float64(usage.Value())*1.1)), resource.BinarySI)
+
+	var gotLimit resource.Quantity
+	var found bool
+	for _, a := range reconciler.Clientset.(*kubefake.Clientset).Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			updated := a.(k8stesting.UpdateAction).GetObject().(*corev1.Pod)
+			gotLimit = updated.Spec.Containers[0].Resources.Limits[corev1.ResourceMemory]
+			found = true
+			break
+		}
+	}
+	require.True(t, found, "UpdateResize must run so the floored limit can be inspected")
+	assert.False(t, gotLimit.Equal(staleLimit),
+		"floor must not clip to stale informer 512Mi, got %s", gotLimit.String())
+	assert.True(t, gotLimit.Equal(wantFloor),
+		"got limit %s want %s (1.5Gi * 1.1 vs live 2Gi)", gotLimit.String(), wantFloor.String())
+}
+
+// TestExecuteResizes_MemoryPressure_StaleHighInformerDoesNotAuthorizeIncrease:
+// informer still has 500Mi after live dropped to 100Mi. Target 200Mi is an
+// increase vs live and must skip under MemoryPressure (not a decrease vs
+// the stale-high cache).
+func TestExecuteResizes_MemoryPressure_StaleHighInformerDoesNotAuthorizeIncrease(t *testing.T) {
+	const (
+		policyNS   = "default"
+		policyName = "stale-high-pressure-policy"
+		nodeName   = "stale-high-node"
+		appName    = "stale-high-app"
+	)
+
+	listed := newResizePod(appName, "500m", "500Mi", "1000m", "1Gi")
+	listed.Spec.NodeName = nodeName
+	live := listed.DeepCopy()
+	liveMem, err := resource.ParseQuantity("100Mi")
+	require.NoError(t, err)
+	live.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory] = liveMem
+
+	deploy := newTestDeployment(appName, policyNS, map[string]string{"app": appName})
+	pressureNode := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: nodeName},
+		Status: corev1.NodeStatus{
+			Allocatable: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("4"),
+				corev1.ResourceMemory: resource.MustParse("8Gi"),
+			},
+			Conditions: []corev1.NodeCondition{{
+				Type:   corev1.NodeMemoryPressure,
+				Status: corev1.ConditionTrue,
+			}},
+		},
+	}
+
+	reconciler, _ := newResizeReconciler(listed, deploy, pressureNode)
+	reconciler.Clientset = kubefake.NewSimpleClientset(live, pressureNode.DeepCopy())
+	recorder := events.NewFakeRecorder(10)
+	reconciler.Recorder = recorder
+
+	policy := newTestPolicy(policyName, policyNS)
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	recommendations := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation(appName,
+			"500m", "500Mi", "1000m", "1Gi",
+			"500m", "200Mi", "1000m", "1Gi"),
+	}
+
+	beforePress := testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues(policyNS, policyName, "pressure"))
+	count, history := reconciler.executeResizes(
+		context.Background(),
+		policy,
+		[]client.Object{deploy},
+		recommendations,
+		podMap(appName, listed),
+		nil,
+		nil,
+	)
+	assert.Equal(t, 0, count, "increase vs live under MemoryPressure must not resize")
+	assert.Empty(t, history)
+	assert.Equal(t, beforePress+1,
+		testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues(policyNS, policyName, "pressure")))
+
+	var resizes int
+	for _, a := range reconciler.Clientset.(*kubefake.Clientset).Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			resizes++
+		}
+	}
+	assert.Equal(t, 0, resizes, "UpdateResize must not apply a live increase under MemoryPressure")
+
+	found := false
+	for {
+		select {
+		case event := <-recorder.Events:
+			if strings.Contains(event, "ResizeSkipped") && strings.Contains(event, "MemoryPressure") {
+				found = true
+			}
+		default:
+			require.True(t, found, "expected ResizeSkipped from live increase under MemoryPressure")
+			return
+		}
+	}
+}
+
+func failFirstPodGet(cs *kubefake.Clientset) {
+	var gets atomic.Int32
+	cs.PrependReactor("get", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if gets.Add(1) == 1 {
+			return true, nil, apierrors.NewInternalError(fmt.Errorf("injected live pod Get"))
+		}
+		return false, nil, nil
+	})
+}
+
+func resizeSubresourceCount(cs *kubefake.Clientset) int {
+	var n int
+	for _, a := range cs.Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			n++
+		}
+	}
+	return n
+}
+
+// TestExecuteResizes_LiveGetFail_SkipsRequestIncrease: live Get failure is
+// fail-closed for request increases (same philosophy as node unavailable).
+func TestExecuteResizes_LiveGetFail_SkipsRequestIncrease(t *testing.T) {
+	const (
+		policyNS   = "default"
+		policyName = "live-get-fail-inc-policy"
+		appName    = "live-get-fail-inc"
+	)
+
+	pod := newResizePod(appName, "500m", "100Mi", "1000m", "1Gi")
+	deploy := newTestDeployment(appName, policyNS, map[string]string{"app": appName})
+	reconciler, _ := newResizeReconciler(pod, deploy)
+	failFirstPodGet(reconciler.Clientset.(*kubefake.Clientset))
+	recorder := events.NewFakeRecorder(10)
+	reconciler.Recorder = recorder
+
+	policy := newTestPolicy(policyName, policyNS)
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	recommendations := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation(appName,
+			"500m", "100Mi", "1000m", "1Gi",
+			"500m", "200Mi", "1000m", "1Gi"),
+	}
+
+	beforeUnavail := testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues(policyNS, policyName, "unavailable"))
+	count, history := reconciler.executeResizes(
+		context.Background(),
+		policy,
+		[]client.Object{deploy},
+		recommendations,
+		podMap(appName, pod),
+		nil,
+		nil,
+	)
+	assert.Equal(t, 0, count)
+	assert.Empty(t, history)
+	assert.Equal(t, 0, resizeSubresourceCount(reconciler.Clientset.(*kubefake.Clientset)))
+	assert.Equal(t, beforeUnavail+1,
+		testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues(policyNS, policyName, "unavailable")))
+
+	found := false
+	for {
+		select {
+		case event := <-recorder.Events:
+			if strings.Contains(event, "ResizeSkipped") && strings.Contains(event, "pod status unavailable") {
+				found = true
+			}
+		default:
+			require.True(t, found, "expected ResizeSkipped when live Get fails on a request increase")
+			return
+		}
+	}
+}
+
+// TestExecuteResizes_LiveGetFail_SkipsMemoryLimitDecrease: cannot floor
+// against a live limit we failed to read.
+func TestExecuteResizes_LiveGetFail_SkipsMemoryLimitDecrease(t *testing.T) {
+	const (
+		policyNS   = "default"
+		policyName = "live-get-fail-lim-policy"
+		appName    = "live-get-fail-lim"
+	)
+
+	pod := newResizePod(appName, "200m", "512Mi", "200m", "512Mi")
+	deploy := newTestDeployment(appName, policyNS, map[string]string{"app": appName})
+	reconciler, _ := newResizeReconciler(pod, deploy)
+	reconciler.AllowInPlaceMemoryLimitDecrease = true
+	failFirstPodGet(reconciler.Clientset.(*kubefake.Clientset))
+	recorder := events.NewFakeRecorder(10)
+	reconciler.Recorder = recorder
+
+	policy := newTestPolicy(policyName, policyNS)
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	recommendations := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation(appName,
+			"200m", "512Mi", "200m", "512Mi",
+			"200m", "64Mi", "200m", "64Mi"),
+	}
+
+	beforeUnavail := testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues(policyNS, policyName, "unavailable"))
+	count, history := reconciler.executeResizes(
+		context.Background(),
+		policy,
+		[]client.Object{deploy},
+		recommendations,
+		podMap(appName, pod),
+		nil,
+		nil,
+	)
+	assert.Equal(t, 0, count)
+	assert.Empty(t, history)
+	assert.Equal(t, 0, resizeSubresourceCount(reconciler.Clientset.(*kubefake.Clientset)))
+	assert.Equal(t, beforeUnavail+1,
+		testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues(policyNS, policyName, "unavailable")))
+
+	found := false
+	for {
+		select {
+		case event := <-recorder.Events:
+			if strings.Contains(event, "ResizeSkipped") && strings.Contains(event, "pod status unavailable") {
+				found = true
+			}
+		default:
+			require.True(t, found, "expected ResizeSkipped when live Get fails on a memory-limit decrease")
+			return
+		}
+	}
+}
+
+// TestExecuteResizes_LiveGetFail_SkipsRequestOnlyDecrease: a listed
+// snapshot that looks like a decrease is still stale; fail closed.
+func TestExecuteResizes_LiveGetFail_SkipsRequestOnlyDecrease(t *testing.T) {
+	const (
+		policyNS   = "default"
+		policyName = "live-get-fail-dec-policy"
+		appName    = "live-get-fail-dec"
+	)
+
+	pod := newResizePod(appName, "500m", "512Mi", "1000m", "1Gi")
+	deploy := newTestDeployment(appName, policyNS, map[string]string{"app": appName})
+	reconciler, _ := newResizeReconciler(pod, deploy)
+	cs := reconciler.Clientset.(*kubefake.Clientset)
+	cs.PrependReactor("get", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, apierrors.NewForbidden(corev1.Resource("pods"), appName+"-abc-1", fmt.Errorf("injected live Get 403"))
+	})
+	recorder := events.NewFakeRecorder(10)
+	reconciler.Recorder = recorder
+
+	policy := newTestPolicy(policyName, policyNS)
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	recommendations := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation(appName,
+			"500m", "512Mi", "1000m", "1Gi",
+			"200m", "256Mi", "1000m", "1Gi"),
+	}
+
+	beforeUnavail := testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues(policyNS, policyName, "unavailable"))
+	count, history := reconciler.executeResizes(
+		context.Background(),
+		policy,
+		[]client.Object{deploy},
+		recommendations,
+		podMap(appName, pod),
+		nil,
+		nil,
+	)
+	assert.Equal(t, 0, count, "live Get error must not apply from a listed snapshot")
+	assert.Empty(t, history)
+	assert.Equal(t, 0, resizeSubresourceCount(cs))
+	assert.Equal(t, beforeUnavail+1,
+		testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues(policyNS, policyName, "unavailable")))
+
+	found := false
+	for {
+		select {
+		case event := <-recorder.Events:
+			if strings.Contains(event, "ResizeSkipped") && strings.Contains(event, "pod status unavailable") {
+				found = true
+			}
+		default:
+			require.True(t, found, "expected ResizeSkipped when live Get fails on a request-only decrease")
 			return
 		}
 	}

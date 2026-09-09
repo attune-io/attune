@@ -17,7 +17,7 @@ flowchart LR
 | Mode | Risk | What happens |
 |------|------|-------------|
 | Recommend | None | Metrics collected, recommendations computed and written to status |
-| OneShot | Low | One pod resized per cycle |
+| OneShot | Low | OneShot applies at most one needing pod per cycle. Replicas that are already at the applied target, or that are blocked by QoS, node pressure, quota, or Infeasible plus InPlaceOnly, are skipped so another replica can still resize. |
 | Canary | Medium | Percentage-based rollout with observation |
 | Auto | Higher | All eligible pods resized |
 
@@ -316,6 +316,10 @@ Before resizing, the controller checks for potential conflicts:
   mid-rollout and resizing is deferred.
 - **Opt-out annotation**: workloads with `attune.io/skip: "true"` are
   skipped entirely.
+- **Namespace freeze**: `attune.io/freeze=true` on the namespace skips
+  in-place resize, eviction, startup boost, template persist, and CREATE
+  initial sizing. Recommendations still compute. If the namespace cannot
+  be read, apply is skipped (fail closed).
 - **QoS preservation**: for Guaranteed-class pods, the resize is blocked if
   it would cause requests to differ from limits.
 - **HPA coexistence**: an informational notice is logged but resizing proceeds.

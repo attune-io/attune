@@ -309,6 +309,27 @@ Existing resizes are not reverted.
 **Fix**: Set `spec.paused: false` or remove the field entirely. The operator
 will resume reconciliation on the next cycle.
 
+### NamespaceFrozen
+
+**Symptom**: ResizeBlocked is `True` with reason `NamespaceFrozen`. Events
+say `namespace has attune.io/freeze=true; resizes skipped`. Recommendations
+still appear in status.
+
+**Cause**: The policy namespace has `attune.io/freeze=true`, or the operator
+could not read the namespace (fail closed). In-place resizes, evictions,
+startup boosts, template persistence, and CREATE initial sizing are skipped.
+Metrics collection and recommendations continue so `kubectl attune
+recommendations` still works.
+
+**Fix**: Remove the annotation or set it to any value other than `true`:
+
+```bash
+kubectl annotate namespace <ns> attune.io/freeze-
+```
+
+If the condition message says the namespace could not be read, check RBAC
+for `namespaces` get/list/watch on the operator ServiceAccount.
+
 ### CooldownActive
 
 **Symptom**: The operator logs "Cooldown active, skipping resize" and no
@@ -496,6 +517,21 @@ kubectl get pod <pod> -o jsonpath='{range .status.conditions[?(@.type=="PodResiz
 
 **Fix**: Scale until at least two pods are Running, or wait for another replica to become Running.
 
+### OneShot skipped the first replica but others still need a resize
+
+**Symptom**: OneShot did not resize the first listed replica, but other
+replicas still need a resize. Events show `ResizeSkipped` for QoS, node
+pressure, quota, or Infeasible plus InPlaceOnly.
+
+**Cause**: OneShot applies at most one needing pod per cycle. Replicas
+that are already at the applied target, or that are blocked by QoS, node
+pressure, quota, or Infeasible plus InPlaceOnly, are skipped so another
+replica can still resize.
+
+**Fix**: Check events on the skipped replica. The next needing replica
+in the same cycle should still resize. Remaining needing replicas wait
+for later cycles and cooldown.
+
 ### QoS class change blocked
 
 **Symptom**: Operator logs `Skipping resize: would change QoS class`.
@@ -504,8 +540,10 @@ kubectl get pod <pod> -o jsonpath='{range .status.conditions[?(@.type=="PodResiz
 policy would set different values for requests and limits, the resize is
 skipped.
 
-**Fix**: Set `controlledValues: RequestsAndLimits` so both are updated
-together, or switch to `RequestsOnly` if the pod should be Burstable.
+**Fix**: Use controlledValues: RequestsAndLimits so requests stay equal
+to limits. Attune will not change QoS from Guaranteed to Burstable. On
+Kubernetes 1.33, a memory limit decrease may also need resizePolicy:
+RestartContainer.
 
 ### ResourceQuota exceeded
 

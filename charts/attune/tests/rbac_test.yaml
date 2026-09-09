@@ -222,6 +222,20 @@ tests:
               - get
               - list
               - watch
+
+  - it: should include namespace read permissions for attune.io/freeze
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - ""
+            resources:
+              - namespaces
+            verbs:
+              - get
+              - list
+              - watch
   - it: should include deployment and statefulset patch for template persistence
     asserts:
       - contains:

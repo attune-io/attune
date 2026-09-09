@@ -81,16 +81,28 @@ func (r *AttunePolicyReconciler) firstOneShotPodNeedingResize(
 	policy *attunev1alpha1.AttunePolicy,
 	pods []corev1.Pod,
 	rec attunev1alpha1.WorkloadRecommendation,
+	checks *resizePreChecks,
 ) []corev1.Pod {
 	for i := range pods {
 		p := &pods[i]
 		if !resize.IsEligibleForResize(p) {
 			continue
 		}
-		if r.oneShotPodAlreadyAtTarget(ctx, policy, p, rec) {
+		// Live Get before Infeasible / shouldSkipResize, matching apply.
+		// Get errors fail closed: do not select the listed snapshot.
+		live, err := r.fetchLivePodForResize(ctx, p)
+		if err != nil {
+			log.FromContext(ctx).V(1).Info("OneShot: skipping pod after live Get error",
+				"pod", p.Name, "namespace", p.Namespace, "error", err)
 			continue
 		}
-		if r.oneShotPodAllNeedingContainersBlocked(ctx, policy, p, rec) {
+		if live != nil {
+			p = live
+		}
+		if r.oneShotPodAlreadyAtTarget(policy, p, rec) {
+			continue
+		}
+		if r.oneShotPodAllNeedingContainersBlocked(ctx, policy, p, rec, checks) {
 			continue
 		}
 		return []corev1.Pod{*p}
@@ -98,44 +110,80 @@ func (r *AttunePolicyReconciler) firstOneShotPodNeedingResize(
 	return nil
 }
 
+// liveResizeApplyMeta is the clamp/floor result of applyLiveResizeTarget
+// so callers can emit events and metrics without re-deriving decisions.
+type liveResizeApplyMeta struct {
+	PreClamped              corev1.ResourceRequirements
+	PlatformClamped         bool
+	RequestedMemLimit       resource.Quantity
+	ClampedMemLimit         resource.Quantity
+	GuaranteedRequestRaised bool
+	FloorApplied            bool
+	FloorFromLimit          resource.Quantity
+	FloorToLimit            resource.Quantity
+	FloorUsage              resource.Quantity
+	FloorMargin             float64
+	FloorEqualsCurrent      bool
+}
+
+// applyLiveResizeTarget applies ClampMemoryLimitForPolicy, the Guaranteed
+// request raise when platform-clamped, and the usage floor otherwise.
+// OneShot compare and resizeContainer must share this so they cannot drift.
+func (r *AttunePolicyReconciler) applyLiveResizeTarget(
+	policy *attunev1alpha1.AttunePolicy,
+	pod *corev1.Pod,
+	containerRec attunev1alpha1.ContainerRecommendation,
+	target corev1.ResourceRequirements,
+) (corev1.ResourceRequirements, liveResizeApplyMeta) {
+	meta := liveResizeApplyMeta{PreClamped: *target.DeepCopy()}
+	target = resize.ClampMemoryLimitForPolicy(pod, containerRec.Name, target, r.AllowInPlaceMemoryLimitDecrease)
+	if memLim, ok := meta.PreClamped.Limits[corev1.ResourceMemory]; ok {
+		if clampedLim, cok := target.Limits[corev1.ResourceMemory]; cok && !memLim.Equal(clampedLim) {
+			meta.PlatformClamped = true
+			meta.RequestedMemLimit = memLim
+			meta.ClampedMemLimit = clampedLim
+			if pod.Status.QOSClass == corev1.PodQOSGuaranteed {
+				if memReq, rok := target.Requests[corev1.ResourceMemory]; rok && memReq.Cmp(clampedLim) < 0 {
+					target.Requests[corev1.ResourceMemory] = clampedLim.DeepCopy()
+					meta.GuaranteedRequestRaised = true
+				}
+			}
+		}
+	}
+	if !meta.PlatformClamped {
+		floored, applied, usage, margin := r.computeMemoryUsageFloor(policy, pod, containerRec, target)
+		if applied {
+			fromLim := target.Limits[corev1.ResourceMemory]
+			toLim := floored.Limits[corev1.ResourceMemory]
+			meta.FloorApplied = true
+			meta.FloorFromLimit = fromLim
+			meta.FloorToLimit = toLim
+			meta.FloorUsage = usage
+			meta.FloorMargin = margin
+			meta.FloorEqualsCurrent = toLim.Equal(liveContainerCurrent(pod, containerRec).MemoryLimit)
+			target = floored
+		}
+		target = resize.RaiseGuaranteedMemoryRequestToLimit(pod, target)
+	}
+	return target, meta
+}
+
 // appliedResizeTarget is the clamp + Guaranteed QoS raise + usage floor that
 // resizeContainer applies before shouldSkipResize. OneShot selection must
 // compare and skip against this same applied target.
 func (r *AttunePolicyReconciler) appliedResizeTarget(
-	ctx context.Context,
 	policy *attunev1alpha1.AttunePolicy,
 	pod *corev1.Pod,
 	containerRec attunev1alpha1.ContainerRecommendation,
 ) corev1.ResourceRequirements {
 	target, _ := buildResizeTarget(containerRec)
-	preClamped := target.DeepCopy()
-	target = resize.ClampMemoryLimitForPolicy(pod, containerRec.Name, target, r.AllowInPlaceMemoryLimitDecrease)
-	platformClamped := false
-	if memLim, ok := preClamped.Limits[corev1.ResourceMemory]; ok {
-		if clampedLim, cok := target.Limits[corev1.ResourceMemory]; cok && !memLim.Equal(clampedLim) {
-			platformClamped = true
-			if pod.Status.QOSClass == corev1.PodQOSGuaranteed {
-				if memReq, rok := target.Requests[corev1.ResourceMemory]; rok && memReq.Cmp(clampedLim) < 0 {
-					target.Requests[corev1.ResourceMemory] = clampedLim.DeepCopy()
-				}
-			}
-		}
-	}
-	if !platformClamped {
-		target = r.applyMemoryUsageFloor(ctx, policy, pod, containerRec, target)
-		target = resize.RaiseGuaranteedMemoryRequestToLimit(pod, target)
-	}
-	return target
+	applied, _ := r.applyLiveResizeTarget(policy, pod, containerRec, target)
+	return applied
 }
 
 // oneShotPodAlreadyAtTarget is true when every recommended container already
-// matches the applied (clamped/floored) target. resizeContainer applies
-// ClampMemoryLimitForPolicy and applyMemoryUsageFloor before shouldSkipResize,
-// so OneShot must compare against that same applied target. Otherwise a
-// replica whose live limit stayed at the clamped/floored value is re-selected
-// every cycle and later replicas never move.
+// matches the applied (clamped/floored) target from applyLiveResizeTarget.
 func (r *AttunePolicyReconciler) oneShotPodAlreadyAtTarget(
-	ctx context.Context,
 	policy *attunev1alpha1.AttunePolicy,
 	pod *corev1.Pod,
 	rec attunev1alpha1.WorkloadRecommendation,
@@ -144,7 +192,7 @@ func (r *AttunePolicyReconciler) oneShotPodAlreadyAtTarget(
 		return true
 	}
 	for _, containerRec := range rec.Containers {
-		target := r.appliedResizeTarget(ctx, policy, pod, containerRec)
+		target := r.appliedResizeTarget(policy, pod, containerRec)
 		c := findContainerByName(pod, containerRec.Name)
 		if c == nil || !containerMatchesAppliedTarget(c, target) {
 			return false
@@ -176,12 +224,13 @@ func (r *AttunePolicyReconciler) oneShotPodAllNeedingContainersBlocked(
 	policy *attunev1alpha1.AttunePolicy,
 	pod *corev1.Pod,
 	rec attunev1alpha1.WorkloadRecommendation,
+	checks *resizePreChecks,
 ) bool {
 	infeasibleBlocked := resize.IsResizeInfeasible(pod) && resizeMethodIsInPlaceOnly(policy)
 	needing := 0
 	blocked := 0
 	for _, containerRec := range rec.Containers {
-		target := r.appliedResizeTarget(ctx, policy, pod, containerRec)
+		target := r.appliedResizeTarget(policy, pod, containerRec)
 		c := findContainerByName(pod, containerRec.Name)
 		if c != nil && containerMatchesAppliedTarget(c, target) {
 			continue
@@ -191,7 +240,7 @@ func (r *AttunePolicyReconciler) oneShotPodAllNeedingContainersBlocked(
 			blocked++
 			continue
 		}
-		skip, reason := r.shouldSkipResize(ctx, policy, pod, containerRec, target, nil)
+		skip, reason := r.shouldSkipResize(ctx, pod, containerRec, target, checks)
 		if skip && reason != "" {
 			blocked++
 		}
@@ -385,9 +434,13 @@ func (r *AttunePolicyReconciler) executeResizes(
 				wlMode = attunev1alpha1.UpdateTypeCanary
 			}
 		}
-		selectedPods := selectPodsForResize(pods, wlMode, canaryPct)
+		var selectedPods []corev1.Pod
 		if wlMode == attunev1alpha1.UpdateTypeOneShot {
-			selectedPods = r.firstOneShotPodNeedingResize(ctx, policy, pods, rec)
+			// OneShot walks remaining replicas; selectPodsForResize OneShot
+			// is eligible[:1] and would pin the first replica forever (#682).
+			selectedPods = r.firstOneShotPodNeedingResize(ctx, policy, pods, rec, checks)
+		} else {
+			selectedPods = selectPodsForResize(pods, wlMode, canaryPct)
 		}
 		logger.V(1).Info("Pod selection for resize",
 			"workload", rec.Workload, "total", len(pods),
@@ -554,51 +607,31 @@ func (r *AttunePolicyReconciler) resizeContainer(
 	containerRec, resizer, monitor, now := p.ContainerRec, p.Resizer, p.Monitor, p.Now
 	target := p.Target
 
-	// Clamp the target memory limit before skip checks (including QoS
-	// preservation). K8s v1.33 forbids in-place memory limit decreases
-	// when the resize policy is NotRequired. Applying the clamp early
-	// ensures shouldSkipResize sees the actual values that will be sent
-	// to the API server. Without this, a Guaranteed QoS pod could pass
-	// the QoS check with the unclamped target but then have its memory
-	// limit preserved by the resize engine, breaking requests == limits.
-	preClamped := target.DeepCopy()
-	target = resize.ClampMemoryLimitForPolicy(pod, containerRec.Name, target, r.AllowInPlaceMemoryLimitDecrease)
-	platformClamped := false
-	if memLim, ok := preClamped.Limits[corev1.ResourceMemory]; ok {
-		if clampedLim, cok := target.Limits[corev1.ResourceMemory]; cok && !memLim.Equal(clampedLim) {
-			platformClamped = true
-			logger.Info("Memory limit decrease clamped by resize policy",
-				"pod", pod.Name, "container", containerRec.Name,
-				"requestedLimit", memLim.String(), "clampedLimit", clampedLim.String())
-			r.emitEventOnce(policy, corev1.EventTypeWarning, "MemoryLimitClamped", "resize",
-				"Container %s in pod %s: memory limit decrease blocked (NotRequired resize policy); limit preserved at %s",
-				containerRec.Name, pod.Name, clampedLim.String())
-			operatormetrics.MemoryLimitDecreaseTotal.WithLabelValues(
-				policy.Namespace, policy.Name, "clamped_platform").Inc()
-			// For Guaranteed QoS pods, the memory request must also be raised
-			// to match the clamped limit. Otherwise requests != limits and
-			// PreservesQoS blocks the resize entirely, preventing CPU changes
-			// that would otherwise succeed.
-			if pod.Status.QOSClass == corev1.PodQOSGuaranteed {
-				if memReq, rok := target.Requests[corev1.ResourceMemory]; rok && memReq.Cmp(clampedLim) < 0 {
-					target.Requests[corev1.ResourceMemory] = clampedLim.DeepCopy()
-					logger.Info("Memory request raised to match clamped limit for Guaranteed QoS",
-						"pod", pod.Name, "container", containerRec.Name,
-						"request", clampedLim.String())
-				}
-			}
-		}
+	// Live-Get before floor and pressure gates. The listed/informer pod can
+	// lag a prior in-place resize: a stale-low limit clips the usage floor
+	// below live usage; a stale-high request classifies a live increase as
+	// a decrease and skips MemoryPressure / unavailable / neighbor gates.
+	// Fail-closed on Get error: do not classify increase vs decrease
+	// against the listed snapshot (it may be stale-high).
+	if live, err := r.fetchLivePodForResize(ctx, pod); err != nil {
+		reason := "pod status unavailable; skipping resize"
+		logger.Info("Skipping resize: "+reason,
+			"pod", pod.Name, "namespace", pod.Namespace, "container", containerRec.Name, "error", err)
+		r.emitEventOnce(policy, corev1.EventTypeWarning, "ResizeSkipped", "resize",
+			"Resize blocked for pod %s container %s: %s", pod.Name, containerRec.Name, reason)
+		recordCapacitySkip(policy, reason)
+		return nil, resizeOutcomeNone
+	} else if live != nil {
+		pod = live
 	}
 
-	// Client-side pre-check: do not apply a memory limit at or below recent
-	// usage (plus configurable margin). Uses recommendation RawPercentile as
-	// recent usage from the metrics window (#444 / #428).
-	if !platformClamped {
-		target = r.applyMemoryUsageFloor(ctx, policy, pod, containerRec, target)
-		target = resize.RaiseGuaranteedMemoryRequestToLimit(pod, target)
-	}
+	// Apply clamp + Guaranteed raise + usage floor before skip checks so
+	// shouldSkipResize sees the values that will be sent to the API server.
+	target, applyMeta := r.applyLiveResizeTarget(policy, pod, containerRec, target)
+	r.emitLiveResizeApply(ctx, policy, pod, containerRec, applyMeta)
+	preClamped := applyMeta.PreClamped
 
-	skip, reason := r.shouldSkipResize(ctx, policy, pod, containerRec, target, p.Checks)
+	skip, reason := r.shouldSkipResize(ctx, pod, containerRec, target, p.Checks)
 	if skip {
 		if reason != "" {
 			logger.Info("Skipping resize: "+reason,
@@ -688,13 +721,6 @@ func (r *AttunePolicyReconciler) resizeContainer(
 				Resource: "cpu+memory", Method: "Eviction", Result: attunev1alpha1.ResizeResultEvicted,
 			},
 		}
-	}
-
-	// Live Get before Infeasible: the informer pod can lag kubelet (or an
-	// E2E inject loop) by a watch interval. Same class as the node
-	// pressure re-check above. Get failure keeps the listed object.
-	if live := r.livePodForResize(ctx, pod); live != nil {
-		pod = live
 	}
 
 	// Pods already marked Infeasible cannot be resized in-place on the current node.
@@ -1495,7 +1521,6 @@ func targetLimitsMatchLive(live, target corev1.ResourceList) bool {
 // pod already matches the recommendation (no log needed).
 func (r *AttunePolicyReconciler) shouldSkipResize(
 	ctx context.Context,
-	policy *attunev1alpha1.AttunePolicy,
 	pod *corev1.Pod,
 	containerRec attunev1alpha1.ContainerRecommendation,
 	target corev1.ResourceRequirements,
@@ -1504,9 +1529,7 @@ func (r *AttunePolicyReconciler) shouldSkipResize(
 	// Already at target (compare against clamped target, not raw recommendation,
 	// so requests clamped to limits are correctly detected as no-ops).
 	if c := findContainerByName(pod, containerRec.Name); c != nil {
-		if c.Resources.Requests.Cpu().MilliValue() == target.Requests.Cpu().MilliValue() &&
-			c.Resources.Requests.Memory().Value() == target.Requests.Memory().Value() &&
-			targetLimitsMatchLive(c.Resources.Limits, target.Limits) {
+		if containerMatchesAppliedTarget(c, target) {
 			return true, ""
 		}
 	}
@@ -1596,15 +1619,9 @@ func (r *AttunePolicyReconciler) shouldSkipResize(
 		}
 	}
 
-	// QoS class change.
+	// QoS class change. Callers emit the user-visible event from the reason.
 	if !resize.PreservesQoS(pod, containerRec.Name, target) {
-		if r.Recorder != nil {
-			r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "ResizeSkipped", "resize",
-				"Skipping resize for pod %s container %s: would change QoS class from Guaranteed. "+
-					"Use controlledValues: RequestsAndLimits, or on K8s v1.33 set resizePolicy to RestartContainer for memory",
-				pod.Name, containerRec.Name)
-		}
-		return true, "would change QoS class"
+		return true, "would change QoS class from Guaranteed. Use controlledValues: RequestsAndLimits, or on K8s v1.33 set resizePolicy to RestartContainer for memory"
 	}
 
 	return false, ""
@@ -1627,7 +1644,8 @@ func recordCapacitySkip(policy *attunev1alpha1.AttunePolicy, reason string) {
 		strings.Contains(reason, "PIDPressure"),
 		strings.Contains(reason, "node pressure"):
 		operatormetrics.CapacitySkipTotal.WithLabelValues(policy.Namespace, policy.Name, "pressure").Inc()
-	case strings.Contains(reason, "node status unavailable"):
+	case strings.Contains(reason, "node status unavailable"),
+		strings.Contains(reason, "pod status unavailable"):
 		operatormetrics.CapacitySkipTotal.WithLabelValues(policy.Namespace, policy.Name, "unavailable").Inc()
 	}
 }
@@ -1746,6 +1764,83 @@ func targetIncreasesRequests(pod *corev1.Pod, containerName string, target corev
 	return cpuInc || memInc
 }
 
+// emitLiveResizeApply writes clamp/floor events and metrics from apply meta.
+func (r *AttunePolicyReconciler) emitLiveResizeApply(
+	ctx context.Context,
+	policy *attunev1alpha1.AttunePolicy,
+	pod *corev1.Pod,
+	containerRec attunev1alpha1.ContainerRecommendation,
+	meta liveResizeApplyMeta,
+) {
+	logger := log.FromContext(ctx)
+	if meta.PlatformClamped {
+		logger.Info("Memory limit decrease clamped by resize policy",
+			"pod", pod.Name, "container", containerRec.Name,
+			"requestedLimit", meta.RequestedMemLimit.String(),
+			"clampedLimit", meta.ClampedMemLimit.String())
+		r.emitEventOnce(policy, corev1.EventTypeWarning, "MemoryLimitClamped", "resize",
+			"Container %s in pod %s: memory limit decrease blocked (NotRequired resize policy); limit preserved at %s",
+			containerRec.Name, pod.Name, meta.ClampedMemLimit.String())
+		operatormetrics.MemoryLimitDecreaseTotal.WithLabelValues(
+			policy.Namespace, policy.Name, "clamped_platform").Inc()
+		if meta.GuaranteedRequestRaised {
+			logger.Info("Memory request raised to match clamped limit for Guaranteed QoS",
+				"pod", pod.Name, "container", containerRec.Name,
+				"request", meta.ClampedMemLimit.String())
+		}
+	}
+	if meta.FloorApplied {
+		logger.Info("Memory limit decrease floored above recent usage",
+			"pod", pod.Name, "container", containerRec.Name,
+			"requestedLimit", meta.FloorFromLimit.String(),
+			"usage", meta.FloorUsage.String(),
+			"marginPercent", meta.FloorMargin,
+			"flooredLimit", meta.FloorToLimit.String())
+		r.emitEventOnce(policy, corev1.EventTypeWarning, "MemoryLimitUsageFloor", "resize",
+			"Container %s in pod %s: memory limit decrease raised from %s to %s (usage %s + %.0f%% margin)",
+			containerRec.Name, pod.Name, meta.FloorFromLimit.String(), meta.FloorToLimit.String(),
+			meta.FloorUsage.String(), meta.FloorMargin)
+		if meta.FloorEqualsCurrent {
+			operatormetrics.MemoryLimitDecreaseTotal.WithLabelValues(
+				policy.Namespace, policy.Name, "skipped_unsafe").Inc()
+		} else {
+			operatormetrics.MemoryLimitDecreaseTotal.WithLabelValues(
+				policy.Namespace, policy.Name, "clamped_usage").Inc()
+		}
+	}
+}
+
+// computeMemoryUsageFloor raises a decreasing memory limit so it stays above
+// recent usage * (1 + margin/100). Silent: callers emit events from the result.
+func (r *AttunePolicyReconciler) computeMemoryUsageFloor(
+	policy *attunev1alpha1.AttunePolicy,
+	pod *corev1.Pod,
+	containerRec attunev1alpha1.ContainerRecommendation,
+	target corev1.ResourceRequirements,
+) (corev1.ResourceRequirements, bool, resource.Quantity, float64) {
+	targetLim, ok := target.Limits[corev1.ResourceMemory]
+	if !ok {
+		return target, false, resource.Quantity{}, 0
+	}
+	currentLim := liveContainerCurrent(pod, containerRec).MemoryLimit
+	if currentLim.IsZero() || targetLim.Cmp(currentLim) >= 0 {
+		return target, false, resource.Quantity{}, 0
+	}
+	usage, hasUsage := recentMemoryUsage(containerRec)
+	if !hasUsage {
+		return target, false, resource.Quantity{}, 0
+	}
+	margin := float64(attunev1alpha1.DefaultDecreaseUsageMarginPercent)
+	if policy != nil && policy.Spec.Memory.DecreaseUsageMarginPercent != nil {
+		margin = float64(*policy.Spec.Memory.DecreaseUsageMarginPercent)
+	}
+	floored, applied := resize.FloorMemoryLimitForUsage(target, currentLim, usage, margin)
+	if !applied {
+		return target, false, usage, margin
+	}
+	return floored, true, usage, margin
+}
+
 // applyMemoryUsageFloor raises a decreasing memory limit so it stays above
 // recent usage * (1 + margin/100). Recent usage is the memory recommendation
 // RawPercentile (historical usage percentile before overhead).
@@ -1756,49 +1851,21 @@ func (r *AttunePolicyReconciler) applyMemoryUsageFloor(
 	containerRec attunev1alpha1.ContainerRecommendation,
 	target corev1.ResourceRequirements,
 ) corev1.ResourceRequirements {
-	logger := log.FromContext(ctx)
-	targetLim, ok := target.Limits[corev1.ResourceMemory]
-	if !ok {
-		return target
-	}
-	currentLim := liveContainerCurrent(pod, containerRec).MemoryLimit
-	if currentLim.IsZero() || targetLim.Cmp(currentLim) >= 0 {
-		return target
-	}
-
-	usage, hasUsage := recentMemoryUsage(containerRec)
-	if !hasUsage {
-		return target
-	}
-
-	margin := float64(attunev1alpha1.DefaultDecreaseUsageMarginPercent)
-	if policy.Spec.Memory.DecreaseUsageMarginPercent != nil {
-		margin = float64(*policy.Spec.Memory.DecreaseUsageMarginPercent)
-	}
-
-	floored, applied := resize.FloorMemoryLimitForUsage(target, currentLim, usage, margin)
+	floored, applied, usage, margin := r.computeMemoryUsageFloor(policy, pod, containerRec, target)
 	if !applied {
 		return target
 	}
-
-	newLim := floored.Limits[corev1.ResourceMemory]
-	logger.Info("Memory limit decrease floored above recent usage",
-		"pod", pod.Name, "container", containerRec.Name,
-		"requestedLimit", targetLim.String(),
-		"usage", usage.String(),
-		"marginPercent", margin,
-		"flooredLimit", newLim.String())
-	r.emitEventOnce(policy, corev1.EventTypeWarning, "MemoryLimitUsageFloor", "resize",
-		"Container %s in pod %s: memory limit decrease raised from %s to %s (usage %s + %.0f%% margin)",
-		containerRec.Name, pod.Name, targetLim.String(), newLim.String(), usage.String(), margin)
-
-	if newLim.Equal(currentLim) {
-		operatormetrics.MemoryLimitDecreaseTotal.WithLabelValues(
-			policy.Namespace, policy.Name, "skipped_unsafe").Inc()
-	} else {
-		operatormetrics.MemoryLimitDecreaseTotal.WithLabelValues(
-			policy.Namespace, policy.Name, "clamped_usage").Inc()
-	}
+	currentLim := liveContainerCurrent(pod, containerRec).MemoryLimit
+	fromLim := target.Limits[corev1.ResourceMemory]
+	toLim := floored.Limits[corev1.ResourceMemory]
+	r.emitLiveResizeApply(ctx, policy, pod, containerRec, liveResizeApplyMeta{
+		FloorApplied:       true,
+		FloorFromLimit:     fromLim,
+		FloorToLimit:       toLim,
+		FloorUsage:         usage,
+		FloorMargin:        margin,
+		FloorEqualsCurrent: toLim.Equal(currentLim),
+	})
 	return floored
 }
 
@@ -1815,19 +1882,18 @@ func recentMemoryUsage(containerRec attunev1alpha1.ContainerRecommendation) (res
 	return u, true
 }
 
-// livePodForResize returns the named pod from the typed Clientset when
-// configured. Used immediately before the Infeasible eviction decision so
-// a stale informer snapshot cannot hide a live Infeasible (or keep a
-// cleared one). Returns listed on Get error or when Clientset is unset.
-func (r *AttunePolicyReconciler) livePodForResize(ctx context.Context, listed *corev1.Pod) *corev1.Pod {
+// fetchLivePodForResize returns the named pod from the typed Clientset.
+// Get errors are returned so callers can fail-closed and skip apply.
+// When Clientset is unset, listed is returned with a nil error.
+func (r *AttunePolicyReconciler) fetchLivePodForResize(ctx context.Context, listed *corev1.Pod) (*corev1.Pod, error) {
 	if r.Clientset == nil || listed == nil {
-		return listed
+		return listed, nil
 	}
 	fresh, err := r.Clientset.CoreV1().Pods(listed.Namespace).Get(ctx, listed.Name, metav1.GetOptions{})
 	if err != nil {
-		return listed
+		return listed, err
 	}
-	return fresh
+	return fresh, nil
 }
 
 // getNodeForResize returns the named node for capacity/pressure checks.
@@ -1872,12 +1938,12 @@ func nodePressureBlocksIncrease(node *corev1.Node, pod *corev1.Pod, containerNam
 		switch cond.Type {
 		case corev1.NodeMemoryPressure:
 			if memInc {
-				return "node has MemoryPressure; skipping memory request increase"
+				return "node has MemoryPressure; skipping memory request increase (CPU increases and all decreases still apply; retry when the node condition clears)"
 			}
 		case corev1.NodeDiskPressure:
-			return "node has DiskPressure; skipping resource request increase"
+			return "node has DiskPressure; skipping resource request increase (every increase is blocked; all decreases still apply; retry when the node condition clears)"
 		case corev1.NodePIDPressure:
-			return "node has PIDPressure; skipping resource request increase"
+			return "node has PIDPressure; skipping resource request increase (every increase is blocked; all decreases still apply; retry when the node condition clears)"
 		}
 	}
 	return ""

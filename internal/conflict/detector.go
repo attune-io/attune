@@ -25,6 +25,7 @@ import (
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
@@ -38,6 +39,16 @@ type ConflictType string
 
 // AnnotationSkip is the annotation key for opting a workload out of right-sizing.
 const AnnotationSkip = "attune.io/skip"
+
+// AnnotationFreeze is the namespace annotation that blocks apply
+// (in-place resize, eviction, startup boost, template persist, and
+// CREATE initial sizing) for every policy in that namespace.
+// Recommendations, status, and export still update.
+const AnnotationFreeze = "attune.io/freeze"
+
+// annotationEnabledValue is the only accepted value for skip and freeze.
+// Match this exact string; do not treat "True", "1", or "yes" as set.
+const annotationEnabledValue = "true"
 
 const (
 	// ConflictVPA indicates a VerticalPodAutoscaler targets the same workload.
@@ -67,14 +78,43 @@ func NewDetector(logger logr.Logger) *Detector {
 	}
 }
 
+// annotationExactTrue reports whether annotations[key] is exactly "true".
+// Shared by skip and freeze so both parsers stay identical.
+func annotationExactTrue(annotations map[string]string, key string) bool {
+	if annotations == nil {
+		return false
+	}
+	return annotations[key] == annotationEnabledValue
+}
+
 // CheckAnnotationOptOut returns true if the object carries the annotation
 // "attune.io/skip" set to "true", indicating that the workload has opted
 // out of automatic right-sizing.
 func (d *Detector) CheckAnnotationOptOut(obj metav1.ObjectMeta) bool {
-	if obj.Annotations == nil {
-		return false
+	return annotationExactTrue(obj.Annotations, AnnotationSkip)
+}
+
+// CheckAnnotationFreeze returns true if the object carries the annotation
+// "attune.io/freeze" set to "true". Same parser as CheckAnnotationOptOut
+// (exact "true" only). Used on Namespace objects as an incident kill-switch.
+func (d *Detector) CheckAnnotationFreeze(obj metav1.ObjectMeta) bool {
+	return IsFreezeAnnotation(obj.Annotations)
+}
+
+// IsFreezeAnnotation reports whether annotations contain attune.io/freeze=true.
+func IsFreezeAnnotation(annotations map[string]string) bool {
+	return annotationExactTrue(annotations, AnnotationFreeze)
+}
+
+// NamespaceApplyFrozen reports whether apply must be skipped for this
+// namespace. Get errors fail closed (frozen=true) so a missing RBAC
+// grant or API outage cannot resume apply during an incident.
+func NamespaceApplyFrozen(ctx context.Context, c client.Client, namespace string) (bool, error) {
+	var ns corev1.Namespace
+	if err := c.Get(ctx, client.ObjectKey{Name: namespace}, &ns); err != nil {
+		return true, err
 	}
-	return obj.Annotations[AnnotationSkip] == "true"
+	return IsFreezeAnnotation(ns.Annotations), nil
 }
 
 // CheckActiveRollout returns true if the deployment has an active rollout in

@@ -459,7 +459,7 @@ type ResourceBounds struct {
 type UpdateStrategy struct {
 	// Mode determines the update behavior, graduated from safe to automated:
 	//   Recommend: collects metrics and writes recommendations to status, no pod changes.
-	//   OneShot: resizes one pod per reconcile cycle.
+	//   OneShot: at most one needing pod per cycle. Skips already-at-target and blocked replicas (QoS, pressure, quota, Infeasible+InPlaceOnly).
 	//   Canary: resizes a percentage of pods first, then the rest after observation.
 	//   Auto: resizes all eligible pods each cycle.
 	//   Observe: collects metrics and tracks data points but does not surface recommendations or savings.

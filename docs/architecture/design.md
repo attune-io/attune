@@ -90,6 +90,9 @@ Located in `internal/conflict/`. Detects potential conflicts:
 - **HPA**: identifies HPAs targeting the same workload.
 - **VPA**: warns about active VPA objects targeting the same workload.
 - **Opt-out**: checks for the `attune.io/skip: "true"` annotation.
+- **Namespace freeze**: `attune.io/freeze=true` on the policy namespace
+  blocks apply (resize, eviction, boost, persist, CREATE initial sizing)
+  while recommendations continue.
 - **Active rollout**: detects in-progress deployments.
 
 ### Status Reporter

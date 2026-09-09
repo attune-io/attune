@@ -143,7 +143,7 @@ cost savings.
 When you are satisfied with the recommendations, change the mode:
 
 - Use [Canary](canary-rollout.md) to resize a subset first.
-- Use **OneShot** to resize a single pod per reconciliation cycle.
+- **OneShot** applies at most one needing pod per cycle. Replicas that are already at the applied target, or that are blocked by QoS, node pressure, quota, or Infeasible plus InPlaceOnly, are skipped so another replica can still resize.
 - Use **Auto** to resize all eligible pods (best for non-critical workloads).
 
 ```bash

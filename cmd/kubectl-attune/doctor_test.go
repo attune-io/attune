@@ -535,6 +535,7 @@ func TestRunDoctor_ExitCodes(t *testing.T) {
 	assert.Contains(t, stdout.String(), "Kubernetes version     ok   [required]")
 	assert.Contains(t, stdout.String(), "Prometheus             WARN [optional] skipped (no address on policies or defaults)")
 	assert.Contains(t, stdout.String(), "AttunePolicies         WARN [optional] no AttunePolicies in scope")
+	assert.Contains(t, stdout.String(), "Namespace freeze: annotate the namespace attune.io/freeze=true to skip apply.")
 	assert.NotContains(t, stdout.String(), "Prometheus             ok")
 	assert.Empty(t, stderr.String())
 

@@ -2837,6 +2837,27 @@ func TestPrintEffectivePolicySummary_DoesNotPanic(t *testing.T) {
 	printEffectivePolicySummary(item, policy, selectedDefaults{defaults: defaults, source: "cluster"})
 }
 
+func TestPrintEffectivePolicySummary_NamespaceFreezeHelp(t *testing.T) {
+	policy := &attunev1alpha1.AttunePolicy{
+		Spec: attunev1alpha1.AttunePolicySpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{Type: attunev1alpha1.UpdateTypeAuto},
+		},
+	}
+	item := unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{},
+	}}
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	old := os.Stdout
+	os.Stdout = w
+	printEffectivePolicySummary(item, policy, selectedDefaults{})
+	_ = w.Close()
+	os.Stdout = old
+	out, err := io.ReadAll(r)
+	require.NoError(t, err)
+	assert.Contains(t, string(out), "Namespace freeze: annotate the namespace attune.io/freeze=true to skip apply.")
+}
+
 func TestPrintEffectivePolicySummary_CostPricing(t *testing.T) {
 	policy := &attunev1alpha1.AttunePolicy{
 		Spec: attunev1alpha1.AttunePolicySpec{

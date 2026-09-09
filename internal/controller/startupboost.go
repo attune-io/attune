@@ -150,7 +150,7 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 							corev1.ResourceMemory: c.Resources.Requests.Memory().DeepCopy(),
 						},
 					}
-					if skip, reason := r.shouldSkipResize(ctx, policy, pod, boostRec, boostTarget, checks); skip {
+					if skip, reason := r.shouldSkipResize(ctx, pod, boostRec, boostTarget, checks); skip {
 						if reason == "" {
 							reason = "already at target"
 						}
@@ -254,7 +254,7 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 								corev1.ResourceMemory: c.Resources.Requests.Memory().DeepCopy(),
 							},
 						}
-						if skip, reason := r.shouldSkipResize(ctx, policy, pod, expireRec, expireTarget, checks); skip {
+						if skip, reason := r.shouldSkipResize(ctx, pod, expireRec, expireTarget, checks); skip {
 							if reason == "" {
 								reason = "already at target"
 							}

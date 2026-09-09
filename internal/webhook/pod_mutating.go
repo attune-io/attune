@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/conflict"
 	"github.com/attune-io/attune/internal/operatormetrics"
 	"github.com/attune-io/attune/internal/resize"
 )
@@ -99,6 +100,20 @@ func (h *PodMutatingHandler) Handle(ctx context.Context, req admission.Request) 
 	policy, rec := h.findMatchingPolicy(ctx, req.Namespace, policies.Items, ownerKind, ownerName, pod.Name)
 	if policy == nil || rec == nil {
 		return admission.Allowed("no matching policy with initial sizing")
+	}
+
+	// Namespace freeze is an incident kill-switch: do not CREATE-size.
+	// Get errors fail closed (do not mutate). Exact "true" only.
+	frozen, err := conflict.NamespaceApplyFrozen(ctx, h.Client, req.Namespace)
+	if err != nil {
+		h.Logger.Error(err, "getting namespace for attune.io/freeze; skipping initial sizing",
+			"namespace", req.Namespace)
+		return admission.Allowed("cannot read namespace for freeze, skipping initial sizing")
+	}
+	if frozen {
+		h.Logger.Info("skipping initial sizing: namespace has attune.io/freeze=true",
+			"namespace", req.Namespace, "policy", policy.Name)
+		return admission.Allowed("namespace has attune.io/freeze=true")
 	}
 
 	// Mutate the pod's containers.

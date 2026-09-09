@@ -85,7 +85,6 @@ func TestShouldSkipResize_QuotaBaselineUsesLiveNotTemplate(t *testing.T) {
 		},
 	}
 	r := NewAttunePolicyReconciler()
-	policy := &attunev1alpha1.AttunePolicy{}
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-pod", Namespace: "default"},
 		Spec: corev1.PodSpec{
@@ -115,7 +114,7 @@ func TestShouldSkipResize_QuotaBaselineUsesLiveNotTemplate(t *testing.T) {
 	}
 	checks := &resizePreChecks{quotas: []corev1.ResourceQuota{quota}}
 
-	skip, reason := r.shouldSkipResize(context.Background(), policy, pod, containerRec, target, checks)
+	skip, reason := r.shouldSkipResize(context.Background(), pod, containerRec, target, checks)
 	assert.False(t, skip, "decrease from live 1Gi to 512Mi must not use template 256Mi as quota baseline, reason=%q", reason)
 	assert.Empty(t, reason)
 }

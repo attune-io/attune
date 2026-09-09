@@ -282,7 +282,7 @@ that do not set them explicitly. Policy-level values always take precedence.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `type` | string | `Recommend` | `Observe`, `Recommend`, `OneShot`, `Canary`, `Auto` |
+| `type` | string | `Recommend` | `Observe`, `Recommend`, `OneShot`, `Canary`, `Auto`. OneShot applies at most one needing pod per cycle. Replicas that are already at the applied target, or that are blocked by QoS, node pressure, quota, or Infeasible plus InPlaceOnly, are skipped so another replica can still resize. |
 | `cooldown` | duration | `1h` | Minimum time between resizes of the same workload. Other apps on the same policy are not locked. When every matched app is still cooling, the next reconcile waits only until the soonest per-app window expires (a watch event does not restart a full cooldown). |
 | `autoRevert` | bool | `true` | Revert unsafe resizes automatically |
 | `resizeMethod` | string | `InPlaceOnly` | `InPlaceOnly` or `InPlaceOrRecreate` |
@@ -446,6 +446,25 @@ caps apply to `AttunePolicy`, `AttuneDefaults`, and
 | `runtimeProfile` | string | (none) | Optional language/runtime profile (`generic`, `java`, `python`, `golang`, `nodejs`). Applies safe memory defaults and admission warnings. See [runtime profiles](../guides/runtime-profiles.md). |
 | `paused` | bool | `false` | Halts all reconciliation for this policy: no metrics collection, no recommendations, no resizes. Existing resizes are not reverted. The operator sets `Ready=False` with `reason=Paused`. |
 
+### Namespace freeze (`attune.io/freeze`)
+
+Annotate a namespace to stop apply during an incident without pausing
+recommendation computation. The value must be exactly `true`, the same
+parser as `attune.io/skip` (`True`, `1`, and `yes` do not freeze).
+
+```bash
+kubectl annotate namespace <ns> attune.io/freeze=true
+```
+
+| Annotation | Scope | Effect |
+|------------|-------|--------|
+| `attune.io/freeze=true` | Namespace | Skip in-place resize, eviction, startup boost, template persist, and CREATE initial sizing. Metrics, recommendations, status, and export still update. `ResizeBlocked=True` with `reason=NamespaceFrozen`. |
+| `attune.io/skip=true` | Workload | Skip that workload entirely (no recommendations). Independent of freeze. |
+
+If the operator cannot read the namespace, apply is skipped (fail closed)
+and the same `NamespaceFrozen` reason is set. Existing resizes are not
+reverted. Remove the annotation to resume apply on the next reconcile.
+
 ### Container exclusion
 
 | Field | Type | Default | Description |
@@ -605,7 +624,7 @@ The controller sets these conditions on each `AttunePolicy`:
 | `Resizing` | `InProgress`, `Idle`, `CooldownActive` | Active resize operation state (only in resize modes). `CooldownActive` is set only when every matched workload is still cooling down. |
 | `Degraded` | `HighRevertRate` | Set when 3+ of the last 5 resizes were reverted |
 | `ScheduleBlocked` | `OutsideWindow`, `InsideWindow` | Set when `updateStrategy.schedule` is configured; indicates whether the current time is within an allowed resize window |
-| `ResizeBlocked` | `PodsDeferred`, `PodsInfeasible`, `PodsDeferredAndInfeasible` | Pods stuck Deferred or Infeasible; see troubleshooting "Deferred or Infeasible resize" |
+| `ResizeBlocked` | `NamespaceFrozen`, `PodsDeferred`, `PodsInfeasible`, `PodsDeferredAndInfeasible` | Namespace freeze kill-switch, or pods stuck Deferred or Infeasible; see troubleshooting "NamespaceFrozen" and "Deferred or Infeasible resize" |
 | `GitOpsPullRequest` | `PullRequestOpen`, `PullRequestFailed`, `GitOpsEndpointBlocked`, `NoDrift`, `PullRequestUnchanged`, `PullRequestCooldown`, `PullRequestDryRun`, `PullRequestDisabled` | Opt-in `export.pullRequest` automation status (see [GitOps integration](../guides/gitops-integration.md)) |
 
 ### Status fields (GitOps PR)

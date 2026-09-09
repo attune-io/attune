@@ -462,6 +462,7 @@ func runDoctor(ctx context.Context, stdout, stderr io.Writer, disc doctorDiscove
 	}
 	results := runDoctorChecks(ctx, disc, objects, err, ping)
 	printDoctorResults(stdout, results)
+	fmt.Fprintln(stdout, "Namespace freeze: annotate the namespace attune.io/freeze=true to skip apply.")
 	if doctorFailed(results) {
 		fmt.Fprintln(stderr, "doctor: one or more checks failed")
 		return 1
