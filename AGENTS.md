@@ -498,6 +498,16 @@ directory. When referencing files elsewhere in the repo (e.g., `charts/`,
   must poll live requests (`waitForNamedContainersCPUDecrease`) instead of
   a one-shot List after `waitForResize`. Read pods via Clientset so the
   informer cache cannot hide a just-written `/resize` spec.
+- Template persistence `AfterSuccessfulResize` E2E must accept a CPU **or**
+  memory template change. A successful memory-only resize (512Mi to 64Mi)
+  still patches the template and writes `TemplatePatched`. Requiring
+  `requests.cpu != 500m` times out when CPU stays at start. Pin
+  `maxAllowed` below the start request so load cannot recommend `1`.
+- Go E2E tests that wait on `explanation.*.finalAdjustment` must warm
+  cAdvisor (`waitForCadvisorMetrics`) before creating the policy and dump
+  recs/explanation on timeout. CPU explanation is missing until CPU
+  samples reach `minimumDataPoints`; memory-only recs are not enough for
+  a CPU `burstSensitivity` assert.
 - Chainsaw assertions must target **stable** operator states, not transient
   ones. With `minimumDataPoints: 1`, the operator can transition from
   `InsufficientData` to `Monitoring` within seconds. A static assert on

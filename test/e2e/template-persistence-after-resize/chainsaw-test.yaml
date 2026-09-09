@@ -105,14 +105,17 @@ spec:
                   percentile: 95
                   overhead: "20"
                   minAllowed: 50m
-                  maxAllowed: "2"
+                  # Below the 500m start so parallel-load spikes cannot
+                  # recommend 1 (1000m) and skip the in-place CPU change.
+                  maxAllowed: 400m
                   maxChangePercent: 100
                   allowDecrease: true
                 memory:
                   percentile: 99
                   overhead: "30"
                   minAllowed: 64Mi
-                  maxAllowed: 2Gi
+                  # Below the 512Mi start so memory must decrease.
+                  maxAllowed: 256Mi
                   maxChangePercent: 100
                   allowDecrease: true
                 updateStrategy:
@@ -158,17 +161,18 @@ spec:
                 exit 1
               fi
 
-              # 2) Template must change from original 500m after successful resize.
-              # AfterSuccessfulResize is the only writer; OnRecommendation is not configured.
+              # 2) Template must leave the original 500m/512Mi after a
+              # successful resize. AfterSuccessfulResize is the only writer.
+              # Memory-only persist is valid: pause CPU rec can stay at 500m
+              # (or be skipped) while memory decreases 512Mi -> 64Mi.
               for i in $(seq 1 36); do
                 CPU=$(kubectl get deploy "$DEPLOY" -n "$NS" \
                   -o jsonpath='{.spec.template.spec.containers[0].resources.requests.cpu}' 2>/dev/null || true)
                 MEM=$(kubectl get deploy "$DEPLOY" -n "$NS" \
                   -o jsonpath='{.spec.template.spec.containers[0].resources.requests.memory}' 2>/dev/null || true)
-                HIST=$(kubectl get attunepolicy "$POLICY" -n "$NS" \
-                  -o json 2>/dev/null || true)
-                if [ -n "$CPU" ] && [ "$CPU" != "500m" ]; then
-                  echo "Template CPU updated from 500m to $CPU (memory=$MEM)"
+                if { [ -n "$CPU" ] && [ "$CPU" != "500m" ]; } || \
+                   { [ -n "$MEM" ] && [ "$MEM" != "512Mi" ]; }; then
+                  echo "Template updated: cpu=$CPU memory=$MEM"
                   # Prove AfterSuccessfulResize wrote history (not only a template field change).
                   # kubectl -o json may space after colons; match result/method values loosely.
                   RESULTS=$(kubectl get attunepolicy "$POLICY" -n "$NS" \
@@ -184,7 +188,7 @@ spec:
                 fi
                 sleep 5
               done
-              echo "FAIL: expected template CPU change + TemplatePatched history after successful resize"
+              echo "FAIL: expected template CPU or memory change + TemplatePatched history after successful resize"
               kubectl get deploy "$DEPLOY" -n "$NS" -o yaml
               kubectl get attunepolicy "$POLICY" -n "$NS" -o yaml
               exit 1
