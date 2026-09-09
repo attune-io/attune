@@ -775,6 +775,42 @@ func TestMaterializeContainerResources_MemoryUsageFloor_ZeroMargin(t *testing.T)
 	assert.Nil(t, gotRO.Limits, "RequestsOnly must still leave Limits nil")
 }
 
+func TestMaterializeContainerResources_FloorsAgainstUsageWhenNotDecreaseVsCurrent(t *testing.T) {
+	policy := &attunev1alpha1.AttunePolicy{}
+	cv := attunev1alpha1.ControlledRequestsAndLimits
+	policy.Spec.Memory.ControlledValues = &cv
+	memDec := true
+	policy.Spec.Memory.AllowDecrease = &memDec
+	c := attunev1alpha1.ContainerRecommendation{
+		Name: "app",
+		Current: attunev1alpha1.ResourceValues{
+			MemoryLimit: resource.MustParse("512Mi"),
+		},
+		Recommended: attunev1alpha1.ResourceValues{
+			MemoryLimit: resource.MustParse("1Gi"),
+		},
+		Explanation: &attunev1alpha1.ContainerRecommendationExplanation{
+			Memory: &attunev1alpha1.ResourceRecommendationExplanation{
+				RawPercentile: resource.MustParse("1536Mi"),
+			},
+		},
+	}
+	got := materializeContainerResources(policy, c)
+	require.NotNil(t, got.Limits)
+	gotLim := got.Limits[corev1.ResourceMemory]
+	// Recommended 1Gi is an increase vs stale Current 512Mi, but still
+	// below usage 1.5Gi + 10% (~1689Mi). Persist must not write 1Gi.
+	assert.True(t, gotLim.Cmp(resource.MustParse("1Gi")) > 0,
+		"limit %s must exceed recommended 1Gi", gotLim.String())
+	assert.True(t, gotLim.Cmp(resource.MustParse("1689Mi")) >= 0,
+		"limit %s must be >= usage floor 1.5Gi * 1.10 (~1689Mi)", gotLim.String())
+
+	reqOnly := &attunev1alpha1.AttunePolicy{}
+	reqOnly.Spec.Memory.AllowDecrease = &memDec
+	gotRO := materializeContainerResources(reqOnly, c)
+	assert.Nil(t, gotRO.Limits, "RequestsOnly must not invent limits")
+}
+
 func TestMaterializeContainerResources_ClampsRequestsAndLimits(t *testing.T) {
 	policy := &attunev1alpha1.AttunePolicy{}
 	cv := attunev1alpha1.ControlledRequestsAndLimits
@@ -1133,6 +1169,76 @@ func TestApplyTemplatePersistence_SkipsStale_AfterSuccessfulResize(t *testing.T)
 		"stale rec must leave template CPU request unchanged")
 	assert.True(t, updated.Spec.Template.Spec.Containers[0].Resources.Requests.Memory().Equal(resource.MustParse("512Mi")),
 		"stale rec must leave template memory request unchanged")
+}
+
+func TestApplyTemplatePersistence_PatchesTemplateWhenRecCurrentEqualsRecommended(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
+
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "default"},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: int32Ptr(1),
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "api"}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "api"}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:  "app",
+						Image: "nginx",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("512Mi"),
+							},
+						},
+					}},
+				},
+			},
+		},
+		Status: appsv1.DeploymentStatus{Replicas: 1, UpdatedReplicas: 1, AvailableReplicas: 1},
+	}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = cl
+	r.Scheme = scheme
+
+	policy := newTestPolicy("p", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	memDec := true
+	policy.Spec.Memory.AllowDecrease = &memDec
+	policy.Spec.UpdateStrategy.TemplatePersistence = &attunev1alpha1.TemplatePersistence{
+		Enabled: boolPtr(true),
+		When:    attunev1alpha1.TemplatePersistenceAfterSuccessfulResize,
+	}
+
+	// holdMissing copies live/prior into both Current and Recommended.
+	// Rec equality must not skip persist when the template is still stale.
+	held := attunev1alpha1.ResourceValues{
+		CPURequest:    resource.MustParse("200m"),
+		MemoryRequest: resource.MustParse("256Mi"),
+	}
+	recs := []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "api",
+		Kind:     "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name:        "app",
+			Current:     held,
+			Recommended: held,
+		}},
+	}}
+
+	history := r.applyTemplatePersistence(context.Background(), policy, []client.Object{deploy}, recs,
+		attunev1alpha1.TemplatePersistenceAfterSuccessfulResize, map[string]bool{"api": true})
+	require.Len(t, history, 1)
+	assert.Equal(t, attunev1alpha1.ResizeResultTemplatePatched, history[0].Result)
+
+	var updated appsv1.Deployment
+	require.NoError(t, cl.Get(context.Background(), client.ObjectKeyFromObject(deploy), &updated))
+	assert.Equal(t, int64(200), updated.Spec.Template.Spec.Containers[0].Resources.Requests.Cpu().MilliValue())
+	assert.True(t, updated.Spec.Template.Spec.Containers[0].Resources.Requests.Memory().Equal(resource.MustParse("256Mi")))
 }
 
 func TestApplyTemplatePersistence_NoOpWhenTemplateMatches(t *testing.T) {

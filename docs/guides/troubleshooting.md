@@ -1083,6 +1083,10 @@ spec:
 - **`OnRecommendation`**: still skipped in **Observe** mode.
 - **Canary**: template patches wait until canary reaches `FullRollout`.
 - **Stale recommendation**: `recommendations[].stale` is true; the template is not patched until fresh Prometheus data.
+- **Memory usage floor**: persist will not write a memory limit below
+  recent usage (raw percentile plus `decreaseUsageMarginPercent`), even
+  if `rec.Current` still shows the old template. `RequestsOnly` persist
+  never writes limits.
 
 ### Mid-rollout or no-op
 
