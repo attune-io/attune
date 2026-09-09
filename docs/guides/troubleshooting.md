@@ -1076,7 +1076,9 @@ spec:
 
 - **`AfterSuccessfulResize`**: only after a successful in-place resize. In
   Recommend/Observe modes this never fires (webhook warns). Use
-  `when: OnRecommendation` for Recommend.
+  `when: OnRecommendation` for Recommend. A successful memory-only resize
+  still patches the template (CPU can stay at the original request). Do
+  not require both resources to change.
 - **`OnRecommendation`**: still skipped in **Observe** mode.
 - **Canary**: template patches wait until canary reaches `FullRollout`.
 - **Stale recommendation**: `recommendations[].stale` is true; the template is not patched until fresh Prometheus data.

@@ -22,9 +22,11 @@ limitations under the License.
 package e2e_go
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -309,6 +311,97 @@ func podRestartCount(pod corev1.Pod) int32 {
 		total += cs.RestartCount
 	}
 	return total
+}
+
+// waitForCadvisorMetrics polls in-cluster Prometheus until cAdvisor has at
+// least one CPU series for ns. Creating the policy before that lands the
+// first reconcile in InsufficientData and burns the 3m explanation wait
+// under parallel Go E2E load. Same query as the Chainsaw warmup scripts.
+// Missing metrics after 2m logs a warning and returns (do not fail here).
+func waitForCadvisorMetrics(t *testing.T, ns string) {
+	t.Helper()
+	pods, err := clientset.CoreV1().Pods("monitoring").List(ctx, metav1.ListOptions{
+		LabelSelector: "app.kubernetes.io/name=prometheus,app.kubernetes.io/component=server",
+	})
+	if err != nil || len(pods.Items) == 0 {
+		t.Logf("waitForCadvisorMetrics(%s): no prometheus-server pod (%v); proceeding", ns, err)
+		return
+	}
+	pod := pods.Items[0]
+	container := "prometheus-server"
+	if len(pod.Spec.Containers) > 0 {
+		container = pod.Spec.Containers[0].Name
+	}
+	query := url.QueryEscape(fmt.Sprintf(`container_cpu_usage_seconds_total{namespace="%s",container!=""}`, ns))
+	cmd := []string{"wget", "-qO-", "http://localhost:9090/api/v1/query?query=" + query}
+	err = wait.PollUntilContextTimeout(ctx, 5*time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
+		out, execErr := execPodCommand(ctx, pod.Namespace, pod.Name, container, cmd)
+		if execErr != nil {
+			t.Logf("waitForCadvisorMetrics(%s): exec: %v", ns, execErr)
+			return false, nil
+		}
+		return strings.Contains(out, `"result":[{`), nil
+	})
+	if err != nil {
+		t.Logf("WARNING: no cAdvisor metrics for %s after 2m, proceeding", ns)
+		return
+	}
+	t.Logf("cAdvisor metrics available for namespace %s", ns)
+}
+
+func execPodCommand(ctx context.Context, namespace, pod, container string, command []string) (string, error) {
+	req := clientset.CoreV1().RESTClient().Post().
+		Resource("pods").
+		Namespace(namespace).
+		Name(pod).
+		SubResource("exec").
+		VersionedParams(&corev1.PodExecOptions{
+			Container: container,
+			Command:   command,
+			Stdout:    true,
+			Stderr:    true,
+		}, scheme.ParameterCodec)
+	exec, err := remotecommand.NewSPDYExecutor(restConfig, "POST", req.URL())
+	if err != nil {
+		return "", err
+	}
+	var stdout, stderr bytes.Buffer
+	if err := exec.StreamWithContext(ctx, remotecommand.StreamOptions{
+		Stdout: &stdout,
+		Stderr: &stderr,
+	}); err != nil {
+		return "", fmt.Errorf("%w: %s", err, stderr.String())
+	}
+	return stdout.String(), nil
+}
+
+func logPolicyExplanationState(t *testing.T, name, namespace string) {
+	t.Helper()
+	var p attunev1alpha1.AttunePolicy
+	if err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, &p); err != nil {
+		t.Logf("logPolicyExplanationState(%s/%s): get: %v", namespace, name, err)
+		return
+	}
+	reason := readyReason(p)
+	t.Logf("logPolicyExplanationState(%s/%s): discovered=%d withRecs=%d recs=%d resized=%d ready=%s",
+		namespace, name, p.Status.Workloads.Discovered, p.Status.Workloads.WithRecommendations,
+		len(p.Status.Recommendations), p.Status.Workloads.Resized, reason)
+	for _, c := range p.Status.Conditions {
+		t.Logf("  condition %s=%s reason=%s msg=%s", c.Type, c.Status, c.Reason, c.Message)
+	}
+	for _, rec := range p.Status.Recommendations {
+		for _, c := range rec.Containers {
+			cpuAdj, memAdj := "", ""
+			if c.Explanation != nil && c.Explanation.CPU != nil {
+				cpuAdj = c.Explanation.CPU.FinalAdjustment
+			}
+			if c.Explanation != nil && c.Explanation.Memory != nil {
+				memAdj = c.Explanation.Memory.FinalAdjustment
+			}
+			t.Logf("  container %s cpuRec=%s memRec=%s cpuAdj=%q memAdj=%q",
+				c.Name, c.Recommended.CPURequest.String(), c.Recommended.MemoryRequest.String(), cpuAdj, memAdj)
+		}
+	}
 }
 
 func waitForPolicyDiscovered(t *testing.T, name, namespace string, timeout time.Duration) {
@@ -3796,8 +3889,13 @@ func TestE2E_PodAggregationAndBurstSensitivity_InExplanation(t *testing.T) {
 	t.Parallel()
 	ns := uniqueNS("aggburst")
 	createNamespace(t, ns)
+	// Recommend-only: 250m is inside the pause resize dead zone, but this
+	// test never waits for a resize. Stay at 250m for the shared-node CPU
+	// budget. Failures here are missing CPU explanation text, not a
+	// filtered resize.
 	createDeployment(t, "aggburst-app", ns, "250m", "256Mi", 1)
 	waitForDeploymentReady(t, "aggburst-app", ns, deployReadyTimeout)
+	waitForCadvisorMetrics(t, ns)
 
 	burstOff := "0.5"
 	name := "aggburst-app"
@@ -3838,10 +3936,20 @@ func TestE2E_PodAggregationAndBurstSensitivity_InExplanation(t *testing.T) {
 	require.NoError(t, k8sClient.Create(ctx, policy))
 
 	var note string
-	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
+	lastTouch := time.Now()
+	lastDiag := time.Time{}
+	err := wait.PollUntilContextTimeout(ctx, 5*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
+		if time.Since(lastTouch) > 45*time.Second {
+			touchPolicySpec(t, "aggburst-policy", ns)
+			lastTouch = time.Now()
+		}
 		var p attunev1alpha1.AttunePolicy
 		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "aggburst-policy", Namespace: ns}, &p); err != nil {
 			return false, nil
+		}
+		if time.Since(lastDiag) > 30*time.Second {
+			lastDiag = time.Now()
+			logPolicyExplanationState(t, "aggburst-policy", ns)
 		}
 		for _, rec := range p.Status.Recommendations {
 			for _, c := range rec.Containers {
@@ -3856,7 +3964,11 @@ func TestE2E_PodAggregationAndBurstSensitivity_InExplanation(t *testing.T) {
 			}
 		}
 		return false, nil
-	}), "explanation must record Avg aggregation and burstSensitivity=0.5")
+	})
+	if err != nil {
+		logPolicyExplanationState(t, "aggburst-policy", ns)
+	}
+	require.NoError(t, err, "explanation must record Avg aggregation and burstSensitivity=0.5")
 	assert.Contains(t, note, "podAggregation=Avg")
 	assert.Contains(t, note, "burstSensitivity=0.5")
 	assert.NotContains(t, note, "podAggregation=Max")
