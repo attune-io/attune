@@ -206,8 +206,13 @@ When a safety violation is detected:
    container resources back to the original values from the `ResizeRecord`.
 2. The revert uses `UpdateResize` (the same in-place mechanism), so no pod
    restart occurs.
-3. The resize history entry is updated to `result: Reverted`.
-4. The `attune_reverts_total` counter is incremented with the
+3. When `templatePersistence.when=AfterSuccessfulResize` is enabled, the
+   controller also restores the Deployment/StatefulSet template for that
+   container from the pre-resize snapshot (`OriginalResources`). Persist
+   already patched the template on Success or Evicted, before the
+   observation window; without this restore, rollouts keep the unsafe size.
+4. The resize history entry is updated to `result: Reverted`.
+5. The `attune_reverts_total` counter is incremented with the
    violation reason as a label.
 
 ```mermaid
