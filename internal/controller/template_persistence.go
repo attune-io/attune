@@ -380,11 +380,12 @@ func applyResourcesToPodSpec(spec *corev1.PodSpec, desired map[string]corev1.Res
 		if !ok {
 			continue
 		}
-		if resourcesEqual(c.Resources, want) {
+		// Merge first so RequestsOnly (Limits=nil) does not treat leftover
+		// template limits as a change when requests already match.
+		merged := mergeTemplateResources(c.Resources, want)
+		if resourcesEqual(c.Resources, merged) {
 			continue
 		}
-		// Preserve uncontrolled limit fields when only requests are set.
-		merged := mergeTemplateResources(c.Resources, want)
 		c.Resources = merged
 		modified = true
 	}
@@ -397,10 +398,11 @@ func applyResourcesToPodSpec(spec *corev1.PodSpec, desired map[string]corev1.Res
 		if !ok {
 			continue
 		}
-		if resourcesEqual(c.Resources, want) {
+		merged := mergeTemplateResources(c.Resources, want)
+		if resourcesEqual(c.Resources, merged) {
 			continue
 		}
-		c.Resources = mergeTemplateResources(c.Resources, want)
+		c.Resources = merged
 		modified = true
 	}
 	return modified

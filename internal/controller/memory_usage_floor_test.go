@@ -220,6 +220,49 @@ func TestApplyMemoryUsageFloor_UsesLiveContainerLimit(t *testing.T) {
 		"got %s want %s (1.5Gi * 1.1)", got.Limits.Memory().String(), want.String())
 }
 
+func TestApplyMemoryUsageFloor_ZeroMargin(t *testing.T) {
+	t.Parallel()
+	scheme := runtime.NewScheme()
+	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+
+	margin := int32(0)
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "p-zero", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			Memory: attunev1alpha1.ResourceConfig{
+				DecreaseUsageMarginPercent: &margin,
+			},
+		},
+	}
+	r := NewAttunePolicyReconciler()
+	r.Client = fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "default"}}
+	rec := attunev1alpha1.ContainerRecommendation{
+		Name: "app",
+		Current: attunev1alpha1.ResourceValues{
+			MemoryLimit: resource.MustParse("512Mi"),
+		},
+		Explanation: &attunev1alpha1.ContainerRecommendationExplanation{
+			Memory: &attunev1alpha1.ResourceRecommendationExplanation{
+				RawPercentile: resource.MustParse("200Mi"),
+			},
+		},
+	}
+	target := corev1.ResourceRequirements{
+		Limits:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("64Mi")},
+		Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("64Mi")},
+	}
+
+	got := r.applyMemoryUsageFloor(context.Background(), policy, pod, rec, target)
+	gotLim := got.Limits.Memory()
+	assert.True(t, gotLim.Cmp(resource.MustParse("200Mi")) > 0,
+		"zero-margin floor must exceed usage 200Mi, got %s", gotLim.String())
+	assert.True(t, gotLim.Cmp(resource.MustParse("220Mi")) < 0,
+		"zero-margin floor %s must be < default 10%% floor 220Mi", gotLim.String())
+}
+
 func TestRecentMemoryUsage(t *testing.T) {
 	t.Parallel()
 	_, ok := recentMemoryUsage(attunev1alpha1.ContainerRecommendation{})
