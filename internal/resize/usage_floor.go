@@ -45,34 +45,10 @@ func FloorMemoryLimitForUsage(
 	if recentUsage.IsZero() || recentUsage.Sign() <= 0 {
 		return target, false
 	}
-	if math.IsNaN(marginPercent) || math.IsInf(marginPercent, 0) {
-		marginPercent = 0
-	}
-	if marginPercent < 0 {
-		marginPercent = 0
-	}
-	if marginPercent > 100 {
-		marginPercent = 100
-	}
 
-	// floorBytes = usage * (1 + margin/100), rounded up to whole bytes.
-	usageBytes := float64(recentUsage.Value())
-	floorBytes := usageBytes * (1.0 + marginPercent/100.0)
-	if floorBytes <= 0 || math.IsNaN(floorBytes) || math.IsInf(floorBytes, 0) {
+	floor := MemoryUsageFloorQuantity(recentUsage, marginPercent)
+	if floor.IsZero() {
 		return target, false
-	}
-	// Round up so we never floor below the fractional product.
-	floorInt := int64(math.Ceil(floorBytes))
-	if floorInt <= 0 {
-		return target, false
-	}
-	floor := *resource.NewQuantity(floorInt, resource.BinarySI)
-
-	// Limit must be strictly above recent usage when margin is 0, so when
-	// floor equals usage, require at least usage+1 byte if target would be
-	// at or below usage.
-	if marginPercent == 0 && floor.Cmp(recentUsage) <= 0 {
-		floor = *resource.NewQuantity(recentUsage.Value()+1, resource.BinarySI)
 	}
 
 	if targetLim.Cmp(floor) >= 0 {

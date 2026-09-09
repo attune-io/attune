@@ -6255,12 +6255,19 @@ func TestExecuteResizes_QoSBlocked_EmitsResizeSkippedEvent(t *testing.T) {
 	count, _ := reconciler.executeResizes(context.Background(), policy, workloads, recommendations, podMap("api-server", pod), nil, nil)
 	assert.Equal(t, 0, count)
 
-	select {
-	case event := <-recorder.Events:
-		assert.Contains(t, event, "ResizeSkipped")
-		assert.Contains(t, event, "controlledValues")
-	default:
-		t.Fatal("expected a ResizeSkipped event but channel was empty")
+	var got []string
+	for {
+		select {
+		case event := <-recorder.Events:
+			got = append(got, event)
+		default:
+			require.Len(t, got, 1, "QoS skip must emit exactly one user-visible event")
+			assert.Contains(t, got[0], "ResizeSkipped")
+			assert.Contains(t, got[0], "controlledValues")
+			assert.Contains(t, got[0], "would change QoS class")
+			assert.NotContains(t, got[0], "Skipping resize")
+			return
+		}
 	}
 }
 
@@ -8986,15 +8993,16 @@ func TestExecuteResizes_RevertsOnReFetchFailure(t *testing.T) {
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(allObjects...).Build()
 	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
 
-	// Inject failure on typed clientset Get for pods. resizeContainer now
-	// live-gets before Infeasible (call 1), ResizePod does a pre-resize
-	// re-fetch (call 2), then persistResizeAnnotations does a post-resize
-	// re-fetch (call 3). Fail call 3 to test annotation-persist revert.
-	// Subsequent Gets (revert's pod lookup) pass through.
+	// Inject failure on typed clientset Get for pods. OneShot selection
+	// live-gets before Infeasible (call 1), resizeContainer live-gets
+	// again (call 2), ResizePod does a pre-resize re-fetch (call 3),
+	// then persistResizeAnnotations does a post-resize re-fetch (call 4).
+	// Fail call 4 to test annotation-persist revert. Subsequent Gets
+	// (revert's pod lookup) pass through.
 	getCount := 0
 	clientset.PrependReactor("get", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
 		getCount++
-		if getCount == 3 {
+		if getCount == 4 {
 			return true, nil, fmt.Errorf("simulated re-fetch failure")
 		}
 		return false, nil, nil
@@ -14184,9 +14192,84 @@ func TestShouldSkipResize_QoSClassChange(t *testing.T) {
 		},
 	}
 
+	recorder := events.NewFakeRecorder(10)
+	r.Recorder = recorder
 	skip, reason := r.shouldSkipResize(context.Background(), policy, pod, containerRec, target, nil)
 	assert.True(t, skip, "should skip when resize would change QoS class")
 	assert.Contains(t, reason, "QoS class")
+	select {
+	case ev := <-recorder.Events:
+		t.Fatalf("shouldSkipResize must not Eventf; callers emit ResizeSkipped, got %s", ev)
+	default:
+	}
+}
+
+func TestApplyStartupBoosts_QoSSkipDoesNotEmitResizeSkipped(t *testing.T) {
+	// Guaranteed QoS with request-only boost target fails PreservesQoS.
+	// shouldSkipResize must stay a predicate so boost does not inherit a
+	// "Skipping resize ... QoS" event.
+	scheme := testScheme()
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			CPU: attunev1alpha1.ResourceConfig{
+				StartupBoost: &attunev1alpha1.StartupBoost{
+					Multiplier: "3.0",
+					Duration:   metav1.Duration{Duration: 2 * time.Minute},
+				},
+			},
+		},
+	}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "my-app-qos",
+			Namespace:         "default",
+			CreationTimestamp: metav1.NewTime(now.Add(-30 * time.Second)),
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning, QOSClass: corev1.PodQOSGuaranteed},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "main",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("100m"),
+						corev1.ResourceMemory: resource.MustParse("128Mi"),
+					},
+				},
+			}},
+		},
+	}
+	clientset := kubefake.NewSimpleClientset(pod)
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
+	r.SetNowFunc(func() time.Time { return now })
+	recorder := events.NewFakeRecorder(10)
+	r.Recorder = recorder
+
+	recs := []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "my-app",
+		Kind:     "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name:        "main",
+			Recommended: attunev1alpha1.ResourceValues{CPURequest: resource.MustParse("200m")},
+		}},
+	}}
+	r.applyStartupBoosts(context.Background(), policy, map[string][]corev1.Pod{"my-app": {*pod}}, recs, resize.NewPodResizer(clientset, ctrl.Log.WithName("test")), nil)
+
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			t.Fatal("Guaranteed request-only boost must be skipped by PreservesQoS")
+		}
+	}
+	select {
+	case ev := <-recorder.Events:
+		t.Fatalf("startup boost QoS skip must not emit resize events, got %s", ev)
+	default:
+	}
 }
 
 func TestFindContainerByName_RegularContainer(t *testing.T) {

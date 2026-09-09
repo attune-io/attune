@@ -142,7 +142,7 @@ func TestFirstOneShotPodNeedingResize_SkipsClampedMemoryLimit(t *testing.T) {
 
 	r := newReconcilerWithClient()
 	r.AllowInPlaceMemoryLimitDecrease = false
-	got := r.firstOneShotPodNeedingResize(context.Background(), newTestPolicy("test-policy", "default"), pods, rec)
+	got := r.firstOneShotPodNeedingResize(context.Background(), newTestPolicy("test-policy", "default"), pods, rec, nil)
 	require.Len(t, got, 1)
 	assert.Equal(t, "pod-1", got[0].Name)
 }
@@ -183,7 +183,7 @@ func TestFirstOneShotPodNeedingResize_SkipsMemoryPressureIncrease(t *testing.T) 
 
 	r := newReconcilerWithClient(pressureNode, healthyNode)
 	r.AllowInPlaceMemoryLimitDecrease = true
-	got := r.firstOneShotPodNeedingResize(context.Background(), newTestPolicy("test-policy", "default"), []corev1.Pod{pod0, pod1}, rec)
+	got := r.firstOneShotPodNeedingResize(context.Background(), newTestPolicy("test-policy", "default"), []corev1.Pod{pod0, pod1}, rec, nil)
 	require.Len(t, got, 1)
 	assert.Equal(t, "pod-1", got[0].Name)
 }
@@ -200,7 +200,7 @@ func TestFirstOneShotPodNeedingResize_SkipsQoSChange(t *testing.T) {
 
 	r := newReconcilerWithClient()
 	r.AllowInPlaceMemoryLimitDecrease = true
-	got := r.firstOneShotPodNeedingResize(context.Background(), newTestPolicy("test-policy", "default"), []corev1.Pod{pod0, pod1}, rec)
+	got := r.firstOneShotPodNeedingResize(context.Background(), newTestPolicy("test-policy", "default"), []corev1.Pod{pod0, pod1}, rec, nil)
 	require.Len(t, got, 1)
 	assert.Equal(t, "pod-1", got[0].Name)
 }
@@ -220,7 +220,7 @@ func TestFirstOneShotPodNeedingResize_SkipsInfeasibleInPlaceOnly(t *testing.T) {
 
 	r := newReconcilerWithClient()
 	r.AllowInPlaceMemoryLimitDecrease = true
-	got := r.firstOneShotPodNeedingResize(context.Background(), policy, []corev1.Pod{pod0, pod1}, rec)
+	got := r.firstOneShotPodNeedingResize(context.Background(), policy, []corev1.Pod{pod0, pod1}, rec, nil)
 	require.Len(t, got, 1)
 	assert.Equal(t, "pod-1", got[0].Name)
 }
@@ -244,15 +244,60 @@ func TestFirstOneShotPodNeedingResize_SkipsFlooredGuaranteed(t *testing.T) {
 
 	r := newReconcilerWithClient()
 	r.AllowInPlaceMemoryLimitDecrease = true
-	got := r.firstOneShotPodNeedingResize(context.Background(), newTestPolicy("test-policy", "default"), pods, rec)
+	got := r.firstOneShotPodNeedingResize(context.Background(), newTestPolicy("test-policy", "default"), pods, rec, nil)
 	require.Len(t, got, 1)
 	assert.Equal(t, "pod-1", got[0].Name)
+}
+
+func TestFirstOneShotPodNeedingResize_PrefetchQuotaFailClosedWalksPast(t *testing.T) {
+	// pod-0 needs a request increase; pod-1 needs a decrease to the same rec.
+	// checks.quotaListErr fail-closes increases only. If checks is still nil,
+	// live quota list on an empty client succeeds and pod-0 is selected.
+	pod0 := oneshotResizePod("pod-0", "200m", "256Mi")
+	pod1 := oneshotResizePod("pod-1", "800m", "1Gi")
+	rec := newResizeRecommendation("api", "200m", "256Mi", "0", "0", "500m", "512Mi", "0", "0")
+	policy := newTestPolicy("test-policy", "default")
+
+	r := newReconcilerWithClient()
+	r.AllowInPlaceMemoryLimitDecrease = true
+
+	got := r.firstOneShotPodNeedingResize(context.Background(), policy, []corev1.Pod{pod0, pod1}, rec, nil)
+	require.Len(t, got, 1)
+	assert.Equal(t, "pod-0", got[0].Name, "nil checks uses live list success and must pick the first needing replica")
+
+	checks := &resizePreChecks{quotaListErr: fmt.Errorf("list forbidden")}
+	got = r.firstOneShotPodNeedingResize(context.Background(), policy, []corev1.Pod{pod0, pod1}, rec, checks)
+	require.Len(t, got, 1)
+	assert.Equal(t, "pod-1", got[0].Name, "prefetch fail-closed must walk past the increase replica")
+}
+
+func TestFirstOneShotPodNeedingResize_UsesLivePodForInfeasible(t *testing.T) {
+	listed0 := oneshotResizePod("pod-0", "500m", "512Mi")
+	live0 := listed0.DeepCopy()
+	live0.Status.Conditions = append(live0.Status.Conditions, corev1.PodCondition{
+		Type:   "PodResizePending",
+		Status: corev1.ConditionTrue,
+		Reason: "Infeasible",
+	})
+	pod1 := oneshotResizePod("pod-1", "500m", "512Mi")
+	rec := newResizeRecommendation("api", "500m", "512Mi", "0", "0", "200m", "256Mi", "0", "0")
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.ResizeMethod = attunev1alpha1.ResizeMethodInPlaceOnly
+
+	r := newReconcilerWithClient()
+	r.AllowInPlaceMemoryLimitDecrease = true
+	r.Clientset = kubefake.NewSimpleClientset(live0, pod1.DeepCopy())
+
+	got := r.firstOneShotPodNeedingResize(context.Background(), policy, []corev1.Pod{listed0, pod1}, rec, nil)
+	require.Len(t, got, 1)
+	assert.Equal(t, "pod-1", got[0].Name, "live Infeasible on pod-0 must walk to pod-1")
 }
 
 // firstOneShotNeeding wraps firstOneShotPodNeedingResize for request-only tests.
 func firstOneShotNeeding(pods []corev1.Pod, rec attunev1alpha1.WorkloadRecommendation) []corev1.Pod {
 	r := newReconcilerWithClient()
-	return r.firstOneShotPodNeedingResize(context.Background(), newTestPolicy("test-policy", "default"), pods, rec)
+	return r.firstOneShotPodNeedingResize(context.Background(), newTestPolicy("test-policy", "default"), pods, rec, nil)
 }
 
 func TestSelectPodsForResize_Canary_10PercentOf20(t *testing.T) {
