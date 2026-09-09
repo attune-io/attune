@@ -252,14 +252,14 @@ func TestReconcile_NamespaceFreeze(t *testing.T) {
 				require.NotNil(t, cond)
 				assert.Equal(t, metav1.ConditionTrue, cond.Status)
 				assert.Equal(t, attunev1alpha1.ReasonNamespaceFrozen, cond.Reason)
-				assert.Contains(t, cond.Message, "resizes skipped")
+				assert.Contains(t, cond.Message, "new apply skipped")
 			} else if cond != nil {
 				assert.NotEqual(t, attunev1alpha1.ReasonNamespaceFrozen, cond.Reason)
 			}
 
 			if tt.wantFrozenEvent {
 				assert.Equal(t, attunev1alpha1.ReasonNamespaceFrozen, eventReason)
-				assert.Contains(t, eventNote, "resizes skipped")
+				assert.Contains(t, eventNote, "new apply skipped")
 			} else {
 				assert.NotEqual(t, attunev1alpha1.ReasonNamespaceFrozen, eventReason)
 			}

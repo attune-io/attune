@@ -353,6 +353,7 @@ The dashboard includes:
   for JVM and heap-bound workloads.
 - Pause reconciliation: `spec.paused: true` halts all activity without
   reverting existing resizes.
+- Namespace freeze: annotate the namespace `attune.io/freeze=true` to skip new apply (resize, persist, CREATE). Pending safety revert still runs. Recommendations stay in status.
 - Webhook warnings: 13 admission-time warnings for nonsensical config
   combinations with 31 runtime K8s events and per-policy suppression.
 

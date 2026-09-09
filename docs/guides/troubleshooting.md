@@ -297,6 +297,8 @@ initial sizing (last-known values stay in status, but CREATE is not patched).
    or `initial sizing applied`. When CREATE has no assigned name, that
    Info line uses `generateName` (for example `my-app-abc-`), not the
    name kubelet later assigns.
+7. Check the namespace is not frozen. `attune.io/freeze=true` skips
+   CREATE initial sizing.
 
 ### Paused
 
@@ -312,7 +314,7 @@ will resume reconciliation on the next cycle.
 ### NamespaceFrozen
 
 **Symptom**: ResizeBlocked is `True` with reason `NamespaceFrozen`. Events
-say `namespace has attune.io/freeze=true; resizes skipped`. Recommendations
+say `namespace has attune.io/freeze=true; new apply skipped (pending safety revert still runs)`. Recommendations
 still appear in status.
 
 **Cause**: The policy namespace has `attune.io/freeze=true`, or the operator
@@ -1129,6 +1131,8 @@ spec:
   recent usage (raw percentile plus `decreaseUsageMarginPercent`), even
   if `rec.Current` still shows the old template. `RequestsOnly` persist
   never writes limits.
+- **Namespace freeze**: `attune.io/freeze=true` skips new persist.
+  Pending safety restore still runs.
 
 ### Mid-rollout or no-op
 

@@ -930,15 +930,11 @@ func (r *AttunePolicyReconciler) applyNotFrozen(ctx context.Context, namespace s
 // markNamespaceFrozen records ResizeBlocked=NamespaceFrozen and emits a
 // single Warning. Recommendations remain in status; only apply is skipped.
 func (r *AttunePolicyReconciler) markNamespaceFrozen(policy *attunev1alpha1.AttunePolicy, freezeErr error) {
-	msg := "namespace has attune.io/freeze=true; resizes skipped"
+	msg := "namespace has attune.io/freeze=true; new apply skipped (pending safety revert still runs)"
 	if freezeErr != nil {
-		msg = "cannot read namespace for attune.io/freeze; resizes skipped"
-		r.emitEventOnce(policy, corev1.EventTypeWarning, attunev1alpha1.ReasonNamespaceFrozen, "resize",
-			"cannot read namespace for attune.io/freeze; resizes skipped")
-	} else {
-		r.emitEventOnce(policy, corev1.EventTypeWarning, attunev1alpha1.ReasonNamespaceFrozen, "resize",
-			"namespace has attune.io/freeze=true; resizes skipped")
+		msg = "cannot read namespace for attune.io/freeze; new apply skipped (check namespaces get/list/watch RBAC)"
 	}
+	r.emitEventOnce(policy, corev1.EventTypeWarning, attunev1alpha1.ReasonNamespaceFrozen, "resize", "%s", msg)
 	meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
 		Type:               attunev1alpha1.ConditionResizeBlocked,
 		Status:             metav1.ConditionTrue,

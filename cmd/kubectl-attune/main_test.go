@@ -655,6 +655,66 @@ func TestPrintStatus(t *testing.T) {
 	assert.Contains(t, output, "3           1         2")
 }
 
+func TestPrintStatus_NamespaceFrozen(t *testing.T) {
+	policy := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "attune.io/v1alpha1",
+			"kind":       "AttunePolicy",
+			"metadata": map[string]interface{}{
+				"name":              "web-app",
+				"namespace":         "production",
+				"creationTimestamp": "2026-01-01T00:00:00Z",
+			},
+			"spec": map[string]interface{}{
+				"updateStrategy": map[string]interface{}{
+					"type": "Auto",
+				},
+			},
+			"status": map[string]interface{}{
+				"workloads": map[string]interface{}{
+					"discovered": int64(3),
+					"pending":    int64(0),
+					"resized":    int64(2),
+				},
+				"conditions": []interface{}{
+					map[string]interface{}{
+						"type":   "Ready",
+						"status": "True",
+						"reason": "Monitoring",
+					},
+					map[string]interface{}{
+						"type":   "ResizeBlocked",
+						"status": "True",
+						"reason": "NamespaceFrozen",
+					},
+				},
+			},
+		},
+	}
+
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{gvr: "AttunePolicyList"}, policy)
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	printStatus(context.Background(), dynClient, "production", "", "")
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	output := buf.String()
+
+	assert.Contains(t, output, "NamespaceFrozen")
+	assert.Contains(t, output, "Monitoring")
+}
+
 func TestPrintStatus_ReadyContract(t *testing.T) {
 	tests := []struct {
 		name       string
