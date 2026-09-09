@@ -28,7 +28,9 @@ container. Check resize history if you see limit-only updates.
 The usage floor compares the target against the live container limit on
 the pod, not the workload template. After an in-place resize the template
 (and `rec.Current`) can lag. Alerts that assume the template limit is
-authoritative should use the live pod instead.
+authoritative should use the live pod instead. Persist applies the same
+floor when writing the template, so a lagged `rec.Current` cannot persist
+a limit below recent usage.
 
 ### Last-replica eviction uses a live Running count
 

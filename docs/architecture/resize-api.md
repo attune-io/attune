@@ -220,8 +220,11 @@ stateDiagram-v2
   replacement pod from the current PodTemplate. With
   `templatePersistence.when=AfterSuccessfulResize` enabled, Attune patches the
   template after `Evicted` history so the replacement starts at the recommended
-  requests. Without persist, the replacement keeps the old template until a
-  later in-place resize. Evicted pods do not enter the safety observation path.
+  requests. Persist applies the same memory usage floor as live resize: a
+  stale `rec.Current` that is still the old template cannot write a limit
+  below recent usage. Without persist, the replacement keeps the old template
+  until a later in-place resize. Evicted pods do not enter the safety
+  observation path.
 
 - **Fail-open schedule.** If the configured timezone is invalid,
   `isWithinResizeWindow` returns `true` (allows resize) rather than silently

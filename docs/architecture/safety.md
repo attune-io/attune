@@ -289,6 +289,11 @@ The target is then raised if it would fall at or below recent usage
 `(1 + decreaseUsageMarginPercent/100)`. See
 [resize API](resize-api.md).
 
+Template persist uses the same usage floor. After an in-place resize,
+`rec.Current` can still be the old template. Persist raises a recommended
+memory limit that is below recent usage even when that is not a decrease
+versus `rec.Current`. `RequestsOnly` persist does not write limits.
+
 ## Container exclusion
 
 Well-known mesh and sidecar names (for example `istio-proxy`,

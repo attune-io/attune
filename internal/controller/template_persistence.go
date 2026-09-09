@@ -19,10 +19,12 @@ package controller
 import (
 	"context"
 	"fmt"
+	"math"
 
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -112,14 +114,20 @@ func materializeContainerResources(
 	// Match resize path: requests must not exceed limits when both are set.
 	_ = clampRequestsToLimits(&out)
 
-	if memLim, ok := out.Limits[corev1.ResourceMemory]; ok &&
-		!c.Current.MemoryLimit.IsZero() && memLim.Cmp(c.Current.MemoryLimit) < 0 {
+	if _, ok := out.Limits[corev1.ResourceMemory]; ok {
 		if usage, hasUsage := recentMemoryUsage(c); hasUsage {
 			margin := float64(attunev1alpha1.DefaultDecreaseUsageMarginPercent)
 			if policy.Spec.Memory.DecreaseUsageMarginPercent != nil {
 				margin = float64(*policy.Spec.Memory.DecreaseUsageMarginPercent)
 			}
-			floored, applied := resize.FloorMemoryLimitForUsage(out, c.Current.MemoryLimit, usage, margin)
+			// rec.Current may be the stale template; max with usageFloor so
+			// an increase vs Current still cannot land below usage.
+			currentLimit := c.Current.MemoryLimit.DeepCopy()
+			usageFloor := memoryUsageFloorQuantity(usage, margin)
+			if !usageFloor.IsZero() && usageFloor.Cmp(currentLimit) > 0 {
+				currentLimit = usageFloor
+			}
+			floored, applied := resize.FloorMemoryLimitForUsage(out, currentLimit, usage, margin)
 			if applied {
 				out = floored
 			}
@@ -142,6 +150,36 @@ func materializeContainerResources(
 		}
 	}
 	return out
+}
+
+// memoryUsageFloorQuantity is ceil(usage * (1 + margin/100)). Margin 0 is
+// strictly above usage, matching resize.FloorMemoryLimitForUsage.
+func memoryUsageFloorQuantity(usage resource.Quantity, marginPercent float64) resource.Quantity {
+	if usage.IsZero() || usage.Sign() <= 0 {
+		return resource.Quantity{}
+	}
+	if math.IsNaN(marginPercent) || math.IsInf(marginPercent, 0) {
+		marginPercent = 0
+	}
+	if marginPercent < 0 {
+		marginPercent = 0
+	}
+	if marginPercent > 100 {
+		marginPercent = 100
+	}
+	floorBytes := float64(usage.Value()) * (1.0 + marginPercent/100.0)
+	if floorBytes <= 0 || math.IsNaN(floorBytes) || math.IsInf(floorBytes, 0) {
+		return resource.Quantity{}
+	}
+	floorInt := int64(math.Ceil(floorBytes))
+	if floorInt <= 0 {
+		return resource.Quantity{}
+	}
+	floor := *resource.NewQuantity(floorInt, resource.BinarySI)
+	if marginPercent == 0 && floor.Cmp(usage) <= 0 {
+		floor = *resource.NewQuantity(usage.Value()+1, resource.BinarySI)
+	}
+	return floor
 }
 
 // canaryBlocksTemplatePersistence returns true while a canary rollout is
@@ -261,13 +299,6 @@ func (r *AttunePolicyReconciler) applyTemplatePersistence(
 			if excludeSet[c.Name] {
 				continue
 			}
-			// Skip if recommendation equals current (no real change).
-			if c.Recommended.CPURequest.Equal(c.Current.CPURequest) &&
-				c.Recommended.MemoryRequest.Equal(c.Current.MemoryRequest) &&
-				c.Recommended.CPULimit.Equal(c.Current.CPULimit) &&
-				c.Recommended.MemoryLimit.Equal(c.Current.MemoryLimit) {
-				continue
-			}
 			want := materializeContainerResources(policy, c)
 			if recLim, ok := want.Limits[corev1.ResourceMemory]; ok &&
 				!c.Recommended.MemoryLimit.IsZero() && recLim.Cmp(c.Recommended.MemoryLimit) > 0 {
@@ -380,11 +411,12 @@ func applyResourcesToPodSpec(spec *corev1.PodSpec, desired map[string]corev1.Res
 		if !ok {
 			continue
 		}
-		if resourcesEqual(c.Resources, want) {
+		// Merge first so RequestsOnly (Limits=nil) does not treat leftover
+		// template limits as a change when requests already match.
+		merged := mergeTemplateResources(c.Resources, want)
+		if resourcesEqual(c.Resources, merged) {
 			continue
 		}
-		// Preserve uncontrolled limit fields when only requests are set.
-		merged := mergeTemplateResources(c.Resources, want)
 		c.Resources = merged
 		modified = true
 	}
@@ -397,10 +429,11 @@ func applyResourcesToPodSpec(spec *corev1.PodSpec, desired map[string]corev1.Res
 		if !ok {
 			continue
 		}
-		if resourcesEqual(c.Resources, want) {
+		merged := mergeTemplateResources(c.Resources, want)
+		if resourcesEqual(c.Resources, merged) {
 			continue
 		}
-		c.Resources = mergeTemplateResources(c.Resources, want)
+		c.Resources = merged
 		modified = true
 	}
 	return modified
