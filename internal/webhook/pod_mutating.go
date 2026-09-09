@@ -34,6 +34,7 @@ import (
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 	"github.com/attune-io/attune/internal/operatormetrics"
+	"github.com/attune-io/attune/internal/resize"
 )
 
 const (
@@ -294,13 +295,62 @@ func (h *PodMutatingHandler) mutateContainer(
 				if container.Resources.Limits == nil {
 					container.Resources.Limits = corev1.ResourceList{}
 				}
-				container.Resources.Limits[corev1.ResourceMemory] = cr.Recommended.MemoryLimit
+				memTarget := applyCreateMemoryUsageFloor(container.Resources, cr, policy)
+				container.Resources.Limits[corev1.ResourceMemory] = memTarget.Limits[corev1.ResourceMemory]
+				if req, ok := memTarget.Requests[corev1.ResourceMemory]; ok {
+					container.Resources.Requests[corev1.ResourceMemory] = req
+				}
 			}
 		}
 
 		return mutated
 	}
 	return false
+}
+
+// applyCreateMemoryUsageFloor floors a CREATE memory limit the same way
+// persist does (max currentLimit with usageFloor) and raises a Guaranteed
+// request to the floored limit. CREATE is not /resize, so no 1.33 clamp.
+func applyCreateMemoryUsageFloor(
+	live corev1.ResourceRequirements,
+	cr attunev1alpha1.ContainerRecommendation,
+	policy *attunev1alpha1.AttunePolicy,
+) corev1.ResourceRequirements {
+	target := corev1.ResourceRequirements{
+		Requests: live.Requests.DeepCopy(),
+		Limits:   corev1.ResourceList{corev1.ResourceMemory: cr.Recommended.MemoryLimit.DeepCopy()},
+	}
+	if req, ok := live.Requests[corev1.ResourceMemory]; !ok || req.IsZero() {
+		if !cr.Recommended.MemoryRequest.IsZero() {
+			if target.Requests == nil {
+				target.Requests = corev1.ResourceList{}
+			}
+			target.Requests[corev1.ResourceMemory] = cr.Recommended.MemoryRequest.DeepCopy()
+		}
+	}
+
+	if cr.Explanation != nil && cr.Explanation.Memory != nil {
+		usage := cr.Explanation.Memory.RawPercentile
+		if !usage.IsZero() && usage.Sign() > 0 {
+			margin := float64(attunev1alpha1.DefaultDecreaseUsageMarginPercent)
+			if policy != nil && policy.Spec.Memory.DecreaseUsageMarginPercent != nil {
+				margin = float64(*policy.Spec.Memory.DecreaseUsageMarginPercent)
+			}
+			currentLimit := cr.Current.MemoryLimit.DeepCopy()
+			usageFloor := resize.MemoryUsageFloorQuantity(usage, margin)
+			if !usageFloor.IsZero() && usageFloor.Cmp(currentLimit) > 0 {
+				currentLimit = usageFloor
+			}
+			if floored, applied := resize.FloorMemoryLimitForUsage(target, currentLimit, usage, margin); applied {
+				target = floored
+			}
+		}
+	}
+
+	guaranteed := resize.CurrentResourcesAreGuaranteed(
+		cr.Current.CPURequest, cr.Current.CPULimit,
+		cr.Current.MemoryRequest, cr.Current.MemoryLimit)
+	return resize.RaiseMemoryRequestToLimitIfGuaranteed(target, guaranteed)
 }
 
 // resolveOwner walks the ownerReferences to find the top-level workload kind.

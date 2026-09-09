@@ -146,6 +146,30 @@ func TestFirstOneShotPodNeedingResize_SkipsClampedMemoryLimit(t *testing.T) {
 	assert.Equal(t, "pod-1", got[0].Name)
 }
 
+func TestFirstOneShotPodNeedingResize_SkipsFlooredGuaranteed(t *testing.T) {
+	// After the usage floor, a Guaranteed replica already at the floored
+	// pair (550/550) must count as applied. Without raising the request
+	// after the floor, compare sees live 550/550 vs target 200/550.
+	pod0 := oneshotResizePodWithLimits("pod-0", "200m", "550Mi", "200m", "550Mi")
+	pod0.Status.QOSClass = corev1.PodQOSGuaranteed
+	pod1 := oneshotResizePodWithLimits("pod-1", "200m", "1Gi", "200m", "1Gi")
+	pod1.Status.QOSClass = corev1.PodQOSGuaranteed
+	pods := []corev1.Pod{pod0, pod1}
+
+	rec := newResizeRecommendation("api", "200m", "1Gi", "200m", "1Gi", "200m", "200Mi", "200m", "200Mi")
+	rec.Containers[0].Explanation = &attunev1alpha1.ContainerRecommendationExplanation{
+		Memory: &attunev1alpha1.ResourceRecommendationExplanation{
+			RawPercentile: resource.MustParse("500Mi"),
+		},
+	}
+
+	r := NewAttunePolicyReconciler()
+	r.AllowInPlaceMemoryLimitDecrease = true
+	got := r.firstOneShotPodNeedingResize(context.Background(), newTestPolicy("test-policy", "default"), pods, rec)
+	require.Len(t, got, 1)
+	assert.Equal(t, "pod-1", got[0].Name)
+}
+
 // firstOneShotNeeding wraps firstOneShotPodNeedingResize for request-only tests.
 func firstOneShotNeeding(pods []corev1.Pod, rec attunev1alpha1.WorkloadRecommendation) []corev1.Pod {
 	r := NewAttunePolicyReconciler()

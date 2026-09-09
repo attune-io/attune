@@ -744,6 +744,53 @@ func TestMaterializeContainerResources_MemoryUsageFloor(t *testing.T) {
 	assert.Nil(t, gotRO.Limits, "RequestsOnly must still leave Limits nil")
 }
 
+func TestMaterializeContainerResources_MemoryUsageFloor_GuaranteedRaisesRequest(t *testing.T) {
+	policy := &attunev1alpha1.AttunePolicy{}
+	cv := attunev1alpha1.ControlledRequestsAndLimits
+	policy.Spec.CPU.ControlledValues = &cv
+	policy.Spec.Memory.ControlledValues = &cv
+	memDec := true
+	policy.Spec.Memory.AllowDecrease = &memDec
+	c := attunev1alpha1.ContainerRecommendation{
+		Name: "app",
+		Current: attunev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("200m"),
+			CPULimit:      resource.MustParse("200m"),
+			MemoryRequest: resource.MustParse("1Gi"),
+			MemoryLimit:   resource.MustParse("1Gi"),
+		},
+		Recommended: attunev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("200m"),
+			CPULimit:      resource.MustParse("200m"),
+			MemoryRequest: resource.MustParse("200Mi"),
+			MemoryLimit:   resource.MustParse("200Mi"),
+		},
+		Explanation: &attunev1alpha1.ContainerRecommendationExplanation{
+			Memory: &attunev1alpha1.ResourceRecommendationExplanation{
+				RawPercentile: resource.MustParse("500Mi"),
+			},
+		},
+	}
+	got := materializeContainerResources(policy, c)
+	require.NotNil(t, got.Limits)
+	want := resource.MustParse("550Mi")
+	gotLim := got.Limits[corev1.ResourceMemory]
+	gotReq := got.Requests[corev1.ResourceMemory]
+	assert.True(t, gotLim.Equal(want), "limit %s want %s", gotLim.String(), want.String())
+	assert.True(t, gotReq.Equal(want),
+		"Guaranteed request %s want %s (not 200/550 Burstable)",
+		gotReq.String(), want.String())
+
+	reqOnly := &attunev1alpha1.AttunePolicy{}
+	reqOnly.Spec.Memory.AllowDecrease = &memDec
+	gotRO := materializeContainerResources(reqOnly, c)
+	assert.Nil(t, gotRO.Limits, "RequestsOnly must still leave Limits nil")
+	gotROReq := gotRO.Requests[corev1.ResourceMemory]
+	assert.True(t, gotROReq.Equal(resource.MustParse("200Mi")),
+		"RequestsOnly must not raise request without a memory limit, got %s",
+		gotROReq.String())
+}
+
 func TestMaterializeContainerResources_MemoryUsageFloor_ZeroMargin(t *testing.T) {
 	policy := &attunev1alpha1.AttunePolicy{}
 	cv := attunev1alpha1.ControlledRequestsAndLimits

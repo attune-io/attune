@@ -128,6 +128,7 @@ func (r *AttunePolicyReconciler) oneShotPodAlreadyAtTarget(
 		}
 		if !platformClamped {
 			target = r.applyMemoryUsageFloor(ctx, policy, pod, containerRec, target)
+			target = resize.RaiseGuaranteedMemoryRequestToLimit(pod, target)
 		}
 		c := findContainerByName(pod, containerRec.Name)
 		if c == nil {
@@ -538,6 +539,7 @@ func (r *AttunePolicyReconciler) resizeContainer(
 	// recent usage from the metrics window (#444 / #428).
 	if !platformClamped {
 		target = r.applyMemoryUsageFloor(ctx, policy, pod, containerRec, target)
+		target = resize.RaiseGuaranteedMemoryRequestToLimit(pod, target)
 	}
 
 	skip, reason := r.shouldSkipResize(ctx, policy, pod, containerRec, target, p.Checks)
