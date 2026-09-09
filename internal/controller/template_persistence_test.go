@@ -1755,7 +1755,8 @@ func TestRestoreTemplateAfterSafetyRevert_AfterSuccessfulResize(t *testing.T) {
 		When:    attunev1alpha1.TemplatePersistenceAfterSuccessfulResize,
 	}
 
-	r.restoreTemplateAfterSafetyRevert(context.Background(), policy, []client.Object{deploy}, original256MiRecord())
+	err := r.restoreTemplateAfterSafetyRevert(context.Background(), policy, []client.Object{deploy}, original256MiRecord())
+	require.NoError(t, err)
 
 	var updated appsv1.Deployment
 	require.NoError(t, cl.Get(context.Background(), client.ObjectKeyFromObject(deploy), &updated))
@@ -1782,10 +1783,201 @@ func TestRestoreTemplateAfterSafetyRevert_DisabledNoOp(t *testing.T) {
 		When:    attunev1alpha1.TemplatePersistenceAfterSuccessfulResize,
 	}
 
-	r.restoreTemplateAfterSafetyRevert(context.Background(), policy, []client.Object{deploy}, original256MiRecord())
+	err := r.restoreTemplateAfterSafetyRevert(context.Background(), policy, []client.Object{deploy}, original256MiRecord())
+	require.NoError(t, err)
 
 	var updated appsv1.Deployment
 	require.NoError(t, cl.Get(context.Background(), client.ObjectKeyFromObject(deploy), &updated))
 	assert.True(t, updated.Spec.Template.Spec.Containers[0].Resources.Requests.Memory().Equal(resource.MustParse("64Mi")),
 		"disabled persist must leave the template at the recommended size")
+}
+
+func TestOmitRevertedOrFailedContainers(t *testing.T) {
+	t.Parallel()
+
+	two := []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "api",
+		Kind:     "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{
+			{Name: "app"},
+			{Name: "worker"},
+		},
+	}}
+	otherWL := []attunev1alpha1.WorkloadRecommendation{
+		{
+			Workload:   "api",
+			Containers: []attunev1alpha1.ContainerRecommendation{{Name: "app"}},
+		},
+		{
+			Workload:   "web",
+			Containers: []attunev1alpha1.ContainerRecommendation{{Name: "app"}},
+		},
+	}
+
+	tests := []struct {
+		name    string
+		recs    []attunev1alpha1.WorkloadRecommendation
+		history []attunev1alpha1.ResizeHistoryEntry
+		want    [][]string
+	}{
+		{
+			name: "success plus reverted drops reverted container",
+			recs: two,
+			history: []attunev1alpha1.ResizeHistoryEntry{
+				{Workload: "api", Container: "app", Result: attunev1alpha1.ResizeResultSuccess},
+				{Workload: "api", Container: "worker", Result: attunev1alpha1.ResizeResultReverted},
+			},
+			want: [][]string{{"app"}},
+		},
+		{
+			name: "failed container is omitted",
+			recs: two,
+			history: []attunev1alpha1.ResizeHistoryEntry{
+				{Workload: "api", Container: "app", Result: attunev1alpha1.ResizeResultSuccess},
+				{Workload: "api", Container: "worker", Result: attunev1alpha1.ResizeResultFailed},
+			},
+			want: [][]string{{"app"}},
+		},
+		{
+			name: "all containers reverted omits the rec",
+			recs: two,
+			history: []attunev1alpha1.ResizeHistoryEntry{
+				{Workload: "api", Container: "app", Result: attunev1alpha1.ResizeResultReverted},
+				{Workload: "api", Container: "worker", Result: attunev1alpha1.ResizeResultFailed},
+			},
+			want: nil,
+		},
+		{
+			name:    "empty history returns recs unchanged",
+			recs:    two,
+			history: nil,
+			want:    [][]string{{"app", "worker"}},
+		},
+		{
+			name: "revert on other workload leaves this rec",
+			recs: otherWL,
+			history: []attunev1alpha1.ResizeHistoryEntry{
+				{Workload: "web", Container: "app", Result: attunev1alpha1.ResizeResultReverted},
+			},
+			want: [][]string{{"app"}},
+		},
+		{
+			name: "wildcard container is ignored",
+			recs: two,
+			history: []attunev1alpha1.ResizeHistoryEntry{
+				{Workload: "api", Container: "*", Result: attunev1alpha1.ResizeResultFailed},
+			},
+			want: [][]string{{"app", "worker"}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := omitRevertedOrFailedContainers(tt.recs, tt.history)
+			if tt.want == nil {
+				assert.Empty(t, got)
+				return
+			}
+			require.Len(t, got, len(tt.want))
+			for i, names := range tt.want {
+				var gotNames []string
+				for _, c := range got[i].Containers {
+					gotNames = append(gotNames, c.Name)
+				}
+				assert.Equal(t, names, gotNames)
+			}
+		})
+	}
+}
+
+func TestApplyTemplatePersistence_AfterSuccessfulResize_OmitsRevertedContainer(t *testing.T) {
+	t.Parallel()
+
+	scheme := runtime.NewScheme()
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
+
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "default"},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: int32Ptr(1),
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "api"}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "api"}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "app",
+							Image: "nginx",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m")},
+							},
+						},
+						{
+							Name:  "worker",
+							Image: "nginx",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("400m")},
+							},
+						},
+					},
+				},
+			},
+		},
+		Status: appsv1.DeploymentStatus{Replicas: 1, UpdatedReplicas: 1, AvailableReplicas: 1},
+	}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = cl
+	r.Scheme = scheme
+
+	policy := newTestPolicy("p", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	policy.Spec.UpdateStrategy.TemplatePersistence = &attunev1alpha1.TemplatePersistence{
+		Enabled: boolPtr(true),
+		When:    attunev1alpha1.TemplatePersistenceAfterSuccessfulResize,
+	}
+	recs := []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "api",
+		Kind:     "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{
+			{
+				Name: "app",
+				Current: attunev1alpha1.ResourceValues{
+					CPURequest: resource.MustParse("500m"),
+				},
+				Recommended: attunev1alpha1.ResourceValues{
+					CPURequest: resource.MustParse("200m"),
+				},
+			},
+			{
+				Name: "worker",
+				Current: attunev1alpha1.ResourceValues{
+					CPURequest: resource.MustParse("400m"),
+				},
+				Recommended: attunev1alpha1.ResourceValues{
+					CPURequest: resource.MustParse("100m"),
+				},
+			},
+		},
+	}}
+	cycle := []attunev1alpha1.ResizeHistoryEntry{
+		{Workload: "api", Container: "app", Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess},
+		{Workload: "api", Container: "worker", Method: "InPlace", Result: attunev1alpha1.ResizeResultReverted},
+	}
+	filtered := omitRevertedOrFailedContainers(recs, cycle)
+	only := successfulResizeWorkloads(cycle)
+
+	history := r.applyTemplatePersistence(context.Background(), policy, []client.Object{deploy}, filtered,
+		attunev1alpha1.TemplatePersistenceAfterSuccessfulResize, only)
+	require.Len(t, history, 1)
+	assert.Equal(t, attunev1alpha1.ResizeResultTemplatePatched, history[0].Result)
+
+	var updated appsv1.Deployment
+	require.NoError(t, cl.Get(context.Background(), client.ObjectKeyFromObject(deploy), &updated))
+	assert.Equal(t, int64(200), updated.Spec.Template.Spec.Containers[0].Resources.Requests.Cpu().MilliValue(),
+		"successful container A must persist")
+	assert.Equal(t, int64(400), updated.Spec.Template.Spec.Containers[1].Resources.Requests.Cpu().MilliValue(),
+		"reverted container B must stay at the original template request")
 }

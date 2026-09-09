@@ -203,19 +203,22 @@ func quantityEqual(a, b corev1.ResourceList, name corev1.ResourceName) bool {
 // the Deployment/StatefulSet template after a successful live-pod revert.
 // AfterSuccessfulResize already patched the unsafe rec before observation;
 // without this restore, new pods and rollouts start at the size that just
-// failed safety.
+// failed safety. Returns nil when persist is disabled, When is not
+// AfterSuccessfulResize, the workload is missing, or the template is
+// already at the snapshot. Callers must keep tracking annotations when
+// the returned error is non-nil so the next reconcile retries.
 func (r *AttunePolicyReconciler) restoreTemplateAfterSafetyRevert(
 	ctx context.Context,
 	policy *attunev1alpha1.AttunePolicy,
 	workloads []client.Object,
 	record safety.ResizeRecord,
-) {
+) error {
 	logger := log.FromContext(ctx)
 	if !templatePersistenceEnabled(policy.Spec.UpdateStrategy) {
-		return
+		return nil
 	}
 	if templatePersistenceWhen(policy.Spec.UpdateStrategy) != attunev1alpha1.TemplatePersistenceAfterSuccessfulResize {
-		return
+		return nil
 	}
 
 	var workload client.Object
@@ -230,7 +233,7 @@ func (r *AttunePolicyReconciler) restoreTemplateAfterSafetyRevert(
 		break
 	}
 	if workload == nil {
-		return
+		return nil
 	}
 
 	desired := map[string]corev1.ResourceRequirements{
@@ -238,14 +241,14 @@ func (r *AttunePolicyReconciler) restoreTemplateAfterSafetyRevert(
 	}
 	changed, err := r.patchWorkloadTemplateResources(ctx, workload, desired)
 	if err != nil {
-		logger.Error(err, "Failed to restore template after safety revert",
-			"workload", record.WorkloadName, "container", record.Container)
-		return
+		return fmt.Errorf("restoring template after safety revert for %s/%s: %w",
+			record.WorkloadName, record.Container, err)
 	}
 	if changed {
 		logger.Info("Restored template after safety revert",
 			"workload", record.WorkloadName, "container", record.Container)
 	}
+	return nil
 }
 
 // applyTemplatePersistence patches Deployment/StatefulSet pod templates for
@@ -510,6 +513,45 @@ func isSuccessfulResizeForPersist(h attunev1alpha1.ResizeHistoryEntry) bool {
 		return true
 	}
 	return resizeHistoryMethod(h) == "Eviction" && h.Result == attunev1alpha1.ResizeResultEvicted
+}
+
+// omitRevertedOrFailedContainers drops containers that already have a
+// this-cycle Reverted or Failed history row. AfterSuccessfulResize persist
+// is keyed by workload; without this filter a Success on container A still
+// writes container B's rec onto the template.
+func omitRevertedOrFailedContainers(
+	recs []attunev1alpha1.WorkloadRecommendation,
+	cycleHistory []attunev1alpha1.ResizeHistoryEntry,
+) []attunev1alpha1.WorkloadRecommendation {
+	skip := make(map[string]bool)
+	for _, h := range cycleHistory {
+		if h.Result != attunev1alpha1.ResizeResultReverted && h.Result != attunev1alpha1.ResizeResultFailed {
+			continue
+		}
+		if h.Workload == "" || h.Container == "" || h.Container == "*" {
+			continue
+		}
+		skip[h.Workload+"/"+h.Container] = true
+	}
+	if len(skip) == 0 {
+		return recs
+	}
+	out := make([]attunev1alpha1.WorkloadRecommendation, 0, len(recs))
+	for _, rec := range recs {
+		filtered := make([]attunev1alpha1.ContainerRecommendation, 0, len(rec.Containers))
+		for _, c := range rec.Containers {
+			if skip[rec.Workload+"/"+c.Name] {
+				continue
+			}
+			filtered = append(filtered, c)
+		}
+		if len(filtered) == 0 {
+			continue
+		}
+		rec.Containers = filtered
+		out = append(out, rec)
+	}
+	return out
 }
 
 // successfulResizeWorkloads returns workload names that had a successful

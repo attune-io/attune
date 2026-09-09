@@ -599,7 +599,8 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		r.applyNotFrozen(ctx, policy.Namespace, &applyFrozen, &freezeErr) {
 		resizedWLs := laggingAfterResizeWorkloads(cycleResizeHistory, policy.Status.ResizeHistory)
 		if len(resizedWLs) > 0 {
-			tplHistory := r.applyTemplatePersistence(ctx, &policy, workloads, recommendations,
+			filtered := omitRevertedOrFailedContainers(recommendations, cycleResizeHistory)
+			tplHistory := r.applyTemplatePersistence(ctx, &policy, workloads, filtered,
 				attunev1alpha1.TemplatePersistenceAfterSuccessfulResize, resizedWLs)
 			if len(tplHistory) > 0 {
 				policy.Status.ResizeHistory = appendHistory(policy.Status.ResizeHistory, tplHistory, maxHistoryEntries)

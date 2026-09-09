@@ -211,6 +211,8 @@ When a safety violation is detected:
    container from the pre-resize snapshot (`OriginalResources`). Persist
    already patched the template on Success or Evicted, before the
    observation window; without this restore, rollouts keep the unsafe size.
+   A failed template restore keeps tracking annotations so the next
+   reconcile retries.
 4. The resize history entry is updated to `result: Reverted`.
 5. The `attune_reverts_total` counter is incremented with the
    violation reason as a label.
