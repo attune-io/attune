@@ -524,6 +524,48 @@ func TestPodMutatingHandler_RequestsAndLimits(t *testing.T) {
 	assert.Equal(t, resource.MustParse("512Mi"), mutatedPod.Spec.Containers[0].Resources.Limits[corev1.ResourceMemory])
 }
 
+func TestPodMutatingHandler_RequestsAndLimits_UsageFloorGuaranteed(t *testing.T) {
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
+	cv := attunev1alpha1.ControlledRequestsAndLimits
+	policy.Spec.CPU.ControlledValues = &cv
+	policy.Spec.Memory.ControlledValues = &cv
+	cr := &policy.Status.Recommendations[0].Containers[0]
+	cr.Current = attunev1alpha1.ResourceValues{
+		CPURequest:    resource.MustParse("200m"),
+		CPULimit:      resource.MustParse("200m"),
+		MemoryRequest: resource.MustParse("1Gi"),
+		MemoryLimit:   resource.MustParse("1Gi"),
+	}
+	cr.Recommended.CPURequest = resource.MustParse("200m")
+	cr.Recommended.CPULimit = resource.MustParse("200m")
+	cr.Recommended.MemoryRequest = resource.MustParse("200Mi")
+	cr.Recommended.MemoryLimit = resource.MustParse("200Mi")
+	cr.Explanation = &attunev1alpha1.ContainerRecommendationExplanation{
+		Memory: &attunev1alpha1.ResourceRecommendationExplanation{
+			RawPercentile: resource.MustParse("500Mi"),
+		},
+	}
+
+	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	req := makeAdmissionRequest(t, pod, "default")
+	resp := handler.Handle(context.Background(), req)
+	require.True(t, resp.Allowed)
+	require.NotEmpty(t, resp.Patches, "expected patches")
+
+	mutatedPod := patchedPod(t, req.Object.Raw, resp)
+	want := resource.MustParse("550Mi")
+	gotLim := mutatedPod.Spec.Containers[0].Resources.Limits[corev1.ResourceMemory]
+	gotReq := mutatedPod.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory]
+	assert.True(t, gotLim.Equal(want),
+		"CREATE must not write a limit below the usage floor, got %s want %s",
+		gotLim.String(), want.String())
+	assert.True(t, gotReq.Equal(want),
+		"Guaranteed CREATE request %s want %s", gotReq.String(), want.String())
+}
+
 func TestPodMutatingHandler_WrongNamespace(t *testing.T) {
 	policy := testPolicy("my-policy", "production", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")

@@ -152,6 +152,63 @@ func TestFloorMemoryLimitForUsage(t *testing.T) {
 	}
 }
 
+func TestRaiseGuaranteedMemoryRequestToLimit(t *testing.T) {
+	t.Parallel()
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("200Mi")},
+		Limits:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("550Mi")},
+	}
+	guaranteed := &corev1.Pod{Status: corev1.PodStatus{QOSClass: corev1.PodQOSGuaranteed}}
+	got := RaiseGuaranteedMemoryRequestToLimit(guaranteed, target)
+	assert.True(t, got.Requests.Memory().Equal(resource.MustParse("550Mi")),
+		"got request %s", got.Requests.Memory().String())
+
+	burstable := &corev1.Pod{Status: corev1.PodStatus{QOSClass: corev1.PodQOSBurstable}}
+	got = RaiseGuaranteedMemoryRequestToLimit(burstable, target)
+	assert.True(t, got.Requests.Memory().Equal(resource.MustParse("200Mi")),
+		"Burstable request must stay %s", got.Requests.Memory().String())
+
+	reqOnly := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("200Mi")},
+	}
+	got = RaiseGuaranteedMemoryRequestToLimit(guaranteed, reqOnly)
+	assert.True(t, got.Requests.Memory().Equal(resource.MustParse("200Mi")),
+		"no limit: request must stay %s", got.Requests.Memory().String())
+	assert.Empty(t, got.Limits)
+}
+
+func TestCurrentResourcesAreGuaranteed(t *testing.T) {
+	t.Parallel()
+	must := resource.MustParse
+	assert.True(t, CurrentResourcesAreGuaranteed(must("200m"), must("200m"), must("1Gi"), must("1Gi")))
+	assert.False(t, CurrentResourcesAreGuaranteed(must("200m"), must("400m"), must("1Gi"), must("1Gi")))
+	assert.False(t, CurrentResourcesAreGuaranteed(must("200m"), must("200m"), must("64Mi"), must("1Gi")))
+	assert.False(t, CurrentResourcesAreGuaranteed(resource.Quantity{}, must("200m"), must("1Gi"), must("1Gi")))
+}
+
+func TestRaiseMemoryRequestToLimitIfGuaranteed(t *testing.T) {
+	t.Parallel()
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("200Mi")},
+		Limits:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("550Mi")},
+	}
+	got := RaiseMemoryRequestToLimitIfGuaranteed(target, true)
+	assert.True(t, got.Requests.Memory().Equal(resource.MustParse("550Mi")))
+	got = RaiseMemoryRequestToLimitIfGuaranteed(target, false)
+	assert.True(t, got.Requests.Memory().Equal(resource.MustParse("200Mi")))
+}
+
+func TestMemoryUsageFloorQuantity(t *testing.T) {
+	t.Parallel()
+	usage := resource.MustParse("500Mi")
+	got := MemoryUsageFloorQuantity(usage, 10)
+	assert.True(t, got.Equal(resource.MustParse("550Mi")), "got %s", got.String())
+	got = MemoryUsageFloorQuantity(usage, 0)
+	assert.Equal(t, usage.Value()+1, got.Value())
+	zeroFloor := MemoryUsageFloorQuantity(resource.Quantity{}, 10)
+	assert.True(t, zeroFloor.IsZero())
+}
+
 func TestFloorMemoryLimitForUsage_NaNMargin(t *testing.T) {
 	t.Parallel()
 	target := corev1.ResourceRequirements{

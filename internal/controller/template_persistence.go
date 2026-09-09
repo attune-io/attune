@@ -19,12 +19,10 @@ package controller
 import (
 	"context"
 	"fmt"
-	"math"
 
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -124,7 +122,7 @@ func materializeContainerResources(
 			// rec.Current may be the stale template; max with usageFloor so
 			// an increase vs Current still cannot land below usage.
 			currentLimit := c.Current.MemoryLimit.DeepCopy()
-			usageFloor := memoryUsageFloorQuantity(usage, margin)
+			usageFloor := resize.MemoryUsageFloorQuantity(usage, margin)
 			if !usageFloor.IsZero() && usageFloor.Cmp(currentLimit) > 0 {
 				currentLimit = usageFloor
 			}
@@ -150,37 +148,13 @@ func materializeContainerResources(
 			out.Limits = nil
 		}
 	}
+	// After RequestsOnly strips limits, raise is a no-op. Guaranteed is
+	// detected from current request==limit (no live pod QoS on a template).
+	guaranteed := resize.CurrentResourcesAreGuaranteed(
+		c.Current.CPURequest, c.Current.CPULimit,
+		c.Current.MemoryRequest, c.Current.MemoryLimit)
+	out = resize.RaiseMemoryRequestToLimitIfGuaranteed(out, guaranteed)
 	return out
-}
-
-// memoryUsageFloorQuantity is ceil(usage * (1 + margin/100)). Margin 0 is
-// strictly above usage, matching resize.FloorMemoryLimitForUsage.
-func memoryUsageFloorQuantity(usage resource.Quantity, marginPercent float64) resource.Quantity {
-	if usage.IsZero() || usage.Sign() <= 0 {
-		return resource.Quantity{}
-	}
-	if math.IsNaN(marginPercent) || math.IsInf(marginPercent, 0) {
-		marginPercent = 0
-	}
-	if marginPercent < 0 {
-		marginPercent = 0
-	}
-	if marginPercent > 100 {
-		marginPercent = 100
-	}
-	floorBytes := float64(usage.Value()) * (1.0 + marginPercent/100.0)
-	if floorBytes <= 0 || math.IsNaN(floorBytes) || math.IsInf(floorBytes, 0) {
-		return resource.Quantity{}
-	}
-	floorInt := int64(math.Ceil(floorBytes))
-	if floorInt <= 0 {
-		return resource.Quantity{}
-	}
-	floor := *resource.NewQuantity(floorInt, resource.BinarySI)
-	if marginPercent == 0 && floor.Cmp(usage) <= 0 {
-		floor = *resource.NewQuantity(usage.Value()+1, resource.BinarySI)
-	}
-	return floor
 }
 
 // canaryBlocksTemplatePersistence returns true while a canary rollout is

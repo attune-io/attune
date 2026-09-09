@@ -32,7 +32,75 @@ import (
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 	"github.com/attune-io/attune/internal/operatormetrics"
+	"github.com/attune-io/attune/internal/resize"
 )
+
+func TestApplyMemoryUsageFloor_GuaranteedRaisesRequestToFlooredLimit(t *testing.T) {
+	t.Parallel()
+	scheme := runtime.NewScheme()
+	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+
+	margin := int32(10)
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "p-qos", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			Memory: attunev1alpha1.ResourceConfig{
+				DecreaseUsageMarginPercent: &margin,
+			},
+		},
+	}
+	r := NewAttunePolicyReconciler()
+	r.Client = fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "default"},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "app",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("200m"),
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
+					},
+					Limits: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("200m"),
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
+					},
+				},
+			}},
+		},
+		Status: corev1.PodStatus{QOSClass: corev1.PodQOSGuaranteed},
+	}
+	rec := attunev1alpha1.ContainerRecommendation{
+		Name: "app",
+		Current: attunev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("200m"),
+			CPULimit:      resource.MustParse("200m"),
+			MemoryRequest: resource.MustParse("1Gi"),
+			MemoryLimit:   resource.MustParse("1Gi"),
+		},
+		Explanation: &attunev1alpha1.ContainerRecommendationExplanation{
+			Memory: &attunev1alpha1.ResourceRecommendationExplanation{
+				RawPercentile: resource.MustParse("500Mi"),
+			},
+		},
+	}
+	target := corev1.ResourceRequirements{
+		Limits:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("200Mi")},
+		Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("200Mi")},
+	}
+
+	got := r.applyMemoryUsageFloor(context.Background(), policy, pod, rec, target)
+	got = resize.RaiseGuaranteedMemoryRequestToLimit(pod, got)
+	want := resource.MustParse("550Mi")
+	require.NotNil(t, got.Limits)
+	assert.True(t, got.Limits.Memory().Equal(want),
+		"limit %s want %s", got.Limits.Memory().String(), want.String())
+	assert.True(t, got.Requests.Memory().Equal(want),
+		"request %s want %s (Guaranteed must match floored limit)",
+		got.Requests.Memory().String(), want.String())
+}
 
 func TestApplyMemoryUsageFloor_RaisesUnsafeLimit(t *testing.T) {
 	t.Parallel()

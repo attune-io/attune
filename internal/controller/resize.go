@@ -72,15 +72,21 @@ func selectPodsForResize(pods []corev1.Pod, mode attunev1alpha1.UpdateType, cana
 }
 
 // firstOneShotPodNeedingResize returns the first eligible pod whose live
-// requests/limits still differ from rec (at most one). Already-at-target
-// replicas are skipped so OneShot can walk the remaining set across cycles.
-func firstOneShotPodNeedingResize(pods []corev1.Pod, rec attunev1alpha1.WorkloadRecommendation) []corev1.Pod {
+// requests/limits still differ from the post-clamp post-floor target (at
+// most one). Already-at-target replicas are skipped so OneShot can walk
+// the remaining set across cycles.
+func (r *AttunePolicyReconciler) firstOneShotPodNeedingResize(
+	ctx context.Context,
+	policy *attunev1alpha1.AttunePolicy,
+	pods []corev1.Pod,
+	rec attunev1alpha1.WorkloadRecommendation,
+) []corev1.Pod {
 	for i := range pods {
 		p := &pods[i]
 		if !resize.IsEligibleForResize(p) {
 			continue
 		}
-		if oneShotPodAlreadyAtTarget(p, rec) {
+		if r.oneShotPodAlreadyAtTarget(ctx, policy, p, rec) {
 			continue
 		}
 		return []corev1.Pod{*p}
@@ -89,13 +95,41 @@ func firstOneShotPodNeedingResize(pods []corev1.Pod, rec attunev1alpha1.Workload
 }
 
 // oneShotPodAlreadyAtTarget is true when every recommended container already
-// matches buildResizeTarget (same compare as shouldSkipResize).
-func oneShotPodAlreadyAtTarget(pod *corev1.Pod, rec attunev1alpha1.WorkloadRecommendation) bool {
+// matches the applied (clamped/floored) target. resizeContainer applies
+// ClampMemoryLimitForPolicy and applyMemoryUsageFloor before shouldSkipResize,
+// so OneShot must compare against that same applied target. Otherwise a
+// replica whose live limit stayed at the clamped/floored value is re-selected
+// every cycle and later replicas never move.
+func (r *AttunePolicyReconciler) oneShotPodAlreadyAtTarget(
+	ctx context.Context,
+	policy *attunev1alpha1.AttunePolicy,
+	pod *corev1.Pod,
+	rec attunev1alpha1.WorkloadRecommendation,
+) bool {
 	if len(rec.Containers) == 0 {
 		return true
 	}
 	for _, containerRec := range rec.Containers {
 		target, _ := buildResizeTarget(containerRec)
+		// Same clamp + Guaranteed QoS raise + usage floor as resizeContainer
+		// so selection and shouldSkipResize see the same numbers.
+		preClamped := target.DeepCopy()
+		target = resize.ClampMemoryLimitForPolicy(pod, containerRec.Name, target, r.AllowInPlaceMemoryLimitDecrease)
+		platformClamped := false
+		if memLim, ok := preClamped.Limits[corev1.ResourceMemory]; ok {
+			if clampedLim, cok := target.Limits[corev1.ResourceMemory]; cok && !memLim.Equal(clampedLim) {
+				platformClamped = true
+				if pod.Status.QOSClass == corev1.PodQOSGuaranteed {
+					if memReq, rok := target.Requests[corev1.ResourceMemory]; rok && memReq.Cmp(clampedLim) < 0 {
+						target.Requests[corev1.ResourceMemory] = clampedLim.DeepCopy()
+					}
+				}
+			}
+		}
+		if !platformClamped {
+			target = r.applyMemoryUsageFloor(ctx, policy, pod, containerRec, target)
+			target = resize.RaiseGuaranteedMemoryRequestToLimit(pod, target)
+		}
 		c := findContainerByName(pod, containerRec.Name)
 		if c == nil {
 			return false
@@ -297,7 +331,7 @@ func (r *AttunePolicyReconciler) executeResizes(
 		}
 		selectedPods := selectPodsForResize(pods, wlMode, canaryPct)
 		if wlMode == attunev1alpha1.UpdateTypeOneShot {
-			selectedPods = firstOneShotPodNeedingResize(pods, rec)
+			selectedPods = r.firstOneShotPodNeedingResize(ctx, policy, pods, rec)
 		}
 		logger.V(1).Info("Pod selection for resize",
 			"workload", rec.Workload, "total", len(pods),
@@ -505,6 +539,7 @@ func (r *AttunePolicyReconciler) resizeContainer(
 	// recent usage from the metrics window (#444 / #428).
 	if !platformClamped {
 		target = r.applyMemoryUsageFloor(ctx, policy, pod, containerRec, target)
+		target = resize.RaiseGuaranteedMemoryRequestToLimit(pod, target)
 	}
 
 	skip, reason := r.shouldSkipResize(ctx, policy, pod, containerRec, target, p.Checks)
