@@ -486,7 +486,7 @@ kubectl get pod <pod> -o jsonpath='{range .status.conditions[?(@.type=="PodResiz
 
 - **Deferred**: skip until kubelet clears `PodResizePending`; next reconcile retries. No max deferred age cut-off (watch `attune_deferred_age_seconds` and `ResizeBlocked` message for escalation).
 - **Infeasible + InPlaceOnly**: skip every cycle until the condition clears or you change `resizeMethod` / capacity.
-- **Infeasible + InPlaceOrRecreate**: one eviction attempt per container resize path. History reason is `eviction_last_replica` when only one live Running replica remains, `eviction_denied` when the Eviction API rejects (PDB), or `eviction_list_failed` / `eviction_no_selector` when the live count cannot be taken. The next cycle may try again.
+- **Infeasible + InPlaceOrRecreate**: one eviction attempt per container resize path. History reason is `eviction_last_replica` when only one live Running replica remains, `eviction_denied` when the Eviction API rejects (PDB), or `eviction_list_failed` / `eviction_no_selector` when the live count cannot be taken. The next cycle may try again. If `templatePersistence.when=AfterSuccessfulResize` is enabled, a successful Eviction also patches the template so the replacement is not supposed to boot at the old request.
 
 ### InPlaceOrRecreate but no eviction
 

@@ -217,11 +217,11 @@ stateDiagram-v2
 
 - **Eviction fallback restarts the pod from the current template.** When a pod
   is evicted, the workload controller (Deployment, StatefulSet) creates a
-  replacement pod from the current PodTemplate. Attune does not patch
-  workload templates as part of eviction fallback, so the replacement pod may
-  come back with the original resources until a later in-place resize succeeds.
-  Evicted pods are recorded separately from successful in-place resizes and do
-  not enter the safety observation path.
+  replacement pod from the current PodTemplate. With
+  `templatePersistence.when=AfterSuccessfulResize` enabled, Attune patches the
+  template after `Evicted` history so the replacement starts at the recommended
+  requests. Without persist, the replacement keeps the old template until a
+  later in-place resize. Evicted pods do not enter the safety observation path.
 
 - **Fail-open schedule.** If the configured timezone is invalid,
   `isWithinResizeWindow` returns `true` (allows resize) rather than silently
