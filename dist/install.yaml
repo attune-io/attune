@@ -3626,6 +3626,7 @@ rules:
   - ""
   resources:
   - limitranges
+  - namespaces
   - nodes
   - resourcequotas
   - services

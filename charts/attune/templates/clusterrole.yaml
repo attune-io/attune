@@ -194,3 +194,12 @@ rules:
       - get
       - list
       - watch
+  # Namespaces: read attune.io/freeze kill-switch (list/watch for cache)
+  - apiGroups:
+      - ""
+    resources:
+      - namespaces
+    verbs:
+      - get
+      - list
+      - watch

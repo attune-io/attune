@@ -328,13 +328,41 @@ func newReconcilerWithClient(objects ...client.Object) *AttunePolicyReconciler {
 	return r
 }
 
+// ensureTestNamespaces adds a Namespace object for every namespaced object
+// so Reconcile can Get the policy namespace (attune.io/freeze). Explicit
+// Namespace objects in objects are left unchanged.
+func ensureTestNamespaces(objects []client.Object) []client.Object {
+	have := make(map[string]struct{})
+	for _, o := range objects {
+		if ns, ok := o.(*corev1.Namespace); ok {
+			have[ns.Name] = struct{}{}
+		}
+	}
+	var extra []client.Object
+	for _, o := range objects {
+		name := o.GetNamespace()
+		if name == "" {
+			continue
+		}
+		if _, ok := have[name]; ok {
+			continue
+		}
+		have[name] = struct{}{}
+		extra = append(extra, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name}})
+	}
+	if len(extra) == 0 {
+		return objects
+	}
+	return append(extra, objects...)
+}
+
 // newReconcilerForReconcile creates a reconciler with status subresource
 // support and a mock metrics factory, ready for Reconcile tests.
 func newReconcilerForReconcile(mc rsmetrics.MetricsCollector, objects ...client.Object) (*AttunePolicyReconciler, client.Client) {
 	scheme := testScheme()
 	c := fake.NewClientBuilder().
 		WithScheme(scheme).
-		WithObjects(objects...).
+		WithObjects(ensureTestNamespaces(objects)...).
 		WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
 		Build()
 	r := NewAttunePolicyReconciler()

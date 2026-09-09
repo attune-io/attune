@@ -309,6 +309,26 @@ Existing resizes are not reverted.
 **Fix**: Set `spec.paused: false` or remove the field entirely. The operator
 will resume reconciliation on the next cycle.
 
+### NamespaceFrozen
+
+**Symptom**: ResizeBlocked is `True` with reason `NamespaceFrozen`. Events
+say `namespace has attune.io/freeze=true; resizes skipped`. Recommendations
+still appear in status.
+
+**Cause**: The policy namespace has `attune.io/freeze=true`, or the operator
+could not read the namespace (fail closed). In-place resizes, evictions, and
+startup boosts are skipped. Metrics collection and recommendations continue
+so `kubectl attune recommendations` still works.
+
+**Fix**: Remove the annotation or set it to any value other than `true`:
+
+```bash
+kubectl annotate namespace <ns> attune.io/freeze-
+```
+
+If the condition message says the namespace could not be read, check RBAC
+for `namespaces` get/list/watch on the operator ServiceAccount.
+
 ### CooldownActive
 
 **Symptom**: The operator logs "Cooldown active, skipping resize" and no

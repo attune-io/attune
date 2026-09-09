@@ -91,6 +91,90 @@ func TestCheckAnnotationOptOut(t *testing.T) {
 	}
 }
 
+func TestCheckAnnotationFreeze(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+
+	tests := []struct {
+		name string
+		obj  metav1.ObjectMeta
+		want bool
+	}{
+		{
+			name: "annotation present with value true",
+			obj: metav1.ObjectMeta{
+				Annotations: map[string]string{
+					AnnotationFreeze: "true",
+				},
+			},
+			want: true,
+		},
+		{
+			name: "annotation absent",
+			obj:  metav1.ObjectMeta{},
+			want: false,
+		},
+		{
+			name: "annotation present with value false",
+			obj: metav1.ObjectMeta{
+				Annotations: map[string]string{
+					AnnotationFreeze: "false",
+				},
+			},
+			want: false,
+		},
+		{
+			name: "True is not accepted (same parser as skip)",
+			obj: metav1.ObjectMeta{
+				Annotations: map[string]string{
+					AnnotationFreeze: "True",
+				},
+			},
+			want: false,
+		},
+		{
+			name: "1 is not accepted (same parser as skip)",
+			obj: metav1.ObjectMeta{
+				Annotations: map[string]string{
+					AnnotationFreeze: "1",
+				},
+			},
+			want: false,
+		},
+		{
+			name: "yes is not accepted (same parser as skip)",
+			obj: metav1.ObjectMeta{
+				Annotations: map[string]string{
+					AnnotationFreeze: "yes",
+				},
+			},
+			want: false,
+		},
+		{
+			name: "skip annotation does not freeze",
+			obj: metav1.ObjectMeta{
+				Annotations: map[string]string{
+					AnnotationSkip: "true",
+				},
+			},
+			want: false,
+		},
+		{
+			name: "empty annotations map",
+			obj: metav1.ObjectMeta{
+				Annotations: map[string]string{},
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := detector.CheckAnnotationFreeze(tt.obj)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestCheckActiveRollout(t *testing.T) {
 	detector := NewDetector(testr.New(t))
 

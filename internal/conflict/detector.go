@@ -39,6 +39,15 @@ type ConflictType string
 // AnnotationSkip is the annotation key for opting a workload out of right-sizing.
 const AnnotationSkip = "attune.io/skip"
 
+// AnnotationFreeze is the namespace annotation that blocks apply
+// (in-place resize, eviction, startup boost) for every policy in that
+// namespace. Recommendations, status, and export still update.
+const AnnotationFreeze = "attune.io/freeze"
+
+// annotationEnabledValue is the only accepted value for skip and freeze.
+// Match this exact string; do not treat "True", "1", or "yes" as set.
+const annotationEnabledValue = "true"
+
 const (
 	// ConflictVPA indicates a VerticalPodAutoscaler targets the same workload.
 	ConflictVPA ConflictType = "VPA"
@@ -67,14 +76,32 @@ func NewDetector(logger logr.Logger) *Detector {
 	}
 }
 
+// annotationExactTrue reports whether annotations[key] is exactly "true".
+// Shared by skip and freeze so both parsers stay identical.
+func annotationExactTrue(annotations map[string]string, key string) bool {
+	if annotations == nil {
+		return false
+	}
+	return annotations[key] == annotationEnabledValue
+}
+
 // CheckAnnotationOptOut returns true if the object carries the annotation
 // "attune.io/skip" set to "true", indicating that the workload has opted
 // out of automatic right-sizing.
 func (d *Detector) CheckAnnotationOptOut(obj metav1.ObjectMeta) bool {
-	if obj.Annotations == nil {
-		return false
-	}
-	return obj.Annotations[AnnotationSkip] == "true"
+	return annotationExactTrue(obj.Annotations, AnnotationSkip)
+}
+
+// CheckAnnotationFreeze returns true if the object carries the annotation
+// "attune.io/freeze" set to "true". Same parser as CheckAnnotationOptOut
+// (exact "true" only). Used on Namespace objects as an incident kill-switch.
+func (d *Detector) CheckAnnotationFreeze(obj metav1.ObjectMeta) bool {
+	return IsFreezeAnnotation(obj.Annotations)
+}
+
+// IsFreezeAnnotation reports whether annotations contain attune.io/freeze=true.
+func IsFreezeAnnotation(annotations map[string]string) bool {
+	return annotationExactTrue(annotations, AnnotationFreeze)
 }
 
 // CheckActiveRollout returns true if the deployment has an active rollout in

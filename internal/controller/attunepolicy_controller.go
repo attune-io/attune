@@ -141,6 +141,7 @@ const (
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get
 //+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups="",resources=resourcequotas;limitranges,verbs=get;list;watch
+//+kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 //+kubebuilder:rbac:groups=config.openshift.io,resources=apiservers,verbs=get;list
 
 // AttunePolicyReconciler reconciles an AttunePolicy object.
@@ -352,6 +353,14 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, nil
 	}
 
+	// Namespace freeze is an incident kill-switch: still recommend, do not apply.
+	applyFrozen, freezeErr := r.namespaceApplyFrozen(ctx, policy.Namespace)
+	if freezeErr != nil {
+		logger.Error(freezeErr, "Failed to read namespace for attune.io/freeze; skipping apply")
+	} else if applyFrozen {
+		logger.Info("Namespace is frozen, skipping apply", "annotation", conflict.AnnotationFreeze)
+	}
+
 	// Step 2: Resolve metrics source, create collector, and select query builder.
 	collector, queryBuilder, err := r.resolveMetricsCollector(ctx, &policy, defaults)
 	if err != nil {
@@ -384,7 +393,7 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// Check pending safety observations from previous resizes before computing
 	// new recommendations. Uses already-discovered workloads for provenance.
 	var safetyObservationsPending bool
-	if autoRevertEnabled(policy.Spec.UpdateStrategy) {
+	if !applyFrozen && autoRevertEnabled(policy.Spec.UpdateStrategy) {
 		safetyObservationsPending = r.checkPendingSafetyObservations(workloadCtx, &policy, collector, workloads)
 	}
 
@@ -532,7 +541,7 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	var cycleResizeHistory []attunev1alpha1.ResizeHistoryEntry
-	if isResizeMode(mode) && !allCooling && withinWindow {
+	if !applyFrozen && isResizeMode(mode) && !allCooling && withinWindow {
 		resizedCount, history := r.executeResizes(ctx, &policy, workloads, recommendations, podsByWorkload, collector, preChecks)
 		newResizedCount = resizedCount
 		cycleResizeHistory = history
@@ -592,7 +601,7 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// Apply startup CPU boosts for newly created pods if configured.
 	// Only in resize modes (Auto, OneShot, Canary); Observe and Recommend
 	// modes must not modify pod resources.
-	if isResizeMode(mode) && policy.Spec.CPU.StartupBoost != nil && r.Clientset != nil && len(recommendations) > 0 {
+	if !applyFrozen && isResizeMode(mode) && policy.Spec.CPU.StartupBoost != nil && r.Clientset != nil && len(recommendations) > 0 {
 		resizer := resize.NewPodResizer(r.Clientset, logger)
 		resizer.AllowInPlaceMemoryLimitDecrease = r.AllowInPlaceMemoryLimitDecrease
 		r.applyStartupBoosts(ctx, &policy, podsByWorkload, recommendations, resizer, preChecks)
@@ -669,6 +678,10 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		operatormetrics.PodsDeferred.WithLabelValues(policy.Namespace, policy.Name).Set(0)
 		operatormetrics.PodsInfeasible.WithLabelValues(policy.Namespace, policy.Name).Set(0)
 		meta.RemoveStatusCondition(&policy.Status.Conditions, attunev1alpha1.ConditionResizeBlocked)
+	}
+
+	if applyFrozen {
+		r.markNamespaceFrozen(&policy, freezeErr)
 	}
 
 	// Set Ready condition (surface series cap as degraded data quality note).
@@ -867,6 +880,39 @@ func absInt64(v int64) int64 {
 		return -v
 	}
 	return v
+}
+
+// namespaceApplyFrozen reports whether apply (resize, eviction, startup
+// boost) must be skipped for this namespace. Get errors fail closed
+// (frozen=true) so a missing RBAC grant or API outage cannot resume
+// resizes during an incident.
+func (r *AttunePolicyReconciler) namespaceApplyFrozen(ctx context.Context, namespace string) (bool, error) {
+	var ns corev1.Namespace
+	if err := r.Get(ctx, client.ObjectKey{Name: namespace}, &ns); err != nil {
+		return true, err
+	}
+	return conflict.IsFreezeAnnotation(ns.Annotations), nil
+}
+
+// markNamespaceFrozen records ResizeBlocked=NamespaceFrozen and emits a
+// single Warning. Recommendations remain in status; only apply is skipped.
+func (r *AttunePolicyReconciler) markNamespaceFrozen(policy *attunev1alpha1.AttunePolicy, freezeErr error) {
+	msg := "namespace has attune.io/freeze=true; resizes skipped"
+	if freezeErr != nil {
+		msg = "cannot read namespace for attune.io/freeze; resizes skipped"
+		r.emitEventOnce(policy, corev1.EventTypeWarning, attunev1alpha1.ReasonNamespaceFrozen, "resize",
+			"cannot read namespace for attune.io/freeze; resizes skipped")
+	} else {
+		r.emitEventOnce(policy, corev1.EventTypeWarning, attunev1alpha1.ReasonNamespaceFrozen, "resize",
+			"namespace has attune.io/freeze=true; resizes skipped")
+	}
+	meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
+		Type:               attunev1alpha1.ConditionResizeBlocked,
+		Status:             metav1.ConditionTrue,
+		Reason:             attunev1alpha1.ReasonNamespaceFrozen,
+		Message:            msg,
+		ObservedGeneration: policy.Generation,
+	})
 }
 
 // processWorkloads processes discovered workloads in parallel, checking for

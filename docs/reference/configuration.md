@@ -446,6 +446,25 @@ caps apply to `AttunePolicy`, `AttuneDefaults`, and
 | `runtimeProfile` | string | (none) | Optional language/runtime profile (`generic`, `java`, `python`, `golang`, `nodejs`). Applies safe memory defaults and admission warnings. See [runtime profiles](../guides/runtime-profiles.md). |
 | `paused` | bool | `false` | Halts all reconciliation for this policy: no metrics collection, no recommendations, no resizes. Existing resizes are not reverted. The operator sets `Ready=False` with `reason=Paused`. |
 
+### Namespace freeze (`attune.io/freeze`)
+
+Annotate a namespace to stop apply during an incident without pausing
+recommendation computation. The value must be exactly `true`, the same
+parser as `attune.io/skip` (`True`, `1`, and `yes` do not freeze).
+
+```bash
+kubectl annotate namespace <ns> attune.io/freeze=true
+```
+
+| Annotation | Scope | Effect |
+|------------|-------|--------|
+| `attune.io/freeze=true` | Namespace | Skip in-place resize, eviction, and startup boost. Metrics, recommendations, status, and export still update. `ResizeBlocked=True` with `reason=NamespaceFrozen`. |
+| `attune.io/skip=true` | Workload | Skip that workload entirely (no recommendations). Independent of freeze. |
+
+If the operator cannot read the namespace, apply is skipped (fail closed)
+and the same `NamespaceFrozen` reason is set. Existing resizes are not
+reverted. Remove the annotation to resume apply on the next reconcile.
+
 ### Container exclusion
 
 | Field | Type | Default | Description |
@@ -605,7 +624,7 @@ The controller sets these conditions on each `AttunePolicy`:
 | `Resizing` | `InProgress`, `Idle`, `CooldownActive` | Active resize operation state (only in resize modes). `CooldownActive` is set only when every matched workload is still cooling down. |
 | `Degraded` | `HighRevertRate` | Set when 3+ of the last 5 resizes were reverted |
 | `ScheduleBlocked` | `OutsideWindow`, `InsideWindow` | Set when `updateStrategy.schedule` is configured; indicates whether the current time is within an allowed resize window |
-| `ResizeBlocked` | `PodsDeferred`, `PodsInfeasible`, `PodsDeferredAndInfeasible` | Pods stuck Deferred or Infeasible; see troubleshooting "Deferred or Infeasible resize" |
+| `ResizeBlocked` | `NamespaceFrozen`, `PodsDeferred`, `PodsInfeasible`, `PodsDeferredAndInfeasible` | Namespace freeze kill-switch, or pods stuck Deferred or Infeasible; see troubleshooting "NamespaceFrozen" and "Deferred or Infeasible resize" |
 | `GitOpsPullRequest` | `PullRequestOpen`, `PullRequestFailed`, `GitOpsEndpointBlocked`, `NoDrift`, `PullRequestUnchanged`, `PullRequestCooldown`, `PullRequestDryRun`, `PullRequestDisabled` | Opt-in `export.pullRequest` automation status (see [GitOps integration](../guides/gitops-integration.md)) |
 
 ### Status fields (GitOps PR)

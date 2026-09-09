@@ -402,6 +402,7 @@ spec:
 | `Resizing` | `InProgress`, `Idle`, `CooldownActive` | Active resize operation |
 | `Degraded` | `HighRevertRate` | Some resizes failing |
 | `ScheduleBlocked` | `OutsideWindow`, `InsideWindow` | Whether the current time is within the configured resize schedule window |
+| `ResizeBlocked` | `NamespaceFrozen`, `PodsDeferred`, `PodsInfeasible`, `PodsDeferredAndInfeasible` | Namespace freeze, or pods stuck Deferred or Infeasible |
 
 Status conditions use `meta.SetStatusCondition()` from `k8s.io/apimachinery/pkg/api/meta`
 (the Kyverno pattern) with `observedGeneration` on every condition.
@@ -801,6 +802,9 @@ Before any resize:
 - Check for existing HPA (adjust behavior, don't block)
 - Check for other AttunePolicy with higher weight
 - Check for `attune.io/skip: "true"` annotation on workload (opt-out)
+- Check for `attune.io/freeze: "true"` on the policy namespace (skip apply
+  only: resize, eviction, startup boost; recommendations still compute;
+  fail closed if the namespace cannot be read)
 - Check for active rollout on the parent Deployment (don't resize during rollouts)
 
 ---
@@ -1558,6 +1562,7 @@ attune/
 | Unified vertical CRD (not VPA+HPA) | Datadog | Single AttunePolicy instead of separate VPA + HPA objects |
 | Cron-style scheduling | Oblik | `schedule.windows` + `daysOfWeek` (Oblik uses `cron` + `cronAddRandomMax`) |
 | Annotation-based opt-out | CAST AI, Oblik | `attune.io/skip: "true"` for workload exclusion |
+| Namespace freeze kill-switch | Kilter | `attune.io/freeze: "true"` on the namespace skips apply |
 
 ### Anti-Patterns Avoided
 
