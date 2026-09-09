@@ -451,7 +451,7 @@ kubectl attune history -n <ns>
 | Signal | Meaning | Operator behavior |
 |--------|---------|-------------------|
 | **Deferred** | Kubelet accepted the request but cannot apply it yet (often free request capacity on the node). Pod condition `PodResizePending` reason `Deferred`. | Pod is **not eligible** for a new resize until the condition clears. **Retry**: every reconcile after eligibility returns (no extra config). |
-| **Infeasible** | Kubelet cannot complete the resize in-place on this node. | With default `resizeMethod: InPlaceOnly`, skip + history `Failed`/`infeasible` + event `InfeasibleBlocked`. With `InPlaceOrRecreate`, attempt eviction fallback (subject to PDB / last-replica guards). |
+| **Infeasible** | Kubelet cannot complete the resize in-place on this node. | With default `resizeMethod: InPlaceOnly`, skip + history `Failed`/`infeasible` + event `InfeasibleBlocked`. With `InPlaceOrRecreate`, attempt eviction fallback (PDB / last live Running replica). |
 
 **Metrics** (see [metrics reference](../reference/metrics.md)):
 
@@ -460,7 +460,7 @@ attune_pods_deferred{namespace="...", policy="..."}
 attune_pods_infeasible{namespace="...", policy="..."}
 histogram_quantile(0.95, sum by (le) (rate(attune_deferred_age_seconds_bucket[15m])))
 rate(attune_infeasible_skipped_total[15m])
-rate(attune_eviction_total[15m])
+sum by (result) (rate(attune_eviction_total[15m]))
 ```
 
 **Fix**:
@@ -486,7 +486,15 @@ kubectl get pod <pod> -o jsonpath='{range .status.conditions[?(@.type=="PodResiz
 
 - **Deferred**: skip until kubelet clears `PodResizePending`; next reconcile retries. No max deferred age cut-off (watch `attune_deferred_age_seconds` and `ResizeBlocked` message for escalation).
 - **Infeasible + InPlaceOnly**: skip every cycle until the condition clears or you change `resizeMethod` / capacity.
-- **Infeasible + InPlaceOrRecreate**: one eviction attempt per container resize path; if eviction is denied (PDB, last replica), history records `Failed`/`infeasible` and the next cycle may try again.
+- **Infeasible + InPlaceOrRecreate**: one eviction attempt per container resize path. History reason is `eviction_last_replica` when only one live Running replica remains, `eviction_denied` when the Eviction API rejects (PDB), or `eviction_list_failed` / `eviction_no_selector` when the live count cannot be taken. The next cycle may try again.
+
+### InPlaceOrRecreate but no eviction
+
+**Symptom**: `resizeMethod` is `InPlaceOrRecreate`, the pod is Infeasible, but it is not evicted. History shows `Failed` / `eviction_last_replica`. Event `EvictionBlocked`.
+
+**Cause**: Only one live Running replica. The last-replica guard lists pods through the typed Clientset and counts `status.phase=Running` with no deletion timestamp. `spec.replicas` and NotReady or Pending pods do not count.
+
+**Fix**: Scale until at least two pods are Running, or wait for another replica to become Running.
 
 ### QoS class change blocked
 

@@ -152,6 +152,9 @@ func run(args []string, buildClient dynamicClientFactory) int {
 	}
 	if !isKnownCommand(cmd) {
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", cmd)
+		if suggestion := suggestCommand(cmd); suggestion != "" {
+			fmt.Fprintf(os.Stderr, "Did you mean %q?\n", suggestion)
+		}
 		fs.Usage()
 		return 1
 	}
@@ -176,6 +179,10 @@ func run(args []string, buildClient dynamicClientFactory) int {
 	}
 	if *filter != "" && cmd != "status" {
 		fmt.Fprintf(os.Stderr, "Error: --filter is supported only with the status command\n")
+		return 1
+	}
+	if *sortBy != "" && !validSortBy(*sortBy) {
+		fmt.Fprintf(os.Stderr, "Error: --sort-by must be one of name, namespace, savings, age\n")
 		return 1
 	}
 	if *sortBy != "" && cmd != "status" && cmd != "savings" {
@@ -332,13 +339,95 @@ func buildDynamicClient(kubeconfigPath, contextOverride string) (dynamic.Interfa
 	return dynClient, currentNamespace, nil
 }
 
+var pluginCommands = []string{
+	"status", "savings", "recommendations", "explain", "history",
+	"preview", "version", "wizard", "diff", "export", "doctor",
+}
+
 func isKnownCommand(cmd string) bool {
-	switch cmd {
-	case "status", "savings", "recommendations", "explain", "history", "preview", "version", "wizard", "diff", "export", "doctor":
+	for _, c := range pluginCommands {
+		if cmd == c {
+			return true
+		}
+	}
+	return false
+}
+
+func validSortBy(v string) bool {
+	switch strings.ToLower(v) {
+	case "name", "namespace", "savings", "age":
 		return true
 	default:
 		return false
 	}
+}
+
+func suggestCommand(unknown string) string {
+	lower := strings.ToLower(unknown)
+	var prefixHits []string
+	best := ""
+	bestDist := len(lower) + 8
+	for _, k := range pluginCommands {
+		kl := strings.ToLower(k)
+		if strings.HasPrefix(kl, lower) && lower != kl {
+			prefixHits = append(prefixHits, k)
+		}
+		d := levenshtein(lower, kl)
+		if d < bestDist {
+			bestDist = d
+			best = k
+		}
+	}
+	if len(prefixHits) == 1 {
+		return prefixHits[0]
+	}
+	maxDist := 2
+	if len(lower) <= 4 {
+		maxDist = 1
+	}
+	if best != "" && bestDist <= maxDist {
+		return best
+	}
+	return ""
+}
+
+func levenshtein(a, b string) int {
+	if a == b {
+		return 0
+	}
+	if a == "" {
+		return len(b)
+	}
+	if b == "" {
+		return len(a)
+	}
+	prev := make([]int, len(b)+1)
+	curr := make([]int, len(b)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i := 1; i <= len(a); i++ {
+		curr[0] = i
+		for j := 1; j <= len(b); j++ {
+			cost := 1
+			if a[i-1] == b[j-1] {
+				cost = 0
+			}
+			del := prev[j] + 1
+			ins := curr[j-1] + 1
+			sub := prev[j-1] + cost
+			best := del
+			if ins < best {
+				best = ins
+			}
+			if sub < best {
+				best = sub
+			}
+			curr[j] = best
+		}
+		prev, curr = curr, prev
+	}
+	return prev[len(b)]
 }
 
 func isZeroArgCommand(cmd string) bool {
@@ -1967,7 +2056,7 @@ func filterPolicies(items []unstructured.Unstructured, filterFlag string) []unst
 }
 
 // sortPolicies sorts items in place by the given key. Supported: name,
-// namespace, savings, age. Empty or unrecognized values are no-ops (API order).
+// namespace, savings, age. Empty values are a no-op (API order).
 func sortPolicies(items []unstructured.Unstructured, sortByFlag string) {
 	switch strings.ToLower(sortByFlag) {
 	case "name":

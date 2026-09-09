@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"math"
 	"testing"
 
 	promtestutil "github.com/prometheus/client_golang/prometheus/testutil"
@@ -158,6 +159,65 @@ func TestApplyMemoryUsageFloor_SafeDecreaseUnchanged(t *testing.T) {
 
 	got := r.applyMemoryUsageFloor(context.Background(), policy, pod, rec, target)
 	assert.True(t, got.Limits.Memory().Equal(resource.MustParse("800Mi")))
+}
+
+func TestApplyMemoryUsageFloor_UsesLiveContainerLimit(t *testing.T) {
+	t.Parallel()
+	scheme := runtime.NewScheme()
+	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+
+	margin := int32(10)
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "p-live", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			Memory: attunev1alpha1.ResourceConfig{
+				DecreaseUsageMarginPercent: &margin,
+			},
+		},
+	}
+	r := NewAttunePolicyReconciler()
+	r.Client = fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	// Template Current is stale after in-place resize (512Mi). Live pod is 2Gi.
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "default"},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "app",
+				Resources: corev1.ResourceRequirements{
+					Limits: corev1.ResourceList{
+						corev1.ResourceMemory: resource.MustParse("2Gi"),
+					},
+				},
+			}},
+		},
+	}
+	rec := attunev1alpha1.ContainerRecommendation{
+		Name: "app",
+		Current: attunev1alpha1.ResourceValues{
+			MemoryLimit: resource.MustParse("512Mi"),
+		},
+		Explanation: &attunev1alpha1.ContainerRecommendationExplanation{
+			Memory: &attunev1alpha1.ResourceRecommendationExplanation{
+				RawPercentile: resource.MustParse("1.5Gi"),
+			},
+		},
+	}
+	target := corev1.ResourceRequirements{
+		Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("1Gi")},
+	}
+
+	got := r.applyMemoryUsageFloor(context.Background(), policy, pod, rec, target)
+	// Stale 512Mi would treat 1Gi as an increase and leave it unchanged.
+	assert.False(t, got.Limits.Memory().Equal(resource.MustParse("1Gi")),
+		"must not keep 1Gi when live limit is 2Gi and usage floor applies (got %s)",
+		got.Limits.Memory().String())
+	// 1.5Gi * 1.1, rounded up to whole bytes.
+	usage := resource.MustParse("1.5Gi")
+	want := *resource.NewQuantity(int64(math.Ceil(float64(usage.Value())*1.1)), resource.BinarySI)
+	assert.True(t, got.Limits.Memory().Equal(want),
+		"got %s want %s (1.5Gi * 1.1)", got.Limits.Memory().String(), want.String())
 }
 
 func TestRecentMemoryUsage(t *testing.T) {

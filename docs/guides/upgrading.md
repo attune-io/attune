@@ -8,6 +8,53 @@ Maintainers: before publishing a release after multi-version product changes,
 run the full E2E Nightly matrix on tip of `main` (see
 [Releasing: full E2E matrix](../contributing/releasing.md#1b-full-e2e-matrix-required-before-tagging-a-product-release)).
 
+## v0.1.26 to v0.1.27
+
+v0.1.27 tightens last-replica eviction, limit-only resizes, the memory
+usage floor, and kubectl `--sort-by` validation. Existing policy YAML
+keeps working. Read this section if you use `InPlaceOrRecreate`,
+`controlledValues: RequestsAndLimits`, memory limit decreases, eviction
+metrics, or `kubectl attune --sort-by`.
+
+### RequestsAndLimits can apply a limit-only resize
+
+When requests already match the recommendation, `RequestsAndLimits` may
+still apply a resize that only changes limits (for example a missing or
+drifted memory limit). Previously a request match could skip the whole
+container. Check resize history if you see limit-only updates.
+
+### Memory usage floor uses the live container limit
+
+The usage floor compares the target against the live container limit on
+the pod, not the workload template. After an in-place resize the template
+(and `rec.Current`) can lag. Alerts that assume the template limit is
+authoritative should use the live pod instead.
+
+### Last-replica eviction uses a live Running count
+
+Eviction fallback lists pods through the typed Clientset and counts only
+`status.phase=Running` with no deletion timestamp. `spec.replicas` and
+NotReady or Pending pods do not count. The list is paginated and stops
+once two Running pods are visible. Concurrent resizes on the same
+workload serialize that list-plus-evict so two replicas cannot both be
+evicted in one pass. History reasons are `eviction_last_replica`,
+`eviction_denied`, `eviction_list_failed`, and `eviction_no_selector`.
+A failed eviction attempt is not retried for remaining containers on the
+same pod in that cycle.
+
+### kubectl attune --sort-by rejects unknown values
+
+`kubectl attune status` and `kubectl attune savings` now exit 1 when
+`--sort-by` is not `name`, `namespace`, `savings`, or `age`. Scripts that
+passed a typo and got unsorted output now fail closed.
+
+### attune_eviction_total result labels
+
+`attune_eviction_total` now increments for skipped attempts as well as
+successes. The `result` label is `success`, `denied`, `last_replica`,
+`list_failed`, or `no_selector`. Alerts that treated every increment as
+an eviction should filter `result="success"`.
+
 ## v0.1.25 to v0.1.26
 
 v0.1.26 tightens stale-recommendation handling, CloudWatch collection,

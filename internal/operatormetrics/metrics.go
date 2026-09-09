@@ -177,7 +177,7 @@ var (
 	EvictionTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "attune_eviction_total",
-			Help: "Total eviction attempts (InPlaceOrRecreate fallback)",
+			Help: "Total eviction attempts and skip results (InPlaceOrRecreate fallback)",
 		},
 		[]string{"namespace", "workload", "result"},
 	)

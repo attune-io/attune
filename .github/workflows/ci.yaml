@@ -88,6 +88,11 @@ jobs:
               - 'scripts/test_verify_helm_image_tag.sh'
               - 'hack/release-image-tags.sh'
               - 'scripts/test_release_image_tags.sh'
+              # Standalone Grafana JSON is the Helm dashboard source.
+              # Dashboard-only PRs must run verify-dashboard-metrics.sh
+              # without the full Go lint matrix.
+              - 'deploy/grafana/**'
+              - 'hack/verify-dashboard-metrics.sh'
             yaml:
               - 'config/**'
               - '.github/workflows/**'
@@ -267,6 +272,18 @@ jobs:
       - name: Verify supported tool version references
         shell: bash -Eeuo pipefail {0}
         run: bash hack/verify-doc-tool-versions.sh
+
+      - name: Verify PrometheusRule metrics
+        shell: bash -Eeuo pipefail {0}
+        run: bash hack/verify-prometheusrule-metrics.sh
+
+      - name: Verify Helm schema fields
+        shell: bash -Eeuo pipefail {0}
+        run: bash hack/verify-helm-schema-fields.sh
+
+      - name: Verify doc defaults
+        shell: bash -Eeuo pipefail {0}
+        run: bash hack/verify-doc-defaults.sh
 
   link-check:
     name: Link Check
@@ -847,6 +864,22 @@ jobs:
           bash scripts/test_verify_helm_image_tag.sh
           bash hack/verify-helm-image-tag.sh
           bash scripts/test_release_image_tags.sh
+
+      - name: Verify dashboard metrics sync
+        shell: bash -Eeuo pipefail {0}
+        run: bash hack/verify-dashboard-metrics.sh
+
+      - name: Verify PrometheusRule metrics
+        shell: bash -Eeuo pipefail {0}
+        run: bash hack/verify-prometheusrule-metrics.sh
+
+      - name: Verify Helm schema fields
+        shell: bash -Eeuo pipefail {0}
+        run: bash hack/verify-helm-schema-fields.sh
+
+      - name: Verify doc defaults
+        shell: bash -Eeuo pipefail {0}
+        run: bash hack/verify-doc-defaults.sh
 
   build:
     name: Build

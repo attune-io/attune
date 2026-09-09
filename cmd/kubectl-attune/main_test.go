@@ -1110,6 +1110,19 @@ func TestRun_SortByFlagRejectedForHistory(t *testing.T) {
 	assert.Equal(t, 1, code)
 }
 
+func TestRun_SortByUnknownValue(t *testing.T) {
+	exitCode, _, stderr := captureRun(t, []string{"status", "--sort-by", "bogus"},
+		failingDynamicClientFactory(fmt.Errorf("should not be called")))
+	assert.Equal(t, 1, exitCode)
+	assert.Contains(t, stderr, "name, namespace, savings, age")
+}
+
+func TestSuggestCommand(t *testing.T) {
+	assert.Equal(t, "recommendations", suggestCommand("recommend"))
+	assert.Equal(t, "history", suggestCommand("histroy"))
+	assert.Empty(t, suggestCommand("wat"))
+}
+
 // ---------- printStructured ----------
 
 func TestPrintStructured_JSON(t *testing.T) {
@@ -1905,6 +1918,20 @@ func TestRun_MainWiring(t *testing.T) {
 			factory:      failingDynamicClientFactory(fmt.Errorf("should not be called")),
 			wantExitCode: 1,
 			wantStderr:   "Unknown command: wat",
+		},
+		{
+			name:         "unknown command recommend suggests recommendations",
+			args:         []string{"recommend"},
+			factory:      failingDynamicClientFactory(fmt.Errorf("should not be called")),
+			wantExitCode: 1,
+			wantStderr:   `Did you mean "recommendations"`,
+		},
+		{
+			name:         "unknown sort-by value names allowed keys",
+			args:         []string{"status", "--sort-by", "bogus"},
+			factory:      failingDynamicClientFactory(fmt.Errorf("should not be called")),
+			wantExitCode: 1,
+			wantStderr:   "name, namespace, savings, age",
 		},
 		{
 			name:         "watch flag rejected for non-status command",

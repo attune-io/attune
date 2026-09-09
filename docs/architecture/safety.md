@@ -264,6 +264,31 @@ If the node lookup fails (for example node not found), request increases are
 skipped (fail-closed). Decreases still proceed. See
 [Node capacity](node-capacity.md).
 
+## Last-replica eviction
+
+When `resizeMethod` is `InPlaceOrRecreate` and in-place resize cannot
+proceed, the operator may evict the pod. Before calling the Eviction API
+it lists matching pods through the typed Clientset (live API, not the
+informer cache) and counts only pods with `status.phase=Running` and no
+`deletionTimestamp`.
+
+`spec.replicas` and NotReady or Pending pods do not count. A Deployment
+with `replicas: 3` and only one Running pod is treated as a last replica.
+History reason is `eviction_last_replica` and the operator emits
+`EvictionBlocked`. A missing selector or a list failure emits the same
+event with reason `eviction_no_selector` or `eviction_list_failed`. A
+PodDisruptionBudget denial uses `EvictionDenied` / `eviction_denied`.
+
+## Memory usage floor
+
+When decreasing a memory limit, the controller compares the target against
+the live container limit on the pod, not the workload template. The
+template (and `rec.Current` in status) can lag after an in-place resize.
+The target is then raised if it would fall at or below recent usage
+(recommendation raw percentile) times
+`(1 + decreaseUsageMarginPercent/100)`. See
+[resize API](resize-api.md).
+
 ## Container exclusion
 
 Well-known mesh and sidecar names (for example `istio-proxy`,

@@ -4722,6 +4722,127 @@ func TestCheckPendingSafetyObservations_EarlyCriticalHealthySkipped(t *testing.T
 	}
 }
 
+func TestCheckPendingSafetyObservations_EarlyNotReadyDoesNotRevert(t *testing.T) {
+	// Ready=False during the observation window is not a critical status.
+	// Early path uses CheckCriticalStatuses only; full CheckPodObject would revert.
+	resizedAt := time.Now().UTC().Format(time.RFC3339)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "notready-pod",
+			Namespace: "default",
+			Labels:    map[string]string{"attune.io/tracked": "true"},
+			Annotations: map[string]string{
+				"attune.io/resized-at":                   resizedAt,
+				"attune.io/resized-workload":             "api-server",
+				"attune.io/resized-containers":           "main",
+				"attune.io/original-cpu-request.main":    "500m",
+				"attune.io/original-memory-request.main": "512Mi",
+				"attune.io/policy":                       "test-policy",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  "main",
+					Image: "nginx",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("250m"),
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "main", Ready: false, RestartCount: 0},
+			},
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionFalse},
+			},
+		},
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.AutoRevert = boolPtr(true)
+
+	reconciler, _ := newSafetyTestReconciler(pod)
+
+	pending := reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
+	assert.True(t, pending, "should report pending (observation period not elapsed)")
+
+	for _, a := range reconciler.Clientset.(*kubefake.Clientset).Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			t.Fatal("Ready=False during observation period should NOT trigger a revert")
+		}
+	}
+}
+
+func TestCheckPendingSafetyObservations_EarlyCriticalConfirmGet500DoesNotRevert(t *testing.T) {
+	resizedAt := time.Now().UTC().Add(-10 * time.Second).Format(time.RFC3339)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "oom-confirm-500",
+			Namespace: "default",
+			Labels:    map[string]string{"attune.io/tracked": "true"},
+			Annotations: map[string]string{
+				"attune.io/resized-at":                   resizedAt,
+				"attune.io/resized-workload":             "api-server",
+				"attune.io/resized-containers":           "main",
+				"attune.io/original-cpu-request.main":    "500m",
+				"attune.io/original-memory-request.main": "512Mi",
+				"attune.io/policy":                       "test-policy",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("250m"),
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{
+					Name: "main",
+					LastTerminationState: corev1.ContainerState{
+						Terminated: &corev1.ContainerStateTerminated{
+							Reason:     "OOMKilled",
+							FinishedAt: metav1.NewTime(time.Now()),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.AutoRevert = boolPtr(true)
+
+	reconciler, _ := newSafetyTestReconciler(pod)
+	cs := reconciler.Clientset.(*kubefake.Clientset)
+	cs.PrependReactor("get", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, apierrors.NewInternalError(fmt.Errorf("injected confirm Get 500"))
+	})
+
+	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
+
+	for _, a := range cs.Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			t.Fatal("early OOM confirm Get 500 must not revert")
+		}
+	}
+}
+
 // ---------- isCooldownActive parse error ----------
 
 func TestIsCooldownActive_MalformedDate(t *testing.T) {
@@ -6656,6 +6777,127 @@ func TestCheckPendingSafetyObservations_NotReadyFlapConfirmedBeforeRevert(t *tes
 	for _, a := range clientset.Actions() {
 		assert.False(t, a.GetVerb() == "update" && a.GetSubresource() == "resize",
 			"flapping notready must not revert after live confirm")
+	}
+}
+
+func TestCheckPendingSafetyObservations_ConfirmGet500DoesNotRevert(t *testing.T) {
+	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "confirm-500-pod",
+			Namespace: "default",
+			Labels:    map[string]string{"app": "test", "attune.io/tracked": "true"},
+			Annotations: map[string]string{
+				"attune.io/resized-at":                   resizedAt,
+				"attune.io/resized-workload":             "api-server",
+				"attune.io/resized-containers":           "main",
+				"attune.io/original-cpu-request.main":    "500m",
+				"attune.io/original-memory-request.main": "512Mi",
+				"attune.io/policy":                       "test-policy",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("250m"),
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionFalse},
+			},
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "main", RestartCount: 0},
+			},
+		},
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	reconciler, _ := newSafetyTestReconciler(pod)
+	cs := reconciler.Clientset.(*kubefake.Clientset)
+	cs.PrependReactor("get", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, apierrors.NewInternalError(fmt.Errorf("injected confirm Get 500"))
+	})
+
+	before := promtestutil.ToFloat64(operatormetrics.ReconcileErrorsTotal.WithLabelValues("safety_observation"))
+	pending := reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
+	after := promtestutil.ToFloat64(operatormetrics.ReconcileErrorsTotal.WithLabelValues("safety_observation"))
+
+	assert.True(t, pending, "confirm Get 500 should keep observation pending")
+	assert.Equal(t, before+1, after, "safety_observation should increment on confirm Get error")
+
+	for _, a := range cs.Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			t.Fatal("confirm Get 500 must not revert")
+		}
+	}
+}
+
+func TestCheckPendingSafetyObservations_ConfirmGetNotFoundDoesNotRevert(t *testing.T) {
+	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "confirm-404-pod",
+			Namespace: "default",
+			Labels:    map[string]string{"app": "test", "attune.io/tracked": "true"},
+			Annotations: map[string]string{
+				"attune.io/resized-at":                   resizedAt,
+				"attune.io/resized-workload":             "api-server",
+				"attune.io/resized-containers":           "main",
+				"attune.io/original-cpu-request.main":    "500m",
+				"attune.io/original-memory-request.main": "512Mi",
+				"attune.io/policy":                       "test-policy",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("250m"),
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionFalse},
+			},
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "main", RestartCount: 0},
+			},
+		},
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	reconciler, _ := newSafetyTestReconciler(pod)
+	cs := reconciler.Clientset.(*kubefake.Clientset)
+	cs.PrependReactor("get", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		ga, ok := action.(k8stesting.GetAction)
+		if !ok {
+			return false, nil, nil
+		}
+		return true, nil, apierrors.NewNotFound(corev1.Resource("pods"), ga.GetName())
+	})
+
+	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
+
+	for _, a := range cs.Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			t.Fatal("confirm Get 404 must not revert")
+		}
 	}
 }
 
@@ -8988,9 +9230,10 @@ func TestTryEvictionFallback_EvictsWhenMultipleReplicas(t *testing.T) {
 	evictionBefore := promtestutil.ToFloat64(operatormetrics.EvictionTotal.WithLabelValues("default", "api-server", "success"))
 	resizeBefore := promtestutil.ToFloat64(operatormetrics.ResizeTotal.WithLabelValues("default", "api-server", "eviction", "success"))
 
-	evicted := r.tryEvictionFallback(context.Background(), policy, pod1, deploy,
+	evicted, reason := r.tryEvictionFallback(context.Background(), policy, pod1, deploy,
 		"api-server", "app", resizer)
 	assert.True(t, evicted, "should evict when multiple replicas exist")
+	assert.Empty(t, reason, "successful eviction has no failure reason")
 
 	// Verify eviction was called.
 	var evictions int
@@ -9005,6 +9248,95 @@ func TestTryEvictionFallback_EvictsWhenMultipleReplicas(t *testing.T) {
 		"eviction fallback should not increment in-place resize metrics")
 }
 
+func TestTryEvictionFallback_ConcurrentTwoReplicasEvictsAtMostOne(t *testing.T) {
+	// Two executeResizes goroutines can both List running==2 and both Evict
+	// unless List+count+Evict is serialized per workload. Fake clientset
+	// does not remove a pod on Evict, so the reactor deletes it so the
+	// second List sees running==1.
+	pod1 := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
+	pod2 := newTestPod("api-server-abc-2", "default", map[string]string{"app": "api-server"})
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.ResizeMethod = attunev1alpha1.ResizeMethodInPlaceOrRecreate
+
+	clientset := kubefake.NewSimpleClientset(pod1, pod2)
+	clientset.PrependReactor("create", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if action.GetSubresource() != "eviction" {
+			return false, nil, nil
+		}
+		create, ok := action.(k8stesting.CreateAction)
+		if !ok {
+			return false, nil, nil
+		}
+		meta, ok := create.GetObject().(metav1.Object)
+		if !ok {
+			return true, nil, fmt.Errorf("eviction object is not metav1.Object")
+		}
+		ns := meta.GetNamespace()
+		if ns == "" {
+			ns = action.GetNamespace()
+		}
+		if err := clientset.Tracker().Delete(corev1.SchemeGroupVersion.WithResource("pods"), ns, meta.GetName()); err != nil {
+			return true, nil, err
+		}
+		return true, create.GetObject(), nil
+	})
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(policy, deploy, pod1, pod2).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
+	resizer := resize.NewPodResizer(clientset, ctrl.Log)
+
+	var (
+		start, done     sync.WaitGroup
+		mu              sync.Mutex
+		evictedCount    int
+		lastReplicaHits int
+	)
+	start.Add(2)
+	done.Add(2)
+	run := func(p *corev1.Pod) {
+		defer done.Done()
+		start.Done()
+		start.Wait()
+		evicted, reason := r.tryEvictionFallback(context.Background(), policy, p, deploy,
+			"api-server", "app", resizer)
+		mu.Lock()
+		defer mu.Unlock()
+		if evicted {
+			evictedCount++
+		}
+		if reason == reasonEvictionLastReplica {
+			lastReplicaHits++
+		}
+	}
+	go run(pod1)
+	go run(pod2)
+	done.Wait()
+
+	var evictions int
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "create" && a.GetResource().Resource == "pods" && a.GetSubresource() == "eviction" {
+			evictions++
+		}
+		if a.GetVerb() == "list" {
+			if lo, ok := a.(interface{ GetListOptions() metav1.ListOptions }); ok {
+				opts := lo.GetListOptions()
+				assert.Equal(t, evictionReplicaPageSize, opts.Limit, "last-replica List must paginate")
+				assert.Empty(t, opts.ResourceVersion, "last-replica List must not use ResourceVersion 0")
+			}
+		}
+	}
+	assert.LessOrEqual(t, evictions, 1, "at most one eviction create")
+	assert.LessOrEqual(t, evictedCount, 1, "at most one successful eviction")
+	assert.True(t, lastReplicaHits >= 1 || evictedCount == 1,
+		"at least one call must return last_replica or the second must see running<=1 after the first evicts")
+}
+
 func TestTryEvictionFallback_SkipsLastReplica(t *testing.T) {
 	pod := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
@@ -9015,15 +9347,31 @@ func TestTryEvictionFallback_SkipsLastReplica(t *testing.T) {
 	scheme := testScheme()
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
 		WithObjects(policy, deploy, pod).Build()
+	recorder := events.NewFakeRecorder(10)
 	r := NewAttunePolicyReconciler()
 	r.Client = fakeClient
 	r.Scheme = scheme
 	r.Clientset = clientset
+	r.Recorder = recorder
 	resizer := resize.NewPodResizer(clientset, ctrl.Log)
 
-	evicted := r.tryEvictionFallback(context.Background(), policy, pod, deploy,
+	evictionBefore := promtestutil.ToFloat64(operatormetrics.EvictionTotal.WithLabelValues("default", "api-server", "last_replica"))
+
+	evicted, reason := r.tryEvictionFallback(context.Background(), policy, pod, deploy,
 		"api-server", "app", resizer)
 	assert.False(t, evicted, "should NOT evict the last replica")
+	assert.Equal(t, reasonEvictionLastReplica, reason)
+	assert.Equal(t, evictionBefore+1, promtestutil.ToFloat64(operatormetrics.EvictionTotal.WithLabelValues("default", "api-server", "last_replica")))
+
+	select {
+	case event := <-recorder.Events:
+		assert.Contains(t, event, "EvictionBlocked")
+		assert.Contains(t, event, "1 live Running replica")
+		assert.Contains(t, event, "spec.replicas")
+		assert.Contains(t, event, "NotReady")
+	default:
+		t.Error("expected EvictionBlocked event but none was emitted")
+	}
 }
 
 func TestResizeContainer_InfeasiblePodEvictedDirectly(t *testing.T) {
@@ -9165,6 +9513,81 @@ func TestResizeContainer_InfeasibleLiveRecheckAfterStaleCache(t *testing.T) {
 	assert.Equal(t, 1, evictions)
 }
 
+func TestResizeContainer_StaleInfeasibleClearedOnLiveGet(t *testing.T) {
+	// Listed/informer pod is still Infeasible; live Get has cleared it.
+	// Inverse of InfeasibleLiveRecheckAfterStaleCache: stay in-place.
+	listed := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
+	listed.Name = "api-server-abc-1"
+	listed.Status.Conditions = append(listed.Status.Conditions, corev1.PodCondition{
+		Type:   "PodResizePending",
+		Status: corev1.ConditionTrue,
+		Reason: "Infeasible",
+	})
+	live := listed.DeepCopy()
+	live.Status.Conditions = nil
+	peer := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
+	peer.Name = "api-server-abc-2"
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(deploy, listed, peer).Build()
+	clientset := kubefake.NewSimpleClientset(live, peer.DeepCopy())
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	policy.Spec.UpdateStrategy.ResizeMethod = attunev1alpha1.ResizeMethodInPlaceOrRecreate
+
+	resizer := resize.NewPodResizer(clientset, ctrl.Log)
+	containerRec := attunev1alpha1.ContainerRecommendation{
+		Name: "main",
+		Current: attunev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("200m"),
+			MemoryRequest: resource.MustParse("256Mi"),
+		},
+		Recommended: attunev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("100m"),
+			MemoryRequest: resource.MustParse("128Mi"),
+		},
+	}
+	target, _ := buildResizeTarget(containerRec)
+
+	entries, outcome := r.resizeContainer(context.Background(), resizeParams{
+		Policy:       policy,
+		Pod:          listed,
+		Workload:     deploy,
+		WorkloadName: "api-server",
+		ContainerRec: containerRec,
+		Target:       target,
+		Resizer:      resizer,
+		Monitor:      nil,
+		Now:          metav1.Now(),
+	})
+	assert.Equal(t, resizeOutcomeInPlace, outcome, "cleared live Infeasible must stay in-place")
+	require.NotEmpty(t, entries)
+	assert.NotEqual(t, resizeOutcomeEvicted, outcome)
+	for _, e := range entries {
+		assert.NotEqual(t, "Eviction", e.Method)
+		assert.NotEqual(t, attunev1alpha1.ResizeResultEvicted, e.Result)
+	}
+
+	var evictions, resizes int
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "create" && a.GetResource().Resource == "pods" && a.GetSubresource() == "eviction" {
+			evictions++
+		}
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			resizes++
+		}
+	}
+	assert.Equal(t, 0, evictions, "cleared live Infeasible must not evict")
+	assert.Greater(t, resizes, 0, "cleared live Infeasible must attempt in-place resize")
+}
+
 func TestResizeContainer_InfeasiblePodSkippedWithInPlaceOnly(t *testing.T) {
 	// An Infeasible pod with InPlaceOnly should be skipped entirely
 	// (no resize attempt, no eviction).
@@ -9238,6 +9661,75 @@ func TestResizeContainer_InfeasiblePodSkippedWithInPlaceOnly(t *testing.T) {
 		}
 		if a.GetVerb() == "create" && a.GetSubresource() == "eviction" {
 			t.Error("should NOT have attempted eviction with InPlaceOnly")
+		}
+	}
+}
+
+func TestResizeContainer_InfeasibleLastReplicaRecordsReason(t *testing.T) {
+	pod := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
+	pod.Name = "api-server-abc-1"
+	pod.Status.Conditions = append(pod.Status.Conditions, corev1.PodCondition{
+		Type:   "PodResizePending",
+		Status: corev1.ConditionTrue,
+		Reason: "Infeasible",
+	})
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(deploy, pod).Build()
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+	recorder := events.NewFakeRecorder(10)
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
+	r.Recorder = recorder
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	policy.Spec.UpdateStrategy.ResizeMethod = attunev1alpha1.ResizeMethodInPlaceOrRecreate
+
+	resizer := resize.NewPodResizer(clientset, ctrl.Log)
+	containerRec := attunev1alpha1.ContainerRecommendation{
+		Name: "app",
+		Current: attunev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("200m"),
+			MemoryRequest: resource.MustParse("256Mi"),
+		},
+		Recommended: attunev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("500m"),
+			MemoryRequest: resource.MustParse("512Mi"),
+		},
+	}
+
+	entries, outcome := r.resizeContainer(context.Background(), resizeParams{
+		Policy:       policy,
+		Pod:          pod,
+		Workload:     deploy,
+		WorkloadName: "api-server",
+		ContainerRec: containerRec,
+		Resizer:      resizer,
+		Monitor:      nil,
+		Now:          metav1.Now(),
+	})
+	assert.Equal(t, resizeOutcomeEvictionBlocked, outcome, "last live Running replica must not be evicted")
+	require.Len(t, entries, 1, "should record a Failed history entry")
+	assert.Equal(t, attunev1alpha1.ResizeResultFailed, entries[0].Result)
+	assert.Equal(t, reasonEvictionLastReplica, entries[0].Reason)
+	assert.NotEqual(t, "infeasible", entries[0].Reason)
+
+	select {
+	case event := <-recorder.Events:
+		assert.Contains(t, event, "EvictionBlocked")
+		assert.Contains(t, event, "live Running")
+	default:
+		t.Error("expected EvictionBlocked event but none was emitted")
+	}
+
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "create" && a.GetSubresource() == "eviction" {
+			t.Error("should NOT have attempted eviction of the last live Running replica")
 		}
 	}
 }
@@ -9857,6 +10349,143 @@ func TestExecuteResizes_MultiContainerSequential(t *testing.T) {
 	assert.True(t, resizedContainers["sidecar"], "sidecar container should have UpdateResize called")
 }
 
+func TestExecuteResizes_EvictionBlockedKeepsPriorInPlaceSuccess(t *testing.T) {
+	// One Running replica, two containers. Main resizes in-place first.
+	// After that UpdateResize, live Get reports Infeasible so sidecar
+	// attempts eviction, which last-replica blocks. Prior success must
+	// still count the workload as resized.
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "api-server-abc-1", Namespace: "default",
+			Labels: map[string]string{"app": "api-server"},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{Name: "main", Image: "nginx", Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("500m"),
+						corev1.ResourceMemory: resource.MustParse("256Mi"),
+					},
+				}},
+				{Name: "sidecar", Image: "envoy", Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("100m"),
+						corev1.ResourceMemory: resource.MustParse("64Mi"),
+					},
+				}},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "main", Ready: true, RestartCount: 0},
+				{Name: "sidecar", Ready: true, RestartCount: 0},
+			},
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	deploy.Spec.Replicas = int32Ptr(1)
+	deploy.Status.Replicas = 1
+	deploy.Status.UpdatedReplicas = 1
+	deploy.Status.AvailableReplicas = 1
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod).Build()
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+
+	var inPlaceApplied atomic.Bool
+	clientset.PrependReactor("update", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if action.GetSubresource() != "resize" {
+			return false, nil, nil
+		}
+		inPlaceApplied.Store(true)
+		return false, nil, nil
+	})
+	clientset.PrependReactor("get", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if !inPlaceApplied.Load() {
+			return false, nil, nil
+		}
+		ga, ok := action.(k8stesting.GetAction)
+		if !ok {
+			return false, nil, nil
+		}
+		obj, err := clientset.Tracker().Get(ga.GetResource(), ga.GetNamespace(), ga.GetName())
+		if err != nil {
+			return true, nil, err
+		}
+		live, ok := obj.(*corev1.Pod)
+		if !ok {
+			return false, nil, nil
+		}
+		live = live.DeepCopy()
+		live.Status.Conditions = append(live.Status.Conditions, corev1.PodCondition{
+			Type:   "PodResizePending",
+			Status: corev1.ConditionTrue,
+			Reason: "Infeasible",
+		})
+		return true, live, nil
+	})
+
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = scheme
+	reconciler.Clientset = clientset
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	policy.Spec.UpdateStrategy.ResizeMethod = attunev1alpha1.ResizeMethodInPlaceOrRecreate
+
+	recommendations := []attunev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "api-server",
+			Kind:     "Deployment",
+			Containers: []attunev1alpha1.ContainerRecommendation{
+				{
+					Name: "main",
+					Current: attunev1alpha1.ResourceValues{
+						CPURequest: resource.MustParse("500m"), MemoryRequest: resource.MustParse("256Mi"),
+					},
+					Recommended: attunev1alpha1.ResourceValues{
+						CPURequest: resource.MustParse("750m"), MemoryRequest: resource.MustParse("384Mi"),
+					},
+				},
+				{
+					Name: "sidecar",
+					Current: attunev1alpha1.ResourceValues{
+						CPURequest: resource.MustParse("100m"), MemoryRequest: resource.MustParse("64Mi"),
+					},
+					Recommended: attunev1alpha1.ResourceValues{
+						CPURequest: resource.MustParse("200m"), MemoryRequest: resource.MustParse("128Mi"),
+					},
+				},
+			},
+		},
+	}
+
+	count, history := reconciler.executeResizes(context.Background(), policy,
+		[]client.Object{deploy}, recommendations,
+		map[string][]corev1.Pod{"api-server": {*pod}}, nil, nil)
+	assert.Equal(t, 1, count, "prior in-place success must still count the workload as resized")
+
+	mainSuccess := false
+	sidecarBlocked := false
+	for _, h := range history {
+		if h.Container == "main" && h.Method == resize.MethodInPlace && h.Result == attunev1alpha1.ResizeResultSuccess {
+			mainSuccess = true
+		}
+		if h.Container == "sidecar" && h.Reason == reasonEvictionLastReplica {
+			sidecarBlocked = true
+		}
+		assert.NotEqual(t, attunev1alpha1.ResizeResultEvicted, h.Result,
+			"last-replica eviction must not evict")
+	}
+	assert.True(t, mainSuccess, "history should keep in-place Success for main")
+	assert.True(t, sidecarBlocked, "history should record eviction_last_replica for sidecar")
+}
+
 func TestExecuteResizes_MultiContainer_BudgetExhaustion(t *testing.T) {
 	// A pod with two containers where the CPU budget is exhausted after the
 	// first container resize. The second container should be skipped (budget
@@ -10187,9 +10816,40 @@ func TestTryEvictionFallback_EvictionDeniedByPDB(t *testing.T) {
 	r.Clientset = clientset
 	resizer := resize.NewPodResizer(clientset, ctrl.Log)
 
-	evicted := r.tryEvictionFallback(context.Background(), policy, pod1, deploy,
+	evicted, reason := r.tryEvictionFallback(context.Background(), policy, pod1, deploy,
 		"api-server", "app", resizer)
 	assert.False(t, evicted, "should return false when eviction is denied by PDB")
+	assert.Equal(t, reasonEvictionDenied, reason)
+}
+
+func TestTryEvictionFallback_StaleCacheDoesNotEvictLastLiveReplica(t *testing.T) {
+	pod1 := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
+	pod2 := newTestPod("api-server-abc-2", "default", map[string]string{"app": "api-server"})
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.ResizeMethod = attunev1alpha1.ResizeMethodInPlaceOrRecreate
+
+	// Informer cache still has two Running pods; the live API has only one.
+	clientset := kubefake.NewSimpleClientset(pod1)
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(policy, deploy, pod1, pod2).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
+	resizer := resize.NewPodResizer(clientset, ctrl.Log)
+
+	evicted, reason := r.tryEvictionFallback(context.Background(), policy, pod1, deploy,
+		"api-server", "app", resizer)
+	assert.False(t, evicted, "must not evict when live Clientset has only one running replica")
+	assert.Equal(t, reasonEvictionLastReplica, reason)
+
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "create" && a.GetResource().Resource == "pods" && a.GetSubresource() == "eviction" {
+			t.Error("eviction should not be attempted when live replica count is 1")
+		}
+	}
 }
 
 func TestTryEvictionFallback_ListErrorSkipsEviction(t *testing.T) {
@@ -10199,24 +10859,34 @@ func TestTryEvictionFallback_ListErrorSkipsEviction(t *testing.T) {
 	policy.Spec.UpdateStrategy.ResizeMethod = attunev1alpha1.ResizeMethodInPlaceOrRecreate
 
 	clientset := kubefake.NewSimpleClientset(pod)
+	clientset.PrependReactor("list", "pods", func(_ k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, fmt.Errorf("connection refused")
+	})
 	scheme := testScheme()
-	// Use an interceptor to make List fail, simulating API server unreachable.
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
-		WithObjects(policy, deploy, pod).
-		WithInterceptorFuncs(interceptor.Funcs{
-			List: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) error {
-				return fmt.Errorf("connection refused")
-			},
-		}).Build()
+		WithObjects(policy, deploy, pod).Build()
+	recorder := events.NewFakeRecorder(10)
 	r := NewAttunePolicyReconciler()
 	r.Client = fakeClient
 	r.Scheme = scheme
 	r.Clientset = clientset
+	r.Recorder = recorder
 	resizer := resize.NewPodResizer(clientset, ctrl.Log)
 
-	evicted := r.tryEvictionFallback(context.Background(), policy, pod, deploy,
+	evictionBefore := promtestutil.ToFloat64(operatormetrics.EvictionTotal.WithLabelValues("default", "api-server", "list_failed"))
+
+	evicted, reason := r.tryEvictionFallback(context.Background(), policy, pod, deploy,
 		"api-server", "app", resizer)
 	assert.False(t, evicted, "should skip eviction when pod list fails")
+	assert.Equal(t, reasonEvictionListFailed, reason)
+	assert.Equal(t, evictionBefore+1, promtestutil.ToFloat64(operatormetrics.EvictionTotal.WithLabelValues("default", "api-server", "list_failed")))
+	select {
+	case event := <-recorder.Events:
+		assert.Contains(t, event, "EvictionBlocked")
+		assert.Contains(t, event, "cannot list live Running pods")
+	default:
+		t.Error("expected EvictionBlocked event on list failure")
+	}
 
 	// Verify no eviction was attempted.
 	for _, a := range clientset.Actions() {
@@ -10247,21 +10917,64 @@ func TestTryEvictionFallback_NilSelectorSkipsEviction(t *testing.T) {
 	scheme := testScheme()
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
 		WithObjects(policy, deploy, pod).Build()
+	recorder := events.NewFakeRecorder(10)
 	r := NewAttunePolicyReconciler()
 	r.Client = fakeClient
 	r.Scheme = scheme
 	r.Clientset = clientset
+	r.Recorder = recorder
 	resizer := resize.NewPodResizer(clientset, ctrl.Log)
 
-	evicted := r.tryEvictionFallback(context.Background(), policy, pod, deploy,
+	evictionBefore := promtestutil.ToFloat64(operatormetrics.EvictionTotal.WithLabelValues("default", "api-server", "no_selector"))
+
+	evicted, reason := r.tryEvictionFallback(context.Background(), policy, pod, deploy,
 		"api-server", "main", resizer)
 	assert.False(t, evicted, "should skip eviction when workload has nil selector")
+	assert.Equal(t, reasonEvictionNoSelector, reason)
+	assert.Equal(t, evictionBefore+1, promtestutil.ToFloat64(operatormetrics.EvictionTotal.WithLabelValues("default", "api-server", "no_selector")))
+	select {
+	case event := <-recorder.Events:
+		assert.Contains(t, event, "EvictionBlocked")
+		assert.Contains(t, event, "no pod selector")
+	default:
+		t.Error("expected EvictionBlocked event when selector is nil")
+	}
 
 	// Verify no eviction was attempted.
 	for _, a := range clientset.Actions() {
 		if a.GetVerb() == "create" && a.GetResource().Resource == "pods" && a.GetSubresource() == "eviction" {
 			t.Error("eviction should not be attempted when selector is nil")
 		}
+	}
+}
+
+func TestTryEvictionFallback_NilClientsetSkipsEviction(t *testing.T) {
+	pod := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.ResizeMethod = attunev1alpha1.ResizeMethodInPlaceOrRecreate
+
+	clientset := kubefake.NewSimpleClientset(pod)
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(policy, deploy, pod).Build()
+	recorder := events.NewFakeRecorder(10)
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Recorder = recorder
+	resizer := resize.NewPodResizer(clientset, ctrl.Log)
+
+	evicted, reason := r.tryEvictionFallback(context.Background(), policy, pod, deploy,
+		"api-server", "app", resizer)
+	assert.False(t, evicted, "should skip eviction when Clientset is nil")
+	assert.Equal(t, reasonEvictionListFailed, reason)
+	select {
+	case event := <-recorder.Events:
+		assert.Contains(t, event, "EvictionBlocked")
+		assert.Contains(t, event, "clientset unavailable")
+	default:
+		t.Error("expected EvictionBlocked event when Clientset is nil")
 	}
 }
 
@@ -13108,6 +13821,48 @@ func TestShouldSkipResize_AlreadyAtTarget(t *testing.T) {
 	skip, reason := r.shouldSkipResize(context.Background(), policy, pod, containerRec, target, nil)
 	assert.True(t, skip, "should skip when pod already matches target")
 	assert.Empty(t, reason, "reason should be empty for already-at-target skip")
+}
+
+func TestShouldSkipResize_RequestMatchLimitDriftDoesNotSkip(t *testing.T) {
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+
+	policy := &attunev1alpha1.AttunePolicy{}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-pod", Namespace: "default"},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{Name: "app", Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("500m"),
+						corev1.ResourceMemory: resource.MustParse("256Mi"),
+					},
+				}},
+			},
+		},
+	}
+	containerRec := attunev1alpha1.ContainerRecommendation{
+		Name: "app",
+		Current: attunev1alpha1.ResourceValues{
+			CPURequest:    resource.MustParse("500m"),
+			MemoryRequest: resource.MustParse("256Mi"),
+		},
+	}
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("500m"),
+			corev1.ResourceMemory: resource.MustParse("256Mi"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceMemory: resource.MustParse("512Mi"),
+		},
+	}
+
+	skip, _ := r.shouldSkipResize(context.Background(), policy, pod, containerRec, target, nil)
+	assert.False(t, skip, "must not skip when requests match but target sets a missing live limit")
 }
 
 func TestShouldSkipResize_PreChecksLimitRange(t *testing.T) {

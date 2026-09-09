@@ -1,4 +1,6 @@
-{{- /* Fleet multi-cluster dashboard. Source: deploy/grafana/fleet-dashboard.json */ -}}
+{{- /* Fleet multi-cluster dashboard. Source: deploy/grafana/fleet-dashboard.json.
+       Run hack/verify-dashboard-metrics.sh (or make verify-dashboard-metrics)
+       to confirm charts/attune/files/grafana-fleet-dashboard.json is in sync. */ -}}
 {{- if .Values.grafanaFleetDashboard.enabled }}
 apiVersion: v1
 kind: ConfigMap

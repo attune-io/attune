@@ -189,7 +189,7 @@ spec:
 | `resizeHistory[].to` | `string` | New value |
 | `resizeHistory[].method` | `string` | `InPlace`, `Eviction`, or `TemplatePersistence` |
 | `resizeHistory[].result` | `string` | `Success`, `Failed`, `Reverted`, `Evicted`, or `TemplatePatched` |
-| `resizeHistory[].reason` | `string` | Why a resize was reverted or failed (e.g. `oomkill`, `restart`, `notready`, `slo:<name>`, `infeasible`). Empty for successful resizes. |
+| `resizeHistory[].reason` | `string` | Free-form string (not an enum) for why a resize was reverted or failed (e.g. `oomkill`, `restart`, `notready`, `slo:<name>`, `infeasible`, `eviction_last_replica`, `eviction_denied`, `eviction_list_failed`, `eviction_no_selector`). Empty for successful resizes. |
 | `workloadErrors[].workload` | `string` | Workload name that encountered an error during reconciliation |
 | `workloadErrors[].error` | `string` | Human-readable error description |
 | `canary.phase` | `string` | `CanaryInProgress` or `FullRollout`. FullRollout only when every listed app is promoted |
@@ -244,7 +244,9 @@ View them with `kubectl describe attunepolicy <name>` or
 | `ScheduleSkipped` | Normal | Resize was skipped because the current time is outside the configured schedule window |
 | `ResizeFailed` | Warning | An in-place resize API call failed |
 | `BudgetExhausted` | Warning | The per-reconcile resize budget was exhausted before all workloads could be resized |
-| `InfeasibleBlocked` | Warning | A resize was blocked because it would exceed node capacity |
+| `InfeasibleBlocked` | Warning | In-place resize skipped because the kubelet marked the pod Infeasible and `resizeMethod` is `InPlaceOnly` |
+| `EvictionBlocked` | Warning | Eviction fallback skipped (last live Running replica, missing selector, or pod list failure). `spec.replicas` and NotReady pods are not counted |
+| `EvictionDenied` | Warning | Eviction API denied the request (typically a PodDisruptionBudget) |
 | `ResizeSkipped` | Warning | A resize was skipped (e.g. pod in bad state, rolling out) |
 | `Reverted` | Warning | A resize was reverted due to safety observation failure (OOMKill, CPU throttle, restarts, or SLO guardrail breach) |
 | `Evicted` | Warning | A pod was evicted as a fallback when in-place resize was not possible |
