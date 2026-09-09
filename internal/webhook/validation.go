@@ -335,7 +335,7 @@ func warnIneffectiveSettings(policy *attunev1alpha1.AttunePolicy) admission.Warn
 
 	// maxConcurrentResizes > 1 in OneShot mode.
 	if mode == attunev1alpha1.UpdateTypeOneShot && policy.Spec.UpdateStrategy.MaxConcurrentResizes > 1 {
-		w = append(w, "maxConcurrentResizes > 1 has no effect in OneShot mode; OneShot applies at most one needing pod per cycle. Replicas that are already at the applied target, or that are blocked by QoS, node pressure, quota, or Infeasible plus InPlaceOnly, are skipped so another replica can still resize.")
+		w = append(w, "maxConcurrentResizes > 1 has no effect in OneShot mode; OneShot applies at most one needing pod per cycle and skips already-at-target or blocked replicas.")
 	}
 
 	// memoryFromCpuRatio makes memory percentile/overhead redundant.
