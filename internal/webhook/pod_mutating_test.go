@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/conflict"
 )
 
 // patchedPod applies the admission response patches to the original pod bytes.
@@ -78,6 +79,12 @@ func testScheme() *runtime.Scheme {
 func testDeployment(name, ns string, labels map[string]string) *appsv1.Deployment {
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, Labels: labels},
+	}
+}
+
+func testNamespace(name string, annotations map[string]string) *corev1.Namespace {
+	return &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Annotations: annotations},
 	}
 }
 
@@ -211,7 +218,7 @@ func TestPodMutatingHandler_HappyPath(t *testing.T) {
 	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
 
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	req := makeAdmissionRequest(t, pod, "default")
@@ -238,6 +245,77 @@ func TestPodMutatingHandler_SkipAnnotation(t *testing.T) {
 	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
 	assert.True(t, resp.Allowed)
 	assert.Nil(t, resp.Patches, "expected no patches for skipped pod")
+}
+
+func TestPodMutatingHandler_NamespaceFreeze(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		ns          *corev1.Namespace
+		getErr      bool
+		wantPatches bool
+		wantMsg     string
+	}{
+		{
+			name:        "freeze=true skips CREATE sizing",
+			ns:          testNamespace("default", map[string]string{conflict.AnnotationFreeze: "true"}),
+			wantPatches: false,
+			wantMsg:     "attune.io/freeze=true",
+		},
+		{
+			name:        "freeze absent mutates",
+			ns:          testNamespace("default", nil),
+			wantPatches: true,
+		},
+		{
+			name:        "True is not freeze",
+			ns:          testNamespace("default", map[string]string{conflict.AnnotationFreeze: "True"}),
+			wantPatches: true,
+		},
+		{
+			name:        "Get error fail-closed",
+			getErr:      true,
+			wantPatches: false,
+			wantMsg:     "cannot read namespace for freeze",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
+			pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
+
+			builder := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy)
+			if tt.ns != nil {
+				builder = builder.WithObjects(tt.ns)
+			}
+			if tt.getErr {
+				builder = builder.WithInterceptorFuncs(interceptor.Funcs{
+					Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+						if _, ok := obj.(*corev1.Namespace); ok {
+							return fmt.Errorf("simulated namespace get failure")
+						}
+						return c.Get(ctx, key, obj, opts...)
+					},
+				})
+			}
+			handler := &PodMutatingHandler{Client: builder.Build(), Logger: logr.Discard()}
+
+			resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
+			require.True(t, resp.Allowed)
+			if tt.wantPatches {
+				require.NotEmpty(t, resp.Patches, "expected CREATE initial sizing")
+			} else {
+				assert.Nil(t, resp.Patches, "expected no CREATE mutation")
+				if tt.wantMsg != "" {
+					require.NotNil(t, resp.Result)
+					assert.Contains(t, resp.Result.Message, tt.wantMsg)
+				}
+			}
+		})
+	}
 }
 
 func TestPodMutatingHandler_KubeSystem(t *testing.T) {
@@ -351,7 +429,7 @@ func TestPodMutatingHandler_ConflictCheckFailedDoesNotOverrideHealthyPolicy(t *t
 	policyA := testPolicy("policy-a", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
 	policyA.Spec.Weight = 1000
 
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policyA, policyB).Build()
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policyA, policyB, testNamespace("default", nil)).Build()
 	var logged string
 	handler := &PodMutatingHandler{
 		Client: cl,
@@ -422,7 +500,7 @@ func TestPodMutatingHandler_LowConfidence_SuccessfulHistoryApplies(t *testing.T)
 	}
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
 
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
@@ -478,7 +556,7 @@ func TestPodMutatingHandler_LowConfidence_EmptyMethodHistoryApplies(t *testing.T
 		},
 	}
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
@@ -490,7 +568,7 @@ func TestPodMutatingHandler_StatefulSet(t *testing.T) {
 	policy := testPolicy("sts-policy", "default", "StatefulSet", "my-sts", true, attunev1alpha1.UpdateTypeAuto)
 	pod := testPod("my-sts-0", "StatefulSet", "my-sts")
 
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	req := makeAdmissionRequest(t, pod, "default")
@@ -511,7 +589,7 @@ func TestPodMutatingHandler_RequestsAndLimits(t *testing.T) {
 	policy.Status.Recommendations[0].Containers[0].Recommended.MemoryLimit = resource.MustParse("512Mi")
 
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	req := makeAdmissionRequest(t, pod, "default")
@@ -547,7 +625,7 @@ func TestPodMutatingHandler_RequestsAndLimits_UsageFloorGuaranteed(t *testing.T)
 	}
 
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	req := makeAdmissionRequest(t, pod, "default")
@@ -612,7 +690,7 @@ func TestPodMutatingHandler_OneShotMode(t *testing.T) {
 	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeOneShot)
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
 
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
@@ -672,7 +750,7 @@ func TestPodMutatingHandler_CanaryMode_MutatesCanarySlice(t *testing.T) {
 	}
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
 
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
@@ -707,7 +785,7 @@ func TestPodMutatingHandler_CanaryMode_PromotedAppOnly(t *testing.T) {
 		},
 	}
 
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	aNew := testPod("app-a-new", "ReplicaSet", "app-a-abc")
@@ -760,7 +838,7 @@ func TestPodMutatingHandler_SelectorPolicy_CanaryIsolation(t *testing.T) {
 	deployOther := testDeployment("other", "default", map[string]string{"tier": "batch"})
 
 	cl := fake.NewClientBuilder().WithScheme(testScheme()).
-		WithObjects(policy, deployA, deployB, deployOther).Build()
+		WithObjects(policy, deployA, deployB, deployOther, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	respA := handler.Handle(context.Background(), makeAdmissionRequest(t,
@@ -823,7 +901,7 @@ func TestPodMutatingHandler_CanaryMode_MutatesAfterPromote(t *testing.T) {
 	}
 	pod := testPod("my-app-new-xyz", "ReplicaSet", "my-app-abc")
 
-	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy).Build()
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
 	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))

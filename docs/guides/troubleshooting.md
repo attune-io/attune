@@ -316,9 +316,10 @@ say `namespace has attune.io/freeze=true; resizes skipped`. Recommendations
 still appear in status.
 
 **Cause**: The policy namespace has `attune.io/freeze=true`, or the operator
-could not read the namespace (fail closed). In-place resizes, evictions, and
-startup boosts are skipped. Metrics collection and recommendations continue
-so `kubectl attune recommendations` still works.
+could not read the namespace (fail closed). In-place resizes, evictions,
+startup boosts, template persistence, and CREATE initial sizing are skipped.
+Metrics collection and recommendations continue so `kubectl attune
+recommendations` still works.
 
 **Fix**: Remove the annotation or set it to any value other than `true`:
 

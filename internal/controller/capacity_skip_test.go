@@ -792,7 +792,7 @@ func TestExecuteResizes_LiveGetFail_SkipsMemoryLimitDecrease(t *testing.T) {
 	for {
 		select {
 		case event := <-recorder.Events:
-			if strings.Contains(event, "ResizeSkipped") && strings.Contains(event, "memory limit decrease") {
+			if strings.Contains(event, "ResizeSkipped") && strings.Contains(event, "pod status unavailable") {
 				found = true
 			}
 		default:
@@ -802,10 +802,9 @@ func TestExecuteResizes_LiveGetFail_SkipsMemoryLimitDecrease(t *testing.T) {
 	}
 }
 
-// TestExecuteResizes_LiveGetFail_AllowsRequestOnlyDecrease: request
-// decreases that are not memory-limit decreases still proceed when live
-// Get fails (same as node-unavailable decreases).
-func TestExecuteResizes_LiveGetFail_AllowsRequestOnlyDecrease(t *testing.T) {
+// TestExecuteResizes_LiveGetFail_SkipsRequestOnlyDecrease: a listed
+// snapshot that looks like a decrease is still stale; fail closed.
+func TestExecuteResizes_LiveGetFail_SkipsRequestOnlyDecrease(t *testing.T) {
 	const (
 		policyNS   = "default"
 		policyName = "live-get-fail-dec-policy"
@@ -815,7 +814,12 @@ func TestExecuteResizes_LiveGetFail_AllowsRequestOnlyDecrease(t *testing.T) {
 	pod := newResizePod(appName, "500m", "512Mi", "1000m", "1Gi")
 	deploy := newTestDeployment(appName, policyNS, map[string]string{"app": appName})
 	reconciler, _ := newResizeReconciler(pod, deploy)
-	failFirstPodGet(reconciler.Clientset.(*kubefake.Clientset))
+	cs := reconciler.Clientset.(*kubefake.Clientset)
+	cs.PrependReactor("get", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, apierrors.NewForbidden(corev1.Resource("pods"), appName+"-abc-1", fmt.Errorf("injected live Get 403"))
+	})
+	recorder := events.NewFakeRecorder(10)
+	reconciler.Recorder = recorder
 
 	policy := newTestPolicy(policyName, policyNS)
 	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
@@ -834,9 +838,22 @@ func TestExecuteResizes_LiveGetFail_AllowsRequestOnlyDecrease(t *testing.T) {
 		nil,
 		nil,
 	)
-	assert.Equal(t, 1, count, "request-only decrease may proceed when live Get fails")
-	require.NotEmpty(t, history)
-	assert.Greater(t, resizeSubresourceCount(reconciler.Clientset.(*kubefake.Clientset)), 0)
+	assert.Equal(t, 0, count, "live Get error must not apply from a listed snapshot")
+	assert.Empty(t, history)
+	assert.Equal(t, 0, resizeSubresourceCount(cs))
+
+	found := false
+	for {
+		select {
+		case event := <-recorder.Events:
+			if strings.Contains(event, "ResizeSkipped") && strings.Contains(event, "pod status unavailable") {
+				found = true
+			}
+		default:
+			require.True(t, found, "expected ResizeSkipped when live Get fails on a request-only decrease")
+			return
+		}
+	}
 }
 
 func TestComputeSavings_ReclaimedAliases(t *testing.T) {

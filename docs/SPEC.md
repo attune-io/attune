@@ -803,8 +803,10 @@ Before any resize:
 - Check for other AttunePolicy with higher weight
 - Check for `attune.io/skip: "true"` annotation on workload (opt-out)
 - Check for `attune.io/freeze: "true"` on the policy namespace (skip apply
-  only: resize, eviction, startup boost; recommendations still compute;
-  fail closed if the namespace cannot be read)
+  only: resize, eviction, startup boost, template persist, CREATE initial
+  sizing; recommendations still compute; fail closed if the namespace
+  cannot be read). Freeze is re-checked immediately before apply so a
+  flag set during PromQL still skips persist and resize.
 - Check for active rollout on the parent Deployment (don't resize during rollouts)
 
 ---
@@ -1562,7 +1564,7 @@ attune/
 | Unified vertical CRD (not VPA+HPA) | Datadog | Single AttunePolicy instead of separate VPA + HPA objects |
 | Cron-style scheduling | Oblik | `schedule.windows` + `daysOfWeek` (Oblik uses `cron` + `cronAddRandomMax`) |
 | Annotation-based opt-out | CAST AI, Oblik | `attune.io/skip: "true"` for workload exclusion |
-| Namespace freeze kill-switch | Kilter | `attune.io/freeze: "true"` on the namespace skips apply |
+| Namespace freeze kill-switch | Kilter | `attune.io/freeze: "true"` on the namespace skips apply (resize, persist, CREATE initial sizing) |
 
 ### Anti-Patterns Avoided
 

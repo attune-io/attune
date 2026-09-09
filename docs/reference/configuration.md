@@ -458,7 +458,7 @@ kubectl annotate namespace <ns> attune.io/freeze=true
 
 | Annotation | Scope | Effect |
 |------------|-------|--------|
-| `attune.io/freeze=true` | Namespace | Skip in-place resize, eviction, and startup boost. Metrics, recommendations, status, and export still update. `ResizeBlocked=True` with `reason=NamespaceFrozen`. |
+| `attune.io/freeze=true` | Namespace | Skip in-place resize, eviction, startup boost, template persist, and CREATE initial sizing. Metrics, recommendations, status, and export still update. `ResizeBlocked=True` with `reason=NamespaceFrozen`. |
 | `attune.io/skip=true` | Workload | Skip that workload entirely (no recommendations). Independent of freeze. |
 
 If the operator cannot read the namespace, apply is skipped (fail closed)

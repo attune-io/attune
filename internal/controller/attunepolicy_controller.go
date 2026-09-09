@@ -494,10 +494,12 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	// Template persistence (OnRecommendation): write accepted recs into templates.
 	// Observe mode is gated inside applyTemplatePersistence; Canary InProgress too.
+	// Re-check freeze immediately before persist (PromQL may have taken minutes).
 	if templatePersistenceEnabled(policy.Spec.UpdateStrategy) &&
 		templatePersistenceWhen(policy.Spec.UpdateStrategy) == attunev1alpha1.TemplatePersistenceOnRecommendation &&
 		policy.Spec.UpdateStrategy.Type != attunev1alpha1.UpdateTypeObserve &&
-		len(recommendations) > 0 {
+		len(recommendations) > 0 &&
+		r.applyNotFrozen(ctx, policy.Namespace, &applyFrozen, &freezeErr) {
 		tplHistory := r.applyTemplatePersistence(ctx, &policy, workloads, recommendations,
 			attunev1alpha1.TemplatePersistenceOnRecommendation, nil)
 		if len(tplHistory) > 0 {
@@ -541,7 +543,11 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	var cycleResizeHistory []attunev1alpha1.ResizeHistoryEntry
-	if !applyFrozen && isResizeMode(mode) && !allCooling && withinWindow {
+	// Re-check freeze immediately before apply. processWorkloads can run
+	// until prometheusTimeout; a freeze set during that window must still
+	// skip resize. Do not abort mid-PromQL.
+	if isResizeMode(mode) && !allCooling && withinWindow &&
+		r.applyNotFrozen(ctx, policy.Namespace, &applyFrozen, &freezeErr) {
 		resizedCount, history := r.executeResizes(ctx, &policy, workloads, recommendations, podsByWorkload, collector, preChecks)
 		newResizedCount = resizedCount
 		cycleResizeHistory = history
@@ -588,7 +594,8 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// template patch can still be retried while resize is cooling down.
 	if templatePersistenceEnabled(policy.Spec.UpdateStrategy) &&
 		templatePersistenceWhen(policy.Spec.UpdateStrategy) == attunev1alpha1.TemplatePersistenceAfterSuccessfulResize &&
-		len(recommendations) > 0 {
+		len(recommendations) > 0 &&
+		r.applyNotFrozen(ctx, policy.Namespace, &applyFrozen, &freezeErr) {
 		resizedWLs := laggingAfterResizeWorkloads(cycleResizeHistory, policy.Status.ResizeHistory)
 		if len(resizedWLs) > 0 {
 			tplHistory := r.applyTemplatePersistence(ctx, &policy, workloads, recommendations,
@@ -601,7 +608,8 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// Apply startup CPU boosts for newly created pods if configured.
 	// Only in resize modes (Auto, OneShot, Canary); Observe and Recommend
 	// modes must not modify pod resources.
-	if !applyFrozen && isResizeMode(mode) && policy.Spec.CPU.StartupBoost != nil && r.Clientset != nil && len(recommendations) > 0 {
+	if isResizeMode(mode) && policy.Spec.CPU.StartupBoost != nil && r.Clientset != nil && len(recommendations) > 0 &&
+		r.applyNotFrozen(ctx, policy.Namespace, &applyFrozen, &freezeErr) {
 		resizer := resize.NewPodResizer(r.Clientset, logger)
 		resizer.AllowInPlaceMemoryLimitDecrease = r.AllowInPlaceMemoryLimitDecrease
 		r.applyStartupBoosts(ctx, &policy, podsByWorkload, recommendations, resizer, preChecks)
@@ -883,15 +891,38 @@ func absInt64(v int64) int64 {
 }
 
 // namespaceApplyFrozen reports whether apply (resize, eviction, startup
-// boost) must be skipped for this namespace. Get errors fail closed
-// (frozen=true) so a missing RBAC grant or API outage cannot resume
-// resizes during an incident.
+// boost, template persist, CREATE initial sizing) must be skipped for
+// this namespace. Get errors fail closed (frozen=true) so a missing
+// RBAC grant or API outage cannot resume apply during an incident.
 func (r *AttunePolicyReconciler) namespaceApplyFrozen(ctx context.Context, namespace string) (bool, error) {
-	var ns corev1.Namespace
-	if err := r.Get(ctx, client.ObjectKey{Name: namespace}, &ns); err != nil {
-		return true, err
+	return conflict.NamespaceApplyFrozen(ctx, r.Client, namespace)
+}
+
+// refreshApplyFrozen re-reads attune.io/freeze immediately before an
+// apply path. A freeze set during PromQL or processWorkloads must still
+// skip apply. Once frozen in this reconcile, stay frozen.
+func (r *AttunePolicyReconciler) refreshApplyFrozen(ctx context.Context, namespace string, applyFrozen *bool, freezeErr *error) {
+	if applyFrozen == nil || freezeErr == nil || *applyFrozen {
+		return
 	}
-	return conflict.IsFreezeAnnotation(ns.Annotations), nil
+	frozen, err := r.namespaceApplyFrozen(ctx, namespace)
+	if err != nil {
+		*applyFrozen = true
+		*freezeErr = err
+		log.FromContext(ctx).Error(err, "Failed to read namespace for attune.io/freeze; skipping apply")
+		return
+	}
+	if frozen {
+		*applyFrozen = true
+		*freezeErr = nil
+		log.FromContext(ctx).Info("Namespace is frozen, skipping apply", "annotation", conflict.AnnotationFreeze)
+	}
+}
+
+// applyNotFrozen re-checks freeze and reports whether apply may proceed.
+func (r *AttunePolicyReconciler) applyNotFrozen(ctx context.Context, namespace string, applyFrozen *bool, freezeErr *error) bool {
+	r.refreshApplyFrozen(ctx, namespace, applyFrozen, freezeErr)
+	return applyFrozen != nil && !*applyFrozen
 }
 
 // markNamespaceFrozen records ResizeBlocked=NamespaceFrozen and emits a

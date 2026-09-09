@@ -89,7 +89,12 @@ func (r *AttunePolicyReconciler) firstOneShotPodNeedingResize(
 			continue
 		}
 		// Live Get before Infeasible / shouldSkipResize, matching apply.
-		if live := r.livePodForResize(ctx, p); live != nil {
+		// Get errors fail closed: do not select the listed snapshot.
+		live, err := r.fetchLivePodForResize(ctx, p)
+		if err != nil {
+			continue
+		}
+		if live != nil {
 			p = live
 		}
 		if r.oneShotPodAlreadyAtTarget(policy, p, rec) {
@@ -604,23 +609,15 @@ func (r *AttunePolicyReconciler) resizeContainer(
 	// lag a prior in-place resize: a stale-low limit clips the usage floor
 	// below live usage; a stale-high request classifies a live increase as
 	// a decrease and skips MemoryPressure / unavailable / neighbor gates.
-	// Fail-closed for request increases and memory-limit decreases when
-	// Get fails (same philosophy as node status unavailable). Request-only
-	// decreases may still proceed against the listed snapshot.
+	// Fail-closed on Get error: do not classify increase vs decrease
+	// against the listed snapshot (it may be stale-high).
 	if live, err := r.fetchLivePodForResize(ctx, pod); err != nil {
-		increase := targetIncreasesRequests(pod, containerRec.Name, target)
-		limitDec := targetDecreasesMemoryLimit(pod, containerRec.Name, target)
-		if increase || limitDec {
-			reason := "pod status unavailable; skipping request increase"
-			if !increase {
-				reason = "pod status unavailable; skipping memory limit decrease"
-			}
-			logger.Info("Skipping resize: "+reason,
-				"pod", pod.Name, "container", containerRec.Name)
-			r.emitEventOnce(policy, corev1.EventTypeWarning, "ResizeSkipped", "resize",
-				"Resize blocked for pod %s container %s: %s", pod.Name, containerRec.Name, reason)
-			return nil, resizeOutcomeNone
-		}
+		reason := "pod status unavailable; skipping resize"
+		logger.Info("Skipping resize: "+reason,
+			"pod", pod.Name, "container", containerRec.Name)
+		r.emitEventOnce(policy, corev1.EventTypeWarning, "ResizeSkipped", "resize",
+			"Resize blocked for pod %s container %s: %s", pod.Name, containerRec.Name, reason)
+		return nil, resizeOutcomeNone
 	} else if live != nil {
 		pod = live
 	}
@@ -1901,9 +1898,8 @@ func recentMemoryUsage(containerRec attunev1alpha1.ContainerRecommendation) (res
 }
 
 // fetchLivePodForResize returns the named pod from the typed Clientset.
-// Get errors are returned so callers can fail-closed for request increases
-// and memory-limit decreases. When Clientset is unset, listed is returned
-// with a nil error.
+// Get errors are returned so callers can fail-closed and skip apply.
+// When Clientset is unset, listed is returned with a nil error.
 func (r *AttunePolicyReconciler) fetchLivePodForResize(ctx context.Context, listed *corev1.Pod) (*corev1.Pod, error) {
 	if r.Clientset == nil || listed == nil {
 		return listed, nil
@@ -1913,18 +1909,6 @@ func (r *AttunePolicyReconciler) fetchLivePodForResize(ctx context.Context, list
 		return listed, err
 	}
 	return fresh, nil
-}
-
-// livePodForResize returns the named pod from the typed Clientset when
-// configured. Used by OneShot selection so a stale informer snapshot
-// cannot hide a live Infeasible (or keep a cleared one). Returns listed
-// on Get error or when Clientset is unset.
-func (r *AttunePolicyReconciler) livePodForResize(ctx context.Context, listed *corev1.Pod) *corev1.Pod {
-	live, err := r.fetchLivePodForResize(ctx, listed)
-	if err != nil || live == nil {
-		return listed
-	}
-	return live
 }
 
 // getNodeForResize returns the named node for capacity/pressure checks.

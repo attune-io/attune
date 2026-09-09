@@ -62,7 +62,8 @@ const (
 	// ResizeBlocked condition reasons.
 	// ReasonNamespaceFrozen is set when the policy namespace has
 	// attune.io/freeze=true, or the namespace cannot be read (fail closed).
-	// Apply is skipped; recommendations still compute.
+	// Apply (resize, persist, CREATE initial sizing) is skipped;
+	// recommendations still compute.
 	ReasonNamespaceFrozen           = "NamespaceFrozen"
 	ReasonPodsDeferred              = "PodsDeferred"
 	ReasonPodsInfeasible            = "PodsInfeasible"

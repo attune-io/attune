@@ -25,6 +25,7 @@ import (
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
@@ -40,8 +41,9 @@ type ConflictType string
 const AnnotationSkip = "attune.io/skip"
 
 // AnnotationFreeze is the namespace annotation that blocks apply
-// (in-place resize, eviction, startup boost) for every policy in that
-// namespace. Recommendations, status, and export still update.
+// (in-place resize, eviction, startup boost, template persist, and
+// CREATE initial sizing) for every policy in that namespace.
+// Recommendations, status, and export still update.
 const AnnotationFreeze = "attune.io/freeze"
 
 // annotationEnabledValue is the only accepted value for skip and freeze.
@@ -102,6 +104,17 @@ func (d *Detector) CheckAnnotationFreeze(obj metav1.ObjectMeta) bool {
 // IsFreezeAnnotation reports whether annotations contain attune.io/freeze=true.
 func IsFreezeAnnotation(annotations map[string]string) bool {
 	return annotationExactTrue(annotations, AnnotationFreeze)
+}
+
+// NamespaceApplyFrozen reports whether apply must be skipped for this
+// namespace. Get errors fail closed (frozen=true) so a missing RBAC
+// grant or API outage cannot resume apply during an incident.
+func NamespaceApplyFrozen(ctx context.Context, c client.Client, namespace string) (bool, error) {
+	var ns corev1.Namespace
+	if err := c.Get(ctx, client.ObjectKey{Name: namespace}, &ns); err != nil {
+		return true, err
+	}
+	return IsFreezeAnnotation(ns.Annotations), nil
 }
 
 // CheckActiveRollout returns true if the deployment has an active rollout in
