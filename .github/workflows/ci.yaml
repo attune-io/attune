@@ -112,7 +112,12 @@ jobs:
               - 'charts/attune/README.md.gotmpl'
             e2e:
               - 'test/e2e/**'
+              - 'test/e2e-go/**'
               - '.chainsaw.yaml'
+              - '.github/actions/setup-e2e-cluster/**'
+              - 'hack/e2e-install-cert-manager.sh'
+              - 'hack/e2e-wait-cadvisor.sh'
+              - 'hack/k3d-delete.sh'
             # CRDs, kustomize, and tracked release manifests (dist/).
             # Used by crd-freshness so dist/ cannot lag without a CI failure.
             manifests:
@@ -129,6 +134,7 @@ jobs:
             scripts:
               - 'scripts/**'
               - 'hack/e2e-install-cert-manager.sh'
+              - 'hack/e2e-wait-cadvisor.sh'
               - 'hack/k3d-delete.sh'
               - 'hack/apply-release-notes.sh'
               - '.github/actions/setup-e2e-cluster/**'
@@ -567,7 +573,7 @@ jobs:
             --junitfile test-results/integration.xml \
             --rerun-fails --rerun-fails-max-failures=3 \
             --packages="./test/integration/..." \
-            -- -race -timeout=15m \
+            -- -race -count=1 -timeout=15m \
             -tags=integration
 
       - name: Upload test results
@@ -592,7 +598,7 @@ jobs:
   test-e2e:
     name: E2E
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
-    timeout-minutes: 30
+    timeout-minutes: 60
     needs: [changes, lint, test-unit]
     if: |
       always()
@@ -650,26 +656,19 @@ jobs:
             echo "::error::Failed to download Chainsaw after 3 attempts"
             exit 1
 
-      - name: Run Chainsaw and Go E2E concurrently
+      # Sequential like nightly. Go E2E patches node MemoryPressure;
+      # concurrent Chainsaw would resize on that same node.
+      - name: Run Chainsaw suite
         shell: bash -Eeuo pipefail -x {0}
         run: |
           mkdir -p test-results
+          chainsaw test test/e2e/ --config .chainsaw.yaml 2>&1 | tee test-results/chainsaw.log
 
-          chainsaw test test/e2e/ --config .chainsaw.yaml 2>&1 | tee test-results/chainsaw.log &
-          chainsaw_pid=$!
-
-          go test -tags=e2e ./test/e2e-go/... -race -count=1 -timeout=15m -v 2>&1 | tee test-results/go-e2e.log &
-          go_pid=$!
-
-          chainsaw_rc=0
-          go_rc=0
-          wait $chainsaw_pid || chainsaw_rc=$?
-          wait $go_pid || go_rc=$?
-
-          echo "Chainsaw exit=$chainsaw_rc, Go E2E exit=$go_rc"
-          if (( chainsaw_rc != 0 || go_rc != 0 )); then
-            exit 1
-          fi
+      - name: Run Go E2E tests
+        shell: bash -Eeuo pipefail -x {0}
+        run: |
+          mkdir -p test-results
+          go test -tags=e2e ./test/e2e-go/... -race -count=1 -timeout=15m -v 2>&1 | tee test-results/go-e2e.log
 
       - name: Collect debug info on failure
         if: failure()

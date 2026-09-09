@@ -18,6 +18,8 @@ YAMLLINT_VERSION ?= 1.37.1
 K3D_VERSION ?= v5.8.3
 GITLEAKS_VERSION ?= 8.30.1
 CERT_MANAGER_VERSION ?= v1.21.1
+PROMETHEUS_CHART_VERSION ?= 27.22.0
+PROMETHEUS_IMAGE ?= quay.io/prometheus/prometheus:v3.4.1
 KO_VERSION ?= v0.18.0
 HELM_UNITTEST_VERSION ?= v0.7.2
 
@@ -254,13 +256,14 @@ test-fuzz: ## Run fuzz tests (coverage-guided; FUZZTIME=30s default, deadline-fl
 	./scripts/run-fuzz.sh
 
 .PHONY: python-test
-python-test: ## Run helper script tests (fossa-filter, run-fuzz classifier, go-version sync, helm image tag, fleet reports, nightly issue body, k3d-delete, CI triggers, apply-release-notes)
+python-test: ## Run helper script tests (fossa-filter, run-fuzz classifier, go-version sync, helm image tag, fleet reports, nightly issue body, k3d-delete, cadvisor wait, CI triggers, apply-release-notes)
 	python3 scripts/test_fossa_filter.py -v
 	bash scripts/test_run_fuzz.sh
 	bash scripts/test_verify_go_version_sync.sh
 	bash scripts/test_verify_helm_image_tag.sh
 	bash scripts/test_release_image_tags.sh
 	bash scripts/test_e2e_install_cert_manager.sh
+	bash scripts/test_e2e_wait_cadvisor.sh
 	bash scripts/test_k3d_delete.sh
 	bash scripts/test_collect_fleet_reports.sh
 	bash scripts/test_nightly_failure_issue_body.sh
@@ -401,13 +404,17 @@ _deploy-stack:
 	helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true
 	helm repo update
 	helm install prometheus prometheus-community/prometheus \
-		--version 27.22.0 \
+		--version $(PROMETHEUS_CHART_VERSION) \
 		--namespace monitoring --create-namespace \
+		--set server.image.repository=$(firstword $(subst :, ,$(PROMETHEUS_IMAGE))) \
+		--set server.image.tag=$(lastword $(subst :, ,$(PROMETHEUS_IMAGE))) \
 		--set server.persistentVolume.enabled=false \
 		--set alertmanager.enabled=false \
 		--set prometheus-pushgateway.enabled=false \
 		--set server.global.scrape_interval=15s \
-		--wait --timeout 3m
+		--wait --timeout 5m
+	@echo "Waiting for cAdvisor metrics..."
+	bash hack/e2e-wait-cadvisor.sh
 	@echo "Installing operator via Helm..."
 	helm install attune ./charts/attune \
 		--namespace attune-system --create-namespace \
