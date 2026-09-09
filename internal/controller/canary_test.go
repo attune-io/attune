@@ -102,7 +102,7 @@ func TestFirstOneShotPodNeedingResize_SkipsAlreadyAtTarget(t *testing.T) {
 	require.Len(t, selected, 1)
 	assert.Equal(t, "pod-0", selected[0].Name)
 
-	got := firstOneShotPodNeedingResize(pods, rec)
+	got := firstOneShotNeeding(pods, rec)
 	require.Len(t, got, 1)
 	assert.Equal(t, "pod-1", got[0].Name)
 }
@@ -115,8 +115,41 @@ func TestFirstOneShotPodNeedingResize_AllAtTarget(t *testing.T) {
 	}
 	rec := newResizeRecommendation("api", "500m", "512Mi", "0", "0", "200m", "256Mi", "0", "0")
 
-	got := firstOneShotPodNeedingResize(pods, rec)
+	got := firstOneShotNeeding(pods, rec)
 	assert.Empty(t, got)
+}
+
+func oneshotResizePodWithLimits(name, cpuReq, memReq, cpuLim, memLim string) corev1.Pod {
+	pod := oneshotResizePod(name, cpuReq, memReq)
+	pod.Spec.Containers[0].Resources.Limits = corev1.ResourceList{
+		corev1.ResourceCPU:    resource.MustParse(cpuLim),
+		corev1.ResourceMemory: resource.MustParse(memLim),
+	}
+	return pod
+}
+
+func TestFirstOneShotPodNeedingResize_SkipsClampedMemoryLimit(t *testing.T) {
+	// After a 1.33 clamp, live memory limit stays at the start value while
+	// the rec still wants a lower limit. OneShot must treat the clamped
+	// replica as already applied so the remaining set can move.
+	pods := []corev1.Pod{
+		oneshotResizePodWithLimits("pod-0", "200m", "64Mi", "200m", "512Mi"),
+		oneshotResizePodWithLimits("pod-1", "200m", "512Mi", "200m", "512Mi"),
+	}
+	// RequestsAndLimits rec wants 64Mi request and 64Mi limit.
+	rec := newResizeRecommendation("api", "500m", "512Mi", "500m", "512Mi", "200m", "64Mi", "200m", "64Mi")
+
+	r := NewAttunePolicyReconciler()
+	r.AllowInPlaceMemoryLimitDecrease = false
+	got := r.firstOneShotPodNeedingResize(context.Background(), newTestPolicy("test-policy", "default"), pods, rec)
+	require.Len(t, got, 1)
+	assert.Equal(t, "pod-1", got[0].Name)
+}
+
+// firstOneShotNeeding wraps firstOneShotPodNeedingResize for request-only tests.
+func firstOneShotNeeding(pods []corev1.Pod, rec attunev1alpha1.WorkloadRecommendation) []corev1.Pod {
+	r := NewAttunePolicyReconciler()
+	return r.firstOneShotPodNeedingResize(context.Background(), newTestPolicy("test-policy", "default"), pods, rec)
 }
 
 func TestSelectPodsForResize_Canary_10PercentOf20(t *testing.T) {
