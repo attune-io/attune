@@ -240,7 +240,7 @@ func (r *AttunePolicyReconciler) oneShotPodAllNeedingContainersBlocked(
 			blocked++
 			continue
 		}
-		skip, reason := r.shouldSkipResize(ctx, policy, pod, containerRec, target, checks)
+		skip, reason := r.shouldSkipResize(ctx, pod, containerRec, target, checks)
 		if skip && reason != "" {
 			blocked++
 		}
@@ -631,7 +631,7 @@ func (r *AttunePolicyReconciler) resizeContainer(
 	r.emitLiveResizeApply(ctx, policy, pod, containerRec, applyMeta)
 	preClamped := applyMeta.PreClamped
 
-	skip, reason := r.shouldSkipResize(ctx, policy, pod, containerRec, target, p.Checks)
+	skip, reason := r.shouldSkipResize(ctx, pod, containerRec, target, p.Checks)
 	if skip {
 		if reason != "" {
 			logger.Info("Skipping resize: "+reason,
@@ -1521,7 +1521,6 @@ func targetLimitsMatchLive(live, target corev1.ResourceList) bool {
 // pod already matches the recommendation (no log needed).
 func (r *AttunePolicyReconciler) shouldSkipResize(
 	ctx context.Context,
-	policy *attunev1alpha1.AttunePolicy,
 	pod *corev1.Pod,
 	containerRec attunev1alpha1.ContainerRecommendation,
 	target corev1.ResourceRequirements,
@@ -1763,24 +1762,6 @@ func targetIncreasesRequests(pod *corev1.Pod, containerName string, target corev
 	cpuInc := target.Requests.Cpu().MilliValue() > c.Resources.Requests.Cpu().MilliValue()
 	memInc := target.Requests.Memory().Value() > c.Resources.Requests.Memory().Value()
 	return cpuInc || memInc
-}
-
-// targetDecreasesMemoryLimit reports whether target lowers the named
-// container's memory limit relative to the pod spec.
-func targetDecreasesMemoryLimit(pod *corev1.Pod, containerName string, target corev1.ResourceRequirements) bool {
-	c := findContainerByName(pod, containerName)
-	if c == nil {
-		return false
-	}
-	targetLim, ok := target.Limits[corev1.ResourceMemory]
-	if !ok || targetLim.IsZero() {
-		return false
-	}
-	currentLim, ok := c.Resources.Limits[corev1.ResourceMemory]
-	if !ok || currentLim.IsZero() {
-		return false
-	}
-	return targetLim.Cmp(currentLim) < 0
 }
 
 // emitLiveResizeApply writes clamp/floor events and metrics from apply meta.

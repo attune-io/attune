@@ -386,11 +386,11 @@ func TestShouldSkipResize_NilNodeBlocksIncrease(t *testing.T) {
 		},
 	}
 
-	skip, reason := r.shouldSkipResize(context.Background(), &attunev1alpha1.AttunePolicy{}, pod, rec, higherMem, nil)
+	skip, reason := r.shouldSkipResize(context.Background(), pod, rec, higherMem, nil)
 	assert.True(t, skip)
 	assert.Contains(t, reason, "node status unavailable")
 
-	skip, reason = r.shouldSkipResize(context.Background(), &attunev1alpha1.AttunePolicy{}, pod, rec, lowerMem, nil)
+	skip, reason = r.shouldSkipResize(context.Background(), pod, rec, lowerMem, nil)
 	assert.False(t, skip, "decreases must not be blocked when node is unavailable: %s", reason)
 }
 

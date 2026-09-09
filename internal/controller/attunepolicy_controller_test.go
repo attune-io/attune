@@ -13687,7 +13687,7 @@ func TestShouldSkipResize_LimitRangeViolation(t *testing.T) {
 		},
 	}
 
-	skip, reason := r.shouldSkipResize(context.Background(), policy, pod, containerRec, target, nil)
+	skip, reason := r.shouldSkipResize(context.Background(), pod, containerRec, target, nil)
 	assert.True(t, skip)
 	assert.Contains(t, reason, "quota/limitrange violation")
 	assert.Contains(t, reason, "below LimitRange minimum")
@@ -13740,7 +13740,7 @@ func TestShouldSkipResize_QuotaHeadroomExceeded(t *testing.T) {
 		},
 	}
 
-	skip, reason := r.shouldSkipResize(context.Background(), policy, pod, containerRec, target, nil)
+	skip, reason := r.shouldSkipResize(context.Background(), pod, containerRec, target, nil)
 	assert.True(t, skip)
 	assert.Contains(t, reason, "quota/limitrange violation")
 	assert.Contains(t, reason, "would exceed ResourceQuota")
@@ -13803,7 +13803,7 @@ func TestShouldSkipResize_NodeAllocatableExceeded(t *testing.T) {
 		},
 	}
 
-	skip, reason := r.shouldSkipResize(context.Background(), policy, pod, containerRec, target, nil)
+	skip, reason := r.shouldSkipResize(context.Background(), pod, containerRec, target, nil)
 	assert.True(t, skip)
 	assert.Contains(t, reason, "exceed node allocatable")
 }
@@ -13858,7 +13858,7 @@ func TestShouldSkipResize_NodeAllocatableNotExceeded(t *testing.T) {
 		},
 	}
 
-	skip, _ := r.shouldSkipResize(context.Background(), policy, pod, containerRec, target, nil)
+	skip, _ := r.shouldSkipResize(context.Background(), pod, containerRec, target, nil)
 	assert.False(t, skip)
 }
 
@@ -13898,7 +13898,7 @@ func TestShouldSkipResize_AlreadyAtTarget(t *testing.T) {
 		},
 	}
 
-	skip, reason := r.shouldSkipResize(context.Background(), policy, pod, containerRec, target, nil)
+	skip, reason := r.shouldSkipResize(context.Background(), pod, containerRec, target, nil)
 	assert.True(t, skip, "should skip when pod already matches target")
 	assert.Empty(t, reason, "reason should be empty for already-at-target skip")
 }
@@ -13941,7 +13941,7 @@ func TestShouldSkipResize_RequestMatchLimitDriftDoesNotSkip(t *testing.T) {
 		},
 	}
 
-	skip, _ := r.shouldSkipResize(context.Background(), policy, pod, containerRec, target, nil)
+	skip, _ := r.shouldSkipResize(context.Background(), pod, containerRec, target, nil)
 	assert.False(t, skip, "must not skip when requests match but target sets a missing live limit")
 }
 
@@ -13992,7 +13992,7 @@ func TestShouldSkipResize_PreChecksLimitRange(t *testing.T) {
 		},
 	}
 
-	skip, reason := r.shouldSkipResize(context.Background(), policy, pod, containerRec, target, checks)
+	skip, reason := r.shouldSkipResize(context.Background(), pod, containerRec, target, checks)
 	assert.True(t, skip, "should skip when target violates pre-fetched LimitRange")
 	assert.Contains(t, reason, "quota/limitrange violation")
 }
@@ -14046,7 +14046,7 @@ func TestShouldSkipResize_NodeCacheHit(t *testing.T) {
 	}
 	checks.nodeCache.Store("test-node", cachedNode)
 
-	skip, reason := r.shouldSkipResize(context.Background(), policy, pod, containerRec, target, checks)
+	skip, reason := r.shouldSkipResize(context.Background(), pod, containerRec, target, checks)
 	assert.True(t, skip, "should skip when target exceeds cached node allocatable")
 	assert.Contains(t, reason, "exceed node allocatable")
 }
@@ -14099,7 +14099,7 @@ func TestShouldSkipResize_NodeCacheMiss(t *testing.T) {
 	// Empty cache; node should be fetched and stored.
 	checks := &resizePreChecks{}
 
-	skip, _ := r.shouldSkipResize(context.Background(), policy, pod, containerRec, target, checks)
+	skip, _ := r.shouldSkipResize(context.Background(), pod, containerRec, target, checks)
 	assert.False(t, skip, "should not skip when target fits in node allocatable")
 
 	// Verify the node was cached.
@@ -14169,7 +14169,7 @@ func TestShouldSkipResize_ClientsetPrefersLivePressure(t *testing.T) {
 		},
 	}
 
-	skip, reason := r.shouldSkipResize(context.Background(), policy, pod, containerRec, target, nil)
+	skip, reason := r.shouldSkipResize(context.Background(), pod, containerRec, target, nil)
 	assert.True(t, skip, "live Clientset MemoryPressure must block memory increase")
 	assert.Contains(t, reason, "MemoryPressure")
 }
@@ -14222,7 +14222,7 @@ func TestShouldSkipResize_QoSClassChange(t *testing.T) {
 
 	recorder := events.NewFakeRecorder(10)
 	r.Recorder = recorder
-	skip, reason := r.shouldSkipResize(context.Background(), policy, pod, containerRec, target, nil)
+	skip, reason := r.shouldSkipResize(context.Background(), pod, containerRec, target, nil)
 	assert.True(t, skip, "should skip when resize would change QoS class")
 	assert.Contains(t, reason, "QoS class")
 	select {
