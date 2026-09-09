@@ -268,7 +268,15 @@ func (r *AttunePolicyReconciler) applyTemplatePersistence(
 				c.Recommended.MemoryLimit.Equal(c.Current.MemoryLimit) {
 				continue
 			}
-			desired[c.Name] = materializeContainerResources(policy, c)
+			want := materializeContainerResources(policy, c)
+			if recLim, ok := want.Limits[corev1.ResourceMemory]; ok &&
+				!c.Recommended.MemoryLimit.IsZero() && recLim.Cmp(c.Recommended.MemoryLimit) > 0 {
+				logger.V(1).Info("Template persist memory limit floored above usage",
+					"workload", rec.Workload, "container", c.Name,
+					"recommendedLimit", c.Recommended.MemoryLimit.String(),
+					"flooredLimit", recLim.String())
+			}
+			desired[c.Name] = want
 		}
 		if len(desired) == 0 {
 			logger.V(1).Info("Template persistence no-op: no container changes",

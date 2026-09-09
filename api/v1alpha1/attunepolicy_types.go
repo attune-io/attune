@@ -63,8 +63,9 @@ const (
 type TemplatePersistenceWhen string
 
 const (
-	// TemplatePersistenceAfterSuccessfulResize patches the template only after
-	// an in-place resize succeeds for the workload.
+	// TemplatePersistenceAfterSuccessfulResize patches the template after
+	// a successful in-place resize or a successful Eviction (InPlaceOrRecreate)
+	// so replacement pods start from the recommended requests.
 	TemplatePersistenceAfterSuccessfulResize TemplatePersistenceWhen = "AfterSuccessfulResize"
 	// TemplatePersistenceOnRecommendation patches the template when a
 	// recommendation is accepted (change filter / bounds passed), without
@@ -589,7 +590,8 @@ type TemplatePersistence struct {
 	Enabled *bool `json:"enabled,omitempty"`
 
 	// When selects the trigger. Defaults to AfterSuccessfulResize when
-	// Enabled is true and When is empty.
+	// Enabled is true and When is empty. AfterSuccessfulResize also
+	// patches after Eviction+Evicted (InPlaceOrRecreate).
 	// +kubebuilder:validation:Enum=AfterSuccessfulResize;OnRecommendation
 	// +optional
 	When TemplatePersistenceWhen `json:"when,omitempty"`
