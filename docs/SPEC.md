@@ -658,7 +658,7 @@ To prevent conflicts:
 
 ```
 1. SELECT target pods based on update strategy mode:
-   - OneShot: one eligible pod per cycle
+   - OneShot: one eligible needing pod per cycle
    - Canary: canaryPercentage% of pods (round up to at least 1)
      per app; CREATE sizing, startup boost, and HPA stay off until
      that app's own watch promotes it (`status.canary.workloads`)
@@ -773,7 +773,7 @@ func (r *ResizeEngine) WaitForResize(ctx context.Context, ns, podName,
 |------|----------|------------|
 | `Observe` | Collect metrics and track data-point progress; no recommendations surfaced | None |
 | `Recommend` | Generate recommendations in status, no changes | None |
-| `OneShot` | Resize one pod, monitor, stop | Low |
+| `OneShot` | Resize one eligible needing pod per cycle | Low |
 | `Canary` | Resize canary%, monitor, then remaining | Medium |
 | `Auto` | Full automated canary-then-fleet | Medium-High |
 

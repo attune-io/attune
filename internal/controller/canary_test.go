@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	kubefake "k8s.io/client-go/kubernetes/fake"
@@ -75,6 +76,47 @@ func TestSelectPodsForResize_OneShot_SelectsExactlyOne(t *testing.T) {
 	pods := makeRunningPods(5)
 	selected := selectPodsForResize(pods, attunev1alpha1.UpdateTypeOneShot, 0)
 	assert.Len(t, selected, 1)
+}
+
+func oneshotResizePod(name, cpuReq, memReq string) corev1.Pod {
+	pod := makeCanaryPod(name, true, false)
+	pod.Spec.Containers[0].Resources = corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse(cpuReq),
+			corev1.ResourceMemory: resource.MustParse(memReq),
+		},
+	}
+	return pod
+}
+
+func TestFirstOneShotPodNeedingResize_SkipsAlreadyAtTarget(t *testing.T) {
+	pods := []corev1.Pod{
+		oneshotResizePod("pod-0", "200m", "256Mi"),
+		oneshotResizePod("pod-1", "500m", "512Mi"),
+		oneshotResizePod("pod-2", "500m", "512Mi"),
+	}
+	rec := newResizeRecommendation("api", "500m", "512Mi", "0", "0", "200m", "256Mi", "0", "0")
+
+	// Unfixed OneShot is eligible[:1], so it keeps selecting the already-resized pod.
+	selected := selectPodsForResize(pods, attunev1alpha1.UpdateTypeOneShot, 0)
+	require.Len(t, selected, 1)
+	assert.Equal(t, "pod-0", selected[0].Name)
+
+	got := firstOneShotPodNeedingResize(pods, rec)
+	require.Len(t, got, 1)
+	assert.Equal(t, "pod-1", got[0].Name)
+}
+
+func TestFirstOneShotPodNeedingResize_AllAtTarget(t *testing.T) {
+	pods := []corev1.Pod{
+		oneshotResizePod("pod-0", "200m", "256Mi"),
+		oneshotResizePod("pod-1", "200m", "256Mi"),
+		oneshotResizePod("pod-2", "200m", "256Mi"),
+	}
+	rec := newResizeRecommendation("api", "500m", "512Mi", "0", "0", "200m", "256Mi", "0", "0")
+
+	got := firstOneShotPodNeedingResize(pods, rec)
+	assert.Empty(t, got)
 }
 
 func TestSelectPodsForResize_Canary_10PercentOf20(t *testing.T) {
