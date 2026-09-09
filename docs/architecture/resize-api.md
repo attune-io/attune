@@ -206,6 +206,11 @@ stateDiagram-v2
   skipping") to avoid wasting an UpdateResize API call that would fail
   on every reconcile cycle.
 
+- **OneShot walks past blocked replicas.** OneShot applies at most one
+  needing pod per cycle. Replicas that are already at the applied target,
+  or that are blocked by QoS, node pressure, quota, or Infeasible plus
+  InPlaceOnly, are skipped so another replica can still resize.
+
 - **Eviction respects PDBs.** The operator uses the Kubernetes Eviction API
   (`EvictV1`), which enforces PodDisruptionBudgets. If the PDB would be
   violated, the eviction is denied and the pod stays as-is.

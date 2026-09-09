@@ -202,7 +202,7 @@ provides a graduated path:
 |------|-------------|------------|
 | **Observe** | Collects metrics and tracks data-point progress; no recommendations surfaced | Zero |
 | **Recommend** | Collects metrics and writes recommendations to the policy status | Zero |
-| **OneShot** | Resizes one pod per cycle until remaining replicas match the recommendation (cooldown between pods) | Minimal |
+| **OneShot** | OneShot applies at most one needing pod per cycle. Replicas that are already at the applied target, or that are blocked by QoS, node pressure, quota, or Infeasible plus InPlaceOnly, are skipped so another replica can still resize. | Minimal |
 | **Canary** | Resizes 10% of pods first, watches them, then auto-promotes to the rest (optional) | Low |
 | **Auto** | Continuously resizes all eligible pods based on observed metrics | Production-ready |
 

@@ -28,7 +28,7 @@ Modes are graduated from safe observation to full automation:
 |------|:---:|:---:|:---:|
 | **Observe** | Yes | No (data collection only) | No |
 | **Recommend** | Yes | Yes (status only) | No |
-| **OneShot** | Yes | Yes | One pod per cycle |
+| **OneShot** | Yes | Yes | OneShot applies at most one needing pod per cycle. Replicas that are already at the applied target, or that are blocked by QoS, node pressure, quota, or Infeasible plus InPlaceOnly, are skipped so another replica can still resize. |
 | **Canary** | Yes | Yes | A percentage of pods, then the rest after observation |
 | **Auto** | Yes | Yes | All eligible pods |
 

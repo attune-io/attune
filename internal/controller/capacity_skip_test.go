@@ -53,15 +53,15 @@ func TestRecordCapacitySkip(t *testing.T) {
 
 	// Exact producer strings from shouldSkipResize / nodePressureBlocksIncrease.
 	recordCapacitySkip(policy, "total pod requests would exceed node allocatable")
-	recordCapacitySkip(policy, "node has MemoryPressure; skipping memory request increase")
-	recordCapacitySkip(policy, "node has DiskPressure; skipping resource request increase")
-	recordCapacitySkip(policy, "node has PIDPressure; skipping resource request increase")
+	recordCapacitySkip(policy, "node has MemoryPressure; skipping memory request increase (CPU increases and all decreases still apply; retry when the node condition clears)")
+	recordCapacitySkip(policy, "node has DiskPressure; skipping resource request increase (every increase is blocked; all decreases still apply; retry when the node condition clears)")
+	recordCapacitySkip(policy, "node has PIDPressure; skipping resource request increase (every increase is blocked; all decreases still apply; retry when the node condition clears)")
 	recordCapacitySkip(policy, "node status unavailable; skipping request increase")
 	recordCapacitySkip(policy, "node free request budget exceeded by neighbors")
 	recordCapacitySkip(policy, "node neighbor list unavailable; skipping request increase")
-	recordCapacitySkip(policy, "quota/limitrange violation: too large")                  // no metric
-	recordCapacitySkip(policy, "")                                                       // no metric
-	recordCapacitySkip(nil, "node has MemoryPressure; skipping memory request increase") // no metric
+	recordCapacitySkip(policy, "quota/limitrange violation: too large")                                                                                                      // no metric
+	recordCapacitySkip(policy, "")                                                                                                                                           // no metric
+	recordCapacitySkip(nil, "node has MemoryPressure; skipping memory request increase (CPU increases and all decreases still apply; retry when the node condition clears)") // no metric
 
 	assert.Equal(t, beforeAlloc+1, testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("ns-cap", "cap-test", "allocatable")))
 	assert.Equal(t, beforePress+3, testutil.ToFloat64(operatormetrics.CapacitySkipTotal.WithLabelValues("ns-cap", "cap-test", "pressure")))

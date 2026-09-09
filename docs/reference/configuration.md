@@ -282,7 +282,7 @@ that do not set them explicitly. Policy-level values always take precedence.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `type` | string | `Recommend` | `Observe`, `Recommend`, `OneShot`, `Canary`, `Auto` |
+| `type` | string | `Recommend` | `Observe`, `Recommend`, `OneShot`, `Canary`, `Auto`. OneShot applies at most one needing pod per cycle. Replicas that are already at the applied target, or that are blocked by QoS, node pressure, quota, or Infeasible plus InPlaceOnly, are skipped so another replica can still resize. |
 | `cooldown` | duration | `1h` | Minimum time between resizes of the same workload. Other apps on the same policy are not locked. When every matched app is still cooling, the next reconcile waits only until the soonest per-app window expires (a watch event does not restart a full cooldown). |
 | `autoRevert` | bool | `true` | Revert unsafe resizes automatically |
 | `resizeMethod` | string | `InPlaceOnly` | `InPlaceOnly` or `InPlaceOrRecreate` |

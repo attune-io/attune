@@ -1754,7 +1754,7 @@ func TestWarn_MaxConcurrentInOneShotMode(t *testing.T) {
 
 	w, err := validator.ValidateCreate(context.Background(), policy)
 	assert.NoError(t, err)
-	assert.Contains(t, w, "maxConcurrentResizes > 1 has no effect in OneShot mode; only one pod is resized per cycle")
+	assert.Contains(t, w, "maxConcurrentResizes > 1 has no effect in OneShot mode; OneShot applies at most one needing pod per cycle. Replicas that are already at the applied target, or that are blocked by QoS, node pressure, quota, or Infeasible plus InPlaceOnly, are skipped so another replica can still resize.")
 }
 
 func TestWarn_MemoryFromCpuRatioOverridesPercentile(t *testing.T) {

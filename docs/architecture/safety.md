@@ -17,7 +17,7 @@ flowchart LR
 | Mode | Risk | What happens |
 |------|------|-------------|
 | Recommend | None | Metrics collected, recommendations computed and written to status |
-| OneShot | Low | One pod resized per cycle |
+| OneShot | Low | OneShot applies at most one needing pod per cycle. Replicas that are already at the applied target, or that are blocked by QoS, node pressure, quota, or Infeasible plus InPlaceOnly, are skipped so another replica can still resize. |
 | Canary | Medium | Percentage-based rollout with observation |
 | Auto | Higher | All eligible pods resized |
 

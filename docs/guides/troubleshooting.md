@@ -496,6 +496,21 @@ kubectl get pod <pod> -o jsonpath='{range .status.conditions[?(@.type=="PodResiz
 
 **Fix**: Scale until at least two pods are Running, or wait for another replica to become Running.
 
+### OneShot skipped the first replica but others still need a resize
+
+**Symptom**: OneShot did not resize the first listed replica, but other
+replicas still need a resize. Events show `ResizeSkipped` for QoS, node
+pressure, quota, or Infeasible plus InPlaceOnly.
+
+**Cause**: OneShot applies at most one needing pod per cycle. Replicas
+that are already at the applied target, or that are blocked by QoS, node
+pressure, quota, or Infeasible plus InPlaceOnly, are skipped so another
+replica can still resize.
+
+**Fix**: Check events on the skipped replica. The next needing replica
+in the same cycle should still resize. Remaining needing replicas wait
+for later cycles and cooldown.
+
 ### QoS class change blocked
 
 **Symptom**: Operator logs `Skipping resize: would change QoS class`.
@@ -504,8 +519,10 @@ kubectl get pod <pod> -o jsonpath='{range .status.conditions[?(@.type=="PodResiz
 policy would set different values for requests and limits, the resize is
 skipped.
 
-**Fix**: Set `controlledValues: RequestsAndLimits` so both are updated
-together, or switch to `RequestsOnly` if the pod should be Burstable.
+**Fix**: Use controlledValues: RequestsAndLimits so requests stay equal
+to limits. Attune will not change QoS from Guaranteed to Burstable. On
+Kubernetes 1.33, a memory limit decrease may also need resizePolicy:
+RestartContainer.
 
 ### ResourceQuota exceeded
 

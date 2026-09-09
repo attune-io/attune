@@ -1921,12 +1921,12 @@ func nodePressureBlocksIncrease(node *corev1.Node, pod *corev1.Pod, containerNam
 		switch cond.Type {
 		case corev1.NodeMemoryPressure:
 			if memInc {
-				return "node has MemoryPressure; skipping memory request increase"
+				return "node has MemoryPressure; skipping memory request increase (CPU increases and all decreases still apply; retry when the node condition clears)"
 			}
 		case corev1.NodeDiskPressure:
-			return "node has DiskPressure; skipping resource request increase"
+			return "node has DiskPressure; skipping resource request increase (every increase is blocked; all decreases still apply; retry when the node condition clears)"
 		case corev1.NodePIDPressure:
-			return "node has PIDPressure; skipping resource request increase"
+			return "node has PIDPressure; skipping resource request increase (every increase is blocked; all decreases still apply; retry when the node condition clears)"
 		}
 	}
 	return ""
