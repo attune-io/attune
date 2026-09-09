@@ -129,19 +129,81 @@ func oneshotResizePodWithLimits(name, cpuReq, memReq, cpuLim, memLim string) cor
 }
 
 func TestFirstOneShotPodNeedingResize_SkipsClampedMemoryLimit(t *testing.T) {
-	// After a 1.33 clamp, live memory limit stays at the start value while
-	// the rec still wants a lower limit. OneShot must treat the clamped
-	// replica as already applied so the remaining set can move.
-	pods := []corev1.Pod{
-		oneshotResizePodWithLimits("pod-0", "200m", "64Mi", "200m", "512Mi"),
-		oneshotResizePodWithLimits("pod-1", "200m", "512Mi", "200m", "512Mi"),
-	}
-	// RequestsAndLimits rec wants 64Mi request and 64Mi limit.
+	// Guaranteed replica already at the post-raise applied state (512/512)
+	// after a 1.33 clamp. Rec still wants 64/64. Without raising the
+	// request to the clamped limit, compare sees live 512 vs target 64
+	// and re-selects pod-0 forever. pod-1 still needs a CPU change.
+	pod0 := oneshotResizePodWithLimits("pod-0", "200m", "512Mi", "200m", "512Mi")
+	pod0.Status.QOSClass = corev1.PodQOSGuaranteed
+	pod1 := oneshotResizePodWithLimits("pod-1", "500m", "512Mi", "500m", "512Mi")
+	pod1.Status.QOSClass = corev1.PodQOSGuaranteed
+	pods := []corev1.Pod{pod0, pod1}
 	rec := newResizeRecommendation("api", "500m", "512Mi", "500m", "512Mi", "200m", "64Mi", "200m", "64Mi")
 
-	r := NewAttunePolicyReconciler()
+	r := newReconcilerWithClient()
 	r.AllowInPlaceMemoryLimitDecrease = false
 	got := r.firstOneShotPodNeedingResize(context.Background(), newTestPolicy("test-policy", "default"), pods, rec)
+	require.Len(t, got, 1)
+	assert.Equal(t, "pod-1", got[0].Name)
+}
+
+func TestFirstOneShotPodNeedingResize_SkipsMemoryPressureIncrease(t *testing.T) {
+	pod0 := oneshotResizePodWithLimits("pod-0", "500m", "512Mi", "500m", "1Gi")
+	pod0.Spec.NodeName = "pressure-node"
+	pod1 := oneshotResizePodWithLimits("pod-1", "500m", "512Mi", "500m", "1Gi")
+	pod1.Spec.NodeName = "healthy-node"
+	pressureNode := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "pressure-node"},
+		Status: corev1.NodeStatus{
+			Allocatable: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("4"),
+				corev1.ResourceMemory: resource.MustParse("8Gi"),
+			},
+			Conditions: []corev1.NodeCondition{{
+				Type:   corev1.NodeMemoryPressure,
+				Status: corev1.ConditionTrue,
+			}},
+		},
+	}
+	healthyNode := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "healthy-node"},
+		Status: corev1.NodeStatus{
+			Allocatable: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("4"),
+				corev1.ResourceMemory: resource.MustParse("8Gi"),
+			},
+			Conditions: []corev1.NodeCondition{{
+				Type:   corev1.NodeMemoryPressure,
+				Status: corev1.ConditionFalse,
+			}},
+		},
+	}
+	// Memory request increase (512Mi -> 1Gi). MemoryPressure blocks pod-0.
+	rec := newResizeRecommendation("api", "500m", "512Mi", "500m", "1Gi", "200m", "1Gi", "200m", "2Gi")
+
+	r := newReconcilerWithClient(pressureNode, healthyNode)
+	r.AllowInPlaceMemoryLimitDecrease = true
+	got := r.firstOneShotPodNeedingResize(context.Background(), newTestPolicy("test-policy", "default"), []corev1.Pod{pod0, pod1}, rec)
+	require.Len(t, got, 1)
+	assert.Equal(t, "pod-1", got[0].Name)
+}
+
+func TestFirstOneShotPodNeedingResize_SkipsInfeasibleInPlaceOnly(t *testing.T) {
+	pod0 := oneshotResizePod("pod-0", "500m", "512Mi")
+	pod0.Status.Conditions = append(pod0.Status.Conditions, corev1.PodCondition{
+		Type:   "PodResizePending",
+		Status: corev1.ConditionTrue,
+		Reason: "Infeasible",
+	})
+	pod1 := oneshotResizePod("pod-1", "500m", "512Mi")
+	rec := newResizeRecommendation("api", "500m", "512Mi", "0", "0", "200m", "256Mi", "0", "0")
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.ResizeMethod = attunev1alpha1.ResizeMethodInPlaceOnly
+
+	r := newReconcilerWithClient()
+	r.AllowInPlaceMemoryLimitDecrease = true
+	got := r.firstOneShotPodNeedingResize(context.Background(), policy, []corev1.Pod{pod0, pod1}, rec)
 	require.Len(t, got, 1)
 	assert.Equal(t, "pod-1", got[0].Name)
 }
@@ -163,7 +225,7 @@ func TestFirstOneShotPodNeedingResize_SkipsFlooredGuaranteed(t *testing.T) {
 		},
 	}
 
-	r := NewAttunePolicyReconciler()
+	r := newReconcilerWithClient()
 	r.AllowInPlaceMemoryLimitDecrease = true
 	got := r.firstOneShotPodNeedingResize(context.Background(), newTestPolicy("test-policy", "default"), pods, rec)
 	require.Len(t, got, 1)
@@ -172,7 +234,7 @@ func TestFirstOneShotPodNeedingResize_SkipsFlooredGuaranteed(t *testing.T) {
 
 // firstOneShotNeeding wraps firstOneShotPodNeedingResize for request-only tests.
 func firstOneShotNeeding(pods []corev1.Pod, rec attunev1alpha1.WorkloadRecommendation) []corev1.Pod {
-	r := NewAttunePolicyReconciler()
+	r := newReconcilerWithClient()
 	return r.firstOneShotPodNeedingResize(context.Background(), newTestPolicy("test-policy", "default"), pods, rec)
 }
 
