@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"math"
 	"testing"
 	"time"
 
@@ -457,6 +458,12 @@ func TestApplyTemplatePersistence_AfterSuccessfulResize_OnlyResizedWorkloads(t *
 		attunev1alpha1.TemplatePersistenceAfterSuccessfulResize, map[string]bool{"api": true})
 	require.Len(t, history, 1)
 	assert.Equal(t, attunev1alpha1.ResizeResultTemplatePatched, history[0].Result)
+
+	var updated appsv1.Deployment
+	require.NoError(t, cl.Get(context.Background(), client.ObjectKeyFromObject(deploy), &updated))
+	assert.Equal(t, int64(200), updated.Spec.Template.Spec.Containers[0].Resources.Requests.Cpu().MilliValue())
+	assert.True(t, updated.Spec.Template.Spec.Containers[0].Resources.Requests.Memory().Equal(resource.MustParse("512Mi")),
+		"default AllowDecrease=false keeps template memory 512Mi")
 }
 
 func TestApplyTemplatePersistence_StatefulSet(t *testing.T) {
@@ -763,10 +770,9 @@ func TestMaterializeContainerResources_MemoryUsageFloor_ZeroMargin(t *testing.T)
 	got := materializeContainerResources(policy, c)
 	require.NotNil(t, got.Limits)
 	gotLim := got.Limits[corev1.ResourceMemory]
-	assert.True(t, gotLim.Cmp(resource.MustParse("200Mi")) > 0,
-		"zero-margin floor must exceed usage 200Mi, got %s", gotLim.String())
-	assert.True(t, gotLim.Cmp(resource.MustParse("220Mi")) < 0,
-		"zero-margin floor %s must be < default 10%% floor 220Mi", gotLim.String())
+	usage := resource.MustParse("200Mi")
+	want := *resource.NewQuantity(usage.Value()+1, resource.BinarySI)
+	assert.True(t, gotLim.Equal(want), "zero-margin floor must be usage+1 byte, got %s want %s", gotLim.String(), want.String())
 
 	reqOnly := &attunev1alpha1.AttunePolicy{}
 	reqOnly.Spec.Memory.AllowDecrease = &memDec
@@ -799,11 +805,12 @@ func TestMaterializeContainerResources_FloorsAgainstUsageWhenNotDecreaseVsCurren
 	require.NotNil(t, got.Limits)
 	gotLim := got.Limits[corev1.ResourceMemory]
 	// Recommended 1Gi is an increase vs stale Current 512Mi, but still
-	// below usage 1.5Gi + 10% (~1689Mi). Persist must not write 1Gi.
+	// below usage 1.5Gi + 10%. Persist must not write 1Gi.
 	assert.True(t, gotLim.Cmp(resource.MustParse("1Gi")) > 0,
 		"limit %s must exceed recommended 1Gi", gotLim.String())
-	assert.True(t, gotLim.Cmp(resource.MustParse("1689Mi")) >= 0,
-		"limit %s must be >= usage floor 1.5Gi * 1.10 (~1689Mi)", gotLim.String())
+	usage := resource.MustParse("1536Mi")
+	want := *resource.NewQuantity(int64(math.Ceil(float64(usage.Value())*1.1)), resource.BinarySI)
+	assert.True(t, gotLim.Equal(want), "got %s want %s (1536Mi * 1.1)", gotLim.String(), want.String())
 
 	reqOnly := &attunev1alpha1.AttunePolicy{}
 	reqOnly.Spec.Memory.AllowDecrease = &memDec
@@ -964,12 +971,24 @@ func TestApplyTemplatePersistence_SkipsCanaryInProgress(t *testing.T) {
 		attunev1alpha1.TemplatePersistenceAfterSuccessfulResize, map[string]bool{"api": true})
 	assert.Empty(t, history, "canary InProgress must not patch templates")
 
+	var updated appsv1.Deployment
+	require.NoError(t, cl.Get(context.Background(), client.ObjectKeyFromObject(deploy), &updated))
+	assert.Equal(t, int64(500), updated.Spec.Template.Spec.Containers[0].Resources.Requests.Cpu().MilliValue(),
+		"canary InProgress must leave template CPU request unchanged")
+	assert.True(t, updated.Spec.Template.Spec.Containers[0].Resources.Requests.Memory().Equal(resource.MustParse("512Mi")),
+		"canary InProgress must leave template memory request unchanged")
+
 	// FullRollout allows patch.
 	policy.Status.Canary.Phase = attunev1alpha1.CanaryPhaseFullRollout
 	history = r.applyTemplatePersistence(context.Background(), policy, []client.Object{deploy}, recs,
 		attunev1alpha1.TemplatePersistenceAfterSuccessfulResize, map[string]bool{"api": true})
 	require.Len(t, history, 1)
 	assert.Equal(t, attunev1alpha1.ResizeResultTemplatePatched, history[0].Result)
+
+	require.NoError(t, cl.Get(context.Background(), client.ObjectKeyFromObject(deploy), &updated))
+	assert.Equal(t, int64(200), updated.Spec.Template.Spec.Containers[0].Resources.Requests.Cpu().MilliValue())
+	assert.True(t, updated.Spec.Template.Spec.Containers[0].Resources.Requests.Memory().Equal(resource.MustParse("512Mi")),
+		"default AllowDecrease=false keeps template memory 512Mi")
 }
 
 func TestApplyTemplatePersistence_SkipsMidRollout(t *testing.T) {
@@ -1031,6 +1050,13 @@ func TestApplyTemplatePersistence_SkipsMidRollout(t *testing.T) {
 	history := r.applyTemplatePersistence(context.Background(), policy, []client.Object{deploy}, recs,
 		attunev1alpha1.TemplatePersistenceOnRecommendation, nil)
 	assert.Empty(t, history, "mid-rollout must not patch")
+
+	var updated appsv1.Deployment
+	require.NoError(t, cl.Get(context.Background(), client.ObjectKeyFromObject(deploy), &updated))
+	assert.Equal(t, int64(500), updated.Spec.Template.Spec.Containers[0].Resources.Requests.Cpu().MilliValue(),
+		"mid-rollout must leave template CPU request unchanged")
+	assert.True(t, updated.Spec.Template.Spec.Containers[0].Resources.Requests.Memory().Equal(resource.MustParse("512Mi")),
+		"mid-rollout must leave template memory request unchanged")
 }
 
 func TestApplyTemplatePersistence_SkipsStale(t *testing.T) {

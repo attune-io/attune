@@ -790,9 +790,9 @@ func TestE2E_OneShotMode_ResizesOnePod(t *testing.T) {
 			Memory: attunev1alpha1.ResourceConfig{
 				Percentile:       99,
 				Overhead:         "30",
-				AllowDecrease:    boolPtr(true),
-				MinAllowed:       quantityPtr("64Mi"),
-				MaxAllowed:       quantityPtr("8Gi"),
+				AllowDecrease:    boolPtr(false),
+				MinAllowed:       quantityPtr("256Mi"),
+				MaxAllowed:       quantityPtr("256Mi"),
 				MaxChangePercent: int32Ptr(100),
 			},
 			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
@@ -804,34 +804,67 @@ func TestE2E_OneShotMode_ResizesOnePod(t *testing.T) {
 	}
 	require.NoError(t, k8sClient.Create(ctx, policy))
 
-	waitForResize(t, "oneshot-policy", ns, 3*time.Minute)
-
-	// Workloads.Resized is per-workload; count live replica CPUs instead.
-	pods, err := clientset.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{
-		LabelSelector: "app=oneshot-app",
-	})
-	require.NoError(t, err)
-	decreased := 0
-	stillAtStart := 0
-	for i := range pods.Items {
-		pod := &pods.Items[i]
-		if pod.Status.Phase != corev1.PodRunning || pod.DeletionTimestamp != nil {
-			continue
+	// waitForResize returns on Workloads.Resized after any one resource.
+	// Memory-only Success under parallel PromQL made a one-shot CPU count
+	// see 0 decreases. Pin memory min=max and poll live replica CPUs.
+	lastTouch := time.Now()
+	lastDiag := time.Time{}
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 3*time.Minute, true, func(ctx context.Context) (bool, error) {
+		if time.Since(lastTouch) > 45*time.Second {
+			touchPolicySpec(t, "oneshot-policy", ns)
+			lastTouch = time.Now()
 		}
-		for _, c := range pod.Spec.Containers {
-			if c.Name != "app" {
+		pods, err := clientset.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{
+			LabelSelector: "app=oneshot-app",
+		})
+		if err != nil {
+			return false, nil
+		}
+		decreased := 0
+		stillAtStart := 0
+		for i := range pods.Items {
+			pod := &pods.Items[i]
+			if pod.Status.Phase != corev1.PodRunning || pod.DeletionTimestamp != nil {
 				continue
 			}
-			cpu := c.Resources.Requests.Cpu()
-			if cpu != nil && cpu.MilliValue() < 500 {
-				decreased++
-			} else if cpu != nil && cpu.MilliValue() >= 500 {
-				stillAtStart++
+			for _, c := range pod.Spec.Containers {
+				if c.Name != "app" {
+					continue
+				}
+				cpu := c.Resources.Requests.Cpu()
+				if cpu != nil && cpu.MilliValue() < 500 {
+					decreased++
+				} else if cpu != nil && cpu.MilliValue() >= 500 {
+					stillAtStart++
+				}
 			}
 		}
-	}
-	require.Equal(t, 1, decreased, "OneShot should decrease exactly one replica below start")
-	require.Equal(t, 1, stillAtStart, "OneShot should leave exactly one replica at start")
+		if decreased == 1 && stillAtStart == 1 {
+			return true, nil
+		}
+		if time.Since(lastDiag) > 30*time.Second {
+			lastDiag = time.Now()
+			var p attunev1alpha1.AttunePolicy
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: "oneshot-policy", Namespace: ns}, &p); err == nil {
+				t.Logf("oneshot: decreased=%d stillAtStart=%d discovered=%d recs=%d resized=%d",
+					decreased, stillAtStart, p.Status.Workloads.Discovered,
+					p.Status.Workloads.WithRecommendations, p.Status.Workloads.Resized)
+			}
+			for i := range pods.Items {
+				pod := &pods.Items[i]
+				for _, c := range pod.Spec.Containers {
+					if c.Name != "app" {
+						continue
+					}
+					t.Logf("  pod %s phase=%s cpu=%s mem=%s",
+						pod.Name, pod.Status.Phase,
+						c.Resources.Requests.Cpu().String(),
+						c.Resources.Requests.Memory().String())
+				}
+			}
+		}
+		return false, nil
+	}), "OneShot should decrease exactly one replica CPU below start")
 
 	var updated attunev1alpha1.AttunePolicy
 	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "oneshot-policy", Namespace: ns}, &updated))

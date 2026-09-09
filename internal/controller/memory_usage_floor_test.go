@@ -257,10 +257,9 @@ func TestApplyMemoryUsageFloor_ZeroMargin(t *testing.T) {
 
 	got := r.applyMemoryUsageFloor(context.Background(), policy, pod, rec, target)
 	gotLim := got.Limits.Memory()
-	assert.True(t, gotLim.Cmp(resource.MustParse("200Mi")) > 0,
-		"zero-margin floor must exceed usage 200Mi, got %s", gotLim.String())
-	assert.True(t, gotLim.Cmp(resource.MustParse("220Mi")) < 0,
-		"zero-margin floor %s must be < default 10%% floor 220Mi", gotLim.String())
+	usage := resource.MustParse("200Mi")
+	want := *resource.NewQuantity(usage.Value()+1, resource.BinarySI)
+	assert.True(t, gotLim.Equal(want), "zero-margin floor must be usage+1 byte, got %s want %s", gotLim.String(), want.String())
 }
 
 func TestRecentMemoryUsage(t *testing.T) {
