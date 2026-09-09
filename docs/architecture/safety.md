@@ -317,9 +317,11 @@ Before resizing, the controller checks for potential conflicts:
 - **Opt-out annotation**: workloads with `attune.io/skip: "true"` are
   skipped entirely.
 - **Namespace freeze**: `attune.io/freeze=true` on the namespace skips
-  in-place resize, eviction, startup boost, template persist, and CREATE
-  initial sizing. Recommendations still compute. If the namespace cannot
-  be read, apply is skipped (fail closed).
+  new in-place resize, eviction, startup boost, template persist, and
+  CREATE initial sizing. Recommendations still compute. Pending safety
+  observation still reverts unsafe pods and restores AfterSuccessfulResize
+  templates. If the namespace cannot be read, apply is skipped (fail
+  closed).
 - **QoS preservation**: for Guaranteed-class pods, the resize is blocked if
   it would cause requests to differ from limits.
 - **HPA coexistence**: an informational notice is logged but resizing proceeds.

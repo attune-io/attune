@@ -91,8 +91,9 @@ Located in `internal/conflict/`. Detects potential conflicts:
 - **VPA**: warns about active VPA objects targeting the same workload.
 - **Opt-out**: checks for the `attune.io/skip: "true"` annotation.
 - **Namespace freeze**: `attune.io/freeze=true` on the policy namespace
-  blocks apply (resize, eviction, boost, persist, CREATE initial sizing)
-  while recommendations continue.
+  blocks new apply (resize, eviction, boost, persist, CREATE initial sizing)
+  while recommendations continue. Pending safety observation still reverts
+  unsafe pods and restores AfterSuccessfulResize templates.
 - **Active rollout**: detects in-progress deployments.
 
 ### Status Reporter

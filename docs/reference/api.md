@@ -216,7 +216,7 @@ the estimator chain: `rawPercentile`, `overhead`, `afterOverhead`,
 | `Resizing` | `InProgress`, `Idle`, `CooldownActive` | Active resize operation state. `CooldownActive` only when every matched app is still cooling |
 | `Degraded` | `HighRevertRate` | High revert rate detected (3+ of last 5 reverted) |
 | `ScheduleBlocked` | `OutsideWindow`, `InsideWindow` | Whether the current time is within the configured resize schedule window |
-| `ResizeBlocked` | `NamespaceFrozen`, `PodsDeferred`, `PodsInfeasible`, `PodsDeferredAndInfeasible` | Namespace freeze kill-switch (`attune.io/freeze=true` skips resize, persist, and CREATE initial sizing), or one or more target pods stuck Deferred (kubelet pending) or Infeasible; message includes sample pod names and next actions |
+| `ResizeBlocked` | `NamespaceFrozen`, `PodsDeferred`, `PodsInfeasible`, `PodsDeferredAndInfeasible` | Namespace freeze kill-switch (`attune.io/freeze=true` skips new resize, persist, and CREATE initial sizing; pending safety revert still runs), or one or more target pods stuck Deferred (kubelet pending) or Infeasible; message includes sample pod names and next actions |
 
 ### Print columns
 

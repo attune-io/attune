@@ -392,8 +392,9 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	// Check pending safety observations from previous resizes before computing
 	// new recommendations. Uses already-discovered workloads for provenance.
+	// Freeze skips new apply, not pending safety revert.
 	var safetyObservationsPending bool
-	if !applyFrozen && autoRevertEnabled(policy.Spec.UpdateStrategy) {
+	if autoRevertEnabled(policy.Spec.UpdateStrategy) {
 		safetyObservationsPending = r.checkPendingSafetyObservations(workloadCtx, &policy, collector, workloads)
 	}
 
