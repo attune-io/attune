@@ -71,6 +71,44 @@ func selectPodsForResize(pods []corev1.Pod, mode attunev1alpha1.UpdateType, cana
 	}
 }
 
+// firstOneShotPodNeedingResize returns the first eligible pod whose live
+// requests/limits still differ from rec (at most one). Already-at-target
+// replicas are skipped so OneShot can walk the remaining set across cycles.
+func firstOneShotPodNeedingResize(pods []corev1.Pod, rec attunev1alpha1.WorkloadRecommendation) []corev1.Pod {
+	for i := range pods {
+		p := &pods[i]
+		if !resize.IsEligibleForResize(p) {
+			continue
+		}
+		if oneShotPodAlreadyAtTarget(p, rec) {
+			continue
+		}
+		return []corev1.Pod{*p}
+	}
+	return nil
+}
+
+// oneShotPodAlreadyAtTarget is true when every recommended container already
+// matches buildResizeTarget (same compare as shouldSkipResize).
+func oneShotPodAlreadyAtTarget(pod *corev1.Pod, rec attunev1alpha1.WorkloadRecommendation) bool {
+	if len(rec.Containers) == 0 {
+		return true
+	}
+	for _, containerRec := range rec.Containers {
+		target, _ := buildResizeTarget(containerRec)
+		c := findContainerByName(pod, containerRec.Name)
+		if c == nil {
+			return false
+		}
+		if c.Resources.Requests.Cpu().MilliValue() != target.Requests.Cpu().MilliValue() ||
+			c.Resources.Requests.Memory().Value() != target.Requests.Memory().Value() ||
+			!targetLimitsMatchLive(c.Resources.Limits, target.Limits) {
+			return false
+		}
+	}
+	return true
+}
+
 // budgetIncrease returns the positive live-pod request increase needed to
 // reach the clamped resize target. Decreases do not consume per-cycle budget.
 func budgetIncrease(pod *corev1.Pod, containerName string, target corev1.ResourceRequirements) (cpuMilli int64, memBytes int64) {
@@ -258,6 +296,9 @@ func (r *AttunePolicyReconciler) executeResizes(
 			}
 		}
 		selectedPods := selectPodsForResize(pods, wlMode, canaryPct)
+		if wlMode == attunev1alpha1.UpdateTypeOneShot {
+			selectedPods = firstOneShotPodNeedingResize(pods, rec)
+		}
 		logger.V(1).Info("Pod selection for resize",
 			"workload", rec.Workload, "total", len(pods),
 			"selected", len(selectedPods), "type", wlMode)

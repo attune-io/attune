@@ -320,6 +320,7 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 								logger.Error(revertErr, "Failed to revert pod during early critical check", "pod", pod.Name)
 								continue
 							}
+							r.restoreTemplateAfterSafetyRevert(ctx, policy, workloads, record)
 							operatormetrics.RevertsTotal.WithLabelValues(pod.Namespace, trackedWorkload, v.Reason).Inc()
 							if r.Recorder != nil {
 								r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, string(attunev1alpha1.ResizeResultReverted), "revert",
@@ -382,6 +383,7 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 					revertFailed = true
 					continue
 				}
+				r.restoreTemplateAfterSafetyRevert(ctx, policy, workloads, record)
 				operatormetrics.RevertsTotal.WithLabelValues(pod.Namespace, trackedWorkload, verdict.Reason).Inc()
 				if r.Recorder != nil {
 					r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, string(attunev1alpha1.ResizeResultReverted), "revert",

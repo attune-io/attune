@@ -202,7 +202,7 @@ provides a graduated path:
 |------|-------------|------------|
 | **Observe** | Collects metrics and tracks data-point progress; no recommendations surfaced | Zero |
 | **Recommend** | Collects metrics and writes recommendations to the policy status | Zero |
-| **OneShot** | Resizes one pod per reconciliation cycle, then stops | Minimal |
+| **OneShot** | Resizes one pod per cycle until remaining replicas match the recommendation (cooldown between pods) | Minimal |
 | **Canary** | Resizes 10% of pods first, watches them, then auto-promotes to the rest (optional) | Low |
 | **Auto** | Continuously resizes all eligible pods based on observed metrics | Production-ready |
 

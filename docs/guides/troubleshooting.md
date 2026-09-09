@@ -1080,6 +1080,8 @@ spec:
   never fires (webhook warns). Use `when: OnRecommendation` for Recommend.
   A successful memory-only resize still patches the template (CPU can stay
   at the original request). Do not require both resources to change.
+  A later safety revert also restores the template to the pre-resize
+  snapshot so rollouts do not keep the unsafe size.
 - **`OnRecommendation`**: still skipped in **Observe** mode.
 - **Canary**: template patches wait until canary reaches `FullRollout`.
 - **Stale recommendation**: `recommendations[].stale` is true; the template is not patched until fresh Prometheus data.

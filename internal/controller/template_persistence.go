@@ -33,6 +33,7 @@ import (
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 	"github.com/attune-io/attune/internal/operatormetrics"
 	"github.com/attune-io/attune/internal/resize"
+	"github.com/attune-io/attune/internal/safety"
 	pkgdefaults "github.com/attune-io/attune/pkg/defaults"
 )
 
@@ -222,6 +223,55 @@ func quantityEqual(a, b corev1.ResourceList, name corev1.ResourceName) bool {
 		return false
 	}
 	return qa.Equal(qb)
+}
+
+// restoreTemplateAfterSafetyRevert writes the pre-resize snapshot back onto
+// the Deployment/StatefulSet template after a successful live-pod revert.
+// AfterSuccessfulResize already patched the unsafe rec before observation;
+// without this restore, new pods and rollouts start at the size that just
+// failed safety.
+func (r *AttunePolicyReconciler) restoreTemplateAfterSafetyRevert(
+	ctx context.Context,
+	policy *attunev1alpha1.AttunePolicy,
+	workloads []client.Object,
+	record safety.ResizeRecord,
+) {
+	logger := log.FromContext(ctx)
+	if !templatePersistenceEnabled(policy.Spec.UpdateStrategy) {
+		return
+	}
+	if templatePersistenceWhen(policy.Spec.UpdateStrategy) != attunev1alpha1.TemplatePersistenceAfterSuccessfulResize {
+		return
+	}
+
+	var workload client.Object
+	for _, w := range workloads {
+		if w.GetName() != record.WorkloadName {
+			continue
+		}
+		switch workloadKindName(w) {
+		case "Deployment", "StatefulSet":
+			workload = w
+		}
+		break
+	}
+	if workload == nil {
+		return
+	}
+
+	desired := map[string]corev1.ResourceRequirements{
+		record.Container: record.OriginalResources,
+	}
+	changed, err := r.patchWorkloadTemplateResources(ctx, workload, desired)
+	if err != nil {
+		logger.Error(err, "Failed to restore template after safety revert",
+			"workload", record.WorkloadName, "container", record.Container)
+		return
+	}
+	if changed {
+		logger.Info("Restored template after safety revert",
+			"workload", record.WorkloadName, "container", record.Container)
+	}
 }
 
 // applyTemplatePersistence patches Deployment/StatefulSet pod templates for

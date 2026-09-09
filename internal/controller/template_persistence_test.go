@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/safety"
 )
 
 func TestTemplatePersistenceEnabled(t *testing.T) {
@@ -1505,4 +1506,99 @@ func TestWorkloadKindName(t *testing.T) {
 	assert.Equal(t, "CronJob", workloadKindName(&batchv1.CronJob{}))
 	// Unknown object falls back to GVK kind (empty when unset).
 	assert.Equal(t, "", workloadKindName(&corev1.Pod{}))
+}
+
+func persistAtRec64MiDeployment() *appsv1.Deployment {
+	return &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "default"},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: int32Ptr(1),
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "api"}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "api"}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:  "app",
+						Image: "nginx",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("200m"),
+								corev1.ResourceMemory: resource.MustParse("64Mi"),
+							},
+						},
+					}},
+				},
+			},
+		},
+		Status: appsv1.DeploymentStatus{Replicas: 1, UpdatedReplicas: 1, AvailableReplicas: 1},
+	}
+}
+
+func original256MiRecord() safety.ResizeRecord {
+	return safety.ResizeRecord{
+		PodName:      "api-abc",
+		Namespace:    "default",
+		Container:    "app",
+		WorkloadName: "api",
+		OriginalResources: corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("200m"),
+				corev1.ResourceMemory: resource.MustParse("256Mi"),
+			},
+		},
+	}
+}
+
+func TestRestoreTemplateAfterSafetyRevert_AfterSuccessfulResize(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
+
+	deploy := persistAtRec64MiDeployment()
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = cl
+	r.Scheme = scheme
+
+	policy := newTestPolicy("p", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	policy.Spec.UpdateStrategy.TemplatePersistence = &attunev1alpha1.TemplatePersistence{
+		Enabled: boolPtr(true),
+		When:    attunev1alpha1.TemplatePersistenceAfterSuccessfulResize,
+	}
+
+	r.restoreTemplateAfterSafetyRevert(context.Background(), policy, []client.Object{deploy}, original256MiRecord())
+
+	var updated appsv1.Deployment
+	require.NoError(t, cl.Get(context.Background(), client.ObjectKeyFromObject(deploy), &updated))
+	assert.True(t, updated.Spec.Template.Spec.Containers[0].Resources.Requests.Memory().Equal(resource.MustParse("256Mi")),
+		"template memory request must restore to the pre-resize snapshot")
+}
+
+func TestRestoreTemplateAfterSafetyRevert_DisabledNoOp(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
+
+	deploy := persistAtRec64MiDeployment()
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = cl
+	r.Scheme = scheme
+
+	policy := newTestPolicy("p", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	policy.Spec.UpdateStrategy.TemplatePersistence = &attunev1alpha1.TemplatePersistence{
+		Enabled: boolPtr(false),
+		When:    attunev1alpha1.TemplatePersistenceAfterSuccessfulResize,
+	}
+
+	r.restoreTemplateAfterSafetyRevert(context.Background(), policy, []client.Object{deploy}, original256MiRecord())
+
+	var updated appsv1.Deployment
+	require.NoError(t, cl.Get(context.Background(), client.ObjectKeyFromObject(deploy), &updated))
+	assert.True(t, updated.Spec.Template.Spec.Containers[0].Resources.Requests.Memory().Equal(resource.MustParse("64Mi")),
+		"disabled persist must leave the template at the recommended size")
 }
