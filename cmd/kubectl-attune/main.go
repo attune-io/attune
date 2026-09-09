@@ -512,6 +512,25 @@ func isNoResourceMatch(err error) bool {
 		strings.Contains(msg, "no matches for kind")
 }
 
+// policyGetErrorMessage is the stderr text for explain/preview Get failures.
+func policyGetErrorMessage(namespace, policyName string, err error) string {
+	if isNoResourceMatch(err) {
+		return "Error: Attune CRDs are not installed in this cluster.\n" +
+			"Install the operator first:\n" +
+			"  helm install attune oci://ghcr.io/attune-io/charts/attune"
+	}
+	if apierrors.IsNotFound(err) {
+		return fmt.Sprintf("Error: policy %s/%s not found.\nList policies with: kubectl attune status -n %s",
+			namespace, policyName, namespace)
+	}
+	return fmt.Sprintf("Error fetching policy %s/%s: %v", namespace, policyName, err)
+}
+
+func exitPolicyGet(namespace, policyName string, err error) {
+	fmt.Fprintln(os.Stderr, policyGetErrorMessage(namespace, policyName, err))
+	os.Exit(1)
+}
+
 func printStatus(ctx context.Context, dynClient dynamic.Interface, namespace, sortByFlag, filterFlag string) {
 	list := fetchPolicies(ctx, dynClient, namespace)
 	printStatusItems(list.Items, sortByFlag, filterFlag)
@@ -1125,8 +1144,7 @@ func printExplain(ctx context.Context, dynClient dynamic.Interface, namespace, p
 
 	item, err := dynClient.Resource(gvr).Namespace(namespace).Get(ctx, policyName, metav1.GetOptions{})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error fetching policy %s/%s: %v\n", namespace, policyName, err)
-		os.Exit(1)
+		exitPolicyGet(namespace, policyName, err)
 	}
 
 	selected, err := fetchSelectedDefaults(ctx, dynClient, namespace)
@@ -2226,8 +2244,7 @@ func printPreview(ctx context.Context, dynClient dynamic.Interface, namespace, p
 
 	item, err := dynClient.Resource(gvr).Namespace(namespace).Get(ctx, policyName, metav1.GetOptions{})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error fetching policy %s/%s: %v\n", namespace, policyName, err)
-		os.Exit(1)
+		exitPolicyGet(namespace, policyName, err)
 	}
 
 	mode := getNestedString(*item, "spec", "updateStrategy", "type")

@@ -30,6 +30,7 @@ import (
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 	"github.com/attune-io/attune/internal/operatormetrics"
+	"github.com/attune-io/attune/internal/resize"
 	pkgdefaults "github.com/attune-io/attune/pkg/defaults"
 )
 
@@ -110,6 +111,20 @@ func materializeContainerResources(
 	}
 	// Match resize path: requests must not exceed limits when both are set.
 	_ = clampRequestsToLimits(&out)
+
+	if memLim, ok := out.Limits[corev1.ResourceMemory]; ok &&
+		!c.Current.MemoryLimit.IsZero() && memLim.Cmp(c.Current.MemoryLimit) < 0 {
+		if usage, hasUsage := recentMemoryUsage(c); hasUsage {
+			margin := float64(attunev1alpha1.DefaultDecreaseUsageMarginPercent)
+			if policy.Spec.Memory.DecreaseUsageMarginPercent != nil {
+				margin = float64(*policy.Spec.Memory.DecreaseUsageMarginPercent)
+			}
+			floored, applied := resize.FloorMemoryLimitForUsage(out, c.Current.MemoryLimit, usage, margin)
+			if applied {
+				out = floored
+			}
+		}
+	}
 
 	// Only write limits into the template when ControlledValues says so.
 	// RequestsOnly must leave existing template limits untouched (merge keeps them).
@@ -253,7 +268,15 @@ func (r *AttunePolicyReconciler) applyTemplatePersistence(
 				c.Recommended.MemoryLimit.Equal(c.Current.MemoryLimit) {
 				continue
 			}
-			desired[c.Name] = materializeContainerResources(policy, c)
+			want := materializeContainerResources(policy, c)
+			if recLim, ok := want.Limits[corev1.ResourceMemory]; ok &&
+				!c.Recommended.MemoryLimit.IsZero() && recLim.Cmp(c.Recommended.MemoryLimit) > 0 {
+				logger.V(1).Info("Template persist memory limit floored above usage",
+					"workload", rec.Workload, "container", c.Name,
+					"recommendedLimit", c.Recommended.MemoryLimit.String(),
+					"flooredLimit", recLim.String())
+			}
+			desired[c.Name] = want
 		}
 		if len(desired) == 0 {
 			logger.V(1).Info("Template persistence no-op: no container changes",
@@ -421,12 +444,23 @@ func workloadKindName(w client.Object) string {
 	}
 }
 
+// isSuccessfulResizeForPersist reports whether history should trigger
+// AfterSuccessfulResize template persistence. Includes in-place Success
+// and Eviction+Evicted (InPlaceOrRecreate) so replacement pods pick up
+// the updated template.
+func isSuccessfulResizeForPersist(h attunev1alpha1.ResizeHistoryEntry) bool {
+	if isSuccessfulInPlaceHistory(h) {
+		return true
+	}
+	return resizeHistoryMethod(h) == "Eviction" && h.Result == attunev1alpha1.ResizeResultEvicted
+}
+
 // successfulResizeWorkloads returns workload names that had a successful
-// in-place resize in the given history batch.
+// in-place resize or eviction in the given history batch.
 func successfulResizeWorkloads(history []attunev1alpha1.ResizeHistoryEntry) map[string]bool {
 	out := make(map[string]bool)
 	for _, h := range history {
-		if isSuccessfulInPlaceHistory(h) {
+		if isSuccessfulResizeForPersist(h) {
 			out[h.Workload] = true
 		}
 	}
@@ -434,11 +468,12 @@ func successfulResizeWorkloads(history []attunev1alpha1.ResizeHistoryEntry) map[
 }
 
 // laggingAfterResizeWorkloads returns workloads that should (re)try template
-// persistence after a successful in-place resize. Includes this-cycle
-// successes always. From status history, only includes a workload when its
-// latest InPlace Success is not followed by a TemplatePatched entry (failed
-// patch, mid-rollout skip, or never attempted). This avoids turning
-// AfterSuccessfulResize into permanent OnRecommendation after one success.
+// persistence after a successful in-place resize or eviction. Includes
+// this-cycle successes always. From status history, only includes a workload
+// when its latest persist-trigger success is not followed by a
+// TemplatePatched entry (failed patch, mid-rollout skip, or never
+// attempted). This avoids turning AfterSuccessfulResize into permanent
+// OnRecommendation after one success.
 func laggingAfterResizeWorkloads(
 	cycleHistory []attunev1alpha1.ResizeHistoryEntry,
 	statusHistory []attunev1alpha1.ResizeHistoryEntry,
@@ -458,7 +493,7 @@ func laggingAfterResizeWorkloads(
 			st = &wlState{}
 			byWL[h.Workload] = st
 		}
-		if isSuccessfulInPlaceHistory(h) {
+		if isSuccessfulResizeForPersist(h) {
 			if !st.hasSuccess || h.Timestamp.After(st.lastSuccess.Time) {
 				st.hasSuccess = true
 				st.lastSuccess = h.Timestamp

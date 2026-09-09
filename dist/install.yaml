@@ -860,7 +860,8 @@ spec:
                       when:
                         description: |-
                           When selects the trigger. Defaults to AfterSuccessfulResize when
-                          Enabled is true and When is empty.
+                          Enabled is true and When is empty. AfterSuccessfulResize also
+                          patches after Eviction+Evicted (InPlaceOrRecreate).
                         enum:
                         - AfterSuccessfulResize
                         - OnRecommendation
@@ -1754,7 +1755,8 @@ spec:
                       when:
                         description: |-
                           When selects the trigger. Defaults to AfterSuccessfulResize when
-                          Enabled is true and When is empty.
+                          Enabled is true and When is empty. AfterSuccessfulResize also
+                          patches after Eviction+Evicted (InPlaceOrRecreate).
                         enum:
                         - AfterSuccessfulResize
                         - OnRecommendation
@@ -2740,7 +2742,8 @@ spec:
                       when:
                         description: |-
                           When selects the trigger. Defaults to AfterSuccessfulResize when
-                          Enabled is true and When is empty.
+                          Enabled is true and When is empty. AfterSuccessfulResize also
+                          patches after Eviction+Evicted (InPlaceOrRecreate).
                         enum:
                         - AfterSuccessfulResize
                         - OnRecommendation

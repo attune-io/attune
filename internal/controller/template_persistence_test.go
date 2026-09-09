@@ -520,10 +520,12 @@ func TestSuccessfulResizeWorkloads(t *testing.T) {
 		{Workload: "a", Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess},
 		{Workload: "b", Method: "InPlace", Result: attunev1alpha1.ResizeResultFailed},
 		{Workload: "c", Method: "TemplatePersistence", Result: attunev1alpha1.ResizeResultTemplatePatched},
+		{Workload: "d", Method: "Eviction", Result: attunev1alpha1.ResizeResultEvicted},
 	})
 	assert.True(t, got["a"])
 	assert.False(t, got["b"])
 	assert.False(t, got["c"])
+	assert.True(t, got["d"], "Evicted InPlaceOrRecreate must trigger AfterSuccessfulResize persist")
 }
 
 func TestLaggingAfterResizeWorkloads(t *testing.T) {
@@ -548,6 +550,11 @@ func TestLaggingAfterResizeWorkloads(t *testing.T) {
 			{Workload: "retry", Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: t0},
 			{Workload: "retry", Method: "TemplatePersistence", Result: attunev1alpha1.ResizeResultTemplatePatched, Timestamp: t1},
 			{Workload: "retry", Method: "InPlace", Result: attunev1alpha1.ResizeResultSuccess, Timestamp: t2},
+			// prior Evicted without later TemplatePatched → lagging
+			{Workload: "evicted-prior", Method: "Eviction", Result: attunev1alpha1.ResizeResultEvicted, Timestamp: t0},
+			// Evicted then TemplatePatched → not lagging
+			{Workload: "evicted-done", Method: "Eviction", Result: attunev1alpha1.ResizeResultEvicted, Timestamp: t0},
+			{Workload: "evicted-done", Method: "TemplatePersistence", Result: attunev1alpha1.ResizeResultTemplatePatched, Timestamp: t1},
 		},
 	)
 	assert.True(t, got["cycle"])
@@ -555,6 +562,8 @@ func TestLaggingAfterResizeWorkloads(t *testing.T) {
 	assert.False(t, got["failed"])
 	assert.False(t, got["done"])
 	assert.True(t, got["retry"])
+	assert.True(t, got["evicted-prior"], "Evicted without later TemplatePatched must lag")
+	assert.False(t, got["evicted-done"], "Evicted then TemplatePatched must not lag")
 }
 
 func TestCanaryBlocksTemplatePersistence(t *testing.T) {
@@ -597,6 +606,43 @@ func TestMaterializeContainerResources_ClampsRequestsOnlyDefault(t *testing.T) {
 	assert.Equal(t, int64(200), got.Requests.Cpu().MilliValue(), "CPU request clamped to current limit")
 	assert.True(t, got.Requests.Memory().Equal(resource.MustParse("256Mi")), "memory request clamped to current limit")
 	assert.Nil(t, got.Limits, "RequestsOnly must not write limits into the template payload")
+}
+
+func TestMaterializeContainerResources_MemoryUsageFloor(t *testing.T) {
+	policy := &attunev1alpha1.AttunePolicy{}
+	cv := attunev1alpha1.ControlledRequestsAndLimits
+	policy.Spec.Memory.ControlledValues = &cv
+	memDec := true
+	policy.Spec.Memory.AllowDecrease = &memDec
+	c := attunev1alpha1.ContainerRecommendation{
+		Name: "app",
+		Current: attunev1alpha1.ResourceValues{
+			MemoryRequest: resource.MustParse("64Mi"),
+			MemoryLimit:   resource.MustParse("512Mi"),
+		},
+		Recommended: attunev1alpha1.ResourceValues{
+			MemoryRequest: resource.MustParse("64Mi"),
+			MemoryLimit:   resource.MustParse("64Mi"),
+		},
+		Explanation: &attunev1alpha1.ContainerRecommendationExplanation{
+			Memory: &attunev1alpha1.ResourceRecommendationExplanation{
+				RawPercentile: resource.MustParse("200Mi"),
+			},
+		},
+	}
+	got := materializeContainerResources(policy, c)
+	require.NotNil(t, got.Limits)
+	gotLim := got.Limits[corev1.ResourceMemory]
+	assert.True(t, gotLim.Cmp(resource.MustParse("64Mi")) > 0,
+		"floored limit must exceed raw recommended 64Mi, got %s", gotLim.String())
+	// Default 10% margin: 200Mi * 1.10 = 220Mi
+	assert.True(t, gotLim.Cmp(resource.MustParse("220Mi")) >= 0,
+		"limit %s must be >= usage floor 220Mi", gotLim.String())
+
+	reqOnly := &attunev1alpha1.AttunePolicy{}
+	reqOnly.Spec.Memory.AllowDecrease = &memDec
+	gotRO := materializeContainerResources(reqOnly, c)
+	assert.Nil(t, gotRO.Limits, "RequestsOnly must still leave Limits nil")
 }
 
 func TestMaterializeContainerResources_ClampsRequestsAndLimits(t *testing.T) {

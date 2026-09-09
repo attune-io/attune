@@ -498,6 +498,11 @@ directory. When referencing files elsewhere in the repo (e.g., `charts/`,
   must poll live requests (`waitForNamedContainersCPUDecrease`) instead of
   a one-shot List after `waitForResize`. Read pods via Clientset so the
   informer cache cannot hide a just-written `/resize` spec.
+- OneShot, ScaleUp, and Paused must count live Clientset CPU decreases
+  (strictly below start; pin MaxAllowed below start). Do not treat
+  `Workloads.Resized` or `cpu != start` as proof. Paused asserts Ready
+  reason only; a post-pause sleep cannot prove no further resizes when
+  cooldown is 1m and CPU is already at MaxAllowed.
 - Template persistence `AfterSuccessfulResize` E2E must accept a CPU **or**
   memory template change. A successful memory-only resize (512Mi to 64Mi)
   still patches the template and writes `TemplatePatched`. Requiring

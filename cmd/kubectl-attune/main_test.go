@@ -29,6 +29,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -3855,6 +3856,21 @@ func TestIsNoResourceMatch(t *testing.T) {
 			assert.Equal(t, tt.expected, isNoResourceMatch(tt.err))
 		})
 	}
+}
+
+func TestPolicyGetErrorMessage(t *testing.T) {
+	t.Parallel()
+	crd := policyGetErrorMessage("ns", "web", fmt.Errorf("the server could not find the requested resource"))
+	assert.Contains(t, crd, "Attune CRDs are not installed")
+	assert.Contains(t, crd, "helm install attune")
+	assert.NotContains(t, crd, "Error fetching policy")
+
+	missing := policyGetErrorMessage("ns", "web", apierrors.NewNotFound(schema.GroupResource{Resource: "attunepolicies"}, "web"))
+	assert.Contains(t, missing, "policy ns/web not found")
+	assert.Contains(t, missing, "kubectl attune status -n ns")
+
+	other := policyGetErrorMessage("ns", "web", fmt.Errorf("connection refused"))
+	assert.Contains(t, other, "Error fetching policy ns/web: connection refused")
 }
 
 func ptrInt32(v int32) *int32 { return &v }
