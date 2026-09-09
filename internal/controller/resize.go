@@ -600,6 +600,31 @@ func (r *AttunePolicyReconciler) resizeContainer(
 	containerRec, resizer, monitor, now := p.ContainerRec, p.Resizer, p.Monitor, p.Now
 	target := p.Target
 
+	// Live-Get before floor and pressure gates. The listed/informer pod can
+	// lag a prior in-place resize: a stale-low limit clips the usage floor
+	// below live usage; a stale-high request classifies a live increase as
+	// a decrease and skips MemoryPressure / unavailable / neighbor gates.
+	// Fail-closed for request increases and memory-limit decreases when
+	// Get fails (same philosophy as node status unavailable). Request-only
+	// decreases may still proceed against the listed snapshot.
+	if live, err := r.fetchLivePodForResize(ctx, pod); err != nil {
+		increase := targetIncreasesRequests(pod, containerRec.Name, target)
+		limitDec := targetDecreasesMemoryLimit(pod, containerRec.Name, target)
+		if increase || limitDec {
+			reason := "pod status unavailable; skipping request increase"
+			if !increase {
+				reason = "pod status unavailable; skipping memory limit decrease"
+			}
+			logger.Info("Skipping resize: "+reason,
+				"pod", pod.Name, "container", containerRec.Name)
+			r.emitEventOnce(policy, corev1.EventTypeWarning, "ResizeSkipped", "resize",
+				"Resize blocked for pod %s container %s: %s", pod.Name, containerRec.Name, reason)
+			return nil, resizeOutcomeNone
+		}
+	} else if live != nil {
+		pod = live
+	}
+
 	// Apply clamp + Guaranteed raise + usage floor before skip checks so
 	// shouldSkipResize sees the values that will be sent to the API server.
 	target, applyMeta := r.applyLiveResizeTarget(policy, pod, containerRec, target)
@@ -696,13 +721,6 @@ func (r *AttunePolicyReconciler) resizeContainer(
 				Resource: "cpu+memory", Method: "Eviction", Result: attunev1alpha1.ResizeResultEvicted,
 			},
 		}
-	}
-
-	// Live Get before Infeasible: the informer pod can lag kubelet (or an
-	// E2E inject loop) by a watch interval. Same class as the node
-	// pressure re-check above. Get failure keeps the listed object.
-	if live := r.livePodForResize(ctx, pod); live != nil {
-		pod = live
 	}
 
 	// Pods already marked Infeasible cannot be resized in-place on the current node.
@@ -1746,6 +1764,24 @@ func targetIncreasesRequests(pod *corev1.Pod, containerName string, target corev
 	return cpuInc || memInc
 }
 
+// targetDecreasesMemoryLimit reports whether target lowers the named
+// container's memory limit relative to the pod spec.
+func targetDecreasesMemoryLimit(pod *corev1.Pod, containerName string, target corev1.ResourceRequirements) bool {
+	c := findContainerByName(pod, containerName)
+	if c == nil {
+		return false
+	}
+	targetLim, ok := target.Limits[corev1.ResourceMemory]
+	if !ok || targetLim.IsZero() {
+		return false
+	}
+	currentLim, ok := c.Resources.Limits[corev1.ResourceMemory]
+	if !ok || currentLim.IsZero() {
+		return false
+	}
+	return targetLim.Cmp(currentLim) < 0
+}
+
 // emitLiveResizeApply writes clamp/floor events and metrics from apply meta.
 func (r *AttunePolicyReconciler) emitLiveResizeApply(
 	ctx context.Context,
@@ -1864,19 +1900,31 @@ func recentMemoryUsage(containerRec attunev1alpha1.ContainerRecommendation) (res
 	return u, true
 }
 
-// livePodForResize returns the named pod from the typed Clientset when
-// configured. Used immediately before the Infeasible eviction decision so
-// a stale informer snapshot cannot hide a live Infeasible (or keep a
-// cleared one). Returns listed on Get error or when Clientset is unset.
-func (r *AttunePolicyReconciler) livePodForResize(ctx context.Context, listed *corev1.Pod) *corev1.Pod {
+// fetchLivePodForResize returns the named pod from the typed Clientset.
+// Get errors are returned so callers can fail-closed for request increases
+// and memory-limit decreases. When Clientset is unset, listed is returned
+// with a nil error.
+func (r *AttunePolicyReconciler) fetchLivePodForResize(ctx context.Context, listed *corev1.Pod) (*corev1.Pod, error) {
 	if r.Clientset == nil || listed == nil {
-		return listed
+		return listed, nil
 	}
 	fresh, err := r.Clientset.CoreV1().Pods(listed.Namespace).Get(ctx, listed.Name, metav1.GetOptions{})
 	if err != nil {
+		return listed, err
+	}
+	return fresh, nil
+}
+
+// livePodForResize returns the named pod from the typed Clientset when
+// configured. Used by OneShot selection so a stale informer snapshot
+// cannot hide a live Infeasible (or keep a cleared one). Returns listed
+// on Get error or when Clientset is unset.
+func (r *AttunePolicyReconciler) livePodForResize(ctx context.Context, listed *corev1.Pod) *corev1.Pod {
+	live, err := r.fetchLivePodForResize(ctx, listed)
+	if err != nil || live == nil {
 		return listed
 	}
-	return fresh
+	return live
 }
 
 // getNodeForResize returns the named node for capacity/pressure checks.
