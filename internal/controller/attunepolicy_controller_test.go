@@ -4888,6 +4888,50 @@ func TestExecuteResizes_SuccessfulResize(t *testing.T) {
 	assert.Equal(t, attunev1alpha1.ResizeResultSuccess, history[1].Result, "memory resize should succeed")
 }
 
+func TestExecuteResizes_OneShot_WalksPastBlockedFirstReplica(t *testing.T) {
+	// Replica 0 is already at the applied target. Replica 1 still needs
+	// the resize. OneShot must walk past pod-0; eligible[:1] would pick
+	// it and no-op.
+	pod0 := newResizePod("api-server", "200m", "256Mi", "400m", "512Mi")
+	pod0.Name = "pod-0"
+	pod1 := newResizePod("api-server", "500m", "512Mi", "1000m", "1Gi")
+	pod1.Name = "pod-1"
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod0, pod1).Build()
+	clientset := kubefake.NewSimpleClientset(pod0.DeepCopy(), pod1.DeepCopy())
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = scheme
+	reconciler.Clientset = clientset
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeOneShot
+
+	recommendations := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("api-server", "500m", "512Mi", "1000m", "1Gi", "200m", "256Mi", "400m", "512Mi"),
+	}
+
+	count, history := reconciler.executeResizes(context.Background(), policy,
+		[]client.Object{deploy}, recommendations,
+		map[string][]corev1.Pod{"api-server": {*pod0, *pod1}}, nil, nil)
+	assert.Equal(t, 1, count)
+	require.NotEmpty(t, history)
+
+	var resized []string
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			updated := a.(k8stesting.UpdateAction).GetObject().(*corev1.Pod)
+			resized = append(resized, updated.Name)
+		}
+	}
+	require.NotEmpty(t, resized, "UpdateResize must run on the still-needing replica")
+	for _, name := range resized {
+		assert.Equal(t, "pod-1", name)
+	}
+}
+
 func TestExecuteResizes_ContextCancelledAbortsRemaining(t *testing.T) {
 	pod := newResizePod("api-server", "500m", "512Mi", "1000m", "1Gi")
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
