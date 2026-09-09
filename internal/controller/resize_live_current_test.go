@@ -85,7 +85,6 @@ func TestShouldSkipResize_QuotaBaselineUsesLiveNotTemplate(t *testing.T) {
 		},
 	}
 	r := NewAttunePolicyReconciler()
-	policy := &attunev1alpha1.AttunePolicy{}
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-pod", Namespace: "default"},
 		Spec: corev1.PodSpec{

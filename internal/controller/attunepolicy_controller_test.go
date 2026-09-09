@@ -13655,7 +13655,6 @@ func TestShouldSkipResize_LimitRangeViolation(t *testing.T) {
 	r.Client = fakeClient
 	r.Scheme = scheme
 
-	policy := &attunev1alpha1.AttunePolicy{}
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-pod", Namespace: "default"},
 		Spec: corev1.PodSpec{
@@ -13708,7 +13707,6 @@ func TestShouldSkipResize_QuotaHeadroomExceeded(t *testing.T) {
 	r.Client = fakeClient
 	r.Scheme = scheme
 
-	policy := &attunev1alpha1.AttunePolicy{}
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-pod", Namespace: "default"},
 		Spec: corev1.PodSpec{
@@ -13763,7 +13761,6 @@ func TestShouldSkipResize_NodeAllocatableExceeded(t *testing.T) {
 	r.Client = fakeClient
 	r.Scheme = scheme
 
-	policy := &attunev1alpha1.AttunePolicy{}
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-pod", Namespace: "default"},
 		Spec: corev1.PodSpec{
@@ -13824,7 +13821,6 @@ func TestShouldSkipResize_NodeAllocatableNotExceeded(t *testing.T) {
 	r.Client = fakeClient
 	r.Scheme = scheme
 
-	policy := &attunev1alpha1.AttunePolicy{}
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-pod", Namespace: "default"},
 		Spec: corev1.PodSpec{
@@ -13869,7 +13865,6 @@ func TestShouldSkipResize_AlreadyAtTarget(t *testing.T) {
 	r.Client = fakeClient
 	r.Scheme = scheme
 
-	policy := &attunev1alpha1.AttunePolicy{}
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-pod", Namespace: "default"},
 		Spec: corev1.PodSpec{
@@ -13910,7 +13905,6 @@ func TestShouldSkipResize_RequestMatchLimitDriftDoesNotSkip(t *testing.T) {
 	r.Client = fakeClient
 	r.Scheme = scheme
 
-	policy := &attunev1alpha1.AttunePolicy{}
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-pod", Namespace: "default"},
 		Spec: corev1.PodSpec{
@@ -13953,7 +13947,6 @@ func TestShouldSkipResize_PreChecksLimitRange(t *testing.T) {
 	r.Client = fakeClient
 	r.Scheme = scheme
 
-	policy := &attunev1alpha1.AttunePolicy{}
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-pod", Namespace: "default"},
 		Spec: corev1.PodSpec{
@@ -14004,7 +13997,6 @@ func TestShouldSkipResize_NodeCacheHit(t *testing.T) {
 	r.Client = fakeClient
 	r.Scheme = scheme
 
-	policy := &attunev1alpha1.AttunePolicy{}
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-pod", Namespace: "default"},
 		Spec: corev1.PodSpec{
@@ -14067,7 +14059,6 @@ func TestShouldSkipResize_NodeCacheMiss(t *testing.T) {
 	r.Client = fakeClient
 	r.Scheme = scheme
 
-	policy := &attunev1alpha1.AttunePolicy{}
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-pod", Namespace: "default"},
 		Spec: corev1.PodSpec{
@@ -14139,7 +14130,6 @@ func TestShouldSkipResize_ClientsetPrefersLivePressure(t *testing.T) {
 	r.Scheme = scheme
 	r.Clientset = kubefake.NewSimpleClientset(liveNode)
 
-	policy := &attunev1alpha1.AttunePolicy{}
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-pod", Namespace: "default"},
 		Spec: corev1.PodSpec{
@@ -14181,9 +14171,6 @@ func TestShouldSkipResize_QoSClassChange(t *testing.T) {
 	r.Client = fakeClient
 	r.Scheme = scheme
 
-	policy := &attunev1alpha1.AttunePolicy{
-		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
-	}
 	// Guaranteed pod: requests == limits for all resources.
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-pod", Namespace: "default"},
