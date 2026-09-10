@@ -465,45 +465,39 @@ func (r *AttunePolicyReconciler) executeResizes(
 		}
 
 		var workloadResized int32 // atomic for concurrent access
+		var planned []plannedPod
 		for _, pod := range selectedPods {
-			// Capture loop variables for the goroutine.
-			pod, workloadName := pod, rec.Workload
+			item, err := r.observeAndPlanPod(ctx, policy, pod, rec, matchedWorkload)
+			if err != nil {
+				reason := "pod status unavailable; skipping resize"
+				for _, containerRec := range rec.Containers {
+					logger.Info("Skipping resize: "+reason,
+						"pod", pod.Name, "namespace", pod.Namespace,
+						"container", containerRec.Name, "error", err)
+					r.emitEventOnce(policy, corev1.EventTypeWarning, "ResizeSkipped", "resize",
+						"Resize blocked for pod %s container %s: %s", pod.Name, containerRec.Name, reason)
+					recordCapacitySkip(policy, reason)
+				}
+				continue
+			}
+			planned = append(planned, item)
+		}
 
+		for _, item := range planned {
+			item, workloadName := item, rec.Workload
 			wg.Add(1)
-			sem <- struct{}{} // acquire semaphore
+			sem <- struct{}{}
 			go func() {
 				defer wg.Done()
-				defer func() { <-sem }() // release semaphore
+				defer func() { <-sem }()
 
+				pod := item.Pod
+				actions := item.Actions
 				var podHistory []attunev1alpha1.ResizeHistoryEntry
 				var podReservedCPU, podReservedMem int64
 				podResized := false
 				skipEviction := false
 
-				// One live Get per pod, and only when the listed snapshot
-				// still differs from the applied target. A matching snapshot
-				// can skip the Get: the MemoryPressure hole is listed
-				// decrease vs live increase, which is listed != target.
-				if !r.oneShotPodAlreadyAtTarget(policy, &pod, rec) {
-					if live, err := r.fetchLivePodForResize(ctx, &pod); err != nil {
-						reason := "pod status unavailable; skipping resize"
-						for _, containerRec := range rec.Containers {
-							logger.Info("Skipping resize: "+reason,
-								"pod", pod.Name, "namespace", pod.Namespace,
-								"container", containerRec.Name, "error", err)
-							r.emitEventOnce(policy, corev1.EventTypeWarning, "ResizeSkipped", "resize",
-								"Resize blocked for pod %s container %s: %s", pod.Name, containerRec.Name, reason)
-							recordCapacitySkip(policy, reason)
-						}
-						return
-					} else if live != nil {
-						pod = *live
-					}
-				}
-
-				// Plan on the observed pod, then apply. Budget is claimed
-				// against the planned applied target, not recomputed later.
-				actions := r.planPodActions(policy, &pod, rec)
 				for i, action := range actions {
 					if len(action.Clamped) > 0 {
 						logger.V(1).Info("Requests clamped to limits",

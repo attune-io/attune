@@ -17,10 +17,22 @@ limitations under the License.
 package controller
 
 import (
+	"context"
+
 	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 )
+
+// plannedPod is one observed pod plus its container plan for this cycle.
+type plannedPod struct {
+	Pod      corev1.Pod
+	Rec      attunev1alpha1.WorkloadRecommendation
+	Workload client.Object
+	Name     string
+	Actions  []resizeAction
+}
 
 // resizeAction is one container apply computed from an observed pod.
 // Plan is pure: no client Get. Budget filter and execute consume this.
@@ -70,6 +82,30 @@ func (r *AttunePolicyReconciler) planPodActions(
 		})
 	}
 	return actions
+}
+
+// observeAndPlanPod live-Gets when the listed snapshot is not already at
+// the applied target, then plans container actions on that observation.
+func (r *AttunePolicyReconciler) observeAndPlanPod(
+	ctx context.Context,
+	policy *attunev1alpha1.AttunePolicy,
+	pod corev1.Pod,
+	rec attunev1alpha1.WorkloadRecommendation,
+	workload client.Object,
+) (plannedPod, error) {
+	out := plannedPod{Rec: rec, Workload: workload, Name: rec.Workload}
+	if !r.oneShotPodAlreadyAtTarget(policy, &pod, rec) {
+		live, err := r.fetchLivePodForResize(ctx, &pod)
+		if err != nil {
+			return plannedPod{}, err
+		}
+		if live != nil {
+			pod = *live
+		}
+	}
+	out.Pod = pod
+	out.Actions = r.planPodActions(policy, &pod, rec)
+	return out, nil
 }
 
 // filterActionsByBudget keeps actions whose increases fit the remaining

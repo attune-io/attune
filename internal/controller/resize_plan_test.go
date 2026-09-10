@@ -17,12 +17,17 @@ limitations under the License.
 package controller
 
 import (
+	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/runtime"
+	kubefake "k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 )
@@ -140,4 +145,40 @@ func TestPlanPodActions_UsesAppliedTargetAndSkipsAtTarget(t *testing.T) {
 	require.Len(t, at, 1)
 	assert.True(t, at[0].AtTarget)
 	assert.Equal(t, int64(0), at[0].MemIncrease)
+}
+
+func TestObserveAndPlanPod_SkipsLiveGetWhenListedAtTarget(t *testing.T) {
+	pod := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	r, _ := newResizeReconciler(pod, deploy)
+	policy := newTestPolicy("p", "default")
+	rec := newResizeRecommendation("api-server", "200m", "256Mi", "0", "0", "200m", "256Mi", "0", "0")
+
+	got, err := r.observeAndPlanPod(context.Background(), policy, *pod, rec, deploy)
+	require.NoError(t, err)
+	require.Len(t, got.Actions, 1)
+	assert.True(t, got.Actions[0].AtTarget)
+
+	gets := 0
+	for _, a := range r.Clientset.(*kubefake.Clientset).Actions() {
+		if a.GetVerb() == "get" && a.GetResource().Resource == "pods" {
+			gets++
+		}
+	}
+	assert.Equal(t, 0, gets, "listed already at target must skip the live Get")
+}
+
+func TestObserveAndPlanPod_LiveGetError(t *testing.T) {
+	pod := newResizePod("api-server", "500m", "256Mi", "500m", "256Mi")
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	r, _ := newResizeReconciler(pod, deploy)
+	cs := r.Clientset.(*kubefake.Clientset)
+	cs.PrependReactor("get", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, fmt.Errorf("injected live Get 403")
+	})
+	policy := newTestPolicy("p", "default")
+	rec := newResizeRecommendation("api-server", "500m", "256Mi", "0", "0", "200m", "256Mi", "0", "0")
+
+	_, err := r.observeAndPlanPod(context.Background(), policy, *pod, rec, deploy)
+	require.Error(t, err)
 }
