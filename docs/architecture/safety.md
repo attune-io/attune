@@ -208,9 +208,13 @@ When a safety violation is detected:
    restart occurs.
 3. When `templatePersistence.when=AfterSuccessfulResize` is enabled, the
    controller also restores the Deployment/StatefulSet template for that
-   container from the pre-resize snapshot (`OriginalResources`). Persist
-   already patched the template on Success or Evicted, before the
-   observation window; without this restore, rollouts keep the unsafe size.
+   container from the pre-resize snapshot (`OriginalResources`). Restore
+   replaces the container resources, including clearing limits the persist
+   step added. Persist already patched the template on Success or Evicted,
+   before the observation window; without this restore, rollouts keep the
+   unsafe size.
+   A failed template restore keeps tracking annotations so the next
+   reconcile retries.
 4. The resize history entry is updated to `result: Reverted`.
 5. The `attune_reverts_total` counter is incremented with the
    violation reason as a label.
@@ -317,9 +321,11 @@ Before resizing, the controller checks for potential conflicts:
 - **Opt-out annotation**: workloads with `attune.io/skip: "true"` are
   skipped entirely.
 - **Namespace freeze**: `attune.io/freeze=true` on the namespace skips
-  in-place resize, eviction, startup boost, template persist, and CREATE
-  initial sizing. Recommendations still compute. If the namespace cannot
-  be read, apply is skipped (fail closed).
+  new in-place resize, eviction, startup boost, template persist, and
+  CREATE initial sizing. Recommendations still compute. Pending safety
+  observation still reverts unsafe pods and restores AfterSuccessfulResize
+  templates. If the namespace cannot be read, apply is skipped (fail
+  closed).
 - **QoS preservation**: for Guaranteed-class pods, the resize is blocked if
   it would cause requests to differ from limits.
 - **HPA coexistence**: an informational notice is logged but resizing proceeds.

@@ -392,8 +392,9 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	// Check pending safety observations from previous resizes before computing
 	// new recommendations. Uses already-discovered workloads for provenance.
+	// Freeze skips new apply, not pending safety revert.
 	var safetyObservationsPending bool
-	if !applyFrozen && autoRevertEnabled(policy.Spec.UpdateStrategy) {
+	if autoRevertEnabled(policy.Spec.UpdateStrategy) {
 		safetyObservationsPending = r.checkPendingSafetyObservations(workloadCtx, &policy, collector, workloads)
 	}
 
@@ -598,7 +599,15 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		r.applyNotFrozen(ctx, policy.Namespace, &applyFrozen, &freezeErr) {
 		resizedWLs := laggingAfterResizeWorkloads(cycleResizeHistory, policy.Status.ResizeHistory)
 		if len(resizedWLs) > 0 {
-			tplHistory := r.applyTemplatePersistence(ctx, &policy, workloads, recommendations,
+			// Status history already includes this-cycle executeResizes after
+			// append. Using only cycleResizeHistory misses a prior-cycle
+			// safety revert when freeze blocked persist, then lifted.
+			filtered := omitRevertedOrFailedContainers(recommendations, policy.Status.ResizeHistory)
+			if omitted := omittedPersistContainerNames(recommendations, filtered); len(omitted) > 0 {
+				logger.V(1).Info("Omitting reverted or failed containers from template persist",
+					"containers", omitted)
+			}
+			tplHistory := r.applyTemplatePersistence(ctx, &policy, workloads, filtered,
 				attunev1alpha1.TemplatePersistenceAfterSuccessfulResize, resizedWLs)
 			if len(tplHistory) > 0 {
 				policy.Status.ResizeHistory = appendHistory(policy.Status.ResizeHistory, tplHistory, maxHistoryEntries)
@@ -928,15 +937,11 @@ func (r *AttunePolicyReconciler) applyNotFrozen(ctx context.Context, namespace s
 // markNamespaceFrozen records ResizeBlocked=NamespaceFrozen and emits a
 // single Warning. Recommendations remain in status; only apply is skipped.
 func (r *AttunePolicyReconciler) markNamespaceFrozen(policy *attunev1alpha1.AttunePolicy, freezeErr error) {
-	msg := "namespace has attune.io/freeze=true; resizes skipped"
+	msg := "namespace has attune.io/freeze=true; new apply skipped (pending safety revert still runs)"
 	if freezeErr != nil {
-		msg = "cannot read namespace for attune.io/freeze; resizes skipped"
-		r.emitEventOnce(policy, corev1.EventTypeWarning, attunev1alpha1.ReasonNamespaceFrozen, "resize",
-			"cannot read namespace for attune.io/freeze; resizes skipped")
-	} else {
-		r.emitEventOnce(policy, corev1.EventTypeWarning, attunev1alpha1.ReasonNamespaceFrozen, "resize",
-			"namespace has attune.io/freeze=true; resizes skipped")
+		msg = "cannot read namespace for attune.io/freeze; new apply skipped (check namespaces get/list/watch RBAC)"
 	}
+	r.emitEventOnce(policy, corev1.EventTypeWarning, attunev1alpha1.ReasonNamespaceFrozen, "resize", "%s", msg)
 	meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
 		Type:               attunev1alpha1.ConditionResizeBlocked,
 		Status:             metav1.ConditionTrue,

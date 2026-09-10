@@ -203,19 +203,22 @@ func quantityEqual(a, b corev1.ResourceList, name corev1.ResourceName) bool {
 // the Deployment/StatefulSet template after a successful live-pod revert.
 // AfterSuccessfulResize already patched the unsafe rec before observation;
 // without this restore, new pods and rollouts start at the size that just
-// failed safety.
+// failed safety. Returns nil when persist is disabled, When is not
+// AfterSuccessfulResize, the workload is missing, or the template is
+// already at the snapshot. Callers must keep tracking annotations when
+// the returned error is non-nil so the next reconcile retries.
 func (r *AttunePolicyReconciler) restoreTemplateAfterSafetyRevert(
 	ctx context.Context,
 	policy *attunev1alpha1.AttunePolicy,
 	workloads []client.Object,
 	record safety.ResizeRecord,
-) {
+) error {
 	logger := log.FromContext(ctx)
 	if !templatePersistenceEnabled(policy.Spec.UpdateStrategy) {
-		return
+		return nil
 	}
 	if templatePersistenceWhen(policy.Spec.UpdateStrategy) != attunev1alpha1.TemplatePersistenceAfterSuccessfulResize {
-		return
+		return nil
 	}
 
 	var workload client.Object
@@ -230,22 +233,22 @@ func (r *AttunePolicyReconciler) restoreTemplateAfterSafetyRevert(
 		break
 	}
 	if workload == nil {
-		return
+		return nil
 	}
 
 	desired := map[string]corev1.ResourceRequirements{
 		record.Container: record.OriginalResources,
 	}
-	changed, err := r.patchWorkloadTemplateResources(ctx, workload, desired)
+	changed, err := r.patchWorkloadTemplateResources(ctx, workload, desired, true)
 	if err != nil {
-		logger.Error(err, "Failed to restore template after safety revert",
-			"workload", record.WorkloadName, "container", record.Container)
-		return
+		return fmt.Errorf("restoring template after safety revert for %s/%s: %w",
+			record.WorkloadName, record.Container, err)
 	}
 	if changed {
 		logger.Info("Restored template after safety revert",
 			"workload", record.WorkloadName, "container", record.Container)
 	}
+	return nil
 }
 
 // applyTemplatePersistence patches Deployment/StatefulSet pod templates for
@@ -339,7 +342,7 @@ func (r *AttunePolicyReconciler) applyTemplatePersistence(
 			continue
 		}
 
-		changed, err := r.patchWorkloadTemplateResources(ctx, w, desired)
+		changed, err := r.patchWorkloadTemplateResources(ctx, w, desired, false)
 		if err != nil {
 			logger.Error(err, "Failed to patch workload template",
 				"workload", rec.Workload, "kind", kind)
@@ -383,11 +386,14 @@ func (r *AttunePolicyReconciler) applyTemplatePersistence(
 }
 
 // patchWorkloadTemplateResources updates container resources on the pod template.
+// When replace is true (safety restore), container resources are replaced with
+// the snapshot, including clearing limits persist added. Persist keeps merge.
 // Returns (changed, error).
 func (r *AttunePolicyReconciler) patchWorkloadTemplateResources(
 	ctx context.Context,
 	workload client.Object,
 	desired map[string]corev1.ResourceRequirements,
+	replace bool,
 ) (bool, error) {
 	var changed bool
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
@@ -402,7 +408,7 @@ func (r *AttunePolicyReconciler) patchWorkloadTemplateResources(
 				return err
 			}
 			original := deploy.DeepCopy()
-			if !applyResourcesToPodSpec(&deploy.Spec.Template.Spec, desired) {
+			if !applyResourcesToPodSpec(&deploy.Spec.Template.Spec, desired, replace) {
 				return nil
 			}
 			changed = true
@@ -413,7 +419,7 @@ func (r *AttunePolicyReconciler) patchWorkloadTemplateResources(
 				return err
 			}
 			original := sts.DeepCopy()
-			if !applyResourcesToPodSpec(&sts.Spec.Template.Spec, desired) {
+			if !applyResourcesToPodSpec(&sts.Spec.Template.Spec, desired, replace) {
 				return nil
 			}
 			changed = true
@@ -426,8 +432,9 @@ func (r *AttunePolicyReconciler) patchWorkloadTemplateResources(
 }
 
 // applyResourcesToPodSpec sets resources on matching containers and native sidecars.
+// replace=true writes want as-is (restore); replace=false merges (persist).
 // Returns true if any container was modified.
-func applyResourcesToPodSpec(spec *corev1.PodSpec, desired map[string]corev1.ResourceRequirements) bool {
+func applyResourcesToPodSpec(spec *corev1.PodSpec, desired map[string]corev1.ResourceRequirements, replace bool) bool {
 	modified := false
 	for i := range spec.Containers {
 		c := &spec.Containers[i]
@@ -435,14 +442,9 @@ func applyResourcesToPodSpec(spec *corev1.PodSpec, desired map[string]corev1.Res
 		if !ok {
 			continue
 		}
-		// Merge first so RequestsOnly (Limits=nil) does not treat leftover
-		// template limits as a change when requests already match.
-		merged := mergeTemplateResources(c.Resources, want)
-		if resourcesEqual(c.Resources, merged) {
-			continue
+		if applyContainerResources(c, want, replace) {
+			modified = true
 		}
-		c.Resources = merged
-		modified = true
 	}
 	for i := range spec.InitContainers {
 		c := &spec.InitContainers[i]
@@ -453,14 +455,30 @@ func applyResourcesToPodSpec(spec *corev1.PodSpec, desired map[string]corev1.Res
 		if !ok {
 			continue
 		}
-		merged := mergeTemplateResources(c.Resources, want)
-		if resourcesEqual(c.Resources, merged) {
-			continue
+		if applyContainerResources(c, want, replace) {
+			modified = true
 		}
-		c.Resources = merged
-		modified = true
 	}
 	return modified
+}
+
+// applyContainerResources writes want onto a container. Persist merges so
+// RequestsOnly (Limits=nil) keeps leftover template limits. Restore replaces
+// so OriginalResources with empty Limits clears persist-added limits.
+func applyContainerResources(c *corev1.Container, want corev1.ResourceRequirements, replace bool) bool {
+	var next corev1.ResourceRequirements
+	if !replace {
+		// Merge first so RequestsOnly (Limits=nil) does not treat leftover
+		// template limits as a change when requests already match.
+		next = mergeTemplateResources(c.Resources, want)
+	} else {
+		next = *want.DeepCopy()
+	}
+	if resourcesEqual(c.Resources, next) {
+		return false
+	}
+	c.Resources = next
+	return true
 }
 
 // mergeTemplateResources applies want requests/limits onto current, keeping
@@ -510,6 +528,80 @@ func isSuccessfulResizeForPersist(h attunev1alpha1.ResizeHistoryEntry) bool {
 		return true
 	}
 	return resizeHistoryMethod(h) == "Eviction" && h.Result == attunev1alpha1.ResizeResultEvicted
+}
+
+// omitRevertedOrFailedContainers drops containers whose latest
+// persist-relevant history row is Reverted or Failed. AfterSuccessfulResize
+// persist is keyed by workload; without this filter a Success on container A
+// still writes container B's rec onto the template. History is oldest-first
+// (appendHistory); walk newest last so a later Success can persist again.
+// Skip Resource=="template" and Method==TemplatePersistence so a
+// TemplatePatched row cannot hide a Reverted or Failed resize outcome.
+func omitRevertedOrFailedContainers(
+	recs []attunev1alpha1.WorkloadRecommendation,
+	history []attunev1alpha1.ResizeHistoryEntry,
+) []attunev1alpha1.WorkloadRecommendation {
+	skip := make(map[string]bool)
+	seen := make(map[string]bool)
+	for i := len(history) - 1; i >= 0; i-- {
+		h := history[i]
+		if h.Resource == "template" || h.Method == "TemplatePersistence" {
+			continue
+		}
+		if h.Workload == "" || h.Container == "" || h.Container == "*" {
+			continue
+		}
+		key := h.Workload + "/" + h.Container
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		if h.Result == attunev1alpha1.ResizeResultReverted || h.Result == attunev1alpha1.ResizeResultFailed {
+			skip[key] = true
+		}
+	}
+	if len(skip) == 0 {
+		return recs
+	}
+	out := make([]attunev1alpha1.WorkloadRecommendation, 0, len(recs))
+	for _, rec := range recs {
+		filtered := make([]attunev1alpha1.ContainerRecommendation, 0, len(rec.Containers))
+		for _, c := range rec.Containers {
+			if skip[rec.Workload+"/"+c.Name] {
+				continue
+			}
+			filtered = append(filtered, c)
+		}
+		if len(filtered) == 0 {
+			continue
+		}
+		rec.Containers = filtered
+		out = append(out, rec)
+	}
+	return out
+}
+
+// omittedPersistContainerNames lists workload/container keys present in recs
+// but dropped by omitRevertedOrFailedContainers.
+func omittedPersistContainerNames(
+	recs, filtered []attunev1alpha1.WorkloadRecommendation,
+) []string {
+	keep := make(map[string]bool)
+	for _, rec := range filtered {
+		for _, c := range rec.Containers {
+			keep[rec.Workload+"/"+c.Name] = true
+		}
+	}
+	var omitted []string
+	for _, rec := range recs {
+		for _, c := range rec.Containers {
+			key := rec.Workload + "/" + c.Name
+			if !keep[key] {
+				omitted = append(omitted, key)
+			}
+		}
+	}
+	return omitted
 }
 
 // successfulResizeWorkloads returns workload names that had a successful

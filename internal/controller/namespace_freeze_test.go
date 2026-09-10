@@ -27,6 +27,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -251,14 +252,14 @@ func TestReconcile_NamespaceFreeze(t *testing.T) {
 				require.NotNil(t, cond)
 				assert.Equal(t, metav1.ConditionTrue, cond.Status)
 				assert.Equal(t, attunev1alpha1.ReasonNamespaceFrozen, cond.Reason)
-				assert.Contains(t, cond.Message, "resizes skipped")
+				assert.Contains(t, cond.Message, "new apply skipped")
 			} else if cond != nil {
 				assert.NotEqual(t, attunev1alpha1.ReasonNamespaceFrozen, cond.Reason)
 			}
 
 			if tt.wantFrozenEvent {
 				assert.Equal(t, attunev1alpha1.ReasonNamespaceFrozen, eventReason)
-				assert.Contains(t, eventNote, "resizes skipped")
+				assert.Contains(t, eventNote, "new apply skipped")
 			} else {
 				assert.NotEqual(t, attunev1alpha1.ReasonNamespaceFrozen, eventReason)
 			}
@@ -352,6 +353,164 @@ func TestReconcile_NamespaceFreeze_SkipsOnRecommendationPersist(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestReconcile_NamespaceFreeze_StillRevertsPendingSafety(t *testing.T) {
+	t.Parallel()
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	policy.Spec.UpdateStrategy.AutoRevert = boolPtr(true)
+	policy.Spec.UpdateStrategy.TemplatePersistence = &attunev1alpha1.TemplatePersistence{
+		Enabled: boolPtr(true),
+		When:    attunev1alpha1.TemplatePersistenceAfterSuccessfulResize,
+	}
+	policy.Spec.CPU.MaxChangePercent = int32Ptr(100)
+
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	res := &deploy.Spec.Template.Spec.Containers[0].Resources
+	res.Requests[corev1.ResourceCPU] = resource.MustParse("250m")
+	res.Requests[corev1.ResourceMemory] = resource.MustParse("256Mi")
+	res.Limits[corev1.ResourceCPU] = resource.MustParse("500m")
+	res.Limits[corev1.ResourceMemory] = resource.MustParse("512Mi")
+
+	resizedAt := time.Now().UTC().Add(-10 * time.Second).Format(time.RFC3339)
+	pod := newResizePod("api-server", "250m", "256Mi", "500m", "512Mi")
+	pod.Labels[labelTracked] = "true"
+	pod.Annotations = map[string]string{
+		annotationResizedAt:                          resizedAt,
+		annotationResizedWorkload:                    "api-server",
+		annotationResizedContainers:                  "main",
+		annotationOriginalCPUPrefix + "main":         "500m",
+		annotationOriginalMemoryPrefix + "main":      "512Mi",
+		annotationOriginalCPULimitPrefix + "main":    "1000m",
+		annotationOriginalMemoryLimitPrefix + "main": "1Gi",
+		annotationPolicy:                             "test-policy",
+	}
+	pod.Status.ContainerStatuses = []corev1.ContainerStatus{
+		{
+			Name: "main",
+			LastTerminationState: corev1.ContainerState{
+				Terminated: &corev1.ContainerStateTerminated{
+					Reason:     "OOMKilled",
+					FinishedAt: metav1.NewTime(time.Now()),
+				},
+			},
+		},
+	}
+
+	ns := newTestNamespace("default", map[string]string{conflict.AnnotationFreeze: "true"})
+	mc := &mockCollector{
+		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return generateSamples(200, 0.1), nil
+		},
+	}
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(policy, deploy, pod, ns).
+		WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
+		Build()
+	reconciler := newReconcilerForReconcileWithClient(mc, fakeClient, scheme)
+	reconciler.Clientset = kubefake.NewSimpleClientset(pod.DeepCopy())
+
+	_, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
+	})
+	require.NoError(t, err)
+
+	var updated attunev1alpha1.AttunePolicy
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "test-policy", Namespace: "default",
+	}, &updated))
+
+	assert.Greater(t, updated.Status.Workloads.WithRecommendations, int32(0),
+		"freeze is apply-only; recommendations must still compute")
+	require.NotEmpty(t, updated.Status.Recommendations)
+
+	cond := meta.FindStatusCondition(updated.Status.Conditions, attunev1alpha1.ConditionResizeBlocked)
+	require.NotNil(t, cond)
+	assert.Equal(t, attunev1alpha1.ReasonNamespaceFrozen, cond.Reason)
+
+	var foundResize bool
+	for _, a := range reconciler.Clientset.(*kubefake.Clientset).Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			foundResize = true
+		}
+	}
+	assert.True(t, foundResize, "frozen namespace must still revert pending safety observations")
+
+	var gotDeploy appsv1.Deployment
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "api-server", Namespace: "default",
+	}, &gotDeploy))
+	gotRes := gotDeploy.Spec.Template.Spec.Containers[0].Resources
+	assert.Equal(t, int64(500), gotRes.Requests.Cpu().MilliValue(),
+		"safety revert must restore template CPU to original 500m")
+	assert.True(t, gotRes.Requests.Memory().Equal(resource.MustParse("512Mi")),
+		"safety revert must restore template memory to original 512Mi")
+
+	assert.Equal(t, int32(0), updated.Status.Workloads.Resized, "freeze must skip new apply")
+}
+
+func TestReconcile_NamespaceFreeze_SkipsAfterSuccessfulResizePersist(t *testing.T) {
+	t.Parallel()
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	policy.Spec.UpdateStrategy.TemplatePersistence = &attunev1alpha1.TemplatePersistence{
+		Enabled: boolPtr(true),
+		When:    attunev1alpha1.TemplatePersistenceAfterSuccessfulResize,
+	}
+	policy.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{{
+		Timestamp: metav1.NewTime(time.Now().Add(-2 * time.Minute)),
+		Workload:  "api-server",
+		Container: "main",
+		Method:    "InPlace",
+		Result:    attunev1alpha1.ResizeResultSuccess,
+	}}
+
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	pod := newResizePod("api-server", "500m", "512Mi", "1000m", "1Gi")
+	ns := newTestNamespace("default", map[string]string{conflict.AnnotationFreeze: "true"})
+
+	mc := &mockCollector{
+		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return generateSamples(200, 0.1), nil
+		},
+	}
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(policy, deploy, pod, ns).
+		WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
+		Build()
+	reconciler := newReconcilerForReconcileWithClient(mc, fakeClient, scheme)
+	reconciler.Clientset = kubefake.NewSimpleClientset(pod.DeepCopy())
+
+	_, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
+	})
+	require.NoError(t, err)
+
+	var updated attunev1alpha1.AttunePolicy
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "test-policy", Namespace: "default",
+	}, &updated))
+	require.NotEmpty(t, updated.Status.Recommendations)
+
+	var gotDeploy appsv1.Deployment
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "api-server", Namespace: "default",
+	}, &gotDeploy))
+	assert.Equal(t, int64(500), gotDeploy.Spec.Template.Spec.Containers[0].Resources.Requests.Cpu().MilliValue(),
+		"frozen namespace must not persist AfterSuccessfulResize template")
+
+	cond := meta.FindStatusCondition(updated.Status.Conditions, attunev1alpha1.ConditionResizeBlocked)
+	require.NotNil(t, cond)
+	assert.Equal(t, attunev1alpha1.ReasonNamespaceFrozen, cond.Reason)
 }
 
 func TestReconcile_NamespaceFreeze_RecheckBeforeExecuteResizes(t *testing.T) {

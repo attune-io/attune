@@ -176,5 +176,6 @@ The operator detects:
 - **Active rollouts**: skips resizing during an in-progress deployment rollout.
 - **Opt-out annotation**: workloads with `attune.io/skip: "true"` are ignored.
 - **Namespace freeze**: `attune.io/freeze=true` on the namespace skips
-  resizes, evictions, startup boosts, template persist, and CREATE
-  initial sizing. Recommendations still update.
+  new resizes, evictions, startup boosts, template persist, and CREATE
+  initial sizing. Recommendations still update. Pending safety observation
+  still reverts unsafe pods and restores AfterSuccessfulResize templates.

@@ -566,6 +566,9 @@ func printStatusItems(allItems []unstructured.Unstructured, sortByFlag, filterFl
 		resized := getNestedInt64(item, "status", "workloads", "resized")
 		ready := policyReadyReason(item)
 		resizing := getConditionReason(item, "Resizing")
+		if blocked := getConditionReason(item, "ResizeBlocked"); blocked == "NamespaceFrozen" {
+			resizing = blocked
+		}
 		degraded := getConditionReason(item, "Degraded")
 		schedule := getConditionReason(item, "ScheduleBlocked")
 		canary := formatCanaryStatus(item)

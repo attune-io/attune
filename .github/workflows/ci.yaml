@@ -88,6 +88,10 @@ jobs:
               - 'scripts/test_verify_helm_image_tag.sh'
               - 'hack/release-image-tags.sh'
               - 'scripts/test_release_image_tags.sh'
+              # role.yaml-only diffs skip go. Helm Lint is the only CI
+              # job that runs verify-helm-rbac.sh.
+              - 'config/rbac/**'
+              - 'hack/verify-helm-rbac.sh'
               # Standalone Grafana JSON is the Helm dashboard source.
               # Dashboard-only PRs must run verify-dashboard-metrics.sh
               # without the full Go lint matrix.

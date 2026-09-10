@@ -4325,6 +4325,19 @@ func safetyWorkloads() []client.Object {
 	return []client.Object{safetyTestDeploy}
 }
 
+// recSizedAPIServerDeploy returns a fresh api-server Deployment whose template
+// is already at the recommended size (250m/256Mi). Used by persist-on restore
+// tests so AfterSuccessfulResize restore is visible.
+func recSizedAPIServerDeploy() *appsv1.Deployment {
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	res := &deploy.Spec.Template.Spec.Containers[0].Resources
+	res.Requests[corev1.ResourceCPU] = resource.MustParse("250m")
+	res.Requests[corev1.ResourceMemory] = resource.MustParse("256Mi")
+	res.Limits[corev1.ResourceCPU] = resource.MustParse("500m")
+	res.Limits[corev1.ResourceMemory] = resource.MustParse("512Mi")
+	return deploy
+}
+
 // ---------- checkPendingSafetyObservations ----------
 
 func TestCheckPendingSafetyObservations_ObservationElapsed(t *testing.T) {
@@ -4622,6 +4635,95 @@ func TestCheckPendingSafetyObservations_EarlyCriticalOOMKill(t *testing.T) {
 		}
 	}
 	assert.True(t, foundResize, "OOMKill during observation period should trigger early revert")
+}
+
+func TestCheckPendingSafetyObservations_EarlyCriticalOOMKill_RestoresAfterSuccessfulResizeTemplate(t *testing.T) {
+	t.Parallel()
+
+	resizedAt := time.Now().UTC().Add(-10 * time.Second).Format(time.RFC3339)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "oom-restore-pod",
+			Namespace: "default",
+			Labels:    map[string]string{"attune.io/tracked": "true"},
+			Annotations: map[string]string{
+				"attune.io/resized-at":                   resizedAt,
+				"attune.io/resized-workload":             "api-server",
+				"attune.io/resized-containers":           "main",
+				"attune.io/original-cpu-request.main":    "500m",
+				"attune.io/original-memory-request.main": "512Mi",
+				"attune.io/original-cpu-limit.main":      "1000m",
+				"attune.io/original-memory-limit.main":   "1Gi",
+				"attune.io/policy":                       "test-policy",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  "main",
+					Image: "nginx",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("250m"),
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("500m"),
+							corev1.ResourceMemory: resource.MustParse("512Mi"),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{
+					Name: "main",
+					LastTerminationState: corev1.ContainerState{
+						Terminated: &corev1.ContainerStateTerminated{
+							Reason:     "OOMKilled",
+							FinishedAt: metav1.NewTime(time.Now()),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	deploy := recSizedAPIServerDeploy()
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	policy.Spec.UpdateStrategy.AutoRevert = boolPtr(true)
+	policy.Spec.UpdateStrategy.TemplatePersistence = &attunev1alpha1.TemplatePersistence{
+		Enabled: boolPtr(true),
+		When:    attunev1alpha1.TemplatePersistenceAfterSuccessfulResize,
+	}
+
+	reconciler, fakeClient := newResizeReconciler(pod, deploy)
+	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, []client.Object{deploy})
+
+	var foundResize bool
+	for _, a := range reconciler.Clientset.(*kubefake.Clientset).Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			foundResize = true
+		}
+	}
+	assert.True(t, foundResize, "OOMKill during observation period should trigger early revert")
+
+	var gotDeploy appsv1.Deployment
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "api-server", Namespace: "default",
+	}, &gotDeploy))
+	gotRes := gotDeploy.Spec.Template.Spec.Containers[0].Resources
+	assert.True(t, gotRes.Requests.Cpu().Equal(resource.MustParse("500m")),
+		"template CPU request must restore to original 500m")
+	assert.True(t, gotRes.Requests.Memory().Equal(resource.MustParse("512Mi")),
+		"template memory request must restore to original 512Mi")
+	assert.True(t, gotRes.Limits.Cpu().Equal(resource.MustParse("1000m")),
+		"template CPU limit must restore to original 1000m")
+	assert.True(t, gotRes.Limits.Memory().Equal(resource.MustParse("1Gi")),
+		"template memory limit must restore to original 1Gi")
 }
 
 func TestCheckPendingSafetyObservations_EarlyCriticalOOMKillNotConfirmed(t *testing.T) {
@@ -6796,6 +6898,201 @@ func TestCheckPendingSafetyObservations_UnsafeVerdictReverts(t *testing.T) {
 		}
 	}
 	assert.True(t, foundResize, "should have called UpdateResize to revert the pod")
+}
+
+func TestCheckPendingSafetyObservations_UnsafeVerdictReverts_RestoresAfterSuccessfulResizeTemplate(t *testing.T) {
+	t.Parallel()
+
+	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "unsafe-restore-pod",
+			Namespace: "default",
+			Labels:    map[string]string{"app": "test", "attune.io/tracked": "true"},
+			Annotations: map[string]string{
+				"attune.io/resized-at":                   resizedAt,
+				"attune.io/resized-workload":             "api-server",
+				"attune.io/resized-containers":           "main",
+				"attune.io/original-cpu-request.main":    "500m",
+				"attune.io/original-memory-request.main": "512Mi",
+				"attune.io/original-cpu-limit.main":      "1000m",
+				"attune.io/original-memory-limit.main":   "1Gi",
+				"attune.io/policy":                       "test-policy",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  "main",
+					Image: "nginx",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("250m"),
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("500m"),
+							corev1.ResourceMemory: resource.MustParse("512Mi"),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionFalse},
+			},
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "main", RestartCount: 0},
+			},
+		},
+	}
+
+	deploy := recSizedAPIServerDeploy()
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	policy.Spec.UpdateStrategy.AutoRevert = boolPtr(true)
+	policy.Spec.UpdateStrategy.TemplatePersistence = &attunev1alpha1.TemplatePersistence{
+		Enabled: boolPtr(true),
+		When:    attunev1alpha1.TemplatePersistenceAfterSuccessfulResize,
+	}
+
+	reconciler, fakeClient := newResizeReconciler(pod, deploy)
+	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, []client.Object{deploy})
+
+	var foundResize bool
+	for _, a := range reconciler.Clientset.(*kubefake.Clientset).Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			foundResize = true
+			reverted := a.(k8stesting.UpdateAction).GetObject().(*corev1.Pod)
+			cpu := reverted.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
+			assert.True(t, cpu.Equal(resource.MustParse("500m")),
+				"CPU should be reverted to original 500m, got %s", cpu.String())
+		}
+	}
+	assert.True(t, foundResize, "should have called UpdateResize to revert the pod")
+
+	var gotDeploy appsv1.Deployment
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "api-server", Namespace: "default",
+	}, &gotDeploy))
+	gotRes := gotDeploy.Spec.Template.Spec.Containers[0].Resources
+	assert.True(t, gotRes.Requests.Cpu().Equal(resource.MustParse("500m")),
+		"template CPU request must restore to original 500m")
+	assert.True(t, gotRes.Requests.Memory().Equal(resource.MustParse("512Mi")),
+		"template memory request must restore to original 512Mi")
+	assert.True(t, gotRes.Limits.Cpu().Equal(resource.MustParse("1000m")),
+		"template CPU limit must restore to original 1000m")
+	assert.True(t, gotRes.Limits.Memory().Equal(resource.MustParse("1Gi")),
+		"template memory limit must restore to original 1Gi")
+}
+
+func TestCheckPendingSafetyObservations_RestoreTemplateFailsKeepsTrackingThenRetries(t *testing.T) {
+	t.Parallel()
+
+	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "restore-fail-pod",
+			Namespace: "default",
+			Labels:    map[string]string{"app": "test", "attune.io/tracked": "true"},
+			Annotations: map[string]string{
+				"attune.io/resized-at":                   resizedAt,
+				"attune.io/resized-workload":             "api-server",
+				"attune.io/resized-containers":           "main",
+				"attune.io/original-cpu-request.main":    "500m",
+				"attune.io/original-memory-request.main": "512Mi",
+				"attune.io/original-cpu-limit.main":      "1000m",
+				"attune.io/original-memory-limit.main":   "1Gi",
+				"attune.io/policy":                       "test-policy",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  "main",
+					Image: "nginx",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("250m"),
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("500m"),
+							corev1.ResourceMemory: resource.MustParse("512Mi"),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionFalse},
+			},
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "main", RestartCount: 0},
+			},
+		},
+	}
+
+	deploy := recSizedAPIServerDeploy()
+	var failDeployPatch atomic.Bool
+	failDeployPatch.Store(true)
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(deploy, pod).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Patch: func(ctx context.Context, cw client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+				if _, ok := obj.(*appsv1.Deployment); ok && failDeployPatch.Load() {
+					return fmt.Errorf("simulated template patch failure")
+				}
+				return cw.Patch(ctx, obj, patch, opts...)
+			},
+		}).Build()
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = scheme
+	reconciler.Clientset = clientset
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	policy.Spec.UpdateStrategy.AutoRevert = boolPtr(true)
+	policy.Spec.UpdateStrategy.TemplatePersistence = &attunev1alpha1.TemplatePersistence{
+		Enabled: boolPtr(true),
+		When:    attunev1alpha1.TemplatePersistenceAfterSuccessfulResize,
+	}
+
+	pending := reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, []client.Object{deploy})
+	assert.True(t, pending, "failed template restore must keep observations pending")
+
+	var gotDeploy appsv1.Deployment
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "api-server", Namespace: "default",
+	}, &gotDeploy))
+	gotRes := gotDeploy.Spec.Template.Spec.Containers[0].Resources
+	assert.True(t, gotRes.Requests.Memory().Equal(resource.MustParse("256Mi")),
+		"template must stay at the recommended 256Mi after a failed restore")
+
+	var gotPod corev1.Pod
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "restore-fail-pod", Namespace: "default",
+	}, &gotPod))
+	_, hasTracking := gotPod.Annotations[annotationResizedAt]
+	assert.True(t, hasTracking, "tracking annotations must remain so the next reconcile retries restore")
+
+	failDeployPatch.Store(false)
+	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, []client.Object{deploy})
+
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "api-server", Namespace: "default",
+	}, &gotDeploy))
+	gotRes = gotDeploy.Spec.Template.Spec.Containers[0].Resources
+	assert.True(t, gotRes.Requests.Memory().Equal(resource.MustParse("512Mi")),
+		"second restore must write the original 512Mi snapshot")
 }
 
 func TestCheckPendingSafetyObservations_NotReadyFlapConfirmedBeforeRevert(t *testing.T) {
