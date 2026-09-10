@@ -700,6 +700,29 @@ spec:
                     maximum: 50
                     minimum: 1
                     type: integer
+                  maxCpuIncreasePerMinute:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    description: |-
+                      MaxCPUIncreasePerMinute is the maximum aggregate CPU increase
+                      allowed per wall-clock minute (e.g. "2000m"). Refilled by elapsed
+                      time, so the cap does not change if reconcileInterval changes.
+                      When set, it applies in addition to maxTotalCpuIncrease.
+                      Decreases do not consume budget. Default: unlimited.
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                  maxMemoryIncreasePerMinute:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    description: |-
+                      MaxMemoryIncreasePerMinute is the maximum aggregate memory increase
+                      allowed per wall-clock minute (e.g. "4Gi"). Refilled by elapsed
+                      time. When set, it applies in addition to maxTotalMemoryIncrease.
+                      Decreases do not consume budget. Default: unlimited.
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
                   maxStatusRecommendations:
                     description: |-
                       MaxStatusRecommendations caps how many workload recommendations are

@@ -219,6 +219,10 @@ type AttunePolicyReconciler struct {
 	// Key is namespace+"/"+workloadName. Entries are deleted on release.
 	evictionLocks sync.Map // map[string]*sync.Mutex
 
+	// increaseRates holds per-policy wall-clock token buckets for
+	// maxCpuIncreasePerMinute / maxMemoryIncreasePerMinute.
+	increaseRates sync.Map // map[string]*increaseRateBucket
+
 	// nodeNeighborFlight single-flights the live node pod List used for
 	// neighbor request budget. Per-cycle results live in resizePreChecks.
 	nodeNeighborFlight singleflight.Group

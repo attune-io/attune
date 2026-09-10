@@ -792,6 +792,24 @@ func TestDefaultsValidate_BudgetCapInvalid(t *testing.T) {
 			},
 			wantErr: "maxTotalMemoryIncrease must be non-negative",
 		},
+		{
+			name: "negative maxCpuIncreasePerMinute",
+			spec: attunev1alpha1.AttuneDefaultsSpec{
+				UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+					MaxCPUIncreasePerMinute: resourcePtr("-500m"),
+				},
+			},
+			wantErr: "maxCpuIncreasePerMinute must be non-negative",
+		},
+		{
+			name: "negative maxMemoryIncreasePerMinute",
+			spec: attunev1alpha1.AttuneDefaultsSpec{
+				UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+					MaxMemoryIncreasePerMinute: resourcePtr("-1Gi"),
+				},
+			},
+			wantErr: "maxMemoryIncreasePerMinute must be non-negative",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

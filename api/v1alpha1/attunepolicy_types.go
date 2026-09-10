@@ -552,6 +552,21 @@ type UpdateStrategy struct {
 	// +optional
 	MaxTotalMemoryIncrease *resource.Quantity `json:"maxTotalMemoryIncrease,omitempty"`
 
+	// MaxCPUIncreasePerMinute is the maximum aggregate CPU increase
+	// allowed per wall-clock minute (e.g. "2000m"). Refilled by elapsed
+	// time, so the cap does not change if reconcileInterval changes.
+	// When set, it applies in addition to maxTotalCpuIncrease.
+	// Decreases do not consume budget. Default: unlimited.
+	// +optional
+	MaxCPUIncreasePerMinute *resource.Quantity `json:"maxCpuIncreasePerMinute,omitempty"`
+
+	// MaxMemoryIncreasePerMinute is the maximum aggregate memory increase
+	// allowed per wall-clock minute (e.g. "4Gi"). Refilled by elapsed
+	// time. When set, it applies in addition to maxTotalMemoryIncrease.
+	// Decreases do not consume budget. Default: unlimited.
+	// +optional
+	MaxMemoryIncreasePerMinute *resource.Quantity `json:"maxMemoryIncreasePerMinute,omitempty"`
+
 	// SafetyObservationPeriod is how long to observe a pod after resize before
 	// concluding the resize is safe. Applies to all modes (Auto, OneShot, Canary).
 	// Takes precedence over canary.observationPeriod when set. Must be >= 1m.

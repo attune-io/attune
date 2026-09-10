@@ -291,6 +291,8 @@ that do not set them explicitly. Policy-level values always take precedence.
 | `includeExplanationsInStatus` | *bool | `true` | When false, strip recommendation explanation chains from status |
 | `maxTotalCpuIncrease` | quantity | (none) | Max aggregate CPU increase per cycle |
 | `maxTotalMemoryIncrease` | quantity | (none) | Max aggregate memory increase per cycle |
+| `maxCpuIncreasePerMinute` | quantity | (none) | Max aggregate CPU increase per wall-clock minute (token bucket) |
+| `maxMemoryIncreasePerMinute` | quantity | (none) | Max aggregate memory increase per wall-clock minute (token bucket) |
 | `schedule` | object | (none) | Time windows, days of week, timezone |
 | `export` | object | (none) | Metrics export configuration |
 | `safetyObservationPeriod` | duration | `5m` | Post-resize observation window (min: 1m) |
@@ -399,7 +401,7 @@ All fields from `AttuneDefaults` are available in
 | `metricsSource` | `prometheus.address`, `prometheus.headers`, `prometheus.queryParameters`, `prometheus.bearerTokenSecret`, `prometheus.tls`, `datadog.site`, `datadog.apiKeySecretRef`, `cloudwatch.region`, `cloudwatch.clusterName`, `cloudwatch.roleArn`, `historyWindow`, `minimumDataPoints`, `queryStep`, `rateWindow`, `podAggregation`, `cpuRecordingMetric`, `memoryRecordingMetric` |
 | `cpu` | `percentile`, `overhead`, `minAllowed`, `maxAllowed`, `controlledValues`, `burstSensitivity`, `allowDecrease`, `startupBoost`, `maxChangePercent`, `maxIncreasePercent`, `maxDecreasePercent` |
 | `memory` | Same as `cpu` (no `startupBoost`), plus `decreaseUsageMarginPercent` and `memoryFromCpuRatio` |
-| `updateStrategy` | `type`, `cooldown`, `autoRevert`, `resizeMethod`, `initialSizing`, `maxConcurrentResizes`, `maxStatusRecommendations`, `includeExplanationsInStatus`, `maxTotalCpuIncrease`, `maxTotalMemoryIncrease`, `schedule`, `export`, `canary`, `safetyObservationPeriod`, `sloGuardrails`, `templatePersistence` |
+| `updateStrategy` | `type`, `cooldown`, `autoRevert`, `resizeMethod`, `initialSizing`, `maxConcurrentResizes`, `maxStatusRecommendations`, `includeExplanationsInStatus`, `maxTotalCpuIncrease`, `maxTotalMemoryIncrease`, `maxCpuIncreasePerMinute`, `maxMemoryIncreasePerMinute`, `schedule`, `export`, `canary`, `safetyObservationPeriod`, `sloGuardrails`, `templatePersistence` |
 | `costPricing` | `cpuPerCoreHour`, `memoryPerGiBHour` |
 
 ## Alternative Metrics Sources

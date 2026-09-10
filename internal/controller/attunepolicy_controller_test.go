@@ -10540,6 +10540,45 @@ func TestBudgetIncrease_MixedDirections(t *testing.T) {
 	assert.Equal(t, int64(0), mem, "Memory decrease should be clamped to 0")
 }
 
+func TestExecuteResizes_RateCapDefersUntilRefill(t *testing.T) {
+	pod1 := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
+	pod1.Name = "api-server-abc-1"
+	pod2 := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
+	pod2.Name = "api-server-abc-2"
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod1, pod2).Build()
+	clientset := kubefake.NewSimpleClientset(pod1.DeepCopy(), pod2.DeepCopy())
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = scheme
+	reconciler.Clientset = clientset
+
+	now := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
+	reconciler.SetNowFunc(func() time.Time { return now })
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	rate := resource.MustParse("300m")
+	policy.Spec.UpdateStrategy.MaxCPUIncreasePerMinute = &rate
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("api-server", "200m", "256Mi", "0", "0", "500m", "256Mi", "0", "0"),
+	}
+
+	count, _ := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
+		recs, podMap("api-server", pod1, pod2), nil, nil)
+	assert.Equal(t, 1, count, "300m/min allows one 300m increase")
+
+	count, _ = reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
+		recs, podMap("api-server", pod2), nil, nil)
+	assert.Equal(t, 0, count, "same minute must not allow a second 300m increase")
+
+	now = now.Add(time.Minute)
+	count, _ = reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
+		recs, podMap("api-server", pod2), nil, nil)
+	assert.Equal(t, 1, count, "after a minute the rate bucket refills")
+}
+
 func TestExecuteResizes_BudgetCapsDefersExcessiveIncrease(t *testing.T) {
 	// Pod at 200m CPU, recommendation is 800m (increase of 600m).
 	// Budget cap is 500m, so the resize should be skipped.

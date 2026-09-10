@@ -1068,6 +1068,16 @@ func (in *UpdateStrategy) DeepCopyInto(out *UpdateStrategy) {
 		x := (*in).DeepCopy()
 		*out = &x
 	}
+	if in.MaxCPUIncreasePerMinute != nil {
+		in, out := &in.MaxCPUIncreasePerMinute, &out.MaxCPUIncreasePerMinute
+		x := (*in).DeepCopy()
+		*out = &x
+	}
+	if in.MaxMemoryIncreasePerMinute != nil {
+		in, out := &in.MaxMemoryIncreasePerMinute, &out.MaxMemoryIncreasePerMinute
+		x := (*in).DeepCopy()
+		*out = &x
+	}
 	if in.SafetyObservationPeriod != nil {
 		in, out := &in.SafetyObservationPeriod, &out.SafetyObservationPeriod
 		*out = new(v1.Duration)
