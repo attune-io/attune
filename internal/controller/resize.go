@@ -349,6 +349,30 @@ func (r *AttunePolicyReconciler) executeResizes(
 	if policy.Spec.UpdateStrategy.MaxTotalMemoryIncrease != nil {
 		memBudget = policy.Spec.UpdateStrategy.MaxTotalMemoryIncrease.Value()
 	}
+	var rateBucket *increaseRateBucket
+	cpuRate, memRate := int64(-1), int64(-1)
+	if q := policy.Spec.UpdateStrategy.MaxCPUIncreasePerMinute; q != nil {
+		cpuRate = q.MilliValue()
+	}
+	if q := policy.Spec.UpdateStrategy.MaxMemoryIncreasePerMinute; q != nil {
+		memRate = q.Value()
+	}
+	if cpuRate >= 0 || memRate >= 0 {
+		key := policy.Namespace + "/" + policy.Name
+		created := newIncreaseRateBucket(cpuRate, memRate, r.now())
+		if v, ok := r.increaseRates.Load(key); ok {
+			existing := v.(*increaseRateBucket)
+			if existing.cpuRate == cpuRate && existing.memRate == memRate {
+				rateBucket = existing
+			} else {
+				r.increaseRates.Store(key, created)
+				rateBucket = created
+			}
+		} else {
+			actual, _ := r.increaseRates.LoadOrStore(key, created)
+			rateBucket = actual.(*increaseRateBucket)
+		}
+	}
 	reserveBudget := func(cpuIncrease, memIncrease int64) bool {
 		budgetMu.Lock()
 		defer budgetMu.Unlock()
@@ -356,6 +380,9 @@ func (r *AttunePolicyReconciler) executeResizes(
 		budgetExceeded := (cpuBudget >= 0 && cpuIncrease > cpuBudget) ||
 			(memBudget >= 0 && memIncrease > memBudget)
 		if budgetExceeded {
+			return false
+		}
+		if rateBucket != nil && !rateBucket.tryDraw(cpuIncrease, memIncrease, r.now()) {
 			return false
 		}
 		if cpuBudget >= 0 {
@@ -370,6 +397,9 @@ func (r *AttunePolicyReconciler) executeResizes(
 		budgetMu.Lock()
 		defer budgetMu.Unlock()
 
+		if rateBucket != nil {
+			rateBucket.refund(cpuRefund, memRefund)
+		}
 		if cpuBudget >= 0 {
 			cpuBudget += cpuRefund
 		}

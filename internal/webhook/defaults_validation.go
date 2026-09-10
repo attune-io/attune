@@ -176,6 +176,12 @@ func validateDefaultsSpec(spec attunev1alpha1.AttuneDefaultsSpec) (admission.War
 		if q := spec.UpdateStrategy.MaxTotalMemoryIncrease; q != nil && q.Value() < 0 {
 			return warnings, fmt.Errorf("updateStrategy.maxTotalMemoryIncrease must be non-negative, got %s", q)
 		}
+		if q := spec.UpdateStrategy.MaxCPUIncreasePerMinute; q != nil && q.MilliValue() < 0 {
+			return warnings, fmt.Errorf("updateStrategy.maxCpuIncreasePerMinute must be non-negative, got %s", q)
+		}
+		if q := spec.UpdateStrategy.MaxMemoryIncreasePerMinute; q != nil && q.Value() < 0 {
+			return warnings, fmt.Errorf("updateStrategy.maxMemoryIncreasePerMinute must be non-negative, got %s", q)
+		}
 	}
 
 	// Validate safetyObservationPeriod has a minimum floor.

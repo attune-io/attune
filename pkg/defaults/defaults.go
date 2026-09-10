@@ -467,6 +467,14 @@ func MergeUpdateStrategy(policy *attunev1alpha1.UpdateStrategy, defaults *attune
 		policy.MaxTotalMemoryIncrease = defaults.MaxTotalMemoryIncrease
 		inherited = append(inherited, "maxTotalMemoryIncrease")
 	}
+	if policy.MaxCPUIncreasePerMinute == nil && defaults.MaxCPUIncreasePerMinute != nil {
+		policy.MaxCPUIncreasePerMinute = defaults.MaxCPUIncreasePerMinute
+		inherited = append(inherited, "maxCpuIncreasePerMinute")
+	}
+	if policy.MaxMemoryIncreasePerMinute == nil && defaults.MaxMemoryIncreasePerMinute != nil {
+		policy.MaxMemoryIncreasePerMinute = defaults.MaxMemoryIncreasePerMinute
+		inherited = append(inherited, "maxMemoryIncreasePerMinute")
+	}
 	if policy.Schedule == nil && defaults.Schedule != nil {
 		policy.Schedule = defaults.Schedule
 		inherited = append(inherited, "schedule")

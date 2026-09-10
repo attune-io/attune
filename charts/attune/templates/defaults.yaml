@@ -58,6 +58,12 @@ spec:
     {{- with .maxTotalMemoryIncrease }}
     maxTotalMemoryIncrease: {{ . }}
     {{- end }}
+    {{- with .maxCpuIncreasePerMinute }}
+    maxCpuIncreasePerMinute: {{ . }}
+    {{- end }}
+    {{- with .maxMemoryIncreasePerMinute }}
+    maxMemoryIncreasePerMinute: {{ . }}
+    {{- end }}
     {{- with .safetyObservationPeriod }}
     safetyObservationPeriod: {{ . }}
     {{- end }}

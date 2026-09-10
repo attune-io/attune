@@ -276,6 +276,9 @@ defaults:
     # -- Per-cycle budget caps (optional)
     # maxTotalCpuIncrease: "2000m"
     # maxTotalMemoryIncrease: "4Gi"
+    # -- Per-minute increase rates (optional). Wall-clock token bucket.
+    # maxCpuIncreasePerMinute: "2000m"
+    # maxMemoryIncreasePerMinute: "4Gi"
 
 # -- Cluster size preset: sets resources, rate limits, and replica count.
 # Valid values: small, medium, large, xlarge, or "" (no preset).

@@ -722,6 +722,24 @@ func TestValidate_NegativeBudgetCaps(t *testing.T) {
 		_, err := validator.ValidateCreate(context.Background(), policy)
 		assert.NoError(t, err)
 	})
+
+	t.Run("negative maxCpuIncreasePerMinute", func(t *testing.T) {
+		policy := validPolicy()
+		neg := resource.MustParse("-100m")
+		policy.Spec.UpdateStrategy.MaxCPUIncreasePerMinute = &neg
+		_, err := validator.ValidateCreate(context.Background(), policy)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "maxCpuIncreasePerMinute must be non-negative")
+	})
+
+	t.Run("negative maxMemoryIncreasePerMinute", func(t *testing.T) {
+		policy := validPolicy()
+		neg := resource.MustParse("-1Mi")
+		policy.Spec.UpdateStrategy.MaxMemoryIncreasePerMinute = &neg
+		_, err := validator.ValidateCreate(context.Background(), policy)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "maxMemoryIncreasePerMinute must be non-negative")
+	})
 }
 
 func TestValidate_OverheadExceedsMax(t *testing.T) {

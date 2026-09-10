@@ -150,6 +150,12 @@ func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (a
 	if q := us.MaxTotalMemoryIncrease; q != nil && q.Value() < 0 {
 		return warnings, fmt.Errorf("updateStrategy.maxTotalMemoryIncrease must be non-negative, got %s", q)
 	}
+	if q := us.MaxCPUIncreasePerMinute; q != nil && q.MilliValue() < 0 {
+		return warnings, fmt.Errorf("updateStrategy.maxCpuIncreasePerMinute must be non-negative, got %s", q)
+	}
+	if q := us.MaxMemoryIncreasePerMinute; q != nil && q.Value() < 0 {
+		return warnings, fmt.Errorf("updateStrategy.maxMemoryIncreasePerMinute must be non-negative, got %s", q)
+	}
 
 	// Validate historyWindow is within reasonable bounds (1h to 720h/30d).
 	if policy.Spec.MetricsSource.HistoryWindow != nil {
@@ -274,6 +280,12 @@ func warnIneffectiveSettings(policy *attunev1alpha1.AttunePolicy) admission.Warn
 		}
 		if policy.Spec.UpdateStrategy.MaxTotalMemoryIncrease != nil {
 			w = append(w, fmt.Sprintf("maxTotalMemoryIncrease has no effect in %s mode; no resizes occur", mode))
+		}
+		if policy.Spec.UpdateStrategy.MaxCPUIncreasePerMinute != nil {
+			w = append(w, fmt.Sprintf("maxCpuIncreasePerMinute has no effect in %s mode; no resizes occur", mode))
+		}
+		if policy.Spec.UpdateStrategy.MaxMemoryIncreasePerMinute != nil {
+			w = append(w, fmt.Sprintf("maxMemoryIncreasePerMinute has no effect in %s mode; no resizes occur", mode))
 		}
 	}
 
