@@ -316,27 +316,13 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 							v = confirmed
 							logger.Info("Critical safety event detected during observation period, reverting early",
 								"pod", pod.Name, "container", record.Container, "reason", v.Reason)
-							if revertErr := revertPod(record); revertErr != nil {
-								logger.Error(revertErr, "Failed to revert pod during early critical check", "pod", pod.Name)
-								continue
-							}
-							if restoreErr := r.restoreTemplateAfterSafetyRevert(ctx, policy, workloads, record); restoreErr != nil {
-								logger.Error(restoreErr, "Failed to restore template after safety revert",
-									"pod", pod.Name, "workload", record.WorkloadName, "container", record.Container)
+							if err := r.revertAndRestoreAfterSafety(ctx, revertPod, policy, workloads, record, pod, trackedWorkload,
+								v.Reason, v.Message,
+								"Failed to revert pod during early critical check",
+								"Early safety detection reverted resize on pod %s/%s: %s"); err != nil {
 								// Period has not elapsed; the branch sets observationsPending below.
 								continue
 							}
-							operatormetrics.RevertsTotal.WithLabelValues(pod.Namespace, trackedWorkload, v.Reason).Inc()
-							if r.Recorder != nil {
-								r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, string(attunev1alpha1.ResizeResultReverted), "revert",
-									"Early safety detection reverted resize on pod %s/%s: %s", pod.Name, record.Container, v.Message)
-							}
-							// Mark history entries from the most recent resize cycle
-							// as reverted. Only entries whose timestamp matches the
-							// first (newest) match are marked, so entries from prior
-							// successful cycles are not poisoned and consecutiveReverts
-							// is not inflated.
-							markLatestCycleReverted(policy.Status.ResizeHistory, trackedWorkload, record.Container, v.Reason)
 						}
 					}
 				}
@@ -383,23 +369,13 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 				verdict = confirmed
 				logger.Info("Deferred safety violation detected, reverting",
 					"pod", pod.Name, "container", record.Container, "reason", verdict.Reason)
-				if revertErr := revertPod(record); revertErr != nil {
-					logger.Error(revertErr, "Failed to revert pod during safety observation", "pod", pod.Name)
+				if err := r.revertAndRestoreAfterSafety(ctx, revertPod, policy, workloads, record, pod, trackedWorkload,
+					verdict.Reason, verdict.Message,
+					"Failed to revert pod during safety observation",
+					"Safety observation reverted resize on pod %s/%s: %s"); err != nil {
 					revertFailed = true
 					continue
 				}
-				if restoreErr := r.restoreTemplateAfterSafetyRevert(ctx, policy, workloads, record); restoreErr != nil {
-					logger.Error(restoreErr, "Failed to restore template after safety revert",
-						"pod", pod.Name, "workload", record.WorkloadName, "container", record.Container)
-					revertFailed = true
-					continue
-				}
-				operatormetrics.RevertsTotal.WithLabelValues(pod.Namespace, trackedWorkload, verdict.Reason).Inc()
-				if r.Recorder != nil {
-					r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, string(attunev1alpha1.ResizeResultReverted), "revert",
-						"Safety observation reverted resize on pod %s/%s: %s", pod.Name, record.Container, verdict.Message)
-				}
-				markLatestCycleReverted(policy.Status.ResizeHistory, trackedWorkload, record.Container, verdict.Reason)
 			}
 		}
 
@@ -411,13 +387,131 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 			observationsPending = true
 			continue
 		}
+
+		// Safe (or confirm-Safe) after a prior revert: live may already be
+		// at OriginalResources while the AfterSuccessfulResize template is
+		// still the persisted rec. Restore only; do not revert again.
+		restoreFailed := false
+		for _, record := range records {
+			if err := r.retryTemplateRestoreIfAlreadyReverted(ctx, policy, workloads, pod, record); err != nil {
+				restoreFailed = true
+				break
+			}
+		}
+		if restoreFailed {
+			observationsPending = true
+			continue
+		}
 		// Merge-patch nulls tracking keys. No Get and no resourceVersion,
 		// so kubelet status churn cannot 409 the cleanup.
 		if err := r.patchRemoveTrackingAnnotations(ctx, pod); err != nil {
 			logger.Error(err, "Failed to remove resize tracking annotations", "pod", pod.Name)
+			operatormetrics.ReconcileErrorsTotal.WithLabelValues("safety_observation").Inc()
+			observationsPending = true
 		}
 	}
 	return observationsPending
+}
+
+// revertAndRestoreAfterSafety reverts the live pod, restores the workload
+// template, then records the revert metric, event, and history mark.
+// Callers keep path-specific continue / revertFailed handling.
+func (r *AttunePolicyReconciler) revertAndRestoreAfterSafety(
+	ctx context.Context,
+	revertFn func(safety.ResizeRecord) error,
+	policy *attunev1alpha1.AttunePolicy,
+	workloads []client.Object,
+	record safety.ResizeRecord,
+	pod *corev1.Pod,
+	trackedWorkload, reason, message, revertFailMsg, eventFmt string,
+) error {
+	logger := log.FromContext(ctx)
+	if err := revertFn(record); err != nil {
+		logger.Error(err, revertFailMsg, "pod", pod.Name)
+		return err
+	}
+	if err := r.restoreTemplateAfterSafetyRevert(ctx, policy, workloads, record); err != nil {
+		logger.Error(err, "Failed to restore template after safety revert",
+			"pod", pod.Name, "workload", record.WorkloadName, "container", record.Container)
+		return err
+	}
+	operatormetrics.RevertsTotal.WithLabelValues(pod.Namespace, trackedWorkload, reason).Inc()
+	if r.Recorder != nil {
+		r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, string(attunev1alpha1.ResizeResultReverted), "revert",
+			eventFmt, pod.Name, record.Container, message)
+	}
+	markLatestCycleReverted(policy.Status.ResizeHistory, trackedWorkload, record.Container, reason)
+	return nil
+}
+
+// retryTemplateRestoreIfAlreadyReverted restores an AfterSuccessfulResize
+// template when the live pod is already back at OriginalResources (revert
+// landed, observation later reports Safe). Returns a non-nil error when
+// tracking must stay so the next reconcile retries.
+func (r *AttunePolicyReconciler) retryTemplateRestoreIfAlreadyReverted(
+	ctx context.Context,
+	policy *attunev1alpha1.AttunePolicy,
+	workloads []client.Object,
+	listed *corev1.Pod,
+	record safety.ResizeRecord,
+) error {
+	if !templatePersistenceEnabled(policy.Spec.UpdateStrategy) {
+		return nil
+	}
+	if templatePersistenceWhen(policy.Spec.UpdateStrategy) != attunev1alpha1.TemplatePersistenceAfterSuccessfulResize {
+		return nil
+	}
+
+	logger := log.FromContext(ctx)
+	live, err := r.fetchLivePodForResize(ctx, listed)
+	if err != nil {
+		logger.Error(err, "Failed to fetch live pod for template restore retry",
+			"pod", listed.Name, "container", record.Container)
+		operatormetrics.ReconcileErrorsTotal.WithLabelValues("safety_observation").Inc()
+		return err
+	}
+	if !liveContainerMatchesOriginal(live, record) {
+		return nil
+	}
+	if err := r.restoreTemplateAfterSafetyRevert(ctx, policy, workloads, record); err != nil {
+		logger.Error(err, "Failed to restore template after safety revert",
+			"pod", listed.Name, "workload", record.WorkloadName, "container", record.Container)
+		operatormetrics.ReconcileErrorsTotal.WithLabelValues("safety_observation").Inc()
+		return err
+	}
+	return nil
+}
+
+// liveContainerMatchesOriginal reports whether the named container's live
+// CPU and memory requests and limits equal the pre-resize snapshot.
+func liveContainerMatchesOriginal(pod *corev1.Pod, record safety.ResizeRecord) bool {
+	if pod == nil {
+		return false
+	}
+	c := findContainerByName(pod, record.Container)
+	if c == nil {
+		return false
+	}
+	return cpuMemQuantityEqual(c.Resources, record.OriginalResources)
+}
+
+func cpuMemQuantityEqual(a, b corev1.ResourceRequirements) bool {
+	return quantityPtrEqual(a.Requests, b.Requests, corev1.ResourceCPU) &&
+		quantityPtrEqual(a.Requests, b.Requests, corev1.ResourceMemory) &&
+		quantityPtrEqual(a.Limits, b.Limits, corev1.ResourceCPU) &&
+		quantityPtrEqual(a.Limits, b.Limits, corev1.ResourceMemory)
+}
+
+func quantityPtrEqual(a, b corev1.ResourceList, name corev1.ResourceName) bool {
+	qa, oka := a[name]
+	qb, okb := b[name]
+	if !oka && !okb {
+		return true
+	}
+	if !oka || !okb {
+		return false
+	}
+	return qa.Equal(qb)
 }
 
 // confirmSafetyVerdict re-Gets the pod and re-evaluates before revert so a

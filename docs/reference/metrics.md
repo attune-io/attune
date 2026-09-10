@@ -31,6 +31,12 @@ operator tried to restore a pod's original resources but the `/resize`
 subresource call failed, leaving the pod running with post-resize resources
 that may be causing issues.
 
+A zero value does not mean a safety restore finished. Template restore
+after a successful in-place revert is a separate path: it logs
+`Failed to restore template after safety revert` and does not increment
+this counter. The pod is already back at original resources; the
+template may still hold the persisted size until the next retry.
+
 | Label | Description |
 |-------|-------------|
 | `namespace` | Workload namespace |
@@ -73,6 +79,10 @@ Total number of reconciliation errors by type.
 | Label | Description |
 |-------|-------------|
 | `error_type` | `fetch`, `fetch_defaults`, `metrics_source`, `discover_workloads`, `list_policies`, `get_pods`, `compute_recommendations`, `status_update`, or `safety_observation` |
+
+`safety_observation` means a pending-observation list, confirm Get, safety
+check, or tracking-annotation cleanup failed. Tracking stays on the pod
+and the next reconcile retries.
 
 ### attune_webhook_validation_total
 

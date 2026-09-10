@@ -456,6 +456,15 @@ parser as `attune.io/skip` (`True`, `1`, and `yes` do not freeze).
 kubectl annotate namespace <ns> attune.io/freeze=true
 ```
 
+```yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: production
+  annotations:
+    attune.io/freeze: "true"
+```
+
 | Annotation | Scope | Effect |
 |------------|-------|--------|
 | `attune.io/freeze=true` | Namespace | Skip new apply: in-place resize, eviction, startup boost, template persist, and CREATE initial sizing. Metrics, recommendations, status, and export still update. Pending safety observation still reverts unsafe pods and restores AfterSuccessfulResize templates. `ResizeBlocked=True` with `reason=NamespaceFrozen`. |

@@ -1841,34 +1841,6 @@ func (r *AttunePolicyReconciler) computeMemoryUsageFloor(
 	return floored, true, usage, margin
 }
 
-// applyMemoryUsageFloor raises a decreasing memory limit so it stays above
-// recent usage * (1 + margin/100). Recent usage is the memory recommendation
-// RawPercentile (historical usage percentile before overhead).
-func (r *AttunePolicyReconciler) applyMemoryUsageFloor(
-	ctx context.Context,
-	policy *attunev1alpha1.AttunePolicy,
-	pod *corev1.Pod,
-	containerRec attunev1alpha1.ContainerRecommendation,
-	target corev1.ResourceRequirements,
-) corev1.ResourceRequirements {
-	floored, applied, usage, margin := r.computeMemoryUsageFloor(policy, pod, containerRec, target)
-	if !applied {
-		return target
-	}
-	currentLim := liveContainerCurrent(pod, containerRec).MemoryLimit
-	fromLim := target.Limits[corev1.ResourceMemory]
-	toLim := floored.Limits[corev1.ResourceMemory]
-	r.emitLiveResizeApply(ctx, policy, pod, containerRec, liveResizeApplyMeta{
-		FloorApplied:       true,
-		FloorFromLimit:     fromLim,
-		FloorToLimit:       toLim,
-		FloorUsage:         usage,
-		FloorMargin:        margin,
-		FloorEqualsCurrent: toLim.Equal(currentLim),
-	})
-	return floored
-}
-
 // recentMemoryUsage returns the raw usage percentile from the recommendation
 // explanation when available.
 func recentMemoryUsage(containerRec attunev1alpha1.ContainerRecommendation) (resource.Quantity, bool) {

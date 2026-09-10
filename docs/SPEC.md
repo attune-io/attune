@@ -1054,7 +1054,7 @@ Jobs:
     - yamllint for `config/` and Helm values/chart metadata
 
   test-unit:
-    - gotestsum over `./api/... ./cmd/... ./internal/...`
+    - gotestsum over `./api/... ./cmd/... ./internal/... ./pkg/...`
     - race-enabled coverage run
     - Upload JUnit results and Codecov coverage
     - Fail if coverage < 80%

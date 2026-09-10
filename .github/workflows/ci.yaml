@@ -92,6 +92,10 @@ jobs:
               # job that runs verify-helm-rbac.sh.
               - 'config/rbac/**'
               - 'hack/verify-helm-rbac.sh'
+              # Helm Lint also runs these. A script-only change must
+              # wake Helm Lint, not only Lint or Docs Check.
+              - 'hack/verify-prometheusrule-metrics.sh'
+              - 'hack/verify-helm-schema-fields.sh'
               # Standalone Grafana JSON is the Helm dashboard source.
               # Dashboard-only PRs must run verify-dashboard-metrics.sh
               # without the full Go lint matrix.
@@ -99,6 +103,7 @@ jobs:
               - 'hack/verify-dashboard-metrics.sh'
             yaml:
               - 'config/**'
+              - '.yamllint.yaml'
               - '.github/workflows/**'
               - 'charts/attune/Chart.yaml'
               - 'charts/attune/values.yaml'
@@ -113,6 +118,9 @@ jobs:
               - 'Makefile'
               - 'hack/verify-doc-defaults.sh'
               - 'hack/verify-doc-tool-versions.sh'
+              # Docs Check runs these on docs or helm changes.
+              - 'hack/verify-prometheusrule-metrics.sh'
+              - 'hack/verify-helm-schema-fields.sh'
               - 'charts/attune/README.md.gotmpl'
             e2e:
               - 'test/e2e/**'
@@ -122,6 +130,8 @@ jobs:
               - 'hack/e2e-install-cert-manager.sh'
               - 'hack/e2e-wait-cadvisor.sh'
               - 'hack/k3d-delete.sh'
+              # lint-chainsaw (if: e2e) runs verify-chainsaw-scripts.sh.
+              - 'hack/verify-chainsaw-scripts.sh'
             # CRDs, kustomize, and tracked release manifests (dist/).
             # Used by crd-freshness so dist/ cannot lag without a CI failure.
             manifests:
@@ -141,6 +151,10 @@ jobs:
               - 'hack/e2e-wait-cadvisor.sh'
               - 'hack/k3d-delete.sh'
               - 'hack/apply-release-notes.sh'
+              # Lint (scripts=true) runs these via python-test / make.
+              - 'hack/verify-prometheusrule-metrics.sh'
+              - 'hack/verify-helm-schema-fields.sh'
+              - 'hack/verify-chainsaw-scripts.sh'
               - '.github/actions/setup-e2e-cluster/**'
               - '.github/workflows/e2e-nightly.yaml'
             workflows:
@@ -413,7 +427,7 @@ jobs:
           gotestsum --format pkgname \
             --junitfile test-results/unit.xml \
             --rerun-fails --rerun-fails-max-failures=5 \
-            --packages="./api/... ./cmd/... ./internal/..." \
+            --packages="./api/... ./cmd/... ./internal/... ./pkg/..." \
             -- -race -timeout=10m \
             -coverpkg=./internal/... \
             -coverprofile=coverage.out \
