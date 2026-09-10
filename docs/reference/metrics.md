@@ -28,7 +28,8 @@ Total number of resize reverts triggered by the safety monitor.
 
 Total number of failed resize revert attempts. A non-zero value means the
 operator tried to restore a pod's original resources but the `/resize`
-subresource call failed, leaving the pod running with post-resize resources
+subresource call failed (immediate apply-path revert or safety
+observation revert), leaving the pod running with post-resize resources
 that may be causing issues.
 
 A zero value does not mean a safety restore finished. Template restore

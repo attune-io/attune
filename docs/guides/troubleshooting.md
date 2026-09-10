@@ -776,11 +776,13 @@ kubectl logs -l app.kubernetes.io/name=attune --tail=200 | grep \
 ```
 
 A zero `attune_revert_failures_total` does not mean restore finished.
-That counter only counts failed `/resize` revert calls. Check
+That counter counts failed `/resize` revert calls only, including
+observation-window revert. Check
 `attune_reconcile_errors_total{error_type="safety_observation"}` if
-list, confirm, or cleanup also failed. Tracking stays; the next
-reconcile retries the restore even when the pod is Ready again, as
-long as live resources still match the original snapshot.
+list, confirm, cleanup, or template restore also failed. Tracking
+stays; the next reconcile retries the restore even when the pod is
+Ready again, as long as live resources still match the applied
+revert target (clamped original, not always the raw snapshot).
 
 ### Safety observation stuck
 
@@ -1193,8 +1195,8 @@ spec:
   at the persisted size, history at `Success`, and no
   `TemplatePatchFailed` event. Operator logs
   `Failed to restore template after safety revert`. Tracking stays;
-  the next reconcile retries. `attune_revert_failures_total` does not
-  increment.
+  the next reconcile retries when live resources match the applied
+  revert target. `attune_revert_failures_total` does not increment.
 
 ### Mid-rollout or no-op
 
