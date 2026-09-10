@@ -599,7 +599,14 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		r.applyNotFrozen(ctx, policy.Namespace, &applyFrozen, &freezeErr) {
 		resizedWLs := laggingAfterResizeWorkloads(cycleResizeHistory, policy.Status.ResizeHistory)
 		if len(resizedWLs) > 0 {
-			filtered := omitRevertedOrFailedContainers(recommendations, cycleResizeHistory)
+			// Status history already includes this-cycle executeResizes after
+			// append. Using only cycleResizeHistory misses a prior-cycle
+			// safety revert when freeze blocked persist, then lifted.
+			filtered := omitRevertedOrFailedContainers(recommendations, policy.Status.ResizeHistory)
+			if omitted := omittedPersistContainerNames(recommendations, filtered); len(omitted) > 0 {
+				logger.V(1).Info("Omitting reverted or failed containers from template persist",
+					"containers", omitted)
+			}
 			tplHistory := r.applyTemplatePersistence(ctx, &policy, workloads, filtered,
 				attunev1alpha1.TemplatePersistenceAfterSuccessfulResize, resizedWLs)
 			if len(tplHistory) > 0 {

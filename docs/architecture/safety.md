@@ -208,9 +208,11 @@ When a safety violation is detected:
    restart occurs.
 3. When `templatePersistence.when=AfterSuccessfulResize` is enabled, the
    controller also restores the Deployment/StatefulSet template for that
-   container from the pre-resize snapshot (`OriginalResources`). Persist
-   already patched the template on Success or Evicted, before the
-   observation window; without this restore, rollouts keep the unsafe size.
+   container from the pre-resize snapshot (`OriginalResources`). Restore
+   replaces the container resources, including clearing limits the persist
+   step added. Persist already patched the template on Success or Evicted,
+   before the observation window; without this restore, rollouts keep the
+   unsafe size.
    A failed template restore keeps tracking annotations so the next
    reconcile retries.
 4. The resize history entry is updated to `result: Reverted`.
