@@ -1896,16 +1896,16 @@ func TestRestoreTemplateAfterSafetyRevert_PreservesExtendedResources(t *testing.
 	var updated appsv1.Deployment
 	require.NoError(t, cl.Get(context.Background(), client.ObjectKeyFromObject(deploy), &updated))
 	got := updated.Spec.Template.Spec.Containers[0].Resources
-	assert.True(t, got.Requests.Memory().Equal(resource.MustParse("256Mi")),
-		"template memory request must restore to the pre-resize snapshot")
-	reqGPU, hasGPUReq := got.Requests[gpu]
-	require.True(t, hasGPUReq, "restore must keep nvidia.com/gpu request")
-	assert.True(t, reqGPU.Equal(resource.MustParse("1")))
-	limGPU, hasGPULim := got.Limits[gpu]
-	require.True(t, hasGPULim, "restore must keep nvidia.com/gpu limit")
-	assert.True(t, limGPU.Equal(resource.MustParse("1")))
-	_, hasMemLimit := got.Limits[corev1.ResourceMemory]
-	assert.False(t, hasMemLimit, "restore must still clear persist-added memory limit")
+	assertFullResources(t, got, corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("200m"),
+			corev1.ResourceMemory: resource.MustParse("256Mi"),
+			gpu:                   resource.MustParse("1"),
+		},
+		Limits: corev1.ResourceList{
+			gpu: resource.MustParse("1"),
+		},
+	}, "restore must match the full resource set, not only cpu/memory")
 }
 
 func TestRestoreTemplateAfterSafetyRevert_DisabledNoOp(t *testing.T) {
