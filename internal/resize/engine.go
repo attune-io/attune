@@ -240,7 +240,12 @@ func IsEligibleForResize(pod *corev1.Pod) bool {
 		}
 		condType := string(cond.Type)
 		if condType == condPodResizeInProgress {
-			return false
+			// Stuck InProgress with no timeout is a hang (#697). After
+			// an hour, treat the condition as stale and allow a retry.
+			if !resizeInProgressTimedOut(cond) {
+				return false
+			}
+			continue
 		}
 		if condType == condPodResizePending && cond.Reason != reasonInfeasible {
 			return false
@@ -253,6 +258,15 @@ func IsEligibleForResize(pod *corev1.Pod) bool {
 		return false
 	}
 	return true
+}
+
+const resizeInProgressTimeout = time.Hour
+
+func resizeInProgressTimedOut(cond corev1.PodCondition) bool {
+	if cond.LastTransitionTime.IsZero() {
+		return false
+	}
+	return time.Since(cond.LastTransitionTime.Time) >= resizeInProgressTimeout
 }
 
 // IsResizeInfeasible returns true if the kubelet has marked the pod's resize

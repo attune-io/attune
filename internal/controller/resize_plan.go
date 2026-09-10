@@ -37,6 +37,7 @@ type plannedPod struct {
 // resizeAction is one container apply computed from an observed pod.
 // Plan is pure: no client Get. Budget filter and execute consume this.
 type resizeAction struct {
+	PodName      string
 	Container    string
 	ContainerRec attunev1alpha1.ContainerRecommendation
 	Target       corev1.ResourceRequirements
@@ -71,6 +72,7 @@ func (r *AttunePolicyReconciler) planPodActions(
 			cpuInc, memInc = budgetIncrease(pod, containerRec.Name, target)
 		}
 		actions = append(actions, resizeAction{
+			PodName:      pod.Name,
 			Container:    containerRec.Name,
 			ContainerRec: containerRec,
 			Target:       target,
@@ -129,4 +131,38 @@ func filterActionsByBudget(actions []resizeAction, cpuBudget, memBudget int64) (
 		}
 	}
 	return keep, deferred
+}
+
+// filterPlannedByBudget drops over-budget actions from the cycle plan
+// before apply. At-target actions stay so emit still runs. Returns the
+// filtered plan and the deferred (over-budget) actions.
+func filterPlannedByBudget(planned []plannedPod, cpuBudget, memBudget int64) (filtered []plannedPod, deferred []resizeAction) {
+	var need []resizeAction
+	for _, p := range planned {
+		for _, a := range p.Actions {
+			if !a.AtTarget {
+				need = append(need, a)
+			}
+		}
+	}
+	keep, deferred := filterActionsByBudget(need, cpuBudget, memBudget)
+	keepSet := map[string]struct{}{}
+	for _, a := range keep {
+		keepSet[a.PodName+"/"+a.Container] = struct{}{}
+	}
+	for _, p := range planned {
+		var next []resizeAction
+		for _, a := range p.Actions {
+			if a.AtTarget {
+				next = append(next, a)
+				continue
+			}
+			if _, ok := keepSet[a.PodName+"/"+a.Container]; ok {
+				next = append(next, a)
+			}
+		}
+		p.Actions = next
+		filtered = append(filtered, p)
+	}
+	return filtered, deferred
 }

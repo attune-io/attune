@@ -513,6 +513,22 @@ func (r *AttunePolicyReconciler) executeResizes(
 			planned = append(planned, item)
 		}
 
+		budgetMu.Lock()
+		snapCPU, snapMem := cpuBudget, memBudget
+		budgetMu.Unlock()
+		var deferred []resizeAction
+		planned, deferred = filterPlannedByBudget(planned, snapCPU, snapMem)
+		for _, d := range deferred {
+			logger.Info("Budget exhausted, deferring resize to next cycle",
+				"pod", d.PodName, "container", d.Container)
+			operatormetrics.BudgetExhaustedTotal.WithLabelValues(policy.Namespace, policy.Name).Inc()
+			if r.Recorder != nil {
+				r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "BudgetExhausted", "resize",
+					"Resize deferred for pod %s container %s: per-cycle budget exhausted",
+					d.PodName, d.Container)
+			}
+		}
+
 		for _, item := range planned {
 			item, workloadName := item, rec.Workload
 			wg.Add(1)

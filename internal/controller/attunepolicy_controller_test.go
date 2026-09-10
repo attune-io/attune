@@ -10961,7 +10961,7 @@ func TestExecuteResizes_BudgetCapsSkipDoesNotConsumeBudget(t *testing.T) {
 	assert.Equal(t, 1, count, "a skipped pod should not consume budget needed by another pod")
 }
 
-func TestExecuteResizes_BudgetCapsResizeFailureDoesNotConsumeBudget(t *testing.T) {
+func TestExecuteResizes_BudgetCapsResizeFailureSpendsFilterSlot(t *testing.T) {
 	pod1 := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
 	pod1.Name = "api-server-abc-1"
 	pod2 := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
@@ -10999,12 +10999,12 @@ func TestExecuteResizes_BudgetCapsResizeFailureDoesNotConsumeBudget(t *testing.T
 
 	count, history := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
 		recommendations, map[string][]corev1.Pod{"api-server": {*pod1, *pod2}}, nil, nil)
-	assert.Equal(t, 1, count, "a failed resize should not consume budget needed by another pod")
+	assert.Equal(t, 0, count, "filter-then-apply spends the cycle slot on the first planned increase even if apply fails")
 	require.NotEmpty(t, history)
 	assert.Contains(t, []attunev1alpha1.ResizeResult{history[0].Result}, attunev1alpha1.ResizeResultFailed)
 }
 
-func TestExecuteResizes_EvictionDoesNotConsumeBudgetNeededByNextPod(t *testing.T) {
+func TestExecuteResizes_EvictionSpendsFilterSlot(t *testing.T) {
 	pod1 := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
 	pod1.Name = "api-server-abc-1"
 	pod1.Status.Conditions = append(pod1.Status.Conditions, corev1.PodCondition{
@@ -11036,19 +11036,14 @@ func TestExecuteResizes_EvictionDoesNotConsumeBudgetNeededByNextPod(t *testing.T
 
 	count, history := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
 		recommendations, map[string][]corev1.Pod{"api-server": {*pod1, *pod2}}, nil, nil)
-	assert.Equal(t, 1, count, "eviction fallback should not consume budget needed by the next pod")
+	assert.Equal(t, 0, count, "filter-then-apply spends the cycle slot on the first planned increase even if it evicts")
 	evicted := false
-	succeeded := false
 	for _, h := range history {
 		if h.Result == attunev1alpha1.ResizeResultEvicted {
 			evicted = true
 		}
-		if h.Method == "InPlace" && h.Result == attunev1alpha1.ResizeResultSuccess {
-			succeeded = true
-		}
 	}
 	assert.True(t, evicted, "history should record the fallback eviction explicitly")
-	assert.True(t, succeeded, "the next pod should still resize successfully in the same cycle")
 }
 
 func TestExecuteResizes_MixedOutcomePodDoesNotLeakSuccessOrBudget(t *testing.T) {
@@ -11160,7 +11155,7 @@ func TestExecuteResizes_MixedOutcomePodDoesNotLeakSuccessOrBudget(t *testing.T) 
 	assert.Equal(t, 1, apiEvictions, "api-server should record the fallback eviction explicitly")
 }
 
-func TestExecuteResizes_BudgetCapsRevertDoesNotConsumeBudget(t *testing.T) {
+func TestExecuteResizes_BudgetCapsRevertSpendsFilterSlot(t *testing.T) {
 	pod1 := newResizePodWithStatus("api-server", "200m", "256Mi", "200m", "256Mi", 0)
 	pod1.Name = "api-server-abc-1"
 	pod2 := newResizePodWithStatus("api-server", "200m", "256Mi", "200m", "256Mi", 0)
@@ -11187,7 +11182,7 @@ func TestExecuteResizes_BudgetCapsRevertDoesNotConsumeBudget(t *testing.T) {
 
 	count, history := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
 		recommendations, map[string][]corev1.Pod{"api-server": {*pod1, *pod2}}, nil, nil)
-	assert.Equal(t, 1, count, "a reverted resize should not consume budget needed by another pod")
+	assert.Equal(t, 0, count, "filter-then-apply spends the cycle slot on the first planned increase even if it reverts")
 	reverted := false
 	for _, h := range history {
 		if h.Result == attunev1alpha1.ResizeResultReverted {
