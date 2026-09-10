@@ -426,6 +426,9 @@ _deploy-stack:
 		--set metrics.enabled=true \
 		--set leaderElection.enabled=false \
 		--set maxConcurrentReconciles=4 \
+		--set logging.level=1 \
+		--set resources.limits.memory=512Mi \
+		--set resources.requests.memory=256Mi \
 		--set fleetReport.enabled=true \
 		--set fleetReport.interval=30s \
 		--set fleetReport.clusterId=e2e \
