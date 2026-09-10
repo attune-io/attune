@@ -140,37 +140,38 @@ func (r *AttunePolicyReconciler) applyLiveResizeTarget(
 	containerRec attunev1alpha1.ContainerRecommendation,
 	target corev1.ResourceRequirements,
 ) (corev1.ResourceRequirements, liveResizeApplyMeta) {
-	meta := liveResizeApplyMeta{PreClamped: *target.DeepCopy()}
-	target = resize.ClampMemoryLimitForPolicy(pod, containerRec.Name, target, r.AllowInPlaceMemoryLimitDecrease)
-	if memLim, ok := meta.PreClamped.Limits[corev1.ResourceMemory]; ok {
-		if clampedLim, cok := target.Limits[corev1.ResourceMemory]; cok && !memLim.Equal(clampedLim) {
-			meta.PlatformClamped = true
-			meta.RequestedMemLimit = memLim
-			meta.ClampedMemLimit = clampedLim
-			if pod.Status.QOSClass == corev1.PodQOSGuaranteed {
-				if memReq, rok := target.Requests[corev1.ResourceMemory]; rok && memReq.Cmp(clampedLim) < 0 {
-					target.Requests[corev1.ResourceMemory] = clampedLim.DeepCopy()
-					meta.GuaranteedRequestRaised = true
-				}
-			}
-		}
+	usage, hasUsage := recentMemoryUsage(containerRec)
+	margin := float64(attunev1alpha1.DefaultDecreaseUsageMarginPercent)
+	if policy != nil && policy.Spec.Memory.DecreaseUsageMarginPercent != nil {
+		margin = float64(*policy.Spec.Memory.DecreaseUsageMarginPercent)
 	}
-	if !meta.PlatformClamped {
-		floored, applied, usage, margin := r.computeMemoryUsageFloor(policy, pod, containerRec, target)
-		if applied {
-			fromLim := target.Limits[corev1.ResourceMemory]
-			toLim := floored.Limits[corev1.ResourceMemory]
-			meta.FloorApplied = true
-			meta.FloorFromLimit = fromLim
-			meta.FloorToLimit = toLim
-			meta.FloorUsage = usage
-			meta.FloorMargin = margin
-			meta.FloorEqualsCurrent = toLim.Equal(liveContainerCurrent(pod, containerRec).MemoryLimit)
-			target = floored
-		}
-		target = resize.RaiseGuaranteedMemoryRequestToLimit(pod, target)
+	current := liveContainerCurrent(pod, containerRec).MemoryLimit
+	applied, resMeta := resize.ResolveAppliedTarget(resize.ResolveInput{
+		Target:                     target,
+		Pod:                        pod,
+		Container:                  containerRec.Name,
+		AllowInPlaceMemoryDecrease: r.AllowInPlaceMemoryLimitDecrease,
+		ApplyUsageFloor:            hasUsage,
+		CurrentMemoryLimit:         current,
+		RecentUsage:                usage,
+		UsageMarginPercent:         margin,
+	})
+	meta := liveResizeApplyMeta{
+		PreClamped:              resMeta.PreClamped,
+		PlatformClamped:         resMeta.PlatformClamped,
+		RequestedMemLimit:       resMeta.RequestedMemLimit,
+		ClampedMemLimit:         resMeta.ClampedMemLimit,
+		GuaranteedRequestRaised: resMeta.GuaranteedRequestRaised,
+		FloorApplied:            resMeta.FloorApplied,
+		FloorFromLimit:          resMeta.FloorFromLimit,
+		FloorToLimit:            resMeta.FloorToLimit,
+		FloorUsage:              usage,
+		FloorMargin:             margin,
 	}
-	return target, meta
+	if resMeta.FloorApplied {
+		meta.FloorEqualsCurrent = resMeta.FloorToLimit.Equal(current)
+	}
+	return applied, meta
 }
 
 // appliedResizeTarget is the clamp + Guaranteed QoS raise + usage floor that
@@ -1866,37 +1867,6 @@ func (r *AttunePolicyReconciler) emitLiveResizeApply(
 				policy.Namespace, policy.Name, "clamped_usage").Inc()
 		}
 	}
-}
-
-// computeMemoryUsageFloor raises a decreasing memory limit so it stays above
-// recent usage * (1 + margin/100). Silent: callers emit events from the result.
-func (r *AttunePolicyReconciler) computeMemoryUsageFloor(
-	policy *attunev1alpha1.AttunePolicy,
-	pod *corev1.Pod,
-	containerRec attunev1alpha1.ContainerRecommendation,
-	target corev1.ResourceRequirements,
-) (corev1.ResourceRequirements, bool, resource.Quantity, float64) {
-	targetLim, ok := target.Limits[corev1.ResourceMemory]
-	if !ok {
-		return target, false, resource.Quantity{}, 0
-	}
-	currentLim := liveContainerCurrent(pod, containerRec).MemoryLimit
-	if currentLim.IsZero() || targetLim.Cmp(currentLim) >= 0 {
-		return target, false, resource.Quantity{}, 0
-	}
-	usage, hasUsage := recentMemoryUsage(containerRec)
-	if !hasUsage {
-		return target, false, resource.Quantity{}, 0
-	}
-	margin := float64(attunev1alpha1.DefaultDecreaseUsageMarginPercent)
-	if policy != nil && policy.Spec.Memory.DecreaseUsageMarginPercent != nil {
-		margin = float64(*policy.Spec.Memory.DecreaseUsageMarginPercent)
-	}
-	floored, applied := resize.FloorMemoryLimitForUsage(target, currentLim, usage, margin)
-	if !applied {
-		return target, false, usage, margin
-	}
-	return floored, true, usage, margin
 }
 
 // recentMemoryUsage returns the raw usage percentile from the recommendation
