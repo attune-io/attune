@@ -25,12 +25,31 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	kubefake "k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 )
+
+func TestFilterPlannedByBudget_DropsOverBudgetBeforeApply(t *testing.T) {
+	t.Parallel()
+	planned := []plannedPod{
+		{Pod: corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "p1"}}, Actions: []resizeAction{
+			{PodName: "p1", Container: "main", CPUIncrease: 200},
+		}},
+		{Pod: corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "p2"}}, Actions: []resizeAction{
+			{PodName: "p2", Container: "main", CPUIncrease: 200},
+		}},
+	}
+	got, deferred := filterPlannedByBudget(planned, 200, -1)
+	require.Len(t, got, 2)
+	assert.Len(t, got[0].Actions, 1)
+	assert.Empty(t, got[1].Actions)
+	require.Len(t, deferred, 1)
+	assert.Equal(t, "p2", deferred[0].PodName)
+}
 
 func TestFilterActionsByBudget(t *testing.T) {
 	t.Parallel()

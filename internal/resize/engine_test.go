@@ -222,6 +222,22 @@ func TestIsEligibleForResize(t *testing.T) {
 			want: false,
 		},
 		{
+			name: "stale InProgress older than one hour is eligible",
+			pod: &corev1.Pod{
+				Status: corev1.PodStatus{
+					Phase: corev1.PodRunning,
+					Conditions: []corev1.PodCondition{
+						{
+							Type:               "PodResizeInProgress",
+							Status:             corev1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(time.Now().Add(-2 * time.Hour)),
+						},
+					},
+				},
+			},
+			want: true,
+		},
+		{
 			name: "pod with deferred resize is ineligible",
 			pod: &corev1.Pod{
 				Status: corev1.PodStatus{
