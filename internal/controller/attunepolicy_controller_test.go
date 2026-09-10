@@ -4393,10 +4393,12 @@ func TestCheckPendingSafetyObservations_ObservationElapsed(t *testing.T) {
 		Name: "test-pod", Namespace: "default",
 	}, &updated)
 	require.NoError(t, err)
-	_, hasResizedAt := updated.Annotations["attune.io/resized-at"]
+	_, hasResizedAt := updated.Annotations[annotationResizedAt]
 	assert.False(t, hasResizedAt, "resized-at annotation should be removed")
-	_, hasContainer := updated.Annotations["attune.io/resized-container"]
-	assert.False(t, hasContainer, "resized-container annotation should be removed")
+	_, hasContainers := updated.Annotations[annotationResizedContainers]
+	assert.False(t, hasContainers, "resized-containers annotation should be removed")
+	_, hasTracked := updated.Labels[labelTracked]
+	assert.False(t, hasTracked, "tracked label should be removed")
 }
 
 func TestCheckPendingSafetyObservations_CleanupPatchFailureKeepsPending(t *testing.T) {
@@ -7776,13 +7778,13 @@ func TestCheckPendingSafetyObservations_RestartCountParsed(t *testing.T) {
 			Namespace: "default",
 			Labels:    map[string]string{"attune.io/tracked": "true"},
 			Annotations: map[string]string{
-				"attune.io/resized-at":                   resizedAt,
-				"attune.io/resized-workload":             "api-server",
-				"attune.io/resized-containers":           "main",
-				"attune.io/original-cpu-request.main":    "500m",
-				"attune.io/original-memory-request.main": "512Mi",
-				"attune.io/original-restart-count":       "3",
-				"attune.io/policy":                       "test-policy",
+				"attune.io/resized-at":                        resizedAt,
+				"attune.io/resized-workload":                  "api-server",
+				"attune.io/resized-containers":                "main",
+				"attune.io/original-cpu-request.main":         "500m",
+				"attune.io/original-memory-request.main":      "512Mi",
+				annotationOriginalRestartCountPrefix + "main": "3",
+				"attune.io/policy":                            "test-policy",
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -7817,6 +7819,14 @@ func TestCheckPendingSafetyObservations_RestartCountParsed(t *testing.T) {
 
 	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
 
+	var foundResize bool
+	for _, a := range reconciler.Clientset.(*kubefake.Clientset).Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			foundResize = true
+		}
+	}
+	assert.False(t, foundResize, "safe restart count must not UpdateResize")
+
 	var updated corev1.Pod
 	err := fakeClient.Get(context.Background(), types.NamespacedName{
 		Name: "restart-pod", Namespace: "default",
@@ -7834,13 +7844,13 @@ func TestCheckPendingSafetyObservations_RestartCountExceeded(t *testing.T) {
 			Namespace: "default",
 			Labels:    map[string]string{"attune.io/tracked": "true"},
 			Annotations: map[string]string{
-				"attune.io/resized-at":                   resizedAt,
-				"attune.io/resized-workload":             "api-server",
-				"attune.io/resized-containers":           "main",
-				"attune.io/original-cpu-request.main":    "500m",
-				"attune.io/original-memory-request.main": "512Mi",
-				"attune.io/original-restart-count":       "3",
-				"attune.io/policy":                       "test-policy",
+				"attune.io/resized-at":                        resizedAt,
+				"attune.io/resized-workload":                  "api-server",
+				"attune.io/resized-containers":                "main",
+				"attune.io/original-cpu-request.main":         "500m",
+				"attune.io/original-memory-request.main":      "512Mi",
+				annotationOriginalRestartCountPrefix + "main": "3",
+				"attune.io/policy":                            "test-policy",
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -7892,13 +7902,13 @@ func TestCheckPendingSafetyObservations_InvalidRestartCount(t *testing.T) {
 			Namespace: "default",
 			Labels:    map[string]string{"attune.io/tracked": "true"},
 			Annotations: map[string]string{
-				"attune.io/resized-at":                   resizedAt,
-				"attune.io/resized-workload":             "api-server",
-				"attune.io/resized-containers":           "main",
-				"attune.io/original-cpu-request.main":    "500m",
-				"attune.io/original-memory-request.main": "512Mi",
-				"attune.io/original-restart-count":       "not-a-number",
-				"attune.io/policy":                       "test-policy",
+				"attune.io/resized-at":                        resizedAt,
+				"attune.io/resized-workload":                  "api-server",
+				"attune.io/resized-containers":                "main",
+				"attune.io/original-cpu-request.main":         "500m",
+				"attune.io/original-memory-request.main":      "512Mi",
+				annotationOriginalRestartCountPrefix + "main": "not-a-number",
+				"attune.io/policy":                            "test-policy",
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -7921,8 +7931,8 @@ func TestCheckPendingSafetyObservations_InvalidRestartCount(t *testing.T) {
 				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
 			},
 			ContainerStatuses: []corev1.ContainerStatus{
-				// RestartCount 1 with baseline defaulting to 0 (parse failed):
-				// 1 < 0+2 = safe, annotations should be removed normally.
+				// Parse of original-restart-count.<container> fails; the
+				// observation skips this pod and keeps tracking annotations.
 				{Name: "main", RestartCount: 1},
 			},
 		},
@@ -7931,16 +7941,19 @@ func TestCheckPendingSafetyObservations_InvalidRestartCount(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	reconciler, fakeClient := newSafetyTestReconciler(pod)
 
+	before := promtestutil.ToFloat64(operatormetrics.ReconcileErrorsTotal.WithLabelValues("safety_observation"))
 	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
+	after := promtestutil.ToFloat64(operatormetrics.ReconcileErrorsTotal.WithLabelValues("safety_observation"))
+	assert.Equal(t, before+1, after, "safety_observation should increment on restart-count parse error")
 
 	var updated corev1.Pod
 	err := fakeClient.Get(context.Background(), types.NamespacedName{
 		Name: "bad-annotation-pod", Namespace: "default",
 	}, &updated)
 	require.NoError(t, err)
-	// Invalid restart count should default to 0; pod with 1 restart is safe.
+	// Invalid restart count is a parse error; skip the pod and keep annotations.
 	_, hasResizedAt := updated.Annotations["attune.io/resized-at"]
-	assert.False(t, hasResizedAt, "pod should complete observation despite invalid restart count")
+	assert.True(t, hasResizedAt, "parse error must keep tracking annotations")
 }
 
 func TestCheckPendingSafetyObservations_ListErrorIncrementsCounter(t *testing.T) {
@@ -15683,7 +15696,33 @@ func TestCheckPendingSafetyObservations_AnnotationCleanupPatch(t *testing.T) {
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
 
 	scheme := testScheme()
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod).Build()
+	var observing atomic.Bool
+	observing.Store(true)
+	var patchCalls atomic.Int32
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Patch: func(ctx context.Context, cw client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+				if p, ok := obj.(*corev1.Pod); ok && p.Name == pod.Name && p.Namespace == pod.Namespace {
+					require.Equal(t, types.MergePatchType, patch.Type(), "cleanup must use a merge patch")
+					patchCalls.Add(1)
+				}
+				return cw.Patch(ctx, obj, patch, opts...)
+			},
+			Get: func(ctx context.Context, cw client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, ok := obj.(*corev1.Pod); ok && observing.Load() {
+					t.Errorf("cleanup must not Get the pod via the controller-runtime client")
+					return fmt.Errorf("unexpected Get on pod %s/%s", key.Namespace, key.Name)
+				}
+				return cw.Get(ctx, key, obj, opts...)
+			},
+			Update: func(_ context.Context, _ client.WithWatch, obj client.Object, _ ...client.UpdateOption) error {
+				if p, ok := obj.(*corev1.Pod); ok && observing.Load() {
+					t.Errorf("cleanup must not Update the pod via the controller-runtime client")
+					return fmt.Errorf("unexpected Update on pod %s/%s", p.Namespace, p.Name)
+				}
+				return fmt.Errorf("unexpected Update on %T", obj)
+			},
+		}).Build()
 	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
 
 	reconciler := NewAttunePolicyReconciler()
@@ -15696,7 +15735,9 @@ func TestCheckPendingSafetyObservations_AnnotationCleanupPatch(t *testing.T) {
 	policy.Spec.UpdateStrategy.SafetyObservationPeriod = &metav1.Duration{Duration: 5 * time.Minute}
 
 	pending := reconciler.checkPendingSafetyObservations(context.Background(), policy, &mockCollector{}, []client.Object{deploy})
+	observing.Store(false)
 	assert.False(t, pending, "should not be pending after successful cleanup")
+	assert.Greater(t, patchCalls.Load(), int32(0), "cleanup must Patch the tracked pod")
 
 	var updated corev1.Pod
 	err := fakeClient.Get(context.Background(), client.ObjectKeyFromObject(pod), &updated)
@@ -15713,10 +15754,6 @@ func TestCheckPendingSafetyObservations_AnnotationCleanupPatch(t *testing.T) {
 	assert.False(t, hasOrigMem)
 	_, hasTracked := updated.Labels[labelTracked]
 	assert.False(t, hasTracked, "tracked label should be removed after cleanup")
-
-	for _, a := range clientset.Actions() {
-		assert.NotEqual(t, "get", a.GetVerb(), "cleanup must not Get the pod")
-	}
 }
 
 // --- Issue #440: startup boost expiry memory regression test ---
