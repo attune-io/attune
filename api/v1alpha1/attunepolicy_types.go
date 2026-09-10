@@ -543,8 +543,8 @@ type UpdateStrategy struct {
 	// Once exhausted, remaining pods are deferred to the next cycle.
 	// Decreases do not consume budget. Default: unlimited.
 	//
-	// Deprecated: prefer MaxCPUIncreasePerMinute. The per-cycle cap's
-	// real-world rate depends on reconcileInterval.
+	// Prefer MaxCPUIncreasePerMinute. This per-cycle field is kept for
+	// compatibility; its real-world rate depends on reconcileInterval.
 	// +optional
 	MaxTotalCPUIncrease *resource.Quantity `json:"maxTotalCpuIncrease,omitempty"`
 
@@ -553,8 +553,8 @@ type UpdateStrategy struct {
 	// Once exhausted, remaining pods are deferred to the next cycle.
 	// Decreases do not consume budget. Default: unlimited.
 	//
-	// Deprecated: prefer MaxMemoryIncreasePerMinute. The per-cycle cap's
-	// real-world rate depends on reconcileInterval.
+	// Prefer MaxMemoryIncreasePerMinute. This per-cycle field is kept for
+	// compatibility; its real-world rate depends on reconcileInterval.
 	// +optional
 	MaxTotalMemoryIncrease *resource.Quantity `json:"maxTotalMemoryIncrease,omitempty"`
 

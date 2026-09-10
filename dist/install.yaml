@@ -741,8 +741,8 @@ spec:
                       Once exhausted, remaining pods are deferred to the next cycle.
                       Decreases do not consume budget. Default: unlimited.
 
-                      Deprecated: prefer MaxCPUIncreasePerMinute. The per-cycle cap's
-                      real-world rate depends on reconcileInterval.
+                      Prefer MaxCPUIncreasePerMinute. This per-cycle field is kept for
+                      compatibility; its real-world rate depends on reconcileInterval.
                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                     x-kubernetes-int-or-string: true
                   maxTotalMemoryIncrease:
@@ -755,8 +755,8 @@ spec:
                       Once exhausted, remaining pods are deferred to the next cycle.
                       Decreases do not consume budget. Default: unlimited.
 
-                      Deprecated: prefer MaxMemoryIncreasePerMinute. The per-cycle cap's
-                      real-world rate depends on reconcileInterval.
+                      Prefer MaxMemoryIncreasePerMinute. This per-cycle field is kept for
+                      compatibility; its real-world rate depends on reconcileInterval.
                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                     x-kubernetes-int-or-string: true
                   resizeMethod:
@@ -1665,8 +1665,8 @@ spec:
                       Once exhausted, remaining pods are deferred to the next cycle.
                       Decreases do not consume budget. Default: unlimited.
 
-                      Deprecated: prefer MaxCPUIncreasePerMinute. The per-cycle cap's
-                      real-world rate depends on reconcileInterval.
+                      Prefer MaxCPUIncreasePerMinute. This per-cycle field is kept for
+                      compatibility; its real-world rate depends on reconcileInterval.
                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                     x-kubernetes-int-or-string: true
                   maxTotalMemoryIncrease:
@@ -1679,8 +1679,8 @@ spec:
                       Once exhausted, remaining pods are deferred to the next cycle.
                       Decreases do not consume budget. Default: unlimited.
 
-                      Deprecated: prefer MaxMemoryIncreasePerMinute. The per-cycle cap's
-                      real-world rate depends on reconcileInterval.
+                      Prefer MaxMemoryIncreasePerMinute. This per-cycle field is kept for
+                      compatibility; its real-world rate depends on reconcileInterval.
                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                     x-kubernetes-int-or-string: true
                   resizeMethod:
@@ -2681,8 +2681,8 @@ spec:
                       Once exhausted, remaining pods are deferred to the next cycle.
                       Decreases do not consume budget. Default: unlimited.
 
-                      Deprecated: prefer MaxCPUIncreasePerMinute. The per-cycle cap's
-                      real-world rate depends on reconcileInterval.
+                      Prefer MaxCPUIncreasePerMinute. This per-cycle field is kept for
+                      compatibility; its real-world rate depends on reconcileInterval.
                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                     x-kubernetes-int-or-string: true
                   maxTotalMemoryIncrease:
@@ -2695,8 +2695,8 @@ spec:
                       Once exhausted, remaining pods are deferred to the next cycle.
                       Decreases do not consume budget. Default: unlimited.
 
-                      Deprecated: prefer MaxMemoryIncreasePerMinute. The per-cycle cap's
-                      real-world rate depends on reconcileInterval.
+                      Prefer MaxMemoryIncreasePerMinute. This per-cycle field is kept for
+                      compatibility; its real-world rate depends on reconcileInterval.
                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                     x-kubernetes-int-or-string: true
                   resizeMethod:
