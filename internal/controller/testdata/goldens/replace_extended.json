@@ -1,0 +1,38 @@
+{
+  "current": {
+    "requests": {
+      "cpu": "200m",
+      "memory": "64Mi",
+      "nvidia.com/gpu": "1",
+      "hugepages-2Mi": "4Mi",
+      "ephemeral-storage": "1Gi"
+    },
+    "limits": {
+      "cpu": "200m",
+      "memory": "64Mi",
+      "nvidia.com/gpu": "1",
+      "hugepages-2Mi": "4Mi",
+      "ephemeral-storage": "1Gi"
+    }
+  },
+  "want": {
+    "requests": {
+      "cpu": "200m",
+      "memory": "256Mi"
+    }
+  },
+  "got": {
+    "requests": {
+      "cpu": "200m",
+      "memory": "256Mi",
+      "nvidia.com/gpu": "1",
+      "hugepages-2Mi": "4Mi",
+      "ephemeral-storage": "1Gi"
+    },
+    "limits": {
+      "nvidia.com/gpu": "1",
+      "hugepages-2Mi": "4Mi",
+      "ephemeral-storage": "1Gi"
+    }
+  }
+}
