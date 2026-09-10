@@ -4399,6 +4399,81 @@ func TestCheckPendingSafetyObservations_ObservationElapsed(t *testing.T) {
 	assert.False(t, hasContainer, "resized-container annotation should be removed")
 }
 
+func TestCheckPendingSafetyObservations_CleanupPatchFailureKeepsPending(t *testing.T) {
+	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "cleanup-fail-pod",
+			Namespace: "default",
+			Labels:    map[string]string{"attune.io/tracked": "true"},
+			Annotations: map[string]string{
+				"attune.io/resized-at":                   resizedAt,
+				"attune.io/resized-workload":             "api-server",
+				"attune.io/resized-containers":           "main",
+				"attune.io/original-cpu-request.main":    "500m",
+				"attune.io/original-memory-request.main": "512Mi",
+				"attune.io/policy":                       "test-policy",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:  "main",
+					Image: "nginx",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("250m"),
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
+					},
+				},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "main", RestartCount: 0},
+			},
+		},
+	}
+
+	policy := newTestPolicy("test-policy", "default")
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(safetyTestDeploy, pod).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Patch: func(ctx context.Context, cw client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+				if p, ok := obj.(*corev1.Pod); ok && p.Name == "cleanup-fail-pod" {
+					return fmt.Errorf("simulated tracking cleanup patch failure")
+				}
+				return cw.Patch(ctx, obj, patch, opts...)
+			},
+		}).Build()
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = scheme
+	reconciler.Clientset = clientset
+
+	before := promtestutil.ToFloat64(operatormetrics.ReconcileErrorsTotal.WithLabelValues("safety_observation"))
+	pending := reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
+	after := promtestutil.ToFloat64(operatormetrics.ReconcileErrorsTotal.WithLabelValues("safety_observation"))
+
+	assert.True(t, pending, "cleanup patch failure must keep observations pending")
+	assert.Equal(t, before+1, after, "safety_observation should increment on cleanup patch error")
+
+	var updated corev1.Pod
+	err := fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "cleanup-fail-pod", Namespace: "default",
+	}, &updated)
+	require.NoError(t, err)
+	_, hasResizedAt := updated.Annotations["attune.io/resized-at"]
+	assert.True(t, hasResizedAt, "tracking annotations must remain after cleanup patch failure")
+}
+
 func TestCheckPendingSafetyObservations_MalformedAnnotation(t *testing.T) {
 	resizedAt := time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339)
 	pod := &corev1.Pod{

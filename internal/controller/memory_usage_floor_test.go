@@ -32,7 +32,6 @@ import (
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 	"github.com/attune-io/attune/internal/operatormetrics"
-	"github.com/attune-io/attune/internal/resize"
 )
 
 func TestApplyMemoryUsageFloor_GuaranteedRaisesRequestToFlooredLimit(t *testing.T) {
@@ -52,6 +51,7 @@ func TestApplyMemoryUsageFloor_GuaranteedRaisesRequestToFlooredLimit(t *testing.
 	}
 	r := NewAttunePolicyReconciler()
 	r.Client = fake.NewClientBuilder().WithScheme(scheme).Build()
+	r.AllowInPlaceMemoryLimitDecrease = true
 
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "default"},
@@ -91,8 +91,7 @@ func TestApplyMemoryUsageFloor_GuaranteedRaisesRequestToFlooredLimit(t *testing.
 		Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("200Mi")},
 	}
 
-	got := r.applyMemoryUsageFloor(context.Background(), policy, pod, rec, target)
-	got = resize.RaiseGuaranteedMemoryRequestToLimit(pod, got)
+	got, _ := r.applyLiveResizeTarget(policy, pod, rec, target)
 	want := resource.MustParse("550Mi")
 	require.NotNil(t, got.Limits)
 	assert.True(t, got.Limits.Memory().Equal(want),
@@ -139,7 +138,8 @@ func TestApplyMemoryUsageFloor_RaisesUnsafeLimit(t *testing.T) {
 
 	before := promtestutil.ToFloat64(operatormetrics.MemoryLimitDecreaseTotal.WithLabelValues(
 		"default", "p", "clamped_usage"))
-	got := r.applyMemoryUsageFloor(context.Background(), policy, pod, rec, target)
+	got, meta := r.applyLiveResizeTarget(policy, pod, rec, target)
+	r.emitLiveResizeApply(context.Background(), policy, pod, rec, meta)
 	// 500Mi * 1.1 = 550Mi
 	assert.True(t, got.Limits.Memory().Equal(resource.MustParse("550Mi")),
 		"got %s", got.Limits.Memory().String())
@@ -184,7 +184,8 @@ func TestApplyMemoryUsageFloor_SkippedUnsafeIncrementsMetric(t *testing.T) {
 
 	before := promtestutil.ToFloat64(operatormetrics.MemoryLimitDecreaseTotal.WithLabelValues(
 		"ns-skip", "p-skip", "skipped_unsafe"))
-	got := r.applyMemoryUsageFloor(context.Background(), policy, pod, rec, target)
+	got, meta := r.applyLiveResizeTarget(policy, pod, rec, target)
+	r.emitLiveResizeApply(context.Background(), policy, pod, rec, meta)
 	// Floor = max(target, usage*(1+m/100)) but never above current → stays 200Mi.
 	assert.True(t, got.Limits.Memory().Equal(resource.MustParse("200Mi")),
 		"got %s", got.Limits.Memory().String())
@@ -225,7 +226,7 @@ func TestApplyMemoryUsageFloor_SafeDecreaseUnchanged(t *testing.T) {
 		Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("800Mi")},
 	}
 
-	got := r.applyMemoryUsageFloor(context.Background(), policy, pod, rec, target)
+	got, _ := r.applyLiveResizeTarget(policy, pod, rec, target)
 	assert.True(t, got.Limits.Memory().Equal(resource.MustParse("800Mi")))
 }
 
@@ -246,6 +247,7 @@ func TestApplyMemoryUsageFloor_UsesLiveContainerLimit(t *testing.T) {
 	}
 	r := NewAttunePolicyReconciler()
 	r.Client = fake.NewClientBuilder().WithScheme(scheme).Build()
+	r.AllowInPlaceMemoryLimitDecrease = true
 
 	// Template Current is stale after in-place resize (512Mi). Live pod is 2Gi.
 	pod := &corev1.Pod{
@@ -276,7 +278,7 @@ func TestApplyMemoryUsageFloor_UsesLiveContainerLimit(t *testing.T) {
 		Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("1Gi")},
 	}
 
-	got := r.applyMemoryUsageFloor(context.Background(), policy, pod, rec, target)
+	got, _ := r.applyLiveResizeTarget(policy, pod, rec, target)
 	// Stale 512Mi would treat 1Gi as an increase and leave it unchanged.
 	assert.False(t, got.Limits.Memory().Equal(resource.MustParse("1Gi")),
 		"must not keep 1Gi when live limit is 2Gi and usage floor applies (got %s)",
@@ -323,7 +325,7 @@ func TestApplyMemoryUsageFloor_ZeroMargin(t *testing.T) {
 		Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("64Mi")},
 	}
 
-	got := r.applyMemoryUsageFloor(context.Background(), policy, pod, rec, target)
+	got, _ := r.applyLiveResizeTarget(policy, pod, rec, target)
 	gotLim := got.Limits.Memory()
 	usage := resource.MustParse("200Mi")
 	want := *resource.NewQuantity(usage.Value()+1, resource.BinarySI)
