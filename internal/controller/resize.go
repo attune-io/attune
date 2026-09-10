@@ -88,6 +88,11 @@ func (r *AttunePolicyReconciler) firstOneShotPodNeedingResize(
 		if !resize.IsEligibleForResize(p) {
 			continue
 		}
+		// Screen the listed snapshot first so a converged OneShot
+		// fleet does not live-Get every replica every reconcile.
+		if r.oneShotPodAlreadyAtTarget(policy, p, rec) {
+			continue
+		}
 		// Live Get before Infeasible / shouldSkipResize, matching apply.
 		// Get errors fail closed: do not select the listed snapshot.
 		live, err := r.fetchLivePodForResize(ctx, p)
@@ -472,11 +477,33 @@ func (r *AttunePolicyReconciler) executeResizes(
 				var podHistory []attunev1alpha1.ResizeHistoryEntry
 				var podReservedCPU, podReservedMem int64
 				podResized := false
+				skipEviction := false
+
+				// One live Get per pod, and only when the listed snapshot
+				// still differs from the applied target. A matching snapshot
+				// can skip the Get: the MemoryPressure hole is listed
+				// decrease vs live increase, which is listed != target.
+				if !r.oneShotPodAlreadyAtTarget(policy, &pod, rec) {
+					if live, err := r.fetchLivePodForResize(ctx, &pod); err != nil {
+						reason := "pod status unavailable; skipping resize"
+						for _, containerRec := range rec.Containers {
+							logger.Info("Skipping resize: "+reason,
+								"pod", pod.Name, "namespace", pod.Namespace,
+								"container", containerRec.Name, "error", err)
+							r.emitEventOnce(policy, corev1.EventTypeWarning, "ResizeSkipped", "resize",
+								"Resize blocked for pod %s container %s: %s", pod.Name, containerRec.Name, reason)
+							recordCapacitySkip(policy, reason)
+						}
+						return
+					} else if live != nil {
+						pod = *live
+					}
+				}
 
 				// Containers within the same pod must resize sequentially.
 				// Each UpdateResize bumps resourceVersion; using a stale copy
 				// for the next container causes a 409 Conflict.
-				for _, containerRec := range rec.Containers {
+				for i, containerRec := range rec.Containers {
 					target, clamped := buildResizeTarget(containerRec)
 					if len(clamped) > 0 {
 						logger.V(1).Info("Requests clamped to limits",
@@ -487,6 +514,11 @@ func (r *AttunePolicyReconciler) executeResizes(
 								policy.Namespace, policy.Name, containerRec.Name, res).Inc()
 						}
 					}
+					// Apply before reserve so the budget matches the target
+					// resizeContainer will send (clamp, floor, Guaranteed raise).
+					var applyMeta liveResizeApplyMeta
+					target, applyMeta = r.applyLiveResizeTarget(policy, &pod, containerRec, target)
+					r.emitLiveResizeApply(ctx, policy, &pod, containerRec, applyMeta)
 					cpuIncrease, memIncrease := budgetIncrease(&pod, containerRec.Name, target)
 
 					// Reserve budget before resizing so concurrent goroutines cannot
@@ -514,6 +546,8 @@ func (r *AttunePolicyReconciler) executeResizes(
 						Monitor:      monitor,
 						Now:          now,
 						Checks:       checks,
+						SkipEviction: skipEviction,
+						LiveApplied:  true,
 					})
 					if outcome == resizeOutcomeNone {
 						podHistory = append(podHistory, entries...)
@@ -529,20 +563,28 @@ func (r *AttunePolicyReconciler) executeResizes(
 					}
 					if outcome == resizeOutcomeEvictionBlocked {
 						// Eviction was attempted and failed. Do not retry the
-						// same List+Evict for remaining containers on this pod.
+						// same List+Evict for remaining containers, but still
+						// let siblings take the in-place path.
 						// Leave podResized as-is so a prior in-place success
 						// still counts (unlike Evicted, which clears it).
 						refundBudget(cpuIncrease, memIncrease)
 						podHistory = append(podHistory, entries...)
-						break
+						skipEviction = true
+						continue
 					}
 					podHistory = append(podHistory, entries...)
 					podReservedCPU += cpuIncrease
 					podReservedMem += memIncrease
 					podResized = true
-					// The pod variable is already updated by persistResizeAnnotations
-					// with a fresh resourceVersion and annotations, so no additional
-					// API Get is needed for the next container's UpdateResize call.
+					// persistResizeAnnotations refreshes RV and annotations.
+					// Re-Get so a kubelet Infeasible from this apply is
+					// visible to the next container. Skip on Get error:
+					// the persist copy is enough to continue.
+					if i < len(rec.Containers)-1 {
+						if live, err := r.fetchLivePodForResize(ctx, &pod); err == nil && live != nil {
+							pod = *live
+						}
+					}
 				}
 				if len(podHistory) > 0 {
 					historyMu.Lock()
@@ -579,6 +621,13 @@ type resizeParams struct {
 	Monitor      *safety.Monitor
 	Now          metav1.Time
 	Checks       *resizePreChecks
+	// SkipEviction is set after a sibling on this pod already failed
+	// eviction fallback, so later containers still try in-place but do
+	// not repeat List+Evict.
+	SkipEviction bool
+	// LiveApplied means executeResizes already ran applyLiveResizeTarget
+	// (after at most one live Get for the pod). Target is the applied value.
+	LiveApplied bool
 }
 
 // resizeOutcome tells executeResizes whether a container resize succeeded
@@ -607,28 +656,30 @@ func (r *AttunePolicyReconciler) resizeContainer(
 	containerRec, resizer, monitor, now := p.ContainerRec, p.Resizer, p.Monitor, p.Now
 	target := p.Target
 
-	// Live-Get before floor and pressure gates. The listed/informer pod can
-	// lag a prior in-place resize: a stale-low limit clips the usage floor
-	// below live usage; a stale-high request classifies a live increase as
-	// a decrease and skips MemoryPressure / unavailable / neighbor gates.
-	// Fail-closed on Get error: do not classify increase vs decrease
-	// against the listed snapshot (it may be stale-high).
-	if live, err := r.fetchLivePodForResize(ctx, pod); err != nil {
-		reason := "pod status unavailable; skipping resize"
-		logger.Info("Skipping resize: "+reason,
-			"pod", pod.Name, "namespace", pod.Namespace, "container", containerRec.Name, "error", err)
-		r.emitEventOnce(policy, corev1.EventTypeWarning, "ResizeSkipped", "resize",
-			"Resize blocked for pod %s container %s: %s", pod.Name, containerRec.Name, reason)
-		recordCapacitySkip(policy, reason)
-		return nil, resizeOutcomeNone
-	} else if live != nil {
-		pod = live
+	// Live-Get before floor and pressure gates unless executeResizes already
+	// applied the live target for budget accounting. The listed/informer pod
+	// can lag a prior in-place resize: a stale-low limit clips the usage
+	// floor below live usage; a stale-high request classifies a live
+	// increase as a decrease and skips MemoryPressure / unavailable /
+	// neighbor gates. Fail-closed on Get error.
+	var applyMeta liveResizeApplyMeta
+	if !p.LiveApplied {
+		if live, err := r.fetchLivePodForResize(ctx, pod); err != nil {
+			reason := "pod status unavailable; skipping resize"
+			logger.Info("Skipping resize: "+reason,
+				"pod", pod.Name, "namespace", pod.Namespace, "container", containerRec.Name, "error", err)
+			r.emitEventOnce(policy, corev1.EventTypeWarning, "ResizeSkipped", "resize",
+				"Resize blocked for pod %s container %s: %s", pod.Name, containerRec.Name, reason)
+			recordCapacitySkip(policy, reason)
+			return nil, resizeOutcomeNone
+		} else if live != nil {
+			pod = live
+		}
+		target, applyMeta = r.applyLiveResizeTarget(policy, pod, containerRec, target)
+		r.emitLiveResizeApply(ctx, policy, pod, containerRec, applyMeta)
+	} else {
+		applyMeta.PreClamped = *target.DeepCopy()
 	}
-
-	// Apply clamp + Guaranteed raise + usage floor before skip checks so
-	// shouldSkipResize sees the values that will be sent to the API server.
-	target, applyMeta := r.applyLiveResizeTarget(policy, pod, containerRec, target)
-	r.emitLiveResizeApply(ctx, policy, pod, containerRec, applyMeta)
 	preClamped := applyMeta.PreClamped
 
 	skip, reason := r.shouldSkipResize(ctx, pod, containerRec, target, p.Checks)
@@ -725,7 +776,7 @@ func (r *AttunePolicyReconciler) resizeContainer(
 
 	// Pods already marked Infeasible cannot be resized in-place on the current node.
 	if resize.IsResizeInfeasible(pod) {
-		if policy.Spec.UpdateStrategy.ResizeMethod == attunev1alpha1.ResizeMethodInPlaceOrRecreate {
+		if policy.Spec.UpdateStrategy.ResizeMethod == attunev1alpha1.ResizeMethodInPlaceOrRecreate && !p.SkipEviction {
 			logger.Info("Pod resize is Infeasible, attempting eviction fallback",
 				"pod", pod.Name, "container", containerRec.Name)
 			evicted, reason := r.tryEvictionFallback(ctx, policy, pod, workload, workloadName, containerRec.Name, resizer)
@@ -740,6 +791,13 @@ func (r *AttunePolicyReconciler) resizeContainer(
 				Resource: "cpu+memory", Method: resize.MethodInPlace,
 				Result: attunev1alpha1.ResizeResultFailed, Reason: reason,
 			}}, resizeOutcomeEvictionBlocked
+		}
+		if p.SkipEviction {
+			return []attunev1alpha1.ResizeHistoryEntry{{
+				Timestamp: now, Workload: workloadName, Container: containerRec.Name,
+				Resource: "cpu+memory", Method: resize.MethodInPlace,
+				Result: attunev1alpha1.ResizeResultFailed, Reason: "infeasible",
+			}}, resizeOutcomeNone
 		}
 		logger.Info("Pod resize is Infeasible and resizeMethod is InPlaceOnly, skipping",
 			"pod", pod.Name, "container", containerRec.Name)
@@ -767,7 +825,7 @@ func (r *AttunePolicyReconciler) resizeContainer(
 	results, err := resizer.ResizePod(ctx, pod, containerRec.Name, target)
 	if err != nil {
 		evictionFailReason := ""
-		if policy.Spec.UpdateStrategy.ResizeMethod == attunev1alpha1.ResizeMethodInPlaceOrRecreate {
+		if policy.Spec.UpdateStrategy.ResizeMethod == attunev1alpha1.ResizeMethodInPlaceOrRecreate && !p.SkipEviction {
 			evicted, reason := r.tryEvictionFallback(ctx, policy, pod, workload, workloadName, containerRec.Name, resizer)
 			if evicted {
 				return evictionHistory(), resizeOutcomeEvicted
