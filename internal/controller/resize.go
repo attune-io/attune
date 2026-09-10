@@ -501,37 +501,35 @@ func (r *AttunePolicyReconciler) executeResizes(
 					}
 				}
 
-				// Containers within the same pod must resize sequentially.
-				// Each UpdateResize bumps resourceVersion; using a stale copy
-				// for the next container causes a 409 Conflict.
-				for i, containerRec := range rec.Containers {
-					target, clamped := buildResizeTarget(containerRec)
-					if len(clamped) > 0 {
+				// Plan on the observed pod, then apply. Budget is claimed
+				// against the planned applied target, not recomputed later.
+				actions := r.planPodActions(policy, &pod, rec)
+				for i, action := range actions {
+					if len(action.Clamped) > 0 {
 						logger.V(1).Info("Requests clamped to limits",
-							"pod", pod.Name, "container", containerRec.Name,
-							"clampedResources", clamped)
-						for _, res := range clamped {
+							"pod", pod.Name, "container", action.Container,
+							"clampedResources", action.Clamped)
+						for _, res := range action.Clamped {
 							operatormetrics.RequestClampedTotal.WithLabelValues(
-								policy.Namespace, policy.Name, containerRec.Name, res).Inc()
+								policy.Namespace, policy.Name, action.Container, res).Inc()
 						}
 					}
-					// Apply before reserve so the budget matches the target
-					// resizeContainer will send (clamp, floor, Guaranteed raise).
-					var applyMeta liveResizeApplyMeta
-					target, applyMeta = r.applyLiveResizeTarget(policy, &pod, containerRec, target)
-					r.emitLiveResizeApply(ctx, policy, &pod, containerRec, applyMeta)
-					cpuIncrease, memIncrease := budgetIncrease(&pod, containerRec.Name, target)
+					r.emitLiveResizeApply(ctx, policy, &pod, action.ContainerRec, action.ApplyMeta)
+					if action.AtTarget {
+						continue
+					}
+					cpuIncrease, memIncrease := action.CPUIncrease, action.MemIncrease
 
 					// Reserve budget before resizing so concurrent goroutines cannot
 					// overspend the cap. Refund it below if the resize did not stick.
 					if !reserveBudget(cpuIncrease, memIncrease) {
 						logger.Info("Budget exhausted, deferring resize to next cycle",
-							"pod", pod.Name, "container", containerRec.Name)
+							"pod", pod.Name, "container", action.Container)
 						operatormetrics.BudgetExhaustedTotal.WithLabelValues(policy.Namespace, policy.Name).Inc()
 						if r.Recorder != nil {
 							r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "BudgetExhausted", "resize",
 								"Resize deferred for pod %s container %s: per-cycle budget exhausted",
-								pod.Name, containerRec.Name)
+								pod.Name, action.Container)
 						}
 						continue
 					}
@@ -541,8 +539,8 @@ func (r *AttunePolicyReconciler) executeResizes(
 						Pod:          &pod,
 						Workload:     matchedWorkload,
 						WorkloadName: workloadName,
-						ContainerRec: containerRec,
-						Target:       target,
+						ContainerRec: action.ContainerRec,
+						Target:       action.Target,
 						Resizer:      resizer,
 						Monitor:      monitor,
 						Now:          now,
@@ -581,7 +579,7 @@ func (r *AttunePolicyReconciler) executeResizes(
 					// Re-Get so a kubelet Infeasible from this apply is
 					// visible to the next container. Skip on Get error:
 					// the persist copy is enough to continue.
-					if i < len(rec.Containers)-1 {
+					if i < len(actions)-1 {
 						if live, err := r.fetchLivePodForResize(ctx, &pod); err == nil && live != nil {
 							pod = *live
 						}
