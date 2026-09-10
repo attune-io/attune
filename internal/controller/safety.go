@@ -306,6 +306,7 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 							confirmed, confirmErr := r.confirmCriticalStatuses(ctx, pod, record)
 							if confirmErr != nil {
 								logger.Error(confirmErr, "Early critical confirm Get failed", "pod", pod.Name)
+								operatormetrics.ReconcileErrorsTotal.WithLabelValues("safety_observation").Inc()
 								continue
 							}
 							if confirmed == nil {
@@ -428,11 +429,13 @@ func (r *AttunePolicyReconciler) revertAndRestoreAfterSafety(
 	logger := log.FromContext(ctx)
 	if err := revertFn(record); err != nil {
 		logger.Error(err, revertFailMsg, "pod", pod.Name)
+		operatormetrics.RevertFailuresTotal.WithLabelValues(pod.Namespace, trackedWorkload, reason).Inc()
 		return err
 	}
 	if err := r.restoreTemplateAfterSafetyRevert(ctx, policy, workloads, record); err != nil {
 		logger.Error(err, "Failed to restore template after safety revert",
 			"pod", pod.Name, "workload", record.WorkloadName, "container", record.Container)
+		operatormetrics.ReconcileErrorsTotal.WithLabelValues("safety_observation").Inc()
 		return err
 	}
 	operatormetrics.RevertsTotal.WithLabelValues(pod.Namespace, trackedWorkload, reason).Inc()
@@ -445,9 +448,10 @@ func (r *AttunePolicyReconciler) revertAndRestoreAfterSafety(
 }
 
 // retryTemplateRestoreIfAlreadyReverted restores an AfterSuccessfulResize
-// template when the live pod is already back at OriginalResources (revert
-// landed, observation later reports Safe). Returns a non-nil error when
-// tracking must stay so the next reconcile retries.
+// template when the live pod already matches the applied revert target
+// (RevertPod clamps memory limits and may raise Guaranteed requests).
+// Restore still writes record.OriginalResources. Returns a non-nil error
+// when tracking must stay so the next reconcile retries.
 func (r *AttunePolicyReconciler) retryTemplateRestoreIfAlreadyReverted(
 	ctx context.Context,
 	policy *attunev1alpha1.AttunePolicy,
@@ -483,7 +487,8 @@ func (r *AttunePolicyReconciler) retryTemplateRestoreIfAlreadyReverted(
 }
 
 // liveContainerMatchesOriginal reports whether the named container's live
-// CPU and memory requests and limits equal the pre-resize snapshot.
+// CPU and memory match the applied revert target (clamp + Guaranteed raise),
+// not the raw original snapshot.
 func liveContainerMatchesOriginal(pod *corev1.Pod, record safety.ResizeRecord) bool {
 	if pod == nil {
 		return false
@@ -492,26 +497,15 @@ func liveContainerMatchesOriginal(pod *corev1.Pod, record safety.ResizeRecord) b
 	if c == nil {
 		return false
 	}
-	return cpuMemQuantityEqual(c.Resources, record.OriginalResources)
+	return resourcesEqual(c.Resources, appliedRevertTarget(pod, record))
 }
 
-func cpuMemQuantityEqual(a, b corev1.ResourceRequirements) bool {
-	return quantityPtrEqual(a.Requests, b.Requests, corev1.ResourceCPU) &&
-		quantityPtrEqual(a.Requests, b.Requests, corev1.ResourceMemory) &&
-		quantityPtrEqual(a.Limits, b.Limits, corev1.ResourceCPU) &&
-		quantityPtrEqual(a.Limits, b.Limits, corev1.ResourceMemory)
-}
-
-func quantityPtrEqual(a, b corev1.ResourceList, name corev1.ResourceName) bool {
-	qa, oka := a[name]
-	qb, okb := b[name]
-	if !oka && !okb {
-		return true
-	}
-	if !oka || !okb {
-		return false
-	}
-	return qa.Equal(qb)
+// appliedRevertTarget is the resource set RevertPod writes after
+// ClampMemoryLimitForPolicy(allowInPlace=false) and the Guaranteed
+// memory request raise.
+func appliedRevertTarget(pod *corev1.Pod, record safety.ResizeRecord) corev1.ResourceRequirements {
+	target := resize.ClampMemoryLimitForPolicy(pod, record.Container, record.OriginalResources, false)
+	return resize.RaiseGuaranteedMemoryRequestToLimit(pod, target)
 }
 
 // confirmSafetyVerdict re-Gets the pod and re-evaluates before revert so a
