@@ -321,6 +321,10 @@ func (r *AttunePolicyReconciler) applyTemplatePersistence(
 		}
 
 		// Build desired resources per container (skip excluded).
+		// Compare want to the cached template, not rec.Current: after
+		// in-place resize rec.Current can lag while the template is
+		// already at the rec (or still needs a usage-floor write).
+		cachedSpec := workloadPodSpec(w)
 		desired := make(map[string]corev1.ResourceRequirements)
 		for _, c := range rec.Containers {
 			if excludeSet[c.Name] {
@@ -333,6 +337,14 @@ func (r *AttunePolicyReconciler) applyTemplatePersistence(
 					"workload", rec.Workload, "container", c.Name,
 					"recommendedLimit", c.Recommended.MemoryLimit.String(),
 					"flooredLimit", recLim.String())
+			}
+			if cachedSpec != nil {
+				if cur, ok := templateContainerResources(cachedSpec, c.Name); ok {
+					next := mergeTemplateResources(cur, want)
+					if resourcesEqual(cur, next) {
+						continue
+					}
+				}
 			}
 			desired[c.Name] = want
 		}
@@ -535,6 +547,38 @@ func mergeTemplateResources(current, want corev1.ResourceRequirements) corev1.Re
 		}
 	}
 	return *out
+}
+
+func workloadPodSpec(w client.Object) *corev1.PodSpec {
+	switch o := w.(type) {
+	case *appsv1.Deployment:
+		return &o.Spec.Template.Spec
+	case *appsv1.StatefulSet:
+		return &o.Spec.Template.Spec
+	default:
+		return nil
+	}
+}
+
+func templateContainerResources(spec *corev1.PodSpec, name string) (corev1.ResourceRequirements, bool) {
+	if spec == nil {
+		return corev1.ResourceRequirements{}, false
+	}
+	for i := range spec.Containers {
+		if spec.Containers[i].Name == name {
+			return spec.Containers[i].Resources, true
+		}
+	}
+	for i := range spec.InitContainers {
+		c := &spec.InitContainers[i]
+		if c.Name != name {
+			continue
+		}
+		if c.RestartPolicy != nil && *c.RestartPolicy == corev1.ContainerRestartPolicyAlways {
+			return c.Resources, true
+		}
+	}
+	return corev1.ResourceRequirements{}, false
 }
 
 func workloadKindName(w client.Object) string {

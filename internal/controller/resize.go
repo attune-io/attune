@@ -88,6 +88,11 @@ func (r *AttunePolicyReconciler) firstOneShotPodNeedingResize(
 		if !resize.IsEligibleForResize(p) {
 			continue
 		}
+		// Screen the listed snapshot first so a converged OneShot
+		// fleet does not live-Get every replica every reconcile.
+		if r.oneShotPodAlreadyAtTarget(policy, p, rec) {
+			continue
+		}
 		// Live Get before Infeasible / shouldSkipResize, matching apply.
 		// Get errors fail closed: do not select the listed snapshot.
 		live, err := r.fetchLivePodForResize(ctx, p)
@@ -474,10 +479,31 @@ func (r *AttunePolicyReconciler) executeResizes(
 				podResized := false
 				skipEviction := false
 
+				// One live Get per pod, and only when the listed snapshot
+				// still differs from the applied target. A matching snapshot
+				// can skip the Get: the MemoryPressure hole is listed
+				// decrease vs live increase, which is listed != target.
+				if !r.oneShotPodAlreadyAtTarget(policy, &pod, rec) {
+					if live, err := r.fetchLivePodForResize(ctx, &pod); err != nil {
+						reason := "pod status unavailable; skipping resize"
+						for _, containerRec := range rec.Containers {
+							logger.Info("Skipping resize: "+reason,
+								"pod", pod.Name, "namespace", pod.Namespace,
+								"container", containerRec.Name, "error", err)
+							r.emitEventOnce(policy, corev1.EventTypeWarning, "ResizeSkipped", "resize",
+								"Resize blocked for pod %s container %s: %s", pod.Name, containerRec.Name, reason)
+							recordCapacitySkip(policy, reason)
+						}
+						return
+					} else if live != nil {
+						pod = *live
+					}
+				}
+
 				// Containers within the same pod must resize sequentially.
 				// Each UpdateResize bumps resourceVersion; using a stale copy
 				// for the next container causes a 409 Conflict.
-				for _, containerRec := range rec.Containers {
+				for i, containerRec := range rec.Containers {
 					target, clamped := buildResizeTarget(containerRec)
 					if len(clamped) > 0 {
 						logger.V(1).Info("Requests clamped to limits",
@@ -488,21 +514,8 @@ func (r *AttunePolicyReconciler) executeResizes(
 								policy.Namespace, policy.Name, containerRec.Name, res).Inc()
 						}
 					}
-					// Live Get + apply before reserve so the budget matches
-					// the target resizeContainer will send (clamp, floor,
-					// Guaranteed raise). Fail closed on Get error.
-					if live, err := r.fetchLivePodForResize(ctx, &pod); err != nil {
-						reason := "pod status unavailable; skipping resize"
-						logger.Info("Skipping resize: "+reason,
-							"pod", pod.Name, "namespace", pod.Namespace,
-							"container", containerRec.Name, "error", err)
-						r.emitEventOnce(policy, corev1.EventTypeWarning, "ResizeSkipped", "resize",
-							"Resize blocked for pod %s container %s: %s", pod.Name, containerRec.Name, reason)
-						recordCapacitySkip(policy, reason)
-						continue
-					} else if live != nil {
-						pod = *live
-					}
+					// Apply before reserve so the budget matches the target
+					// resizeContainer will send (clamp, floor, Guaranteed raise).
 					var applyMeta liveResizeApplyMeta
 					target, applyMeta = r.applyLiveResizeTarget(policy, &pod, containerRec, target)
 					r.emitLiveResizeApply(ctx, policy, &pod, containerRec, applyMeta)
@@ -563,9 +576,15 @@ func (r *AttunePolicyReconciler) executeResizes(
 					podReservedCPU += cpuIncrease
 					podReservedMem += memIncrease
 					podResized = true
-					// The pod variable is already updated by persistResizeAnnotations
-					// with a fresh resourceVersion and annotations, so no additional
-					// API Get is needed for the next container's UpdateResize call.
+					// persistResizeAnnotations refreshes RV and annotations.
+					// Re-Get so a kubelet Infeasible from this apply is
+					// visible to the next container. Skip on Get error:
+					// the persist copy is enough to continue.
+					if i < len(rec.Containers)-1 {
+						if live, err := r.fetchLivePodForResize(ctx, &pod); err == nil && live != nil {
+							pod = *live
+						}
+					}
 				}
 				if len(podHistory) > 0 {
 					historyMu.Lock()
@@ -606,8 +625,8 @@ type resizeParams struct {
 	// eviction fallback, so later containers still try in-place but do
 	// not repeat List+Evict.
 	SkipEviction bool
-	// LiveApplied means executeResizes already live-Got and ran
-	// applyLiveResizeTarget; Target is the applied value.
+	// LiveApplied means executeResizes already ran applyLiveResizeTarget
+	// (after at most one live Get for the pod). Target is the applied value.
 	LiveApplied bool
 }
 

@@ -121,6 +121,30 @@ func TestFirstOneShotPodNeedingResize_AllAtTarget(t *testing.T) {
 	assert.Empty(t, got)
 }
 
+func TestFirstOneShotPodNeedingResize_AllAtTargetSkipsLiveGet(t *testing.T) {
+	pods := []corev1.Pod{
+		oneshotResizePod("pod-0", "200m", "256Mi"),
+		oneshotResizePod("pod-1", "200m", "256Mi"),
+		oneshotResizePod("pod-2", "200m", "256Mi"),
+	}
+	rec := newResizeRecommendation("api", "500m", "512Mi", "0", "0", "200m", "256Mi", "0", "0")
+
+	r := newReconcilerWithClient()
+	cs := kubefake.NewSimpleClientset(pods[0].DeepCopy(), pods[1].DeepCopy(), pods[2].DeepCopy())
+	r.Clientset = cs
+
+	got := r.firstOneShotPodNeedingResize(context.Background(), newTestPolicy("test-policy", "default"), pods, rec, nil)
+	assert.Empty(t, got)
+
+	gets := 0
+	for _, a := range cs.Actions() {
+		if a.GetVerb() == "get" && a.GetResource().Resource == "pods" {
+			gets++
+		}
+	}
+	assert.Equal(t, 0, gets, "converged OneShot must not live-Get replicas already at target")
+}
+
 func oneshotResizePodWithLimits(name, cpuReq, memReq, cpuLim, memLim string) corev1.Pod {
 	pod := oneshotResizePod(name, cpuReq, memReq)
 	pod.Spec.Containers[0].Resources.Limits = corev1.ResourceList{

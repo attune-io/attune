@@ -1485,9 +1485,11 @@ func TestApplyTemplatePersistence_NoOpWhenTemplateMatches(t *testing.T) {
 		Status: appsv1.DeploymentStatus{Replicas: 1, UpdatedReplicas: 1, AvailableReplicas: 1},
 	}
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy).Build()
+	counter := &getCountingReader{Reader: cl}
 	r := NewAttunePolicyReconciler()
 	r.Client = cl
 	r.Scheme = scheme
+	r.APIReader = counter
 
 	policy := newTestPolicy("p", "default")
 	// Allow memory decrease so materialize keeps recommended 256Mi (matches template).
@@ -1517,6 +1519,17 @@ func TestApplyTemplatePersistence_NoOpWhenTemplateMatches(t *testing.T) {
 	history := r.applyTemplatePersistence(context.Background(), policy, []client.Object{deploy}, recs,
 		attunev1alpha1.TemplatePersistenceOnRecommendation, nil)
 	assert.Empty(t, history, "template already matches desired; no history entry")
+	assert.Equal(t, 0, counter.n, "cached template match must skip the live workload Get")
+}
+
+type getCountingReader struct {
+	client.Reader
+	n int
+}
+
+func (g *getCountingReader) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	g.n++
+	return g.Reader.Get(ctx, key, obj, opts...)
 }
 
 func TestApplyTemplatePersistence_RequestsOnlyPreservesTemplateLimits(t *testing.T) {

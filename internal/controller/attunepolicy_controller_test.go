@@ -10723,6 +10723,175 @@ func TestExecuteResizes_BudgetUsesGuaranteedRaisedTarget(t *testing.T) {
 	assert.Equal(t, 0, count, "budget must see the Guaranteed-raised request, not the raw rec request")
 }
 
+func TestExecuteResizes_AlreadyAtTargetSkipsLiveGet(t *testing.T) {
+	// Converged two-container pod: listed snapshot already matches the
+	// applied target, so executeResizes must not live-Get.
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "api-server-abc-1", Namespace: "default",
+			Labels: map[string]string{"app": "api-server"},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{Name: "main", Image: "nginx", Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("200m"),
+						corev1.ResourceMemory: resource.MustParse("256Mi"),
+					},
+				}},
+				{Name: "sidecar", Image: "envoy", Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("50m"),
+						corev1.ResourceMemory: resource.MustParse("32Mi"),
+					},
+				}},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "main", Ready: true},
+				{Name: "sidecar", Ready: true},
+			},
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod).Build()
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = scheme
+	reconciler.Clientset = clientset
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	recommendations := []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "api-server",
+		Kind:     "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{
+			{
+				Name: "main",
+				Current: attunev1alpha1.ResourceValues{
+					CPURequest: resource.MustParse("200m"), MemoryRequest: resource.MustParse("256Mi"),
+				},
+				Recommended: attunev1alpha1.ResourceValues{
+					CPURequest: resource.MustParse("200m"), MemoryRequest: resource.MustParse("256Mi"),
+				},
+			},
+			{
+				Name: "sidecar",
+				Current: attunev1alpha1.ResourceValues{
+					CPURequest: resource.MustParse("50m"), MemoryRequest: resource.MustParse("32Mi"),
+				},
+				Recommended: attunev1alpha1.ResourceValues{
+					CPURequest: resource.MustParse("50m"), MemoryRequest: resource.MustParse("32Mi"),
+				},
+			},
+		},
+	}}
+
+	count, _ := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
+		recommendations, map[string][]corev1.Pod{"api-server": {*pod}}, nil, nil)
+	assert.Equal(t, 0, count)
+
+	gets := 0
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "get" && a.GetResource().Resource == "pods" {
+			gets++
+		}
+	}
+	assert.Equal(t, 0, gets, "listed already at target must skip the live pod Get")
+}
+
+func TestExecuteResizes_MultiContainerStillResizesBoth(t *testing.T) {
+	// Two containers that both need work still both reach UpdateResize
+	// after the per-pod live Get hoist. Get-count is covered by
+	// TestExecuteResizes_AlreadyAtTargetSkipsLiveGet.
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "api-server-abc-1", Namespace: "default",
+			Labels: map[string]string{"app": "api-server"},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{Name: "main", Image: "nginx", Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("500m"),
+						corev1.ResourceMemory: resource.MustParse("256Mi"),
+					},
+				}},
+				{Name: "sidecar", Image: "envoy", Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("100m"),
+						corev1.ResourceMemory: resource.MustParse("64Mi"),
+					},
+				}},
+			},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "main", Ready: true},
+				{Name: "sidecar", Ready: true},
+			},
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod).Build()
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = scheme
+	reconciler.Clientset = clientset
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	recommendations := []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "api-server",
+		Kind:     "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{
+			{
+				Name: "main",
+				Current: attunev1alpha1.ResourceValues{
+					CPURequest: resource.MustParse("500m"), MemoryRequest: resource.MustParse("256Mi"),
+				},
+				Recommended: attunev1alpha1.ResourceValues{
+					CPURequest: resource.MustParse("250m"), MemoryRequest: resource.MustParse("128Mi"),
+				},
+			},
+			{
+				Name: "sidecar",
+				Current: attunev1alpha1.ResourceValues{
+					CPURequest: resource.MustParse("100m"), MemoryRequest: resource.MustParse("64Mi"),
+				},
+				Recommended: attunev1alpha1.ResourceValues{
+					CPURequest: resource.MustParse("50m"), MemoryRequest: resource.MustParse("32Mi"),
+				},
+			},
+		},
+	}}
+
+	count, _ := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
+		recommendations, map[string][]corev1.Pod{"api-server": {*pod}}, nil, nil)
+	assert.Equal(t, 1, count)
+
+	updates := 0
+	for _, a := range clientset.Actions() {
+		if a.GetVerb() == "update" && a.GetSubresource() == "resize" {
+			updates++
+		}
+	}
+	assert.GreaterOrEqual(t, updates, 2, "both containers should reach UpdateResize")
+}
+
 func TestExecuteResizes_BudgetCapsSkipDoesNotConsumeBudget(t *testing.T) {
 	pod1 := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
 	pod1.Name = "api-server-abc-1"
