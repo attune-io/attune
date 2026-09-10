@@ -436,17 +436,18 @@ func (m *Monitor) RevertPod(ctx context.Context, record ResizeRecord) error {
 		// Monitor does not know cluster version; pass false to keep the
 		// safer clamp path (same as pre-1.35). Controllers on 1.35+ that
 		// unclamp apply may still need clamp on revert if original is lower.
-		revertTarget := resize.ClampMemoryLimitForPolicy(pod, record.Container, record.OriginalResources, false)
-		// Guaranteed raise after the 1.33 clamp, same helper as live apply
-		// and appliedRevertTarget so the three cannot drift.
-		beforeRaise := revertTarget.DeepCopy()
-		revertTarget = resize.RaiseGuaranteedMemoryRequestToLimit(pod, revertTarget)
-		if memReq, ok := revertTarget.Requests[corev1.ResourceMemory]; ok {
-			if was, wok := beforeRaise.Requests[corev1.ResourceMemory]; wok && !memReq.Equal(was) {
-				m.logger.Info("Memory request raised to match clamped limit for Guaranteed QoS revert",
-					"pod", record.PodName, "namespace", record.Namespace,
-					"container", record.Container, "request", memReq.String())
-			}
+		// Same clamp + Guaranteed raise as appliedRevertTarget / live apply.
+		// Reverts often lower memory; allowInPlace=false keeps the 1.33 clamp.
+		revertTarget, revertMeta := resize.ResolveAppliedTarget(resize.ResolveInput{
+			Target:                     record.OriginalResources,
+			Pod:                        pod,
+			Container:                  record.Container,
+			AllowInPlaceMemoryDecrease: false,
+		})
+		if revertMeta.GuaranteedRequestRaised {
+			m.logger.Info("Memory request raised to match clamped limit for Guaranteed QoS revert",
+				"pod", record.PodName, "namespace", record.Namespace,
+				"container", record.Container, "request", revertTarget.Requests.Memory().String())
 		}
 		found := false
 		for i, c := range updated.Spec.InitContainers {

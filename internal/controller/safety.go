@@ -538,8 +538,13 @@ func liveContainerMatchesOriginal(pod *corev1.Pod, record safety.ResizeRecord) b
 // ClampMemoryLimitForPolicy(allowInPlace=false) and the Guaranteed
 // memory request raise.
 func appliedRevertTarget(pod *corev1.Pod, record safety.ResizeRecord) corev1.ResourceRequirements {
-	target := resize.ClampMemoryLimitForPolicy(pod, record.Container, record.OriginalResources, false)
-	return resize.RaiseGuaranteedMemoryRequestToLimit(pod, target)
+	applied, _ := resize.ResolveAppliedTarget(resize.ResolveInput{
+		Target:                     record.OriginalResources,
+		Pod:                        pod,
+		Container:                  record.Container,
+		AllowInPlaceMemoryDecrease: false,
+	})
+	return applied
 }
 
 // confirmSafetyVerdict re-Gets the pod and re-evaluates before revert so a
