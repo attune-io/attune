@@ -542,6 +542,9 @@ type UpdateStrategy struct {
 	// across all pods in a single reconcile cycle (e.g. "2000m", "4").
 	// Once exhausted, remaining pods are deferred to the next cycle.
 	// Decreases do not consume budget. Default: unlimited.
+	//
+	// Prefer MaxCPUIncreasePerMinute. This per-cycle field is kept for
+	// compatibility; its real-world rate depends on reconcileInterval.
 	// +optional
 	MaxTotalCPUIncrease *resource.Quantity `json:"maxTotalCpuIncrease,omitempty"`
 
@@ -549,6 +552,9 @@ type UpdateStrategy struct {
 	// allowed across all pods in a single reconcile cycle (e.g. "4Gi").
 	// Once exhausted, remaining pods are deferred to the next cycle.
 	// Decreases do not consume budget. Default: unlimited.
+	//
+	// Prefer MaxMemoryIncreasePerMinute. This per-cycle field is kept for
+	// compatibility; its real-world rate depends on reconcileInterval.
 	// +optional
 	MaxTotalMemoryIncrease *resource.Quantity `json:"maxTotalMemoryIncrease,omitempty"`
 

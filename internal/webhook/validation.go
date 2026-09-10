@@ -156,6 +156,12 @@ func (v *AttunePolicyValidator) validate(policy *attunev1alpha1.AttunePolicy) (a
 	if q := us.MaxMemoryIncreasePerMinute; q != nil && q.Value() < 0 {
 		return warnings, fmt.Errorf("updateStrategy.maxMemoryIncreasePerMinute must be non-negative, got %s", q)
 	}
+	if us.MaxTotalCPUIncrease != nil {
+		warnings = append(warnings, "maxTotalCpuIncrease is deprecated; prefer maxCpuIncreasePerMinute so the cap does not depend on reconcileInterval")
+	}
+	if us.MaxTotalMemoryIncrease != nil {
+		warnings = append(warnings, "maxTotalMemoryIncrease is deprecated; prefer maxMemoryIncreasePerMinute so the cap does not depend on reconcileInterval")
+	}
 
 	// Validate historyWindow is within reasonable bounds (1h to 720h/30d).
 	if policy.Spec.MetricsSource.HistoryWindow != nil {

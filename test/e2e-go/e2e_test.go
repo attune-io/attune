@@ -1368,6 +1368,106 @@ func TestE2E_BudgetCaps_LimitsPerCycleIncrease(t *testing.T) {
 		"increase larger than maxTotalCpuIncrease must not set workloads.resized")
 }
 
+// TestE2E_BudgetCaps_LimitsPerMinuteIncrease proves maxCpuIncreasePerMinute
+// blocks a live CPU increase that exceeds the wall-clock rate.
+func TestE2E_BudgetCaps_LimitsPerMinuteIncrease(t *testing.T) {
+	t.Parallel()
+	ns := uniqueNS("budrate")
+	createNamespace(t, ns)
+
+	const app = "budrate-app"
+	origCPU := resource.MustParse("50m")
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: app, Namespace: ns,
+			Labels: map[string]string{"app": app},
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: int32Ptr(1),
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": app}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": app}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:    "app",
+						Image:   cpuBurnImage,
+						Command: []string{"sh", "-c", "while true; do :; done"},
+						ResizePolicy: []corev1.ContainerResizePolicy{
+							{ResourceName: corev1.ResourceCPU, RestartPolicy: corev1.NotRequired},
+							{ResourceName: corev1.ResourceMemory, RestartPolicy: corev1.NotRequired},
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    origCPU,
+								corev1.ResourceMemory: resource.MustParse("32Mi"),
+							},
+						},
+					}},
+				},
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, deploy))
+	waitForDeploymentReady(t, app, ns, 180*time.Second)
+
+	cpuRate := resource.MustParse("20m")
+	maxCPU := resource.MustParse("300m")
+	memPin := resource.MustParse("32Mi")
+	deployName := app
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "budrate-policy", Namespace: ns},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			TargetRef: attunev1alpha1.TargetRef{Kind: "Deployment", Name: &deployName},
+			MetricsSource: attunev1alpha1.MetricsSource{
+				Prometheus:        &attunev1alpha1.PrometheusConfig{Address: promAddr},
+				MinimumDataPoints: int32Ptr(1),
+				HistoryWindow:     &metav1.Duration{Duration: time.Hour},
+				QueryStep:         &metav1.Duration{Duration: 30 * time.Second},
+				RateWindow:        &metav1.Duration{Duration: 5 * time.Minute},
+			},
+			CPU: attunev1alpha1.ResourceConfig{
+				Percentile:       95,
+				Overhead:         "20",
+				MinAllowed:       quantityPtr("50m"),
+				MaxAllowed:       &maxCPU,
+				MaxChangePercent: int32Ptr(100),
+			},
+			Memory: attunev1alpha1.ResourceConfig{
+				Percentile:       99,
+				Overhead:         "30",
+				AllowDecrease:    boolPtr(false),
+				MinAllowed:       &memPin,
+				MaxAllowed:       &memPin,
+				MaxChangePercent: int32Ptr(100),
+			},
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{
+				Type:                    attunev1alpha1.UpdateTypeAuto,
+				Cooldown:                &metav1.Duration{Duration: time.Minute},
+				AutoRevert:              boolPtr(false),
+				MaxCPUIncreasePerMinute: &cpuRate,
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, policy))
+
+	waitForPolicyDiscovered(t, "budrate-policy", ns, 2*time.Minute)
+
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 5*time.Minute, true, func(ctx context.Context) (bool, error) {
+		if policyHasEvent(t, ns, "budrate-policy", "BudgetExhausted") {
+			return true, nil
+		}
+		return false, nil
+	}), "timed out waiting for BudgetExhausted (CPU increase over maxCpuIncreasePerMinute)")
+
+	stillAtOrig := countPodsWithCPURequest(t, ns, app, origCPU)
+	require.Equal(t, 1, stillAtOrig,
+		"pod CPU must remain at original 50m when increase exceeds maxCpuIncreasePerMinute")
+	var p attunev1alpha1.AttunePolicy
+	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: "budrate-policy", Namespace: ns}, &p))
+	assert.Equal(t, int32(0), p.Status.Workloads.Resized,
+		"increase larger than maxCpuIncreasePerMinute must not set workloads.resized")
+}
+
 // TestE2E_GuaranteedQoS_CPUResizeWithMemoryHeld verifies that when memory
 // cannot decrease (Guaranteed + allowDecrease=false / minAllowed=current),
 // an overprovisioned CPU request still resizes live via /resize. This is

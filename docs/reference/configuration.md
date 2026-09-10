@@ -289,8 +289,8 @@ that do not set them explicitly. Policy-level values always take precedence.
 | `maxConcurrentResizes` | int32 | `1` (built-in when unset) | Max pods to resize simultaneously. Omitted on the policy so AttuneDefaults can apply before the built-in 1. |
 | `maxStatusRecommendations` | *int32 | `100` (operator default) | Cap for `status.recommendations` length; full set still drives resizes |
 | `includeExplanationsInStatus` | *bool | `true` | When false, strip recommendation explanation chains from status |
-| `maxTotalCpuIncrease` | quantity | (none) | Max aggregate CPU increase per cycle |
-| `maxTotalMemoryIncrease` | quantity | (none) | Max aggregate memory increase per cycle |
+| `maxTotalCpuIncrease` | quantity | (none) | Deprecated. Max aggregate CPU increase per cycle. Prefer `maxCpuIncreasePerMinute`. |
+| `maxTotalMemoryIncrease` | quantity | (none) | Deprecated. Max aggregate memory increase per cycle. Prefer `maxMemoryIncreasePerMinute`. |
 | `maxCpuIncreasePerMinute` | quantity | (none) | Max aggregate CPU increase per wall-clock minute (token bucket) |
 | `maxMemoryIncreasePerMinute` | quantity | (none) | Max aggregate memory increase per wall-clock minute (token bucket) |
 | `schedule` | object | (none) | Time windows, days of week, timezone |
