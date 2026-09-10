@@ -103,6 +103,7 @@ jobs:
               - 'hack/verify-dashboard-metrics.sh'
             yaml:
               - 'config/**'
+              - '.yamllint.yaml'
               - '.github/workflows/**'
               - 'charts/attune/Chart.yaml'
               - 'charts/attune/values.yaml'

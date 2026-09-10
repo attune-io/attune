@@ -779,7 +779,8 @@ A zero `attune_revert_failures_total` does not mean restore finished.
 That counter only counts failed `/resize` revert calls. Check
 `attune_reconcile_errors_total{error_type="safety_observation"}` if
 list, confirm, or cleanup also failed. Tracking stays; the next
-reconcile retries the restore.
+reconcile retries the restore even when the pod is Ready again, as
+long as live resources still match the original snapshot.
 
 ### Safety observation stuck
 
