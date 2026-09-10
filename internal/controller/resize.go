@@ -488,6 +488,24 @@ func (r *AttunePolicyReconciler) executeResizes(
 								policy.Namespace, policy.Name, containerRec.Name, res).Inc()
 						}
 					}
+					// Live Get + apply before reserve so the budget matches
+					// the target resizeContainer will send (clamp, floor,
+					// Guaranteed raise). Fail closed on Get error.
+					if live, err := r.fetchLivePodForResize(ctx, &pod); err != nil {
+						reason := "pod status unavailable; skipping resize"
+						logger.Info("Skipping resize: "+reason,
+							"pod", pod.Name, "namespace", pod.Namespace,
+							"container", containerRec.Name, "error", err)
+						r.emitEventOnce(policy, corev1.EventTypeWarning, "ResizeSkipped", "resize",
+							"Resize blocked for pod %s container %s: %s", pod.Name, containerRec.Name, reason)
+						recordCapacitySkip(policy, reason)
+						continue
+					} else if live != nil {
+						pod = *live
+					}
+					var applyMeta liveResizeApplyMeta
+					target, applyMeta = r.applyLiveResizeTarget(policy, &pod, containerRec, target)
+					r.emitLiveResizeApply(ctx, policy, &pod, containerRec, applyMeta)
 					cpuIncrease, memIncrease := budgetIncrease(&pod, containerRec.Name, target)
 
 					// Reserve budget before resizing so concurrent goroutines cannot
@@ -516,6 +534,7 @@ func (r *AttunePolicyReconciler) executeResizes(
 						Now:          now,
 						Checks:       checks,
 						SkipEviction: skipEviction,
+						LiveApplied:  true,
 					})
 					if outcome == resizeOutcomeNone {
 						podHistory = append(podHistory, entries...)
@@ -587,6 +606,9 @@ type resizeParams struct {
 	// eviction fallback, so later containers still try in-place but do
 	// not repeat List+Evict.
 	SkipEviction bool
+	// LiveApplied means executeResizes already live-Got and ran
+	// applyLiveResizeTarget; Target is the applied value.
+	LiveApplied bool
 }
 
 // resizeOutcome tells executeResizes whether a container resize succeeded
@@ -615,28 +637,30 @@ func (r *AttunePolicyReconciler) resizeContainer(
 	containerRec, resizer, monitor, now := p.ContainerRec, p.Resizer, p.Monitor, p.Now
 	target := p.Target
 
-	// Live-Get before floor and pressure gates. The listed/informer pod can
-	// lag a prior in-place resize: a stale-low limit clips the usage floor
-	// below live usage; a stale-high request classifies a live increase as
-	// a decrease and skips MemoryPressure / unavailable / neighbor gates.
-	// Fail-closed on Get error: do not classify increase vs decrease
-	// against the listed snapshot (it may be stale-high).
-	if live, err := r.fetchLivePodForResize(ctx, pod); err != nil {
-		reason := "pod status unavailable; skipping resize"
-		logger.Info("Skipping resize: "+reason,
-			"pod", pod.Name, "namespace", pod.Namespace, "container", containerRec.Name, "error", err)
-		r.emitEventOnce(policy, corev1.EventTypeWarning, "ResizeSkipped", "resize",
-			"Resize blocked for pod %s container %s: %s", pod.Name, containerRec.Name, reason)
-		recordCapacitySkip(policy, reason)
-		return nil, resizeOutcomeNone
-	} else if live != nil {
-		pod = live
+	// Live-Get before floor and pressure gates unless executeResizes already
+	// applied the live target for budget accounting. The listed/informer pod
+	// can lag a prior in-place resize: a stale-low limit clips the usage
+	// floor below live usage; a stale-high request classifies a live
+	// increase as a decrease and skips MemoryPressure / unavailable /
+	// neighbor gates. Fail-closed on Get error.
+	var applyMeta liveResizeApplyMeta
+	if !p.LiveApplied {
+		if live, err := r.fetchLivePodForResize(ctx, pod); err != nil {
+			reason := "pod status unavailable; skipping resize"
+			logger.Info("Skipping resize: "+reason,
+				"pod", pod.Name, "namespace", pod.Namespace, "container", containerRec.Name, "error", err)
+			r.emitEventOnce(policy, corev1.EventTypeWarning, "ResizeSkipped", "resize",
+				"Resize blocked for pod %s container %s: %s", pod.Name, containerRec.Name, reason)
+			recordCapacitySkip(policy, reason)
+			return nil, resizeOutcomeNone
+		} else if live != nil {
+			pod = live
+		}
+		target, applyMeta = r.applyLiveResizeTarget(policy, pod, containerRec, target)
+		r.emitLiveResizeApply(ctx, policy, pod, containerRec, applyMeta)
+	} else {
+		applyMeta.PreClamped = *target.DeepCopy()
 	}
-
-	// Apply clamp + Guaranteed raise + usage floor before skip checks so
-	// shouldSkipResize sees the values that will be sent to the API server.
-	target, applyMeta := r.applyLiveResizeTarget(policy, pod, containerRec, target)
-	r.emitLiveResizeApply(ctx, policy, pod, containerRec, applyMeta)
 	preClamped := applyMeta.PreClamped
 
 	skip, reason := r.shouldSkipResize(ctx, pod, containerRec, target, p.Checks)

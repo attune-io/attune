@@ -10700,6 +10700,29 @@ func TestExecuteResizes_BudgetCapsClampedTargetUsesAppliedIncrease(t *testing.T)
 	assert.Equal(t, 1, count, "budget should use the clamped applied increase, not the raw recommendation delta")
 }
 
+func TestExecuteResizes_BudgetUsesGuaranteedRaisedTarget(t *testing.T) {
+	// Guaranteed 256Mi/256Mi. Rec is 300Mi request / 400Mi limit.
+	// applyLiveResizeTarget raises the request to 400Mi. Budget 64Mi sits
+	// between the raw request delta (44Mi) and the applied delta (144Mi).
+	pod := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
+	pod.Status.QOSClass = corev1.PodQOSGuaranteed
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	reconciler, _ := newResizeReconciler(pod, deploy)
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	memBudget := resource.MustParse("64Mi")
+	policy.Spec.UpdateStrategy.MaxTotalMemoryIncrease = &memBudget
+
+	recommendations := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("api-server", "200m", "256Mi", "200m", "256Mi", "200m", "300Mi", "200m", "400Mi"),
+	}
+
+	count, _ := reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
+		recommendations, podMap("api-server", pod), nil, nil)
+	assert.Equal(t, 0, count, "budget must see the Guaranteed-raised request, not the raw rec request")
+}
+
 func TestExecuteResizes_BudgetCapsSkipDoesNotConsumeBudget(t *testing.T) {
 	pod1 := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
 	pod1.Name = "api-server-abc-1"
