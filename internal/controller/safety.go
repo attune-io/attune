@@ -124,10 +124,8 @@ func (r *AttunePolicyReconciler) tryEvictionFallback(
 	// Serialize List + count + Evict per workload so two resize goroutines
 	// cannot both observe running==2 and take the Deployment to zero.
 	lockKey := pod.Namespace + "/" + workloadName
-	v, _ := r.evictionLocks.LoadOrStore(lockKey, &sync.Mutex{})
-	mu := v.(*sync.Mutex)
-	mu.Lock()
-	defer mu.Unlock()
+	mu := r.acquireEvictionLock(lockKey)
+	defer r.releaseEvictionLock(lockKey, mu)
 
 	running, err := r.countLiveRunningReplicas(ctx, pod.Namespace, selectorLabels)
 	if err != nil {
@@ -169,6 +167,26 @@ func (r *AttunePolicyReconciler) tryEvictionFallback(
 	logger.Info("Eviction fallback successful",
 		"pod", pod.Name, "workload", workloadName, "container", containerName)
 	return true, ""
+}
+
+// acquireEvictionLock returns the per-workload mutex and holds it. Release
+// with releaseEvictionLock so the map entry is removed when idle.
+func (r *AttunePolicyReconciler) acquireEvictionLock(key string) *sync.Mutex {
+	for {
+		v, _ := r.evictionLocks.LoadOrStore(key, &sync.Mutex{})
+		mu := v.(*sync.Mutex)
+		mu.Lock()
+		cur, ok := r.evictionLocks.Load(key)
+		if ok && cur == mu {
+			return mu
+		}
+		mu.Unlock()
+	}
+}
+
+func (r *AttunePolicyReconciler) releaseEvictionLock(key string, mu *sync.Mutex) {
+	r.evictionLocks.Delete(key)
+	mu.Unlock()
 }
 
 // countLiveRunningReplicas lists matching pods through the typed Clientset
@@ -338,6 +356,7 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 		}
 
 		var revertFailed, throttlePending bool
+		restoredThisPass := map[string]struct{}{}
 		for _, record := range records {
 			verdict, err := monitor.CheckPodObject(ctx, pod, record, r.now())
 			if err != nil {
@@ -377,6 +396,7 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 					revertFailed = true
 					continue
 				}
+				restoredThisPass[record.Container] = struct{}{}
 			}
 		}
 
@@ -393,10 +413,28 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 		// at OriginalResources while the AfterSuccessfulResize template is
 		// still the persisted rec. Restore only; do not revert again.
 		restoreFailed := false
-		for _, record := range records {
-			if err := r.retryTemplateRestoreIfAlreadyReverted(ctx, policy, workloads, pod, record); err != nil {
+		needRestoreRetry := templatePersistenceEnabled(policy.Spec.UpdateStrategy) &&
+			templatePersistenceWhen(policy.Spec.UpdateStrategy) == attunev1alpha1.TemplatePersistenceAfterSuccessfulResize
+		if needRestoreRetry {
+			live, liveErr := r.fetchLivePodForResize(ctx, pod)
+			if liveErr != nil {
+				logger.Error(liveErr, "Failed to fetch live pod for template restore retry",
+					"pod", pod.Name)
+				operatormetrics.ReconcileErrorsTotal.WithLabelValues("safety_observation").Inc()
 				restoreFailed = true
-				break
+			} else {
+				if live == nil {
+					live = pod
+				}
+				for _, record := range records {
+					if _, ok := restoredThisPass[record.Container]; ok {
+						continue
+					}
+					if err := r.retryTemplateRestoreIfAlreadyReverted(ctx, policy, workloads, live, record); err != nil {
+						restoreFailed = true
+						break
+					}
+				}
 			}
 		}
 		if restoreFailed {
@@ -452,6 +490,7 @@ func (r *AttunePolicyReconciler) revertAndRestoreAfterSafety(
 // retryTemplateRestoreIfAlreadyReverted restores an AfterSuccessfulResize
 // template when the live pod already matches the applied revert target
 // (RevertPod clamps memory limits and may raise Guaranteed requests).
+// listed must already be the live pod (caller Gets once per pod).
 // Restore still writes record.OriginalResources. Returns a non-nil error
 // when tracking must stay so the next reconcile retries.
 func (r *AttunePolicyReconciler) retryTemplateRestoreIfAlreadyReverted(
@@ -469,14 +508,7 @@ func (r *AttunePolicyReconciler) retryTemplateRestoreIfAlreadyReverted(
 	}
 
 	logger := log.FromContext(ctx)
-	live, err := r.fetchLivePodForResize(ctx, listed)
-	if err != nil {
-		logger.Error(err, "Failed to fetch live pod for template restore retry",
-			"pod", listed.Name, "container", record.Container)
-		operatormetrics.ReconcileErrorsTotal.WithLabelValues("safety_observation").Inc()
-		return err
-	}
-	if !liveContainerMatchesOriginal(live, record) {
+	if !liveContainerMatchesOriginal(listed, record) {
 		return nil
 	}
 	if err := r.restoreTemplateAfterSafetyRevert(ctx, policy, workloads, record); err != nil {
