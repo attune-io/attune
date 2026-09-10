@@ -742,6 +742,9 @@ spec:
                       across all pods in a single reconcile cycle (e.g. "2000m", "4").
                       Once exhausted, remaining pods are deferred to the next cycle.
                       Decreases do not consume budget. Default: unlimited.
+
+                      Deprecated: prefer MaxCPUIncreasePerMinute. The per-cycle cap's
+                      real-world rate depends on reconcileInterval.
                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                     x-kubernetes-int-or-string: true
                   maxTotalMemoryIncrease:
@@ -753,6 +756,9 @@ spec:
                       allowed across all pods in a single reconcile cycle (e.g. "4Gi").
                       Once exhausted, remaining pods are deferred to the next cycle.
                       Decreases do not consume budget. Default: unlimited.
+
+                      Deprecated: prefer MaxMemoryIncreasePerMinute. The per-cycle cap's
+                      real-world rate depends on reconcileInterval.
                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                     x-kubernetes-int-or-string: true
                   resizeMethod:

@@ -182,6 +182,12 @@ func validateDefaultsSpec(spec attunev1alpha1.AttuneDefaultsSpec) (admission.War
 		if q := spec.UpdateStrategy.MaxMemoryIncreasePerMinute; q != nil && q.Value() < 0 {
 			return warnings, fmt.Errorf("updateStrategy.maxMemoryIncreasePerMinute must be non-negative, got %s", q)
 		}
+		if spec.UpdateStrategy.MaxTotalCPUIncrease != nil {
+			warnings = append(warnings, "maxTotalCpuIncrease is deprecated; prefer maxCpuIncreasePerMinute so the cap does not depend on reconcileInterval")
+		}
+		if spec.UpdateStrategy.MaxTotalMemoryIncrease != nil {
+			warnings = append(warnings, "maxTotalMemoryIncrease is deprecated; prefer maxMemoryIncreasePerMinute so the cap does not depend on reconcileInterval")
+		}
 	}
 
 	// Validate safetyObservationPeriod has a minimum floor.

@@ -740,6 +740,15 @@ func TestValidate_NegativeBudgetCaps(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "maxMemoryIncreasePerMinute must be non-negative")
 	})
+
+	t.Run("deprecated cycle budget warns", func(t *testing.T) {
+		policy := validPolicy()
+		q := resource.MustParse("2000m")
+		policy.Spec.UpdateStrategy.MaxTotalCPUIncrease = &q
+		w, err := validator.ValidateCreate(context.Background(), policy)
+		assert.NoError(t, err)
+		assert.Contains(t, w, "maxTotalCpuIncrease is deprecated; prefer maxCpuIncreasePerMinute so the cap does not depend on reconcileInterval")
+	})
 }
 
 func TestValidate_OverheadExceedsMax(t *testing.T) {
