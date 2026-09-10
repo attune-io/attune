@@ -351,12 +351,8 @@ func applyCreateMemoryUsageFloor(
 			if policy != nil && policy.Spec.Memory.DecreaseUsageMarginPercent != nil {
 				margin = float64(*policy.Spec.Memory.DecreaseUsageMarginPercent)
 			}
-			currentLimit := cr.Current.MemoryLimit.DeepCopy()
-			usageFloor := resize.MemoryUsageFloorQuantity(usage, margin)
-			if !usageFloor.IsZero() && usageFloor.Cmp(currentLimit) > 0 {
-				currentLimit = usageFloor
-			}
-			if floored, applied := resize.FloorMemoryLimitForUsage(target, currentLimit, usage, margin); applied {
+			if floored, applied := resize.FloorMemoryLimitAgainstStaleCurrent(
+				target, cr.Current.MemoryLimit, usage, margin); applied {
 				target = floored
 			}
 		}

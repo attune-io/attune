@@ -437,19 +437,15 @@ func (m *Monitor) RevertPod(ctx context.Context, record ResizeRecord) error {
 		// safer clamp path (same as pre-1.35). Controllers on 1.35+ that
 		// unclamp apply may still need clamp on revert if original is lower.
 		revertTarget := resize.ClampMemoryLimitForPolicy(pod, record.Container, record.OriginalResources, false)
-		// For Guaranteed QoS pods, the memory limit clamp may cause
-		// requests != limits, which K8s rejects ("Pod QOS Class may not
-		// change as a result of resizing"). Raise the memory request to
-		// match the clamped limit, mirroring the controller's resize path
-		// in internal/controller/resize.go.
-		if pod.Status.QOSClass == corev1.PodQOSGuaranteed {
-			if memLim, ok := revertTarget.Limits[corev1.ResourceMemory]; ok {
-				if memReq, rok := revertTarget.Requests[corev1.ResourceMemory]; rok && memReq.Cmp(memLim) < 0 {
-					revertTarget.Requests[corev1.ResourceMemory] = memLim.DeepCopy()
-					m.logger.Info("Memory request raised to match clamped limit for Guaranteed QoS revert",
-						"pod", record.PodName, "namespace", record.Namespace,
-						"container", record.Container, "request", memLim.String())
-				}
+		// Guaranteed raise after the 1.33 clamp, same helper as live apply
+		// and appliedRevertTarget so the three cannot drift.
+		beforeRaise := revertTarget.DeepCopy()
+		revertTarget = resize.RaiseGuaranteedMemoryRequestToLimit(pod, revertTarget)
+		if memReq, ok := revertTarget.Requests[corev1.ResourceMemory]; ok {
+			if was, wok := beforeRaise.Requests[corev1.ResourceMemory]; wok && !memReq.Equal(was) {
+				m.logger.Info("Memory request raised to match clamped limit for Guaranteed QoS revert",
+					"pod", record.PodName, "namespace", record.Namespace,
+					"container", record.Container, "request", memReq.String())
 			}
 		}
 		found := false
