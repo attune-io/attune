@@ -323,7 +323,7 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 							if restoreErr := r.restoreTemplateAfterSafetyRevert(ctx, policy, workloads, record); restoreErr != nil {
 								logger.Error(restoreErr, "Failed to restore template after safety revert",
 									"pod", pod.Name, "workload", record.WorkloadName, "container", record.Container)
-								observationsPending = true
+								// Period has not elapsed; the branch sets observationsPending below.
 								continue
 							}
 							operatormetrics.RevertsTotal.WithLabelValues(pod.Namespace, trackedWorkload, v.Reason).Inc()

@@ -466,7 +466,7 @@ func applyResourcesToPodSpec(spec *corev1.PodSpec, desired map[string]corev1.Res
 // RequestsOnly (Limits=nil) keeps leftover template limits. Restore replaces
 // so OriginalResources with empty Limits clears persist-added limits.
 func applyContainerResources(c *corev1.Container, want corev1.ResourceRequirements, replace bool) bool {
-	next := want
+	var next corev1.ResourceRequirements
 	if !replace {
 		// Merge first so RequestsOnly (Limits=nil) does not treat leftover
 		// template limits as a change when requests already match.
