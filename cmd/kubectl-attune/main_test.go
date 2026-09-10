@@ -2903,19 +2903,89 @@ func TestPrintEffectivePolicySummary_NamespaceFreezeHelp(t *testing.T) {
 			UpdateStrategy: &attunev1alpha1.UpdateStrategy{Type: attunev1alpha1.UpdateTypeAuto},
 		},
 	}
-	item := unstructured.Unstructured{Object: map[string]interface{}{
-		"spec": map[string]interface{}{},
-	}}
-	r, w, err := os.Pipe()
-	require.NoError(t, err)
-	old := os.Stdout
-	os.Stdout = w
-	printEffectivePolicySummary(item, policy, selectedDefaults{})
-	_ = w.Close()
-	os.Stdout = old
-	out, err := io.ReadAll(r)
-	require.NoError(t, err)
-	assert.Contains(t, string(out), "Namespace freeze: annotate the namespace attune.io/freeze=true to skip apply.")
+	tests := []struct {
+		name    string
+		item    unstructured.Unstructured
+		want    []string
+		notWant []string
+	}{
+		{
+			name: "not frozen prints annotate hint",
+			item: unstructured.Unstructured{Object: map[string]interface{}{
+				"spec": map[string]interface{}{},
+			}},
+			want: []string{
+				"Namespace freeze: annotate the namespace attune.io/freeze=true to skip apply.",
+				"Pending safety revert still runs.",
+			},
+		},
+		{
+			name: "frozen prints annotation condition message",
+			item: unstructured.Unstructured{Object: map[string]interface{}{
+				"spec": map[string]interface{}{},
+				"status": map[string]interface{}{
+					"conditions": []interface{}{
+						map[string]interface{}{
+							"type":    "ResizeBlocked",
+							"status":  "True",
+							"reason":  "NamespaceFrozen",
+							"message": "namespace has attune.io/freeze=true; new apply skipped (pending safety revert still runs)",
+						},
+					},
+				},
+			}},
+			want: []string{
+				"namespace has attune.io/freeze=true; new apply skipped (pending safety revert still runs)",
+				"Pending safety revert still runs.",
+			},
+			notWant: []string{
+				"annotate the namespace attune.io/freeze=true to skip apply.",
+			},
+		},
+		{
+			name: "frozen cannot-read prints RBAC condition message",
+			item: unstructured.Unstructured{Object: map[string]interface{}{
+				"spec": map[string]interface{}{},
+				"status": map[string]interface{}{
+					"conditions": []interface{}{
+						map[string]interface{}{
+							"type":    "ResizeBlocked",
+							"status":  "True",
+							"reason":  "NamespaceFrozen",
+							"message": "cannot read namespace for attune.io/freeze; new apply skipped (check namespaces get/list/watch RBAC)",
+						},
+					},
+				},
+			}},
+			want: []string{
+				"cannot read namespace for attune.io/freeze; new apply skipped (check namespaces get/list/watch RBAC)",
+				"Pending safety revert still runs.",
+			},
+			notWant: []string{
+				"annotate the namespace attune.io/freeze=true to skip apply.",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r, w, err := os.Pipe()
+			require.NoError(t, err)
+			old := os.Stdout
+			os.Stdout = w
+			printEffectivePolicySummary(tt.item, policy, selectedDefaults{})
+			_ = w.Close()
+			os.Stdout = old
+			out, err := io.ReadAll(r)
+			require.NoError(t, err)
+			got := string(out)
+			for _, want := range tt.want {
+				assert.Contains(t, got, want)
+			}
+			for _, notWant := range tt.notWant {
+				assert.NotContains(t, got, notWant)
+			}
+		})
+	}
 }
 
 func TestPrintEffectivePolicySummary_CostPricing(t *testing.T) {

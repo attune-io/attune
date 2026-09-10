@@ -41,7 +41,7 @@ kubectl attune savings --sort-by savings -A
 |--------|-------------|
 | PENDING | Workloads with active recommendations that are still awaiting resize |
 | READY | Current `Ready` reason (`Monitoring`, `InsufficientData`, `NoWorkloadsFound`, `MetricsUnavailable` (alias `PrometheusUnavailable`), `InvalidConfig`, `WorkloadDiscoveryFailed`, `ConflictCheckFailed`, or `Paused`), or the current `Ready` condition message when `Ready=False` includes actionable details |
-| RESIZING | `InProgress`, `Idle`, `CooldownActive`, or `-` (non-resize modes) |
+| RESIZING | `InProgress`, `Idle`, `CooldownActive`, `NamespaceFrozen`, or `-` (non-resize modes). `NamespaceFrozen` is copied from `ResizeBlocked`; `READY` can stay `Monitoring`. |
 | DEGRADED | `HighRevertRate` or `-` |
 | CANARY | Canary phase. With per-app rows: `CanaryInProgress (1/2 apps)`. Legacy: `CanaryInProgress (2 pods)`. `-` when mode is not Canary |
 | EXPORT | `CM` when `export.configMap: true` (recommendations written to ConfigMaps for GitOps), `-` otherwise |

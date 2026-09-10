@@ -298,7 +298,10 @@ initial sizing (last-known values stay in status, but CREATE is not patched).
    Info line uses `generateName` (for example `my-app-abc-`), not the
    name kubelet later assigns.
 7. Check the namespace is not frozen. `attune.io/freeze=true` skips
-   CREATE initial sizing.
+   CREATE initial sizing. Confirm `ResizeBlocked=NamespaceFrozen` on
+   the policy. Grep webhook logs for the fail-closed admission message
+   `cannot read namespace for attune.io/freeze` (Allowed, not Denied)
+   if the operator cannot read the namespace.
 
 ### Paused
 
@@ -750,6 +753,57 @@ Common causes:
 sum by (namespace, workload) (rate(attune_revert_failures_total[5m])) > 0
 ```
 
+#### Template restore after safety revert
+
+**Symptom**: The live pod is back at the original resources after a
+safety revert, but the workload template still has the persisted
+post-resize requests. `.status.resizeHistory` still shows
+`result: Success` for that resize. There is no `TemplatePatchFailed`
+event. `attune_revert_failures_total` stays 0.
+
+**Cause**: The in-place `/resize` revert succeeded, then restoring the
+`AfterSuccessfulResize` template failed. The helper logs
+`Failed to restore template after safety revert` and returns before
+`attune_reverts_total` and the `Reverted` event. Tracking annotations
+stay on the pod so the next reconcile retries.
+
+**Fix**: Grep operator logs for the restore-fail line (not
+`Failed to revert`):
+
+```bash
+kubectl logs -l app.kubernetes.io/name=attune --tail=200 | grep \
+  "Failed to restore template after safety revert"
+```
+
+A zero `attune_revert_failures_total` does not mean restore finished.
+That counter only counts failed `/resize` revert calls. Check
+`attune_reconcile_errors_total{error_type="safety_observation"}` if
+list, confirm, or cleanup also failed. Tracking stays; the next
+reconcile retries the restore.
+
+### Safety observation stuck
+
+**Symptom**: Pods keep resize tracking annotations after the
+observation period, or
+`attune_reconcile_errors_total{error_type="safety_observation"}` is
+incrementing.
+
+**Cause**: Listing tracked pods, confirming an unsafe verdict,
+removing tracking annotations, or restoring the template after a
+safety revert failed. The operator keeps `observationsPending` so the
+next reconcile retries. Tracking stays until cleanup succeeds.
+
+**Fix**: Grep operator logs:
+
+```bash
+kubectl logs -l app.kubernetes.io/name=attune --tail=200 | grep -E \
+  "Failed to list pods for safety observation|Failed to remove resize tracking annotations|Safety confirm Get failed|Failed to restore template after safety revert"
+```
+
+```promql
+sum(rate(attune_reconcile_errors_total{error_type="safety_observation"}[5m])) > 0
+```
+
 ### Resizes not happening during expected window
 
 **Symptom**: Operator logs "Outside resize window, skipping resize" even
@@ -1133,6 +1187,13 @@ spec:
   never writes limits.
 - **Namespace freeze**: `attune.io/freeze=true` skips new persist.
   Pending safety restore still runs.
+- **Safety restore fail**: after a successful in-place revert, a failed
+  template restore leaves the pod at original resources, the template
+  at the persisted size, history at `Success`, and no
+  `TemplatePatchFailed` event. Operator logs
+  `Failed to restore template after safety revert`. Tracking stays;
+  the next reconcile retries. `attune_revert_failures_total` does not
+  increment.
 
 ### Mid-rollout or no-op
 

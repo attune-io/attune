@@ -277,7 +277,7 @@ func TestPodMutatingHandler_NamespaceFreeze(t *testing.T) {
 			name:        "Get error fail-closed",
 			getErr:      true,
 			wantPatches: false,
-			wantMsg:     "cannot read namespace for freeze",
+			wantMsg:     "cannot read namespace for attune.io/freeze; skipping initial sizing (check namespaces get/list/watch RBAC)",
 		},
 	}
 
