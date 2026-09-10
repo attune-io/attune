@@ -414,9 +414,11 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 	return observationsPending
 }
 
-// revertAndRestoreAfterSafety reverts the live pod, restores the workload
-// template, then records the revert metric, event, and history mark.
-// Callers keep path-specific continue / revertFailed handling.
+// revertAndRestoreAfterSafety reverts the live pod, records the revert
+// metric, event, and history mark, then restores the workload template.
+// The live revert is recorded even when template restore fails so the
+// consecutive-revert circuit breaker still trips. Callers keep
+// path-specific continue / revertFailed handling.
 func (r *AttunePolicyReconciler) revertAndRestoreAfterSafety(
 	ctx context.Context,
 	revertFn func(safety.ResizeRecord) error,
@@ -432,18 +434,18 @@ func (r *AttunePolicyReconciler) revertAndRestoreAfterSafety(
 		operatormetrics.RevertFailuresTotal.WithLabelValues(pod.Namespace, trackedWorkload, reason).Inc()
 		return err
 	}
-	if err := r.restoreTemplateAfterSafetyRevert(ctx, policy, workloads, record); err != nil {
-		logger.Error(err, "Failed to restore template after safety revert",
-			"pod", pod.Name, "workload", record.WorkloadName, "container", record.Container)
-		operatormetrics.ReconcileErrorsTotal.WithLabelValues("safety_observation").Inc()
-		return err
-	}
 	operatormetrics.RevertsTotal.WithLabelValues(pod.Namespace, trackedWorkload, reason).Inc()
 	if r.Recorder != nil {
 		r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, string(attunev1alpha1.ResizeResultReverted), "revert",
 			eventFmt, pod.Name, record.Container, message)
 	}
 	markLatestCycleReverted(policy.Status.ResizeHistory, trackedWorkload, record.Container, reason)
+	if err := r.restoreTemplateAfterSafetyRevert(ctx, policy, workloads, record); err != nil {
+		logger.Error(err, "Failed to restore template after safety revert",
+			"pod", pod.Name, "workload", record.WorkloadName, "container", record.Container)
+		operatormetrics.ReconcileErrorsTotal.WithLabelValues("safety_observation").Inc()
+		return err
+	}
 	return nil
 }
 

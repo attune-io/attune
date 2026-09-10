@@ -472,6 +472,7 @@ func (r *AttunePolicyReconciler) executeResizes(
 				var podHistory []attunev1alpha1.ResizeHistoryEntry
 				var podReservedCPU, podReservedMem int64
 				podResized := false
+				skipEviction := false
 
 				// Containers within the same pod must resize sequentially.
 				// Each UpdateResize bumps resourceVersion; using a stale copy
@@ -514,6 +515,7 @@ func (r *AttunePolicyReconciler) executeResizes(
 						Monitor:      monitor,
 						Now:          now,
 						Checks:       checks,
+						SkipEviction: skipEviction,
 					})
 					if outcome == resizeOutcomeNone {
 						podHistory = append(podHistory, entries...)
@@ -529,12 +531,14 @@ func (r *AttunePolicyReconciler) executeResizes(
 					}
 					if outcome == resizeOutcomeEvictionBlocked {
 						// Eviction was attempted and failed. Do not retry the
-						// same List+Evict for remaining containers on this pod.
+						// same List+Evict for remaining containers, but still
+						// let siblings take the in-place path.
 						// Leave podResized as-is so a prior in-place success
 						// still counts (unlike Evicted, which clears it).
 						refundBudget(cpuIncrease, memIncrease)
 						podHistory = append(podHistory, entries...)
-						break
+						skipEviction = true
+						continue
 					}
 					podHistory = append(podHistory, entries...)
 					podReservedCPU += cpuIncrease
@@ -579,6 +583,10 @@ type resizeParams struct {
 	Monitor      *safety.Monitor
 	Now          metav1.Time
 	Checks       *resizePreChecks
+	// SkipEviction is set after a sibling on this pod already failed
+	// eviction fallback, so later containers still try in-place but do
+	// not repeat List+Evict.
+	SkipEviction bool
 }
 
 // resizeOutcome tells executeResizes whether a container resize succeeded
@@ -725,7 +733,7 @@ func (r *AttunePolicyReconciler) resizeContainer(
 
 	// Pods already marked Infeasible cannot be resized in-place on the current node.
 	if resize.IsResizeInfeasible(pod) {
-		if policy.Spec.UpdateStrategy.ResizeMethod == attunev1alpha1.ResizeMethodInPlaceOrRecreate {
+		if policy.Spec.UpdateStrategy.ResizeMethod == attunev1alpha1.ResizeMethodInPlaceOrRecreate && !p.SkipEviction {
 			logger.Info("Pod resize is Infeasible, attempting eviction fallback",
 				"pod", pod.Name, "container", containerRec.Name)
 			evicted, reason := r.tryEvictionFallback(ctx, policy, pod, workload, workloadName, containerRec.Name, resizer)
@@ -740,6 +748,13 @@ func (r *AttunePolicyReconciler) resizeContainer(
 				Resource: "cpu+memory", Method: resize.MethodInPlace,
 				Result: attunev1alpha1.ResizeResultFailed, Reason: reason,
 			}}, resizeOutcomeEvictionBlocked
+		}
+		if p.SkipEviction {
+			return []attunev1alpha1.ResizeHistoryEntry{{
+				Timestamp: now, Workload: workloadName, Container: containerRec.Name,
+				Resource: "cpu+memory", Method: resize.MethodInPlace,
+				Result: attunev1alpha1.ResizeResultFailed, Reason: "infeasible",
+			}}, resizeOutcomeNone
 		}
 		logger.Info("Pod resize is Infeasible and resizeMethod is InPlaceOnly, skipping",
 			"pod", pod.Name, "container", containerRec.Name)
@@ -767,7 +782,7 @@ func (r *AttunePolicyReconciler) resizeContainer(
 	results, err := resizer.ResizePod(ctx, pod, containerRec.Name, target)
 	if err != nil {
 		evictionFailReason := ""
-		if policy.Spec.UpdateStrategy.ResizeMethod == attunev1alpha1.ResizeMethodInPlaceOrRecreate {
+		if policy.Spec.UpdateStrategy.ResizeMethod == attunev1alpha1.ResizeMethodInPlaceOrRecreate && !p.SkipEviction {
 			evicted, reason := r.tryEvictionFallback(ctx, policy, pod, workload, workloadName, containerRec.Name, resizer)
 			if evicted {
 				return evictionHistory(), resizeOutcomeEvicted

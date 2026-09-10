@@ -1830,6 +1830,71 @@ func TestRestoreTemplateAfterSafetyRevert_ClearsPersistAddedLimits(t *testing.T)
 	assert.False(t, hasMemLimit, "restore must clear persist-added memory limit")
 }
 
+func TestRestoreTemplateAfterSafetyRevert_PreservesExtendedResources(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
+
+	gpu := corev1.ResourceName("nvidia.com/gpu")
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "default"},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: int32Ptr(1),
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "api"}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "api"}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:  "app",
+						Image: "nginx",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("200m"),
+								corev1.ResourceMemory: resource.MustParse("64Mi"),
+								gpu:                   resource.MustParse("1"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceMemory: resource.MustParse("64Mi"),
+								gpu:                   resource.MustParse("1"),
+							},
+						},
+					}},
+				},
+			},
+		},
+		Status: appsv1.DeploymentStatus{Replicas: 1, UpdatedReplicas: 1, AvailableReplicas: 1},
+	}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = cl
+	r.Scheme = scheme
+
+	policy := newTestPolicy("p", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	policy.Spec.UpdateStrategy.TemplatePersistence = &attunev1alpha1.TemplatePersistence{
+		Enabled: boolPtr(true),
+		When:    attunev1alpha1.TemplatePersistenceAfterSuccessfulResize,
+	}
+
+	err := r.restoreTemplateAfterSafetyRevert(context.Background(), policy, []client.Object{deploy}, original256MiRecord())
+	require.NoError(t, err)
+
+	var updated appsv1.Deployment
+	require.NoError(t, cl.Get(context.Background(), client.ObjectKeyFromObject(deploy), &updated))
+	got := updated.Spec.Template.Spec.Containers[0].Resources
+	assert.True(t, got.Requests.Memory().Equal(resource.MustParse("256Mi")),
+		"template memory request must restore to the pre-resize snapshot")
+	reqGPU, hasGPUReq := got.Requests[gpu]
+	require.True(t, hasGPUReq, "restore must keep nvidia.com/gpu request")
+	assert.True(t, reqGPU.Equal(resource.MustParse("1")))
+	limGPU, hasGPULim := got.Limits[gpu]
+	require.True(t, hasGPULim, "restore must keep nvidia.com/gpu limit")
+	assert.True(t, limGPU.Equal(resource.MustParse("1")))
+	_, hasMemLimit := got.Limits[corev1.ResourceMemory]
+	assert.False(t, hasMemLimit, "restore must still clear persist-added memory limit")
+}
+
 func TestRestoreTemplateAfterSafetyRevert_DisabledNoOp(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, appsv1.AddToScheme(scheme))

@@ -386,9 +386,9 @@ func (r *AttunePolicyReconciler) applyTemplatePersistence(
 }
 
 // patchWorkloadTemplateResources updates container resources on the pod template.
-// When replace is true (safety restore), container resources are replaced with
-// the snapshot, including clearing limits persist added. Persist keeps merge.
-// Returns (changed, error).
+// When replace is true (safety restore), CPU/memory come from the snapshot and
+// omitted CPU/memory limit keys are deleted; other resource keys stay.
+// Persist keeps merge. Returns (changed, error).
 func (r *AttunePolicyReconciler) patchWorkloadTemplateResources(
 	ctx context.Context,
 	workload client.Object,
@@ -432,8 +432,8 @@ func (r *AttunePolicyReconciler) patchWorkloadTemplateResources(
 }
 
 // applyResourcesToPodSpec sets resources on matching containers and native sidecars.
-// replace=true writes want as-is (restore); replace=false merges (persist).
-// Returns true if any container was modified.
+// replace=true restores CPU/memory from want (extended keys stay);
+// replace=false merges (persist). Returns true if any container was modified.
 func applyResourcesToPodSpec(spec *corev1.PodSpec, desired map[string]corev1.ResourceRequirements, replace bool) bool {
 	modified := false
 	for i := range spec.Containers {
@@ -463,8 +463,9 @@ func applyResourcesToPodSpec(spec *corev1.PodSpec, desired map[string]corev1.Res
 }
 
 // applyContainerResources writes want onto a container. Persist merges so
-// RequestsOnly (Limits=nil) keeps leftover template limits. Restore replaces
-// so OriginalResources with empty Limits clears persist-added limits.
+// RequestsOnly (Limits=nil) keeps leftover template limits. Restore overwrites
+// CPU/memory from want and deletes only those CPU/memory limit keys that want
+// omits, so persist-added limits clear while extended resources stay.
 func applyContainerResources(c *corev1.Container, want corev1.ResourceRequirements, replace bool) bool {
 	var next corev1.ResourceRequirements
 	if !replace {
@@ -472,13 +473,47 @@ func applyContainerResources(c *corev1.Container, want corev1.ResourceRequiremen
 		// template limits as a change when requests already match.
 		next = mergeTemplateResources(c.Resources, want)
 	} else {
-		next = *want.DeepCopy()
+		next = replaceCPUMemoryResources(c.Resources, want)
 	}
 	if resourcesEqual(c.Resources, next) {
 		return false
 	}
 	c.Resources = next
 	return true
+}
+
+// replaceCPUMemoryResources copies current, then applies want's CPU and
+// memory requests/limits. Keys in want overwrite. CPU/memory keys absent
+// from want are deleted (clears persist-added limits). Every other resource
+// key (GPU, hugepages, ephemeral-storage) is left untouched.
+func replaceCPUMemoryResources(current, want corev1.ResourceRequirements) corev1.ResourceRequirements {
+	out := current.DeepCopy()
+	if out.Requests == nil {
+		out.Requests = corev1.ResourceList{}
+	}
+	for _, res := range []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory} {
+		if v, ok := want.Requests[res]; ok {
+			out.Requests[res] = v.DeepCopy()
+		} else {
+			delete(out.Requests, res)
+		}
+	}
+	if out.Limits == nil && len(want.Limits) > 0 {
+		out.Limits = corev1.ResourceList{}
+	}
+	if out.Limits != nil {
+		for _, res := range []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory} {
+			if v, ok := want.Limits[res]; ok {
+				out.Limits[res] = v.DeepCopy()
+			} else {
+				delete(out.Limits, res)
+			}
+		}
+		if len(out.Limits) == 0 {
+			out.Limits = nil
+		}
+	}
+	return *out
 }
 
 // mergeTemplateResources applies want requests/limits onto current, keeping
