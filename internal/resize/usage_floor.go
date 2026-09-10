@@ -76,6 +76,22 @@ func FloorMemoryLimitForUsage(
 	return *adjusted, true
 }
 
+// FloorMemoryLimitAgainstStaleCurrent raises currentLimit to the usage
+// floor when usage exceeds the recorded current, then applies
+// FloorMemoryLimitForUsage. Persist and CREATE use this because
+// rec.Current can stay at the old template after an in-place resize.
+func FloorMemoryLimitAgainstStaleCurrent(
+	target corev1.ResourceRequirements,
+	currentLimit, recentUsage resource.Quantity,
+	marginPercent float64,
+) (corev1.ResourceRequirements, bool) {
+	usageFloor := MemoryUsageFloorQuantity(recentUsage, marginPercent)
+	if !usageFloor.IsZero() && usageFloor.Cmp(currentLimit) > 0 {
+		currentLimit = usageFloor
+	}
+	return FloorMemoryLimitForUsage(target, currentLimit, recentUsage, marginPercent)
+}
+
 // RaiseGuaranteedMemoryRequestToLimit sets memory request equal to memory
 // limit when the pod is Guaranteed and request is below the (possibly
 // floored) limit. No-op when target has no memory limit (RequestsOnly).

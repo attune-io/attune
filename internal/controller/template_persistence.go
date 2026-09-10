@@ -119,14 +119,9 @@ func materializeContainerResources(
 			if policy.Spec.Memory.DecreaseUsageMarginPercent != nil {
 				margin = float64(*policy.Spec.Memory.DecreaseUsageMarginPercent)
 			}
-			// rec.Current may be the stale template; max with usageFloor so
-			// an increase vs Current still cannot land below usage.
-			currentLimit := c.Current.MemoryLimit.DeepCopy()
-			usageFloor := resize.MemoryUsageFloorQuantity(usage, margin)
-			if !usageFloor.IsZero() && usageFloor.Cmp(currentLimit) > 0 {
-				currentLimit = usageFloor
-			}
-			floored, applied := resize.FloorMemoryLimitForUsage(out, currentLimit, usage, margin)
+			// rec.Current may be the stale template after in-place resize.
+			floored, applied := resize.FloorMemoryLimitAgainstStaleCurrent(
+				out, c.Current.MemoryLimit, usage, margin)
 			if applied {
 				out = floored
 			}

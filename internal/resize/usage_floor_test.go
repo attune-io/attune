@@ -220,3 +220,26 @@ func TestFloorMemoryLimitForUsage_NaNMargin(t *testing.T) {
 	// margin treated as 0 → limit strictly above usage
 	assert.Greater(t, got.Limits.Memory().Value(), usage.Value())
 }
+
+func TestFloorMemoryLimitAgainstStaleCurrent(t *testing.T) {
+	t.Parallel()
+	// Persist/CREATE see rec.Current as the old template (64Mi) after an
+	// in-place resize. Raw FloorMemoryLimitForUsage then no-ops because
+	// target 64Mi is not a decrease vs that stale current. Raising
+	// current to the usage floor first is what lets the floor apply.
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("64Mi")},
+		Limits:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("64Mi")},
+	}
+	staleCurrent := resource.MustParse("64Mi")
+	usage := resource.MustParse("300Mi")
+
+	raw, rawApplied := FloorMemoryLimitForUsage(target, staleCurrent, usage, 0)
+	assert.False(t, rawApplied, "raw floor must no-op when target equals stale current")
+	assert.True(t, raw.Limits.Memory().Equal(staleCurrent))
+
+	got, applied := FloorMemoryLimitAgainstStaleCurrent(target, staleCurrent, usage, 0)
+	require.True(t, applied, "stale-current helper must still floor above usage")
+	assert.Greater(t, got.Limits.Memory().Value(), usage.Value())
+	assert.Equal(t, usage.Value()+1, got.Limits.Memory().Value(), "margin 0 is usage+1 byte")
+}
