@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"testing"
 
-	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,6 +28,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
+
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 )
 
 // scriptedPrompter returns pre-programmed answers for testing.
