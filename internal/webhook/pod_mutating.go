@@ -388,10 +388,10 @@ func (h *PodMutatingHandler) mutateContainer(
 		mutated := false
 		boosted := false
 
-		// Apply CPU request (startup boost may raise it before dest clamp).
+		// Apply CPU request. Rec dest is written first so leftover dest
+		// cannot skip or dest-clamp the CREATE startup boost.
 		if !cr.Recommended.CPURequest.IsZero() {
 			container.Resources.Requests[corev1.ResourceCPU] = cr.Recommended.CPURequest
-			boosted = applyCreateStartupBoost(container, policy)
 			mutated = true
 		}
 
@@ -411,6 +411,10 @@ func (h *PodMutatingHandler) mutateContainer(
 				container.Resources.Limits[corev1.ResourceCPU] = cr.Recommended.CPULimit
 				mutated = true
 			}
+		}
+
+		if !cr.Recommended.CPURequest.IsZero() {
+			boosted = applyCreateStartupBoost(container, policy)
 		}
 
 		memCV := policy.Spec.Memory.ControlledValues
