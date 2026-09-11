@@ -27,6 +27,7 @@ import (
 
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -94,6 +95,17 @@ func (h *PodMutatingHandler) Handle(ctx context.Context, req admission.Request) 
 	ownerKind, ownerName := resolveOwner(pod.OwnerReferences)
 	if ownerKind == "" || ownerName == "" {
 		return admission.Allowed("no recognized owner")
+	}
+	if ownerKind == "Job" {
+		cronKind, cronName, err := resolveCronJobOwner(ctx, h.Client, req.Namespace, ownerName)
+		if err != nil {
+			h.Logger.Error(err, "getting Job for CronJob initial sizing; skipping",
+				"namespace", req.Namespace, "job", ownerName)
+			return admission.Allowed("cannot read Job for CronJob initial sizing")
+		}
+		if cronName != "" {
+			ownerKind, ownerName = cronKind, cronName
+		}
 	}
 
 	// List all AttunePolicies in the namespace (from informer cache).
@@ -340,6 +352,10 @@ func getWorkloadObject(ctx context.Context, c client.Client, namespace, kind, na
 		obj = &appsv1.StatefulSet{}
 	case "DaemonSet":
 		obj = &appsv1.DaemonSet{}
+	case "CronJob":
+		obj = &batchv1.CronJob{}
+	case "Job":
+		obj = &batchv1.Job{}
 	default:
 		return nil, fmt.Errorf("unsupported workload kind %q", kind)
 	}
@@ -506,6 +522,22 @@ func resolveOwner(refs []metav1.OwnerReference) (kind, name string) {
 		}
 	}
 	return "", ""
+}
+
+// resolveCronJobOwner returns the CronJob that owns jobName. Empty name
+// means a standalone Job. Get errors fail closed so CREATE does not
+// size from the generated Job name.
+func resolveCronJobOwner(ctx context.Context, c client.Client, namespace, jobName string) (kind, name string, err error) {
+	job := &batchv1.Job{}
+	if err := c.Get(ctx, types.NamespacedName{Namespace: namespace, Name: jobName}, job); err != nil {
+		return "", "", err
+	}
+	for _, ref := range job.OwnerReferences {
+		if ref.Kind == "CronJob" && ref.Name != "" {
+			return "CronJob", ref.Name, nil
+		}
+	}
+	return "", "", nil
 }
 
 // extractDeploymentName extracts the Deployment name from a ReplicaSet name
