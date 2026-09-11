@@ -223,8 +223,9 @@ is distinguishable from zero/false. Update all 7 locations:
 6. Run `make manifests && make generate` to regenerate CRD + deepcopy.
    After CRD/API/RBAC changes, also `make build-installer` and
    `make build-crds` so `verify-release-artifacts` stays green.
-7. `cmd/kubectl-attune/main.go` `printEffectiveValues()` - Add
-   display line so `kubectl attune explain` shows the field
+7. `cmd/kubectl-attune/main.go` `printEffectivePolicySummary` /
+   `printEffectiveField` - Add a display line so
+   `kubectl attune explain` shows the field
 
 If the field also belongs in `AttuneDefaults`, add it to
 `api/v1alpha1/attunedefaults_types.go` as well.
