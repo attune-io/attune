@@ -166,6 +166,46 @@ func TestPlanPodActions_UsesAppliedTargetAndSkipsAtTarget(t *testing.T) {
 	assert.Equal(t, int64(0), at[0].MemIncrease)
 }
 
+func TestPlanPodActions_ClampsToLiveLeftoverLimit(t *testing.T) {
+	t.Parallel()
+	// Live leftover CPU limit 200m (LimitRange). Rec request 500m has no
+	// CPU limit, so the plan must dest-clamp before AtTarget/budget.
+	pod := newResizePod("api-server", "100m", "256Mi", "200m", "256Mi")
+	r := NewAttunePolicyReconciler()
+	policy := newTestPolicy("p", "default")
+	rec := attunev1alpha1.WorkloadRecommendation{
+		Workload: "api-server",
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "main",
+			Current: attunev1alpha1.ResourceValues{
+				CPURequest:    resource.MustParse("100m"),
+				MemoryRequest: resource.MustParse("256Mi"),
+				CPULimit:      resource.MustParse("200m"),
+				MemoryLimit:   resource.MustParse("256Mi"),
+			},
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest:    resource.MustParse("500m"),
+				MemoryRequest: resource.MustParse("256Mi"),
+			},
+		}},
+	}
+
+	actions := r.planPodActions(policy, pod, rec)
+	require.Len(t, actions, 1)
+	assert.False(t, actions[0].AtTarget)
+	assert.Equal(t, int64(200), actions[0].Target.Requests.Cpu().MilliValue(),
+		"plan target must dest-clamp 500m to leftover live limit 200m")
+	assert.Contains(t, actions[0].Clamped, "cpu")
+	assert.Equal(t, int64(100), actions[0].CPUIncrease,
+		"plan cost must be 200-100, not the unclamped 500-100")
+
+	pod.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU] = resource.MustParse("200m")
+	at := r.planPodActions(policy, pod, rec)
+	require.Len(t, at, 1)
+	assert.True(t, at[0].AtTarget)
+	assert.Equal(t, int64(0), at[0].CPUIncrease)
+}
+
 func TestObserveAndPlanPod_SkipsLiveGetWhenListedAtTarget(t *testing.T) {
 	pod := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})

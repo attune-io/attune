@@ -89,7 +89,7 @@ func (r *PodResizer) ResizePod(ctx context.Context, pod *corev1.Pod, container s
 	// statuses) between our Get and UpdateResize, bumping resourceVersion.
 	// This is common during sequential multi-container resizes where the
 	// kubelet applies the first container's resize before we submit the second.
-	var current corev1.ResourceRequirements
+	var current, applied corev1.ResourceRequirements
 	err := retry.RetryOnConflict(retry.DefaultBackoff, func() error {
 		fresh, fetchErr := r.client.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
 		if fetchErr != nil {
@@ -109,10 +109,12 @@ func (r *PodResizer) ResizePod(ctx context.Context, pod *corev1.Pod, container s
 		adjustedTarget := ClampMemoryLimitForPolicy(fresh, container, target, r.AllowInPlaceMemoryLimitDecrease)
 		if isInit {
 			current = fresh.Spec.InitContainers[idx].Resources
-			updated.Spec.InitContainers[idx].Resources = mergeResources(current, adjustedTarget)
+			applied = mergeResources(current, adjustedTarget)
+			updated.Spec.InitContainers[idx].Resources = applied
 		} else {
 			current = fresh.Spec.Containers[idx].Resources
-			updated.Spec.Containers[idx].Resources = mergeResources(current, adjustedTarget)
+			applied = mergeResources(current, adjustedTarget)
+			updated.Spec.Containers[idx].Resources = applied
 		}
 
 		r.logger.V(1).Info("resizing pod", "pod", pod.Name, "namespace", pod.Namespace,
@@ -129,9 +131,9 @@ func (r *PodResizer) ResizePod(ctx context.Context, pod *corev1.Pod, container s
 	}
 
 	fromCPU := current.Requests[corev1.ResourceCPU]
-	toCPU := target.Requests[corev1.ResourceCPU]
+	toCPU := applied.Requests[corev1.ResourceCPU]
 	fromMem := current.Requests[corev1.ResourceMemory]
-	toMem := target.Requests[corev1.ResourceMemory]
+	toMem := applied.Requests[corev1.ResourceMemory]
 
 	results := []ResizeResult{
 		{

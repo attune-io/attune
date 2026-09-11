@@ -129,11 +129,16 @@ type liveResizeApplyMeta struct {
 	FloorUsage              resource.Quantity
 	FloorMargin             float64
 	FloorEqualsCurrent      bool
+	// DestClamped is resource names whose requests were capped to leftover
+	// live container limits after ResolveAppliedTarget (LimitRange).
+	DestClamped []string
 }
 
 // applyLiveResizeTarget applies ClampMemoryLimitForPolicy, the Guaranteed
-// request raise when platform-clamped, and the usage floor otherwise.
-// OneShot compare and resizeContainer must share this so they cannot drift.
+// request raise when platform-clamped, the usage floor otherwise, then
+// leftover dest limits (same overlay as mergeResources) and
+// ClampRequestsToLimits. OneShot compare and resizeContainer must share
+// this so they cannot drift.
 func (r *AttunePolicyReconciler) applyLiveResizeTarget(
 	policy *attunev1alpha1.AttunePolicy,
 	pod *corev1.Pod,
@@ -170,6 +175,23 @@ func (r *AttunePolicyReconciler) applyLiveResizeTarget(
 	}
 	if resMeta.FloorApplied {
 		meta.FloorEqualsCurrent = resMeta.FloorToLimit.Equal(current)
+	}
+	if dest := findContainerByName(pod, containerRec.Name); dest != nil {
+		// Keep dest leftover limits when the rec blob omitted that resource.
+		if len(dest.Resources.Limits) > 0 {
+			if applied.Limits == nil {
+				applied.Limits = corev1.ResourceList{}
+			}
+			for _, res := range []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory} {
+				if _, set := applied.Limits[res]; set {
+					continue
+				}
+				if destLim, ok := dest.Resources.Limits[res]; ok && !destLim.IsZero() {
+					applied.Limits[res] = destLim.DeepCopy()
+				}
+			}
+		}
+		meta.DestClamped = resize.ClampRequestsToLimits(&applied)
 	}
 	return applied, meta
 }
