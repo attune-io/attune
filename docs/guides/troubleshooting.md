@@ -1137,10 +1137,12 @@ list of affected resources (e.g., `cpu`, `memory`).
 **Cause**: The recommended CPU or memory request exceeds the container's
 current limit. This happens when `controlledValues` is set to
 `RequestsOnly` (limits stay at their current values) and the
-recommendation grows beyond those limits. The same clamp runs on CREATE
-initial sizing (leftover pod limits, including LimitRange defaults) and
-on persist merge against leftover template limits. Live resize also
-clamps to leftover pod limits (LimitRange), not only rec-blob limits.
+recommendation grows beyond those limits. The same leftover dest clamp runs on CREATE initial sizing and persist
+merge when `controlledValues` is `RequestsOnly` (leftover pod or
+LimitRange dest). Live resize also dest-caps leftover pod dest, not
+only rec-blob dest. When `controlledValues` is `RequestsAndLimits`,
+CREATE and live startup boost dest-cap the rec dest so leftover dest
+does not skip the boost.
 The operator caps the request at the limit to prevent the API server
 from rejecting the resize or the Deployment/StatefulSet patch.
 
