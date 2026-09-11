@@ -165,3 +165,72 @@ func TestRetuneHPAAfterResize_UsesAppliedCPU(t *testing.T) {
 	assert.Equal(t, int32(40), *updated.Spec.Metrics[0].Resource.Target.AverageUtilization,
 		"HPA target must be 80*100/200=40 from dest-clamped apply, not 80*100/500=16")
 }
+
+func TestRetuneHPAAfterResize_RequestsAndLimitsCapsAtAppliedLimit(t *testing.T) {
+	t.Parallel()
+	scheme := testScheme()
+	oldTarget := int32(80)
+	hpa := autoscalingv2.HorizontalPodAutoscaler{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "api-server-hpa",
+			Namespace: "default",
+			Annotations: map[string]string{
+				annotationHPAAutoTune: "true",
+			},
+		},
+		Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+			ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+				Kind: "Deployment",
+				Name: "api-server",
+			},
+			Metrics: []autoscalingv2.MetricSpec{
+				{
+					Type: autoscalingv2.ResourceMetricSourceType,
+					Resource: &autoscalingv2.ResourceMetricSource{
+						Name: corev1.ResourceCPU,
+						Target: autoscalingv2.MetricTarget{
+							Type:               autoscalingv2.UtilizationMetricType,
+							AverageUtilization: &oldTarget,
+						},
+					},
+				},
+			},
+		},
+	}
+	// Pre-resize list still has the old Guaranteed 500m limit.
+	pod := newResizePod("api-server", "500m", "256Mi", "500m", "256Mi")
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&hpa).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+
+	cv := attunev1alpha1.ControlledRequestsAndLimits
+	policy := newTestPolicy("p", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	policy.Spec.CPU.ControlledValues = &cv
+	recs := []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "api-server",
+		Kind:     "Deployment",
+	}}
+	history := []attunev1alpha1.ResizeHistoryEntry{{
+		Workload:  "api-server",
+		Container: "main",
+		Resource:  "cpu",
+		From:      "500m",
+		To:        "200m",
+		Method:    "InPlace",
+		Result:    attunev1alpha1.ResizeResultSuccess,
+	}}
+
+	r.retuneHPAAfterResize(context.Background(), policy, attunev1alpha1.UpdateTypeAuto,
+		history, recs, []autoscalingv2.HorizontalPodAutoscaler{hpa},
+		map[string][]corev1.Pod{"api-server": {*pod}})
+
+	var updated autoscalingv2.HorizontalPodAutoscaler
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "api-server-hpa", Namespace: "default",
+	}, &updated))
+	require.NotNil(t, updated.Spec.Metrics[0].Resource.Target.AverageUtilization)
+	assert.Equal(t, int32(100), *updated.Spec.Metrics[0].Resource.Target.AverageUtilization,
+		"R+L apply dest is the new 200m limit; 80*500/200=200 must cap at 100, not 200")
+}

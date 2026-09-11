@@ -70,7 +70,10 @@ The upper cap on this target depends on the pod's QoS class:
   limit, so utilization above 100% of request is achievable. This preserves
   the absolute threshold without triggering premature scale-outs.
 - **Guaranteed** (limit == request): targets are capped at 100%. Utilization
-  cannot exceed 100% when cgroups enforce `limit == request`.
+  cannot exceed 100% when cgroups enforce `limit == request`. After a
+  `RequestsAndLimits` apply, dest leftover is the applied CPU (`To`), not
+  the pre-resize leftover, so the cap stays 100% instead of a stale
+  higher dest that live pods can never reach.
 - **BestEffort** (no requests/limits): not applicable; HPA resource metrics
   require requests to be set.
 
