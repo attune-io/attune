@@ -124,10 +124,13 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 			continue
 		}
 		pods := podsByWorkload[rec.Workload]
-		// Build per-container recommendation map for this workload.
-		recMap := make(map[string]resource.Quantity, len(rec.Containers))
+		// Request plus dest: dest-cap uses rec dest when limits are controlled.
+		recMap := make(map[string]startupBoostCPU, len(rec.Containers))
 		for _, c := range rec.Containers {
-			recMap[c.Name] = c.Recommended.CPURequest
+			recMap[c.Name] = startupBoostCPU{
+				request: c.Recommended.CPURequest,
+				dest:    c.Recommended.CPULimit,
+			}
 		}
 
 		for i := range pods {
@@ -157,16 +160,24 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 					if !ok {
 						continue
 					}
-					boostedMillis := int64(float64(recCPU.MilliValue()) * multiplier)
+					boostedMillis := int64(float64(recCPU.request.MilliValue()) * multiplier)
 					boostedCPU := *resource.NewMilliQuantity(boostedMillis, resource.DecimalSI)
 					// Cap at the policy's maxAllowed to respect admin-configured
 					// ceilings even during temporary boost.
 					if policy.Spec.CPU.MaxAllowed != nil && boostedCPU.Cmp(*policy.Spec.CPU.MaxAllowed) > 0 {
 						boostedCPU = policy.Spec.CPU.MaxAllowed.DeepCopy()
 					}
-					// Cap at the container's CPU limit to avoid requests > limits
-					// rejection from the API server.
-					if cpuLim, hasLim := c.Resources.Limits[corev1.ResourceCPU]; hasLim && boostedCPU.Cmp(cpuLim) > 0 {
+					// RequestsAndLimits dest-caps rec dest so leftover dest
+					// cannot skip the boost. RequestsOnly keeps leftover dest.
+					cpuCV := policy.Spec.CPU.ControlledValues
+					raiseDest := cpuCV != nil &&
+						*cpuCV == attunev1alpha1.ControlledRequestsAndLimits &&
+						!recCPU.dest.IsZero()
+					if raiseDest {
+						if boostedCPU.Cmp(recCPU.dest) > 0 {
+							boostedCPU = recCPU.dest.DeepCopy()
+						}
+					} else if cpuLim, hasLim := c.Resources.Limits[corev1.ResourceCPU]; hasLim && boostedCPU.Cmp(cpuLim) > 0 {
 						boostedCPU = cpuLim.DeepCopy()
 					}
 					if c.Resources.Requests.Cpu().Cmp(boostedCPU) >= 0 {
@@ -195,6 +206,12 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 							corev1.ResourceMemory: c.Resources.Requests.Memory().DeepCopy(),
 						},
 					}
+					if raiseDest {
+						boostRec.Recommended.CPULimit = recCPU.dest.DeepCopy()
+						boostTarget.Limits = corev1.ResourceList{
+							corev1.ResourceCPU: recCPU.dest.DeepCopy(),
+						}
+					}
 					if skip, reason := r.shouldSkipResize(ctx, pod, boostRec, boostTarget, checks); skip {
 						if reason == "" {
 							reason = "already at target"
@@ -204,7 +221,7 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 							"boostedCPU", boostedCPU.String())
 						continue
 					}
-					refreshed, err := r.boostResizeAndRefetch(ctx, resizer, pod, c.Name, boostedCPU)
+					refreshed, err := r.boostResizeAndRefetch(ctx, resizer, pod, c.Name, boostTarget)
 					if err != nil {
 						operatormetrics.StartupBoostTotal.WithLabelValues(pod.Namespace, rec.Workload, "failed").Inc()
 						logger.Error(err, "Failed to apply startup CPU boost",
@@ -220,7 +237,7 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 					operatormetrics.StartupBoostTotal.WithLabelValues(pod.Namespace, rec.Workload, "applied").Inc()
 					logger.Info("Applied startup CPU boost",
 						"pod", pod.Name, "container", c.Name,
-						"boostedCPU", boostedCPU.String(), "steadyState", recCPU.String())
+						"boostedCPU", boostedCPU.String(), "steadyState", recCPU.request.String())
 					*pod = *refreshed
 				}
 				// Persist when a resize succeeded or the pod is already
@@ -289,13 +306,13 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 								MemoryRequest: c.Resources.Requests.Memory().DeepCopy(),
 							},
 							Recommended: attunev1alpha1.ResourceValues{
-								CPURequest:    recCPU.DeepCopy(),
+								CPURequest:    recCPU.request.DeepCopy(),
 								MemoryRequest: c.Resources.Requests.Memory().DeepCopy(),
 							},
 						}
 						expireTarget := corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{
-								corev1.ResourceCPU:    recCPU.DeepCopy(),
+								corev1.ResourceCPU:    recCPU.request.DeepCopy(),
 								corev1.ResourceMemory: c.Resources.Requests.Memory().DeepCopy(),
 							},
 						}
@@ -305,15 +322,15 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 							}
 							logger.Info("Skipping boost expiry reduction: "+reason,
 								"pod", pod.Name, "container", c.Name,
-								"targetCPU", recCPU.String())
+								"targetCPU", recCPU.request.String())
 							continue
 						}
-						refreshed, err := r.boostResizeAndRefetch(ctx, resizer, pod, c.Name, recCPU)
+						refreshed, err := r.boostResizeAndRefetch(ctx, resizer, pod, c.Name, expireTarget)
 						if err != nil {
 							operatormetrics.StartupBoostTotal.WithLabelValues(pod.Namespace, rec.Workload, "failed").Inc()
 							logger.Error(err, "Failed to reduce startup boost",
 								"pod", pod.Name, "container", c.Name,
-								"targetCPU", recCPU.String(),
+								"targetCPU", recCPU.request.String(),
 								"currentCPU", c.Resources.Requests.Cpu().String())
 							boostReduceFailed = true
 							if refreshed == nil {
@@ -323,7 +340,7 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 						}
 						operatormetrics.StartupBoostTotal.WithLabelValues(pod.Namespace, rec.Workload, "expired").Inc()
 						logger.Info("Startup boost expired, reduced to steady-state",
-							"pod", pod.Name, "container", c.Name, "cpu", recCPU.String())
+							"pod", pod.Name, "container", c.Name, "cpu", recCPU.request.String())
 						*pod = *refreshed
 					}
 					// Only remove the boost annotation if all containers were
@@ -379,26 +396,36 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 	}
 }
 
-// boostResizeAndRefetch resizes a single container's CPU to targetCPU
-// (preserving the current memory request) and re-fetches the pod from the API
-// server. On resize failure it returns (original pod, err) so the caller can
-// continue to the next container. On re-fetch failure it returns (nil, err),
-// signaling the caller should break the container loop. On success it returns
-// the refreshed pod.
+// startupBoostCPU is the rec request and dest used to dest-cap a live boost.
+type startupBoostCPU struct {
+	request resource.Quantity
+	dest    resource.Quantity
+}
+
+// boostResizeAndRefetch resizes a single container to target (CPU request,
+// optional dest so RequestsAndLimits can raise leftover dest, and current
+// memory request) and re-fetches the pod from the API server. On resize
+// failure it returns (original pod, err) so the caller can continue to the
+// next container. On re-fetch failure it returns (nil, err), signaling the
+// caller should break the container loop. On success it returns the
+// refreshed pod.
 func (r *AttunePolicyReconciler) boostResizeAndRefetch(
 	ctx context.Context,
 	resizer *resize.PodResizer,
 	pod *corev1.Pod,
 	containerName string,
-	targetCPU resource.Quantity,
+	target corev1.ResourceRequirements,
 ) (*corev1.Pod, error) {
-	reqs := corev1.ResourceList{corev1.ResourceCPU: targetCPU}
+	if target.Requests == nil {
+		target.Requests = corev1.ResourceList{}
+	}
 	if c := findContainerByName(pod, containerName); c != nil {
 		if memReq, ok := c.Resources.Requests[corev1.ResourceMemory]; ok {
-			reqs[corev1.ResourceMemory] = memReq
+			if _, has := target.Requests[corev1.ResourceMemory]; !has {
+				target.Requests[corev1.ResourceMemory] = memReq
+			}
 		}
 	}
-	target := corev1.ResourceRequirements{Requests: reqs}
 	if _, err := resizer.ResizePod(ctx, pod, containerName, target); err != nil {
 		// Return the original pod (non-nil) so the caller knows this is a
 		// resize failure (continue to next container), not a re-fetch failure

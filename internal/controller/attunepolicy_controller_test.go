@@ -17099,6 +17099,136 @@ func TestApplyStartupBoosts_CapsAtMaxAllowed(t *testing.T) {
 	assert.True(t, foundResize, "expected a resize action for maxAllowed-capped startup boost")
 }
 
+func TestApplyStartupBoosts_DestCap(t *testing.T) {
+	// Live reconcile must dest-cap like CREATE after rec dest is written:
+	// RequestsOnly keeps leftover dest; RequestsAndLimits dest-caps rec dest
+	// and raises dest so a dest==request leftover is not a silent no-op.
+	only := attunev1alpha1.ControlledRequestsOnly
+	both := attunev1alpha1.ControlledRequestsAndLimits
+
+	tests := []struct {
+		name     string
+		cv       *string
+		leftover string
+		recReq   string
+		recDest  string
+		wantReq  string
+		wantDest string
+	}{
+		{
+			name:     "RequestsOnly leftover dest dest-caps request and does not raise dest",
+			cv:       &only,
+			leftover: "200m",
+			recReq:   "500m",
+			wantReq:  "200m",
+			wantDest: "200m",
+		},
+		{
+			name:     "RequestsAndLimits leftover dest dest-caps rec dest and raises dest",
+			cv:       &both,
+			leftover: "200m",
+			recReq:   "500m",
+			recDest:  "1",
+			wantReq:  "1",
+			wantDest: "1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			scheme := testScheme()
+			now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+			leftover, err := resource.ParseQuantity(tt.leftover)
+			require.NoError(t, err)
+			recReq, err := resource.ParseQuantity(tt.recReq)
+			require.NoError(t, err)
+			wantReq, err := resource.ParseQuantity(tt.wantReq)
+			require.NoError(t, err)
+			wantDest, err := resource.ParseQuantity(tt.wantDest)
+			require.NoError(t, err)
+			memReq, err := resource.ParseQuantity("128Mi")
+			require.NoError(t, err)
+
+			policy := &attunev1alpha1.AttunePolicy{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+				Spec: attunev1alpha1.AttunePolicySpec{
+					CPU: attunev1alpha1.ResourceConfig{
+						ControlledValues: tt.cv,
+						StartupBoost: &attunev1alpha1.StartupBoost{
+							Multiplier: "2.0",
+							Duration:   metav1.Duration{Duration: 2 * time.Minute},
+						},
+					},
+				},
+			}
+			recVals := attunev1alpha1.ResourceValues{CPURequest: recReq}
+			if tt.recDest != "" {
+				recDest, destErr := resource.ParseQuantity(tt.recDest)
+				require.NoError(t, destErr)
+				recVals.CPULimit = recDest
+			}
+
+			// dest==request leftover: dest-capping leftover dest is a no-op
+			// unless RequestsAndLimits dest-caps the rec dest and raises dest.
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "dest-app-abc",
+					Namespace:         "default",
+					CreationTimestamp: metav1.NewTime(now.Add(-30 * time.Second)),
+				},
+				Status: corev1.PodStatus{Phase: corev1.PodRunning},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name: "main",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    leftover.DeepCopy(),
+									corev1.ResourceMemory: memReq,
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceCPU: leftover.DeepCopy(),
+								},
+							},
+						},
+					},
+				},
+			}
+			clientset := kubefake.NewSimpleClientset(pod)
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod).Build()
+			r := NewAttunePolicyReconciler()
+			r.Client = fakeClient
+			r.Scheme = scheme
+			r.Clientset = clientset
+			r.SetNowFunc(func() time.Time { return now })
+
+			resizer := resize.NewPodResizer(clientset, ctrl.Log)
+			recs := []attunev1alpha1.WorkloadRecommendation{
+				{
+					Workload: "dest-app",
+					Kind:     "Deployment",
+					Containers: []attunev1alpha1.ContainerRecommendation{
+						{Name: "main", Recommended: recVals},
+					},
+				},
+			}
+			podsByWorkload := map[string][]corev1.Pod{"dest-app": {*pod}}
+
+			r.applyStartupBoosts(context.Background(), policy, podsByWorkload, recs, resizer, nil)
+
+			got, getErr := clientset.CoreV1().Pods(pod.Namespace).Get(
+				context.Background(), pod.Name, metav1.GetOptions{})
+			require.NoError(t, getErr)
+			gotReq := got.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
+			gotDest := got.Spec.Containers[0].Resources.Limits[corev1.ResourceCPU]
+			assert.Equal(t, wantReq.MilliValue(), gotReq.MilliValue(),
+				"live startup boost CPU request dest-clamp")
+			assert.Equal(t, wantDest.MilliValue(), gotDest.MilliValue(),
+				"live startup boost CPU dest")
+		})
+	}
+}
+
 func TestExportRecommendationConfigMaps_NaNInfConfidenceWritesZero(t *testing.T) {
 	scheme := testScheme()
 	policy := &attunev1alpha1.AttunePolicy{
