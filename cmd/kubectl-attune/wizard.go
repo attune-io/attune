@@ -175,8 +175,9 @@ func wizardCreate(ctx context.Context, dynClient dynamic.Interface, namespace st
 		return err
 	}
 
-	// 4. Prometheus auto-detection.
-	promAddr, err := detectOrPromptPrometheus(ctx, dynClient, p)
+	// 4. Metrics source: inherit AttuneDefaults when a provider is set,
+	// otherwise detect or prompt for Prometheus.
+	promAddr, err := detectOrPromptPrometheus(ctx, dynClient, ns, p)
 	if err != nil {
 		return err
 	}
@@ -456,14 +457,34 @@ func kindToGVR(kind string) schema.GroupVersionResource {
 	}
 }
 
-// detectOrPromptPrometheus auto-detects Prometheus services and falls back to manual input.
-func detectOrPromptPrometheus(ctx context.Context, dynClient dynamic.Interface, p prompter) (string, error) {
+// detectOrPromptPrometheus auto-detects Prometheus services and falls back to
+// manual input. When AttuneDefaults already sets a metrics provider, the
+// first option is inherit (empty address) so MergeDefaults keeps that
+// provider instead of a wizard Prometheus block.
+func detectOrPromptPrometheus(ctx context.Context, dynClient dynamic.Interface, namespace string, p prompter) (string, error) {
+	inherit := inheritedMetricsProviderLabel(ctx, dynClient, namespace)
 	detected := detectPrometheus(ctx, dynClient)
-	if len(detected) > 0 {
-		options := append(detected, "Enter manually")
-		idx, err := p.Select("Prometheus address (auto-detected):", options)
+
+	if inherit != "" || len(detected) > 0 {
+		var options []string
+		if inherit != "" {
+			options = append(options, "Inherit from AttuneDefaults ("+inherit+")")
+		}
+		options = append(options, detected...)
+		options = append(options, "Enter manually")
+		label := "Prometheus address (auto-detected):"
+		if inherit != "" {
+			label = "Metrics source:"
+		}
+		idx, err := p.Select(label, options)
 		if err != nil {
 			return "", err
+		}
+		if inherit != "" {
+			if idx == 0 {
+				return "", nil
+			}
+			idx--
 		}
 		if idx < len(detected) {
 			return detected[idx], nil
@@ -477,6 +498,26 @@ func detectOrPromptPrometheus(ctx context.Context, dynClient dynamic.Interface, 
 		return "", fmt.Errorf("prometheus address is required")
 	}
 	return addr, nil
+}
+
+func inheritedMetricsProviderLabel(ctx context.Context, dynClient dynamic.Interface, namespace string) string {
+	selected, err := fetchSelectedDefaults(ctx, dynClient, namespace)
+	if err != nil || selected.defaults == nil || selected.defaults.Spec.MetricsSource == nil {
+		return ""
+	}
+	ms := selected.defaults.Spec.MetricsSource
+	switch {
+	case ms.Datadog != nil:
+		return "Datadog"
+	case ms.CloudWatch != nil:
+		return "CloudWatch"
+	case ms.VPA != nil:
+		return "VPA"
+	case ms.Prometheus != nil:
+		return "Prometheus"
+	default:
+		return ""
+	}
 }
 
 // detectPrometheus scans cluster services for Prometheus-like endpoints.
@@ -574,11 +615,6 @@ func buildPolicyObject(namespace, name, kind, workloadName, promAddr string, cpu
 					"kind": kind,
 					"name": workloadName,
 				},
-				"metricsSource": map[string]interface{}{
-					"prometheus": map[string]interface{}{
-						"address": promAddr,
-					},
-				},
 				"cpu": map[string]interface{}{
 					"percentile": int64(cpuPercentile),
 					"overhead":   attunev1alpha1.DefaultCPUOverhead,
@@ -590,6 +626,14 @@ func buildPolicyObject(namespace, name, kind, workloadName, promAddr string, cpu
 				"updateStrategy": buildUpdateStrategy(mode, initialSizing),
 			},
 		},
+	}
+	if promAddr != "" {
+		spec, _ := obj.Object["spec"].(map[string]interface{})
+		spec["metricsSource"] = map[string]interface{}{
+			"prometheus": map[string]interface{}{
+				"address": promAddr,
+			},
+		}
 	}
 	return obj
 }
