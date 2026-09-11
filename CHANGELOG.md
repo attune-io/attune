@@ -6,6 +6,51 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.27](https://github.com/attune-io/attune/compare/v0.1.26...v0.1.27) (2026-09-11)
+
+
+### Features
+
+* add per-minute resize increase rate caps ([#707](https://github.com/attune-io/attune/issues/707)) ([8382355](https://github.com/attune-io/attune/commit/838235566ea585b24b2babcd6cca8fb1c6408ca0)), closes [#698](https://github.com/attune-io/attune/issues/698)
+* deprecate per-cycle increase caps and e2e the rate bucket ([#710](https://github.com/attune-io/attune/issues/710)) ([3a7d9e1](https://github.com/attune-io/attune/commit/3a7d9e174fa517071f275ca93a6608ab88e06f02))
+* name safety lifecycle and retry v1.32 resize verify ([#711](https://github.com/attune-io/attune/issues/711)) ([8644915](https://github.com/attune-io/attune/commit/8644915f1e1ce6abecf5d93a912d383e6ae9827e))
+* namespace freeze kill-switch and oneshot apply safety ([#685](https://github.com/attune-io/attune/issues/685)) ([4749a79](https://github.com/attune-io/attune/commit/4749a7910e5379947875ce8bc13a882c0a3acefd))
+
+
+### Bug Fixes
+
+* allow recommend cronjob create initial sizing ([#732](https://github.com/attune-io/attune/issues/732)) ([78a62c7](https://github.com/attune-io/attune/commit/78a62c7001c50064b2062cfb119ad2629ad00dfa))
+* apply startup cpu boost on create and skip shrink ([#730](https://github.com/attune-io/attune/issues/730)) ([8893840](https://github.com/attune-io/attune/commit/8893840345df079d2a277f1a2b71b52e54ef65db))
+* cap hpa dest leftover from applied cpu after requestsandlimits ([#727](https://github.com/attune-io/attune/issues/727)) ([0595478](https://github.com/attune-io/attune/commit/0595478cf0614125a8d9a618cd4b5a45d22b3e70))
+* clamp leftover dest limits on create, persist, and resize ([#721](https://github.com/attune-io/attune/issues/721)) ([fbfb1bb](https://github.com/attune-io/attune/commit/fbfb1bb1bf9f0a6fb1681811529694d29b056ed0))
+* close review-wave holes in safety, webhook, and ci ([#720](https://github.com/attune-io/attune/issues/720)) ([fce51d3](https://github.com/attune-io/attune/commit/fce51d36b6ac2b39454a3bbb27f435acb97a4fe4)), closes [#712](https://github.com/attune-io/attune/issues/712) [#714](https://github.com/attune-io/attune/issues/714) [#715](https://github.com/attune-io/attune/issues/715) [#716](https://github.com/attune-io/attune/issues/716) [#717](https://github.com/attune-io/attune/issues/717) [#718](https://github.com/attune-io/attune/issues/718) [#719](https://github.com/attune-io/attune/issues/719)
+* dest-cap startup boost to rec dest when limits are controlled ([#734](https://github.com/attune-io/attune/issues/734)) ([cf6acff](https://github.com/attune-io/attune/commit/cf6acffa04db0a51cc5e778732a2270ddc425090))
+* emit ResizeDeferred on dest cpu clamp at target ([#722](https://github.com/attune-io/attune/issues/722)) ([3472f6b](https://github.com/attune-io/attune/commit/3472f6b255eb229b9075bb82b8b2588c27bfef8e))
+* filter the resize plan by budget and retry stale InProgress ([#709](https://github.com/attune-io/attune/issues/709)) ([817a642](https://github.com/attune-io/attune/commit/817a6427de5a90df69c03042bcbf5f3e4a0f476e)), closes [#697](https://github.com/attune-io/attune/issues/697)
+* inherit attune defaults provider in wizard ([#728](https://github.com/attune-io/attune/issues/728)) ([5956d91](https://github.com/attune-io/attune/commit/5956d912f6ce1604881bab11468d50c51e7d7070))
+* inherit metrics source, guaranteed boost dest, budget remainder ([#741](https://github.com/attune-io/attune/issues/741)) ([d1f5bca](https://github.com/attune-io/attune/commit/d1f5bca2106349f01dcf712d8edd278435432830)), closes [#735](https://github.com/attune-io/attune/issues/735) [#736](https://github.com/attune-io/attune/issues/736) [#737](https://github.com/attune-io/attune/issues/737) [#738](https://github.com/attune-io/attune/issues/738) [#739](https://github.com/attune-io/attune/issues/739) [#740](https://github.com/attune-io/attune/issues/740)
+* keep dest leftover limits and retune hpa from applied cpu ([#723](https://github.com/attune-io/attune/issues/723)) ([7b599fd](https://github.com/attune-io/attune/commit/7b599fd33525f1006cf3ecc47d6c50980ffaf585))
+* keep safety revert running during namespace freeze ([#686](https://github.com/attune-io/attune/issues/686)) ([f119744](https://github.com/attune-io/attune/commit/f119744afb2948489ca06ee22f3a1957a0dc3ae7))
+* live-get pod before Infeasible eviction ([#673](https://github.com/attune-io/attune/issues/673)) ([aa4d4df](https://github.com/attune-io/attune/commit/aa4d4df6f44f0f3b2e145e0d5c7443df07132015))
+* match clamped revert target for safety restore retry ([#688](https://github.com/attune-io/attune/issues/688)) ([7603609](https://github.com/attune-io/attune/commit/7603609e7dd6fe7d64476d492126b7632208a0aa))
+* match cronjob create sizing through the owning job ([#731](https://github.com/attune-io/attune/issues/731)) ([4812ada](https://github.com/attune-io/attune/commit/4812adaf02abde0b57d77458e54045d5ffb9697b))
+* merge attune defaults into create initial sizing ([#725](https://github.com/attune-io/attune/issues/725)) ([e2d112a](https://github.com/attune-io/attune/commit/e2d112a0a6ca79d390619c2c0825780492beb8a6))
+* observe and plan selected pods before concurrent apply ([#704](https://github.com/attune-io/attune/issues/704)) ([d12d5e5](https://github.com/attune-io/attune/commit/d12d5e58ef0d6b9dab1f1a638ce8e9b988a47680)), closes [#697](https://github.com/attune-io/attune/issues/697)
+* oneshot remaining replicas and restore template on revert ([#682](https://github.com/attune-io/attune/issues/682)) ([78d4692](https://github.com/attune-io/attune/commit/78d46925a601ef30b7e71e42e8218629796cae38))
+* oneshot treat clamped memory as already at target ([#683](https://github.com/attune-io/attune/issues/683)) ([dc47e37](https://github.com/attune-io/attune/commit/dc47e377a53b86b31468429ff92c70facead55c6))
+* oneshot walk past blocked first replica ([#684](https://github.com/attune-io/attune/issues/684)) ([9085c8e](https://github.com/attune-io/attune/commit/9085c8ef1db2372f2482f53592d26d08200e95c8))
+* persist dest-clamped apply to after successful resize ([#729](https://github.com/attune-io/attune/issues/729)) ([8965345](https://github.com/attune-io/attune/commit/896534502aeb76856ba0f1d8ed2f0bfdca7be4db))
+* persist startup-boost annotation and cap defaults maxallowed ([#669](https://github.com/attune-io/attune/issues/669)) ([140573c](https://github.com/attune-io/attune/commit/140573c92dbcfcba7d884df582f886c57ce0f16c))
+* persist template after eviction and harden e2e contracts ([#679](https://github.com/attune-io/attune/issues/679)) ([a6fece1](https://github.com/attune-io/attune/commit/a6fece15baaa4d6cb82d16b9bbdeb0dd8e7f4324))
+* persist template after hold and stale current ([#680](https://github.com/attune-io/attune/issues/680)) ([2c49de1](https://github.com/attune-io/attune/commit/2c49de194025821d231cb7dbca7ec9fce53e51eb))
+* plan container resizes before claiming cycle budget ([#703](https://github.com/attune-io/attune/issues/703)) ([2e2d03e](https://github.com/attune-io/attune/commit/2e2d03e8a3a68905a15c1faf31ad0f76a2796115)), closes [#697](https://github.com/attune-io/attune/issues/697)
+* prefer live pod state for floor, skip, and last-replica eviction ([#677](https://github.com/attune-io/attune/issues/677)) ([de1d45d](https://github.com/attune-io/attune/commit/de1d45dea8a0fd6e1d2ed2e4863d25a3dd01c0b2))
+* preserve extended resources and cut steady-state live gets ([#700](https://github.com/attune-io/attune/issues/700)) ([2afbd9a](https://github.com/attune-io/attune/commit/2afbd9aa33a6aba28247579b26b5fd0bc53b54fa))
+* resolve applied targets through one clamp-floor-raise path ([#702](https://github.com/attune-io/attune/issues/702)) ([5242534](https://github.com/attune-io/attune/commit/524253453fa78b159e9159a38868dee500df1781)), closes [#697](https://github.com/attune-io/attune/issues/697)
+* retry safety restore and fail-closed observation cleanup ([#687](https://github.com/attune-io/attune/issues/687)) ([c9ee511](https://github.com/attune-io/attune/commit/c9ee511d5c8bc21e9116deaf8aad5e7ce650f5c6))
+* share stale-current usage floor and revert raise ([#701](https://github.com/attune-io/attune/issues/701)) ([a500c36](https://github.com/attune-io/attune/commit/a500c36bd35d77fee6105a5dd64ec7fa07f66e39)), closes [#697](https://github.com/attune-io/attune/issues/697)
+* stop inventing CREATE boost dest and keep expiry on qos skip ([#742](https://github.com/attune-io/attune/issues/742)) ([10adcd0](https://github.com/attune-io/attune/commit/10adcd05791871a8122f531868800a756fb947ae))
+
 ## [0.1.26](https://github.com/attune-io/attune/compare/v0.1.25...v0.1.26) (2026-09-05)
 
 
