@@ -1126,16 +1126,21 @@ list of affected resources (e.g., `cpu`, `memory`).
 **Cause**: The recommended CPU or memory request exceeds the container's
 current limit. This happens when `controlledValues` is set to
 `RequestsOnly` (limits stay at their current values) and the
-recommendation grows beyond those limits. The operator caps the request
-at the limit to prevent the API server from rejecting the resize.
+recommendation grows beyond those limits. The same clamp runs on CREATE
+initial sizing (leftover pod limits, including LimitRange defaults) and
+on persist merge against leftover template limits. Live resize also
+clamps to leftover pod limits (LimitRange), not only rec-blob limits.
+The operator caps the request at the limit to prevent the API server
+from rejecting the resize or the Deployment/StatefulSet patch.
 
 **Fix**: Either increase the container's limits, or switch to
 `controlledValues: RequestsAndLimits` so the operator can scale limits
 proportionally with requests.
 
 The `attune_request_clamped_total` counter increments each time a request
-is capped, broken down by container and resource. Use it to detect
-policies where limits are consistently too tight:
+is capped on live resize and on CREATE, broken down by container and
+resource. Use it to detect policies where limits are consistently too
+tight:
 
 ```promql
 rate(attune_request_clamped_total[1h]) > 0

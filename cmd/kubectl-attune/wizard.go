@@ -243,6 +243,9 @@ func wizardCreate(ctx context.Context, dynClient dynamic.Interface, namespace st
 		}
 		fmt.Printf("AttunePolicy %q created in namespace %q.\n", policyName, ns)
 		fmt.Println("\nTip: Run \"kubectl attune status -w\" to watch data collection progress.")
+		if initialSizing {
+			fmt.Println(initialSizingNextSteps(ns))
+		}
 	case 1:
 		filename, err := p.Input("Filename", policyName+".yaml")
 		if err != nil {
@@ -378,9 +381,15 @@ func wizardPromote(ctx context.Context, dynClient dynamic.Interface, namespace s
 	}
 	fmt.Printf("Policy %q promoted to %s mode.\n", selected.GetName(), newMode)
 	if enableInitialSizing {
-		fmt.Printf("Initial sizing enabled. Label namespaces with: kubectl label namespace %s attune.io/initial-sizing=enabled\n", ns)
+		fmt.Println(initialSizingNextSteps(ns))
 	}
 	return nil
+}
+
+// initialSizingNextSteps lists both webhook gates required after enabling
+// policy-level initialSizing (Helm webhook default is false).
+func initialSizingNextSteps(ns string) string {
+	return fmt.Sprintf("Initial sizing also requires Helm initialSizing.enabled=true (webhook default is false) and: kubectl label namespace %s attune.io/initial-sizing=enabled", ns)
 }
 
 // selectNamespace lists cluster namespaces and prompts the user.

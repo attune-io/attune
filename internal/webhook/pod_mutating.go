@@ -116,12 +116,20 @@ func (h *PodMutatingHandler) Handle(ctx context.Context, req admission.Request) 
 		return admission.Allowed("namespace has attune.io/freeze=true")
 	}
 
-	// Mutate the pod's containers.
+	// Mutate the pod's containers and native sidecars (init restartPolicy Always).
 	mutated := false
 	for i := range pod.Spec.Containers {
 		container := &pod.Spec.Containers[i]
 		if h.mutateContainer(container, rec, policy) {
 			mutated = true
+		}
+	}
+	for i := range pod.Spec.InitContainers {
+		container := &pod.Spec.InitContainers[i]
+		if container.RestartPolicy != nil && *container.RestartPolicy == corev1.ContainerRestartPolicyAlways {
+			if h.mutateContainer(container, rec, policy) {
+				mutated = true
+			}
 		}
 	}
 
@@ -320,6 +328,10 @@ func (h *PodMutatingHandler) mutateContainer(
 			}
 		}
 
+		for _, res := range resize.ClampRequestsToLimits(&container.Resources) {
+			operatormetrics.RequestClampedTotal.WithLabelValues(
+				policy.Namespace, policy.Name, container.Name, res).Inc()
+		}
 		return mutated
 	}
 	return false

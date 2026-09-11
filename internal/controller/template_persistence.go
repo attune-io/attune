@@ -111,7 +111,7 @@ func materializeContainerResources(
 		out.Limits = limits
 	}
 	// Match resize path: requests must not exceed limits when both are set.
-	_ = clampRequestsToLimits(&out)
+	_ = resize.ClampRequestsToLimits(&out)
 
 	if _, ok := out.Limits[corev1.ResourceMemory]; ok {
 		if usage, hasUsage := recentMemoryUsage(c); hasUsage {
@@ -335,9 +335,18 @@ func (r *AttunePolicyReconciler) applyTemplatePersistence(
 			}
 			if cachedSpec != nil {
 				if cur, ok := templateContainerResources(cachedSpec, c.Name); ok {
-					next := mergeTemplateResources(cur, want)
+					next, destClamped := mergeTemplateResources(cur, want)
 					if resourcesEqual(cur, next) {
 						continue
+					}
+					if len(destClamped) > 0 {
+						logger.V(1).Info("Requests clamped to leftover template limits",
+							"workload", rec.Workload, "container", c.Name,
+							"clampedResources", destClamped)
+						for _, res := range destClamped {
+							operatormetrics.RequestClampedTotal.WithLabelValues(
+								policy.Namespace, policy.Name, c.Name, res).Inc()
+						}
 					}
 				}
 			}
@@ -478,7 +487,7 @@ func applyContainerResources(c *corev1.Container, want corev1.ResourceRequiremen
 	if !replace {
 		// Merge first so RequestsOnly (Limits=nil) does not treat leftover
 		// template limits as a change when requests already match.
-		next = mergeTemplateResources(c.Resources, want)
+		next, _ = mergeTemplateResources(c.Resources, want)
 	} else {
 		next = replaceCPUMemoryResources(c.Resources, want)
 	}
@@ -525,7 +534,9 @@ func replaceCPUMemoryResources(current, want corev1.ResourceRequirements) corev1
 
 // mergeTemplateResources applies want requests/limits onto current, keeping
 // existing limit entries when want does not set limits for that resource.
-func mergeTemplateResources(current, want corev1.ResourceRequirements) corev1.ResourceRequirements {
+// Requests are then clamped so they do not exceed leftover destination limits.
+// The returned names are resources whose requests were dest-clamped.
+func mergeTemplateResources(current, want corev1.ResourceRequirements) (corev1.ResourceRequirements, []string) {
 	out := current.DeepCopy()
 	if out.Requests == nil {
 		out.Requests = corev1.ResourceList{}
@@ -541,7 +552,8 @@ func mergeTemplateResources(current, want corev1.ResourceRequirements) corev1.Re
 			out.Limits[k] = v.DeepCopy()
 		}
 	}
-	return *out
+	clamped := resize.ClampRequestsToLimits(out)
+	return *out, clamped
 }
 
 func workloadPodSpec(w client.Object) *corev1.PodSpec {

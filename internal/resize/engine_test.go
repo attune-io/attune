@@ -172,6 +172,28 @@ func TestResizePod_ReturnsCorrectFromTo(t *testing.T) {
 	assert.NoError(t, memResult.Error)
 }
 
+func TestResizePod_ToUsesMergedRequestWhenInboundExceedsLeftoverLimit(t *testing.T) {
+	pod := newTestPod("web-0", "default", "app", "100m", "128Mi", "200m", "256Mi")
+	fakeClient := fake.NewSimpleClientset(pod)
+	fakeClient.PrependReactor("update", "pods", resizeReactor)
+
+	resizer := NewPodResizer(fakeClient, testr.New(t))
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("500m"),
+			corev1.ResourceMemory: resource.MustParse("128Mi"),
+		},
+	}
+
+	results, err := resizer.ResizePod(context.Background(), pod, "app", target)
+	require.NoError(t, err)
+	require.Len(t, results, 2)
+	assert.True(t, results[0].To.Equal(resource.MustParse("200m")),
+		"cpu To must be leftover live limit 200m, not inbound 500m; got %s", results[0].To.String())
+	assert.True(t, results[1].To.Equal(resource.MustParse("128Mi")),
+		"memory To must stay the inbound request %s", results[1].To.String())
+}
+
 func TestIsEligibleForResize(t *testing.T) {
 	now := metav1.NewTime(time.Now())
 
@@ -809,6 +831,24 @@ func TestMergeResources(t *testing.T) {
 	}
 }
 
+func TestMergeResources_ClampsRequestToLeftoverLiveLimit(t *testing.T) {
+	current := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m")},
+		Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("200m")},
+	}
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m")},
+	}
+
+	merged := mergeResources(current, target)
+	require.NotNil(t, merged.Requests)
+	require.NotNil(t, merged.Limits)
+	assert.True(t, merged.Requests.Cpu().Equal(resource.MustParse("200m")),
+		"merged CPU request %s must clamp to leftover live limit 200m", merged.Requests.Cpu().String())
+	assert.True(t, merged.Limits.Cpu().Equal(resource.MustParse("200m")),
+		"leftover CPU limit must stay 200m, got %s", merged.Limits.Cpu().String())
+}
+
 func TestIsResizeInfeasible(t *testing.T) {
 	tests := []struct {
 		name string
@@ -970,7 +1010,7 @@ func TestResizePod_InitContainer(t *testing.T) {
 							corev1.ResourceMemory: resource.MustParse("64Mi"),
 						},
 						Limits: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("200m"),
+							corev1.ResourceCPU:    resource.MustParse("1"),
 							corev1.ResourceMemory: resource.MustParse("128Mi"),
 						},
 					},

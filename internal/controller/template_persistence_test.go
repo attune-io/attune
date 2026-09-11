@@ -302,12 +302,32 @@ func TestMergeTemplateResources_PreservesUncontrolledLimits(t *testing.T) {
 			corev1.ResourceMemory: resource.MustParse("256Mi"),
 		},
 	}
-	got := mergeTemplateResources(current, want)
+	got, destClamped := mergeTemplateResources(current, want)
 	assert.Equal(t, int64(200), got.Requests.Cpu().MilliValue())
 	assert.True(t, got.Requests.Memory().Equal(resource.MustParse("256Mi")))
 	require.NotNil(t, got.Limits)
 	assert.Equal(t, int64(500), got.Limits.Cpu().MilliValue(), "existing CPU limit preserved")
 	assert.True(t, got.Limits.Memory().Equal(resource.MustParse("512Mi")), "existing memory limit preserved")
+	assert.Empty(t, destClamped)
+}
+
+func TestMergeTemplateResources_ClampsHoldRequestToLeftoverLimit(t *testing.T) {
+	current := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("256Mi")},
+		Limits:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("512Mi")},
+	}
+	want := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("1Gi")},
+	}
+
+	got, destClamped := mergeTemplateResources(current, want)
+	require.NotNil(t, got.Requests)
+	require.NotNil(t, got.Limits)
+	assert.True(t, got.Requests.Memory().Equal(resource.MustParse("512Mi")),
+		"hold request %s must clamp to leftover template limit 512Mi", got.Requests.Memory().String())
+	assert.True(t, got.Limits.Memory().Equal(resource.MustParse("512Mi")),
+		"leftover memory limit must stay 512Mi, got %s", got.Limits.Memory().String())
+	assert.Equal(t, []string{"memory"}, destClamped)
 }
 
 func TestQuantityEqual_MissingAsZero(t *testing.T) {
@@ -1677,11 +1697,12 @@ func TestMergeTemplateResources_NilRequestsAndLimits(t *testing.T) {
 			corev1.ResourceMemory: resource.MustParse("128Mi"),
 		},
 	}
-	got := mergeTemplateResources(corev1.ResourceRequirements{}, want)
+	got, destClamped := mergeTemplateResources(corev1.ResourceRequirements{}, want)
 	require.NotNil(t, got.Requests)
 	assert.Equal(t, "100m", got.Requests.Cpu().String())
 	assert.Equal(t, "128Mi", got.Requests.Memory().String())
 	assert.Nil(t, got.Limits)
+	assert.Empty(t, destClamped)
 
 	// Limits filled only when want has limits; existing limits preserved for other keys.
 	current := corev1.ResourceRequirements{
@@ -1692,7 +1713,8 @@ func TestMergeTemplateResources_NilRequestsAndLimits(t *testing.T) {
 		Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("200m")},
 		Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("400m")},
 	}
-	got2 := mergeTemplateResources(current, want2)
+	got2, destClamped2 := mergeTemplateResources(current, want2)
+	assert.Empty(t, destClamped2)
 	assert.Equal(t, "200m", got2.Requests.Cpu().String())
 	assert.Equal(t, "400m", got2.Limits.Cpu().String())
 	assert.Equal(t, "256Mi", got2.Limits.Memory().String(), "unrelated existing limit kept")

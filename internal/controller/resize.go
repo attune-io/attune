@@ -129,11 +129,16 @@ type liveResizeApplyMeta struct {
 	FloorUsage              resource.Quantity
 	FloorMargin             float64
 	FloorEqualsCurrent      bool
+	// DestClamped is resource names whose requests were capped to leftover
+	// live container limits after ResolveAppliedTarget (LimitRange).
+	DestClamped []string
 }
 
 // applyLiveResizeTarget applies ClampMemoryLimitForPolicy, the Guaranteed
-// request raise when platform-clamped, and the usage floor otherwise.
-// OneShot compare and resizeContainer must share this so they cannot drift.
+// request raise when platform-clamped, the usage floor otherwise, then
+// leftover dest limits (same overlay as mergeResources) and
+// ClampRequestsToLimits. OneShot compare and resizeContainer must share
+// this so they cannot drift.
 func (r *AttunePolicyReconciler) applyLiveResizeTarget(
 	policy *attunev1alpha1.AttunePolicy,
 	pod *corev1.Pod,
@@ -170,6 +175,23 @@ func (r *AttunePolicyReconciler) applyLiveResizeTarget(
 	}
 	if resMeta.FloorApplied {
 		meta.FloorEqualsCurrent = resMeta.FloorToLimit.Equal(current)
+	}
+	if dest := findContainerByName(pod, containerRec.Name); dest != nil {
+		// Keep dest leftover limits when the rec blob omitted that resource.
+		if len(dest.Resources.Limits) > 0 {
+			if applied.Limits == nil {
+				applied.Limits = corev1.ResourceList{}
+			}
+			for _, res := range []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory} {
+				if _, set := applied.Limits[res]; set {
+					continue
+				}
+				if destLim, ok := dest.Resources.Limits[res]; ok && !destLim.IsZero() {
+					applied.Limits[res] = destLim.DeepCopy()
+				}
+			}
+		}
+		meta.DestClamped = resize.ClampRequestsToLimits(&applied)
 	}
 	return applied, meta
 }
@@ -545,7 +567,10 @@ func (r *AttunePolicyReconciler) executeResizes(
 				skipEviction := false
 
 				for i, action := range actions {
-					if len(action.Clamped) > 0 {
+					// Dest leftover clamp stays on the plan after converge
+					// (rec 500m, leftover 200m, live already 200m). Count
+					// only when this cycle still needs to apply.
+					if len(action.Clamped) > 0 && !action.AtTarget {
 						logger.V(1).Info("Requests clamped to limits",
 							"pod", pod.Name, "container", action.Container,
 							"clampedResources", action.Clamped)
@@ -1260,27 +1285,8 @@ func buildResizeTarget(rec attunev1alpha1.ContainerRecommendation) (corev1.Resou
 	// Clamp requests to not exceed limits. When ControlledValues is
 	// RequestsOnly, limits stay at current values and a growing request
 	// can exceed them, causing the API server to reject the resize.
-	clamped := clampRequestsToLimits(&target)
+	clamped := resize.ClampRequestsToLimits(&target)
 	return target, clamped
-}
-
-// clampRequestsToLimits ensures requests do not exceed limits for each resource.
-// When a limit is present and the request exceeds it, the request is capped
-// at the limit value to prevent API server rejection.
-func clampRequestsToLimits(target *corev1.ResourceRequirements) []string {
-	if target.Limits == nil {
-		return nil
-	}
-	var clamped []string
-	for _, res := range []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory} {
-		lim, hasLim := target.Limits[res]
-		req, hasReq := target.Requests[res]
-		if hasLim && hasReq && req.Cmp(lim) > 0 {
-			target.Requests[res] = lim.DeepCopy()
-			clamped = append(clamped, string(res))
-		}
-	}
-	return clamped
 }
 
 // resolveCanaryPhase checks whether canary pods have passed the observation

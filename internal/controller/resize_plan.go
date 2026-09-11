@@ -65,6 +65,9 @@ func (r *AttunePolicyReconciler) planPodActions(
 	for _, containerRec := range rec.Containers {
 		target, clamped := buildResizeTarget(containerRec)
 		target, applyMeta := r.applyLiveResizeTarget(policy, pod, containerRec, target)
+		if len(applyMeta.DestClamped) > 0 {
+			clamped = append(clamped, applyMeta.DestClamped...)
+		}
 		c := findContainerByName(pod, containerRec.Name)
 		atTarget := c != nil && containerMatchesAppliedTarget(c, target)
 		cpuInc, memInc := int64(0), int64(0)
