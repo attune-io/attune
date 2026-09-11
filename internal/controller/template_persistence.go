@@ -111,7 +111,7 @@ func materializeContainerResources(
 		out.Limits = limits
 	}
 	// Match resize path: requests must not exceed limits when both are set.
-	_ = clampRequestsToLimits(&out)
+	_ = resize.ClampRequestsToLimits(&out)
 
 	if _, ok := out.Limits[corev1.ResourceMemory]; ok {
 		if usage, hasUsage := recentMemoryUsage(c); hasUsage {

@@ -1260,27 +1260,8 @@ func buildResizeTarget(rec attunev1alpha1.ContainerRecommendation) (corev1.Resou
 	// Clamp requests to not exceed limits. When ControlledValues is
 	// RequestsOnly, limits stay at current values and a growing request
 	// can exceed them, causing the API server to reject the resize.
-	clamped := clampRequestsToLimits(&target)
+	clamped := resize.ClampRequestsToLimits(&target)
 	return target, clamped
-}
-
-// clampRequestsToLimits ensures requests do not exceed limits for each resource.
-// When a limit is present and the request exceeds it, the request is capped
-// at the limit value to prevent API server rejection.
-func clampRequestsToLimits(target *corev1.ResourceRequirements) []string {
-	if target.Limits == nil {
-		return nil
-	}
-	var clamped []string
-	for _, res := range []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory} {
-		lim, hasLim := target.Limits[res]
-		req, hasReq := target.Requests[res]
-		if hasLim && hasReq && req.Cmp(lim) > 0 {
-			target.Requests[res] = lim.DeepCopy()
-			clamped = append(clamped, string(res))
-		}
-	}
-	return clamped
 }
 
 // resolveCanaryPhase checks whether canary pods have passed the observation

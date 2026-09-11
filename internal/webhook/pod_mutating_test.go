@@ -707,6 +707,105 @@ func TestPodMutatingHandler_RequestsAndLimits_UsageFloorGuaranteed(t *testing.T)
 		"Guaranteed CREATE request %s want %s", gotReq.String(), want.String())
 }
 
+func TestPodMutatingHandler_ClampsRequestToLeftoverLimit(t *testing.T) {
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
+	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
+	pod.Spec.Containers[0].Resources.Limits = corev1.ResourceList{
+		corev1.ResourceCPU: resource.MustParse("200m"),
+	}
+
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, testNamespace("default", nil)).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	req := makeAdmissionRequest(t, pod, "default")
+	resp := handler.Handle(context.Background(), req)
+	require.True(t, resp.Allowed)
+	require.NotEmpty(t, resp.Patches, "expected patches")
+
+	mutatedPod := patchedPod(t, req.Object.Raw, resp)
+	gotReq := mutatedPod.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
+	gotLim := mutatedPod.Spec.Containers[0].Resources.Limits[corev1.ResourceCPU]
+	assert.True(t, gotReq.Equal(resource.MustParse("200m")),
+		"CREATE request %s must clamp to leftover limit 200m", gotReq.String())
+	assert.True(t, gotLim.Equal(resource.MustParse("200m")),
+		"leftover CPU limit must stay 200m, got %s", gotLim.String())
+}
+
+func TestPodMutatingHandler_NativeSidecarInitialSizing(t *testing.T) {
+	always := corev1.ContainerRestartPolicyAlways
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
+	policy.Status.Recommendations[0].Containers = []attunev1alpha1.ContainerRecommendation{
+		{
+			Name:       "sidecar",
+			Confidence: 0.8,
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest:    resource.MustParse("400m"),
+				MemoryRequest: resource.MustParse("128Mi"),
+			},
+		},
+		{
+			Name:       "bootstrap",
+			Confidence: 0.8,
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest:    resource.MustParse("300m"),
+				MemoryRequest: resource.MustParse("64Mi"),
+			},
+		},
+	}
+
+	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
+	pod.Spec.InitContainers = []corev1.Container{
+		{
+			Name:          "sidecar",
+			RestartPolicy: &always,
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("100m"),
+					corev1.ResourceMemory: resource.MustParse("32Mi"),
+				},
+				Limits: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("1"),
+				},
+			},
+		},
+		{
+			Name: "bootstrap",
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("50m"),
+					corev1.ResourceMemory: resource.MustParse("32Mi"),
+				},
+			},
+		},
+	}
+
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, testNamespace("default", nil)).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	req := makeAdmissionRequest(t, pod, "default")
+	resp := handler.Handle(context.Background(), req)
+	require.True(t, resp.Allowed)
+	require.NotEmpty(t, resp.Patches, "native sidecar must produce a CREATE patch")
+
+	mutatedPod := patchedPod(t, req.Object.Raw, resp)
+	require.Len(t, mutatedPod.Spec.InitContainers, 2)
+	sidecar := mutatedPod.Spec.InitContainers[0]
+	gotSidecarCPU := sidecar.Resources.Requests[corev1.ResourceCPU]
+	gotSidecarMem := sidecar.Resources.Requests[corev1.ResourceMemory]
+	assert.True(t, gotSidecarCPU.Equal(resource.MustParse("400m")),
+		"native sidecar CPU request %s want 400m", gotSidecarCPU.String())
+	assert.True(t, gotSidecarMem.Equal(resource.MustParse("128Mi")),
+		"native sidecar memory request %s want 128Mi", gotSidecarMem.String())
+
+	bootstrap := mutatedPod.Spec.InitContainers[1]
+	gotInitCPU := bootstrap.Resources.Requests[corev1.ResourceCPU]
+	gotInitMem := bootstrap.Resources.Requests[corev1.ResourceMemory]
+	assert.True(t, gotInitCPU.Equal(resource.MustParse("50m")),
+		"regular init must not be CREATE-sized, got %s", gotInitCPU.String())
+	assert.True(t, gotInitMem.Equal(resource.MustParse("32Mi")),
+		"regular init memory must stay 32Mi, got %s", gotInitMem.String())
+}
+
 func TestPodMutatingHandler_WrongNamespace(t *testing.T) {
 	policy := testPolicy("my-policy", "production", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
