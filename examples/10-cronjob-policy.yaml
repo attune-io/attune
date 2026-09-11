@@ -1,12 +1,14 @@
 # CronJob Policy: recommend right-sized resources for batch workloads
 #
-# CronJobs and Jobs are recommend-only. The operator monitors historical
-# usage from completed pod runs and writes recommendations to the policy
-# status. No in-place resizes are performed (batch pods complete and
-# cannot be resized).
+# CronJobs and Jobs have no in-place resize (batch pods complete and
+# cannot be resized). The operator monitors historical usage from
+# completed pod runs and writes recommendations to the policy status.
+# CREATE can still apply those recs to new Job pods when
+# updateStrategy.initialSizing is true and the namespace has label
+# attune.io/initial-sizing=enabled.
 #
 # Use the recommendations to update your CronJob's resource requests
-# for future runs.
+# for future runs, or enable initialSizing as described above.
 #
 # Apply:
 #   kubectl apply -f examples/10-cronjob-policy.yaml
