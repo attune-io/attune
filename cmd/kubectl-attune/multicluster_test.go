@@ -157,6 +157,24 @@ func TestFetchMultiCluster_AllContextsFail(t *testing.T) {
 	assert.Len(t, warnings, 2)
 }
 
+func TestMultiClusterFailed(t *testing.T) {
+	assert.True(t, multiClusterFailed(2, 2, 0), "every context failed and no items")
+	assert.False(t, multiClusterFailed(2, 1, 0), "one success with empty list stays 0")
+	assert.False(t, multiClusterFailed(2, 0, 0), "all succeeded with empty list stays 0")
+	assert.False(t, multiClusterFailed(2, 1, 1), "partial failure with items stays 0")
+	assert.False(t, multiClusterFailed(0, 0, 0), "no contexts is not a failure")
+}
+
+func TestRun_MultiClusterAllContextsFail(t *testing.T) {
+	factory := fakeMultiContextFactory(t, map[string][]runtime.Object{})
+	exitCode, stdout, stderr := captureRun(t,
+		[]string{"status", "--contexts", "a,b"},
+		factory)
+	assert.Equal(t, 1, exitCode)
+	assert.Contains(t, stdout, "No AttunePolicies found")
+	assert.Contains(t, stderr, "WARNING")
+}
+
 // ---------- printStatusItems multi-cluster ----------
 
 func TestPrintStatusItems_ShowsClusterColumn(t *testing.T) {

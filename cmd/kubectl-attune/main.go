@@ -249,6 +249,9 @@ func run(args []string, buildClient dynamicClientFactory) int {
 		case "diff":
 			printDiffItems(items, "")
 		}
+		if multiClusterFailed(len(ctxList), len(warnings), len(items)) {
+			return 1
+		}
 		return 0
 	}
 

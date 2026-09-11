@@ -509,14 +509,54 @@ func detectPrometheus(ctx context.Context, dynClient dynamic.Interface) []string
 		if !found || len(ports) == 0 {
 			continue
 		}
-		port, _ := ports[0].(map[string]interface{})
-		portNum, _, _ := unstructured.NestedInt64(port, "port")
-		if portNum == 0 {
-			portNum = 80
-		}
-		results = append(results, fmt.Sprintf("http://%s.%s:%d", name, ns, portNum))
+		portNum := pickPrometheusPort(ports)
+		results = append(results, fmt.Sprintf("http://%s.%s.svc:%d", name, ns, portNum))
 	}
 	return results
+}
+
+// pickPrometheusPort prefers an HTTP-named port, then common HTTP numbers,
+// then the first port that is not a Thanos gRPC port, then the first port.
+func pickPrometheusPort(ports []interface{}) int64 {
+	type pinfo struct {
+		name string
+		num  int64
+	}
+	parsed := make([]pinfo, 0, len(ports))
+	for _, raw := range ports {
+		m, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		num, _, _ := unstructured.NestedInt64(m, "port")
+		if num == 0 {
+			num = 80
+		}
+		name, _, _ := unstructured.NestedString(m, "name")
+		parsed = append(parsed, pinfo{name: name, num: num})
+	}
+	if len(parsed) == 0 {
+		return 80
+	}
+	for _, p := range parsed {
+		n := strings.ToLower(p.name)
+		if strings.Contains(n, "http") || strings.Contains(n, "web") || strings.Contains(n, "metrics") {
+			return p.num
+		}
+	}
+	for _, want := range []int64{9090, 9091, 8080, 80} {
+		for _, p := range parsed {
+			if p.num == want {
+				return p.num
+			}
+		}
+	}
+	for _, p := range parsed {
+		if p.num != 10901 && p.num != 10902 {
+			return p.num
+		}
+	}
+	return parsed[0].num
 }
 
 // buildPolicyObject constructs an unstructured AttunePolicy.
