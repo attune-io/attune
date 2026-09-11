@@ -357,17 +357,17 @@ across the capabilities that matter most.
 These projects appeared after Kubernetes 1.33 made `/resize` widely
 available. They are not in the table above.
 
-| | [k8s-sustain](https://github.com/noony/k8s-sustain) | [CruiseKube](https://github.com/truefoundry/CruiseKube) | [Kedify PRA](https://docs.kedify.io/features/pod-resource-autoscaler/) | Attune |
-|---|---|---|---|---|
-| **License** | ISC | BUSL-1.1 | Commercial | Apache-2.0 |
-| **In-place `/resize`** | Yes (1.33+; eviction fallback) | Yes (requires 1.33+) | Yes (seconds-scale band) | Yes (1.32+) |
-| **Canary + auto-revert** | No | No | No (utilization band, not a recommender) | Yes |
-| **What they add** | KEDA + Argo Rollouts, dashboard simulator | Install preflight, product dashboard | Fast spike reaction from kubelet stats | Safety loop, `kubectl attune doctor`, `explain`, GitOps export |
+| | [k8s-sustain](https://github.com/noony/k8s-sustain) | [Kilter](https://github.com/agenticode/kilter) | [CruiseKube](https://github.com/truefoundry/CruiseKube) | [Kedify PRA](https://docs.kedify.io/features/pod-resource-autoscaler/) | Attune |
+|---|---|---|---|---|---|
+| **License** | ISC | Apache-2.0 | BUSL-1.1 | Commercial | Apache-2.0 |
+| **In-place `/resize`** | Yes (1.33+; eviction fallback) | Yes (requires 1.33+) | Yes (requires 1.33+) | Yes (seconds-scale band) | Yes (1.32+) |
+| **Canary + auto-revert** | No | No | No | No (utilization band, not a recommender) | Yes |
+| **What they add** | KEDA + Argo Rollouts, dashboard simulator | Usage histograms, bin-pack, dashboard | Install preflight, product dashboard | Fast spike reaction from kubelet stats | Safety loop, `kubectl attune doctor`, `explain`, GitOps export |
 
-k8s-sustain is the closest open-source operator. CruiseKube is
-source-available with a production-use BUSL. Kedify PRA is a
-complementary time horizon (seconds vs Attune's percentile window),
-not a replacement.
+Kilter is another open-source applier. k8s-sustain remains the closest
+on KEDA, Argo, and dashboard. CruiseKube is source-available with a
+production-use BUSL. Kedify PRA is a complementary time horizon
+(seconds vs Attune's percentile window), not a replacement.
 
 ### Commercial platforms
 
