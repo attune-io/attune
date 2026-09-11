@@ -59,7 +59,11 @@ func (r *AttunePolicyReconciler) retuneHPAAfterResize(
 			pods = podsByWorkload[rec.Workload]
 		}
 		cpuLimit := destCPULimitFromPods(pods)
-		if cpuLimit.IsZero() {
+		if !resourceControlledRequestsOnly(policy, corev1.ResourceCPU) {
+			// After RequestsAndLimits apply, leftover dest is the applied To.
+			// podsByWorkload is the pre-resize list and still has old limits.
+			cpuLimit = newCPU.DeepCopy()
+		} else if cpuLimit.IsZero() {
 			cpuLimit = newCPU.DeepCopy()
 		}
 		r.adjustHPATargets(ctx, hpas, rec.Workload, rec.Kind, oldCPU, newCPU, cpuLimit)
