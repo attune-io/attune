@@ -650,6 +650,31 @@ func TestPodMutatingHandler_PausedSkipsCreate(t *testing.T) {
 	assert.Contains(t, resp.Result.Message, "paused")
 }
 
+func TestPodMutatingHandler_CronJobRecommendCreates(t *testing.T) {
+	policy := testPolicy("etl-policy", "default", "CronJob", "nightly-etl", true, attunev1alpha1.UpdateTypeRecommend)
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "nightly-etl-29184000",
+			Namespace: "default",
+			OwnerReferences: []metav1.OwnerReference{
+				{Kind: "CronJob", Name: "nightly-etl"},
+			},
+		},
+	}
+	pod := testPod("nightly-etl-29184000-abc", "Job", "nightly-etl-29184000")
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).
+		WithObjects(policy, job, testNamespace("default", nil)).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	req := makeAdmissionRequest(t, pod, "default")
+	resp := handler.Handle(context.Background(), req)
+	require.True(t, resp.Allowed)
+	require.NotEmpty(t, resp.Patches, "Recommend CronJob must CREATE-size; it is the only apply path")
+
+	mutatedPod := patchedPod(t, req.Object.Raw, resp)
+	assert.True(t, mutatedPod.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU].Equal(resource.MustParse("500m")))
+}
+
 func TestPodMutatingHandler_CronJobOwnerMatchesPolicy(t *testing.T) {
 	policy := testPolicy("etl-policy", "default", "CronJob", "nightly-etl", true, attunev1alpha1.UpdateTypeAuto)
 	job := &batchv1.Job{

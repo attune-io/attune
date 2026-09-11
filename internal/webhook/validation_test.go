@@ -1693,6 +1693,20 @@ func TestWarn_InitialSizingInRecommendMode(t *testing.T) {
 	assert.Contains(t, w, "initialSizing has no effect in Recommend mode; it requires Auto, OneShot, or Canary")
 }
 
+func TestWarn_InitialSizingRecommendCronJobHasEffect(t *testing.T) {
+	validator := &AttunePolicyValidator{}
+	policy := validPolicy()
+	policy.Spec.TargetRef.Kind = "CronJob"
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeRecommend
+	policy.Spec.UpdateStrategy.InitialSizing = boolPtr(true)
+
+	w, err := validator.ValidateCreate(context.Background(), policy)
+	assert.NoError(t, err)
+	for _, msg := range w {
+		assert.NotContains(t, msg, "initialSizing has no effect")
+	}
+}
+
 func TestWarn_AutoRevertInObserveMode(t *testing.T) {
 	validator := &AttunePolicyValidator{}
 	policy := validPolicy()
