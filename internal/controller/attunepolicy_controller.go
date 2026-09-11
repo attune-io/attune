@@ -34,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -48,6 +49,7 @@ import (
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 	"github.com/attune-io/attune/internal/conflict"
 	"github.com/attune-io/attune/internal/gitops"
+	"github.com/attune-io/attune/internal/lifecycle"
 	rsmetrics "github.com/attune-io/attune/internal/metrics"
 	"github.com/attune-io/attune/internal/operatormetrics"
 	"github.com/attune-io/attune/internal/resize"
@@ -305,13 +307,7 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	if err := r.Get(ctx, req.NamespacedName, &policy); err != nil {
 		if apierrors.IsNotFound(err) {
 			logger.Info("AttunePolicy resource not found, likely deleted")
-			// Clean up gauge values this policy previously set.
-			deletedPolicyKey := req.Namespace + "/" + req.Name
-			if prev, ok := r.gaugeKeys.LoadAndDelete(deletedPolicyKey); ok {
-				if keys, ok := prev.([]gaugeKey); ok {
-					deleteGaugeKeys(keys)
-				}
-			}
+			r.forgetPolicyRuntimeState(req.Namespace, req.Name)
 			return ctrl.Result{}, nil
 		}
 		operatormetrics.ReconcileErrorsTotal.WithLabelValues("fetch").Inc()
@@ -400,6 +396,8 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	var safetyObservationsPending bool
 	if autoRevertEnabled(policy.Spec.UpdateStrategy) {
 		safetyObservationsPending = r.checkPendingSafetyObservations(workloadCtx, &policy, collector, workloads)
+	} else {
+		r.setSafetyObservationCondition(&policy, lifecycle.Summary{})
 	}
 
 	logger.Info("Discovered workloads", "count", len(workloads))
@@ -1265,13 +1263,7 @@ func (r *AttunePolicyReconciler) handleDeletion(ctx context.Context, policy *att
 		return ctrl.Result{}, errors.Join(cleanupErrs...)
 	}
 
-	// Clean Prometheus gauge values this policy set.
-	policyKey := policy.Namespace + "/" + policy.Name
-	if prev, ok := r.gaugeKeys.LoadAndDelete(policyKey); ok {
-		if keys, ok := prev.([]gaugeKey); ok {
-			deleteGaugeKeys(keys)
-		}
-	}
+	r.forgetPolicyRuntimeState(policy.Namespace, policy.Name)
 
 	// Clean namespace-level savings gauges if this is the last policy in the namespace.
 	var policyList attunev1alpha1.AttunePolicyList
@@ -1301,6 +1293,20 @@ func (r *AttunePolicyReconciler) handleDeletion(ctx context.Context, policy *att
 
 	logger.Info("Completed deletion cleanup for policy", "policy", policy.Name)
 	return ctrl.Result{}, nil
+}
+
+// forgetPolicyRuntimeState drops in-memory per-policy maps so a recreate
+// does not inherit the previous object's gauges, rate tokens, or blocker
+// throttle clock.
+func (r *AttunePolicyReconciler) forgetPolicyRuntimeState(namespace, name string) {
+	policyKey := namespace + "/" + name
+	if prev, ok := r.gaugeKeys.LoadAndDelete(policyKey); ok {
+		if keys, ok := prev.([]gaugeKey); ok {
+			deleteGaugeKeys(keys)
+		}
+	}
+	r.increaseRates.Delete(policyKey)
+	r.lastBlockerRefresh.Delete(types.NamespacedName{Namespace: namespace, Name: name})
 }
 
 func progressPercent(collected, required int) int {

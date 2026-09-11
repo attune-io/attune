@@ -235,6 +235,7 @@ func (r *AttunePolicyReconciler) countLiveRunningReplicas(
 func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Context, policy *attunev1alpha1.AttunePolicy, collector rsmetrics.MetricsCollector, workloads []client.Object) (observationsPending bool) {
 	logger := log.FromContext(ctx)
 	if r.Clientset == nil {
+		r.setSafetyObservationCondition(policy, lifecycle.Summary{})
 		return false
 	}
 
@@ -246,6 +247,7 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 		// Fail safe: assume observations are pending so the reconciler
 		// requeues at the short observation interval instead of the full
 		// cooldown, avoiding a delayed safety detection window.
+		r.setSafetyObservationCondition(policy, lifecycle.Summary{})
 		observationsPending = true
 		return
 	}
@@ -315,13 +317,7 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 			continue
 		}
 
-		tracked := pod.Labels[labelTracked] == "true"
-		resizedAt := ""
-		if pod.Annotations != nil {
-			resizedAt = pod.Annotations[annotationResizedAt]
-		}
-		safetySummary.Add(lifecycle.Classify(lifecycle.InputFromAnnotations(
-			tracked, resizedAt, r.now(), observationPeriod)))
+		safetySummary.Add(lifecycle.Classify(safetyLifecycleInput(policy, pod, r.now(), observationPeriod)))
 
 		records, err := parseResizeRecords(pod, observationPeriod, r.now())
 		if err != nil {
@@ -529,6 +525,34 @@ func (r *AttunePolicyReconciler) retryTemplateRestoreIfAlreadyReverted(
 		return err
 	}
 	return nil
+}
+
+// safetyLifecycleInput fills Classify flags the annotation constructor
+// leaves false: persist-after-success and live match to the applied
+// revert target (the retry-restore state).
+func safetyLifecycleInput(policy *attunev1alpha1.AttunePolicy, pod *corev1.Pod, now time.Time, observationPeriod time.Duration) lifecycle.Input {
+	tracked := pod.Labels[labelTracked] == "true"
+	resizedAt := ""
+	if pod.Annotations != nil {
+		resizedAt = pod.Annotations[annotationResizedAt]
+	}
+	in := lifecycle.InputFromAnnotations(tracked, resizedAt, now, observationPeriod)
+	if policy == nil || !templatePersistenceEnabled(policy.Spec.UpdateStrategy) ||
+		templatePersistenceWhen(policy.Spec.UpdateStrategy) != attunev1alpha1.TemplatePersistenceAfterSuccessfulResize {
+		return in
+	}
+	in.PersistAfterSuccess = true
+	recs, err := buildResizeRecords(pod, observationPeriod)
+	if err != nil {
+		return in
+	}
+	for _, rec := range recs {
+		if liveContainerMatchesOriginal(pod, rec) {
+			in.LiveMatchesOriginal = true
+			break
+		}
+	}
+	return in
 }
 
 // liveContainerMatchesOriginal reports whether the named container's live

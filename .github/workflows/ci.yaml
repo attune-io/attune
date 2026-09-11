@@ -521,7 +521,8 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: bench-baseline.txt
-          key: bench-baseline-${{ matrix.pkg }}-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          # Exact SHA misses on a PR; restore-keys takes the newest main save.
+          key: bench-baseline-${{ matrix.pkg }}-${{ runner.os }}-${{ github.sha }}
           restore-keys: bench-baseline-${{ matrix.pkg }}-${{ runner.os }}-
 
       - name: Run benchmarks

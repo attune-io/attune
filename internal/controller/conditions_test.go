@@ -316,6 +316,15 @@ func TestSetSafetyObservationCondition(t *testing.T) {
 		require.NotNil(t, cond)
 		assert.Equal(t, attunev1alpha1.ReasonSafetyIncomplete, cond.Reason)
 	})
+
+	t.Run("restore pending", func(t *testing.T) {
+		policy := &attunev1alpha1.AttunePolicy{ObjectMeta: metav1.ObjectMeta{Generation: 4}}
+		r.setSafetyObservationCondition(policy, lifecycle.Summary{Evaluating: 1, RestorePending: 1})
+		cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionSafetyObservation)
+		require.NotNil(t, cond)
+		assert.Equal(t, attunev1alpha1.ReasonSafetyRestorePending, cond.Reason)
+		assert.Contains(t, cond.Message, "restorePending=1")
+	})
 }
 
 // ---------- Consecutive reverts ----------

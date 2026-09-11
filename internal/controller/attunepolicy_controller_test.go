@@ -682,6 +682,8 @@ func TestHandleDeletion_CleansAnnotationsAndGauges(t *testing.T) {
 	reconciler.gaugeKeys.Store("default/my-policy", []gaugeKey{
 		{Namespace: "default", Workload: "app", Container: "main"},
 	})
+	reconciler.increaseRates.Store("default/my-policy", newIncreaseRateBucket(100, 100, time.Now()))
+	reconciler.lastBlockerRefresh.Store(types.NamespacedName{Namespace: "default", Name: "my-policy"}, time.Now())
 
 	result, err := reconciler.handleDeletion(context.Background(), policy)
 	require.NoError(t, err)
@@ -703,6 +705,10 @@ func TestHandleDeletion_CleansAnnotationsAndGauges(t *testing.T) {
 	// Gauges should be cleaned.
 	_, loaded := reconciler.gaugeKeys.Load("default/my-policy")
 	assert.False(t, loaded, "gauge keys should be deleted")
+	_, loaded = reconciler.increaseRates.Load("default/my-policy")
+	assert.False(t, loaded, "increaseRates should be deleted")
+	_, loaded = reconciler.lastBlockerRefresh.Load(types.NamespacedName{Namespace: "default", Name: "my-policy"})
+	assert.False(t, loaded, "lastBlockerRefresh should be deleted")
 
 	// Finalizer should be removed.
 	assert.NotContains(t, policy.Finalizers, finalizerName,
@@ -6905,10 +6911,17 @@ func TestCheckPendingSafetyObservations_ThrottleDeferredLifecycle(t *testing.T) 
 func TestCheckPendingSafetyObservations_NilClientset(t *testing.T) {
 	reconciler := NewAttunePolicyReconciler()
 	policy := newTestPolicy("test-policy", "default")
+	meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
+		Type:   attunev1alpha1.ConditionSafetyObservation,
+		Status: metav1.ConditionTrue,
+		Reason: attunev1alpha1.ReasonSafetyEvaluating,
+	})
 
 	assert.NotPanics(t, func() {
 		reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
 	})
+	assert.Nil(t, meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionSafetyObservation),
+		"nil Clientset must clear a stale SafetyObservation condition")
 }
 
 func TestCheckPendingSafetyObservations_UnsafeVerdictReverts(t *testing.T) {
@@ -7450,6 +7463,13 @@ func TestCheckPendingSafetyObservations_RestoreRetryWhenLiveMatchesClampedRevert
 	require.NoError(t, err)
 	_, err = clientset.CoreV1().Pods("default").UpdateStatus(context.Background(), live, metav1.UpdateOptions{})
 	require.NoError(t, err)
+
+	pending = reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, []client.Object{deploy})
+	assert.True(t, pending, "restore still failing; keep pending")
+	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionSafetyObservation)
+	require.NotNil(t, cond)
+	assert.Equal(t, attunev1alpha1.ReasonSafetyRestorePending, cond.Reason)
+	assert.Contains(t, cond.Message, "restorePending=1")
 
 	failDeployPatch.Store(false)
 	reconciler.checkPendingSafetyObservations(context.Background(), policy, nil, []client.Object{deploy})
@@ -8430,6 +8450,73 @@ func TestReconcile_FetchDefaultsErrorFailsClosed(t *testing.T) {
 }
 
 // ---------- Reconcile with AutoRevert checking safety observations ----------
+
+func TestReconcile_NotFoundClearsIncreaseRates(t *testing.T) {
+	r := NewAttunePolicyReconciler()
+	r.Client = fake.NewClientBuilder().WithScheme(testScheme()).Build()
+	r.Scheme = testScheme()
+	now := time.Now()
+	r.increaseRates.Store("default/gone", newIncreaseRateBucket(100, 100, now))
+	r.lastBlockerRefresh.Store(types.NamespacedName{Namespace: "default", Name: "gone"}, now)
+
+	_, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "gone", Namespace: "default"},
+	})
+	require.NoError(t, err)
+	_, ok := r.increaseRates.Load("default/gone")
+	assert.False(t, ok, "not-found reconcile must drop the rate bucket")
+	_, ok = r.lastBlockerRefresh.Load(types.NamespacedName{Namespace: "default", Name: "gone"})
+	assert.False(t, ok, "not-found reconcile must drop the blocker clock")
+}
+
+func TestForgetPolicyRuntimeState_RecreateStartsFullBucket(t *testing.T) {
+	r := NewAttunePolicyReconciler()
+	now := time.Now()
+	old := newIncreaseRateBucket(1000, -1, now)
+	require.True(t, old.tryDraw(1000, 0, now))
+	assert.False(t, old.tryDraw(1, 0, now), "drained bucket must reject another draw")
+	r.increaseRates.Store("default/p", old)
+
+	r.forgetPolicyRuntimeState("default", "p")
+	_, ok := r.increaseRates.Load("default/p")
+	assert.False(t, ok)
+
+	fresh := newIncreaseRateBucket(1000, -1, now)
+	r.increaseRates.Store("default/p", fresh)
+	assert.True(t, fresh.tryDraw(1000, 0, now), "recreated policy must start with a full bucket")
+}
+
+func TestReconcile_AutoRevertDisabledClearsSafetyObservation(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.AutoRevert = boolPtr(false)
+	meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
+		Type:    attunev1alpha1.ConditionSafetyObservation,
+		Status:  metav1.ConditionTrue,
+		Reason:  attunev1alpha1.ReasonSafetyEvaluating,
+		Message: "stale observation",
+	})
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	pod := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
+	mc := &mockCollector{
+		queryRangeFunc: func(_ context.Context, query string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return generateSamples(200, 0.1), nil
+		},
+	}
+	reconciler, fakeClient := newReconcilerForReconcile(mc, policy, deploy, pod)
+	reconciler.Clientset = kubefake.NewSimpleClientset()
+
+	_, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"},
+	})
+	require.NoError(t, err)
+
+	var updated attunev1alpha1.AttunePolicy
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "test-policy", Namespace: "default",
+	}, &updated))
+	assert.Nil(t, meta.FindStatusCondition(updated.Status.Conditions, attunev1alpha1.ConditionSafetyObservation),
+		"disabling autoRevert must clear SafetyObservation")
+}
 
 func TestReconcile_AutoRevertCallsSafetyObservations(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
@@ -10128,6 +10215,94 @@ func TestTryEvictionFallback_SkipsLastReplica(t *testing.T) {
 		assert.Contains(t, event, "NotReady")
 	default:
 		t.Error("expected EvictionBlocked event but none was emitted")
+	}
+}
+
+func TestExecuteResizes_FloorToCurrentEmitsResizeDeferred(t *testing.T) {
+	pod := newResizePod("api-server", "200m", "550Mi", "200m", "550Mi")
+	pod.Status.QOSClass = corev1.PodQOSGuaranteed
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	r, _ := newResizeReconciler(pod, deploy)
+	recorder := events.NewFakeRecorder(10)
+	r.Recorder = recorder
+	r.AllowInPlaceMemoryLimitDecrease = true
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	cv := attunev1alpha1.ControlledRequestsAndLimits
+	policy.Spec.CPU.ControlledValues = &cv
+	policy.Spec.Memory.ControlledValues = &cv
+	allowDec := true
+	policy.Spec.Memory.AllowDecrease = &allowDec
+	margin := int32(10)
+	policy.Spec.Memory.DecreaseUsageMarginPercent = &margin
+
+	rec := newResizeRecommendation("api-server",
+		"200m", "550Mi", "200m", "550Mi",
+		"200m", "200Mi", "200m", "200Mi")
+	rec.Containers[0].Explanation = &attunev1alpha1.ContainerRecommendationExplanation{
+		Memory: &attunev1alpha1.ResourceRecommendationExplanation{
+			RawPercentile: resource.MustParse("500Mi"),
+		},
+	}
+
+	count, _ := r.executeResizes(context.Background(), policy, []client.Object{deploy},
+		[]attunev1alpha1.WorkloadRecommendation{rec}, podMap("api-server", pod), nil, nil)
+	assert.Equal(t, 0, count, "floor-to-current must not apply a resize")
+
+	found := false
+	for {
+		select {
+		case event := <-recorder.Events:
+			if strings.Contains(event, "ResizeDeferred") {
+				found = true
+			}
+		default:
+			require.True(t, found, "executeResizes clamp/floor no-op must emit ResizeDeferred")
+			return
+		}
+	}
+}
+
+func TestResizeContainer_LiveAppliedClampNoopEmitsResizeDeferred(t *testing.T) {
+	pod := newResizePod("api-server", "500m", "512Mi", "500m", "512Mi")
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	r, _ := newResizeReconciler(pod, deploy)
+	recorder := events.NewFakeRecorder(10)
+	r.Recorder = recorder
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	target := pod.Spec.Containers[0].Resources.DeepCopy()
+	pre := target.DeepCopy()
+	pre.Requests[corev1.ResourceMemory] = resource.MustParse("64Mi")
+	pre.Limits[corev1.ResourceMemory] = resource.MustParse("64Mi")
+
+	entries, outcome := r.resizeContainer(context.Background(), resizeParams{
+		Policy:       policy,
+		Pod:          pod,
+		Workload:     deploy,
+		WorkloadName: "api-server",
+		ContainerRec: attunev1alpha1.ContainerRecommendation{Name: "main"},
+		Target:       *target,
+		LiveApplied:  true,
+		ApplyMeta:    liveResizeApplyMeta{PreClamped: *pre},
+		Now:          metav1.Now(),
+	})
+	assert.Equal(t, resizeOutcomeNone, outcome)
+	assert.Empty(t, entries)
+
+	found := false
+	for {
+		select {
+		case event := <-recorder.Events:
+			if strings.Contains(event, "ResizeDeferred") {
+				found = true
+			}
+		default:
+			require.True(t, found, "LiveApplied clamp-to-current must emit ResizeDeferred")
+			return
+		}
 	}
 }
 
@@ -16752,4 +16927,32 @@ func TestCheckPendingSafetyObservations_ListErrorReturnsObservationsPending(t *t
 
 	assert.True(t, pending,
 		"observationsPending should be true on List error (fail-safe requeue)")
+}
+
+func TestCheckPendingSafetyObservations_ListErrorClearsStaleCondition(t *testing.T) {
+	scheme := testScheme()
+	failingClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithInterceptorFuncs(interceptor.Funcs{
+			List: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) error {
+				return fmt.Errorf("simulated API server error")
+			},
+		}).Build()
+
+	r := NewAttunePolicyReconciler()
+	r.Client = failingClient
+	r.Scheme = scheme
+	r.Clientset = kubefake.NewSimpleClientset()
+
+	policy := newTestPolicy("test-policy", "default")
+	meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
+		Type:    attunev1alpha1.ConditionSafetyObservation,
+		Status:  metav1.ConditionTrue,
+		Reason:  attunev1alpha1.ReasonSafetyEvaluating,
+		Message: "2 pod(s) in safety lifecycle (observing=0 evaluating=2 restorePending=0 incomplete=0)",
+	})
+
+	pending := r.checkPendingSafetyObservations(context.Background(), policy, nil, safetyWorkloads())
+	assert.True(t, pending)
+	assert.Nil(t, meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionSafetyObservation),
+		"List failure must not keep a stale SafetyObservation count")
 }

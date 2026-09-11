@@ -11,10 +11,54 @@ run the full E2E Nightly matrix on tip of `main` (see
 ## v0.1.26 to v0.1.27
 
 v0.1.27 tightens last-replica eviction, limit-only resizes, the memory
-usage floor, and kubectl `--sort-by` validation. Existing policy YAML
-keeps working. Read this section if you use `InPlaceOrRecreate`,
+usage floor, and kubectl `--sort-by` validation. It also adds a
+fail-closed namespace freeze kill-switch. Existing policy YAML keeps
+working. Read this section if you use `InPlaceOrRecreate`,
 `controlledValues: RequestsAndLimits`, memory limit decreases, eviction
-metrics, or `kubectl attune --sort-by`.
+metrics, `kubectl attune --sort-by`, hand-managed RBAC, OneShot, or
+`maxTotalCpuIncrease` / `maxTotalMemoryIncrease`.
+
+### Namespace reads are now required
+
+Apply now reads the policy namespace for `attune.io/freeze=true` and
+**fails closed** if that Get fails. A missing `namespaces` `get`,
+`list`, and `watch` grant looks like a cluster-wide freeze:
+
+- no in-place resize, eviction, startup boost, or template persist
+- CREATE initial sizing is skipped
+- `ResizeBlocked=True` with `reason=NamespaceFrozen`
+- webhook allow message:
+  `cannot read namespace for attune.io/freeze; skipping initial sizing (check namespaces get/list/watch RBAC)`
+
+Chart installs with `rbac.create=true` already have the verbs. If you
+maintain your own ClusterRole, add:
+
+```yaml
+- apiGroups: [""]
+  resources: [namespaces]
+  verbs: [get, list, watch]
+```
+
+Then confirm the operator ServiceAccount can `get` the policy namespace.
+See [Troubleshooting: NamespaceFrozen](troubleshooting.md#namespacefrozen).
+The same annotation (`attune.io/freeze=true`) is the intentional
+incident kill-switch: recommendations and pending safety revert still
+run.
+
+### Total increase budgets now warn at admission
+
+Setting `maxTotalCpuIncrease` or `maxTotalMemoryIncrease` emits an
+admission warning that those fields are deprecated. Prefer
+`maxCpuIncreasePerMinute` / `maxMemoryIncreasePerMinute` so the cap
+does not depend on `reconcileInterval`. The old fields still apply
+until you migrate.
+
+### OneShot selection walks past a blocked first replica
+
+OneShot no longer sticks on the first listed replica when that pod is
+already at the applied target, or when MemoryPressure, Infeasible plus
+InPlaceOnly, quota, or QoS would skip it. Later replicas in the same
+workload can now move in the same cycle.
 
 ### RequestsAndLimits can apply a limit-only resize
 

@@ -73,4 +73,6 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: bench-baseline.txt
-          key: bench-baseline-${{ matrix.pkg }}-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          # SHA, not go.sum: a Go-source-only push must publish a new
+          # baseline. Cache is write-once per key.
+          key: bench-baseline-${{ matrix.pkg }}-${{ runner.os }}-${{ github.sha }}
