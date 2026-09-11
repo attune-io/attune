@@ -29,6 +29,7 @@ func TestDefaultConstants(t *testing.T) {
 	assert.Equal(t, "Ready", ConditionReady)
 	assert.Equal(t, "Resizing", ConditionResizing)
 	assert.Equal(t, "Degraded", ConditionDegraded)
+	assert.Equal(t, "SafetyObservation", ConditionSafetyObservation)
 
 	// Verify all reason constants are non-empty.
 	reasons := []string{
@@ -42,6 +43,10 @@ func TestDefaultConstants(t *testing.T) {
 		ReasonCooldownActive,
 		ReasonHighRevertRate,
 		ReasonConflictCheckFailed,
+		ReasonSafetyObserving,
+		ReasonSafetyEvaluating,
+		ReasonSafetyRestorePending,
+		ReasonSafetyIncomplete,
 	}
 	for _, r := range reasons {
 		assert.NotEmpty(t, r, "reason constant should not be empty")

@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/lifecycle"
 	"github.com/attune-io/attune/internal/safety"
 )
 
@@ -279,6 +280,41 @@ func TestSetResizeBlockedCondition(t *testing.T) {
 		require.NotNil(t, cond)
 		assert.Equal(t, attunev1alpha1.ReasonPodsDeferredAndInfeasible, cond.Reason)
 		assert.Equal(t, "1 deferred pod(s) (retry when kubelet clears Pending; e.g. d1); 1 infeasible pod(s) (use InPlaceOrRecreate to evict, or free node capacity; e.g. i1)", cond.Message)
+	})
+}
+
+func TestSetSafetyObservationCondition(t *testing.T) {
+	r := NewAttunePolicyReconciler()
+
+	t.Run("clears when idle", func(t *testing.T) {
+		policy := &attunev1alpha1.AttunePolicy{
+			ObjectMeta: metav1.ObjectMeta{Generation: 1},
+			Status: attunev1alpha1.AttunePolicyStatus{
+				Conditions: []metav1.Condition{{
+					Type: attunev1alpha1.ConditionSafetyObservation, Status: metav1.ConditionTrue,
+				}},
+			},
+		}
+		r.setSafetyObservationCondition(policy, lifecycle.Summary{})
+		assert.Nil(t, meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionSafetyObservation))
+	})
+
+	t.Run("observing", func(t *testing.T) {
+		policy := &attunev1alpha1.AttunePolicy{ObjectMeta: metav1.ObjectMeta{Generation: 2}}
+		r.setSafetyObservationCondition(policy, lifecycle.Summary{Observing: 2})
+		cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionSafetyObservation)
+		require.NotNil(t, cond)
+		assert.Equal(t, metav1.ConditionTrue, cond.Status)
+		assert.Equal(t, attunev1alpha1.ReasonSafetyObserving, cond.Reason)
+		assert.Contains(t, cond.Message, "observing=2")
+	})
+
+	t.Run("incomplete wins over observing", func(t *testing.T) {
+		policy := &attunev1alpha1.AttunePolicy{ObjectMeta: metav1.ObjectMeta{Generation: 3}}
+		r.setSafetyObservationCondition(policy, lifecycle.Summary{Observing: 1, Incomplete: 1})
+		cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionSafetyObservation)
+		require.NotNil(t, cond)
+		assert.Equal(t, attunev1alpha1.ReasonSafetyIncomplete, cond.Reason)
 	})
 }
 

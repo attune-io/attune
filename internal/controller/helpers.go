@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/lifecycle"
 	rsmetrics "github.com/attune-io/attune/internal/metrics"
 	"github.com/attune-io/attune/internal/operatormetrics"
 	"github.com/attune-io/attune/internal/recommendation"
@@ -730,6 +731,42 @@ func summarizeResizeBlockers(podsByWorkload map[string][]corev1.Pod, now time.Ti
 		}
 	}
 	return s
+}
+
+// setSafetyObservationCondition names the in-band tracking-annotation
+// lifecycle on the policy. Idle removes the condition so Observe-only
+// policies stay quiet.
+func (r *AttunePolicyReconciler) setSafetyObservationCondition(policy *attunev1alpha1.AttunePolicy, summary lifecycle.Summary) {
+	if summary.Active() == 0 {
+		meta.RemoveStatusCondition(&policy.Status.Conditions, attunev1alpha1.ConditionSafetyObservation)
+		return
+	}
+
+	phase := summary.Dominant()
+	reason := attunev1alpha1.ReasonSafetyEvaluating
+	switch phase {
+	case lifecycle.Observing:
+		reason = attunev1alpha1.ReasonSafetyObserving
+	case lifecycle.RestorePending:
+		reason = attunev1alpha1.ReasonSafetyRestorePending
+	case lifecycle.Incomplete:
+		reason = attunev1alpha1.ReasonSafetyIncomplete
+	}
+
+	meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
+		Type:               attunev1alpha1.ConditionSafetyObservation,
+		Status:             metav1.ConditionTrue,
+		Reason:             reason,
+		Message:            safetyObservationMessage(summary),
+		ObservedGeneration: policy.Generation,
+	})
+}
+
+func safetyObservationMessage(summary lifecycle.Summary) string {
+	return fmt.Sprintf(
+		"%d pod(s) in safety lifecycle (observing=%d evaluating=%d restorePending=%d incomplete=%d)",
+		summary.Active(), summary.Observing, summary.Evaluating, summary.RestorePending, summary.Incomplete,
+	)
 }
 
 // setResizeBlockedCondition sets ResizeBlocked when pods are Deferred or Infeasible.

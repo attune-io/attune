@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/lifecycle"
 	rsmetrics "github.com/attune-io/attune/internal/metrics"
 	"github.com/attune-io/attune/internal/operatormetrics"
 	"github.com/attune-io/attune/internal/resize"
@@ -302,6 +303,7 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 		}
 	}
 
+	var safetySummary lifecycle.Summary
 	for i := range podList.Items {
 		pod := &podList.Items[i]
 
@@ -312,6 +314,14 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 		if !ok {
 			continue
 		}
+
+		tracked := pod.Labels[labelTracked] == "true"
+		resizedAt := ""
+		if pod.Annotations != nil {
+			resizedAt = pod.Annotations[annotationResizedAt]
+		}
+		safetySummary.Add(lifecycle.Classify(lifecycle.InputFromAnnotations(
+			tracked, resizedAt, r.now(), observationPeriod)))
 
 		records, err := parseResizeRecords(pod, observationPeriod, r.now())
 		if err != nil {
@@ -449,6 +459,7 @@ func (r *AttunePolicyReconciler) checkPendingSafetyObservations(ctx context.Cont
 			observationsPending = true
 		}
 	}
+	r.setSafetyObservationCondition(policy, safetySummary)
 	return observationsPending
 }
 
