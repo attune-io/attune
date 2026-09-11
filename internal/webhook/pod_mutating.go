@@ -301,6 +301,7 @@ func (h *PodMutatingHandler) mutateContainer(
 					container.Resources.Limits = corev1.ResourceList{}
 				}
 				container.Resources.Limits[corev1.ResourceCPU] = cr.Recommended.CPULimit
+				mutated = true
 			}
 		}
 
@@ -312,6 +313,7 @@ func (h *PodMutatingHandler) mutateContainer(
 				}
 				memTarget := applyCreateMemoryUsageFloor(container.Resources, cr, policy)
 				container.Resources.Limits[corev1.ResourceMemory] = memTarget.Limits[corev1.ResourceMemory]
+				mutated = true
 				if req, ok := memTarget.Requests[corev1.ResourceMemory]; ok {
 					container.Resources.Requests[corev1.ResourceMemory] = req
 				}

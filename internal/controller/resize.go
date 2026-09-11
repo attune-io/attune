@@ -556,6 +556,7 @@ func (r *AttunePolicyReconciler) executeResizes(
 					}
 					r.emitLiveResizeApply(ctx, policy, &pod, action.ContainerRec, action.ApplyMeta)
 					if action.AtTarget {
+						r.emitResizeDeferredIfFilteredOrClamped(ctx, policy, &pod, action.ContainerRec, action.Target, action.ApplyMeta.PreClamped)
 						continue
 					}
 					cpuIncrease, memIncrease := action.CPUIncrease, action.MemIncrease
@@ -587,6 +588,7 @@ func (r *AttunePolicyReconciler) executeResizes(
 						Checks:       checks,
 						SkipEviction: skipEviction,
 						LiveApplied:  true,
+						ApplyMeta:    action.ApplyMeta,
 					})
 					if outcome == resizeOutcomeNone {
 						podHistory = append(podHistory, entries...)
@@ -667,6 +669,8 @@ type resizeParams struct {
 	// LiveApplied means executeResizes already ran applyLiveResizeTarget
 	// (after at most one live Get for the pod). Target is the applied value.
 	LiveApplied bool
+	// ApplyMeta is the clamp/floor result from plan when LiveApplied is set.
+	ApplyMeta liveResizeApplyMeta
 }
 
 // resizeOutcome tells executeResizes whether a container resize succeeded
@@ -717,7 +721,7 @@ func (r *AttunePolicyReconciler) resizeContainer(
 		target, applyMeta = r.applyLiveResizeTarget(policy, pod, containerRec, target)
 		r.emitLiveResizeApply(ctx, policy, pod, containerRec, applyMeta)
 	} else {
-		applyMeta.PreClamped = *target.DeepCopy()
+		applyMeta = p.ApplyMeta
 	}
 	preClamped := applyMeta.PreClamped
 
@@ -730,32 +734,7 @@ func (r *AttunePolicyReconciler) resizeContainer(
 				"Resize blocked for pod %s container %s: %s", pod.Name, containerRec.Name, reason)
 			recordCapacitySkip(policy, reason)
 		} else {
-			// Determine whether the "already at target" came from a change
-			// filter suppression (the raw recommendation differed but the
-			// delta was below 10%). When a change filter was active, the
-			// user needs to know; promote to Info level with an Event.
-			cpuFiltered := containerRec.Explanation != nil && containerRec.Explanation.CPU != nil &&
-				containerRec.Explanation.CPU.ChangeFilterApplied != ""
-			memFiltered := containerRec.Explanation != nil && containerRec.Explanation.Memory != nil &&
-				containerRec.Explanation.Memory.ChangeFilterApplied != ""
-			memoryClamped := !preClamped.Requests.Memory().Equal(*target.Requests.Memory())
-			if cpuFiltered || memFiltered || memoryClamped {
-				logger.Info("Resize deferred: resources at target after filtering/clamping",
-					"pod", pod.Name, "container", containerRec.Name,
-					"cpuTarget", target.Requests.Cpu().String(),
-					"memTarget", target.Requests.Memory().String(),
-					"cpuChangeFilter", cpuFiltered,
-					"memChangeFilter", memFiltered,
-					"memoryClamped", memoryClamped)
-				r.emitEventOnce(policy, corev1.EventTypeNormal, "ResizeDeferred", "resize",
-					"Container %s in pod %s: resources unchanged after change filtering and/or memory clamping (cpu=%s, mem=%s)",
-					containerRec.Name, pod.Name, target.Requests.Cpu().String(), target.Requests.Memory().String())
-			} else {
-				logger.V(1).Info("Skipping resize: already at target",
-					"pod", pod.Name, "container", containerRec.Name,
-					"cpuTarget", target.Requests.Cpu().String(),
-					"memTarget", target.Requests.Memory().String())
-			}
+			r.emitResizeDeferredIfFilteredOrClamped(ctx, policy, pod, containerRec, target, preClamped)
 		}
 		return nil, resizeOutcomeNone
 	}
@@ -1859,6 +1838,41 @@ func targetIncreasesRequests(pod *corev1.Pod, containerName string, target corev
 	cpuInc := target.Requests.Cpu().MilliValue() > c.Resources.Requests.Cpu().MilliValue()
 	memInc := target.Requests.Memory().Value() > c.Resources.Requests.Memory().Value()
 	return cpuInc || memInc
+}
+
+// emitResizeDeferredIfFilteredOrClamped emits ResizeDeferred when a no-op
+// is due to a change filter or a memory clamp/floor, not a true at-target.
+func (r *AttunePolicyReconciler) emitResizeDeferredIfFilteredOrClamped(
+	ctx context.Context,
+	policy *attunev1alpha1.AttunePolicy,
+	pod *corev1.Pod,
+	containerRec attunev1alpha1.ContainerRecommendation,
+	target corev1.ResourceRequirements,
+	preClamped corev1.ResourceRequirements,
+) {
+	logger := log.FromContext(ctx)
+	cpuFiltered := containerRec.Explanation != nil && containerRec.Explanation.CPU != nil &&
+		containerRec.Explanation.CPU.ChangeFilterApplied != ""
+	memFiltered := containerRec.Explanation != nil && containerRec.Explanation.Memory != nil &&
+		containerRec.Explanation.Memory.ChangeFilterApplied != ""
+	memoryClamped := !preClamped.Requests.Memory().Equal(*target.Requests.Memory())
+	if cpuFiltered || memFiltered || memoryClamped {
+		logger.Info("Resize deferred: resources at target after filtering/clamping",
+			"pod", pod.Name, "container", containerRec.Name,
+			"cpuTarget", target.Requests.Cpu().String(),
+			"memTarget", target.Requests.Memory().String(),
+			"cpuChangeFilter", cpuFiltered,
+			"memChangeFilter", memFiltered,
+			"memoryClamped", memoryClamped)
+		r.emitEventOnce(policy, corev1.EventTypeNormal, "ResizeDeferred", "resize",
+			"Container %s in pod %s: resources unchanged after change filtering and/or memory clamping (cpu=%s, mem=%s)",
+			containerRec.Name, pod.Name, target.Requests.Cpu().String(), target.Requests.Memory().String())
+		return
+	}
+	logger.V(1).Info("Skipping resize: already at target",
+		"pod", pod.Name, "container", containerRec.Name,
+		"cpuTarget", target.Requests.Cpu().String(),
+		"memTarget", target.Requests.Memory().String())
 }
 
 // emitLiveResizeApply writes clamp/floor events and metrics from apply meta.

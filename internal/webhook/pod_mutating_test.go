@@ -602,6 +602,69 @@ func TestPodMutatingHandler_RequestsAndLimits(t *testing.T) {
 	assert.Equal(t, resource.MustParse("512Mi"), mutatedPod.Spec.Containers[0].Resources.Limits[corev1.ResourceMemory])
 }
 
+func TestPodMutatingHandler_LimitsOnlyCPUProducesPatch(t *testing.T) {
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
+	cv := attunev1alpha1.ControlledRequestsAndLimits
+	policy.Spec.CPU.ControlledValues = &cv
+	cr := &policy.Status.Recommendations[0].Containers[0]
+	cr.Recommended.CPURequest = resource.Quantity{}
+	cr.Recommended.MemoryRequest = resource.Quantity{}
+	cr.Recommended.CPULimit = resource.MustParse("1")
+	cr.Recommended.MemoryLimit = resource.Quantity{}
+
+	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, testNamespace("default", nil)).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	req := makeAdmissionRequest(t, pod, "default")
+	resp := handler.Handle(context.Background(), req)
+	require.True(t, resp.Allowed)
+	require.NotEmpty(t, resp.Patches, "limits-only CPU rec must produce a patch")
+
+	mutatedPod := patchedPod(t, req.Object.Raw, resp)
+	assert.True(t, mutatedPod.Spec.Containers[0].Resources.Limits[corev1.ResourceCPU].Equal(resource.MustParse("1")))
+}
+
+func TestPodMutatingHandler_LimitsOnlyMemoryFloorProducesPatch(t *testing.T) {
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
+	cv := attunev1alpha1.ControlledRequestsAndLimits
+	policy.Spec.Memory.ControlledValues = &cv
+	cr := &policy.Status.Recommendations[0].Containers[0]
+	cr.Recommended.CPURequest = resource.Quantity{}
+	cr.Recommended.MemoryRequest = resource.Quantity{}
+	cr.Recommended.CPULimit = resource.Quantity{}
+	cr.Recommended.MemoryLimit = resource.MustParse("200Mi")
+	cr.Current = attunev1alpha1.ResourceValues{
+		MemoryRequest: resource.MustParse("1Gi"),
+		MemoryLimit:   resource.MustParse("1Gi"),
+	}
+	cr.Explanation = &attunev1alpha1.ContainerRecommendationExplanation{
+		Memory: &attunev1alpha1.ResourceRecommendationExplanation{
+			RawPercentile: resource.MustParse("500Mi"),
+		},
+	}
+
+	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
+	pod.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory] = resource.MustParse("1Gi")
+	pod.Spec.Containers[0].Resources.Limits = corev1.ResourceList{
+		corev1.ResourceMemory: resource.MustParse("1Gi"),
+	}
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, testNamespace("default", nil)).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	req := makeAdmissionRequest(t, pod, "default")
+	resp := handler.Handle(context.Background(), req)
+	require.True(t, resp.Allowed)
+	require.NotEmpty(t, resp.Patches, "limits-only memory rec must produce a patch")
+
+	mutatedPod := patchedPod(t, req.Object.Raw, resp)
+	want := resource.MustParse("550Mi")
+	gotLim := mutatedPod.Spec.Containers[0].Resources.Limits[corev1.ResourceMemory]
+	gotReq := mutatedPod.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory]
+	assert.True(t, gotLim.Equal(want), "CREATE floor limit %s want %s", gotLim.String(), want.String())
+	assert.True(t, gotReq.Equal(want), "CREATE floor request %s want %s", gotReq.String(), want.String())
+}
+
 func TestPodMutatingHandler_RequestsAndLimits_UsageFloorGuaranteed(t *testing.T) {
 	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
 	cv := attunev1alpha1.ControlledRequestsAndLimits
