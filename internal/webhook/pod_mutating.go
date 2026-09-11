@@ -36,6 +36,7 @@ import (
 	"github.com/attune-io/attune/internal/conflict"
 	"github.com/attune-io/attune/internal/operatormetrics"
 	"github.com/attune-io/attune/internal/resize"
+	pkgdefaults "github.com/attune-io/attune/pkg/defaults"
 )
 
 const (
@@ -96,10 +97,25 @@ func (h *PodMutatingHandler) Handle(ctx context.Context, req admission.Request) 
 		return admission.Allowed("error listing policies, skipping initial sizing")
 	}
 
+	// Match reconcile: merge cluster + namespace AttuneDefaults before
+	// matching on initialSizing / type and before reading ControlledValues.
+	defaults, err := h.listAdmissionDefaults(ctx, req.Namespace)
+	if err != nil {
+		h.Logger.Error(err, "listing AttuneDefaults for initial sizing; skipping",
+			"namespace", req.Namespace)
+		return admission.Allowed("error listing AttuneDefaults, skipping initial sizing")
+	}
+
 	// Find a matching policy with initial sizing enabled.
-	policy, rec := h.findMatchingPolicy(ctx, req.Namespace, policies.Items, ownerKind, ownerName, pod.Name)
+	policy, rec := h.findMatchingPolicy(ctx, req.Namespace, policies.Items, ownerKind, ownerName, pod.Name, defaults)
 	if policy == nil || rec == nil {
 		return admission.Allowed("no matching policy with initial sizing")
+	}
+
+	if policy.Spec.Paused != nil && *policy.Spec.Paused {
+		h.Logger.Info("skipping initial sizing: policy is paused",
+			"namespace", req.Namespace, "policy", policy.Name)
+		return admission.Allowed("policy is paused")
 	}
 
 	// Namespace freeze is an incident kill-switch: do not CREATE-size.
@@ -158,6 +174,47 @@ func (h *PodMutatingHandler) Handle(ctx context.Context, req admission.Request) 
 	return admission.PatchResponseFromRaw(req.Object.Raw, marshaledPod)
 }
 
+// listAdmissionDefaults returns combined cluster + namespace defaults
+// (same selection as controller.fetchDefaults). List errors fail closed.
+func (h *PodMutatingHandler) listAdmissionDefaults(
+	ctx context.Context,
+	namespace string,
+) (*attunev1alpha1.AttuneDefaults, error) {
+	var nsList attunev1alpha1.AttuneNamespaceDefaultsList
+	if err := h.Client.List(ctx, &nsList, client.InNamespace(namespace)); err != nil {
+		return nil, fmt.Errorf("listing AttuneNamespaceDefaults in %s: %w", namespace, err)
+	}
+	var nsDefaults *attunev1alpha1.AttuneDefaults
+	if len(nsList.Items) > 0 {
+		picked := nsList.Items[0]
+		for i := 1; i < len(nsList.Items); i++ {
+			if nsList.Items[i].Name < picked.Name {
+				picked = nsList.Items[i]
+			}
+		}
+		nsDefaults = &attunev1alpha1.AttuneDefaults{
+			ObjectMeta: picked.ObjectMeta,
+			Spec:       picked.Spec,
+		}
+	}
+
+	var clusterList attunev1alpha1.AttuneDefaultsList
+	if err := h.Client.List(ctx, &clusterList); err != nil {
+		return nil, fmt.Errorf("listing AttuneDefaults: %w", err)
+	}
+	var clusterDefaults *attunev1alpha1.AttuneDefaults
+	if len(clusterList.Items) > 0 {
+		clusterDefaults = &clusterList.Items[0]
+		for i := 1; i < len(clusterList.Items); i++ {
+			if clusterList.Items[i].Name < clusterDefaults.Name {
+				clusterDefaults = &clusterList.Items[i]
+			}
+		}
+	}
+
+	return pkgdefaults.CombineDefaultsLayers(clusterDefaults, nsDefaults), nil
+}
+
 // findMatchingPolicy finds a policy that targets the given owner workload
 // and has initial sizing enabled with valid recommendations.
 func (h *PodMutatingHandler) findMatchingPolicy(
@@ -165,11 +222,13 @@ func (h *PodMutatingHandler) findMatchingPolicy(
 	namespace string,
 	policies []attunev1alpha1.AttunePolicy,
 	ownerKind, ownerName, podName string,
+	defaults *attunev1alpha1.AttuneDefaults,
 ) (*attunev1alpha1.AttunePolicy, *attunev1alpha1.WorkloadRecommendation) {
 	for i := range policies {
-		policy := &policies[i]
+		policy := policies[i].DeepCopy()
+		pkgdefaults.MergeDefaults(policy, defaults)
 
-		// Check initial sizing is enabled.
+		// Check initial sizing is enabled (after AttuneDefaults merge).
 		if policy.Spec.UpdateStrategy == nil || policy.Spec.UpdateStrategy.InitialSizing == nil || !*policy.Spec.UpdateStrategy.InitialSizing {
 			continue
 		}

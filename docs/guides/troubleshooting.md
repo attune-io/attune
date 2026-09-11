@@ -302,6 +302,16 @@ initial sizing (last-known values stay in status, but CREATE is not patched).
    the policy. Grep webhook logs for the fail-closed admission message
    `cannot read namespace for attune.io/freeze` (Allowed, not Denied)
    if the operator cannot read the namespace.
+8. CREATE uses the same merged `controlledValues` as reconcile
+   (`AttuneDefaults`, then `AttuneNamespaceDefaults`, then the
+   policy). A list error for those CRs skips the mutation (Allowed,
+   not Denied). Grep webhook logs for
+   `listing AttuneDefaults for initial sizing`. If the policy leaves
+   `controlledValues` unset and cluster/namespace defaults set
+   `RequestsAndLimits`, new pods should receive recommended limits
+   too; missing limits after a successful `initial-sizing=applied`
+   annotation means the defaults were not readable or the rec has
+   no limit.
 
 ### Paused
 
@@ -309,6 +319,7 @@ initial sizing (last-known values stay in status, but CREATE is not patched).
 
 **Cause**: `spec.paused` is set to `true` on the policy. The operator skips
 all reconciliation: no metrics collection, no recommendations, no resizes.
+CREATE initial sizing is also skipped (leftover recs stay in status).
 Existing resizes are not reverted.
 
 **Fix**: Set `spec.paused: false` or remove the field entirely. The operator
