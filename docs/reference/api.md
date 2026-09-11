@@ -253,6 +253,7 @@ View them with `kubectl describe attunepolicy <name>` or
 | `Evicted` | Warning | A pod was evicted as a fallback when in-place resize was not possible |
 | `StaleRecommendation` | Warning | Recommendations are stale (no fresh Prometheus data) |
 | `CooldownActive` | Normal | Resize deferred because the cooldown period has not elapsed |
+| `ResizeDeferred` | Normal | Live resources already match the applied target after change filtering, dest-limit clamp, or usage floor |
 | `HPAConflict` | Warning | An HPA targets the same workload and may conflict with resizing |
 | `VPAConflict` | Warning | A VPA targets the same workload |
 | `ConfigClamped` | Warning | A policy field was clamped to its allowed range at runtime |
