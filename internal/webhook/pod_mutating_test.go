@@ -701,6 +701,74 @@ func TestPodMutatingHandler_CronJobOwnerMatchesPolicy(t *testing.T) {
 	assert.Equal(t, "default/etl-policy", mutatedPod.Annotations[AnnotationInitialSizingPolicy])
 }
 
+func TestPodMutatingHandler_StandaloneJobOwnerMatchesPolicy(t *testing.T) {
+	policy := testPolicy("job-policy", "default", "Job", "standalone-job", true, attunev1alpha1.UpdateTypeAuto)
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "standalone-job",
+			Namespace: "default",
+		},
+	}
+	pod := testPod("standalone-job-abc", "Job", "standalone-job")
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).
+		WithObjects(policy, job, testNamespace("default", nil)).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	req := makeAdmissionRequest(t, pod, "default")
+	resp := handler.Handle(context.Background(), req)
+	require.True(t, resp.Allowed)
+	require.NotEmpty(t, resp.Patches, "standalone Job policy must CREATE-size pods it owns")
+
+	mutatedPod := patchedPod(t, req.Object.Raw, resp)
+	wantCPU, err := resource.ParseQuantity("500m")
+	require.NoError(t, err)
+	got := mutatedPod.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
+	assert.Equal(t, wantCPU.MilliValue(), got.MilliValue(), "standalone Job CPU request patched")
+}
+
+func TestPodMutatingHandler_JobGetErrorSkipsCreate(t *testing.T) {
+	policy := testPolicy("job-policy", "default", "Job", "standalone-job", true, attunev1alpha1.UpdateTypeAuto)
+	pod := testPod("standalone-job-abc", "Job", "standalone-job")
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).
+		WithObjects(policy, testNamespace("default", nil)).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, ok := obj.(*batchv1.Job); ok {
+					return fmt.Errorf("simulated job get failure")
+				}
+				return c.Get(ctx, key, obj, opts...)
+			},
+		}).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
+	assert.True(t, resp.Allowed)
+	assert.Nil(t, resp.Patches)
+	require.NotNil(t, resp.Result)
+	assert.Contains(t, resp.Result.Message, "cannot read Job")
+}
+
+func TestPodMutatingHandler_JobKindPolicyDoesNotMatchGeneratedJobName(t *testing.T) {
+	policy := testPolicy("job-policy", "default", "Job", "nightly-etl-29184000", true, attunev1alpha1.UpdateTypeAuto)
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "nightly-etl-29184000",
+			Namespace: "default",
+			OwnerReferences: []metav1.OwnerReference{
+				{Kind: "CronJob", Name: "nightly-etl"},
+			},
+		},
+	}
+	pod := testPod("nightly-etl-29184000-abc", "Job", "nightly-etl-29184000")
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).
+		WithObjects(policy, job, testNamespace("default", nil)).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
+	assert.True(t, resp.Allowed)
+	assert.Nil(t, resp.Patches, "Job-kind policy must not match the generated Job name")
+}
+
 func TestPodMutatingHandler_StartupBoostRaisesCREATECPU(t *testing.T) {
 	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
 	policy.Spec.CPU.StartupBoost = &attunev1alpha1.StartupBoost{
@@ -723,6 +791,99 @@ func TestPodMutatingHandler_StartupBoostRaisesCREATECPU(t *testing.T) {
 	assert.True(t, got.Equal(resource.MustParse("1")),
 		"CREATE CPU %s want 1 (2x 500m boost)", got.String())
 	assert.NotEmpty(t, mutatedPod.Annotations[AnnotationStartupBoostAt])
+}
+
+func TestPodMutatingHandler_StartupBoostDestClamp(t *testing.T) {
+	t.Parallel()
+	only := attunev1alpha1.ControlledRequestsOnly
+	both := attunev1alpha1.ControlledRequestsAndLimits
+
+	tests := []struct {
+		name        string
+		cv          *string
+		leftover    string
+		recDest     string
+		maxAllowed  string
+		wantCPU     string
+		wantBoostAt bool
+	}{
+		{
+			name:        "RequestsOnly leftover dest 200m dest-caps and skips boost",
+			cv:          &only,
+			leftover:    "200m",
+			wantCPU:     "200m",
+			wantBoostAt: false,
+		},
+		{
+			name:        "RequestsOnly leftover dest 800m boosts to dest",
+			cv:          &only,
+			leftover:    "800m",
+			wantCPU:     "800m",
+			wantBoostAt: true,
+		},
+		{
+			name:        "RequestsAndLimits leftover dest 200m boosts to rec dest",
+			cv:          &both,
+			leftover:    "200m",
+			recDest:     "1",
+			wantCPU:     "1",
+			wantBoostAt: true,
+		},
+		{
+			name:        "boost capped at maxAllowed",
+			cv:          &only,
+			leftover:    "800m",
+			maxAllowed:  "600m",
+			wantCPU:     "600m",
+			wantBoostAt: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
+			policy.Spec.CPU.ControlledValues = tt.cv
+			policy.Spec.CPU.StartupBoost = &attunev1alpha1.StartupBoost{
+				Multiplier: "2.0",
+				Duration:   metav1.Duration{Duration: 2 * time.Minute},
+			}
+			if tt.recDest != "" {
+				cpuLim, err := resource.ParseQuantity(tt.recDest)
+				require.NoError(t, err)
+				policy.Status.Recommendations[0].Containers[0].Recommended.CPULimit = cpuLim
+			}
+			if tt.maxAllowed != "" {
+				maxAllowed, err := resource.ParseQuantity(tt.maxAllowed)
+				require.NoError(t, err)
+				policy.Spec.CPU.MaxAllowed = &maxAllowed
+			}
+
+			pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
+			leftover, err := resource.ParseQuantity(tt.leftover)
+			require.NoError(t, err)
+			pod.Spec.Containers[0].Resources.Limits = corev1.ResourceList{
+				corev1.ResourceCPU: leftover,
+			}
+
+			cl := fake.NewClientBuilder().WithScheme(testScheme()).
+				WithObjects(policy, testNamespace("default", nil)).Build()
+			handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+			req := makeAdmissionRequest(t, pod, "default")
+			resp := handler.Handle(context.Background(), req)
+			require.True(t, resp.Allowed)
+			require.NotEmpty(t, resp.Patches)
+
+			mutatedPod := patchedPod(t, req.Object.Raw, resp)
+			got := mutatedPod.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
+			wantCPU, err := resource.ParseQuantity(tt.wantCPU)
+			require.NoError(t, err)
+			assert.Equal(t, wantCPU.MilliValue(), got.MilliValue(),
+				"CREATE CPU request dest-clamp")
+			assert.Equal(t, tt.wantBoostAt, mutatedPod.Annotations[AnnotationStartupBoostAt] != "")
+		})
+	}
 }
 
 func TestPodMutatingHandler_ClusterDefaultsRequestsAndLimitsWritesCPULimit(t *testing.T) {
