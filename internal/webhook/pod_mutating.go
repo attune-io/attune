@@ -36,6 +36,7 @@ import (
 	"github.com/attune-io/attune/internal/conflict"
 	"github.com/attune-io/attune/internal/operatormetrics"
 	"github.com/attune-io/attune/internal/resize"
+	pkgdefaults "github.com/attune-io/attune/pkg/defaults"
 )
 
 const (
@@ -116,6 +117,17 @@ func (h *PodMutatingHandler) Handle(ctx context.Context, req admission.Request) 
 		return admission.Allowed("namespace has attune.io/freeze=true")
 	}
 
+	// Match reconcile: merge cluster + namespace AttuneDefaults before
+	// reading ControlledValues. DeepCopy so MergeDefaults cannot mutate
+	// the informer cache object returned by List.
+	merged, err := h.mergeAdmissionDefaults(ctx, req.Namespace, policy)
+	if err != nil {
+		h.Logger.Error(err, "listing AttuneDefaults for initial sizing; skipping",
+			"namespace", req.Namespace, "policy", policy.Name)
+		return admission.Allowed("error listing AttuneDefaults, skipping initial sizing")
+	}
+	policy = merged
+
 	// Mutate the pod's containers and native sidecars (init restartPolicy Always).
 	mutated := false
 	for i := range pod.Spec.Containers {
@@ -156,6 +168,52 @@ func (h *PodMutatingHandler) Handle(ctx context.Context, req admission.Request) 
 
 	timer.RecordResult(nil)
 	return admission.PatchResponseFromRaw(req.Object.Raw, marshaledPod)
+}
+
+// mergeAdmissionDefaults DeepCopies policy and applies the same
+// cluster < namespace merge as controller.fetchDefaults. List errors
+// fail closed so CREATE does not size from unmerged ControlledValues.
+func (h *PodMutatingHandler) mergeAdmissionDefaults(
+	ctx context.Context,
+	namespace string,
+	policy *attunev1alpha1.AttunePolicy,
+) (*attunev1alpha1.AttunePolicy, error) {
+	merged := policy.DeepCopy()
+
+	var nsList attunev1alpha1.AttuneNamespaceDefaultsList
+	if err := h.Client.List(ctx, &nsList, client.InNamespace(namespace)); err != nil {
+		return nil, fmt.Errorf("listing AttuneNamespaceDefaults in %s: %w", namespace, err)
+	}
+	var nsDefaults *attunev1alpha1.AttuneDefaults
+	if len(nsList.Items) > 0 {
+		picked := nsList.Items[0]
+		for i := 1; i < len(nsList.Items); i++ {
+			if nsList.Items[i].Name < picked.Name {
+				picked = nsList.Items[i]
+			}
+		}
+		nsDefaults = &attunev1alpha1.AttuneDefaults{
+			ObjectMeta: picked.ObjectMeta,
+			Spec:       picked.Spec,
+		}
+	}
+
+	var clusterList attunev1alpha1.AttuneDefaultsList
+	if err := h.Client.List(ctx, &clusterList); err != nil {
+		return nil, fmt.Errorf("listing AttuneDefaults: %w", err)
+	}
+	var clusterDefaults *attunev1alpha1.AttuneDefaults
+	if len(clusterList.Items) > 0 {
+		clusterDefaults = &clusterList.Items[0]
+		for i := 1; i < len(clusterList.Items); i++ {
+			if clusterList.Items[i].Name < clusterDefaults.Name {
+				clusterDefaults = &clusterList.Items[i]
+			}
+		}
+	}
+
+	pkgdefaults.MergeDefaults(merged, pkgdefaults.CombineDefaultsLayers(clusterDefaults, nsDefaults))
+	return merged, nil
 }
 
 // findMatchingPolicy finds a policy that targets the given owner workload
