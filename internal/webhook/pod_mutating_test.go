@@ -32,6 +32,7 @@ import (
 	"github.com/stretchr/testify/require"
 	admissionv1 "k8s.io/api/admission/v1"
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -75,6 +76,7 @@ func testScheme() *runtime.Scheme {
 	s := runtime.NewScheme()
 	_ = corev1.AddToScheme(s)
 	_ = appsv1.AddToScheme(s)
+	_ = batchv1.AddToScheme(s)
 	_ = attunev1alpha1.AddToScheme(s)
 	return s
 }
@@ -204,9 +206,9 @@ func TestGetWorkloadObject(t *testing.T) {
 	t.Run("unsupported kind", func(t *testing.T) {
 		t.Parallel()
 		cl := fake.NewClientBuilder().WithScheme(testScheme()).Build()
-		_, err := getWorkloadObject(ctx, cl, "default", "Job", "my-job")
+		_, err := getWorkloadObject(ctx, cl, "default", "ReplicaSet", "my-rs")
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), `unsupported workload kind "Job"`)
+		assert.Contains(t, err.Error(), `unsupported workload kind "ReplicaSet"`)
 	})
 
 	t.Run("missing object", func(t *testing.T) {
@@ -646,6 +648,32 @@ func TestPodMutatingHandler_PausedSkipsCreate(t *testing.T) {
 	assert.Nil(t, resp.Patches)
 	require.NotNil(t, resp.Result)
 	assert.Contains(t, resp.Result.Message, "paused")
+}
+
+func TestPodMutatingHandler_CronJobOwnerMatchesPolicy(t *testing.T) {
+	policy := testPolicy("etl-policy", "default", "CronJob", "nightly-etl", true, attunev1alpha1.UpdateTypeAuto)
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "nightly-etl-29184000",
+			Namespace: "default",
+			OwnerReferences: []metav1.OwnerReference{
+				{Kind: "CronJob", Name: "nightly-etl"},
+			},
+		},
+	}
+	pod := testPod("nightly-etl-29184000-abc", "Job", "nightly-etl-29184000")
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).
+		WithObjects(policy, job, testNamespace("default", nil)).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	req := makeAdmissionRequest(t, pod, "default")
+	resp := handler.Handle(context.Background(), req)
+	require.True(t, resp.Allowed)
+	require.NotEmpty(t, resp.Patches, "CronJob policy must CREATE-size pods owned by its Job")
+
+	mutatedPod := patchedPod(t, req.Object.Raw, resp)
+	assert.True(t, mutatedPod.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU].Equal(resource.MustParse("500m")))
+	assert.Equal(t, "default/etl-policy", mutatedPod.Annotations[AnnotationInitialSizingPolicy])
 }
 
 func TestPodMutatingHandler_StartupBoostRaisesCREATECPU(t *testing.T) {
