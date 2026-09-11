@@ -319,6 +319,7 @@ initial sizing (last-known values stay in status, but CREATE is not patched).
 
 **Cause**: `spec.paused` is set to `true` on the policy. The operator skips
 all reconciliation: no metrics collection, no recommendations, no resizes.
+CREATE initial sizing is also skipped (leftover recs stay in status).
 Existing resizes are not reverted.
 
 **Fix**: Set `spec.paused: false` or remove the field entirely. The operator

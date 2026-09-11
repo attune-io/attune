@@ -97,10 +97,25 @@ func (h *PodMutatingHandler) Handle(ctx context.Context, req admission.Request) 
 		return admission.Allowed("error listing policies, skipping initial sizing")
 	}
 
+	// Match reconcile: merge cluster + namespace AttuneDefaults before
+	// matching on initialSizing / type and before reading ControlledValues.
+	defaults, err := h.listAdmissionDefaults(ctx, req.Namespace)
+	if err != nil {
+		h.Logger.Error(err, "listing AttuneDefaults for initial sizing; skipping",
+			"namespace", req.Namespace)
+		return admission.Allowed("error listing AttuneDefaults, skipping initial sizing")
+	}
+
 	// Find a matching policy with initial sizing enabled.
-	policy, rec := h.findMatchingPolicy(ctx, req.Namespace, policies.Items, ownerKind, ownerName, pod.Name)
+	policy, rec := h.findMatchingPolicy(ctx, req.Namespace, policies.Items, ownerKind, ownerName, pod.Name, defaults)
 	if policy == nil || rec == nil {
 		return admission.Allowed("no matching policy with initial sizing")
+	}
+
+	if policy.Spec.Paused != nil && *policy.Spec.Paused {
+		h.Logger.Info("skipping initial sizing: policy is paused",
+			"namespace", req.Namespace, "policy", policy.Name)
+		return admission.Allowed("policy is paused")
 	}
 
 	// Namespace freeze is an incident kill-switch: do not CREATE-size.
@@ -116,17 +131,6 @@ func (h *PodMutatingHandler) Handle(ctx context.Context, req admission.Request) 
 			"namespace", req.Namespace, "policy", policy.Name)
 		return admission.Allowed("namespace has attune.io/freeze=true")
 	}
-
-	// Match reconcile: merge cluster + namespace AttuneDefaults before
-	// reading ControlledValues. DeepCopy so MergeDefaults cannot mutate
-	// the informer cache object returned by List.
-	merged, err := h.mergeAdmissionDefaults(ctx, req.Namespace, policy)
-	if err != nil {
-		h.Logger.Error(err, "listing AttuneDefaults for initial sizing; skipping",
-			"namespace", req.Namespace, "policy", policy.Name)
-		return admission.Allowed("error listing AttuneDefaults, skipping initial sizing")
-	}
-	policy = merged
 
 	// Mutate the pod's containers and native sidecars (init restartPolicy Always).
 	mutated := false
@@ -170,16 +174,12 @@ func (h *PodMutatingHandler) Handle(ctx context.Context, req admission.Request) 
 	return admission.PatchResponseFromRaw(req.Object.Raw, marshaledPod)
 }
 
-// mergeAdmissionDefaults DeepCopies policy and applies the same
-// cluster < namespace merge as controller.fetchDefaults. List errors
-// fail closed so CREATE does not size from unmerged ControlledValues.
-func (h *PodMutatingHandler) mergeAdmissionDefaults(
+// listAdmissionDefaults returns combined cluster + namespace defaults
+// (same selection as controller.fetchDefaults). List errors fail closed.
+func (h *PodMutatingHandler) listAdmissionDefaults(
 	ctx context.Context,
 	namespace string,
-	policy *attunev1alpha1.AttunePolicy,
-) (*attunev1alpha1.AttunePolicy, error) {
-	merged := policy.DeepCopy()
-
+) (*attunev1alpha1.AttuneDefaults, error) {
 	var nsList attunev1alpha1.AttuneNamespaceDefaultsList
 	if err := h.Client.List(ctx, &nsList, client.InNamespace(namespace)); err != nil {
 		return nil, fmt.Errorf("listing AttuneNamespaceDefaults in %s: %w", namespace, err)
@@ -212,8 +212,7 @@ func (h *PodMutatingHandler) mergeAdmissionDefaults(
 		}
 	}
 
-	pkgdefaults.MergeDefaults(merged, pkgdefaults.CombineDefaultsLayers(clusterDefaults, nsDefaults))
-	return merged, nil
+	return pkgdefaults.CombineDefaultsLayers(clusterDefaults, nsDefaults), nil
 }
 
 // findMatchingPolicy finds a policy that targets the given owner workload
@@ -223,11 +222,13 @@ func (h *PodMutatingHandler) findMatchingPolicy(
 	namespace string,
 	policies []attunev1alpha1.AttunePolicy,
 	ownerKind, ownerName, podName string,
+	defaults *attunev1alpha1.AttuneDefaults,
 ) (*attunev1alpha1.AttunePolicy, *attunev1alpha1.WorkloadRecommendation) {
 	for i := range policies {
-		policy := &policies[i]
+		policy := policies[i].DeepCopy()
+		pkgdefaults.MergeDefaults(policy, defaults)
 
-		// Check initial sizing is enabled.
+		// Check initial sizing is enabled (after AttuneDefaults merge).
 		if policy.Spec.UpdateStrategy == nil || policy.Spec.UpdateStrategy.InitialSizing == nil || !*policy.Spec.UpdateStrategy.InitialSizing {
 			continue
 		}

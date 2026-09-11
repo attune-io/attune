@@ -441,7 +441,7 @@ func TestPodMutatingHandler_ConflictCheckFailedDoesNotOverrideHealthyPolicy(t *t
 	// Slice order puts B first so leftover recs would win without the skip.
 	picked, rec := handler.findMatchingPolicy(context.Background(), "default",
 		[]attunev1alpha1.AttunePolicy{*policyB, *policyA},
-		"Deployment", "my-app", "my-app-abc-xyz")
+		"Deployment", "my-app", "my-app-abc-xyz", nil)
 	require.NotNil(t, picked, "healthy higher-weight policy must still match")
 	require.NotNil(t, rec)
 	assert.Equal(t, "policy-a", picked.Name, "ConflictCheckFailed policy must not be selected")
@@ -580,6 +580,71 @@ func TestPodMutatingHandler_StatefulSet(t *testing.T) {
 
 	mutatedPod := patchedPod(t, req.Object.Raw, resp)
 	assert.Equal(t, resource.MustParse("500m"), mutatedPod.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU])
+}
+
+func TestPodMutatingHandler_DefaultsInitialSizingEnablesCreate(t *testing.T) {
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
+	policy.Spec.UpdateStrategy.InitialSizing = nil
+
+	enabled := true
+	defaults := &attunev1alpha1.AttuneDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{InitialSizing: &enabled},
+		},
+	}
+
+	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).
+		WithObjects(policy, defaults, testNamespace("default", nil)).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	req := makeAdmissionRequest(t, pod, "default")
+	resp := handler.Handle(context.Background(), req)
+	require.True(t, resp.Allowed)
+	require.NotEmpty(t, resp.Patches, "AttuneDefaults initialSizing must enable CREATE")
+
+	mutatedPod := patchedPod(t, req.Object.Raw, resp)
+	assert.True(t, mutatedPod.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU].Equal(resource.MustParse("500m")))
+}
+
+func TestPodMutatingHandler_DefaultsTypeAutoEnablesCreate(t *testing.T) {
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, "")
+	defaults := &attunev1alpha1.AttuneDefaults{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			UpdateStrategy: &attunev1alpha1.UpdateStrategy{Type: attunev1alpha1.UpdateTypeAuto},
+		},
+	}
+
+	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).
+		WithObjects(policy, defaults, testNamespace("default", nil)).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	req := makeAdmissionRequest(t, pod, "default")
+	resp := handler.Handle(context.Background(), req)
+	require.True(t, resp.Allowed)
+	require.NotEmpty(t, resp.Patches, "AttuneDefaults type Auto must enable CREATE")
+
+	mutatedPod := patchedPod(t, req.Object.Raw, resp)
+	assert.True(t, mutatedPod.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU].Equal(resource.MustParse("500m")))
+}
+
+func TestPodMutatingHandler_PausedSkipsCreate(t *testing.T) {
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
+	paused := true
+	policy.Spec.Paused = &paused
+	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).
+		WithObjects(policy, testNamespace("default", nil)).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
+	assert.True(t, resp.Allowed)
+	assert.Nil(t, resp.Patches)
+	require.NotNil(t, resp.Result)
+	assert.Contains(t, resp.Result.Message, "paused")
 }
 
 func TestPodMutatingHandler_ClusterDefaultsRequestsAndLimitsWritesCPULimit(t *testing.T) {
