@@ -253,9 +253,15 @@ Fuzz targets are defined in `internal/recommendation/fuzz_test.go`
 `bash scripts/test_run_fuzz.sh` (also via `make python-test`).
 
 `make python-test` also runs the Helm default-image-tag classifier
-(`scripts/test_verify_helm_image_tag.sh`) and the release dual-tag
-classifier (`scripts/test_release_image_tags.sh`). Those catch a `v`-prefix regression on the default Helm image tag and a
-dropped bare SemVer alias on the next release.
+(`scripts/test_verify_helm_image_tag.sh`), the release dual-tag
+classifier (`scripts/test_release_image_tags.sh`), and the cert-manager
+manifest download classifier
+(`scripts/test_e2e_download_cert_manager.sh`). Those catch a `v`-prefix
+regression on the default Helm image tag, a dropped bare SemVer alias
+on the next release, and a GitHub Releases 500 leaving nightly without
+`cert-manager.yaml` (issue #726). When bumping
+`CERT_MANAGER_VERSION`, add a matching
+`hack/testdata/cert-manager-<version>.yaml`.
 
 ## Running all tests
 
