@@ -310,6 +310,24 @@ func TestMergeTemplateResources_PreservesUncontrolledLimits(t *testing.T) {
 	assert.True(t, got.Limits.Memory().Equal(resource.MustParse("512Mi")), "existing memory limit preserved")
 }
 
+func TestMergeTemplateResources_ClampsHoldRequestToLeftoverLimit(t *testing.T) {
+	current := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("256Mi")},
+		Limits:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("512Mi")},
+	}
+	want := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("1Gi")},
+	}
+
+	got := mergeTemplateResources(current, want)
+	require.NotNil(t, got.Requests)
+	require.NotNil(t, got.Limits)
+	assert.True(t, got.Requests.Memory().Equal(resource.MustParse("512Mi")),
+		"hold request %s must clamp to leftover template limit 512Mi", got.Requests.Memory().String())
+	assert.True(t, got.Limits.Memory().Equal(resource.MustParse("512Mi")),
+		"leftover memory limit must stay 512Mi, got %s", got.Limits.Memory().String())
+}
+
 func TestQuantityEqual_MissingAsZero(t *testing.T) {
 	a := corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("0")}
 	b := corev1.ResourceList{}

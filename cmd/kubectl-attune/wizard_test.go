@@ -397,6 +397,13 @@ func TestWizardCreate_NoWorkloads(t *testing.T) {
 	assert.Contains(t, err.Error(), "no Deployments found")
 }
 
+func TestInitialSizingNextSteps(t *testing.T) {
+	got := initialSizingNextSteps("prod")
+	assert.Contains(t, got, "initialSizing.enabled")
+	assert.Contains(t, got, "attune.io/initial-sizing=enabled")
+	assert.Contains(t, got, "prod")
+}
+
 func TestBuildPolicyObject_WithInitialSizing(t *testing.T) {
 	obj := buildPolicyObject("prod", "api-attune", "Deployment", "api-server",
 		"http://prom:9090", 95, 99, "Auto", true)

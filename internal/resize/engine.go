@@ -162,9 +162,10 @@ func (r *PodResizer) ResizePod(ctx context.Context, pod *corev1.Pod, container s
 }
 
 // mergeResources builds the final ResourceRequirements by applying target values on top
-// of the current resources. Requests are always taken from the target. Limits are taken
-// from the target only if the target specifies them; otherwise the pod's existing limits
-// are preserved. This prevents adding limits to pods that never had them.
+// of the current resources. Requests are taken from the target, then clamped so they
+// do not exceed leftover destination limits. Limits are taken from the target only if
+// the target specifies them; otherwise the pod's existing limits are preserved. This
+// prevents adding limits to pods that never had them.
 //
 // Memory limits are never decreased below the current value because Kubernetes
 // forbids in-place memory limit decreases (requires RestartContainer resize policy).
@@ -202,6 +203,7 @@ func mergeResources(current, target corev1.ResourceRequirements) corev1.Resource
 		}
 	}
 	// CPU limits are not clamped: K8s allows in-place CPU limit decreases.
+	ClampRequestsToLimits(&merged)
 	return merged
 }
 

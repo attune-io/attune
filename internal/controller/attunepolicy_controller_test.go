@@ -11424,7 +11424,7 @@ func TestExecuteResizes_EvictionSpendsFilterSlot(t *testing.T) {
 }
 
 func TestExecuteResizes_MixedOutcomePodDoesNotLeakSuccessOrBudget(t *testing.T) {
-	apiPod1 := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
+	apiPod1 := newResizePod("api-server", "200m", "256Mi", "500m", "256Mi")
 	apiPod1.Name = "api-server-abc-1"
 	apiPod1.Spec.Containers = append(apiPod1.Spec.Containers, corev1.Container{
 		Name:  "sidecar",
@@ -11435,7 +11435,7 @@ func TestExecuteResizes_MixedOutcomePodDoesNotLeakSuccessOrBudget(t *testing.T) 
 				corev1.ResourceMemory: resource.MustParse("64Mi"),
 			},
 			Limits: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("100m"),
+				corev1.ResourceCPU:    resource.MustParse("200m"),
 				corev1.ResourceMemory: resource.MustParse("64Mi"),
 			},
 		},

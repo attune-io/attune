@@ -525,6 +525,7 @@ func replaceCPUMemoryResources(current, want corev1.ResourceRequirements) corev1
 
 // mergeTemplateResources applies want requests/limits onto current, keeping
 // existing limit entries when want does not set limits for that resource.
+// Requests are then clamped so they do not exceed leftover destination limits.
 func mergeTemplateResources(current, want corev1.ResourceRequirements) corev1.ResourceRequirements {
 	out := current.DeepCopy()
 	if out.Requests == nil {
@@ -541,6 +542,7 @@ func mergeTemplateResources(current, want corev1.ResourceRequirements) corev1.Re
 			out.Limits[k] = v.DeepCopy()
 		}
 	}
+	resize.ClampRequestsToLimits(out)
 	return *out
 }
 

@@ -26,6 +26,7 @@ import (
 	jsonpatch "github.com/evanphx/json-patch/v5"
 	"github.com/go-logr/logr"
 	"github.com/go-logr/logr/funcr"
+	promtestutil "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	admissionv1 "k8s.io/api/admission/v1"
@@ -41,6 +42,7 @@ import (
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 	"github.com/attune-io/attune/internal/conflict"
+	"github.com/attune-io/attune/internal/operatormetrics"
 )
 
 // patchedPod applies the admission response patches to the original pod bytes.
@@ -717,6 +719,9 @@ func TestPodMutatingHandler_ClampsRequestToLeftoverLimit(t *testing.T) {
 	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, testNamespace("default", nil)).Build()
 	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
 
+	beforeCPU := promtestutil.ToFloat64(operatormetrics.RequestClampedTotal.WithLabelValues(
+		"default", "my-policy", "app", "cpu"))
+
 	req := makeAdmissionRequest(t, pod, "default")
 	resp := handler.Handle(context.Background(), req)
 	require.True(t, resp.Allowed)
@@ -729,6 +734,11 @@ func TestPodMutatingHandler_ClampsRequestToLeftoverLimit(t *testing.T) {
 		"CREATE request %s must clamp to leftover limit 200m", gotReq.String())
 	assert.True(t, gotLim.Equal(resource.MustParse("200m")),
 		"leftover CPU limit must stay 200m, got %s", gotLim.String())
+
+	afterCPU := promtestutil.ToFloat64(operatormetrics.RequestClampedTotal.WithLabelValues(
+		"default", "my-policy", "app", "cpu"))
+	assert.Equal(t, beforeCPU+1, afterCPU,
+		"RequestClampedTotal should increment for CREATE leftover CPU clamp")
 }
 
 func TestPodMutatingHandler_NativeSidecarInitialSizing(t *testing.T) {

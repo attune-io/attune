@@ -254,8 +254,11 @@ stateDiagram-v2
   working set drops below the new limit. If the application holds onto
   allocated memory, the decrease has no practical effect until the process
   releases it.
-- **Init containers**: Not resizable in-place. The operator only resizes
-  regular containers.
+- **Init containers**: Traditional init containers (no `restartPolicy`, or
+  any value other than `Always`) are not resized in-place. Native sidecars
+  (`restartPolicy: Always`) are CREATE-sized, in-place resized, and
+  startup-boosted. They are still subject to `excludeKnownSidecars`. See
+  [Istio integration](../guides/istio-integration.md).
 - **Restart policy**: Containers with `resizePolicy: RestartContainer` will
   be restarted by the kubelet when their resources change.
 - **Prometheus address limit**: The operator caches at most 64 unique

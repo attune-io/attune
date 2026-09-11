@@ -328,7 +328,10 @@ func (h *PodMutatingHandler) mutateContainer(
 			}
 		}
 
-		_ = resize.ClampRequestsToLimits(&container.Resources)
+		for _, res := range resize.ClampRequestsToLimits(&container.Resources) {
+			operatormetrics.RequestClampedTotal.WithLabelValues(
+				policy.Namespace, policy.Name, container.Name, res).Inc()
+		}
 		return mutated
 	}
 	return false
