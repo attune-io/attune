@@ -168,7 +168,11 @@ func TestFirstOneShotPodNeedingResize_SkipsClampedMemoryLimit(t *testing.T) {
 
 	r := newReconcilerWithClient()
 	r.AllowInPlaceMemoryLimitDecrease = false
-	got := r.firstOneShotPodNeedingResize(context.Background(), newTestPolicy("test-policy", "default"), pods, rec, nil)
+	policy := newTestPolicy("test-policy", "default")
+	cv := attunev1alpha1.ControlledRequestsAndLimits
+	policy.Spec.CPU.ControlledValues = &cv
+	policy.Spec.Memory.ControlledValues = &cv
+	got := r.firstOneShotPodNeedingResize(context.Background(), policy, pods, rec, nil)
 	require.Len(t, got, 1)
 	assert.Equal(t, "pod-1", got[0].Name)
 }
@@ -270,7 +274,11 @@ func TestFirstOneShotPodNeedingResize_SkipsFlooredGuaranteed(t *testing.T) {
 
 	r := newReconcilerWithClient()
 	r.AllowInPlaceMemoryLimitDecrease = true
-	got := r.firstOneShotPodNeedingResize(context.Background(), newTestPolicy("test-policy", "default"), pods, rec, nil)
+	policy := newTestPolicy("test-policy", "default")
+	cv := attunev1alpha1.ControlledRequestsAndLimits
+	policy.Spec.CPU.ControlledValues = &cv
+	policy.Spec.Memory.ControlledValues = &cv
+	got := r.firstOneShotPodNeedingResize(context.Background(), policy, pods, rec, nil)
 	require.Len(t, got, 1)
 	assert.Equal(t, "pod-1", got[0].Name)
 }

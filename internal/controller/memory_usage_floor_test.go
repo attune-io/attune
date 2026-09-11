@@ -41,11 +41,16 @@ func TestApplyMemoryUsageFloor_GuaranteedRaisesRequestToFlooredLimit(t *testing.
 	require.NoError(t, corev1.AddToScheme(scheme))
 
 	margin := int32(10)
+	cv := attunev1alpha1.ControlledRequestsAndLimits
 	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "p-qos", Namespace: "default"},
 		Spec: attunev1alpha1.AttunePolicySpec{
+			CPU: attunev1alpha1.ResourceConfig{
+				ControlledValues: &cv,
+			},
 			Memory: attunev1alpha1.ResourceConfig{
 				DecreaseUsageMarginPercent: &margin,
+				ControlledValues:           &cv,
 			},
 		},
 	}
@@ -237,11 +242,16 @@ func TestApplyMemoryUsageFloor_UsesLiveContainerLimit(t *testing.T) {
 	require.NoError(t, corev1.AddToScheme(scheme))
 
 	margin := int32(10)
+	cv := attunev1alpha1.ControlledRequestsAndLimits
 	policy := &attunev1alpha1.AttunePolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: "p-live", Namespace: "default"},
 		Spec: attunev1alpha1.AttunePolicySpec{
+			CPU: attunev1alpha1.ResourceConfig{
+				ControlledValues: &cv,
+			},
 			Memory: attunev1alpha1.ResourceConfig{
 				DecreaseUsageMarginPercent: &margin,
+				ControlledValues:           &cv,
 			},
 		},
 	}

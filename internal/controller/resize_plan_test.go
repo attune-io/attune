@@ -137,6 +137,9 @@ func TestPlanPodActions_UsesAppliedTargetAndSkipsAtTarget(t *testing.T) {
 	pod.Spec.Containers[0].Resources.Limits[corev1.ResourceMemory] = resource.MustParse("256Mi")
 	r := NewAttunePolicyReconciler()
 	policy := newTestPolicy("p", "default")
+	cv := attunev1alpha1.ControlledRequestsAndLimits
+	policy.Spec.CPU.ControlledValues = &cv
+	policy.Spec.Memory.ControlledValues = &cv
 	rec := attunev1alpha1.WorkloadRecommendation{
 		Workload: "api-server",
 		Containers: []attunev1alpha1.ContainerRecommendation{{
@@ -204,6 +207,40 @@ func TestPlanPodActions_ClampsToLiveLeftoverLimit(t *testing.T) {
 	require.Len(t, at, 1)
 	assert.True(t, at[0].AtTarget)
 	assert.Equal(t, int64(0), at[0].CPUIncrease)
+}
+
+func TestPlanPodActions_RequestsOnlyKeepsLiveLeftoverLimit(t *testing.T) {
+	t.Parallel()
+	// Production recs copy template limits onto Recommended.*Limit.
+	// RequestsOnly must still overwrite those with dest leftover limits.
+	pod := newResizePod("api-server", "100m", "256Mi", "200m", "256Mi")
+	r := NewAttunePolicyReconciler()
+	policy := newTestPolicy("p", "default")
+	rec := attunev1alpha1.WorkloadRecommendation{
+		Workload: "api-server",
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "main",
+			Current: attunev1alpha1.ResourceValues{
+				CPURequest:    resource.MustParse("100m"),
+				MemoryRequest: resource.MustParse("256Mi"),
+				CPULimit:      resource.MustParse("200m"),
+				MemoryLimit:   resource.MustParse("256Mi"),
+			},
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest:    resource.MustParse("500m"),
+				MemoryRequest: resource.MustParse("256Mi"),
+				CPULimit:      resource.MustParse("500m"),
+			},
+		}},
+	}
+
+	actions := r.planPodActions(policy, pod, rec)
+	require.Len(t, actions, 1)
+	assert.Equal(t, int64(200), actions[0].Target.Requests.Cpu().MilliValue(),
+		"plan target request must dest-clamp 500m to leftover live limit 200m")
+	assert.Equal(t, int64(200), actions[0].Target.Limits.Cpu().MilliValue(),
+		"RequestsOnly must keep dest leftover limit 200m, not template 500m")
+	assert.Contains(t, actions[0].Clamped, "cpu")
 }
 
 func TestObserveAndPlanPod_SkipsLiveGetWhenListedAtTarget(t *testing.T) {

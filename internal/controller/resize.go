@@ -136,8 +136,9 @@ type liveResizeApplyMeta struct {
 
 // applyLiveResizeTarget applies ClampMemoryLimitForPolicy, the Guaranteed
 // request raise when platform-clamped, the usage floor otherwise, then
-// leftover dest limits (same overlay as mergeResources) and
-// ClampRequestsToLimits. OneShot compare and resizeContainer must share
+// leftover dest limits (RequestsOnly overwrites template limits; RequestsAndLimits
+// fills omitted keys) and ClampRequestsToLimits. OneShot compare and
+// resizeContainer must share
 // this so they cannot drift.
 func (r *AttunePolicyReconciler) applyLiveResizeTarget(
 	policy *attunev1alpha1.AttunePolicy,
@@ -177,23 +178,52 @@ func (r *AttunePolicyReconciler) applyLiveResizeTarget(
 		meta.FloorEqualsCurrent = resMeta.FloorToLimit.Equal(current)
 	}
 	if dest := findContainerByName(pod, containerRec.Name); dest != nil {
-		// Keep dest leftover limits when the rec blob omitted that resource.
+		// RequestsOnly must keep dest leftover limits even when the rec
+		// copied template limits onto Recommended.*Limit. RequestsAndLimits
+		// still fills only omitted keys.
 		if len(dest.Resources.Limits) > 0 {
 			if applied.Limits == nil {
 				applied.Limits = corev1.ResourceList{}
 			}
 			for _, res := range []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory} {
+				destLim, ok := dest.Resources.Limits[res]
+				if !ok || destLim.IsZero() {
+					continue
+				}
+				if resourceControlledRequestsOnly(policy, res) {
+					applied.Limits[res] = destLim.DeepCopy()
+					continue
+				}
 				if _, set := applied.Limits[res]; set {
 					continue
 				}
-				if destLim, ok := dest.Resources.Limits[res]; ok && !destLim.IsZero() {
-					applied.Limits[res] = destLim.DeepCopy()
-				}
+				applied.Limits[res] = destLim.DeepCopy()
 			}
 		}
 		meta.DestClamped = resize.ClampRequestsToLimits(&applied)
 	}
 	return applied, meta
+}
+
+// resourceControlledRequestsOnly is true when the policy does not manage
+// that resource's limits (unset, empty, or RequestsOnly).
+func resourceControlledRequestsOnly(policy *attunev1alpha1.AttunePolicy, res corev1.ResourceName) bool {
+	if policy == nil {
+		return true
+	}
+	var cv *string
+	switch res {
+	case corev1.ResourceCPU:
+		cv = policy.Spec.CPU.ControlledValues
+	case corev1.ResourceMemory:
+		cv = policy.Spec.Memory.ControlledValues
+	default:
+		return true
+	}
+	if cv == nil || *cv == "" || *cv == attunev1alpha1.DefaultControlledValues || *cv == attunev1alpha1.ControlledRequestsOnly {
+		return true
+	}
+	return false
 }
 
 // appliedResizeTarget is the clamp + Guaranteed QoS raise + usage floor that

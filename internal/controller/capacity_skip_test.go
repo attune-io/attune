@@ -199,7 +199,7 @@ func TestExecuteResizes_NodeAllocatable_EmitsResizeSkippedAndCapacitySkipMetric(
 		appName    = "alloc-app"
 	)
 
-	pod := newResizePod(appName, "500m", "512Mi", "1000m", "1Gi")
+	pod := newResizePod(appName, "500m", "512Mi", "2000m", "1Gi")
 	pod.Spec.NodeName = nodeName
 	deploy := newTestDeployment(appName, policyNS, map[string]string{"app": appName})
 	// Node too small for recommended CPU (would be 2 + sidecar-less 2).
@@ -552,6 +552,9 @@ func TestExecuteResizes_UsageFloorUsesLiveLimitNotStaleInformer(t *testing.T) {
 
 	policy := newTestPolicy(policyName, policyNS)
 	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	cv := attunev1alpha1.ControlledRequestsAndLimits
+	policy.Spec.CPU.ControlledValues = &cv
+	policy.Spec.Memory.ControlledValues = &cv
 	recommendations := []attunev1alpha1.WorkloadRecommendation{
 		newResizeRecommendation(appName,
 			"200m", "512Mi", "200m", "512Mi",
