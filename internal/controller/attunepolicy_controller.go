@@ -31,7 +31,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -562,34 +561,7 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 		if resizedCount > 0 {
 			policy.Status.Workloads.Resized = safeInt32(resizedCount)
-			// Auto-tune HPA targets only for workloads that were actually
-			// resized, using aggregate CPU across all containers.
-			resizedWorkloads := make(map[string]bool, len(history))
-			for _, h := range history {
-				if isSuccessfulInPlaceHistory(h) {
-					resizedWorkloads[h.Workload] = true
-				}
-			}
-			for _, rec := range recommendations {
-				if !resizedWorkloads[rec.Workload] {
-					continue
-				}
-				if mode == attunev1alpha1.UpdateTypeCanary && !policy.Status.Canary.AllowsHPARetune(rec.Workload) {
-					continue
-				}
-				var totalOldCPU, totalNewCPU, totalCPULimit int64
-				for _, c := range rec.Containers {
-					totalOldCPU += c.Current.CPURequest.MilliValue()
-					totalNewCPU += c.Recommended.CPURequest.MilliValue()
-					totalCPULimit += c.Recommended.CPULimit.MilliValue()
-				}
-				if totalOldCPU != totalNewCPU {
-					r.adjustHPATargets(ctx, hpaList.Items, rec.Workload, rec.Kind,
-						*resource.NewMilliQuantity(totalOldCPU, resource.DecimalSI),
-						*resource.NewMilliQuantity(totalNewCPU, resource.DecimalSI),
-						*resource.NewMilliQuantity(totalCPULimit, resource.DecimalSI))
-				}
-			}
+			r.retuneHPAAfterResize(ctx, &policy, mode, history, recommendations, hpaList.Items, podsByWorkload)
 		}
 	}
 	// Template persistence after successful in-place resizes (this cycle and

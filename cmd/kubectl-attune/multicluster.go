@@ -129,6 +129,12 @@ func fetchMultiCluster(
 	return items, warnings
 }
 
+// multiClusterFailed is true when every requested context errored and
+// no policies were collected.
+func multiClusterFailed(nctx, nwarn, nitems int) bool {
+	return nctx > 0 && nwarn == nctx && nitems == 0
+}
+
 // tagItems annotates each item with the cluster context name.
 func tagItems(items []unstructured.Unstructured, cluster string) {
 	for i := range items {

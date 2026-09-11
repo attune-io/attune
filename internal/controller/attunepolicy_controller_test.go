@@ -6526,6 +6526,9 @@ func TestExecuteResizes_GuaranteedQoS_MemoryClampAllowsCPUResize(t *testing.T) {
 
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	cv := attunev1alpha1.ControlledRequestsAndLimits
+	policy.Spec.CPU.ControlledValues = &cv
+	policy.Spec.Memory.ControlledValues = &cv
 
 	// Recommend CPU decrease (500m → 50m) and memory decrease (256Mi → 64Mi).
 	// Both limits also decrease (ControlledValues: RequestsAndLimits behavior).
@@ -11495,7 +11498,7 @@ func TestExecuteResizes_MixedOutcomePodDoesNotLeakSuccessOrBudget(t *testing.T) 
 	})
 	apiPod2 := apiPod1.DeepCopy()
 	apiPod2.Name = "api-server-abc-2"
-	workerPod := newResizePod("worker", "200m", "256Mi", "200m", "256Mi")
+	workerPod := newResizePod("worker", "200m", "256Mi", "1000m", "256Mi")
 	workerPod.Name = "worker-abc-1"
 
 	apiDeploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})

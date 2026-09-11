@@ -115,6 +115,12 @@ func unstructuredDeployment(name, namespace string, replicas int64) *unstructure
 }
 
 func unstructuredService(name, namespace string, port int64) *unstructured.Unstructured {
+	return unstructuredServicePorts(name, namespace, []interface{}{
+		map[string]interface{}{"port": port},
+	})
+}
+
+func unstructuredServicePorts(name, namespace string, ports []interface{}) *unstructured.Unstructured {
 	return &unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "v1",
@@ -124,9 +130,7 @@ func unstructuredService(name, namespace string, port int64) *unstructured.Unstr
 				"namespace": namespace,
 			},
 			"spec": map[string]interface{}{
-				"ports": []interface{}{
-					map[string]interface{}{"port": port},
-				},
+				"ports": ports,
 			},
 		},
 	}
@@ -309,8 +313,21 @@ func TestDetectPrometheus(t *testing.T) {
 
 	results := detectPrometheus(context.Background(), dynClient)
 	assert.Len(t, results, 2)
-	assert.Contains(t, results, "http://prometheus-server.monitoring:9090")
-	assert.Contains(t, results, "http://thanos-query.monitoring:10902")
+	assert.Contains(t, results, "http://prometheus-server.monitoring.svc:9090")
+	assert.Contains(t, results, "http://thanos-query.monitoring.svc:10902")
+}
+
+func TestDetectPrometheus_PrefersHTTPPort(t *testing.T) {
+	dynClient := newFakeDynClient(
+		unstructuredServicePorts("thanos-query", "monitoring", []interface{}{
+			map[string]interface{}{"name": "grpc", "port": int64(10901)},
+			map[string]interface{}{"name": "http", "port": int64(9090)},
+		}),
+	)
+
+	results := detectPrometheus(context.Background(), dynClient)
+	require.Len(t, results, 1)
+	assert.Equal(t, "http://thanos-query.monitoring.svc:9090", results[0])
 }
 
 func TestDetectPrometheus_NoMatches(t *testing.T) {

@@ -25,7 +25,87 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 )
+
+// retuneHPAAfterResize rebases auto-tune HPA CPU targets from this-cycle
+// successful in-place CPU apply (dest-clamped), not the raw recommendation.
+func (r *AttunePolicyReconciler) retuneHPAAfterResize(
+	ctx context.Context,
+	policy *attunev1alpha1.AttunePolicy,
+	mode attunev1alpha1.UpdateType,
+	history []attunev1alpha1.ResizeHistoryEntry,
+	recommendations []attunev1alpha1.WorkloadRecommendation,
+	hpas []autoscalingv2.HorizontalPodAutoscaler,
+	podsByWorkload map[string][]corev1.Pod,
+) {
+	if r == nil || len(hpas) == 0 {
+		return
+	}
+	for _, rec := range recommendations {
+		if mode == attunev1alpha1.UpdateTypeCanary && policy != nil && !policy.Status.Canary.AllowsHPARetune(rec.Workload) {
+			continue
+		}
+		oldCPU, newCPU, ok := hpaCPUFromResizeHistory(history, rec.Workload)
+		if !ok {
+			continue
+		}
+		if oldCPU.Equal(newCPU) {
+			continue
+		}
+		var pods []corev1.Pod
+		if podsByWorkload != nil {
+			pods = podsByWorkload[rec.Workload]
+		}
+		cpuLimit := destCPULimitFromPods(pods)
+		if cpuLimit.IsZero() {
+			cpuLimit = newCPU.DeepCopy()
+		}
+		r.adjustHPATargets(ctx, hpas, rec.Workload, rec.Kind, oldCPU, newCPU, cpuLimit)
+	}
+}
+
+// hpaCPUFromResizeHistory sums From/To on this-cycle successful in-place
+// CPU rows for workload. ok is false when no parseable rows exist.
+func hpaCPUFromResizeHistory(history []attunev1alpha1.ResizeHistoryEntry, workload string) (oldCPU, newCPU resource.Quantity, ok bool) {
+	var oldMilli, newMilli int64
+	found := false
+	for _, h := range history {
+		if h.Workload != workload || h.Resource != "cpu" || !isSuccessfulInPlaceHistory(h) {
+			continue
+		}
+		from, fromErr := resource.ParseQuantity(h.From)
+		to, toErr := resource.ParseQuantity(h.To)
+		if fromErr != nil || toErr != nil {
+			continue
+		}
+		oldMilli += from.MilliValue()
+		newMilli += to.MilliValue()
+		found = true
+	}
+	if !found {
+		return resource.Quantity{}, resource.Quantity{}, false
+	}
+	return *resource.NewMilliQuantity(oldMilli, resource.DecimalSI),
+		*resource.NewMilliQuantity(newMilli, resource.DecimalSI), true
+}
+
+// destCPULimitFromPods sums leftover dest CPU limits across listed pods.
+func destCPULimitFromPods(pods []corev1.Pod) resource.Quantity {
+	var total int64
+	for i := range pods {
+		for _, c := range pods[i].Spec.Containers {
+			if lim, ok := c.Resources.Limits[corev1.ResourceCPU]; ok && !lim.IsZero() {
+				total += lim.MilliValue()
+			}
+		}
+	}
+	if total == 0 {
+		return resource.Quantity{}
+	}
+	return *resource.NewMilliQuantity(total, resource.DecimalSI)
+}
 
 // their resource-based target utilization to maintain the same absolute resource
 // threshold after a resize changes the request baseline.
