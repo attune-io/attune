@@ -140,6 +140,7 @@ jobs:
               - 'charts/attune/crds/**'
               - 'dist/**'
               - 'Makefile'
+              - 'hack/boilerplate.go.txt'
             # Helper scripts + their unit tests (FOSSA filter, fuzz classifier,
             # fleet reports, nightly issue body, cert-manager installer,
             # bounded k3d delete).
