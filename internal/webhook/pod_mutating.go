@@ -20,12 +20,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
@@ -46,6 +50,8 @@ const (
 	AnnotationInitialSizing = "attune.io/initial-sizing"
 	// AnnotationInitialSizingPolicy records which policy was used.
 	AnnotationInitialSizingPolicy = "attune.io/initial-sizing-policy"
+	// AnnotationStartupBoostAt records when CREATE applied a startup CPU boost.
+	AnnotationStartupBoostAt = "attune.io/startup-boost-at"
 	// minConfidenceForInitialSizing is the minimum confidence to apply initial sizing.
 	minConfidenceForInitialSizing = 0.5
 )
@@ -134,17 +140,26 @@ func (h *PodMutatingHandler) Handle(ctx context.Context, req admission.Request) 
 
 	// Mutate the pod's containers and native sidecars (init restartPolicy Always).
 	mutated := false
+	boosted := false
 	for i := range pod.Spec.Containers {
 		container := &pod.Spec.Containers[i]
-		if h.mutateContainer(container, rec, policy) {
+		ok, didBoost := h.mutateContainer(container, rec, policy)
+		if ok {
 			mutated = true
+		}
+		if didBoost {
+			boosted = true
 		}
 	}
 	for i := range pod.Spec.InitContainers {
 		container := &pod.Spec.InitContainers[i]
 		if container.RestartPolicy != nil && *container.RestartPolicy == corev1.ContainerRestartPolicyAlways {
-			if h.mutateContainer(container, rec, policy) {
+			ok, didBoost := h.mutateContainer(container, rec, policy)
+			if ok {
 				mutated = true
+			}
+			if didBoost {
+				boosted = true
 			}
 		}
 	}
@@ -159,6 +174,9 @@ func (h *PodMutatingHandler) Handle(ctx context.Context, req admission.Request) 
 	}
 	pod.Annotations[AnnotationInitialSizing] = "applied"
 	pod.Annotations[AnnotationInitialSizingPolicy] = fmt.Sprintf("%s/%s", req.Namespace, policy.Name)
+	if boosted {
+		pod.Annotations[AnnotationStartupBoostAt] = time.Now().UTC().Format(time.RFC3339)
+	}
 
 	h.Logger.Info("initial sizing applied",
 		"pod", podAdmissionName(pod, req.Name), "namespace", req.Namespace,
@@ -336,7 +354,7 @@ func (h *PodMutatingHandler) mutateContainer(
 	container *corev1.Container,
 	rec *attunev1alpha1.WorkloadRecommendation,
 	policy *attunev1alpha1.AttunePolicy,
-) bool {
+) (mutated bool, boosted bool) {
 	for _, cr := range rec.Containers {
 		if cr.Name != container.Name {
 			continue
@@ -347,10 +365,12 @@ func (h *PodMutatingHandler) mutateContainer(
 		}
 
 		mutated := false
+		boosted := false
 
-		// Apply CPU request.
+		// Apply CPU request (startup boost may raise it before dest clamp).
 		if !cr.Recommended.CPURequest.IsZero() {
 			container.Resources.Requests[corev1.ResourceCPU] = cr.Recommended.CPURequest
+			boosted = applyCreateStartupBoost(container, policy)
 			mutated = true
 		}
 
@@ -391,9 +411,39 @@ func (h *PodMutatingHandler) mutateContainer(
 			operatormetrics.RequestClampedTotal.WithLabelValues(
 				policy.Namespace, policy.Name, container.Name, res).Inc()
 		}
-		return mutated
+		return mutated, boosted
 	}
-	return false
+	return false, false
+}
+
+// applyCreateStartupBoost raises the CREATE CPU request by the policy
+// multiplier, capped at maxAllowed and leftover dest limit. Returns true
+// when the request was raised so Handle can stamp startup-boost-at.
+func applyCreateStartupBoost(container *corev1.Container, policy *attunev1alpha1.AttunePolicy) bool {
+	if policy == nil || policy.Spec.CPU.StartupBoost == nil {
+		return false
+	}
+	cfg := policy.Spec.CPU.StartupBoost
+	mult, err := strconv.ParseFloat(cfg.Multiplier, 64)
+	if err != nil || math.IsNaN(mult) || math.IsInf(mult, 0) || mult <= 1 {
+		return false
+	}
+	cpu, ok := container.Resources.Requests[corev1.ResourceCPU]
+	if !ok || cpu.IsZero() {
+		return false
+	}
+	boosted := *resource.NewMilliQuantity(int64(float64(cpu.MilliValue())*mult), resource.DecimalSI)
+	if policy.Spec.CPU.MaxAllowed != nil && boosted.Cmp(*policy.Spec.CPU.MaxAllowed) > 0 {
+		boosted = policy.Spec.CPU.MaxAllowed.DeepCopy()
+	}
+	if lim, hasLim := container.Resources.Limits[corev1.ResourceCPU]; hasLim && boosted.Cmp(lim) > 0 {
+		boosted = lim.DeepCopy()
+	}
+	if boosted.Cmp(cpu) <= 0 {
+		return false
+	}
+	container.Resources.Requests[corev1.ResourceCPU] = boosted
+	return true
 }
 
 // applyCreateMemoryUsageFloor floors a CREATE memory limit the same way
