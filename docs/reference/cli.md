@@ -233,8 +233,12 @@ kubectl attune wizard promote        # promote an existing policy's mode
 ```
 
 **Create flow**: selects namespace, workload kind, workload name,
-auto-detects Prometheus, asks for CPU/memory percentiles and starting mode,
-then offers to apply directly or save the YAML to a file.
+then metrics source. When `AttuneDefaults` or `AttuneNamespaceDefaults`
+already set a provider (Datadog, CloudWatch, VPA, or Prometheus), the
+first option is inherit so the policy does not write a Prometheus
+block that would block `MergeDefaults`. Otherwise it auto-detects
+Prometheus. Then it asks for CPU/memory percentiles and starting
+mode, and offers to apply directly or save the YAML to a file.
 
 **Promote flow**: lists existing policies with their current mode and
 status, shows the recommendation summary, and updates the mode after

@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"testing"
 
+	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -77,12 +78,14 @@ func newFakeDynClient(objects ...runtime.Object) *dynamicfake.FakeDynamicClient 
 	scheme := runtime.NewScheme()
 	return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
 		map[schema.GroupVersionResource]string{
-			namespacesGVR:   "NamespaceList",
-			deploymentsGVR:  "DeploymentList",
-			statefulsetsGVR: "StatefulSetList",
-			daemonsetsGVR:   "DaemonSetList",
-			servicesGVR:     "ServiceList",
-			gvr:             "AttunePolicyList",
+			namespacesGVR:        "NamespaceList",
+			deploymentsGVR:       "DeploymentList",
+			statefulsetsGVR:      "StatefulSetList",
+			daemonsetsGVR:        "DaemonSetList",
+			servicesGVR:          "ServiceList",
+			gvr:                  "AttunePolicyList",
+			defaultsGVR:          "AttuneDefaultsList",
+			namespaceDefaultsGVR: "AttuneNamespaceDefaultsList",
 		},
 		objects...,
 	)
@@ -338,6 +341,61 @@ func TestDetectPrometheus_NoMatches(t *testing.T) {
 	assert.Empty(t, results)
 }
 
+func unstructuredClusterDefaultsDatadog(t *testing.T, name string) *unstructured.Unstructured {
+	t.Helper()
+	obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&attunev1alpha1.AttuneDefaults{
+		TypeMeta:   metav1.TypeMeta{APIVersion: "attune.io/v1alpha1", Kind: "AttuneDefaults"},
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Spec: attunev1alpha1.AttuneDefaultsSpec{
+			MetricsSource: &attunev1alpha1.MetricsSource{
+				Datadog: &attunev1alpha1.DatadogConfig{
+					Site: "datadoghq.com",
+					APIKeySecretRef: attunev1alpha1.SecretKeyRef{
+						Name: "datadog",
+						Key:  "api-key",
+					},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	return &unstructured.Unstructured{Object: obj}
+}
+
+func TestWizardCreate_InheritsDefaultsDatadog(t *testing.T) {
+	dynClient := newFakeDynClient(
+		unstructuredDeployment("api-server", "default", 3),
+		unstructuredService("prometheus-server", "monitoring", int64(9090)),
+	)
+	_, err := dynClient.Resource(defaultsGVR).Create(context.Background(),
+		unstructuredClusterDefaultsDatadog(t, "cluster"), metav1.CreateOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, "Datadog", inheritedMetricsProviderLabel(context.Background(), dynClient, "default"))
+
+	p := &scriptedPrompter{
+		selectAnswers: []int{
+			0, // kind: Deployment
+			0, // workload: api-server
+			0, // inherit Datadog
+			0, // CPU: P95
+			0, // Memory: P99
+			0, // mode: Recommend
+			0, // action: Apply
+		},
+	}
+
+	err = wizardCreate(context.Background(), dynClient, "default", p)
+	require.NoError(t, err)
+
+	created, err := dynClient.Resource(gvr).Namespace("default").Get(
+		context.Background(), "api-server-attune", metav1.GetOptions{})
+	require.NoError(t, err)
+
+	_, found, err := unstructured.NestedMap(created.Object, "spec", "metricsSource")
+	require.NoError(t, err)
+	assert.False(t, found, "wizard must omit metricsSource so MergeDefaults keeps AttuneDefaults Datadog")
+}
+
 func TestBuildPolicyObject(t *testing.T) {
 	obj := buildPolicyObject("prod", "api-attune", "Deployment", "api-server",
 		"http://prom:9090", 95, 99, "Recommend", false)
@@ -349,6 +407,16 @@ func TestBuildPolicyObject(t *testing.T) {
 
 	mode := getNestedString(*obj, "spec", "updateStrategy", "type")
 	assert.Equal(t, "Recommend", mode)
+	addr := getNestedString(*obj, "spec", "metricsSource", "prometheus", "address")
+	assert.Equal(t, "http://prom:9090", addr)
+}
+
+func TestBuildPolicyObject_OmitsMetricsWhenInherited(t *testing.T) {
+	obj := buildPolicyObject("prod", "api-attune", "Deployment", "api-server",
+		"", 95, 99, "Recommend", false)
+	_, found, err := unstructured.NestedMap(obj.Object, "spec", "metricsSource")
+	require.NoError(t, err)
+	assert.False(t, found)
 }
 
 func TestKindToGVR(t *testing.T) {
