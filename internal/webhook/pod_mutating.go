@@ -442,8 +442,10 @@ func (h *PodMutatingHandler) mutateContainer(
 }
 
 // applyCreateStartupBoost raises the CREATE CPU request by the policy
-// multiplier, capped at maxAllowed and leftover dest limit. Returns true
-// when the request was raised so Handle can stamp startup-boost-at.
+// multiplier, capped at maxAllowed. RequestsAndLimits raises dest with
+// the boosted request so Guaranteed pods still get headroom.
+// RequestsOnly dest-caps leftover dest. Returns true when the request
+// was raised so Handle can stamp startup-boost-at.
 func applyCreateStartupBoost(container *corev1.Container, policy *attunev1alpha1.AttunePolicy) bool {
 	if policy == nil || policy.Spec.CPU.StartupBoost == nil {
 		return false
@@ -461,7 +463,18 @@ func applyCreateStartupBoost(container *corev1.Container, policy *attunev1alpha1
 	if policy.Spec.CPU.MaxAllowed != nil && boosted.Cmp(*policy.Spec.CPU.MaxAllowed) > 0 {
 		boosted = policy.Spec.CPU.MaxAllowed.DeepCopy()
 	}
-	if lim, hasLim := container.Resources.Limits[corev1.ResourceCPU]; hasLim && boosted.Cmp(lim) > 0 {
+	cpuCV := policy.Spec.CPU.ControlledValues
+	raiseDest := cpuCV != nil && *cpuCV == attunev1alpha1.ControlledRequestsAndLimits
+	if raiseDest {
+		// Raise dest with the boosted request so Guaranteed (request==dest)
+		// still gets startup headroom. RequestsOnly dest-caps leftover dest.
+		if container.Resources.Limits == nil {
+			container.Resources.Limits = corev1.ResourceList{}
+		}
+		if lim, hasLim := container.Resources.Limits[corev1.ResourceCPU]; !hasLim || boosted.Cmp(lim) > 0 {
+			container.Resources.Limits[corev1.ResourceCPU] = boosted.DeepCopy()
+		}
+	} else if lim, hasLim := container.Resources.Limits[corev1.ResourceCPU]; hasLim && boosted.Cmp(lim) > 0 {
 		boosted = lim.DeepCopy()
 	}
 	if boosted.Cmp(cpu) <= 0 {

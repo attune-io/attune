@@ -805,6 +805,7 @@ func TestPodMutatingHandler_StartupBoostDestClamp(t *testing.T) {
 		recDest     string
 		maxAllowed  string
 		wantCPU     string
+		wantDest    string
 		wantBoostAt bool
 	}{
 		{
@@ -812,6 +813,7 @@ func TestPodMutatingHandler_StartupBoostDestClamp(t *testing.T) {
 			cv:          &only,
 			leftover:    "200m",
 			wantCPU:     "200m",
+			wantDest:    "200m",
 			wantBoostAt: false,
 		},
 		{
@@ -819,6 +821,7 @@ func TestPodMutatingHandler_StartupBoostDestClamp(t *testing.T) {
 			cv:          &only,
 			leftover:    "800m",
 			wantCPU:     "800m",
+			wantDest:    "800m",
 			wantBoostAt: true,
 		},
 		{
@@ -827,6 +830,16 @@ func TestPodMutatingHandler_StartupBoostDestClamp(t *testing.T) {
 			leftover:    "200m",
 			recDest:     "1",
 			wantCPU:     "1",
+			wantDest:    "1",
+			wantBoostAt: true,
+		},
+		{
+			name:        "RequestsAndLimits Guaranteed rec dest equals rec request raises dest with boost",
+			cv:          &both,
+			leftover:    "500m",
+			recDest:     "500m",
+			wantCPU:     "1",
+			wantDest:    "1",
 			wantBoostAt: true,
 		},
 		{
@@ -835,6 +848,7 @@ func TestPodMutatingHandler_StartupBoostDestClamp(t *testing.T) {
 			leftover:    "800m",
 			maxAllowed:  "600m",
 			wantCPU:     "600m",
+			wantDest:    "800m",
 			wantBoostAt: true,
 		},
 	}
@@ -881,6 +895,13 @@ func TestPodMutatingHandler_StartupBoostDestClamp(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, wantCPU.MilliValue(), got.MilliValue(),
 				"CREATE CPU request dest-clamp")
+			if tt.wantDest != "" {
+				wantDest, destErr := resource.ParseQuantity(tt.wantDest)
+				require.NoError(t, destErr)
+				gotDest := mutatedPod.Spec.Containers[0].Resources.Limits[corev1.ResourceCPU]
+				assert.Equal(t, wantDest.MilliValue(), gotDest.MilliValue(),
+					"CREATE CPU dest")
+			}
 			assert.Equal(t, tt.wantBoostAt, mutatedPod.Annotations[AnnotationStartupBoostAt] != "")
 		})
 	}

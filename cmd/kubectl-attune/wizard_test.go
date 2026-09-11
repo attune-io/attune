@@ -19,6 +19,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -28,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
+	"sigs.k8s.io/yaml"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 )
@@ -418,6 +421,29 @@ func TestBuildPolicyObject_OmitsMetricsWhenInherited(t *testing.T) {
 	_, found, err := unstructured.NestedMap(obj.Object, "spec", "metricsSource")
 	require.NoError(t, err)
 	assert.False(t, found)
+}
+
+func TestCRD_MetricsSourceNotRequired(t *testing.T) {
+	t.Parallel()
+	data, err := os.ReadFile(filepath.Join("..", "..", "config", "crd", "bases", "attune.io_attunepolicies.yaml"))
+	require.NoError(t, err)
+	var doc map[string]interface{}
+	require.NoError(t, yaml.Unmarshal(data, &doc))
+	versions, found, err := unstructured.NestedSlice(doc, "spec", "versions")
+	require.NoError(t, err)
+	require.True(t, found)
+	require.NotEmpty(t, versions)
+	ver, ok := versions[0].(map[string]interface{})
+	require.True(t, ok)
+	required, found, err := unstructured.NestedStringSlice(ver,
+		"schema", "openAPIV3Schema", "properties", "spec", "required")
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.NotContains(t, required, "metricsSource",
+		"omit metricsSource must be schema-valid so wizard inherit is accepted")
+	assert.Contains(t, required, "targetRef")
+	assert.Contains(t, required, "cpu")
+	assert.Contains(t, required, "memory")
 }
 
 func TestKindToGVR(t *testing.T) {

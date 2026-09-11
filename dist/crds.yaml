@@ -2223,7 +2223,11 @@ spec:
                     type: object
                 type: object
               metricsSource:
-                description: MetricsSource configures where and how to collect metrics.
+                description: |-
+                  MetricsSource configures where and how to collect metrics.
+                  Omit to inherit the provider from AttuneDefaults or
+                  AttuneNamespaceDefaults. Admission accepts an empty source;
+                  reconcile MergeDefaults fills the provider before queries.
                 properties:
                   cloudwatch:
                     description: CloudWatch configures an Amazon CloudWatch Container
@@ -2868,7 +2872,6 @@ spec:
             required:
             - cpu
             - memory
-            - metricsSource
             - targetRef
             type: object
           status:

@@ -8,19 +8,34 @@ that expires after a configurable duration.
 
 ## How it works
 
-1. The operator detects a newly created pod whose age (`now` minus
-   `pod.CreationTimestamp`) is still within `startupBoost.duration`.
-   Container start time is not used.
-2. It resizes each eligible container's CPU request to
-   `recommended_cpu * multiplier`. Native sidecars (init containers with
-   `restartPolicy: Always`) are included. Known sidecar names such as
-   `istio-proxy` stay excluded via `EffectiveExcludedContainers`.
-3. After a successful apply, the operator writes
-   `attune.io/startup-boost-at`. The boost expires when that timestamp
-   plus `duration` elapses. Container Ready is not checked.
-4. If the boosted CPU would exceed the container's CPU limit,
-   `maxAllowed`, or the node's allocatable CPU, the boost is capped
-   automatically.
+Startup boost has two apply paths.
+
+**CREATE webhook.** When a matching policy has a recommendation and
+`initialSizing` is on, the mutating webhook writes
+`recommended_cpu * multiplier` onto the new pod. Recommend mode
+CREATE is limited to CronJob and Job owners (those pods cannot be
+resized in place). In `RequestsAndLimits` mode the webhook also
+raises the CPU dest with the boosted request so Guaranteed pods
+still get headroom.
+
+**In-place resize.** After the pod is running, the operator detects a
+newly created pod whose age (`now` minus `pod.CreationTimestamp`) is
+still within `startupBoost.duration`. Container start time is not used.
+It resizes each eligible container's CPU request to
+`recommended_cpu * multiplier`. Native sidecars (init containers with
+`restartPolicy: Always`) are included. Known sidecar names such as
+`istio-proxy` stay excluded via `EffectiveExcludedContainers`.
+`RequestsAndLimits` raises dest with the boosted request the same way
+CREATE does.
+
+After a successful apply, the operator writes
+`attune.io/startup-boost-at`. The boost expires when that timestamp
+plus `duration` elapses and dest returns to the steady-state
+recommendation. Container Ready is not checked.
+
+If the boosted CPU would exceed `maxAllowed` or the node's allocatable
+CPU, the boost is capped. `RequestsOnly` also dest-caps leftover dest
+and does not raise dest.
 
 ### Native sidecars
 
@@ -87,7 +102,10 @@ container startup time in your monitoring to calibrate duration.
 The boost is applied **after** bounds clamping. If the boosted value exceeds
 the configured `maxAllowed`, it is capped at `maxAllowed`. Set `maxAllowed`
 high enough to accommodate the boosted value if you want the full multiplier
-effect.
+effect. With `cpu.controlledValues: RequestsAndLimits`, dest is raised
+with the boosted request so Guaranteed pods keep request equal to dest
+and still receive headroom. `RequestsOnly` dest-caps leftover dest and
+does not raise dest.
 
 For example, with a 500m recommendation, 3.0x multiplier, and maxAllowed of
 1000m, the boosted request will be 1000m (capped), not 1500m.
@@ -116,9 +134,9 @@ includes a Startup Boost panel that visualizes this metric.
   operator is down during a deployment, pods start with their current
   requests and receive the boost on the next reconcile (if still within
   the duration window).
-- Only applies when the operator is in a resize-capable mode (Auto,
-  OneShot, or Canary). Startup boost is a live in-place CPU overlay on
-  the pod, not a field on the recommendation object. Recommend and
-  Observe modes compute the steady-state recommendation only.
+- In-place boost requires a resize-capable mode (Auto, OneShot, or
+  Canary). CREATE webhook boost also applies in Recommend mode when
+  the pod owner is a CronJob or Job, because those pods cannot be
+  resized in place. Observe mode never applies a boost.
 
 See [`examples/14-startup-boost.yaml`](https://github.com/attune-io/attune/blob/main/examples/14-startup-boost.yaml) for a complete example.

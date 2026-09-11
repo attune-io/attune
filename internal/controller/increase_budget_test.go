@@ -70,7 +70,20 @@ func TestIncreaseRateBucket_BothRatesDoNotStarveCPU(t *testing.T) {
 		tick = tick.Add(time.Second)
 		b.tryDraw(0, 0, tick)
 	}
-	assert.True(t, b.tryDraw(960, 0, tick), "CPU must refill across mem-driven 1s ticks")
+	assert.True(t, b.tryDraw(1000, 0, tick), "CPU must refill a full minute across 1s ticks")
+}
+
+func TestIncreaseRateBucket_SmallRateOneSecondTicksDeliverConfiguredRate(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
+	b := newIncreaseRateBucket(100, -1, now)
+	assert.True(t, b.tryDraw(100, 0, now))
+	tick := now
+	for i := 0; i < 60; i++ {
+		tick = tick.Add(time.Second)
+		b.tryDraw(0, 0, tick)
+	}
+	assert.True(t, b.tryDraw(100, 0, tick), "100m/min must refill 100m across 60 one-second ticks")
 }
 
 func TestIncreaseRateBucket_LongIdleFillsToCap(t *testing.T) {
