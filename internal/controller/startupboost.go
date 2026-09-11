@@ -34,6 +34,51 @@ import (
 	"github.com/attune-io/attune/internal/resize"
 )
 
+// startupBoostBlocksCPUDecrease is true when the pod still has an in-window
+// CREATE or /resize boost annotation and target CPU is below live CPU.
+// Without this, executeResizes shrinks CREATE-boosted pods back to the rec
+// on the next reconcile.
+func startupBoostBlocksCPUDecrease(
+	policy *attunev1alpha1.AttunePolicy,
+	pod *corev1.Pod,
+	containerName string,
+	target corev1.ResourceRequirements,
+	now time.Time,
+) string {
+	if policy == nil || pod == nil || policy.Spec.CPU.StartupBoost == nil {
+		return ""
+	}
+	boostAtStr := ""
+	if pod.Annotations != nil {
+		boostAtStr = pod.Annotations[annotationStartupBoostAt]
+	}
+	if boostAtStr == "" {
+		return ""
+	}
+	boostAt, err := time.Parse(time.RFC3339, boostAtStr)
+	if err != nil {
+		return ""
+	}
+	dur := policy.Spec.CPU.StartupBoost.Duration.Duration
+	if dur <= 0 {
+		return ""
+	}
+	if dur > time.Hour {
+		dur = time.Hour
+	}
+	if !now.Before(boostAt.Add(dur)) {
+		return ""
+	}
+	c := findContainerByName(pod, containerName)
+	if c == nil {
+		return ""
+	}
+	if target.Requests.Cpu().MilliValue() < c.Resources.Requests.Cpu().MilliValue() {
+		return "startup boost window"
+	}
+	return ""
+}
+
 // applyStartupBoosts checks for recently created pods that need a temporary
 // CPU boost. Pods within the boost duration that don't have the boost annotation
 // get inflated CPU; pods with an expired boost get reduced to steady-state.

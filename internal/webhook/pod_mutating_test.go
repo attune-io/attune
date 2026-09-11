@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
 	jsonpatch "github.com/evanphx/json-patch/v5"
 	"github.com/go-logr/logr"
@@ -645,6 +646,30 @@ func TestPodMutatingHandler_PausedSkipsCreate(t *testing.T) {
 	assert.Nil(t, resp.Patches)
 	require.NotNil(t, resp.Result)
 	assert.Contains(t, resp.Result.Message, "paused")
+}
+
+func TestPodMutatingHandler_StartupBoostRaisesCREATECPU(t *testing.T) {
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
+	policy.Spec.CPU.StartupBoost = &attunev1alpha1.StartupBoost{
+		Multiplier: "2.0",
+		Duration:   metav1.Duration{Duration: 2 * time.Minute},
+	}
+
+	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).
+		WithObjects(policy, testNamespace("default", nil)).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	req := makeAdmissionRequest(t, pod, "default")
+	resp := handler.Handle(context.Background(), req)
+	require.True(t, resp.Allowed)
+	require.NotEmpty(t, resp.Patches)
+
+	mutatedPod := patchedPod(t, req.Object.Raw, resp)
+	got := mutatedPod.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
+	assert.True(t, got.Equal(resource.MustParse("1")),
+		"CREATE CPU %s want 1 (2x 500m boost)", got.String())
+	assert.NotEmpty(t, mutatedPod.Annotations[AnnotationStartupBoostAt])
 }
 
 func TestPodMutatingHandler_ClusterDefaultsRequestsAndLimitsWritesCPULimit(t *testing.T) {

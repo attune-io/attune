@@ -780,6 +780,14 @@ func (r *AttunePolicyReconciler) resizeContainer(
 	}
 	preClamped := applyMeta.PreClamped
 
+	if reason := startupBoostBlocksCPUDecrease(policy, pod, containerRec.Name, target, r.now()); reason != "" {
+		logger.Info("Skipping resize: "+reason,
+			"pod", pod.Name, "container", containerRec.Name)
+		r.emitEventOnce(policy, corev1.EventTypeWarning, "ResizeSkipped", "resize",
+			"Resize blocked for pod %s container %s: %s", pod.Name, containerRec.Name, reason)
+		return nil, resizeOutcomeNone
+	}
+
 	skip, reason := r.shouldSkipResize(ctx, pod, containerRec, target, p.Checks)
 	if skip {
 		if reason != "" {
