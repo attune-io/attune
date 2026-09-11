@@ -23,6 +23,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -52,6 +53,49 @@ func templatePersistenceWhen(us *attunev1alpha1.UpdateStrategy) attunev1alpha1.T
 		return attunev1alpha1.TemplatePersistenceAfterSuccessfulResize
 	}
 	return us.TemplatePersistence.When
+}
+
+// overlayAppliedResizeOnWant replaces want requests with the latest successful
+// in-place To from history. After dest leftover clamp, To is the live apply
+// (200m) and the raw rec (500m) must not be written to the template.
+func overlayAppliedResizeOnWant(
+	want *corev1.ResourceRequirements,
+	history []attunev1alpha1.ResizeHistoryEntry,
+	workload, container string,
+) {
+	if want == nil {
+		return
+	}
+	var cpuTo, memTo *resource.Quantity
+	for i := range history {
+		h := history[i]
+		if h.Workload != workload || h.Container != container || !isSuccessfulInPlaceHistory(h) {
+			continue
+		}
+		q, err := resource.ParseQuantity(h.To)
+		if err != nil || q.IsZero() {
+			continue
+		}
+		qq := q
+		switch h.Resource {
+		case "cpu":
+			cpuTo = &qq
+		case "memory":
+			memTo = &qq
+		}
+	}
+	if cpuTo == nil && memTo == nil {
+		return
+	}
+	if want.Requests == nil {
+		want.Requests = corev1.ResourceList{}
+	}
+	if cpuTo != nil {
+		want.Requests[corev1.ResourceCPU] = *cpuTo
+	}
+	if memTo != nil {
+		want.Requests[corev1.ResourceMemory] = *memTo
+	}
 }
 
 // materializeContainerResources builds ResourceRequirements from a recommendation,
@@ -326,6 +370,9 @@ func (r *AttunePolicyReconciler) applyTemplatePersistence(
 				continue
 			}
 			want := materializeContainerResources(policy, c)
+			if mode == attunev1alpha1.TemplatePersistenceAfterSuccessfulResize {
+				overlayAppliedResizeOnWant(&want, policy.Status.ResizeHistory, rec.Workload, c.Name)
+			}
 			if recLim, ok := want.Limits[corev1.ResourceMemory]; ok &&
 				!c.Recommended.MemoryLimit.IsZero() && recLim.Cmp(c.Recommended.MemoryLimit) > 0 {
 				logger.V(1).Info("Template persist memory limit floored above usage",

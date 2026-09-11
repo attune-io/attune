@@ -493,7 +493,7 @@ Built-in known names include `istio-proxy`, `linkerd-proxy`, `consul-dataplane`,
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `updateStrategy.templatePersistence.enabled` | bool | `false` | When true, write recommended resources into Deployment/StatefulSet pod templates so new pods start correctly sized. **Opt-in only.** Do not enable under unmanaged GitOps without adopting recommendations in Git; prefer `export` or `initialSizing` instead. |
-| `updateStrategy.templatePersistence.when` | string | `AfterSuccessfulResize` | `AfterSuccessfulResize`: patch template after a successful in-place resize or a successful Eviction (`InPlaceOrRecreate`) so replacement pods start from the new requests. `OnRecommendation`: patch when a recommendation is accepted (works in Recommend mode). |
+| `updateStrategy.templatePersistence.when` | string | `AfterSuccessfulResize` | `AfterSuccessfulResize`: patch template after a successful in-place resize or a successful Eviction (`InPlaceOrRecreate`) so replacement pods start from the new requests. The write uses dest-clamped apply `To` from resize history, not the raw rec, so leftover dest limits do not land 500m on the template after live applied 200m. `OnRecommendation`: patch when a recommendation is accepted (works in Recommend mode). |
 
 Template changes trigger a rolling update. The operator no-ops when the template already matches and skips patches mid-rollout. **Observe mode never patches.** **Canary** defers template writes until `FullRollout` so a partial canary resize does not roll the whole fleet via the template. Requests are clamped to limits the same way as live resize.
 
