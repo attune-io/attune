@@ -384,11 +384,11 @@ type ResourceConfig struct {
 	// +optional
 	MemoryFromCPURatio *string `json:"memoryFromCpuRatio,omitempty"`
 
-	// StartupBoost temporarily increases CPU requests for newly created or
-	// restarted pods to accelerate JVM/.NET class loading, JIT compilation,
-	// and cache warming. After the duration expires (or the container reaches
-	// Ready), the CPU is reduced to the steady-state recommendation.
-	// Only applies to CPU resources.
+	// StartupBoost temporarily increases CPU requests for cold starts
+	// (JVM/.NET class loading, JIT, cache warming). Applied by the CREATE
+	// webhook and in-place while pod age (CreationTimestamp) is within
+	// Duration. Expiry uses attune.io/startup-boost-at plus Duration.
+	// Ready is not checked. CPU only.
 	// +optional
 	StartupBoost *StartupBoost `json:"startupBoost,omitempty"`
 
@@ -439,10 +439,9 @@ type StartupBoost struct {
 	// +kubebuilder:validation:Required
 	Multiplier string `json:"multiplier"`
 
-	// Duration is the maximum time the boost remains active after pod
-	// creation or container restart. The boost is removed when the
-	// container reaches Ready or this duration expires, whichever comes first.
-	// Must be >= 10s and <= 1h.
+	// Duration is how long the boost stays active. Apply uses pod age
+	// (CreationTimestamp). Expiry uses attune.io/startup-boost-at plus
+	// this duration. Ready is not checked. Must be >= 10s and <= 1h.
 	// +kubebuilder:validation:Required
 	Duration metav1.Duration `json:"duration"`
 }
@@ -485,11 +484,12 @@ type UpdateStrategy struct {
 
 	// InitialSizing enables a mutating admission webhook that sets resource
 	// requests/limits on new pods at creation time, based on existing
-	// recommendations. Matching uses targetRef.name or targetRef.selector
-	// (the webhook fetches the owning Deployment, StatefulSet, or DaemonSet
-	// and fail-closes on Get or parse errors). This eliminates the
-	// "deploy with bad defaults, wait for first reconcile" gap. Requires
-	// the namespace label attune.io/initial-sizing=enabled. Defaults to false.
+	// recommendations. Matching uses targetRef.name or targetRef.selector.
+	// Owner Get includes Deployment, StatefulSet, DaemonSet, Job, and
+	// CronJob. Job pods walk the owning Job to the CronJob. Fail-closes
+	// on Get or parse errors. Recommend is allowed for Job and CronJob
+	// CREATE; Observe still skips. Requires the namespace label
+	// attune.io/initial-sizing=enabled. Defaults to false.
 	// +optional
 	InitialSizing *bool `json:"initialSizing,omitempty"`
 

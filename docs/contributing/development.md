@@ -5,7 +5,7 @@
 | Go | 1.26+ |
 | Docker | 24+ |
 | kubectl | matching your cluster |
-| k3d **or** Kind | k3d 5.8+ / Kind 0.24+ |
+| k3d **or** Kind | k3d 5.8+ / Kind 0.31+ |
 | Helm | 3.16+ or 4.x |
 | Python 3 + pip | 3.8+ (for `yamllint` in `make verify`) |
 | Make | any |

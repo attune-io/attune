@@ -383,7 +383,7 @@ K3S_VERSION ?= v1.35.4-k3s1
 
 # Kind settings (upstream K8s, production-accurate)
 KIND_CLUSTER_NAME ?= attune
-KIND_NODE_IMAGE ?= kindest/node:v1.35.0
+KIND_NODE_IMAGE ?= kindest/node:v1.35.8
 
 .PHONY: k3d-create
 k3d-create: ## Create a k3d cluster for local dev (fast, uses k3s)

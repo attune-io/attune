@@ -14,9 +14,10 @@ Startup boost has two apply paths.
 `initialSizing` is on, the mutating webhook writes
 `recommended_cpu * multiplier` onto the new pod. Recommend mode
 CREATE is limited to CronJob and Job owners (those pods cannot be
-resized in place). In `RequestsAndLimits` mode the webhook also
-raises the CPU dest with the boosted request so Guaranteed pods
-still get headroom.
+resized in place). In `RequestsAndLimits` mode the webhook raises
+the CPU dest with the boosted request only when rec dest is
+non-zero, so Guaranteed pods still get headroom. A zero rec dest
+dest-caps leftover dest only and does not invent dest.
 
 **In-place resize.** After the pod is running, the operator detects a
 newly created pod whose age (`now` minus `pod.CreationTimestamp`) is
@@ -25,8 +26,9 @@ It resizes each eligible container's CPU request to
 `recommended_cpu * multiplier`. Native sidecars (init containers with
 `restartPolicy: Always`) are included. Known sidecar names such as
 `istio-proxy` stay excluded via `EffectiveExcludedContainers`.
-`RequestsAndLimits` raises dest with the boosted request the same way
-CREATE does.
+`RequestsAndLimits` raises dest with the boosted request only when
+rec dest is non-zero, the same way CREATE does. A zero rec dest
+dest-caps leftover dest only.
 
 After a successful apply, the operator writes
 `attune.io/startup-boost-at`. The boost expires when that timestamp
@@ -103,9 +105,10 @@ The boost is applied **after** bounds clamping. If the boosted value exceeds
 the configured `maxAllowed`, it is capped at `maxAllowed`. Set `maxAllowed`
 high enough to accommodate the boosted value if you want the full multiplier
 effect. With `cpu.controlledValues: RequestsAndLimits`, dest is raised
-with the boosted request so Guaranteed pods keep request equal to dest
-and still receive headroom. `RequestsOnly` dest-caps leftover dest and
-does not raise dest.
+with the boosted request only when rec dest is non-zero, so Guaranteed
+pods keep request equal to dest and still receive headroom. A zero rec
+dest dest-caps leftover dest only and does not invent dest.
+`RequestsOnly` dest-caps leftover dest and does not raise dest.
 
 For example, with a 500m recommendation, 3.0x multiplier, and maxAllowed of
 1000m, the boosted request will be 1000m (capped), not 1500m.

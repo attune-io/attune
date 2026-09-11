@@ -1,8 +1,11 @@
 # Recommend Mode
 
-Recommend mode is the safest way to start with attune. The operator
+Recommend mode is the safest way to start with Attune. The operator
 collects Prometheus metrics, computes recommendations, and writes them to the
-policy's `.status.recommendations` field. No pods are modified.
+policy's `.status.recommendations` field. Recommend does not in-place
+resize running pods. CREATE can still size Job and CronJob pods when
+`updateStrategy.initialSizing` is true and the namespace has label
+`attune.io/initial-sizing=enabled`.
 
 ## Creating a Recommend-mode policy
 

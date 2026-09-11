@@ -907,6 +907,36 @@ func TestPodMutatingHandler_StartupBoostDestClamp(t *testing.T) {
 	}
 }
 
+func TestPodMutatingHandler_StartupBoostRALZeroRecDestDoesNotInventDest(t *testing.T) {
+	t.Parallel()
+	// RAL with a zero rec dest must dest-cap leftover dest only. Inventing
+	// Limits.cpu from the boosted request flips Burstable to Guaranteed.
+	both := attunev1alpha1.ControlledRequestsAndLimits
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
+	policy.Spec.CPU.ControlledValues = &both
+	policy.Spec.CPU.StartupBoost = &attunev1alpha1.StartupBoost{
+		Multiplier: "2.0",
+		Duration:   metav1.Duration{Duration: 2 * time.Minute},
+	}
+
+	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).
+		WithObjects(policy, testNamespace("default", nil)).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	req := makeAdmissionRequest(t, pod, "default")
+	resp := handler.Handle(context.Background(), req)
+	require.True(t, resp.Allowed)
+	require.NotEmpty(t, resp.Patches)
+
+	mutatedPod := patchedPod(t, req.Object.Raw, resp)
+	got := mutatedPod.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
+	assert.Equal(t, int64(1000), got.MilliValue(),
+		"CREATE CPU request %s want 1 (2x 500m boost)", got.String())
+	_, hasDest := mutatedPod.Spec.Containers[0].Resources.Limits[corev1.ResourceCPU]
+	assert.False(t, hasDest, "RAL with zero rec dest must not invent a CPU dest")
+}
+
 func TestPodMutatingHandler_ClusterDefaultsRequestsAndLimitsWritesCPULimit(t *testing.T) {
 	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
 	policy.Status.Recommendations[0].Containers[0].Recommended.CPULimit = resource.MustParse("1")

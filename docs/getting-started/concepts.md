@@ -40,9 +40,12 @@ Modes are graduated from safe observation to full automation:
 
 !!! note "Batch workloads (Job / CronJob)"
     Jobs and CronJobs are supported as `targetRef.kind` values. Batch
-    workloads are always recommend-only regardless of the mode setting,
-    since completed pods cannot be resized in-place. Use the recommendations
-    to update your Job/CronJob template for future runs.
+    workloads have no in-place resize, regardless of the mode setting,
+    since completed pods cannot be resized in-place. CREATE initial
+    sizing is the apply path for future Job runs: Recommend is allowed,
+    Observe still skips. Use the recommendations to update your
+    Job/CronJob template, or enable `updateStrategy.initialSizing` with
+    the namespace label `attune.io/initial-sizing=enabled`.
 
 !!! warning
     Start with **Recommend** in production. Promote to **Canary** only after

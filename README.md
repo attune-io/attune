@@ -337,6 +337,7 @@ The dashboard includes:
 - Prometheus auto-discovery: finds Prometheus via the Operator CRD or
   well-known service names when no address is configured.
 - Batch workloads: CronJobs and Jobs for recommend-only right-sizing.
+  CREATE can still size new Job pods when initial sizing is enabled.
 - Namespace-scoped defaults: per-namespace `AttuneNamespaceDefaults`
   override cluster-scoped defaults for production vs staging.
 - Conflict detection: warns about VPA, overlapping policies, or active

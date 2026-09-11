@@ -14704,6 +14704,86 @@ func TestApplyStartupBoosts_ExpiryKeepsAnnotationOnFailure(t *testing.T) {
 	assert.True(t, has, "boost annotation should be kept when resize fails so next reconcile retries")
 }
 
+func TestApplyStartupBoosts_ExpiryKeepsAnnotationOnQoSSkip(t *testing.T) {
+	t.Parallel()
+	// Guaranteed + request-only expiry fails PreservesQoS. A blocking skip
+	// must keep startup-boost-at so the next reconcile can retry.
+	scheme := testScheme()
+	now := time.Date(2026, 1, 1, 0, 5, 0, 0, time.UTC)
+	boostAt := now.Add(-3 * time.Minute)
+	only := attunev1alpha1.ControlledRequestsOnly
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "boost-expire-qos-pod",
+			Namespace: "default",
+			Annotations: map[string]string{
+				annotationStartupBoostAt: boostAt.UTC().Format(time.RFC3339),
+			},
+			Labels:            map[string]string{labelTracked: "true"},
+			CreationTimestamp: metav1.NewTime(boostAt.Add(-30 * time.Second)),
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning, QOSClass: corev1.PodQOSGuaranteed},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1000m"),
+							corev1.ResourceMemory: resource.MustParse("128Mi"),
+						},
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1000m"),
+							corev1.ResourceMemory: resource.MustParse("128Mi"),
+						},
+					},
+				},
+			},
+		},
+	}
+	clientset := kubefake.NewSimpleClientset(pod)
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
+	r.SetNowFunc(func() time.Time { return now })
+
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			CPU: attunev1alpha1.ResourceConfig{
+				ControlledValues: &only,
+				StartupBoost: &attunev1alpha1.StartupBoost{
+					Multiplier: "2.0",
+					Duration:   metav1.Duration{Duration: 2 * time.Minute},
+				},
+			},
+		},
+	}
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "boost-expire-qos",
+			Kind:     "Deployment",
+			Containers: []attunev1alpha1.ContainerRecommendation{
+				{Name: "main", Recommended: attunev1alpha1.ResourceValues{CPURequest: resource.MustParse("500m")}},
+			},
+		},
+	}
+	resizer := resize.NewPodResizer(clientset, ctrl.Log)
+	podsByWorkload := map[string][]corev1.Pod{"boost-expire-qos": {*pod}}
+
+	r.applyStartupBoosts(context.Background(), policy, podsByWorkload, recs, resizer, nil)
+
+	var updated corev1.Pod
+	err := fakeClient.Get(context.Background(), types.NamespacedName{
+		Name: "boost-expire-qos-pod", Namespace: "default",
+	}, &updated)
+	require.NoError(t, err)
+	_, has := updated.Annotations[annotationStartupBoostAt]
+	assert.True(t, has, "boost annotation should be kept when expiry is blocked by QoS skip")
+}
+
 func TestStartupBoost_SkippedInObserveMode(t *testing.T) {
 	// Verify that the reconcile-level guard prevents startup boosts when
 	// the policy mode is Observe or Recommend.
