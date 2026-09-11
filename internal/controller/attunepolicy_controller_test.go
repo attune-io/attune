@@ -10260,6 +10260,8 @@ func TestExecuteResizes_DestClampAtTargetDoesNotIncrement(t *testing.T) {
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
 	reconciler, _ := newResizeReconciler(pod, deploy)
+	recorder := events.NewFakeRecorder(10)
+	reconciler.Recorder = recorder
 
 	recommendations := []attunev1alpha1.WorkloadRecommendation{
 		{
@@ -10288,6 +10290,19 @@ func TestExecuteResizes_DestClampAtTargetDoesNotIncrement(t *testing.T) {
 		recommendations, podMap("api-server", pod), nil, nil)
 	afterCPU := promtestutil.ToFloat64(operatormetrics.RequestClampedTotal.WithLabelValues("default", "test-policy", "main", "cpu"))
 	assert.Equal(t, beforeCPU, afterCPU, "AtTarget dest clamp must not increment RequestClampedTotal")
+
+	found := false
+	for {
+		select {
+		case event := <-recorder.Events:
+			if strings.Contains(event, "ResizeDeferred") {
+				found = true
+			}
+		default:
+			require.True(t, found, "AtTarget dest CPU clamp must emit ResizeDeferred")
+			return
+		}
+	}
 }
 
 func TestTryEvictionFallback_EvictsWhenMultipleReplicas(t *testing.T) {
