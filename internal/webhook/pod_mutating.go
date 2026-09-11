@@ -414,7 +414,7 @@ func (h *PodMutatingHandler) mutateContainer(
 		}
 
 		if !cr.Recommended.CPURequest.IsZero() {
-			boosted = applyCreateStartupBoost(container, policy)
+			boosted = applyCreateStartupBoost(container, policy, cr.Recommended.CPULimit)
 		}
 
 		memCV := policy.Spec.Memory.ControlledValues
@@ -443,10 +443,11 @@ func (h *PodMutatingHandler) mutateContainer(
 
 // applyCreateStartupBoost raises the CREATE CPU request by the policy
 // multiplier, capped at maxAllowed. RequestsAndLimits raises dest with
-// the boosted request so Guaranteed pods still get headroom.
-// RequestsOnly dest-caps leftover dest. Returns true when the request
-// was raised so Handle can stamp startup-boost-at.
-func applyCreateStartupBoost(container *corev1.Container, policy *attunev1alpha1.AttunePolicy) bool {
+// the boosted request when rec dest is non-zero so Guaranteed pods still
+// get headroom. A zero rec dest dest-caps leftover dest only and must
+// not invent a dest. Returns true when the request was raised so Handle
+// can stamp startup-boost-at.
+func applyCreateStartupBoost(container *corev1.Container, policy *attunev1alpha1.AttunePolicy, recDest resource.Quantity) bool {
 	if policy == nil || policy.Spec.CPU.StartupBoost == nil {
 		return false
 	}
@@ -464,7 +465,9 @@ func applyCreateStartupBoost(container *corev1.Container, policy *attunev1alpha1
 		boosted = policy.Spec.CPU.MaxAllowed.DeepCopy()
 	}
 	cpuCV := policy.Spec.CPU.ControlledValues
-	raiseDest := cpuCV != nil && *cpuCV == attunev1alpha1.ControlledRequestsAndLimits
+	raiseDest := cpuCV != nil &&
+		*cpuCV == attunev1alpha1.ControlledRequestsAndLimits &&
+		!recDest.IsZero()
 	if raiseDest {
 		// Raise dest with the boosted request so Guaranteed (request==dest)
 		// still gets startup headroom. RequestsOnly dest-caps leftover dest.
