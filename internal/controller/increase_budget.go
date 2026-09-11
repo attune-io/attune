@@ -80,7 +80,10 @@ func refillResource(tokens, rate, cap int64, last time.Time, now time.Time) (int
 	if tokens > cap {
 		tokens = cap
 	}
-	return tokens, now
+	// Advance last only by the whole tokens produced so leftover
+	// milliseconds carry into the next tick.
+	consumedMs := add * 60000 / rate
+	return tokens, last.Add(time.Duration(consumedMs) * time.Millisecond)
 }
 
 func (b *increaseRateBucket) refillLocked(now time.Time) {

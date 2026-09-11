@@ -14310,6 +14310,86 @@ func TestApplyStartupBoosts_ExpiresBoostAfterDuration(t *testing.T) {
 	assert.True(t, foundResize, "expected a resize action for boost expiry")
 }
 
+func TestApplyStartupBoosts_ExpiryRestoresRequestsAndLimitsDest(t *testing.T) {
+	t.Parallel()
+	scheme := testScheme()
+	now := time.Date(2026, 1, 1, 0, 5, 0, 0, time.UTC)
+	boostTime := now.Add(-3 * time.Minute)
+	both := attunev1alpha1.ControlledRequestsAndLimits
+	policy := &attunev1alpha1.AttunePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-policy", Namespace: "default"},
+		Spec: attunev1alpha1.AttunePolicySpec{
+			CPU: attunev1alpha1.ResourceConfig{
+				ControlledValues: &both,
+				StartupBoost: &attunev1alpha1.StartupBoost{
+					Multiplier: "2.0",
+					Duration:   metav1.Duration{Duration: 2 * time.Minute},
+				},
+			},
+		},
+	}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "qos-app-xyz",
+			Namespace:         "default",
+			CreationTimestamp: metav1.NewTime(boostTime),
+			Annotations: map[string]string{
+				annotationStartupBoostAt: boostTime.UTC().Format(time.RFC3339),
+			},
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning, QOSClass: corev1.PodQOSGuaranteed},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name: "main",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
+					},
+				},
+			},
+		},
+	}
+	clientset := kubefake.NewSimpleClientset(pod)
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = fakeClient
+	r.Scheme = scheme
+	r.Clientset = clientset
+	r.SetNowFunc(func() time.Time { return now })
+
+	resizer := resize.NewPodResizer(clientset, ctrl.Log)
+	recs := []attunev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "qos-app",
+			Kind:     "Deployment",
+			Containers: []attunev1alpha1.ContainerRecommendation{
+				{
+					Name: "main",
+					Recommended: attunev1alpha1.ResourceValues{
+						CPURequest: resource.MustParse("500m"),
+						CPULimit:   resource.MustParse("500m"),
+					},
+				},
+			},
+		},
+	}
+	r.applyStartupBoosts(context.Background(), policy, map[string][]corev1.Pod{"qos-app": {*pod}}, recs, resizer, nil)
+
+	got, err := clientset.CoreV1().Pods(pod.Namespace).Get(context.Background(), pod.Name, metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, int64(500), got.Spec.Containers[0].Resources.Requests.Cpu().MilliValue(),
+		"expiry must restore CPU request to rec dest")
+	assert.Equal(t, int64(500), got.Spec.Containers[0].Resources.Limits.Cpu().MilliValue(),
+		"expiry must restore CPU dest to rec dest")
+}
+
 func TestApplyStartupBoosts_MalformedAnnotationSkipsGracefully(t *testing.T) {
 	scheme := testScheme()
 	now := time.Date(2026, 1, 1, 0, 5, 0, 0, time.UTC)
@@ -17132,6 +17212,15 @@ func TestApplyStartupBoosts_DestCap(t *testing.T) {
 			wantReq:  "1",
 			wantDest: "1",
 		},
+		{
+			name:     "RequestsAndLimits Guaranteed rec dest equals rec request raises dest with boost",
+			cv:       &both,
+			leftover: "500m",
+			recReq:   "500m",
+			recDest:  "500m",
+			wantReq:  "1",
+			wantDest: "1",
+		},
 	}
 
 	for _, tt := range tests {
@@ -17168,15 +17257,14 @@ func TestApplyStartupBoosts_DestCap(t *testing.T) {
 				recVals.CPULimit = recDest
 			}
 
-			// dest==request leftover: dest-capping leftover dest is a no-op
-			// unless RequestsAndLimits dest-caps the rec dest and raises dest.
+			// dest==request leftover is Guaranteed. PreservesQoS needs memory dest.
 			pod := &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:              "dest-app-abc",
 					Namespace:         "default",
 					CreationTimestamp: metav1.NewTime(now.Add(-30 * time.Second)),
 				},
-				Status: corev1.PodStatus{Phase: corev1.PodRunning},
+				Status: corev1.PodStatus{Phase: corev1.PodRunning, QOSClass: corev1.PodQOSGuaranteed},
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
 						{
@@ -17187,7 +17275,8 @@ func TestApplyStartupBoosts_DestCap(t *testing.T) {
 									corev1.ResourceMemory: memReq,
 								},
 								Limits: corev1.ResourceList{
-									corev1.ResourceCPU: leftover.DeepCopy(),
+									corev1.ResourceCPU:    leftover.DeepCopy(),
+									corev1.ResourceMemory: memReq.DeepCopy(),
 								},
 							},
 						},

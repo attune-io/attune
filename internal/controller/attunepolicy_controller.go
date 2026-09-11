@@ -673,6 +673,8 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	if applyFrozen {
 		r.markNamespaceFrozen(&policy, freezeErr)
+	} else {
+		r.clearNamespaceFrozen(&policy)
 	}
 
 	// Set Ready condition (surface series cap as degraded data quality note).
@@ -923,6 +925,15 @@ func (r *AttunePolicyReconciler) markNamespaceFrozen(policy *attunev1alpha1.Attu
 		Message:            msg,
 		ObservedGeneration: policy.Generation,
 	})
+}
+
+// clearNamespaceFrozen drops ResizeBlocked only when it was set for a
+// namespace freeze. Deferred and Infeasible blockers stay.
+func (r *AttunePolicyReconciler) clearNamespaceFrozen(policy *attunev1alpha1.AttunePolicy) {
+	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionResizeBlocked)
+	if cond != nil && cond.Reason == attunev1alpha1.ReasonNamespaceFrozen {
+		meta.RemoveStatusCondition(&policy.Status.Conditions, attunev1alpha1.ConditionResizeBlocked)
+	}
 }
 
 // processWorkloads processes discovered workloads in parallel, checking for

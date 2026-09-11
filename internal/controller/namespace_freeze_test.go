@@ -577,6 +577,59 @@ func TestReconcile_NamespaceFreeze_RecheckBeforeExecuteResizes(t *testing.T) {
 	assert.Equal(t, attunev1alpha1.ReasonNamespaceFrozen, cond.Reason)
 }
 
+func TestReconcile_NamespaceFreeze_ClearsConditionAfterUnfreezeDuringBlockerHold(t *testing.T) {
+	t.Parallel()
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeRecommend
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	pod := newResizePod("api-server", "500m", "512Mi", "1000m", "1Gi")
+	ns := newTestNamespace("default", map[string]string{conflict.AnnotationFreeze: "true"})
+	mc := &mockCollector{
+		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return generateSamples(200, 0.1), nil
+		},
+	}
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(policy, deploy, pod, ns).
+		WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
+		Build()
+	reconciler := newReconcilerForReconcileWithClient(mc, fakeClient, scheme)
+	reconciler.Clientset = kubefake.NewSimpleClientset(pod.DeepCopy())
+	reconciler.BlockerRefreshInterval = 5 * time.Minute
+	now := time.Date(2026, 9, 11, 12, 0, 0, 0, time.UTC)
+	reconciler.SetNowFunc(func() time.Time { return now })
+
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"}}
+	_, err := reconciler.Reconcile(context.Background(), req)
+	require.NoError(t, err)
+
+	var frozen attunev1alpha1.AttunePolicy
+	require.NoError(t, fakeClient.Get(context.Background(), req.NamespacedName, &frozen))
+	cond := meta.FindStatusCondition(frozen.Status.Conditions, attunev1alpha1.ConditionResizeBlocked)
+	require.NotNil(t, cond)
+	assert.Equal(t, attunev1alpha1.ReasonNamespaceFrozen, cond.Reason)
+
+	var liveNS corev1.Namespace
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{Name: "default"}, &liveNS))
+	liveNS.Annotations = map[string]string{}
+	require.NoError(t, fakeClient.Update(context.Background(), &liveNS))
+
+	_, err = reconciler.Reconcile(context.Background(), req)
+	require.NoError(t, err)
+
+	var thawed attunev1alpha1.AttunePolicy
+	require.NoError(t, fakeClient.Get(context.Background(), req.NamespacedName, &thawed))
+	cond = meta.FindStatusCondition(thawed.Status.Conditions, attunev1alpha1.ConditionResizeBlocked)
+	if cond != nil {
+		assert.NotEqual(t, attunev1alpha1.ReasonNamespaceFrozen, cond.Reason,
+			"NamespaceFrozen must clear on the next reconcile after unfreeze, even inside BlockerRefreshInterval")
+	}
+}
+
 // capturingEventRecorder records the last Eventf reason and formatted note.
 type capturingEventRecorder struct {
 	reason *string

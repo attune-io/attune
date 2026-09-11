@@ -95,7 +95,11 @@ type AttunePolicySpec struct {
 	TargetRef TargetRef `json:"targetRef"`
 
 	// MetricsSource configures where and how to collect metrics.
-	MetricsSource MetricsSource `json:"metricsSource"`
+	// Omit to inherit the provider from AttuneDefaults or
+	// AttuneNamespaceDefaults. Admission accepts an empty source;
+	// reconcile MergeDefaults fills the provider before queries.
+	// +optional
+	MetricsSource MetricsSource `json:"metricsSource,omitempty"`
 
 	// CPU configures CPU resource recommendations.
 	CPU ResourceConfig `json:"cpu"`

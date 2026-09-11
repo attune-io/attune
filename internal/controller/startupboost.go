@@ -167,15 +167,17 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 					if policy.Spec.CPU.MaxAllowed != nil && boostedCPU.Cmp(*policy.Spec.CPU.MaxAllowed) > 0 {
 						boostedCPU = policy.Spec.CPU.MaxAllowed.DeepCopy()
 					}
-					// RequestsAndLimits dest-caps rec dest so leftover dest
-					// cannot skip the boost. RequestsOnly keeps leftover dest.
+					// RequestsAndLimits raises dest with the boosted request
+					// so Guaranteed (request==dest at rec dest) still gets
+					// headroom. RequestsOnly dest-caps leftover dest.
 					cpuCV := policy.Spec.CPU.ControlledValues
 					raiseDest := cpuCV != nil &&
 						*cpuCV == attunev1alpha1.ControlledRequestsAndLimits &&
 						!recCPU.dest.IsZero()
+					boostDest := boostedCPU.DeepCopy()
 					if raiseDest {
-						if boostedCPU.Cmp(recCPU.dest) > 0 {
-							boostedCPU = recCPU.dest.DeepCopy()
+						if boostDest.Cmp(recCPU.dest) < 0 {
+							boostDest = recCPU.dest.DeepCopy()
 						}
 					} else if cpuLim, hasLim := c.Resources.Limits[corev1.ResourceCPU]; hasLim && boostedCPU.Cmp(cpuLim) > 0 {
 						boostedCPU = cpuLim.DeepCopy()
@@ -207,9 +209,17 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 						},
 					}
 					if raiseDest {
-						boostRec.Recommended.CPULimit = recCPU.dest.DeepCopy()
+						boostRec.Recommended.CPULimit = boostDest.DeepCopy()
 						boostTarget.Limits = corev1.ResourceList{
-							corev1.ResourceCPU: recCPU.dest.DeepCopy(),
+							corev1.ResourceCPU: boostDest.DeepCopy(),
+						}
+						// PreservesQoS on Guaranteed requires memory dest too.
+						if memLim, ok := c.Resources.Limits[corev1.ResourceMemory]; ok {
+							boostRec.Recommended.MemoryLimit = memLim.DeepCopy()
+							boostTarget.Limits[corev1.ResourceMemory] = memLim.DeepCopy()
+						} else if memReq, ok := c.Resources.Requests[corev1.ResourceMemory]; ok {
+							boostRec.Recommended.MemoryLimit = memReq.DeepCopy()
+							boostTarget.Limits[corev1.ResourceMemory] = memReq.DeepCopy()
 						}
 					}
 					if skip, reason := r.shouldSkipResize(ctx, pod, boostRec, boostTarget, checks); skip {
@@ -315,6 +325,22 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 								corev1.ResourceCPU:    recCPU.request.DeepCopy(),
 								corev1.ResourceMemory: c.Resources.Requests.Memory().DeepCopy(),
 							},
+						}
+						cpuCV := policy.Spec.CPU.ControlledValues
+						if cpuCV != nil &&
+							*cpuCV == attunev1alpha1.ControlledRequestsAndLimits &&
+							!recCPU.dest.IsZero() {
+							expireRec.Recommended.CPULimit = recCPU.dest.DeepCopy()
+							expireTarget.Limits = corev1.ResourceList{
+								corev1.ResourceCPU: recCPU.dest.DeepCopy(),
+							}
+							if memLim, ok := c.Resources.Limits[corev1.ResourceMemory]; ok {
+								expireRec.Recommended.MemoryLimit = memLim.DeepCopy()
+								expireTarget.Limits[corev1.ResourceMemory] = memLim.DeepCopy()
+							} else if memReq, ok := c.Resources.Requests[corev1.ResourceMemory]; ok {
+								expireRec.Recommended.MemoryLimit = memReq.DeepCopy()
+								expireTarget.Limits[corev1.ResourceMemory] = memReq.DeepCopy()
+							}
 						}
 						if skip, reason := r.shouldSkipResize(ctx, pod, expireRec, expireTarget, checks); skip {
 							if reason == "" {

@@ -410,7 +410,10 @@ By default, Attune queries Prometheus for CPU and memory usage data.
 The CRD also supports Datadog, CloudWatch Container Insights, and VPA
 as alternative metrics sources. **At most one** of `prometheus`,
 `datadog`, `cloudwatch`, or `vpa` may be set on a policy or on
-`AttuneDefaults` / `AttuneNamespaceDefaults`.
+`AttuneDefaults` / `AttuneNamespaceDefaults`. Omitting
+`spec.metricsSource` on an `AttunePolicy` is valid; `MergeDefaults`
+copies the provider from namespace or cluster defaults before the
+operator queries. The wizard inherit option uses that omit shape.
 
 > The Datadog collector queries the `/api/v1/query` endpoint and converts
 > nanocores to cores automatically. The CloudWatch collector uses the

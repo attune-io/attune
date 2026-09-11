@@ -2,7 +2,7 @@
 name: Bug Report
 about: Report a bug in Attune
 title: "[Bug] "
-labels: kind/bug
+labels: bug
 assignees: ""
 ---
 
