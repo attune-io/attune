@@ -567,7 +567,10 @@ func (r *AttunePolicyReconciler) executeResizes(
 				skipEviction := false
 
 				for i, action := range actions {
-					if len(action.Clamped) > 0 {
+					// Dest leftover clamp stays on the plan after converge
+					// (rec 500m, leftover 200m, live already 200m). Count
+					// only when this cycle still needs to apply.
+					if len(action.Clamped) > 0 && !action.AtTarget {
 						logger.V(1).Info("Requests clamped to limits",
 							"pod", pod.Name, "container", action.Container,
 							"clampedResources", action.Clamped)

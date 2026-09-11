@@ -10252,6 +10252,44 @@ func TestExecuteResizes_RequestClampedMetric(t *testing.T) {
 	assert.Equal(t, beforeMem+1, afterMem, "RequestClampedTotal should increment for memory")
 }
 
+func TestExecuteResizes_DestClampAtTargetDoesNotIncrement(t *testing.T) {
+	// Rec 500m, leftover live limit 200m, live already at 200m. Plan dest-clamps
+	// every cycle; the counter must not tick after converge.
+	pod := newResizePod("api-server", "200m", "256Mi", "200m", "256Mi")
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	reconciler, _ := newResizeReconciler(pod, deploy)
+
+	recommendations := []attunev1alpha1.WorkloadRecommendation{
+		{
+			Workload: "api-server",
+			Kind:     "Deployment",
+			Containers: []attunev1alpha1.ContainerRecommendation{
+				{
+					Name: "main",
+					Recommended: attunev1alpha1.ResourceValues{
+						CPURequest:    resource.MustParse("500m"),
+						MemoryRequest: resource.MustParse("256Mi"),
+					},
+					Current: attunev1alpha1.ResourceValues{
+						CPURequest:    resource.MustParse("200m"),
+						MemoryRequest: resource.MustParse("256Mi"),
+						CPULimit:      resource.MustParse("200m"),
+						MemoryLimit:   resource.MustParse("256Mi"),
+					},
+				},
+			},
+		},
+	}
+
+	beforeCPU := promtestutil.ToFloat64(operatormetrics.RequestClampedTotal.WithLabelValues("default", "test-policy", "main", "cpu"))
+	reconciler.executeResizes(context.Background(), policy, []client.Object{deploy},
+		recommendations, podMap("api-server", pod), nil, nil)
+	afterCPU := promtestutil.ToFloat64(operatormetrics.RequestClampedTotal.WithLabelValues("default", "test-policy", "main", "cpu"))
+	assert.Equal(t, beforeCPU, afterCPU, "AtTarget dest clamp must not increment RequestClampedTotal")
+}
+
 func TestTryEvictionFallback_EvictsWhenMultipleReplicas(t *testing.T) {
 	pod1 := newTestPod("api-server-abc-1", "default", map[string]string{"app": "api-server"})
 	pod2 := newTestPod("api-server-abc-2", "default", map[string]string{"app": "api-server"})
