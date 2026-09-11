@@ -1138,9 +1138,10 @@ from rejecting the resize or the Deployment/StatefulSet patch.
 proportionally with requests.
 
 The `attune_request_clamped_total` counter increments each time a request
-is capped on live resize and on CREATE, broken down by container and
-resource. Use it to detect policies where limits are consistently too
-tight:
+is capped on a live apply, on CREATE, or on a persist write that still
+changes the template. A dest clamp that is already at the applied target
+does not increment. Use it to detect policies where limits are consistently
+too tight:
 
 ```promql
 rate(attune_request_clamped_total[1h]) > 0

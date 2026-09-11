@@ -1861,17 +1861,19 @@ func (r *AttunePolicyReconciler) emitResizeDeferredIfFilteredOrClamped(
 		containerRec.Explanation.CPU.ChangeFilterApplied != ""
 	memFiltered := containerRec.Explanation != nil && containerRec.Explanation.Memory != nil &&
 		containerRec.Explanation.Memory.ChangeFilterApplied != ""
+	cpuClamped := !preClamped.Requests.Cpu().Equal(*target.Requests.Cpu())
 	memoryClamped := !preClamped.Requests.Memory().Equal(*target.Requests.Memory())
-	if cpuFiltered || memFiltered || memoryClamped {
+	if cpuFiltered || memFiltered || cpuClamped || memoryClamped {
 		logger.Info("Resize deferred: resources at target after filtering/clamping",
 			"pod", pod.Name, "container", containerRec.Name,
 			"cpuTarget", target.Requests.Cpu().String(),
 			"memTarget", target.Requests.Memory().String(),
 			"cpuChangeFilter", cpuFiltered,
 			"memChangeFilter", memFiltered,
+			"cpuClamped", cpuClamped,
 			"memoryClamped", memoryClamped)
 		r.emitEventOnce(policy, corev1.EventTypeNormal, "ResizeDeferred", "resize",
-			"Container %s in pod %s: resources unchanged after change filtering and/or memory clamping (cpu=%s, mem=%s)",
+			"Container %s in pod %s: resources unchanged after change filtering and/or request clamping (cpu=%s, mem=%s)",
 			containerRec.Name, pod.Name, target.Requests.Cpu().String(), target.Requests.Memory().String())
 		return
 	}
