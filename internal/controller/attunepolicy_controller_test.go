@@ -4399,6 +4399,10 @@ func TestCheckPendingSafetyObservations_ObservationElapsed(t *testing.T) {
 	assert.False(t, hasContainers, "resized-containers annotation should be removed")
 	_, hasTracked := updated.Labels[labelTracked]
 	assert.False(t, hasTracked, "tracked label should be removed")
+
+	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionSafetyObservation)
+	require.NotNil(t, cond, "listed snapshot still had tracking when classified")
+	assert.Equal(t, attunev1alpha1.ReasonSafetyEvaluating, cond.Reason)
 }
 
 func TestCheckPendingSafetyObservations_CleanupPatchFailureKeepsPending(t *testing.T) {

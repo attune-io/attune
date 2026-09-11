@@ -98,6 +98,11 @@ each container gets its own set of per-container annotations (e.g.,
 The `attune.io/resized-containers` annotation lists all resized containers
 as a comma-separated value.
 
+Those keys are the in-band lifecycle. `internal/lifecycle` names the
+states (`Idle`, `Observing`, `Evaluating`, `RestorePending`,
+`Incomplete`) from the same annotations. `status.conditions` type
+`SafetyObservation` reports the dominant state for the policy.
+
 ## Resize lifecycle
 
 The diagram below shows the complete decision tree for a single pod during

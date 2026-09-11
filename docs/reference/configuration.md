@@ -638,6 +638,7 @@ The controller sets these conditions on each `AttunePolicy`:
 | `Degraded` | `HighRevertRate` | Set when 3+ of the last 5 resizes were reverted |
 | `ScheduleBlocked` | `OutsideWindow`, `InsideWindow` | Set when `updateStrategy.schedule` is configured; indicates whether the current time is within an allowed resize window |
 | `ResizeBlocked` | `NamespaceFrozen`, `PodsDeferred`, `PodsInfeasible`, `PodsDeferredAndInfeasible` | Namespace freeze kill-switch, or pods stuck Deferred or Infeasible; see troubleshooting "NamespaceFrozen" and "Deferred or Infeasible resize" |
+| `SafetyObservation` | `Observing`, `Evaluating`, `RestorePending`, `Incomplete` | True while pods still carry `attune.io` resize-tracking annotations. Derived from those annotations each reconcile; not a second in-memory store. Removed when no tracked pods remain. |
 | `GitOpsPullRequest` | `PullRequestOpen`, `PullRequestFailed`, `GitOpsEndpointBlocked`, `NoDrift`, `PullRequestUnchanged`, `PullRequestCooldown`, `PullRequestDryRun`, `PullRequestDisabled` | Opt-in `export.pullRequest` automation status (see [GitOps integration](../guides/gitops-integration.md)) |
 
 ### Status fields (GitOps PR)

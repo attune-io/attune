@@ -462,6 +462,27 @@ Use the explanation chain (percentile → overhead → confidence → bounds →
 - Never resizes with tiny delta: change filter; expected when already near target
 - Stuck on node capacity: Deferred/Infeasible section below
 
+### SafetyObservation stuck True
+
+**Symptom**: `SafetyObservation` stays True after resizes should have
+finished.
+
+```bash
+kubectl get attunepolicy <name> -o jsonpath='{range .status.conditions[?(@.type=="SafetyObservation")]}{.reason} {.message}{"\n"}{end}'
+kubectl get pods -n <ns> -l attune.io/tracked=true \
+  -o custom-columns=NAME:.metadata.name,RESIZED:.metadata.annotations.attune\\.io/resized-at
+```
+
+| Reason | Meaning |
+|--------|---------|
+| `Observing` | `safetyObservationPeriod` has not elapsed. Wait, or check for OOM/restarts (those revert early). |
+| `Evaluating` | Period elapsed; CheckPod, revert, or cleanup is still in progress. |
+| `RestorePending` | Live pod already matches the original snapshot; template restore after `AfterSuccessfulResize` is retrying. |
+| `Incomplete` | Tracking keys exist but `attune.io/resized-at` is missing or not RFC3339. |
+
+The condition is computed from those annotations each reconcile. It is
+removed when no matching tracked pods remain.
+
 ### Deferred or Infeasible resize (stuck pods)
 
 **Symptom**: Policy status shows `ResizeBlocked=True`, or:

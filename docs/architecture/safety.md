@@ -27,6 +27,15 @@ The recommended production path is Recommend, then Canary, then Auto.
 
 ## Auto-revert triggers
 
+Tracking annotations on the pod (`attune.io/resized-at`,
+`attune.io/original-*`, `attune.io/tracked`) are the source of truth for
+this lifecycle. Each reconcile classifies them into `Observing` (period
+not elapsed), `Evaluating` (period elapsed), `RestorePending` (live
+already at the original snapshot and the template still needs restore),
+or `Incomplete` (keys present but unreadable). The policy
+`SafetyObservation` condition reports that classification. There is no
+separate in-memory state machine.
+
 When `autoRevert: true` (the default), the safety monitor checks each
 resized pod for the following conditions. A match during the observation
 period reverts the resize via `UpdateResize`. Right after apply, only

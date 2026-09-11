@@ -28,6 +28,9 @@ const (
 	ConditionResizeBlocked = "ResizeBlocked"
 	// ConditionGitOpsPullRequest reports opt-in PR automation status.
 	ConditionGitOpsPullRequest = "GitOpsPullRequest"
+	// ConditionSafetyObservation is True while one or more pods still
+	// carry attune.io tracking annotations from a recent resize.
+	ConditionSafetyObservation = "SafetyObservation"
 )
 
 // Condition reason constants for AttunePolicy.
@@ -77,6 +80,12 @@ const (
 	ReasonGitOpsPRDisabled      = "PullRequestDisabled"
 	ReasonGitOpsPRUnchanged     = "PullRequestUnchanged"
 	ReasonGitOpsEndpointBlocked = "GitOpsEndpointBlocked"
+	// SafetyObservation condition reasons. These name the annotation-bag
+	// lifecycle; they are not a second in-memory store.
+	ReasonSafetyObserving      = "Observing"
+	ReasonSafetyEvaluating     = "Evaluating"
+	ReasonSafetyRestorePending = "RestorePending"
+	ReasonSafetyIncomplete     = "Incomplete"
 )
 
 // IsMetricsUnavailable reports whether a Ready reason means the metrics
