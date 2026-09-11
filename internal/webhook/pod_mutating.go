@@ -271,11 +271,16 @@ func (h *PodMutatingHandler) findMatchingPolicy(
 			continue
 		}
 
-		// Skip Observe and Recommend modes (no active resize intent).
-		if policy.Spec.UpdateStrategy.Type == attunev1alpha1.UpdateTypeObserve ||
-			policy.Spec.UpdateStrategy.Type == attunev1alpha1.UpdateTypeRecommend ||
-			policy.Spec.UpdateStrategy.Type == "" {
+		// Skip Observe. Skip Recommend (and unset type) except Job/CronJob:
+		// batch is recommend-only, so CREATE is the only apply path.
+		typ := policy.Spec.UpdateStrategy.Type
+		if typ == attunev1alpha1.UpdateTypeObserve {
 			continue
+		}
+		if typ == attunev1alpha1.UpdateTypeRecommend || typ == "" {
+			if ownerKind != "CronJob" && ownerKind != "Job" {
+				continue
+			}
 		}
 
 		// Canary: do not CREATE-size at the full recommendation unless

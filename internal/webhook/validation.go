@@ -267,7 +267,10 @@ func warnIneffectiveSettings(policy *attunev1alpha1.AttunePolicy) admission.Warn
 	// Settings that only matter when resizes happen.
 	if isNonResizing {
 		if policy.Spec.UpdateStrategy.InitialSizing != nil && *policy.Spec.UpdateStrategy.InitialSizing {
-			w = append(w, fmt.Sprintf("initialSizing has no effect in %s mode; it requires Auto, OneShot, or Canary", mode))
+			kind := policy.Spec.TargetRef.Kind
+			if kind != "CronJob" && kind != "Job" {
+				w = append(w, fmt.Sprintf("initialSizing has no effect in %s mode; it requires Auto, OneShot, or Canary", mode))
+			}
 		}
 		if policy.Spec.UpdateStrategy.AutoRevert != nil && *policy.Spec.UpdateStrategy.AutoRevert {
 			w = append(w, fmt.Sprintf("autoRevert has no effect in %s mode; no resizes occur to revert", mode))
