@@ -66,7 +66,11 @@ func TestStripHPAFields_PreservesSpec(t *testing.T) {
 			ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{Kind: "Deployment", Name: "app"},
 		},
 		Status: autoscalingv2.HorizontalPodAutoscalerStatus{
-			Conditions: []autoscalingv2.HorizontalPodAutoscalerCondition{{Type: autoscalingv2.ScalingActive}},
+			Conditions: []autoscalingv2.HorizontalPodAutoscalerCondition{
+				{Type: autoscalingv2.ScalingActive},
+				{Type: autoscalingv2.ScaledToZero, Status: corev1.ConditionTrue},
+			},
+			CurrentMetrics: []autoscalingv2.MetricStatus{{Type: autoscalingv2.ResourceMetricSourceType}},
 		},
 	}
 	out, err := StripHPAFields(h)
@@ -75,7 +79,10 @@ func TestStripHPAFields_PreservesSpec(t *testing.T) {
 	assert.Nil(t, stripped.ManagedFields)
 	assert.Equal(t, "app", stripped.Spec.ScaleTargetRef.Name)
 	assert.Equal(t, "b", stripped.Annotations["a"])
-	assert.Nil(t, stripped.Status.Conditions)
+	require.Len(t, stripped.Status.Conditions, 2)
+	assert.Equal(t, autoscalingv2.ScaledToZero, stripped.Status.Conditions[1].Type)
+	assert.Equal(t, corev1.ConditionTrue, stripped.Status.Conditions[1].Status)
+	assert.Nil(t, stripped.Status.CurrentMetrics)
 }
 
 func TestStripStatefulSetFields_PreservesSelectorAndReplicas(t *testing.T) {

@@ -107,6 +107,7 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 		boostDuration = time.Hour
 	}
 	now := r.now()
+	hpas := listNamespaceHPAs(ctx, r.Client, policy.Namespace)
 
 	for _, rec := range recommendations {
 		// Stale recs stay in the slice after Prometheus gaps; do not
@@ -122,6 +123,14 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 			logger.V(1).Info("Skipping startup boost for batch workload",
 				"workload", rec.Workload, "kind", rec.Kind)
 			continue
+		}
+		if r.Client != nil {
+			if obj, err := r.getWorkloadByName(ctx, policy.Namespace, rec.Kind, rec.Workload); err == nil &&
+				classifyObjectScale(obj, hpas).idle() {
+				logger.V(1).Info("Skipping startup boost for idle workload",
+					"workload", rec.Workload)
+				continue
+			}
 		}
 		pods := podsByWorkload[rec.Workload]
 		// Request plus dest: dest-cap uses rec dest when limits are controlled.

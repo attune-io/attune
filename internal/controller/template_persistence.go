@@ -325,6 +325,7 @@ func (r *AttunePolicyReconciler) applyTemplatePersistence(
 	for _, w := range workloads {
 		workloadMap[w.GetName()] = w
 	}
+	hpas := listNamespaceHPAs(ctx, r.Client, policy.Namespace)
 
 	var history []attunev1alpha1.ResizeHistoryEntry
 	now := metav1.NewTime(r.now())
@@ -340,6 +341,11 @@ func (r *AttunePolicyReconciler) applyTemplatePersistence(
 		}
 		w := workloadMap[rec.Workload]
 		if w == nil {
+			continue
+		}
+		if classifyObjectScale(w, hpas).idle() {
+			logger.V(1).Info("Skipping template persistence for idle workload",
+				"workload", rec.Workload)
 			continue
 		}
 		kind := workloadKindName(w)

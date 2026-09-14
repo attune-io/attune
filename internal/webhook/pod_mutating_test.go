@@ -1338,6 +1338,21 @@ func TestPodMutatingHandler_OneShotMode(t *testing.T) {
 	require.NotNil(t, resp.Patches, "OneShot mode should mutate")
 }
 
+func TestPodMutatingHandler_CreateSizesWhenOwnerReplicasZero(t *testing.T) {
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
+	zero := int32(0)
+	deploy := testDeployment("my-app", "default", map[string]string{"app": "my-app"})
+	deploy.Spec.Replicas = &zero
+	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
+
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, deploy, testNamespace("default", nil)).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
+	require.True(t, resp.Allowed)
+	require.NotEmpty(t, resp.Patches, "CREATE must size when the owner Deployment has spec.replicas=0")
+}
+
 func TestPodMutatingHandler_CanaryMode_SkipsUntilPromoted(t *testing.T) {
 	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeCanary)
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
