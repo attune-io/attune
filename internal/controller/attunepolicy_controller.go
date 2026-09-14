@@ -46,6 +46,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/cluster"
 	"github.com/attune-io/attune/internal/conflict"
 	"github.com/attune-io/attune/internal/gitops"
 	"github.com/attune-io/attune/internal/lifecycle"
@@ -195,9 +196,13 @@ type AttunePolicyReconciler struct {
 	BlockerRefreshInterval time.Duration
 	// AllowInPlaceMemoryLimitDecrease is true when the cluster is Kubernetes
 	// 1.35+ (live memory limit decreases permitted). Wired at manager startup.
+	// Prefer Capabilities when set; this bool stays for existing tests.
 	AllowInPlaceMemoryLimitDecrease bool
-	nowFunc                         atomic.Pointer[func() time.Time]
-	collectors                      sync.Map // map[string]*collectorEntry cache
+	// Capabilities is the process-start cluster feature set. Optional; tests
+	// may leave it nil and set AllowInPlaceMemoryLimitDecrease only.
+	Capabilities *cluster.Capabilities
+	nowFunc      atomic.Pointer[func() time.Time]
+	collectors   sync.Map // map[string]*collectorEntry cache
 	// gaugeKeys tracks which Prometheus gauge label combinations each policy
 	// set on its last reconcile. On the next reconcile, only these specific
 	// keys are deleted (not the entire namespace), preventing cross-policy
