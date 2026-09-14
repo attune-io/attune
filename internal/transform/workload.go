@@ -92,14 +92,13 @@ func StripReplicaSetFields(obj any) (any, error) {
 }
 
 // StripHPAFields drops unused HPA fields from the cache while keeping
-// scale target, metrics, and annotations used for auto-tune.
+// scale target, metrics, annotations, and status conditions (ScaledToZero).
 func StripHPAFields(obj any) (any, error) {
 	h, ok := obj.(*autoscalingv2.HorizontalPodAutoscaler)
 	if !ok {
 		return obj, nil
 	}
 	h.ManagedFields = nil
-	h.Status.Conditions = nil
 	h.Status.CurrentMetrics = nil
 	return h, nil
 }

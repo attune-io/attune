@@ -213,18 +213,36 @@ func (d *Detector) CheckPolicyConflict(ctx context.Context, c client.Client, nam
 	return d.CheckPolicyConflictInMemory(policyList, workloadName, workloadKind, workloadLabels, currentPolicyName, currentWeight)
 }
 
-// CheckHPAConflict checks if an HPA targets the same workload and returns a Conflict if so.
+// CheckHPAConflict returns a Conflict when an HPA targets the same
+// workload with a CPU or memory resource metric. Custom or object
+// metrics are not a conflict. ScaledToZero is not a conflict type.
 func (d *Detector) CheckHPAConflict(hpas []autoscalingv2.HorizontalPodAutoscaler, workloadName, workloadKind string) *Conflict {
 	for _, hpa := range hpas {
-		if hpa.Spec.ScaleTargetRef.Name == workloadName && hpa.Spec.ScaleTargetRef.Kind == workloadKind {
-			return &Conflict{
-				Type:    ConflictHPA,
-				Name:    hpa.Name,
-				Message: fmt.Sprintf("HPA %s targets the same %s/%s; attune will adjust requests without interfering with HPA scaling", hpa.Name, workloadKind, workloadName),
-			}
+		if hpa.Spec.ScaleTargetRef.Name != workloadName || hpa.Spec.ScaleTargetRef.Kind != workloadKind {
+			continue
+		}
+		if !hpaHasCPUOrMemoryResourceMetric(hpa) {
+			continue
+		}
+		return &Conflict{
+			Type:    ConflictHPA,
+			Name:    hpa.Name,
+			Message: fmt.Sprintf("HPA %s targets the same %s/%s; attune will adjust requests without interfering with HPA scaling", hpa.Name, workloadKind, workloadName),
 		}
 	}
 	return nil
+}
+
+func hpaHasCPUOrMemoryResourceMetric(hpa autoscalingv2.HorizontalPodAutoscaler) bool {
+	for _, m := range hpa.Spec.Metrics {
+		if m.Type != autoscalingv2.ResourceMetricSourceType || m.Resource == nil {
+			continue
+		}
+		if m.Resource.Name == corev1.ResourceCPU || m.Resource.Name == corev1.ResourceMemory {
+			return true
+		}
+	}
+	return false
 }
 
 // FindMatchingHPA returns the HPA that targets the given workload, or nil.

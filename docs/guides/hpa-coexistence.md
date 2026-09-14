@@ -116,6 +116,32 @@ Check for conflict-related events:
 kubectl get events --field-selector reason=HPAConflict
 ```
 
+## Scale to zero
+
+Attune classifies each workload into one of three states. This is
+per-workload. There is no policy-wide ScaledToZero condition.
+
+1. **HPA ScaledToZero**: the matching HPA has
+   `status.conditions[type=ScaledToZero]=True`. Attune reads that
+   condition string on any cluster. Older clusters never set it. This
+   is not a human turning the app off.
+2. **Manual zero**: the owner Deployment or StatefulSet has
+   `spec.replicas` set to `0`, and there is no ScaledToZero condition.
+   Attune uses `spec.replicas` only, never `status.replicas`.
+3. **Active**: otherwise. Recommend and apply continue as usual.
+
+Idle means HPA ScaledToZero or manual zero. For that workload only,
+Attune skips in-place resize, template persist, startup boost, and
+eviction. Leftover Running pods stay untouched. Attune does not evict
+the last replica to finish scale-to-zero.
+
+HPA conflict detection is unchanged: same target plus a CPU or memory
+resource metric. ScaledToZero is not a new conflict type.
+
+CREATE initial sizing does not look at the owner replica count. When
+HPA scales the workload back up, new pods still receive initial
+sizing.
+
 ## When to avoid combining them
 
 If your HPA scales on **custom metrics** that are derived from resource

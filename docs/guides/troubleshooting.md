@@ -576,7 +576,26 @@ kubectl get pod <pod> -o jsonpath='{range .status.conditions[?(@.type=="PodResiz
 
 **Cause**: Only one live Running replica. The last-replica guard lists pods through the typed Clientset and counts `status.phase=Running` with no deletion timestamp. `spec.replicas` and NotReady or Pending pods do not count.
 
+HPA `ScaledToZero=True` is not a manual scale-down. Attune skips apply
+for that workload (including eviction) so leftover Running pods are
+not evicted to finish scale-to-zero. A Deployment with
+`spec.replicas` greater than 0 and `status.replicas` 0 is still
+active.
+
 **Fix**: Scale until at least two pods are Running, or wait for another replica to become Running.
+
+### HPA ScaledToZero left leftover pods at old requests
+
+**Symptom**: HPA reports `ScaledToZero`, one or more pods are still
+Running, and Attune does not resize or evict them.
+
+**Cause**: Idle skip. HPA ScaledToZero (or `spec.replicas==0`) skips
+`executeResizes` for that workload: no in-place resize, template
+persist, startup boost, or eviction.
+
+**Fix**: This is expected. When HPA scales the workload back up, new
+pods get CREATE initial sizing, and running pods are eligible again
+once the ScaledToZero condition is no longer True.
 
 ### OneShot skipped the first replica but others still need a resize
 

@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -233,19 +234,29 @@ func TestCheckActiveRollout(t *testing.T) {
 	}
 }
 
+func cpuResourceHPA(name, kind, target string) autoscalingv2.HorizontalPodAutoscaler {
+	return autoscalingv2.HorizontalPodAutoscaler{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+			ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+				Kind: kind,
+				Name: target,
+			},
+			Metrics: []autoscalingv2.MetricSpec{{
+				Type: autoscalingv2.ResourceMetricSourceType,
+				Resource: &autoscalingv2.ResourceMetricSource{
+					Name: corev1.ResourceCPU,
+				},
+			}},
+		},
+	}
+}
+
 func TestCheckHPAConflict_Found(t *testing.T) {
 	detector := NewDetector(testr.New(t))
 
 	hpas := []autoscalingv2.HorizontalPodAutoscaler{
-		{
-			ObjectMeta: metav1.ObjectMeta{Name: "my-hpa"},
-			Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
-				ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
-					Kind: "Deployment",
-					Name: "my-app",
-				},
-			},
-		},
+		cpuResourceHPA("my-hpa", "Deployment", "my-app"),
 	}
 
 	conflict := detector.CheckHPAConflict(hpas, "my-app", "Deployment")
@@ -368,19 +379,62 @@ func TestCheckHPAConflict_DifferentKind(t *testing.T) {
 	detector := NewDetector(testr.New(t))
 
 	hpas := []autoscalingv2.HorizontalPodAutoscaler{
-		{
-			ObjectMeta: metav1.ObjectMeta{Name: "my-hpa"},
-			Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
-				ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
-					Kind: "StatefulSet",
-					Name: "my-app",
-				},
-			},
-		},
+		cpuResourceHPA("my-hpa", "StatefulSet", "my-app"),
 	}
 
 	conflict := detector.CheckHPAConflict(hpas, "my-app", "Deployment")
 	assert.Nil(t, conflict)
+}
+
+func TestCheckHPAConflict_ResourceMetricsOnlyNoScaleToZeroType(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+
+	t.Run("cpu resource metric is ConflictHPA", func(t *testing.T) {
+		conflict := detector.CheckHPAConflict(
+			[]autoscalingv2.HorizontalPodAutoscaler{cpuResourceHPA("cpu-hpa", "Deployment", "my-app")},
+			"my-app", "Deployment")
+		assert.NotNil(t, conflict)
+		assert.Equal(t, ConflictHPA, conflict.Type)
+	})
+
+	t.Run("memory resource metric is ConflictHPA", func(t *testing.T) {
+		hpa := cpuResourceHPA("mem-hpa", "Deployment", "my-app")
+		hpa.Spec.Metrics[0].Resource.Name = corev1.ResourceMemory
+		conflict := detector.CheckHPAConflict([]autoscalingv2.HorizontalPodAutoscaler{hpa}, "my-app", "Deployment")
+		assert.NotNil(t, conflict)
+		assert.Equal(t, ConflictHPA, conflict.Type)
+	})
+
+	t.Run("custom metric only is not a conflict", func(t *testing.T) {
+		hpa := autoscalingv2.HorizontalPodAutoscaler{
+			ObjectMeta: metav1.ObjectMeta{Name: "custom-hpa"},
+			Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+				ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+					Kind: "Deployment",
+					Name: "my-app",
+				},
+				Metrics: []autoscalingv2.MetricSpec{{
+					Type: autoscalingv2.PodsMetricSourceType,
+					Pods: &autoscalingv2.PodsMetricSource{
+						Metric: autoscalingv2.MetricIdentifier{Name: "packets_per_second"},
+					},
+				}},
+			},
+		}
+		assert.Nil(t, detector.CheckHPAConflict([]autoscalingv2.HorizontalPodAutoscaler{hpa}, "my-app", "Deployment"))
+	})
+
+	t.Run("ScaledToZero does not add a new conflict type", func(t *testing.T) {
+		hpa := cpuResourceHPA("zero-hpa", "Deployment", "my-app")
+		hpa.Status.Conditions = []autoscalingv2.HorizontalPodAutoscalerCondition{{
+			Type:   autoscalingv2.ScaledToZero,
+			Status: corev1.ConditionTrue,
+		}}
+		conflict := detector.CheckHPAConflict([]autoscalingv2.HorizontalPodAutoscaler{hpa}, "my-app", "Deployment")
+		assert.NotNil(t, conflict)
+		assert.Equal(t, ConflictHPA, conflict.Type)
+		assert.NotEqual(t, ConflictType("ScaledToZero"), conflict.Type)
+	})
 }
 
 // ---------- CheckPolicyConflict ----------

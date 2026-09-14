@@ -651,6 +651,17 @@ To prevent conflicts:
 - If HPA targets custom metrics (not CPU/memory), no conflict exists
 - Log a warning if both VPA and Attune target the same workload
 
+Workload scale states (per workload, not a policy-wide condition):
+- **HPA ScaledToZero**: matching HPA `status.conditions[type=ScaledToZero]=True`.
+  Classifier reads the condition string; it does not gate on cluster version.
+- **Manual zero**: owner `spec.replicas == 0` and no ScaledToZero. Never
+  `status.replicas`.
+- **Active**: otherwise.
+
+Idle (HPA ScaledToZero or manual zero) skips apply for that workload:
+no in-place resize, template persist, startup boost, or eviction.
+CREATE initial sizing does not look at owner replica count.
+
 ---
 
 <a id="resize-engine"></a>

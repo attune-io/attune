@@ -468,6 +468,7 @@ func (r *AttunePolicyReconciler) executeResizes(
 
 	var historyMu sync.Mutex
 	var wg sync.WaitGroup
+	hpas := listNamespaceHPAs(ctx, r.Client, policy.Namespace)
 
 	for _, rec := range recommendations {
 		if ctx.Err() != nil {
@@ -481,6 +482,20 @@ func (r *AttunePolicyReconciler) executeResizes(
 
 		// Batch workloads (Job/CronJob) are recommend-only; skip resize.
 		if isBatchWorkload(matchedWorkload) {
+			continue
+		}
+
+		if state := classifyObjectScale(matchedWorkload, hpas); state.idle() {
+			logger.Info("Skipping resize for idle workload",
+				"workload", rec.Workload, "scaleState", state.String())
+			switch state {
+			case scaleHPAZero:
+				r.emitEventOnce(policy, corev1.EventTypeNormal, "WorkloadIdle", "resize",
+					"Skipping apply for workload %s: HPA ScaledToZero", rec.Workload)
+			case scaleManualZero:
+				r.emitEventOnce(policy, corev1.EventTypeNormal, "WorkloadIdle", "resize",
+					"Skipping apply for workload %s: spec.replicas is 0", rec.Workload)
+			}
 			continue
 		}
 
