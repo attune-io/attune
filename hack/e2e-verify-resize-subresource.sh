@@ -31,6 +31,14 @@ SKIP_RECREATE="${SKIP_RECREATE:-0}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 K3D_DELETE="${K3D_DELETE:-${SCRIPT_DIR}/k3d-delete.sh}"
+RECREATE_CFG=""
+
+cleanup_recreate_cfg() {
+  if [[ -n "${RECREATE_CFG}" ]]; then
+    rm -f "${RECREATE_CFG}"
+    RECREATE_CFG=""
+  fi
+}
 
 echo "PLAN: verify pods/resize (attempts=${VERIFY_ATTEMPTS} recreate=${RECREATE_ATTEMPTS})"
 
@@ -77,23 +85,28 @@ recreate_cluster() {
   fi
   echo "DO: recreate k3d cluster ${CLUSTER_NAME}"
   bash "${K3D_DELETE}" "${CLUSTER_NAME}"
-  local cfg
-  cfg="$(mktemp)"
-  write_k3s_config "${cfg}"
+  cleanup_recreate_cfg
+  # Keep this host file until the cluster is deleted. Removing a file
+  # bind-mount before `k3d kubeconfig merge` makes docker cp fail with
+  # "mount .../config.yaml, flags: 0x5000: not a directory" (attune #743).
+  RECREATE_CFG="$(mktemp)"
+  write_k3s_config "${RECREATE_CFG}"
   if ! "${K3D}" cluster create "${CLUSTER_NAME}" \
     --image "${K3S_IMAGE}" \
     --k3s-arg "--disable=traefik,servicelb@server:*" \
-    --volume "${cfg}:/etc/rancher/k3s/config.yaml@server:*" \
+    --volume "${RECREATE_CFG}:/etc/rancher/k3s/config.yaml@server:*" \
     --wait --timeout 120s \
     --kubeconfig-update-default=false \
     --kubeconfig-switch-context=false; then
-    rm -f "${cfg}"
+    cleanup_recreate_cfg
     echo "FAIL: k3d cluster create failed"
     return 1
   fi
-  rm -f "${cfg}"
   if [[ -n "${KUBECONFIG}" ]]; then
-    "${K3D}" kubeconfig merge "${CLUSTER_NAME}" --output "${KUBECONFIG}" --overwrite
+    if ! "${K3D}" kubeconfig merge "${CLUSTER_NAME}" --output "${KUBECONFIG}" --overwrite; then
+      echo "FAIL: kubeconfig merge failed after recreate"
+      return 1
+    fi
   fi
   local attempt
   for attempt in $(seq 1 "${READYZ_ATTEMPTS}"); do
@@ -140,8 +153,13 @@ while (( recreated < RECREATE_ATTEMPTS )); do
   recreated=$((recreated + 1))
   echo "WAIT: known k3s feature-gate race; recreate ${recreated}/${RECREATE_ATTEMPTS}"
   if ! recreate_cluster; then
-    echo "DONE: ok=false"
-    exit 1
+    echo "WAIT: recreate ${recreated} failed"
+    if (( recreated >= RECREATE_ATTEMPTS )); then
+      echo "DONE: ok=false recreated=${recreated}"
+      echo "NEXT: inspect k3s logs"
+      exit 1
+    fi
+    continue
   fi
   echo "DO: k3s config inside recreated container"
   "${DOCKER}" exec "k3d-${CLUSTER_NAME}-server-0" cat /etc/rancher/k3s/config.yaml || true

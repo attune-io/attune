@@ -119,6 +119,35 @@ write_k3d() {
 #!/usr/bin/env bash
 set -euo pipefail
 echo "k3d \$*" >>"${TMP}/state/k3d.log"
+cmd="\${1:-}"
+sub="\${2:-}"
+if [[ "\$cmd" == "cluster" && "\$sub" == "create" ]]; then
+  prev=""
+  for a in "\$@"; do
+    if [[ "\$prev" == "--volume" ]]; then
+      echo "\${a%%:*}" >"${TMP}/state/volume_host"
+    elif [[ "\$a" == --volume=* ]]; then
+      spec="\${a#--volume=}"
+      echo "\${spec%%:*}" >"${TMP}/state/volume_host"
+    fi
+    prev="\$a"
+  done
+fi
+if [[ "\$cmd" == "kubeconfig" && "\$sub" == "merge" ]]; then
+  host=\$(cat "${TMP}/state/volume_host" 2>/dev/null || true)
+  if [[ -n "\$host" && ! -e "\$host" ]]; then
+    echo "ERRO host volume gone: \$host" >&2
+    exit 1
+  fi
+  n=\$(cat "${TMP}/state/merges" 2>/dev/null || echo 0)
+  n=\$((n + 1))
+  echo "\$n" >"${TMP}/state/merges"
+  fail_first=\$(cat "${TMP}/state/merge_fail_first" 2>/dev/null || echo 0)
+  if [[ "\$fail_first" == "1" && "\$n" -eq 1 ]]; then
+    echo "ERRO simulated merge failure" >&2
+    exit 1
+  fi
+fi
 exit 0
 EOF
   chmod +x "${TMP}/k3d"
@@ -184,6 +213,7 @@ out="$(run_helper)"
 echo "${out}" | grep -q 'recreated=1' || fail "expected recreated=1, got: ${out}"
 rec="$(cat "${TMP}/state/recreates")"
 [[ "${rec}" == "1" ]] || fail "expected 1 recreate, got ${rec}"
+[[ "$(cat "${TMP}/state/merges")" == "1" ]] || fail "expected 1 successful kubeconfig merge"
 echo "OK: one recreate recovers"
 
 echo "DO: first recreate still missing, second recovers"
@@ -206,6 +236,34 @@ fi
 rec="$(cat "${TMP}/state/recreates")"
 [[ "${rec}" == "3" ]] || fail "expected 3 recreates, got ${rec}"
 echo "OK: exhausted recreates fail"
+
+echo "DO: bind-mount host file must still exist at kubeconfig merge"
+rm -rf "${TMP}/state"
+mkdir -p "${TMP}/state"
+write_kubectl after-recreate
+write_k3d
+write_docker
+write_delete
+out="$(run_helper)"
+echo "${out}" | grep -q 'recreated=1' || fail "expected recreated=1 when mount source is kept, got: ${out}"
+[[ -f "${TMP}/state/merges" ]] || fail "kubeconfig merge was not called"
+echo "OK: merge sees live bind-mount source"
+
+echo "DO: first kubeconfig merge failure must retry recreate"
+rm -rf "${TMP}/state"
+mkdir -p "${TMP}/state"
+echo 1 >"${TMP}/state/merge_fail_first"
+write_kubectl after-two
+write_k3d
+write_docker
+write_delete
+out="$(run_helper)"
+echo "${out}" | grep -q 'recreated=2' || fail "expected recreated=2 after merge retry, got: ${out}"
+rec="$(cat "${TMP}/state/recreates")"
+[[ "${rec}" == "2" ]] || fail "expected 2 recreates after merge retry, got ${rec}"
+merges="$(cat "${TMP}/state/merges")"
+[[ "${merges}" == "2" ]] || fail "expected 2 merge attempts, got ${merges}"
+echo "OK: merge failure retries recreate"
 
 echo "DONE: ok=true"
 echo "NEXT: none"
