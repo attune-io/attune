@@ -231,6 +231,12 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 							boostTarget.Limits[corev1.ResourceMemory] = memReq.DeepCopy()
 						}
 					}
+					if dec := r.evaluatePodEnvelope(policy, pod, c.Name, boostTarget); dec.Skip {
+						logger.Info("Skipping startup boost: "+resize.EnvelopeSkipMessage,
+							"pod", pod.Name, "container", c.Name,
+							"boostedCPU", boostedCPU.String())
+						continue
+					}
 					if skip, reason := r.shouldSkipResize(ctx, pod, boostRec, boostTarget, checks); skip {
 						if reason == "" {
 							reason = "already at target"
@@ -350,6 +356,13 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 								expireRec.Recommended.MemoryLimit = memReq.DeepCopy()
 								expireTarget.Limits[corev1.ResourceMemory] = memReq.DeepCopy()
 							}
+						}
+						if dec := r.evaluatePodEnvelope(policy, pod, c.Name, expireTarget); dec.Skip {
+							logger.Info("Skipping boost expiry reduction: "+resize.EnvelopeSkipMessage,
+								"pod", pod.Name, "container", c.Name,
+								"targetCPU", recCPU.request.String())
+							boostReduceFailed = true
+							continue
 						}
 						if skip, reason := r.shouldSkipResize(ctx, pod, expireRec, expireTarget, checks); skip {
 							blocking := reason != ""

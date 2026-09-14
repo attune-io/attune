@@ -197,7 +197,7 @@ The controller emits Kubernetes Events for visibility:
 | Normal | `ResizeDeferred` | Previous-release Attune no-op Event (same meaning as `ResizeUnchanged`). Reserved now for kubelet node-capacity deferral; do not treat this reason as an Attune no-op |
 | Normal | `WorkloadIdle` | Apply skipped because HPA ScaledToZero is True, or spec.replicas is 0 |
 | Warning | `ResizeFailed` | The resize API call returned an error |
-| Warning | `ResizeSkipped` | A resize was skipped (QoS change, node capacity, quota) |
+| Warning | `ResizeSkipped` | A resize was skipped (QoS change, node capacity, quota, pod-level envelope) |
 | Warning | `Reverted` | A resize was reverted due to a safety violation |
 
 Events are visible via `kubectl describe attunepolicy` and

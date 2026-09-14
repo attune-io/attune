@@ -854,6 +854,7 @@ For the complete list with labels, descriptions, and query examples, see the
 | Resize succeeded | Normal | Resized | "Resized cpu api-server/app: 500m -> 250m" |
 | Resize failed | Warning | ResizeFailed | "Failed to resize pod api-server-abc12 container app: node has insufficient resources" |
 | Resize skipped (QoS) | Warning | ResizeSkipped | "Skipping resize for pod X container Y: would change QoS class from Guaranteed" |
+| Resize skipped (envelope) | Warning | ResizeSkipped | "Resize blocked for pod X container Y: pod-level resource envelope would be exceeded" |
 | Auto-revert triggered | Warning | Reverted | "Reverted resize on api-server/app: oomkill" |
 
 ### 8.3 Grafana Dashboard
