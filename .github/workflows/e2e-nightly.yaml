@@ -17,6 +17,8 @@ on:
           - v1.33
           - v1.34
           - v1.35
+          - v1.36
+          - v1.37
       suite:
         description: Test suite to run
         required: true
@@ -51,6 +53,14 @@ jobs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       suite: ${{ steps.set-matrix.outputs.suite }}
     steps:
+      - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
       - name: Select version and suite
         id: set-matrix
         shell: bash -Eeuo pipefail {0}
@@ -58,27 +68,7 @@ jobs:
           selected_version="${{ inputs.k8s-version || 'all' }}"
           selected_suite="${{ inputs.suite || 'all' }}"
 
-          case "$selected_version" in
-            v1.32)
-              matrix='{"include":[{"k8s-version":"v1.32","k3s-image":"v1.32.13-k3s1"}]}'
-              ;;
-            v1.33)
-              matrix='{"include":[{"k8s-version":"v1.33","k3s-image":"v1.33.11-k3s1"}]}'
-              ;;
-            v1.34)
-              matrix='{"include":[{"k8s-version":"v1.34","k3s-image":"v1.34.7-k3s1"}]}'
-              ;;
-            v1.35)
-              matrix='{"include":[{"k8s-version":"v1.35","k3s-image":"v1.35.4-k3s1"}]}'
-              ;;
-            all)
-              matrix='{"include":[{"k8s-version":"v1.32","k3s-image":"v1.32.13-k3s1"},{"k8s-version":"v1.33","k3s-image":"v1.33.11-k3s1"},{"k8s-version":"v1.34","k3s-image":"v1.34.7-k3s1"},{"k8s-version":"v1.35","k3s-image":"v1.35.4-k3s1"}]}'
-              ;;
-            *)
-              echo "Unknown k8s-version input: $selected_version" >&2
-              exit 1
-              ;;
-          esac
+          matrix="$(bash hack/e2e-nightly-matrix.sh "${selected_version}")"
 
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           echo "suite=$selected_suite" >> "$GITHUB_OUTPUT"
@@ -89,6 +79,10 @@ jobs:
     needs: prepare-matrix
     runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 75
+    # 1.37 is a k3s prerelease image. On the scheduled all-matrix, do not
+    # fail Nightly Results when only that cell is red. A targeted
+    # workflow_dispatch of v1.37 still fails the run on test failure.
+    continue-on-error: ${{ matrix.experimental && github.event_name == 'schedule' }}
     env:
       SELECTED_SUITE: ${{ needs.prepare-matrix.outputs.suite }}
       CLUSTER_NAME: e2e-${{ matrix.k8s-version }}-${{ github.run_id }}-${{ github.run_attempt }}

@@ -958,7 +958,7 @@ Eventually(func(g Gomega) {
 | 9 | Insufficient data | Policy reports InsufficientData condition |
 | 10 | Upgrade operator version | CRDs migrated, no downtime |
 
-**Test cluster**: CI uses k3d, not Kind. The push/PR E2E job runs a single K3S version (`v1.35.4-k3s1`), and `e2e-nightly.yaml` runs the full Kubernetes `v1.32` / `v1.33` / `v1.34` / `v1.35` matrix. Prometheus is installed in-cluster from the Helm chart and cert-manager is bootstrapped before the operator tests run.
+**Test cluster**: CI uses k3d, not Kind. The push/PR E2E job runs a single K3S version (`v1.36.4-k3s1`), and `e2e-nightly.yaml` runs Kubernetes `v1.32`–`v1.36` as required cells plus `v1.37` as experimental (k3s prerelease image). 1.32 stays so the alpha `InPlacePodVerticalScaling` feature-gate path keeps running. 1.38 is added when k3s or kindest/node publishes an image. Prometheus is installed in-cluster from the Helm chart and cert-manager is bootstrapped before the operator tests run.
 
 ### 9.5 Fuzz Tests
 
@@ -1095,7 +1095,7 @@ Jobs:
 ```
 Jobs:
   prepare-matrix:
-    - Expands the selected Kubernetes version input (`v1.33`, `v1.34`, `v1.35`, or all)
+    - Expands the selected Kubernetes version input (`v1.32`–`v1.37`, or all)
     - Selects the requested suite (`chainsaw`, `go-e2e`, or all)
 
   test-e2e:
@@ -1104,7 +1104,8 @@ Jobs:
     - Uploads per-version logs and debug artifacts
 
   report:
-    - Fails the workflow if any nightly matrix leg failed
+    - Fails the workflow if any required nightly matrix leg failed.
+      A scheduled 1.37 (experimental) failure does not fail Nightly Results.
     - Creates a GitHub issue on scheduled failures when no open nightly-failure issue exists
 ```
 
