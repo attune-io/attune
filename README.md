@@ -220,7 +220,7 @@ kubectl attune export -n production                 # GitOps ConfigMap exports +
 kubectl attune history -n production
 kubectl attune explain -n production api-services
 kubectl attune wizard                               # interactive policy scaffolding
-kubectl attune doctor                               # cluster version, pods/resize, Prometheus
+kubectl attune doctor                               # cluster version, pods/resize, cgroup v2, Prometheus
 kubectl attune version
 
 # All namespaces

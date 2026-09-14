@@ -123,7 +123,7 @@ func run(args []string, buildClient dynamicClientFactory) int {
 		fmt.Fprintln(os.Stderr, "  history           Show resize history (including eviction fallbacks)")
 		fmt.Fprintln(os.Stderr, "  diff              Show resource change diffs from recommendations")
 		fmt.Fprintln(os.Stderr, "  wizard            Interactive policy creation and type promotion")
-		fmt.Fprintln(os.Stderr, "  doctor            Check cluster version, pods/resize, and Prometheus")
+		fmt.Fprintln(os.Stderr, "  doctor            Check cluster version, pods/resize, cgroup v2, and Prometheus")
 		fmt.Fprintln(os.Stderr, "  version           Print plugin version")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Flags:")
@@ -307,12 +307,12 @@ func run(args []string, buildClient dynamicClientFactory) int {
 	case "wizard":
 		return runWizard(ctx, dynClient, *namespace, parsedArgs, newInteractivePrompter())
 	case "doctor":
-		disc, err := buildDoctorDiscovery(*kubeconfig, "")
+		disc, nodes, err := buildDoctorDiscovery(*kubeconfig, "")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			return 1
 		}
-		return runDoctor(ctx, os.Stdout, os.Stderr, disc, dynClient, *namespace, pingPrometheusHealthy)
+		return runDoctor(ctx, os.Stdout, os.Stderr, disc, nodes, dynClient, *namespace, pingPrometheusHealthy)
 	}
 	return 0
 }
