@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/cluster"
 	"github.com/attune-io/attune/internal/conflict"
 	"github.com/attune-io/attune/internal/operatormetrics"
 	"github.com/attune-io/attune/internal/resize"
@@ -61,8 +62,9 @@ const (
 // It reads pre-computed recommendations from AttunePolicy status (via the
 // informer cache, not the API server) and mutates pod resources at creation time.
 type PodMutatingHandler struct {
-	Client client.Client
-	Logger logr.Logger
+	Client       client.Client
+	Logger       logr.Logger
+	Capabilities *cluster.Capabilities
 }
 
 // Handle processes a pod admission request.

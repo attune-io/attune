@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -24,6 +25,7 @@ import (
 	"time"
 	_ "time/tzdata" // Embed IANA timezone database for distroless containers.
 
+	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	batchv1 "k8s.io/api/batch/v1"
@@ -42,11 +44,11 @@ import (
 	webhookserver "sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
+	"github.com/attune-io/attune/internal/cluster"
 	"github.com/attune-io/attune/internal/controller"
 	"github.com/attune-io/attune/internal/fleetreport"
 	"github.com/attune-io/attune/internal/metrics"
 	_ "github.com/attune-io/attune/internal/operatormetrics"
-	"github.com/attune-io/attune/internal/resize"
 	"github.com/attune-io/attune/internal/transform"
 	"github.com/attune-io/attune/internal/webhook"
 )
@@ -289,14 +291,23 @@ func main() {
 	reconciler.Scheme = mgr.GetScheme()
 	reconciler.Clientset = clientset
 	reconciler.Recorder = mgr.GetEventRecorder("attune")
-	if sv, err := clientset.Discovery().ServerVersion(); err != nil {
-		setupLog.Error(err, "unable to detect Kubernetes version; memory limit decreases will remain clamped")
-	} else {
-		allow := resize.AllowsInPlaceMemoryLimitDecrease(sv.GitVersion)
-		reconciler.AllowInPlaceMemoryLimitDecrease = allow
-		setupLog.Info("Kubernetes version for memory limit decrease policy",
-			"gitVersion", sv.GitVersion, "allowInPlaceMemoryLimitDecrease", allow)
+	caps, capErr := cluster.Discover(
+		logr.NewContext(context.Background(), setupLog),
+		clientset.Discovery(),
+		clientset.CoreV1().Nodes(),
+	)
+	if capErr != nil {
+		setupLog.Error(capErr, "unable to detect Kubernetes version; memory limit decreases will remain clamped")
+		caps = cluster.SafeDefaults()
 	}
+	reconciler.Capabilities = caps
+	reconciler.AllowInPlaceMemoryLimitDecrease = caps.AllowInPlaceMemoryLimitDecrease
+	setupLog.Info("cluster capabilities",
+		"gitVersion", caps.GitVersion,
+		"allowInPlaceMemoryLimitDecrease", caps.AllowInPlaceMemoryLimitDecrease,
+		"podsResize", caps.PodsResize,
+		"podLevelResourcesField", caps.PodLevelResourcesField,
+		"inPlacePodLevelResources", caps.InPlacePodLevelResources)
 	reconciler.CollectorTTL = collectorTTL
 	reconciler.MaxConcurrentReconciles = maxConcurrentReconciles
 	reconciler.MaxWorkloadWorkers = maxWorkloadWorkers
@@ -382,8 +393,9 @@ func main() {
 		// based on existing AttunePolicy recommendations.
 		mgr.GetWebhookServer().Register("/mutate-v1-pod",
 			&webhookserver.Admission{Handler: &webhook.PodMutatingHandler{
-				Client: mgr.GetClient(),
-				Logger: setupLog.WithName("pod-initial-sizing"),
+				Client:       mgr.GetClient(),
+				Logger:       setupLog.WithName("pod-initial-sizing"),
+				Capabilities: caps,
 			}})
 	}
 

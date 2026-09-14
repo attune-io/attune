@@ -21,8 +21,6 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -32,6 +30,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/util/retry"
+
+	"github.com/attune-io/attune/internal/cluster"
 )
 
 // MethodInPlace is the resize method for in-place pod resize.
@@ -384,35 +384,10 @@ func ClampMemoryLimitForPolicy(pod *corev1.Pod, container string, target corev1.
 
 // AllowsInPlaceMemoryLimitDecrease reports whether GitVersion (e.g. "v1.35.0")
 // is at least Kubernetes 1.35, where live memory limit decreases are allowed.
+// Wrapper around cluster.AllowsInPlaceMemoryLimitDecrease so existing
+// call sites compile until they move to cluster.Capabilities.
 func AllowsInPlaceMemoryLimitDecrease(gitVersion string) bool {
-	major, minor, ok := parseK8sMajorMinor(gitVersion)
-	if !ok {
-		return false
-	}
-	return major > 1 || (major == 1 && minor >= 35)
-}
-
-// parseK8sMajorMinor extracts major and minor from a GitVersion string.
-func parseK8sMajorMinor(gitVersion string) (major, minor uint, ok bool) {
-	v := strings.TrimSpace(gitVersion)
-	v = strings.TrimPrefix(v, "v")
-	if v == "" {
-		return 0, 0, false
-	}
-	// Drop build metadata / pre-release after + or -
-	if i := strings.IndexAny(v, "+-"); i >= 0 {
-		v = v[:i]
-	}
-	parts := strings.Split(v, ".")
-	if len(parts) < 2 {
-		return 0, 0, false
-	}
-	maj64, err1 := strconv.ParseUint(parts[0], 10, 32)
-	min64, err2 := strconv.ParseUint(parts[1], 10, 32)
-	if err1 != nil || err2 != nil {
-		return 0, 0, false
-	}
-	return uint(maj64), uint(min64), true
+	return cluster.AllowsInPlaceMemoryLimitDecrease(gitVersion)
 }
 
 // WouldRestartContainer returns true if resizing the named container would

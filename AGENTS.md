@@ -54,6 +54,7 @@ controller-runtime v0.24.1, Kubebuilder v4, K8s API v0.36.1.
 - `internal/resize/` - In-place pod resize engine via /resize subresource
 - `internal/safety/` - Post-resize safety observation and rollback
 - `internal/lifecycle/` - Named phases derived from attune.io tracking annotations
+- `internal/cluster/` - Cluster capability discovery (version-best feature set)
 - `internal/conflict/` - HPA conflict detection
 - `internal/webhook/` - Admission webhooks (defaulting + validation)
 - `internal/operatormetrics/` - Operator-level Prometheus metrics (init-registered)
