@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -132,6 +133,25 @@ func TestInPlaceFromDeclaredFeatures(t *testing.T) {
 			assert.Equal(t, tt.want, inPlaceFromDeclaredFeatures(list, tt.major, tt.minor))
 		})
 	}
+}
+
+func TestHasPodsResize_CoreV1Only(t *testing.T) {
+	t.Parallel()
+	cs := fake.NewSimpleClientset()
+	fd, ok := cs.Discovery().(*fakediscovery.FakeDiscovery)
+	require.True(t, ok)
+	fd.FakedServerVersion = &k8sversion.Info{GitVersion: "v1.35.0"}
+	fd.Resources = []*metav1.APIResourceList{{
+		GroupVersion: "apps/v1",
+		APIResources: []metav1.APIResource{{Name: "pods/resize"}},
+	}}
+	assert.False(t, hasPodsResize(fd, logr.Discard()), "apps/v1 pods/resize is not core")
+
+	fd.Resources = []*metav1.APIResourceList{{
+		GroupVersion: "v1",
+		APIResources: []metav1.APIResource{{Name: "pods/resize", Namespaced: true}},
+	}}
+	assert.True(t, hasPodsResize(fd, logr.Discard()))
 }
 
 func TestDiscover_OpenAPIErrorKeepsMemoryDecrease(t *testing.T) {

@@ -438,7 +438,9 @@ disabled by default. The `/resize` subresource is only available when the
 components and kubelets.
 
 **Check first**: `kubectl attune doctor` reports whether the cluster is
-1.32+ and whether discovery lists `pods/resize`.
+1.32+ and whether discovery lists `pods/resize`. The optional `cgroup v2`
+row is `WARN` and inconclusive on k3s, kind, and most managed clusters.
+It does not change the exit code.
 
 **Fix**: Enable the feature gate on all components. For managed clusters,
 check your provider's documentation. For self-managed clusters:
@@ -454,6 +456,23 @@ featureGates:
 
 On **Kubernetes 1.33+**, this feature gate is enabled by default and no
 action is needed.
+
+### Doctor cgroup v2 is WARN
+
+**Symptom**: `kubectl attune doctor` prints `cgroup v2 WARN [optional]`
+with `could not determine`.
+
+**Cause**: Kubernetes has no Node field for the runtime cgroup version.
+Doctor does not exec onto nodes. The default on k3s, kind, and most
+managed clusters is inconclusive.
+
+**What it is not**: A required `FAIL`. Optional `WARN` does not change
+the exit code. An NFD label
+`feature.node.kubernetes.io/kernel.config.CGROUP_V2=true` is kernel
+compile-time only; doctor never treats that as Pass.
+
+**On 1.37+**: The same WARN mentions kubelet `failCgroupV1`, which
+defaults to rejecting cgroup v1.
 
 ### Recommendation looks wrong or never resizes
 

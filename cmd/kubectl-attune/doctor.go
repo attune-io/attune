@@ -31,43 +31,42 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	k8sversion "k8s.io/apimachinery/pkg/version"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
+	"github.com/attune-io/attune/internal/cluster"
 	"github.com/attune-io/attune/internal/validation"
 )
 
 const (
-	minKubernetesMajor     = 1
-	minKubernetesMinor     = 32
-	prometheusHealthyPath  = "/-/healthy"
-	prometheusPingTimeout  = 3 * time.Second
-	podsResizeResourceName = "pods/resize"
+	minKubernetesMajor    = 1
+	minKubernetesMinor    = 32
+	prometheusHealthyPath = "/-/healthy"
+	prometheusPingTimeout = 3 * time.Second
+	doctorCgroupName      = "cgroup v2"
+	// nfdCgroupV2Label is Node Feature Discovery kernel compile-time.
+	// It is never enough to PASS the doctor cgroup row.
+	nfdCgroupV2Label = "feature.node.kubernetes.io/kernel.config.CGROUP_V2"
 )
-
-// doctorDiscovery is the discovery subset used by kubectl attune doctor.
-type doctorDiscovery interface {
-	ServerVersion() (*k8sversion.Info, error)
-	ServerGroupsAndResources() ([]*metav1.APIGroup, []*metav1.APIResourceList, error)
-}
 
 type prometheusPinger func(ctx context.Context, address string) error
 
-// buildDoctorDiscovery loads a typed clientset Discovery from kubeconfig.
+// buildDoctorDiscovery loads Discovery and a NodeLister from kubeconfig.
 var buildDoctorDiscovery = defaultBuildDoctorDiscovery
 
-func defaultBuildDoctorDiscovery(kubeconfigPath, contextOverride string) (doctorDiscovery, error) {
+func defaultBuildDoctorDiscovery(kubeconfigPath, contextOverride string) (discovery.DiscoveryInterface, cluster.NodeLister, error) {
 	cfg, err := loadRESTConfig(kubeconfigPath, contextOverride)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	cs, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return cs.Discovery(), nil
+	return cs.Discovery(), cs.CoreV1().Nodes(), nil
 }
 
 func loadRESTConfig(kubeconfigPath, contextOverride string) (*rest.Config, error) {
@@ -120,23 +119,6 @@ func classifyKubernetesVersion(info *k8sversion.Info) error {
 		return nil
 	}
 	return fmt.Errorf("cluster version %d.%d is below Attune's minimum 1.32 (in-place pod resize)", major, minor)
-}
-
-func hasPodsResizeSubresource(lists []*metav1.APIResourceList) bool {
-	for _, list := range lists {
-		if list == nil {
-			continue
-		}
-		if list.GroupVersion != "v1" {
-			continue
-		}
-		for _, res := range list.APIResources {
-			if res.Name == podsResizeResourceName {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 type prometheusDoctorTarget struct {
@@ -276,49 +258,16 @@ type doctorResult struct {
 	detail   string
 }
 
-func runDoctorChecks(ctx context.Context, disc doctorDiscovery, objects []unstructured.Unstructured, listErr error, ping prometheusPinger) []doctorResult {
+func runDoctorChecks(ctx context.Context, disc discovery.DiscoveryInterface, nodes cluster.NodeLister, objects []unstructured.Unstructured, listErr error, ping prometheusPinger) []doctorResult {
 	if ping == nil {
 		ping = pingPrometheusHealthy
 	}
-	results := make([]doctorResult, 0, 3)
+	results := make([]doctorResult, 0, 5)
 
-	ver, err := disc.ServerVersion()
-	if err != nil {
-		results = append(results, doctorResult{
-			name: "Kubernetes version", required: true, detail: err.Error(),
-		})
-	} else if err := classifyKubernetesVersion(ver); err != nil {
-		results = append(results, doctorResult{
-			name: "Kubernetes version", required: true, detail: err.Error(),
-		})
-	} else {
-		git := ver.GitVersion
-		if git == "" {
-			git = ver.Major + "." + ver.Minor
-		}
-		results = append(results, doctorResult{
-			name: "Kubernetes version", required: true, ok: true, detail: git,
-		})
-	}
-
-	_, lists, err := disc.ServerGroupsAndResources()
-	if err != nil && len(lists) == 0 {
-		results = append(results, doctorResult{
-			name: "pods/resize", required: true, detail: err.Error(),
-		})
-	} else if !hasPodsResizeSubresource(lists) {
-		detail := "subresource not found; enable InPlacePodVerticalScaling (1.32 alpha) or use Kubernetes 1.33+"
-		if err != nil {
-			detail = err.Error() + "; " + detail
-		}
-		results = append(results, doctorResult{
-			name: "pods/resize", required: true, detail: detail,
-		})
-	} else {
-		results = append(results, doctorResult{
-			name: "pods/resize", required: true, ok: true, detail: "discovered",
-		})
-	}
+	caps, discErr := cluster.Discover(ctx, disc, nodes)
+	results = append(results, doctorVersionResult(caps, discErr))
+	results = append(results, doctorPodsResizeResult(caps, discErr))
+	results = append(results, doctorCgroupResult(ctx, nodes, caps))
 
 	targets := collectPrometheusTargets(objects...)
 	if len(targets) == 0 {
@@ -388,6 +337,83 @@ func runDoctorChecks(ctx context.Context, disc doctorDiscovery, objects []unstru
 	return results
 }
 
+func doctorVersionResult(caps *cluster.Capabilities, discErr error) doctorResult {
+	if discErr != nil {
+		return doctorResult{
+			name: "Kubernetes version", required: true, detail: discErr.Error(),
+		}
+	}
+	if caps == nil {
+		return doctorResult{
+			name: "Kubernetes version", required: true, detail: "server version is empty",
+		}
+	}
+	info := &k8sversion.Info{
+		GitVersion: caps.GitVersion,
+		Major:      fmt.Sprintf("%d", caps.Major),
+		Minor:      fmt.Sprintf("%d", caps.Minor),
+	}
+	if err := classifyKubernetesVersion(info); err != nil {
+		return doctorResult{
+			name: "Kubernetes version", required: true, detail: err.Error(),
+		}
+	}
+	git := caps.GitVersion
+	if git == "" {
+		git = fmt.Sprintf("%d.%d", caps.Major, caps.Minor)
+	}
+	return doctorResult{
+		name: "Kubernetes version", required: true, ok: true, detail: git,
+	}
+}
+
+func doctorPodsResizeResult(caps *cluster.Capabilities, discErr error) doctorResult {
+	if caps != nil && caps.PodsResize {
+		return doctorResult{
+			name: "pods/resize", required: true, ok: true, detail: "discovered",
+		}
+	}
+	detail := "subresource not found; enable InPlacePodVerticalScaling (1.32 alpha) or use Kubernetes 1.33+"
+	if discErr != nil {
+		detail = discErr.Error() + "; " + detail
+	}
+	return doctorResult{
+		name: "pods/resize", required: true, detail: detail,
+	}
+}
+
+func doctorCgroupResult(ctx context.Context, nodes cluster.NodeLister, caps *cluster.Capabilities) doctorResult {
+	detail := "could not determine runtime cgroup version (expected on k3s, kind, and most managed clusters)"
+	if caps != nil && (caps.Major > 1 || (caps.Major == 1 && caps.Minor >= 37)) {
+		detail += "; Kubernetes 1.37+ kubelet failCgroupV1 defaults to rejecting cgroup v1"
+	}
+	if nfdKernelCgroupV2(ctx, nodes) {
+		detail += "; NFD kernel.config.CGROUP_V2=true is kernel compile-time only, not a runtime cgroup version"
+	}
+	return doctorResult{
+		name:     doctorCgroupName,
+		required: false,
+		ok:       false,
+		detail:   detail,
+	}
+}
+
+func nfdKernelCgroupV2(ctx context.Context, nodes cluster.NodeLister) bool {
+	if nodes == nil {
+		return false
+	}
+	list, err := nodes.List(ctx, metav1.ListOptions{})
+	if err != nil || list == nil {
+		return false
+	}
+	for i := range list.Items {
+		if list.Items[i].Labels[nfdCgroupV2Label] == "true" {
+			return true
+		}
+	}
+	return false
+}
+
 func attunePolicyDoctorResult(objects []unstructured.Unstructured) doctorResult {
 	var total, notReady int
 	var reasons []string
@@ -455,12 +481,12 @@ func printDoctorResults(w io.Writer, results []doctorResult) {
 	}
 }
 
-func runDoctor(ctx context.Context, stdout, stderr io.Writer, disc doctorDiscovery, dynClient dynamic.Interface, namespace string, ping prometheusPinger) int {
+func runDoctor(ctx context.Context, stdout, stderr io.Writer, disc discovery.DiscoveryInterface, nodes cluster.NodeLister, dynClient dynamic.Interface, namespace string, ping prometheusPinger) int {
 	objects, err := listDoctorObjects(ctx, dynClient, namespace)
 	if err != nil {
 		fmt.Fprintf(stderr, "Warning: %v\n", err)
 	}
-	results := runDoctorChecks(ctx, disc, objects, err, ping)
+	results := runDoctorChecks(ctx, disc, nodes, objects, err, ping)
 	printDoctorResults(stdout, results)
 	fmt.Fprintln(stdout, "Namespace freeze: annotate the namespace attune.io/freeze=true to skip apply. Pending safety revert still runs.")
 	if doctorFailed(results) {

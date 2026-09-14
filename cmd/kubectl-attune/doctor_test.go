@@ -30,6 +30,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -37,7 +38,10 @@ import (
 	k8sversion "k8s.io/apimachinery/pkg/version"
 	fakediscovery "k8s.io/client-go/discovery/fake"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
+	kubefake "k8s.io/client-go/kubernetes/fake"
 	clienttesting "k8s.io/client-go/testing"
+
+	"github.com/attune-io/attune/internal/cluster"
 )
 
 // pingTestURL rewrites httptest's 127.0.0.1 listener to localhost so
@@ -83,19 +87,32 @@ func TestClassifyKubernetesVersion(t *testing.T) {
 	}
 }
 
-func TestHasPodsResizeSubresource(t *testing.T) {
-	t.Parallel()
-	assert.False(t, hasPodsResizeSubresource(nil))
-	assert.False(t, hasPodsResizeSubresource([]*metav1.APIResourceList{
-		{GroupVersion: "v1", APIResources: []metav1.APIResource{{Name: "pods"}}},
-	}))
-	assert.True(t, hasPodsResizeSubresource([]*metav1.APIResourceList{
-		{GroupVersion: "apps/v1", APIResources: []metav1.APIResource{{Name: "pods/resize"}}},
-		{GroupVersion: "v1", APIResources: []metav1.APIResource{{Name: "pods/resize", Namespaced: true}}},
-	}))
-	assert.False(t, hasPodsResizeSubresource([]*metav1.APIResourceList{
-		{GroupVersion: "apps/v1", APIResources: []metav1.APIResource{{Name: "pods/resize"}}},
-	}))
+func doctorNamed(results []doctorResult, name string) doctorResult {
+	for _, r := range results {
+		if r.name == name {
+			return r
+		}
+	}
+	return doctorResult{name: name, detail: "missing row"}
+}
+
+func nfdCgroupNodeLister(cgroupV2 bool) cluster.NodeLister {
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "n1",
+			Labels: map[string]string{},
+		},
+		Status: corev1.NodeStatus{
+			Conditions: []corev1.NodeCondition{{
+				Type:   corev1.NodeReady,
+				Status: corev1.ConditionTrue,
+			}},
+		},
+	}
+	if cgroupV2 {
+		node.Labels[nfdCgroupV2Label] = "true"
+	}
+	return kubefake.NewSimpleClientset(node).CoreV1().Nodes()
 }
 
 func TestCollectPrometheusTargets(t *testing.T) {
@@ -138,7 +155,7 @@ func resizeDiscovery(major, minor string, withResize bool) *fakediscovery.FakeDi
 	}
 	if withResize {
 		core.APIResources = append(core.APIResources, metav1.APIResource{
-			Name: podsResizeResourceName, Kind: "Pod", Namespaced: true,
+			Name: "pods/resize", Kind: "Pod", Namespaced: true,
 		})
 	}
 	fd.Resources = []*metav1.APIResourceList{&core}
@@ -151,30 +168,34 @@ func TestRunDoctorChecks_VersionAndDiscovery(t *testing.T) {
 
 	t.Run("pass 1.32 with resize", func(t *testing.T) {
 		t.Parallel()
-		results := runDoctorChecks(ctx, resizeDiscovery("1", "32", true), nil, nil, nil)
-		require.Len(t, results, 4)
-		assert.True(t, results[0].ok, results[0].detail)
-		assert.True(t, results[1].ok, results[1].detail)
-		assert.False(t, results[2].ok, "no Prometheus ping is not ok")
-		assert.Contains(t, results[2].detail, "skipped (no address on policies or defaults)")
-		assert.False(t, results[3].ok)
-		assert.Contains(t, results[3].detail, "no AttunePolicies in scope")
+		results := runDoctorChecks(ctx, resizeDiscovery("1", "32", true), nil, nil, nil, nil)
+		require.Len(t, results, 5)
+		assert.True(t, doctorNamed(results, "Kubernetes version").ok, doctorNamed(results, "Kubernetes version").detail)
+		assert.True(t, doctorNamed(results, "pods/resize").ok, doctorNamed(results, "pods/resize").detail)
+		prom := doctorNamed(results, "Prometheus")
+		assert.False(t, prom.ok, "no Prometheus ping is not ok")
+		assert.Contains(t, prom.detail, "skipped (no address on policies or defaults)")
+		policies := doctorNamed(results, "AttunePolicies")
+		assert.False(t, policies.ok)
+		assert.Contains(t, policies.detail, "no AttunePolicies in scope")
 		assert.False(t, doctorFailed(results))
 	})
 
 	t.Run("fail 1.31", func(t *testing.T) {
 		t.Parallel()
-		results := runDoctorChecks(ctx, resizeDiscovery("1", "31", true), nil, nil, nil)
-		require.False(t, results[0].ok)
-		assert.Contains(t, results[0].detail, "1.32")
+		results := runDoctorChecks(ctx, resizeDiscovery("1", "31", true), nil, nil, nil, nil)
+		ver := doctorNamed(results, "Kubernetes version")
+		require.False(t, ver.ok)
+		assert.Contains(t, ver.detail, "1.32")
 		assert.True(t, doctorFailed(results))
 	})
 
 	t.Run("fail missing resize", func(t *testing.T) {
 		t.Parallel()
-		results := runDoctorChecks(ctx, resizeDiscovery("1", "32", false), nil, nil, nil)
-		require.False(t, results[1].ok)
-		assert.Contains(t, results[1].detail, "InPlacePodVerticalScaling")
+		results := runDoctorChecks(ctx, resizeDiscovery("1", "32", false), nil, nil, nil, nil)
+		resize := doctorNamed(results, "pods/resize")
+		require.False(t, resize.ok)
+		assert.Contains(t, resize.detail, "InPlacePodVerticalScaling")
 		assert.True(t, doctorFailed(results))
 	})
 }
@@ -193,21 +214,23 @@ func TestRunDoctorChecks_PrometheusOptional(t *testing.T) {
 
 	t.Run("reachable", func(t *testing.T) {
 		t.Parallel()
-		results := runDoctorChecks(ctx, disc, []unstructured.Unstructured{obj}, nil, func(context.Context, string) error {
+		results := runDoctorChecks(ctx, disc, nil, []unstructured.Unstructured{obj}, nil, func(context.Context, string) error {
 			return nil
 		})
-		require.True(t, results[2].ok, results[2].detail)
-		assert.Contains(t, results[2].detail, "http://prometheus.example:9090")
+		prom := doctorNamed(results, "Prometheus")
+		require.True(t, prom.ok, prom.detail)
+		assert.Contains(t, prom.detail, "http://prometheus.example:9090")
 		assert.False(t, doctorFailed(results))
 	})
 
 	t.Run("unreachable does not fail required exit", func(t *testing.T) {
 		t.Parallel()
-		results := runDoctorChecks(ctx, disc, []unstructured.Unstructured{obj}, nil, func(context.Context, string) error {
+		results := runDoctorChecks(ctx, disc, nil, []unstructured.Unstructured{obj}, nil, func(context.Context, string) error {
 			return fmt.Errorf("connection refused")
 		})
-		require.False(t, results[2].ok)
-		assert.Contains(t, results[2].detail, "connection refused")
+		prom := doctorNamed(results, "Prometheus")
+		require.False(t, prom.ok)
+		assert.Contains(t, prom.detail, "connection refused")
 		assert.False(t, doctorFailed(results), "Prometheus is optional")
 	})
 
@@ -221,34 +244,34 @@ func TestRunDoctorChecks_PrometheusOptional(t *testing.T) {
 			},
 		}}
 		pinged := false
-		results := runDoctorChecks(ctx, disc, []unstructured.Unstructured{local}, nil, func(context.Context, string) error {
+		results := runDoctorChecks(ctx, disc, nil, []unstructured.Unstructured{local}, nil, func(context.Context, string) error {
 			pinged = true
 			return fmt.Errorf("should not ping")
 		})
 		assert.False(t, pinged)
-		require.False(t, results[2].ok, "skip-only in-cluster is WARN, not ok: %s", results[2].detail)
-		assert.Contains(t, results[2].detail, "in-cluster")
+		require.False(t, doctorNamed(results, "Prometheus").ok, "skip-only in-cluster is WARN, not ok: %s", doctorNamed(results, "Prometheus").detail)
+		assert.Contains(t, doctorNamed(results, "Prometheus").detail, "in-cluster")
 		assert.False(t, doctorFailed(results))
 	})
 
 	t.Run("list error without address is not claimed as no address", func(t *testing.T) {
 		t.Parallel()
-		results := runDoctorChecks(ctx, disc, nil, fmt.Errorf("list AttuneDefaults: forbidden"), nil)
-		require.False(t, results[2].ok, "no ping is not ok")
-		assert.Contains(t, results[2].detail, "could not list")
-		assert.NotContains(t, results[2].detail, "no address")
+		results := runDoctorChecks(ctx, disc, nil, nil, fmt.Errorf("list AttuneDefaults: forbidden"), nil)
+		require.False(t, doctorNamed(results, "Prometheus").ok, "no ping is not ok")
+		assert.Contains(t, doctorNamed(results, "Prometheus").detail, "could not list")
+		assert.NotContains(t, doctorNamed(results, "Prometheus").detail, "no address")
 	})
 
 	t.Run("list error with a collected address still pings", func(t *testing.T) {
 		t.Parallel()
 		pinged := false
-		results := runDoctorChecks(ctx, disc, []unstructured.Unstructured{obj}, fmt.Errorf("list AttuneDefaults: forbidden"), func(context.Context, string) error {
+		results := runDoctorChecks(ctx, disc, nil, []unstructured.Unstructured{obj}, fmt.Errorf("list AttuneDefaults: forbidden"), func(context.Context, string) error {
 			pinged = true
 			return nil
 		})
 		assert.True(t, pinged)
-		require.True(t, results[2].ok, results[2].detail)
-		assert.Contains(t, results[2].detail, "http://prometheus.example:9090")
+		require.True(t, doctorNamed(results, "Prometheus").ok, doctorNamed(results, "Prometheus").detail)
+		assert.Contains(t, doctorNamed(results, "Prometheus").detail, "http://prometheus.example:9090")
 	})
 
 	t.Run("ssrf rejected without ping", func(t *testing.T) {
@@ -261,13 +284,13 @@ func TestRunDoctorChecks_PrometheusOptional(t *testing.T) {
 			},
 		}}
 		pinged := false
-		results := runDoctorChecks(ctx, disc, []unstructured.Unstructured{bad}, nil, func(context.Context, string) error {
+		results := runDoctorChecks(ctx, disc, nil, []unstructured.Unstructured{bad}, nil, func(context.Context, string) error {
 			pinged = true
 			return nil
 		})
 		assert.False(t, pinged)
-		assert.False(t, results[2].ok)
-		assert.Contains(t, results[2].detail, "loopback")
+		assert.False(t, doctorNamed(results, "Prometheus").ok)
+		assert.Contains(t, doctorNamed(results, "Prometheus").detail, "loopback")
 	})
 
 	t.Run("bearer token 401 is skip not warn", func(t *testing.T) {
@@ -282,12 +305,12 @@ func TestRunDoctorChecks_PrometheusOptional(t *testing.T) {
 				},
 			},
 		}}
-		results := runDoctorChecks(ctx, disc, []unstructured.Unstructured{authed}, nil, func(context.Context, string) error {
+		results := runDoctorChecks(ctx, disc, nil, []unstructured.Unstructured{authed}, nil, func(context.Context, string) error {
 			return &httpStatusError{status: 401, url: "http://prometheus.example:9090/-/healthy"}
 		})
-		require.False(t, results[2].ok, "401 with configured auth is skip/WARN, not ok: %s", results[2].detail)
-		assert.Contains(t, results[2].detail, "401")
-		assert.Contains(t, results[2].detail, "bearer")
+		require.False(t, doctorNamed(results, "Prometheus").ok, "401 with configured auth is skip/WARN, not ok: %s", doctorNamed(results, "Prometheus").detail)
+		assert.Contains(t, doctorNamed(results, "Prometheus").detail, "401")
+		assert.Contains(t, doctorNamed(results, "Prometheus").detail, "bearer")
 		assert.False(t, doctorFailed(results))
 	})
 
@@ -303,11 +326,11 @@ func TestRunDoctorChecks_PrometheusOptional(t *testing.T) {
 				},
 			},
 		}}
-		results := runDoctorChecks(ctx, disc, []unstructured.Unstructured{authed}, nil, func(context.Context, string) error {
+		results := runDoctorChecks(ctx, disc, nil, []unstructured.Unstructured{authed}, nil, func(context.Context, string) error {
 			return &httpStatusError{status: 403, url: "http://mimir.example:8080/-/healthy"}
 		})
-		require.False(t, results[2].ok, "403 with configured auth is skip/WARN, not ok: %s", results[2].detail)
-		assert.Contains(t, results[2].detail, "403")
+		require.False(t, doctorNamed(results, "Prometheus").ok, "403 with configured auth is skip/WARN, not ok: %s", doctorNamed(results, "Prometheus").detail)
+		assert.Contains(t, doctorNamed(results, "Prometheus").detail, "403")
 		assert.False(t, doctorFailed(results))
 	})
 
@@ -323,21 +346,21 @@ func TestRunDoctorChecks_PrometheusOptional(t *testing.T) {
 				},
 			},
 		}}
-		results := runDoctorChecks(ctx, disc, []unstructured.Unstructured{authed}, nil, func(context.Context, string) error {
+		results := runDoctorChecks(ctx, disc, nil, []unstructured.Unstructured{authed}, nil, func(context.Context, string) error {
 			return fmt.Errorf("connection refused")
 		})
-		require.False(t, results[2].ok, results[2].detail)
-		assert.Contains(t, results[2].detail, "connection refused")
+		require.False(t, doctorNamed(results, "Prometheus").ok, doctorNamed(results, "Prometheus").detail)
+		assert.Contains(t, doctorNamed(results, "Prometheus").detail, "connection refused")
 		assert.False(t, doctorFailed(results), "Prometheus is optional")
 	})
 
 	t.Run("401 without auth config is still warn", func(t *testing.T) {
 		t.Parallel()
-		results := runDoctorChecks(ctx, disc, []unstructured.Unstructured{obj}, nil, func(context.Context, string) error {
+		results := runDoctorChecks(ctx, disc, nil, []unstructured.Unstructured{obj}, nil, func(context.Context, string) error {
 			return &httpStatusError{status: 401, url: "http://prometheus.example:9090/-/healthy"}
 		})
-		require.False(t, results[2].ok, results[2].detail)
-		assert.Contains(t, results[2].detail, "HTTP 401")
+		require.False(t, doctorNamed(results, "Prometheus").ok, doctorNamed(results, "Prometheus").detail)
+		assert.Contains(t, doctorNamed(results, "Prometheus").detail, "HTTP 401")
 	})
 
 	t.Run("same address with and without auth merges auth", func(t *testing.T) {
@@ -353,11 +376,11 @@ func TestRunDoctorChecks_PrometheusOptional(t *testing.T) {
 				},
 			},
 		}}
-		results := runDoctorChecks(ctx, disc, []unstructured.Unstructured{plain, authed}, nil, func(context.Context, string) error {
+		results := runDoctorChecks(ctx, disc, nil, []unstructured.Unstructured{plain, authed}, nil, func(context.Context, string) error {
 			return &httpStatusError{status: 401, url: "http://prometheus.example:9090/-/healthy"}
 		})
-		require.False(t, results[2].ok, "skip-only 401 is WARN, not ok: %s", results[2].detail)
-		assert.Contains(t, results[2].detail, "401")
+		require.False(t, doctorNamed(results, "Prometheus").ok, "skip-only 401 is WARN, not ok: %s", doctorNamed(results, "Prometheus").detail)
+		assert.Contains(t, doctorNamed(results, "Prometheus").detail, "401")
 	})
 }
 
@@ -529,10 +552,11 @@ func TestRunDoctor_ExitCodes(t *testing.T) {
 			namespaceDefaultsGVR: "AttuneNamespaceDefaultsList",
 		})
 	var stdout, stderr bytes.Buffer
-	code := runDoctor(context.Background(), &stdout, &stderr, resizeDiscovery("1", "32", true), dyn, "default", nil)
+	code := runDoctor(context.Background(), &stdout, &stderr, resizeDiscovery("1", "32", true), nil, dyn, "default", nil)
 	assert.Equal(t, 0, code)
 	assert.Contains(t, stdout.String(), "pods/resize            ok   [required] discovered")
 	assert.Contains(t, stdout.String(), "Kubernetes version     ok   [required]")
+	assert.Contains(t, stdout.String(), "cgroup v2              WARN [optional] could not determine")
 	assert.Contains(t, stdout.String(), "Prometheus             WARN [optional] skipped (no address on policies or defaults)")
 	assert.Contains(t, stdout.String(), "AttunePolicies         WARN [optional] no AttunePolicies in scope")
 	assert.Contains(t, stdout.String(), "Namespace freeze: annotate the namespace attune.io/freeze=true to skip apply. Pending safety revert still runs.")
@@ -541,7 +565,7 @@ func TestRunDoctor_ExitCodes(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	code = runDoctor(context.Background(), &stdout, &stderr, resizeDiscovery("1", "31", true), dyn, "default", nil)
+	code = runDoctor(context.Background(), &stdout, &stderr, resizeDiscovery("1", "31", true), nil, dyn, "default", nil)
 	assert.Equal(t, 1, code)
 	assert.Contains(t, stderr.String(), "one or more checks failed")
 	assert.Contains(t, stdout.String(), "FAIL")
@@ -554,7 +578,7 @@ func TestRunDoctorChecks_PolicyScopeWarn(t *testing.T) {
 
 	t.Run("zero policies", func(t *testing.T) {
 		t.Parallel()
-		results := runDoctorChecks(ctx, disc, nil, nil, nil)
+		results := runDoctorChecks(ctx, disc, nil, nil, nil, nil)
 		got := results[len(results)-1]
 		assert.Equal(t, "AttunePolicies", got.name)
 		assert.False(t, got.required)
@@ -579,7 +603,7 @@ func TestRunDoctorChecks_PolicyScopeWarn(t *testing.T) {
 				},
 			},
 		}}
-		results := runDoctorChecks(ctx, disc, []unstructured.Unstructured{policy}, nil, nil)
+		results := runDoctorChecks(ctx, disc, nil, []unstructured.Unstructured{policy}, nil, nil)
 		got := results[len(results)-1]
 		assert.False(t, got.ok)
 		assert.False(t, got.required)
@@ -602,12 +626,103 @@ func TestRunDoctorChecks_PolicyScopeWarn(t *testing.T) {
 				},
 			},
 		}}
-		results := runDoctorChecks(ctx, disc, []unstructured.Unstructured{policy}, nil, nil)
+		results := runDoctorChecks(ctx, disc, nil, []unstructured.Unstructured{policy}, nil, nil)
 		got := results[len(results)-1]
 		assert.True(t, got.ok)
 		assert.Equal(t, "1 policies Ready", got.detail)
 		assert.False(t, doctorFailed(results))
 	})
+}
+
+func TestRunDoctorChecks_CgroupOptional(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	tests := []struct {
+		name          string
+		major         string
+		minor         string
+		withResize    bool
+		nodes         cluster.NodeLister
+		wantDetail    []string
+		forbidDetail  []string
+		wantFailed    bool
+		wantCgroupOK  bool
+		wantCgroupReq bool
+	}{
+		{
+			name:         "inconclusive default",
+			major:        "1",
+			minor:        "36",
+			withResize:   true,
+			wantDetail:   []string{"could not determine"},
+			forbidDetail: []string{"failCgroupV1"},
+		},
+		{
+			name:         "NFD CGROUP_V2 is footnote not PASS",
+			major:        "1",
+			minor:        "36",
+			withResize:   true,
+			nodes:        nfdCgroupNodeLister(true),
+			wantDetail:   []string{"could not determine", "kernel.config.CGROUP_V2", "compile-time"},
+			forbidDetail: []string{"failCgroupV1"},
+		},
+		{
+			name:       "1.37+ inconclusive mentions failCgroupV1",
+			major:      "1",
+			minor:      "37",
+			withResize: true,
+			wantDetail: []string{"could not determine", "failCgroupV1"},
+		},
+		{
+			name:         "1.36 inconclusive does not mention failCgroupV1",
+			major:        "1",
+			minor:        "36",
+			withResize:   true,
+			nodes:        nfdCgroupNodeLister(false),
+			wantDetail:   []string{"could not determine"},
+			forbidDetail: []string{"failCgroupV1"},
+		},
+		{
+			name:       "missing pods/resize still required FAIL",
+			major:      "1",
+			minor:      "32",
+			withResize: false,
+			wantDetail: []string{"could not determine"},
+			wantFailed: true,
+		},
+		{
+			name:       "optional cgroup never flips doctorFailed",
+			major:      "1",
+			minor:      "35",
+			withResize: true,
+			nodes:      nfdCgroupNodeLister(true),
+			wantDetail: []string{"could not determine", "compile-time"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			results := runDoctorChecks(ctx, resizeDiscovery(tt.major, tt.minor, tt.withResize), tt.nodes, nil, nil, nil)
+			cgroup := doctorNamed(results, doctorCgroupName)
+			assert.Equal(t, tt.wantCgroupReq, cgroup.required, "cgroup row must stay optional")
+			assert.Equal(t, tt.wantCgroupOK, cgroup.ok, "cgroup row must not PASS")
+			for _, want := range tt.wantDetail {
+				assert.Contains(t, cgroup.detail, want)
+			}
+			for _, forbid := range tt.forbidDetail {
+				assert.NotContains(t, cgroup.detail, forbid)
+			}
+			resize := doctorNamed(results, "pods/resize")
+			if tt.withResize {
+				assert.True(t, resize.ok, resize.detail)
+			} else {
+				assert.False(t, resize.ok)
+				assert.True(t, resize.required)
+			}
+			assert.Equal(t, tt.wantFailed, doctorFailed(results))
+		})
+	}
 }
 
 func TestParseVersionPart(t *testing.T) {
