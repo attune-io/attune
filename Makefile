@@ -256,7 +256,7 @@ test-fuzz: ## Run fuzz tests (coverage-guided; FUZZTIME=30s default, deadline-fl
 	./scripts/run-fuzz.sh
 
 .PHONY: python-test
-python-test: ## Run helper script tests (fossa-filter, run-fuzz classifier, go-version sync, helm image tag, fleet reports, nightly issue body, k3d-delete, cadvisor wait, v1.32 resize verify, CI triggers, apply-release-notes, dependabot rebase)
+python-test: ## Run helper script tests (fossa-filter, run-fuzz classifier, go-version sync, helm image tag, fleet reports, nightly issue body, k3d-delete, cadvisor wait, v1.32 resize verify, nightly matrix, CI triggers, apply-release-notes, dependabot rebase)
 	python3 scripts/test_fossa_filter.py -v
 	bash scripts/test_run_fuzz.sh
 	bash scripts/test_verify_go_version_sync.sh
@@ -266,6 +266,7 @@ python-test: ## Run helper script tests (fossa-filter, run-fuzz classifier, go-v
 	bash scripts/test_e2e_download_cert_manager.sh
 	bash scripts/test_e2e_wait_cadvisor.sh
 	bash scripts/test_e2e_verify_resize_subresource.sh
+	bash scripts/test_e2e_nightly_matrix.sh
 	bash scripts/test_k3d_delete.sh
 	bash scripts/test_collect_fleet_reports.sh
 	bash scripts/test_nightly_failure_issue_body.sh
@@ -380,11 +381,11 @@ undeploy: ## Undeploy operator from the cluster
 
 # k3d settings (lightweight, fast startup)
 K3D_CLUSTER_NAME ?= attune
-K3S_VERSION ?= v1.35.4-k3s1
+K3S_VERSION ?= v1.36.4-k3s1
 
 # Kind settings (upstream K8s, production-accurate)
 KIND_CLUSTER_NAME ?= attune
-KIND_NODE_IMAGE ?= kindest/node:v1.35.8
+KIND_NODE_IMAGE ?= kindest/node:v1.36.4
 
 .PHONY: k3d-create
 k3d-create: ## Create a k3d cluster for local dev (fast, uses k3s)

@@ -27,7 +27,7 @@ make test-local
 ### 1b. Full E2E matrix (required before tagging a product release)
 
 PR CI runs Chainsaw + Go E2E on **one** Kubernetes version only
-(`rancher/k3s:v1.35.4-k3s1` in `ci.yaml`). Version-sensitive behavior
+(`rancher/k3s:v1.36.4-k3s1` in `ci.yaml`). Version-sensitive behavior
 (in-place memory limit clamp on 1.33–1.34 vs decrease on 1.35+, k3s 1.32
 feature gate) is only exercised by **E2E Nightly**.
 
@@ -39,10 +39,13 @@ window:
 
 ```bash
 gh workflow run "E2E Nightly" --repo attune-io/attune
-# Monitor: Actions → E2E Nightly → all E2E (K8s v1.32..v1.35) + Fuzz + Nightly Results
+# Monitor: Actions → E2E Nightly → all E2E (K8s v1.32..v1.37) + Fuzz + Nightly Results
 ```
 
-3. Do not ship until all four K8s matrix cells and Fuzz are green on that SHA.
+3. Do not ship until the required K8s matrix cells (1.32–1.36) and Fuzz
+   are green on that SHA. 1.37 is experimental until the k3s release is
+   marked GA; a red 1.37 cell on the scheduled nightly does not block a
+   ship by itself.
 
 If the release-please PR is **BEHIND** main, update/rebase it (or let
 release-please refresh) so the version bump includes the latest commits.

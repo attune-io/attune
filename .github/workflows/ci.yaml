@@ -22,7 +22,7 @@ env:
   GOLANGCI_LINT_VERSION: "v2.13.1"
   GOTESTSUM_VERSION: "v1.13.0"
   K3D_VERSION: "v5.8.3"
-  K3S_IMAGE: "rancher/k3s:v1.35.4-k3s1"
+  K3S_IMAGE: "rancher/k3s:v1.36.4-k3s1"
   ENVTEST_K8S_VERSION: "1.35.0"
   HELM_UNITTEST_VERSION: "v0.7.2"
   ACTIONLINT_VERSION: "v1.7.12"
@@ -150,6 +150,7 @@ jobs:
               - 'scripts/**'
               - 'hack/e2e-install-cert-manager.sh'
               - 'hack/e2e-wait-cadvisor.sh'
+              - 'hack/e2e-nightly-matrix.sh'
               - 'hack/k3d-delete.sh'
               - 'hack/apply-release-notes.sh'
               # Lint (scripts=true) runs these via python-test / make.
