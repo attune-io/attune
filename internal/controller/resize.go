@@ -611,7 +611,7 @@ func (r *AttunePolicyReconciler) executeResizes(
 					}
 					r.emitLiveResizeApply(ctx, policy, &pod, action.ContainerRec, action.ApplyMeta)
 					if action.AtTarget {
-						r.emitResizeDeferredIfFilteredOrClamped(ctx, policy, &pod, action.ContainerRec, action.Target, action.ApplyMeta.PreClamped)
+						r.emitResizeUnchangedIfFilteredOrClamped(ctx, policy, &pod, action.ContainerRec, action.Target, action.ApplyMeta.PreClamped)
 						continue
 					}
 					cpuIncrease, memIncrease := action.CPUIncrease, action.MemIncrease
@@ -797,7 +797,7 @@ func (r *AttunePolicyReconciler) resizeContainer(
 				"Resize blocked for pod %s container %s: %s", pod.Name, containerRec.Name, reason)
 			recordCapacitySkip(policy, reason)
 		} else {
-			r.emitResizeDeferredIfFilteredOrClamped(ctx, policy, pod, containerRec, target, preClamped)
+			r.emitResizeUnchangedIfFilteredOrClamped(ctx, policy, pod, containerRec, target, preClamped)
 		}
 		return nil, resizeOutcomeNone
 	}
@@ -1884,9 +1884,9 @@ func targetIncreasesRequests(pod *corev1.Pod, containerName string, target corev
 	return cpuInc || memInc
 }
 
-// emitResizeDeferredIfFilteredOrClamped emits ResizeDeferred when a no-op
+// emitResizeUnchangedIfFilteredOrClamped emits ResizeUnchanged when a no-op
 // is due to a change filter or a memory clamp/floor, not a true at-target.
-func (r *AttunePolicyReconciler) emitResizeDeferredIfFilteredOrClamped(
+func (r *AttunePolicyReconciler) emitResizeUnchangedIfFilteredOrClamped(
 	ctx context.Context,
 	policy *attunev1alpha1.AttunePolicy,
 	pod *corev1.Pod,
@@ -1902,7 +1902,7 @@ func (r *AttunePolicyReconciler) emitResizeDeferredIfFilteredOrClamped(
 	cpuClamped := !preClamped.Requests.Cpu().Equal(*target.Requests.Cpu())
 	memoryClamped := !preClamped.Requests.Memory().Equal(*target.Requests.Memory())
 	if cpuFiltered || memFiltered || cpuClamped || memoryClamped {
-		logger.Info("Resize deferred: resources at target after filtering/clamping",
+		logger.Info("Resize unchanged: resources at target after filtering/clamping",
 			"pod", pod.Name, "container", containerRec.Name,
 			"cpuTarget", target.Requests.Cpu().String(),
 			"memTarget", target.Requests.Memory().String(),
@@ -1910,7 +1910,7 @@ func (r *AttunePolicyReconciler) emitResizeDeferredIfFilteredOrClamped(
 			"memChangeFilter", memFiltered,
 			"cpuClamped", cpuClamped,
 			"memoryClamped", memoryClamped)
-		r.emitEventOnce(policy, corev1.EventTypeNormal, "ResizeDeferred", "resize",
+		r.emitEventOnce(policy, corev1.EventTypeNormal, "ResizeUnchanged", "resize",
 			"Container %s in pod %s: resources unchanged after change filtering and/or request clamping (cpu=%s, mem=%s)",
 			containerRec.Name, pod.Name, target.Requests.Cpu().String(), target.Requests.Memory().String())
 		return
