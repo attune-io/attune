@@ -1171,7 +1171,8 @@ Jobs:
     - All semver types; CI is the safety gate
     - Docker PRs: copy verify-go-version-sync.sh to /tmp, --write --root workspace
   rebase-outdated (push to main):
-    - Comments @dependabot rebase on open Dependabot PRs with mergeable_state=behind
+    - App-token git rebase + force-with-lease on Dependabot PRs with mergeable_state=behind
+    - Does not comment @dependabot rebase (Apps are rejected)
 ```
 
 ### 10.2 CI Configuration Files
