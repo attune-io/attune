@@ -62,7 +62,7 @@ func AllowsInPlaceMemoryLimitDecrease(gitVersion string) bool {
 	if !ok {
 		return false
 	}
-	return atLeast(major, minor, 1, 35)
+	return k8sAtLeast(major, minor, 35)
 }
 
 // ParseGitVersion extracts major and minor from a GitVersion string.
@@ -87,6 +87,7 @@ func ParseGitVersion(gitVersion string) (major, minor uint, ok bool) {
 	return uint(maj64), uint(min64), true
 }
 
-func atLeast(major, minor, wantMajor, wantMinor uint) bool {
-	return major > wantMajor || (major == wantMajor && minor >= wantMinor)
+// k8sAtLeast reports GitVersion >= 1.wantMinor (or any 2.x).
+func k8sAtLeast(major, minor, wantMinor uint) bool {
+	return major > 1 || (major == 1 && minor >= wantMinor)
 }

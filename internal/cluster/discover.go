@@ -89,7 +89,7 @@ func podLevelResourcesField(disco discovery.DiscoveryInterface, caps *Capabiliti
 	ok, err := openAPIHasPodSpecResources(disco)
 	if err != nil {
 		log.V(1).Info("OpenAPI unavailable; PodSpec.resources from GitVersion", "error", err)
-		return atLeast(caps.Major, caps.Minor, 1, 34)
+		return k8sAtLeast(caps.Major, caps.Minor, 34)
 	}
 	return ok
 }
@@ -102,12 +102,10 @@ func openAPIHasPodSpecResources(disco discovery.DiscoveryInterface) (bool, error
 	if doc == nil || doc.GetDefinitions() == nil {
 		return false, fmt.Errorf("empty openapi document")
 	}
-	foundSpec := false
 	for _, item := range doc.GetDefinitions().GetAdditionalProperties() {
 		if item.GetName() != "io.k8s.api.core.v1.PodSpec" {
 			continue
 		}
-		foundSpec = true
 		schema := item.GetValue()
 		if schema == nil || schema.GetProperties() == nil {
 			return false, nil
@@ -119,17 +117,14 @@ func openAPIHasPodSpecResources(disco discovery.DiscoveryInterface) (bool, error
 		}
 		return false, nil
 	}
-	if !foundSpec {
-		return false, fmt.Errorf("podspec definition missing")
-	}
-	return false, nil
+	return false, fmt.Errorf("podspec definition missing")
 }
 
 func hpaScaleToZero(disco discovery.DiscoveryInterface, caps *Capabilities, log logr.Logger) bool {
 	ok, err := openAPIHasScaledToZero(disco)
 	if err != nil {
 		log.V(1).Info("OpenAPI unavailable; HPAScaleToZero from GitVersion", "error", err)
-		return atLeast(caps.Major, caps.Minor, 1, 37)
+		return k8sAtLeast(caps.Major, caps.Minor, 37)
 	}
 	return ok
 }
@@ -176,12 +171,12 @@ func openAPIHasScaledToZero(disco discovery.DiscoveryInterface) (bool, error) {
 func inPlacePodLevelResources(ctx context.Context, nodes NodeLister, caps *Capabilities, log logr.Logger) bool {
 	if nodes == nil {
 		log.V(1).Info("no node lister; InPlacePodLevelResources from GitVersion")
-		return atLeast(caps.Major, caps.Minor, 1, 36)
+		return k8sAtLeast(caps.Major, caps.Minor, 36)
 	}
 	list, err := nodes.List(ctx, metav1.ListOptions{})
 	if err != nil {
 		log.V(1).Info("node list failed; InPlacePodLevelResources from GitVersion", "error", err)
-		return atLeast(caps.Major, caps.Minor, 1, 36)
+		return k8sAtLeast(caps.Major, caps.Minor, 36)
 	}
 	return inPlaceFromDeclaredFeatures(list, caps.Major, caps.Minor)
 }
@@ -196,7 +191,7 @@ func inPlacePodLevelResources(ctx context.Context, nodes NodeLister, caps *Capab
 // freeze "name absent => false" forever.
 func inPlaceFromDeclaredFeatures(list *corev1.NodeList, major, minor uint) bool {
 	if list == nil {
-		return atLeast(major, minor, 1, 36)
+		return k8sAtLeast(major, minor, 36)
 	}
 	seenName := false
 	seenNonEmptyOmit := false
@@ -221,7 +216,7 @@ func inPlaceFromDeclaredFeatures(list *corev1.NodeList, major, minor uint) bool 
 	if seenNonEmptyOmit {
 		return false
 	}
-	return atLeast(major, minor, 1, 36)
+	return k8sAtLeast(major, minor, 36)
 }
 
 func nodeReady(node *corev1.Node) bool {
