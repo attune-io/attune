@@ -371,15 +371,17 @@ Dependabot PRs (#348, #349 etc.) are important for **Dependency-Update-Tool (10)
    merge to main is not a `GITHUB_TOKEN` push (those do not re-trigger
    Docs, Scorecard, or Release Please on main). `auto-approve.yaml` (`pull_request`)
    excludes `dependabot[bot]` because secrets are unavailable in that context.
-6. After a merge to main, `dependabot-auto-merge.yaml` comments
-   `@dependabot rebase` on open Dependabot PRs. It lists Dependabot PRs
-   then `GET /pulls/N` so GitHub computes `mergeable_state` (the list
-   endpoint often returns `unknown` and would skip everyone). App token,
-   not a GITHUB_TOKEN git push. Required because the ruleset has
+6. After a merge to main, `dependabot-auto-merge.yaml` rebases behind
+   Dependabot PRs with the App token (`hack/rebase-outdated-dependabot.sh`:
+   git rebase + `--force-with-lease`). It lists Dependabot PRs then
+   `GET /pulls/N` so GitHub computes `mergeable_state` (the list
+   endpoint often returns `unknown` and would skip everyone). Do **not**
+   comment `@dependabot rebase`: Dependabot rejects GitHub Apps
+   ("only users with push access"). Do **not** push with `GITHUB_TOKEN`:
+   that does not start PR CI. Required because the ruleset has
    `strict_required_status_checks_policy: true`. Dependabot
-   `rebase-strategy: auto` can lag for hours. To hurry one PR,
-   `gh pr comment N --body "@dependabot rebase"` or run
-   `scripts/rebase-dependabot.sh N`.
+   `rebase-strategy: auto` can lag for hours. To hurry one PR, run
+   `scripts/rebase-dependabot.sh N` (human/owner token).
 7. After a Dependabot merge, do **not** `gh workflow run CI --ref main`
    (or Security). The PR already ran the test matrix on an up-to-date
    branch. A dispatch is a second compile of the same tree. Docs deploy
@@ -401,7 +403,7 @@ on `update-type`; CI is the real safety gate.
 - Token-Permissions warnings are minimized by scoping writes only where gh commands truly need them (see the dependabot-auto-merge and auto-approve jobs).
 
 See also:
-- `.github/workflows/dependabot-auto-merge.yaml` (`@dependabot rebase` on behind PRs after main push; docker PRs sync `go.mod` with `--root`)
+- `.github/workflows/dependabot-auto-merge.yaml` (App-token git rebase of behind PRs after main push; docker PRs sync `go.mod` with `--root`)
 - `.github/workflows/dco.yaml` (bot + merge-commit skips)
 - `pr-title.yaml` (Dependabot is exempted from semantic title)
 
