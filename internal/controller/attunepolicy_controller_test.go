@@ -10298,11 +10298,11 @@ func TestExecuteResizes_DestClampAtTargetDoesNotIncrement(t *testing.T) {
 	for {
 		select {
 		case event := <-recorder.Events:
-			if strings.Contains(event, "ResizeDeferred") {
+			if strings.Contains(event, "ResizeUnchanged") {
 				found = true
 			}
 		default:
-			require.True(t, found, "AtTarget dest CPU clamp must emit ResizeDeferred")
+			require.True(t, found, "AtTarget dest CPU clamp must emit ResizeUnchanged")
 			return
 		}
 	}
@@ -10472,7 +10472,7 @@ func TestTryEvictionFallback_SkipsLastReplica(t *testing.T) {
 	}
 }
 
-func TestExecuteResizes_FloorToCurrentEmitsResizeDeferred(t *testing.T) {
+func TestExecuteResizes_FloorToCurrentEmitsResizeUnchanged(t *testing.T) {
 	pod := newResizePod("api-server", "200m", "550Mi", "200m", "550Mi")
 	pod.Status.QOSClass = corev1.PodQOSGuaranteed
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
@@ -10508,17 +10508,17 @@ func TestExecuteResizes_FloorToCurrentEmitsResizeDeferred(t *testing.T) {
 	for {
 		select {
 		case event := <-recorder.Events:
-			if strings.Contains(event, "ResizeDeferred") {
+			if strings.Contains(event, "ResizeUnchanged") {
 				found = true
 			}
 		default:
-			require.True(t, found, "executeResizes clamp/floor no-op must emit ResizeDeferred")
+			require.True(t, found, "executeResizes clamp/floor no-op must emit ResizeUnchanged")
 			return
 		}
 	}
 }
 
-func TestResizeContainer_LiveAppliedClampNoopEmitsResizeDeferred(t *testing.T) {
+func TestResizeContainer_LiveAppliedClampNoopEmitsResizeUnchanged(t *testing.T) {
 	pod := newResizePod("api-server", "500m", "512Mi", "500m", "512Mi")
 	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
 	r, _ := newResizeReconciler(pod, deploy)
@@ -10550,11 +10550,11 @@ func TestResizeContainer_LiveAppliedClampNoopEmitsResizeDeferred(t *testing.T) {
 	for {
 		select {
 		case event := <-recorder.Events:
-			if strings.Contains(event, "ResizeDeferred") {
+			if strings.Contains(event, "ResizeUnchanged") {
 				found = true
 			}
 		default:
-			require.True(t, found, "LiveApplied clamp-to-current must emit ResizeDeferred")
+			require.True(t, found, "LiveApplied clamp-to-current must emit ResizeUnchanged")
 			return
 		}
 	}
