@@ -126,7 +126,7 @@ func TestApplyResourcesToPodSpec_NoOpWhenEqual(t *testing.T) {
 			},
 		},
 	}
-	assert.False(t, applyResourcesToPodSpec(spec, desired, false))
+	assert.False(t, applyResourcesToPodSpec(spec, desired, false, nil))
 }
 
 func TestApplyResourcesToPodSpec_UpdatesContainer(t *testing.T) {
@@ -149,7 +149,7 @@ func TestApplyResourcesToPodSpec_UpdatesContainer(t *testing.T) {
 			},
 		},
 	}
-	assert.True(t, applyResourcesToPodSpec(spec, desired, false))
+	assert.True(t, applyResourcesToPodSpec(spec, desired, false, nil))
 	assert.Equal(t, int64(200), spec.Containers[0].Resources.Requests.Cpu().MilliValue())
 }
 
@@ -187,7 +187,7 @@ func TestApplyResourcesToPodSpec_NativeSidecarInitContainer(t *testing.T) {
 			Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("99m")},
 		},
 	}
-	assert.True(t, applyResourcesToPodSpec(spec, desired, false))
+	assert.True(t, applyResourcesToPodSpec(spec, desired, false, nil))
 	assert.Equal(t, int64(80), spec.InitContainers[0].Resources.Requests.Cpu().MilliValue())
 	assert.Equal(t, int64(10), spec.InitContainers[1].Resources.Requests.Cpu().MilliValue(),
 		"non-native init container must not be modified")
@@ -239,7 +239,7 @@ func TestApplyResourcesToPodSpec_RequestsOnlyKeepsLimitsAndNoOps(t *testing.T) {
 		},
 	}
 
-	assert.False(t, applyResourcesToPodSpec(spec, desired, false),
+	assert.False(t, applyResourcesToPodSpec(spec, desired, false, nil),
 		"RequestsOnly with matching requests must not treat leftover limits as a change")
 	assert.Equal(t, int64(200), spec.Containers[0].Resources.Requests.Cpu().MilliValue())
 	assert.True(t, spec.Containers[0].Resources.Requests.Memory().Equal(resource.MustParse("256Mi")))
@@ -249,6 +249,257 @@ func TestApplyResourcesToPodSpec_RequestsOnlyKeepsLimitsAndNoOps(t *testing.T) {
 	require.NotNil(t, spec.InitContainers[0].Resources.Limits)
 	assert.Equal(t, int64(1000), spec.InitContainers[0].Resources.Limits.Cpu().MilliValue())
 	assert.True(t, spec.InitContainers[0].Resources.Limits.Memory().Equal(resource.MustParse("1Gi")))
+}
+
+func TestRaiseTemplateEnvelope_LiveRaisedOntoTemplate(t *testing.T) {
+	cpu200, err := resource.ParseQuantity("200m")
+	require.NoError(t, err)
+	cpu500, err := resource.ParseQuantity("500m")
+	require.NoError(t, err)
+	mem128, err := resource.ParseQuantity("128Mi")
+	require.NoError(t, err)
+	mem256, err := resource.ParseQuantity("256Mi")
+	require.NoError(t, err)
+
+	spec := &corev1.PodSpec{
+		Containers: []corev1.Container{{
+			Name: "app",
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    cpu500,
+					corev1.ResourceMemory: mem256,
+				},
+			},
+		}},
+	}
+	live := &corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    cpu200,
+			corev1.ResourceMemory: mem128,
+		},
+	}
+	assert.True(t, raiseTemplateEnvelope(spec, live))
+	require.NotNil(t, spec.Resources)
+	assert.True(t, spec.Resources.Requests[corev1.ResourceCPU].Equal(cpu500),
+		"live envelope should raise to cover container sum, got %s", spec.Resources.Requests.Cpu().String())
+	assert.True(t, spec.Resources.Requests[corev1.ResourceMemory].Equal(mem256))
+}
+
+func TestRaiseTemplateEnvelope_LiveNoneDoesNotInvent(t *testing.T) {
+	cpu500, err := resource.ParseQuantity("500m")
+	require.NoError(t, err)
+	mem256, err := resource.ParseQuantity("256Mi")
+	require.NoError(t, err)
+
+	spec := &corev1.PodSpec{
+		Containers: []corev1.Container{{
+			Name: "app",
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    cpu500,
+					corev1.ResourceMemory: mem256,
+				},
+			},
+		}},
+	}
+	assert.False(t, raiseTemplateEnvelope(spec, nil))
+	assert.Nil(t, spec.Resources, "must not invent a template envelope when live had none")
+}
+
+func TestApplyTemplatePersistence_LiveEnvelopeRaisedOntoTemplate(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
+
+	cpu200, err := resource.ParseQuantity("200m")
+	require.NoError(t, err)
+	cpu500, err := resource.ParseQuantity("500m")
+	require.NoError(t, err)
+	mem512, err := resource.ParseQuantity("512Mi")
+	require.NoError(t, err)
+	mem256, err := resource.ParseQuantity("256Mi")
+	require.NoError(t, err)
+
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "default"},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: int32Ptr(1),
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "api"}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "api"}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:  "app",
+						Image: "nginx",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    cpu200,
+								corev1.ResourceMemory: mem512,
+							},
+						},
+					}},
+				},
+			},
+		},
+		Status: appsv1.DeploymentStatus{Replicas: 1, UpdatedReplicas: 1, AvailableReplicas: 1},
+	}
+	live := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "api-0",
+			Namespace: "default",
+			Labels:    map[string]string{"app": "api"},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "app",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    cpu200,
+						corev1.ResourceMemory: mem512,
+					},
+				},
+			}},
+			Resources: &corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    cpu200,
+					corev1.ResourceMemory: mem256,
+				},
+			},
+		},
+	}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, live).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = cl
+	r.Scheme = scheme
+
+	policy := newTestPolicy("p", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeRecommend
+	policy.Spec.UpdateStrategy.TemplatePersistence = &attunev1alpha1.TemplatePersistence{
+		Enabled: boolPtr(true),
+		When:    attunev1alpha1.TemplatePersistenceOnRecommendation,
+	}
+
+	recs := []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "api",
+		Kind:     "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "app",
+			Current: attunev1alpha1.ResourceValues{
+				CPURequest:    cpu200,
+				MemoryRequest: mem512,
+			},
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest:    cpu500,
+				MemoryRequest: mem512,
+			},
+		}},
+	}}
+
+	history := r.applyTemplatePersistence(context.Background(), policy, []client.Object{deploy}, recs,
+		attunev1alpha1.TemplatePersistenceOnRecommendation, nil)
+	require.Len(t, history, 1)
+	assert.Equal(t, attunev1alpha1.ResizeResultTemplatePatched, history[0].Result)
+
+	var updated appsv1.Deployment
+	require.NoError(t, cl.Get(context.Background(), client.ObjectKeyFromObject(deploy), &updated))
+	assert.Equal(t, int64(500), updated.Spec.Template.Spec.Containers[0].Resources.Requests.Cpu().MilliValue())
+	require.NotNil(t, updated.Spec.Template.Spec.Resources, "live envelope must be raised onto the template")
+	assert.True(t, updated.Spec.Template.Spec.Resources.Requests[corev1.ResourceCPU].Equal(cpu500),
+		"template envelope cpu should cover 500m, got %s", updated.Spec.Template.Spec.Resources.Requests.Cpu().String())
+}
+
+func TestApplyTemplatePersistence_LiveNoneDoesNotInventEnvelope(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
+
+	cpu200, err := resource.ParseQuantity("200m")
+	require.NoError(t, err)
+	cpu500, err := resource.ParseQuantity("500m")
+	require.NoError(t, err)
+	mem512, err := resource.ParseQuantity("512Mi")
+	require.NoError(t, err)
+
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "default"},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: int32Ptr(1),
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "api"}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "api"}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:  "app",
+						Image: "nginx",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    cpu200,
+								corev1.ResourceMemory: mem512,
+							},
+						},
+					}},
+				},
+			},
+		},
+		Status: appsv1.DeploymentStatus{Replicas: 1, UpdatedReplicas: 1, AvailableReplicas: 1},
+	}
+	live := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "api-0",
+			Namespace: "default",
+			Labels:    map[string]string{"app": "api"},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "app",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    cpu200,
+						corev1.ResourceMemory: mem512,
+					},
+				},
+			}},
+		},
+	}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, live).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = cl
+	r.Scheme = scheme
+
+	policy := newTestPolicy("p", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeRecommend
+	policy.Spec.UpdateStrategy.TemplatePersistence = &attunev1alpha1.TemplatePersistence{
+		Enabled: boolPtr(true),
+		When:    attunev1alpha1.TemplatePersistenceOnRecommendation,
+	}
+
+	recs := []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "api",
+		Kind:     "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "app",
+			Current: attunev1alpha1.ResourceValues{
+				CPURequest:    cpu200,
+				MemoryRequest: mem512,
+			},
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest:    cpu500,
+				MemoryRequest: mem512,
+			},
+		}},
+	}}
+
+	history := r.applyTemplatePersistence(context.Background(), policy, []client.Object{deploy}, recs,
+		attunev1alpha1.TemplatePersistenceOnRecommendation, nil)
+	require.Len(t, history, 1)
+
+	var updated appsv1.Deployment
+	require.NoError(t, cl.Get(context.Background(), client.ObjectKeyFromObject(deploy), &updated))
+	assert.Equal(t, int64(500), updated.Spec.Template.Spec.Containers[0].Resources.Requests.Cpu().MilliValue())
+	assert.Nil(t, updated.Spec.Template.Spec.Resources,
+		"must not invent a template envelope when the live pod had none")
 }
 
 func TestApplyResourcesToPodSpec_RequestsOnlyUpdatesRequestsKeepsLimits(t *testing.T) {
@@ -276,7 +527,7 @@ func TestApplyResourcesToPodSpec_RequestsOnlyUpdatesRequestsKeepsLimits(t *testi
 		},
 	}
 
-	assert.True(t, applyResourcesToPodSpec(spec, desired, false))
+	assert.True(t, applyResourcesToPodSpec(spec, desired, false, nil))
 	assert.Equal(t, int64(200), spec.Containers[0].Resources.Requests.Cpu().MilliValue())
 	assert.True(t, spec.Containers[0].Resources.Requests.Memory().Equal(resource.MustParse("256Mi")))
 	require.NotNil(t, spec.Containers[0].Resources.Limits)

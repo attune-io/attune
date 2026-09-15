@@ -65,6 +65,59 @@ func EvaluateEnvelope(in EnvelopeInput) EnvelopeDecision {
 	return EnvelopeDecision{Raised: raised}
 }
 
+// DecideCreateEnvelope chooses raise vs keep-original after CREATE container
+// mutations. Skip means the admission handler must not apply the mutation:
+// RequestsOnly plus Burstable would lift a user limit, and the mutated
+// containers no longer fit the original envelope.
+func DecideCreateEnvelope(pod *corev1.Pod, requestsOnlyCPU, requestsOnlyMem bool) EnvelopeDecision {
+	if pod == nil || pod.Spec.Resources == nil {
+		return EnvelopeDecision{}
+	}
+	raised := RaiseToCover(pod)
+	probe := pod
+	if pod.Status.QOSClass == "" {
+		inferred := pod.DeepCopy()
+		if envelopeIsGuaranteed(pod.Spec.Resources) {
+			inferred.Status.QOSClass = corev1.PodQOSGuaranteed
+		} else {
+			inferred.Status.QOSClass = corev1.PodQOSBurstable
+		}
+		probe = inferred
+	}
+	if requestsOnlyBurstableWouldLiftLimit(EnvelopeInput{
+		Pod:             probe,
+		RequestsOnlyCPU: requestsOnlyCPU,
+		RequestsOnlyMem: requestsOnlyMem,
+	}, raised) {
+		if containersExceedEnvelope(pod, pod.Spec.Resources) {
+			return EnvelopeDecision{Skip: true, Reason: ReasonEnvelopeConstraint}
+		}
+		return EnvelopeDecision{}
+	}
+	return EnvelopeDecision{Raised: raised}
+}
+
+func containersExceedEnvelope(pod *corev1.Pod, env *corev1.ResourceRequirements) bool {
+	if pod == nil || env == nil {
+		return false
+	}
+	for _, res := range []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory} {
+		sumReq := sumContainerRequests(pod, res)
+		if envReq, ok := envelopeQuantity(env.Requests, res); ok && sumReq.Cmp(envReq) > 0 {
+			return true
+		}
+		if envLim, ok := envelopeQuantity(env.Limits, res); ok && sumReq.Cmp(envLim) > 0 {
+			return true
+		}
+		if maxCL, ok := maxContainerLimit(pod, res); ok {
+			if envLim, has := envelopeQuantity(env.Limits, res); has && maxCL.Cmp(envLim) > 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // RaiseToCover returns a copy of pod.Spec.Resources whose requests cover the
 // sum of container requests and whose existing limits cover the max of the
 // current limit, the needed request, and the max single container limit.

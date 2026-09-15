@@ -1353,6 +1353,125 @@ func TestPodMutatingHandler_CreateSizesWhenOwnerReplicasZero(t *testing.T) {
 	require.NotEmpty(t, resp.Patches, "CREATE must size when the owner Deployment has spec.replicas=0")
 }
 
+func mustQty(t *testing.T, s string) resource.Quantity {
+	t.Helper()
+	q, err := resource.ParseQuantity(s)
+	require.NoError(t, err)
+	return q
+}
+
+func withCreateEnvelope(t *testing.T, pod *corev1.Pod, cpuReq, memReq, cpuLim, memLim string) *corev1.Pod {
+	t.Helper()
+	env := &corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    mustQty(t, cpuReq),
+			corev1.ResourceMemory: mustQty(t, memReq),
+		},
+	}
+	if cpuLim != "" || memLim != "" {
+		env.Limits = corev1.ResourceList{}
+		if cpuLim != "" {
+			env.Limits[corev1.ResourceCPU] = mustQty(t, cpuLim)
+		}
+		if memLim != "" {
+			env.Limits[corev1.ResourceMemory] = mustQty(t, memLim)
+		}
+	}
+	pod.Spec.Resources = env
+	return pod
+}
+
+func TestPodMutatingHandler_CreateRaisesEnvelopeToCoverSum(t *testing.T) {
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
+	pod := withCreateEnvelope(t, testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc"),
+		"200m", "128Mi", "", "")
+
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, testNamespace("default", nil)).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	req := makeAdmissionRequest(t, pod, "default")
+	resp := handler.Handle(context.Background(), req)
+	require.True(t, resp.Allowed)
+	require.NotEmpty(t, resp.Patches)
+
+	mutated := patchedPod(t, req.Object.Raw, resp)
+	require.NotNil(t, mutated.Spec.Resources)
+	assert.True(t, mutated.Spec.Resources.Requests[corev1.ResourceCPU].Equal(mustQty(t, "500m")),
+		"envelope cpu request should cover container sum, got %s", mutated.Spec.Resources.Requests.Cpu().String())
+	assert.True(t, mutated.Spec.Resources.Requests[corev1.ResourceMemory].Equal(mustQty(t, "256Mi")),
+		"envelope memory request should cover container sum, got %s", mutated.Spec.Resources.Requests.Memory().String())
+	assert.True(t, mutated.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU].Equal(mustQty(t, "500m")))
+}
+
+func TestPodMutatingHandler_CreateNilEnvelopeStaysNil(t *testing.T) {
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
+	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
+	require.Nil(t, pod.Spec.Resources)
+
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, testNamespace("default", nil)).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	req := makeAdmissionRequest(t, pod, "default")
+	resp := handler.Handle(context.Background(), req)
+	require.True(t, resp.Allowed)
+	require.NotEmpty(t, resp.Patches)
+
+	mutated := patchedPod(t, req.Object.Raw, resp)
+	assert.Nil(t, mutated.Spec.Resources, "CREATE must not invent spec.resources")
+	assert.True(t, mutated.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU].Equal(mustQty(t, "500m")))
+}
+
+func TestPodMutatingHandler_CreateRequestsOnlyBurstableDoesNotLiftLimit(t *testing.T) {
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
+	only := attunev1alpha1.ControlledRequestsOnly
+	policy.Spec.CPU.ControlledValues = &only
+	pod := withCreateEnvelope(t, testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc"),
+		"200m", "128Mi", "300m", "256Mi")
+	pod.Status.QOSClass = corev1.PodQOSBurstable
+
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, testNamespace("default", nil)).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	req := makeAdmissionRequest(t, pod, "default")
+	resp := handler.Handle(context.Background(), req)
+	require.True(t, resp.Allowed)
+
+	if len(resp.Patches) == 0 {
+		require.NotNil(t, pod.Spec.Resources)
+		assert.True(t, pod.Spec.Resources.Limits[corev1.ResourceCPU].Equal(mustQty(t, "300m")),
+			"skip must leave the original envelope limit")
+		return
+	}
+	mutated := patchedPod(t, req.Object.Raw, resp)
+	require.NotNil(t, mutated.Spec.Resources)
+	require.NotNil(t, mutated.Spec.Resources.Limits)
+	assert.True(t, mutated.Spec.Resources.Limits[corev1.ResourceCPU].Equal(mustQty(t, "300m")),
+		"RequestsOnly+Burstable must not lift envelope cpu limit, got %s",
+		mutated.Spec.Resources.Limits.Cpu().String())
+}
+
+func TestPodMutatingHandler_CreateRaisesEnvelopeWhenOwnerReplicasZero(t *testing.T) {
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
+	zero := int32(0)
+	deploy := testDeployment("my-app", "default", map[string]string{"app": "my-app"})
+	deploy.Spec.Replicas = &zero
+	pod := withCreateEnvelope(t, testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc"),
+		"200m", "128Mi", "", "")
+
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, deploy, testNamespace("default", nil)).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	req := makeAdmissionRequest(t, pod, "default")
+	resp := handler.Handle(context.Background(), req)
+	require.True(t, resp.Allowed)
+	require.NotEmpty(t, resp.Patches, "CREATE must size when the owner Deployment has spec.replicas=0")
+
+	mutated := patchedPod(t, req.Object.Raw, resp)
+	require.NotNil(t, mutated.Spec.Resources)
+	assert.True(t, mutated.Spec.Resources.Requests[corev1.ResourceCPU].Equal(mustQty(t, "500m")))
+	assert.True(t, mutated.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU].Equal(mustQty(t, "500m")))
+}
+
 func TestPodMutatingHandler_CanaryMode_SkipsUntilPromoted(t *testing.T) {
 	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeCanary)
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")

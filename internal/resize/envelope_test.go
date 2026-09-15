@@ -441,3 +441,72 @@ func TestRaiseToCover_DoesNotMutateInput(t *testing.T) {
 func TestEnvelopeDecisionReasonConstant(t *testing.T) {
 	assert.Equal(t, "envelope_constraint", ReasonEnvelopeConstraint)
 }
+
+func TestDecideCreateEnvelope(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil envelope is not invented", func(t *testing.T) {
+		t.Parallel()
+		pod := newTestPod("web-0", "default", "app", "500m", "256Mi", "1", "1Gi")
+		got := DecideCreateEnvelope(pod, true, true)
+		assert.False(t, got.Skip)
+		assert.Nil(t, got.Raised)
+		assert.Nil(t, pod.Spec.Resources)
+	})
+
+	t.Run("raises requests to cover container sum", func(t *testing.T) {
+		t.Parallel()
+		pod := envelopePod("500m", "256Mi", "1", "1Gi", &corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("200m"),
+				corev1.ResourceMemory: resource.MustParse("128Mi"),
+			},
+		})
+		got := DecideCreateEnvelope(pod, true, true)
+		require.False(t, got.Skip)
+		require.NotNil(t, got.Raised)
+		assert.True(t, got.Raised.Requests.Cpu().Equal(qty(t, "500m")),
+			"want 500m got %s", got.Raised.Requests.Cpu().String())
+	})
+
+	t.Run("RequestsOnly Burstable skip when raise would lift limit", func(t *testing.T) {
+		t.Parallel()
+		pod := envelopePod("500m", "256Mi", "500m", "256Mi", &corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("200m"),
+				corev1.ResourceMemory: resource.MustParse("128Mi"),
+			},
+			Limits: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("300m"),
+				corev1.ResourceMemory: resource.MustParse("256Mi"),
+			},
+		})
+		pod.Spec.Containers[0].Resources.Limits = nil
+		got := DecideCreateEnvelope(pod, true, true)
+		assert.True(t, got.Skip)
+		assert.Equal(t, ReasonEnvelopeConstraint, got.Reason)
+		assert.Nil(t, got.Raised)
+	})
+
+	t.Run("RequestsOnly Burstable raises requests without lifting limit", func(t *testing.T) {
+		t.Parallel()
+		pod := envelopePod("250m", "128Mi", "250m", "128Mi", &corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("200m"),
+				corev1.ResourceMemory: resource.MustParse("256Mi"),
+			},
+			Limits: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("300m"),
+				corev1.ResourceMemory: resource.MustParse("256Mi"),
+			},
+		})
+		pod.Spec.Containers[0].Resources.Limits = nil
+		got := DecideCreateEnvelope(pod, true, true)
+		require.False(t, got.Skip)
+		require.NotNil(t, got.Raised)
+		assert.True(t, got.Raised.Requests.Cpu().Equal(qty(t, "250m")),
+			"want 250m got %s", got.Raised.Requests.Cpu().String())
+		assert.True(t, got.Raised.Limits.Cpu().Equal(qty(t, "300m")),
+			"must not lift the 300m user cap, got %s", got.Raised.Limits.Cpu().String())
+	})
+}

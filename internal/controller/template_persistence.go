@@ -278,7 +278,8 @@ func (r *AttunePolicyReconciler) restoreTemplateAfterSafetyRevert(
 	desired := map[string]corev1.ResourceRequirements{
 		record.Container: record.OriginalResources,
 	}
-	changed, err := r.patchWorkloadTemplateResources(ctx, workload, desired, true)
+	changed, err := r.patchWorkloadTemplateResources(ctx, workload, desired, true,
+		r.liveWorkloadEnvelope(ctx, workload))
 	if err != nil {
 		return fmt.Errorf("restoring template after safety revert for %s/%s: %w",
 			record.WorkloadName, record.Container, err)
@@ -411,7 +412,8 @@ func (r *AttunePolicyReconciler) applyTemplatePersistence(
 			continue
 		}
 
-		changed, err := r.patchWorkloadTemplateResources(ctx, w, desired, false)
+		changed, err := r.patchWorkloadTemplateResources(ctx, w, desired, false,
+			r.liveWorkloadEnvelope(ctx, w))
 		if err != nil {
 			logger.Error(err, "Failed to patch workload template",
 				"workload", rec.Workload, "kind", kind)
@@ -463,6 +465,7 @@ func (r *AttunePolicyReconciler) patchWorkloadTemplateResources(
 	workload client.Object,
 	desired map[string]corev1.ResourceRequirements,
 	replace bool,
+	liveEnvelope *corev1.ResourceRequirements,
 ) (bool, error) {
 	var changed bool
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
@@ -477,7 +480,7 @@ func (r *AttunePolicyReconciler) patchWorkloadTemplateResources(
 				return err
 			}
 			original := deploy.DeepCopy()
-			if !applyResourcesToPodSpec(&deploy.Spec.Template.Spec, desired, replace) {
+			if !applyResourcesToPodSpec(&deploy.Spec.Template.Spec, desired, replace, liveEnvelope) {
 				return nil
 			}
 			changed = true
@@ -488,7 +491,7 @@ func (r *AttunePolicyReconciler) patchWorkloadTemplateResources(
 				return err
 			}
 			original := sts.DeepCopy()
-			if !applyResourcesToPodSpec(&sts.Spec.Template.Spec, desired, replace) {
+			if !applyResourcesToPodSpec(&sts.Spec.Template.Spec, desired, replace, liveEnvelope) {
 				return nil
 			}
 			changed = true
@@ -502,8 +505,9 @@ func (r *AttunePolicyReconciler) patchWorkloadTemplateResources(
 
 // applyResourcesToPodSpec sets resources on matching containers and native sidecars.
 // replace=true restores CPU/memory from want (extended keys stay);
-// replace=false merges (persist). Returns true if any container was modified.
-func applyResourcesToPodSpec(spec *corev1.PodSpec, desired map[string]corev1.ResourceRequirements, replace bool) bool {
+// replace=false merges (persist). Returns true if any container was modified
+// or the pod-level envelope was raised.
+func applyResourcesToPodSpec(spec *corev1.PodSpec, desired map[string]corev1.ResourceRequirements, replace bool, liveEnvelope *corev1.ResourceRequirements) bool {
 	modified := false
 	for i := range spec.Containers {
 		c := &spec.Containers[i]
@@ -528,7 +532,57 @@ func applyResourcesToPodSpec(spec *corev1.PodSpec, desired map[string]corev1.Res
 			modified = true
 		}
 	}
+	if raiseTemplateEnvelope(spec, liveEnvelope) {
+		modified = true
+	}
 	return modified
+}
+
+// raiseTemplateEnvelope raises spec.Resources to cover container requests
+// after persist mutations. It never invents an envelope: if both the
+// template and the live pod have none, spec.Resources stays nil. Prefer
+// the template envelope when present; otherwise copy the live envelope
+// onto a temporary pod and reuse RaiseToCover.
+func raiseTemplateEnvelope(spec *corev1.PodSpec, live *corev1.ResourceRequirements) bool {
+	if spec == nil {
+		return false
+	}
+	seed := spec.Resources
+	if seed == nil {
+		seed = live
+	}
+	if seed == nil {
+		return false
+	}
+	tmp := &corev1.Pod{Spec: *spec}
+	tmp.Spec.Resources = seed.DeepCopy()
+	raised := resize.RaiseToCover(tmp)
+	if raised == nil {
+		return false
+	}
+	if spec.Resources != nil && resourcesEqual(*spec.Resources, *raised) {
+		return false
+	}
+	spec.Resources = raised
+	return true
+}
+
+// liveWorkloadEnvelope returns the first non-nil spec.resources from a
+// live pod of this workload. Nil means do not invent a template envelope.
+func (r *AttunePolicyReconciler) liveWorkloadEnvelope(ctx context.Context, w client.Object) *corev1.ResourceRequirements {
+	if r == nil || w == nil {
+		return nil
+	}
+	pods, err := r.getPodsForWorkload(ctx, w)
+	if err != nil {
+		return nil
+	}
+	for i := range pods {
+		if pods[i].Spec.Resources != nil {
+			return pods[i].Spec.Resources.DeepCopy()
+		}
+	}
+	return nil
 }
 
 // applyContainerResources writes want onto a container. Persist merges so
