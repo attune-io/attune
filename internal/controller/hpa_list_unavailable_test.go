@@ -49,7 +49,8 @@ type hpaListEventRecorder struct {
 }
 
 func (c *hpaListEventRecorder) Eventf(_, _ runtime.Object, _, reason, _, note string, args ...interface{}) {
-	if reason != attunev1alpha1.ReasonHPAListUnavailable {
+	if reason != attunev1alpha1.ReasonHPAListUnavailable &&
+		reason != attunev1alpha1.ReasonVPAListUnavailable {
 		return
 	}
 	if c.reason != nil {

@@ -228,6 +228,10 @@ holds the live pod request when pods are listed, otherwise the last rec
 or template request. A cpu-only target no longer feeds `0` into the
 memory engine, and does not reset live memory back to the template.
 
+A VPA list error (RBAC or apiserver) no longer looks like "no VPA CRD".
+Apply is skipped (`ResizeBlocked=VPAListUnavailable`) so an applying VPA
+is not treated as absent. A missing CRD still skips the conflict check.
+
 ### GitOps labels fail-closed
 
 If `export.pullRequest.labels` is set and the forge rejects the labels

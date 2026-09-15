@@ -273,6 +273,11 @@ type workloadProcessingResult struct {
 	seriesCapped      bool
 	listPoliciesErr   error
 	hpaListErr        error
+	vpaListErr        error
+}
+
+func (r workloadProcessingResult) applyListsOK() bool {
+	return r.hpaListErr == nil && r.vpaListErr == nil
 }
 
 // deleteGaugeKeys removes recommendation gauge values for the given keys.
@@ -508,7 +513,7 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		policy.Spec.UpdateStrategy.Type != attunev1alpha1.UpdateTypeObserve &&
 		len(recommendations) > 0 &&
 		r.applyNotFrozen(ctx, policy.Namespace, &applyFrozen, &freezeErr) &&
-		wpResult.hpaListErr == nil {
+		wpResult.applyListsOK() {
 		tplHistory := r.applyTemplatePersistence(ctx, &policy, workloads, recommendations,
 			attunev1alpha1.TemplatePersistenceOnRecommendation, nil)
 		if len(tplHistory) > 0 {
@@ -549,7 +554,7 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	var preChecks *resizePreChecks
 	if needPods {
 		preChecks = r.buildResizePreChecks(ctx, &policy)
-		if preChecks != nil && wpResult.hpaListErr == nil {
+		if preChecks != nil && wpResult.applyListsOK() {
 			preChecks.hpas = wpResult.hpaList.Items
 			preChecks.hpasKnown = true
 		}
@@ -561,7 +566,7 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// skip resize. Do not abort mid-PromQL.
 	if isResizeMode(mode) && !allCooling && withinWindow &&
 		r.applyNotFrozen(ctx, policy.Namespace, &applyFrozen, &freezeErr) &&
-		wpResult.hpaListErr == nil {
+		wpResult.applyListsOK() {
 		resizedCount, history := r.executeResizes(ctx, &policy, workloads, recommendations, podsByWorkload, collector, preChecks)
 		newResizedCount = resizedCount
 		cycleResizeHistory = history
@@ -583,7 +588,7 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		templatePersistenceWhen(policy.Spec.UpdateStrategy) == attunev1alpha1.TemplatePersistenceAfterSuccessfulResize &&
 		len(recommendations) > 0 &&
 		r.applyNotFrozen(ctx, policy.Namespace, &applyFrozen, &freezeErr) &&
-		wpResult.hpaListErr == nil {
+		wpResult.applyListsOK() {
 		resizedWLs := laggingAfterResizeWorkloads(cycleResizeHistory, policy.Status.ResizeHistory)
 		if len(resizedWLs) > 0 {
 			// Status history already includes this-cycle executeResizes after
@@ -606,7 +611,7 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// modes must not modify pod resources.
 	if isResizeMode(mode) && policy.Spec.CPU.StartupBoost != nil && r.Clientset != nil && len(recommendations) > 0 &&
 		r.applyNotFrozen(ctx, policy.Namespace, &applyFrozen, &freezeErr) &&
-		wpResult.hpaListErr == nil {
+		wpResult.applyListsOK() {
 		resizer := resize.NewPodResizer(r.Clientset, logger)
 		resizer.AllowInPlaceMemoryLimitDecrease = r.AllowInPlaceMemoryLimitDecrease
 		resizer.InPlacePodLevelResources = r.inPlacePodLevelResources()
@@ -690,9 +695,12 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		r.markNamespaceFrozen(&policy, freezeErr)
 	} else if wpResult.hpaListErr != nil {
 		r.markHPAListUnavailable(&policy)
+	} else if wpResult.vpaListErr != nil {
+		r.markVPAListUnavailable(&policy)
 	} else {
 		r.clearNamespaceFrozen(&policy)
 		r.clearHPAListUnavailable(&policy)
+		r.clearVPAListUnavailable(&policy)
 	}
 
 	// Set Ready condition (surface series cap as degraded data quality note).
@@ -977,6 +985,25 @@ func (r *AttunePolicyReconciler) clearHPAListUnavailable(policy *attunev1alpha1.
 	}
 }
 
+func (r *AttunePolicyReconciler) markVPAListUnavailable(policy *attunev1alpha1.AttunePolicy) {
+	msg := "cannot list VerticalPodAutoscalers; new apply skipped (check verticalpodautoscalers list/watch RBAC)"
+	r.emitEventOnce(policy, corev1.EventTypeWarning, attunev1alpha1.ReasonVPAListUnavailable, "resize", "%s", msg)
+	meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
+		Type:               attunev1alpha1.ConditionResizeBlocked,
+		Status:             metav1.ConditionTrue,
+		Reason:             attunev1alpha1.ReasonVPAListUnavailable,
+		Message:            msg,
+		ObservedGeneration: policy.Generation,
+	})
+}
+
+func (r *AttunePolicyReconciler) clearVPAListUnavailable(policy *attunev1alpha1.AttunePolicy) {
+	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionResizeBlocked)
+	if cond != nil && cond.Reason == attunev1alpha1.ReasonVPAListUnavailable {
+		meta.RemoveStatusCondition(&policy.Status.Conditions, attunev1alpha1.ConditionResizeBlocked)
+	}
+}
+
 // processWorkloads processes discovered workloads in parallel, checking for
 // conflicts and opt-outs, computing recommendations, and returning the
 // aggregated results. Workloads are processed by a bounded worker pool
@@ -1005,7 +1032,12 @@ func (r *AttunePolicyReconciler) processWorkloads(
 		operatormetrics.ReconcileErrorsTotal.WithLabelValues("list_hpas").Inc()
 		result.hpaListErr = err
 	}
-	vpaList := conflictDetector.ListVPAs(ctx, r.Client, policy.Namespace)
+	vpaList, vpaErr := conflictDetector.ListVPAs(ctx, r.Client, policy.Namespace)
+	if vpaErr != nil {
+		logger.Error(vpaErr, "Failed to list VPAs for conflict detection")
+		operatormetrics.ReconcileErrorsTotal.WithLabelValues("list_vpas").Inc()
+		result.vpaListErr = vpaErr
+	}
 	policyList, err := conflictDetector.ListPolicies(ctx, r.Client, policy.Namespace)
 	if err != nil {
 		logger.Error(err, "Failed to list AttunePolicies for conflict detection")

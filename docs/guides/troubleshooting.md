@@ -371,6 +371,26 @@ Recommendations still compute.
 2. Check API server health and operator logs for the list error.
 3. Watch `attune_reconcile_errors_total{error_type="list_hpas"}`.
 
+### VPAListUnavailable
+
+**Symptom**: ResizeBlocked is `True` with reason `VPAListUnavailable`. Ready
+stays `Monitoring`. Events say `cannot list VerticalPodAutoscalers; new
+apply skipped (check verticalpodautoscalers list/watch RBAC)`.
+Recommendations still appear in status. No in-place resizes, template
+persistence, startup boosts, or CREATE initial sizing run that cycle.
+
+**Cause**: The operator could not list `VerticalPodAutoscaler` objects in
+the policy namespace (missing RBAC `list`/`watch`, or an apiserver error).
+A missing VPA CRD is not this reason. Apply is skipped so an applying VPA
+is not treated as absent.
+
+**Fix**:
+
+1. Confirm the operator ServiceAccount can `list` and `watch`
+   `verticalpodautoscalers` in the policy namespace (or cluster-wide).
+2. Check API server health and operator logs for the list error.
+3. Watch `attune_reconcile_errors_total{error_type="list_vpas"}`.
+
 ### Template persist skipped after a pod list error
 
 **Symptom**: Operator logs `Failed to list pods for live envelope; skipping

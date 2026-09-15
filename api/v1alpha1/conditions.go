@@ -70,7 +70,11 @@ const (
 	ReasonNamespaceFrozen = "NamespaceFrozen"
 	// ReasonHPAListUnavailable is set when listing HorizontalPodAutoscalers
 	// fails (RBAC or apiserver). Apply is skipped; recommendations still compute.
-	ReasonHPAListUnavailable        = "HPAListUnavailable"
+	ReasonHPAListUnavailable = "HPAListUnavailable"
+	// ReasonVPAListUnavailable is set when listing VerticalPodAutoscalers
+	// fails (RBAC or apiserver). Missing CRD is not this reason (no VPA
+	// objects). Apply is skipped so an applying VPA is not treated as absent.
+	ReasonVPAListUnavailable        = "VPAListUnavailable"
 	ReasonPodsDeferred              = "PodsDeferred"
 	ReasonPodsInfeasible            = "PodsInfeasible"
 	ReasonPodsDeferredAndInfeasible = "PodsDeferredAndInfeasible"
