@@ -272,6 +272,7 @@ type workloadProcessingResult struct {
 	hpaList           autoscalingv2.HorizontalPodAutoscalerList
 	seriesCapped      bool
 	listPoliciesErr   error
+	hpaListErr        error
 }
 
 // deleteGaugeKeys removes recommendation gauge values for the given keys.
@@ -506,7 +507,8 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		templatePersistenceWhen(policy.Spec.UpdateStrategy) == attunev1alpha1.TemplatePersistenceOnRecommendation &&
 		policy.Spec.UpdateStrategy.Type != attunev1alpha1.UpdateTypeObserve &&
 		len(recommendations) > 0 &&
-		r.applyNotFrozen(ctx, policy.Namespace, &applyFrozen, &freezeErr) {
+		r.applyNotFrozen(ctx, policy.Namespace, &applyFrozen, &freezeErr) &&
+		wpResult.hpaListErr == nil {
 		tplHistory := r.applyTemplatePersistence(ctx, &policy, workloads, recommendations,
 			attunev1alpha1.TemplatePersistenceOnRecommendation, nil)
 		if len(tplHistory) > 0 {
@@ -547,6 +549,10 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	var preChecks *resizePreChecks
 	if needPods {
 		preChecks = r.buildResizePreChecks(ctx, &policy)
+		if preChecks != nil && wpResult.hpaListErr == nil {
+			preChecks.hpas = wpResult.hpaList.Items
+			preChecks.hpasKnown = true
+		}
 	}
 
 	var cycleResizeHistory []attunev1alpha1.ResizeHistoryEntry
@@ -554,7 +560,8 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// until prometheusTimeout; a freeze set during that window must still
 	// skip resize. Do not abort mid-PromQL.
 	if isResizeMode(mode) && !allCooling && withinWindow &&
-		r.applyNotFrozen(ctx, policy.Namespace, &applyFrozen, &freezeErr) {
+		r.applyNotFrozen(ctx, policy.Namespace, &applyFrozen, &freezeErr) &&
+		wpResult.hpaListErr == nil {
 		resizedCount, history := r.executeResizes(ctx, &policy, workloads, recommendations, podsByWorkload, collector, preChecks)
 		newResizedCount = resizedCount
 		cycleResizeHistory = history
@@ -575,7 +582,8 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	if templatePersistenceEnabled(policy.Spec.UpdateStrategy) &&
 		templatePersistenceWhen(policy.Spec.UpdateStrategy) == attunev1alpha1.TemplatePersistenceAfterSuccessfulResize &&
 		len(recommendations) > 0 &&
-		r.applyNotFrozen(ctx, policy.Namespace, &applyFrozen, &freezeErr) {
+		r.applyNotFrozen(ctx, policy.Namespace, &applyFrozen, &freezeErr) &&
+		wpResult.hpaListErr == nil {
 		resizedWLs := laggingAfterResizeWorkloads(cycleResizeHistory, policy.Status.ResizeHistory)
 		if len(resizedWLs) > 0 {
 			// Status history already includes this-cycle executeResizes after
@@ -597,7 +605,8 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// Only in resize modes (Auto, OneShot, Canary); Observe and Recommend
 	// modes must not modify pod resources.
 	if isResizeMode(mode) && policy.Spec.CPU.StartupBoost != nil && r.Clientset != nil && len(recommendations) > 0 &&
-		r.applyNotFrozen(ctx, policy.Namespace, &applyFrozen, &freezeErr) {
+		r.applyNotFrozen(ctx, policy.Namespace, &applyFrozen, &freezeErr) &&
+		wpResult.hpaListErr == nil {
 		resizer := resize.NewPodResizer(r.Clientset, logger)
 		resizer.AllowInPlaceMemoryLimitDecrease = r.AllowInPlaceMemoryLimitDecrease
 		resizer.InPlacePodLevelResources = r.inPlacePodLevelResources()
@@ -679,8 +688,11 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	if applyFrozen {
 		r.markNamespaceFrozen(&policy, freezeErr)
+	} else if wpResult.hpaListErr != nil {
+		r.markHPAListUnavailable(&policy)
 	} else {
 		r.clearNamespaceFrozen(&policy)
+		r.clearHPAListUnavailable(&policy)
 	}
 
 	// Set Ready condition (surface series cap as degraded data quality note).
@@ -942,6 +954,29 @@ func (r *AttunePolicyReconciler) clearNamespaceFrozen(policy *attunev1alpha1.Att
 	}
 }
 
+// markHPAListUnavailable records ResizeBlocked=HPAListUnavailable and emits a
+// single Warning. Recommendations remain in status; only apply is skipped.
+func (r *AttunePolicyReconciler) markHPAListUnavailable(policy *attunev1alpha1.AttunePolicy) {
+	msg := "cannot list HorizontalPodAutoscalers; new apply skipped (check horizontalpodautoscalers list/watch RBAC)"
+	r.emitEventOnce(policy, corev1.EventTypeWarning, attunev1alpha1.ReasonHPAListUnavailable, "resize", "%s", msg)
+	meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
+		Type:               attunev1alpha1.ConditionResizeBlocked,
+		Status:             metav1.ConditionTrue,
+		Reason:             attunev1alpha1.ReasonHPAListUnavailable,
+		Message:            msg,
+		ObservedGeneration: policy.Generation,
+	})
+}
+
+// clearHPAListUnavailable drops ResizeBlocked only when it was set for an
+// HPA list failure. Deferred, Infeasible, and NamespaceFrozen stay.
+func (r *AttunePolicyReconciler) clearHPAListUnavailable(policy *attunev1alpha1.AttunePolicy) {
+	cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionResizeBlocked)
+	if cond != nil && cond.Reason == attunev1alpha1.ReasonHPAListUnavailable {
+		meta.RemoveStatusCondition(&policy.Status.Conditions, attunev1alpha1.ConditionResizeBlocked)
+	}
+}
+
 // processWorkloads processes discovered workloads in parallel, checking for
 // conflicts and opt-outs, computing recommendations, and returning the
 // aggregated results. Workloads are processed by a bounded worker pool
@@ -967,6 +1002,8 @@ func (r *AttunePolicyReconciler) processWorkloads(
 	// without a redundant API call.
 	if err := r.List(ctx, &result.hpaList, client.InNamespace(policy.Namespace)); err != nil {
 		logger.Error(err, "Failed to list HPAs for conflict detection")
+		operatormetrics.ReconcileErrorsTotal.WithLabelValues("list_hpas").Inc()
+		result.hpaListErr = err
 	}
 	vpaList := conflictDetector.ListVPAs(ctx, r.Client, policy.Namespace)
 	policyList, err := conflictDetector.ListPolicies(ctx, r.Client, policy.Namespace)
@@ -1010,11 +1047,9 @@ func (r *AttunePolicyReconciler) processWorkloads(
 					Error:    fmt.Sprintf("VPA read error: %v", vpaErr),
 				})
 			}
-			return result
-		}
-		if len(vpaRecs) == 0 {
+			vpaRecs = nil
+		} else if len(vpaRecs) == 0 {
 			logger.Info("VPA has no recommendations yet", "vpa", vpaCfg.Name, "namespace", vpaNS)
-			return result
 		}
 	}
 

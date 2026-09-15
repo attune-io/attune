@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
@@ -661,4 +662,130 @@ func TestReconcile_VPASource_EmptyRecommendations(t *testing.T) {
 	// Empty VPA recommendations = no workload recommendations.
 	assert.Empty(t, updated.Status.Recommendations)
 	assert.Equal(t, int32(0), updated.Status.Workloads.WithRecommendations)
+}
+
+func TestReconcile_VPASource_KeepsStaleWhenVPAEmptyOrMissing(t *testing.T) {
+	now := time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)
+	priorData := metav1.NewTime(now.Add(-time.Minute))
+	cpuRec, err := resource.ParseQuantity("250m")
+	require.NoError(t, err)
+	memRec, err := resource.ParseQuantity("256Mi")
+	require.NoError(t, err)
+
+	tests := []struct {
+		name     string
+		vpaName  string
+		vpa      *unstructured.Unstructured
+		wantErrs bool
+	}{
+		{
+			name:     "VPA 404",
+			vpaName:  "missing-vpa",
+			wantErrs: true,
+		},
+		{
+			name:    "empty recommendations",
+			vpaName: "empty-vpa",
+			vpa:     newVPAUnstructured("empty-vpa", "default", nil),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			policy := newVPAPolicy("vpa-policy", "default", tt.vpaName)
+			policy.Status.Recommendations = []attunev1alpha1.WorkloadRecommendation{{
+				Workload:     "api-server",
+				Kind:         "Deployment",
+				LastDataTime: &priorData,
+				Stale:        false,
+				Containers: []attunev1alpha1.ContainerRecommendation{{
+					Name: "main",
+					Recommended: attunev1alpha1.ResourceValues{
+						CPURequest:    cpuRec,
+						MemoryRequest: memRec,
+					},
+				}},
+			}}
+			deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+
+			objs := []client.Object{policy, deploy}
+			if tt.vpa != nil {
+				objs = append(objs, tt.vpa)
+			}
+
+			scheme := testScheme()
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(objs...).
+				WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
+				Build()
+
+			reconciler := NewAttunePolicyReconciler()
+			reconciler.Client = fakeClient
+			reconciler.Scheme = scheme
+			reconciler.SetNowFunc(func() time.Time { return now })
+
+			result, recErr := reconciler.Reconcile(context.Background(), ctrl.Request{
+				NamespacedName: types.NamespacedName{Name: "vpa-policy", Namespace: "default"},
+			})
+			require.NoError(t, recErr)
+			assert.Greater(t, result.RequeueAfter, time.Duration(0))
+
+			var updated attunev1alpha1.AttunePolicy
+			require.NoError(t, fakeClient.Get(context.Background(),
+				types.NamespacedName{Name: "vpa-policy", Namespace: "default"}, &updated))
+
+			require.Len(t, updated.Status.Recommendations, 1)
+			got := updated.Status.Recommendations[0]
+			assert.True(t, got.Stale, "prior rec must be kept as stale when VPA is empty or missing")
+			assert.Equal(t, "api-server", got.Workload)
+			require.NotNil(t, got.LastDataTime)
+			assert.True(t, got.LastDataTime.Equal(&priorData))
+			require.Len(t, got.Containers, 1)
+			assert.True(t, got.Containers[0].Recommended.CPURequest.Equal(cpuRec))
+			assert.True(t, got.Containers[0].Recommended.MemoryRequest.Equal(memRec))
+			if tt.wantErrs {
+				assert.NotEmpty(t, updated.Status.WorkloadErrors, "Get failure must still record a query error")
+			}
+		})
+	}
+}
+
+func TestReconcile_VPASource_CPUOnlyTarget(t *testing.T) {
+	policy := newVPAPolicy("vpa-policy", "default", "cpu-vpa")
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	vpa := newVPAUnstructured("cpu-vpa", "default", []map[string]interface{}{
+		{
+			"containerName": "main",
+			"target": map[string]interface{}{
+				"cpu": "250m",
+			},
+		},
+	})
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(policy, deploy, vpa).
+		WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
+		Build()
+
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = scheme
+
+	result, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "vpa-policy", Namespace: "default"},
+	})
+	require.NoError(t, err)
+	assert.Greater(t, result.RequeueAfter, time.Duration(0))
+
+	var updated attunev1alpha1.AttunePolicy
+	require.NoError(t, fakeClient.Get(context.Background(),
+		types.NamespacedName{Name: "vpa-policy", Namespace: "default"}, &updated))
+
+	require.Len(t, updated.Status.Recommendations, 1, "CPU-only VPA target must still write a recommendation")
+	require.Len(t, updated.Status.Recommendations[0].Containers, 1)
+	cRec := updated.Status.Recommendations[0].Containers[0]
+	assert.False(t, cRec.Recommended.CPURequest.IsZero(), "CPU-only VPA must write a CPU rec")
 }

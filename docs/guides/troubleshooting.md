@@ -351,6 +351,26 @@ kubectl annotate namespace <ns> attune.io/freeze-
 If the condition message says the namespace could not be read, check RBAC
 for `namespaces` get/list/watch on the operator ServiceAccount.
 
+### HPAListUnavailable
+
+**Symptom**: ResizeBlocked is `True` with reason `HPAListUnavailable`. Ready
+stays `Monitoring`. Events say `cannot list HorizontalPodAutoscalers; new
+apply skipped (check horizontalpodautoscalers list/watch RBAC)`.
+Recommendations still appear in status. No in-place resizes, template
+persistence, or startup boosts run that cycle.
+
+**Cause**: The operator could not list `HorizontalPodAutoscaler` objects in
+the policy namespace (missing RBAC `list`/`watch`, or an apiserver error).
+Apply is skipped so a ScaledToZero HPA is not treated as "no HPA" (active).
+Recommendations still compute.
+
+**Fix**:
+
+1. Confirm the operator ServiceAccount can `list` and `watch`
+   `horizontalpodautoscalers` in the policy namespace (or cluster-wide).
+2. Check API server health and operator logs for the list error.
+3. Watch `attune_reconcile_errors_total{error_type="list_hpas"}`.
+
 ### CooldownActive
 
 **Symptom**: The operator logs "Cooldown active, skipping resize" and no

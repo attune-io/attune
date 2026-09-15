@@ -80,15 +80,15 @@ func workloadSpecReplicas(obj client.Object) *int32 {
 	}
 }
 
-func listNamespaceHPAs(ctx context.Context, c client.Client, ns string) []autoscalingv2.HorizontalPodAutoscaler {
+func listNamespaceHPAs(ctx context.Context, c client.Client, ns string) ([]autoscalingv2.HorizontalPodAutoscaler, error) {
 	if c == nil {
-		return nil
+		return nil, nil
 	}
 	var list autoscalingv2.HorizontalPodAutoscalerList
 	if err := c.List(ctx, &list, client.InNamespace(ns)); err != nil {
-		return nil
+		return nil, err
 	}
-	return list.Items
+	return list.Items, nil
 }
 
 func matchingHPA(hpas []autoscalingv2.HorizontalPodAutoscaler, name, kind string) *autoscalingv2.HorizontalPodAutoscaler {

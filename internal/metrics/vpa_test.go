@@ -137,6 +137,48 @@ func TestReadVPARecommendations_MissingTarget(t *testing.T) {
 	assert.Nil(t, recs)
 }
 
+func TestReadVPARecommendations_CPUOnlyTarget(t *testing.T) {
+	vpa := newVPAObject("cpu-vpa", "default", []map[string]interface{}{
+		{
+			"containerName": "app",
+			"target": map[string]interface{}{
+				"cpu": "250m",
+			},
+		},
+	})
+	c := fake.NewClientBuilder().WithObjects(vpa).Build()
+
+	recs, err := ReadVPARecommendations(context.Background(), c, "cpu-vpa", "default")
+	require.NoError(t, err)
+	require.Len(t, recs, 1)
+	assert.Equal(t, "app", recs[0].ContainerName)
+	wantCPU, err := resource.ParseQuantity("250m")
+	require.NoError(t, err)
+	assert.True(t, recs[0].CPUTarget.Equal(wantCPU))
+	assert.True(t, recs[0].MemoryTarget.IsZero(), "omitted memory must be unset, not a parse error")
+}
+
+func TestReadVPARecommendations_MemoryOnlyTarget(t *testing.T) {
+	vpa := newVPAObject("mem-vpa", "default", []map[string]interface{}{
+		{
+			"containerName": "app",
+			"target": map[string]interface{}{
+				"memory": "512Mi",
+			},
+		},
+	})
+	c := fake.NewClientBuilder().WithObjects(vpa).Build()
+
+	recs, err := ReadVPARecommendations(context.Background(), c, "mem-vpa", "default")
+	require.NoError(t, err)
+	require.Len(t, recs, 1)
+	assert.Equal(t, "app", recs[0].ContainerName)
+	wantMem, err := resource.ParseQuantity("512Mi")
+	require.NoError(t, err)
+	assert.True(t, recs[0].MemoryTarget.Equal(wantMem))
+	assert.True(t, recs[0].CPUTarget.IsZero(), "omitted CPU must be unset, not a parse error")
+}
+
 func TestReadVPARecommendations_InvalidCPU(t *testing.T) {
 	vpa := newVPAObject("bad-cpu", "default", []map[string]interface{}{
 		{

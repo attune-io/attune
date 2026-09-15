@@ -326,7 +326,11 @@ func (r *AttunePolicyReconciler) applyTemplatePersistence(
 	for _, w := range workloads {
 		workloadMap[w.GetName()] = w
 	}
-	hpas := listNamespaceHPAs(ctx, r.Client, policy.Namespace)
+	hpas, err := listNamespaceHPAs(ctx, r.Client, policy.Namespace)
+	if err != nil {
+		logger.Error(err, "Failed to list HPAs; skipping template persistence")
+		return nil
+	}
 
 	var history []attunev1alpha1.ResizeHistoryEntry
 	now := metav1.NewTime(r.now())
