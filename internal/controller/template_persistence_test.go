@@ -411,6 +411,115 @@ func TestApplyTemplatePersistence_LiveEnvelopeRaisedOntoTemplate(t *testing.T) {
 		"template envelope cpu should cover 500m, got %s", updated.Spec.Template.Spec.Resources.Requests.Cpu().String())
 }
 
+func TestApplyTemplatePersistence_PodListErrorDoesNotDropLiveEnvelope(t *testing.T) {
+	scheme := testScheme()
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
+
+	cpu200, err := resource.ParseQuantity("200m")
+	require.NoError(t, err)
+	cpu500, err := resource.ParseQuantity("500m")
+	require.NoError(t, err)
+	mem512, err := resource.ParseQuantity("512Mi")
+	require.NoError(t, err)
+	mem256, err := resource.ParseQuantity("256Mi")
+	require.NoError(t, err)
+
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "default"},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: int32Ptr(1),
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "api"}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "api"}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:  "app",
+						Image: "nginx",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    cpu200,
+								corev1.ResourceMemory: mem512,
+							},
+						},
+					}},
+				},
+			},
+		},
+		Status: appsv1.DeploymentStatus{Replicas: 1, UpdatedReplicas: 1, AvailableReplicas: 1},
+	}
+	live := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "api-0",
+			Namespace: "default",
+			Labels:    map[string]string{"app": "api"},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "app",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    cpu200,
+						corev1.ResourceMemory: mem512,
+					},
+				},
+			}},
+			Resources: &corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    cpu200,
+					corev1.ResourceMemory: mem256,
+				},
+			},
+		},
+	}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, live).
+		WithInterceptorFuncs(interceptor.Funcs{
+			List: func(ctx context.Context, cw client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+				if _, ok := list.(*corev1.PodList); ok {
+					return fmt.Errorf("simulated pod list failure")
+				}
+				return cw.List(ctx, list, opts...)
+			},
+		}).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = cl
+	r.Scheme = scheme
+
+	policy := newTestPolicy("p", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeRecommend
+	policy.Spec.UpdateStrategy.TemplatePersistence = &attunev1alpha1.TemplatePersistence{
+		Enabled: boolPtr(true),
+		When:    attunev1alpha1.TemplatePersistenceOnRecommendation,
+	}
+	recs := []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "api",
+		Kind:     "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "app",
+			Current: attunev1alpha1.ResourceValues{
+				CPURequest:    cpu200,
+				MemoryRequest: mem512,
+			},
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest:    cpu500,
+				MemoryRequest: mem512,
+			},
+		}},
+	}}
+
+	history := r.applyTemplatePersistence(context.Background(), policy, []client.Object{deploy}, recs,
+		attunev1alpha1.TemplatePersistenceOnRecommendation, nil)
+	assert.Empty(t, history, "pod list error must skip persist so a live envelope is not dropped")
+
+	var updated appsv1.Deployment
+	require.NoError(t, cl.Get(context.Background(), client.ObjectKeyFromObject(deploy), &updated))
+	assert.Equal(t, int64(200), updated.Spec.Template.Spec.Containers[0].Resources.Requests.Cpu().MilliValue(),
+		"must not persist container recs when live envelope cannot be read")
+	assert.Nil(t, updated.Spec.Template.Spec.Resources,
+		"must not invent or drop envelope when pod list fails")
+}
+
 func TestApplyTemplatePersistence_LiveNoneDoesNotInventEnvelope(t *testing.T) {
 	scheme := testScheme()
 	require.NoError(t, appsv1.AddToScheme(scheme))
