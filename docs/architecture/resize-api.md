@@ -1,6 +1,8 @@
 Attune uses the Kubernetes 1.32+ in-place pod resize API to adjust
 container resources without restarting pods. This page explains how the
-resize API works and how the operator uses it.
+resize API works and how the operator uses it. Version-best behavior
+across Kubernetes minors (envelope, HPA idle, doctor cgroup) is in
+[Version-best Kubernetes](version-best.md).
 
 ## The `/resize` subresource
 
