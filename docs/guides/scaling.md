@@ -347,9 +347,11 @@ window/step table above for Prometheus CPU and operator sample caps.
 
 When a workload still has more pods than `maxPodsInMetricsQuery` (default
 100), Attune **samples** that many pod names into the metrics `pod=~`
-regex (even spacing by name). Resize and safety still see all pods;
-sampling only narrows the recommendation query surface for huge fleets
-or `podAggregation: None`.
+regex (even spacing by name). Resize, safety, and missing-arm hold still
+see all pods; sampling only narrows the recommendation query surface for
+huge fleets or `podAggregation: None`. A negative cap disables sampling
+(workload regex) but still lists pods so omitted VPA/Prometheus arms
+hold live requests, not only the template.
 
 ### Tier-aware history and step clamps
 

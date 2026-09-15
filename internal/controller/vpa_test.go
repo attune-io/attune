@@ -935,3 +935,46 @@ func TestReconcile_VPASource_CPUOnlyTarget(t *testing.T) {
 		"CPU-only VPA must hold template memory %s, got %s",
 		wantMem.String(), cRec.Recommended.MemoryRequest.String())
 }
+
+func TestReconcile_VPASource_CPUOnlyHoldsLiveWhenSamplingUnlimited(t *testing.T) {
+	policy := newVPAPolicy("vpa-policy", "default", "cpu-vpa")
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	pod := newResizePod("api-server", "500m", "1Gi", "1000m", "1Gi")
+	vpa := newVPAUnstructured("cpu-vpa", "default", []map[string]interface{}{
+		{
+			"containerName": "main",
+			"target": map[string]interface{}{
+				"cpu": "250m",
+			},
+		},
+	})
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(policy, deploy, pod, vpa).
+		WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
+		Build()
+
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = scheme
+	reconciler.MaxPodsInMetricsQuery = -1
+
+	_, err := reconciler.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Name: "vpa-policy", Namespace: "default"},
+	})
+	require.NoError(t, err)
+
+	var updated attunev1alpha1.AttunePolicy
+	require.NoError(t, fakeClient.Get(context.Background(),
+		types.NamespacedName{Name: "vpa-policy", Namespace: "default"}, &updated))
+
+	require.Len(t, updated.Status.Recommendations, 1)
+	require.Len(t, updated.Status.Recommendations[0].Containers, 1)
+	got := updated.Status.Recommendations[0].Containers[0].Recommended.MemoryRequest
+	wantMem := resource.MustParse("1Gi")
+	assert.True(t, got.Equal(wantMem),
+		"unlimited sampling must still list pods so omitted VPA memory holds live %s, got %s",
+		wantMem.String(), got.String())
+}
