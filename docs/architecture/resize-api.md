@@ -65,7 +65,9 @@ Before calling `UpdateResize`, the controller runs several safety checks:
    increase that would exceed the current envelope is skipped. Under
    RequestsOnly plus Burstable, Attune skips rather than lift an
    existing envelope limit (user cap). Skips emit `ResizeSkipped` and
-   history reason `envelope_constraint`.
+   history reason `envelope_constraint`. CREATE initial sizing and
+   template persist use the same raise-to-cover helper so new pods and
+   workload templates keep a valid envelope.
 8. **Resize policy warning**: If the container has `resizePolicy` set to
    `RestartContainer`, the operator logs a warning but proceeds with the
    resize (the kubelet will restart the container).

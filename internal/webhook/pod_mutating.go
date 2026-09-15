@@ -182,6 +182,18 @@ func (h *PodMutatingHandler) Handle(ctx context.Context, req admission.Request) 
 		return admission.Allowed("no containers matched recommendations")
 	}
 
+	if pod.Spec.Resources != nil {
+		dec := resize.DecideCreateEnvelope(pod,
+			createRequestsOnly(policy, corev1.ResourceCPU),
+			createRequestsOnly(policy, corev1.ResourceMemory))
+		if dec.Skip {
+			return admission.Allowed(resize.EnvelopeSkipMessage)
+		}
+		if dec.Raised != nil {
+			pod.Spec.Resources = dec.Raised
+		}
+	}
+
 	// Add audit annotations.
 	if pod.Annotations == nil {
 		pod.Annotations = map[string]string{}
@@ -632,6 +644,27 @@ func podAdmissionName(pod *corev1.Pod, reqName string) string {
 		return pod.GenerateName
 	}
 	return ""
+}
+
+// createRequestsOnly is true when CREATE must not lift an existing envelope
+// limit for that resource (unset, empty, or RequestsOnly).
+func createRequestsOnly(policy *attunev1alpha1.AttunePolicy, res corev1.ResourceName) bool {
+	if policy == nil {
+		return true
+	}
+	var cv *string
+	switch res {
+	case corev1.ResourceCPU:
+		cv = policy.Spec.CPU.ControlledValues
+	case corev1.ResourceMemory:
+		cv = policy.Spec.Memory.ControlledValues
+	default:
+		return true
+	}
+	if cv == nil || *cv == "" || *cv == attunev1alpha1.DefaultControlledValues || *cv == attunev1alpha1.ControlledRequestsOnly {
+		return true
+	}
+	return false
 }
 
 // hasMinConfidence returns true if all containers meet the minimum confidence.
