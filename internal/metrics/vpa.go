@@ -35,10 +35,14 @@ var VPAGVR = schema.GroupVersionResource{
 
 // VPAContainerRecommendation holds the parsed target recommendation from
 // a VPA's status.recommendation.containerRecommendations entry.
+// CPUSet / MemorySet distinguish an omitted target from an explicit zero.
+// Quantity.IsZero() cannot: a missing key and target "0" are both zero.
 type VPAContainerRecommendation struct {
 	ContainerName string
 	CPUTarget     resource.Quantity
 	MemoryTarget  resource.Quantity
+	CPUSet        bool
+	MemorySet     bool
 }
 
 // ReadVPARecommendations fetches a VPA object by name/namespace using the
@@ -100,6 +104,8 @@ func ReadVPARecommendations(ctx context.Context, c client.Client, name, namespac
 			ContainerName: containerName,
 			CPUTarget:     cpuQty,
 			MemoryTarget:  memQty,
+			CPUSet:        cpuSet,
+			MemorySet:     memSet,
 		})
 	}
 

@@ -75,6 +75,8 @@ func TestReadVPARecommendations_Success(t *testing.T) {
 	assert.Equal(t, "app", recs[0].ContainerName)
 	assert.Equal(t, resource.MustParse("250m"), recs[0].CPUTarget)
 	assert.Equal(t, resource.MustParse("512Mi"), recs[0].MemoryTarget)
+	assert.True(t, recs[0].CPUSet)
+	assert.True(t, recs[0].MemorySet)
 
 	assert.Equal(t, "sidecar", recs[1].ContainerName)
 	assert.Equal(t, resource.MustParse("100m"), recs[1].CPUTarget)
@@ -155,6 +157,8 @@ func TestReadVPARecommendations_CPUOnlyTarget(t *testing.T) {
 	wantCPU, err := resource.ParseQuantity("250m")
 	require.NoError(t, err)
 	assert.True(t, recs[0].CPUTarget.Equal(wantCPU))
+	assert.True(t, recs[0].CPUSet, "present cpu target must be marked set")
+	assert.False(t, recs[0].MemorySet, "omitted memory must be unset, not a parse error")
 	assert.True(t, recs[0].MemoryTarget.IsZero(), "omitted memory must be unset, not a parse error")
 }
 
@@ -176,6 +180,8 @@ func TestReadVPARecommendations_MemoryOnlyTarget(t *testing.T) {
 	wantMem, err := resource.ParseQuantity("512Mi")
 	require.NoError(t, err)
 	assert.True(t, recs[0].MemoryTarget.Equal(wantMem))
+	assert.True(t, recs[0].MemorySet, "present memory target must be marked set")
+	assert.False(t, recs[0].CPUSet, "omitted CPU must be unset, not a parse error")
 	assert.True(t, recs[0].CPUTarget.IsZero(), "omitted CPU must be unset, not a parse error")
 }
 
