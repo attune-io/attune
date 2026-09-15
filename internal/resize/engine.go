@@ -63,6 +63,9 @@ type PodResizer struct {
 	// AllowInPlaceMemoryLimitDecrease skips clamping memory limit decreases
 	// when the cluster permits live decreases (Kubernetes 1.35+).
 	AllowInPlaceMemoryLimitDecrease bool
+	// InPlacePodLevelResources is true when /resize may write spec.resources
+	// in the same UpdateResize as container resources.
+	InPlacePodLevelResources bool
 }
 
 // NewPodResizer creates a new PodResizer backed by the given Kubernetes client.
@@ -115,6 +118,11 @@ func (r *PodResizer) ResizePod(ctx context.Context, pod *corev1.Pod, container s
 			current = fresh.Spec.Containers[idx].Resources
 			applied = mergeResources(current, adjustedTarget)
 			updated.Spec.Containers[idx].Resources = applied
+		}
+		if r.InPlacePodLevelResources && updated.Spec.Resources != nil {
+			if raised := RaiseToCover(updated); raised != nil {
+				updated.Spec.Resources = raised
+			}
 		}
 
 		r.logger.V(1).Info("resizing pod", "pod", pod.Name, "namespace", pod.Namespace,
@@ -424,6 +432,10 @@ func RestartContainerResources(pod *corev1.Pod, containerName string) []string {
 func PreservesQoS(pod *corev1.Pod, container string, target corev1.ResourceRequirements) bool {
 	if pod.Status.QOSClass != corev1.PodQOSGuaranteed {
 		return true
+	}
+	if pod.Spec.Resources != nil {
+		planned := applyPlannedContainer(pod, container, target)
+		return envelopeIsGuaranteed(RaiseToCover(planned))
 	}
 
 	cpuReq, hasCPUReq := target.Requests[corev1.ResourceCPU]

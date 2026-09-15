@@ -53,8 +53,20 @@ Before calling `UpdateResize`, the controller runs several safety checks:
 5. **LimitRange/ResourceQuota**: Checks that the target doesn't violate
    namespace constraints.
 6. **QoS preservation**: Ensures the resize won't change the pod's QoS
-   class (e.g., from Guaranteed to Burstable).
-7. **Resize policy warning**: If the container has `resizePolicy` set to
+   class (e.g., from Guaranteed to Burstable). When `spec.resources` is
+   set, QoS is defined by that pod-level envelope only.
+7. **Pod-level envelope**: If the pod already has `spec.resources`, Attune
+   never invents an envelope and never shrinks one. When in-place
+   pod-level resize is on, the same `UpdateResize` writes the container
+   target and a raised envelope (requests cover the container sum; an
+   existing limit covers the max of current limit, needed request, and
+   the max single container limit, and stays at least the request).
+   When the field is present but in-place raise is off, a container
+   increase that would exceed the current envelope is skipped. Under
+   RequestsOnly plus Burstable, Attune skips rather than lift an
+   existing envelope limit (user cap). Skips emit `ResizeSkipped` and
+   history reason `envelope_constraint`.
+8. **Resize policy warning**: If the container has `resizePolicy` set to
    `RestartContainer`, the operator logs a warning but proceeds with the
    resize (the kubelet will restart the container).
 
@@ -132,6 +144,7 @@ stateDiagram-v2
         [*] --> AtTarget: Already at recommended values
         [*] --> NodeCap: Would exceed node allocatable
         [*] --> QuotaViolation: Would violate LimitRange/Quota
+        [*] --> EnvelopeConstraint: spec.resources would be exceeded
         [*] --> QoSChange: Would change QoS class
         [*] --> PassedChecks: All checks pass
     }

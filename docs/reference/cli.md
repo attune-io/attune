@@ -220,7 +220,7 @@ kubectl attune history -n production
 | TO | New resource value |
 | METHOD | `InPlace` or `Eviction` |
 | RESULT | `Success`, `Failed`, `Reverted`, or `Evicted` |
-| REASON | Why a resize was reverted or failed (`oomkill`, `restart`, `notready`, `throttle`, `slo:<name>`, `infeasible`, `eviction_last_replica`, `eviction_denied`, `eviction_list_failed`, `eviction_no_selector`). Shows `-` for successful resizes. |
+| REASON | Why a resize was reverted or failed (`oomkill`, `restart`, `notready`, `throttle`, `slo:<name>`, `infeasible`, `eviction_last_replica`, `eviction_denied`, `eviction_list_failed`, `eviction_no_selector`, `envelope_constraint`). Shows `-` for successful resizes. |
 
 ### wizard
 

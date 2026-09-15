@@ -612,6 +612,37 @@ replica can still resize.
 in the same cycle should still resize. Remaining needing replicas wait
 for later cycles and cooldown.
 
+### Pod-level resource envelope blocked an increase
+
+**Symptom**: Events show `ResizeSkipped` with "pod-level resource
+envelope would be exceeded". History reason is `envelope_constraint`.
+
+**Cause**: The pod already has `spec.resources` (an aggregate CPU and
+memory envelope). Raising a container request past that envelope is
+rejected by the API. Attune does not invent an envelope. When in-place
+pod-level resize is on, one `/resize` writes the container target and
+raises envelope requests to cover the container sum. Existing envelope
+limits are raised only as far as needed (max of the current limit, the
+needed request, and the max single container limit, never the sum of
+limits) and stay at least the request. When the field exists but
+in-place raise is off, an increase that would exceed the current
+envelope is skipped. Decreases that stay under the envelope still
+apply. Under RequestsOnly plus Burstable, Attune skips rather than lift
+an existing envelope limit (that limit is a user cap).
+
+**Fix**:
+
+1. Confirm the pod has `spec.resources` (`kubectl get pod <name> -o
+   yaml`).
+2. On clusters with in-place pod-level resize, the next eligible
+   increase should raise the envelope in the same resize.
+3. If in-place raise is off, lower `minAllowed` / `maxAllowed` so the
+   recommendation stays under the envelope, or raise the envelope in
+   the workload template.
+4. For RequestsOnly plus Burstable, switch that resource to
+   `controlledValues: RequestsAndLimits` if the envelope limit should
+   move with the recommendation.
+
 ### QoS class change blocked
 
 **Symptom**: Operator logs `Skipping resize: would change QoS class`.

@@ -1308,3 +1308,100 @@ func TestClampMemoryLimitForPolicy_ContainerNotFound(t *testing.T) {
 	assert.True(t, expectedMem.Equal(actualMem),
 		"expected target memory limit %s unchanged, got %s", expectedMem.String(), actualMem.String())
 }
+
+func TestResizePod_InPlaceRaisesEnvelopeInSameUpdate(t *testing.T) {
+	pod := newTestPod("web-0", "default", "app", "100m", "128Mi", "500m", "1Gi")
+	pod.Spec.Resources = &corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("100m"),
+			corev1.ResourceMemory: resource.MustParse("128Mi"),
+		},
+	}
+	fakeClient := fake.NewSimpleClientset(pod)
+	fakeClient.PrependReactor("update", "pods", resizeReactor)
+	resizer := NewPodResizer(fakeClient, testr.New(t))
+	resizer.InPlacePodLevelResources = true
+
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("250m"),
+			corev1.ResourceMemory: resource.MustParse("128Mi"),
+		},
+	}
+	_, err := resizer.ResizePod(context.Background(), pod, "app", target)
+	require.NoError(t, err)
+
+	var updated *corev1.Pod
+	for _, action := range fakeClient.Actions() {
+		if action.GetVerb() == "update" && action.GetSubresource() == "resize" {
+			updated = action.(k8stesting.UpdateAction).GetObject().(*corev1.Pod)
+			break
+		}
+	}
+	require.NotNil(t, updated, "expected one UpdateResize")
+	require.NotNil(t, updated.Spec.Resources)
+	assert.True(t, updated.Spec.Resources.Requests.Cpu().Equal(resource.MustParse("250m")),
+		"envelope cpu request should rise to 250m, got %s", updated.Spec.Resources.Requests.Cpu().String())
+	gotCPU := updated.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
+	assert.True(t, gotCPU.Equal(resource.MustParse("250m")),
+		"container cpu should be applied in the same payload, got %s", gotCPU.String())
+}
+
+func TestResizePod_NilEnvelopeNotWritten(t *testing.T) {
+	pod := newTestPod("web-0", "default", "app", "100m", "128Mi", "200m", "256Mi")
+	fakeClient := fake.NewSimpleClientset(pod)
+	fakeClient.PrependReactor("update", "pods", resizeReactor)
+	resizer := NewPodResizer(fakeClient, testr.New(t))
+	resizer.InPlacePodLevelResources = true
+
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("150m"),
+			corev1.ResourceMemory: resource.MustParse("128Mi"),
+		},
+	}
+	_, err := resizer.ResizePod(context.Background(), pod, "app", target)
+	require.NoError(t, err)
+
+	for _, action := range fakeClient.Actions() {
+		if action.GetVerb() == "update" && action.GetSubresource() == "resize" {
+			updated := action.(k8stesting.UpdateAction).GetObject().(*corev1.Pod)
+			assert.Nil(t, updated.Spec.Resources, "must not invent spec.resources")
+			return
+		}
+	}
+	t.Fatal("UpdateResize was not recorded")
+}
+
+func TestResizePod_InPlaceOffLeavesEnvelopeUnchanged(t *testing.T) {
+	pod := newTestPod("web-0", "default", "app", "100m", "128Mi", "200m", "256Mi")
+	pod.Spec.Resources = &corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("100m"),
+			corev1.ResourceMemory: resource.MustParse("128Mi"),
+		},
+	}
+	fakeClient := fake.NewSimpleClientset(pod)
+	fakeClient.PrependReactor("update", "pods", resizeReactor)
+	resizer := NewPodResizer(fakeClient, testr.New(t))
+
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("150m"),
+			corev1.ResourceMemory: resource.MustParse("128Mi"),
+		},
+	}
+	_, err := resizer.ResizePod(context.Background(), pod, "app", target)
+	require.NoError(t, err)
+
+	for _, action := range fakeClient.Actions() {
+		if action.GetVerb() == "update" && action.GetSubresource() == "resize" {
+			updated := action.(k8stesting.UpdateAction).GetObject().(*corev1.Pod)
+			require.NotNil(t, updated.Spec.Resources)
+			assert.True(t, updated.Spec.Resources.Requests.Cpu().Equal(resource.MustParse("100m")),
+				"in-place off must not raise the envelope, got %s", updated.Spec.Resources.Requests.Cpu().String())
+			return
+		}
+	}
+	t.Fatal("UpdateResize was not recorded")
+}

@@ -600,6 +600,7 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		r.applyNotFrozen(ctx, policy.Namespace, &applyFrozen, &freezeErr) {
 		resizer := resize.NewPodResizer(r.Clientset, logger)
 		resizer.AllowInPlaceMemoryLimitDecrease = r.AllowInPlaceMemoryLimitDecrease
+		resizer.InPlacePodLevelResources = r.inPlacePodLevelResources()
 		r.applyStartupBoosts(ctx, &policy, podsByWorkload, recommendations, resizer, preChecks)
 	}
 

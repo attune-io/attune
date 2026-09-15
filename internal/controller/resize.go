@@ -298,6 +298,10 @@ func (r *AttunePolicyReconciler) oneShotPodAllNeedingContainersBlocked(
 			blocked++
 			continue
 		}
+		if dec := r.evaluatePodEnvelope(policy, pod, containerRec.Name, target); dec.Skip {
+			blocked++
+			continue
+		}
 		skip, reason := r.shouldSkipResize(ctx, pod, containerRec, target, checks)
 		if skip && reason != "" {
 			blocked++
@@ -385,6 +389,7 @@ func (r *AttunePolicyReconciler) executeResizes(
 
 	resizer := resize.NewPodResizer(r.Clientset, logger)
 	resizer.AllowInPlaceMemoryLimitDecrease = r.AllowInPlaceMemoryLimitDecrease
+	resizer.InPlacePodLevelResources = r.inPlacePodLevelResources()
 	monitor := r.newSafetyMonitor(logger, collector, policy.Spec.UpdateStrategy.SLOGuardrails)
 
 	var totalResized int
@@ -801,6 +806,18 @@ func (r *AttunePolicyReconciler) resizeContainer(
 		r.emitEventOnce(policy, corev1.EventTypeWarning, "ResizeSkipped", "resize",
 			"Resize blocked for pod %s container %s: %s", pod.Name, containerRec.Name, reason)
 		return nil, resizeOutcomeNone
+	}
+
+	if dec := r.evaluatePodEnvelope(policy, pod, containerRec.Name, target); dec.Skip {
+		logger.Info("Skipping resize: "+resize.EnvelopeSkipMessage,
+			"pod", pod.Name, "container", containerRec.Name)
+		r.emitEventOnce(policy, corev1.EventTypeWarning, "ResizeSkipped", "resize",
+			"Resize blocked for pod %s container %s: %s", pod.Name, containerRec.Name, resize.EnvelopeSkipMessage)
+		return []attunev1alpha1.ResizeHistoryEntry{{
+			Timestamp: now, Workload: workloadName, Container: containerRec.Name,
+			Resource: "cpu+memory", Method: resize.MethodInPlace,
+			Result: attunev1alpha1.ResizeResultFailed, Reason: resize.ReasonEnvelopeConstraint,
+		}}, resizeOutcomeNone
 	}
 
 	skip, reason := r.shouldSkipResize(ctx, pod, containerRec, target, p.Checks)
@@ -1760,6 +1777,26 @@ func (r *AttunePolicyReconciler) shouldSkipResize(
 	}
 
 	return false, ""
+}
+
+func (r *AttunePolicyReconciler) inPlacePodLevelResources() bool {
+	return r.Capabilities != nil && r.Capabilities.InPlacePodLevelResources
+}
+
+func (r *AttunePolicyReconciler) evaluatePodEnvelope(
+	policy *attunev1alpha1.AttunePolicy,
+	pod *corev1.Pod,
+	container string,
+	target corev1.ResourceRequirements,
+) resize.EnvelopeDecision {
+	return resize.EvaluateEnvelope(resize.EnvelopeInput{
+		Pod:             pod,
+		Container:       container,
+		Target:          target,
+		InPlace:         r.inPlacePodLevelResources(),
+		RequestsOnlyCPU: resourceControlledRequestsOnly(policy, corev1.ResourceCPU),
+		RequestsOnlyMem: resourceControlledRequestsOnly(policy, corev1.ResourceMemory),
+	})
 }
 
 // recordCapacitySkip increments capacity/pressure skip metrics when the skip
