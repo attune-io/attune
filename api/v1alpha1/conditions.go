@@ -22,9 +22,9 @@ const (
 	ConditionResizing        = "Resizing"
 	ConditionDegraded        = "Degraded"
 	ConditionScheduleBlocked = "ScheduleBlocked"
-	// ConditionResizeBlocked is True when one or more target pods are stuck
-	// Deferred (kubelet cannot accept yet) or Infeasible (cannot complete
-	// in-place on the current node).
+	// ConditionResizeBlocked is True when apply is skipped: namespace freeze,
+	// HPA list failure, or one or more target pods stuck Deferred (kubelet
+	// cannot accept yet) or Infeasible (cannot complete in-place on the node).
 	ConditionResizeBlocked = "ResizeBlocked"
 	// ConditionGitOpsPullRequest reports opt-in PR automation status.
 	ConditionGitOpsPullRequest = "GitOpsPullRequest"

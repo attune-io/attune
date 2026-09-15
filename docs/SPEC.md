@@ -402,7 +402,7 @@ spec:
 | `Resizing` | `InProgress`, `Idle`, `CooldownActive` | Active resize operation |
 | `Degraded` | `HighRevertRate` | Some resizes failing |
 | `ScheduleBlocked` | `OutsideWindow`, `InsideWindow` | Whether the current time is within the configured resize schedule window |
-| `ResizeBlocked` | `NamespaceFrozen`, `PodsDeferred`, `PodsInfeasible`, `PodsDeferredAndInfeasible` | Namespace freeze, or pods stuck Deferred or Infeasible |
+| `ResizeBlocked` | `NamespaceFrozen`, `HPAListUnavailable`, `PodsDeferred`, `PodsInfeasible`, `PodsDeferredAndInfeasible` | Namespace freeze, HPA list failure, or pods stuck Deferred or Infeasible |
 | `SafetyObservation` | `Observing`, `Evaluating`, `RestorePending`, `Incomplete` | Pods still carrying `attune.io` resize-tracking annotations |
 
 Status conditions use `meta.SetStatusCondition()` from `k8s.io/apimachinery/pkg/api/meta`
