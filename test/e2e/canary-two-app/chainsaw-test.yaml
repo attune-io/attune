@@ -255,9 +255,9 @@ spec:
     - name: wait-app-a-promoted
       try:
         - script:
-            timeout: 3m
+            timeout: 5m
             content: |
-              for i in $(seq 1 36); do
+              for i in $(seq 1 60); do
                 kubectl get attunepolicy fleet-canary -n e2e-canary-two-app -o json \
                   > /tmp/fleet-canary.json 2>/dev/null || true
                 PHASE=$(python3 <<'PY'

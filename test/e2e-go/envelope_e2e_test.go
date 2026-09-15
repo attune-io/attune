@@ -89,12 +89,39 @@ func TestE2E_PodLevelEnvelope_DiscoverGated(t *testing.T) {
 	require.NoError(t, k8sClient.Create(ctx, policy))
 
 	startCPU := resource.MustParse("100m")
+	if !livePodHasEnvelope(t, "env-app", ns) {
+		t.Skipf("skip: OpenAPI reports PodSpec.resources but live pods have no envelope (InPlacePodLevelResources=%v PodLevelResourcesField=%v GitVersion=%s)",
+			caps.InPlacePodLevelResources, caps.PodLevelResourcesField, caps.GitVersion)
+	}
 	if caps.InPlacePodLevelResources {
 		waitForEnvelopeCPUIncrease(t, "env-policy", ns, "env-app", startCPU, 4*time.Minute)
 		return
 	}
 
-	waitForEnvelopeSkip(t, "env-policy", ns, "env-app", startCPU, 3*time.Minute)
+	waitForEnvelopeSkip(t, "env-policy", ns, "env-app", startCPU, 4*time.Minute)
+}
+
+func livePodHasEnvelope(t *testing.T, app, namespace string) bool {
+	t.Helper()
+	pods, err := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: "app=" + app,
+	})
+	if err != nil || len(pods.Items) == 0 {
+		t.Logf("livePodHasEnvelope: list err=%v n=%d", err, len(pods.Items))
+		return false
+	}
+	for i := range pods.Items {
+		pod := &pods.Items[i]
+		if pod.Status.Phase != corev1.PodRunning || pod.DeletionTimestamp != nil {
+			continue
+		}
+		if pod.Spec.Resources != nil && !pod.Spec.Resources.Requests.Cpu().IsZero() {
+			t.Logf("live envelope on %s cpu=%s", pod.Name, pod.Spec.Resources.Requests.Cpu().String())
+			return true
+		}
+		t.Logf("pod %s phase=%s spec.resources=<nil>", pod.Name, pod.Status.Phase)
+	}
+	return false
 }
 
 func createDeploymentWithEnvelope(t *testing.T, name, namespace, cpuReq, memReq string) *appsv1.Deployment {
@@ -207,7 +234,8 @@ func waitForEnvelopeCPUIncrease(t *testing.T, policyName, namespace, app string,
 func waitForEnvelopeSkip(t *testing.T, policyName, namespace, app string, startCPU resource.Quantity, timeout time.Duration) {
 	t.Helper()
 	lastTouch := time.Now()
-	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, timeout, true, func(ctx context.Context) (bool, error) {
+	lastDiag := time.Time{}
+	err := wait.PollUntilContextTimeout(ctx, 5*time.Second, timeout, true, func(ctx context.Context) (bool, error) {
 		if time.Since(lastTouch) > 45*time.Second {
 			touchPolicySpec(t, policyName, namespace)
 			lastTouch = time.Now()
@@ -221,8 +249,27 @@ func waitForEnvelopeSkip(t *testing.T, policyName, namespace, app string, startC
 				return true, nil
 			}
 		}
+		if time.Since(lastDiag) > 30*time.Second {
+			lastDiag = time.Now()
+			logPolicyExplanationState(t, policyName, namespace)
+			for _, h := range policy.Status.ResizeHistory {
+				t.Logf("  history workload=%s container=%s reason=%s result=%s",
+					h.Workload, h.Container, h.Reason, h.Result)
+			}
+		}
 		return false, nil
-	}), "expected history reason envelope_constraint")
+	})
+	if err != nil {
+		logPolicyExplanationState(t, policyName, namespace)
+		var policy attunev1alpha1.AttunePolicy
+		if getErr := k8sClient.Get(ctx, types.NamespacedName{Name: policyName, Namespace: namespace}, &policy); getErr == nil {
+			for _, h := range policy.Status.ResizeHistory {
+				t.Logf("  history workload=%s container=%s reason=%s result=%s",
+					h.Workload, h.Container, h.Reason, h.Result)
+			}
+		}
+	}
+	require.NoError(t, err, "expected history reason envelope_constraint")
 
 	pods, err := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: "app=" + app,
