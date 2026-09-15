@@ -146,6 +146,11 @@ kubectl delete crd verticalpodautoscalers.autoscaling.k8s.io \
 ```
 
 !!! warning
-    Do not run both VPA (in Auto/Initial mode) and Attune (in
-    Canary/Auto mode) on the same workload. The conflict detector will
-    warn you, but running both can cause competing resize operations.
+    Do not run an applying VPA (`Auto`, `Initial`, `Recreate`,
+    `InPlaceOrRecreate`, or `InPlace`) and Attune (Canary/Auto) on the
+    same workload. The detector emits `VPAConflict` for those modes.
+    `updateMode: Off` is the supported bridge (VPA recommends, Attune
+    applies) and does not warn.
+
+    Missing `updateMode` is treated as applying. Historical VPA default
+    is Auto.

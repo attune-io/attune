@@ -621,6 +621,11 @@ updateStrategy:
 `memory.memoryFromCpuRatio` applies here too: when set, memory is derived
 from the CPU recommendation instead of the VPA memory target.
 
+Set that VPA to `updateMode: Off`. Attune then consumes
+`status.recommendation.containerRecommendations[].target` and applies
+via `/resize`. An applying VPA on the same workload still emits
+`VPAConflict`.
+
 At most one of `prometheus`, `datadog`, `cloudwatch`, or `vpa` may be set
 on a policy or on `AttuneDefaults` / `AttuneNamespaceDefaults`.
 

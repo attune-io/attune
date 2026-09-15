@@ -172,7 +172,9 @@ If all five fail, the policy enters `MetricsUnavailable` status.
 
 The operator detects:
 
-- **VPA conflicts**: warns when a VPA targets the same workload.
+- **VPA conflicts**: warns when an applying VPA targets the same
+  workload (`updateMode` other than `Off`, or unset). `Off` is
+  recommend-only coexistence.
 - **HPA coexistence**: logs a notice and adjusts only requests (not replicas).
 - **Policy overlap**: higher-weight policies take precedence when multiple
   AttunePolicies match the same workload.
