@@ -84,7 +84,7 @@ func TestComputeVPARecommendationsForWorkload_Basic(t *testing.T) {
 	reconciler.Scheme = testScheme()
 
 	rec, maxDP, err := reconciler.computeVPARecommendationsForWorkload(
-		context.Background(), policy, deploy, vpaRecs, nil, nil, nil,
+		context.Background(), policy, deploy, vpaRecs, nil, nil, nil, nil,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
@@ -128,7 +128,7 @@ func TestComputeVPARecommendationsForWorkload_ExcludesContainer(t *testing.T) {
 	reconciler.Scheme = testScheme()
 
 	rec, _, err := reconciler.computeVPARecommendationsForWorkload(
-		context.Background(), policy, deploy, vpaRecs, nil, nil, nil,
+		context.Background(), policy, deploy, vpaRecs, nil, nil, nil, nil,
 	)
 	require.NoError(t, err)
 	assert.Nil(t, rec, "excluded container should result in no recommendation")
@@ -162,7 +162,7 @@ func TestComputeVPARecommendationsForWorkload_NoMatchingContainer(t *testing.T) 
 	reconciler.Scheme = testScheme()
 
 	rec, _, err := reconciler.computeVPARecommendationsForWorkload(
-		context.Background(), policy, deploy, vpaRecs, nil, nil, nil,
+		context.Background(), policy, deploy, vpaRecs, nil, nil, nil, nil,
 	)
 	require.NoError(t, err)
 	assert.Nil(t, rec, "no matching container should result in no recommendation")
@@ -201,7 +201,7 @@ func TestComputeVPARecommendationsForWorkload_MemoryFromCPURatio(t *testing.T) {
 	reconciler.Scheme = testScheme()
 
 	rec, _, err := reconciler.computeVPARecommendationsForWorkload(
-		context.Background(), policy, deploy, vpaRecs, nil, nil, nil,
+		context.Background(), policy, deploy, vpaRecs, nil, nil, nil, nil,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
@@ -240,7 +240,7 @@ func TestComputeVPARecommendationsForWorkload_CPUOnlyHoldsMemory(t *testing.T) {
 
 	reconciler := NewAttunePolicyReconciler()
 	rec, _, err := reconciler.computeVPARecommendationsForWorkload(
-		context.Background(), policy, deploy, vpaRecs, nil, nil, nil,
+		context.Background(), policy, deploy, vpaRecs, nil, nil, nil, nil,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
@@ -251,6 +251,72 @@ func TestComputeVPARecommendationsForWorkload_CPUOnlyHoldsMemory(t *testing.T) {
 	assert.True(t, cRec.Recommended.MemoryRequest.Equal(wantMem),
 		"omitted VPA memory must hold template %s, not treat unset as 0 (got %s)",
 		wantMem.String(), cRec.Recommended.MemoryRequest.String())
+}
+
+func TestComputeVPARecommendationsForWorkload_CPUOnlyHoldsLiveMemory(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.MetricsSource.Prometheus = nil
+	policy.Spec.MetricsSource.VPA = &attunev1alpha1.VPAConfig{Name: "my-vpa"}
+	allow := true
+	policy.Spec.Memory.AllowDecrease = &allow
+
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	liveMem := resource.MustParse("1Gi")
+	pod := newResizePod("api-server", "500m", "1Gi", "1000m", "1Gi")
+
+	vpaRecs := []rsmetrics.VPAContainerRecommendation{
+		{
+			ContainerName: "main",
+			CPUTarget:     resource.MustParse("250m"),
+			CPUSet:        true,
+		},
+	}
+
+	reconciler := NewAttunePolicyReconciler()
+	rec, _, err := reconciler.computeVPARecommendationsForWorkload(
+		context.Background(), policy, deploy, vpaRecs, nil, nil, nil, []corev1.Pod{*pod},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, rec)
+	require.Len(t, rec.Containers, 1)
+	cRec := rec.Containers[0]
+	assert.False(t, rec.Stale)
+	assert.True(t, cRec.Recommended.MemoryRequest.Equal(liveMem),
+		"omitted VPA memory must hold live %s over template 512Mi (got %s)",
+		liveMem.String(), cRec.Recommended.MemoryRequest.String())
+}
+
+func TestComputeVPARecommendationsForWorkload_MemoryOnlyHoldsLiveCPU(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.MetricsSource.Prometheus = nil
+	policy.Spec.MetricsSource.VPA = &attunev1alpha1.VPAConfig{Name: "my-vpa"}
+	allow := true
+	policy.Spec.CPU.AllowDecrease = &allow
+
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	liveCPU := resource.MustParse("250m")
+	pod := newResizePod("api-server", "250m", "512Mi", "1000m", "1Gi")
+
+	vpaRecs := []rsmetrics.VPAContainerRecommendation{
+		{
+			ContainerName: "main",
+			MemoryTarget:  resource.MustParse("256Mi"),
+			MemorySet:     true,
+		},
+	}
+
+	reconciler := NewAttunePolicyReconciler()
+	rec, _, err := reconciler.computeVPARecommendationsForWorkload(
+		context.Background(), policy, deploy, vpaRecs, nil, nil, nil, []corev1.Pod{*pod},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, rec)
+	require.Len(t, rec.Containers, 1)
+	cRec := rec.Containers[0]
+	assert.False(t, rec.Stale)
+	assert.True(t, cRec.Recommended.CPURequest.Equal(liveCPU),
+		"omitted VPA CPU must hold live %s over template 500m (got %s)",
+		liveCPU.String(), cRec.Recommended.CPURequest.String())
 }
 
 func TestComputeVPARecommendationsForWorkload_MemoryOnlyHoldsCPU(t *testing.T) {
@@ -273,7 +339,7 @@ func TestComputeVPARecommendationsForWorkload_MemoryOnlyHoldsCPU(t *testing.T) {
 
 	reconciler := NewAttunePolicyReconciler()
 	rec, _, err := reconciler.computeVPARecommendationsForWorkload(
-		context.Background(), policy, deploy, vpaRecs, nil, nil, nil,
+		context.Background(), policy, deploy, vpaRecs, nil, nil, nil, nil,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
@@ -339,7 +405,7 @@ func TestComputeVPARecommendationsForWorkload_ReusesStaleWhenNoContainerRecs(t *
 	reconciler.SetNowFunc(func() time.Time { return now })
 
 	rec, _, err := reconciler.computeVPARecommendationsForWorkload(
-		context.Background(), policy, deploy, vpaRecs, nil, nil, nil,
+		context.Background(), policy, deploy, vpaRecs, nil, nil, nil, nil,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, rec, "empty VPA recs must reuse the prior recommendation, not drop it")

@@ -43,6 +43,7 @@ func (r *AttunePolicyReconciler) computeVPARecommendationsForWorkload(
 	vpaRecs []rsmetrics.VPAContainerRecommendation,
 	cpuEngine, memEngine *recommendation.RecommendationEngine,
 	excludeSet map[string]bool,
+	pods []corev1.Pod,
 ) (rec *attunev1alpha1.WorkloadRecommendation, maxDataPoints int, err error) { //nolint:unparam // error return kept for interface contract
 	logger := log.FromContext(ctx)
 	containers := r.getContainers(workload)
@@ -166,12 +167,12 @@ func (r *AttunePolicyReconciler) computeVPARecommendationsForWorkload(
 		}
 		if !cpuApplied || explanation.Memory == nil {
 			prior := priorContainerRecommendation(policy, workloadKindName(workload), workload.GetName(), containerName)
-			if !cpuApplied && !holdMissingResourceRequest(&cRec, corev1.ResourceCPU, nil, prior) {
+			if !cpuApplied && !holdMissingResourceRequest(&cRec, corev1.ResourceCPU, pods, prior) {
 				if cRec.Recommended.CPURequest.IsZero() {
 					partialUnfilled = true
 				}
 			}
-			if explanation.Memory == nil && !holdMissingResourceRequest(&cRec, corev1.ResourceMemory, nil, prior) {
+			if explanation.Memory == nil && !holdMissingResourceRequest(&cRec, corev1.ResourceMemory, pods, prior) {
 				if cRec.Recommended.MemoryRequest.IsZero() {
 					partialUnfilled = true
 				}

@@ -1109,7 +1109,11 @@ func (r *AttunePolicyReconciler) processWorkloads(
 
 			var seriesCapped bool
 			if isVPASource {
-				rec, dataPoints, err = r.computeVPARecommendationsForWorkload(gCtx, policy, workload, vpaRecs, cpuEngine, memEngine, excludeSet)
+				var pods []corev1.Pod
+				if podsByWorkload != nil {
+					pods = podsByWorkload[workloadName]
+				}
+				rec, dataPoints, err = r.computeVPARecommendationsForWorkload(gCtx, policy, workload, vpaRecs, cpuEngine, memEngine, excludeSet, pods)
 			} else {
 				var pods []corev1.Pod
 				if podsByWorkload != nil {
