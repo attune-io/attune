@@ -415,12 +415,12 @@ func (r *AttunePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{RequeueAfter: r.parseCooldown(&policy)}, nil
 	}
 
-	// One NS-wide pod list shared by metrics sampling and later resize/status
-	// paths (avoids per-workload List during sampling then a second full List).
-	var podsByWorkload map[string][]corev1.Pod
-	if r.maxPodsInMetricsQuery() > 0 {
-		podsByWorkload = r.listPodsForWorkloads(ctx, workloads)
-	}
+	// One NS-wide pod list shared by metrics sampling, VPA/Prometheus
+	// missing-arm hold, and later resize/status. Do not gate on
+	// maxPodsInMetricsQuery()>0: unlimited sampling (flag < 0) returns 0
+	// from that helper, which used to skip the list and hold template
+	// resources instead of live leftovers.
+	podsByWorkload := r.listPodsForWorkloads(ctx, workloads)
 	// Best-effort refresh of dynamic pod cache filter from active policies.
 	r.refreshPodCacheFilter(ctx)
 	wpResult := r.processWorkloads(workloadCtx, &policy, workloads, collector, queryBuilder, podsByWorkload)
