@@ -223,6 +223,10 @@ set, Attune now derives memory from the CPU recommendation instead of
 using the VPA memory target. Unset `memory.memoryFromCpuRatio` to keep
 VPA memory targets.
 
+A VPA `target` that omits `cpu` or `memory` is unset, not zero. Attune
+holds the live or template request for the omitted resource. A
+cpu-only target no longer feeds `0` into the memory engine.
+
 ### GitOps labels fail-closed
 
 If `export.pullRequest.labels` is set and the forge rejects the labels

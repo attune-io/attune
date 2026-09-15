@@ -623,8 +623,10 @@ from the CPU recommendation instead of the VPA memory target.
 
 Set that VPA to `updateMode: Off`. Attune then consumes
 `status.recommendation.containerRecommendations[].target` and applies
-via `/resize`. An applying VPA on the same workload still emits
-`VPAConflict`.
+via `/resize`. An omitted `cpu` or `memory` key in `target` is unset,
+not zero: Attune holds the live or template request for that resource
+instead of running the engine on `0`. An applying VPA on the same
+workload still emits `VPAConflict`.
 
 At most one of `prometheus`, `datadog`, `cloudwatch`, or `vpa` may be set
 on a policy or on `AttuneDefaults` / `AttuneNamespaceDefaults`.

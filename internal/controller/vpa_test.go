@@ -69,6 +69,8 @@ func TestComputeVPARecommendationsForWorkload_Basic(t *testing.T) {
 			ContainerName: "main",
 			CPUTarget:     resource.MustParse("250m"),
 			MemoryTarget:  resource.MustParse("512Mi"),
+			CPUSet:        true,
+			MemorySet:     true,
 		},
 	}
 
@@ -111,6 +113,8 @@ func TestComputeVPARecommendationsForWorkload_ExcludesContainer(t *testing.T) {
 			ContainerName: "main",
 			CPUTarget:     resource.MustParse("250m"),
 			MemoryTarget:  resource.MustParse("512Mi"),
+			CPUSet:        true,
+			MemorySet:     true,
 		},
 	}
 
@@ -143,6 +147,8 @@ func TestComputeVPARecommendationsForWorkload_NoMatchingContainer(t *testing.T) 
 			ContainerName: "web",
 			CPUTarget:     resource.MustParse("250m"),
 			MemoryTarget:  resource.MustParse("512Mi"),
+			CPUSet:        true,
+			MemorySet:     true,
 		},
 	}
 
@@ -180,6 +186,8 @@ func TestComputeVPARecommendationsForWorkload_MemoryFromCPURatio(t *testing.T) {
 			ContainerName: "main",
 			CPUTarget:     vpaCPU,
 			MemoryTarget:  vpaMem,
+			CPUSet:        true,
+			MemorySet:     true,
 		},
 	}
 
@@ -210,6 +218,72 @@ func TestComputeVPARecommendationsForWorkload_MemoryFromCPURatio(t *testing.T) {
 	require.NotNil(t, cRec.Explanation)
 	require.NotNil(t, cRec.Explanation.Memory)
 	assert.Contains(t, cRec.Explanation.Memory.FinalAdjustment, "memoryFromCpuRatio=2.0")
+}
+
+func TestComputeVPARecommendationsForWorkload_CPUOnlyHoldsMemory(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.MetricsSource.Prometheus = nil
+	policy.Spec.MetricsSource.VPA = &attunev1alpha1.VPAConfig{Name: "my-vpa"}
+	allow := true
+	policy.Spec.Memory.AllowDecrease = &allow
+
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	wantMem := resource.MustParse("512Mi")
+
+	vpaRecs := []rsmetrics.VPAContainerRecommendation{
+		{
+			ContainerName: "main",
+			CPUTarget:     resource.MustParse("250m"),
+			CPUSet:        true,
+		},
+	}
+
+	reconciler := NewAttunePolicyReconciler()
+	rec, _, err := reconciler.computeVPARecommendationsForWorkload(
+		context.Background(), policy, deploy, vpaRecs, nil, nil, nil,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, rec)
+	require.Len(t, rec.Containers, 1)
+	cRec := rec.Containers[0]
+	assert.False(t, rec.Stale, "cpu-only VPA with a live memory request is not stale")
+	assert.False(t, cRec.Recommended.CPURequest.IsZero(), "cpu-only VPA must write a CPU rec")
+	assert.True(t, cRec.Recommended.MemoryRequest.Equal(wantMem),
+		"omitted VPA memory must hold template %s, not treat unset as 0 (got %s)",
+		wantMem.String(), cRec.Recommended.MemoryRequest.String())
+}
+
+func TestComputeVPARecommendationsForWorkload_MemoryOnlyHoldsCPU(t *testing.T) {
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.MetricsSource.Prometheus = nil
+	policy.Spec.MetricsSource.VPA = &attunev1alpha1.VPAConfig{Name: "my-vpa"}
+	allow := true
+	policy.Spec.CPU.AllowDecrease = &allow
+
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	wantCPU := resource.MustParse("500m")
+
+	vpaRecs := []rsmetrics.VPAContainerRecommendation{
+		{
+			ContainerName: "main",
+			MemoryTarget:  resource.MustParse("256Mi"),
+			MemorySet:     true,
+		},
+	}
+
+	reconciler := NewAttunePolicyReconciler()
+	rec, _, err := reconciler.computeVPARecommendationsForWorkload(
+		context.Background(), policy, deploy, vpaRecs, nil, nil, nil,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, rec)
+	require.Len(t, rec.Containers, 1)
+	cRec := rec.Containers[0]
+	assert.False(t, rec.Stale, "memory-only VPA with a live CPU request is not stale")
+	assert.False(t, cRec.Recommended.MemoryRequest.IsZero(), "memory-only VPA must write a memory rec")
+	assert.True(t, cRec.Recommended.CPURequest.Equal(wantCPU),
+		"omitted VPA CPU must hold template %s, not treat unset as 0 (got %s)",
+		wantCPU.String(), cRec.Recommended.CPURequest.String())
 }
 
 func TestComputeVPARecommendationsForWorkload_ReusesStaleWhenNoContainerRecs(t *testing.T) {
@@ -249,6 +323,8 @@ func TestComputeVPARecommendationsForWorkload_ReusesStaleWhenNoContainerRecs(t *
 			ContainerName: "web",
 			CPUTarget:     vpaCPU,
 			MemoryTarget:  vpaMem,
+			CPUSet:        true,
+			MemorySet:     true,
 		},
 	}
 
@@ -788,4 +864,8 @@ func TestReconcile_VPASource_CPUOnlyTarget(t *testing.T) {
 	require.Len(t, updated.Status.Recommendations[0].Containers, 1)
 	cRec := updated.Status.Recommendations[0].Containers[0]
 	assert.False(t, cRec.Recommended.CPURequest.IsZero(), "CPU-only VPA must write a CPU rec")
+	wantMem := resource.MustParse("512Mi")
+	assert.True(t, cRec.Recommended.MemoryRequest.Equal(wantMem),
+		"CPU-only VPA must hold template memory %s, got %s",
+		wantMem.String(), cRec.Recommended.MemoryRequest.String())
 }
