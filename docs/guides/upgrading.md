@@ -224,8 +224,9 @@ using the VPA memory target. Unset `memory.memoryFromCpuRatio` to keep
 VPA memory targets.
 
 A VPA `target` that omits `cpu` or `memory` is unset, not zero. Attune
-holds the live or template request for the omitted resource. A
-cpu-only target no longer feeds `0` into the memory engine.
+holds the live pod request when pods are listed, otherwise the last rec
+or template request. A cpu-only target no longer feeds `0` into the
+memory engine, and does not reset live memory back to the template.
 
 ### GitOps labels fail-closed
 
