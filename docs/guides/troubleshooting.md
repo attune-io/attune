@@ -371,6 +371,24 @@ Recommendations still compute.
 2. Check API server health and operator logs for the list error.
 3. Watch `attune_reconcile_errors_total{error_type="list_hpas"}`.
 
+### Template persist skipped after a pod list error
+
+**Symptom**: Operator logs `Failed to list pods for live envelope; skipping
+template persistence`. Container recs stay off the Deployment/StatefulSet
+template. Resize history has no `TemplatePatched` row for that cycle.
+
+**Cause**: Persist must read live `spec.resources` before it writes
+container recs. A pod list error used to look like "no envelope", so
+persist could write requests and drop a live envelope on the next
+rollout. It now skips, same as an HPA list error.
+
+**Fix**:
+
+1. Confirm the operator can `list`/`watch` pods in the policy namespace.
+2. Check API server health and operator logs for the list error.
+3. The next successful list retries persist (including AfterSuccessfulResize
+   lagging retry outside cooldown).
+
 ### CooldownActive
 
 **Symptom**: The operator logs "Cooldown active, skipping resize" and no

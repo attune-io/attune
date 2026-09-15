@@ -278,8 +278,12 @@ func (r *AttunePolicyReconciler) restoreTemplateAfterSafetyRevert(
 	desired := map[string]corev1.ResourceRequirements{
 		record.Container: record.OriginalResources,
 	}
-	changed, err := r.patchWorkloadTemplateResources(ctx, workload, desired, true,
-		r.liveWorkloadEnvelope(ctx, workload))
+	env, err := r.liveWorkloadEnvelope(ctx, workload)
+	if err != nil {
+		return fmt.Errorf("reading live envelope before template restore for %s/%s: %w",
+			record.WorkloadName, record.Container, err)
+	}
+	changed, err := r.patchWorkloadTemplateResources(ctx, workload, desired, true, env)
 	if err != nil {
 		return fmt.Errorf("restoring template after safety revert for %s/%s: %w",
 			record.WorkloadName, record.Container, err)
@@ -416,8 +420,13 @@ func (r *AttunePolicyReconciler) applyTemplatePersistence(
 			continue
 		}
 
-		changed, err := r.patchWorkloadTemplateResources(ctx, w, desired, false,
-			r.liveWorkloadEnvelope(ctx, w))
+		env, envErr := r.liveWorkloadEnvelope(ctx, w)
+		if envErr != nil {
+			logger.Error(envErr, "Failed to list pods for live envelope; skipping template persistence",
+				"workload", rec.Workload)
+			continue
+		}
+		changed, err := r.patchWorkloadTemplateResources(ctx, w, desired, false, env)
 		if err != nil {
 			logger.Error(err, "Failed to patch workload template",
 				"workload", rec.Workload, "kind", kind)
@@ -572,21 +581,24 @@ func raiseTemplateEnvelope(spec *corev1.PodSpec, live *corev1.ResourceRequiremen
 }
 
 // liveWorkloadEnvelope returns the first non-nil spec.resources from a
-// live pod of this workload. Nil means do not invent a template envelope.
-func (r *AttunePolicyReconciler) liveWorkloadEnvelope(ctx context.Context, w client.Object) *corev1.ResourceRequirements {
+// live pod of this workload. A nil envelope with a nil error means do not
+// invent a template envelope. A list error must not look like "no envelope":
+// persist would write container recs and drop a live envelope on the next
+// rollout.
+func (r *AttunePolicyReconciler) liveWorkloadEnvelope(ctx context.Context, w client.Object) (*corev1.ResourceRequirements, error) {
 	if r == nil || w == nil {
-		return nil
+		return nil, nil
 	}
 	pods, err := r.getPodsForWorkload(ctx, w)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	for i := range pods {
 		if pods[i].Spec.Resources != nil {
-			return pods[i].Spec.Resources.DeepCopy()
+			return pods[i].Spec.Resources.DeepCopy(), nil
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 // applyContainerResources writes want onto a container. Persist merges so

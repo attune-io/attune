@@ -388,7 +388,7 @@ Persist writes one computed envelope:
 
 `RaiseEnvelope(template.Spec.Resources, post-overlay pod spec, qos)`
 
-where the post-overlay spec is the template containers after `overlayAppliedResizeOnWant` / `mergeTemplateResources`. Call `applyEnvelopeToPodSpec` only when **either** the live resized pod **or** the template already has a non-nil `spec.resources`. If the live pod had no envelope, **do not invent one on the template** even if we could compute a sum. If the template has an envelope and the live pod does not, still raise the template envelope from the post-overlay template spec (the template is the source of `want`; we are not copying a live envelope that does not exist).
+where the post-overlay spec is the template containers after `overlayAppliedResizeOnWant` / `mergeTemplateResources`. Call `applyEnvelopeToPodSpec` only when **either** the live resized pod **or** the template already has a non-nil `spec.resources`. If the live pod had no envelope, **do not invent one on the template** even if we could compute a sum. If listing live pods fails, **skip persist** (same as an HPA list error). Treating that error as "no envelope" would write container recs and drop a live envelope on the next rollout. If the template has an envelope and the live pod does not, still raise the template envelope from the post-overlay template spec (the template is the source of `want`; we are not copying a live envelope that does not exist).
 
 `When: AfterSuccessfulResize` therefore writes the raised template envelope, not the raw recommendation.
 
