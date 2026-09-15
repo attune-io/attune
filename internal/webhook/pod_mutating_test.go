@@ -32,6 +32,7 @@ import (
 	"github.com/stretchr/testify/require"
 	admissionv1 "k8s.io/api/admission/v1"
 	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -76,6 +77,7 @@ func testScheme() *runtime.Scheme {
 	s := runtime.NewScheme()
 	_ = corev1.AddToScheme(s)
 	_ = appsv1.AddToScheme(s)
+	_ = autoscalingv2.AddToScheme(s)
 	_ = batchv1.AddToScheme(s)
 	_ = attunev1alpha1.AddToScheme(s)
 	return s
@@ -1351,6 +1353,36 @@ func TestPodMutatingHandler_CreateSizesWhenOwnerReplicasZero(t *testing.T) {
 	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
 	require.True(t, resp.Allowed)
 	require.NotEmpty(t, resp.Patches, "CREATE must size when the owner Deployment has spec.replicas=0")
+}
+
+func TestPodMutatingHandler_CreateSizesWhenHPAScaledToZero(t *testing.T) {
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
+	replicas := int32(3)
+	deploy := testDeployment("my-app", "default", map[string]string{"app": "my-app"})
+	deploy.Spec.Replicas = &replicas
+	hpa := &autoscalingv2.HorizontalPodAutoscaler{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-app-hpa", Namespace: "default"},
+		Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+			ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+				Kind: "Deployment",
+				Name: "my-app",
+			},
+		},
+		Status: autoscalingv2.HorizontalPodAutoscalerStatus{
+			Conditions: []autoscalingv2.HorizontalPodAutoscalerCondition{{
+				Type:   autoscalingv2.ScaledToZero,
+				Status: corev1.ConditionTrue,
+			}},
+		},
+	}
+	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
+
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, deploy, hpa, testNamespace("default", nil)).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
+	require.True(t, resp.Allowed)
+	require.NotEmpty(t, resp.Patches, "CREATE must size when HPA ScaledToZero is True and spec.replicas > 0")
 }
 
 func mustQty(t *testing.T, s string) resource.Quantity {

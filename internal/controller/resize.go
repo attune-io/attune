@@ -473,7 +473,11 @@ func (r *AttunePolicyReconciler) executeResizes(
 
 	var historyMu sync.Mutex
 	var wg sync.WaitGroup
-	hpas := listNamespaceHPAs(ctx, r.Client, policy.Namespace)
+	hpas, err := listNamespaceHPAs(ctx, r.Client, policy.Namespace)
+	if err != nil {
+		logger.Error(err, "Failed to list HPAs; skipping apply")
+		return 0, nil
+	}
 
 	for _, rec := range recommendations {
 		if ctx.Err() != nil {

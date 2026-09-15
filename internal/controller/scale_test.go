@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -29,6 +30,7 @@ import (
 	k8stesting "k8s.io/client-go/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 )
@@ -214,4 +216,43 @@ func TestExecuteResizes_StatusReplicasZeroStillActive(t *testing.T) {
 		[]client.Object{deploy}, recommendations, podMap("api-server", pod), nil, nil)
 	assert.Equal(t, 1, count)
 	require.NotEmpty(t, history)
+}
+
+func TestExecuteResizes_HPAListErrorSkipsResize(t *testing.T) {
+	pod := newResizePod("api-server", "500m", "512Mi", "1000m", "1Gi")
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	deploy.Spec.Replicas = int32Ptr(1)
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, pod).
+		WithInterceptorFuncs(interceptor.Funcs{
+			List: func(ctx context.Context, cw client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+				if _, ok := list.(*autoscalingv2.HorizontalPodAutoscalerList); ok {
+					return fmt.Errorf("simulated HPA list failure")
+				}
+				return cw.List(ctx, list, opts...)
+			},
+		}).Build()
+	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
+	reconciler := NewAttunePolicyReconciler()
+	reconciler.Client = fakeClient
+	reconciler.Scheme = scheme
+	reconciler.Clientset = clientset
+
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	policy.Spec.UpdateStrategy.ResizeMethod = attunev1alpha1.ResizeMethodInPlaceOrRecreate
+
+	recommendations := []attunev1alpha1.WorkloadRecommendation{
+		newResizeRecommendation("api-server", "500m", "512Mi", "1000m", "1Gi", "200m", "256Mi", "400m", "512Mi"),
+	}
+
+	count, history := reconciler.executeResizes(context.Background(), policy,
+		[]client.Object{deploy}, recommendations, podMap("api-server", pod), nil, nil)
+	assert.Equal(t, 0, count)
+	assert.Empty(t, history)
+
+	for _, a := range clientset.Actions() {
+		assert.NotEqual(t, "resize", a.GetSubresource(), "HPA list error must not resize leftover pods")
+	}
 }

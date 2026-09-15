@@ -107,7 +107,11 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 		boostDuration = time.Hour
 	}
 	now := r.now()
-	hpas := listNamespaceHPAs(ctx, r.Client, policy.Namespace)
+	hpas, err := listNamespaceHPAs(ctx, r.Client, policy.Namespace)
+	if err != nil {
+		logger.Error(err, "Failed to list HPAs; skipping startup boost")
+		return
+	}
 
 	for _, rec := range recommendations {
 		// Stale recs stay in the slice after Prometheus gaps; do not

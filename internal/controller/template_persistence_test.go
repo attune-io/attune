@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"testing"
 	"time"
@@ -25,13 +26,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	attunev1alpha1 "github.com/attune-io/attune/api/v1alpha1"
 	"github.com/attune-io/attune/internal/safety"
@@ -307,7 +309,7 @@ func TestRaiseTemplateEnvelope_LiveNoneDoesNotInvent(t *testing.T) {
 }
 
 func TestApplyTemplatePersistence_LiveEnvelopeRaisedOntoTemplate(t *testing.T) {
-	scheme := runtime.NewScheme()
+	scheme := testScheme()
 	require.NoError(t, appsv1.AddToScheme(scheme))
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
@@ -410,7 +412,7 @@ func TestApplyTemplatePersistence_LiveEnvelopeRaisedOntoTemplate(t *testing.T) {
 }
 
 func TestApplyTemplatePersistence_LiveNoneDoesNotInventEnvelope(t *testing.T) {
-	scheme := runtime.NewScheme()
+	scheme := testScheme()
 	require.NoError(t, appsv1.AddToScheme(scheme))
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
@@ -594,7 +596,7 @@ func TestQuantityEqual_MissingAsZero(t *testing.T) {
 }
 
 func TestApplyTemplatePersistence_OnRecommendation_Deployment(t *testing.T) {
-	scheme := runtime.NewScheme()
+	scheme := testScheme()
 	require.NoError(t, appsv1.AddToScheme(scheme))
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
@@ -664,8 +666,132 @@ func TestApplyTemplatePersistence_OnRecommendation_Deployment(t *testing.T) {
 	assert.Equal(t, int64(200), updated.Spec.Template.Spec.Containers[0].Resources.Requests.Cpu().MilliValue())
 }
 
+func persistOnRecommendationFixture(t *testing.T) (*appsv1.Deployment, *attunev1alpha1.AttunePolicy, []attunev1alpha1.WorkloadRecommendation) {
+	t.Helper()
+	cpuCur, err := resource.ParseQuantity("500m")
+	require.NoError(t, err)
+	memCur, err := resource.ParseQuantity("512Mi")
+	require.NoError(t, err)
+	cpuRec, err := resource.ParseQuantity("200m")
+	require.NoError(t, err)
+	memRec, err := resource.ParseQuantity("256Mi")
+	require.NoError(t, err)
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "default"},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: int32Ptr(1),
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "api"}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "api"}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:  "app",
+						Image: "nginx",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    cpuCur,
+								corev1.ResourceMemory: memCur,
+							},
+						},
+					}},
+				},
+			},
+		},
+		Status: appsv1.DeploymentStatus{Replicas: 1, UpdatedReplicas: 1, AvailableReplicas: 1},
+	}
+	policy := newTestPolicy("p", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeRecommend
+	policy.Spec.UpdateStrategy.TemplatePersistence = &attunev1alpha1.TemplatePersistence{
+		Enabled: boolPtr(true),
+		When:    attunev1alpha1.TemplatePersistenceOnRecommendation,
+	}
+	recs := []attunev1alpha1.WorkloadRecommendation{{
+		Workload: "api",
+		Kind:     "Deployment",
+		Containers: []attunev1alpha1.ContainerRecommendation{{
+			Name: "app",
+			Current: attunev1alpha1.ResourceValues{
+				CPURequest:    cpuCur,
+				MemoryRequest: memCur,
+			},
+			Recommended: attunev1alpha1.ResourceValues{
+				CPURequest:    cpuRec,
+				MemoryRequest: memRec,
+			},
+		}},
+	}}
+	return deploy, policy, recs
+}
+
+func TestApplyTemplatePersistence_ScaledToZeroSkipsPersist(t *testing.T) {
+	scheme := testScheme()
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, autoscalingv2.AddToScheme(scheme))
+	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
+
+	deploy, policy, recs := persistOnRecommendationFixture(t)
+	hpa := &autoscalingv2.HorizontalPodAutoscaler{
+		ObjectMeta: metav1.ObjectMeta{Name: "api-hpa", Namespace: "default"},
+		Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+			ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+				Kind: "Deployment",
+				Name: "api",
+			},
+		},
+		Status: autoscalingv2.HorizontalPodAutoscalerStatus{
+			Conditions: []autoscalingv2.HorizontalPodAutoscalerCondition{{
+				Type:   autoscalingv2.ScaledToZero,
+				Status: corev1.ConditionTrue,
+			}},
+		},
+	}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy, hpa).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = cl
+	r.Scheme = scheme
+
+	history := r.applyTemplatePersistence(context.Background(), policy, []client.Object{deploy}, recs,
+		attunev1alpha1.TemplatePersistenceOnRecommendation, nil)
+	assert.Empty(t, history, "ScaledToZero must not patch the pod template")
+
+	var updated appsv1.Deployment
+	require.NoError(t, cl.Get(context.Background(), client.ObjectKeyFromObject(deploy), &updated))
+	assert.Equal(t, int64(500), updated.Spec.Template.Spec.Containers[0].Resources.Requests.Cpu().MilliValue())
+}
+
+func TestApplyTemplatePersistence_HPAListErrorSkipsPersist(t *testing.T) {
+	scheme := testScheme()
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, autoscalingv2.AddToScheme(scheme))
+	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
+
+	deploy, policy, recs := persistOnRecommendationFixture(t)
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy).
+		WithInterceptorFuncs(interceptor.Funcs{
+			List: func(ctx context.Context, cw client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+				if _, ok := list.(*autoscalingv2.HorizontalPodAutoscalerList); ok {
+					return fmt.Errorf("simulated HPA list failure")
+				}
+				return cw.List(ctx, list, opts...)
+			},
+		}).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = cl
+	r.Scheme = scheme
+
+	history := r.applyTemplatePersistence(context.Background(), policy, []client.Object{deploy}, recs,
+		attunev1alpha1.TemplatePersistenceOnRecommendation, nil)
+	assert.Empty(t, history, "HPA list error must skip template persistence")
+
+	var updated appsv1.Deployment
+	require.NoError(t, cl.Get(context.Background(), client.ObjectKeyFromObject(deploy), &updated))
+	assert.Equal(t, int64(500), updated.Spec.Template.Spec.Containers[0].Resources.Requests.Cpu().MilliValue())
+}
+
 func TestApplyTemplatePersistence_AfterSuccessfulResize_OnlyResizedWorkloads(t *testing.T) {
-	scheme := runtime.NewScheme()
+	scheme := testScheme()
 	require.NoError(t, appsv1.AddToScheme(scheme))
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
@@ -739,7 +865,7 @@ func TestApplyTemplatePersistence_AfterSuccessfulResize_OnlyResizedWorkloads(t *
 }
 
 func TestApplyTemplatePersistence_AfterSuccessfulResize_UsesAppliedDestCPU(t *testing.T) {
-	scheme := runtime.NewScheme()
+	scheme := testScheme()
 	require.NoError(t, appsv1.AddToScheme(scheme))
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
@@ -816,7 +942,7 @@ func TestApplyTemplatePersistence_AfterSuccessfulResize_UsesAppliedDestCPU(t *te
 }
 
 func TestApplyTemplatePersistence_StatefulSet(t *testing.T) {
-	scheme := runtime.NewScheme()
+	scheme := testScheme()
 	require.NoError(t, appsv1.AddToScheme(scheme))
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
@@ -880,7 +1006,7 @@ func TestApplyTemplatePersistence_StatefulSet(t *testing.T) {
 }
 
 func TestApplyTemplatePersistence_SkipsExcludedContainers(t *testing.T) {
-	scheme := runtime.NewScheme()
+	scheme := testScheme()
 	require.NoError(t, appsv1.AddToScheme(scheme))
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
@@ -976,7 +1102,7 @@ func TestSuccessfulResizeWorkloads(t *testing.T) {
 }
 
 func TestApplyTemplatePersistence_AfterSuccessfulResize_EvictedGetsTemplate(t *testing.T) {
-	scheme := runtime.NewScheme()
+	scheme := testScheme()
 	require.NoError(t, appsv1.AddToScheme(scheme))
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
@@ -1049,7 +1175,7 @@ func TestApplyTemplatePersistence_AfterSuccessfulResize_EvictedGetsTemplate(t *t
 }
 
 func TestApplyTemplatePersistence_AfterSuccessfulResize_EvictedMissingDeploymentFailed(t *testing.T) {
-	scheme := runtime.NewScheme()
+	scheme := testScheme()
 	require.NoError(t, appsv1.AddToScheme(scheme))
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
@@ -1382,7 +1508,7 @@ func TestMaterializeContainerResources_ClampsRequestsAndLimits(t *testing.T) {
 }
 
 func TestApplyTemplatePersistence_SkipsObserveMode(t *testing.T) {
-	scheme := runtime.NewScheme()
+	scheme := testScheme()
 	require.NoError(t, appsv1.AddToScheme(scheme))
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
@@ -1447,7 +1573,7 @@ func TestApplyTemplatePersistence_SkipsObserveMode(t *testing.T) {
 }
 
 func TestApplyTemplatePersistence_SkipsCanaryInProgress(t *testing.T) {
-	scheme := runtime.NewScheme()
+	scheme := testScheme()
 	require.NoError(t, appsv1.AddToScheme(scheme))
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
@@ -1528,7 +1654,7 @@ func TestApplyTemplatePersistence_SkipsCanaryInProgress(t *testing.T) {
 }
 
 func TestApplyTemplatePersistence_SkipsMidRollout(t *testing.T) {
-	scheme := runtime.NewScheme()
+	scheme := testScheme()
 	require.NoError(t, appsv1.AddToScheme(scheme))
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
@@ -1596,7 +1722,7 @@ func TestApplyTemplatePersistence_SkipsMidRollout(t *testing.T) {
 }
 
 func TestApplyTemplatePersistence_SkipsStale(t *testing.T) {
-	scheme := runtime.NewScheme()
+	scheme := testScheme()
 	require.NoError(t, appsv1.AddToScheme(scheme))
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
@@ -1665,7 +1791,7 @@ func TestApplyTemplatePersistence_SkipsStale(t *testing.T) {
 }
 
 func TestApplyTemplatePersistence_SkipsStale_AfterSuccessfulResize(t *testing.T) {
-	scheme := runtime.NewScheme()
+	scheme := testScheme()
 	require.NoError(t, appsv1.AddToScheme(scheme))
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
@@ -1734,7 +1860,7 @@ func TestApplyTemplatePersistence_SkipsStale_AfterSuccessfulResize(t *testing.T)
 }
 
 func TestApplyTemplatePersistence_PatchesTemplateWhenRecCurrentEqualsRecommended(t *testing.T) {
-	scheme := runtime.NewScheme()
+	scheme := testScheme()
 	require.NoError(t, appsv1.AddToScheme(scheme))
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
@@ -1804,7 +1930,7 @@ func TestApplyTemplatePersistence_PatchesTemplateWhenRecCurrentEqualsRecommended
 }
 
 func TestApplyTemplatePersistence_NoOpWhenTemplateMatches(t *testing.T) {
-	scheme := runtime.NewScheme()
+	scheme := testScheme()
 	require.NoError(t, appsv1.AddToScheme(scheme))
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
@@ -1881,7 +2007,7 @@ func (g *getCountingReader) Get(ctx context.Context, key client.ObjectKey, obj c
 }
 
 func TestApplyTemplatePersistence_RequestsOnlyPreservesTemplateLimits(t *testing.T) {
-	scheme := runtime.NewScheme()
+	scheme := testScheme()
 	require.NoError(t, appsv1.AddToScheme(scheme))
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
@@ -1959,7 +2085,7 @@ func TestApplyTemplatePersistence_RequestsOnlyPreservesTemplateLimits(t *testing
 }
 
 func TestApplyTemplatePersistence_DisabledByDefault(t *testing.T) {
-	scheme := runtime.NewScheme()
+	scheme := testScheme()
 	require.NoError(t, appsv1.AddToScheme(scheme))
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
@@ -2100,7 +2226,7 @@ func original256MiRecord() safety.ResizeRecord {
 }
 
 func TestRestoreTemplateAfterSafetyRevert_AfterSuccessfulResize(t *testing.T) {
-	scheme := runtime.NewScheme()
+	scheme := testScheme()
 	require.NoError(t, appsv1.AddToScheme(scheme))
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
@@ -2128,7 +2254,7 @@ func TestRestoreTemplateAfterSafetyRevert_AfterSuccessfulResize(t *testing.T) {
 }
 
 func TestRestoreTemplateAfterSafetyRevert_ClearsPersistAddedLimits(t *testing.T) {
-	scheme := runtime.NewScheme()
+	scheme := testScheme()
 	require.NoError(t, appsv1.AddToScheme(scheme))
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
@@ -2194,7 +2320,7 @@ func TestRestoreTemplateAfterSafetyRevert_ClearsPersistAddedLimits(t *testing.T)
 }
 
 func TestRestoreTemplateAfterSafetyRevert_PreservesExtendedResources(t *testing.T) {
-	scheme := runtime.NewScheme()
+	scheme := testScheme()
 	require.NoError(t, appsv1.AddToScheme(scheme))
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
@@ -2259,7 +2385,7 @@ func TestRestoreTemplateAfterSafetyRevert_PreservesExtendedResources(t *testing.
 }
 
 func TestRestoreTemplateAfterSafetyRevert_DisabledNoOp(t *testing.T) {
-	scheme := runtime.NewScheme()
+	scheme := testScheme()
 	require.NoError(t, appsv1.AddToScheme(scheme))
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
@@ -2431,7 +2557,7 @@ func TestOmitRevertedOrFailedContainers(t *testing.T) {
 func TestApplyTemplatePersistence_AfterSuccessfulResize_OmitsRevertedContainer(t *testing.T) {
 	t.Parallel()
 
-	scheme := runtime.NewScheme()
+	scheme := testScheme()
 	require.NoError(t, appsv1.AddToScheme(scheme))
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
