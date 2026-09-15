@@ -1010,11 +1010,9 @@ func (r *AttunePolicyReconciler) processWorkloads(
 					Error:    fmt.Sprintf("VPA read error: %v", vpaErr),
 				})
 			}
-			return result
-		}
-		if len(vpaRecs) == 0 {
+			vpaRecs = nil
+		} else if len(vpaRecs) == 0 {
 			logger.Info("VPA has no recommendations yet", "vpa", vpaCfg.Name, "namespace", vpaNS)
-			return result
 		}
 	}
 

@@ -84,16 +84,16 @@ func ReadVPARecommendations(ctx context.Context, c client.Client, name, namespac
 			continue
 		}
 
-		cpuStr, _ := target["cpu"].(string)
-		memStr, _ := target["memory"].(string)
-
-		cpuQty, err := resource.ParseQuantity(cpuStr)
+		cpuQty, cpuSet, err := parseVPATargetQuantity(target["cpu"], "CPU", containerName)
 		if err != nil {
-			return nil, fmt.Errorf("parsing VPA CPU target %q for container %s: %w", cpuStr, containerName, err)
+			return nil, err
 		}
-		memQty, err := resource.ParseQuantity(memStr)
+		memQty, memSet, err := parseVPATargetQuantity(target["memory"], "memory", containerName)
 		if err != nil {
-			return nil, fmt.Errorf("parsing VPA memory target %q for container %s: %w", memStr, containerName, err)
+			return nil, err
+		}
+		if !cpuSet && !memSet {
+			continue
 		}
 
 		result = append(result, VPAContainerRecommendation{
@@ -104,4 +104,21 @@ func ReadVPARecommendations(ctx context.Context, c client.Client, name, namespac
 	}
 
 	return result, nil
+}
+
+// parseVPATargetQuantity treats a missing or empty target as unset.
+// A present but unparseable value is an error for the whole VPA.
+func parseVPATargetQuantity(raw interface{}, resourceName, containerName string) (resource.Quantity, bool, error) {
+	if raw == nil {
+		return resource.Quantity{}, false, nil
+	}
+	str, ok := raw.(string)
+	if !ok || str == "" {
+		return resource.Quantity{}, false, nil
+	}
+	qty, err := resource.ParseQuantity(str)
+	if err != nil {
+		return resource.Quantity{}, false, fmt.Errorf("parsing VPA %s target %q for container %s: %w", resourceName, str, containerName, err)
+	}
+	return qty, true, nil
 }
