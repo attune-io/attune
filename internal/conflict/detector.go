@@ -21,6 +21,7 @@ package conflict
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
@@ -133,10 +134,19 @@ var vpaGVK = schema.GroupVersionKind{
 }
 
 // CheckVPAConflict lists VerticalPodAutoscaler resources in the namespace and
-// returns a Conflict if any VPA targets the same workload. Returns nil if the
-// VPA CRD is not installed (no error) or no conflicts are found.
+// returns a Conflict if any applying VPA targets the same workload. A VPA
+// with updateMode Off is recommend-only and is not a conflict. Missing
+// updateMode is treated as applying (historical VPA default is Auto).
+// Returns nil if the VPA CRD is not installed (no error) or no conflicts
+// are found.
 func (d *Detector) CheckVPAConflict(ctx context.Context, c client.Client, namespace, workloadName, workloadKind string) *Conflict {
 	return d.CheckVPAConflictInMemory(d.ListVPAs(ctx, c, namespace), workloadName, workloadKind)
+}
+
+// vpaUpdateModeIsRecommendOnly reports whether VPA updateMode is Off.
+// Empty mode is not Off: older VPA defaults empty to Auto.
+func vpaUpdateModeIsRecommendOnly(mode string) bool {
+	return strings.EqualFold(strings.TrimSpace(mode), "Off")
 }
 
 // policyTargetsWorkload checks whether a policy's targetRef matches the given
@@ -268,8 +278,9 @@ func (d *Detector) ListVPAs(ctx context.Context, c client.Client, namespace stri
 	return vpaList
 }
 
-// CheckVPAConflictInMemory checks for VPA conflicts against a pre-fetched list.
-// Use with ListVPAs to avoid repeated API calls when checking multiple workloads.
+// CheckVPAConflictInMemory checks for applying VPA conflicts against a
+// pre-fetched list. updateMode Off is skipped. Use with ListVPAs to
+// avoid repeated API calls when checking multiple workloads.
 func (d *Detector) CheckVPAConflictInMemory(vpaList *unstructured.UnstructuredList, workloadName, workloadKind string) *Conflict {
 	if vpaList == nil {
 		return nil
@@ -283,10 +294,14 @@ func (d *Detector) CheckVPAConflictInMemory(vpaList *unstructured.UnstructuredLi
 		refKind, _ := targetRef["kind"].(string)
 		refName, _ := targetRef["name"].(string)
 		if refKind == workloadKind && refName == workloadName {
+			mode, _, _ := unstructured.NestedString(vpa.Object, "spec", "updatePolicy", "updateMode")
+			if vpaUpdateModeIsRecommendOnly(mode) {
+				continue
+			}
 			return &Conflict{
 				Type:    ConflictVPA,
 				Name:    vpa.GetName(),
-				Message: fmt.Sprintf("VPA %s targets the same %s/%s; consider disabling VPA to avoid conflicting resource adjustments", vpa.GetName(), workloadKind, workloadName),
+				Message: fmt.Sprintf("VPA %s targets the same %s/%s; set updateMode to Off or delete the VPA to avoid conflicting resource adjustments", vpa.GetName(), workloadKind, workloadName),
 			}
 		}
 	}

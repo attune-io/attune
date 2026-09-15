@@ -151,7 +151,7 @@ make test-e2e-smoke
 | `test/e2e/namespace-defaults/` | (cross-cutting) | AttuneNamespaceDefaults overrides cluster defaults |
 | `test/e2e/defaults-merge/` | (cross-cutting) | AttuneDefaults values are inherited by a policy that omits them |
 | `test/e2e/hpa-conflict/` | (cross-cutting) | HPA conflict is warning-only, policy still reconciles |
-| `test/e2e/vpa-conflict/` | (cross-cutting) | VPA conflict is warning-only, policy still reconciles |
+| `test/e2e/vpa-conflict/` | (cross-cutting) | Applying VPA (`Auto`) is warning-only; policy still reconciles |
 | `test/e2e/hpa-auto-tune/` | (cross-cutting) | Auto-tunes HPA CPU target utilization when annotated |
 | `test/e2e/policy-weight/` | (cross-cutting) | Higher-weight policy outranks lower-weight on the same workload |
 | `test/e2e/requests-only/` | (cross-cutting) | `controlledValues: RequestsOnly` is accepted and discovers workloads |

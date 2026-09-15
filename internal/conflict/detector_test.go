@@ -23,6 +23,7 @@ import (
 
 	"github.com/go-logr/logr/testr"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
@@ -620,6 +621,59 @@ func TestCheckVPAConflictInMemory_MultipleVPAs_MatchSecond(t *testing.T) {
 	result := detector.CheckVPAConflictInMemory(list, "my-app", "Deployment")
 	assert.NotNil(t, result)
 	assert.Equal(t, "matching-vpa", result.Name)
+}
+
+func newVPAWithMode(name, targetKind, targetName, mode string) unstructured.Unstructured {
+	vpa := newVPA(name, targetKind, targetName)
+	if mode != "" {
+		_ = unstructured.SetNestedField(vpa.Object, mode, "spec", "updatePolicy", "updateMode")
+	}
+	return vpa
+}
+
+func TestCheckVPAConflictInMemory_UpdateMode(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+
+	tests := []struct {
+		name     string
+		mode     string
+		wantName string
+		wantNil  bool
+	}{
+		{name: "empty mode is applying (fail closed)", mode: "", wantName: "my-vpa"},
+		{name: "Off is recommend-only", mode: "Off", wantNil: true},
+		{name: "off lowercase is recommend-only", mode: "off", wantNil: true},
+		{name: "Auto applies", mode: "Auto", wantName: "my-vpa"},
+		{name: "Initial applies at CREATE", mode: "Initial", wantName: "my-vpa"},
+		{name: "Recreate applies", mode: "Recreate", wantName: "my-vpa"},
+		{name: "InPlaceOrRecreate applies", mode: "InPlaceOrRecreate", wantName: "my-vpa"},
+		{name: "InPlace applies", mode: "InPlace", wantName: "my-vpa"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			vpa := newVPAWithMode("my-vpa", "Deployment", "my-app", tt.mode)
+			list := &unstructured.UnstructuredList{Items: []unstructured.Unstructured{vpa}}
+			result := detector.CheckVPAConflictInMemory(list, "my-app", "Deployment")
+			if tt.wantNil {
+				assert.Nil(t, result)
+				return
+			}
+			require.NotNil(t, result)
+			assert.Equal(t, ConflictVPA, result.Type)
+			assert.Equal(t, tt.wantName, result.Name)
+		})
+	}
+}
+
+func TestCheckVPAConflictInMemory_OffSkippedReportsApplyingSibling(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+	off := newVPAWithMode("recommend-vpa", "Deployment", "my-app", "Off")
+	auto := newVPAWithMode("apply-vpa", "Deployment", "my-app", "Auto")
+	list := &unstructured.UnstructuredList{Items: []unstructured.Unstructured{off, auto}}
+
+	result := detector.CheckVPAConflictInMemory(list, "my-app", "Deployment")
+	require.NotNil(t, result)
+	assert.Equal(t, "apply-vpa", result.Name)
 }
 
 // ---------- CheckPolicyConflictInMemory ----------

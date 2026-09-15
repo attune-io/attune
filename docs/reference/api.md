@@ -258,7 +258,7 @@ View them with `kubectl describe attunepolicy <name>` or
 | `ResizeDeferred` | Normal | Previous-release Attune no-op Event (same meaning as `ResizeUnchanged`). Reserved now for kubelet node-capacity deferral; do not treat this reason as an Attune no-op |
 | `WorkloadIdle` | Normal | Apply skipped for this workload because HPA `ScaledToZero` is True, or `spec.replicas` is 0 |
 | `HPAConflict` | Warning | An HPA targets the same workload and may conflict with resizing |
-| `VPAConflict` | Warning | A VPA targets the same workload |
+| `VPAConflict` | Warning | An applying VPA (`updateMode` other than `Off`, or unset) targets the same workload. Recommend-only (`Off`) is coexistence, not a conflict. |
 | `ConfigClamped` | Warning | A policy field was clamped to its allowed range at runtime |
 | `ExportFailed` | Warning | Failed to export recommendations to ConfigMap |
 | `RestartOnResize` | Normal | Container will restart on resize due to `RestartContainer` resize policy |
