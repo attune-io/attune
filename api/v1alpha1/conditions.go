@@ -67,7 +67,10 @@ const (
 	// attune.io/freeze=true, or the namespace cannot be read (fail closed).
 	// Apply (resize, persist, CREATE initial sizing) is skipped;
 	// recommendations still compute.
-	ReasonNamespaceFrozen           = "NamespaceFrozen"
+	ReasonNamespaceFrozen = "NamespaceFrozen"
+	// ReasonHPAListUnavailable is set when listing HorizontalPodAutoscalers
+	// fails (RBAC or apiserver). Apply is skipped; recommendations still compute.
+	ReasonHPAListUnavailable        = "HPAListUnavailable"
 	ReasonPodsDeferred              = "PodsDeferred"
 	ReasonPodsInfeasible            = "PodsInfeasible"
 	ReasonPodsDeferredAndInfeasible = "PodsDeferredAndInfeasible"

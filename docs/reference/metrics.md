@@ -79,7 +79,7 @@ Total number of reconciliation errors by type.
 
 | Label | Description |
 |-------|-------------|
-| `error_type` | `fetch`, `fetch_defaults`, `metrics_source`, `discover_workloads`, `list_policies`, `get_pods`, `compute_recommendations`, `status_update`, or `safety_observation` |
+| `error_type` | `fetch`, `fetch_defaults`, `metrics_source`, `discover_workloads`, `list_policies`, `list_hpas`, `get_pods`, `compute_recommendations`, `status_update`, or `safety_observation` |
 
 `safety_observation` means a pending-observation list, confirm Get, safety
 check, or tracking-annotation cleanup failed. Tracking stays on the pod

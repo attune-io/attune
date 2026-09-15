@@ -25,6 +25,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -473,10 +474,16 @@ func (r *AttunePolicyReconciler) executeResizes(
 
 	var historyMu sync.Mutex
 	var wg sync.WaitGroup
-	hpas, err := listNamespaceHPAs(ctx, r.Client, policy.Namespace)
-	if err != nil {
-		logger.Error(err, "Failed to list HPAs; skipping apply")
-		return 0, nil
+	var hpas []autoscalingv2.HorizontalPodAutoscaler
+	if checks != nil && checks.hpasKnown {
+		hpas = checks.hpas
+	} else {
+		listed, err := listNamespaceHPAs(ctx, r.Client, policy.Namespace)
+		if err != nil {
+			logger.Error(err, "Failed to list HPAs; skipping apply")
+			return 0, nil
+		}
+		hpas = listed
 	}
 
 	for _, rec := range recommendations {
@@ -1633,6 +1640,8 @@ type resizePreChecks struct {
 	quotas            []corev1.ResourceQuota
 	limitRangeListErr error
 	quotaListErr      error
+	hpas              []autoscalingv2.HorizontalPodAutoscaler
+	hpasKnown         bool
 }
 
 // buildResizePreChecks pre-fetches namespace-scoped LimitRanges and
