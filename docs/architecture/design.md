@@ -132,3 +132,6 @@ sequenceDiagram
     end
     C->>K: Update status
 ```
+
+Version-best apply (capabilities, envelope, HPA idle, doctor cgroup)
+is in [Version-best Kubernetes](version-best.md).

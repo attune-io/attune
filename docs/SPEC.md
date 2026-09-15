@@ -1336,6 +1336,7 @@ docs/
 │   └── cli.md                  # kubectl plugin reference
 ├── architecture/
 │   ├── design.md               # Architecture overview
+│   ├── version-best.md         # Version-best Kubernetes (1.32+)
 │   ├── algorithm.md            # Estimator chain details
 │   ├── safety.md               # Safety system design
 │   └── resize-api.md           # K8s In-Place Resize reference

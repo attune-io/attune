@@ -76,6 +76,7 @@ nav:
       - Metrics: reference/metrics.md
   - Architecture:
       - Design: architecture/design.md
+      - Version-best Kubernetes: architecture/version-best.md
       - Algorithm: architecture/algorithm.md
       - Resize API: architecture/resize-api.md
       - Node capacity: architecture/node-capacity.md
