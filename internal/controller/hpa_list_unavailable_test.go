@@ -76,7 +76,6 @@ func hpaListFailInterceptor(fail *atomic.Bool) interceptor.Funcs {
 func TestReconcile_HPAListError_SetsResizeBlocked(t *testing.T) {
 	// Shares ReconcileErrorsTotal{list_hpas} with the sibling test below.
 	// Parallel would make before+1 assert +2 when both run in one package.
-
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
 	policy.Spec.CPU.MaxChangePercent = int32Ptr(100)
@@ -141,7 +140,6 @@ func TestReconcile_HPAListError_SetsResizeBlocked(t *testing.T) {
 }
 
 func TestReconcile_HPAListError_ClearsWhenListSucceeds(t *testing.T) {
-
 	policy := newTestPolicy("test-policy", "default")
 	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
 	policy.Spec.CPU.MaxChangePercent = int32Ptr(100)
