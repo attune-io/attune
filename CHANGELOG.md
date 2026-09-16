@@ -6,6 +6,31 @@ The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.28](https://github.com/attune-io/attune/compare/v0.1.27...v0.1.28) (2026-09-16)
+
+
+### Features
+
+* centralize cluster capabilities discovery ([#758](https://github.com/attune-io/attune/issues/758)) ([68c63b2](https://github.com/attune-io/attune/commit/68c63b257c5df4d11e2ffb08821c7a1fd11ad23b))
+* detect cgroup v2 in kubectl attune doctor ([#761](https://github.com/attune-io/attune/issues/761)) ([2db9416](https://github.com/attune-io/attune/commit/2db94163c54440173a96c175b364e48b7e3ca916)), closes [#753](https://github.com/attune-io/attune/issues/753)
+* persist and create-size pod-level resource envelopes ([#764](https://github.com/attune-io/attune/issues/764)) ([997d3da](https://github.com/attune-io/attune/commit/997d3dac2ab27033394932ff0b4e983fda9d2f3f)), closes [#756](https://github.com/attune-io/attune/issues/756)
+* raise pod-level resource envelope on live resize ([#763](https://github.com/attune-io/attune/issues/763)) ([f7ed022](https://github.com/attune-io/attune/commit/f7ed022137a85f88400fc9be0d97321449410216)), closes [#755](https://github.com/attune-io/attune/issues/755)
+* treat hpa scaled-to-zero as distinct from manual zero ([#762](https://github.com/attune-io/attune/issues/762)) ([a8c4ee6](https://github.com/attune-io/attune/commit/a8c4ee634466a2ddc26cc4b02ad44e9ee4ed9e27))
+
+
+### Bug Fixes
+
+* fail closed when listing vpas for conflict check ([#774](https://github.com/attune-io/attune/issues/774)) ([a55cb92](https://github.com/attune-io/attune/commit/a55cb928478aa7ceb3ec0b2679fd4142bc57abd6))
+* harden vpa source and hpa idle edges ([#767](https://github.com/attune-io/attune/issues/767)) ([02da154](https://github.com/attune-io/attune/commit/02da1542dea4d5f22d14f15c791dfd1f7ba8ab9e))
+* hold omitted vpa resources from live pods not only the template ([#772](https://github.com/attune-io/attune/issues/772)) ([a4d49bb](https://github.com/attune-io/attune/commit/a4d49bb83b326be1aad89c2c8d4d83fafab47759))
+* hold omitted vpa target resources instead of treating them as zero ([#770](https://github.com/attune-io/attune/issues/770)) ([aac5212](https://github.com/attune-io/attune/commit/aac52121f540c59e1a0d8c5e9c7498b04ed999fb))
+* list pods when metrics sampling is unlimited ([#773](https://github.com/attune-io/attune/issues/773)) ([e9bf7fd](https://github.com/attune-io/attune/commit/e9bf7fddf196bd328ca4b70c053091d682e30dbb))
+* rename attune noop event to ResizeUnchanged ([#760](https://github.com/attune-io/attune/issues/760)) ([4bdfa7f](https://github.com/attune-io/attune/commit/4bdfa7f5c1a7eb77953a9d97ec54e22b37597fe4)), closes [#757](https://github.com/attune-io/attune/issues/757)
+* show vpa and hpa list blocks in kubectl attune status ([#775](https://github.com/attune-io/attune/issues/775)) ([bb54a94](https://github.com/attune-io/attune/commit/bb54a94371ca0c8ff2f7a45bcfaa52656704b407))
+* skip envelope e2e when live pods have no spec.resources ([#769](https://github.com/attune-io/attune/issues/769)) ([eb308e6](https://github.com/attune-io/attune/commit/eb308e6e60ae953321881f69f6f393f77a88fa19)), closes [#768](https://github.com/attune-io/attune/issues/768)
+* skip template persist when live envelope list fails ([#771](https://github.com/attune-io/attune/issues/771)) ([4109e48](https://github.com/attune-io/attune/commit/4109e487c811543dfea4d365f28aa2d06bedae28))
+* skip vpa conflict when updateMode is Off ([#766](https://github.com/attune-io/attune/issues/766)) ([2193938](https://github.com/attune-io/attune/commit/2193938948e7a9b8ee90d732af72d24716db2748))
+
 ## [0.1.27](https://github.com/attune-io/attune/compare/v0.1.26...v0.1.27) (2026-09-11)
 
 
