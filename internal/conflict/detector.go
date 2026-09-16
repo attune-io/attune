@@ -27,6 +27,8 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
@@ -140,7 +142,11 @@ var vpaGVK = schema.GroupVersionKind{
 // Returns nil if the VPA CRD is not installed (no error) or no conflicts
 // are found.
 func (d *Detector) CheckVPAConflict(ctx context.Context, c client.Client, namespace, workloadName, workloadKind string) *Conflict {
-	return d.CheckVPAConflictInMemory(d.ListVPAs(ctx, c, namespace), workloadName, workloadKind)
+	list, err := d.ListVPAs(ctx, c, namespace)
+	if err != nil {
+		return nil
+	}
+	return d.CheckVPAConflictInMemory(list, workloadName, workloadKind)
 }
 
 // vpaUpdateModeIsRecommendOnly reports whether VPA updateMode is Off.
@@ -267,15 +273,18 @@ func (d *Detector) FindMatchingHPA(hpas []autoscalingv2.HorizontalPodAutoscaler,
 
 // ListVPAs fetches all VPAs in the namespace once for efficient conflict checking.
 // Returns nil if the VPA CRD is not installed.
-func (d *Detector) ListVPAs(ctx context.Context, c client.Client, namespace string) *unstructured.UnstructuredList {
+func (d *Detector) ListVPAs(ctx context.Context, c client.Client, namespace string) (*unstructured.UnstructuredList, error) {
 	vpaList := &unstructured.UnstructuredList{}
 	vpaList.SetGroupVersionKind(vpaGVK)
 
 	if err := c.List(ctx, vpaList, client.InNamespace(namespace)); err != nil {
-		d.logger.V(1).Info("Could not list VPAs (CRD may not be installed)", "error", err)
-		return nil
+		if meta.IsNoMatchError(err) || apierrors.IsNotFound(err) {
+			d.logger.V(1).Info("VPA CRD is not installed; skipping VPA conflict check")
+			return nil, nil
+		}
+		return nil, fmt.Errorf("listing VerticalPodAutoscalers: %w", err)
 	}
-	return vpaList
+	return vpaList, nil
 }
 
 // CheckVPAConflictInMemory checks for applying VPA conflicts against a

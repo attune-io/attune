@@ -27,6 +27,8 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -358,8 +360,39 @@ func TestListVPAs_ListError(t *testing.T) {
 		},
 	}).Build()
 
-	result := detector.ListVPAs(context.Background(), errClient, "default")
+	result, err := detector.ListVPAs(context.Background(), errClient, "default")
 	assert.Nil(t, result, "ListVPAs should return nil on List error")
+	assert.Error(t, err, "ListVPAs must return the List error so apply can fail closed")
+}
+
+func TestListVPAs_NoMatchErrorIsNotApplyBlock(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+	errClient := fake.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
+		List: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) error {
+			return &meta.NoKindMatchError{
+				GroupKind: schema.GroupKind{Group: "autoscaling.k8s.io", Kind: "VerticalPodAutoscaler"},
+			}
+		},
+	}).Build()
+
+	result, err := detector.ListVPAs(context.Background(), errClient, "default")
+	assert.NoError(t, err, "missing VPA CRD must not fail closed")
+	assert.Nil(t, result)
+}
+
+func TestListVPAs_NotFoundIsNotApplyBlock(t *testing.T) {
+	detector := NewDetector(testr.New(t))
+	errClient := fake.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
+		List: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) error {
+			return apierrors.NewNotFound(schema.GroupResource{
+				Group: "autoscaling.k8s.io", Resource: "verticalpodautoscalers",
+			}, "")
+		},
+	}).Build()
+
+	result, err := detector.ListVPAs(context.Background(), errClient, "default")
+	assert.NoError(t, err, "404 missing VPA CRD must not fail closed")
+	assert.Nil(t, result)
 }
 
 func TestListPolicies_ListError(t *testing.T) {
