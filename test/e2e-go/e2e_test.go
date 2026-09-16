@@ -404,6 +404,56 @@ func logPolicyExplanationState(t *testing.T, name, namespace string) {
 	}
 }
 
+func logOOMKillRevertState(t *testing.T, policyName, namespace, app string) {
+	t.Helper()
+	var p attunev1alpha1.AttunePolicy
+	if err := k8sClient.Get(ctx, types.NamespacedName{Name: policyName, Namespace: namespace}, &p); err != nil {
+		t.Logf("logOOMKillRevertState(%s/%s): get policy: %v", namespace, policyName, err)
+	} else {
+		t.Logf("logOOMKillRevertState(%s/%s): last-resize-time=%q",
+			namespace, policyName, p.Annotations["attune.io/last-resize-time"])
+		for k, v := range p.Annotations {
+			if strings.HasPrefix(k, "attune.io/last-resize-time.") {
+				t.Logf("  annotation %s=%s", k, v)
+			}
+		}
+		for i, h := range p.Status.ResizeHistory {
+			t.Logf("  history[%d] workload=%s container=%s resource=%s result=%s reason=%s",
+				i, h.Workload, h.Container, h.Resource, h.Result, h.Reason)
+		}
+	}
+	pods, err := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: "app=" + app})
+	if err != nil {
+		t.Logf("logOOMKillRevertState(%s): list pods: %v", namespace, err)
+		return
+	}
+	for _, pod := range pods.Items {
+		t.Logf("  pod %s phase=%s resized-at=%s",
+			pod.Name, pod.Status.Phase, pod.Annotations["attune.io/resized-at"])
+		for _, c := range pod.Spec.Containers {
+			if c.Name != "app" {
+				continue
+			}
+			t.Logf("    requests cpu=%s mem=%s",
+				c.Resources.Requests.Cpu(), c.Resources.Requests.Memory())
+		}
+		for _, cs := range pod.Status.ContainerStatuses {
+			if cs.Name != "app" {
+				continue
+			}
+			t.Logf("    restarts=%d", cs.RestartCount)
+			if term := cs.LastTerminationState.Terminated; term != nil {
+				t.Logf("    lastTermination reason=%s finishedAt=%s",
+					term.Reason, term.FinishedAt.UTC().Format(time.RFC3339))
+			}
+			if term := cs.State.Terminated; term != nil {
+				t.Logf("    state.terminated reason=%s finishedAt=%s",
+					term.Reason, term.FinishedAt.UTC().Format(time.RFC3339))
+			}
+		}
+	}
+}
+
 func waitForPolicyDiscovered(t *testing.T, name, namespace string, timeout time.Duration) {
 	t.Helper()
 	start := time.Now()
@@ -2249,7 +2299,7 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 	}), "timed out waiting for OOMKill")
 
 	// Phase 4: Wait for an OOMKill Reverted history row (not any revert).
-	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, 5*time.Minute, true, func(ctx context.Context) (bool, error) {
+	err := wait.PollUntilContextTimeout(ctx, 5*time.Second, 5*time.Minute, true, func(ctx context.Context) (bool, error) {
 		var p attunev1alpha1.AttunePolicy
 		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "oom-policy", Namespace: ns}, &p); err != nil {
 			return false, nil
@@ -2263,7 +2313,11 @@ func TestE2E_OOMKill_TriggersRevert(t *testing.T) {
 			}
 		}
 		return false, nil
-	}), "timed out waiting for OOMKill Reverted history")
+	})
+	if err != nil {
+		logOOMKillRevertState(t, "oom-policy", ns, "oom-app")
+	}
+	require.NoError(t, err, "timed out waiting for OOMKill Reverted history")
 
 	// Pause so Auto cannot immediately re-decrease (cooldown is 1m, but pause
 	// is the hard stop). Then require live requests back at pre-resize values.

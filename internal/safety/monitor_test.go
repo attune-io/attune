@@ -404,6 +404,147 @@ func TestCheckCriticalStatuses_InitContainerOOMKill(t *testing.T) {
 	assert.Equal(t, "oomkill", v.Reason)
 }
 
+func TestCheckCriticalStatuses_OOMKillClassification(t *testing.T) {
+	resizedAt := time.Date(2026, 9, 16, 8, 40, 48, 0, time.UTC)
+
+	tests := []struct {
+		name    string
+		cs      corev1.ContainerStatus
+		record  ResizeRecord
+		wantOOM bool
+	}{
+		{
+			name: "zero FinishedAt plus restart increase is oomkill",
+			cs: corev1.ContainerStatus{
+				Name:         "app",
+				RestartCount: 1,
+				LastTerminationState: corev1.ContainerState{
+					Terminated: &corev1.ContainerStateTerminated{
+						Reason: "OOMKilled",
+					},
+				},
+			},
+			record:  ResizeRecord{Container: "app", ResizedAt: resizedAt, RestartCount: 0},
+			wantOOM: true,
+		},
+		{
+			name: "FinishedAt equal to ResizedAt is oomkill",
+			cs: corev1.ContainerStatus{
+				Name: "app",
+				LastTerminationState: corev1.ContainerState{
+					Terminated: &corev1.ContainerStateTerminated{
+						Reason:     "OOMKilled",
+						FinishedAt: metav1.NewTime(resizedAt),
+					},
+				},
+			},
+			record:  ResizeRecord{Container: "app", ResizedAt: resizedAt},
+			wantOOM: true,
+		},
+		{
+			name: "FinishedAt one second before ResizedAt is oomkill",
+			cs: corev1.ContainerStatus{
+				Name: "app",
+				LastTerminationState: corev1.ContainerState{
+					Terminated: &corev1.ContainerStateTerminated{
+						Reason:     "OOMKilled",
+						FinishedAt: metav1.NewTime(resizedAt.Add(-time.Second)),
+					},
+				},
+			},
+			record:  ResizeRecord{Container: "app", ResizedAt: resizedAt},
+			wantOOM: true,
+		},
+		{
+			name: "State.Terminated OOM with empty LastTermination is oomkill",
+			cs: corev1.ContainerStatus{
+				Name: "app",
+				State: corev1.ContainerState{
+					Terminated: &corev1.ContainerStateTerminated{
+						Reason:     "OOMKilled",
+						FinishedAt: metav1.NewTime(resizedAt.Add(5 * time.Second)),
+					},
+				},
+			},
+			record:  ResizeRecord{Container: "app", ResizedAt: resizedAt},
+			wantOOM: true,
+		},
+		{
+			name: "zero FinishedAt current Terminated OOM is oomkill",
+			cs: corev1.ContainerStatus{
+				Name: "app",
+				State: corev1.ContainerState{
+					Terminated: &corev1.ContainerStateTerminated{Reason: "OOMKilled"},
+				},
+			},
+			record:  ResizeRecord{Container: "app", ResizedAt: resizedAt, RestartCount: 0},
+			wantOOM: true,
+		},
+		{
+			name: "pre-resize OOM with unchanged restart is not critical",
+			cs: corev1.ContainerStatus{
+				Name:         "app",
+				RestartCount: 1,
+				LastTerminationState: corev1.ContainerState{
+					Terminated: &corev1.ContainerStateTerminated{
+						Reason:     "OOMKilled",
+						FinishedAt: metav1.NewTime(resizedAt.Add(-time.Hour)),
+					},
+				},
+			},
+			record:  ResizeRecord{Container: "app", ResizedAt: resizedAt, RestartCount: 1},
+			wantOOM: false,
+		},
+		{
+			name: "Error restart+1 is not oomkill",
+			cs: corev1.ContainerStatus{
+				Name:         "app",
+				RestartCount: 1,
+				LastTerminationState: corev1.ContainerState{
+					Terminated: &corev1.ContainerStateTerminated{
+						Reason:     "Error",
+						FinishedAt: metav1.NewTime(resizedAt.Add(time.Second)),
+					},
+				},
+			},
+			record:  ResizeRecord{Container: "app", ResizedAt: resizedAt, RestartCount: 0},
+			wantOOM: false,
+		},
+		{
+			name: "zero FinishedAt OOM without restart increase is not critical",
+			cs: corev1.ContainerStatus{
+				Name:         "app",
+				RestartCount: 1,
+				LastTerminationState: corev1.ContainerState{
+					Terminated: &corev1.ContainerStateTerminated{Reason: "OOMKilled"},
+				},
+			},
+			record:  ResizeRecord{Container: "app", ResizedAt: resizedAt, RestartCount: 1},
+			wantOOM: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{Name: "web-0", Namespace: "default"},
+				Status:     corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{tt.cs}},
+			}
+			tt.record.PodName = "web-0"
+			tt.record.Namespace = "default"
+			v := CheckCriticalStatuses(pod, tt.record)
+			if tt.wantOOM {
+				require.NotNil(t, v)
+				assert.Equal(t, "oomkill", v.Reason)
+				return
+			}
+			if v != nil {
+				assert.NotEqual(t, "oomkill", v.Reason)
+			}
+		})
+	}
+}
+
 func TestRevertPod(t *testing.T) {
 	original := corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{

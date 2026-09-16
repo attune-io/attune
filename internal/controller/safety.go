@@ -485,6 +485,15 @@ func (r *AttunePolicyReconciler) revertAndRestoreAfterSafety(
 			eventFmt, pod.Name, record.Container, message)
 	}
 	markLatestCycleReverted(policy.Status.ResizeHistory, trackedWorkload, record.Container, reason)
+	workload := record.WorkloadName
+	if workload == "" {
+		workload = trackedWorkload
+	}
+	if err := r.markResizeTime(ctx, policy, workload); err != nil {
+		logger.Error(err, "Failed to stamp last-resize-time after safety revert",
+			"pod", pod.Name, "workload", workload)
+		operatormetrics.ReconcileErrorsTotal.WithLabelValues("safety_observation").Inc()
+	}
 	if err := r.restoreTemplateAfterSafetyRevert(ctx, policy, workloads, record); err != nil {
 		logger.Error(err, "Failed to restore template after safety revert",
 			"pod", pod.Name, "workload", record.WorkloadName, "container", record.Container)

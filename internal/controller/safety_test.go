@@ -385,6 +385,47 @@ func TestRevertAndRestoreAfterSafety_RecordsRevertWhenRestoreFails(t *testing.T)
 		"RevertsTotal must increment after a successful live revert")
 }
 
+func TestRevertAndRestoreAfterSafety_StampsLastResizeTime(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
+
+	policy := newTestPolicy("p", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	deploy := persistAtRec64MiDeployment()
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(policy, deploy).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = cl
+	r.Scheme = scheme
+	stamp := time.Date(2026, 9, 16, 8, 45, 49, 0, time.UTC)
+	r.SetNowFunc(func() time.Time { return stamp })
+
+	var livePolicy attunev1alpha1.AttunePolicy
+	require.NoError(t, cl.Get(context.Background(), client.ObjectKeyFromObject(policy), &livePolicy))
+
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "api-abc", Namespace: "default"}}
+	err := r.revertAndRestoreAfterSafety(
+		log.IntoContext(context.Background(), logr.Discard()),
+		func(safety.ResizeRecord) error { return nil },
+		&livePolicy, []client.Object{deploy}, original256MiRecord(), pod,
+		"api", "oomkill", "OOMKilled",
+		"Failed to revert pod during safety observation",
+		"Safety observation reverted resize on pod %s/%s: %s",
+	)
+	require.NoError(t, err)
+
+	var updated attunev1alpha1.AttunePolicy
+	require.NoError(t, cl.Get(context.Background(), client.ObjectKeyFromObject(policy), &updated))
+	want := stamp.UTC().Format(time.RFC3339)
+	assert.Equal(t, want, updated.Annotations[lastResizeAnnotation],
+		"policy-wide last-resize-time should be stamped on revert")
+	assert.Equal(t, want, updated.Annotations[lastResizeAnnotationKey("api")],
+		"per-workload last-resize-time should be stamped on revert")
+	assert.True(t, r.isWorkloadCooldownActive(&updated, "api"),
+		"same-cycle apply must see the revert as inside cooldown")
+}
+
 func TestRetryTemplateRestoreIfAlreadyReverted_UsesCallerPod(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, appsv1.AddToScheme(scheme))

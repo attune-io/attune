@@ -186,10 +186,7 @@ func CheckCriticalStatuses(pod *corev1.Pod, record ResizeRecord) *SafetyVerdict 
 			continue
 		}
 
-		// Check for OOMKill that happened after the resize.
-		if cs.LastTerminationState.Terminated != nil &&
-			cs.LastTerminationState.Terminated.Reason == "OOMKilled" &&
-			cs.LastTerminationState.Terminated.FinishedAt.After(record.ResizedAt) {
+		if postResizeOOMKilled(cs, record) {
 			return &SafetyVerdict{
 				Safe:    false,
 				Reason:  "oomkill",
@@ -207,6 +204,37 @@ func CheckCriticalStatuses(pod *corev1.Pod, record ResizeRecord) *SafetyVerdict 
 		}
 	}
 	return nil
+}
+
+// oomFinishedSkew is how far a kubelet FinishedAt may sit behind ResizedAt
+// and still count as post-resize. resized-at is RFC3339 seconds from the
+// start of executeResizes; kubelet timestamps are second precision.
+const oomFinishedSkew = 2 * time.Second
+
+// postResizeOOMKilled reports whether container status records an OOMKill
+// that should be attributed to this resize. LastTermination and current
+// State are both checked. Zero FinishedAt only counts with a post-resize
+// signal (restart increased, or the container is currently Terminated).
+func postResizeOOMKilled(cs corev1.ContainerStatus, record ResizeRecord) bool {
+	return oomTermAfterResize(cs.State.Terminated, cs, record) ||
+		oomTermAfterResize(cs.LastTerminationState.Terminated, cs, record)
+}
+
+func oomTermAfterResize(term *corev1.ContainerStateTerminated, cs corev1.ContainerStatus, record ResizeRecord) bool {
+	if term == nil || term.Reason != "OOMKilled" {
+		return false
+	}
+	finished := term.FinishedAt.Time
+	if !finished.Before(record.ResizedAt.Add(-oomFinishedSkew)) {
+		return true
+	}
+	if !finished.IsZero() {
+		return false
+	}
+	if cs.RestartCount > record.RestartCount {
+		return true
+	}
+	return cs.State.Terminated != nil && cs.State.Terminated.Reason == "OOMKilled"
 }
 
 // CheckPod evaluates the current state of a pod that was previously resized
