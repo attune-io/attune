@@ -557,7 +557,7 @@ func (r *AttunePolicyReconciler) setCooldownStatus(policy *attunev1alpha1.Attune
 // markResizeTime sets last-resize-time on the policy (policy-wide plus each
 // named workload) using a merge patch to avoid 409 Conflict with spec updates.
 func (r *AttunePolicyReconciler) markResizeTime(ctx context.Context, policy *attunev1alpha1.AttunePolicy, workloads ...string) error {
-	patch := client.MergeFrom(policy.DeepCopy())
+	base := policy.DeepCopy()
 	if policy.Annotations == nil {
 		policy.Annotations = make(map[string]string)
 	}
@@ -569,7 +569,11 @@ func (r *AttunePolicyReconciler) markResizeTime(ctx context.Context, policy *att
 		}
 		policy.Annotations[lastResizeAnnotationKey(w)] = ts
 	}
-	return r.Patch(ctx, policy, patch)
+	// Patch a copy. A metadata MergePatch reply includes stored Status,
+	// which would replace in-memory ResizeHistory flips (revert) if we
+	// patched the live policy object.
+	toPatch := policy.DeepCopy()
+	return r.Patch(ctx, toPatch, client.MergeFrom(base))
 }
 
 // appendHistory appends new entries to existing history, capping at maxEntries.
