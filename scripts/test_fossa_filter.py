@@ -113,6 +113,28 @@ class TestIsFalsePositive(unittest.TestCase):
             "licenseId": "CC-BY-SA-3.0",
         }))
 
+    def test_rapid_mpl_policy_flag_without_license(self):
+        # Main 2026-09-16 run 35135002852: FOSSA flagged test-only
+        # pgregory.net/rapid v1.3.0 as policy_flag (MPL-2.0). JSON
+        # may omit the license field; type+package must still filter.
+        self.assertTrue(is_false_positive({
+            "revisionId": "go+pgregory.net/rapid$v1.3.0",
+            "type": "policy_flag",
+        }))
+
+    def test_rapid_mpl_declared_license(self):
+        self.assertTrue(is_false_positive({
+            "revisionId": "go+pgregory.net/rapid$v1.3.0",
+            "type": "policy_flag",
+            "license": "MPL-2.0",
+        }))
+
+    def test_unlisted_policy_flag_is_genuine(self):
+        self.assertFalse(is_false_positive({
+            "revisionId": "go+github.com/evil/pkg$v1.0.0",
+            "type": "policy_flag",
+        }))
+
 
 class TestFilterViaText(unittest.TestCase):
     def _write_tmp(self, content):
@@ -170,6 +192,26 @@ class TestMain(unittest.TestCase):
             {"revisionId": "go+k8s.io/client-go$v0.36.4", "type": "vulnerability"},
             {"revisionId": "go+k8s.io/apimachinery$v0.36.4", "type": "vulnerability"},
             {"revisionId": "go+k8s.io/client-go$v0.36.4", "type": "vulnerability"},
+        ]))
+        sys.argv = ["fossa-filter.py", path]
+        self.assertEqual(main(), 0)
+
+    def test_rapid_policy_flag_payload_exit_0(self):
+        # Exact remaining issue from main run 35135002852.
+        path = self._write_tmp(json.dumps([
+            {"revisionId": "go+pgregory.net/rapid$v1.3.0", "type": "policy_flag"},
+        ]))
+        sys.argv = ["fossa-filter.py", path]
+        self.assertEqual(main(), 0)
+
+    def test_main_35135002852_payload_exit_0(self):
+        # Full remaining set from the failing main License Check.
+        path = self._write_tmp(json.dumps([
+            {"revisionId": "go+golang.org/x/text$v0.41.0", "type": "policy_conflict", "license": "CC-BY-SA-4.0"},
+            {"revisionId": "go+golang.org/x/text$v0.41.0", "type": "policy_conflict", "license": "CC-BY-SA-4.0"},
+            {"revisionId": "go+golang.org/x/text$v0.41.0", "type": "policy_conflict", "license": "CC-BY-SA-4.0"},
+            {"revisionId": "go+golang.org/x/text$v0.41.0", "type": "policy_conflict", "license": "CC-BY-SA-4.0"},
+            {"revisionId": "go+pgregory.net/rapid$v1.3.0", "type": "policy_flag"},
         ]))
         sys.argv = ["fossa-filter.py", path]
         self.assertEqual(main(), 0)

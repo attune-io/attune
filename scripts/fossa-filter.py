@@ -50,6 +50,12 @@ KNOWN_FALSE_POSITIVES: dict[str, set[str]] = {
     # golang.org/x/crypto has openssl-ssleay license text in test fixtures.
     # The module is BSD-3-Clause.
     "golang.org/x/crypto": {"openssl-ssleay"},
+    # pgregory.net/rapid is MPL-2.0 and is imported only from property
+    # tests (internal/controller/replace_property_test.go,
+    # internal/resize/resolve_property_test.go). MPL-2.0 copyleft
+    # applies to modifications of the library itself, not to importing
+    # it. FOSSA flags it as policy_flag (review, not deny).
+    "pgregory.net/rapid": {"MPL-2.0", "mpl-2.0"},
 }
 
 # Text-based patterns for fallback when JSON is empty or unparseable.
@@ -84,6 +90,14 @@ def is_false_positive(issue: dict) -> bool:
             return True
         # Check license issues
         if license_id in patterns:
+            return True
+        # FOSSA may emit policy_flag without a license field (main
+        # run 35135002852 printed only type for rapid). If this
+        # package is allowlisted for MPL, treat that flag as the
+        # documented license review.
+        if issue_type == "policy_flag" and any(
+            p.upper().startswith("MPL") for p in patterns
+        ):
             return True
 
     return False
