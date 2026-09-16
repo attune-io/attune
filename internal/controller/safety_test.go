@@ -426,6 +426,73 @@ func TestRevertAndRestoreAfterSafety_StampsLastResizeTime(t *testing.T) {
 		"same-cycle apply must see the revert as inside cooldown")
 }
 
+// TestRevertAndRestoreAfterSafety_KeepsInMemoryRevertedHistory covers the
+// #777 CI failure: markResizeTime used to Patch the live policy. The
+// apiserver reply includes stored Status (still Success). That replaced
+// the in-memory Reverted flip, so status persist wrote Success and
+// slo-guardrails never saw Reverted=slo:always-breach.
+func TestRevertAndRestoreAfterSafety_KeepsInMemoryRevertedHistory(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, attunev1alpha1.AddToScheme(scheme))
+
+	policy := newTestPolicy("p", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeAuto
+	policy.Status.ResizeHistory = []attunev1alpha1.ResizeHistoryEntry{{
+		Timestamp: metav1.NewTime(time.Date(2026, 9, 16, 14, 41, 45, 0, time.UTC)),
+		Workload:  "api",
+		Container: "app",
+		Resource:  "cpu",
+		Result:    attunev1alpha1.ResizeResultSuccess,
+	}}
+	deploy := persistAtRec64MiDeployment()
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(policy, deploy).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Patch: func(ctx context.Context, cw client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+				var stored attunev1alpha1.AttunePolicy
+				if err := cw.Get(ctx, client.ObjectKeyFromObject(obj), &stored); err != nil {
+					return err
+				}
+				storedStatus := stored.Status.DeepCopy()
+				if err := cw.Patch(ctx, obj, patch, opts...); err != nil {
+					return err
+				}
+				p, ok := obj.(*attunev1alpha1.AttunePolicy)
+				if !ok {
+					return nil
+				}
+				p.Status = *storedStatus
+				return nil
+			},
+		}).Build()
+	r := NewAttunePolicyReconciler()
+	r.Client = cl
+	r.Scheme = scheme
+	r.SetNowFunc(func() time.Time {
+		return time.Date(2026, 9, 16, 14, 44, 40, 0, time.UTC)
+	})
+
+	var livePolicy attunev1alpha1.AttunePolicy
+	require.NoError(t, cl.Get(context.Background(), client.ObjectKeyFromObject(policy), &livePolicy))
+
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "api-abc", Namespace: "default"}}
+	err := r.revertAndRestoreAfterSafety(
+		log.IntoContext(context.Background(), logr.Discard()),
+		func(safety.ResizeRecord) error { return nil },
+		&livePolicy, []client.Object{deploy}, original256MiRecord(), pod,
+		"api", "slo:always-breach", "SLO breached",
+		"Failed to revert pod during safety observation",
+		"Safety observation reverted resize on pod %s/%s: %s",
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, livePolicy.Status.ResizeHistory)
+	assert.Equal(t, attunev1alpha1.ResizeResultReverted, livePolicy.Status.ResizeHistory[0].Result,
+		"in-memory history must stay Reverted after last-resize-time Patch")
+	assert.Equal(t, "slo:always-breach", livePolicy.Status.ResizeHistory[0].Reason)
+	assert.True(t, r.isWorkloadCooldownActive(&livePolicy, "api"))
+}
+
 func TestRetryTemplateRestoreIfAlreadyReverted_UsesCallerPod(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, appsv1.AddToScheme(scheme))
