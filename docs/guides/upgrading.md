@@ -8,6 +8,114 @@ Maintainers: before publishing a release after multi-version product changes,
 run the full E2E Nightly matrix on tip of `main` (see
 [Releasing: full E2E matrix](../contributing/releasing.md#1b-full-e2e-matrix-required-before-tagging-a-product-release)).
 
+## v0.1.27 to v0.1.28
+
+v0.1.28 keeps existing pod-level resource envelopes valid when
+containers resize, and it treats HPA scale-to-zero as idle instead of
+a human shutdown. VPA and HPA list failures now skip apply. A
+post-resize OOMKill reverts even when kubelet omits FinishedAt.
+Existing policy YAML keeps working. Read this section if you use
+pod-level `spec.resources`, HPA `minReplicas: 0`, recommend-only VPA,
+VPA targets that omit CPU or memory, or scripts that watch Attune
+`ResizeDeferred` Events.
+
+### Existing spec.resources envelopes are raised, not invented
+
+When a pod already has `spec.resources`, live `/resize`, CREATE, and
+AfterSuccessfulResize persist raise that envelope so the new container
+requests stay valid. Attune does not invent an envelope when the field
+is missing, and it does not shrink one.
+
+On clusters that report in-place pod-level resources, one `/resize`
+writes the container target and raises envelope requests to cover the
+container sum. If that capability is off, an increase that would
+exceed the envelope is skipped. Decreases still apply. Persist copies
+a live envelope onto the template so the next rollout keeps it. If
+listing live envelopes fails, persist is skipped instead of writing a
+template without the envelope.
+
+See [Troubleshooting: Pod-level resource envelope blocked an
+increase](troubleshooting.md#pod-level-resource-envelope-blocked-an-increase).
+
+### HPA ScaledToZero is idle; CREATE still sizes at zero replicas
+
+Workloads with HPA `ScaledToZero=True` skip in-place resize, persist,
+startup boost, and eviction. Leftover Running pods stay at their
+current requests. That is idle, not a human setting `spec.replicas` to
+`0`. CREATE still applies initial sizing when the owner is at zero
+replicas, so scale-up pods are sized.
+
+See [HPA coexistence: Scale to
+zero](hpa-coexistence.md#scale-to-zero) and
+[Troubleshooting: HPA ScaledToZero left leftover pods at old
+requests](troubleshooting.md#hpa-scaledtozero-left-leftover-pods-at-old-requests).
+
+### Recommend-only VPA no longer emits VPAConflict
+
+A VPA with `updateMode: Off` is the documented VPA-as-source path.
+`VPAConflict` is skipped for `Off`. Applying modes (`Initial`,
+`Recreate`, `InPlaceOrRecreate`, `Auto`) still warn.
+
+### Omitted VPA target CPU or memory is unset
+
+A VPA `target` that omits `cpu` or `memory` is unset, not zero. Attune
+holds the omitted resource from live pods (or the template) instead of
+recommending from zero. Unlimited metrics sampling
+(`--max-pods-in-metrics-query=-1`) still lists pods so that hold can
+run.
+
+### VPA or HPA list errors skip apply
+
+Any VPA or HPA list error other than a missing VPA CRD now skips
+apply, persist, boost, and CREATE. `ResizeBlocked` is
+`VPAListUnavailable` or `HPAListUnavailable`. `kubectl attune status`
+and `explain` show those reasons. A missing VPA CRD still skips the
+conflict check.
+
+See [Troubleshooting: VPAListUnavailable](troubleshooting.md#vpalistunavailable)
+and [Troubleshooting: HPAListUnavailable](troubleshooting.md#hpalistunavailable).
+
+### Post-resize OOMKill classifies without a later FinishedAt
+
+Attune classifies OOMKilled on the current Terminated state or
+LastTerminationState, including a 2s kubelet skew. It no longer waits
+for FinishedAt to be strictly after resized-at. After a successful
+safety revert, cooldown is stamped so the same reconcile does not
+re-apply the shrink.
+
+### Attune no-op Events are ResizeUnchanged
+
+The Attune no-op Event reason is `ResizeUnchanged` (applied target
+already matches live after filtering, dest clamp, or usage floor).
+Kubernetes 1.36 kubelet still uses `ResizeDeferred` when the node is
+out of room. Scripts that watched Attune `ResizeDeferred` for no-ops
+should watch `ResizeUnchanged`.
+
+### kubectl attune doctor optional cgroup v2 WARN
+
+`kubectl attune doctor` prints an optional `cgroup v2` row. Default is
+`WARN` with `could not determine` (expected on k3s, kind, and most
+managed clusters). Missing `pods/resize` remains a required FAIL. The
+optional row does not change the exit code.
+
+See [Troubleshooting: Doctor cgroup v2 is
+WARN](troubleshooting.md#doctor-cgroup-v2-is-warn).
+
+### Upgrade the chart and image
+
+1. Upgrade the chart to 0.1.28, or set `image.tag` to `0.1.28` or
+   `v0.1.28`.
+2. Pull `ghcr.io/attune-io/attune:v0.1.28` or
+   `ghcr.io/attune-io/attune:0.1.28`. Both tags point at the same
+   digest.
+3. Helm does not upgrade CRDs on `helm upgrade`. Apply CRDs before the
+   chart upgrade if you need new schema fields:
+
+```bash
+kubectl apply --server-side --force-conflicts -f \
+  https://github.com/attune-io/attune/releases/latest/download/crds.yaml
+```
+
 ## v0.1.26 to v0.1.27
 
 v0.1.27 tightens last-replica eviction, limit-only resizes, the memory
