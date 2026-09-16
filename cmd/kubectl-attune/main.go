@@ -569,7 +569,7 @@ func printStatusItems(allItems []unstructured.Unstructured, sortByFlag, filterFl
 		resized := getNestedInt64(item, "status", "workloads", "resized")
 		ready := policyReadyReason(item)
 		resizing := getConditionReason(item, "Resizing")
-		if blocked := getConditionReason(item, "ResizeBlocked"); blocked == "NamespaceFrozen" {
+		if blocked := resizeBlockedCLIReason(item); blocked != "" {
 			resizing = blocked
 		}
 		degraded := getConditionReason(item, "Degraded")
@@ -806,6 +806,18 @@ func getConditionReason(obj unstructured.Unstructured, conditionType string) str
 	}
 
 	return "-"
+}
+
+// resizeBlockedCLIReason is the ResizeBlocked reason shown in status/explain
+// when apply is skipped for a user-visible list or freeze block.
+func resizeBlockedCLIReason(item unstructured.Unstructured) string {
+	blocked := getConditionReason(item, "ResizeBlocked")
+	switch blocked {
+	case "NamespaceFrozen", "HPAListUnavailable", "VPAListUnavailable":
+		return blocked
+	default:
+		return ""
+	}
 }
 
 func printRecommendations(ctx context.Context, dynClient dynamic.Interface, namespace string) {
@@ -1508,12 +1520,12 @@ func printEffectivePolicySummary(item unstructured.Unstructured, effective *attu
 	printEffectiveField("  Decrease usage margin", formatPercentInt64Ptr(rawInt64Field(item, "spec", "memory", "decreaseUsageMarginPercent")), formatPercentPtr(effective.Spec.Memory.DecreaseUsageMarginPercent), selected, memDefaults != nil && memDefaults.DecreaseUsageMarginPercent != nil)
 	printEffectiveField("  Memory from CPU ratio", getNestedString(item, "spec", "memory", "memoryFromCpuRatio"), formatStringPtr(effective.Spec.Memory.MemoryFromCPURatio), selected, memDefaults != nil && memDefaults.MemoryFromCPURatio != nil)
 
-	if getConditionReason(item, "ResizeBlocked") == "NamespaceFrozen" {
+	if blocked := resizeBlockedCLIReason(item); blocked != "" {
 		msg := getConditionMessage(item, "ResizeBlocked")
 		if msg == "" {
-			msg = "ResizeBlocked=NamespaceFrozen"
+			msg = "ResizeBlocked=" + blocked
 		}
-		fmt.Printf("  Namespace freeze: %s\n", msg)
+		fmt.Printf("  Apply blocked: %s\n", msg)
 	} else {
 		fmt.Println("  Namespace freeze: annotate the namespace attune.io/freeze=true to skip apply.")
 	}

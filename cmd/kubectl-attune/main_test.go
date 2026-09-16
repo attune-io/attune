@@ -715,6 +715,66 @@ func TestPrintStatus_NamespaceFrozen(t *testing.T) {
 	assert.Contains(t, output, "Monitoring")
 }
 
+func TestPrintStatus_VPAListUnavailable(t *testing.T) {
+	policy := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "attune.io/v1alpha1",
+			"kind":       "AttunePolicy",
+			"metadata": map[string]interface{}{
+				"name":              "web-app",
+				"namespace":         "production",
+				"creationTimestamp": "2026-01-01T00:00:00Z",
+			},
+			"spec": map[string]interface{}{
+				"updateStrategy": map[string]interface{}{
+					"type": "Auto",
+				},
+			},
+			"status": map[string]interface{}{
+				"workloads": map[string]interface{}{
+					"discovered": int64(3),
+					"pending":    int64(0),
+					"resized":    int64(0),
+				},
+				"conditions": []interface{}{
+					map[string]interface{}{
+						"type":   "Ready",
+						"status": "True",
+						"reason": "Monitoring",
+					},
+					map[string]interface{}{
+						"type":   "ResizeBlocked",
+						"status": "True",
+						"reason": "VPAListUnavailable",
+					},
+				},
+			},
+		},
+	}
+
+	scheme := runtime.NewScheme()
+	dynClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme,
+		map[schema.GroupVersionResource]string{gvr: "AttunePolicyList"}, policy)
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+
+	printStatus(context.Background(), dynClient, "production", "", "")
+
+	w.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(r)
+	require.NoError(t, err)
+	output := buf.String()
+
+	assert.Contains(t, output, "VPAListUnavailable")
+	assert.Contains(t, output, "Monitoring")
+}
+
 func TestPrintStatus_ReadyContract(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -2959,6 +3019,29 @@ func TestPrintEffectivePolicySummary_NamespaceFreezeHelp(t *testing.T) {
 			}},
 			want: []string{
 				"cannot read namespace for attune.io/freeze; new apply skipped (check namespaces get/list/watch RBAC)",
+				"Pending safety revert still runs.",
+			},
+			notWant: []string{
+				"annotate the namespace attune.io/freeze=true to skip apply.",
+			},
+		},
+		{
+			name: "VPA list unavailable prints apply-blocked message",
+			item: unstructured.Unstructured{Object: map[string]interface{}{
+				"spec": map[string]interface{}{},
+				"status": map[string]interface{}{
+					"conditions": []interface{}{
+						map[string]interface{}{
+							"type":    "ResizeBlocked",
+							"status":  "True",
+							"reason":  "VPAListUnavailable",
+							"message": "cannot list VerticalPodAutoscalers; new apply skipped (check verticalpodautoscalers list/watch RBAC)",
+						},
+					},
+				},
+			}},
+			want: []string{
+				"Apply blocked: cannot list VerticalPodAutoscalers; new apply skipped (check verticalpodautoscalers list/watch RBAC)",
 				"Pending safety revert still runs.",
 			},
 			notWant: []string{
