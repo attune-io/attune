@@ -29,7 +29,10 @@ feature: [Report a vulnerability](https://github.com/attune-io/attune/security/a
   artifacts and container images using GitHub's native attestations
 - SBOMs are generated for every release (SPDX format) and attached to
   the GitHub release
-- [FOSSA](https://fossa.com) license compliance scanning runs on every push
+- [FOSSA](https://fossa.com) license compliance scanning runs on pull
+  requests and main pushes that change Go sources, `go.mod`, `go.sum`,
+  the filter script, or the License Compliance workflow. Manual
+  dispatch is also available.
 
 ### Vulnerability Scanning
 

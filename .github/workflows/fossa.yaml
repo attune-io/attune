@@ -3,9 +3,22 @@ name: License Compliance
 on:
   push:
     branches: [main]
+    paths:
+      - "go.mod"
+      - "go.sum"
+      - "**/*.go"
+      - "scripts/fossa-filter.py"
+      - "scripts/test_fossa_filter.py"
+      - ".github/workflows/fossa.yaml"
   pull_request:
     branches: [main]
-  merge_group: {}
+    paths:
+      - "go.mod"
+      - "go.sum"
+      - "**/*.go"
+      - "scripts/fossa-filter.py"
+      - "scripts/test_fossa_filter.py"
+      - ".github/workflows/fossa.yaml"
   workflow_dispatch: {}
 
 permissions:
