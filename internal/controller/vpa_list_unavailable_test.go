@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -40,12 +41,14 @@ import (
 	"github.com/attune-io/attune/internal/operatormetrics"
 )
 
-func vpaListFailInterceptor() interceptor.Funcs {
+func vpaListFailInterceptor(fail *atomic.Bool) interceptor.Funcs {
 	return interceptor.Funcs{
 		List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
 			if u, ok := list.(*unstructured.UnstructuredList); ok &&
 				u.GroupVersionKind().Kind == "VerticalPodAutoscalerList" {
-				return fmt.Errorf("simulated VPA list failure")
+				if fail == nil || fail.Load() {
+					return fmt.Errorf("simulated VPA list failure")
+				}
 			}
 			return c.List(ctx, list, opts...)
 		},
@@ -72,7 +75,7 @@ func TestReconcile_VPAListError_SetsResizeBlocked(t *testing.T) {
 		WithScheme(scheme).
 		WithObjects(policy, deploy, pod, ns).
 		WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
-		WithInterceptorFuncs(vpaListFailInterceptor()).
+		WithInterceptorFuncs(vpaListFailInterceptor(nil)).
 		Build()
 	reconciler := newReconcilerForReconcileWithClient(mc, fakeClient, scheme)
 	clientset := kubefake.NewSimpleClientset(pod.DeepCopy())
@@ -111,5 +114,61 @@ func TestReconcile_VPAListError_SetsResizeBlocked(t *testing.T) {
 
 	for _, a := range clientset.Actions() {
 		assert.NotEqual(t, "resize", a.GetSubresource(), "VPA list error must not resize leftover pods")
+	}
+}
+
+func TestReconcile_VPAListError_ClearsWhenListSucceeds(t *testing.T) {
+	// Shares ReconcileErrorsTotal{list_vpas} with TestReconcile_VPAListError_SetsResizeBlocked.
+	// Recommend + blocker hold so setResizeBlockedCondition does not wipe
+	// ResizeBlocked on the second pass; only clearVPAListUnavailable can.
+	policy := newTestPolicy("test-policy", "default")
+	policy.Spec.UpdateStrategy.Type = attunev1alpha1.UpdateTypeRecommend
+	policy.Spec.CPU.MaxChangePercent = int32Ptr(100)
+
+	deploy := newTestDeployment("api-server", "default", map[string]string{"app": "api-server"})
+	pod := newResizePod("api-server", "500m", "512Mi", "1000m", "1Gi")
+	ns := newTestNamespace("default", nil)
+
+	mc := &mockCollector{
+		queryRangeFunc: func(_ context.Context, _ string, _, _ time.Time, _ time.Duration) ([]rsmetrics.Sample, error) {
+			return generateSamples(200, 0.1), nil
+		},
+	}
+
+	var failList atomic.Bool
+	failList.Store(true)
+
+	scheme := testScheme()
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(policy, deploy, pod, ns).
+		WithStatusSubresource(&attunev1alpha1.AttunePolicy{}).
+		WithInterceptorFuncs(vpaListFailInterceptor(&failList)).
+		Build()
+	reconciler := newReconcilerForReconcileWithClient(mc, fakeClient, scheme)
+	reconciler.Clientset = kubefake.NewSimpleClientset(pod.DeepCopy())
+	reconciler.BlockerRefreshInterval = 5 * time.Minute
+	now := time.Date(2026, 9, 11, 12, 0, 0, 0, time.UTC)
+	reconciler.SetNowFunc(func() time.Time { return now })
+
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "test-policy", Namespace: "default"}}
+	_, err := reconciler.Reconcile(context.Background(), req)
+	require.NoError(t, err)
+
+	var blocked attunev1alpha1.AttunePolicy
+	require.NoError(t, fakeClient.Get(context.Background(), req.NamespacedName, &blocked))
+	cond := meta.FindStatusCondition(blocked.Status.Conditions, attunev1alpha1.ConditionResizeBlocked)
+	require.NotNil(t, cond)
+	assert.Equal(t, attunev1alpha1.ReasonVPAListUnavailable, cond.Reason)
+
+	failList.Store(false)
+	_, err = reconciler.Reconcile(context.Background(), req)
+	require.NoError(t, err)
+
+	var cleared attunev1alpha1.AttunePolicy
+	require.NoError(t, fakeClient.Get(context.Background(), req.NamespacedName, &cleared))
+	cond = meta.FindStatusCondition(cleared.Status.Conditions, attunev1alpha1.ConditionResizeBlocked)
+	if cond != nil {
+		assert.NotEqual(t, attunev1alpha1.ReasonVPAListUnavailable, cond.Reason)
 	}
 }

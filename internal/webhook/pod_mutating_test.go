@@ -425,6 +425,23 @@ func TestPodMutatingHandler_VPAListUnavailableSkipsCreateSizing(t *testing.T) {
 	assert.Nil(t, resp.Patches, "VPA list unavailable must not CREATE-size")
 }
 
+func TestPodMutatingHandler_CreateSkipsWhenHPAListUnavailable(t *testing.T) {
+	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeAuto)
+	policy.Status.Conditions = []metav1.Condition{{
+		Type:   attunev1alpha1.ConditionResizeBlocked,
+		Status: metav1.ConditionTrue,
+		Reason: attunev1alpha1.ReasonHPAListUnavailable,
+	}}
+	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")
+
+	cl := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(policy, testNamespace("default", nil)).Build()
+	handler := &PodMutatingHandler{Client: cl, Logger: logr.Discard()}
+
+	resp := handler.Handle(context.Background(), makeAdmissionRequest(t, pod, "default"))
+	assert.True(t, resp.Allowed)
+	assert.Nil(t, resp.Patches, "HPA list unavailable must not CREATE-size")
+}
+
 func TestPodMutatingHandler_RecommendMode(t *testing.T) {
 	policy := testPolicy("my-policy", "default", "Deployment", "my-app", true, attunev1alpha1.UpdateTypeRecommend)
 	pod := testPod("my-app-abc-xyz", "ReplicaSet", "my-app-abc")

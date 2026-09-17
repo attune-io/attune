@@ -57,6 +57,10 @@ func startupBoostBlocksCPUDecrease(
 	}
 	boostAt, err := time.Parse(time.RFC3339, boostAtStr)
 	if err != nil {
+		c := findContainerByName(pod, containerName)
+		if c != nil && target.Requests.Cpu().MilliValue() < c.Resources.Requests.Cpu().MilliValue() {
+			return "startup boost window"
+		}
 		return ""
 	}
 	dur := policy.Spec.CPU.StartupBoost.Duration.Duration
@@ -129,6 +133,8 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 			continue
 		}
 		if r.Client != nil {
+			// Get errors cannot classify idle; keep boosting (same as
+			// tests and persist, which use already-listed objects).
 			if obj, err := r.getWorkloadByName(ctx, policy.Namespace, rec.Kind, rec.Workload); err == nil &&
 				classifyObjectScale(obj, hpas).idle() {
 				logger.V(1).Info("Skipping startup boost for idle workload",
