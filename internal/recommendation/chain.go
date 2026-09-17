@@ -132,15 +132,7 @@ func (e *RecommendationEngine) RecommendWithExplanation(profile metrics.UsagePro
 	}
 	afterConfidence := scaleQuantity(afterBurst, confidenceFactor)
 
-	afterBounds := afterConfidence.DeepCopy()
-	boundsApplied := ""
-	if afterBounds.Cmp(e.minBound) < 0 {
-		afterBounds = e.minBound.DeepCopy()
-		boundsApplied = "min"
-	} else if afterBounds.Cmp(e.maxBound) > 0 {
-		afterBounds = e.maxBound.DeepCopy()
-		boundsApplied = "max"
-	}
+	afterBounds, boundsApplied := applyBounds(afterConfidence, e.minBound, e.maxBound)
 
 	afterChangeFilter, changeFilterApplied := applyChangeFilter(
 		current, afterBounds, e.minChangePercent, e.maxIncreasePercent, e.maxDecreasePercent)
