@@ -21,133 +21,125 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/api/resource"
-
-	"github.com/attune-io/attune/internal/metrics"
 )
 
 func TestChangeFilter(t *testing.T) {
 	tests := []struct {
-		name       string
-		current    string
-		innerValue string
-		minPct     float64
-		maxPct     float64
-		wantMillis int64
+		name        string
+		current     string
+		innerValue  string
+		maxPct      float64
+		wantMillis  int64
+		wantApplied string
 	}{
 		{
-			name:       "small change below threshold returns current",
-			current:    "1000m",
-			innerValue: "1050m", // 5% change, below 10% min
-			minPct:     10,
-			maxPct:     50,
-			wantMillis: 1000,
+			name:        "small change below threshold returns current",
+			current:     "1000m",
+			innerValue:  "1050m",
+			maxPct:      50,
+			wantMillis:  1000,
+			wantApplied: "min_change_filtered",
 		},
 		{
-			name:       "large increase above max caps at max percent",
-			current:    "1000m",
-			innerValue: "1800m", // 80% change, above 50% max
-			minPct:     10,
-			maxPct:     50,
-			wantMillis: 1500, // 1000 + 50% = 1500
+			name:        "large increase above max caps at max percent",
+			current:     "1000m",
+			innerValue:  "1800m",
+			maxPct:      50,
+			wantMillis:  1500,
+			wantApplied: "max_change_capped",
 		},
 		{
 			name:       "change within range passes through",
 			current:    "1000m",
-			innerValue: "1200m", // 20% change, within 10-50% range
-			minPct:     10,
+			innerValue: "1200m",
 			maxPct:     50,
 			wantMillis: 1200,
 		},
 		{
 			name:       "decrease within range passes through",
 			current:    "1000m",
-			innerValue: "800m", // 20% decrease, within range
-			minPct:     10,
+			innerValue: "800m",
 			maxPct:     50,
 			wantMillis: 800,
 		},
 		{
-			name:       "large decrease above max caps at max percent",
-			current:    "1000m",
-			innerValue: "300m", // 70% decrease, above 50% max
-			minPct:     10,
-			maxPct:     50,
-			wantMillis: 500, // 1000 - 50% = 500
+			name:        "large decrease above max caps at max percent",
+			current:     "1000m",
+			innerValue:  "300m",
+			maxPct:      50,
+			wantMillis:  500,
+			wantApplied: "max_change_capped",
 		},
 		{
-			name:       "small decrease below threshold returns current",
-			current:    "1000m",
-			innerValue: "960m", // 4% decrease, below 10% min
-			minPct:     10,
-			maxPct:     50,
-			wantMillis: 1000,
+			name:        "small decrease below threshold returns current",
+			current:     "1000m",
+			innerValue:  "960m",
+			maxPct:      50,
+			wantMillis:  1000,
+			wantApplied: "min_change_filtered",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			e := &changeFilter{
-				minChangePercent: tt.minPct,
-				maxChangePercent: tt.maxPct,
-				inner:            &stubEstimator{value: resource.MustParse(tt.innerValue)},
-			}
-			profile := metrics.UsageProfile{Confidence: 0.95}
-			current := resource.MustParse(tt.current)
-			result := e.Estimate(profile, current)
-			assert.Equal(t, tt.wantMillis, result.MilliValue())
+			rec, expl := recommendCPUThroughEngine(t, tt.current, tt.innerValue, tt.maxPct)
+			assert.Equal(t, tt.wantMillis, rec.MilliValue())
+			assert.Equal(t, tt.wantApplied, expl.ChangeFilterApplied)
 		})
 	}
 }
 
 func TestChangeFilter_BinarySIMemoryCapping(t *testing.T) {
-	// Current: 512Mi, inner recommends 1024Mi (100% increase), max 50%.
-	// Expected: 512Mi + 50% = 768Mi.
-	innerValue := resource.MustParse("1024Mi")
-	e := &changeFilter{
-		minChangePercent: 10,
-		maxChangePercent: 50,
-		inner:            &stubEstimator{value: innerValue},
-	}
-	current := resource.MustParse("512Mi")
-	result := e.Estimate(metrics.UsageProfile{Confidence: 0.95}, current)
-
-	assert.Equal(t, resource.BinarySI, result.Format,
+	rec, expl := recommendMemoryThroughEngine(t, "512Mi", "1024Mi", 50)
+	assert.Equal(t, "max_change_capped", expl.ChangeFilterApplied)
+	assert.Equal(t, resource.BinarySI, rec.Format,
 		"capped memory result should preserve BinarySI format")
-	// 512Mi = 536870912 bytes. 50% increase = 805306368 bytes.
-	// The code computes in millis: current=536870912000, delta=268435456000,
-	// capped=805306368000, then divides by 1000 and ceils: 805306368.
-	assert.Equal(t, int64(805306368), result.Value(),
+	assert.Equal(t, int64(805306368), rec.Value(),
 		"50% increase from 512Mi should produce 768Mi")
 }
 
 func TestChangeFilter_BinarySIMemoryDecreaseCapping(t *testing.T) {
-	// Current: 1Gi, inner recommends 256Mi (75% decrease), max 50%.
-	// Expected: 1Gi - 50% = 512Mi.
-	innerValue := resource.MustParse("256Mi")
-	e := &changeFilter{
-		minChangePercent: 10,
-		maxChangePercent: 50,
-		inner:            &stubEstimator{value: innerValue},
-	}
-	current := resource.MustParse("1Gi")
-	result := e.Estimate(metrics.UsageProfile{Confidence: 0.95}, current)
-
-	assert.Equal(t, resource.BinarySI, result.Format)
-	// 1Gi = 1073741824 bytes. 50% decrease = 536870912.
-	assert.Equal(t, int64(536870912), result.Value(),
+	rec, expl := recommendMemoryThroughEngine(t, "1Gi", "256Mi", 50)
+	assert.Equal(t, "max_change_capped", expl.ChangeFilterApplied)
+	assert.Equal(t, resource.BinarySI, rec.Format)
+	assert.Equal(t, int64(536870912), rec.Value(),
 		"50% decrease from 1Gi should produce 512Mi")
 }
 
 func TestChangeFilter_ZeroCurrent(t *testing.T) {
-	innerValue := resource.MustParse("500m")
-	e := &changeFilter{
-		minChangePercent: 10,
-		maxChangePercent: 50,
-		inner:            &stubEstimator{value: innerValue},
-	}
-	current := resource.MustParse("0")
-	result := e.Estimate(metrics.UsageProfile{Confidence: 0.95}, current)
-
-	assert.Equal(t, int64(500), result.MilliValue(),
+	rec, expl := recommendCPUThroughEngine(t, "0", "500m", 50)
+	assert.Empty(t, expl.ChangeFilterApplied)
+	assert.Equal(t, int64(500), rec.MilliValue(),
 		"zero current should pass through inner recommendation")
 }
+
+func recommendCPUThroughEngine(t *testing.T, current, inner string, maxPct float64) (resource.Quantity, RecommendationExplanation) {
+	t.Helper()
+	eng := NewEngine(95, 0, resource.MustParse("1m"), resource.MustParse("100000m"),
+		maxPct, maxPct, EngineOpts{IsCPU: true, BurstSensitivity: ptrFloat(0)})
+	cur := resource.MustParse(current)
+	profile := buildRealisticCPUProfile(coresOf(t, inner), 1.0)
+	rec, expl, _ := eng.RecommendWithExplanation(profile, cur)
+	direct, _ := eng.Recommend(profile, cur)
+	assert.Equal(t, rec.MilliValue(), direct.MilliValue(),
+		"Recommend must match RecommendWithExplanation")
+	return expl.Final, expl
+}
+
+func recommendMemoryThroughEngine(t *testing.T, current, inner string, maxPct float64) (resource.Quantity, RecommendationExplanation) {
+	t.Helper()
+	innerQ := resource.MustParse(inner)
+	eng := NewEngine(95, 0, resource.MustParse("1Mi"), resource.MustParse("1024Gi"),
+		maxPct, maxPct, EngineOpts{BurstSensitivity: ptrFloat(0)})
+	_, expl, _ := eng.RecommendWithExplanation(
+		buildRealisticCPUProfile(float64(innerQ.Value()), 1.0), resource.MustParse(current))
+	return expl.Final, expl
+}
+
+func coresOf(t *testing.T, q string) float64 {
+	t.Helper()
+	parsed := resource.MustParse(q)
+	return float64(parsed.MilliValue()) / 1000
+}
+
+func ptrFloat(v float64) *float64 { return &v }

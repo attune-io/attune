@@ -223,6 +223,7 @@ type eventDedup struct {
 	seen  map[string]time.Time
 	ttl   time.Duration
 	calls int
+	now   func() time.Time
 }
 
 func newEventDedup(ttl time.Duration) *eventDedup {
@@ -230,6 +231,19 @@ func newEventDedup(ttl time.Duration) *eventDedup {
 		seen: make(map[string]time.Time),
 		ttl:  ttl,
 	}
+}
+
+func (d *eventDedup) setNow(fn func() time.Time) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.now = fn
+}
+
+func (d *eventDedup) nowTime() time.Time {
+	if d.now != nil {
+		return d.now()
+	}
+	return time.Now()
 }
 
 // shouldEmit returns true if the event should be emitted (not recently seen).
@@ -240,18 +254,18 @@ func (d *eventDedup) shouldEmit(key string) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.calls++
+	now := d.nowTime()
 	if d.calls%1000 == 0 {
-		now := time.Now()
 		for k, t := range d.seen {
 			if now.Sub(t) >= d.ttl {
 				delete(d.seen, k)
 			}
 		}
 	}
-	if last, ok := d.seen[key]; ok && time.Since(last) < d.ttl {
+	if last, ok := d.seen[key]; ok && now.Sub(last) < d.ttl {
 		return false
 	}
-	d.seen[key] = time.Now()
+	d.seen[key] = now
 	return true
 }
 

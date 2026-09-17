@@ -442,6 +442,159 @@ func TestEnvelopeDecisionReasonConstant(t *testing.T) {
 	assert.Equal(t, "envelope_constraint", ReasonEnvelopeConstraint)
 }
 
+func TestContainersExceedEnvelope_NilInputs(t *testing.T) {
+	assert.False(t, containersExceedEnvelope(nil, &corev1.ResourceRequirements{}))
+	pod := newTestPod("web-0", "default", "app", "100m", "128Mi", "200m", "256Mi")
+	assert.False(t, containersExceedEnvelope(pod, nil))
+}
+
+func TestContainersExceedEnvelope_LimitsOnlySum(t *testing.T) {
+	pod := envelopePod("300m", "256Mi", "300m", "256Mi", &corev1.ResourceRequirements{
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("200m"),
+			corev1.ResourceMemory: resource.MustParse("512Mi"),
+		},
+	})
+	assert.True(t, containersExceedEnvelope(pod, pod.Spec.Resources),
+		"container request sum 300m exceeds envelope limit 200m")
+}
+
+func TestContainersExceedEnvelope_MaxContainerLimit(t *testing.T) {
+	pod := envelopePod("100m", "128Mi", "800m", "256Mi", &corev1.ResourceRequirements{
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("500m"),
+			corev1.ResourceMemory: resource.MustParse("512Mi"),
+		},
+	})
+	assert.True(t, containersExceedEnvelope(pod, pod.Spec.Resources),
+		"container limit 800m exceeds envelope limit 500m")
+}
+
+func TestIncreaseExceedsCurrentEnvelope_PlannedLimitAboveEnvelope(t *testing.T) {
+	pod := envelopePod("100m", "128Mi", "200m", "256Mi", &corev1.ResourceRequirements{
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("500m"),
+			corev1.ResourceMemory: resource.MustParse("512Mi"),
+		},
+	})
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("100m"),
+			corev1.ResourceMemory: resource.MustParse("128Mi"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("800m"),
+			corev1.ResourceMemory: resource.MustParse("256Mi"),
+		},
+	}
+	planned := applyPlannedContainer(pod, "app", target)
+	assert.True(t, increaseExceedsCurrentEnvelope(pod, planned, "app", target),
+		"planned container limit 800m exceeds envelope limit 500m")
+	lim, ok := containerLimit(planned, "app", corev1.ResourceCPU)
+	require.True(t, ok)
+	assert.True(t, lim.Equal(qty(t, "800m")))
+}
+
+func TestIncreaseExceedsCurrentEnvelope_InitContainerLimit(t *testing.T) {
+	pod := newTestPod("web-0", "default", "app", "100m", "128Mi", "200m", "256Mi")
+	pod.Spec.InitContainers = []corev1.Container{{
+		Name: "init",
+		Resources: corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("50m"),
+				corev1.ResourceMemory: resource.MustParse("64Mi"),
+			},
+			Limits: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("100m"),
+				corev1.ResourceMemory: resource.MustParse("128Mi"),
+			},
+		},
+	}}
+	pod.Spec.Resources = &corev1.ResourceRequirements{
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("200m"),
+			corev1.ResourceMemory: resource.MustParse("256Mi"),
+		},
+	}
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("50m"),
+			corev1.ResourceMemory: resource.MustParse("64Mi"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("400m"),
+			corev1.ResourceMemory: resource.MustParse("128Mi"),
+		},
+	}
+	planned := applyPlannedContainer(pod, "init", target)
+	assert.True(t, increaseExceedsCurrentEnvelope(pod, planned, "init", target),
+		"planned init limit 400m exceeds envelope limit 200m")
+	initRes := containerResources(planned, "init")
+	assert.True(t, initRes.Limits.Cpu().Equal(qty(t, "400m")))
+}
+
+func TestContainerResources_NilAndMissing(t *testing.T) {
+	assert.Empty(t, containerResources(nil, "app").Requests)
+	pod := newTestPod("web-0", "default", "app", "100m", "128Mi", "200m", "256Mi")
+	assert.Empty(t, containerResources(pod, "missing").Requests)
+}
+
+func TestIncreaseExceedsCurrentEnvelope_NilEnvelopeAndRequestCap(t *testing.T) {
+	bare := newTestPod("web-0", "default", "app", "100m", "128Mi", "200m", "256Mi")
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("200m"),
+			corev1.ResourceMemory: resource.MustParse("128Mi"),
+		},
+	}
+	planned := applyPlannedContainer(bare, "app", target)
+	assert.False(t, increaseExceedsCurrentEnvelope(bare, planned, "app", target),
+		"no pod envelope means the guard is a no-op")
+
+	pod := envelopePod("100m", "128Mi", "200m", "256Mi", &corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("150m"),
+			corev1.ResourceMemory: resource.MustParse("256Mi"),
+		},
+	})
+	raise := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("200m"),
+			corev1.ResourceMemory: resource.MustParse("128Mi"),
+		},
+	}
+	plannedRaise := applyPlannedContainer(pod, "app", raise)
+	assert.True(t, increaseExceedsCurrentEnvelope(pod, plannedRaise, "app", raise),
+		"planned request 200m exceeds envelope request 150m")
+}
+
+func TestIncreaseExceedsCurrentEnvelope_FitsRequestsAndLimits(t *testing.T) {
+	pod := envelopePod("100m", "128Mi", "200m", "256Mi", &corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("500m"),
+			corev1.ResourceMemory: resource.MustParse("512Mi"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("1"),
+			corev1.ResourceMemory: resource.MustParse("1Gi"),
+		},
+	})
+	target := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("200m"),
+			corev1.ResourceMemory: resource.MustParse("128Mi"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("300m"),
+			corev1.ResourceMemory: resource.MustParse("256Mi"),
+		},
+	}
+	planned := applyPlannedContainer(pod, "app", target)
+	assert.False(t, increaseExceedsCurrentEnvelope(pod, planned, "app", target),
+		"200m/300m fits under envelope 500m/1")
+	assert.False(t, containersExceedEnvelope(planned, planned.Spec.Resources))
+}
+
 func TestDecideCreateEnvelope(t *testing.T) {
 	t.Parallel()
 

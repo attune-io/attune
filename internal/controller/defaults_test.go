@@ -394,7 +394,7 @@ func TestFetchDefaults_SelectsLexicographicallySmallestNamespaceDefault(t *testi
 			&attunev1alpha1.AttuneDefaults{
 				ObjectMeta: metav1.ObjectMeta{Name: "cluster-defaults"},
 				Spec: attunev1alpha1.AttuneDefaultsSpec{
-					CPU: &attunev1alpha1.ResourceConfig{Percentile: 80},
+					CPU: &attunev1alpha1.ResourceConfig{Percentile: 90},
 				},
 			},
 			&attunev1alpha1.AttuneNamespaceDefaults{

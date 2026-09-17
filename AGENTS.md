@@ -473,7 +473,7 @@ directory. When referencing files elsewhere in the repo (e.g., `charts/`,
 - Write table-driven tests for all logic
 - Coverage threshold: 80% on `./internal/...` (CI enforced)
 - Generated files (`zz_generated.deepcopy.go`) are excluded from coverage
-- CI uses `gotestsum` with `--rerun-fails` for flaky retry and JUnit XML reports
+- CI uses `gotestsum` with JUnit XML reports. Unit tests (`make test`) do not `--rerun-fails`; `make test-integration` still retries envtest flakes.
 - Run with `-race` flag
 - Use `kubefake.NewSimpleClientset()` to test resize operations
 - Use `fake.NewClientBuilder()` for controller-runtime client mocking

@@ -765,6 +765,9 @@ type ResizeSchedule struct {
 
 	// DaysOfWeek restricts resizes to specific days. Values: Monday through Sunday.
 	// If omitted, all days are allowed.
+	// An overnight window (End before Start) uses the weekday when the window
+	// opened for the post-midnight tail. Monday 22:00-06:00 includes Tuesday
+	// 03:00 and excludes Tuesday 23:00.
 	// +optional
 	// +kubebuilder:validation:items:Enum=Monday;Tuesday;Wednesday;Thursday;Friday;Saturday;Sunday
 	DaysOfWeek []string `json:"daysOfWeek,omitempty"`
@@ -783,7 +786,9 @@ type TimeWindow struct {
 	Start string `json:"start"`
 
 	// End time in HH:MM format (24-hour). If end < start, the window
-	// wraps past midnight (e.g. start=22:00, end=06:00).
+	// wraps past midnight (e.g. start=22:00, end=06:00). Times are local
+	// wall-clock minutes in Timezone, including DST spring-forward gaps
+	// and fall-back repeated hours.
 	// +kubebuilder:validation:Pattern=`^([01]\d|2[0-3]):[0-5]\d$`
 	End string `json:"end"`
 }

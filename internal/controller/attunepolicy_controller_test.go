@@ -9260,20 +9260,24 @@ func TestEventDedup_SuppressesDuplicates(t *testing.T) {
 }
 
 func TestEventDedup_ReEmitsAfterTTL(t *testing.T) {
-	d := newEventDedup(1 * time.Millisecond)
+	now := time.Date(2026, 1, 7, 12, 0, 0, 0, time.UTC)
+	d := newEventDedup(time.Second)
+	d.now = func() time.Time { return now }
 	assert.True(t, d.shouldEmit("policy1/HPAConflict/msg"), "first should emit")
-	time.Sleep(5 * time.Millisecond)
+	now = now.Add(2 * time.Second)
 	assert.True(t, d.shouldEmit("policy1/HPAConflict/msg"), "should re-emit after TTL")
 }
 
 func TestEventDedup_PrunesExpiredEntries(t *testing.T) {
-	d := newEventDedup(1 * time.Millisecond)
+	now := time.Date(2026, 1, 7, 12, 0, 0, 0, time.UTC)
+	d := newEventDedup(time.Second)
+	d.now = func() time.Time { return now }
 
 	// Insert 5 entries that will expire.
 	for i := 0; i < 5; i++ {
 		d.shouldEmit(fmt.Sprintf("expired-%d", i))
 	}
-	time.Sleep(5 * time.Millisecond)
+	now = now.Add(2 * time.Second)
 
 	// Add entries up to the 1000-call sweep threshold.
 	for i := 5; i < 999; i++ {
@@ -12375,6 +12379,67 @@ func TestIsWithinResizeWindow_InvalidTimezoneFailsOpen(t *testing.T) {
 	}
 	// Invalid timezone should fail open (allow resize)
 	assert.True(t, isWithinResizeWindow(schedule, time.Now()))
+}
+
+func TestIsWithinResizeWindow_DSTSpringForward(t *testing.T) {
+	loc, err := time.LoadLocation("America/New_York")
+	require.NoError(t, err)
+
+	// 2026-03-08: clocks jump from 01:59 EST to 03:00 EDT. 02:00-03:00 never exists.
+	skipped := &attunev1alpha1.ResizeSchedule{
+		Windows:  []attunev1alpha1.TimeWindow{{Start: "02:00", End: "03:00"}},
+		Timezone: "America/New_York",
+	}
+	assert.False(t, isWithinResizeWindow(skipped, time.Date(2026, 3, 8, 1, 45, 0, 0, loc)),
+		"01:45 is before a 02:00-03:00 window")
+	assert.False(t, isWithinResizeWindow(skipped, time.Date(2026, 3, 8, 3, 15, 0, 0, loc)),
+		"03:15 is after a window that never opened")
+
+	// 01:30-02:30 is only the 01:30-01:59 half; 03:15 is past End=02:30.
+	partial := &attunev1alpha1.ResizeSchedule{
+		Windows:  []attunev1alpha1.TimeWindow{{Start: "01:30", End: "02:30"}},
+		Timezone: "America/New_York",
+	}
+	assert.True(t, isWithinResizeWindow(partial, time.Date(2026, 3, 8, 1, 45, 0, 0, loc)))
+	assert.False(t, isWithinResizeWindow(partial, time.Date(2026, 3, 8, 3, 15, 0, 0, loc)))
+}
+
+func TestIsWithinResizeWindow_DSTFallBack(t *testing.T) {
+	loc, err := time.LoadLocation("America/New_York")
+	require.NoError(t, err)
+
+	// 2026-11-01: 01:00-02:00 occurs twice. Pin both via UTC so we do not
+	// depend on which occurrence time.Date picks in the repeated hour.
+	window := &attunev1alpha1.ResizeSchedule{
+		Windows:  []attunev1alpha1.TimeWindow{{Start: "01:00", End: "02:00"}},
+		Timezone: "America/New_York",
+	}
+	first := time.Date(2026, 11, 1, 5, 30, 0, 0, time.UTC).In(loc)  // 01:30 EDT
+	second := time.Date(2026, 11, 1, 6, 30, 0, 0, time.UTC).In(loc) // 01:30 EST
+	assert.Equal(t, 1, first.Hour())
+	assert.Equal(t, 1, second.Hour())
+	assert.True(t, isWithinResizeWindow(window, first))
+	assert.True(t, isWithinResizeWindow(window, second),
+		"second 01:30 after fall-back is the same local HH:MM")
+	assert.False(t, isWithinResizeWindow(window, time.Date(2026, 11, 1, 2, 15, 0, 0, loc)))
+}
+
+func TestIsWithinResizeWindow_OvernightNonUTCDayBoundary(t *testing.T) {
+	loc, err := time.LoadLocation("America/New_York")
+	require.NoError(t, err)
+
+	// Monday 22:00-06:00 America/New_York. Tuesday 03:00 is the tail of Monday.
+	schedule := &attunev1alpha1.ResizeSchedule{
+		Windows:    []attunev1alpha1.TimeWindow{{Start: "22:00", End: "06:00"}},
+		DaysOfWeek: []string{"Monday"},
+		Timezone:   "America/New_York",
+	}
+	assert.True(t, isWithinResizeWindow(schedule, time.Date(2026, 1, 5, 23, 0, 0, 0, loc)),
+		"Monday 23:00 ET is inside")
+	assert.True(t, isWithinResizeWindow(schedule, time.Date(2026, 1, 6, 3, 0, 0, 0, loc)),
+		"Tuesday 03:00 ET is the Monday window tail")
+	assert.False(t, isWithinResizeWindow(schedule, time.Date(2026, 1, 6, 23, 0, 0, 0, loc)),
+		"Tuesday 23:00 ET opened on Tuesday")
 }
 
 func TestParseHHMM(t *testing.T) {
