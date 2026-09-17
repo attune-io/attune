@@ -57,6 +57,10 @@ func startupBoostBlocksCPUDecrease(
 	}
 	boostAt, err := time.Parse(time.RFC3339, boostAtStr)
 	if err != nil {
+		c := findContainerByName(pod, containerName)
+		if c != nil && target.Requests.Cpu().MilliValue() < c.Resources.Requests.Cpu().MilliValue() {
+			return "startup boost window"
+		}
 		return ""
 	}
 	dur := policy.Spec.CPU.StartupBoost.Duration.Duration
@@ -129,8 +133,13 @@ func (r *AttunePolicyReconciler) applyStartupBoosts(
 			continue
 		}
 		if r.Client != nil {
-			if obj, err := r.getWorkloadByName(ctx, policy.Namespace, rec.Kind, rec.Workload); err == nil &&
-				classifyObjectScale(obj, hpas).idle() {
+			obj, err := r.getWorkloadByName(ctx, policy.Namespace, rec.Kind, rec.Workload)
+			if err != nil {
+				logger.V(1).Info("Skipping startup boost: failed to get workload",
+					"workload", rec.Workload, "kind", rec.Kind, "error", err)
+				continue
+			}
+			if classifyObjectScale(obj, hpas).idle() {
 				logger.V(1).Info("Skipping startup boost for idle workload",
 					"workload", rec.Workload)
 				continue

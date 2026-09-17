@@ -291,6 +291,13 @@ func (h *PodMutatingHandler) findMatchingPolicy(
 				"policy", policy.Name, "owner", ownerName, "pod", podName)
 			continue
 		}
+		if cond := meta.FindStatusCondition(policy.Status.Conditions, attunev1alpha1.ConditionResizeBlocked); cond != nil &&
+			cond.Status == metav1.ConditionTrue &&
+			cond.Reason == attunev1alpha1.ReasonHPAListUnavailable {
+			h.Logger.V(1).Info("initial sizing skipped: HPA list unavailable",
+				"policy", policy.Name, "owner", ownerName, "pod", podName)
+			continue
+		}
 
 		// Skip Observe. Skip Recommend (and unset type) except Job/CronJob:
 		// batch is recommend-only, so CREATE is the only apply path.
